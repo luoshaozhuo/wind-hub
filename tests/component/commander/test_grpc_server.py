@@ -73,13 +73,10 @@ async def test_config_transaction(running):
     assert prepared.success is True
     assert prepared.config_hash == app.config_hash
 
-    # 指纹不匹配映射为 INVALID_ARGUMENT 或 INTERNAL（ValueError → INVALID_ARGUMENT）
+    # 指纹不匹配映射为 INVALID_ARGUMENT（ValueError → INVALID_ARGUMENT）
     with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await stub.PrepareConfig(pb.PrepareConfigRequest(revision_id="r3", config_hash="0" * 64))
-    assert excinfo.value.code() in (
-        grpc.StatusCode.INVALID_ARGUMENT,
-        grpc.StatusCode.INTERNAL,
-    )
+    assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
     activated = await stub.ActivateConfig(pb.ActivateConfigRequest(revision_id="r2"))
     assert activated.success is True
@@ -94,7 +91,7 @@ async def test_read_point_offline_device_maps_status(running):
     _, stub = running
     with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await stub.ReadPoint(pb.ReadPointRequest(device_id="dev1", point_id="p1"))
-    assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND
+    assert excinfo.value.code() == grpc.StatusCode.FAILED_PRECONDITION
 
     with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await stub.ReadPoint(pb.ReadPointRequest(device_id="ghost", point_id="p1"))

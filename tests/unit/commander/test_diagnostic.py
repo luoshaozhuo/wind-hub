@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from commander.application.diagnostic import CommanderDiagnosticService
-from commander.application.errors import CommandError
 from commander.application.runtime import CommanderRuntime
 from core.domain.diagnostic import DiagnosticCode, ResolvedAddress
 from tests.support.new_commander import FakeRegistry, make_commander_config
@@ -60,7 +59,7 @@ async def test_verify_device_ping_failure_degrades_protocol_check():
 async def test_verify_device_unknown_device():
     registry = FakeRegistry()
     service = _service(registry)
-    with pytest.raises(CommandError, match="unknown device"):
+    with pytest.raises(KeyError, match="unknown device"):
         await service.verify_device("ghost")
 
 
@@ -81,7 +80,7 @@ async def test_verify_point_non_ads_reads_value():
 async def test_verify_point_unknown_point():
     registry = FakeRegistry()
     service = _service(registry)
-    with pytest.raises(CommandError, match="unknown point"):
+    with pytest.raises(KeyError, match="unknown point"):
         await service.verify_point("dev1", "ghost")
 
 
@@ -97,7 +96,7 @@ async def test_verify_points_by_group():
 async def test_verify_points_unknown_group_rejected():
     registry = FakeRegistry()
     service = _service(registry)
-    with pytest.raises(CommandError, match="point group"):
+    with pytest.raises(KeyError, match="point group"):
         await service.verify_points("dev1", point_group="ghost")
 
 

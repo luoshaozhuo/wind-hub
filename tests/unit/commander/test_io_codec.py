@@ -6,12 +6,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from commander.application.command import Command, CommandResult
+from commander.application.command import CommandResult
 from commander.application.session import PointReading
 from commander.infrastructure.grpc.io_codec import (
     command_from_proto,
     command_result_to_proto,
-    command_to_proto,
     decode_scalar,
     encode_scalar,
     point_value_to_proto,
@@ -82,21 +81,20 @@ def test_point_value_to_proto_encodes_timestamp_and_source():
 
 
 def test_command_roundtrip_and_result():
-    command = Command(
+    wire = pb.WritePointRequest(
         command_id="cmd-1",
         device_id="dev1",
         point_id="p1",
-        value=42,
+        value=encode_scalar(42),
         timeout=2.5,
     )
-    wire = command_to_proto(command)
     restored = command_from_proto(wire)
     # issued_at 由 Command 默认工厂生成，不进入 wire contract
-    assert restored.command_id == command.command_id
-    assert restored.device_id == command.device_id
-    assert restored.point_id == command.point_id
-    assert restored.value == command.value
-    assert restored.timeout == command.timeout
+    assert restored.command_id == "cmd-1"
+    assert restored.device_id == "dev1"
+    assert restored.point_id == "p1"
+    assert restored.value == 42
+    assert restored.timeout == 2.5
 
     result = CommandResult(command_id="cmd-1", outcome=WriteOutcome.CONFIRMED_SUCCESS)
     message = command_result_to_proto(result)

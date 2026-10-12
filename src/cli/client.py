@@ -294,7 +294,9 @@ class CommanderClient:
                     device_id=kwargs["device_id"],
                     timeout=kwargs["io_timeout"],
                 ),
-                timeout=timeout,
+                # 诊断为多个串行探测阶段，RPC deadline 覆盖 2 个单层
+                # 探测超时 + 协议检查余量。
+                timeout=2 * kwargs["io_timeout"] + timeout,
             )
         elif operation == "resolve-point":
             response = await stub.ResolvePoint(

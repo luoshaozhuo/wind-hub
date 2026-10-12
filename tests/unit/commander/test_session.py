@@ -58,7 +58,7 @@ async def test_reading_timestamp_required_and_source_passed_through():
 
 async def test_read_unknown_point_rejected():
     session, _ = _session()
-    with pytest.raises(CommandError, match="unknown point"):
+    with pytest.raises(KeyError, match="unknown point"):
         await session.read_points(["ghost"])
 
 

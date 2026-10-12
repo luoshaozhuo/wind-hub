@@ -12,7 +12,6 @@ from ...application.session import PointReading
 __all__ = [
     "command_from_proto",
     "command_result_to_proto",
-    "command_to_proto",
     "decode_scalar",
     "encode_scalar",
     "point_value_to_proto",
@@ -31,17 +30,6 @@ def point_value_to_proto(value: PointReading) -> pb.PointValueMessage:
     )
     message.timestamp.FromDatetime(value.timestamp)
     return message
-
-
-def command_to_proto(command: Command) -> pb.WritePointRequest:
-    """领域 Command → wire request。"""
-    return pb.WritePointRequest(
-        command_id=command.command_id,
-        device_id=command.device_id,
-        point_id=command.point_id,
-        value=encode_scalar(command.value),
-        timeout=command.timeout,
-    )
 
 
 def command_from_proto(message: pb.WritePointRequest) -> Command:

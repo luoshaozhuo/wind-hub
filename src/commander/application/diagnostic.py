@@ -30,7 +30,6 @@ from core.domain.diagnostic import (
     ResolvedAddress,
 )
 
-from .errors import CommandError
 from .runtime import CommanderRuntime
 from .session import DeviceSession
 
@@ -184,7 +183,7 @@ class CommanderDiagnosticService:
                 else list(device.point_table.points.values())
             )
             if point_group is not None and not points:
-                raise CommandError(f"unknown or empty point group '{device_id}/{point_group}'")
+                raise KeyError(f"unknown or empty point group '{device_id}/{point_group}'")
             rows = await self._verify_points_read(device, points)
             passed = sum(1 for row in rows if row.ok)
             return PointsVerifyResult(
@@ -205,7 +204,7 @@ class CommanderDiagnosticService:
         try:
             return self._runtime.device(device_id)
         except KeyError as exc:
-            raise CommandError(f"unknown device '{device_id}'") from exc
+            raise KeyError(f"unknown device '{device_id}'") from exc
 
     async def _resolve_one(
         self,

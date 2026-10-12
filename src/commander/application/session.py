@@ -112,7 +112,7 @@ class DeviceSession:
         """按 point_id 返回点定义；未知点抛 CommandError。"""
         point = self._point_table.points.get(point_id)
         if point is None:
-            raise CommandError(f"unknown point '{self._device.device_id}/{point_id}'")
+            raise KeyError(f"unknown point '{self._device.device_id}/{point_id}'")
         return point
 
     def point_group_points(self, point_group: str) -> list[Point]:

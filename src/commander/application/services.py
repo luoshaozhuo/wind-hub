@@ -8,6 +8,7 @@ Infrastructure 的 config adapter。即时写命令无独立用例编排，入�
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
@@ -31,7 +32,13 @@ class CommanderReadService:
         """
         async with self._runtime.operation():
             device = await self._connected_device(device_id)
-            return await device.read_point(point_id)
+            # 读路径必须有超时上限：挂起的协议读会占住 gRPC handler 并
+            # 阻止 generation 排空。超时值固定到本次操作的 generation
+            # 配置，与写路径同口径。
+            return await asyncio.wait_for(
+                device.read_point(point_id),
+                timeout=self._runtime.operation_config().read_timeout,
+            )
 
     async def read_points(
         self,
@@ -48,16 +55,19 @@ class CommanderReadService:
         """
         async with self._runtime.operation():
             if not point_ids:
-                raise CommandError("point_ids must be non-empty")
+                raise ValueError("point_ids must be non-empty")
             device = await self._connected_device(device_id)
-            return await device.read_points(point_ids)
+            return await asyncio.wait_for(
+                device.read_points(point_ids),
+                timeout=self._runtime.operation_config().read_timeout,
+            )
 
     async def _connected_device(self, device_id: str) -> DeviceSession:
         """返回已确认连接的设备会话；未连接时抛 CommandError。"""
         try:
             device = self._runtime.device(device_id)
         except KeyError as exc:
-            raise CommandError(f"unknown device '{device_id}'") from exc
+            raise KeyError(f"unknown device '{device_id}'") from exc
         if not await self._runtime.ensure_connected(device_id):
             raise CommandError(f"device '{device_id}' is not connected")
         return device

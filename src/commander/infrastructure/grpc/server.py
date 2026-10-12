@@ -18,6 +18,7 @@ from core.infrastructure.rpc import commander_pb2 as pb
 from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
 
 from ...application.errors import CommandError
+from ...application.session import DeviceSession
 from ...assembly import CommanderApp
 from .io_codec import (
     command_from_proto,
@@ -29,8 +30,11 @@ from .io_codec import (
 
 async def _abort(context: grpc.aio.ServicerContext, exc: Exception) -> None:
     """把应用异常映射为稳定 gRPC status。"""
-    if isinstance(exc, CommandError | KeyError):
+    if isinstance(exc, KeyError):
         await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+    if isinstance(exc, CommandError):
+        # 只读点写入、设备未连接等业务前置失败——不是"资源不存在"。
+        await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
     if isinstance(exc, ValueError):
         await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
     await context.abort(grpc.StatusCode.INTERNAL, str(exc) or type(exc).__name__)
@@ -107,14 +111,32 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
     def __init__(self, app: CommanderApp) -> None:
         self._app = app
 
+
+    async def _device_health_snapshot(self) -> list[tuple[DeviceSession, bool]]:
+        """逐设备健康快照：固定 generation、单设备超时与异常隔离。
+
+        单个设备 health 挂起或抛错只降级为 ``healthy=False``，不得让整个
+        状态 RPC 失败或挂到 deadline。
+        """
+        async with self._app.runtime.operation():
+            devices = list(self._app.runtime.devices.values())
+            timeout = self._app.runtime.operation_config().health_timeout
+            results = await asyncio.gather(
+                *(asyncio.wait_for(device.health(), timeout=timeout) for device in devices),
+                return_exceptions=True,
+            )
+        return [
+            (device, not isinstance(result, BaseException) and result.healthy)
+            for device, result in zip(devices, results, strict=True)
+        ]
+
     async def GetStatus(
         self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
     ) -> pb.CommanderStatusResponse:
         """返回 Commander 运行与配置状态。"""
         del request, context
-        devices = list(self._app.runtime.devices.values())
-        health = await asyncio.gather(*(device.health() for device in devices))
-        healthy = sum(1 for result in health if result.healthy)
+        snapshot = await self._device_health_snapshot()
+        healthy = sum(1 for _device, ok in snapshot if ok)
         return pb.CommanderStatusResponse(
             running=True,
             device_count=len(self._app.runtime.devices),
@@ -135,8 +157,7 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
         """
         del request, context
         response = pb.ListDevicesResponse()
-        devices = list(self._app.runtime.devices.values())
-        health = await asyncio.gather(*(device.health() for device in devices))
+        snapshot = await self._device_health_snapshot()
         response.devices.extend(
             pb.DeviceSummary(
                 device_id=str(device.device_id),
@@ -144,9 +165,9 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
                 host=device.device.endpoint.host,
                 port=device.device.endpoint.port or 0,
                 enabled=True,
-                healthy=result.healthy,
+                healthy=healthy,
             )
-            for device, result in zip(devices, health, strict=True)
+            for device, healthy in snapshot
         )
         return response
 

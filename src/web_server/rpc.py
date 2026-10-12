@@ -140,7 +140,11 @@ class RpcGateway:
 
     async def commander_verify_device(self, device_id: str) -> dict[str, object]:
         request = commander_pb.VerifyDeviceRequest(device_id=device_id, timeout=self.timeout)
-        return to_payload(await self.commander().VerifyDevice(request, timeout=self.timeout))
+        # 诊断为 ping → tcp → protocol 三个串行阶段，RPC deadline 必须
+        # 覆盖多层探测，不能按单层超时截止。
+        return to_payload(
+            await self.commander().VerifyDevice(request, timeout=3 * self.timeout)
+        )
 
     async def collector_task(self, task_id: str) -> dict[str, object]:
         request = collector_pb.TaskIdRequest(task_id=task_id)
@@ -210,7 +214,13 @@ class RpcGateway:
         value: bool | int | float | str,
         io_timeout: float,
     ) -> dict[str, object]:
-        """传递调用方指定的命令 ID，不在 Web 层重试。"""
+        """传递调用方指定的命令 ID，不在 Web 层重试。
+
+        RPC deadline 必须覆盖命令 IO 超时：否则 Web 层先拿到 504，而
+        Commander 侧命令仍在执行（可能已写入设备）——调用方若换新
+        command_id 重试即造成危险的重复执行。deadline 取
+        ``io_timeout + self.timeout``（IO 上限 + RPC 余量）。
+        """
         request = commander_pb.WritePointRequest(
             command_id=command_id,
             device_id=device_id,
@@ -218,7 +228,8 @@ class RpcGateway:
             value=encode_scalar(value),
             timeout=io_timeout,
         )
-        return to_payload(await self.commander().WritePoint(request, timeout=self.timeout))
+        deadline = io_timeout + self.timeout
+        return to_payload(await self.commander().WritePoint(request, timeout=deadline))
 
     async def commander_write_many(
         self, commands: list[tuple[str, str, str, bool | int | float | str, float]]
@@ -236,7 +247,14 @@ class RpcGateway:
                 for cid, did, pid, value, io_timeout in commands
             ]
         )
-        return to_payload(await self.commander().WritePoints(request, timeout=self.timeout))
+        max_io_timeout = max((io_timeout for *_rest, io_timeout in commands), default=0.0)
+        return to_payload(
+            await self.commander().WritePoints(
+                request,
+                # 与单点写同口径：deadline 覆盖最大命令 IO 超时 + RPC 余量。
+                timeout=max_io_timeout + self.timeout,
+            )
+        )
 
     async def collector_prepare_config(
         self, revision_id: str, config_hash: str

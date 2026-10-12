@@ -50,6 +50,12 @@ async def _invoke(operation: Awaitable[dict[str, object]]) -> dict[str, object]:
         result: dict[str, object] = await operation
     except grpc.aio.AioRpcError as exc:
         raise _http_error(exc) from exc
+    except ValueError as exc:
+        # 值编码等本地校验失败是客户端输入问题，不是上游 RPC 故障。
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "INVALID_VALUE", "message": str(exc)},
+        ) from exc
     return result
 
 
@@ -326,6 +332,14 @@ def create_app(settings: RpcSettings | None = None, *, write_token: str | None =
     async def commander_write(
         body: WritePointBody, gateway: RpcGateway = Depends(get_gateway)
     ) -> dict[str, object]:
+        # command_id 纳入审计日志：与 Commander 侧 dispatcher 审计记录
+        # 对齐，可跨层追踪一次命令的完整生命周期。
+        logger.info(
+            "control_audit command_id=%s device=%s point=%s",
+            body.command_id,
+            body.device_id,
+            body.point_id,
+        )
         return await _invoke(
             gateway.commander_write(
                 body.command_id, body.device_id, body.point_id, body.value, body.timeout
@@ -344,6 +358,13 @@ def create_app(settings: RpcSettings | None = None, *, write_token: str | None =
             (item.command_id, item.device_id, item.point_id, item.value, item.timeout)
             for item in body.commands
         ]
+        for item in body.commands:
+            logger.info(
+                "control_audit command_id=%s device=%s point=%s",
+                item.command_id,
+                item.device_id,
+                item.point_id,
+            )
         return await _invoke(gateway.commander_write_many(commands))
 
     @app.post(
