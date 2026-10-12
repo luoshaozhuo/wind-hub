@@ -109,6 +109,10 @@ class TestRealAdsRead:
             pytest.skip("SKIPPED: WIND_HUB_TEST_ADS_READ_SYMBOL not configured")
         value = await ads_runtime.read.read_point("ads-1", "plc.readback")
         assert value.value is not None
+        if ads_service["backend"] == "testserver":
+            # testserver 路径的符号初值由 fixture 固定（21.5）——读回必须
+            # 命中真实值而非「非 None 即过」。
+            assert value.value == pytest.approx(21.5)
 
     async def test_verify_point_resolves_symbol_address(
         self,
@@ -141,3 +145,6 @@ class TestRealAdsWrite:
             )
         )
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS, result.error
+        # 写后读回：确认写入真实落到服务端变量，而非仅拿到成功回执。
+        readback = await ads_runtime.read.read_point("ads-1", "plc.setpoint")
+        assert readback.value == pytest.approx(1.0)

@@ -16,13 +16,14 @@ netem 用例需要 root（CAP_NET_ADMIN），无 root 明确 skip。
 from __future__ import annotations
 
 import logging
+import os
 
 import pytest
 
-from tests.performance.netem import NetemScenario
-from tests.performance.veth import VethManager
+from tests.performance.netem import NetemController, NetemScenario
+from tests.performance.netns import netns_perf_server
 from tests.reliability.soak.metrics import CycleStats, SoakMetrics
-from tests.reliability.soak.runner import PROFILES, run_soak
+from tests.reliability.soak.runner import DEFAULT_SOAK_PORT, PROFILES, run_soak
 
 logger = logging.getLogger(__name__)
 
@@ -136,41 +137,55 @@ class TestReconnectStorm:
 
 
 class TestNetemScenarios:
-    """网络损伤下的负载行为（需 root；veth pair + tc netem 双方向注入）。"""
+    """网络损伤下的负载行为（需 root；跨 namespace veth + tc netem 双方向注入）。
+
+    server 必须跑在 veth 对端 net namespace 的子进程里：同命名空间时
+    本机投递走 lo 回环、绕过 veth qdisc，netem 规则形同虚设。
+    """
 
     @pytest.fixture
-    def veth(self):
-        manager = VethManager()
-        if not manager.check_permission():
-            pytest.skip("SKIPPED: netem 场景需要 root（CAP_NET_ADMIN）创建 veth pair")
-        pair = manager.create()
-        try:
-            yield pair
-        finally:
-            manager.destroy()
+    async def netem_link(self, tmp_path):
+        if os.geteuid() != 0:
+            pytest.skip("SKIPPED: netem 场景需要 root（CAP_NET_ADMIN）创建 netns/veth")
+        async with netns_perf_server(
+            "modbus",
+            port=DEFAULT_SOAK_PORT,
+            num_points=600,
+            log_path=tmp_path / "netns_server.log",
+        ) as link:
+            yield link
 
-    async def test_network_latency(self, veth) -> None:
-        """50ms 单向延迟（RTT +100ms）：采集放慢但不错失、不丢点。"""
+    @staticmethod
+    def _controllers(link) -> list[NetemController]:
+        return [
+            NetemController(link.pair.name_client),
+            NetemController(link.pair.name_server, namespace=link.namespace),
+        ]
+
+    async def test_network_latency(self, netem_link) -> None:
+        """双方向各 50ms 延迟（RTT +100ms）：采集放慢但不错失、不丢点。"""
         metrics = await run_soak(
             PROFILES["netem_base"],
-            host=veth.ip_server,
+            host=netem_link.pair.ip_server,
             duration_s=15.0,
             warmup_s=4.0,
-            netem_devices=[veth.name_client, veth.name_server],
+            netem_controllers=self._controllers(netem_link),
             netem_scenario=NetemScenario(name="delay_50ms", delay_ms=50),
+            external_server=True,
         )
         _assert_healthy_flow(metrics, min_throughput_ratio=0.50)
         cycles = _cycles_by_task(metrics)["base-000"]
         assert cycles.cycles >= (15.0 / 0.2) * 0.4, f"延迟下周期数 {cycles.cycles} 过低"
 
-    async def test_packet_loss(self, veth) -> None:
+    async def test_packet_loss(self, netem_link) -> None:
         """1% 丢包：TCP 重传兜底，数据完整（零丢弃零重复）、吞吐略降。"""
         metrics = await run_soak(
             PROFILES["netem_base"],
-            host=veth.ip_server,
+            host=netem_link.pair.ip_server,
             duration_s=15.0,
             warmup_s=4.0,
-            netem_devices=[veth.name_client, veth.name_server],
+            netem_controllers=self._controllers(netem_link),
             netem_scenario=NetemScenario(name="loss_1pct", loss_pct=1),
+            external_server=True,
         )
         _assert_healthy_flow(metrics, min_throughput_ratio=0.40)

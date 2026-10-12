@@ -7,15 +7,14 @@ marker 自动分类（``pytest_collection_modifyitems``）按目录/文件名约
   ``integration`` / ``system`` / ``reliability`` / ``performance``）；
   ``reliability/soak`` 额外打 ``soak``；
 - 协议与外部服务：路径或文件名 token 命中 ``modbus`` / ``ads`` /
-  ``iec104`` / ``redis`` / ``influxdb`` / ``file``；
+  ``iec104`` / ``redis`` / ``file``；
 - 服务真实性（仅 integration/system/reliability 层级）：路径/文件名
   token 含 ``mock`` 的打 ``mock_service``（monkeypatch / 内存 fake，
   不计入 real-service 验收）；``real_service`` **不按目录默认赋值**——
   真实服务测试必须在文件内显式标注（模块级 ``pytestmark``），避免
   文件放错目录即被误认证为真实服务验收。
 
-层级 marker 只靠第一层目录推断；更细的环境属性（hardware / docker /
-root / network / slow）必须在测试文件或 conftest 中显式标注。
+层级 marker 只靠第一层目录推断；``hardware`` 必须在测试文件内显式标注。
 """
 
 from __future__ import annotations
@@ -39,7 +38,7 @@ _LEVEL_MARKERS = (
     "reliability",
     "performance",
 )
-_PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "redis", "influxdb", "file")
+_PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "redis", "file")
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

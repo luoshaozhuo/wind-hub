@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -25,15 +26,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests.performance.collector import PerfMetrics  # noqa: E402
+from tests.performance.netem import NetemController  # noqa: E402
+from tests.performance.netns import netns_perf_server  # noqa: E402
 from tests.performance.reporter import (  # noqa: E402
     aggregate_runs,
     generate_json_report,
     generate_markdown_report,
     render_latency_curve,
 )
-from tests.performance.runner import DEFAULT_PORTS, run_benchmark  # noqa: E402
+from tests.performance.runner import DEFAULT_PORTS, PLANS, run_benchmark  # noqa: E402
 from tests.performance.scenarios import CORE_SCENARIOS, QUICK_SCENARIOS  # noqa: E402
-from tests.performance.veth import VethManager  # noqa: E402
 
 logger = logging.getLogger("run_benchmark")
 
@@ -61,8 +63,7 @@ async def main() -> int:
         print("错误：--runs 必须 >= 1")
         return 2
 
-    veth = VethManager()
-    if not veth.check_permission():
+    if os.geteuid() != 0:
         print("错误：压测需要 root 权限（tc netem / ip link），请用 sudo 运行。")
         print("决策 10：脚本不会自动 sudo。")
         return 2
@@ -72,9 +73,20 @@ async def main() -> int:
     duration = 30.0 if args.quick else args.duration
 
     results: list[PerfMetrics] = []
-    async with veth.active() as pair:
-        netem_devices = [pair.name_client, pair.name_server]
-        for protocol in protocols:
+    # 每协议一条跨 namespace 链路：server 跑在对端 netns 子进程，netem
+    # 真实生效（同命名空间 veth 走 lo 回环，netem 空转——已修复）。
+    for protocol in protocols:
+        plan = PLANS[protocol]
+        async with netns_perf_server(
+            protocol,
+            port=DEFAULT_PORTS[protocol],
+            num_points=plan.num_points,
+            device_id=plan.device_id,
+        ) as link:
+            controllers = [
+                NetemController(link.pair.name_client),
+                NetemController(link.pair.name_server, namespace=link.namespace),
+            ]
             for scenario in scenarios:
                 print(f"=== {protocol} / {scenario.name} ===", flush=True)
                 run_results: list[PerfMetrics] = []
@@ -83,11 +95,12 @@ async def main() -> int:
                         metrics = await run_benchmark(
                             protocol=protocol,
                             scenario=scenario,
-                            host=pair.ip_server,
+                            host=link.pair.ip_server,
                             port=DEFAULT_PORTS[protocol],
                             duration_s=duration,
                             warmup_s=args.warmup,
-                            netem_devices=netem_devices,
+                            netem_controllers=controllers,
+                            external_server=True,
                         )
                     except Exception:
                         logger.exception(

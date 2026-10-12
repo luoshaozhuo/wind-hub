@@ -224,7 +224,8 @@ async def run_benchmark(
     port: int | None = None,
     duration_s: float = 60.0,
     warmup_s: float = 10.0,
-    netem_devices: list[str] | None = None,
+    netem_controllers: list[NetemController] | None = None,
+    external_server: bool = False,
 ) -> PerfMetrics:
     """跑一个压测场景（协议无关）。
 
@@ -236,8 +237,10 @@ async def run_benchmark(
         port: server 端口（默认取 :data:`DEFAULT_PORTS`）。
         duration_s: 测量时长（决策 4：默认 60s）。
         warmup_s: 预热时长（决策 4：默认 10s，不计入统计）。
-        netem_devices: 需要挂 netem 的接口（veth 两端）；``None``
-            表示不注入（无 root 的调试运行）。
+        netem_controllers: 已就位的 netem 控制器（veth 两端，server 端
+            可带 namespace）；``None`` 表示不注入（无 root 的调试运行）。
+        external_server: ``True`` 时 server 已由调用方在 ``host:port``
+            就位（如 netns 子进程），本函数不再进程内启动 server。
 
     Raises:
         ValueError: 协议未知，或测量时长放不下中断窗口。
@@ -254,13 +257,18 @@ async def run_benchmark(
             f"+ 触发延迟 {_OUTAGE_TRIGGER_DELAY_S:g}s + 恢复观察 5s）"
         )
 
-    controllers = [NetemController(dev) for dev in (netem_devices or [])]
+    controllers = list(netem_controllers or [])
     collector = MetricsCollector()
 
     with tempfile.TemporaryDirectory(prefix=f"windhub-perf-{protocol}-") as tmp:
         config_dir = write_perf_config(Path(tmp), protocol, host, port)
 
-        async with _server_for(protocol, host, port):
+        server_cm: contextlib.AbstractAsyncContextManager[object | None] = (
+            contextlib.nullcontext(None)
+            if external_server
+            else _server_for(protocol, host, port)
+        )
+        async with server_cm:
             for c in controllers:
                 c.apply(scenario)  # 中断场景此处是 clear（稳态无规则）
 

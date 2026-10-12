@@ -1,54 +1,15 @@
-"""CSV 文件写入和 Redis RESP2 TCP Server 集成测试。"""
+"""RedisSink RESP2 协议测试：真实 TCP 回环 server 验证管线编码。"""
 
 from __future__ import annotations
 
 import asyncio
-import csv
 import json
-from pathlib import Path
 
-import pytest
-
-from collector.infrastructure.sink.file.csv import FileSink
 from collector.infrastructure.sink.redis import RedisSink
 from core.domain import Sink
 from core.domain.point_value import PointValue
 
 
-@pytest.mark.asyncio
-async def test_csv_appends_and_reopens(tmp_path: Path) -> None:
-    path = tmp_path / "data.csv"
-    cfg = Sink(sink_id="archive", kind="file", enabled=True, connection={"path": str(path)})
-    sink = FileSink(cfg)
-    await sink.open()
-    await sink.write([PointValue("WT001", "power", 125.5)])
-    await sink.close()
-    await sink.open()
-    await sink.write([PointValue("WT001", "speed", 8.4)])
-    await sink.close()
-    with path.open(encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    assert [row["point_id"] for row in rows] == ["power", "speed"]
-
-
-@pytest.mark.asyncio
-async def test_csv_rotates_and_prunes_owned_archives(tmp_path: Path) -> None:
-    path = tmp_path / "data.csv"
-    cfg = Sink(
-        sink_id="archive",
-        kind="file",
-        enabled=True,
-        connection={"path": str(path), "max_size_mb": 0.0001, "max_files": 2},
-    )
-    sink = FileSink(cfg)
-    await sink.open()
-    await sink.write([PointValue("WT001", f"point{i}", "x" * 60) for i in range(12)])
-    await sink.close()
-    assert len(list(tmp_path.glob("data.*.csv"))) <= 2
-    assert path.exists()
-
-
-@pytest.mark.asyncio
 async def test_redis_pipeline_over_real_tcp() -> None:
     received: list[list[str]] = []
 

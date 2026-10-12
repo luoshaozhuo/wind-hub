@@ -52,11 +52,22 @@ def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 class NetemController:
-    """单个网络接口上的 tc netem 控制器。"""
+    """单个网络接口上的 tc netem 控制器。
 
-    def __init__(self, device: str) -> None:
+    ``namespace`` 非空时接口位于该 net namespace（如 veth 的 server 端
+    被挪进对端命名空间），所有 ``tc`` 命令经 ``ip netns exec`` 下达。
+    """
+
+    def __init__(self, device: str, namespace: str | None = None) -> None:
         self._device = device
+        self._namespace = namespace
         self._active = False
+
+    def _tc(self, args: list[str]) -> list[str]:
+        """拼 tc 命令；带 namespace 时经 ``ip netns exec`` 进入对端。"""
+        if self._namespace is not None:
+            return ["ip", "netns", "exec", self._namespace, "tc", *args]
+        return ["tc", *args]
 
     @property
     def device(self) -> str:
@@ -85,7 +96,7 @@ class NetemController:
 
         # tc 以 argv 逐 token 解析，"delay 10ms" 作为单个 token 会被拒绝
         # （What is "delay 10ms"?），必须拆成独立参数。
-        cmd = ["tc", "qdisc", "replace", "dev", self._device, "root", "netem"]
+        cmd = self._tc(["qdisc", "replace", "dev", self._device, "root", "netem"])
         if scenario.delay_ms > 0:
             cmd.extend(["delay", f"{scenario.delay_ms:g}ms"])
             if scenario.jitter_ms > 0:
@@ -102,7 +113,7 @@ class NetemController:
         if not self._active:
             return
         # 删除失败（如接口已消失）只意味着「规则已不在」，语义上等同清除。
-        _run(["tc", "qdisc", "del", "dev", self._device, "root"])
+        _run(self._tc(["qdisc", "del", "dev", self._device, "root"]))
         self._active = False
 
     @asynccontextmanager
@@ -124,7 +135,7 @@ class NetemController:
         if not self.check_permission():
             raise PermissionError("tc netem 需要 root 权限（决策 10：不自动 sudo）")
         result = _run(
-            ["tc", "qdisc", "replace", "dev", self._device, "root", "netem", "loss", "100%"]
+            self._tc(["qdisc", "replace", "dev", self._device, "root", "netem", "loss", "100%"])
         )
         if result.returncode != 0:
             raise RuntimeError(f"注入中断失败: {result.stderr.strip()}")

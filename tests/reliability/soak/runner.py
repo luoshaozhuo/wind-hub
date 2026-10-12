@@ -245,8 +245,9 @@ async def run_soak(
     port: int = DEFAULT_SOAK_PORT,
     duration_s: float = 30.0,
     warmup_s: float = 3.0,
-    netem_devices: list[str] | None = None,
+    netem_controllers: list[NetemController] | None = None,
     netem_scenario: NetemScenario | None = None,
+    external_server: bool = False,
     on_ready: Callable[[], None] | None = None,
 ) -> SoakMetrics:
     """跑一个 soak 负载形态，返回验收指标。
@@ -257,11 +258,18 @@ async def run_soak(
         port: Modbus server 端口。
         duration_s: 测量时长（秒）。
         warmup_s: 预热时长（秒，不计入统计）。
-        netem_devices / netem_scenario: 同时给出时在测量前应用 netem 场景。
+        netem_controllers / netem_scenario: 同时给出时在测量前应用
+            netem 场景（控制器由调用方按链路拓扑构造，server 端可带
+            namespace）。
+        external_server: ``True`` 时 Modbus server 已由调用方在
+            ``host:port`` 就位（netns 子进程）；与 ``storm`` 互斥
+            （风暴需要进程内可停起的 server 句柄）。
         on_ready: 预热结束、测量窗口开始的回调（长 soak 用来打边界日志）。
     """
     if duration_s <= 0 or warmup_s < 0:
         raise ValueError("duration_s 必须为正，warmup_s 不能为负")
+    if external_server and profile.storm is not None:
+        raise ValueError("external_server 与 storm 互斥：风暴需要进程内 server 句柄")
 
     recording_holder: list[RecordingSink] = []
 
@@ -273,7 +281,7 @@ async def run_soak(
 
     sink_type = "file"
 
-    controllers = [NetemController(dev) for dev in (netem_devices or [])]
+    controllers = list(netem_controllers or [])
     task_intervals = {
         f"{g.name}-{i:03d}": g.interval_s for g in profile.groups for i in range(g.devices)
     }
@@ -288,7 +296,8 @@ async def run_soak(
             host,
             port,
         )
-        await server.start()
+        if not external_server:
+            await server.start()
         try:
             for c in controllers:
                 if netem_scenario is not None:
@@ -356,7 +365,8 @@ async def run_soak(
                 for c in controllers:
                     c.clear()
         finally:
-            await server.stop()
+            if not external_server:
+                await server.stop()
 
     sink = recording_holder[0]
     resources = collector.resource_summary()

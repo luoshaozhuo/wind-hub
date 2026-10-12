@@ -12,10 +12,21 @@ from collector.application.sink_runtime import SinkRuntime
 from core.domain import Sink
 from core.domain.point_value import PointValue
 from tests.support.new_collector import FakeSink
+from tests.support.wait import wait_until
 
 
 def _value(n: float = 1.0) -> PointValue:
     return PointValue(device_id="d", point_id="p", value=n)
+
+
+async def _wait_batches(sink, n: int) -> None:
+    """轮询直到消费者实际写出 n 批（替代硬 sleep 的确定性同步）。"""
+    await wait_until(
+        lambda: sink.batches if len(sink.batches) >= n else None,
+        timeout=2.0,
+        interval=0.01,
+        description=f"{n} batches consumed",
+    )
 
 
 def _runtime(
@@ -39,8 +50,7 @@ async def test_start_opens_sinks_and_consumes_dispatches():
     assert sink.open_calls == 1
 
     await runtime.dispatch({"s1": [_value()]})
-    await asyncio.sleep(0.05)
-    assert len(sink.batches) == 1
+    await _wait_batches(sink, 1)
     assert runtime.points_routed == 1
 
     await runtime.stop()
@@ -58,8 +68,7 @@ async def test_open_failure_marks_unhealthy_and_skips_consumer():
     assert health["good"].healthy
 
     await runtime.dispatch({"good": [_value()]})
-    await asyncio.sleep(0.05)
-    assert len(good.batches) == 1
+    await _wait_batches(good, 1)
     await runtime.stop()
 
 
@@ -79,8 +88,7 @@ async def test_failed_open_recovers_and_restarts_consumer():
     assert sink.open_calls >= 2
 
     await runtime.dispatch({"s1": [_value()]})
-    await asyncio.sleep(0.05)
-    assert len(sink.batches) == 1
+    await _wait_batches(sink, 1)
     await runtime.stop()
 
 
@@ -109,8 +117,8 @@ async def test_block_policy_applies_backpressure():
     runtime = _runtime({"s1": sink}, policy="block", maxsize=1)
     await runtime.dispatch({"s1": [_value(1.0)]})
     blocked = asyncio.create_task(runtime.dispatch({"s1": [_value(2.0)]}))
-    await asyncio.sleep(0.05)
-    assert not blocked.done()  # 队列满 → 挂起施加背压
+    await asyncio.sleep(0)  # 让 blocked 起跑：队列满 → 挂起施加背压
+    assert not blocked.done()
     runtime._queues["s1"].get_nowait()  # 手动腾出空间
     await asyncio.wait_for(blocked, timeout=1.0)
     assert runtime.points_routed == 2
@@ -140,8 +148,7 @@ async def test_add_sink_after_start_opens_and_consumes():
     await runtime.add_sink("s1", sink)
     assert sink.open_calls == 1
     await runtime.dispatch({"s1": [_value()]})
-    await asyncio.sleep(0.05)
-    assert len(sink.batches) == 1
+    await _wait_batches(sink, 1)
     await runtime.stop()
 
 
@@ -261,19 +268,21 @@ async def test_blocked_dispatch_wakes_when_sink_removed():
     runtime = _runtime({"s1": sink}, policy="block", maxsize=1)
     await runtime.start()
 
+    write_started = asyncio.Event()
     write_release = asyncio.Event()
     original_write = sink.write
 
     async def slow_write(batch):
+        write_started.set()
         await write_release.wait()
         await original_write(batch)
 
     sink.write = slow_write  # type: ignore[method-assign]
     await runtime.dispatch({"s1": [_value(1.0)]})  # 消费者取走后卡在 write
-    await asyncio.sleep(0.05)
+    await asyncio.wait_for(write_started.wait(), timeout=1.0)
     await runtime.dispatch({"s1": [_value(2.0)]})  # 填满队列
     blocked = asyncio.create_task(runtime.dispatch({"s1": [_value(3.0)]}))
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0)  # 让 blocked 起跑并确认挂起
     assert not blocked.done()
 
     await runtime.remove_sink("s1")  # 消费者取消、队列移除
@@ -288,19 +297,21 @@ async def test_blocked_dispatch_recovers_after_unhealthy_marked():
     runtime = _runtime({"s1": sink}, policy="block", maxsize=1)
     await runtime.start()
 
+    write_started = asyncio.Event()
     write_release = asyncio.Event()
     original_write = sink.write
 
     async def slow_write(batch):
+        write_started.set()
         await write_release.wait()
         await original_write(batch)
 
     sink.write = slow_write  # type: ignore[method-assign]
     await runtime.dispatch({"s1": [_value(1.0)]})  # 消费者取走后卡在 write
-    await asyncio.sleep(0.05)
+    await asyncio.wait_for(write_started.wait(), timeout=1.0)
     await runtime.dispatch({"s1": [_value(2.0)]})  # 填满队列
     blocked = asyncio.create_task(runtime.dispatch({"s1": [_value(3.0)]}))
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0)  # 让 blocked 起跑并确认挂起
     assert not blocked.done()
 
     runtime._unhealthy.add("s1")  # 模拟独占重建失败的 unhealthy 标记
@@ -316,14 +327,17 @@ async def test_stop_with_hung_consumer_and_full_queue_does_not_hang():
     """消费者卡死且队列满：哨兵投递超时后取消消费者，stop 有界完成。"""
     sink = FakeSink()
 
+    write_started = asyncio.Event()
+
     async def blocked_write(_batch):
+        write_started.set()
         await asyncio.Event().wait()
 
     sink.write = blocked_write  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
     runtime = _runtime({"s1": sink}, maxsize=1)
     await runtime.start()
     await runtime.dispatch({"s1": [_value(1.0)]})  # 消费者取走后卡在 write
-    await asyncio.sleep(0.05)
+    await asyncio.wait_for(write_started.wait(), timeout=1.0)
     await runtime.dispatch({"s1": [_value(2.0)]})  # 填满队列
 
     await asyncio.wait_for(runtime.stop(), timeout=5.0)
@@ -335,18 +349,21 @@ async def test_stop_propagates_outer_cancellation():
     """外层硬超时取消 stop 时必须传播 CancelledError，不能吞掉后拖延。"""
     sink = FakeSink()
 
+    write_started = asyncio.Event()
+
     async def blocked_write(_batch):
+        write_started.set()
         await asyncio.Event().wait()
 
     sink.write = blocked_write  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
     runtime = _runtime({"s1": sink}, maxsize=1)
     await runtime.start()
     await runtime.dispatch({"s1": [_value(1.0)]})
-    await asyncio.sleep(0.05)
+    await asyncio.wait_for(write_started.wait(), timeout=1.0)
     await runtime.dispatch({"s1": [_value(2.0)]})
 
     stop_task = asyncio.create_task(runtime.stop())
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0)  # 让 stop 起跑（进入哨兵投递等待）
     stop_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await stop_task
@@ -379,8 +396,7 @@ async def test_watchdog_stops_consumer_before_reopening_failed_sink():
     assert sink.open_calls == 2
     assert "s1" not in runtime._unhealthy
     await runtime.dispatch({"s1": [_value(3.0)]})
-    await asyncio.sleep(0.05)
-    assert len(sink.batches) == 1
+    await _wait_batches(sink, 1)
     await runtime.stop()
 
 
@@ -408,7 +424,7 @@ async def test_write_failure_counted_and_marked_with_stable_stage():
     # 等 watchdog 启动后的首次健康检查落地：写失败标记 unhealthy 后，
     # 下一轮检查会立即触发 close/open 重连并在成功时清除标记（设计如此），
     # 这里只需在标记发生前让首个检查周期过去，断言窗口内不再有重连。
-    await asyncio.sleep(0.05)
+    await runtime._watchdogs["s1"].check_once()
     await runtime.dispatch({"s1": [_value()]})
     await asyncio.wait_for(attempted.wait(), timeout=1.0)
     assert runtime.write_failures() == {"s1": 1}

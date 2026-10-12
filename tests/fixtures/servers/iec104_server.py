@@ -16,22 +16,22 @@ from datetime import datetime
 
 import c104
 
+from tests.support.process import free_port
+
 logger = logging.getLogger(__name__)
-
-IEC104_PORT = 12404
-
 
 class IEC104MockServer:
     """异步生命周期的 IEC104 从站，可反复起停（供故障恢复测试）。"""
 
     def __init__(
         self,
-        port: int = IEC104_PORT,
+        port: int | None = None,
         common_addr: int = 1,
         data_points: dict[int, float] | None = None,
         point_type: c104.Type = c104.Type.M_ME_NC_1,
     ) -> None:
-        self._port = port
+        # 默认动态分配空闲端口，避免固定端口在并行/残留进程下冲突。
+        self._port = port if port is not None else free_port()
         self._common_addr = common_addr
         self._data_points = dict(data_points or {100: 1500.5, 200: 50.0})
         self._point_type = point_type

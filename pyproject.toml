@@ -140,17 +140,11 @@ markers = [
     "ads: ADS 协议相关",
     "iec104: IEC104 协议相关",
     "redis: 需要真实 Redis",
-    "influxdb: 需要真实 InfluxDB",
     "file: 文件 sink 相关",
     # 服务真实性与环境 marker
     "real_service: 使用真实外部组件（真实协议栈/文件/Docker 服务）",
     "mock_service: 使用 fake/monkeypatch 替代外部组件（不计入 real-service 验收）",
     "hardware: 需要真实硬件（如 TwinCAT PLC）",
-    "docker: 需要 Docker",
-    "network: 需要额外网络配置（如 veth/netem）",
-    "root: 需要 root 权限",
-    "slow: 慢速测试",
-    "fast: 快速测试（默认集合）",
 ]
 
 [tool.importlinter]
@@ -231,6 +225,7 @@ source_modules = ["cli"]
 forbidden_modules = [
     "collector",
     "commander",
+    "web_server",
 ]
 
 # ---- generated protobuf 边界 ----
