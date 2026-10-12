@@ -687,6 +687,7 @@ class PointVerifyResponse(_message.Message):
     QUALITY_FIELD_NUMBER: _builtins.int
     SOURCE_FIELD_NUMBER: _builtins.int
     ERROR_FIELD_NUMBER: _builtins.int
+    ACCESS_FIELD_NUMBER: _builtins.int
     device_id: _builtins.str
     point_id: _builtins.str
     protocol: _builtins.str
@@ -700,6 +701,7 @@ class PointVerifyResponse(_message.Message):
     quality: _builtins.str
     source: _builtins.str
     error: _builtins.str
+    access: _builtins.str
     @_builtins.property
     def configured_address(self) -> _containers.RepeatedCompositeFieldContainer[Global___AddressField]: ...
     @_builtins.property
@@ -731,10 +733,11 @@ class PointVerifyResponse(_message.Message):
         quality: _builtins.str = ...,
         source: _builtins.str = ...,
         error: _builtins.str = ...,
+        access: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["engineering_value", b"engineering_value", "raw_value", b"raw_value", "readable", b"readable"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["code", b"code", "configured_address", b"configured_address", "data_type", b"data_type", "device_id", b"device_id", "engineering_value", b"engineering_value", "error", b"error", "offset", b"offset", "ok", b"ok", "point_id", b"point_id", "protocol", b"protocol", "quality", b"quality", "raw_value", b"raw_value", "readable", b"readable", "resolved_address", b"resolved_address", "scale", b"scale", "severity", b"severity", "source", b"source", "unit", b"unit"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["code", b"code", "configured_address", b"configured_address", "data_type", b"data_type", "device_id", b"device_id", "engineering_value", b"engineering_value", "error", b"error", "access", b"access", "offset", b"offset", "ok", b"ok", "point_id", b"point_id", "protocol", b"protocol", "quality", b"quality", "raw_value", b"raw_value", "readable", b"readable", "resolved_address", b"resolved_address", "scale", b"scale", "severity", b"severity", "source", b"source", "unit", b"unit"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -777,3 +780,91 @@ class PointsVerifyResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___PointsVerifyResponse: _TypeAlias = PointsVerifyResponse  # noqa: Y015
+
+@_typing.final
+class PointsMetadataRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    POINT_IDS_FIELD_NUMBER: _builtins.int
+    device_id: _builtins.str
+    @_builtins.property
+    def point_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    def __init__(self, *,
+        device_id: _builtins.str = ...,
+        point_ids: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+
+Global___PointsMetadataRequest: _TypeAlias = PointsMetadataRequest  # noqa: Y015
+
+@_typing.final
+class PointMetadata(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    POINT_ID_FIELD_NUMBER: _builtins.int
+    ACCESS_FIELD_NUMBER: _builtins.int
+    DATA_TYPE_FIELD_NUMBER: _builtins.int
+    UNIT_FIELD_NUMBER: _builtins.int
+    SCALE_FIELD_NUMBER: _builtins.int
+    OFFSET_FIELD_NUMBER: _builtins.int
+    CONFIGURED_ADDRESS_FIELD_NUMBER: _builtins.int
+    point_id: _builtins.str
+    access: _builtins.str
+    data_type: _builtins.str
+    unit: _builtins.str
+    scale: _builtins.float
+    offset: _builtins.float
+    @_builtins.property
+    def configured_address(self) -> _containers.RepeatedCompositeFieldContainer[Global___AddressField]: ...
+    def __init__(self, *,
+        point_id: _builtins.str = ...,
+        access: _builtins.str = ...,
+        data_type: _builtins.str = ...,
+        unit: _builtins.str = ...,
+        scale: _builtins.float = ...,
+        offset: _builtins.float = ...,
+        configured_address: _abc.Iterable[Global___AddressField] | None = ...,
+    ) -> None: ...
+
+Global___PointMetadata: _TypeAlias = PointMetadata  # noqa: Y015
+
+@_typing.final
+class PointMetadataResult(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    POINT_ID_FIELD_NUMBER: _builtins.int
+    FOUND_FIELD_NUMBER: _builtins.int
+    METADATA_FIELD_NUMBER: _builtins.int
+    ERROR_FIELD_NUMBER: _builtins.int
+    point_id: _builtins.str
+    found: _builtins.bool
+    @_builtins.property
+    def metadata(self) -> Global___PointMetadata: ...
+    error: _builtins.str
+    def __init__(self, *,
+        point_id: _builtins.str = ...,
+        found: _builtins.bool = ...,
+        metadata: Global___PointMetadata | None = ...,
+        error: _builtins.str = ...,
+    ) -> None: ...
+
+Global___PointMetadataResult: _TypeAlias = PointMetadataResult  # noqa: Y015
+
+@_typing.final
+class PointsMetadataResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    ACTIVE_REVISION_FIELD_NUMBER: _builtins.int
+    ACTIVE_CONFIG_HASH_FIELD_NUMBER: _builtins.int
+    POINTS_FIELD_NUMBER: _builtins.int
+    device_id: _builtins.str
+    active_revision: _builtins.str
+    active_config_hash: _builtins.str
+    @_builtins.property
+    def points(self) -> _containers.RepeatedCompositeFieldContainer[Global___PointMetadataResult]: ...
+    def __init__(self, *,
+        device_id: _builtins.str = ...,
+        active_revision: _builtins.str = ...,
+        active_config_hash: _builtins.str = ...,
+        points: _abc.Iterable[Global___PointMetadataResult] | None = ...,
+    ) -> None: ...
+
+Global___PointsMetadataResponse: _TypeAlias = PointsMetadataResponse  # noqa: Y015
+
