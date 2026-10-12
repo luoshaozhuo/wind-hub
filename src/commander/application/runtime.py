@@ -41,6 +41,8 @@ class _Generation:
     """一代 Commander 配置对应的会话集合。"""
 
     config: CommanderConfig
+    revision: str
+    config_hash: str
     devices: dict[str, DeviceSession]
     connect_locks: dict[str, asyncio.Lock]
     watchdogs: dict[str, WatchdogUseCase] = field(default_factory=dict)
@@ -77,13 +79,11 @@ class CommanderRuntime:
             "commander_operation_generation",
             default=None,
         )
-        self._current = self._build_generation(config)
+        self._current = self._build_generation(config, revision="startup", config_hash=config_hash)
         # 协议环境准备按 ADS 本机身份记账：身份是 restart-required 的进程级
         # 配置，同一身份只 initialize 一次；sentinel 区分「尚未准备」与
         # 「已按无 ADS 身份准备」。
         self._protocols_ready_for: object = _NEVER_PREPARED
-        self._active_revision = "startup"
-        self._active_config_hash = config_hash
         self._prepared_revision: str | None = None
         self._prepared_config_hash: str | None = None
         self._prepared_generation: _Generation | None = None
@@ -107,12 +107,12 @@ class CommanderRuntime:
     @property
     def active_revision(self) -> str:
         """返回当前激活配置版本标识。"""
-        return self._active_revision
+        return self._current.revision
 
     @property
     def active_config_hash(self) -> str:
         """返回当前激活 generation 对应的配置指纹。"""
-        return self._active_config_hash
+        return self._current.config_hash
 
     @property
     def prepared_revision(self) -> str | None:
@@ -124,7 +124,9 @@ class CommanderRuntime:
         """返回当前 prepared generation 对应的配置指纹。"""
         return self._prepared_config_hash
 
-    def _build_generation(self, config: CommanderConfig) -> _Generation:
+    def _build_generation(
+        self, config: CommanderConfig, *, revision: str, config_hash: str
+    ) -> _Generation:
         """基于候选配置构造完整 generation，不执行网络 I/O。"""
         devices: dict[str, DeviceSession] = {}
         locks: dict[str, asyncio.Lock] = {}
@@ -141,7 +143,10 @@ class CommanderRuntime:
                 protocol,
             )
             locks[str(device.device_id)] = asyncio.Lock()
-        return _Generation(config=config, devices=devices, connect_locks=locks)
+        return _Generation(
+            config=config, revision=revision, config_hash=config_hash,
+            devices=devices, connect_locks=locks,
+        )
 
     @asynccontextmanager
     async def operation(self) -> AsyncIterator[None]:
@@ -176,6 +181,11 @@ class CommanderRuntime:
         """
         return self._generation().config
 
+    def operation_config_identity(self) -> tuple[str, str]:
+        """返回本次 operation 固定 generation 的 (revision, hash)。"""
+        generation = self._generation()
+        return generation.revision, generation.config_hash
+
     async def prepare_config(
         self,
         revision_id: str,
@@ -197,7 +207,9 @@ class CommanderRuntime:
             raise ValueError("ADS local identity change requires process restart")
         if config.units != self._current.config.units:
             raise ValueError("unit catalog change requires process restart")
-        candidate = self._build_generation(config)
+        candidate = self._build_generation(
+            config, revision=revision_id, config_hash=config_hash
+        )
         async with self._reload_lock:
             if self._stopping:
                 await self._close_candidate(candidate, reason="prepare-during-stop")
@@ -229,8 +241,6 @@ class CommanderRuntime:
             old_generation = self._current
             new_generation = self._prepared_generation
             self._current = new_generation
-            self._active_revision = revision_id
-            self._active_config_hash = self._prepared_config_hash
             self._prepared_revision = None
             self._prepared_config_hash = None
             self._prepared_generation = None
