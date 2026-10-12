@@ -272,7 +272,13 @@ async def test_unknown_timeout_is_cached_without_second_physical_write() -> None
 
     runtime.device("dev1").protocol.write_one = suspended_write  # type: ignore[method-assign]
     dispatcher = CommandDispatcher(runtime)
-    command = Command(command_id="no-retry", device_id="dev1", point_id="p1", value=1.0, timeout=0.02)
+    command = Command(
+        command_id="no-retry",
+        device_id="dev1",
+        point_id="p1",
+        value=1.0,
+        timeout=0.02,
+    )
     first = await dispatcher.send(command)
     replay = await dispatcher.send(command)
     assert first.outcome is WriteOutcome.UNKNOWN
