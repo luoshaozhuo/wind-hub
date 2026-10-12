@@ -76,7 +76,16 @@ class CollectorMetadataService:
                         sink_id
                         for task in tasks
                         for sink_id in task.sink_ids
-                        if sink_id in config.sinks and config.sinks[sink_id].enabled
+                        if sink_id in config.sinks
+                        and config.sinks[sink_id].enabled
+                        and (
+                            config.sinks[sink_id].kind != "modbus"
+                            or any(
+                                mapping["source"]["device_id"] == device_id
+                                and mapping["source"]["point_id"] == point_id
+                                for mapping in config.sinks[sink_id].points
+                            )
+                        )
                     }
                 )
             )
