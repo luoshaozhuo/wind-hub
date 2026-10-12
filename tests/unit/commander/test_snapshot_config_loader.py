@@ -9,7 +9,7 @@ from tests.support.new_commander import write_minimal_config_tree
 
 def test_commander_loads_domain_snapshot(tmp_path: Path) -> None:
     base = write_minimal_config_tree(tmp_path / "cfg")
-    assert not (base / "units.yaml").exists()
+    assert (base / "units.yaml").exists()
     snapshot = YamlConfigAdapter(base).load()
     commander = load_commander_config(YamlConfigAdapter(base))
     assert commander.point_tables == snapshot.point_tables

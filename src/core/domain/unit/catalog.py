@@ -1,287 +1,119 @@
-"""系统内置工程单位目录。"""
+"""只读工程单位目录。
+
+UnitCatalog 由配置（units.yaml）构造并随 ConfigSnapshot 传递，是不可变
+值对象而非全局可变 Singleton；Domain 不读取文件，目录完整性在构建时
+一次校验完成。
+"""
 
 from __future__ import annotations
 
-from math import pi
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from types import MappingProxyType
 
-from .model import Unit, UnitCode
-from .quantity import Quantity
+from .conversion import convert_value
+from .model import Unit
 
-NONE = Unit(UnitCode.NONE, "", Quantity.DIMENSIONLESS)
-PERCENT = Unit(
-    UnitCode.PERCENT,
-    "%",
-    Quantity.DIMENSIONLESS,
-    scale_to_base=0.01,
-)
 
-VOLT = Unit(UnitCode.VOLT, "V", Quantity.VOLTAGE)
-KILOVOLT = Unit(
-    UnitCode.KILOVOLT,
-    "kV",
-    Quantity.VOLTAGE,
-    scale_to_base=1_000.0,
-)
-AMPERE = Unit(UnitCode.AMPERE, "A", Quantity.CURRENT)
+@dataclass(frozen=True, slots=True)
+class UnitCatalog:
+    """一次配置加载内的完整工程单位目录。
 
-WATT = Unit(UnitCode.WATT, "W", Quantity.ACTIVE_POWER)
-KILOWATT = Unit(
-    UnitCode.KILOWATT,
-    "kW",
-    Quantity.ACTIVE_POWER,
-    scale_to_base=1_000.0,
-)
-MEGAWATT = Unit(
-    UnitCode.MEGAWATT,
-    "MW",
-    Quantity.ACTIVE_POWER,
-    scale_to_base=1_000_000.0,
-)
-VAR = Unit(UnitCode.VAR, "var", Quantity.REACTIVE_POWER)
-KILOVAR = Unit(
-    UnitCode.KILOVAR,
-    "kvar",
-    Quantity.REACTIVE_POWER,
-    scale_to_base=1_000.0,
-)
-MEGAVAR = Unit(
-    UnitCode.MEGAVAR,
-    "Mvar",
-    Quantity.REACTIVE_POWER,
-    scale_to_base=1_000_000.0,
-)
-VOLT_AMPERE = Unit(
-    UnitCode.VOLT_AMPERE,
-    "VA",
-    Quantity.APPARENT_POWER,
-)
-KILOVOLT_AMPERE = Unit(
-    UnitCode.KILOVOLT_AMPERE,
-    "kVA",
-    Quantity.APPARENT_POWER,
-    scale_to_base=1_000.0,
-)
-MEGAVOLT_AMPERE = Unit(
-    UnitCode.MEGAVOLT_AMPERE,
-    "MVA",
-    Quantity.APPARENT_POWER,
-    scale_to_base=1_000_000.0,
-)
+    Attributes:
+        units: ``{unit_id: Unit}`` 单位索引。
+        base_units: ``{quantity_id: base_unit_id}`` 每个 Quantity 唯一的
+            基准单位声明。
+    """
 
-HERTZ = Unit(UnitCode.HERTZ, "Hz", Quantity.FREQUENCY)
-HERTZ_PER_SECOND = Unit(
-    UnitCode.HERTZ_PER_SECOND,
-    "Hz/s",
-    Quantity.FREQUENCY_RATE,
-)
+    units: Mapping[str, Unit]
+    base_units: Mapping[str, str]
 
-WATT_HOUR = Unit(UnitCode.WATT_HOUR, "Wh", Quantity.ENERGY)
-KILOWATT_HOUR = Unit(
-    UnitCode.KILOWATT_HOUR,
-    "kWh",
-    Quantity.ENERGY,
-    scale_to_base=1_000.0,
-)
-MEGAWATT_HOUR = Unit(
-    UnitCode.MEGAWATT_HOUR,
-    "MWh",
-    Quantity.ENERGY,
-    scale_to_base=1_000_000.0,
-)
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "units", MappingProxyType(dict(self.units)))
+        object.__setattr__(self, "base_units", MappingProxyType(dict(self.base_units)))
 
-METER = Unit(UnitCode.METER, "m", Quantity.LENGTH)
-MILLIMETER = Unit(
-    UnitCode.MILLIMETER,
-    "mm",
-    Quantity.LENGTH,
-    scale_to_base=0.001,
-)
-METER_PER_SECOND = Unit(
-    UnitCode.METER_PER_SECOND,
-    "m/s",
-    Quantity.SPEED,
-)
-METER_PER_SECOND_SQUARED = Unit(
-    UnitCode.METER_PER_SECOND_SQUARED,
-    "m/s²",
-    Quantity.ACCELERATION,
-)
-STANDARD_GRAVITY = Unit(
-    UnitCode.STANDARD_GRAVITY,
-    "g",
-    Quantity.ACCELERATION,
-    scale_to_base=9.80665,
-)
+    @classmethod
+    def build(
+        cls,
+        *,
+        quantities: Mapping[str, str],
+        units: Iterable[Unit],
+    ) -> UnitCatalog:
+        """构建并完整校验单位目录。
 
-RADIAN = Unit(UnitCode.RADIAN, "rad", Quantity.ANGLE)
-DEGREE = Unit(
-    UnitCode.DEGREE,
-    "°",
-    Quantity.ANGLE,
-    scale_to_base=pi / 180.0,
-)
-RADIAN_PER_SECOND = Unit(
-    UnitCode.RADIAN_PER_SECOND,
-    "rad/s",
-    Quantity.ANGULAR_SPEED,
-)
-DEGREE_PER_SECOND = Unit(
-    UnitCode.DEGREE_PER_SECOND,
-    "°/s",
-    Quantity.ANGULAR_SPEED,
-    scale_to_base=pi / 180.0,
-)
-RPM = Unit(
-    UnitCode.RPM,
-    "r/min",
-    Quantity.ANGULAR_SPEED,
-    scale_to_base=2.0 * pi / 60.0,
-)
-RADIAN_PER_SECOND_SQUARED = Unit(
-    UnitCode.RADIAN_PER_SECOND_SQUARED,
-    "rad/s²",
-    Quantity.ANGULAR_ACCELERATION,
-)
-DEGREE_PER_SECOND_SQUARED = Unit(
-    UnitCode.DEGREE_PER_SECOND_SQUARED,
-    "°/s²",
-    Quantity.ANGULAR_ACCELERATION,
-    scale_to_base=pi / 180.0,
-)
-RPM_PER_SECOND = Unit(
-    UnitCode.RPM_PER_SECOND,
-    "r/min/s",
-    Quantity.ANGULAR_ACCELERATION,
-    scale_to_base=2.0 * pi / 60.0,
-)
+        Args:
+            quantities: ``{quantity_id: base_unit_id}``。
+            units: 全部 Unit；``Unit.quantity`` 必须引用已声明的 Quantity。
 
-NEWTON = Unit(UnitCode.NEWTON, "N", Quantity.FORCE)
-KILONEWTON = Unit(
-    UnitCode.KILONEWTON,
-    "kN",
-    Quantity.FORCE,
-    scale_to_base=1_000.0,
-)
-NEWTON_METER = Unit(
-    UnitCode.NEWTON_METER,
-    "N·m",
-    Quantity.TORQUE,
-)
-KILONEWTON_METER = Unit(
-    UnitCode.KILONEWTON_METER,
-    "kN·m",
-    Quantity.TORQUE,
-    scale_to_base=1_000.0,
-)
+        Raises:
+            ValueError: 目录不完整或自相矛盾（未定义引用、基准单位不属于
+                对应 Quantity、基准单位非恒等变换、重复单位身份等）。
+        """
+        base_units: dict[str, str] = {}
+        for quantity_id, base_unit_id in quantities.items():
+            if not isinstance(quantity_id, str) or not quantity_id.strip():
+                raise ValueError("quantity IDs must be non-empty trimmed strings")
+            if quantity_id != quantity_id.strip():
+                raise ValueError(f"quantity ID '{quantity_id}' has surrounding whitespace")
+            if not isinstance(base_unit_id, str) or not base_unit_id.strip():
+                raise ValueError(f"quantity '{quantity_id}' base_unit must be a non-empty string")
+            if quantity_id in base_units:
+                raise ValueError(f"duplicate quantity ID '{quantity_id}'")
+            base_units[quantity_id] = base_unit_id.strip()
 
-PASCAL = Unit(UnitCode.PASCAL, "Pa", Quantity.PRESSURE)
-KILOPASCAL = Unit(
-    UnitCode.KILOPASCAL,
-    "kPa",
-    Quantity.PRESSURE,
-    scale_to_base=1_000.0,
-)
-MEGAPASCAL = Unit(
-    UnitCode.MEGAPASCAL,
-    "MPa",
-    Quantity.PRESSURE,
-    scale_to_base=1_000_000.0,
-)
-BAR = Unit(
-    UnitCode.BAR,
-    "bar",
-    Quantity.PRESSURE,
-    scale_to_base=100_000.0,
-)
+        index: dict[str, Unit] = {}
+        for unit in units:
+            if unit.unit_id in index:
+                raise ValueError(f"duplicate unit ID '{unit.unit_id}'")
+            if unit.quantity.quantity_id not in base_units:
+                raise ValueError(
+                    f"unit '{unit.unit_id}' references undefined quantity "
+                    f"'{unit.quantity.quantity_id}'"
+                )
+            index[unit.unit_id] = unit
 
-KELVIN = Unit(UnitCode.KELVIN, "K", Quantity.TEMPERATURE)
-CELSIUS = Unit(
-    UnitCode.CELSIUS,
-    "°C",
-    Quantity.TEMPERATURE,
-    offset_to_base=273.15,
-)
+        for quantity_id, base_unit_id in base_units.items():
+            base = index.get(base_unit_id)
+            if base is None:
+                raise ValueError(
+                    f"quantity '{quantity_id}' base_unit '{base_unit_id}' is not defined"
+                )
+            if base.quantity.quantity_id != quantity_id:
+                raise ValueError(
+                    f"quantity '{quantity_id}' base_unit '{base_unit_id}' belongs to "
+                    f"quantity '{base.quantity.quantity_id}'"
+                )
+            if not base.is_base_transform:
+                raise ValueError(
+                    f"base unit '{base_unit_id}' of quantity '{quantity_id}' must use "
+                    "scale_to_base=1 and offset_to_base=0"
+                )
+        return cls(units=index, base_units=base_units)
 
-SECOND = Unit(UnitCode.SECOND, "s", Quantity.TIME)
-MILLISECOND = Unit(
-    UnitCode.MILLISECOND,
-    "ms",
-    Quantity.TIME,
-    scale_to_base=0.001,
-)
-MINUTE = Unit(
-    UnitCode.MINUTE,
-    "min",
-    Quantity.TIME,
-    scale_to_base=60.0,
-)
-HOUR = Unit(
-    UnitCode.HOUR,
-    "h",
-    Quantity.TIME,
-    scale_to_base=3_600.0,
-)
+    def __contains__(self, unit_id: object) -> bool:
+        return unit_id in self.units
 
-OHM = Unit(UnitCode.OHM, "Ω", Quantity.RESISTANCE)
-SIEMENS = Unit(UnitCode.SIEMENS, "S", Quantity.CONDUCTANCE)
-FARAD = Unit(UnitCode.FARAD, "F", Quantity.CAPACITANCE)
-HENRY = Unit(UnitCode.HENRY, "H", Quantity.INDUCTANCE)
+    def unit(self, unit_id: str) -> Unit:
+        """按 Unit ID 返回单位；未定义时抛出 ValueError。"""
+        try:
+            return self.units[unit_id]
+        except KeyError:
+            raise ValueError(f"undefined unit ID '{unit_id}'") from None
 
-_ALL_UNITS = (
-    NONE,
-    PERCENT,
-    VOLT,
-    KILOVOLT,
-    AMPERE,
-    WATT,
-    KILOWATT,
-    MEGAWATT,
-    VAR,
-    KILOVAR,
-    MEGAVAR,
-    VOLT_AMPERE,
-    KILOVOLT_AMPERE,
-    MEGAVOLT_AMPERE,
-    HERTZ,
-    HERTZ_PER_SECOND,
-    WATT_HOUR,
-    KILOWATT_HOUR,
-    MEGAWATT_HOUR,
-    METER,
-    MILLIMETER,
-    METER_PER_SECOND,
-    METER_PER_SECOND_SQUARED,
-    STANDARD_GRAVITY,
-    RADIAN,
-    DEGREE,
-    RADIAN_PER_SECOND,
-    DEGREE_PER_SECOND,
-    RPM,
-    RADIAN_PER_SECOND_SQUARED,
-    DEGREE_PER_SECOND_SQUARED,
-    RPM_PER_SECOND,
-    NEWTON,
-    KILONEWTON,
-    NEWTON_METER,
-    KILONEWTON_METER,
-    PASCAL,
-    KILOPASCAL,
-    MEGAPASCAL,
-    BAR,
-    KELVIN,
-    CELSIUS,
-    SECOND,
-    MILLISECOND,
-    MINUTE,
-    HOUR,
-    OHM,
-    SIEMENS,
-    FARAD,
-    HENRY,
-)
+    def quantity_ids(self) -> frozenset[str]:
+        """返回目录中全部 Quantity ID。"""
+        return frozenset(self.base_units)
 
-UNIT_CATALOG = MappingProxyType({unit.code: unit for unit in _ALL_UNITS})
+    def base_unit(self, quantity_id: str) -> Unit:
+        """返回指定 Quantity 的基准单位。"""
+        base_unit_id = self.base_units.get(quantity_id)
+        if base_unit_id is None:
+            raise ValueError(f"undefined quantity ID '{quantity_id}'")
+        return self.units[base_unit_id]
 
-if len(UNIT_CATALOG) != len(_ALL_UNITS):
-    raise RuntimeError("duplicate unit code in built-in unit catalog")
+    def convert(self, value: float, source_id: str, target_id: str) -> float:
+        """在同一 Quantity 内按 Unit ID 换算数值。"""
+        return convert_value(value, self.unit(source_id), self.unit(target_id))
+
+
+__all__ = ["UnitCatalog"]

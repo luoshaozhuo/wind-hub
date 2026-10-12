@@ -10,6 +10,7 @@ from core.infrastructure.config.adapter import YamlConfigAdapter
 ROOT = Path(__file__).resolve().parents[4]
 FILES = (
     "system.yaml",
+    "units.yaml",
     "device_models.yaml",
     "devices.yaml",
     "points.yaml",

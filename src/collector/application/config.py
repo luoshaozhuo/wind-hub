@@ -31,6 +31,7 @@ from core.domain import (
     Sink,
     Task,
 )
+from core.domain.unit import UnitCatalog
 
 BackpressurePolicy = Literal["drop_old", "drop_new", "block"]
 
@@ -117,8 +118,11 @@ class CollectorConfig:
         disabled_devices: 配置级停用设备集合（不进 core 快照，不参与采集）。
         ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
             restart-required——热重载 prepare 阶段拒绝其任何变化。
+        units: 工程单位目录；restart-required——单位定义变化会改变已采集
+            数据的语义，热重载 prepare 阶段拒绝其任何变化。
     """
 
+    units: UnitCatalog = field(default_factory=lambda: UnitCatalog(units={}, base_units={}))
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)

@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 
 from core.domain import (
-    UNIT_CATALOG,
     BusinessPoint,
     ConnectionEndpoint,
     DataType,
@@ -19,7 +18,6 @@ from core.domain import (
     Protocol,
     Quantity,
     Unit,
-    UnitCode,
     validate_core_config,
 )
 from core.domain.identities import (
@@ -29,6 +27,11 @@ from core.domain.identities import (
     DeviceModelId,
     DeviceTypeId,
     PointTableId,
+)
+from tests.support.units import (
+    KILOWATT_UNIT,
+    WATT_UNIT,
+    minimal_unit_catalog,
 )
 
 
@@ -41,12 +44,12 @@ def _indexes(
     point = BusinessPoint(
         BusinessPointId("active_power"),
         DataType.FLOAT32,
-        UNIT_CATALOG[UnitCode.KILOWATT],
+        KILOWATT_UNIT,
     )
     protocol_point = Point(
         point_id="p",
         business_point_id=point.business_point_id,
-        source_unit=UNIT_CATALOG[UnitCode.WATT],
+        source_unit=WATT_UNIT,
         access=PointAccess.READ_WRITE,
         ext={
             "register_type": "holding",
@@ -80,7 +83,8 @@ def _indexes(
         "devices": {device.device_id: device},
         "business_points": {point.business_point_id: point},
         "point_tables": {table.point_table_id: table},
-        "protocol_options_by_device": {device.device_id: {"unit_id": 1}},
+        "protocol_options_by_device": {device.device_id: {"slave_id": 1}},
+        "units": minimal_unit_catalog(),
     }
 
 
@@ -97,16 +101,16 @@ def test_data_type_coerces_standard_business_values() -> None:
         DataType.BOOL.coerce(1)
 
 
-def test_domain_validation_rejects_noncanonical_unit() -> None:
+def test_domain_validation_rejects_unit_outside_catalog() -> None:
     indexes = _indexes()
     point = next(iter(indexes["business_points"].values()))
     invalid_point = BusinessPoint(
         point.business_point_id,
         point.data_type,
         Unit(
-            UnitCode.KILOWATT,
+            "kilowatt",
             "bad",
-            Quantity.TIME,
+            Quantity("time"),
             scale_to_base=2.0,
         ),
     )
@@ -115,7 +119,7 @@ def test_domain_validation_rejects_noncanonical_unit() -> None:
         "business_points": {invalid_point.business_point_id: invalid_point},
     }
 
-    with pytest.raises(ValueError, match="canonical built-in unit"):
+    with pytest.raises(ValueError, match="unit catalog"):
         validate_core_config(**invalid)
 
 

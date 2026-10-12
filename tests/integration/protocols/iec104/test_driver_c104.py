@@ -33,7 +33,6 @@ from core.application.protocol_contract import (
     WriteOutcome,
 )
 from core.domain import (
-    UNIT_CATALOG,
     BusinessPointId,
     ConnectionEndpoint,
     Point,
@@ -41,12 +40,12 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    UnitCode,
 )
 from core.infrastructure.protocol.iec104 import IEC104Driver
 from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.support.process import free_port
+from tests.support.units import NONE_UNIT
 from tests.support.wait import wait_until
 
 pytestmark = pytest.mark.real_service
@@ -78,7 +77,7 @@ def _point(
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=access,
         ext=ext,
     )

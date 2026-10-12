@@ -16,7 +16,6 @@ import pytest
 import core.infrastructure.protocol.ads.subscription as subscription_module
 from core.application import ProtocolSample
 from core.domain import (
-    UNIT_CATALOG,
     BusinessPointId,
     ConnectionEndpoint,
     Point,
@@ -24,17 +23,17 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    UnitCode,
 )
 from core.infrastructure.protocol.ads import ADSDriver, ADSPoint
 from core.infrastructure.protocol.ads.subscription import ADSSubscription
+from tests.support.units import NONE_UNIT
 
 
 def _point(point_id: str, *, offset: int = 10) -> Point:
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=PointAccess.READ_WRITE,
         ext={"data_type": "REAL", "index_group": 0x4020, "index_offset": offset},
     )

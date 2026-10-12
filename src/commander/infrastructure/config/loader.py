@@ -34,6 +34,7 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CommanderConfig:
         devices[key] = merged_device
         options[key] = merged_options
     return CommanderConfig(
+        units=snapshot.units,
         devices=devices,
         device_models=snapshot.device_models,
         device_groups=snapshot.device_groups,

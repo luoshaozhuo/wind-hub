@@ -14,6 +14,7 @@ def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
     source = ROOT / "configs" / "template"
     for filename in (
         "system.yaml",
+        "units.yaml",
         "device_models.yaml",
         "devices.yaml",
         "points.yaml",
@@ -43,6 +44,7 @@ def test_point_table_save_reload_keeps_changed_and_removed_points(tmp_path: Path
     source = ROOT / "configs" / "template"
     for filename in (
         "system.yaml",
+        "units.yaml",
         "device_models.yaml",
         "devices.yaml",
         "points.yaml",

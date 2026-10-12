@@ -3,101 +3,42 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from math import isfinite
 
 from .quantity import Quantity
-
-
-class UnitCode(StrEnum):
-    """系统内置工程单位的稳定代码。"""
-
-    NONE = "none"
-    PERCENT = "percent"
-
-    VOLT = "volt"
-    KILOVOLT = "kilovolt"
-    AMPERE = "ampere"
-
-    WATT = "watt"
-    KILOWATT = "kilowatt"
-    MEGAWATT = "megawatt"
-    VAR = "var"
-    KILOVAR = "kilovar"
-    MEGAVAR = "megavar"
-    VOLT_AMPERE = "volt_ampere"
-    KILOVOLT_AMPERE = "kilovolt_ampere"
-    MEGAVOLT_AMPERE = "megavolt_ampere"
-
-    HERTZ = "hertz"
-    HERTZ_PER_SECOND = "hertz_per_second"
-
-    WATT_HOUR = "watt_hour"
-    KILOWATT_HOUR = "kilowatt_hour"
-    MEGAWATT_HOUR = "megawatt_hour"
-
-    METER = "meter"
-    MILLIMETER = "millimeter"
-    METER_PER_SECOND = "meter_per_second"
-    METER_PER_SECOND_SQUARED = "meter_per_second_squared"
-    STANDARD_GRAVITY = "standard_gravity"
-
-    RADIAN = "radian"
-    DEGREE = "degree"
-    RADIAN_PER_SECOND = "radian_per_second"
-    DEGREE_PER_SECOND = "degree_per_second"
-    RPM = "rpm"
-    RADIAN_PER_SECOND_SQUARED = "radian_per_second_squared"
-    DEGREE_PER_SECOND_SQUARED = "degree_per_second_squared"
-    RPM_PER_SECOND = "rpm_per_second"
-
-    NEWTON = "newton"
-    KILONEWTON = "kilonewton"
-    NEWTON_METER = "newton_meter"
-    KILONEWTON_METER = "kilonewton_meter"
-
-    PASCAL = "pascal"
-    KILOPASCAL = "kilopascal"
-    MEGAPASCAL = "megapascal"
-    BAR = "bar"
-
-    KELVIN = "kelvin"
-    CELSIUS = "celsius"
-
-    SECOND = "second"
-    MILLISECOND = "millisecond"
-    MINUTE = "minute"
-    HOUR = "hour"
-
-    OHM = "ohm"
-    SIEMENS = "siemens"
-    FARAD = "farad"
-    HENRY = "henry"
 
 
 @dataclass(frozen=True, slots=True)
 class Unit:
     """不可变工程单位值对象。
 
-    scale_to_base 与 offset_to_base 将单位值映射到所属 Quantity 的内部基准单位：
+    scale_to_base 与 offset_to_base 将单位值映射到所属 Quantity 的基准单位：
 
     base_value = value * scale_to_base + offset_to_base
 
-    code 已提供稳定语义名称，symbol 提供工程符号，因此不再保存重复 name 字段。
+    unit_id 提供稳定语义身份（配置 units.yaml 的 Mapping Key），symbol
+    提供工程显示符号；基准单位由 UnitCatalog 按 Quantity 集中维护，
+    Unit 自身不重复声明。
     """
 
-    code: UnitCode
+    unit_id: str
     symbol: str
     quantity: Quantity
     scale_to_base: float = 1.0
     offset_to_base: float = 0.0
 
     def __post_init__(self) -> None:
-        symbol = self.symbol.strip()
-
+        unit_id = self.unit_id.strip()
+        if not unit_id or unit_id != self.unit_id:
+            raise ValueError("unit_id must be a non-empty trimmed string")
+        if not isinstance(self.symbol, str):
+            raise ValueError("symbol must be a string")
         if not isfinite(self.scale_to_base) or self.scale_to_base <= 0.0:
             raise ValueError("scale_to_base must be finite and greater than zero")
         if not isfinite(self.offset_to_base):
             raise ValueError("offset_to_base must be finite")
 
-        object.__setattr__(self, "symbol", symbol)
+    @property
+    def is_base_transform(self) -> bool:
+        """是否相对基准单位保持恒等变换（scale=1 且 offset=0）。"""
+        return self.scale_to_base == 1.0 and self.offset_to_base == 0.0

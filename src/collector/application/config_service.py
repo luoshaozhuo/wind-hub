@@ -211,6 +211,8 @@ class CollectorConfigService:
         ]
         if self._current.ads_local != candidate.ads_local:
             errors.append("ADS local identity change requires process restart")
+        if self._current.units != candidate.units:
+            errors.append("unit catalog change requires process restart")
         return errors or None
 
     async def activate_config(self, revision_id: str) -> ReloadResult:

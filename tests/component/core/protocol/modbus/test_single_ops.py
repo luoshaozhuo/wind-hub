@@ -12,7 +12,6 @@ from core.application import ConfigError
 from core.application.errors import ProtocolConnectionError, ProtocolError
 from core.application.protocol_contract import ProtocolWrite, Quality, WriteOutcome
 from core.domain import (
-    UNIT_CATALOG,
     BusinessPointId,
     ConnectionEndpoint,
     Point,
@@ -20,11 +19,11 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    UnitCode,
 )
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 from core.infrastructure.protocol.modbus.mapping import ModbusPoint
+from tests.support.units import NONE_UNIT
 
 
 def _point(
@@ -371,7 +370,7 @@ class TestReadMany:
         point = Point(
             point_id="h",
             business_point_id=BusinessPointId("h"),
-            source_unit=UNIT_CATALOG[UnitCode.NONE],
+            source_unit=NONE_UNIT,
             access=PointAccess.READ,
             ext={"register_type": "holding", "address": 100, "data_type": "uint16"},
         )
@@ -607,7 +606,7 @@ def _domain_point(point_id: str, address: int) -> Point:
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=PointAccess.READ_WRITE,
         ext={"register_type": "holding", "address": address, "data_type": "uint16"},
     )

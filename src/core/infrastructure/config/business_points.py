@@ -7,11 +7,14 @@ from typing import Any
 
 from core.application.errors import ConfigError
 from core.domain import BusinessPoint, BusinessPointId, DataType
-from core.domain.unit import UNIT_CATALOG, UnitCode
+from core.domain.unit import UnitCatalog
 
 
-def parse_business_points(raw: Mapping[str, Any]) -> dict[BusinessPointId, BusinessPoint]:
-    """按 ID 建立全场共享的业务点目录。"""
+def parse_business_points(
+    raw: Mapping[str, Any],
+    units: UnitCatalog,
+) -> dict[BusinessPointId, BusinessPoint]:
+    """按 ID 建立全场共享的业务点目录；工程单位由单位目录解析。"""
     if set(raw) != {"business_points"}:
         raise ConfigError("business_points.yaml requires only 'business_points' root")
     entries = raw["business_points"]
@@ -21,11 +24,11 @@ def parse_business_points(raw: Mapping[str, Any]) -> dict[BusinessPointId, Busin
     for identity, value in entries.items():
         if not isinstance(identity, str) or not identity.strip() or identity != identity.strip():
             raise ConfigError("business point IDs must be non-empty trimmed strings")
-        if not isinstance(value, dict) or set(value) - {"data_type", "unit", "description"}:
+        if not isinstance(value, dict) or set(value) - {"data_type", "unit_id", "description"}:
             raise ConfigError(f"invalid business point '{identity}' fields")
         try:
             data_type = DataType(value["data_type"])
-            unit = UNIT_CATALOG[UnitCode(value["unit"])]
+            unit = units.unit(value["unit_id"])
             description = value.get("description")
             if description is not None and not isinstance(description, str):
                 raise ValueError("description must be string")

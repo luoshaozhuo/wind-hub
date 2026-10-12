@@ -23,6 +23,7 @@ from core.domain import (
     Task,
 )
 from core.domain.device import ProtocolOptions, freeze_protocol_options
+from core.domain.unit import UnitCatalog
 
 from .settings import SystemSettings
 
@@ -32,6 +33,7 @@ class ConfigSnapshot:
     """共享领域配置快照；没有 YAML 包装类型。"""
 
     system: SystemSettings
+    units: UnitCatalog
     device_types: Mapping[DeviceTypeId, DeviceType]
     device_models: Mapping[DeviceModelId, DeviceModel]
     device_groups: Mapping[DeviceGroupId, DeviceGroup]

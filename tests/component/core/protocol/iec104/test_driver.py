@@ -14,19 +14,18 @@ from core.application import (
     ProtocolSample,
 )
 from core.domain import (
-    UNIT_CATALOG,
     BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
     PointTableId,
-    UnitCode,
 )
 from core.domain import (
     Protocol as DeviceProtocol,
 )
 from core.infrastructure.protocol.iec104 import IEC104Driver
+from tests.support.units import NONE_UNIT
 
 
 class _Closable(Protocol):
@@ -46,7 +45,7 @@ def _point(
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=access,
         ext={} if ext is None else ext,
     )

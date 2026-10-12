@@ -30,6 +30,7 @@ from core.domain import (
     PointTableId,
     ProtocolOptions,
 )
+from core.domain.unit import UnitCatalog
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,8 +48,10 @@ class CommanderConfig:
         connect_timeout: 单设备连接超时（秒）。
         write_timeout: 默认写超时（秒）；Command.timeout <= 0 时生效。
         disabled_devices: 配置级停用设备集合；停用设备不参与即时操作。
+        units: 工程单位目录；restart-required——热重载拒绝其任何变化。
     """
 
+    units: UnitCatalog = field(default_factory=lambda: UnitCatalog(units={}, base_units={}))
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
     device_groups: Mapping[DeviceGroupId, DeviceGroup] = field(default_factory=dict)

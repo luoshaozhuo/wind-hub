@@ -195,6 +195,8 @@ class CommanderRuntime:
             raise ValueError("config_hash must not be empty")
         if config.ads_local != self._current.config.ads_local:
             raise ValueError("ADS local identity change requires process restart")
+        if config.units != self._current.config.units:
+            raise ValueError("unit catalog change requires process restart")
         candidate = self._build_generation(config)
         async with self._reload_lock:
             if self._stopping:

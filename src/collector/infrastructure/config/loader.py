@@ -9,7 +9,6 @@ from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
 from core.domain import Device, DeviceId, ProtocolOptions, Sink
-from core.domain.unit import UNIT_CATALOG, UnitCode
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.sink_schema import (
     MODBUS_WORD_WIDTH,
@@ -54,6 +53,7 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
         effective_devices[key] = merged_device
         effective_options[key] = merged_options
     return CollectorConfig(
+        units=snapshot.units,
         devices=effective_devices,
         device_models=snapshot.device_models,
         point_tables=snapshot.point_tables,
@@ -70,7 +70,7 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
 
 
 def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
-    """解析外部 Sink 点引用，明确源类型与单位，不依赖 units.yaml。"""
+    """解析外部 Sink 点引用，明确源类型与单位（单位由快照单位目录解析）。"""
     result: dict[str, Sink] = {}
     for sink_id, sink in snapshot.sinks.items():
         points = []
@@ -90,11 +90,11 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                     f"Sink '{sink_id}' references unknown point '{source['point_id']}'"
                 )
             source_data_type = point.ext["data_type"]
-            source_unit = point.source_unit.code.value
+            source_unit = point.source_unit.unit_id
             unit = raw.get("unit") or source_unit
             try:
-                UNIT_CATALOG[UnitCode(unit)]
-            except (KeyError, ValueError) as exc:
+                snapshot.units.unit(unit)
+            except ValueError as exc:
                 raise ConfigError(f"Sink '{sink_id}' unknown unit '{unit}'") from exc
             resolved = ResolvedSinkPoint.model_validate(
                 {

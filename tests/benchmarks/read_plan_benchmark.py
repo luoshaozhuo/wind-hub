@@ -13,7 +13,6 @@ import tracemalloc
 from collections.abc import Callable
 
 from core.domain import (
-    UNIT_CATALOG,
     BusinessPointId,
     ConnectionEndpoint,
     Point,
@@ -21,13 +20,13 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    UnitCode,
 )
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
+from tests.support.units import NONE_UNIT
 
 
 def _driver(point_count: int = 256) -> ModbusDriver:
-    unit = UNIT_CATALOG[UnitCode.NONE]
+    unit = NONE_UNIT
     points = {
         f"p{index}": Point(
             point_id=f"p{index}",

@@ -1,4 +1,4 @@
-"""配置快照序列化为七个 YAML 文档。
+"""配置快照序列化为八个 YAML 文档。
 
 与 :mod:`.parse_domain` 使用同一套 Schema：实体集合一律为 Mapping
 （Key 即实体 ID），跨实体引用使用 ``*_id`` / ``*_ids`` 命名。
@@ -13,6 +13,7 @@ from typing import Any
 from core.application.config_snapshot import ConfigSnapshot
 
 from .point_table_writer import dump_point_tables
+from .units import dump_unit_catalog
 from .yaml import yaml_plain as _yaml_plain
 
 
@@ -80,13 +81,14 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
     catalog = {
         str(key): {
             "data_type": point.data_type.value,
-            "unit": point.standard_unit.code.value,
+            "unit_id": point.standard_unit.unit_id,
             "description": point.description,
         }
         for key, point in snapshot.business_points.items()
     }
     return {
         "system.yaml": system,
+        "units.yaml": dump_unit_catalog(snapshot.units),
         "device_models.yaml": {
             "device_types": {
                 str(key): {

@@ -9,7 +9,7 @@ from tests.support.new_collector import write_collector_config_tree
 
 def test_collector_loads_domain_snapshot(tmp_path: Path) -> None:
     base = write_collector_config_tree(tmp_path / "cfg")
-    assert not (base / "units.yaml").exists()
+    assert (base / "units.yaml").exists()
     snapshot = YamlConfigAdapter(base).load()
     config = load_collector_config(YamlConfigAdapter(base))
 

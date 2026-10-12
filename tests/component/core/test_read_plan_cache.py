@@ -7,7 +7,6 @@ import struct
 import pytest
 
 from core.domain import (
-    UNIT_CATALOG,
     BusinessPointId,
     ConnectionEndpoint,
     Point,
@@ -15,10 +14,10 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    UnitCode,
 )
 from core.infrastructure.protocol.ads.driver import ADSDriver
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
+from tests.support.units import NONE_UNIT
 
 
 class _StubClient:
@@ -36,7 +35,7 @@ def _point(
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=access,
         ext=ext,
     )
