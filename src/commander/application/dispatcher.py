@@ -83,7 +83,9 @@ class CommandDispatcher:
 
     async def _execute(self, command: Command, signature: str) -> CommandResult:
         """固定 generation，保证连接后执行一次真实写入并缓存最终结果。"""
+        started = time.monotonic()
         async with self._runtime.operation():
+            _, config_hash = self._runtime.operation_config_identity()
             try:
                 device = self._runtime.device(command.device_id)
             except KeyError:
@@ -93,7 +95,7 @@ class CommandDispatcher:
                     error=f"unknown device '{command.device_id}'",
                 )
                 self._cache_store(command.command_id, signature, result, time.monotonic())
-                self._audit(command, result)
+                self._audit(command, result, duration_ms=(time.monotonic() - started) * 1000, config_hash=config_hash)
                 return result
 
             if not await self._runtime.ensure_connected(command.device_id):
@@ -104,7 +106,7 @@ class CommandDispatcher:
                     error=f"device '{command.device_id}' is not connected",
                 )
                 self._cache_store(command.command_id, signature, result, time.monotonic())
-                self._audit(command, result)
+                self._audit(command, result, duration_ms=(time.monotonic() - started) * 1000, config_hash=config_hash)
                 return result
 
             # 显式 timeout 优先；否则使用本次操作固定 generation 的
@@ -154,21 +156,29 @@ class CommandDispatcher:
                 )
 
         self._cache_store(command.command_id, signature, result, time.monotonic())
-        self._audit(command, result)
+        self._audit(command, result, duration_ms=(time.monotonic() - started) * 1000, config_hash=config_hash)
         return result
 
     @staticmethod
-    def _audit(command: Command, result: CommandResult) -> None:
+    def _audit(
+        command: Command,
+        result: CommandResult,
+        *,
+        duration_ms: float,
+        config_hash: str,
+    ) -> None:
         """逐条命令审计日志：command_id 关联设备/测点/终局；UNKNOWN 提升级别。"""
         log = logger.info if result.outcome is WriteOutcome.CONFIRMED_SUCCESS else logger.warning
         log(
-            "Command outcome=%s command_id=%s device=%s point=%s value=%r error=%s",
+            "Command outcome=%s command_id=%s device=%s point=%s value=%r error=%s duration_ms=%.3f config_hash=%s",
             result.outcome.value,
             command.command_id,
             command.device_id,
             command.point_id,
             command.value,
             result.error,
+            duration_ms,
+            config_hash,
         )
 
     @staticmethod
