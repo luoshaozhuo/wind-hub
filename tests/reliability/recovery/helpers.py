@@ -19,14 +19,15 @@ from tests.support.process import CollectorProcess, run_cli_async
 from tests.support.wait import WaitTimeoutError, wait_until
 
 
-def telemetry_task(sink_name: str, *, task_id: str = "modbus-telemetry") -> dict[str, Any]:
+def telemetry_task(sink_id: str, *, task_id: str = "modbus-telemetry") -> dict[str, Any]:
     """单设备 telemetry 采集任务定义（指向指定 sink）。"""
     return {
-        "task_id": task_id,
-        "device_group": "modbus-1",
-        "point_group": "telemetry",
-        "interval": 0.2,
-        "targets": [{"sink": sink_name}],
+        task_id: {
+            "device_group_id": "modbus-1",
+            "point_group": "telemetry",
+            "interval": 0.2,
+            "sink_ids": [sink_id],
+        }
     }
 
 
@@ -42,8 +43,8 @@ def write_modbus_file_config(
     return write_functional_config(
         base,
         port,
-        sinks=[{"name": "file_sink", "type": "file", "connection": params}],
-        tasks=[telemetry_task("file_sink")],
+        sinks={"file_sink": {"type": "file", "connection": params}},
+        tasks=telemetry_task("file_sink"),
     )
 
 

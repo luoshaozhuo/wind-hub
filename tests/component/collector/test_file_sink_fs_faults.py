@@ -30,37 +30,34 @@ SINKS = "sinks.yaml"
 _UNHEALTHY_TIMEOUT = 8.0
 
 
-def _two_file_sinks(bad_path: Path, good_path: Path) -> list[dict[str, Any]]:
-    return [
-        {
-            "name": "bad_file",
+def _two_file_sinks(bad_path: Path, good_path: Path) -> dict[str, Any]:
+    return {
+        "bad_file": {
             "type": "file",
             "connection": {
                 "path": str(bad_path),
                 "max_files": 3,
             },
         },
-        {
-            "name": "good_file",
+        "good_file": {
             "type": "file",
             "connection": {
                 "path": str(good_path),
                 "max_files": 4,
             },
         },
-    ]
+    }
 
 
-def _task_both_sinks() -> list[dict[str, Any]]:
-    return [
-        {
-            "task_id": "modbus-telemetry",
-            "device_group": "modbus-1",
+def _task_both_sinks() -> dict[str, Any]:
+    return {
+        "modbus-telemetry": {
+            "device_group_id": "modbus-1",
             "point_group": "telemetry",
             "interval": 0.2,
-            "targets": [{"sink": "bad_file"}, {"sink": "good_file"}],
+            "sink_ids": ["bad_file", "good_file"],
         }
-    ]
+    }
 
 
 class TestFileSinkFsFaults:
@@ -102,9 +99,7 @@ class TestFileSinkFsFaults:
             readonly_dir.chmod(stat.S_IRWXU)  # 0o700
 
             def mutate(data: dict[str, Any]) -> None:
-                for sink in data["sinks"]:
-                    if sink["name"] == "bad_file":
-                        sink["connection"]["max_files"] = 5
+                data["sinks"]["bad_file"]["connection"]["max_files"] = 5
 
             update_yaml(ctx.config_dir, SINKS, mutate)
             result = await app.config.reload()

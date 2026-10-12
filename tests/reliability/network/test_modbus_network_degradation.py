@@ -44,22 +44,21 @@ READ_TIMEOUT_S = 2.0
 def _write_config(base: Path, link: NetemLink, sink_path: Path) -> Path:
     from tests.support.functional_config import MODBUS_POINTS, modbus_device_dict
 
-    device = modbus_device_dict(link.device_port)
-    device["endpoint"]["host"] = link.device_host
+    devices = modbus_device_dict(link.device_port)
+    devices[DEVICE_ID]["endpoint"]["host"] = link.device_host
     return write_config_tree(
         base,
-        devices=[device],
-        point_tables={"modbus": {"points": list(MODBUS_POINTS)}},
-        sinks=[
-            {
-                "name": "file_sink",
+        devices=devices,
+        point_tables={"modbus": {"points": dict(MODBUS_POINTS)}},
+        sinks={
+            "file_sink": {
                 "type": "file",
                 "connection": {
                     "path": str(sink_path),
                 },
             }
-        ],
-        tasks=[telemetry_task("file_sink")],
+        },
+        tasks=telemetry_task("file_sink"),
         system={"runtime": {"connect_timeout": 1.0, "read_timeout": READ_TIMEOUT_S}},
     )
 

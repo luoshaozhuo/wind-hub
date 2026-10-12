@@ -22,13 +22,12 @@ async def running(tmp_path):
     """装配并启动 Commander + gRPC Server；yield (app, stub)。"""
     config_dir = write_minimal_config_tree(
         tmp_path,
-        devices=[
-            {
-                "device_id": "dev1",
-                "model": "mod",
+        devices={
+            "dev1": {
+                "model_id": "mod",
                 "endpoint": {"host": "127.0.0.1", "port": 1},  # 立即拒绝
             }
-        ],
+        },
         runtime={"connect_timeout": 0.5, "read_timeout": 0.5},
     )
     app = assemble_commander(config_dir)

@@ -39,9 +39,9 @@ REDIS_KEY_PREFIX = "wind-hub-iso"
 ROTOR_KEY = point_key("modbus-1", "rotor.speed", prefix=REDIS_KEY_PREFIX)
 
 
-def _multi_target_task(*sink_names: str) -> dict[str, Any]:
-    task = telemetry_task(sink_names[0])
-    task["targets"] = [{"sink": name} for name in sink_names]
+def _multi_target_task(*sink_ids: str) -> dict[str, Any]:
+    task = telemetry_task(sink_ids[0])
+    task[TASK_ID]["sink_ids"] = list(sink_ids)
     return task
 
 
@@ -65,16 +65,14 @@ class TestRedisOutageIsolation:
         config_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
-            sinks=[
-                {
-                    "name": "file_sink",
+            sinks={
+                "file_sink": {
                     "type": "file",
                     "connection": {
                         "path": str(sink_path),
                     },
                 },
-                {
-                    "name": "redis_sink",
+                "redis_sink": {
                     "type": "redis",
                     "connection": {
                         "host": host,
@@ -82,8 +80,8 @@ class TestRedisOutageIsolation:
                         "key_prefix": REDIS_KEY_PREFIX,
                     },
                 },
-            ],
-            tasks=[_multi_target_task("file_sink", "redis_sink")],
+            },
+            tasks=_multi_target_task("file_sink", "redis_sink"),
         )
         proc: CollectorProcess = await collector_factory(config_dir)
         service_stopped = False

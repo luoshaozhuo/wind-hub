@@ -33,50 +33,46 @@ MODBUS_INSTANCE_ID = "modbus-telemetry:modbus-1"
 IEC104_TASK_ID = "iec104-telemetry"
 IEC104_INSTANCE_ID = "iec104-telemetry:iec104-1"
 
-IEC104_POINTS: list[dict[str, Any]] = [
-    {
-        "point_id": "meas.active_power",
+IEC104_POINTS: dict[str, dict[str, Any]] = {
+    "meas.active_power": {
         "point_groups": ["telemetry"],
         "address": {"ioa": 100},
         "data_type": "float32",
     },
-    {
-        "point_id": "meas.frequency",
+    "meas.frequency": {
         "point_groups": ["telemetry"],
         "address": {"ioa": 200},
         "data_type": "float32",
     },
-]
+}
 
 
 def _iec104_config(base: Path, port: int, sink_path: Path) -> Path:
     """单 IEC104 设备 + File sink 的现场配置（订阅型采集）。"""
     return write_config_tree(
         base,
-        devices=[
-            {
-                "device_id": "iec104-1",
+        devices={
+            "iec104-1": {
                 "protocol": "iec104",
                 "point_table": "iec104",
                 "endpoint": {
                     "host": "127.0.0.1",
                     "port": port,
-                    "extensions": {
-                        "common_addr": 1,
-                        # 缩短协议定时器；重试次数给足，保证断连窗口内驱动
-                        # 持续自动重连（恢复阶段不依赖人工干预）。
-                        "t0": 5.0,
-                        "t1": 3.0,
-                        "t2": 2.0,
-                        "t3": 5.0,
-                    },
+                },
+                "protocol_options": {
+                    "common_addr": 1,
+                    # 缩短协议定时器；重试次数给足，保证断连窗口内驱动
+                    # 持续自动重连（恢复阶段不依赖人工干预）。
+                    "t0": 5.0,
+                    "t1": 3.0,
+                    "t2": 2.0,
+                    "t3": 5.0,
                 },
             }
-        ],
-        point_tables={"iec104": {"points": list(IEC104_POINTS)}},
-        sinks=[
-            {
-                "name": "file_sink",
+        },
+        point_tables={"iec104": {"points": dict(IEC104_POINTS)}},
+        sinks={
+            "file_sink": {
                 "type": "file",
                 "connection": {
                     "path": str(sink_path),
@@ -84,17 +80,16 @@ def _iec104_config(base: Path, port: int, sink_path: Path) -> Path:
                     # 滞留缓冲导致边界观测不到。
                 },
             }
-        ],
-        tasks=[
-            {
-                "task_id": "iec104-telemetry",
-                "device_group": "iec104-1",
+        },
+        tasks={
+            "iec104-telemetry": {
+                "device_group_id": "iec104-1",
                 "point_group": "telemetry",
                 # IEC104 为订阅型：interval 被协议忽略，仅满足 schema。
                 "interval": 0.2,
-                "targets": [{"sink": "file_sink"}],
+                "sink_ids": ["file_sink"],
             }
-        ],
+        },
         system={
             "runtime": {
                 "connect_timeout": 2.0,
@@ -176,15 +171,12 @@ class TestSubscriptionRestartPending:
 
         # ---- 断连期间变更点表：订阅必须重建但设备不可达 → reload 失败 ----
         def _add_point(data: dict[str, Any]) -> None:
-            data["point_tables"]["iec104"]["points"].append(
-                {
-                    "point_id": "meas.reactive_power",
-                    "business_point_id": "meas.reactive_power",
-                    "point_groups": ["telemetry"],
-                    "address": {"ioa": 300},
-                    "data_type": "float32",
-                }
-            )
+            data["point_tables"]["iec104"]["points"]["meas.reactive_power"] = {
+                "business_point_id": "meas.reactive_power",
+                "point_groups": ["telemetry"],
+                "address": {"ioa": 300},
+                "data_type": "float32",
+            }
 
         def _add_business_point(data: dict[str, Any]) -> None:
             data["business_points"]["meas.reactive_power"] = {

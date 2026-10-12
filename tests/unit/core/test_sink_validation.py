@@ -32,10 +32,10 @@ def test_valid_three_sinks() -> None:
 
 def test_duplicate_id_rejected() -> None:
     """Sink ID 由 Mapping Key 提供，重复 Key 在 YAML 加载期被拒绝。"""
-    from core.infrastructure.config.yaml import read_yaml_mapping
-
     import tempfile
     from pathlib import Path
+
+    from core.infrastructure.config.yaml import read_yaml_mapping
 
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "sinks.yaml"

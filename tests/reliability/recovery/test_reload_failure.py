@@ -50,7 +50,7 @@ class TestReloadFailureResilience:
         update_yaml(
             config_dir,
             "tasks.yaml",
-            lambda data: data["tasks"][0].update({"targets": [{"sink": "ghost_sink"}]}),
+            lambda data: data["tasks"]["modbus-telemetry"].update({"sink_ids": ["ghost_sink"]}),
         )
         prepared = await prepare_config(
             proc.grpc_target, config_dir=config_dir, revision_id="rev-broken"
@@ -65,8 +65,8 @@ class TestReloadFailureResilience:
 
         # ---- 修复：写回合法配置（顺带改节拍证明 diff 生效），reload 成功 ----
         def _restore(data: dict[str, Any]) -> None:
-            data["tasks"][0]["targets"] = [{"sink": "file_sink"}]
-            data["tasks"][0]["interval"] = 0.5
+            data["tasks"]["modbus-telemetry"]["sink_ids"] = ["file_sink"]
+            data["tasks"]["modbus-telemetry"]["interval"] = 0.5
 
         update_yaml(config_dir, "tasks.yaml", _restore)
         activated = await reload_config(

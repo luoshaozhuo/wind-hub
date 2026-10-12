@@ -23,13 +23,12 @@ async def running(tmp_path):
     """装配并启动 Collector + gRPC 控制面；yield (app, runtime_stub, control_stub)。"""
     config_dir = write_collector_config_tree(
         tmp_path,
-        devices=[
-            {
-                "device_id": "dev1",
-                "model": "mod",
+        devices={
+            "dev1": {
+                "model_id": "mod",
                 "endpoint": {"host": "127.0.0.1", "port": 1},  # 立即拒绝
             }
-        ],
+        },
         runtime={"connect_timeout": 0.5},
     )
     app = assemble_collector(config_dir, collector_id="collector-test")

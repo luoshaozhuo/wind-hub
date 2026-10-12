@@ -10,11 +10,11 @@ import pytest
 from collector.infrastructure.config.loader import load_collector_config
 from commander.infrastructure.config.loader import load_commander_config
 from core.application.config_diff import diff_config_snapshots
+from core.domain import ConnectionEndpoint
 from core.infrastructure.config import YamlConfigAdapter
 from core.infrastructure.protocol.ads.config import parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
-from core.domain import ConnectionEndpoint
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[4] / "configs" / "template"
 

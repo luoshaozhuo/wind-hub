@@ -151,7 +151,7 @@ def make_collector_config(
     scale: float = 1.0,
     offset: float = 0.0,
     point_groups: tuple[str, ...] = ("g",),
-    device_group: str | None = None,
+    device_group_id: str | None = None,
     tasks: dict[str, CollectionTask] | None = None,
     sinks: dict[str, Any] | None = None,
     ads_subscribe: bool = False,
@@ -179,7 +179,7 @@ def make_collector_config(
         protocol=Protocol(protocol),
         points={"p1": point},
     )
-    group_ids = (DeviceGroupId(device_group or device_id),)
+    group_ids = (DeviceGroupId(device_group_id or device_id),)
     device_models = {
         DeviceModelId("mod"): DeviceModel(
             device_model_id=DeviceModelId("mod"),
@@ -200,7 +200,7 @@ def make_collector_config(
         tasks = {
             "t1": CollectionTask(
                 task_id="t1",
-                device_group_id=DeviceGroupId(device_group or device_id),
+                device_group_id=DeviceGroupId(device_group_id or device_id),
                 point_group="g",
                 interval=1.0,
                 sink_ids=("s1",),
