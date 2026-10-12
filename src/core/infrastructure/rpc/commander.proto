@@ -80,11 +80,38 @@ message PointVerifyResponse {
   google.protobuf.BoolValue readable = 11; bool ok = 12; string code = 13; string severity = 14;
   ScalarValue raw_value = 15; ScalarValue engineering_value = 16;
   string quality = 17; string source = 18; string error = 19;
+  string access = 20;
 }
 message PointsVerifyResponse {
   string device_id = 1; string point_group = 2; uint64 checked = 3;
   uint64 passed = 4; uint64 failed = 5; bool ok = 6;
   repeated PointVerifyResponse points = 7;
+}
+
+message PointsMetadataRequest {
+  string device_id = 1;
+  repeated string point_ids = 2;
+}
+message PointMetadata {
+  string point_id = 1;
+  string access = 2;
+  string data_type = 3;
+  string unit = 4;
+  double scale = 5;
+  double offset = 6;
+  repeated AddressField configured_address = 7;
+}
+message PointMetadataResult {
+  string point_id = 1;
+  bool found = 2;
+  PointMetadata metadata = 3;
+  string error = 4;
+}
+message PointsMetadataResponse {
+  string device_id = 1;
+  string active_revision = 2;
+  string active_config_hash = 3;
+  repeated PointMetadataResult points = 4;
 }
 
 service CommanderService {
@@ -98,6 +125,7 @@ service CommanderService {
   rpc WritePoint(WritePointRequest) returns (CommandResultMessage);
   rpc WritePoints(WritePointsRequest) returns (WritePointsResponse);
   rpc VerifyDevice(VerifyDeviceRequest) returns (DeviceVerifyResponse);
+  rpc GetPointsMetadata(PointsMetadataRequest) returns (PointsMetadataResponse);
   rpc ResolvePoint(PointRequest) returns (PointVerifyResponse);
   rpc VerifyPoint(PointRequest) returns (PointVerifyResponse);
   rpc VerifyPoints(VerifyPointsRequest) returns (PointsVerifyResponse);
