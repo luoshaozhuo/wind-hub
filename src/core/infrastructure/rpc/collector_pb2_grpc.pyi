@@ -41,6 +41,7 @@ class CollectorRuntimeServiceStub:
     GetTaskInstance: _grpc.UnaryUnaryMultiCallable[_collector_pb2.InstanceIdRequest, _collector_pb2.TaskInstanceMessage]
     ListDevices: _grpc.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListDevicesResponse]
     ListSinks: _grpc.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListSinksResponse]
+    GetPointsMetadata: _grpc.UnaryUnaryMultiCallable[_collector_pb2.PointsMetadataRequest, _collector_pb2.PointsMetadataResponse]
     QueryLatestValues: _grpc.UnaryUnaryMultiCallable[_collector_pb2.LatestValuesRequest, _collector_pb2.LatestValuesResponse]
     VerifySink: _grpc.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]
     WriteTestSink: _grpc.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]
@@ -57,6 +58,7 @@ class CollectorRuntimeServiceAsyncStub(CollectorRuntimeServiceStub):
     GetTaskInstance: _aio.UnaryUnaryMultiCallable[_collector_pb2.InstanceIdRequest, _collector_pb2.TaskInstanceMessage]  # type: ignore[assignment]
     ListDevices: _aio.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListDevicesResponse]  # type: ignore[assignment]
     ListSinks: _aio.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListSinksResponse]  # type: ignore[assignment]
+    GetPointsMetadata: _aio.UnaryUnaryMultiCallable[_collector_pb2.PointsMetadataRequest, _collector_pb2.PointsMetadataResponse]  # type: ignore[assignment]
     QueryLatestValues: _aio.UnaryUnaryMultiCallable[_collector_pb2.LatestValuesRequest, _collector_pb2.LatestValuesResponse]  # type: ignore[assignment]
     VerifySink: _aio.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]  # type: ignore[assignment]
     WriteTestSink: _aio.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]  # type: ignore[assignment]
@@ -124,6 +126,13 @@ class CollectorRuntimeServiceServicer(metaclass=_abc_1.ABCMeta):
         request: _empty_pb2.Empty,
         context: _ServicerContext,
     ) -> _typing.Union[_collector_pb2.ListSinksResponse, _abc.Awaitable[_collector_pb2.ListSinksResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetPointsMetadata(
+        self,
+        request: _collector_pb2.PointsMetadataRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_collector_pb2.PointsMetadataResponse, _abc.Awaitable[_collector_pb2.PointsMetadataResponse]]: ...
 
     @_abc_1.abstractmethod
     def QueryLatestValues(
