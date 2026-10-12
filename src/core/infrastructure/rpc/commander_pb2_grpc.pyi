@@ -42,6 +42,7 @@ class CommanderServiceStub:
     WritePoint: _grpc.UnaryUnaryMultiCallable[_commander_pb2.WritePointRequest, _commander_pb2.CommandResultMessage]
     WritePoints: _grpc.UnaryUnaryMultiCallable[_commander_pb2.WritePointsRequest, _commander_pb2.WritePointsResponse]
     VerifyDevice: _grpc.UnaryUnaryMultiCallable[_commander_pb2.VerifyDeviceRequest, _commander_pb2.DeviceVerifyResponse]
+    GetPointsMetadata: _grpc.UnaryUnaryMultiCallable[_commander_pb2.PointsMetadataRequest, _commander_pb2.PointsMetadataResponse]
     ResolvePoint: _grpc.UnaryUnaryMultiCallable[_commander_pb2.PointRequest, _commander_pb2.PointVerifyResponse]
     VerifyPoint: _grpc.UnaryUnaryMultiCallable[_commander_pb2.PointRequest, _commander_pb2.PointVerifyResponse]
     VerifyPoints: _grpc.UnaryUnaryMultiCallable[_commander_pb2.VerifyPointsRequest, _commander_pb2.PointsVerifyResponse]
@@ -59,6 +60,7 @@ class CommanderServiceAsyncStub(CommanderServiceStub):
     WritePoint: _aio.UnaryUnaryMultiCallable[_commander_pb2.WritePointRequest, _commander_pb2.CommandResultMessage]  # type: ignore[assignment]
     WritePoints: _aio.UnaryUnaryMultiCallable[_commander_pb2.WritePointsRequest, _commander_pb2.WritePointsResponse]  # type: ignore[assignment]
     VerifyDevice: _aio.UnaryUnaryMultiCallable[_commander_pb2.VerifyDeviceRequest, _commander_pb2.DeviceVerifyResponse]  # type: ignore[assignment]
+    GetPointsMetadata: _aio.UnaryUnaryMultiCallable[_commander_pb2.PointsMetadataRequest, _commander_pb2.PointsMetadataResponse]  # type: ignore[assignment]
     ResolvePoint: _aio.UnaryUnaryMultiCallable[_commander_pb2.PointRequest, _commander_pb2.PointVerifyResponse]  # type: ignore[assignment]
     VerifyPoint: _aio.UnaryUnaryMultiCallable[_commander_pb2.PointRequest, _commander_pb2.PointVerifyResponse]  # type: ignore[assignment]
     VerifyPoints: _aio.UnaryUnaryMultiCallable[_commander_pb2.VerifyPointsRequest, _commander_pb2.PointsVerifyResponse]  # type: ignore[assignment]
@@ -133,6 +135,13 @@ class CommanderServiceServicer(metaclass=_abc_1.ABCMeta):
         request: _commander_pb2.VerifyDeviceRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_commander_pb2.DeviceVerifyResponse, _abc.Awaitable[_commander_pb2.DeviceVerifyResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetPointsMetadata(
+        self,
+        request: _commander_pb2.PointsMetadataRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_commander_pb2.PointsMetadataResponse, _abc.Awaitable[_commander_pb2.PointsMetadataResponse]]: ...
 
     @_abc_1.abstractmethod
     def ResolvePoint(
