@@ -25,8 +25,6 @@ ads:
   # 本机（wind-hub 所在主机/容器）AMS Net ID 与 IP
   local_ams_net_id: "192.168.151.244.1.2"
   local_ip: "192.168.151.244"
-  username: "Administrator"
-  password: ""
 
 
 interfaces:

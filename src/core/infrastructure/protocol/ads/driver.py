@@ -226,8 +226,8 @@ class ADSDriver:
                         identity.local_ams_net_id,
                         identity.local_ip,
                         self._config.host,
-                        identity.username,
-                        identity.password,
+                        self._config.username,
+                        self._config.password,
                     )
                     if not added:
                         raise RuntimeError("remote route registration refused")

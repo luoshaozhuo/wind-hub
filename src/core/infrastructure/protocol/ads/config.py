@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from core.application.errors import ConfigError
 from core.domain import ConnectionEndpoint, ProtocolOptions
@@ -16,6 +16,8 @@ _ALLOWED_OPTIONS = frozenset(
         "max_delay",
         "max_notifications_per_connection",
         "route_auto_add",
+        "username",
+        "password",
     }
 )
 
@@ -33,6 +35,11 @@ class ADSConfig:
     max_delay: float = 0.06
     max_notifications_per_connection: int = 550
     route_auto_add: bool = False
+    # 远程 PLC 路由注册凭据：wind-hub 应用层默认值，非 pyads 函数默认值。
+    # 空密码只表示未提供有效密码，不保证远程 PLC 接受；
+    # route_auto_add=false 时不使用凭据。
+    username: str = "Administrator"
+    password: str = field(default="", repr=False)
 
 
 def parse_ads_config(
@@ -94,6 +101,15 @@ def parse_ads_config(
     route_auto_add = options.get("route_auto_add", False)
     if type(route_auto_add) is not bool:
         raise ConfigError("ADS route_auto_add must be a boolean")
+
+    username = _string_option(options.get("username"), "username", default="Administrator")
+    # 密码允许为空（默认未提供有效密码），不套用非空字符串校验。
+    password = _string_option(
+        options.get("password"),
+        "password",
+        default="",
+        allow_empty=True,
+    )
     # AMS Runtime Port：TwinCAT 2 第一 PLC Runtime 为 801，
     # TwinCAT 3 第一 PLC Runtime 为 851（非 ADS 路由器 TCP 端口）。
     default_port = 801 if twincat_version == "2" else 851
@@ -109,6 +125,8 @@ def parse_ads_config(
         max_delay=max_delay,
         max_notifications_per_connection=max_notifications,
         route_auto_add=route_auto_add,
+        username=username,
+        password=password,
     )
 
 

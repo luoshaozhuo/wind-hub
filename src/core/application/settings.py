@@ -20,12 +20,14 @@ def _require_finite(value: float, label: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class ADSLocalConfig:
-    """system.yaml ``ads`` 段的完整契约：本机身份与凭据（restart-required）。"""
+    """system.yaml ``ads`` 段的完整契约：本机 AMS 路由器身份（restart-required）。
+
+    远程 PLC 的路由注册凭据（username/password）属于设备/型号级
+    ``protocol_options``，不放在本机身份里。
+    """
 
     local_ams_net_id: str
     local_ip: str
-    username: str
-    password: str = field(repr=False)
 
     def __post_init__(self) -> None:
         _require_non_empty(self.local_ams_net_id, "ads.local_ams_net_id")

@@ -197,8 +197,6 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
         ads = ADSLocalConfig(
             local_ams_net_id=net_id,
             local_ip=_name(values.get("local_ip"), "ads.local_ip"),
-            username=_name(values.get("username", "Administrator"), "ads.username"),
-            password=values.get("password", ""),
         )
     return site_id, name, SystemSettings(runtime=runtime, ads=ads)
 
