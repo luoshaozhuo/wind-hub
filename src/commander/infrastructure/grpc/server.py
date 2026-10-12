@@ -86,6 +86,7 @@ def _point_verify_to_proto(result: PointVerifyResult) -> pb.PointVerifyResponse:
         scale=result.scale,
         offset=result.offset,
         unit=result.unit,
+        access=result.access,
         ok=result.ok,
         code=result.code.value,
         severity=result.severity.value,
@@ -293,6 +294,46 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
         return _device_verify_to_proto(result)
+
+    async def GetPointsMetadata(
+        self,
+        request: pb.PointsMetadataRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb.PointsMetadataResponse:
+        """只查询激活配置快照，不访问设备。"""
+        try:
+            result = await self._app.metadata.get_points_metadata(
+                _required(request.device_id, "device_id"),
+                list(request.point_ids),
+            )
+        except Exception as exc:
+            await _abort(context, exc)
+            raise AssertionError("context.abort must terminate the RPC") from exc
+
+        response = pb.PointsMetadataResponse(
+            device_id=result.device_id,
+            active_revision=result.active_revision,
+            active_config_hash=result.active_config_hash,
+        )
+        for item in result.points:
+            if item.metadata is None:
+                response.points.add(point_id=item.point_id, found=False, error="point not found")
+                continue
+            point = item.metadata
+            response.points.add(
+                point_id=item.point_id,
+                found=True,
+                metadata=pb.PointMetadata(
+                    point_id=point.point_id,
+                    access=point.access,
+                    data_type=point.data_type,
+                    unit=point.unit,
+                    scale=point.scale,
+                    offset=point.offset,
+                    configured_address=_address_fields(point.configured_address),
+                ),
+            )
+        return response
 
     async def ResolvePoint(
         self,
