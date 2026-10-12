@@ -2,39 +2,54 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.port import ConfigPort
-from core.infrastructure.config import YamlConfigAdapter
+from core.domain import Device, DeviceId, ProtocolOptions
+from core.infrastructure.config.effective import resolve_effective_device
 
 from ...application.config import CommanderConfig
 
 
-def load_commander_config(
-    config_dir: str | Path, *, source: ConfigPort | None = None
-) -> CommanderConfig:
-    snapshot = (source if source is not None else YamlConfigAdapter(config_dir)).load()
-    return _from_snapshot(snapshot)
+def load_commander_config(source: ConfigPort) -> CommanderConfig:
+    """从注入的配置来源加载 Commander 配置；不在 Loader 内实例化 Adapter。"""
+    return _from_snapshot(source.load())
 
 
 def _from_snapshot(snapshot: ConfigSnapshot) -> CommanderConfig:
     runtime = snapshot.system.runtime
-    devices = snapshot.site.devices
+    devices: dict[DeviceId, Device] = {}
+    options: dict[DeviceId, ProtocolOptions] = {}
+    for key, device in snapshot.site.devices.items():
+        if not device.enabled:
+            continue
+        # 合并「设备显式 > 型号默认 > 协议代码默认」得到有效连接参数。
+        model = snapshot.device_models[device.device_model_id]
+        protocol = snapshot.point_tables[model.point_table_id].protocol.name
+        merged_device, merged_options = resolve_effective_device(
+            device,
+            model,
+            protocol,
+            snapshot.protocol_options_by_device.get(key, {}),
+        )
+        devices[key] = merged_device
+        options[key] = merged_options
     return CommanderConfig(
-        devices={key: device for key, device in devices.items() if device.enabled},
+        units=snapshot.units,
+        devices=devices,
         device_models=snapshot.device_models,
         device_groups=snapshot.device_groups,
         point_tables=snapshot.point_tables,
         business_points=snapshot.business_points,
-        protocol_options_by_device=snapshot.protocol_options_by_device,
+        protocol_options_by_device=options,
         ads_local=snapshot.system.ads,
         connect_timeout=runtime.connect_timeout if runtime.connect_timeout is not None else 1.0,
         write_timeout=runtime.write_timeout if runtime.write_timeout is not None else 1.0,
         read_timeout=runtime.read_timeout if runtime.read_timeout is not None else 1.0,
         watchdog_interval=runtime.watchdog_interval,
         health_timeout=runtime.health_timeout,
-        disabled_devices=frozenset(key for key, device in devices.items() if not device.enabled),
+        disabled_devices=frozenset(
+            key for key, device in snapshot.site.devices.items() if not device.enabled
+        ),
     )
 
 

@@ -104,7 +104,7 @@ async def test_reconfigure_lightweight_group_change_keeps_connection():
     runtime, proto = make_runtime(config)
     await runtime.start()
 
-    new_config = make_collector_config(device_group="wind")
+    new_config = make_collector_config(device_group_id="wind")
     diff = compute_diff(config, new_config)
     assert diff.devices.updated == ["dev1"]
 

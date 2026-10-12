@@ -18,13 +18,12 @@ async def test_collector_task_start_stop_via_cli(tmp_path) -> None:
     """验证 CLI 可独立查询并启停已配置采集任务。"""
     config_dir = write_collector_config_tree(
         tmp_path,
-        devices=[
-            {
-                "device_id": "dev1",
-                "model": "mod",
+        devices={
+            "dev1": {
+                "model_id": "mod",
                 "endpoint": {"host": "127.0.0.1", "port": 1},
             }
-        ],
+        },
         runtime={"connect_timeout": 0.5},
     )
     app = assemble_collector(config_dir, collector_id="cli-standalone")
@@ -64,13 +63,12 @@ async def test_commander_live_rpc_via_cli(tmp_path) -> None:
     """验证 CLI 无 Server/Admin 时可读取真实 Commander 状态与诊断结果。"""
     config_dir = write_minimal_config_tree(
         tmp_path,
-        devices=[
-            {
-                "device_id": "dev1",
-                "model": "mod",
+        devices={
+            "dev1": {
+                "model_id": "mod",
                 "endpoint": {"host": "127.0.0.1", "port": 1},
             }
-        ],
+        },
         runtime={"connect_timeout": 0.5, "read_timeout": 0.5},
     )
     app = assemble_commander(config_dir)

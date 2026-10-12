@@ -64,10 +64,9 @@ class TestPointTableChangeWhileOffline:
 
         # ---- 掉线期间修改点表（gen.power 去掉工程值换算）并重载 ----
         def _drop_scaling(data: dict[str, Any]) -> None:
-            for point in data["point_tables"]["modbus"]["points"]:
-                if point["point_id"] == "gen.power":
-                    point.pop("scale", None)
-                    point.pop("offset", None)
+            point = data["point_tables"]["modbus"]["points"]["gen.power"]
+            point.pop("scale", None)
+            point.pop("offset", None)
 
         update_yaml(config_dir, "points.yaml", _drop_scaling)
         activated = await reload_config(

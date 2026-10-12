@@ -1,35 +1,34 @@
 point_tables:
-
   wtg_iec104_site_v1:
     protocol: iec104
     points:
-
-      - point_id: meas_power
+      meas_power:
         business_point_id: meas_power
-        point_groups: [all]
+        point_groups:
+        - all
         address:
           ioa: 100
           type: M_ME_NC_1
         data_type: float32
         unit: none
-        description: "有功功率"
-
-      - point_id: meas_freq
+        description: 有功功率
+      meas_freq:
         business_point_id: meas_freq
-        point_groups: [all]
+        point_groups:
+        - all
         address:
           ioa: 200
           type: M_ME_NC_1
         data_type: float32
         unit: none
-        description: "频率"
-
-      - point_id: cmd_breaker
+        description: 频率
+      cmd_breaker:
         business_point_id: cmd_breaker
-        point_groups: [all]
+        point_groups:
+        - all
         address:
           ioa: 300
           type: C_SC_NA_1
         data_type: bool
         unit: none
-        description: "断路器遥控"
+        description: 断路器遥控

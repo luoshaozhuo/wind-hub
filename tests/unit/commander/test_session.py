@@ -192,4 +192,3 @@ def test_point_group_lookup():
     session, _ = _session()
     assert [p.point_id for p in session.point_group_points("g")] == ["p1"]
     assert session.point_group_points("unknown") == []
-    assert session.point("p1").variable_name == "P1"

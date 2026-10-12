@@ -16,7 +16,7 @@ from collector.infrastructure.sink.modbus.codec import encode_modbus_value
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.sink import ModbusSink
 from collector.infrastructure.sink.modbus.store import ModbusSinkStore
-from core.application import Quality
+from core.application import ConfigError, Quality
 from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import (
@@ -24,6 +24,7 @@ from core.infrastructure.config.sink_schema import (
     ModbusSinkConnection,
     ResolvedSinkPoint,
     SinkSource,
+    parse_sink_definitions,
 )
 
 
@@ -36,7 +37,7 @@ def _point(
     offset: float = 0.0,
     register_type: Literal["holding", "input", "coil", "discrete"] = "holding",
     address: int = 100,
-    unit_id: int = 1,
+    slave_id: int = 1,
     byte_order: Literal["big", "little"] = "big",
     word_order: Literal["big", "little"] = "big",
 ) -> ResolvedSinkPoint:
@@ -52,7 +53,7 @@ def _point(
         address=ModbusSinkAddress(
             register_type=register_type,
             address=address,
-            unit_id=unit_id,
+            slave_id=slave_id,
             byte_order=byte_order,
             word_order=word_order,
         ),
@@ -67,6 +68,77 @@ def _exported(point: ResolvedSinkPoint, value: object) -> ExportedSinkPointValue
         timestamp=PointValue(device_id="d", point_id="p", value=0).timestamp,
         source_protocol="modbus",
     )
+
+
+# ---------------------------------------------------------------------------
+# schema：slave_id 边界与旧字段拒绝
+# ---------------------------------------------------------------------------
+
+
+def _modbus_sink_document(*addresses: dict[str, object]) -> dict[str, object]:
+    return {
+        "sinks": {
+            "mb": {
+                "type": "modbus",
+                "connection": {"host": "127.0.0.1", "port": 15020},
+                "points": [
+                    {
+                        "source": {"device_id": "d1", "point_id": "p1"},
+                        "ref": f"p{index}",
+                        "address": address,
+                    }
+                    for index, address in enumerate(addresses)
+                ],
+            }
+        }
+    }
+
+
+def test_schema_accepts_slave_id_bounds() -> None:
+    for slave_id in (0, 255):
+        document = _modbus_sink_document(
+            {"slave_id": slave_id, "register_type": "holding", "address": 100}
+        )
+        sinks = parse_sink_definitions(document)
+        point = sinks["mb"].points[0]
+        assert isinstance(point.address, ModbusSinkAddress)
+        assert point.address.slave_id == slave_id
+
+
+@pytest.mark.parametrize("slave_id", [-1, 256, "1"])
+def test_schema_rejects_out_of_range_slave_id(slave_id: object) -> None:
+    document = _modbus_sink_document(
+        {"slave_id": slave_id, "register_type": "holding", "address": 100}
+    )
+    with pytest.raises(ConfigError):
+        parse_sink_definitions(document)
+
+
+def test_schema_rejects_legacy_unit_id() -> None:
+    """旧 Modbus Sink unit_id 配置键不再兼容，直接拒绝。"""
+    document = _modbus_sink_document(
+        {"unit_id": 1, "register_type": "holding", "address": 100}
+    )
+    with pytest.raises(ConfigError):
+        parse_sink_definitions(document)
+
+
+def test_schema_allows_same_address_on_different_slaves() -> None:
+    document = _modbus_sink_document(
+        {"slave_id": 1, "register_type": "holding", "address": 100},
+        {"slave_id": 2, "register_type": "holding", "address": 100},
+    )
+    sinks = parse_sink_definitions(document)
+    assert len(sinks["mb"].points) == 2
+
+
+def test_schema_rejects_duplicate_address_on_same_slave() -> None:
+    document = _modbus_sink_document(
+        {"slave_id": 1, "register_type": "holding", "address": 100},
+        {"slave_id": 1, "register_type": "holding", "address": 100},
+    )
+    with pytest.raises(ConfigError, match="duplicate external address"):
+        parse_sink_definitions(document)
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +181,7 @@ def test_encode_type_mismatch_rejected() -> None:
 
 def test_store_predeclares_layout_and_roundtrip() -> None:
     store = ModbusSinkStore([_point()])  # float32 → 2 registers at 100..101
-    assert store.unit_ids == (1,)
+    assert store.slave_ids == (1,)
     assert store.read_registers(1, "holding", 100, 2) == [0, 0]
 
     store.write(encode_modbus_value(_exported(_point(), 1.0)))
@@ -119,8 +191,8 @@ def test_store_predeclares_layout_and_roundtrip() -> None:
 def test_store_rejects_undeclared_and_unknown_unit() -> None:
     store = ModbusSinkStore([_point()])
     encoded = encode_modbus_value(_exported(_point(), 1.0))
-    with pytest.raises(KeyError, match="Unknown Modbus unit_id"):
-        store.write(dataclasses.replace(encoded, unit_id=9))
+    with pytest.raises(KeyError, match="Unknown Modbus slave_id"):
+        store.write(dataclasses.replace(encoded, slave_id=9))
     with pytest.raises(KeyError):
         store.read_registers(1, "holding", 200, 1)  # 未声明地址
 

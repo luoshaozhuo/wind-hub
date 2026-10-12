@@ -24,14 +24,13 @@ from tests.support.process import CollectorProcess
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
 #: 与 ModbusMockServer 默认寄存器布局一致的点表（setpoint.power @ holding 200）。
-_COMMANDER_POINTS: list[dict[str, object]] = [
-    {
-        "point_id": "setpoint.power",
+_COMMANDER_POINTS: dict[str, dict[str, object]] = {
+    "setpoint.power": {
         "point_groups": ["control"],
         "address": {"register_type": "holding", "address": 200},
         "data_type": "float32",
     },
-]
+}
 
 
 def _decode_float32(registers: list[int]) -> float:
@@ -75,21 +74,20 @@ async def idem_env(
     """幂等验收环境：真实从站 + Commander subprocess。"""
     config_dir = write_config_tree(
         tmp_path / "cfg",
-        devices=[
-            {
-                "device_id": "modbus-1",
+        devices={
+            "modbus-1": {
                 "protocol": "modbus",
                 "point_table": "modbus",
                 "endpoint": {
                     "host": "127.0.0.1",
                     "port": modbus_server.port,
-                    "extensions": {"unit_id": 1, "timeout": 2.0, "word_order": "big_endian"},
                 },
+                "protocol_options": {"slave_id": 1, "timeout": 2.0, "word_order": "big_endian"},
             }
-        ],
-        point_tables={"modbus": {"protocol": "modbus", "points": list(_COMMANDER_POINTS)}},
-        tasks=[],
-        sinks=[],
+        },
+        point_tables={"modbus": {"protocol": "modbus", "points": dict(_COMMANDER_POINTS)}},
+        tasks={},
+        sinks={},
         system={"runtime": {"connect_timeout": 2.0, "write_timeout": 2.0}},
     )
     proc: CollectorProcess = await commander_factory(config_dir)

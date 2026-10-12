@@ -29,7 +29,6 @@ POINTS = "points.yaml"
 #: fixture server 保持寄存器块为 256 个（wire 0..255）——地址 300 必然
 #: 触发 Illegal Data Address 异常响应。
 BAD_POINT: dict[str, Any] = {
-    "point_id": "bad.address",
     "point_groups": ["telemetry"],
     "address": {"register_type": "holding", "address": 300},
     "data_type": "int16",
@@ -37,29 +36,27 @@ BAD_POINT: dict[str, Any] = {
 
 
 def _points_with_bad_address() -> dict[str, Any]:
-    return {"modbus": {"points": [*MODBUS_POINTS, dict(BAD_POINT)]}}
+    return {"modbus": {"points": {**MODBUS_POINTS, "bad.address": dict(BAD_POINT)}}}
 
 
-def _file_sink(tmp_path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], Path]:
+def _file_sink(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any], Path]:
     sink_path = tmp_path / "out" / "telemetry.csv"
-    sinks = [
-        {
-            "name": "file_sink",
+    sinks = {
+        "file_sink": {
             "type": "file",
             "connection": {
                 "path": str(sink_path),
             },
         }
-    ]
-    tasks = [
-        {
-            "task_id": "modbus-telemetry",
-            "device_group": "modbus-1",
+    }
+    tasks = {
+        "modbus-telemetry": {
+            "device_group_id": "modbus-1",
             "point_group": "telemetry",
             "interval": 0.2,
-            "targets": [{"sink": "file_sink"}],
+            "sink_ids": ["file_sink"],
         }
-    ]
+    }
     return sinks, tasks, sink_path
 
 
@@ -119,11 +116,7 @@ class TestExceptionResponseClassification:
 
         # ---- 修复点表（去掉非法地址点）并 reload ----
         def mutate(data: dict[str, Any]) -> None:
-            data["point_tables"]["modbus"]["points"] = [
-                p
-                for p in data["point_tables"]["modbus"]["points"]
-                if p["point_id"] != "bad.address"
-            ]
+            data["point_tables"]["modbus"]["points"].pop("bad.address", None)
 
         update_yaml(ctx.config_dir, POINTS, mutate)
         result = await app.config.reload()

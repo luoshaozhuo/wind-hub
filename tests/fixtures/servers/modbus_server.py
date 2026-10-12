@@ -177,7 +177,7 @@ class ModbusMockServer:
                 await asyncio.sleep(0)
             self._server = None
 
-    async def read_holding(self, unit_id: int, address: int, count: int = 1) -> list[int]:
+    async def read_holding(self, slave_id: int, address: int, count: int = 1) -> list[int]:
         """用一条独立客户端连接回读从站保持寄存器。
 
         用于在 **Server 侧** 确认写入确实到达从站（与被测驱动不共享
@@ -189,7 +189,7 @@ class ModbusMockServer:
         client = AsyncModbusTcpClient(self._host, port=self._port)
         await client.connect()
         try:
-            rr = await client.read_holding_registers(address, count=count, device_id=unit_id)
+            rr = await client.read_holding_registers(address, count=count, device_id=slave_id)
             if rr.isError():
                 raise RuntimeError(f"read_holding 回读失败: {rr}")
             return list(rr.registers)

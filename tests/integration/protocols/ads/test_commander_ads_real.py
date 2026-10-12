@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -33,25 +34,19 @@ if ads_config_from_env() is not None:
 
 
 def _write_ads_config(base: Path, ads: dict[str, str | int]) -> Path:
-    points = []
+    points: dict[str, dict[str, Any]] = {}
     if ads["read_symbol"]:
-        points.append(
-            {
-                "point_id": "plc.readback",
-                "point_groups": ["telemetry"],
-                "address": {"symbol": ads["read_symbol"], "data_type": "float32"},
-                "data_type": "float32",
-            }
-        )
+        points["plc.readback"] = {
+            "point_groups": ["telemetry"],
+            "address": {"symbol": ads["read_symbol"], "data_type": "float32"},
+            "data_type": "float32",
+        }
     if ads["write_symbol"]:
-        points.append(
-            {
-                "point_id": "plc.setpoint",
-                "point_groups": ["telemetry", "control"],
-                "address": {"symbol": ads["write_symbol"], "data_type": "float32"},
-                "data_type": "float32",
-            }
-        )
+        points["plc.setpoint"] = {
+            "point_groups": ["telemetry", "control"],
+            "address": {"symbol": ads["write_symbol"], "data_type": "float32"},
+            "data_type": "float32",
+        }
     ads_identity = None
     if ads["local_net_id"] and ads["local_ip"]:
         ads_identity = {
@@ -61,15 +56,14 @@ def _write_ads_config(base: Path, ads: dict[str, str | int]) -> Path:
     return write_minimal_config_tree(
         base,
         protocol="ads",
-        devices=[
-            {
-                "device_id": "ads-1",
-                "model": "mod",
+        devices={
+            "ads-1": {
+                "model_id": "mod",
                 "endpoint": {"host": ads["host"], "port": ads["port"]},
             }
-        ],
+        },
         point_tables={"tab": {"protocol": "ads", "points": points}},
-        connection_defaults={
+        protocol_options={
             "target_net_id": ads["net_id"],
             "timeout": 5.0,
         },

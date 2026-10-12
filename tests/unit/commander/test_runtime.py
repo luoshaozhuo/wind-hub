@@ -97,10 +97,29 @@ async def test_prepare_rejects_ads_identity_change():
     runtime, _ = _runtime()
     candidate = make_commander_config(
         ads_local=ADSLocalConfig(
-            local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test"
+            local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1"
         )
     )
     with pytest.raises(ValueError, match="ADS local identity"):
+        await runtime.prepare_config("r2", candidate, "hash-b")
+    assert runtime.prepared_revision is None
+
+
+async def test_prepare_rejects_unit_catalog_change():
+    """单位目录变化是 restart-required，prepare 明确拒绝。"""
+    from dataclasses import replace
+
+    from core.domain.unit import UnitCatalog
+    from tests.support.units import minimal_unit_catalog
+
+    base = minimal_unit_catalog()
+    changed = UnitCatalog(
+        units={key: unit for key, unit in base.units.items() if key != "percent"},
+        base_units=base.base_units,
+    )
+    runtime, _ = _runtime()
+    candidate = replace(make_commander_config(), units=changed)
+    with pytest.raises(ValueError, match="unit catalog change requires process restart"):
         await runtime.prepare_config("r2", candidate, "hash-b")
     assert runtime.prepared_revision is None
 

@@ -12,6 +12,7 @@ from core.domain import (
     validate_task_references,
 )
 from core.domain.identities import DeviceGroupId
+from tests.support.units import minimal_unit_catalog
 
 
 def make_task(**overrides: object) -> Task:
@@ -106,6 +107,7 @@ def test_central_domain_validation_checks_tasks() -> None:
         "business_points": {},
         "point_tables": {},
         "protocol_options_by_device": {},
+        "units": minimal_unit_catalog(),
         "tasks": {task.task_id: task},
     }
     validate_core_config(**args, sink_ids={"file", "redis"})

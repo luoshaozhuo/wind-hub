@@ -166,7 +166,7 @@ async def test_config_service_toctou_and_hash_check(tmp_path):
     runtime = _runtime()
     load_calls = 0
 
-    def fake_load(path):
+    def fake_load():
         nonlocal load_calls
         load_calls += 1
         return make_commander_config()
@@ -199,7 +199,7 @@ async def test_config_service_detects_change_during_load(tmp_path):
     service = CommanderConfigService(
         tmp_path,
         runtime,
-        load_config=lambda path: make_commander_config(),
+        load_config=lambda: make_commander_config(),
         config_digest=lambda path: next(hashes),
     )
     with pytest.raises(ValueError, match="config changed while preparing"):

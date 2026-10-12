@@ -80,42 +80,44 @@ _OUTAGE_TRIGGER_DELAY_S = 2.0
 # ---------------------------------------------------------------------------
 
 
-def get_device_config(protocol: str, host: str, port: int) -> dict[str, object]:
+def get_device_config(protocol: str, host: str, port: int) -> dict[str, dict[str, object]]:
     """生成对应协议的设备定义（决策 5 的采集间隔来自 :data:`PLANS`）。
 
-    返回旧式便捷写法（``protocol``/``point_table`` 直挂设备），由
+    返回便捷写法（``protocol``/``point_table`` 直挂设备）的 devices
+    Mapping 单条目（Key 即设备 ID），由
     :func:`tests.support.config_helper.write_config_tree` 派生型号。
     """
     plan = PLANS[protocol]
     if protocol == "modbus":
-        extensions: dict[str, object] = {"unit_id": 1}
+        protocol_options: dict[str, object] = {"slave_id": 1}
     elif protocol == "iec104":
-        extensions = {"common_addr": 1}
+        protocol_options = {"common_addr": 1}
     else:  # ads
         # max_subs_per_sum=256：单条 Sum 请求 ~330+ 子命令会撑爆 pyads
         # testserver 的 4096 接收缓冲（截断后永不应答），256 留足余量
-        # （驱动默认 500，经 endpoint extensions 覆盖，不改驱动）。
-        extensions = {
+        # （驱动默认 500，经 device protocol_options 覆盖，不改驱动）。
+        protocol_options = {
             "target_net_id": f"{host}.1.1",
             "twincat_version": "2",
             "max_subs_per_sum": 256,
         }
     return {
-        "device_id": plan.device_id,
-        "protocol": protocol,
-        "point_table": "perf",
-        "enabled": True,
-        "endpoint": {
-            "host": host,
-            "port": 801 if protocol == "ads" else port,
-            "extensions": extensions,
-        },
+        plan.device_id: {
+            "protocol": protocol,
+            "point_table": "perf",
+            "enabled": True,
+            "endpoint": {
+                "host": host,
+                "port": 801 if protocol == "ads" else port,
+            },
+            "protocol_options": protocol_options,
+        }
     }
 
 
-def get_point_configs(protocol: str, num_points: int) -> list[dict[str, object]]:
+def get_point_configs(protocol: str, num_points: int) -> dict[str, dict[str, object]]:
     """生成对应协议的点表（地址格式与生产 configs/points.yaml 一致）。"""
-    points: list[dict[str, object]] = []
+    points: dict[str, dict[str, object]] = {}
     for i in range(num_points):
         if protocol == "modbus":
             # step23 起驱动的组合读取按 125 寄存器上限自动切分，
@@ -131,14 +133,11 @@ def get_point_configs(protocol: str, num_points: int) -> list[dict[str, object]]
             address = {"symbol": f"MAIN.var{i}"}
             data_type = "float32"
             point_id = f"v.{i:04d}"
-        points.append(
-            {
-                "point_id": point_id,
-                "point_groups": ["default"],
-                "address": address,
-                "data_type": data_type,
-            }
-        )
+        points[point_id] = {
+            "point_groups": ["default"],
+            "address": address,
+            "data_type": data_type,
+        }
     return points
 
 
@@ -150,12 +149,12 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
     ``sink_factories`` 覆盖替换为 NullSink，``type`` 字段仅占位。
     """
     plan = PLANS[protocol]
-    device = get_device_config(protocol, host, port)
+    devices = get_device_config(protocol, host, port)
     points = get_point_configs(protocol, plan.num_points)
 
     return write_config_tree(
         config_dir,
-        devices=[device],
+        devices=devices,
         point_tables={"perf": {"protocol": protocol, "points": points}},
         system={
             "runtime": {
@@ -166,23 +165,21 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
                 "read_timeout": 5.0,
             },
         },
-        sinks=[
-            {
-                "name": "perf_null",
+        sinks={
+            "perf_null": {
                 "type": "file",
                 "enabled": True,
                 "connection": {"path": str(config_dir / "perf-null.csv")},
             }
-        ],
-        tasks=[
-            {
-                "task_id": "perf",
-                "device": plan.device_id,
+        },
+        tasks={
+            "perf": {
+                "device_group_id": plan.device_id,
                 "point_group": "default",
                 "interval": plan.poll_interval_s,
-                "targets": [{"sink": "perf_null"}],
+                "sink_ids": ["perf_null"],
             }
-        ],
+        },
     )
 
 

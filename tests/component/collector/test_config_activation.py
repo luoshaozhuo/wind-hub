@@ -27,13 +27,13 @@ from tests.support.new_collector import (
 )
 
 _IDENTITY_A = ADSLocalConfig(
-    local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test"
+    local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1"
 )
 _IDENTITY_B_NET_ID = ADSLocalConfig(
-    local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1", username="test", password="test"
+    local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1"
 )
 _IDENTITY_B_IP = ADSLocalConfig(
-    local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10", username="test", password="test"
+    local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10"
 )
 
 

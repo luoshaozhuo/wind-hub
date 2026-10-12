@@ -15,7 +15,7 @@ from pathlib import Path
 from core.application import ProtocolRegistry
 from core.application.port import SinkPort
 from core.application.settings import ADSLocalConfig
-from core.infrastructure.config import config_dir_digest
+from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
 from .application.config import CollectorConfig, DeviceView
@@ -97,8 +97,9 @@ def assemble_collector(
         ConfigError: 配置非法。
     """
     config_path = Path(config_dir)
+    config_source = YamlConfigAdapter(config_path)
     before_hash = config_dir_digest(config_path)
-    config = load_collector_config(config_path)
+    config = load_collector_config(config_source)
     config_hash = config_dir_digest(config_path)
     if before_hash != config_hash:
         raise ValueError(
@@ -159,7 +160,7 @@ def assemble_collector(
         config=CollectorConfigService(
             runtime,
             config,
-            load_config=lambda: load_collector_config(config_path),
+            load_config=lambda: load_collector_config(config_source),
             config_digest=lambda: config_dir_digest(config_path),
             config_hash=config_hash,
             latest_values=latest_values,

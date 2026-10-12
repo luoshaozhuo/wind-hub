@@ -1,16 +1,50 @@
+# ---------------------------------------------------------------------------
+# wind-hub 配置模板 — 业务点标准目录（全场共享的单一业务语义真值源）
+# ---------------------------------------------------------------------------
+#
+# business_points: Mapping，Key 即 BusinessPoint ID。Point 通过
+# `business_point_id` 显式引用；Point 的 data_type 必须与业务点一致，
+# unit_id 量纲必须与业务点标准单位一致。
+#
+# 字段：
+#   data_type:   bool/int8/int16/int32/int64/uint8/uint16/uint32/uint64/
+#                float32/float64/string（必填）。
+#   unit_id:     工程单位引用（必填，units.yaml 的 Unit ID，如
+#                kilowatt；无量纲用 none）。
+#   description: str，可选。
+
 business_points:
   active_power:
     data_type: int32
-    unit: kilowatt
+    unit_id: kilowatt
+    description: "有功功率（Modbus 整型缩放）"
+
+  active_power_iec:
+    data_type: float32
+    unit_id: kilowatt
+    description: "有功功率（IEC104 浮点）"
+
   wind_speed:
     data_type: int16
-    unit: meter_per_second
+    unit_id: meter_per_second
+    description: "风速"
+
   rotor_speed:
     data_type: float32
-    unit: rpm
+    unit_id: rpm
+    description: "风轮转速"
+
   gen_power:
     data_type: float32
-    unit: kilowatt
+    unit_id: kilowatt
+    description: "发电机有功功率"
+
   converter_temp:
     data_type: float32
-    unit: celsius
+    unit_id: celsius
+    description: "变流器温度"
+
+  turbine_run:
+    data_type: bool
+    unit_id: none
+    description: "运行状态"

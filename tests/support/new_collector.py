@@ -41,8 +41,8 @@ from core.domain import (
     PointTableId,
     Protocol,
 )
-from core.domain.unit import UNIT_CATALOG, UnitCode
 from tests.support.new_commander import FakeProtocol, FakeRegistry, FakeSubscriptionHandle
+from tests.support.units import NONE_UNIT, minimal_unit_catalog
 
 # ---------------------------------------------------------------------------
 # Fake Protocol（采集增强版）
@@ -151,7 +151,7 @@ def make_collector_config(
     scale: float = 1.0,
     offset: float = 0.0,
     point_groups: tuple[str, ...] = ("g",),
-    device_group: str | None = None,
+    device_group_id: str | None = None,
     tasks: dict[str, CollectionTask] | None = None,
     sinks: dict[str, Any] | None = None,
     ads_subscribe: bool = False,
@@ -162,7 +162,7 @@ def make_collector_config(
     默认含一个采集任务 ``t1``：device_group_id=dev1、group=g、interval=1.0、
     sink_ids=("s1",)。传 ``tasks={}`` 可关闭默认任务。
     """
-    unit = UNIT_CATALOG[UnitCode.NONE]
+    unit = NONE_UNIT
     point = Point(
         point_id="p1",
         business_point_id=BusinessPointId("p1"),
@@ -171,7 +171,6 @@ def make_collector_config(
         scale=scale,
         offset=offset,
         ext={"register_type": "holding", "address": 100, "data_type": "float32"},
-        variable_name="P1",
         point_groups=point_groups,
     )
     table = PointTable(
@@ -179,7 +178,7 @@ def make_collector_config(
         protocol=Protocol(protocol),
         points={"p1": point},
     )
-    group_ids = (DeviceGroupId(device_group or device_id),)
+    group_ids = (DeviceGroupId(device_group_id or device_id),)
     device_models = {
         DeviceModelId("mod"): DeviceModel(
             device_model_id=DeviceModelId("mod"),
@@ -200,13 +199,14 @@ def make_collector_config(
         tasks = {
             "t1": CollectionTask(
                 task_id="t1",
-                device_group_id=DeviceGroupId(device_group or device_id),
+                device_group_id=DeviceGroupId(device_group_id or device_id),
                 point_group="g",
                 interval=1.0,
                 sink_ids=("s1",),
             )
         }
     return CollectorConfig(
+        units=minimal_unit_catalog(),
         device_models=device_models,
         devices=devices,
         point_tables=point_tables,
@@ -292,20 +292,21 @@ def write_collector_config_tree(
     *,
     protocol: str = "modbus",
     address: dict[str, Any] | None = None,
-    devices: list[dict[str, Any]] | None = None,
-    points: list[dict[str, Any]] | None = None,
+    devices: dict[str, Any] | None = None,
+    points: dict[str, Any] | None = None,
     point_tables: dict[str, Any] | None = None,
-    connection_defaults: dict[str, Any] | None = None,
+    endpoint_defaults: dict[str, Any] | None = None,
+    protocol_options: dict[str, Any] | None = None,
     runtime: dict[str, Any] | None = None,
     ads: dict[str, Any] | None = None,
-    tasks: list[dict[str, Any]] | None = None,
-    sinks: list[dict[str, Any]] | None = None,
+    tasks: dict[str, Any] | None = None,
+    sinks: dict[str, Any] | None = None,
 ) -> Path:
     """写出 Collector 最小自包含配置树（含 tasks.yaml / sinks.yaml）。
 
     默认：单设备 dev1、单点 p1(group g)、单 file Sink ``s1``（映射
-    dev1.p1 → field value）、单 Task ``t1``（device=dev1, group=g,
-    interval=1.0, targets=[s1]）。
+    dev1.p1 → field value）、单 Task ``t1``（device_group_id=dev1,
+    point_group=g, interval=1.0, sink_ids=[s1]）。
     """
     from tests.support.new_commander import write_minimal_config_tree, write_yaml
 
@@ -316,14 +317,14 @@ def write_collector_config_tree(
         devices=devices,
         points=points,
         point_tables=point_tables,
-        connection_defaults=connection_defaults,
+        endpoint_defaults=endpoint_defaults,
+        protocol_options=protocol_options,
         runtime=runtime,
         ads=ads,
     )
     if sinks is None:
-        sinks = [
-            {
-                "name": "s1",
+        sinks = {
+            "s1": {
                 "type": "file",
                 "connection": {"path": str(base / "out.csv")},
                 "points": [
@@ -333,17 +334,16 @@ def write_collector_config_tree(
                     }
                 ],
             }
-        ]
+        }
     write_yaml(config_dir, "sinks.yaml", {"sinks": sinks})
     if tasks is None:
-        tasks = [
-            {
-                "task_id": "t1",
-                "device_group": "dev1",
+        tasks = {
+            "t1": {
+                "device_group_id": "dev1",
                 "point_group": "g",
                 "interval": 1.0,
-                "targets": [{"sink": "s1"}],
+                "sink_ids": ["s1"],
             }
-        ]
+        }
     write_yaml(config_dir, "tasks.yaml", {"tasks": tasks})
     return config_dir

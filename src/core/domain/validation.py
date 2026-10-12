@@ -17,12 +17,13 @@ from .identities import (
 from .point import BusinessPoint, PointTable
 from .sink import Sink
 from .task import Task, validate_task_references
-from .unit import UNIT_CATALOG, Quantity, Unit
+from .unit import DIMENSIONLESS, Unit, UnitCatalog
 from .value_objects import DataType
 
 
 def validate_core_config(
     *,
+    units: UnitCatalog,
     device_types: Mapping[DeviceTypeId, DeviceType],
     device_models: Mapping[DeviceModelId, DeviceModel],
     device_groups: Mapping[DeviceGroupId, DeviceGroup],
@@ -41,9 +42,9 @@ def validate_core_config(
     _validate_identity(devices, "devices", "device_id")
     _validate_identity(business_points, "business_points", "business_point_id")
     _validate_identity(point_tables, "point_tables", "point_table_id")
-    _validate_business_points(business_points)
+    _validate_business_points(business_points, units)
     _validate_point_table_parents(point_tables)
-    _validate_point_tables(point_tables, business_points)
+    _validate_point_tables(point_tables, business_points, units)
     _validate_device_models(device_models, device_types, point_tables)
     _validate_devices(devices, device_models, device_groups)
     _validate_device_options(protocol_options_by_device, devices)
@@ -69,15 +70,17 @@ def _validate_identity(
 
 def _validate_business_points(
     business_points: Mapping[BusinessPointId, BusinessPoint],
+    units: UnitCatalog,
 ) -> None:
     for point in business_points.values():
-        _validate_canonical_unit(
+        _validate_catalog_unit(
             point.standard_unit,
+            units,
             context=f"business point '{point.business_point_id}' standard_unit",
         )
         if (
             point.data_type in (DataType.BOOL, DataType.STRING)
-            and point.standard_unit.quantity is not Quantity.DIMENSIONLESS
+            and point.standard_unit.quantity != DIMENSIONLESS
         ):
             raise ValueError(
                 f"business point '{point.business_point_id}' with "
@@ -120,11 +123,13 @@ def _validate_point_table_parents(
 def _validate_point_tables(
     point_tables: Mapping[PointTableId, PointTable],
     business_points: Mapping[BusinessPointId, BusinessPoint],
+    units: UnitCatalog,
 ) -> None:
     for table in point_tables.values():
         for point in table.points.values():
-            _validate_canonical_unit(
+            _validate_catalog_unit(
                 point.source_unit,
+                units,
                 context=(
                     f"point table '{table.point_table_id}' " f"point '{point.point_id}' source_unit"
                 ),
@@ -201,10 +206,10 @@ def _validate_device_options(
         )
 
 
-def _validate_canonical_unit(unit: Unit, *, context: str) -> None:
-    canonical = UNIT_CATALOG.get(unit.code)
-    if canonical is None or unit != canonical:
-        raise ValueError(f"{context} must use canonical built-in unit '{unit.code.value}'")
+def _validate_catalog_unit(unit: Unit, catalog: UnitCatalog, *, context: str) -> None:
+    configured = catalog.units.get(unit.unit_id)
+    if configured is None or unit != configured:
+        raise ValueError(f"{context} must reference unit '{unit.unit_id}' from the unit catalog")
 
 
 def _validate_sinks(

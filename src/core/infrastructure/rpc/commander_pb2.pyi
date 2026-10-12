@@ -671,7 +671,6 @@ class PointVerifyResponse(_message.Message):
 
     DEVICE_ID_FIELD_NUMBER: _builtins.int
     POINT_ID_FIELD_NUMBER: _builtins.int
-    VARIABLE_NAME_FIELD_NUMBER: _builtins.int
     PROTOCOL_FIELD_NUMBER: _builtins.int
     CONFIGURED_ADDRESS_FIELD_NUMBER: _builtins.int
     RESOLVED_ADDRESS_FIELD_NUMBER: _builtins.int
@@ -690,7 +689,6 @@ class PointVerifyResponse(_message.Message):
     ERROR_FIELD_NUMBER: _builtins.int
     device_id: _builtins.str
     point_id: _builtins.str
-    variable_name: _builtins.str
     protocol: _builtins.str
     data_type: _builtins.str
     scale: _builtins.float
@@ -717,7 +715,6 @@ class PointVerifyResponse(_message.Message):
         *,
         device_id: _builtins.str = ...,
         point_id: _builtins.str = ...,
-        variable_name: _builtins.str = ...,
         protocol: _builtins.str = ...,
         configured_address: _abc.Iterable[Global___AddressField] | None = ...,
         resolved_address: _abc.Iterable[Global___AddressField] | None = ...,
@@ -737,7 +734,7 @@ class PointVerifyResponse(_message.Message):
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["engineering_value", b"engineering_value", "raw_value", b"raw_value", "readable", b"readable"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["code", b"code", "configured_address", b"configured_address", "data_type", b"data_type", "device_id", b"device_id", "engineering_value", b"engineering_value", "error", b"error", "offset", b"offset", "ok", b"ok", "point_id", b"point_id", "protocol", b"protocol", "quality", b"quality", "raw_value", b"raw_value", "readable", b"readable", "resolved_address", b"resolved_address", "scale", b"scale", "severity", b"severity", "source", b"source", "unit", b"unit", "variable_name", b"variable_name"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["code", b"code", "configured_address", b"configured_address", "data_type", b"data_type", "device_id", b"device_id", "engineering_value", b"engineering_value", "error", b"error", "offset", b"offset", "ok", b"ok", "point_id", b"point_id", "protocol", b"protocol", "quality", b"quality", "raw_value", b"raw_value", "readable", b"readable", "resolved_address", b"resolved_address", "scale", b"scale", "severity", b"severity", "source", b"source", "unit", b"unit"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

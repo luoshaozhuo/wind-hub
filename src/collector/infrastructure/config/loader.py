@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import cast
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
-from core.domain import DeviceId, Sink
-from core.domain.unit import UNIT_CATALOG, UnitCode
-from core.infrastructure.config import YamlConfigAdapter
+from core.domain import Device, DeviceId, ProtocolOptions, Sink
+from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.sink_schema import (
     MODBUS_WORD_WIDTH,
     SINK_NUMERIC_DATA_TYPES,
@@ -22,11 +20,9 @@ from core.infrastructure.config.sink_schema import (
 from ...application.config import BackpressurePolicy, CollectorConfig, RuntimeParams
 
 
-def load_collector_config(
-    config_dir: str | Path, *, source: ConfigPort | None = None
-) -> CollectorConfig:
-    snapshot = (source if source is not None else YamlConfigAdapter(config_dir)).load()
-    return _from_snapshot(snapshot)
+def load_collector_config(source: ConfigPort) -> CollectorConfig:
+    """从注入的配置来源加载 Collector 配置；不在 Loader 内实例化 Adapter。"""
+    return _from_snapshot(source.load())
 
 
 def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
@@ -41,11 +37,27 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
             )
     devices = snapshot.site.devices
     settings = snapshot.system.runtime
+    effective_devices: dict[DeviceId, Device] = {}
+    effective_options: dict[DeviceId, ProtocolOptions] = {}
+    for key, device in devices.items():
+        if not device.enabled:
+            continue
+        model = snapshot.device_models[device.device_model_id]
+        protocol = snapshot.point_tables[model.point_table_id].protocol.name
+        merged_device, merged_options = resolve_effective_device(
+            device,
+            model,
+            protocol,
+            snapshot.protocol_options_by_device.get(key, {}),
+        )
+        effective_devices[key] = merged_device
+        effective_options[key] = merged_options
     return CollectorConfig(
-        devices={key: device for key, device in devices.items() if device.enabled},
+        units=snapshot.units,
+        devices=effective_devices,
         device_models=snapshot.device_models,
         point_tables=snapshot.point_tables,
-        protocol_options_by_device=snapshot.protocol_options_by_device,
+        protocol_options_by_device=effective_options,
         runtime=_runtime_params(settings),
         ads_local=snapshot.system.ads,
         tasks=snapshot.tasks,
@@ -58,7 +70,7 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
 
 
 def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
-    """解析外部 Sink 点引用，明确源类型与单位，不依赖 units.yaml。"""
+    """解析外部 Sink 点引用，明确源类型与单位（单位由快照单位目录解析）。"""
     result: dict[str, Sink] = {}
     for sink_id, sink in snapshot.sinks.items():
         points = []
@@ -78,11 +90,11 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                     f"Sink '{sink_id}' references unknown point '{source['point_id']}'"
                 )
             source_data_type = point.ext["data_type"]
-            source_unit = point.source_unit.code.value
+            source_unit = point.source_unit.unit_id
             unit = raw.get("unit") or source_unit
             try:
-                UNIT_CATALOG[UnitCode(unit)]
-            except (KeyError, ValueError) as exc:
+                snapshot.units.unit(unit)
+            except ValueError as exc:
                 raise ConfigError(f"Sink '{sink_id}' unknown unit '{unit}'") from exc
             resolved = ResolvedSinkPoint.model_validate(
                 {
@@ -125,7 +137,7 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                         f"Sink '{sink_id}' point '{resolved.ref}': "
                         "Modbus address range exceeds 65535"
                     )
-                key = (address.unit_id, address.register_type)
+                key = (address.slave_id, address.register_type)
                 occupied = addresses.setdefault(key, [])
                 if any(start <= end and address.address <= finish for start, finish in occupied):
                     raise ConfigError(

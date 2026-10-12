@@ -18,7 +18,6 @@ from core.application import (
 )
 from core.application.settings import ADSLocalConfig
 from core.domain import (
-    UNIT_CATALOG,
     BusinessPointId,
     ConnectionEndpoint,
     Point,
@@ -26,9 +25,9 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    UnitCode,
 )
 from core.infrastructure.protocol.ads import ADSDriver
+from tests.support.units import NONE_UNIT
 
 
 class _Closable(TypingProtocol):
@@ -50,7 +49,7 @@ def _point(
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=PointAccess.READ_WRITE,
         ext={} if ext is None else ext,
     )
@@ -139,7 +138,7 @@ async def test_ads_driver_local_ams_identity_initializes_once(
     fake_pyads = _FakePyads()
     monkeypatch.setattr(driver_module, "pyads", fake_pyads)
     monkeypatch.setattr(sys, "platform", "linux")
-    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10", "user", "secret")
+    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
     try:
         await ADSDriver.initialize_local(config)
         await ADSDriver.initialize_local(config)
@@ -147,7 +146,7 @@ async def test_ads_driver_local_ams_identity_initializes_once(
         assert fake_pyads.local_addresses == ["192.0.2.10.1.2"]
         with pytest.raises(ConfigError, match="conflicts"):
             await ADSDriver.initialize_local(
-                ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11", "user", "secret")
+                ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11")
             )
     finally:
         await ADSDriver.close_local()
@@ -425,10 +424,10 @@ async def test_ads_route_added_only_when_normal_connect_fails(
     class FakeAds:
         def __init__(self) -> None:
             self.route_added = False
-            self.route_calls = 0
+            self.route_calls: list[tuple[object, ...]] = []
 
-        def add_route_to_plc(self, *_args: object) -> bool:
-            self.route_calls += 1
+        def add_route_to_plc(self, *args: object) -> bool:
+            self.route_calls.append(args)
             self.route_added = True
             return True
 
@@ -443,12 +442,14 @@ async def test_ads_route_added_only_when_normal_connect_fails(
         target_net_id="192.0.2.20.1.1",
         target_port=801,
         route_auto_add=True,
+        username="plc-user",
+        password="plc-password",
     )
     monkeypatch.setattr(driver_module, "pyads", fake_ads)
     monkeypatch.setattr(
         driver_module,
         "_LOCAL_AMS",
-        ADSLocalConfig("192.0.2.10.1.1", "192.0.2.10", "user", "private-password"),
+        ADSLocalConfig("192.0.2.10.1.1", "192.0.2.10"),
     )
     monkeypatch.setattr(
         driver,
@@ -457,5 +458,81 @@ async def test_ads_route_added_only_when_normal_connect_fails(
     )
     await driver.connect()
     assert driver.is_open()
-    assert fake_ads.route_calls == 1
+    # 本机身份来自 ADSLocalConfig，远程地址与凭据来自设备有效 ADSConfig。
+    assert fake_ads.route_calls == [
+        ("192.0.2.10.1.1", "192.0.2.10", "192.0.2.20", "plc-user", "plc-password")
+    ]
+    await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_ads_route_not_added_when_auto_add_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeConnection:
+        is_open = False
+
+        def open(self) -> None:
+            self.is_open = True
+
+        def read_state(self) -> tuple[int, int]:
+            raise ConnectionError("route missing")
+
+        def close(self) -> None:
+            self.is_open = False
+
+    class FakeAds:
+        route_calls = 0
+
+        def add_route_to_plc(self, *_args: object) -> bool:
+            self.route_calls += 1
+            return True
+
+    fake_ads = FakeAds()
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {"route_auto_add": False},
+    )
+    monkeypatch.setattr(driver_module, "pyads", fake_ads)
+    monkeypatch.setattr(driver, "_new_connection", FakeConnection)
+    with pytest.raises(Exception, match="ADS connect failed"):
+        await driver.connect()
+    assert fake_ads.route_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_ads_route_not_added_when_connect_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeConnection:
+        is_open = False
+
+        def open(self) -> None:
+            self.is_open = True
+
+        def read_state(self) -> tuple[int, int]:
+            return (5, 0)
+
+        def close(self) -> None:
+            self.is_open = False
+
+    class FakeAds:
+        route_calls = 0
+
+        def add_route_to_plc(self, *_args: object) -> bool:
+            self.route_calls += 1
+            return True
+
+    fake_ads = FakeAds()
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {"route_auto_add": True},
+    )
+    monkeypatch.setattr(driver_module, "pyads", fake_ads)
+    monkeypatch.setattr(driver, "_new_connection", FakeConnection)
+    await driver.connect()
+    assert driver.is_open()
+    assert fake_ads.route_calls == 0
     await driver.close()

@@ -74,8 +74,8 @@ class SoakProfile:
     write_interval_s: float | None = None
     """混合读写：测量窗口内按该间隔轮询下发写命令；None 表示纯采集。"""
     storm: ReconnectStorm | None = None
-    device_extensions: dict[str, object] | None = None
-    """合并进每台设备 ``endpoint.extensions`` 的协议级覆盖（如 modbus
+    device_protocol_options: dict[str, object] | None = None
+    """合并进每台设备 ``protocol_options`` 的协议级覆盖（如 modbus
     ``timeout``）——风暴等场景需要把断连检测延迟压到远小于停起间隔，
     否则健康采样会把相邻断连窗口合并成一次。"""
 
@@ -124,7 +124,7 @@ PROFILES: dict[str, SoakProfile] = {
         name="reconnect_storm",
         groups=(LoadGroup(name="storm", devices=1, points_per_device=50, interval_s=0.2),),
         storm=ReconnectStorm(interval_s=4.0, count=5),
-        device_extensions={"timeout": 1.0},
+        device_protocol_options={"timeout": 1.0},
     ),
     # 施加 network_latency / packet_loss netem 场景时使用的基准负载。
     "netem_base": SoakProfile(
@@ -142,16 +142,15 @@ class WriteStats:
     failures: int = 0
 
 
-def _points_payload(group: LoadGroup) -> list[dict[str, object]]:
-    return [
-        {
-            "point_id": f"r.{i:04d}",
+def _points_payload(group: LoadGroup) -> dict[str, dict[str, object]]:
+    return {
+        f"r.{i:04d}": {
             "point_groups": ["default"],
             "address": {"register_type": "holding", "address": i},
             "data_type": "int16",
         }
         for i in range(group.points_per_device)
-    ]
+    }
 
 
 def write_soak_config(
@@ -166,18 +165,18 @@ def write_soak_config(
     由 ``assemble_collector`` 的 ``sink_factories`` 覆盖注入计量包装，
     ``type`` 字段决定工厂创建哪种真实内部 sink。
     """
-    devices: list[dict[str, object]] = []
+    devices: dict[str, dict[str, object]] = {}
     device_models: dict[str, object] = {}
     point_tables: dict[str, object] = {}
-    tasks: list[dict[str, object]] = []
+    tasks: dict[str, dict[str, object]] = {}
 
     for group in profile.groups:
         model_name = f"model_{group.name}"
         table_name = f"pts_{group.name}"
         device_models[model_name] = {
-            "device_type": "turbine",
+            "device_type_id": "turbine",
             "protocol": "modbus",
-            "point_table": table_name,
+            "point_table_id": table_name,
         }
         point_tables[table_name] = {
             "protocol": "modbus",
@@ -185,27 +184,21 @@ def write_soak_config(
         }
         for i in range(group.devices):
             device_id = f"{group.name}-{i:03d}"
-            devices.append(
-                {
-                    "device_id": device_id,
-                    "model": model_name,
-                    "enabled": True,
-                    "endpoint": {
-                        "host": host,
-                        "port": port,
-                        "extensions": {"unit_id": 1, **(profile.device_extensions or {})},
-                    },
-                }
-            )
-            tasks.append(
-                {
-                    "task_id": device_id,
-                    "device_group": device_id,
-                    "point_group": "default",
-                    "interval": group.interval_s,
-                    "targets": [{"sink": "soak_sink"}],
-                }
-            )
+            devices[device_id] = {
+                "model_id": model_name,
+                "enabled": True,
+                "endpoint": {
+                    "host": host,
+                    "port": port,
+                },
+                "protocol_options": {"slave_id": 1, **(profile.device_protocol_options or {})},
+            }
+            tasks[device_id] = {
+                "device_group_id": device_id,
+                "point_group": "default",
+                "interval": group.interval_s,
+                "sink_ids": ["soak_sink"],
+            }
 
     sink_type = "file"
     sink_connection: dict[str, object] = {"path": str(config_dir / "soak-null.csv")}
@@ -226,14 +219,13 @@ def write_soak_config(
         point_tables=point_tables,
         device_models=device_models,
         system=system,
-        sinks=[
-            {
-                "name": "soak_sink",
+        sinks={
+            "soak_sink": {
                 "type": sink_type,
                 "enabled": True,
                 "connection": sink_connection,
             }
-        ],
+        },
         tasks=tasks,
     )
 

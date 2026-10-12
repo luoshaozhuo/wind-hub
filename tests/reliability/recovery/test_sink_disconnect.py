@@ -48,9 +48,8 @@ class TestRedisOutageRecovery:
         config_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
-            sinks=[
-                {
-                    "name": "redis_sink",
+            sinks={
+                "redis_sink": {
                     "type": "redis",
                     "connection": {
                         "host": host,
@@ -58,8 +57,8 @@ class TestRedisOutageRecovery:
                         "key_prefix": REDIS_KEY_PREFIX,
                     },
                 }
-            ],
-            tasks=[telemetry_task("redis_sink")],
+            },
+            tasks=telemetry_task("redis_sink"),
         )
         proc: CollectorProcess = await collector_factory(config_dir)
         service_stopped = False

@@ -9,7 +9,7 @@ from core.domain import ConnectionEndpoint, ProtocolOptions
 
 _VALID_MODES = frozenset({"tcp"})
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
-_ALLOWED_OPTIONS = frozenset({"mode", "unit_id", "timeout", "word_order", "health_point_id"})
+_ALLOWED_OPTIONS = frozenset({"mode", "slave_id", "timeout", "word_order", "health_point_id"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,7 +18,7 @@ class ModbusConfig:
 
     host: str
     port: int = 502
-    unit_id: int = 1
+    slave_id: int = 1
     mode: str = "tcp"
     timeout: float = 5.0
     word_order: str = "little_endian"
@@ -43,9 +43,9 @@ def parse_modbus_config(
             f"'{mode}'; only TCP is currently supported"
         )
 
-    unit_id = _int_option(options.get("unit_id"), "unit_id", default=1)
-    if not 0 <= unit_id <= 255:
-        raise ConfigError(f"connection '{endpoint}': unit_id must be in 0..255")
+    slave_id = _int_option(options.get("slave_id"), "slave_id", default=1)
+    if not 0 <= slave_id <= 255:
+        raise ConfigError(f"connection '{endpoint}': slave_id must be in 0..255")
 
     timeout = _float_option(options.get("timeout"), "timeout", default=5.0)
     if timeout <= 0:
@@ -66,7 +66,7 @@ def parse_modbus_config(
     return ModbusConfig(
         host=endpoint.host,
         port=endpoint.port or 502,
-        unit_id=unit_id,
+        slave_id=slave_id,
         mode=mode,
         timeout=timeout,
         word_order=word_order,

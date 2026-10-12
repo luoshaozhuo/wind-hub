@@ -28,12 +28,14 @@ class ConfigSnapshotDiff:
     sections: Mapping[str, MappingDiff[object]]
     system_changed: bool
     site_changed: bool
+    units_changed: bool
 
     @property
     def has_changes(self) -> bool:
         return (
             self.system_changed
             or self.site_changed
+            or self.units_changed
             or any(section.has_changes for section in self.sections.values())
         )
 
@@ -71,4 +73,5 @@ def diff_config_snapshots(old: ConfigSnapshot, new: ConfigSnapshot) -> ConfigSna
         sections=MappingProxyType(sections),
         system_changed=old.system != new.system,
         site_changed=(old.site.site_id != new.site.site_id or old.site.name != new.site.name),
+        units_changed=old.units != new.units,
     )

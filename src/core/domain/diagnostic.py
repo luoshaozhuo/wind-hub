@@ -56,7 +56,6 @@ class PointVerifyResult:
 
     device_id: str
     point_id: str
-    variable_name: str | None
     protocol: str
     configured_address: dict[str, Any]
     resolved_address: dict[str, Any] | None

@@ -44,21 +44,20 @@ def _write_fast_config(base: Path, port: int, sink_path: Path) -> Path:
     from tests.support.functional_config import MODBUS_POINTS, modbus_device_dict
 
     task = telemetry_task("file_sink")
-    task["interval"] = FAST_INTERVAL
+    task[TASK_ID]["interval"] = FAST_INTERVAL
     return write_config_tree(
         base,
-        devices=[modbus_device_dict(port)],
-        point_tables={"modbus": {"points": list(MODBUS_POINTS)}},
-        sinks=[
-            {
-                "name": "file_sink",
+        devices=modbus_device_dict(port),
+        point_tables={"modbus": {"points": dict(MODBUS_POINTS)}},
+        sinks={
+            "file_sink": {
                 "type": "file",
                 "connection": {
                     "path": str(sink_path),
                 },
             }
-        ],
-        tasks=[task],
+        },
+        tasks=task,
         system={"runtime": {"connect_timeout": 1.0, "read_timeout": 2.0}},
     )
 

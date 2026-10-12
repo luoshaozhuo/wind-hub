@@ -19,15 +19,13 @@ import yaml
 from tests.support.config_helper import write_config_tree
 
 #: 与 ModbusMockServer 默认寄存器布局一致的点表。
-MODBUS_POINTS: list[dict[str, Any]] = [
-    {
-        "point_id": "rotor.speed",
+MODBUS_POINTS: dict[str, dict[str, Any]] = {
+    "rotor.speed": {
         "point_groups": ["telemetry"],
         "address": {"register_type": "holding", "address": 100},
         "data_type": "float32",
     },
-    {
-        "point_id": "gen.power",
+    "gen.power": {
         "point_groups": ["telemetry"],
         "address": {"register_type": "holding", "address": 102},
         "data_type": "float32",
@@ -35,52 +33,51 @@ MODBUS_POINTS: list[dict[str, Any]] = [
         "scale": 2.0,
         "offset": 10.0,
     },
-    {
-        "point_id": "temp.int",
+    "temp.int": {
         "point_groups": ["telemetry"],
         "address": {"register_type": "holding", "address": 104},
         "data_type": "int16",
     },
-    {
-        "point_id": "setpoint.power",
+    "setpoint.power": {
         "point_groups": ["telemetry", "control"],
         "address": {"register_type": "holding", "address": 200},
         "data_type": "float32",
     },
-]
+}
 
 DEFAULT_TASK: dict[str, Any] = {
-    "task_id": "modbus-telemetry",
-    "device_group": "modbus-1",
+    "device_group_id": "modbus-1",
     "point_group": "telemetry",
     "interval": 0.2,
-    "targets": [{"sink": "null_sink"}],
+    "sink_ids": ["null_sink"],
 }
 
 
 def modbus_device_dict(port: int, **overrides: Any) -> dict[str, Any]:
-    """指向指定端口 Modbus fixture 的设备定义（旧式便捷写法）。"""
+    """指向指定端口 Modbus fixture 的设备条目（devices Mapping 单条目）。"""
     device: dict[str, Any] = {
-        "device_id": "modbus-1",
-        "protocol": "modbus",
-        "point_table": "modbus",
-        "endpoint": {
-            "host": "127.0.0.1",
-            "port": port,
-            "extensions": {
-                "unit_id": 1,
+        "modbus-1": {
+            "protocol": "modbus",
+            "point_table": "modbus",
+            "endpoint": {
+                "host": "127.0.0.1",
+                "port": port,
+            },
+            "protocol_options": {
+                "slave_id": 1,
                 "timeout": 2.0,
                 # fixture server 寄存器布局为 big-endian float32。
                 "word_order": "big_endian",
             },
-        },
+        }
     }
-    device.update(overrides)
+    if overrides:
+        device["modbus-1"].update(overrides)
     return device
 
 
-#: devices 参数允许传 callable：在工厂选定实际端口后再构造设备列表。
-DevicesArg = list[dict[str, Any]] | Callable[[int], list[dict[str, Any]]]
+#: devices 参数允许传 callable：在工厂选定实际端口后再构造设备 Mapping。
+DevicesArg = dict[str, Any] | Callable[[int], dict[str, Any]]
 
 
 def write_functional_config(
@@ -89,8 +86,8 @@ def write_functional_config(
     *,
     devices: DevicesArg | None = None,
     point_tables: dict[str, Any] | None = None,
-    tasks: list[dict[str, Any]] | None = None,
-    sinks: list[dict[str, Any]] | None = None,
+    tasks: dict[str, Any] | None = None,
+    sinks: dict[str, Any] | None = None,
     system: dict[str, Any] | None = None,
     device_models: dict[str, Any] | None = None,
 ) -> Path:
@@ -99,19 +96,18 @@ def write_functional_config(
         devices = devices(port)
     return write_config_tree(
         base,
-        devices=devices if devices is not None else [modbus_device_dict(port)],
-        point_tables=point_tables or {"modbus": {"points": list(MODBUS_POINTS)}},
+        devices=devices if devices is not None else modbus_device_dict(port),
+        point_tables=point_tables or {"modbus": {"points": dict(MODBUS_POINTS)}},
         device_models=device_models,
         sinks=sinks
         if sinks is not None
-        else [
-            {
-                "name": "null_sink",
+        else {
+            "null_sink": {
                 "type": "file",
                 "connection": {"path": "/tmp/wind-hub-null.csv"},
             }
-        ],
-        tasks=tasks if tasks is not None else [dict(DEFAULT_TASK)],
+        },
+        tasks=tasks if tasks is not None else {"modbus-telemetry": dict(DEFAULT_TASK)},
         system={
             "runtime": {
                 "connect_timeout": 2.0,

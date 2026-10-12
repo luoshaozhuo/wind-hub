@@ -68,7 +68,7 @@ def test_naive_datetime_rejected() -> None:
 )
 def test_config_types(kind: str, connection: dict[str, Any]) -> None:
     assert (
-        _SinkSchema.model_validate({"name": "sink", "type": kind, "connection": connection}).type
+        _SinkSchema.model_validate({"type": kind, "connection": connection}).type
         == kind
     )
 
@@ -77,7 +77,6 @@ def test_old_type_rejected() -> None:
     with pytest.raises(ValueError):
         _SinkSchema.model_validate(
             {
-                "name": "sink",
                 "type": "kafka",
                 "connection": {"bootstrap_servers": "localhost", "topic": "telemetry"},
             }

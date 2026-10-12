@@ -13,6 +13,7 @@ def test_full_yaml_save_load_round_trip(tmp_path: Path) -> None:
     source = ROOT / "configs" / "example_modbus"
     for name in (
         "system.yaml",
+        "units.yaml",
         "device_models.yaml",
         "devices.yaml",
         "points.yaml",

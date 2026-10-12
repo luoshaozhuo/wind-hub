@@ -153,3 +153,26 @@ async def test_partial_reconfigure_failure_keeps_baseline():
     assert service.current_config is config  # 基线不提交
     assert service.config_hash == "h1"
     await runtime.stop()
+
+
+async def test_prepare_rejects_unit_catalog_change():
+    """单位目录变化是 restart-required，prepare 明确拒绝。"""
+    from dataclasses import replace
+
+    from core.domain.unit import UnitCatalog
+    from tests.support.units import minimal_unit_catalog
+
+    base = minimal_unit_catalog()
+    changed = UnitCatalog(
+        units={key: unit for key, unit in base.units.items() if key != "percent"},
+        base_units=base.base_units,
+    )
+    service, runtime, state = _service()
+    state["config"] = replace(state["config"], units=changed)
+    state["hash"] = "h2"
+
+    result = await service.prepare_config("r1")
+    assert not result.success
+    assert any("unit catalog change requires process restart" in e for e in result.errors)
+    assert service.prepared_revision is None
+    await runtime.stop()

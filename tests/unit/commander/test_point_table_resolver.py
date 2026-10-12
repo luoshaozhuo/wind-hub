@@ -9,13 +9,12 @@ import pytest
 from commander.infrastructure.config import load_commander_config
 from core.application import ConfigError
 from core.domain import PointTableId
+from core.infrastructure.config import YamlConfigAdapter
 from tests.support.new_commander import write_minimal_config_tree
 
 
-def _base_point(point_id: str, address: int, *, data_type: str = "float32") -> dict[str, Any]:
+def _base_point(address: int, *, data_type: str = "float32") -> dict[str, Any]:
     return {
-        "point_id": point_id,
-        "business_point_id": point_id,
         "point_groups": ["g"],
         "address": {"register_type": "holding", "address": address},
         "data_type": data_type,
@@ -27,26 +26,26 @@ def _load(tmp_path, tables: dict[str, Any]):
         tmp_path,
         point_tables=tables,
     )
-    return load_commander_config(directory)
+    return load_commander_config(YamlConfigAdapter(directory))
 
 
 def test_base_table_requires_protocol(tmp_path):
     with pytest.raises(ConfigError, match="protocol"):
-        _load(tmp_path, {"tab": {"points": []}})
+        _load(tmp_path, {"tab": {"points": {}}})
 
 
 def test_inheritance_override_append_and_remove(tmp_path):
     base = {
         "protocol": "modbus",
-        "points": [_base_point("p1", 1), _base_point("p2", 2)],
+        "points": {"p1": _base_point(1), "p2": _base_point(2)},
     }
     child = {
-        "extends": "tab",
+        "parent_id": "tab",
         "remove_points": ["p2"],
-        "points": [
-            {"point_id": "p1", "scale": 0.1},
-            _base_point("p3", 3, data_type="int16"),
-        ],
+        "points": {
+            "p1": {"scale": 0.1},
+            "p3": _base_point(3, data_type="int16"),
+        },
     }
     config = _load(tmp_path, {"tab": base, "child": child})
     table = config.point_tables[PointTableId("child")]
@@ -56,16 +55,16 @@ def test_inheritance_override_append_and_remove(tmp_path):
     assert table.points["p1"].ext["address"] == 1
 
 
-def test_explicit_null_clears_inherited_optional_name(tmp_path):
-    base_point = {**_base_point("p1", 1), "variable_name": "original"}
+def test_explicit_null_clears_inherited_optional_description(tmp_path):
+    base_point = {**_base_point(1), "description": "original"}
     config = _load(
         tmp_path,
         {
-            "tab": {"protocol": "modbus", "points": [base_point]},
-            "child": {"extends": "tab", "points": [{"point_id": "p1", "variable_name": None}]},
+            "tab": {"protocol": "modbus", "points": {"p1": base_point}},
+            "child": {"parent_id": "tab", "points": {"p1": {"description": None}}},
         },
     )
-    assert config.point_tables[PointTableId("child")].points["p1"].variable_name is None
+    assert config.point_tables[PointTableId("child")].points["p1"].description is None
 
 
 def test_inheritance_cycle_rejected(tmp_path):
@@ -73,15 +72,15 @@ def test_inheritance_cycle_rejected(tmp_path):
         _load(
             tmp_path,
             {
-                "tab": {"extends": "child", "points": []},
-                "child": {"extends": "tab", "points": []},
+                "tab": {"parent_id": "child", "points": {}},
+                "child": {"parent_id": "tab", "points": {}},
             },
         )
 
 
 def test_unknown_parent_rejected(tmp_path):
     with pytest.raises(ConfigError, match="not found"):
-        _load(tmp_path, {"tab": {"extends": "missing", "points": []}})
+        _load(tmp_path, {"tab": {"parent_id": "missing", "points": {}}})
 
 
 def test_remove_unknown_point_rejected(tmp_path):
@@ -89,8 +88,8 @@ def test_remove_unknown_point_rejected(tmp_path):
         _load(
             tmp_path,
             {
-                "tab": {"protocol": "modbus", "points": []},
-                "child": {"extends": "tab", "remove_points": ["missing"]},
+                "tab": {"protocol": "modbus", "points": {}},
+                "child": {"parent_id": "tab", "remove_points": ["missing"]},
             },
         )
 
@@ -100,8 +99,8 @@ def test_cross_protocol_inheritance_rejected(tmp_path):
         _load(
             tmp_path,
             {
-                "tab": {"protocol": "modbus", "points": []},
-                "child": {"extends": "tab", "protocol": "ads", "points": []},
+                "tab": {"protocol": "modbus", "points": {}},
+                "child": {"parent_id": "tab", "protocol": "ads", "points": {}},
             },
         )
 
@@ -111,7 +110,7 @@ def test_incomplete_new_point_rejected(tmp_path):
         _load(
             tmp_path,
             {
-                "tab": {"protocol": "modbus", "points": []},
-                "child": {"extends": "tab", "points": [{"point_id": "p1", "point_groups": ["g"]}]},
+                "tab": {"protocol": "modbus", "points": {}},
+                "child": {"parent_id": "tab", "points": {"p1": {"point_groups": ["g"]}}},
             },
         )

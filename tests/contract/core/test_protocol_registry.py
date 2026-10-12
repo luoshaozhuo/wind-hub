@@ -17,7 +17,6 @@ from core.application import (
     SubscriptionHandle,
 )
 from core.domain import (
-    UNIT_CATALOG,
     BusinessPoint,
     BusinessPointId,
     ConnectionEndpoint,
@@ -34,11 +33,11 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    UnitCode,
 )
 from core.infrastructure.protocol.ads import ADSDriver
 from core.infrastructure.protocol.iec104 import IEC104Driver
 from core.infrastructure.protocol.modbus import ModbusDriver
+from tests.support.units import KILOWATT_UNIT
 
 
 class _Protocol:
@@ -143,12 +142,12 @@ def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
     business_point = BusinessPoint(
         BusinessPointId("power"),
         DataType.FLOAT32,
-        UNIT_CATALOG[UnitCode.KILOWATT],
+        KILOWATT_UNIT,
     )
     protocol_point = Point(
         point_id="power",
         business_point_id=business_point.business_point_id,
-        source_unit=UNIT_CATALOG[UnitCode.KILOWATT],
+        source_unit=KILOWATT_UNIT,
         access=PointAccess.READ,
         ext={
             "register_type": "input",

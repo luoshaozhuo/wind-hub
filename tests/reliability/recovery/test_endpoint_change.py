@@ -42,7 +42,7 @@ def _set_endpoint(config_dir: Path, *, host: str, port: int) -> None:
     """改写 devices.yaml 中唯一设备的 endpoint（reload 的输入）。"""
 
     def _mutate(data: dict[str, Any]) -> None:
-        endpoint = data["devices"][0]["endpoint"]
+        endpoint = data["devices"]["modbus-1"]["endpoint"]
         endpoint["host"] = host
         endpoint["port"] = port
 

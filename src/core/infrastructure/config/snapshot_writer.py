@@ -1,29 +1,20 @@
-"""配置快照序列化为七个 YAML 文档。"""
+"""配置快照序列化为八个 YAML 文档。
+
+与 :mod:`.parse_domain` 使用同一套 Schema：实体集合一律为 Mapping
+（Key 即实体 ID），跨实体引用使用 ``*_id`` / ``*_ids`` 命名。
+快照只保存显式配置（型号默认值在 DeviceModel 上，设备实例只写显式
+endpoint/protocol_options），因此写回不依赖任何继承关系反推。
+"""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from enum import Enum
 from typing import Any
-
-from pydantic import SecretStr
 
 from core.application.config_snapshot import ConfigSnapshot
 
 from .point_table_writer import dump_point_tables
-
-
-def _yaml_plain(value: Any) -> Any:
-    """Convert typed sink values to YAML without masking configured secrets."""
-    if isinstance(value, SecretStr):
-        return value.get_secret_value()
-    if isinstance(value, Enum):
-        return value.value
-    if isinstance(value, Mapping):
-        return {key: _yaml_plain(item) for key, item in value.items()}
-    if isinstance(value, tuple | list):
-        return [_yaml_plain(item) for item in value]
-    return value
+from .units import dump_unit_catalog
+from .yaml import yaml_plain as _yaml_plain
 
 
 def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
@@ -41,19 +32,25 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
             for name in snapshot.system.ads.__dataclass_fields__
         }
     system["site"] = {"site_id": snapshot.site.site_id, "name": snapshot.site.name}
-    models = {}
+
+    models: dict[str, Any] = {}
     for model_key, model in snapshot.device_models.items():
         table = snapshot.point_tables[model.point_table_id]
-        models[str(model_key)] = {
-            "device_type": str(model.device_type_id),
+        definition: dict[str, Any] = {
+            "device_type_id": str(model.device_type_id),
             "model": model.name,
             "manufacturer": model.manufacturer,
             "protocol": table.protocol.name,
-            "point_table": str(model.point_table_id),
+            "point_table_id": str(model.point_table_id),
             "properties": _yaml_plain(model.properties),
-            "connection_defaults": _yaml_plain(model.connection_defaults),
         }
-    devices = []
+        if model.endpoint_defaults:
+            definition["endpoint_defaults"] = _yaml_plain(model.endpoint_defaults)
+        if model.protocol_options:
+            definition["protocol_options"] = _yaml_plain(model.protocol_options)
+        models[str(model_key)] = definition
+
+    devices: dict[str, Any] = {}
     for device_key, device in snapshot.site.devices.items():
         endpoint: dict[str, Any] = {"host": device.endpoint.host}
         if device.endpoint.port is not None:
@@ -61,39 +58,37 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
         options = dict(snapshot.protocol_options_by_device.get(device_key, {}))
         if device_key in snapshot.ads_subscribe_devices:
             options["subscribe_enabled"] = True
-        if options:
-            endpoint["extensions"] = options
-        devices.append(
-            {
-                "device_id": str(device_key),
-                "model": str(device.device_model_id),
-                **({"name": device.name} if device.name is not None else {}),
-                "device_groups": [str(group_id) for group_id in device.device_group_ids],
-                "endpoint": endpoint,
-                "enabled": device.enabled,
-            }
-        )
-    tasks = [
-        {
-            "task_id": task.task_id,
-            "device_group": str(task.device_group_id),
+        definition = {
+            "model_id": str(device.device_model_id),
+            **({"name": device.name} if device.name is not None else {}),
+            "device_group_ids": [str(group_id) for group_id in device.device_group_ids],
+            "endpoint": endpoint,
+            **({"protocol_options": _yaml_plain(options)} if options else {}),
+            "enabled": device.enabled,
+        }
+        devices[str(device_key)] = definition
+
+    tasks = {
+        task_id: {
+            "device_group_id": str(task.device_group_id),
             "point_group": task.point_group,
             "interval": task.interval,
-            "targets": [{"sink": sink_id} for sink_id in task.sink_ids],
+            "sink_ids": list(task.sink_ids),
             "enabled": task.enabled,
         }
-        for task in snapshot.tasks.values()
-    ]
+        for task_id, task in snapshot.tasks.items()
+    }
     catalog = {
         str(key): {
             "data_type": point.data_type.value,
-            "unit": point.standard_unit.code.value,
+            "unit_id": point.standard_unit.unit_id,
             "description": point.description,
         }
         for key, point in snapshot.business_points.items()
     }
     return {
         "system.yaml": system,
+        "units.yaml": dump_unit_catalog(snapshot.units),
         "device_models.yaml": {
             "device_types": {
                 str(key): {
@@ -115,15 +110,14 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
         "business_points.yaml": {"business_points": catalog},
         "tasks.yaml": {"tasks": tasks},
         "sinks.yaml": {
-            "sinks": [
-                {
-                    "name": sink.sink_id,
+            "sinks": {
+                sink_id: {
                     "type": sink.kind,
                     "enabled": sink.enabled,
                     "connection": _yaml_plain(sink.connection),
                     "points": _yaml_plain(sink.points),
                 }
-                for sink in snapshot.sinks.values()
-            ],
+                for sink_id, sink in snapshot.sinks.items()
+            },
         },
     }

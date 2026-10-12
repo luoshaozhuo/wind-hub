@@ -6,13 +6,11 @@ import pytest
 
 from core.application import ConfigError
 from core.domain import (
-    UNIT_CATALOG,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
     Protocol,
-    UnitCode,
 )
 from core.domain.identities import BusinessPointId, PointTableId
 from core.infrastructure.protocol.ads import (
@@ -20,6 +18,7 @@ from core.infrastructure.protocol.ads import (
     parse_ads_config,
     parse_ads_point,
 )
+from tests.support.units import NONE_UNIT
 
 
 def _endpoint(
@@ -41,7 +40,7 @@ def _point(
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=PointAccess.READ_WRITE,
         ext={} if ext is None else ext,
     )
@@ -77,7 +76,7 @@ def test_ads_config_uses_project_default_port_by_twincat_version() -> None:
             _endpoint(port=None),
             {"twincat_version": "3"},
         ).target_port
-        == 802
+        == 851
     )
 
 

@@ -1,20 +1,16 @@
 device_types:
-
   turbine:
     name: 风力发电机组
-
-
 device_models:
-
   wtg_iec104_site:
-    device_type: turbine
     protocol: iec104
-    point_table: wtg_iec104_site_v1
-    connection_defaults:
+    device_type_id: turbine
+    point_table_id: wtg_iec104_site_v1
+    endpoint_defaults:
       port: 2404
+    protocol_options:
       common_addr: 1
       t0: 5.0
       t1: 3.0
       t2: 1.0
       t3: 30.0
-

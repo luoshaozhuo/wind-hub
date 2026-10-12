@@ -34,13 +34,14 @@ INSTANCE_ID = "modbus-telemetry:modbus-1"
 REDIS_KEY_PREFIX = "wind-hub-sys"
 
 
-def _task(sink_name: str) -> dict[str, Any]:
+def _task(sink_id: str) -> dict[str, Any]:
     return {
-        "task_id": "modbus-telemetry",
-        "device_group": "modbus-1",
-        "point_group": "telemetry",
-        "interval": 0.2,
-        "targets": [{"sink": sink_name}],
+        TASK_ID: {
+            "device_group_id": "modbus-1",
+            "point_group": "telemetry",
+            "interval": 0.2,
+            "sink_ids": [sink_id],
+        }
     }
 
 
@@ -49,16 +50,15 @@ def _file_config(base: Path, port: int, sink_path: Path) -> Path:
     return write_functional_config(
         base,
         port,
-        sinks=[
-            {
-                "name": "file_sink",
+        sinks={
+            "file_sink": {
                 "type": "file",
                 "connection": {
                     "path": str(sink_path),
                 },
             }
-        ],
-        tasks=[_task("file_sink")],
+        },
+        tasks=_task("file_sink"),
     )
 
 
@@ -121,9 +121,8 @@ class TestModbusToRedis:
         config_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
-            sinks=[
-                {
-                    "name": "redis_sink",
+            sinks={
+                "redis_sink": {
                     "type": "redis",
                     "connection": {
                         "host": redis_service.rpartition(":")[0],
@@ -131,8 +130,8 @@ class TestModbusToRedis:
                         "key_prefix": REDIS_KEY_PREFIX,
                     },
                 }
-            ],
-            tasks=[_task("redis_sink")],
+            },
+            tasks=_task("redis_sink"),
         )
         proc: CollectorProcess = await collector_factory(config_dir)
 

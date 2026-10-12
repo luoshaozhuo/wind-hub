@@ -45,7 +45,7 @@ from core.domain import (
     Protocol,
     ProtocolOptions,
 )
-from core.domain.unit import UNIT_CATALOG, UnitCode
+from tests.support.units import MINIMAL_UNITS_DOCUMENT, NONE_UNIT, minimal_unit_catalog
 
 # ---------------------------------------------------------------------------
 # YAML 配置树
@@ -63,14 +63,18 @@ def write_minimal_config_tree(
     *,
     protocol: str = "modbus",
     address: dict[str, Any] | None = None,
-    devices: list[dict[str, Any]] | None = None,
-    points: list[dict[str, Any]] | None = None,
+    devices: dict[str, Any] | None = None,
+    points: dict[str, Any] | None = None,
     point_tables: dict[str, Any] | None = None,
-    connection_defaults: dict[str, Any] | None = None,
+    endpoint_defaults: dict[str, Any] | None = None,
+    protocol_options: dict[str, Any] | None = None,
     runtime: dict[str, Any] | None = None,
     ads: dict[str, Any] | None = None,
 ) -> Path:
-    """写出最小自包含配置树（单型号 ``mod``、单点表 ``tab``），返回目录。"""
+    """写出最小自包含配置树（单型号 ``mod``、单点表 ``tab``），返回目录。
+
+    全部实体集合使用统一 Schema 的 Mapping 形式（Key 即实体 ID）。
+    """
     base.mkdir(parents=True, exist_ok=True)
     system: dict[str, Any] = {"site": {"site_id": "test"}, "runtime": runtime or {}}
     if ads is not None:
@@ -78,11 +82,14 @@ def write_minimal_config_tree(
     write_yaml(base, "system.yaml", system)
 
     model: dict[str, Any] = {
-        "device_type": "turbine",
+        "device_type_id": "turbine",
         "protocol": protocol,
-        "point_table": "tab",
-        "connection_defaults": connection_defaults or {},
+        "point_table_id": "tab",
     }
+    if endpoint_defaults:
+        model["endpoint_defaults"] = endpoint_defaults
+    if protocol_options:
+        model["protocol_options"] = protocol_options
     write_yaml(
         base,
         "device_models.yaml",
@@ -90,46 +97,58 @@ def write_minimal_config_tree(
     )
 
     if devices is None:
-        devices = [
-            {
-                "device_id": "dev1",
-                "model": "mod",
+        devices = {
+            "dev1": {
+                "model_id": "mod",
                 "endpoint": {"host": "127.0.0.1", "port": 502},
             }
-        ]
-    for device in devices:
-        if "device_group" not in device and "device_groups" not in device:
-            device["device_group"] = device["device_id"]
-    write_yaml(base, "devices.yaml", {"devices": devices})
+        }
+    instances = {
+        device_id: (
+            {**entry, "device_group_ids": [device_id]}
+            if "device_group_ids" not in entry
+            else dict(entry)
+        )
+        for device_id, entry in devices.items()
+    }
+    device_groups: dict[str, Any] = {}
+    for entry in instances.values():
+        for group_id in entry["device_group_ids"]:
+            device_groups.setdefault(group_id, {"name": str(group_id)})
+    write_yaml(
+        base,
+        "devices.yaml",
+        {"devices": instances, "device_groups": device_groups},
+    )
 
     if point_tables is None:
         if points is None:
-            points = [
-                {
-                    "point_id": "p1",
+            points = {
+                "p1": {
                     "point_groups": ["g"],
                     "address": address or {"register_type": "holding", "address": 100},
                     "data_type": "float32",
                 }
-            ]
+            }
         point_tables = {"tab": {"protocol": protocol, "points": points}}
     business_points: dict[str, dict[str, str]] = {}
     for table in point_tables.values():
-        for point in table.get("points", []):
-            identity = point.setdefault("business_point_id", point["point_id"])
+        for point_id, point in table.get("points", {}).items():
+            identity = point.setdefault("business_point_id", point_id)
             if "data_type" in point:
                 definition = {
                     "data_type": point["data_type"],
-                    "unit": point.get("unit", "none"),
+                    "unit_id": point.get("unit_id", "none"),
                 }
                 previous = business_points.get(identity)
                 if previous is not None and previous != definition:
                     raise ValueError(f"conflicting business point definition: {identity}")
                 business_points[identity] = definition
+    write_yaml(base, "units.yaml", dict(MINIMAL_UNITS_DOCUMENT))
     write_yaml(base, "business_points.yaml", {"business_points": business_points})
     write_yaml(base, "points.yaml", {"point_tables": point_tables})
-    write_yaml(base, "tasks.yaml", {"tasks": []})
-    write_yaml(base, "sinks.yaml", {"sinks": []})
+    write_yaml(base, "tasks.yaml", {"tasks": {}})
+    write_yaml(base, "sinks.yaml", {"sinks": {}})
     return base
 
 
@@ -275,7 +294,7 @@ def make_commander_config(
     write_timeout: float = 1.0,
 ) -> CommanderConfig:
     """构造单设备单点的内存 CommanderConfig（不经过 YAML）。"""
-    unit = UNIT_CATALOG[UnitCode.NONE]
+    unit = NONE_UNIT
     bp = BusinessPoint(
         business_point_id=BusinessPointId("p1"),
         data_type=data_type,
@@ -289,7 +308,6 @@ def make_commander_config(
         scale=scale,
         offset=offset,
         ext=address or {"register_type": "holding", "address": 100},
-        variable_name="P1",
         point_groups=("g",),
     )
     table = PointTable(
@@ -298,6 +316,7 @@ def make_commander_config(
         points={"p1": point},
     )
     return CommanderConfig(
+        units=minimal_unit_catalog(),
         device_models={
             DeviceModelId("mod"): DeviceModel(
                 device_model_id=DeviceModelId("mod"),

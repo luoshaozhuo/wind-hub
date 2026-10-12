@@ -82,7 +82,7 @@ class CommanderConfigService:
         config_dir: Path,
         runtime: CommanderRuntime,
         *,
-        load_config: Callable[[Path], CommanderConfig],
+        load_config: Callable[[], CommanderConfig],
         config_digest: Callable[[Path], str],
     ) -> None:
         self._config_dir = config_dir
@@ -93,7 +93,7 @@ class CommanderConfigService:
     async def prepare_config(self, revision_id: str, expected_config_hash: str) -> str:
         """加载候选配置并构造 prepared generation，返回实际配置摘要。"""
         before_hash = self._config_digest(self._config_dir)
-        candidate = self._load_config(self._config_dir)
+        candidate = self._load_config()
         actual_hash = self._config_digest(self._config_dir)
         if before_hash != actual_hash:
             raise ValueError(

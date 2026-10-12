@@ -23,7 +23,7 @@ def _snapshot_with_points(tmp_path: Path, *, addresses: tuple[int, ...]):
             "source": {"device_id": str(device_id), "point_id": point_id},
             "ref": f"scada_{index}",
             "address": {
-                "unit_id": 1,
+                "slave_id": 1,
                 "register_type": "holding",
                 "address": address,
             },

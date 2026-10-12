@@ -79,7 +79,6 @@ def _point_verify_to_proto(result: PointVerifyResult) -> pb.PointVerifyResponse:
     response = pb.PointVerifyResponse(
         device_id=result.device_id,
         point_id=result.point_id,
-        variable_name=result.variable_name or "",
         protocol=result.protocol,
         configured_address=_address_fields(result.configured_address),
         resolved_address=_address_fields(result.resolved_address),

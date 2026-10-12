@@ -28,7 +28,7 @@ _STRUCT_FORMAT: dict[str, str] = {
 class EncodedModbusValue:
     """一个已编码的 Modbus Sink 点值。"""
 
-    unit_id: int
+    slave_id: int
     register_type: str
     address: int
     bits: tuple[bool, ...] = ()
@@ -50,7 +50,7 @@ def encode_modbus_value(value: ExportedSinkPointValue) -> EncodedModbusValue:
                 f"Sink point '{definition.ref}' requires bool value for " f"{address.register_type}"
             )
         return EncodedModbusValue(
-            unit_id=address.unit_id,
+            slave_id=address.slave_id,
             register_type=address.register_type,
             address=address.address,
             bits=(value.value,),
@@ -63,7 +63,7 @@ def encode_modbus_value(value: ExportedSinkPointValue) -> EncodedModbusValue:
         word_order=address.word_order,
     )
     return EncodedModbusValue(
-        unit_id=address.unit_id,
+        slave_id=address.slave_id,
         register_type=address.register_type,
         address=address.address,
         registers=tuple(registers),

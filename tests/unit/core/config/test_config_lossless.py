@@ -13,6 +13,7 @@ from core.infrastructure.config.digest import config_dir_digest
 ROOT = Path(__file__).resolve().parents[4]
 FILES = (
     "system.yaml",
+    "units.yaml",
     "device_models.yaml",
     "devices.yaml",
     "points.yaml",
@@ -32,7 +33,7 @@ def test_device_model_options_and_system_interfaces_survive_save(tmp_path: Path)
     adapter = _fixture(tmp_path, "example_modbus")
     before = adapter.load()
     model = next(iter(before.device_models.values()))
-    assert model.connection_defaults["port"] == 502
+    assert model.endpoint_defaults["port"] == 502
     adapter.save(before)
     after = adapter.load()
     assert not diff_config_snapshots(before, after).has_changes
@@ -53,7 +54,8 @@ def test_ads_subscription_option_round_trip(tmp_path: Path) -> None:
     adapter = _fixture(tmp_path, "example_ads")
     devices = tmp_path / "devices.yaml"
     document = yaml.safe_load(devices.read_text())
-    document["devices"][0]["endpoint"].setdefault("extensions", {})["subscribe_enabled"] = True
+    first_device = next(iter(document["devices"].values()))
+    first_device.setdefault("protocol_options", {})["subscribe_enabled"] = True
     devices.write_text(yaml.safe_dump(document, sort_keys=False))
     before = adapter.load()
     assert before.ads_subscribe_devices

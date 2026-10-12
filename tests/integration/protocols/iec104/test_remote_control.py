@@ -23,7 +23,6 @@ from core.application.protocol_contract import (
     WriteOutcome,
 )
 from core.domain import (
-    UNIT_CATALOG,
     BusinessPointId,
     ConnectionEndpoint,
     Point,
@@ -31,10 +30,10 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    UnitCode,
 )
 from core.infrastructure.protocol.iec104 import IEC104Driver
 from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
+from tests.support.units import NONE_UNIT
 from tests.support.wait import wait_until
 
 pytestmark = pytest.mark.real_service
@@ -44,7 +43,7 @@ def _command_point(point_id: str, ioa: int, type_id: str) -> Point:
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=PointAccess.WRITE,
         ext={"ioa": ioa, "type_id": type_id},
     )
@@ -54,7 +53,7 @@ def _monitoring_point(point_id: str, ioa: int) -> Point:
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=PointAccess.READ,
         ext={"ioa": ioa},
     )

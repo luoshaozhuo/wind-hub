@@ -41,7 +41,7 @@ def _point(
         datatype=datatype,
         unit="none",
         address=ModbusSinkAddress(
-            unit_id=1,
+            slave_id=1,
             register_type=register_type,  # type: ignore[arg-type]
             address=address,
         ),
