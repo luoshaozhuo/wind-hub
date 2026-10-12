@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from core.application.errors import ProtocolError
+from core.application.errors import ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import ProtocolWrite, WriteOutcome
 from core.application.watchdog import WatchdogUseCase
 from core.domain import (
@@ -228,9 +228,9 @@ class TestRealServerIO:
         self, modbus_env: tuple[ModbusDriver, object, int]
     ) -> None:
         driver, _, _ = modbus_env
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ProtocolCapabilityError):
             await driver.write_many(())
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ProtocolCapabilityError):
             await driver.write_many((ProtocolWrite("hr.wint", 55),))
         assert (await driver.read_one("hr.wint")).value == 0  # 未发生任何写入
         assert (await driver.health()).healthy is True  # 不支持 ≠ 断线
