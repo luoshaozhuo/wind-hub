@@ -65,10 +65,18 @@ class CommanderMetadataService:
                 raise CommandError(f"unknown device '{device_id}'") from exc
             revision, config_hash = self._runtime.operation_config_identity()
             points = session.point_table.points
+            business_points = self._runtime.operation_config().business_points
             results: list[PointMetadataResult] = []
             for point_id in point_ids:
                 point = points.get(point_id)
-                metadata = _point_metadata(point) if point is not None else None
+                metadata = (
+                    _point_metadata(
+                        point,
+                        data_type=business_points[point.business_point_id].data_type.value,
+                    )
+                    if point is not None
+                    else None
+                )
                 results.append(PointMetadataResult(point_id=point_id, metadata=metadata))
             return PointsMetadataResult(
                 device_id=device_id,
@@ -78,13 +86,12 @@ class CommanderMetadataService:
             )
 
 
-def _point_metadata(point: Point) -> PointMetadata:
+def _point_metadata(point: Point, *, data_type: str) -> PointMetadata:
     """仅抽取公开的地址参数，不返回协议连接或认证配置。"""
-    raw_type = point.ext.get("data_type", point.ext.get("type"))
     return PointMetadata(
         point_id=point.point_id,
         access=point.access.value,
-        data_type=str(raw_type) if raw_type is not None else "",
+        data_type=data_type,
         unit=point.source_unit.unit_id,
         scale=point.scale,
         offset=point.offset,
