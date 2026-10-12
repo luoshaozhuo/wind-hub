@@ -406,6 +406,7 @@ class CommanderDiagnosticService:
             scale=point.scale,
             offset=point.offset,
             unit=point.source_unit.unit_id,
+            access=point.access.value,
             readable=readable,
             ok=ok,
             code=code,
