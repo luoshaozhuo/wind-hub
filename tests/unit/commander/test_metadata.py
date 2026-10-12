@@ -53,7 +53,9 @@ async def test_metadata_pinned_generation_during_activation() -> None:
     service, runtime, _ = _service()
     before = await service.get_points_metadata("dev1", ["p1"])
     async with runtime.operation():
-        await runtime.prepare_config("r2", make_commander_config(), "hash-b")
+        await runtime.prepare_config(
+            "r2", make_commander_config(scale=2.0, access=PointAccess.WRITE), "hash-b"
+        )
         await runtime.activate_config("r2")
         pinned = await service.get_points_metadata("dev1", ["p1"])
         assert pinned.active_revision == before.active_revision
@@ -63,6 +65,9 @@ async def test_metadata_pinned_generation_during_activation() -> None:
     after = await service.get_points_metadata("dev1", ["p1"])
     assert after.active_revision == "r2"
     assert after.active_config_hash == "hash-b"
+    assert after.points[0].metadata is not None
+    assert after.points[0].metadata.scale == 2.0
+    assert after.points[0].metadata.access == "write"
     await runtime.stop()
 
 
