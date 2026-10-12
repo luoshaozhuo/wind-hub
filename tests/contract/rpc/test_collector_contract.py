@@ -27,6 +27,7 @@ _RUNTIME_METHODS = [
     "QueryLatestValues",
     "VerifySink",
     "WriteTestSink",
+    "GetPointsMetadata",
 ]
 
 _CONTROL_METHODS = [
