@@ -28,7 +28,6 @@ class ADSConfig:
     target_net_id: str
     target_port: int
     timeout: float = 5.0
-    twincat_version: str = "2"
     max_subs_per_sum: int = 500
     max_delay: float = 0.06
     max_notifications_per_connection: int = 550
@@ -102,7 +101,6 @@ def parse_ads_config(
         target_net_id=target_net_id,
         target_port=target_port,
         timeout=timeout,
-        twincat_version=twincat_version,
         max_subs_per_sum=max_subs,
         max_delay=max_delay,
         max_notifications_per_connection=max_notifications,

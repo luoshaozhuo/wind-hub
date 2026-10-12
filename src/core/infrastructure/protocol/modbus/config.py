@@ -19,7 +19,6 @@ class ModbusConfig:
     host: str
     port: int = 502
     unit_id: int = 1
-    mode: str = "tcp"
     timeout: float = 5.0
     word_order: str = "little_endian"
     health_point_id: str | None = None
@@ -67,7 +66,6 @@ def parse_modbus_config(
         host=endpoint.host,
         port=endpoint.port or 502,
         unit_id=unit_id,
-        mode=mode,
         timeout=timeout,
         word_order=word_order,
         health_point_id=health_point_id,

@@ -6,8 +6,8 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from math import isfinite
 
-from .device import Device, DeviceGroup
-from .identities import DeviceGroupId, DeviceId
+from .device import DeviceGroup
+from .identities import DeviceGroupId
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,13 +66,3 @@ def validate_task_references(
         unknown_sinks = set(task.sink_ids) - available_sinks
         if unknown_sinks:
             raise ValueError(f"task '{task_id}' references unknown sinks {sorted(unknown_sinks)}")
-
-
-def devices_for_task(
-    task: Task,
-    devices: Mapping[DeviceId, Device],
-) -> tuple[Device, ...]:
-    """选出属于任务设备组的设备；设备可同时参与不同任务。"""
-    return tuple(
-        device for device in devices.values() if task.device_group_id in device.device_group_ids
-    )

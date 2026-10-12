@@ -19,7 +19,12 @@ from typing import Any
 
 import pyads  # type: ignore[import-untyped]
 
-from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
+from core.application.errors import (
+    ConfigError,
+    ProtocolCapabilityError,
+    ProtocolConnectionError,
+    ProtocolError,
+)
 from core.application.protocol_contract import (
     ConnectionHealth,
     PointScalar,
@@ -150,9 +155,10 @@ class ADSDriver:
                 if (
                     _LOCAL_AMS.local_ams_net_id != config.local_ams_net_id
                     or _LOCAL_AMS.local_ip != config.local_ip
+                    or _LOCAL_AMS.username != config.username
+                    or _LOCAL_AMS.password != config.password
                 ):
                     raise ConfigError("ADS local AMS identity conflicts with initialized identity")
-                _LOCAL_AMS = config
                 return
             if sys.platform.startswith("linux"):
                 pyads.open_port()
@@ -216,8 +222,12 @@ class ADSDriver:
             with _REMOTE_ROUTE_LOCK:
                 try:
                     return self._open_verified_connection()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(
+                        "ADS connect retry before route registration failed for %s: %s",
+                        self._config.host,
+                        exc,
+                    )
                 identity = _LOCAL_AMS
                 if identity is None:
                     raise ConfigError("ADS local AMS identity is not initialized") from None
@@ -239,7 +249,7 @@ class ADSDriver:
                 try:
                     return self._open_verified_connection()
                 except Exception:
-                    raise ProtocolError(
+                    raise ProtocolConnectionError(
                         "ADS still unreachable after remote route registration: "
                         f"{self._config.host}"
                     ) from None
@@ -255,9 +265,11 @@ class ADSDriver:
             except ProtocolError:
                 self._connected = False
                 raise
-            except Exception:
+            except Exception as exc:
                 self._connected = False
-                raise ProtocolError(f"ADS connect failed for {self._config.host}") from None
+                raise ProtocolConnectionError(
+                    f"ADS connect failed for {self._config.host}: {exc}"
+                ) from exc
             self._connection = connection
             self._invalidate_symbol_addresses()
             self._connected = True
@@ -321,7 +333,7 @@ class ADSDriver:
         表示订阅当前 PointTable 的全部协议点。
         """
         if not self._connected:
-            raise ProtocolError("ADS subscribe requires an active connection")
+            raise ProtocolConnectionError("ADS subscribe requires an active connection")
         if interval is None or interval <= 0:
             raise ConfigError("ADS subscription interval must be > 0")
 
@@ -354,7 +366,7 @@ class ADSDriver:
         """
         async with self._lock:
             if not self._connected or self._connection is None:
-                raise ProtocolError("ADS read requires an active connection")
+                raise ProtocolConnectionError("ADS read requires an active connection")
             mapped = await self._resolve_point_locked(point)
             point_id = mapped.point_id
             if not mapped.address_resolved:
@@ -408,7 +420,7 @@ class ADSDriver:
             write_value = value
         async with self._lock:
             if not self._connected or self._connection is None:
-                raise ProtocolError("ADS write requires an active connection")
+                raise ProtocolConnectionError("ADS write requires an active connection")
             mapped = await self._resolve_point_locked(mapped)
             try:
                 return await self._write_single_point(mapped, write_value)
@@ -443,7 +455,7 @@ class ADSDriver:
 
         async with self._lock:
             if not self._connected or self._connection is None:
-                raise ProtocolError("ADS read requires an active connection")
+                raise ProtocolConnectionError("ADS read requires an active connection")
             try:
                 for point in points:
                     await self._resolve_point_locked(point)
@@ -467,7 +479,7 @@ class ADSDriver:
 
         async with self._lock:
             if not self._connected or self._connection is None:
-                raise ProtocolError("ADS write requires an active connection")
+                raise ProtocolConnectionError("ADS write requires an active connection")
 
             mapped_batch = [await self._resolve_point_locked(write.point_id) for write in writes]
             results: list[ProtocolWriteResult | None] = [None] * len(writes)
@@ -525,7 +537,7 @@ class ADSDriver:
 
         connection = self._connection
         if connection is None:
-            raise ProtocolError("ADS connection is unavailable")
+            raise ProtocolConnectionError("ADS connection is unavailable")
         headers = b"".join(
             struct.pack("<III", point.index_group, point.index_offset, len(payload))
             for _, point, payload in chunk
@@ -691,7 +703,12 @@ class ADSDriver:
                     results[result_index] = (None, Quality.BAD)
                     continue
                 raise
-            results[result_index] = (_as_point_scalar(value), Quality.GOOD)
+            try:
+                results[result_index] = (_as_point_scalar(value), Quality.GOOD)
+            except TypeError:
+                # 与固定宽度 decode 失败同口径：单点类型异常收敛为 BAD，
+                # 不穿透为整个批量轮询的失败。
+                results[result_index] = (None, Quality.BAD)
 
         if any(result is None for result in results):
             raise RuntimeError("ADS read did not produce a result for every point")
@@ -701,7 +718,7 @@ class ADSDriver:
         """按需查询 PLC 符号地址；同一 ADS session 内复用解析结果。"""
         async with self._lock:
             if not self._connected or self._connection is None:
-                raise ProtocolError("ADS resolve_symbol requires an active connection")
+                raise ProtocolConnectionError("ADS resolve_symbol requires an active connection")
             return await self._resolve_symbol_locked(symbol)
 
     async def _resolve_symbol_locked(self, symbol: str) -> tuple[int, int]:
@@ -710,7 +727,7 @@ class ADSDriver:
             return cached
         connection = self._connection
         if connection is None:
-            raise ProtocolError("ADS connection is not available")
+            raise ProtocolConnectionError("ADS connection is not available")
         info = await asyncio.to_thread(connection.get_symbol, symbol)
         address = symbol_index_address(symbol, info)
         plc_type = getattr(info, "plc_type", None)
@@ -783,7 +800,7 @@ class ADSDriver:
 
         connection = self._connection
         if connection is None:
-            raise ProtocolError("ADS connection is not available")
+            raise ProtocolConnectionError("ADS connection is not available")
         if not hasattr(connection, "read_write"):
             raise NotImplementedError("pyads Connection.read_write unavailable")
 

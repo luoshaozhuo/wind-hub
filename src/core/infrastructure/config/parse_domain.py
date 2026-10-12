@@ -38,7 +38,7 @@ from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
 from .business_points import parse_business_points
-from .snapshot_writer import _yaml_plain
+from .snapshot_writer import yaml_plain
 from .yaml import read_yaml_mapping
 
 _OPTION_PARSERS = {
@@ -174,6 +174,13 @@ def _point(
             raise ConfigError(f"{context}.address.{key} must be a scalar")
         if isinstance(value, float) and not isfinite(value):
             raise ConfigError(f"{context}.address.{key} must be finite")
+        if key == "data_type" and value != data_type.value:
+            # address.data_type 会被点级 data_type 的注入覆盖；两者不一致
+            # 时静默丢弃 address 值属于配置错误，必须显式报出。
+            raise ConfigError(
+                f"{context}.address.data_type '{value}' 与点级 data_type "
+                f"'{data_type.value}' 冲突；请只保留点级 data_type 字段"
+            )
         extensions[key] = value
     extensions["data_type"] = data_type.value
     groups = tuple(
@@ -485,7 +492,7 @@ def _sinks(raw: Mapping[str, Any]) -> dict[str, Sink]:
         raise ConfigError(f"invalid sinks.yaml: {exc}") from exc
     sinks: dict[str, Sink] = {}
     for definition in definitions.sinks:
-        entry = _yaml_plain(definition.model_dump(mode="python", by_alias=True))
+        entry = yaml_plain(definition.model_dump(mode="python", by_alias=True))
         sinks[definition.name] = Sink(
             sink_id=definition.name,
             kind=definition.type,

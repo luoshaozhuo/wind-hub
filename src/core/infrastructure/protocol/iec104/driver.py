@@ -17,7 +17,12 @@ from typing import Any
 
 import c104
 
-from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
+from core.application.errors import (
+    ConfigError,
+    ProtocolCapabilityError,
+    ProtocolConnectionError,
+    ProtocolError,
+)
 from core.application.protocol_contract import (
     ConnectionHealth,
     ProtocolCapability,
@@ -173,6 +178,11 @@ class _SubscriptionRegistry:
                 subscriptions.remove(subscription)
             if not subscriptions:
                 del self._ioa[ioa]
+
+    def dispatch(self, ioa: int, sample: ProtocolSample) -> None:
+        """把样本派发给全局订阅与指定 IOA 的订阅。"""
+        for subscription in (*self._global, *self._ioa.get(ioa, [])):
+            subscription.schedule(sample)
 
     async def close_all(self) -> None:
         """注销全部订阅并等待在途 callback 完成。"""
@@ -397,7 +407,7 @@ class IEC104Driver:
     async def read_one(self, point: str | IEC104Point) -> ProtocolSample:
         """发送 C_RD_NA_1，并等待指定 IOA 的本次读取响应。"""
         if not self._is_open:
-            raise ProtocolError("IEC104 read requires an OPEN connection")
+            raise ProtocolConnectionError("IEC104 read requires an OPEN connection")
         mapped = self._resolve_point(point)
         lock = _register_ioa_lock(self._active_read_locks, mapped.ioa)
         try:
@@ -442,7 +452,7 @@ class IEC104Driver:
             mapped = write
             write_value = value
         if not self._is_open or self._station is None:
-            raise ProtocolError("IEC104 write requires an OPEN connection")
+            raise ProtocolConnectionError("IEC104 write requires an OPEN connection")
         self._register_dynamic_ioa(mapped)
         return await self._execute_write(mapped, write_value)
 
@@ -486,7 +496,7 @@ class IEC104Driver:
     async def _send_read(self, mapped: IEC104Point) -> None:
         """发送单点读取请求；调用方负责等待 REQUEST 响应。"""
         if not self._is_open or self._station is None:
-            raise ProtocolError("IEC104 active read requires an OPEN connection")
+            raise ProtocolConnectionError("IEC104 active read requires an OPEN connection")
         self._register_dynamic_ioa(mapped)
         point = self._station.get_point(mapped.ioa)
         if point is None:
@@ -512,7 +522,7 @@ class IEC104Driver:
         """
         async with self._interrogation_lock:
             if not self._is_open or self._connection is None:
-                raise ProtocolError("IEC104 interrogation requires an OPEN connection")
+                raise ProtocolConnectionError("IEC104 interrogation requires an OPEN connection")
             loop = asyncio.get_running_loop()
             completed: asyncio.Future[None] = loop.create_future()
             self._interrogation_waiter = completed
@@ -529,7 +539,9 @@ class IEC104Driver:
                         timeout=self._config.t1 * 2,
                     )
                 except TimeoutError as exc:
-                    raise ProtocolError("IEC104 interrogation activation timed out") from exc
+                    raise ProtocolConnectionError(
+                        "IEC104 interrogation activation timed out"
+                    ) from exc
                 except Exception as exc:
                     raise ProtocolError(f"IEC104 interrogation failed: {exc}") from exc
                 if not accepted:
@@ -537,7 +549,9 @@ class IEC104Driver:
                 try:
                     await asyncio.wait_for(completed, timeout=self._config.t1 * 2)
                 except TimeoutError as exc:
-                    raise ProtocolError("IEC104 interrogation ACT_TERM timed out") from exc
+                    raise ProtocolConnectionError(
+                        "IEC104 interrogation ACT_TERM timed out"
+                    ) from exc
             finally:
                 if self._interrogation_waiter is completed:
                     self._interrogation_waiter = None
@@ -672,7 +686,7 @@ class IEC104Driver:
     ) -> Any:
         station = self._station
         if station is None:
-            raise ProtocolError("IEC104 station is not available")
+            raise ProtocolConnectionError("IEC104 station is not available")
 
         existing = station.get_point(ioa)
         if existing is not None:
@@ -733,7 +747,7 @@ class IEC104Driver:
         """
         station = self._station
         if station is None:
-            raise ProtocolError("IEC104 station is not available")
+            raise ProtocolConnectionError("IEC104 station is not available")
         type_id = mapped.type_id
         point_type = getattr(c104.Type, type_id, None) if type_id is not None else None
         if point_type is None or not str(type_id).startswith("M_"):
@@ -896,5 +910,4 @@ class IEC104Driver:
             waiter = self._active_reads.get(ioa)
             if waiter is not None and not waiter.done():
                 waiter.set_result(sample)
-        for subscription in (*self._subscriptions._global, *self._subscriptions._ioa.get(ioa, [])):
-            subscription.schedule(sample)
+        self._subscriptions.dispatch(ioa, sample)

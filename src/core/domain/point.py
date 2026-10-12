@@ -8,6 +8,7 @@ from math import isfinite
 from types import MappingProxyType
 
 from .identities import BusinessPointId, PointTableId
+from .sample_value import PointScalar, WritableScalar
 from .unit import Unit
 from .value_objects import DataType, PointAccess, Protocol
 
@@ -30,10 +31,6 @@ class BusinessPoint:
             "business_point_id",
             BusinessPointId(business_point_id),
         )
-
-    def coerce(self, value: object) -> bool | int | float | str:
-        """按业务点标准数据类型收敛值。"""
-        return self.data_type.coerce(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,11 +91,7 @@ class Point:
         object.__setattr__(self, "ext", MappingProxyType(ext))
 
 
-PointScalarValue = float | int | bool | str | None
-WritableScalarValue = float | int | bool | str
-
-
-def engineering_value(point: Point, raw: PointScalarValue) -> PointScalarValue:
+def engineering_value(point: Point, raw: PointScalar) -> PointScalar:
     """按点表 scale/offset 把协议原始值换算为工程值。
 
     只转换 int/float 且排除 bool；None、字符串原样保留。
@@ -108,7 +101,7 @@ def engineering_value(point: Point, raw: PointScalarValue) -> PointScalarValue:
     return raw * point.scale + point.offset
 
 
-def raw_write_value(point: Point, value: WritableScalarValue) -> WritableScalarValue:
+def raw_write_value(point: Point, value: WritableScalar) -> WritableScalar:
     """把工程写值按点表 scale/offset 逆变换为协议原始值。
 
     只转换 int/float 且排除 bool；其余类型原样下发，由协议 Driver
@@ -166,12 +159,3 @@ class PointTable:
     def point(self, point_id: str) -> Point:
         """按本地点 ID 返回协议点。"""
         return self.points[point_id.strip()]
-
-    def points_for_business(
-        self,
-        business_point_id: BusinessPointId,
-    ) -> tuple[Point, ...]:
-        """返回映射到同一业务点的全部协议点。"""
-        return tuple(
-            point for point in self.points.values() if point.business_point_id == business_point_id
-        )

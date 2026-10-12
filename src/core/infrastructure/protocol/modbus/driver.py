@@ -32,7 +32,13 @@ from core.application.protocol_contract import (
     WritableScalar,
     WriteOutcome,
 )
-from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
+from core.domain import (
+    INTEGER_RANGES,
+    ConnectionEndpoint,
+    PointAccess,
+    PointTable,
+    ProtocolOptions,
+)
 
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
@@ -42,15 +48,9 @@ _T = TypeVar("_T")
 _BIT_TYPES = frozenset({"coil", "discrete_input"})
 _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
 _MULTI_REGISTER_TYPES = frozenset({"int32", "uint32", "float32", "int64", "uint64", "float64"})
+# 与 Domain 共用同一份整数范围表，键取 DataType 的协议字符串值。
 _INTEGER_RANGES: dict[str, tuple[int, int]] = {
-    "int8": (-128, 127),
-    "uint8": (0, 255),
-    "int16": (-32768, 32767),
-    "uint16": (0, 65535),
-    "int32": (-2147483648, 2147483647),
-    "uint32": (0, 4294967295),
-    "int64": (-9223372036854775808, 9223372036854775807),
-    "uint64": (0, 18446744073709551615),
+    data_type.value: value_range for data_type, value_range in INTEGER_RANGES.items()
 }
 _DECODE_FAILED = object()
 
@@ -93,6 +93,7 @@ class ModbusDriver:
         # 不会发生同 point_id 不同地址的结果错配。
         self._read_plan_cache: dict[tuple[str | ModbusPoint, ...], tuple[_ReadGroupPlan, ...]] = {}
         self._points: dict[str, ModbusPoint] = {}
+        self._readable_point_ids: tuple[str, ...] = ()
         self.update_point_table(point_table)
         self._lock = asyncio.Lock()
         self._client: Any = None
@@ -115,6 +116,12 @@ class ModbusDriver:
             )
             for point in point_table.points.values()
         }
+        # 健康探测回退选点只考虑可读点，避免选中只写点导致探测语义模糊。
+        self._readable_point_ids = tuple(
+            point.point_id
+            for point in point_table.points.values()
+            if point.access is not PointAccess.WRITE
+        )
         health_point_id = self._config.health_point_id
         if health_point_id is not None and health_point_id not in self._points:
             raise ConfigError(
@@ -179,14 +186,14 @@ class ModbusDriver:
     async def health(self) -> ConnectionHealth:
         """读取一个无副作用测点验证 Modbus 应用层通信。
 
-        优先使用配置的 health_point_id；未配置时使用点表中的第一个点，
-        便于旧配置平滑迁移。协议异常响应说明远端仍可达，因此报告通信
-        healthy 并保留诊断信息；链路级异常才触发 Watchdog 重连。
+        优先使用配置的 health_point_id；未配置时回退到点表中第一个
+        可读点（只写点不参与探测）。协议异常响应说明远端仍可达，因此
+        报告通信 healthy 并保留诊断信息；链路级异常才触发 Watchdog 重连。
         """
         if not self.is_open():
             return ConnectionHealth(healthy=False, message="not connected")
 
-        point_id = self._config.health_point_id or next(iter(self._points), None)
+        point_id = self._config.health_point_id or next(iter(self._readable_point_ids), None)
         if point_id is None:
             return ConnectionHealth(
                 healthy=False,
@@ -364,7 +371,7 @@ class ModbusDriver:
     ) -> tuple[ProtocolWriteResult, ...]:
         """Modbus 不支持多逻辑点批量写入；明确拒绝，绝不降级为逐点 write_one。"""
         del writes
-        raise NotImplementedError("Modbus write_many is not implemented")
+        raise ProtocolCapabilityError("modbus does not support write_many")
 
     async def subscribe(
         self,

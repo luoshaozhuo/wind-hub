@@ -13,16 +13,16 @@ from core.application.config_snapshot import ConfigSnapshot
 from .point_table_writer import dump_point_tables
 
 
-def _yaml_plain(value: Any) -> Any:
+def yaml_plain(value: Any) -> Any:
     """Convert typed sink values to YAML without masking configured secrets."""
     if isinstance(value, SecretStr):
         return value.get_secret_value()
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, Mapping):
-        return {key: _yaml_plain(item) for key, item in value.items()}
+        return {key: yaml_plain(item) for key, item in value.items()}
     if isinstance(value, tuple | list):
-        return [_yaml_plain(item) for item in value]
+        return [yaml_plain(item) for item in value]
     return value
 
 
@@ -50,8 +50,8 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
             "manufacturer": model.manufacturer,
             "protocol": table.protocol.name,
             "point_table": str(model.point_table_id),
-            "properties": _yaml_plain(model.properties),
-            "connection_defaults": _yaml_plain(model.connection_defaults),
+            "properties": yaml_plain(model.properties),
+            "connection_defaults": yaml_plain(model.connection_defaults),
         }
     devices = []
     for device_key, device in snapshot.site.devices.items():
@@ -120,8 +120,8 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
                     "name": sink.sink_id,
                     "type": sink.kind,
                     "enabled": sink.enabled,
-                    "connection": _yaml_plain(sink.connection),
-                    "points": _yaml_plain(sink.points),
+                    "connection": yaml_plain(sink.connection),
+                    "points": yaml_plain(sink.points),
                 }
                 for sink in snapshot.sinks.values()
             ],

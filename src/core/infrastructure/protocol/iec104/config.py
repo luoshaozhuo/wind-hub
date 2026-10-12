@@ -76,7 +76,7 @@ def _int_option(value: object, name: str, *, default: int) -> int:
 def _positive_int(value: object, name: str, *, default: int) -> int:
     result = _int_option(value, name, default=default)
     if result < 1.0:
-        raise ConfigError(f"IEC104 option '{name}' must be >= 1s for c104")
+        raise ConfigError(f"IEC104 option '{name}' must be >= 1")
     return result
 
 

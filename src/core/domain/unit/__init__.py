@@ -54,7 +54,6 @@ from .catalog import (
     WATT,
     WATT_HOUR,
 )
-from .conversion import convert_value
 from .model import Unit, UnitCode
 from .quantity import Quantity
 
@@ -111,5 +110,4 @@ __all__ = [
     "VOLT_AMPERE",
     "WATT",
     "WATT_HOUR",
-    "convert_value",
 ]

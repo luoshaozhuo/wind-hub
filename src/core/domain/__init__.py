@@ -26,7 +26,7 @@ from .point import (
 )
 from .sink import Sink
 from .site import Site
-from .task import Task, devices_for_task, validate_task_references
+from .task import Task, validate_task_references
 from .unit import (
     AMPERE,
     BAR,
@@ -80,10 +80,15 @@ from .unit import (
     Quantity,
     Unit,
     UnitCode,
-    convert_value,
 )
 from .validation import validate_core_config
-from .value_objects import ConnectionEndpoint, DataType, PointAccess, Protocol
+from .value_objects import (
+    INTEGER_RANGES,
+    ConnectionEndpoint,
+    DataType,
+    PointAccess,
+    Protocol,
+)
 
 __all__ = [
     "AMPERE",
@@ -135,7 +140,6 @@ __all__ = [
     "Site",
     "Sink",
     "Task",
-    "devices_for_task",
     "validate_task_references",
     "UnitCode",
     "VAR",
@@ -143,10 +147,10 @@ __all__ = [
     "VOLT_AMPERE",
     "WATT",
     "WATT_HOUR",
-    "convert_value",
     "BusinessPoint",
     "BusinessPointId",
     "ConnectionEndpoint",
+    "INTEGER_RANGES",
     "DataType",
     "Device",
     "DeviceGroup",

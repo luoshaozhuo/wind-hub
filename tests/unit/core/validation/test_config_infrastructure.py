@@ -84,19 +84,6 @@ def _indexes(
     }
 
 
-def test_data_type_coerces_standard_business_values() -> None:
-    assert DataType.INT16.coerce(12.0) == 12
-    assert DataType.FLOAT32.coerce(12) == 12.0
-    assert DataType.BOOL.coerce(True) is True
-
-    with pytest.raises(ValueError, match="outside range"):
-        DataType.UINT8.coerce(-1)
-    with pytest.raises(ValueError, match="integer value"):
-        DataType.INT16.coerce(12.5)
-    with pytest.raises(TypeError, match="requires bool"):
-        DataType.BOOL.coerce(1)
-
-
 def test_domain_validation_rejects_noncanonical_unit() -> None:
     indexes = _indexes()
     point = next(iter(indexes["business_points"].values()))

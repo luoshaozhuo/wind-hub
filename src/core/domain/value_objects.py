@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass
 from enum import StrEnum
-from math import isfinite
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,44 +62,9 @@ class DataType(StrEnum):
     FLOAT64 = "float64"
     STRING = "str"
 
-    def coerce(self, value: object) -> bool | int | float | str:
-        """把值严格收敛到业务点声明的标准类型。"""
-        if self is DataType.BOOL:
-            if type(value) is not bool:
-                raise TypeError("bool data type requires bool value")
-            return bool(value)
 
-        if self is DataType.STRING:
-            if not isinstance(value, str):
-                raise TypeError("string data type requires str value")
-            return value
-
-        integer_range = _INTEGER_RANGES.get(self)
-        if integer_range is not None:
-            if isinstance(value, bool) or not isinstance(value, int | float):
-                raise TypeError(f"{self.value} data type requires numeric value")
-            integer = int(value)
-            if float(value) != float(integer):
-                raise ValueError(f"{self.value} data type requires integer value")
-            lower, upper = integer_range
-            if not lower <= integer <= upper:
-                raise ValueError(f"{self.value} value {integer} outside range {lower}..{upper}")
-            return integer
-
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            raise TypeError(f"{self.value} data type requires numeric value")
-        number = float(value)
-        if not isfinite(number):
-            raise ValueError(f"{self.value} data type requires finite value")
-        if self is DataType.FLOAT32:
-            try:
-                return float(struct.unpack(">f", struct.pack(">f", number))[0])
-            except OverflowError as exc:
-                raise ValueError("float32 value is outside finite range") from exc
-        return number
-
-
-_INTEGER_RANGES: dict[DataType, tuple[int, int]] = {
+# 整数数据类型的取值范围；Domain 校验与协议 Driver 写值编码共用同一来源。
+INTEGER_RANGES: dict[DataType, tuple[int, int]] = {
     DataType.INT8: (-128, 127),
     DataType.UINT8: (0, 255),
     DataType.INT16: (-32768, 32767),

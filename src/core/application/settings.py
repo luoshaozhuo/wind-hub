@@ -34,7 +34,11 @@ class ADSLocalConfig:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeSettings:
-    """跨进程共享的运行参数；``None`` 表示未配置，默认值由各进程自定。"""
+    """跨进程共享的运行参数。
+
+    ``None`` 表示未配置、默认值由各进程自定；``watchdog_interval`` 与
+    ``health_timeout`` 为跨进程统一默认值，进程可在装配期覆盖。
+    """
 
     queue_maxsize: int | None = None
     backpressure_policy: str | None = None
