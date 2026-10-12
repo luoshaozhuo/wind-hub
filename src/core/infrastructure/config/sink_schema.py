@@ -13,7 +13,15 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from core.application.errors import ConfigError
 from core.domain import DataType
@@ -125,7 +133,7 @@ class StreamSinkAddress(BaseModel):
 
 class ModbusSinkAddress(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    unit_id: int = Field(ge=0, le=255)
+    slave_id: StrictInt = Field(ge=0, le=255)
     register_type: Literal["holding", "input", "coil", "discrete"]
     address: int = Field(ge=0, le=65535)
     byte_order: Literal["big", "little"] = "big"
@@ -323,7 +331,7 @@ def parse_sink_definitions(raw: Mapping[str, Any]) -> dict[str, _SinkSchema]:
 def _address_key(address: SinkAddress) -> tuple[object, ...]:
     if isinstance(address, StreamSinkAddress):
         return ("stream", address.field)
-    return ("modbus", address.unit_id, address.register_type, address.address)
+    return ("modbus", address.slave_id, address.register_type, address.address)
 
 
 __all__ = [

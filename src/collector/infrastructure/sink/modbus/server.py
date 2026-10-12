@@ -75,8 +75,8 @@ class StoreBackedModbusContext(ModbusServerContext):
         return ExcCodes.ILLEGAL_FUNCTION
 
     def device_ids(self) -> list[int]:
-        """返回当前暴露的 Modbus unit id。"""
-        return list(self._store.unit_ids)
+        """返回当前暴露的 Modbus slave id。"""
+        return list(self._store.slave_ids)
 
 
 class ModbusTcpSinkServer:

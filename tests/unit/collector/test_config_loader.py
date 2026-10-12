@@ -335,7 +335,7 @@ def test_modbus_sink_layout_overlap_rejected(tmp_path):
                     {
                         "source": {"device_id": "dev1", "point_id": "p1"},
                         "address": {
-                            "unit_id": 1,
+                            "slave_id": 1,
                             "register_type": "holding",
                             "address": 100,
                         },
@@ -344,7 +344,7 @@ def test_modbus_sink_layout_overlap_rejected(tmp_path):
                         "source": {"device_id": "dev1", "point_id": "p1"},
                         "ref": "dup",
                         "address": {
-                            "unit_id": 1,
+                            "slave_id": 1,
                             "register_type": "holding",
                             "address": 101,  # float32 占 100..101 → 重叠
                         },

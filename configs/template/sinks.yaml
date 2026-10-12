@@ -36,7 +36,7 @@
 #   scale / offset: float，默认 1.0 / 0.0 —— 仅数值类型允许换算。
 #   address:   必填 —— 按 Sink 类型：
 #       file / redis: {field: <对外字段名>}，Sink 内不允许重复。
-#       modbus: {unit_id: 0..255,
+#       modbus: {slave_id: 0..255,
 #                register_type: holding / input / coil / discrete,
 #                address: 0..65535,          # 0-based 起始地址
 #                byte_order: big / little,   # 默认 big
@@ -85,7 +85,7 @@ sinks:
         ref: modbus_001_active_power
         datatype: float32
         address:
-          unit_id: 1
+          slave_id: 1
           register_type: holding
           address: 0
           byte_order: big

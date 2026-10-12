@@ -137,7 +137,7 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                         f"Sink '{sink_id}' point '{resolved.ref}': "
                         "Modbus address range exceeds 65535"
                     )
-                key = (address.unit_id, address.register_type)
+                key = (address.slave_id, address.register_type)
                 occupied = addresses.setdefault(key, [])
                 if any(start <= end and address.address <= finish for start, finish in occupied):
                     raise ConfigError(
