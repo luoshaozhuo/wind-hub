@@ -11,7 +11,7 @@ def test_all_mutating_routes_reject_unconfigured_credentials() -> None:
     app = create_app()
     with TestClient(app) as client:
         for route in app.routes:
-            methods = getattr(route, "methods", set())
+            methods: frozenset[str] = getattr(route, "methods", frozenset())
             path = getattr(route, "path", "")
             if (
                 path.startswith("/api/v1/")

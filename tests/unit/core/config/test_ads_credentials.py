@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import fields
 from pathlib import Path
 
+from core.application.config_snapshot import ConfigSnapshot
 from core.application.settings import ADSLocalConfig
-from core.domain import ConnectionEndpoint
+from core.domain import ConnectionEndpoint, ProtocolOptions
 from core.infrastructure.config import YamlConfigAdapter
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.protocol.ads.config import parse_ads_config
@@ -27,7 +28,7 @@ def test_ads_local_config_has_no_remote_credentials() -> None:
     assert names == {"local_ams_net_id", "local_ip"}
 
 
-def _effective_ads_options(snapshot, device_id: str) -> dict:
+def _effective_ads_options(snapshot: ConfigSnapshot, device_id: str) -> ProtocolOptions:
     from core.domain import DeviceId
 
     device = snapshot.site.devices[DeviceId(device_id)]

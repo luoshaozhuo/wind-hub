@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import NotRequired, TypedDict
+
 from core.domain.unit import DIMENSIONLESS, Quantity, Unit, UnitCatalog
 
 NONE_UNIT = Unit(unit_id="none", symbol="", quantity=DIMENSIONLESS)
@@ -54,8 +56,24 @@ PERCENT_UNIT = Unit(
     scale_to_base=0.01,
 )
 
+class QuantityDefinition(TypedDict):
+    base_unit: str
+
+
+class UnitDefinition(TypedDict):
+    symbol: str
+    quantity: str
+    scale_to_base: NotRequired[float]
+    offset_to_base: NotRequired[float]
+
+
+class UnitsDocument(TypedDict):
+    quantities: dict[str, QuantityDefinition]
+    units: dict[str, UnitDefinition]
+
+
 #: 最小 units.yaml 文档：覆盖测试引用的全部 Unit ID。
-MINIMAL_UNITS_DOCUMENT: dict[str, object] = {
+MINIMAL_UNITS_DOCUMENT: UnitsDocument = {
     "quantities": {
         "dimensionless": {"base_unit": "none"},
         "active_power": {"base_unit": "watt"},
@@ -112,19 +130,18 @@ MINIMAL_UNITS_DOCUMENT: dict[str, object] = {
 def minimal_unit_catalog() -> UnitCatalog:
     """由 MINIMAL_UNITS_DOCUMENT 构造 UnitCatalog（不经 YAML）。"""
     quantities = {
-        str(key): str(value["base_unit"])
-        for key, value in MINIMAL_UNITS_DOCUMENT["quantities"].items()  # type: ignore[union-attr]
+        quantity_id: definition["base_unit"]
+        for quantity_id, definition in MINIMAL_UNITS_DOCUMENT["quantities"].items()
     }
-    units = []
-    for unit_id, definition in MINIMAL_UNITS_DOCUMENT["units"].items():  # type: ignore[union-attr]
-        entry = dict(definition)
+    units: list[Unit] = []
+    for unit_id, definition in MINIMAL_UNITS_DOCUMENT["units"].items():
         units.append(
             Unit(
-                unit_id=str(unit_id),
-                symbol=entry["symbol"],
-                quantity=Quantity(entry["quantity"]),
-                scale_to_base=entry.get("scale_to_base", 1.0),
-                offset_to_base=entry.get("offset_to_base", 0.0),
+                unit_id=unit_id,
+                symbol=definition["symbol"],
+                quantity=Quantity(definition["quantity"]),
+                scale_to_base=definition.get("scale_to_base", 1.0),
+                offset_to_base=definition.get("offset_to_base", 0.0),
             )
         )
     return UnitCatalog.build(quantities=quantities, units=units)
