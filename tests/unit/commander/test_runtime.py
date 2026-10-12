@@ -105,6 +105,19 @@ async def test_prepare_rejects_ads_identity_change():
     assert runtime.prepared_revision is None
 
 
+async def test_prepare_rejects_unit_catalog_change():
+    """单位目录变化是 restart-required，prepare 明确拒绝。"""
+    from dataclasses import replace
+
+    from tests.support.units import minimal_unit_catalog
+
+    runtime, _ = _runtime()
+    candidate = replace(make_commander_config(), units=minimal_unit_catalog())
+    with pytest.raises(ValueError, match="unit catalog change requires process restart"):
+        await runtime.prepare_config("r2", candidate, "hash-b")
+    assert runtime.prepared_revision is None
+
+
 async def test_stop_retires_active_and_prepared_sessions():
     runtime, registry = _runtime()
     await runtime.prepare_config("r2", make_commander_config(), "hash-b")

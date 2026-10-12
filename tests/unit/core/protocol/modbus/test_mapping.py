@@ -67,6 +67,26 @@ def test_modbus_config_uses_device_options() -> None:
     assert config.word_order == "big_endian"
 
 
+def test_modbus_config_slave_id_defaults_and_range() -> None:
+    endpoint = ConnectionEndpoint("192.0.2.10", 1502)
+
+    assert parse_modbus_config(endpoint, {}).slave_id == 1
+    assert parse_modbus_config(endpoint, {"slave_id": 0}).slave_id == 0
+    assert parse_modbus_config(endpoint, {"slave_id": 255}).slave_id == 255
+
+    with pytest.raises(ConfigError, match="slave_id"):
+        parse_modbus_config(endpoint, {"slave_id": 256})
+    with pytest.raises(ConfigError, match="slave_id"):
+        parse_modbus_config(endpoint, {"slave_id": -1})
+
+
+def test_modbus_config_rejects_legacy_unit_id() -> None:
+    """旧 Modbus unit_id 配置键不再兼容，直接拒绝。"""
+    endpoint = ConnectionEndpoint("192.0.2.10", 1502)
+    with pytest.raises(ConfigError, match="unknown Modbus options"):
+        parse_modbus_config(endpoint, {"unit_id": 7})
+
+
 def test_modbus_point_mapping_and_grouping() -> None:
     first = parse_modbus_point(
         _point("p1", ext=_point_ext(address=10)),
