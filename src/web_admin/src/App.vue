@@ -11,7 +11,7 @@ const menu = ref('Devices')
   <el-container class="app-shell">
     <el-aside width="220px" class="app-sidebar">
       <div class="brand"><b>WH</b><span>Wind Hub</span></div>
-      <el-menu :default-active="menu" @select="(key: string) => menu = key">
+      <el-menu :default-active="menu" @select="(key: string) => (menu = key)">
         <el-menu-item index="Devices">Devices</el-menu-item>
         <el-menu-item index="Tasks">Tasks</el-menu-item>
         <el-menu-item index="Sinks">Sinks</el-menu-item>

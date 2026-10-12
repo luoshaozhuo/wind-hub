@@ -14,12 +14,12 @@
 
 | 模块 | 形态 | 职责 |
 |------|------|------|
-| `src/wind_hub_core` | 共享库 | 跨进程稳定核心：领域模型、静态配置语义、DeviceSession、协议 Driver 与 gRPC 契约（`core.rpc`）、主动验证模型、网络探测。不含运行时、Sink、Web API，禁止依赖任何可执行组件 |
-| `src/wind_hub_collector` | 进程 `wind-hub-collector` | 采集运行时：协议接入、采集 Task 调度、Sink 分发，对外提供 gRPC 控制面 |
-| `src/wind_hub_commander` | 进程 `wind-hub-commander` | 即时设备命令与诊断进程 |
-| `src/wind_hub_server` | 进程 `wind-hub-server` | 管理 API（FastAPI）进程宿主：装配与生命周期；业务 Use Case 复用 collector，不形成第二套后端 |
+| `src/core` | 共享库 | 跨进程稳定核心：领域模型、静态配置语义、DeviceSession、协议 Driver 与 gRPC 契约（`core.rpc`）、主动验证模型、网络探测。不含运行时、Sink、Web API，禁止依赖任何可执行组件 |
+| `src/collector` | 进程 `wind-hub-collector` | 采集运行时：协议接入、采集 Task 调度、Sink 分发，对外提供 gRPC 控制面 |
+| `src/commander` | 进程 `wind-hub-commander` | 即时设备命令与诊断进程 |
+| `src/web_server` | 进程 `wind-hub-web-server` | 管理 API（FastAPI）→ gRPC 网关：REST 请求转发 Collector / Commander 控制面，不持有业务状态 |
 | `src/cli` | CLI `wind-hub` | 直连 Collector / Commander 的本地运维 CLI；不依赖 Server/Admin |
-| `src/wind-hub-admin` | 前端（Vue 3 + TS + Vite） | 管理界面 |
+| `src/web_admin` | 前端（Vue 3 + TS + Vite） | 管理界面 |
 | `scripts/` | 工具 | `dev.py`（本机环境入口）、`ci_gate.py`（质量门禁）、`ci_scope.py`（变更范围识别）、`run_benchmark.py`（压测）、`generate_rpc.py`（proto 代码生成） |
 | `ai_shared/` | 治理 | Coding Agent 规则、Skill、Hook 与本机工具配置模板，`.claude/`、`.codex/`、`.agents/` 仅为适配层 |
 | `tests/` | 测试 | 分层测试体系，见下文「测试」 |
@@ -110,8 +110,8 @@ conda install -n wind-hub nodejs
 ```
 
 ```bash
-npm --prefix src/wind-hub-admin install
-npm --prefix src/wind-hub-admin run dev
+npm --prefix src/web_admin install
+npm --prefix src/web_admin run dev
 ```
 
 Coding Agent 启动命令时自动激活 conda 环境，装在同一环境内的 Node / npm
@@ -144,7 +144,7 @@ python3 scripts/dev.py env --frontend # 连带检查 Node / npm
 
 # Agent 执行工具的入口
 python3 scripts/dev.py python -m pytest
-python3 scripts/dev.py npm --prefix src/wind-hub-admin test
+python3 scripts/dev.py npm --prefix src/web_admin test
 ```
 
 ### 运行时环境变量
@@ -160,7 +160,7 @@ python3 scripts/dev.py npm --prefix src/wind-hub-admin test
 
 ```bash
 # 管理 API + 通信 Runtime（默认 127.0.0.1:8080）
-wind-hub-server --config configs/template
+wind-hub-web-server --config configs/template
 
 # 采集进程（gRPC 控制面默认 127.0.0.1:50051）
 wind-hub-collector --config configs/template
@@ -261,10 +261,10 @@ WIND_HUB_SOAK_PROFILE=rc_24h        pytest -m soak tests/reliability/soak   # �
 
 ```bash
 # Vitest 单元/组件测试
-npm --prefix src/wind-hub-admin test
+npm --prefix src/web_admin test
 
 # Playwright E2E
-npm --prefix src/wind-hub-admin run test:e2e
+npm --prefix src/web_admin run test:e2e
 ```
 
 ### 质量门禁
