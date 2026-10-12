@@ -185,7 +185,8 @@ class CommandDispatcher:
         """逐条命令审计日志：command_id 关联设备/测点/终局；UNKNOWN 提升级别。"""
         log = logger.info if result.outcome is WriteOutcome.CONFIRMED_SUCCESS else logger.warning
         log(
-            "Command outcome=%s command_id=%s device=%s point=%s value=%r error=%s duration_ms=%.3f config_hash=%s",
+            "Command outcome=%s command_id=%s device=%s point=%s "
+            "value=%r error=%s duration_ms=%.3f config_hash=%s",
             result.outcome.value,
             command.command_id,
             command.device_id,
