@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
-def _error_text(error: BaseException) -> str:
-    """把异常压成一行可读错误文本；空消息异常（如裸 ``TimeoutError``）
-    回退为类型名，保证 ``last_error`` 不为空字符串。"""
-    return str(error) or type(error).__name__
+from .errors import error_text as _error_text
 
 
 @dataclass

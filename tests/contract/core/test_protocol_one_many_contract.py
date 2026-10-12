@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from core.application.errors import ProtocolError
+from core.application.errors import ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
     ProtocolSample,
     ProtocolWrite,
@@ -360,9 +360,9 @@ async def test_iec104_single_operations_succeed_without_many_on_open_path() -> N
 
 
 @pytest.mark.asyncio
-async def test_modbus_write_many_always_not_implemented() -> None:
+async def test_modbus_write_many_always_not_supported() -> None:
     driver = object.__new__(ModbusDriver)
-    with pytest.raises(NotImplementedError, match="write_many"):
+    with pytest.raises(ProtocolCapabilityError, match="write_many"):
         await driver.write_many(())
-    with pytest.raises(NotImplementedError, match="write_many"):
+    with pytest.raises(ProtocolCapabilityError, match="write_many"):
         await driver.write_many((ProtocolWrite("p1", 1),))

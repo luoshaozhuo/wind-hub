@@ -40,7 +40,6 @@ class FileSink:
         self._segment: FileSegment | None = None
         self._sequence = 0
         self._lock = asyncio.Lock()
-        self._healthy = False
         self._error: str | None = "not opened"
 
     def _archives(self) -> list[Path]:
@@ -132,9 +131,9 @@ class FileSink:
             try:
                 await self._blocking(self._open)
             except Exception as exc:
-                self._healthy, self._error = False, str(exc)
+                self._error = str(exc)
                 raise SinkError(f"CSV open failed: {exc}") from exc
-            self._healthy, self._error = True, None
+            self._error = None
 
     async def write(self, batch: list[PointValue]) -> None:
         if not batch:
@@ -143,9 +142,9 @@ class FileSink:
             try:
                 await self._blocking(lambda: self._write(batch))
             except Exception as exc:
-                self._healthy, self._error = False, str(exc)
+                self._error = str(exc)
                 raise SinkError(f"CSV write failed: {exc}") from exc
-            self._healthy, self._error = True, None
+            self._error = None
 
     async def flush(self) -> None:
         async with self._lock:
@@ -153,7 +152,7 @@ class FileSink:
                 try:
                     await self._blocking(self._file.flush)
                 except Exception as exc:
-                    self._healthy, self._error = False, str(exc)
+                    self._error = str(exc)
                     raise SinkError(f"CSV flush failed: {exc}") from exc
 
     async def close(self) -> None:
@@ -162,7 +161,7 @@ class FileSink:
                 file, self._file = self._file, None
                 await self._blocking(file.close)
             self._segment = None
-            self._healthy, self._error = False, "closed"
+            self._error = "closed"
 
     async def health(self) -> ConnectionHealth:
         """检查活动文件与目标目录实际可写性，不写入业务记录。"""
@@ -183,8 +182,8 @@ class FileSink:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self._healthy, self._error = False, str(exc)
+                self._error = str(exc)
                 return ConnectionHealth(healthy=False, message=self._error)
 
-            self._healthy, self._error = True, None
+            self._error = None
             return ConnectionHealth(healthy=True)

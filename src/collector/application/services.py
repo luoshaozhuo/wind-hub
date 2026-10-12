@@ -38,7 +38,7 @@ class AcquisitionInfo:
 
 @dataclass(frozen=True, slots=True)
 class DeviceInfo:
-    """单个设备的连接状态快照（``last_seen`` 暂无墙钟追踪，恒为 None）。"""
+    """单个设备的连接状态快照。"""
 
     device_id: str
     protocol: str
@@ -141,7 +141,6 @@ class TaskSummary:
     """Task Definition 与实例运行状态的聚合快照。"""
 
     task_id: str
-    device: str | None
     device_group: str | None
     point_group: str
     interval: float | None
@@ -232,7 +231,6 @@ class CollectorTaskService:
         runtime_state = "stopped" if running == 0 else "running" if stopped == 0 else "partial"
         return TaskSummary(
             task_id=task.task_id,
-            device=None,
             device_group=str(task.device_group_id),
             point_group=task.point_group,
             interval=task.interval,
@@ -269,8 +267,21 @@ class CollectorTaskService:
         task = self._task_definition_or_raise(task_id)
         if not task.enabled:
             raise ValueError(f"task '{task_id}' is disabled")
-        for inst in await self.list_task_instances(task_id):
-            await self._runtime.start_task_instance(inst.instance_id)
+        instances = await self.list_task_instances(task_id)
+        failures: dict[str, Exception] = {}
+        for inst in instances:
+            try:
+                await self._runtime.start_task_instance(inst.instance_id)
+            except Exception as exc:
+                # 聚合逐实例错误：一个实例失败不阻断其余实例启动，
+                # 最终把部分生效的事实显式报给控制面。
+                failures[inst.instance_id] = exc
+        if failures:
+            detail = "; ".join(f"{iid}: {exc}" for iid, exc in failures.items())
+            raise ValueError(
+                f"task '{task_id}' partially started; "
+                f"{len(failures)}/{len(instances)} instances failed: {detail}"
+            )
         return await self.get_task_summary(task_id)
 
     async def stop_task(self, task_id: str) -> TaskSummary:

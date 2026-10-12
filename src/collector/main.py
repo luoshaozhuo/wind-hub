@@ -47,8 +47,7 @@ async def run_collector(
         grpc_host: gRPC 控制面监听地址。
         grpc_port: gRPC 控制面监听端口。
         shutdown_timeout: 优雅停机整体硬超时（秒）。超时后记录日志并
-            强制退出进程，避免单个卡死的资源释放阻断停机（与旧
-            Collector ``--shutdown-timeout`` 语义一致）。
+            强制退出进程，避免单个卡死的资源释放阻断停机。
     """
     app = assemble_collector(config_dir, collector_id=collector_id)
     grpc_server = build_grpc_server(app, app.identity, host=grpc_host, port=grpc_port)

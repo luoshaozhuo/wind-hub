@@ -52,7 +52,6 @@ class RuntimeParams:
     shutdown_timeout: float = 10.0
     connect_timeout: float = 1.0
     read_timeout: float | None = 1.0
-    write_timeout: float = 1.0
     watchdog_interval: float = 5.0
     health_timeout: float = 1.0
 
@@ -69,7 +68,6 @@ class RuntimeParams:
             "connect_timeout",
             "watchdog_interval",
             "health_timeout",
-            "write_timeout",
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"{name} must be > 0")

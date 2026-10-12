@@ -365,5 +365,10 @@ class CollectorDeviceSession:
         )
         if ProtocolCapability.INTERROGATE in self._protocol.capabilities():
             # 先建立订阅、再发总召——总召响应经既有订阅链路上报。
-            await self._protocol.interrogate()
+            try:
+                await self._protocol.interrogate()
+            except Exception:
+                # 总召失败不得留下“STOPPED 但订阅仍在回调”的幽灵采集。
+                await subscription.close()
+                raise
         return subscription

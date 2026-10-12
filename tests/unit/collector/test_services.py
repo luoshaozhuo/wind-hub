@@ -86,7 +86,6 @@ async def test_task_service_summary_and_lifecycle():
     assert len(summaries) == 1
     summary = summaries[0]
     assert summary.task_id == "t1"
-    assert summary.device is None
     assert summary.device_group == "dev1"
     assert summary.interval == 1.0
     assert summary.targets == ["s1"]

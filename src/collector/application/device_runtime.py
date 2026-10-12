@@ -104,15 +104,23 @@ class DeviceRuntime:
         self._reconnect_callback = callback
 
     async def health(self) -> dict[str, ConnectionHealth]:
-        """并发执行全部设备的协议级健康检查。"""
+        """并发执行全部设备的协议级健康检查（单设备挂起不得拖住整体查询）。"""
         items = list(self._devices.items())
         results = await asyncio.gather(
-            *(device.health() for _device_id, device in items),
+            *(
+                asyncio.wait_for(device.health(), timeout=self._params.health_timeout)
+                for _device_id, device in items
+            ),
             return_exceptions=True,
         )
         health: dict[str, ConnectionHealth] = {}
         for (device_id, _device), result in zip(items, results, strict=True):
-            if isinstance(result, BaseException):
+            if isinstance(result, TimeoutError):
+                health[device_id] = ConnectionHealth(
+                    healthy=False,
+                    message="health check timed out",
+                )
+            elif isinstance(result, BaseException):
                 health[device_id] = ConnectionHealth(
                     healthy=False,
                     message=f"health check failed: {result}",

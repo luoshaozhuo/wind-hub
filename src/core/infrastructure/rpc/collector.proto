@@ -10,7 +10,8 @@ message CollectorInfoResponse {
   string component = 1;
   string collector_id = 2;
   string boot_id = 3;
-  string config_hash = 4;
+  // 字段 4 原为 config_hash，与 active_config_hash 重复，删除后保留编号。
+  reserved 4;
   string active_config_hash = 5;
   string prepared_config_hash = 6;
   string boot_config_hash = 7;
@@ -66,7 +67,8 @@ message MetricsSnapshotResponse {
 }
 message TaskSummaryMessage {
   string task_id = 1;
-  google.protobuf.StringValue device = 2;
+  // 字段 2 原为 device（Task 已无单设备维度，恒为空），删除后保留编号。
+  reserved 2;
   google.protobuf.StringValue device_group = 3;
   string point_group = 4;
   google.protobuf.DoubleValue interval = 5;
@@ -148,7 +150,8 @@ message ConfigDiffMessage {
   DeviceDiffMessage devices = 1;
   SinkDiffMessage sinks = 2;
   TaskDiffMessage tasks = 3;
-  bool points_changed = 4;
+  // 字段 4 原为 points_changed，恒等于 bool(point_tables_changed)，删除后保留编号。
+  reserved 4;
   repeated string point_tables_changed = 5;
   bool units_changed = 6;
 }

@@ -147,7 +147,12 @@ class SinkRuntime:
 
     @property
     def points_dropped(self) -> int:
-        """累计丢弃点数——背压策略丢弃的点值总数（单调不减）。"""
+        """累计丢失点数——背压丢弃、unhealthy 丢弃及写失败丢失的总数（单调不减）。
+
+        写失败批次在入队时已计入 ``points_routed``，因此对账关系为
+        ``已落盘 = points_routed - 写失败丢失``；``points_dropped`` 单独
+        度量全部未持久化点值，不与 routed 互斥。
+        """
         return self._points_dropped
 
     # ------------------------------------------------------------------
@@ -162,6 +167,7 @@ class SinkRuntime:
         直接计入丢弃——继续入队只会让无人消费的队列在 block 策略下
         永久阻塞采集任务。
         """
+        pending: list[tuple[str, asyncio.Queue[list[PointValue]], list[PointValue]]] = []
         for sink_name, batch in routed.items():
             if not batch:
                 continue
@@ -177,7 +183,13 @@ class SinkRuntime:
                     len(batch),
                 )
                 continue
-            await self._enqueue(queue, batch, sink_name)
+            pending.append((sink_name, queue, batch))
+        # 各 Sink 并发入队：block 策略下一个慢/卡死 Sink 不得拖延同批次
+        # 其他健康 Sink 的派发。计数器只在事件循环内读写，无并发风险。
+        if pending:
+            await asyncio.gather(
+                *(self._enqueue(queue, batch, sink_name) for sink_name, queue, batch in pending)
+            )
 
     async def _enqueue(
         self,
@@ -187,6 +199,17 @@ class SinkRuntime:
     ) -> None:
         """按当前背压策略把一个批次写入指定 sink 队列。"""
         policy = self._params.backpressure_policy
+
+        if policy != "block" and not self._queue_active(queue, sink_name):
+            # 与 block 分支同口径：热重载摘除/标记 unhealthy 的孤儿队列
+            # 不再有人消费，批次计入丢弃而非 routed。
+            self._count_dropped(sink_name, len(batch))
+            logger.warning(
+                "Sink '%s' removed or unhealthy — dropping batch (%d points)",
+                sink_name,
+                len(batch),
+            )
+            return
 
         if policy == "drop_new":
             if queue.full():
@@ -220,11 +243,8 @@ class SinkRuntime:
             # 消费者可能因 sink 移除 / 重建失败而永久消失，周期性唤醒重新
             # 评估该队列是否仍有人消费，避免采集任务随孤儿队列永久挂起。
             while True:
-                if self._queues.get(sink_name) is not queue or sink_name in self._unhealthy:
-                    self._points_dropped += len(batch)
-                    self._drops_by_sink[sink_name] = self._drops_by_sink.get(sink_name, 0) + len(
-                        batch
-                    )
+                if not self._queue_active(queue, sink_name):
+                    self._count_dropped(sink_name, len(batch))
                     logger.warning(
                         "Sink '%s' removed or unhealthy while blocked — dropping batch (%d points)",
                         sink_name,
@@ -239,6 +259,18 @@ class SinkRuntime:
                     continue
                 self._points_routed += len(batch)
                 return
+
+    def _queue_active(
+        self,
+        queue: asyncio.Queue[list[PointValue]],
+        sink_name: str,
+    ) -> bool:
+        """队列仍归属当前 Sink 且该 Sink 健康（热重载摘除后即为孤儿队列）。"""
+        return self._queues.get(sink_name) is queue and sink_name not in self._unhealthy
+
+    def _count_dropped(self, sink_name: str, count: int) -> None:
+        self._points_dropped += count
+        self._drops_by_sink[sink_name] = self._drops_by_sink.get(sink_name, 0) + count
 
     # ------------------------------------------------------------------
     # 生命周期（启停顺序由 CollectorRuntime 协调）
@@ -255,7 +287,8 @@ class SinkRuntime:
         self._running = True
         for name, sink in self._sinks.items():
             try:
-                await sink.open()
+                # open 必须有上限：挂起的磁盘/网络 I/O 不得永久阻断整体启动。
+                await asyncio.wait_for(sink.open(), timeout=self._params.connect_timeout)
                 self._mark_healthy(name)
                 logger.info("Sink '%s' opened", name)
             except Exception as exc:
@@ -572,7 +605,10 @@ class SinkRuntime:
                     await sink.write(batch)
                 except Exception as exc:
                     # 写失败根因立即进入健康视图；watchdog 重连成功后清除。
+                    # 失败批次已实际丢失，计入 drops 以对账
+                    # （points_collected = points_routed + points_dropped）。
                     self._write_failures[sink_name] = self._write_failures.get(sink_name, 0) + 1
+                    self._count_dropped(sink_name, len(batch))
                     self._mark_unhealthy(sink_name, f"write_failed: {exc}")
                     logger.warning(
                         "sink write failed sink=%s stage=write_failed points=%d",

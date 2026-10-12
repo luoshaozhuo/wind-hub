@@ -28,7 +28,6 @@ class CollectorInfoResponse(_message.Message):
     COMPONENT_FIELD_NUMBER: _builtins.int
     COLLECTOR_ID_FIELD_NUMBER: _builtins.int
     BOOT_ID_FIELD_NUMBER: _builtins.int
-    CONFIG_HASH_FIELD_NUMBER: _builtins.int
     ACTIVE_CONFIG_HASH_FIELD_NUMBER: _builtins.int
     PREPARED_CONFIG_HASH_FIELD_NUMBER: _builtins.int
     BOOT_CONFIG_HASH_FIELD_NUMBER: _builtins.int
@@ -39,7 +38,6 @@ class CollectorInfoResponse(_message.Message):
     component: _builtins.str
     collector_id: _builtins.str
     boot_id: _builtins.str
-    config_hash: _builtins.str
     active_config_hash: _builtins.str
     prepared_config_hash: _builtins.str
     boot_config_hash: _builtins.str
@@ -53,7 +51,6 @@ class CollectorInfoResponse(_message.Message):
         component: _builtins.str = ...,
         collector_id: _builtins.str = ...,
         boot_id: _builtins.str = ...,
-        config_hash: _builtins.str = ...,
         active_config_hash: _builtins.str = ...,
         prepared_config_hash: _builtins.str = ...,
         boot_config_hash: _builtins.str = ...,
@@ -64,7 +61,7 @@ class CollectorInfoResponse(_message.Message):
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["active_config_hash", b"active_config_hash", "active_revision", b"active_revision", "boot_config_hash", b"boot_config_hash", "boot_id", b"boot_id", "collector_id", b"collector_id", "component", b"component", "config_hash", b"config_hash", "config_revision", b"config_revision", "prepared_config_hash", b"prepared_config_hash", "prepared_revision", b"prepared_revision", "runtime_running", b"runtime_running"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["active_config_hash", b"active_config_hash", "active_revision", b"active_revision", "boot_config_hash", b"boot_config_hash", "boot_id", b"boot_id", "collector_id", b"collector_id", "component", b"component", "config_revision", b"config_revision", "prepared_config_hash", b"prepared_config_hash", "prepared_revision", b"prepared_revision", "runtime_running", b"runtime_running"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -286,7 +283,6 @@ class TaskSummaryMessage(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     TASK_ID_FIELD_NUMBER: _builtins.int
-    DEVICE_FIELD_NUMBER: _builtins.int
     DEVICE_GROUP_FIELD_NUMBER: _builtins.int
     POINT_GROUP_FIELD_NUMBER: _builtins.int
     INTERVAL_FIELD_NUMBER: _builtins.int
@@ -306,8 +302,6 @@ class TaskSummaryMessage(_message.Message):
     stopped_instances: _builtins.int
     failed_instances: _builtins.int
     @_builtins.property
-    def device(self) -> _wrappers_pb2.StringValue: ...
-    @_builtins.property
     def device_group(self) -> _wrappers_pb2.StringValue: ...
     @_builtins.property
     def interval(self) -> _wrappers_pb2.DoubleValue: ...
@@ -317,7 +311,6 @@ class TaskSummaryMessage(_message.Message):
         self,
         *,
         task_id: _builtins.str = ...,
-        device: _wrappers_pb2.StringValue | None = ...,
         device_group: _wrappers_pb2.StringValue | None = ...,
         point_group: _builtins.str = ...,
         interval: _wrappers_pb2.DoubleValue | None = ...,
@@ -329,9 +322,9 @@ class TaskSummaryMessage(_message.Message):
         stopped_instances: _builtins.int = ...,
         failed_instances: _builtins.int = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["device", b"device", "device_group", b"device_group", "interval", b"interval"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["device_group", b"device_group", "interval", b"interval"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["device", b"device", "device_group", b"device_group", "enabled", b"enabled", "failed_instances", b"failed_instances", "instance_count", b"instance_count", "interval", b"interval", "point_group", b"point_group", "running_instances", b"running_instances", "runtime_state", b"runtime_state", "stopped_instances", b"stopped_instances", "targets", b"targets", "task_id", b"task_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_group", b"device_group", "enabled", b"enabled", "failed_instances", b"failed_instances", "instance_count", b"instance_count", "interval", b"interval", "point_group", b"point_group", "running_instances", b"running_instances", "runtime_state", b"runtime_state", "stopped_instances", b"stopped_instances", "targets", b"targets", "task_id", b"task_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -827,10 +820,8 @@ class ConfigDiffMessage(_message.Message):
     DEVICES_FIELD_NUMBER: _builtins.int
     SINKS_FIELD_NUMBER: _builtins.int
     TASKS_FIELD_NUMBER: _builtins.int
-    POINTS_CHANGED_FIELD_NUMBER: _builtins.int
     POINT_TABLES_CHANGED_FIELD_NUMBER: _builtins.int
     UNITS_CHANGED_FIELD_NUMBER: _builtins.int
-    points_changed: _builtins.bool
     units_changed: _builtins.bool
     @_builtins.property
     def devices(self) -> Global___DeviceDiffMessage: ...
@@ -846,13 +837,12 @@ class ConfigDiffMessage(_message.Message):
         devices: Global___DeviceDiffMessage | None = ...,
         sinks: Global___SinkDiffMessage | None = ...,
         tasks: Global___TaskDiffMessage | None = ...,
-        points_changed: _builtins.bool = ...,
         point_tables_changed: _abc.Iterable[_builtins.str] | None = ...,
         units_changed: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["devices", b"devices", "sinks", b"sinks", "tasks", b"tasks"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["devices", b"devices", "point_tables_changed", b"point_tables_changed", "points_changed", b"points_changed", "sinks", b"sinks", "tasks", b"tasks", "units_changed", b"units_changed"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["devices", b"devices", "point_tables_changed", b"point_tables_changed", "sinks", b"sinks", "tasks", b"tasks", "units_changed", b"units_changed"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

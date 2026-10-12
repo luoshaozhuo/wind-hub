@@ -53,8 +53,6 @@ def _task_summary_to_proto(item: TaskSummary) -> pb.TaskSummaryMessage:
         stopped_instances=item.stopped_instances,
         failed_instances=item.failed_instances,
     )
-    if item.device is not None:
-        message.device.CopyFrom(wrappers_pb2.StringValue(value=item.device))
     if item.device_group is not None:
         message.device_group.CopyFrom(wrappers_pb2.StringValue(value=item.device_group))
     if item.interval is not None:
@@ -81,7 +79,7 @@ def _diff_to_proto(diff: ConfigDiff) -> pb.ConfigDiffMessage:
     """把结构化 ConfigDiff 转换为 wire message。
 
     新架构的 diff 不单独追踪 units 变化（点表/元数据变化已由
-    ``points_changed`` 覆盖），``units_changed`` 恒为 False。
+    ``point_tables_changed`` 覆盖），``units_changed`` 恒为 False。
     """
     return pb.ConfigDiffMessage(
         devices=pb.DeviceDiffMessage(
@@ -102,7 +100,6 @@ def _diff_to_proto(diff: ConfigDiff) -> pb.ConfigDiffMessage:
             updated=list(diff.tasks.updated),
             unchanged=list(diff.tasks.unchanged),
         ),
-        points_changed=diff.points_changed,
         point_tables_changed=list(diff.point_tables_changed),
         units_changed=False,
     )
@@ -147,7 +144,6 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             component="wind-hub-collector",
             collector_id=self._identity.collector_id,
             boot_id=self._identity.boot_id,
-            config_hash=self._app.config.config_hash,
             active_config_hash=self._app.config.config_hash,
             prepared_config_hash=self._app.config.prepared_hash or "",
             boot_config_hash=self._identity.config_hash,

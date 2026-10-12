@@ -56,7 +56,7 @@ async def test_get_collector_info(running):
     assert info.component == "wind-hub-collector"
     assert info.collector_id == "collector-test"
     assert info.boot_id == app.identity.boot_id
-    assert info.config_hash == app.config_hash
+    assert info.active_config_hash == app.config_hash
     assert info.boot_config_hash == app.config_hash
     assert info.active_revision == "startup"
     assert info.runtime_running is True
@@ -150,7 +150,6 @@ async def test_config_transaction(running):
     )
     assert prepared.success is True
     assert prepared.config_hash == app.config_hash
-    assert prepared.diff.points_changed is False
     assert not prepared.diff.devices.added
 
     # 指纹不匹配：prepare 失败但 RPC 本身成功返回 errors

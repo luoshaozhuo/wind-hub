@@ -265,13 +265,17 @@ class CollectorRuntime:
     # ------------------------------------------------------------------
 
     async def health(self) -> dict[str, ConnectionHealth]:
-        """主动检查设备并合并当前 Sink 健康状态。"""
+        """主动检查设备并合并当前 Sink 健康状态。
+
+        Sink 与设备同名时不覆盖设备条目，改以 ``sink:<name>`` 键暴露。
+        """
         device_health, sink_health = await asyncio.gather(
             self._device_runtime.health(),
             self._sink_runtime.health(),
         )
         result = dict(device_health)
-        result.update(sink_health)
+        for name, sink_status in sink_health.items():
+            result[name if name not in result else f"sink:{name}"] = sink_status
         return result
 
     @property
@@ -431,9 +435,8 @@ class CollectorRuntime:
             updated=sorted(target_device_ids & actual_device_ids),
         )
 
-        target_sinks = {name: sink for name, sink in target.sinks.items() if sink.enabled}
         actual_sink_ids = set(self._sink_runtime.sinks)
-        target_sink_ids = set(target_sinks)
+        target_sink_ids = {name for name, sink in target.sinks.items() if sink.enabled}
         sinks = SinkDiff(
             added=sorted(target_sink_ids - actual_sink_ids),
             removed=sorted(actual_sink_ids - target_sink_ids),
@@ -453,7 +456,6 @@ class CollectorRuntime:
             devices=devices,
             sinks=sinks,
             tasks=tasks,
-            points_changed=bool(changed_tables),
             point_tables_changed=changed_tables,
             runtime_changed=any(
                 getattr(self._params, name) != getattr(target.runtime, name)

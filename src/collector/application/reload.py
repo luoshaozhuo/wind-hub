@@ -91,7 +91,6 @@ class ConfigDiff:
     sinks: SinkDiff = field(default_factory=SinkDiff)
     tasks: TaskDiff = field(default_factory=TaskDiff)
 
-    points_changed: bool = False
     """任一点表变化时为 True，触发点映射重注入。"""
 
     point_tables_changed: list[str] = field(default_factory=list)
@@ -116,7 +115,7 @@ class ConfigDiff:
             or self.tasks.added
             or self.tasks.removed
             or self.tasks.updated
-            or self.points_changed
+            or self.point_tables_changed
             or self.runtime_changed
         )
 
@@ -207,7 +206,6 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
         devices=devices,
         sinks=sinks,
         tasks=tasks,
-        points_changed=bool(changed_tables),
         point_tables_changed=changed_tables,
         runtime_changed=any(
             getattr(old.runtime, name) != getattr(new.runtime, name)

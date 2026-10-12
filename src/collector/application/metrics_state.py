@@ -25,6 +25,14 @@ class CollectorMetricsState:
         self._partial = 0
         self._missed = 0
         self._overruns = 0
+        # 采集耗时与 poll 抖动的轻量统计（count/sum/max；无直方图，
+        # 供快照推导均值与峰值）。
+        self._duration_count = 0
+        self._duration_sum = 0.0
+        self._duration_max = 0.0
+        self._jitter_count = 0
+        self._jitter_sum = 0.0
+        self._jitter_max = 0.0
         self._connect_failures = 0
         self._reconnects = 0
         self._device_connect_failures: dict[str, int] = defaultdict(int)
@@ -49,9 +57,12 @@ class CollectorMetricsState:
         duration: float | None,
     ) -> None:
         """记录一次采集执行结果。"""
-        del duration
         with self._lock:
             self._runs += 1
+            if duration is not None:
+                self._duration_count += 1
+                self._duration_sum += duration
+                self._duration_max = max(self._duration_max, duration)
             if outcome == "failed":
                 self._failures += 1
                 self._event("acquisition_failed", device_id, f"{group}: collect failed")
@@ -68,8 +79,10 @@ class CollectorMetricsState:
         missed: int,
     ) -> None:
         """记录 fixed-rate poll 时序统计。"""
-        del jitter
         with self._lock:
+            self._jitter_count += 1
+            self._jitter_sum += jitter
+            self._jitter_max = max(self._jitter_max, jitter)
             if overrun:
                 self._overruns += 1
                 self._event("poll_overrun", device_id, f"{group}: overrun")
@@ -109,6 +122,22 @@ class CollectorMetricsState:
                     "poll_overruns": self._overruns,
                     "connect_failures": self._connect_failures,
                     "reconnects": self._reconnects,
+                },
+                "acquisition_duration_seconds": {
+                    "count": self._duration_count,
+                    "avg": (
+                        self._duration_sum / self._duration_count
+                        if self._duration_count
+                        else None
+                    ),
+                    "max": self._duration_max if self._duration_count else None,
+                },
+                "poll_jitter_seconds": {
+                    "count": self._jitter_count,
+                    "avg": (
+                        self._jitter_sum / self._jitter_count if self._jitter_count else None
+                    ),
+                    "max": self._jitter_max if self._jitter_count else None,
                 },
                 "device_connect_failures": dict(self._device_connect_failures),
                 "device_reconnects": dict(self._device_reconnects),

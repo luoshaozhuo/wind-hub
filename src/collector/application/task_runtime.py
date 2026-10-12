@@ -9,6 +9,7 @@ collect 的业务执行仍属于 Domain AcquisitionEngine，本对象只决定�
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable, Iterable
@@ -51,6 +52,7 @@ class TaskRuntime:
         engine: AcquisitionEngine,
         clock: Callable[[], float] = time.monotonic,
         metrics_hook: RuntimeMetricsPort | None = None,
+        restore_retry_interval: float = 5.0,
     ) -> None:
         self._task_defs: dict[str, CollectionTask] = dict(task_defs)
         self._devices = devices
@@ -71,6 +73,10 @@ class TaskRuntime:
         # 热重载过程中需要恢复 RUNNING、但上一次重建失败的实例。
         # 下一次 reload 会继续重试，直到成功或实例被显式停止/删除。
         self._restart_pending: set[str] = set()
+        # 订阅恢复失败后的延迟重试 task（每实例至多一个）；成功、实例被
+        # 停止/删除或进程停机时取消。
+        self._restore_retry_tasks: dict[str, asyncio.Task[None]] = {}
+        self._restore_retry_interval = restore_retry_interval
 
         # 每个采集实例的业务执行状态——与设备连接状态、实例启停状态分维度。
         # 实例注册时建立、注销时删除；引擎 collect 经 AcquisitionStatePort
@@ -167,9 +173,11 @@ class TaskRuntime:
             raise KeyError(instance_id)
         if self._instance_states[instance_id] is TaskInstanceState.STOPPED:
             self._restart_pending.discard(instance_id)
+            self._cancel_restore_retry(instance_id)
             return
         self._instance_states[instance_id] = TaskInstanceState.STOPPED
         self._restart_pending.discard(instance_id)
+        self._cancel_restore_retry(instance_id)
         await self._close_acquisition_handle(instance_id)
 
     async def restore_subscriptions(self, device_id: str) -> None:
@@ -191,7 +199,53 @@ class TaskRuntime:
         for iid in running:
             self._instance_states[iid] = TaskInstanceState.STOPPED
             await self._close_acquisition_handle(iid)
-            await self.start_instance(iid)
+            try:
+                await self.start_instance(iid)
+            except Exception:
+                # 单实例失败不得中断其余实例的恢复；失败实例进入
+                # restart_pending 并调度延迟重试，避免连接已健康但实例
+                # 永久停在 STOPPED。
+                logger.warning(
+                    "Task instance '%s' failed to restore subscription after reconnect",
+                    iid,
+                    exc_info=True,
+                )
+                self._restart_pending.add(iid)
+                self._schedule_restore_retry(iid)
+
+    def _schedule_restore_retry(self, instance_id: str) -> None:
+        task = self._restore_retry_tasks.get(instance_id)
+        if task is not None and not task.done():
+            return
+        self._restore_retry_tasks[instance_id] = asyncio.create_task(
+            self._retry_restore(instance_id)
+        )
+
+    async def _retry_restore(self, instance_id: str) -> None:
+        """订阅恢复失败后按固定节拍延迟重试，直到成功或实例消失/被停止。"""
+        await asyncio.sleep(self._restore_retry_interval)
+        instance = self._task_instances.get(instance_id)
+        if instance is None or instance_id not in self._restart_pending:
+            return
+        if self._instance_states.get(instance_id) is not TaskInstanceState.STOPPED:
+            return
+        device = self._devices.devices.get(instance.device_id)
+        if device is None or device.acquisition_mode is not AcquisitionMode.SUBSCRIBE:
+            return
+        try:
+            await self.start_instance(instance_id)
+        except Exception:
+            logger.warning(
+                "Task instance '%s' subscription restore retry failed",
+                instance_id,
+                exc_info=True,
+            )
+            self._schedule_restore_retry(instance_id)
+
+    def _cancel_restore_retry(self, instance_id: str) -> None:
+        task = self._restore_retry_tasks.pop(instance_id, None)
+        if task is not None:
+            task.cancel()
 
     async def stop_all(self) -> None:
         """停机路径：关闭全部实例采集句柄——polling 协程取消、订阅注销，
@@ -200,6 +254,9 @@ class TaskRuntime:
         实例定义保留，统一标记 STOPPED——重启后需显式 start，与启动语义
         一致。句柄关闭失败只记录不阻断。
         """
+        for task in self._restore_retry_tasks.values():
+            task.cancel()
+        self._restore_retry_tasks.clear()
         for instance_id in list(self._acquisition_handles):
             await self._close_acquisition_handle(instance_id)
         for instance_id in self._instance_states:
@@ -283,6 +340,7 @@ class TaskRuntime:
             self._instance_states.pop(iid, None)
             self._acquisition_states.pop(iid, None)
             self._restart_pending.discard(iid)
+            self._cancel_restore_retry(iid)
             logger.info("Task instance '%s' unregistered", iid)
 
         for iid, instance in desired.items():
