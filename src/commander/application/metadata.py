@@ -65,18 +65,16 @@ class CommanderMetadataService:
                 raise CommandError(f"unknown device '{device_id}'") from exc
             revision, config_hash = self._runtime.operation_config_identity()
             points = session.point_table.points
-            results = tuple(
-                PointMetadataResult(
-                    point_id=point_id,
-                    metadata=_point_metadata(point) if (point := points.get(point_id)) else None,
-                )
-                for point_id in point_ids
-            )
+            results: list[PointMetadataResult] = []
+            for point_id in point_ids:
+                point = points.get(point_id)
+                metadata = _point_metadata(point) if point is not None else None
+                results.append(PointMetadataResult(point_id=point_id, metadata=metadata))
             return PointsMetadataResult(
                 device_id=device_id,
                 active_revision=revision,
                 active_config_hash=config_hash,
-                points=results,
+                points=tuple(results),
             )
 
 
