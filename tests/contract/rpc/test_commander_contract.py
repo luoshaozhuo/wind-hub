@@ -27,6 +27,7 @@ _COMMANDER_METHODS = [
     "ResolvePoint",
     "VerifyPoint",
     "VerifyPoints",
+    "GetPointsMetadata",
 ]
 
 
