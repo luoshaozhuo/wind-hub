@@ -77,7 +77,7 @@ def test_ads_config_uses_project_default_port_by_twincat_version() -> None:
             _endpoint(port=None),
             {"twincat_version": "3"},
         ).target_port
-        == 802
+        == 851
     )
 
 

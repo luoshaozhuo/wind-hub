@@ -7,14 +7,14 @@ import pytest
 from collector.infrastructure.config.loader import load_collector_config
 from core.application import ConfigError
 from core.domain import DeviceId, PointTableId
-from core.infrastructure.config import config_dir_digest
+from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
 from tests.support.new_collector import write_collector_config_tree
 from tests.support.new_commander import write_yaml
 
 
 def test_load_minimal_config(tmp_path):
     config_dir = write_collector_config_tree(tmp_path)
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
 
     device = config.devices[DeviceId("dev1")]
     assert device.endpoint.port == 502
@@ -44,7 +44,7 @@ def test_runtime_params_parsed(tmp_path):
             "write_timeout": 4.0,  # Commander 子集，Collector 容忍并忽略
         },
     )
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
     assert config.runtime.queue_maxsize == 50
     assert config.runtime.backpressure_policy == "drop_new"
     assert config.runtime.shutdown_timeout == 3.0
@@ -56,7 +56,7 @@ def test_ads_local_identity_loaded(tmp_path):
         tmp_path,
         ads={"local_ams_net_id": "5.6.7.8.1.1", "local_ip": "192.168.1.10"},
     )
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
     assert config.ads_local is not None
     assert config.ads_local.local_ams_net_id == "5.6.7.8.1.1"
     assert config.ads_local.local_ip == "192.168.1.10"
@@ -64,7 +64,7 @@ def test_ads_local_identity_loaded(tmp_path):
 
 def test_ads_local_identity_absent_by_default(tmp_path):
     config_dir = write_collector_config_tree(tmp_path)
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
     assert config.ads_local is None
 
 
@@ -74,19 +74,19 @@ def test_ads_local_identity_must_be_mapping(tmp_path):
         ads="not-a-mapping",  # type: ignore[arg-type]  # 故意传入非法类型，验证加载时报错
     )
     with pytest.raises(ConfigError, match="ads"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_invalid_backpressure_policy_rejected(tmp_path):
     config_dir = write_collector_config_tree(tmp_path, runtime={"backpressure_policy": "explode"})
     with pytest.raises(ConfigError, match="backpressure_policy"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_unknown_runtime_key_rejected(tmp_path):
     config_dir = write_collector_config_tree(tmp_path, runtime={"bogus": 1})
     with pytest.raises(ConfigError, match="unknown keys"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_ads_subscribe_enabled_extracted_and_stripped(tmp_path):
@@ -95,20 +95,16 @@ def test_ads_subscribe_enabled_extracted_and_stripped(tmp_path):
         tmp_path,
         protocol="ads",
         address={"symbol": "MAIN.n", "data_type": "float32"},
-        connection_defaults={"target_net_id": "1.2.3.4.5.6"},
-        devices=[
-            {
-                "device_id": "dev1",
-                "model": "mod",
-                "endpoint": {
-                    "host": "10.0.0.1",
-                    "port": 851,
-                    "extensions": {"subscribe_enabled": True},
-                },
+        protocol_options={"target_net_id": "1.2.3.4.5.6"},
+        devices={
+            "dev1": {
+                "model_id": "mod",
+                "endpoint": {"host": "10.0.0.1", "port": 851},
+                "protocol_options": {"subscribe_enabled": True},
             }
-        ],
+        },
     )
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
     assert config.ads_subscribe_devices == frozenset({DeviceId("dev1")})
     options = config.protocol_options_for(DeviceId("dev1"))
     assert "subscribe_enabled" not in options
@@ -120,16 +116,15 @@ def test_ads_subscribe_enabled_extracted_and_stripped(tmp_path):
 def test_disabled_device_excluded_but_task_reference_allowed(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        devices=[
-            {
-                "device_id": "dev1",
-                "model": "mod",
+        devices={
+            "dev1": {
+                "model_id": "mod",
                 "endpoint": {"host": "10.0.0.1", "port": 502},
                 "enabled": False,
             }
-        ],
+        },
     )
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
     assert config.devices == {}
     assert config.disabled_devices == frozenset({DeviceId("dev1")})
     # 引用 disabled 设备的 Task 合法（不命中任何实例，与旧行为一致）
@@ -139,137 +134,128 @@ def test_disabled_device_excluded_but_task_reference_allowed(tmp_path):
 def test_task_unknown_sink_rejected(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        tasks=[
-            {
-                "task_id": "t1",
-                "device_group": "dev1",
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
                 "point_group": "g",
                 "interval": 1.0,
-                "targets": [{"sink": "ghost"}],
+                "sink_ids": ["ghost"],
             }
-        ],
+        },
     )
     with pytest.raises(ConfigError, match="unknown sink"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_task_unknown_group_rejected(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        tasks=[
-            {
-                "task_id": "t1",
-                "device_group": "ghost",
+        tasks={
+            "t1": {
+                "device_group_id": "ghost",
                 "point_group": "g",
                 "interval": 1.0,
-                "targets": [{"sink": "s1"}],
+                "sink_ids": ["s1"],
             }
-        ],
+        },
     )
     with pytest.raises(ConfigError, match="unknown device group"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_task_device_group_expansion_and_empty_group_rejected(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        devices=[
-            {
-                "device_id": "dev1",
-                "model": "mod",
-                "device_group": "wind",
+        devices={
+            "dev1": {
+                "model_id": "mod",
+                "device_group_ids": ["wind"],
                 "endpoint": {"host": "10.0.0.1", "port": 502},
             }
-        ],
-        tasks=[
-            {
-                "task_id": "tg",
-                "device_group": "wind",
+        },
+        tasks={
+            "tg": {
+                "device_group_id": "wind",
                 "point_group": "g",
                 "interval": 1.0,
-                "targets": [{"sink": "s1"}],
+                "sink_ids": ["s1"],
             }
-        ],
+        },
     )
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
     assert str(config.tasks["tg"].device_group_id) == "wind"
 
     write_yaml(
         config_dir,
         "tasks.yaml",
         {
-            "tasks": [
-                {
-                    "task_id": "tg",
-                    "device_group": "solar",
+            "tasks": {
+                "tg": {
+                    "device_group_id": "solar",
                     "point_group": "g",
                     "interval": 1.0,
-                    "targets": [{"sink": "s1"}],
+                    "sink_ids": ["s1"],
                 }
-            ]
+            }
         },
     )
     with pytest.raises(ConfigError, match="unknown device group"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_task_point_group_must_exist(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        tasks=[
-            {
-                "task_id": "t1",
-                "device_group": "dev1",
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
                 "point_group": "ghost",
                 "interval": 1.0,
-                "targets": [{"sink": "s1"}],
+                "sink_ids": ["s1"],
             }
-        ],
+        },
     )
     with pytest.raises(ConfigError, match="point group"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_interval_required_for_all_protocols(tmp_path):
     # modbus 任务缺 interval → 配置错误
     config_dir = write_collector_config_tree(
         tmp_path,
-        tasks=[
-            {
-                "task_id": "t1",
-                "device_group": "dev1",
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
                 "point_group": "g",
-                "targets": [{"sink": "s1"}],
+                "sink_ids": ["s1"],
             }
-        ],
+        },
     )
     with pytest.raises(ConfigError, match="interval"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
     # IEC104 同样要求显式给出合法 interval
     iec_dir = write_collector_config_tree(
         tmp_path / "iec",
         protocol="iec104",
         address={"ioa": 100, "type": "M_ME_NC_1"},
-        tasks=[
-            {
-                "task_id": "t1",
-                "device_group": "dev1",
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
                 "point_group": "g",
-                "targets": [{"sink": "s1"}],
+                "sink_ids": ["s1"],
             }
-        ],
+        },
     )
     with pytest.raises(ConfigError, match="interval"):
-        load_collector_config(iec_dir)
+        load_collector_config(YamlConfigAdapter(iec_dir))
 
 
 def test_sink_scale_offset_on_numeric_source(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        sinks=[
-            {
-                "name": "s1",
+        sinks={
+            "s1": {
                 "type": "file",
                 "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [
@@ -282,9 +268,9 @@ def test_sink_scale_offset_on_numeric_source(tmp_path):
                     }
                 ],
             }
-        ],
+        },
     )
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
     point = config.sinks["s1"].points[0]
     assert point["ref"] == "scada.p1"
     assert point["scale"] == 2.0
@@ -293,9 +279,8 @@ def test_sink_scale_offset_on_numeric_source(tmp_path):
 def test_sink_unknown_point_rejected(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        sinks=[
-            {
-                "name": "s1",
+        sinks={
+            "s1": {
                 "type": "file",
                 "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [
@@ -305,26 +290,24 @@ def test_sink_unknown_point_rejected(tmp_path):
                     }
                 ],
             }
-        ],
+        },
     )
     with pytest.raises(ConfigError, match="unknown point"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_sink_scale_on_bool_source_rejected(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        points=[
-            {
-                "point_id": "p1",
+        points={
+            "p1": {
                 "point_groups": ["g"],
                 "address": {"register_type": "coil", "address": 1},
                 "data_type": "bool",
             }
-        ],
-        sinks=[
-            {
-                "name": "s1",
+        },
+        sinks={
+            "s1": {
                 "type": "file",
                 "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [
@@ -335,18 +318,17 @@ def test_sink_scale_on_bool_source_rejected(tmp_path):
                     }
                 ],
             }
-        ],
+        },
     )
     with pytest.raises(ConfigError, match="numeric source"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_modbus_sink_layout_overlap_rejected(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        sinks=[
-            {
-                "name": "s1",
+        sinks={
+            "s1": {
                 "type": "modbus",
                 "connection": {"host": "127.0.0.1", "port": 15020},
                 "points": [
@@ -369,18 +351,17 @@ def test_modbus_sink_layout_overlap_rejected(tmp_path):
                     },
                 ],
             }
-        ],
+        },
     )
     with pytest.raises(ConfigError, match="overlap"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_retired_iec104_sink_type_rejected(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        sinks=[
-            {
-                "name": "s1",
+        sinks={
+            "s1": {
                 "type": "iec104",
                 "connection": {"host": "127.0.0.1", "port": 12404},
                 "points": [
@@ -390,27 +371,26 @@ def test_retired_iec104_sink_type_rejected(tmp_path):
                     }
                 ],
             }
-        ],
+        },
     )
-    with pytest.raises(ConfigError, match="invalid sinks.yaml"):
-        load_collector_config(config_dir)
+    with pytest.raises(ConfigError, match="invalid definition"):
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_disabled_sink_not_a_valid_task_target(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        sinks=[
-            {
-                "name": "s1",
+        sinks={
+            "s1": {
                 "type": "file",
                 "enabled": False,
                 "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [],
             }
-        ],
+        },
     )
     with pytest.raises(ConfigError, match="disabled sink"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_config_dir_digest_stable(tmp_path):
@@ -426,17 +406,16 @@ def test_config_dir_digest_stable(tmp_path):
 def test_meta_and_point_groups_loaded(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        points=[
-            {
-                "point_id": "p1",
+        points={
+            "p1": {
                 "variable_name": "风速",
                 "point_groups": ["g", "fast"],
                 "address": {"register_type": "holding", "address": 100},
                 "data_type": "float32",
             }
-        ],
+        },
     )
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
     point = config.point_tables[PointTableId("tab")].points["p1"]
     assert point.variable_name == "风速"
     assert point.point_groups == ("g", "fast")
@@ -446,19 +425,19 @@ def test_unknown_protocol_option_is_rejected_at_load(tmp_path):
     """协议参数合法性在加载阶段校验，不推迟到 Driver 构造。"""
     config_dir = write_collector_config_tree(
         tmp_path,
-        connection_defaults={"port": 502, "bogus_option": 1},
+        protocol_options={"bogus_option": 1},
     )
     with pytest.raises(ConfigError, match="invalid protocol options"):
-        load_collector_config(config_dir)
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_invalid_protocol_option_value_is_rejected_at_load(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        connection_defaults={"port": 502, "timeout": -1},
+        protocol_options={"timeout": -1},
     )
-    with pytest.raises(ConfigError):
-        load_collector_config(config_dir)
+    with pytest.raises(ConfigError, match="invalid protocol options"):
+        load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_watchdog_timing_parsed(tmp_path):
@@ -466,13 +445,13 @@ def test_watchdog_timing_parsed(tmp_path):
         tmp_path,
         runtime={"watchdog_interval": 2.5, "health_timeout": 0.25},
     )
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
     assert config.runtime.watchdog_interval == 2.5
     assert config.runtime.health_timeout == 0.25
 
 
 def test_watchdog_timing_defaults(tmp_path):
     config_dir = write_collector_config_tree(tmp_path)
-    config = load_collector_config(config_dir)
+    config = load_collector_config(YamlConfigAdapter(config_dir))
     assert config.runtime.watchdog_interval == 5.0
     assert config.runtime.health_timeout == 1.0

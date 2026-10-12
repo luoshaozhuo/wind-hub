@@ -35,7 +35,7 @@ def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
     )
 
     written = (tmp_path / "points.yaml").read_text(encoding="utf-8")
-    assert "extends: beckhoff_base_v1" in written
+    assert "parent_id: beckhoff_base_v1" in written
     assert "business_point_id" in written
 
 

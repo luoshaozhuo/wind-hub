@@ -292,20 +292,21 @@ def write_collector_config_tree(
     *,
     protocol: str = "modbus",
     address: dict[str, Any] | None = None,
-    devices: list[dict[str, Any]] | None = None,
-    points: list[dict[str, Any]] | None = None,
+    devices: dict[str, Any] | None = None,
+    points: dict[str, Any] | None = None,
     point_tables: dict[str, Any] | None = None,
-    connection_defaults: dict[str, Any] | None = None,
+    endpoint_defaults: dict[str, Any] | None = None,
+    protocol_options: dict[str, Any] | None = None,
     runtime: dict[str, Any] | None = None,
     ads: dict[str, Any] | None = None,
-    tasks: list[dict[str, Any]] | None = None,
-    sinks: list[dict[str, Any]] | None = None,
+    tasks: dict[str, Any] | None = None,
+    sinks: dict[str, Any] | None = None,
 ) -> Path:
     """写出 Collector 最小自包含配置树（含 tasks.yaml / sinks.yaml）。
 
     默认：单设备 dev1、单点 p1(group g)、单 file Sink ``s1``（映射
-    dev1.p1 → field value）、单 Task ``t1``（device=dev1, group=g,
-    interval=1.0, targets=[s1]）。
+    dev1.p1 → field value）、单 Task ``t1``（device_group_id=dev1,
+    point_group=g, interval=1.0, sink_ids=[s1]）。
     """
     from tests.support.new_commander import write_minimal_config_tree, write_yaml
 
@@ -316,14 +317,14 @@ def write_collector_config_tree(
         devices=devices,
         points=points,
         point_tables=point_tables,
-        connection_defaults=connection_defaults,
+        endpoint_defaults=endpoint_defaults,
+        protocol_options=protocol_options,
         runtime=runtime,
         ads=ads,
     )
     if sinks is None:
-        sinks = [
-            {
-                "name": "s1",
+        sinks = {
+            "s1": {
                 "type": "file",
                 "connection": {"path": str(base / "out.csv")},
                 "points": [
@@ -333,17 +334,16 @@ def write_collector_config_tree(
                     }
                 ],
             }
-        ]
+        }
     write_yaml(config_dir, "sinks.yaml", {"sinks": sinks})
     if tasks is None:
-        tasks = [
-            {
-                "task_id": "t1",
-                "device_group": "dev1",
+        tasks = {
+            "t1": {
+                "device_group_id": "dev1",
                 "point_group": "g",
                 "interval": 1.0,
-                "targets": [{"sink": "s1"}],
+                "sink_ids": ["s1"],
             }
-        ]
+        }
     write_yaml(config_dir, "tasks.yaml", {"tasks": tasks})
     return config_dir

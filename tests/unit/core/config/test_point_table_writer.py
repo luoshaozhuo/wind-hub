@@ -42,8 +42,8 @@ def test_expanded_child_serializes_as_parent_difference() -> None:
         {parent.point_table_id: parent, child.point_table_id: child},
     )
     saved = yaml["point_tables"]["child"]
-    assert saved["extends"] == "base"
-    assert saved["points"] == [{"point_id": "power", "address": {"type": "input", "address": 20}}]
+    assert saved["parent_id"] == "base"
+    assert saved["points"] == {"power": {"address": {"type": "input", "address": 20}}}
     assert "protocol" not in saved
 
 

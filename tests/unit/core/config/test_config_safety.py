@@ -37,7 +37,7 @@ def test_snapshot_nested_configuration_is_immutable(tmp_path: Path) -> None:
         snapshot.protocol_options_by_device[device_id]["timeout"] = 99  # type: ignore[index]  # 故意探测 Mapping 不可变性
     model = next(iter(snapshot.device_models.values()))
     with pytest.raises(TypeError):
-        model.connection_defaults["port"] = 999  # type: ignore[index]  # 故意探测 Mapping 不可变性
+        model.endpoint_defaults["port"] = 999  # type: ignore[index]  # 故意探测 Mapping 不可变性
     sink = next(iter(snapshot.sinks.values()))
     with pytest.raises(TypeError):
         sink.connection["path"] = "other.csv"  # type: ignore[index]  # 故意探测 Mapping 不可变性

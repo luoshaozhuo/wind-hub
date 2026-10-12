@@ -1,6 +1,5 @@
-# Sink 输出配置：仅支持 CSV File、Modbus TCP Server、Redis
 sinks:
-  - name: file_archive
+  file_archive:
     type: file
     enabled: true
     connection:

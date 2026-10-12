@@ -1,22 +1,22 @@
 """测试辅助——写出自包含的单目录配置集。
 
 生产配置目录是完全独立、自包含的完整配置集（``system.yaml`` /
-``units.yaml`` / ``device_models.yaml`` / ``points.yaml`` /
-``devices.yaml`` / ``tasks.yaml`` / ``sinks.yaml``）。
+``device_models.yaml`` / ``points.yaml`` / ``devices.yaml`` /
+``tasks.yaml`` / ``sinks.yaml`` / ``business_points.yaml``）。
 :func:`write_config_tree` 把整套文件直接写进 ``base`` 并返回 ``base``
 （即 ``load_config`` 的参数），与生产 loader 的目录规则一致。
 
-``devices`` 接受两种写法：
+全部实体集合使用统一 Schema 的 Mapping 形式（Key 即实体 ID）：
 
-- 实例式（新）：``{"device_id", "model", "endpoint", ...}``——原样写出，
-  此时必须显式传 ``device_models``；
-- 旧式便捷写法：带 ``protocol`` / ``point_table`` / ``read_mode`` 的 dict——
-  helper 自动按 ``(protocol, point_table, read_mode)`` 派生型号并改写为
-  实例式（端口留在实例 endpoint 上，``connection_defaults`` 为空）。
+- ``devices``: ``{device_id: {model_id, endpoint, ...}}``；便捷写法允许
+  条目带 ``protocol`` / ``point_table``——helper 自动派生型号并改写为
+  ``model_id`` 引用（此时可省略 ``device_models``）。
+- ``point_tables``: ``{table_id: {protocol, parent_id?, points: {pid: ...}}}``。
+- ``sinks`` / ``tasks``: Mapping 形式。
 
 点表 ``protocol``：基础表必填。测试传入的 Raw 表未写 ``protocol`` 时，
-helper 按「绑定该表（或经 extends 与同组件表连通）的型号协议」自动补全；
-无法推断时回落 ``"modbus"``。显式写出的 ``protocol`` 原样保留。
+helper 按「绑定该表（或经 parent_id 与同组件表连通）的型号协议」自动
+补全；无法推断时回落 ``"modbus"``。显式写出的 ``protocol`` 原样保留。
 """
 
 from __future__ import annotations
@@ -25,31 +25,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
-# 与 configs/template/units.yaml 保持一致的标准单位集（测试点引用的
-# unit ID 默认都在其中）。
-_DEFAULT_UNITS: dict[str, Any] = {
-    "none": {"symbol": "", "name": "Dimensionless"},
-    "percent": {"symbol": "%", "name": "Percent"},
-    "volt": {"symbol": "V", "name": "Volt"},
-    "kilovolt": {"symbol": "kV", "name": "Kilovolt"},
-    "ampere": {"symbol": "A", "name": "Ampere"},
-    "watt": {"symbol": "W", "name": "Watt"},
-    "kilowatt": {"symbol": "kW", "name": "Kilowatt"},
-    "megawatt": {"symbol": "MW", "name": "Megawatt"},
-    "var": {"symbol": "var", "name": "Reactive power"},
-    "kilovar": {"symbol": "kVar", "name": "Kilovar"},
-    "megavar": {"symbol": "MVar", "name": "Megavar"},
-    "hertz": {"symbol": "Hz", "name": "Hertz"},
-    "rpm": {"symbol": "rpm", "name": "Revolutions per minute"},
-    "meter_per_second": {"symbol": "m/s", "name": "Meter per second"},
-    "degree": {"symbol": "deg", "name": "Degree"},
-    "celsius": {"symbol": "°C", "name": "Degree Celsius"},
-    "pascal": {"symbol": "Pa", "name": "Pascal"},
-    "bar": {"symbol": "bar", "name": "Bar"},
-    "second": {"symbol": "s", "name": "Second"},
-    "millisecond": {"symbol": "ms", "name": "Millisecond"},
-}
 
 
 def _write_yaml(dir_path: Path, name: str, data: dict[str, Any]) -> Path:
@@ -61,28 +36,27 @@ def _write_yaml(dir_path: Path, name: str, data: dict[str, Any]) -> Path:
 
 
 def _derive_models(
-    devices: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
-    """把旧式设备 dict 改写为实例式，并派生型号/类型定义。"""
+    devices: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """把带 protocol/point_table 的设备条目改写为 model_id 引用并派生型号。"""
     device_types: dict[str, Any] = {"turbine": {"name": "风机"}}
     device_models: dict[str, Any] = {}
-    instances: list[dict[str, Any]] = []
-    for d in devices:
-        d = dict(d)
+    instances: dict[str, Any] = {}
+    for device_id, entry in devices.items():
+        d = dict(entry)
+        if "protocol" not in d:
+            instances[device_id] = d
+            continue
         protocol = d.pop("protocol")
         point_table = d.pop("point_table")
-        read_mode = d.pop("read_mode", None)
-        model_id = f"{protocol}__{point_table}" + (f"__{read_mode}" if read_mode else "")
+        model_id = f"{protocol}__{point_table}"
         if model_id not in device_models:
-            model: dict[str, Any] = {
-                "device_type": "turbine",
+            device_models[model_id] = {
+                "device_type_id": "turbine",
                 "protocol": protocol,
-                "point_table": point_table,
+                "point_table_id": point_table,
             }
-            if read_mode is not None:
-                model["read_mode"] = read_mode
-            device_models[model_id] = model
-        instances.append({**d, "model": model_id})
+        instances[device_id] = {**d, "model_id": model_id}
     return instances, device_types, device_models
 
 
@@ -92,16 +66,16 @@ def _infer_table_protocols(
 ) -> dict[str, str]:
     """推断每张 Raw 点表的 protocol（用于补全未显式写的表）。
 
-    规则：型号直接绑定的表取型号协议；其余表沿 ``extends`` 边（双向）
+    规则：型号直接绑定的表取型号协议；其余表沿 ``parent_id`` 边（双向）
     找同继承组件内已确定协议的表；都无法确定时回落 ``"modbus"``。
     """
     known: dict[str, str] = {}
     for m in device_models.values():
-        table = m.get("point_table")
+        table = m.get("point_table_id")
         if table in point_tables:
             known[table] = m["protocol"]
 
-    # extends 无向连通组件
+    # parent_id 无向连通组件
     parent = {name: name for name in point_tables}
 
     def _find(x: str) -> str:
@@ -114,7 +88,7 @@ def _infer_table_protocols(
         parent[_find(a)] = _find(b)
 
     for name, t in point_tables.items():
-        ext = t.get("extends") if isinstance(t, dict) else None
+        ext = t.get("parent_id") if isinstance(t, dict) else None
         if ext in point_tables:
             _union(name, ext)
 
@@ -131,13 +105,13 @@ def _infer_table_protocols(
 def write_config_tree(
     base: Path,
     *,
-    devices: list[dict[str, Any]],
+    devices: dict[str, Any],
     point_tables: dict[str, Any],
     device_models: dict[str, Any] | None = None,
     device_types: dict[str, Any] | None = None,
-    units: dict[str, Any] | None = None,
-    sinks: list[dict[str, Any]] | None = None,
-    tasks: list[dict[str, Any]] | None = None,
+    device_groups: dict[str, Any] | None = None,
+    sinks: dict[str, Any] | None = None,
+    tasks: dict[str, Any] | None = None,
     system: dict[str, Any] | None = None,
 ) -> Path:
     """在 ``base`` 下写出自包含配置集，返回配置目录（即 ``base``）。"""
@@ -148,7 +122,7 @@ def write_config_tree(
         device_types = device_types or derived_types
         device_models = derived_models
     else:
-        instances = devices
+        instances = {device_id: dict(entry) for device_id, entry in devices.items()}
         device_types = device_types or {"turbine": {"name": "风机"}}
 
     tables = {name: dict(t) for name, t in point_tables.items()}
@@ -156,12 +130,12 @@ def write_config_tree(
     for name, t in tables.items():
         t.setdefault("protocol", inferred[name])
 
-    # 点表缺省 business_point_id 时按 point_id 派生，并汇总出
+    # 点表缺省 business_point_id 时按 Point ID 派生，并汇总出
     # business_points.yaml（当前 loader 的必需文件）。
     business_points: dict[str, dict[str, str]] = {}
     for table in tables.values():
-        for point in table.get("points", []):
-            identity = point.setdefault("business_point_id", point["point_id"])
+        for point_id, point in table.get("points", {}).items():
+            identity = point.setdefault("business_point_id", point_id)
             if "data_type" in point:
                 definition = {
                     "data_type": point["data_type"],
@@ -172,14 +146,19 @@ def write_config_tree(
                     raise ValueError(f"conflicting business point definition: {identity}")
                 business_points[identity] = definition
 
-    instances = [
-        (
-            {**device, "device_group": device["device_id"]}
-            if "device_group" not in device and "device_groups" not in device
-            else device
+    # 未显式给出 device_groups 时，按设备引用的分组显式补全声明。
+    declared = dict(device_groups or {})
+    instances = {
+        device_id: (
+            {**entry, "device_group_ids": [device_id]}
+            if "device_group_ids" not in entry
+            else entry
         )
-        for device in instances
-    ]
+        for device_id, entry in instances.items()
+    }
+    for entry in instances.values():
+        for group_id in entry["device_group_ids"]:
+            declared.setdefault(group_id, {"name": str(group_id)})
 
     _write_yaml(base, "business_points.yaml", {"business_points": business_points})
     _write_yaml(
@@ -199,15 +178,18 @@ def write_config_tree(
         {
             "sinks": sinks
             if sinks is not None
-            else [
-                {
-                    "name": "s1",
+            else {
+                "s1": {
                     "type": "file",
                     "connection": {"path": "/tmp/wind-hub-test.csv"},
                 }
-            ]
+            }
         },
     )
-    _write_yaml(base, "devices.yaml", {"devices": instances})
-    _write_yaml(base, "tasks.yaml", {"tasks": tasks or []})
+    _write_yaml(
+        base,
+        "devices.yaml",
+        {"devices": instances, "device_groups": declared},
+    )
+    _write_yaml(base, "tasks.yaml", {"tasks": tasks or {}})
     return base

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.port import ConfigPort
-from core.domain import ConnectionEndpoint, Device, DeviceId, ProtocolOptions
+from core.domain import Device, DeviceId, ProtocolOptions
+from core.infrastructure.config.effective import resolve_effective_device
 
 from ...application.config import CommanderConfig
 
@@ -23,20 +22,17 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CommanderConfig:
     for key, device in snapshot.site.devices.items():
         if not device.enabled:
             continue
-        # 合并「设备显式 > 型号默认」得到有效 endpoint 与协议参数。
+        # 合并「设备显式 > 型号默认 > 协议代码默认」得到有效连接参数。
         model = snapshot.device_models[device.device_model_id]
-        endpoint = device.endpoint
-        if endpoint.port is None and model.endpoint_defaults.get("port") is not None:
-            endpoint = ConnectionEndpoint(
-                host=endpoint.host,
-                port=int(model.endpoint_defaults["port"]),
-            )
-            device = replace(device, endpoint=endpoint)
-        devices[key] = device
-        options[key] = {
-            **model.protocol_options,
-            **snapshot.protocol_options_by_device.get(key, {}),
-        }
+        protocol = snapshot.point_tables[model.point_table_id].protocol.name
+        merged_device, merged_options = resolve_effective_device(
+            device,
+            model,
+            protocol,
+            snapshot.protocol_options_by_device.get(key, {}),
+        )
+        devices[key] = merged_device
+        options[key] = merged_options
     return CommanderConfig(
         devices=devices,
         device_models=snapshot.device_models,

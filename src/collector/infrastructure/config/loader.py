@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import cast
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
-from core.domain import (
-    ConnectionEndpoint,
-    Device,
-    DeviceId,
-    DeviceModel,
-    ProtocolOptions,
-    Sink,
-)
+from core.domain import Device, DeviceId, ProtocolOptions, Sink
 from core.domain.unit import UNIT_CATALOG, UnitCode
+from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.sink_schema import (
     MODBUS_WORD_WIDTH,
     SINK_NUMERIC_DATA_TYPES,
@@ -31,21 +24,6 @@ from ...application.config import BackpressurePolicy, CollectorConfig, RuntimePa
 def load_collector_config(source: ConfigPort) -> CollectorConfig:
     """从注入的配置来源加载 Collector 配置；不在 Loader 内实例化 Adapter。"""
     return _from_snapshot(source.load())
-
-
-def _effective_device(
-    device: Device,
-    model: DeviceModel,
-) -> tuple[Device, ProtocolOptions]:
-    """合并「设备显式 > 型号默认」得到运行时有效 endpoint 与协议参数。"""
-    endpoint = device.endpoint
-    if endpoint.port is None and model.endpoint_defaults.get("port") is not None:
-        endpoint = ConnectionEndpoint(
-            host=endpoint.host,
-            port=int(model.endpoint_defaults["port"]),
-        )
-        device = replace(device, endpoint=endpoint)
-    return device, cast(ProtocolOptions, dict(model.protocol_options))
 
 
 def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
@@ -66,12 +44,15 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
         if not device.enabled:
             continue
         model = snapshot.device_models[device.device_model_id]
-        merged_device, model_options = _effective_device(device, model)
+        protocol = snapshot.point_tables[model.point_table_id].protocol.name
+        merged_device, merged_options = resolve_effective_device(
+            device,
+            model,
+            protocol,
+            snapshot.protocol_options_by_device.get(key, {}),
+        )
         effective_devices[key] = merged_device
-        effective_options[key] = {
-            **model_options,
-            **snapshot.protocol_options_by_device.get(key, {}),
-        }
+        effective_options[key] = merged_options
     return CollectorConfig(
         devices=effective_devices,
         device_models=snapshot.device_models,

@@ -3,7 +3,6 @@
 from pathlib import Path
 
 from commander.infrastructure.config.loader import load_commander_config
-from core.domain import DeviceId
 from core.infrastructure.config import YamlConfigAdapter
 from tests.support.new_commander import write_minimal_config_tree
 
@@ -12,7 +11,7 @@ def test_commander_loads_domain_snapshot(tmp_path: Path) -> None:
     base = write_minimal_config_tree(tmp_path / "cfg")
     assert not (base / "units.yaml").exists()
     snapshot = YamlConfigAdapter(base).load()
-    commander = load_commander_config(base)
+    commander = load_commander_config(YamlConfigAdapter(base))
     assert commander.point_tables == snapshot.point_tables
     assert commander.device_models == snapshot.device_models
     assert commander.business_points == snapshot.business_points
@@ -31,7 +30,7 @@ def test_commander_configport_source_is_full_snapshot(tmp_path: Path) -> None:
         def save(self, value):
             raise AssertionError("read-only loading must not write")
 
-    config = load_commander_config(tmp_path, source=Source())
+    config = load_commander_config(Source())
     assert set(config.devices).issubset(snapshot.site.devices)
     for device_id in config.devices:
-        assert config.point_table_for_device(DeviceId(device_id))
+        assert config.point_table_for_device(device_id)

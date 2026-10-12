@@ -1,0 +1,101 @@
+"""configs/template 自动验证：加载、引用、往返与协议参数消费一致性。"""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import pytest
+
+from collector.infrastructure.config.loader import load_collector_config
+from commander.infrastructure.config.loader import load_commander_config
+from core.application.config_diff import diff_config_snapshots
+from core.infrastructure.config import YamlConfigAdapter
+from core.infrastructure.protocol.ads.config import parse_ads_config
+from core.infrastructure.protocol.iec104.config import parse_iec104_config
+from core.infrastructure.protocol.modbus.config import parse_modbus_config
+from core.domain import ConnectionEndpoint
+
+TEMPLATE_DIR = Path(__file__).resolve().parents[4] / "configs" / "template"
+
+_OPTION_PARSERS = {
+    "ads": parse_ads_config,
+    "modbus": parse_modbus_config,
+    "iec104": parse_iec104_config,
+}
+
+
+def test_template_loads_with_valid_references() -> None:
+    snapshot = YamlConfigAdapter(TEMPLATE_DIR).load()
+    assert len(snapshot.site.devices) == 3
+    assert len(snapshot.tasks) == 3
+    assert len(snapshot.sinks) == 3
+    # 引用完整性由 validate_core_config 在加载期保证；这里显式抽查关键引用。
+    for device in snapshot.site.devices.values():
+        assert device.device_model_id in snapshot.device_models
+        for group_id in device.device_group_ids:
+            assert group_id in snapshot.device_groups
+
+
+def test_template_assembles_collector_and_commander() -> None:
+    source = YamlConfigAdapter(TEMPLATE_DIR)
+    collector = load_collector_config(source)
+    commander = load_commander_config(source)
+    # 有效端口：设备显式 > 型号 endpoint_defaults > 协议代码默认。
+    ports = {str(key): device.endpoint.port for key, device in collector.devices.items()}
+    assert ports == {"wtg-001": 502, "wtg-002": 801, "wtg-003": 2404}
+    assert set(commander.devices) == set(collector.devices)
+
+
+def test_template_protocol_options_accepted_by_parsers() -> None:
+    snapshot = YamlConfigAdapter(TEMPLATE_DIR).load()
+    for device_id, device in snapshot.site.devices.items():
+        model = snapshot.device_models[device.device_model_id]
+        protocol = snapshot.point_tables[model.point_table_id].protocol.name
+        endpoint = ConnectionEndpoint(
+            host=device.endpoint.host,
+            port=device.endpoint.port or model.endpoint_defaults.get("port"),
+        )
+        options = {
+            **model.protocol_options,
+            **snapshot.protocol_options_by_device.get(device_id, {}),
+        }
+        _OPTION_PARSERS[protocol](endpoint, options)
+
+
+def test_template_defaults_match_protocol_code_defaults() -> None:
+    """模板文件头声称的协议默认值与解析器代码默认值一致。"""
+    endpoint = ConnectionEndpoint(host="192.0.2.1")
+    modbus = parse_modbus_config(endpoint, {})
+    assert (modbus.port, modbus.unit_id, modbus.timeout, modbus.word_order) == (
+        502,
+        1,
+        5.0,
+        "little_endian",
+    )
+    ads2 = parse_ads_config(endpoint, {})
+    assert (ads2.target_port, ads2.timeout, ads2.twincat_version) == (801, 5.0, "2")
+    ads3 = parse_ads_config(endpoint, {"twincat_version": "3"})
+    assert ads3.target_port == 851
+    iec = parse_iec104_config(endpoint, {})
+    assert (iec.port, iec.common_addr, iec.k, iec.w) == (2404, 1, 12, 8)
+    assert (iec.t0, iec.t1, iec.t2, iec.t3) == (30.0, 15.0, 10.0, 20.0)
+
+
+def test_template_save_load_round_trip(tmp_path: Path) -> None:
+    for source_file in TEMPLATE_DIR.glob("*.yaml"):
+        shutil.copy2(source_file, tmp_path)
+    adapter = YamlConfigAdapter(tmp_path)
+    first = adapter.load()
+    adapter.save(first)
+    second = adapter.load()
+    assert not diff_config_snapshots(first, second).has_changes
+
+
+@pytest.mark.parametrize("filename", ["devices.yaml", "tasks.yaml", "sinks.yaml", "points.yaml"])
+def test_template_entity_collections_are_mappings(filename: str) -> None:
+    import yaml
+
+    document = yaml.safe_load((TEMPLATE_DIR / filename).read_text(encoding="utf-8"))
+    root = next(iter(document.values()))
+    assert isinstance(root, dict) or filename == "points.yaml"

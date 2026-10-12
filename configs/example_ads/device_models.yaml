@@ -1,25 +1,13 @@
-# ---------------------------------------------------------------------------
-# wind-hub ADS 示例配置 — 设备类型 / 设备型号
-# ---------------------------------------------------------------------------
-#
-# 三层抽象：DeviceType（业务分类）→ DeviceModel（协议、点表绑定、读取
-# 策略、连接默认值）→ DeviceInstance（devices.yaml，只写连接差异）。
-#
-
 device_types:
-
   turbine:
     name: 风力发电机组
-
-
 device_models:
-
-  # ADS 现场机组（TwinCAT 2）
   wtg_ads_site:
-    device_type: turbine
     protocol: ads
-    point_table: wtg_ads_site_v1
-    connection_defaults:
-      port: 801                # AMS Runtime Port；TwinCAT 2 第一 PLC 默认 801
-      twincat_version: "2"
+    device_type_id: turbine
+    point_table_id: wtg_ads_site_v1
+    endpoint_defaults:
+      port: 801
+    protocol_options:
+      twincat_version: '2'
       timeout: 3.0
