@@ -170,3 +170,56 @@ async def test_config_transaction(running):
     aborted = await control_stub.AbortConfig(pb.AbortConfigRequest(revision_id="r2"))
     assert aborted.success is True
     assert aborted.aborted is False
+
+
+async def test_get_points_metadata_wire_contract(running):
+    """真实 gRPC 通道验证 GetPointsMetadata；设备未连接也必须可查询。"""
+    app: CollectorApp
+    app, runtime_stub, _ = running
+
+    # 设备连接被拒绝（127.0.0.1:1），元数据查询仍基于纯配置成功。
+    devices = await runtime_stub.ListDevices(empty_pb2.Empty())
+    assert devices.items[0].connected is False
+
+    response = await runtime_stub.GetPointsMetadata(
+        pb.PointsMetadataRequest(device_id="dev1", point_ids=["p1", "ghost", "p1"])
+    )
+    assert response.device_id == "dev1"
+    assert response.active_revision == app.config.active_revision
+    assert response.active_config_hash == app.config.config_hash
+    assert [row.point_id for row in response.points] == ["p1", "ghost", "p1"]
+
+    found = response.points[0]
+    assert found.found is True
+    assert found.metadata.point_id == "p1"
+    assert found.metadata.data_type == "float32"
+    assert found.metadata.access == "read_write"
+    assert list(found.metadata.task_ids) == ["t1"]
+    assert list(found.metadata.sink_ids) == ["s1"]
+    address = {field.key: field.value for field in found.metadata.configured_address}
+    assert address["register_type"].string_value == "holding"
+    assert "data_type" not in address
+
+    assert response.points[1].found is False
+    assert response.points[1].error == "point not found"
+    assert not response.points[1].HasField("metadata")
+    assert response.points[2] == found
+
+
+async def test_get_points_metadata_error_mapping(running):
+    _, runtime_stub, _ = running
+
+    with pytest.raises(grpc.aio.AioRpcError) as excinfo:
+        await runtime_stub.GetPointsMetadata(
+            pb.PointsMetadataRequest(device_id="ghost", point_ids=["p1"])
+        )
+    assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND
+
+    for request in (
+        pb.PointsMetadataRequest(device_id="", point_ids=["p1"]),
+        pb.PointsMetadataRequest(device_id="dev1", point_ids=[]),
+        pb.PointsMetadataRequest(device_id="dev1", point_ids=["p1", ""]),
+    ):
+        with pytest.raises(grpc.aio.AioRpcError) as excinfo:
+            await runtime_stub.GetPointsMetadata(request)
+        assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
