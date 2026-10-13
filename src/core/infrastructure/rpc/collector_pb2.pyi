@@ -1021,21 +1021,30 @@ Global___AbortConfigResponse: _TypeAlias = AbortConfigResponse  # noqa: Y015
 @_typing.final
 class PointsMetadataRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
+
     DEVICE_ID_FIELD_NUMBER: _builtins.int
     POINT_IDS_FIELD_NUMBER: _builtins.int
     device_id: _builtins.str
     @_builtins.property
     def point_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         device_id: _builtins.str = ...,
         point_ids: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_id", b"device_id", "point_ids", b"point_ids"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___PointsMetadataRequest: _TypeAlias = PointsMetadataRequest  # noqa: Y015
 
 @_typing.final
 class PointMetadata(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
+
     POINT_ID_FIELD_NUMBER: _builtins.int
     ACCESS_FIELD_NUMBER: _builtins.int
     DATA_TYPE_FIELD_NUMBER: _builtins.int
@@ -1057,7 +1066,9 @@ class PointMetadata(_message.Message):
     def task_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
     @_builtins.property
     def sink_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         point_id: _builtins.str = ...,
         access: _builtins.str = ...,
         data_type: _builtins.str = ...,
@@ -1068,33 +1079,47 @@ class PointMetadata(_message.Message):
         task_ids: _abc.Iterable[_builtins.str] | None = ...,
         sink_ids: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["access", b"access", "configured_address", b"configured_address", "data_type", b"data_type", "offset", b"offset", "point_id", b"point_id", "scale", b"scale", "sink_ids", b"sink_ids", "task_ids", b"task_ids", "unit", b"unit"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___PointMetadata: _TypeAlias = PointMetadata  # noqa: Y015
 
 @_typing.final
 class PointMetadataResult(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
+
     POINT_ID_FIELD_NUMBER: _builtins.int
     FOUND_FIELD_NUMBER: _builtins.int
     METADATA_FIELD_NUMBER: _builtins.int
     ERROR_FIELD_NUMBER: _builtins.int
     point_id: _builtins.str
     found: _builtins.bool
+    error: _builtins.str
     @_builtins.property
     def metadata(self) -> Global___PointMetadata: ...
-    error: _builtins.str
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         point_id: _builtins.str = ...,
         found: _builtins.bool = ...,
         metadata: Global___PointMetadata | None = ...,
         error: _builtins.str = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["metadata", b"metadata"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["error", b"error", "found", b"found", "metadata", b"metadata", "point_id", b"point_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___PointMetadataResult: _TypeAlias = PointMetadataResult  # noqa: Y015
 
 @_typing.final
 class PointsMetadataResponse(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
+
     DEVICE_ID_FIELD_NUMBER: _builtins.int
     ACTIVE_REVISION_FIELD_NUMBER: _builtins.int
     ACTIVE_CONFIG_HASH_FIELD_NUMBER: _builtins.int
@@ -1104,12 +1129,18 @@ class PointsMetadataResponse(_message.Message):
     active_config_hash: _builtins.str
     @_builtins.property
     def points(self) -> _containers.RepeatedCompositeFieldContainer[Global___PointMetadataResult]: ...
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         device_id: _builtins.str = ...,
         active_revision: _builtins.str = ...,
         active_config_hash: _builtins.str = ...,
         points: _abc.Iterable[Global___PointMetadataResult] | None = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["active_config_hash", b"active_config_hash", "active_revision", b"active_revision", "device_id", b"device_id", "points", b"points"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___PointsMetadataResponse: _TypeAlias = PointsMetadataResponse  # noqa: Y015
-
