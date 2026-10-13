@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.domain import DeviceId
+from core.domain import DeviceGroupId, DeviceId, Task
 
 from .config_service import CollectorConfigService
 
@@ -52,10 +52,21 @@ class CollectorMetadataService:
 
         # snapshot() 在 activate 同步提交段内读取，同一次调用不跨版本。
         config, revision, config_hash = self._config_service.active_snapshot()
-        device = config.devices.get(DeviceId(device_id))
+        device_key = DeviceId(device_id)
+        device = config.devices.get(device_key)
         if device is None:
+            if device_key in config.disabled_devices:
+                raise KeyError(f"device '{device_id}' is disabled")
             raise KeyError(f"unknown device '{device_id}'")
         point_table = config.point_table_for_device(device.device_id)
+        # 一次请求只索引一次启用 Task：按 (device_group, point_group) 归组，
+        # 避免逐点全量扫描 Task 注册表。
+        tasks_by_group: dict[tuple[DeviceGroupId, str], list[Task]] = {}
+        for task in config.tasks.values():
+            if task.enabled:
+                tasks_by_group.setdefault((task.device_group_id, task.point_group), []).append(
+                    task
+                )
         rows: list[PointMetadataResult] = []
         for point_id in point_ids:
             point = point_table.points.get(point_id)
@@ -64,12 +75,13 @@ class CollectorMetadataService:
                 continue
             tasks = tuple(
                 task
-                for task in config.tasks.values()
-                if task.enabled
-                and task.device_group_id in device.device_group_ids
-                and task.point_group in point.point_groups
+                for group_id in device.device_group_ids
+                for point_group in point.point_groups
+                for task in tasks_by_group.get((group_id, point_group), ())
             )
             task_ids = tuple(sorted(task.task_id for task in tasks))
+            # File/Redis Sink 原样发布 Task 路由的全部点；Modbus Sink 只发布
+            # 显式映射的点（见 SinkReferenceExporter），未映射不得上报。
             sink_ids = tuple(
                 sorted(
                     {
@@ -89,7 +101,9 @@ class CollectorMetadataService:
                     }
                 )
             )
-            raw_type = point.ext.get("data_type", point.ext.get("type"))
+            # data_type 由配置解析器写入 ext（与 BusinessPoint 校验一致），
+            # 是权威来源；不回退到协议地址里的 "type"（如 IEC104 ASDU 类型）。
+            raw_type = point.ext.get("data_type")
             rows.append(
                 PointMetadataResult(
                     point_id=point_id,
@@ -101,7 +115,9 @@ class CollectorMetadataService:
                         scale=point.scale,
                         offset=point.offset,
                         configured_address={
-                            key: value for key, value in point.ext.items() if value is not None
+                            key: value
+                            for key, value in point.ext.items()
+                            if value is not None and key != "data_type"
                         },
                         task_ids=task_ids,
                         sink_ids=sink_ids,

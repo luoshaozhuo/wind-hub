@@ -38,7 +38,14 @@
       "Bash(docker compose * config)",
       "Bash(docker compose * ps)",
       "Bash(docker compose * logs *)",
-      "Bash(command -v *)"
+      "Bash(command -v *)",
+      "Bash(python -m pytest tests/unit/collector/test_metadata.py -q)",
+      "Bash(python -m pytest tests/component/collector/test_metadata.py -q)",
+      "Bash(python -m pytest tests/component/collector/test_grpc_server.py -q)",
+      "Bash(python -m ruff check src tests scripts)",
+      "Bash(python -m mypy src)",
+      "Bash(poetry run *)",
+      "Bash(python -m pytest tests/unit/collector tests/component/collector tests/contract/rpc -q)"
     ],
     "deny": [
       "Read(./.env)",
