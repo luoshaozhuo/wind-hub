@@ -12,8 +12,8 @@ import {
   formFromModelDefaults,
   resetFormForProtocol,
   validateConnectionForm,
-} from '../../src/domain/deviceConnection'
-import type { DeviceModelDef } from '../../src/domain/types'
+} from '../../../src/web_admin/src/domain/deviceConnection'
+import type { DeviceModelDef } from '../../../src/web_admin/src/domain/types'
 
 function model(protocol: DeviceModelDef['protocol'], defaults: Record<string, unknown> = {}) {
   return {

@@ -6,9 +6,9 @@ import {
   buildDataRows,
   pointAddressText,
   pointValueFromSnapshot,
-} from '../../src/domain/deviceData'
-import type { PointDef } from '../../src/domain/types'
-import { EMPTY } from '../../src/utils/format'
+} from '../../../src/web_admin/src/domain/deviceData'
+import type { PointDef } from '../../../src/web_admin/src/domain/types'
+import { EMPTY } from '../../../src/web_admin/src/utils/format'
 
 function point(overrides: Partial<PointDef> = {}): PointDef {
   return {

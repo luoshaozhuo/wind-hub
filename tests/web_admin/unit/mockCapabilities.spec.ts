@@ -1,34 +1,34 @@
 // 高保真 Mock 能力矩阵测试：对应 1f3cb794 旧 Mock 行为基线逐条验证，
 // 全部经真实 api/*.ts → MSW → mock service 路径（与页面同源）。
 import { describe, expect, it, beforeAll, afterAll, afterEach, vi } from 'vitest'
-import { server } from '../../src/mocks/node'
-import { resetMockState } from '../../src/mocks/state'
+import { server } from '../../../src/web_admin/src/mocks/node'
+import { resetMockState } from '../../../src/web_admin/src/mocks/state'
 import {
   fetchDevice,
   fetchDevices,
   fetchAllDeviceData,
   fetchDeviceTrend,
   sendDeviceCommand,
-} from '../../src/api/devices'
-import { fetchTask, startTask, fetchTaskInstances } from '../../src/api/tasks'
-import { fetchSink, verifySink, writeTestSink } from '../../src/api/sinks'
-import { protocolRead, pointTableTest, ping, protocolCheck } from '../../src/api/diagnostics'
-import { awaitOperation, fetchOperation } from '../../src/api/operations'
+} from '../../../src/web_admin/src/api/devices'
+import { fetchTask, startTask, fetchTaskInstances } from '../../../src/web_admin/src/api/tasks'
+import { fetchSink, verifySink, writeTestSink } from '../../../src/web_admin/src/api/sinks'
+import { protocolRead, pointTableTest, ping, protocolCheck } from '../../../src/web_admin/src/api/diagnostics'
+import { awaitOperation, fetchOperation } from '../../../src/web_admin/src/api/operations'
 import {
   applyConfig,
   fetchConfigFile,
   fetchConfigHistory,
   importConfig,
   restoreConfig,
-} from '../../src/api/config'
+} from '../../../src/web_admin/src/api/config'
 import {
   fetchOverview,
   fetchQuality,
   fetchLogs,
   fetchSystemHealth,
   runQualityCheck,
-} from '../../src/api/monitoring'
-import { ApiError } from '../../src/api/client'
+} from '../../../src/web_admin/src/api/monitoring'
+import { ApiError } from '../../../src/web_admin/src/api/client'
 
 describe('高保真 Mock 能力矩阵', () => {
   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))

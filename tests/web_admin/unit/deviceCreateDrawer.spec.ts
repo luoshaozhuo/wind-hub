@@ -6,8 +6,8 @@ import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
-import DeviceCreateDrawer from '../../src/components/devices/DeviceCreateDrawer.vue'
-import { useConfigStore } from '../../src/stores/config'
+import DeviceCreateDrawer from '../../../src/web_admin/src/components/devices/DeviceCreateDrawer.vue'
+import { useConfigStore } from '../../../src/web_admin/src/stores/config'
 
 vi.mock('element-plus', async (importOriginal) => {
   const mod = await importOriginal<typeof import('element-plus')>()

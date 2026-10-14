@@ -1,7 +1,7 @@
 // format.ts 单元测试：全站统一的时间格式与空值占位契约。
 import { describe, expect, it } from 'vitest'
 
-import { EMPTY, formatTimestamp, nowText, orEmpty } from '../../src/utils/format'
+import { EMPTY, formatTimestamp, nowText, orEmpty } from '../../../src/web_admin/src/utils/format'
 
 describe('formatTimestamp', () => {
   it('格式化为 YYYY-MM-DD HH:mm:ss 并零填充', () => {

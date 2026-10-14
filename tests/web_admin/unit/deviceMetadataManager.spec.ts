@@ -5,7 +5,7 @@ import ElementPlus from 'element-plus'
 import { createPinia } from 'pinia'
 import { describe, expect, it } from 'vitest'
 
-import DeviceMetadataManager from '../../src/components/DeviceMetadataManager.vue'
+import DeviceMetadataManager from '../../../src/web_admin/src/components/DeviceMetadataManager.vue'
 
 function mountManager(props: Record<string, unknown> = {}) {
   return mount(DeviceMetadataManager, {

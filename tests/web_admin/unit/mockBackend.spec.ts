@@ -1,12 +1,12 @@
 // Mock 模式契约测试：复用 src/mocks/node.ts（与 dev:mock 同一组 handlers），
 // 直接经 api/*.ts 真实调用 —— Mock/Real 共用同一 api 层在此得到验证。
 import { describe, expect, it, beforeAll, afterAll, afterEach, vi } from 'vitest'
-import { server } from '../../src/mocks/node'
-import { resetMockState } from '../../src/mocks/state'
-import { fetchSettings, fetchDefinitions } from '../../src/api/config'
-import { fetchDevices } from '../../src/api/devices'
-import { fetchTasks, startTask, stopTask, fetchTask } from '../../src/api/tasks'
-import { fetchSinks } from '../../src/api/sinks'
+import { server } from '../../../src/web_admin/src/mocks/node'
+import { resetMockState } from '../../../src/web_admin/src/mocks/state'
+import { fetchSettings, fetchDefinitions } from '../../../src/web_admin/src/api/config'
+import { fetchDevices } from '../../../src/web_admin/src/api/devices'
+import { fetchTasks, startTask, stopTask, fetchTask } from '../../../src/web_admin/src/api/tasks'
+import { fetchSinks } from '../../../src/web_admin/src/api/sinks'
 import {
   fetchOverview,
   fetchQuality,
@@ -15,9 +15,9 @@ import {
   fetchLogSources,
   fetchSystemHealth,
   fetchWorkers,
-} from '../../src/api/monitoring'
-import { pointTableTest } from '../../src/api/diagnostics'
-import { awaitOperation } from '../../src/api/operations'
+} from '../../../src/web_admin/src/api/monitoring'
+import { pointTableTest } from '../../../src/web_admin/src/api/diagnostics'
+import { awaitOperation } from '../../../src/web_admin/src/api/operations'
 
 describe('MSW mock 后端契约', () => {
   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
