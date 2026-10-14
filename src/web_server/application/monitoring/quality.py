@@ -11,8 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.port.monitoring import HostSnapshot, MonitoringSnapshotPort
+from web_server.application.config.service import ConfigService
+from web_server.application.port.monitoring import HostSnapshot, MonitoringSnapshotPort
 
 QualityWindow = Literal["1h", "24h", "7d"]
 

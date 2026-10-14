@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from wind_hub_server.application.port.worker import CollectorPort
+from web_server.application.port.worker import CollectorPort
 
 
 class CollectorDirectory(Protocol):

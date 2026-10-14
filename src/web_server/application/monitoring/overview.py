@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
-from wind_hub_server.application.task.control import TaskControlService
+from web_server.application.config.service import ConfigService
+from web_server.application.port.monitoring import MonitoringSnapshotPort
+from web_server.application.task.control import TaskControlService
 
 
 class OverviewSnapshot(BaseModel):
