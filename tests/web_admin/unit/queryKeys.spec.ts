@@ -3,7 +3,7 @@
 // 这些结构关系是契约，必须被测试钉住。
 import { describe, expect, it } from 'vitest'
 
-import { CONFIG_QUERY_KEYS, qk } from '../../src/api/queryKeys'
+import { CONFIG_QUERY_KEYS, qk } from '../../../src/web_admin/src/api/queryKeys'
 
 describe('queryKeys', () => {
   it('deviceTrend 对 point id 排序，与传入顺序无关', () => {

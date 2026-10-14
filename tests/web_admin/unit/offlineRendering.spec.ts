@@ -9,9 +9,9 @@ import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { http, HttpResponse } from 'msw'
-import App from '../../src/App.vue'
-import { server } from '../../src/mocks/node'
-import { resetMockState } from '../../src/mocks/state'
+import App from '../../../src/web_admin/src/App.vue'
+import { server } from '../../../src/web_admin/src/mocks/node'
+import { resetMockState } from '../../../src/web_admin/src/mocks/state'
 
 function mountApp() {
   const queryClient = new QueryClient({

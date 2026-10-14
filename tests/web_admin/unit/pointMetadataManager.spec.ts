@@ -6,8 +6,8 @@ import ElementPlus from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { nextTick } from 'vue'
 
-import PointMetadataManager from '../../src/components/points/PointMetadataManager.vue'
-import { useConfigStore } from '../../src/stores/config'
+import PointMetadataManager from '../../../src/web_admin/src/components/points/PointMetadataManager.vue'
+import { useConfigStore } from '../../../src/web_admin/src/stores/config'
 
 function seedStore() {
   const store = useConfigStore()

@@ -2,11 +2,11 @@
 // 终态语义：success/partial 返回，failed/cancelled 抛 ApiError（保留后端错误码）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, client } from '../../src/api/client'
-import { awaitOperation, type OperationDto } from '../../src/api/operations'
+import { ApiError, client } from '../../../src/web_admin/src/api/client'
+import { awaitOperation, type OperationDto } from '../../../src/web_admin/src/api/operations'
 
-vi.mock('../../src/api/client', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('../../src/api/client')>()
+vi.mock('../../../src/web_admin/src/api/client', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../../src/web_admin/src/api/client')>()
   return { ...mod, client: { GET: vi.fn() } }
 })
 

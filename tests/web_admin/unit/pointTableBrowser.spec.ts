@@ -4,9 +4,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { nextTick, ref } from 'vue'
 
-import { usePointTableBrowser } from '../../src/composables/usePointTableBrowser'
-import { useConfigStore } from '../../src/stores/config'
-import type { PointDef } from '../../src/domain/types'
+import { usePointTableBrowser } from '../../../src/web_admin/src/composables/usePointTableBrowser'
+import { useConfigStore } from '../../../src/web_admin/src/stores/config'
+import type { PointDef } from '../../../src/web_admin/src/domain/types'
 
 function point(id: string, overrides: Partial<PointDef> = {}): PointDef {
   return {

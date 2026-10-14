@@ -1,7 +1,7 @@
 // status.ts 单元测试：业务状态 → Element Plus tag type 的语义映射契约。
 import { describe, expect, it } from 'vitest'
 
-import { statusTagType } from '../../src/utils/status'
+import { statusTagType } from '../../../src/web_admin/src/utils/status'
 
 describe('statusTagType', () => {
   it('健康/运行中映射为 success', () => {
