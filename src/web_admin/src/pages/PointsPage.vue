@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdminPageHeading from '../components/AdminPageHeading.vue'
 import { computed, onMounted, ref } from 'vue'
 import { runtimeApi, type LatestPointValue, type RuntimeDevice } from '../api/runtime'
 
@@ -68,7 +69,7 @@ onMounted(() => void refresh())
 
 <template>
   <section class="runtime-page">
-    <h2>测点浏览</h2>
+    <AdminPageHeading title="测点浏览" description="Collector 最新测点值与 Commander 实时诊断" />
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
     <el-space wrap>
       <el-select v-model="selected" placeholder="全部设备" clearable style="width: 220px" @change="refresh">
