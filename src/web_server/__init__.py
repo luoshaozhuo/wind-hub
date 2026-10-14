@@ -5,6 +5,6 @@
 ``wind_hub_collector`` 提供。
 """
 
-from wind_hub_server.settings import ServerSettings
+from web_server.settings import ServerSettings
 
 __all__ = ["ServerSettings"]

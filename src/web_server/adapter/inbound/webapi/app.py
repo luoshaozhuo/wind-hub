@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from wind_hub_server.adapter.inbound.webapi import errors
-from wind_hub_server.adapter.inbound.webapi.routes import metrics
-from wind_hub_server.adapter.inbound.webapi.v1.router import router as v1_router
-from wind_hub_server.application.app_context import AppContext
+from web_server.adapter.inbound.webapi import errors
+from web_server.adapter.inbound.webapi.routes import metrics
+from web_server.adapter.inbound.webapi.v1.router import router as v1_router
+from web_server.application.app_context import AppContext
 
 
 def build_api(context: AppContext) -> FastAPI:

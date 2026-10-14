@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from wind_hub_server.adapter.inbound.webapi.errors import APIError
-from wind_hub_server.application.app_context import AppContext
+from web_server.adapter.inbound.webapi.errors import APIError
+from web_server.application.app_context import AppContext
 
 __all__ = ["AppContext", "get_ctx"]
 
