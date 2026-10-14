@@ -191,6 +191,14 @@ def create_app(settings: RpcSettings | None = None, *, write_token: str | None =
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_latest_values(device_id))
 
+    @app.post("/api/v1/collector/points/metadata", tags=["collector"])
+    async def collector_points_metadata(
+        body: ReadPointsBody,
+        device_id: str = Query(min_length=1),
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_points_metadata(device_id, body.point_ids))
+
     @app.get("/api/v1/commander/status", tags=["commander"])
     async def commander_status(gateway: RpcGateway = Depends(get_gateway)) -> dict[str, object]:
         return await _invoke(gateway.commander_status())
