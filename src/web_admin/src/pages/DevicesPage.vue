@@ -30,10 +30,12 @@ async function verify() {
 async function write() {
   busy.value = true
   try {
-    if (!pointId.value) throw new Error('Point ID required')
+    if (!selected.value) throw new Error('Device required')
+    if (!pointId.value.trim()) throw new Error('Point ID required')
     if (!writeValue.value.trim()) throw new Error('Value required')
     const raw = writeValue.value.trim()
-    const value: boolean | number | string = raw === 'true' ? true : raw === 'false' ? false : /^[-+]?\\d+(?:\\.\\d+)?(?:[eE][-+]?\\d+)?$/.test(raw) ? Number(raw) : raw
+        const value: boolean | number | string = raw === 'true' ? true : raw === 'false' ? false : /^[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/.test(raw) ? Number(raw) : raw
+    if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Value must be finite')
     const result = await runtimeApi.writePoint({
       command_id: crypto.randomUUID(), device_id: selected.value, point_id: pointId.value,
       value, timeout: 1,
