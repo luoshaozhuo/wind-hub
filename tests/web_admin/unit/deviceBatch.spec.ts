@@ -7,8 +7,8 @@ import {
   excludedBatchNumbers,
   renderBatchPattern,
   type BatchTemplate,
-} from '../../src/domain/deviceBatch'
-import type { DeviceInst, DeviceModelDef } from '../../src/domain/types'
+} from '../../../src/web_admin/src/domain/deviceBatch'
+import type { DeviceInst, DeviceModelDef } from '../../../src/web_admin/src/domain/types'
 
 function model(protocol: 'ads' | 'modbus' | 'iec104'): DeviceModelDef {
   return {

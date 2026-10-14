@@ -3,7 +3,7 @@
 // 按信封提取稳定 code（错误分派依据），不得退化成裸 HTTP 状态文本。
 import { describe, expect, it } from 'vitest'
 
-import { ApiError, call, normalizeApiError } from '../../src/api/client'
+import { ApiError, call, normalizeApiError } from '../../../src/web_admin/src/api/client'
 
 describe('normalizeApiError', () => {
   it('解析统一错误包络并保留 code/details', () => {

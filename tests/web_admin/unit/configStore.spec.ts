@@ -4,19 +4,19 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { queryClient } from '../../src/api/queryClient'
-import { CONFIG_QUERY_KEYS, qk } from '../../src/api/queryKeys'
-import { replaceAdminState, type ConfigApplyDto } from '../../src/api/config'
-import type { DefinitionsDto } from '../../src/api/config'
-import type { DeviceDto } from '../../src/api/devices'
-import type { OverviewDto } from '../../src/api/monitoring'
-import type { SettingsDto } from '../../src/api/config'
-import type { SinkDto } from '../../src/api/sinks'
-import type { TaskDto } from '../../src/api/tasks'
-import { useConfigStore } from '../../src/stores/config'
+import { queryClient } from '../../../src/web_admin/src/api/queryClient'
+import { CONFIG_QUERY_KEYS, qk } from '../../../src/web_admin/src/api/queryKeys'
+import { replaceAdminState, type ConfigApplyDto } from '../../../src/web_admin/src/api/config'
+import type { DefinitionsDto } from '../../../src/web_admin/src/api/config'
+import type { DeviceDto } from '../../../src/web_admin/src/api/devices'
+import type { OverviewDto } from '../../../src/web_admin/src/api/monitoring'
+import type { SettingsDto } from '../../../src/web_admin/src/api/config'
+import type { SinkDto } from '../../../src/web_admin/src/api/sinks'
+import type { TaskDto } from '../../../src/web_admin/src/api/tasks'
+import { useConfigStore } from '../../../src/web_admin/src/stores/config'
 
-vi.mock('../../src/api/config', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('../../src/api/config')>()
+vi.mock('../../../src/web_admin/src/api/config', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../../src/web_admin/src/api/config')>()
   return { ...mod, replaceAdminState: vi.fn() }
 })
 

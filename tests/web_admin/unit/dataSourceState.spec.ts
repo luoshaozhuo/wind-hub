@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dataSourceState, unavailableValue } from '../../src/domain/dataSourceState'
+import { dataSourceState, unavailableValue } from '../../../src/web_admin/src/domain/dataSourceState'
 
 describe('data source availability', () => {
   it('does not mistake pending and missing data for healthy values', () => {

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const startMock = vi.fn().mockResolvedValue(undefined)
 
-vi.mock('../../src/mocks/browser', () => ({
+vi.mock('../../../src/web_admin/src/mocks/browser', () => ({
   worker: { start: (...args: unknown[]) => startMock(...args) },
 }))
 
@@ -19,7 +19,7 @@ describe('main.ts bootstrap', () => {
   it('VITE_API_MODE=mock 时启动 MSW worker', async () => {
     vi.stubEnv('VITE_API_MODE', 'mock')
     document.body.innerHTML = '<div id="app"></div>'
-    await import('../../src/main')
+    await import('../../../src/web_admin/src/main')
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(startMock).toHaveBeenCalledTimes(1)
     expect(document.querySelector('#app .app-shell')).not.toBeNull()
@@ -28,7 +28,7 @@ describe('main.ts bootstrap', () => {
   it('real 模式（默认）不启动 MSW', async () => {
     vi.stubEnv('VITE_API_MODE', 'real')
     document.body.innerHTML = '<div id="app"></div>'
-    await import('../../src/main')
+    await import('../../../src/web_admin/src/main')
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(startMock).not.toHaveBeenCalled()
     expect(document.querySelector('#app .app-shell')).not.toBeNull()
@@ -39,7 +39,7 @@ describe('main.ts bootstrap', () => {
     document.body.innerHTML = '<div id="app"></div>'
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     startMock.mockRejectedValueOnce(new Error('sw registration failed'))
-    await import('../../src/main')
+    await import('../../../src/web_admin/src/main')
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(consoleSpy).toHaveBeenCalledWith(
       '[wind-hub-admin] MSW mock worker failed to start:',
