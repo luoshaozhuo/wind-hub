@@ -2,8 +2,8 @@
 import { ref } from 'vue'
 import { runtimeApi } from '../../api/runtime'
 
-const props = defineProps<{ deviceId: string }>()
-const pointIds = ref('')
+const props = defineProps<{ deviceId: string; suggestedPointIds?: string[] }>()
+const pointIds = ref((props.suggestedPointIds || []).join(', '))
 const loading = ref(false)
 const error = ref('')
 const response = ref<Record<string, unknown> | null>(null)
