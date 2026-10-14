@@ -1,80 +1,59 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { runtimeApi, type RuntimeDevice, type LatestPointValue } from '../api/runtime'
+import AdminPageHeading from '../components/AdminPageHeading.vue'
+import DeviceDetailDrawer from '../components/devices/DeviceDetailDrawer.vue'
+import { runtimeApi, type RuntimeDevice } from '../api/runtime'
+
 const devices = ref<RuntimeDevice[]>([])
-const values = ref<LatestPointValue[]>([])
-const selected = ref('')
+const selected = ref<RuntimeDevice | null>(null)
+const drawerOpen = ref(false)
 const error = ref('')
-const apiKey = ref('')
-const pointId = ref('')
-const writeValue = ref('')
-const busy = ref(false)
+const loading = ref(false)
+
 async function refresh() {
+  if (loading.value) return
+  loading.value = true
+  error.value = ''
   try {
-    error.value = ''
     devices.value = await runtimeApi.devices()
-    if (selected.value) values.value = await runtimeApi.latestValues(selected.value)
-  } catch (cause) { error.value = String(cause) }
+    if (selected.value) {
+      selected.value = devices.value.find(d => d.device_id === selected.value?.device_id) || null
+      if (!selected.value) drawerOpen.value = false
+    }
+  } catch (cause) {
+    error.value = String(cause)
+  } finally {
+    loading.value = false
+  }
 }
-async function selectDevice(id: string) {
-  selected.value = id
-  await refresh()
-}
-async function verify() {
-  try {
-    const result = await runtimeApi.verifyDevice(selected.value)
-    ElMessage({message: result.stages.map(s => s.name + ': ' + s.message).join('; ') || (result.ok ? 'Healthy' : 'Failed'), type: result.ok ? 'success' : 'warning'})
-  } catch (cause) { ElMessage.error(String(cause)) }
-}
-async function write() {
-  busy.value = true
-  try {
-    if (!selected.value) throw new Error('Device required')
-    if (!pointId.value.trim()) throw new Error('Point ID required')
-    if (!writeValue.value.trim()) throw new Error('Value required')
-    const raw = writeValue.value.trim()
-        const value: boolean | number | string = raw === 'true' ? true : raw === 'false' ? false : /^[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/.test(raw) ? Number(raw) : raw
-    if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Value must be finite')
-    const result = await runtimeApi.writePoint({
-      command_id: crypto.randomUUID(), device_id: selected.value, point_id: pointId.value,
-      value, timeout: 1,
-    }, apiKey.value)
-    ElMessage({message: result.error || (result.success ? 'Command succeeded' : 'Command failed'), type: result.success ? 'success' : 'error'})
-    await refresh()
-  } catch (cause) { ElMessage.error(String(cause)) }
-  finally { busy.value = false }
+function openDevice(device: RuntimeDevice) {
+  selected.value = device
+  drawerOpen.value = true
 }
 onMounted(() => void refresh())
 </script>
 
 <template>
   <section class="runtime-page">
-    <h2>Devices</h2>
-    <el-alert v-if="error" :title="error" type="error" show-icon />
-    <el-button @click="refresh">Refresh</el-button>
-    <el-table :data="devices" @row-click="(row: RuntimeDevice) => selectDevice(row.device_id)">
-      <el-table-column prop="device_id" label="Device" />
-      <el-table-column prop="protocol" label="Protocol" />
-      <el-table-column label="Connected"><template #default="{row}">{{ row.connected ? 'Yes' : 'No' }}</template></el-table-column>
-      <el-table-column prop="last_error" label="Error" />
+    <AdminPageHeading title="设备管理" description="设备在线状态、通信异常及实时采集数据">
+      <template #actions><el-button :loading="loading" @click="refresh">刷新</el-button></template>
+    </AdminPageHeading>
+    <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
+    <el-table :data="devices" v-loading="loading" style="width: 100%" @row-click="openDevice">
+      <el-table-column prop="device_id" label="设备" min-width="160" />
+      <el-table-column prop="protocol" label="协议" min-width="110" />
+      <el-table-column label="通信" min-width="100">
+        <template #default="{ row }">
+          <el-tag :type="row.connected ? 'success' : 'danger'">{{ row.connected ? '正常' : '异常' }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="consecutive_failures" label="连续失败" min-width="100" />
+      <el-table-column prop="last_seen" label="最后通信" min-width="160" />
+      <el-table-column prop="last_error" label="错误信息" min-width="180" show-overflow-tooltip />
+      <el-table-column label="操作" width="90">
+        <template #default="{ row }"><el-button link type="primary" @click.stop="openDevice(row)">详情</el-button></template>
+      </el-table-column>
     </el-table>
-    <template v-if="selected">
-      <h3>Latest Values — {{ selected }}</h3>
-      <el-button @click="verify">Verify Device</el-button>
-      <el-table :data="values">
-        <el-table-column prop="point_id" label="Point" />
-        <el-table-column label="Value"><template #default="{row}">{{ JSON.stringify(row.value ?? null) }}</template></el-table-column>
-        <el-table-column prop="quality" label="Quality" />
-        <el-table-column prop="timestamp" label="Timestamp" />
-      </el-table>
-      <h3>Command</h3>
-      <el-space wrap>
-        <el-input v-model="pointId" placeholder="Point ID" />
-        <el-input v-model="writeValue" placeholder="Value" />
-        <el-input v-model="apiKey" type="password" show-password placeholder="Control API Key (not saved)" />
-        <el-button type="primary" :disabled="!apiKey || !pointId" :loading="busy" @click="write">Write</el-button>
-      </el-space>
-    </template>
+    <DeviceDetailDrawer v-if="selected" :key="selected.device_id" v-model="drawerOpen" :device="selected" />
   </section>
 </template>
