@@ -91,6 +91,10 @@ export const runtimeApi = {
     action('/api/v1/collector/tasks/' + encodeURIComponent(id) + '/start', apiKey),
   stopTask: (id: string, apiKey: string): Promise<RuntimeTask> =>
     action('/api/v1/collector/tasks/' + encodeURIComponent(id) + '/stop', apiKey),
+  startInstance: (id: string, apiKey: string): Promise<RuntimeInstance> =>
+    action('/api/v1/collector/instances/' + encodeURIComponent(id) + '/start', apiKey),
+  stopInstance: (id: string, apiKey: string): Promise<RuntimeInstance> =>
+    action('/api/v1/collector/instances/' + encodeURIComponent(id) + '/stop', apiKey),
   sinks: async (): Promise<RuntimeSink[]> =>
     (await request<{ items: RuntimeSink[] }>('/api/v1/collector/sinks')).items,
   verifySink: (name: string): Promise<{ success: boolean; message: string }> =>
