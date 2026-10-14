@@ -18,9 +18,11 @@ const inspection = ref<Record<string, unknown> | null>(null)
 const inspectionKind = ref('')
 const metadataVisible = ref(false)
 const metadataDevice = ref('')
+const metadataPointIds = ref<string[]>([])
 function openMetadata() {
   if (!selected.value) return
   metadataDevice.value = selected.value
+  metadataPointIds.value = [...new Set(points.value.filter(p => p.device_id === selected.value).map(p => p.point_id))]
   metadataVisible.value = true
 }
 
@@ -104,7 +106,7 @@ onMounted(() => void refresh())
   </section>
 
   <el-drawer v-model="metadataVisible" title="测点元数据" size="min(820px, 100%)">
-    <PointMetadataManager v-if="metadataVisible && metadataDevice" :key="metadataDevice" :device-id="metadataDevice" />
+    <PointMetadataManager v-if="metadataVisible && metadataDevice" :key="metadataDevice" :device-id="metadataDevice" :suggested-point-ids="metadataPointIds" />
   </el-drawer>
 
   <el-drawer v-model="detailVisible" title="测点详情" size="min(560px, 100%)">
