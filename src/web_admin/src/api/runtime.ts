@@ -77,6 +77,10 @@ function action<T>(path: string, apiKey: string): Promise<T> {
 }
 
 export const runtimeApi = {
+  collectorInfo: (): Promise<Record<string, unknown>> => request('/api/v1/collector/info'),
+  collectorStatus: (): Promise<Record<string, unknown>> => request('/api/v1/collector/status'),
+  collectorMetrics: (): Promise<Record<string, unknown>> => request('/api/v1/collector/metrics'),
+  commanderStatus: (): Promise<Record<string, unknown>> => request('/api/v1/commander/status'),
   tasks: async (): Promise<RuntimeTask[]> =>
     (await request<{ items: RuntimeTask[] }>('/api/v1/collector/tasks')).items,
   task: (id: string): Promise<RuntimeTask> =>
