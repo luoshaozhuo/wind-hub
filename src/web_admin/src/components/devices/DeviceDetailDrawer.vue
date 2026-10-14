@@ -4,6 +4,7 @@ import { runtimeApi, type LatestPointValue, type RuntimeDevice } from '../../api
 import DataSourceBadge from '../DataSourceBadge.vue'
 import DeviceCommandPanel from './DeviceCommandPanel.vue'
 import DeviceTrendPanel from './DeviceTrendPanel.vue'
+import DeviceConfigPanel from './DeviceConfigPanel.vue'
 import { dataSourceState } from '../../domain/dataSourceState'
 
 const props = defineProps<{ device: RuntimeDevice }>()
@@ -87,6 +88,9 @@ onUnmounted(() => { active = false; if (timer) clearInterval(timer) })
       <el-descriptions-item label="错误" :span="2">{{ device.last_error || '—' }}</el-descriptions-item>
     </el-descriptions>
     <el-tabs v-model="tab">
+      <el-tab-pane label="运行配置" name="config">
+        <DeviceConfigPanel :device="device" :active="opened && tab === 'config'" />
+      </el-tab-pane>
       <el-tab-pane label="实时数据" name="data">
         <el-space wrap>
           <DataSourceBadge :state="state" :reason="error" />
