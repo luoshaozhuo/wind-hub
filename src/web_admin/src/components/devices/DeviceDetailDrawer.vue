@@ -5,6 +5,7 @@ import DataSourceBadge from '../DataSourceBadge.vue'
 import DeviceCommandPanel from './DeviceCommandPanel.vue'
 import DeviceTrendPanel from './DeviceTrendPanel.vue'
 import DeviceConfigPanel from './DeviceConfigPanel.vue'
+import PointMetadataManager from '../points/PointMetadataManager.vue'
 import { dataSourceState } from '../../domain/dataSourceState'
 
 const props = defineProps<{ device: RuntimeDevice }>()
@@ -121,6 +122,9 @@ onUnmounted(() => { active = false; if (timer) clearInterval(timer) })
       </el-tab-pane>
       <el-tab-pane label="实时趋势" name="trend">
         <DeviceTrendPanel :device-id="device.device_id" :active="opened && tab === 'trend'" />
+      </el-tab-pane>
+      <el-tab-pane label="测点元数据" name="metadata">
+        <PointMetadataManager :device-id="device.device_id" />
       </el-tab-pane>
       <el-tab-pane label="控制下发" name="command">
         <DeviceCommandPanel :device-id="device.device_id" />
