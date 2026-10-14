@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AdminPageHeading from '../components/AdminPageHeading.vue'
+import PointMetadataManager from '../components/points/PointMetadataManager.vue'
 import { computed, onMounted, ref } from 'vue'
 import { runtimeApi, type LatestPointValue, type RuntimeDevice } from '../api/runtime'
 
@@ -15,6 +16,13 @@ const detailError = ref('')
 const detail = ref<LatestPointValue | null>(null)
 const inspection = ref<Record<string, unknown> | null>(null)
 const inspectionKind = ref('')
+const metadataVisible = ref(false)
+const metadataDevice = ref('')
+function openMetadata() {
+  if (!selected.value) return
+  metadataDevice.value = selected.value
+  metadataVisible.value = true
+}
 
 const filtered = computed(() => points.value.filter(p =>
   (!selected.value || p.device_id === selected.value) &&
@@ -77,6 +85,7 @@ onMounted(() => void refresh())
       </el-select>
       <el-input v-model="query" clearable placeholder="筛选设备或测点 ID" style="width: 240px" />
       <el-button :loading="loading" @click="refresh">刷新</el-button>
+      <el-button type="primary" :disabled="!selected" @click="openMetadata">查询测点元数据</el-button>
     </el-space>
     <el-table :data="filtered" v-loading="loading" style="width: 100%" @row-click="showDetail">
       <el-table-column prop="device_id" label="设备" min-width="140" />
@@ -93,6 +102,10 @@ onMounted(() => void refresh())
     </el-table>
     <p>仅显示 Collector 已发布的最新值；这里不代表完整点表配置。</p>
   </section>
+
+  <el-drawer v-model="metadataVisible" title="测点元数据" size="min(820px, 100%)">
+    <PointMetadataManager v-if="metadataVisible && metadataDevice" :key="metadataDevice" :device-id="metadataDevice" />
+  </el-drawer>
 
   <el-drawer v-model="detailVisible" title="测点详情" size="min(560px, 100%)">
     <template v-if="detail">
