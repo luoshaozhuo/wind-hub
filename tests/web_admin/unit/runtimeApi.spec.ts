@@ -93,4 +93,22 @@ describe('new runtime REST contract', () => {
     ])
   })
 
+  it('queries Collector metadata without control credentials', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ device_id: 'd/1', points: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await runtimeApi.pointMetadata('d/1', ['p1', 'p/2'])
+    expect(result.device_id).toBe('d/1')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/collector/points/metadata?device_id=d%2F1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ point_ids: ['p1', 'p/2'] }),
+      },
+    )
+  })
+
 })
