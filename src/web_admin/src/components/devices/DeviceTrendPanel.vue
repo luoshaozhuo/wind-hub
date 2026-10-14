@@ -38,8 +38,13 @@ function decode(value: LatestPointValue): number | null {
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
   if (raw && typeof raw === 'object') {
     const wrapped = raw as Record<string, unknown>
-    for (const key of ['number_value', 'double_value', 'float_value', 'int_value', 'value']) {
-      if (typeof wrapped[key] === 'number' && Number.isFinite(wrapped[key])) return wrapped[key]
+    for (const key of ['double_value', 'sint64_value', 'uint64_value']) {
+      const scalar = wrapped[key]
+      if (typeof scalar === 'number' && Number.isFinite(scalar)) return scalar
+      if (typeof scalar === 'string' && /^-?\\d+$/.test(scalar)) {
+        const integer = Number(scalar)
+        if (Number.isSafeInteger(integer)) return integer
+      }
     }
   }
   return null
