@@ -7,7 +7,7 @@ import threading
 from collections import deque
 from datetime import UTC, datetime
 
-from wind_hub_server.application.port.log_store import LogEntry
+from web_server.application.port.log_store import LogEntry
 
 
 class _BufferHandler(logging.Handler):
@@ -85,7 +85,7 @@ class LogStore:
         for marker, source in mapping:
             if marker in logger_name:
                 return source
-        if logger_name.startswith("wind_hub_server"):
+        if logger_name.startswith("web_server"):
             return "server"
         return logger_name.rsplit(".", 1)[-1]
 

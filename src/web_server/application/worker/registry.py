@@ -13,9 +13,9 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import CommanderPort
-from wind_hub_server.application.worker.model import (
+from web_server.application.port.collector_directory import CollectorDirectory
+from web_server.application.port.worker import CommanderPort
+from web_server.application.worker.model import (
     WorkerCapability,
     WorkerDefinition,
     WorkerRole,

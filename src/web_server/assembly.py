@@ -10,41 +10,41 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from wind_hub_server.adapter.outbound.collector_directory import StaticCollectorDirectory
-from wind_hub_server.adapter.outbound.grpc.collector import CollectorGrpcClient
-from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
-from wind_hub_server.application.app_context import AppContext
-from wind_hub_server.application.config.admin_state import AdminStateService
-from wind_hub_server.application.config.definitions import DefinitionQueryService
-from wind_hub_server.application.config.files import ConfigFileService
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.config.settings import SettingsService
-from wind_hub_server.application.device.command import DeviceCommandService
-from wind_hub_server.application.device.data import DeviceDataService
-from wind_hub_server.application.device.diagnostic import DiagnosticService
-from wind_hub_server.application.device.query import DeviceQueryService
-from wind_hub_server.application.monitoring.aggregate import CollectorStatusAggregator
-from wind_hub_server.application.monitoring.health import SystemHealthService
-from wind_hub_server.application.monitoring.logs import LogQueryService
-from wind_hub_server.application.monitoring.overview import OverviewService
-from wind_hub_server.application.monitoring.quality import QualityService
-from wind_hub_server.application.operation.registry import OperationRegistry
-from wind_hub_server.application.port.worker import CollectorPort
-from wind_hub_server.application.sink.service import SinkService
-from wind_hub_server.application.task.control import TaskControlService
-from wind_hub_server.application.task.placement import TaskPlacementRegistry
-from wind_hub_server.application.task.reconcile import TaskPlacementReconciler
-from wind_hub_server.application.worker.model import (
+from web_server.adapter.outbound.collector_directory import StaticCollectorDirectory
+from web_server.adapter.outbound.grpc.collector import CollectorGrpcClient
+from web_server.adapter.outbound.grpc.commander import CommanderGrpcClient
+from web_server.application.app_context import AppContext
+from web_server.application.config.admin_state import AdminStateService
+from web_server.application.config.definitions import DefinitionQueryService
+from web_server.application.config.files import ConfigFileService
+from web_server.application.config.service import ConfigService
+from web_server.application.config.settings import SettingsService
+from web_server.application.device.command import DeviceCommandService
+from web_server.application.device.data import DeviceDataService
+from web_server.application.device.diagnostic import DiagnosticService
+from web_server.application.device.query import DeviceQueryService
+from web_server.application.monitoring.aggregate import CollectorStatusAggregator
+from web_server.application.monitoring.health import SystemHealthService
+from web_server.application.monitoring.logs import LogQueryService
+from web_server.application.monitoring.overview import OverviewService
+from web_server.application.monitoring.quality import QualityService
+from web_server.application.operation.registry import OperationRegistry
+from web_server.application.port.worker import CollectorPort
+from web_server.application.sink.service import SinkService
+from web_server.application.task.control import TaskControlService
+from web_server.application.task.placement import TaskPlacementRegistry
+from web_server.application.task.reconcile import TaskPlacementReconciler
+from web_server.application.worker.model import (
     COMMANDER_WORKER_ID,
     WorkerCapability,
     WorkerDefinition,
     WorkerRole,
 )
-from wind_hub_server.application.worker.registry import WorkerRegistry
-from wind_hub_server.infra.log_store import LogStore
-from wind_hub_server.infra.monitoring import MonitoringMetrics, MonitoringService
-from wind_hub_server.infra.network_probe import NetworkProbe
-from wind_hub_server.infra.point_store import InMemoryTrendStore
+from web_server.application.worker.registry import WorkerRegistry
+from web_server.infra.log_store import LogStore
+from web_server.infra.monitoring import MonitoringMetrics, MonitoringService
+from web_server.infra.network_probe import NetworkProbe
+from web_server.infra.point_store import InMemoryTrendStore
 
 
 @dataclass(slots=True)

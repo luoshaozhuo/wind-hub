@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from prometheus_client import Gauge, generate_latest
 
-from wind_hub_server.application.port.monitoring import (
+from web_server.application.port.monitoring import (
     CounterSnapshot,
     RuntimeStatusSnapshot,
 )

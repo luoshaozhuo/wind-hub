@@ -11,15 +11,15 @@ import asyncio
 
 from pydantic import BaseModel
 
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import (
+from web_server.application.config.service import ConfigService
+from web_server.application.port.collector_directory import CollectorDirectory
+from web_server.application.port.worker import (
     CollectorPort,
     CollectorTaskInstance,
 )
-from wind_hub_server.application.task.collector import verified_collector
-from wind_hub_server.application.task.model import TaskInstanceState
-from wind_hub_server.application.task.placement import (
+from web_server.application.task.collector import verified_collector
+from web_server.application.task.model import TaskInstanceState
+from web_server.application.task.placement import (
     TaskPlacementRegistry,
     TaskPlacementState,
 )

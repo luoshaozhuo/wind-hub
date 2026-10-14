@@ -9,8 +9,8 @@ from hashlib import sha256
 
 from pydantic import BaseModel
 
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.port.collector_directory import CollectorDirectory
+from web_server.application.config.service import ConfigService
+from web_server.application.port.collector_directory import CollectorDirectory
 
 _STATE_VERSION = 2
 
