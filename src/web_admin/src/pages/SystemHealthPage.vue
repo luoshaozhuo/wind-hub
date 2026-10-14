@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdminPageHeading from '../components/AdminPageHeading.vue'
 import { onMounted, onUnmounted, ref } from 'vue'
 import { runtimeApi } from '../api/runtime'
 
@@ -47,7 +48,7 @@ onUnmounted(() => {
 
 <template>
   <section class="runtime-page">
-    <h2>系统健康</h2>
+    <AdminPageHeading title="系统健康" description="Collector 与 Commander 运行状态和指标" />
     <p>直接读取 Web Server 当前暴露的 Collector / Commander 状态和指标，每 5 秒自动刷新。通信失败不会显示为健康。</p>
     <el-row :gutter="16">
       <el-col v-for="section in sections" :key="section.title" :xs="24" :lg="12">
