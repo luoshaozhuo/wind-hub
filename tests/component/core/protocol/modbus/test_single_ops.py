@@ -157,6 +157,7 @@ def _driver(
     driver._config = parse_modbus_config(ConnectionEndpoint("192.0.2.10", 502), {})
     driver._point_table_id = PointTableId("test")
     driver._points = points
+    driver._health_point_id = driver._config.health_point_id or next(iter(points), None)
     driver._read_plan_cache = {}
     driver._client = client
     client.connected = connected
@@ -663,6 +664,34 @@ class TestPointTableHotUpdate:
         with pytest.raises(ConfigError, match="not part of connection"):
             await driver.write_one(ProtocolWrite("h", 1))
         assert client.total_write_calls() == 0
+
+    @pytest.mark.asyncio
+    async def test_health_probe_point_follows_table_update(self) -> None:
+        """健康探测点在 update_point_table 时解析，热更新后探测新表第一点。"""
+        client = _Client()
+        client.response = _Response(registers=[7])
+        driver = self._updatable_driver([_domain_point("h", 100)], client)
+
+        driver.update_point_table(
+            PointTable(PointTableId("pt"), Protocol("modbus"), {"h2": _domain_point("h2", 200)})
+        )
+        health = await driver.health()
+
+        assert health.healthy is True
+        assert "'h2'" in (health.message or "")
+        assert client.read_holding_calls == [(200, 1)]
+
+    @pytest.mark.asyncio
+    async def test_health_reports_unavailable_after_table_emptied(self) -> None:
+        client = _Client()
+        client.response = _Response(registers=[7])
+        driver = self._updatable_driver([_domain_point("h", 100)], client)
+
+        driver.update_point_table(PointTable(PointTableId("pt"), Protocol("modbus"), {}))
+        health = await driver.health()
+
+        assert health.healthy is False
+        assert "no readable Modbus point" in (health.message or "")
 
 
 # ---------------------------------------------------------------------------

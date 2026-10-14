@@ -129,6 +129,7 @@ def _connected_modbus_driver(client: _ModbusClient) -> ModbusDriver:
     driver._lock = asyncio.Lock()
     driver._config = parse_modbus_config(ConnectionEndpoint("192.0.2.10", 502), {})
     driver._points = {"p1": _modbus_point("p1")}
+    driver._health_point_id = "p1"
     driver._client = client
     client.connected = True
     return driver
