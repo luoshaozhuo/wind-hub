@@ -21,8 +21,8 @@ from wind_hub_core.rpc.commander_io_codec import (
     decode_scalar,
     point_value_from_proto,
 )
-from wind_hub_server.adapter.outbound.grpc.common import GrpcClientBase
-from wind_hub_server.application.port.worker import (
+from web_server.adapter.outbound.grpc.common import GrpcClientBase
+from web_server.application.port.worker import (
     CommanderStatus,
     ConfigAbortAck,
     ConfigActivateAck,

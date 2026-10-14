@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from wind_hub_server.adapter.inbound.webapi.context import get_ctx
-from wind_hub_server.adapter.inbound.webapi.errors import APIError
-from wind_hub_server.adapter.inbound.webapi.v1 import common
-from wind_hub_server.adapter.inbound.webapi.v1.models import WorkerResponse
-from wind_hub_server.application.app_context import AppContext
+from web_server.adapter.inbound.webapi.context import get_ctx
+from web_server.adapter.inbound.webapi.errors import APIError
+from web_server.adapter.inbound.webapi.v1 import common
+from web_server.adapter.inbound.webapi.v1.models import WorkerResponse
+from web_server.application.app_context import AppContext
 
 router = APIRouter()
 

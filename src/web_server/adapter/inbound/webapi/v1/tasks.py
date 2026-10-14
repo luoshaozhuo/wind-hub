@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from wind_hub_server.adapter.inbound.webapi.context import get_ctx
-from wind_hub_server.adapter.inbound.webapi.errors import APIError
-from wind_hub_server.adapter.inbound.webapi.v1 import common
-from wind_hub_server.adapter.inbound.webapi.v1.models import (
+from web_server.adapter.inbound.webapi.context import get_ctx
+from web_server.adapter.inbound.webapi.errors import APIError
+from web_server.adapter.inbound.webapi.v1 import common
+from web_server.adapter.inbound.webapi.v1.models import (
     TaskInstanceResponse,
     TaskPageResponse,
     TaskResponse,
 )
-from wind_hub_server.application.app_context import AppContext
-from wind_hub_server.application.task.collector import TaskWorkerUnavailableError
-from wind_hub_server.application.task.placement import TaskPlacementError
-from wind_hub_server.application.task.reconcile import TaskPlacementUnsafeError
+from web_server.application.app_context import AppContext
+from web_server.application.task.collector import TaskWorkerUnavailableError
+from web_server.application.task.placement import TaskPlacementError
+from web_server.application.task.reconcile import TaskPlacementUnsafeError
 
 router = APIRouter()
 

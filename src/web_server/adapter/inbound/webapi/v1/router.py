@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from wind_hub_server.adapter.inbound.webapi.v1 import (
+from web_server.adapter.inbound.webapi.v1 import (
     config,
     devices,
     diagnostics,

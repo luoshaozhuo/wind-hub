@@ -23,14 +23,14 @@ from wind_hub_core.rpc.collector_codec import (
     task_instance_to_dict,
     task_summary_to_dict,
 )
-from wind_hub_server.adapter.outbound.grpc.common import GrpcClientBase
-from wind_hub_server.application.port.monitoring import (
+from web_server.adapter.outbound.grpc.common import GrpcClientBase
+from web_server.application.port.monitoring import (
     AcquisitionStatus,
     CounterSnapshot,
     MetricsSnapshot,
     MonitoringEvent,
 )
-from wind_hub_server.application.port.worker import (
+from web_server.application.port.worker import (
     CollectorInfo,
     CollectorPlacementRejectedError,
     CollectorRuntimeStatus,
