@@ -4,7 +4,7 @@ import threading
 from datetime import UTC, datetime, timedelta
 
 from wind_hub_core.model.point import PointValue
-from wind_hub_server.infra.point_store import InMemoryTrendStore
+from web_server.infra.point_store import InMemoryTrendStore
 
 
 def _value(point_id: str, value: float, seconds: int = 0) -> PointValue:

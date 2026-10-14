@@ -1,6 +1,6 @@
 """QualityService 的窗口差分测试。"""
 
-from wind_hub_server.application.monitoring.quality import QualityService
+from web_server.application.monitoring.quality import QualityService
 
 
 def test_quality_delta_never_negative() -> None:

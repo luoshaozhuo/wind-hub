@@ -2,7 +2,7 @@
 
 import pytest
 
-from wind_hub_server.infra.network_probe import NetworkProbe
+from web_server.infra.network_probe import NetworkProbe
 
 
 def test_expand_network_limits_size() -> None:

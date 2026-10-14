@@ -11,12 +11,12 @@ from unittest.mock import AsyncMock, MagicMock
 import uvicorn
 
 from wind_hub_core.model.reload import ConfigDiff, ReloadResult
-from wind_hub_server.server import (
+from web_server.server import (
     _wait_for_shutdown_or_api_exit,
     build_api_server,
     reload_once,
 )
-from wind_hub_server.settings import ServerSettings
+from web_server.settings import ServerSettings
 
 
 def test_build_api_server_uses_server_settings() -> None:

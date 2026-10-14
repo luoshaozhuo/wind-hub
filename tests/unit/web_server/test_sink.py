@@ -3,8 +3,8 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from wind_hub_server.application.port.worker import SinkOperationResult
-from wind_hub_server.application.sink.service import SinkService
+from web_server.application.port.worker import SinkOperationResult
+from web_server.application.sink.service import SinkService
 
 
 async def test_verify_preserves_per_worker_results() -> None:
@@ -63,7 +63,7 @@ async def test_verify_preserves_per_worker_results() -> None:
 
 def test_list_sinks_preserves_resolved_points_for_admin_roundtrip() -> None:
     from wind_hub_core.config import Config, ResolvedSinkConfig
-    from wind_hub_server.application.sink.service import SinkService
+    from web_server.application.sink.service import SinkService
 
     config = MagicMock()
     config.current_config = MagicMock(spec=Config)

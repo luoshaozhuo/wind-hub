@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from wind_hub_server.settings import ServerSettings
+from web_server.settings import ServerSettings
 
 
 def test_settings_defaults() -> None:
