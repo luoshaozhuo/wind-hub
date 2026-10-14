@@ -17,7 +17,7 @@ function browserEnv(): Record<string, string> {
 }
 
 export default defineConfig({
-  testDir: './tests/e2e',
+  testDir: '../../tests/web_admin/e2e',
   testMatch: 'mock.spec.ts',
   timeout: 30_000,
   retries: 0,
