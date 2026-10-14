@@ -111,6 +111,12 @@ export const runtimeApi = {
       headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     }),
+  pointMetadata: (deviceId: string, pointIds: string[]): Promise<Record<string, unknown>> =>
+    request('/api/v1/collector/points/metadata?device_id=' + encodeURIComponent(deviceId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ point_ids: pointIds }),
+    }),
   verifyPoint: (deviceId: string, pointId: string): Promise<Record<string, unknown>> =>
     request('/api/v1/commander/devices/' + encodeURIComponent(deviceId) + '/points/' + encodeURIComponent(pointId) + '/verify'),
   resolvePoint: (deviceId: string, pointId: string): Promise<Record<string, unknown>> =>
