@@ -6,8 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from wind_hub_server.application.config.files import ConfigApplyResult, ConfigFileService
-from wind_hub_server.application.config.service import ConfigService
+from web_server.application.config.files import ConfigApplyResult, ConfigFileService
+from web_server.application.config.service import ConfigService
 
 
 class DefinitionsSnapshot(BaseModel):

@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.config.files import ConfigApplyResult, ConfigFileService
+from web_server.application.config.files import ConfigApplyResult, ConfigFileService
 
 
 class AdminDeviceItem(BaseModel):

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.config.files import ConfigApplyResult, ConfigFileService
-from wind_hub_server.application.config.service import ConfigService
+from web_server.application.config.files import ConfigApplyResult, ConfigFileService
+from web_server.application.config.service import ConfigService
 
 
 class SettingsSnapshot(BaseModel):

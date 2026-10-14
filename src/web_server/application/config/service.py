@@ -15,8 +15,8 @@ from uuid import uuid4
 
 from wind_hub_core.config import Config, compute_diff, fingerprint_config_set, load_config
 from wind_hub_core.model.reload import ConfigDiff, ReloadResult
-from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import (
+from web_server.application.port.collector_directory import CollectorDirectory
+from web_server.application.port.worker import (
     CollectorInfo,
     CollectorPort,
     CommanderPort,
@@ -25,7 +25,7 @@ from wind_hub_server.application.port.worker import (
     ConfigActivateAck,
     ConfigPrepareAck,
 )
-from wind_hub_server.application.worker.model import COMMANDER_WORKER_ID
+from web_server.application.worker.model import COMMANDER_WORKER_ID
 
 
 def _active_config_hash(status: CommanderStatus | CollectorInfo) -> str:

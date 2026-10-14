@@ -17,7 +17,7 @@ from typing import Any, cast
 import yaml
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.config.service import Config, ConfigService, compute_diff
+from web_server.application.config.service import Config, ConfigService, compute_diff
 
 CONFIG_FILES = (
     "system.yaml",
