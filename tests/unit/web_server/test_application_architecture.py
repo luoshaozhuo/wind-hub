@@ -6,7 +6,7 @@ import dataclasses
 import inspect
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parents[3] / "src" / "wind_hub_server"
+SRC_ROOT = Path(__file__).resolve().parents[3] / "src" / "web_server"
 
 
 def _source_files() -> list[Path]:
@@ -65,7 +65,7 @@ def test_no_legacy_usecase_class_names() -> None:
 
 def test_app_context_points_at_new_capabilities() -> None:
     """AppContext 字段类型全部来自新 capability 对象，无 UseCase 命名。"""
-    from wind_hub_server.application.app_context import AppContext
+    from web_server.application.app_context import AppContext
 
     fields = {field.name: field.type for field in dataclasses.fields(AppContext)}
     assert fields, "AppContext must declare fields"
@@ -127,13 +127,13 @@ def test_assembly_single_owner_per_service() -> None:
 
 def test_assembly_exposes_task_control_plane() -> None:
     """ServerApp 显式暴露 placement / reconciler / control 三个独立对象。"""
-    from wind_hub_server.assembly import ServerApp
+    from web_server.assembly import ServerApp
 
     fields = {field.name for field in dataclasses.fields(ServerApp)}
     assert {"task_placements", "task_reconciler", "tasks"} <= fields
 
 
 def _assembly_module():
-    from wind_hub_server import assembly
+    from web_server import assembly
 
     return assembly

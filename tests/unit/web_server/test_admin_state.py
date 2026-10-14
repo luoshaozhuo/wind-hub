@@ -2,14 +2,14 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-from wind_hub_server.application.config.admin_state import (
+from web_server.application.config.admin_state import (
     AdminDefinitionsState,
     AdminDeviceItem,
     AdminSinkItem,
     AdminStateService,
     AdminTaskItem,
 )
-from wind_hub_server.application.config.files import ConfigApplyResult
+from web_server.application.config.files import ConfigApplyResult
 
 
 async def test_replace_all_uses_one_multifile_apply() -> None:

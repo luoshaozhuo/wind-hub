@@ -17,7 +17,7 @@ from tests.component.collector.conftest import update_yaml, write_functional_con
 from tests.support.process import CollectorProcess
 from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.model.command import Command
-from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
+from web_server.adapter.outbound.grpc.commander import CommanderGrpcClient
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 

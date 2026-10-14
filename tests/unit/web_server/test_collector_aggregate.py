@@ -2,13 +2,13 @@
 
 from types import SimpleNamespace
 
-from wind_hub_server.application.monitoring.aggregate import CollectorStatusAggregator
-from wind_hub_server.application.port.monitoring import (
+from web_server.application.monitoring.aggregate import CollectorStatusAggregator
+from web_server.application.port.monitoring import (
     AcquisitionStatus,
     CounterSnapshot,
     MetricsSnapshot,
 )
-from wind_hub_server.application.port.worker import (
+from web_server.application.port.worker import (
     CollectorInfo,
     CollectorRuntimeStatus,
     CollectorTaskSummary,
