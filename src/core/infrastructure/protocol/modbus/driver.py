@@ -122,9 +122,6 @@ class ModbusDriver:
                 f"Modbus health point '{health_point_id}' is not part of "
                 f"point table '{point_table.point_table_id}'"
             )
-        # 健康探测点在此一次解析：配置的 health_point_id 优先，未配置时
-        # 回退到点表第一个点（便于旧配置平滑迁移），空表为 None。
-        self._health_point_id = health_point_id or next(iter(self._points), None)
         self._read_plan_cache.clear()
 
     async def connect(self) -> None:
@@ -183,14 +180,14 @@ class ModbusDriver:
     async def health(self) -> ConnectionHealth:
         """读取一个无副作用测点验证 Modbus 应用层通信。
 
-        探测点在 update_point_table 时一次解析（配置的 health_point_id
-        优先，否则回退到点表第一个点）。协议异常响应说明远端仍可达，因此
-        报告通信 healthy 并保留诊断信息；链路级异常才触发 Watchdog 重连。
+        优先使用配置的 health_point_id；未配置时使用点表中的第一个点，
+        便于旧配置平滑迁移。协议异常响应说明远端仍可达，因此报告通信
+        healthy 并保留诊断信息；链路级异常才触发 Watchdog 重连。
         """
         if not self.is_open():
             return ConnectionHealth(healthy=False, message="not connected")
 
-        point_id = self._health_point_id
+        point_id = self._config.health_point_id or next(iter(self._points), None)
         if point_id is None:
             return ConnectionHealth(
                 healthy=False,

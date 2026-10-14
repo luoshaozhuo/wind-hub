@@ -40,7 +40,12 @@
 #     register_type: holding / input / coil / discrete_input
 #                    （别名 holding_register / input_register / discrete）；
 #                    input 与 discrete_input 为只读。
-#     address: int 0..65535 —— 【0-based】寄存器/线圈偏移，直接对应协议
+##                    配置值	Modbus 标准表	位宽	读写	对应功能码
+#                    coil	Coils	1 bit	读写	FC1/5/15
+#                    discrete_input	Discrete Inputs	1 bit	只读	FC2
+#                    input	Input Registers	16 bit	只读	FC4
+#                    holding	Holding Registers	16 bit	读写	FC3/6/16
+##     address: int 0..65535 —— 【0-based】寄存器/线圈偏移，直接对应协议
 #              PDU 起始地址；不要与 4xxxx/3xxxx 等 1-based 编号混用
 #              （如寄存器 40181 应写 180）。
 #     可选逐点覆盖：word_order（big_endian/little_endian）、count。
