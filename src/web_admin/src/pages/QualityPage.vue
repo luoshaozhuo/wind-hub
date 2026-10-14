@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdminPageHeading from '../components/AdminPageHeading.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { runtimeApi, type LatestPointValue } from '../api/runtime'
 
@@ -43,7 +44,7 @@ onUnmounted(() => { active = false; if (timer) clearInterval(timer) })
 
 <template>
   <section class="runtime-page">
-    <h2>采集质量</h2>
+    <AdminPageHeading title="采集质量" description="基于 Collector 实际返回数据的质量分布" />
     <p>按 Collector 返回的 quality 原始值统计，仅覆盖当前最新值记录；未上报的测点不计入分母，不能据此推断全场测点健康率。</p>
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
     <el-row :gutter="16">
