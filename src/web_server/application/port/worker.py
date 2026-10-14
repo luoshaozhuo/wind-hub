@@ -11,7 +11,7 @@ from typing import Any, Protocol
 
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.point import PointValue
-from wind_hub_server.application.port.monitoring import (
+from web_server.application.port.monitoring import (
     AcquisitionStatus,
     MetricsSnapshot,
 )

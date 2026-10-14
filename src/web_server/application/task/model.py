@@ -6,7 +6,7 @@ from enum import Enum
 
 from pydantic import BaseModel
 
-from wind_hub_server.application.task.placement import TaskPlacementState
+from web_server.application.task.placement import TaskPlacementState
 
 
 class TaskInstanceState(str, Enum):

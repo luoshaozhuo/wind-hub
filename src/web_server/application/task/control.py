@@ -10,23 +10,23 @@ import asyncio
 from dataclasses import asdict
 from typing import Any
 
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
-from wind_hub_server.application.port.worker import (
+from web_server.application.config.service import ConfigService
+from web_server.application.port.collector_directory import CollectorDirectory
+from web_server.application.port.monitoring import MonitoringSnapshotPort
+from web_server.application.port.worker import (
     CollectorPlacementRejectedError,
     CollectorTaskInstance,
 )
-from wind_hub_server.application.task.collector import (
+from web_server.application.task.collector import (
     TaskWorkerUnavailableError,
     verified_collector,
 )
-from wind_hub_server.application.task.model import TaskInstanceDetail, TaskSummary
-from wind_hub_server.application.task.placement import (
+from web_server.application.task.model import TaskInstanceDetail, TaskSummary
+from web_server.application.task.placement import (
     TaskPlacementRegistry,
     TaskPlacementState,
 )
-from wind_hub_server.application.task.reconcile import (
+from web_server.application.task.reconcile import (
     TaskPlacementReconciler,
     TaskPlacementUnsafeError,
 )

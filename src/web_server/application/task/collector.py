@@ -6,8 +6,8 @@ TaskControlService 与 TaskPlacementReconciler 共用同一份 Collector 身份�
 
 from __future__ import annotations
 
-from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import CollectorPort
+from web_server.application.port.collector_directory import CollectorDirectory
+from web_server.application.port.worker import CollectorPort
 
 
 class TaskWorkerUnavailableError(RuntimeError):
