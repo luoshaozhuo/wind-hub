@@ -41,7 +41,7 @@ function decode(value: LatestPointValue): number | null {
     for (const key of ['double_value', 'sint64_value', 'uint64_value']) {
       const scalar = wrapped[key]
       if (typeof scalar === 'number' && Number.isFinite(scalar)) return scalar
-      if (typeof scalar === 'string' && /^-?\d+$/.test(scalar) {
+      if (typeof scalar === 'string' && /^-?\d+$/.test(scalar)) {
         const integer = Number(scalar)
         if (Number.isSafeInteger(integer)) return integer
       }
