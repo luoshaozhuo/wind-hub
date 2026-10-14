@@ -126,6 +126,14 @@ class RpcGateway:
         request = collector_pb.LatestValuesRequest(device_id=device_id)
         return to_payload(await self.collector().QueryLatestValues(request, timeout=self.timeout))
 
+    async def collector_points_metadata(
+        self, device_id: str, point_ids: list[str]
+    ) -> dict[str, object]:
+        request = collector_pb.PointsMetadataRequest(device_id=device_id, point_ids=point_ids)
+        return to_payload(
+            await self.collector().GetPointsMetadata(request, timeout=self.timeout)
+        )
+
     async def commander_status(self) -> dict[str, object]:
         return to_payload(await self.commander().GetStatus(empty_pb2.Empty(), timeout=self.timeout))
 
