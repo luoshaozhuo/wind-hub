@@ -5,8 +5,9 @@ import DevicesPage from './pages/DevicesPage.vue'
 import PointsPage from './pages/PointsPage.vue'
 import TasksPage from './pages/TasksPage.vue'
 import SinksPage from './pages/SinksPage.vue'
+import SystemHealthPage from './pages/SystemHealthPage.vue'
 
-type Page = 'Overview' | 'Devices' | 'Points' | 'Tasks' | 'Sinks'
+type Page = 'Overview' | 'Devices' | 'Points' | 'Tasks' | 'Sinks' | 'SystemHealth'
 const menu = ref<Page>('Overview')
 </script>
 
@@ -22,6 +23,7 @@ const menu = ref<Page>('Overview')
           <el-menu-item index="Tasks">采集任务</el-menu-item>
           <el-menu-item index="Sinks">数据输出</el-menu-item>
         </el-menu-item-group>
+        <el-menu-item-group title="诊断"><el-menu-item index="SystemHealth">系统健康</el-menu-item></el-menu-item-group>
       </el-menu>
     </el-aside>
     <el-main>
@@ -29,7 +31,8 @@ const menu = ref<Page>('Overview')
       <DevicesPage v-else-if="menu === 'Devices'" />
       <PointsPage v-else-if="menu === 'Points'" />
       <TasksPage v-else-if="menu === 'Tasks'" />
-      <SinksPage v-else />
+      <SinksPage v-else-if="menu === 'Sinks'" />
+      <SystemHealthPage v-else />
     </el-main>
   </el-container>
 </template>
