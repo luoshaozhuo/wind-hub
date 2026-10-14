@@ -13,8 +13,8 @@ from collections import defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
 
-from wind_hub_server.application.port.collector_query import CollectorQueryPort
-from wind_hub_server.application.port.monitoring import (
+from web_server.application.port.collector_query import CollectorQueryPort
+from web_server.application.port.monitoring import (
     CounterSnapshot,
     DeviceRuntimeSnapshot,
     HostSnapshot,

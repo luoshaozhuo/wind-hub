@@ -1,6 +1,6 @@
 """wind-hub-server 命令行入口。
 
-仅解析进程宿主参数并调用 :func:`wind_hub_server.server.run_server`；
+仅解析进程宿主参数并调用 :func:`web_server.server.run_server`；
 业务配置继续由 wind-hub YAML 配置体系管理。
 """
 
@@ -11,8 +11,8 @@ import asyncio
 from collections.abc import Sequence
 from pathlib import Path
 
-from wind_hub_server.server import run_server
-from wind_hub_server.settings import ServerSettings
+from web_server.server import run_server
+from web_server.settings import ServerSettings
 
 
 def build_parser() -> argparse.ArgumentParser:

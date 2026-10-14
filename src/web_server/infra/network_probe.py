@@ -8,7 +8,7 @@ import ipaddress
 import time
 
 from wind_hub_core.validation.network import ping_host as ping_reachable
-from wind_hub_server.application.port.network_probe import (
+from web_server.application.port.network_probe import (
     PingProbeResult,
     PortProbeResult,
 )

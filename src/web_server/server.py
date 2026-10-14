@@ -12,12 +12,12 @@ import signal
 
 import uvicorn
 
-from wind_hub_server.adapter.inbound.webapi.app import build_api
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.task.reconcile import TaskPlacementReconciler
-from wind_hub_server.application.worker.registry import WorkerRegistry
-from wind_hub_server.assembly import ServerApp, assemble_server
-from wind_hub_server.settings import ServerSettings
+from web_server.adapter.inbound.webapi.app import build_api
+from web_server.application.config.service import ConfigService
+from web_server.application.task.reconcile import TaskPlacementReconciler
+from web_server.application.worker.registry import WorkerRegistry
+from web_server.assembly import ServerApp, assemble_server
+from web_server.settings import ServerSettings
 
 logger = logging.getLogger(__name__)
 
