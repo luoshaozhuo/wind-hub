@@ -111,4 +111,22 @@ describe('new runtime REST contract', () => {
     )
   })
 
+  it('controls Collector instances with encoded IDs and a write credential', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ instance_id: 'i/1', state: 'running' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    await runtimeApi.startInstance('i/1', 'secret')
+    await runtimeApi.stopInstance('i/1', 'secret')
+    expect(fetchMock.mock.calls).toEqual([
+      ['/api/v1/collector/instances/i%2F1/start', {
+        method: 'POST', headers: { 'X-API-Key': 'secret' },
+      }],
+      ['/api/v1/collector/instances/i%2F1/stop', {
+        method: 'POST', headers: { 'X-API-Key': 'secret' },
+      }],
+    ])
+  })
+
 })
