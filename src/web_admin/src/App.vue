@@ -1,113 +1,153 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
-import { runtimeApi } from './api/runtime'
+import { ref } from 'vue'
 import OverviewPage from './pages/OverviewPage.vue'
 import DevicesPage from './pages/DevicesPage.vue'
 import PointsPage from './pages/PointsPage.vue'
 import TasksPage from './pages/TasksPage.vue'
 import SinksPage from './pages/SinksPage.vue'
-import SystemHealthPage from './pages/SystemHealthPage.vue'
-import DebugPage from './pages/DebugPage.vue'
 import QualityPage from './pages/QualityPage.vue'
+import DebugPage from './pages/DebugPage.vue'
+import SystemHealthPage from './pages/SystemHealthPage.vue'
+import SettingsPage from './pages/SettingsPage.vue'
+import ConfigPage from './pages/ConfigPage.vue'
+import LogsPage from './pages/LogsPage.vue'
+import { useConfigStore } from './stores/config'
+import { useServerSnapshot } from './composables/useServerSnapshot'
+import { useViewport } from './composables/useViewport'
 
-type Page = 'Overview' | 'Devices' | 'Points' | 'Tasks' | 'Sinks' | 'SystemHealth' | 'Debug' | 'Quality'
-const menu = ref<Page>('Overview')
-const mobileMenuOpen = ref(false)
-const collectorStatus = ref<'online' | 'offline' | 'checking'>('checking')
-const commanderStatus = ref<'online' | 'offline' | 'checking'>('checking')
-let timer: ReturnType<typeof setInterval> | undefined
-let checking = false
-let active = true
+const configStore = useConfigStore()
+const { connecting, apiError, retry } = useServerSnapshot()
 
-const groups: { title: string; pages: { key: Page; label: string }[] }[] = [
-  { title: '运行', pages: [
-    { key: 'Overview', label: '运行总览' },
-    { key: 'Devices', label: '设备' },
-    { key: 'Points', label: '测点' },
-    { key: 'Tasks', label: '采集任务' },
-    { key: 'Sinks', label: '数据输出' },
-  ] },
-  { title: '诊断', pages: [
-    { key: 'Quality', label: '采集质量' },
-    { key: 'Debug', label: '设备与测点诊断' },
-    { key: 'SystemHealth', label: '系统健康' },
-  ] },
+const menu = ref('Devices')
+const mobileNavOpen = ref(false)
+
+const { isMobile } = useViewport()
+
+const runMenu = [
+  { key: 'Overview', label: 'Overview' },
+  { key: 'Devices', label: 'Devices' },
+  { key: 'Points', label: 'Points' },
+  { key: 'Tasks', label: 'Tasks' },
+  { key: 'Sinks', label: 'Sinks' },
 ]
 
-function choosePage(key: string) {
-  menu.value = key as Page
-  mobileMenuOpen.value = false
+function selectMenu(key: string) {
+  menu.value = key
+  mobileNavOpen.value = false
 }
-
-async function checkServices() {
-  if (checking) return
-  checking = true
-  try {
-    const results = await Promise.allSettled([runtimeApi.collectorStatus(), runtimeApi.commanderStatus()])
-    if (!active) return
-    collectorStatus.value = results[0].status === 'fulfilled' ? 'online' : 'offline'
-    commanderStatus.value = results[1].status === 'fulfilled' ? 'online' : 'offline'
-  } finally {
-    checking = false
-  }
-}
-onMounted(() => {
-  active = true
-  void checkServices()
-  timer = setInterval(() => void checkServices(), 5000)
-})
-onUnmounted(() => { active = false; if (timer) clearInterval(timer) })
 </script>
 
 <template>
   <el-container class="app-shell">
-    <el-aside width="220px" class="app-sidebar admin-desktop-sidebar">
+    <el-aside v-if="!isMobile" width="var(--app-sidebar-width)" class="app-sidebar">
       <div class="brand"><b>WH</b><span>Wind Hub</span></div>
-      <el-menu :default-active="menu" class="app-menu" @select="choosePage">
-        <el-menu-item-group v-for="group in groups" :key="group.title" :title="group.title">
-          <el-menu-item v-for="page in group.pages" :key="page.key" :index="page.key">{{ page.label }}</el-menu-item>
+      <el-menu :default-active="menu" class="app-menu" @select="selectMenu">
+        <el-menu-item-group title="运行">
+          <el-menu-item v-for="m in runMenu" :key="m.key" :index="m.key">{{
+            m.label
+          }}</el-menu-item>
+        </el-menu-item-group>
+        <el-menu-item-group title="工程">
+          <el-menu-item index="Quality">Quality</el-menu-item>
+          <el-menu-item index="Debug">Diagnostics</el-menu-item>
+          <el-menu-item index="SystemHealth">System Health</el-menu-item>
+        </el-menu-item-group>
+        <el-menu-item-group title="配置">
+          <el-menu-item index="Settings">System Settings</el-menu-item>
+          <el-menu-item index="Config">Configuration Files</el-menu-item>
+        </el-menu-item-group>
+        <el-menu-item-group title="系统">
+          <el-menu-item index="Logs">Logs</el-menu-item>
         </el-menu-item-group>
       </el-menu>
     </el-aside>
+
     <el-container class="app-main-shell">
       <el-header class="app-header">
-        <el-button class="admin-mobile-menu" text aria-label="打开导航" @click="mobileMenuOpen = true">☰</el-button>
-        <div class="header-title"><b>Wind Hub Admin</b><span>采集及控制系统管理平台</span></div>
+        <el-button
+          v-if="isMobile"
+          text
+          class="mobile-menu-button"
+          aria-label="Open navigation"
+          @click="mobileNavOpen = true"
+          >☰</el-button
+        >
+        <div class="header-title">
+          <b>Wind Hub Admin</b>
+          <span>{{ configStore.systemInfo.siteName }} · 采集系统管理控制台</span>
+        </div>
         <div class="header-spacer" />
-        <el-tag :type="collectorStatus === 'online' ? 'success' : collectorStatus === 'offline' ? 'danger' : 'info'">
-          Collector {{ collectorStatus }}
-        </el-tag>
-        <el-tag :type="commanderStatus === 'online' ? 'success' : commanderStatus === 'offline' ? 'danger' : 'info'">
-          Commander {{ commanderStatus }}
-        </el-tag>
+        <div class="version-summary">
+          <span class="version-item"
+            ><span class="version-label">Collector</span
+            ><b>{{ configStore.systemInfo.collectorVersion }}</b></span
+          >
+          <span class="version-separator">·</span>
+          <span class="version-item"
+            ><span class="version-label">Admin</span
+            ><b>{{ configStore.systemInfo.adminVersion }}</b></span
+          >
+        </div>
+        <el-tag type="success">{{ configStore.systemInfo.runtimeStatus }}</el-tag>
+        <el-tag :type="apiError ? 'danger' : connecting ? 'warning' : 'success'">{{
+          apiError ? 'API OFFLINE' : connecting ? 'CONNECTING' : 'LIVE'
+        }}</el-tag>
       </el-header>
+
       <el-main class="app-main">
+        <el-alert
+          v-if="apiError"
+          :title="apiError"
+          type="error"
+          show-icon
+          :closable="false"
+          class="app-api-error"
+        >
+          <template #default>
+            <el-button size="small" @click="retry">Retry</el-button>
+          </template>
+        </el-alert>
+        <!-- 业务结构始终渲染：API 失败/首载 pending 只反映为状态，不卸载 content。 -->
         <section class="content">
           <OverviewPage v-if="menu === 'Overview'" />
-          <DevicesPage v-else-if="menu === 'Devices'" />
-          <PointsPage v-else-if="menu === 'Points'" />
-          <TasksPage v-else-if="menu === 'Tasks'" />
-          <SinksPage v-else-if="menu === 'Sinks'" />
-          <SystemHealthPage v-else-if="menu === 'SystemHealth'" />
-          <QualityPage v-else-if="menu === 'Quality'" />
-          <DebugPage v-else />
+          <DevicesPage v-if="menu === 'Devices'" />
+          <PointsPage v-if="menu === 'Points'" />
+          <TasksPage v-if="menu === 'Tasks'" />
+          <SinksPage v-if="menu === 'Sinks'" />
+          <QualityPage v-if="menu === 'Quality'" />
+          <DebugPage v-if="menu === 'Debug'" />
+          <SystemHealthPage v-if="menu === 'SystemHealth'" />
+          <SettingsPage v-if="menu === 'Settings'" />
+          <ConfigPage v-if="menu === 'Config'" />
+          <LogsPage v-if="menu === 'Logs'" />
         </section>
       </el-main>
     </el-container>
   </el-container>
-  <el-drawer v-model="mobileMenuOpen" direction="ltr" size="min(300px, 90vw)" title="Wind Hub" class="mobile-nav-drawer">
-    <el-menu :default-active="menu" class="app-menu" @select="choosePage">
-      <el-menu-item-group v-for="group in groups" :key="group.title" :title="group.title">
-        <el-menu-item v-for="page in group.pages" :key="page.key" :index="page.key">{{ page.label }}</el-menu-item>
+
+  <el-drawer
+    v-model="mobileNavOpen"
+    direction="ltr"
+    size="var(--app-mobile-nav-width)"
+    title="Wind Hub"
+    class="mobile-nav-drawer"
+  >
+    <el-menu :default-active="menu" @select="selectMenu">
+      <el-menu-item-group title="运行">
+        <el-menu-item v-for="m in runMenu" :key="m.key" :index="m.key">{{ m.label }}</el-menu-item>
+      </el-menu-item-group>
+      <el-menu-item-group title="工程">
+        <el-menu-item index="Quality">Quality</el-menu-item>
+        <el-menu-item index="Debug">Diagnostics</el-menu-item>
+        <el-menu-item index="SystemHealth">System Health</el-menu-item>
+      </el-menu-item-group>
+      <el-menu-item-group title="配置">
+        <el-menu-item index="Settings">System Settings</el-menu-item>
+        <el-menu-item index="Config">Configuration Files</el-menu-item>
+      </el-menu-item-group>
+      <el-menu-item-group title="系统">
+        <el-menu-item index="Logs">Logs</el-menu-item>
       </el-menu-item-group>
     </el-menu>
   </el-drawer>
 </template>
-
-<style scoped>
-.admin-mobile-menu { display: none; }
-@media (max-width: 767px) {
-  .admin-desktop-sidebar { display: none; }
-  .admin-mobile-menu { display: inline-flex; }
-}
-</style>

@@ -1,66 +1,165 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { runtimeApi } from '../../api/runtime'
+// 即时命令 panel：控制点选择、目标值输入、显式确认写入与结果/回读展示。
+// 命令编排在 useDeviceCommand；写入后经 onSent 通知宿主刷新趋势。
+import { computed, toRef } from 'vue'
+import { useDeviceCommand } from '../../composables/useDeviceCommand'
+import type { DeviceDataFeature } from '../../composables/useDeviceData'
+import type { DeviceInst } from '../../domain/types'
 
-const props = defineProps<{ deviceId: string }>()
-const pointId = ref('')
-const valueType = ref<'number' | 'boolean' | 'string'>('number')
-const rawValue = ref('')
-const apiKey = ref('')
-const timeout = ref(1)
-const busy = ref(false)
+const props = defineProps<{
+  device: DeviceInst
+  data: DeviceDataFeature
+}>()
 
-async function submit() {
-  if (busy.value) return
-  const point = pointId.value.trim()
-  if (!point || !apiKey.value || !rawValue.value.trim()) return
-  const raw = rawValue.value.trim()
-  let value: number | boolean | string
-  if (valueType.value === 'number') {
-    value = Number(raw)
-    if (!Number.isFinite(value)) { ElMessage.error('数值必须是有限数字'); return }
-  } else if (valueType.value === 'boolean') {
-    if (raw !== 'true' && raw !== 'false') { ElMessage.error('布尔值只能是 true 或 false'); return }
-    value = raw === 'true'
-  } else value = rawValue.value
-  try {
-    await ElMessageBox.confirm(
-      `确认向设备 ${props.deviceId} 的测点 ${point} 下发值 ${String(value)}？命令不会自动重试。`,
-      '确认设备写入',
-      { type: 'warning', confirmButtonText: '确认下发', cancelButtonText: '取消' },
-    )
-  } catch { return }
-  busy.value = true
-  try {
-    const result = await runtimeApi.writePoint({
-      command_id: crypto.randomUUID(),
-      device_id: props.deviceId,
-      point_id: point,
-      value,
-      timeout: timeout.value,
-    }, apiKey.value)
-    ElMessage({ type: result.success ? 'success' : 'error', message: result.error || (result.success ? '写入成功' : '写入失败') })
-  } catch (cause) {
-    ElMessage.error(String(cause))
-  } finally { busy.value = false }
-}
+const emit = defineEmits<{ sent: [] }>()
+
+const deviceRef = toRef(props, 'device')
+const dataRows = computed(() => props.data.dataRows.value)
+const resolvedPoints = computed(() => props.data.resolvedPoints.value)
+
+const {
+  cmdPoint,
+  cmdValue,
+  cmdBool,
+  sending,
+  commandResult,
+  controlCandidates,
+  currentControlRow,
+  cmdIsBool,
+  sendCommand,
+  formatCommandValue,
+} = useDeviceCommand(deviceRef, dataRows, resolvedPoints, { onSent: () => emit('sent') })
 </script>
 
 <template>
-  <el-alert type="warning" :closable="false" show-icon title="设备写入为独立操作。网络超时或结果不明时，不要直接重复下发相同命令。" />
-  <el-form label-position="top" style="margin-top: 16px; max-width: 540px">
-    <el-form-item label="测点 ID"><el-input v-model="pointId" /></el-form-item>
-    <el-form-item label="数据类型">
-      <el-radio-group v-model="valueType">
-        <el-radio value="number">Number</el-radio>
-        <el-radio value="boolean">Boolean</el-radio>
-        <el-radio value="string">String</el-radio>
-      </el-radio-group>
-    </el-form-item>
-    <el-form-item label="写入值"><el-input v-model="rawValue" placeholder="输入要写入的值" /></el-form-item>
-    <el-form-item label="操作超时（秒）"><el-input-number v-model="timeout" :min="0.1" :max="30" :step="0.5" /></el-form-item>
-    <el-form-item label="控制 API Key"><el-input v-model="apiKey" type="password" show-password autocomplete="off" /></el-form-item>
-    <el-button type="danger" :loading="busy" :disabled="busy || !pointId.trim() || !rawValue.trim() || !apiKey" @click="submit">确认并下发</el-button>
-  </el-form>
+  <div class="control-column">
+    <section class="panel-card">
+      <div class="panel-head">
+        <div>
+          <h3>Command</h3>
+          <p>选择控制 Point，确认定义后写入目标值并执行回读。</p>
+        </div>
+      </div>
+
+      <el-form label-position="top">
+        <el-form-item label="Command Point">
+          <el-select v-model="cmdPoint" filterable class="app-full-width" :disabled="sending">
+            <el-option
+              v-for="r in controlCandidates"
+              :key="r.point_id"
+              :label="`${r.point_id} · ${r.variable_name}`"
+              :value="r.point_id"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-descriptions v-if="currentControlRow" :column="1" border class="control-definition">
+          <el-descriptions-item label="Point ID">{{
+            currentControlRow.point_id
+          }}</el-descriptions-item>
+          <el-descriptions-item label="Variable / Address"
+            >{{ currentControlRow.variable_name || '—' }} ·
+            {{ currentControlRow.address }}</el-descriptions-item
+          >
+          <el-descriptions-item label="Data Type">{{
+            currentControlRow.data_type
+          }}</el-descriptions-item>
+          <el-descriptions-item label="Scale / Offset"
+            >{{ currentControlRow.scale }} / {{ currentControlRow.offset }}</el-descriptions-item
+          >
+          <el-descriptions-item label="Unit">{{
+            currentControlRow.unit || '—'
+          }}</el-descriptions-item>
+          <el-descriptions-item label="Current"
+            >{{ currentControlRow.value }} {{ currentControlRow.unit }}</el-descriptions-item
+          >
+          <el-descriptions-item label="Updated">{{
+            currentControlRow.updated_at
+          }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-form-item label="Target Value" class="control-target-field">
+          <el-switch
+            v-if="cmdIsBool"
+            v-model="cmdBool"
+            :disabled="sending"
+            active-text="true"
+            inactive-text="false"
+          />
+          <el-input-number
+            v-else
+            v-model="cmdValue"
+            :step="1"
+            controls-position="right"
+            class="app-full-width"
+            :disabled="sending"
+          />
+        </el-form-item>
+        <el-button
+          type="primary"
+          :loading="sending"
+          :disabled="!currentControlRow || sending"
+          @click="sendCommand"
+          class="app-full-width"
+          >Send Command</el-button
+        >
+      </el-form>
+    </section>
+
+    <section class="panel-card command-result-panel">
+      <div class="panel-head">
+        <div>
+          <h3>Command Result</h3>
+          <p>写入结果与回读值</p>
+        </div>
+      </div>
+      <div v-if="!commandResult" class="empty-state compact">
+        No command executed in this session.
+      </div>
+      <div v-else class="command-result">
+        <div>
+          <span>Requested</span><b>{{ formatCommandValue(commandResult.requested) }}</b>
+        </div>
+        <div>
+          <span>Sent</span><b>{{ commandResult.sentAt }}</b>
+        </div>
+        <div>
+          <span>Write</span
+          ><b :class="commandResult.success ? 'step-success' : 'app-text-fault'">{{
+            commandResult.success ? '✓ Success' : '✕ Failed'
+          }}</b>
+        </div>
+        <div v-if="commandResult.error">
+          <span>Error</span><b class="app-text-fault">{{ commandResult.error }}</b>
+        </div>
+        <div>
+          <span>Read back</span><b>{{ formatCommandValue(commandResult.readback) }}</b>
+        </div>
+        <div v-if="commandResult.success && typeof commandResult.requested === 'number'">
+          <span>Difference</span
+          ><b>{{ (Number(commandResult.readback) - commandResult.requested).toFixed(2) }}</b>
+        </div>
+        <div>
+          <span>Latency</span><b>{{ commandResult.latency }} ms</b>
+        </div>
+      </div>
+    </section>
+  </div>
 </template>
+
+<style scoped>
+.control-column {
+  display: grid;
+  gap: var(--app-space-4);
+  min-width: 0;
+}
+.control-definition {
+  margin-bottom: var(--app-space-4);
+}
+.control-target-field {
+  margin-top: var(--app-space-4);
+}
+.command-result-panel {
+  min-height: 0;
+}
+</style>

@@ -1,134 +1,147 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { runtimeApi, type LatestPointValue, type RuntimeDevice } from '../../api/runtime'
-import DataSourceBadge from '../DataSourceBadge.vue'
+// 设备详情 Drawer 编排壳：tab 组合、编辑脏守卫、按 tab 激活的
+// Data/Trend feature 生命周期。业务状态在各自 feature composable，
+// 这里只做组合（页面以 device_id 为 key 重建本组件实现设备切换重置）。
+import { computed, ref, toRef } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import DeviceCommandPanel from './DeviceCommandPanel.vue'
-import DeviceTrendPanel from './DeviceTrendPanel.vue'
 import DeviceConfigPanel from './DeviceConfigPanel.vue'
-import PointMetadataManager from '../points/PointMetadataManager.vue'
-import { dataSourceState } from '../../domain/dataSourceState'
+import DeviceDataPanel from './DeviceDataPanel.vue'
+import DeviceReadTestPanel from './DeviceReadTestPanel.vue'
+import DeviceTrendPanel from './DeviceTrendPanel.vue'
+import { useDeviceData } from '../../composables/useDeviceData'
+import { useDeviceEditor } from '../../composables/useDeviceEditor'
+import { useDeviceTrend } from '../../composables/useDeviceTrend'
+import {
+  statusLabel,
+  useDeviceVerification,
+  verifyTagType,
+} from '../../composables/useDeviceVerification'
+import { useViewport } from '../../composables/useViewport'
+import { effectiveConnection, modelOf } from '../../domain/devices'
+import { useConfigStore } from '../../stores/config'
+import type { DeviceInst } from '../../domain/types'
 
-const props = defineProps<{ device: RuntimeDevice }>()
-const opened = defineModel<boolean>({ required: true })
-const tab = ref('data')
-const points = ref<LatestPointValue[]>([])
-const loading = ref(false)
-const error = ref('')
-const loaded = ref(false)
-const search = ref('')
-const page = ref(1)
-const pageSize = ref(50)
-const autoRefresh = ref(true)
-const selectedPoint = ref('')
-const result = ref<Record<string, unknown> | null>(null)
-const operationError = ref('')
-const operation = ref('')
-let timer: ReturnType<typeof setInterval> | undefined
-let active = true
+const props = defineProps<{
+  device: DeviceInst
+}>()
 
-const state = computed(() => dataSourceState({
-  isPending: loading.value && !loaded.value,
-  isError: !!error.value,
-  hasData: loaded.value,
-}))
-const filtered = computed(() => points.value.filter(p =>
-  !search.value || p.point_id.toLowerCase().includes(search.value.toLowerCase()),
-))
-const paged = computed(() => filtered.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
-watch(search, () => { page.value = 1 })
+const open = defineModel<boolean>({ required: true })
 
-async function refresh() {
-  if (!opened.value || loading.value) return
-  loading.value = true
-  try {
-    const values = await runtimeApi.latestValues(props.device.device_id)
-    if (!active || !opened.value) return
-    points.value = values
-    loaded.value = true
-    error.value = ''
-  } catch (cause) {
-    if (active) error.value = String(cause)
-  } finally {
-    loading.value = false
-  }
-}
-async function inspect(kind: 'device' | 'read' | 'verify' | 'resolve') {
-  operation.value = kind
-  operationError.value = ''
-  result.value = null
-  try {
-    if (kind === 'device') result.value = await runtimeApi.verifyDevice(props.device.device_id)
-    if (kind === 'read') result.value = await runtimeApi.readPoint(props.device.device_id, selectedPoint.value)
-    if (kind === 'verify') result.value = await runtimeApi.verifyPoint(props.device.device_id, selectedPoint.value)
-    if (kind === 'resolve') result.value = await runtimeApi.resolvePoint(props.device.device_id, selectedPoint.value)
-  } catch (cause) {
-    operationError.value = String(cause)
-  } finally {
-    operation.value = ''
-  }
-}
-watch([opened, () => props.device.device_id], () => {
-  points.value = []
-  loaded.value = false
-  error.value = ''
-  result.value = null
-  selectedPoint.value = ''
-  if (opened.value) void refresh()
+const configStore = useConfigStore()
+const { isMobile } = useViewport()
+const drawerSize = computed(() => (isMobile.value ? '100%' : '72%'))
+
+const device = toRef(props, 'device')
+const tab = ref('Config')
+
+const editor = useDeviceEditor(device, {
+  onDeleted: () => {
+    open.value = false
+  },
 })
-onMounted(() => { active = true; timer = setInterval(() => { if (autoRefresh.value && tab.value === 'data') void refresh() }, 1000) })
-onUnmounted(() => { active = false; if (timer) clearInterval(timer) })
+editor.loadEditForm()
+
+// Server State 按 tab 激活：与原 DevicesPage 的按需拉取/自动刷新语义一致。
+const dataActive = computed(() => open.value && tab.value === 'Data')
+const trendActive = computed(() => open.value && tab.value === 'ControlTrend')
+const data = useDeviceData(device, dataActive)
+const trend = useDeviceTrend(device, trendActive, data.dataRows)
+const resolvedPoints = computed(() => data.resolvedPoints.value)
+
+const { verifyOf } = useDeviceVerification()
+const selectedVerify = computed(() => verifyOf(props.device))
+const selectedModel = computed(() => modelOf(configStore, props.device))
+
+function connValue(key: string, fallback: unknown = '') {
+  const value = effectiveConnection(configStore, props.device)[key]
+  return value === undefined || value === null || value === '' ? fallback : value
+}
+
+async function confirmDiscard(): Promise<boolean> {
+  try {
+    await ElMessageBox.confirm('Discard unsaved Device changes?', 'Unsaved Changes', {
+      type: 'warning',
+      confirmButtonText: 'Discard',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+// el-drawer 用户侧关闭（ESC / 遮罩）走 before-close；Close 按钮走 v-model。
+async function beforeClose(done: () => void) {
+  if (!editor.dirty.value || (await confirmDiscard())) done()
+}
+
+async function closeDrawer() {
+  if (!editor.dirty.value || (await confirmDiscard())) open.value = false
+}
 </script>
 
 <template>
-  <el-drawer v-model="opened" :title="device.device_id" size="min(900px, 100%)">
-    <el-descriptions :column="2" border>
-      <el-descriptions-item label="协议">{{ device.protocol }}</el-descriptions-item>
-      <el-descriptions-item label="通信">{{ device.connected ? '正常' : '异常' }}</el-descriptions-item>
-      <el-descriptions-item label="连续失败">{{ device.consecutive_failures }}</el-descriptions-item>
-      <el-descriptions-item label="最后通信">{{ device.last_seen || '—' }}</el-descriptions-item>
-      <el-descriptions-item label="错误" :span="2">{{ device.last_error || '—' }}</el-descriptions-item>
-    </el-descriptions>
-    <el-tabs v-model="tab">
-      <el-tab-pane label="运行配置" name="config">
-        <DeviceConfigPanel :device="device" :active="opened && tab === 'config'" />
+  <el-drawer
+    v-model="open"
+    :size="drawerSize"
+    :with-header="false"
+    class="device-drawer"
+    :before-close="beforeClose"
+  >
+    <div class="drawer-head">
+      <div>
+        <div class="drawer-title-row">
+          <h2>{{ device.device_id }}</h2>
+          <el-tag :type="verifyTagType(selectedVerify)">
+            {{ statusLabel(selectedVerify) }}
+          </el-tag>
+        </div>
+        <p>
+          {{ device.model }} · {{ selectedModel?.protocol?.toUpperCase() }} · {{ device.host
+          }}<template v-if="connValue('port')">:{{ connValue('port') }}</template>
+        </p>
+      </div>
+      <el-button text @click="closeDrawer">Close</el-button>
+    </div>
+
+    <el-tabs v-model="tab" class="drawer-tabs">
+      <el-tab-pane label="Config" name="Config">
+        <DeviceConfigPanel :device="device" :editor="editor" />
       </el-tab-pane>
-      <el-tab-pane label="实时数据" name="data">
-        <el-space wrap>
-          <DataSourceBadge :state="state" :reason="error" />
-          <el-input v-model="search" clearable placeholder="按测点 ID 筛选" style="width: 220px" />
-          <el-switch v-model="autoRefresh" active-text="自动刷新（1秒）" />
-          <el-button :loading="loading" @click="refresh">刷新</el-button>
-        </el-space>
-        <el-table :data="state === 'valid' ? paged : []" style="width: 100%; margin-top: 12px">
-          <el-table-column prop="point_id" label="测点" min-width="150" />
-          <el-table-column label="值" min-width="160"><template #default="{ row }">{{ JSON.stringify(row.value ?? null) }}</template></el-table-column>
-          <el-table-column prop="quality" label="质量" />
-          <el-table-column prop="timestamp" label="时间戳" min-width="170" />
-        </el-table>
-        <el-pagination v-if="filtered.length > pageSize && state === 'valid'"
-          v-model:current-page="page" v-model:page-size="pageSize" :total="filtered.length"
-          :page-sizes="[50, 100, 200]" layout="total, sizes, prev, pager, next" />
+
+      <el-tab-pane label="Read Test" name="ReadTest">
+        <DeviceReadTestPanel :device="device" :resolved-points="resolvedPoints" />
       </el-tab-pane>
-      <el-tab-pane label="读取与校验" name="diagnostics">
-        <el-space wrap>
-          <el-input v-model="selectedPoint" placeholder="测点 ID" style="width: 220px" />
-          <el-button :loading="operation === 'device'" :disabled="!!operation" @click="inspect('device')">验证设备</el-button>
-          <el-button :loading="operation === 'read'" :disabled="!!operation || !selectedPoint.trim()" @click="inspect('read')">读取测点</el-button>
-          <el-button :loading="operation === 'verify'" :disabled="!!operation || !selectedPoint.trim()" @click="inspect('verify')">校验测点</el-button>
-          <el-button :loading="operation === 'resolve'" :disabled="!!operation || !selectedPoint.trim()" @click="inspect('resolve')">解析地址</el-button>
-        </el-space>
-        <el-alert v-if="operationError" type="error" :title="operationError" :closable="false" show-icon />
-        <pre v-if="result" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ JSON.stringify(result, null, 2) }}</pre>
+
+      <el-tab-pane label="Data" name="Data">
+        <DeviceDataPanel :data="data" />
       </el-tab-pane>
-      <el-tab-pane label="实时趋势" name="trend">
-        <DeviceTrendPanel :device-id="device.device_id" :active="opened && tab === 'trend'" />
-      </el-tab-pane>
-      <el-tab-pane label="测点元数据" name="metadata">
-        <PointMetadataManager :device-id="device.device_id" />
-      </el-tab-pane>
-      <el-tab-pane label="控制下发" name="command">
-        <DeviceCommandPanel :device-id="device.device_id" />
+
+      <el-tab-pane label="Control & Trend" name="ControlTrend">
+        <div class="control-trend-layout">
+          <DeviceCommandPanel :device="device" :data="data" @sent="trend.render" />
+          <DeviceTrendPanel :trend="trend" />
+        </div>
       </el-tab-pane>
     </el-tabs>
   </el-drawer>
 </template>
+
+<style scoped>
+.control-trend-layout {
+  display: grid;
+  grid-template-columns: minmax(var(--app-layout-pane-min-width), 0.72fr) minmax(0, 1.28fr);
+  gap: var(--app-space-4);
+  align-items: start;
+}
+@media (max-width: 1199px) {
+  .control-trend-layout {
+    grid-template-columns: minmax(var(--app-layout-pane-min-width), 0.8fr) minmax(0, 1.2fr);
+  }
+}
+@media (max-width: 767px) {
+  .control-trend-layout {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

@@ -1,3 +1,4 @@
+/** 查询可用性与业务设备状态分离；失败缓存不等同于实时数据。 */
 export type DataSourceState = 'valid' | 'pending' | 'stale' | 'unavailable' | 'invalid'
 
 export interface QueryAvailability {

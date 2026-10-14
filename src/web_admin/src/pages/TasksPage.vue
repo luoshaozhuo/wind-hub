@@ -1,119 +1,917 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import AdminPageHeading from '../components/AdminPageHeading.vue'
-import DataSourceBadge from '../components/DataSourceBadge.vue'
-import { dataSourceState } from '../domain/dataSourceState'
-import { runtimeApi, type RuntimeTask, type RuntimeInstance } from '../api/runtime'
+import { useQuery } from '@tanstack/vue-query'
+import { useConfigStore } from '../stores/config'
+import { queryClient } from '../api/queryClient'
+import { qk } from '../api/queryKeys'
+import { fetchLogs } from '../api/monitoring'
+import { startTask as apiStartTask, stopTask as apiStopTask } from '../api/tasks'
+import { DEFAULT_POINT_GROUP_ID, isDefaultPointTable, pointsOfTable } from '../domain/points'
+import { modelOf, tableOfDevice } from '../domain/devices'
+import { devicesForTask, taskInstanceState } from '../domain/tasks'
+import { useViewport } from '../composables/useViewport'
+import type { DeviceInst, TaskDef } from '../domain/types'
+import { nowText } from '../utils/format'
+import { statusTagType } from '../utils/status'
 
-const tasks = ref<RuntimeTask[]>([])
-const instances = ref<RuntimeInstance[]>([])
-const busy = ref('')
-const error = ref('')
-const apiKey = ref('')
-const search = ref('')
-const loaded = ref(false)
-const loading = ref(false)
-const selectedTask = ref('')
-const drawerOpen = ref(false)
-let active = true
-let timer: ReturnType<typeof setInterval> | undefined
+const configStore = useConfigStore()
 
-const filtered = computed(() => tasks.value.filter(t =>
-  (t.task_id + ' ' + t.point_group + ' ' + t.runtime_state).toLowerCase().includes(search.value.toLowerCase()),
-))
-const selectedInstances = computed(() => instances.value.filter(i => i.task_id === selectedTask.value))
-const availability = computed(() => dataSourceState({
-  isPending: loading.value && !loaded.value,
-  isError: !!error.value,
-  hasData: loaded.value,
-}))
+// domain 纯函数需要显式快照；页面内绑定 store 后再使用，模板签名保持不变。
+const devicesForTaskOf = (t: TaskDef) => devicesForTask(configStore, t)
+const pointsOfTableOf = (tableId: string) => pointsOfTable(configStore, tableId)
+const modelOfDevice = (d: DeviceInst) => modelOf(configStore, d)
+const tableOfDeviceOf = (d: DeviceInst) => tableOfDevice(configStore, d)
 
-async function refresh() {
-  if (loading.value) return
-  loading.value = true
-  try {
-    const [nextTasks, nextInstances] = await Promise.all([runtimeApi.tasks(), runtimeApi.instances()])
-    if (!active) return
-    tasks.value = nextTasks
-    instances.value = nextInstances
-    loaded.value = true
-    error.value = ''
-  } catch (cause) {
-    if (active) error.value = String(cause)
-  } finally { loading.value = false }
-}
-function openTask(task: RuntimeTask) {
-  selectedTask.value = task.task_id
-  drawerOpen.value = true
-}
-async function control(id: string, scope: 'task' | 'instance', start: boolean) {
-  if (busy.value || !apiKey.value) return
-  const verb = start ? '启动' : '停止'
-  try {
-    await ElMessageBox.confirm(`确定${verb}${scope === 'task' ? '任务' : '实例'} ${id}？`, '操作确认', {
-      type: 'warning', confirmButtonText: verb, cancelButtonText: '取消',
-    })
-  } catch { return }
-  busy.value = scope + ':' + id
-  try {
-    const result = scope === 'task'
-      ? (start ? await runtimeApi.startTask(id, apiKey.value) : await runtimeApi.stopTask(id, apiKey.value))
-      : (start ? await runtimeApi.startInstance(id, apiKey.value) : await runtimeApi.stopInstance(id, apiKey.value))
-    ElMessage.success(`请求已完成：${String((result as {runtime_state?: string; state?: string}).runtime_state || (result as {state?: string}).state || id)}`)
-    await refresh()
-  } catch (cause) { ElMessage.error(String(cause)) }
-  finally { busy.value = '' }
-}
-onMounted(() => {
-  active = true
-  void refresh()
-  timer = setInterval(() => void refresh(), 5000)
+const createDialog = ref(false)
+const detailOpen = ref(false)
+const detailTab = ref('Summary')
+const selectedTaskId = ref('')
+const selectedDeviceId = ref('')
+const taskSnapshot = ref('')
+const taskLogLimit = ref(20)
+const { isMobile, isDesktop } = useViewport()
+const drawerSize = computed(() =>
+  isMobile.value ? '100%' : 'min(var(--app-drawer-width-lg), 86vw)',
+)
+
+const form = reactive({
+  task_id: '',
+  scope: 'device_group' as 'device' | 'device_group',
+  device: '',
+  device_group: '',
+  point_group: '',
+  interval: 1 as number | null,
+  sinks: [] as string[],
+  enabled: true,
 })
-onUnmounted(() => { active = false; if (timer) clearInterval(timer) })
+const validPointGroups = computed(() => configStore.pointGroups.filter((g) => !g.system))
+const selectedTask = computed(() =>
+  configStore.tasks.find((t) => t.task_id === selectedTaskId.value),
+)
+const taskDevices = computed(() => (selectedTask.value ? devicesForTaskOf(selectedTask.value) : []))
+const selectedDevice = computed(
+  () =>
+    taskDevices.value.find((d) => d.device_id === selectedDeviceId.value) || taskDevices.value[0],
+)
+const selectedDevicePoints = computed(() => {
+  const task = selectedTask.value,
+    device = selectedDevice.value
+  if (!task || !device) return []
+  return pointsOfTableOf(tableOfDeviceOf(device)).filter((p) =>
+    p.point_groups.includes(task.point_group),
+  )
+})
+const totalPointBindings = computed(() =>
+  taskDevices.value.reduce(
+    (sum, d) =>
+      sum +
+      pointsOfTableOf(tableOfDeviceOf(d)).filter(
+        (p) => selectedTask.value && p.point_groups.includes(selectedTask.value.point_group),
+      ).length,
+    0,
+  ),
+)
+const taskFormState = computed(() =>
+  JSON.stringify({
+    scope: form.scope,
+    device: form.device,
+    device_group: form.device_group,
+    point_group: form.point_group,
+    interval: form.interval,
+    sinks: [...form.sinks],
+    enabled: form.enabled,
+  }),
+)
+const taskDirty = computed(() => !!selectedTask.value && taskFormState.value !== taskSnapshot.value)
+
+// Task 日志与 Logs 页同源（§24）：Start/Stop 后通过 logs 查询失效刷新。
+const logsQuery = useQuery({
+  queryKey: qk.logs({ page: 1, pageSize: 200 }),
+  queryFn: () => fetchLogs({ page: 1, pageSize: 200 }),
+})
+const taskLogs = computed(() => {
+  const id = selectedTask.value?.task_id || ''
+  return (logsQuery.data.value?.items || [])
+    .map((entry) => ({
+      time: entry.timestamp.replace('T', ' ').replace('Z', '').slice(0, 19),
+      level: (entry.level === 'WARNING' ? 'WARN' : entry.level) as 'ERROR' | 'WARN' | 'INFO',
+      source: entry.source,
+      object: entry.object,
+      message: entry.message,
+    }))
+    .filter((entry) => entry.source === 'task' && (!id || entry.object === id))
+})
+const visibleTaskLogs = computed(() => taskLogs.value.slice(0, taskLogLimit.value))
+
+const deviceUsesDefaultTable = (deviceId: string) => {
+  const d = configStore.devices.find((x) => x.device_id === deviceId)
+  return !!d && isDefaultPointTable(modelOfDevice(d)?.point_table || '')
+}
+const groupUsesDefaultTable = (groupId: string) =>
+  configStore.devices.some(
+    (d) => d.device_group === groupId && isDefaultPointTable(modelOfDevice(d)?.point_table || ''),
+  )
+
+function loadForm(t?: TaskDef) {
+  if (t) {
+    form.task_id = t.task_id
+    form.scope = t.device ? 'device' : 'device_group'
+    form.device = t.device
+    form.device_group = t.device_group
+    form.point_group = t.point_group
+    form.interval = t.interval
+    form.sinks = [...t.sinks]
+    form.enabled = t.enabled
+    taskSnapshot.value = JSON.stringify({
+      scope: form.scope,
+      device: form.device,
+      device_group: form.device_group,
+      point_group: form.point_group,
+      interval: form.interval,
+      sinks: [...form.sinks],
+      enabled: form.enabled,
+    })
+  } else {
+    form.task_id = ''
+    form.scope = 'device_group'
+    form.device = ''
+    form.device_group = ''
+    form.point_group = validPointGroups.value[0]?.id || ''
+    form.interval = 1
+    form.sinks = configStore.sinks
+      .filter((s) => s.enabled)
+      .slice(0, 1)
+      .map((s) => s.name)
+    form.enabled = true
+  }
+}
+function openNew() {
+  loadForm()
+  createDialog.value = true
+}
+function openDetail(t: TaskDef) {
+  selectedTaskId.value = t.task_id
+  selectedDeviceId.value = devicesForTaskOf(t)[0]?.device_id || ''
+  detailTab.value = 'Summary'
+  loadForm(t)
+  detailOpen.value = true
+}
+async function beforeTaskClose(done: () => void) {
+  if (!taskDirty.value) {
+    done()
+    return
+  }
+  try {
+    await ElMessageBox.confirm('Discard unsaved Task changes?', 'Unsaved Changes', {
+      type: 'warning',
+      confirmButtonText: 'Discard',
+    })
+    done()
+  } catch {
+    /* keep drawer open */
+  }
+}
+
+function validateForm() {
+  const id = form.task_id.trim()
+  if (!id) return 'Task ID is required'
+  const device = form.scope === 'device' ? form.device : ''
+  const group = form.scope === 'device_group' ? form.device_group : ''
+  if (!device && !group) return 'Exactly one of device / device_group is required'
+  if (!form.point_group || form.point_group === DEFAULT_POINT_GROUP_ID)
+    return 'Select a valid Point Group'
+  if (device && deviceUsesDefaultTable(device)) return 'Selected device uses a default Point Table'
+  if (group && groupUsesDefaultTable(group))
+    return 'Selected group contains device(s) using a default Point Table'
+  if (form.interval === null || form.interval <= 0) return 'Interval must be > 0'
+  if (!form.sinks.length) return 'At least one Sink is required'
+  if (form.sinks.some((name) => !configStore.sinks.find((s) => s.name === name)?.enabled))
+    return 'All selected Sinks must be enabled'
+  return ''
+}
+async function persistTask(existing?: TaskDef) {
+  const error = validateForm()
+  if (error) {
+    ElMessage.error(error)
+    return false
+  }
+  const device = form.scope === 'device' ? form.device : ''
+  const device_group = form.scope === 'device_group' ? form.device_group : ''
+  if (!existing) {
+    const id = form.task_id.trim()
+    if (configStore.tasks.some((t) => t.task_id === id)) {
+      ElMessage.error('Task ID already exists')
+      return false
+    }
+    const now = nowText()
+    configStore.mutate(() => {
+      configStore.tasks.push({
+        task_id: id,
+        device,
+        device_group,
+        point_group: form.point_group,
+        interval: form.interval,
+        sinks: [...form.sinks],
+        enabled: form.enabled,
+        runtime: 'STOPPED',
+        created_at: now,
+        updated_at: now,
+      })
+    })
+  } else {
+    const wasRunning = existing.runtime === 'RUNNING'
+    const changed =
+      existing.device !== device ||
+      existing.device_group !== device_group ||
+      existing.point_group !== form.point_group ||
+      existing.interval !== form.interval ||
+      JSON.stringify(existing.sinks) !== JSON.stringify(form.sinks) ||
+      existing.enabled !== form.enabled
+    if (wasRunning && changed) {
+      try {
+        await ElMessageBox.confirm(
+          'Task "' +
+            existing.task_id +
+            '" is running. Affected instances will stop while the definition is applied and restart only if still valid.',
+          'Task Change Impact',
+          { type: 'warning', confirmButtonText: 'Apply Changes' },
+        )
+      } catch {
+        return false
+      }
+    }
+    configStore.mutate(() => {
+      if (wasRunning && changed) existing.runtime = 'STOPPED'
+      Object.assign(existing, {
+        device,
+        device_group,
+        point_group: form.point_group,
+        interval: form.interval,
+        sinks: [...form.sinks],
+        enabled: form.enabled,
+        updated_at: nowText(),
+      })
+    })
+    if (wasRunning && changed && existing.enabled && existing.valid !== false)
+      configStore.patchTaskRuntime(existing.task_id, 'RUNNING')
+  }
+  return true
+}
+const persisting = ref(false)
+async function createTask() {
+  if (persisting.value) return
+  persisting.value = true
+  try {
+    if (await persistTask()) {
+      createDialog.value = false
+      ElMessage.success('Task created ')
+    }
+  } finally {
+    persisting.value = false
+  }
+}
+async function saveTaskEdit() {
+  if (!selectedTask.value || persisting.value) return
+  persisting.value = true
+  try {
+    if (await persistTask(selectedTask.value)) {
+      loadForm(selectedTask.value)
+      selectedDeviceId.value = taskDevices.value[0]?.device_id || ''
+      ElMessage.success('Task updated ')
+    }
+  } finally {
+    persisting.value = false
+  }
+}
+async function changeEnabled(t: TaskDef, enabled: boolean) {
+  if (!enabled && t.runtime === 'RUNNING') {
+    try {
+      await ElMessageBox.confirm(
+        'Disabling "' + t.task_id + '" will stop its running instances.',
+        'Disable Task',
+        { type: 'warning', confirmButtonText: 'Disable' },
+      )
+    } catch {
+      return
+    }
+    configStore.mutate(() => {
+      t.enabled = false
+      t.runtime = 'STOPPED'
+    })
+    return
+  }
+  configStore.mutate(() => {
+    t.enabled = enabled
+  })
+}
+// Start/Stop 运行状态机：STOPPED → STARTING → RUNNING，RUNNING → STOPPING → STOPPED。
+// 状态转换、可用性检查（含 wtg-041 不可达启动失败）、日志写入全部在 backend service（§8）。
+// 同一时刻只允许一个任务处于过渡态，过渡期间该任务的 Enabled/Delete 等冲突操作被禁用。
+const taskActionPending = ref('')
+async function invalidateTaskRuntime() {
+  await queryClient.invalidateQueries({ queryKey: qk.tasks })
+  await queryClient.invalidateQueries({ queryKey: ['logs'] })
+}
+async function toggle(t: TaskDef) {
+  if (taskActionPending.value) return
+  if (t.valid === false) {
+    ElMessage.error(t.invalid_reason || 'Task is invalid')
+    return
+  }
+  if (t.runtime !== 'RUNNING' && !t.enabled) {
+    ElMessage.warning('Task is disabled')
+    return
+  }
+  taskActionPending.value = t.task_id
+  try {
+    if (t.runtime === 'RUNNING') {
+      configStore.patchTaskRuntime(t.task_id, 'STOPPING')
+      try {
+        const row = await apiStopTask(t.task_id)
+        configStore.patchTaskRuntime(t.task_id, row.runtime_state.toUpperCase())
+      } finally {
+        await invalidateTaskRuntime()
+      }
+      ElMessage.success(`Task ${t.task_id} stopped `)
+    } else {
+      configStore.patchTaskRuntime(t.task_id, 'STARTING')
+      try {
+        const row = await apiStartTask(t.task_id)
+        configStore.patchTaskRuntime(t.task_id, row.runtime_state.toUpperCase())
+        await invalidateTaskRuntime()
+        ElMessage.success(`Task ${t.task_id} started `)
+      } catch (error) {
+        configStore.patchTaskRuntime(t.task_id, 'STOPPED')
+        await invalidateTaskRuntime()
+        ElMessage.error(
+          `Task ${t.task_id} failed to start: ${error instanceof Error ? error.message : String(error)} `,
+        )
+        return
+      }
+    }
+  } finally {
+    taskActionPending.value = ''
+  }
+}
+// 实例级状态（§8.5）：wtg-025 RUNNING / wtg-026 point warning / wtg-041 FAILED
+function instanceState(t: TaskDef, d: DeviceInst) {
+  return taskInstanceState(t, d, configStore.deviceVerification[d.device_id])
+}
+async function del(t: TaskDef) {
+  if (taskActionPending.value) return
+  try {
+    await ElMessageBox.confirm(
+      t.runtime === 'RUNNING'
+        ? 'Task "' + t.task_id + '" is running and will be stopped before deletion.'
+        : 'Delete task "' + t.task_id + '"?',
+      'Delete Task',
+      { type: 'warning', confirmButtonText: 'Delete' },
+    )
+  } catch {
+    return
+  }
+  configStore.mutate(() => {
+    t.runtime = 'STOPPED'
+    configStore.tasks = configStore.tasks.filter((x) => x !== t)
+  })
+  if (selectedTaskId.value === t.task_id) detailOpen.value = false
+  ElMessage.success('Task deleted ')
+}
+function targetText(t: TaskDef) {
+  return t.device ? `device: ${t.device}` : `group: ${t.device_group}`
+}
+function toggleLabel(t: TaskDef) {
+  if (t.runtime === 'RUNNING') return 'Stop'
+  if (t.runtime === 'STOPPING') return 'Stopping'
+  if (t.runtime === 'STARTING') return 'Starting'
+  return 'Start'
+}
+function devicePointCount(d: DeviceInst) {
+  return selectedTask.value
+    ? pointsOfTableOf(tableOfDeviceOf(d)).filter((p) =>
+        p.point_groups.includes(selectedTask.value!.point_group),
+      ).length
+    : 0
+}
+function chooseDevice(d: DeviceInst) {
+  selectedDeviceId.value = d.device_id
+}
 </script>
 
 <template>
-  <section class="runtime-page">
-    <AdminPageHeading title="采集任务" description="Collector 任务与实例运行状态；每 5 秒更新">
-      <template #actions><DataSourceBadge :state="availability" :reason="error" /><el-button :loading="loading" @click="refresh">刷新</el-button></template>
-    </AdminPageHeading>
-    <el-alert v-if="error" type="error" :title="error" show-icon :closable="false" />
-    <el-space wrap>
-      <el-input v-model="search" clearable placeholder="筛选任务、点组或状态" style="width: 260px" />
-      <el-input v-model="apiKey" type="password" show-password autocomplete="off" placeholder="控制 API Key（不持久化）" style="width: 270px" />
-    </el-space>
-    <el-table :data="availability === 'valid' ? filtered : []" v-loading="loading" style="width: 100%; margin-top: 12px" @row-click="openTask">
-      <el-table-column prop="task_id" label="任务" min-width="160" />
-      <el-table-column prop="point_group" label="测点组" min-width="120" />
-      <el-table-column prop="runtime_state" label="运行状态" min-width="120" />
-      <el-table-column prop="instance_count" label="实例数" min-width="100" />
-      <el-table-column label="操作" width="220">
-        <template #default="{row}">
-          <el-button link @click.stop="openTask(row)">详情</el-button>
-          <el-button size="small" :disabled="!apiKey || !!busy" :loading="busy === 'task:' + row.task_id" @click.stop="control(row.task_id, 'task', true)">启动</el-button>
-          <el-button size="small" :disabled="!apiKey || !!busy" @click.stop="control(row.task_id, 'task', false)">停止</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-  </section>
-  <el-drawer v-model="drawerOpen" :title="'任务详情 · ' + selectedTask" size="min(760px, 100%)">
-    <el-descriptions :column="1" border>
-      <el-descriptions-item label="任务 ID">{{ selectedTask }}</el-descriptions-item>
-      <el-descriptions-item label="实例数">{{ selectedInstances.length }}</el-descriptions-item>
-    </el-descriptions>
-    <h3>任务实例</h3>
-    <el-table :data="selectedInstances" style="width: 100%">
-      <el-table-column prop="instance_id" label="实例" min-width="150" />
-      <el-table-column prop="device_id" label="设备" min-width="120" />
-      <el-table-column prop="point_group" label="测点组" min-width="120" />
-      <el-table-column prop="state" label="状态" min-width="100" />
-      <el-table-column label="操作" width="145">
-        <template #default="{row}">
-          <el-button link type="primary" :disabled="!apiKey || !!busy" @click="control(row.instance_id, 'instance', true)">启动</el-button>
-          <el-button link type="danger" :disabled="!apiKey || !!busy" @click="control(row.instance_id, 'instance', false)">停止</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-  </el-drawer>
+  <div class="standard-page">
+    <div class="head">
+      <div>
+        <h1>Tasks</h1>
+        <p>采集任务定义、运行控制与实例详情</p>
+      </div>
+      <el-button type="primary" @click="openNew">+ New Task</el-button>
+    </div>
+
+    <el-card shadow="never">
+      <el-table :data="configStore.tasks" row-key="task_id">
+        <el-table-column label="Task" min-width="150">
+          <template #default="{ row }"
+            ><el-button link @click="openDetail(row)"
+              ><b>{{ row.task_id }}</b></el-button
+            ></template
+          >
+        </el-table-column>
+        <el-table-column label="Target" min-width="150"
+          ><template #default="{ row }">{{ targetText(row) }}</template></el-table-column
+        >
+        <el-table-column v-if="isDesktop" label="Instances" width="100" align="right"
+          ><template #default="{ row }">{{
+            devicesForTaskOf(row).length
+          }}</template></el-table-column
+        >
+        <el-table-column v-if="isDesktop" prop="created_at" label="Created" min-width="150" />
+        <el-table-column v-if="isDesktop" prop="updated_at" label="Updated" min-width="150" />
+        <el-table-column label="Runtime" width="110">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.valid === false" :content="row.invalid_reason" placement="top"
+              ><el-tag type="danger">INVALID</el-tag></el-tooltip
+            >
+            <el-tag v-else :type="statusTagType(row.runtime)">{{ row.runtime }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Enabled" width="100"
+          ><template #default="{ row }"
+            ><el-switch
+              :model-value="row.enabled"
+              :disabled="taskActionPending === row.task_id"
+              @change="changeEnabled(row, !!$event)" /></template
+        ></el-table-column>
+        <el-table-column label="Operation" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              :loading="taskActionPending === row.task_id"
+              :disabled="
+                row.valid === false || (!!taskActionPending && taskActionPending !== row.task_id)
+              "
+              @click="toggle(row)"
+              >{{ toggleLabel(row) }}</el-button
+            >
+            <el-dropdown trigger="click">
+              <el-button size="small" aria-label="More actions">•••</el-button>
+              <template #dropdown
+                ><el-dropdown-menu
+                  ><el-dropdown-item
+                    class="app-text-fault"
+                    :disabled="!!taskActionPending"
+                    @click="del(row)"
+                    >Delete</el-dropdown-item
+                  ></el-dropdown-menu
+                ></template
+              >
+            </el-dropdown>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-drawer
+      v-model="detailOpen"
+      :title="selectedTask?.task_id || 'Task'"
+      direction="rtl"
+      :size="drawerSize"
+      append-to-body
+      destroy-on-close
+      :before-close="beforeTaskClose"
+    >
+      <template v-if="selectedTask">
+        <div class="task-drawer-head">
+          <div>
+            <el-tag v-if="selectedTask.valid === false" type="danger">INVALID</el-tag>
+            <el-tag v-else :type="statusTagType(selectedTask.runtime)">{{
+              selectedTask.runtime
+            }}</el-tag>
+            <span
+              >{{ taskDevices.length }} device instance(s) · {{ totalPointBindings }} point
+              binding(s)</span
+            >
+          </div>
+          <el-button
+            :loading="taskActionPending === selectedTask.task_id"
+            :disabled="
+              selectedTask.valid === false ||
+              (!!taskActionPending && taskActionPending !== selectedTask.task_id)
+            "
+            @click="toggle(selectedTask)"
+            >{{ toggleLabel(selectedTask) }}</el-button
+          >
+        </div>
+
+        <el-tabs v-model="detailTab">
+          <el-tab-pane label="Summary" name="Summary">
+            <div class="task-summary-grid">
+              <section class="task-summary-card">
+                <div class="summary-card-head">
+                  <div>
+                    <h3>Definition</h3>
+                    <p>任务定义与运行参数放在同一工作区，修改后直接 Save。</p>
+                  </div>
+                  <div class="task-config-actions">
+                    <el-button type="primary" :disabled="!taskDirty" @click="saveTaskEdit"
+                      >Save</el-button
+                    >
+                  </div>
+                </div>
+
+                <el-form label-position="top">
+                  <div class="task-form-grid">
+                    <el-form-item label="Task ID"
+                      ><el-input v-model="form.task_id" disabled
+                    /></el-form-item>
+                    <el-form-item label="Scope">
+                      <el-select v-model="form.scope" class="app-full-width">
+                        <el-option label="Device Group" value="device_group" />
+                        <el-option label="Single Device" value="device" />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item v-if="form.scope === 'device_group'" label="Device Group">
+                      <el-select v-model="form.device_group" class="app-full-width">
+                        <el-option
+                          v-for="g in configStore.deviceGroups"
+                          :key="g.id"
+                          :label="g.id"
+                          :value="g.id"
+                          :disabled="groupUsesDefaultTable(g.id)"
+                        />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item v-else label="Device">
+                      <el-select v-model="form.device" filterable class="app-full-width">
+                        <el-option
+                          v-for="d in configStore.devices"
+                          :key="d.device_id"
+                          :label="d.device_id"
+                          :value="d.device_id"
+                          :disabled="deviceUsesDefaultTable(d.device_id)"
+                        />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="Point Group">
+                      <el-select v-model="form.point_group" class="app-full-width">
+                        <el-option
+                          v-for="g in validPointGroups"
+                          :key="g.id"
+                          :label="g.id"
+                          :value="g.id"
+                        />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="Interval (s)">
+                      <el-input-number
+                        v-model="form.interval"
+                        :min="0.1"
+                        :step="0.5"
+                        class="app-full-width"
+                      />
+                    </el-form-item>
+                    <el-form-item label="Target Sinks">
+                      <el-select v-model="form.sinks" multiple class="app-full-width">
+                        <el-option
+                          v-for="s in configStore.sinks"
+                          :key="s.name"
+                          :label="s.name"
+                          :value="s.name"
+                          :disabled="!s.enabled"
+                        />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="Enabled"
+                      ><el-switch v-model="form.enabled"
+                    /></el-form-item>
+                  </div>
+                </el-form>
+              </section>
+
+              <aside class="task-runtime-card">
+                <div class="summary-card-head">
+                  <div>
+                    <h3>Runtime</h3>
+                    <p>当前运行事实，不与 Definition 重复。</p>
+                  </div>
+                </div>
+                <div class="runtime-status-line">
+                  <el-tag v-if="selectedTask.valid === false" type="danger">INVALID</el-tag>
+                  <el-tag v-else :type="statusTagType(selectedTask.runtime)">{{
+                    selectedTask.runtime
+                  }}</el-tag>
+                  <span>{{ selectedTask.enabled ? 'Enabled' : 'Disabled' }}</span>
+                </div>
+                <div class="runtime-metrics">
+                  <div>
+                    <span>Instances</span><b>{{ taskDevices.length }}</b>
+                  </div>
+                  <div>
+                    <span>Point Bindings</span><b>{{ totalPointBindings }}</b>
+                  </div>
+                  <div>
+                    <span>Target</span><b>{{ targetText(selectedTask) }}</b>
+                  </div>
+                  <div>
+                    <span>Point Group</span><b>{{ selectedTask.point_group }}</b>
+                  </div>
+                  <div>
+                    <span>Sinks</span><b>{{ selectedTask.sinks.join(', ') }}</b>
+                  </div>
+                  <div>
+                    <span>Created</span><b>{{ selectedTask.created_at }}</b>
+                  </div>
+                  <div>
+                    <span>Last Modified</span><b>{{ selectedTask.updated_at }}</b>
+                  </div>
+                </div>
+                <el-alert
+                  v-if="selectedTask.valid === false"
+                  type="error"
+                  :closable="false"
+                  :title="selectedTask.invalid_reason"
+                />
+              </aside>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="Devices & Points" name="Coverage">
+            <div class="coverage-layout">
+              <div class="coverage-devices">
+                <div class="pane-title">
+                  <b>Devices</b><span>{{ taskDevices.length }}</span>
+                </div>
+                <el-table
+                  :data="taskDevices"
+                  row-key="device_id"
+                  highlight-current-row
+                  :current-row-key="selectedDevice?.device_id"
+                  max-height="560"
+                  @row-click="chooseDevice"
+                >
+                  <el-table-column prop="device_id" label="Device" min-width="130" />
+                  <el-table-column prop="host" label="Host" min-width="145" />
+                  <el-table-column label="State" width="105"
+                    ><template #default="{ row }"
+                      ><el-tag
+                        :type="statusTagType(instanceState(selectedTask, row))"
+                        size="small"
+                        >{{ instanceState(selectedTask, row) }}</el-tag
+                      ></template
+                    ></el-table-column
+                  >
+                  <el-table-column label="Points" width="78" align="right"
+                    ><template #default="{ row }">{{
+                      devicePointCount(row)
+                    }}</template></el-table-column
+                  >
+                </el-table>
+              </div>
+              <div class="coverage-points">
+                <div class="pane-title">
+                  <div>
+                    <b>{{ selectedDevice?.device_id || 'Select a device' }}</b
+                    ><span v-if="selectedDevice">
+                      · {{ modelOfDevice(selectedDevice)?.point_table }}</span
+                    >
+                  </div>
+                  <span>{{ selectedDevicePoints.length }} points</span>
+                </div>
+                <el-table
+                  v-if="selectedDevice"
+                  :data="selectedDevicePoints"
+                  max-height="560"
+                  size="small"
+                >
+                  <el-table-column prop="point_id" label="Point" min-width="160" />
+                  <el-table-column prop="variable_name" label="Variable" min-width="160" />
+                  <el-table-column prop="data_type" label="Type" width="100" />
+                  <el-table-column prop="unit" label="Unit" width="90" />
+                </el-table>
+                <el-empty v-else description="No target device" />
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="Logs" name="Logs">
+            <div class="task-log-toolbar">
+              <div>
+                <b>Recent Task Logs</b><span>Latest {{ taskLogLimit }} records</span>
+              </div>
+              <el-select v-model="taskLogLimit" class="task-log-limit">
+                <el-option :value="20" label="Latest 20" />
+                <el-option :value="50" label="Latest 50" />
+                <el-option :value="100" label="Latest 100" />
+              </el-select>
+            </div>
+            <el-timeline>
+              <el-timeline-item
+                v-for="log in visibleTaskLogs"
+                :key="log.time + log.message"
+                :timestamp="log.time"
+                placement="top"
+                :type="log.level === 'WARN' ? 'warning' : 'primary'"
+              >
+                <b>{{ log.level }}</b> · {{ log.message }}
+              </el-timeline-item>
+            </el-timeline>
+          </el-tab-pane>
+        </el-tabs>
+      </template>
+    </el-drawer>
+
+    <el-dialog v-model="createDialog" title="New Task" width="var(--app-dialog-width-md)">
+      <el-form label-position="top">
+        <div class="task-form-grid">
+          <el-form-item label="Task ID"><el-input v-model="form.task_id" /></el-form-item>
+          <el-form-item label="Scope"
+            ><el-select v-model="form.scope" class="app-full-width"
+              ><el-option label="Device Group" value="device_group" /><el-option
+                label="Single Device"
+                value="device" /></el-select
+          ></el-form-item>
+          <el-form-item v-if="form.scope === 'device_group'" label="Device Group"
+            ><el-select v-model="form.device_group" class="app-full-width"
+              ><el-option
+                v-for="g in configStore.deviceGroups"
+                :key="g.id"
+                :label="g.id"
+                :value="g.id"
+                :disabled="groupUsesDefaultTable(g.id)" /></el-select
+          ></el-form-item>
+          <el-form-item v-else label="Device"
+            ><el-select v-model="form.device" filterable class="app-full-width"
+              ><el-option
+                v-for="d in configStore.devices"
+                :key="d.device_id"
+                :label="d.device_id"
+                :value="d.device_id"
+                :disabled="deviceUsesDefaultTable(d.device_id)" /></el-select
+          ></el-form-item>
+          <el-form-item label="Point Group"
+            ><el-select v-model="form.point_group" class="app-full-width"
+              ><el-option
+                v-for="g in validPointGroups"
+                :key="g.id"
+                :label="g.id"
+                :value="g.id" /></el-select
+          ></el-form-item>
+          <el-form-item label="Interval (s)"
+            ><el-input-number v-model="form.interval" :min="0.1" :step="0.5" class="app-full-width"
+          /></el-form-item>
+          <el-form-item label="Target Sinks"
+            ><el-select v-model="form.sinks" multiple class="app-full-width"
+              ><el-option
+                v-for="s in configStore.sinks"
+                :key="s.name"
+                :label="s.name"
+                :value="s.name"
+                :disabled="!s.enabled" /></el-select
+          ></el-form-item>
+          <el-form-item label="Enabled"><el-switch v-model="form.enabled" /></el-form-item>
+        </div>
+      </el-form>
+      <template #footer
+        ><el-button @click="createDialog = false">Cancel</el-button
+        ><el-button type="primary" @click="createTask">Create</el-button></template
+      >
+    </el-dialog>
+  </div>
 </template>
+
+<style scoped>
+.task-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  margin-bottom: var(--app-space-3);
+}
+.task-drawer-head > div {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  color: var(--app-text-muted);
+  font-size: var(--app-font-caption);
+}
+.coverage-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: var(--app-space-4);
+}
+.coverage-devices,
+.coverage-points {
+  min-width: 0;
+  border: 1px solid var(--app-border-soft);
+  border-radius: var(--app-card-radius);
+  padding: var(--app-space-3);
+}
+.pane-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+  margin-bottom: var(--app-space-2);
+  color: var(--app-text-muted);
+  font-size: var(--app-font-caption);
+}
+.pane-title b {
+  color: var(--app-text-primary);
+  font-size: var(--app-font-body);
+}
+.task-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.55fr);
+  gap: var(--app-space-4);
+}
+.task-summary-card,
+.task-runtime-card {
+  border: 1px solid var(--app-border-soft);
+  border-radius: var(--app-card-radius);
+  padding: var(--app-space-4);
+  min-width: 0;
+}
+.summary-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  margin-bottom: var(--app-space-4);
+}
+.summary-card-head h3 {
+  margin: 0;
+}
+.summary-card-head p {
+  margin: var(--app-space-1) 0 0;
+  color: var(--app-text-muted);
+  font-size: var(--app-font-caption);
+}
+.task-config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--app-space-2);
+}
+.runtime-status-line {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin-bottom: var(--app-space-4);
+  color: var(--app-text-muted);
+}
+.runtime-metrics {
+  display: grid;
+  gap: var(--app-space-3);
+  margin-bottom: var(--app-space-4);
+}
+.runtime-metrics > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  padding-bottom: var(--app-space-2);
+  border-bottom: 1px solid var(--app-border-soft);
+}
+.runtime-metrics span {
+  color: var(--app-text-muted);
+}
+.runtime-metrics b {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.task-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--app-space-4);
+}
+.task-log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  margin-bottom: var(--app-space-4);
+}
+.task-log-toolbar > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--app-space-2);
+}
+.task-log-toolbar span {
+  color: var(--app-text-muted);
+  font-size: var(--app-font-caption);
+}
+@media (max-width: 1199px) {
+  .coverage-layout,
+  .task-form-grid,
+  .task-summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .task-drawer-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.task-log-limit {
+  width: var(--app-control-width-compact);
+}
+</style>
