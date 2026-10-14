@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 from wind_hub_core.model.errors import ProtocolError
-from wind_hub_server.adapter.inbound.webapi.app import build_api
-from wind_hub_server.adapter.inbound.webapi.errors import APIError
-from wind_hub_server.application.app_context import AppContext
+from web_server.adapter.inbound.webapi.app import build_api
+from web_server.adapter.inbound.webapi.errors import APIError
+from web_server.application.app_context import AppContext
 
 
 def _client(ctx: AppContext) -> TestClient:

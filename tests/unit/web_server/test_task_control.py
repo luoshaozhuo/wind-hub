@@ -6,21 +6,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from wind_hub_server.application.port.monitoring import TaskRuntimeSnapshot
-from wind_hub_server.application.port.worker import (
+from web_server.application.port.monitoring import TaskRuntimeSnapshot
+from web_server.application.port.worker import (
     CollectorInfo,
     CollectorPlacementRejectedError,
     CollectorTaskInstance,
     CollectorTaskSummary,
     PlacementAck,
 )
-from wind_hub_server.application.task.collector import TaskWorkerUnavailableError
-from wind_hub_server.application.task.control import TaskControlService
-from wind_hub_server.application.task.placement import (
+from web_server.application.task.collector import TaskWorkerUnavailableError
+from web_server.application.task.control import TaskControlService
+from web_server.application.task.placement import (
     TaskPlacementRegistry,
     TaskPlacementState,
 )
-from wind_hub_server.application.task.reconcile import (
+from web_server.application.task.reconcile import (
     TaskPlacementReconciler,
     TaskPlacementUnsafeError,
 )

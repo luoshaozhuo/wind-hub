@@ -10,9 +10,9 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
-from wind_hub_server.adapter.inbound.webapi.app import build_api
-from wind_hub_server.application.app_context import AppContext
-from wind_hub_server.application.monitoring.overview import OverviewSnapshot
+from web_server.adapter.inbound.webapi.app import build_api
+from web_server.application.app_context import AppContext
+from web_server.application.monitoring.overview import OverviewSnapshot
 
 
 def _overview_context(site_id: str) -> AppContext:

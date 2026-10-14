@@ -6,13 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from wind_hub_server.application.port.worker import (
+from web_server.application.port.worker import (
     CollectorInfo,
     CollectorTaskInstance,
     PlacementAck,
 )
-from wind_hub_server.application.task.placement import TaskPlacementRegistry
-from wind_hub_server.application.task.reconcile import (
+from web_server.application.task.placement import TaskPlacementRegistry
+from web_server.application.task.reconcile import (
     TaskPlacementReconciler,
     TaskPlacementUnsafeError,
 )

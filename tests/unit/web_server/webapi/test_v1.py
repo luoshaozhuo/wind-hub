@@ -11,15 +11,15 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from wind_hub_core.model.point import PointValue, Quality
-from wind_hub_server.adapter.inbound.webapi.app import build_api
-from wind_hub_server.application.app_context import AppContext
-from wind_hub_server.application.device.command import DeviceCommandResult
-from wind_hub_server.application.device.data import DeviceDataItem, TrendSeries
-from wind_hub_server.application.device.query import DeviceSnapshot
-from wind_hub_server.application.monitoring.overview import OverviewSnapshot
-from wind_hub_server.application.operation.registry import OperationRegistry
-from wind_hub_server.application.sink.service import SinkSnapshot
-from wind_hub_server.application.task.model import TaskSummary
+from web_server.adapter.inbound.webapi.app import build_api
+from web_server.application.app_context import AppContext
+from web_server.application.device.command import DeviceCommandResult
+from web_server.application.device.data import DeviceDataItem, TrendSeries
+from web_server.application.device.query import DeviceSnapshot
+from web_server.application.monitoring.overview import OverviewSnapshot
+from web_server.application.operation.registry import OperationRegistry
+from web_server.application.sink.service import SinkSnapshot
+from web_server.application.task.model import TaskSummary
 
 
 def _client(ctx: AppContext) -> TestClient:
@@ -199,7 +199,7 @@ def test_v1_phase5_quality_endpoint() -> None:
     quality = AsyncMock()  # QualityService.snapshot 是 async
     from datetime import UTC, datetime
 
-    from wind_hub_server.application.monitoring.quality import QualitySnapshot
+    from web_server.application.monitoring.quality import QualitySnapshot
 
     now = datetime.now(UTC)
     quality.snapshot.return_value = QualitySnapshot(
@@ -217,7 +217,7 @@ def test_v1_phase5_quality_endpoint() -> None:
 
 def test_v1_phase5_logs_endpoint() -> None:
     logs = MagicMock()
-    from wind_hub_server.application.monitoring.logs import LogPage
+    from web_server.application.monitoring.logs import LogPage
 
     logs.list_logs.return_value = LogPage(items=[], page=1, page_size=20, total=0)
     client = _client(AppContext(logs=logs))
@@ -232,7 +232,7 @@ def test_v1_phase5_system_health_endpoint() -> None:
     health = MagicMock()
     from datetime import UTC, datetime
 
-    from wind_hub_server.application.monitoring.health import (
+    from web_server.application.monitoring.health import (
         ResourceSeries,
         SystemHealthSnapshot,
     )
@@ -295,7 +295,7 @@ def test_v1_sinks_exposes_unified_connection_and_points() -> None:
 
 
 def test_v1_admin_state_atomic_apply() -> None:
-    from wind_hub_server.application.config.files import ConfigApplyResult
+    from web_server.application.config.files import ConfigApplyResult
 
     admin_state = AsyncMock()
     admin_state.replace_all.return_value = ConfigApplyResult(

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from wind_hub_server.application.task.placement import (
+from web_server.application.task.placement import (
     TaskPlacementError,
     TaskPlacementRegistry,
     TaskPlacementState,
