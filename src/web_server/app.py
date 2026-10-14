@@ -125,7 +125,10 @@ def create_app(settings: RpcSettings | None = None, *, write_token: str | None =
         control_operation = (
             matched_route is not None
             and request.method == "POST"
-            and not route_template.endswith("/read-many")
+            and route_template not in (
+                "/api/v1/commander/devices/{device_id}/read-many",
+                "/api/v1/collector/points/metadata",
+            )
         )
         started = perf_counter()
         status_code = 500
