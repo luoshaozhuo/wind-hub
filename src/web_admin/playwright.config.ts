@@ -20,7 +20,7 @@ function browserEnv(): Record<string, string> {
 }
 
 export default defineConfig({
-  testDir: './tests/e2e',
+  testDir: '../../tests/web_admin/e2e',
   // mock 模式用例由 playwright.mock.config.ts（dev:mock webServer）单独运行。
   testIgnore: 'mock.spec.ts',
   timeout: 30_000,
