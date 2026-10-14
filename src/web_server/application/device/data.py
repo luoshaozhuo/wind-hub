@@ -9,9 +9,9 @@ from pydantic import BaseModel
 
 from wind_hub_core.config import PointConfig
 from wind_hub_core.model.point import PointValue, Quality
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.port.point_store import TrendStore
-from wind_hub_server.application.port.worker import CommanderPort
+from web_server.application.config.service import ConfigService
+from web_server.application.port.point_store import TrendStore
+from web_server.application.port.worker import CommanderPort
 
 
 class DeviceDataItem(BaseModel):

@@ -9,8 +9,8 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from wind_hub_core.config import DeviceConfig
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.port.monitoring import (
+from web_server.application.config.service import ConfigService
+from web_server.application.port.monitoring import (
     DeviceRuntimeSnapshot,
     MonitoringSnapshotPort,
 )

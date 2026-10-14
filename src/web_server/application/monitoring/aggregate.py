@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.monitoring import (
+from web_server.application.config.service import ConfigService
+from web_server.application.port.collector_directory import CollectorDirectory
+from web_server.application.port.monitoring import (
     AcquisitionStatus,
     CollectorSnapshot,
     CounterSnapshot,
@@ -17,13 +17,13 @@ from wind_hub_server.application.port.monitoring import (
     SinkRuntimeSnapshot,
     TaskRuntimeSnapshot,
 )
-from wind_hub_server.application.port.worker import (
+from web_server.application.port.worker import (
     CollectorRuntimeStatus,
     CollectorTaskSummary,
     DeviceRuntimeInfo,
     SinkRuntimeInfo,
 )
-from wind_hub_server.application.task.placement import TaskPlacementRegistry
+from web_server.application.task.placement import TaskPlacementRegistry
 
 
 class _WorkerFacts:

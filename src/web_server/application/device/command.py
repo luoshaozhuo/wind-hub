@@ -10,8 +10,8 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_core.model.command import Command
-from wind_hub_server.application.port.point_store import TrendStore
-from wind_hub_server.application.port.worker import CommanderPort
+from web_server.application.port.point_store import TrendStore
+from web_server.application.port.worker import CommanderPort
 
 
 class DeviceCommandResult(BaseModel):

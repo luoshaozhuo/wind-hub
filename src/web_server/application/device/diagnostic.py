@@ -8,14 +8,14 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_core.model.point import PointValue
-from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.device.command import (
+from web_server.application.config.service import ConfigService
+from web_server.application.device.command import (
     DeviceCommandResult,
     DeviceCommandService,
 )
-from wind_hub_server.application.operation.registry import OperationRecord, OperationRegistry
-from wind_hub_server.application.port.network_probe import NetworkProbePort
-from wind_hub_server.application.port.worker import CommanderPort
+from web_server.application.operation.registry import OperationRecord, OperationRegistry
+from web_server.application.port.network_probe import NetworkProbePort
+from web_server.application.port.worker import CommanderPort
 
 
 class PingResult(BaseModel):
