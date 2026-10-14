@@ -6,8 +6,10 @@ import PointsPage from './pages/PointsPage.vue'
 import TasksPage from './pages/TasksPage.vue'
 import SinksPage from './pages/SinksPage.vue'
 import SystemHealthPage from './pages/SystemHealthPage.vue'
+import DebugPage from './pages/DebugPage.vue'
+import QualityPage from './pages/QualityPage.vue'
 
-type Page = 'Overview' | 'Devices' | 'Points' | 'Tasks' | 'Sinks' | 'SystemHealth'
+type Page = 'Overview' | 'Devices' | 'Points' | 'Tasks' | 'Sinks' | 'SystemHealth' | 'Debug' | 'Quality'
 const menu = ref<Page>('Overview')
 </script>
 
@@ -23,7 +25,7 @@ const menu = ref<Page>('Overview')
           <el-menu-item index="Tasks">采集任务</el-menu-item>
           <el-menu-item index="Sinks">数据输出</el-menu-item>
         </el-menu-item-group>
-        <el-menu-item-group title="诊断"><el-menu-item index="SystemHealth">系统健康</el-menu-item></el-menu-item-group>
+        <el-menu-item-group title="诊断"><el-menu-item index="Quality">采集质量</el-menu-item><el-menu-item index="Debug">设备与测点诊断</el-menu-item><el-menu-item index="SystemHealth">系统健康</el-menu-item></el-menu-item-group>
       </el-menu>
     </el-aside>
     <el-main>
@@ -32,7 +34,9 @@ const menu = ref<Page>('Overview')
       <PointsPage v-else-if="menu === 'Points'" />
       <TasksPage v-else-if="menu === 'Tasks'" />
       <SinksPage v-else-if="menu === 'Sinks'" />
-      <SystemHealthPage v-else />
+      <SystemHealthPage v-else-if="menu === 'SystemHealth'" />
+      <QualityPage v-else-if="menu === 'Quality'" />
+      <DebugPage v-else />
     </el-main>
   </el-container>
 </template>
