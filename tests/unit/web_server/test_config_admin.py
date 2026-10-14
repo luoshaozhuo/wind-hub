@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from wind_hub_server.application.config.files import CONFIG_FILES, ConfigFileService
+from web_server.application.config.files import CONFIG_FILES, ConfigFileService
 
 
 def test_config_file_set_is_stable() -> None:
@@ -47,7 +47,7 @@ async def test_mutate_yaml_files_reads_under_apply_lock(tmp_path) -> None:
 
     async def fake_apply(files, *, source, comment):
         captured.update(files)
-        from wind_hub_server.application.config.files import ConfigApplyResult
+        from web_server.application.config.files import ConfigApplyResult
         return ConfigApplyResult(success=True)
 
     admin._apply_files_locked = fake_apply  # type: ignore[method-assign]

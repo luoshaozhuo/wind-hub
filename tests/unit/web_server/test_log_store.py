@@ -2,7 +2,7 @@
 
 import logging
 
-from wind_hub_server.infra.log_store import LogStore
+from web_server.infra.log_store import LogStore
 
 
 def test_log_store_filters_and_bounds() -> None:

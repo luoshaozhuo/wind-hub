@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from prometheus_client import REGISTRY
 
-from wind_hub_server.application.port.monitoring import (
+from web_server.application.port.monitoring import (
     CounterSnapshot,
     RuntimeStatusSnapshot,
 )
-from wind_hub_server.infra import metrics
+from web_server.infra import metrics
 
 
 def test_update_runtime_gauges_sets_cached_collector_values() -> None:

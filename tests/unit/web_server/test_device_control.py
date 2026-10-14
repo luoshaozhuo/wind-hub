@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock
 
 from wind_hub_core.model.command import CommandResult
 from wind_hub_core.model.point import PointValue
-from wind_hub_server.application.device.command import DeviceCommandService
-from wind_hub_server.infra.point_store import InMemoryTrendStore
+from web_server.application.device.command import DeviceCommandService
+from web_server.infra.point_store import InMemoryTrendStore
 
 
 async def test_successful_command_reads_back_and_updates_stores() -> None:

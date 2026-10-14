@@ -2,12 +2,12 @@
 
 from datetime import datetime
 
-from wind_hub_server.application.port.monitoring import (
+from web_server.application.port.monitoring import (
     CounterSnapshot,
     MetricsSnapshot,
     MonitoringEvent,
 )
-from wind_hub_server.infra.monitoring import MonitoringMetrics
+from web_server.infra.monitoring import MonitoringMetrics
 
 
 def test_monitoring_metrics_applies_remote_snapshot() -> None:

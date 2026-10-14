@@ -2,7 +2,7 @@
 
 import pytest
 
-from wind_hub_server.application.config.definitions import DefinitionQueryService
+from web_server.application.config.definitions import DefinitionQueryService
 
 
 def test_definition_locations_are_explicit() -> None:
