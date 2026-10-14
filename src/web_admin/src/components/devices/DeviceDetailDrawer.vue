@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { runtimeApi, type LatestPointValue, type RuntimeDevice } from '../../api/runtime'
 import DataSourceBadge from '../DataSourceBadge.vue'
+import DeviceCommandPanel from './DeviceCommandPanel.vue'
 import { dataSourceState } from '../../domain/dataSourceState'
 
 const props = defineProps<{ device: RuntimeDevice }>()
@@ -112,6 +113,9 @@ onUnmounted(() => { active = false; if (timer) clearInterval(timer) })
         </el-space>
         <el-alert v-if="operationError" type="error" :title="operationError" :closable="false" show-icon />
         <pre v-if="result" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ JSON.stringify(result, null, 2) }}</pre>
+      </el-tab-pane>
+      <el-tab-pane label="控制下发" name="command">
+        <DeviceCommandPanel :device-id="device.device_id" />
       </el-tab-pane>
     </el-tabs>
   </el-drawer>
