@@ -1,4 +1,7 @@
-"""只读工程单位目录。
+"""Shared Domain 工程单位。
+
+Unit / Quantity 是不可变值对象；单位集合由配置（units.yaml）定义并
+经 UnitCatalog 随 ConfigSnapshot 传递，不在代码中枚举。
 
 UnitCatalog 由配置（units.yaml）构造并随 ConfigSnapshot 传递，是不可变
 值对象而非全局可变 Singleton；Domain 不读取文件，目录完整性在构建时
@@ -9,10 +12,92 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from math import isfinite
 from types import MappingProxyType
 
-from .conversion import convert_value
-from .model import Unit
+
+@dataclass(frozen=True, slots=True)
+class Quantity:
+    """工程量身份值对象。
+
+    这里表达业务量类别，而不是纯物理量纲。例如有功、无功和视在功率
+    具有相同物理量纲，但在业务语义上不可互换，因此分别建模。
+
+    具体 Quantity 集合由配置（units.yaml）定义；Domain 只固定身份
+    语义（字符串 ID 值对象），不枚举全部工程量。
+    """
+
+    quantity_id: str
+
+    def __post_init__(self) -> None:
+        quantity_id = self.quantity_id.strip()
+        if not quantity_id or quantity_id != self.quantity_id:
+            raise ValueError("quantity_id must be a non-empty trimmed string")
+
+    def __str__(self) -> str:
+        return self.quantity_id
+
+
+#: 无量纲是 Domain 校验固有语义（bool/string 点必须无量纲），
+#: 与配置定义的具体 Quantity 集合无关，因此保留为代码常量。
+DIMENSIONLESS = Quantity("dimensionless")
+
+
+@dataclass(frozen=True, slots=True)
+class Unit:
+    """不可变工程单位值对象。
+
+    scale_to_base 与 offset_to_base 将单位值映射到所属 Quantity 的基准单位：
+
+    base_value = value * scale_to_base + offset_to_base
+
+    unit_id 提供稳定语义身份（配置 units.yaml 的 Mapping Key），symbol
+    提供工程显示符号；基准单位由 UnitCatalog 按 Quantity 集中维护，
+    Unit 自身不重复声明。
+    """
+
+    unit_id: str
+    symbol: str
+    quantity: Quantity
+    scale_to_base: float = 1.0
+    offset_to_base: float = 0.0
+
+    def __post_init__(self) -> None:
+        unit_id = self.unit_id.strip()
+        if not unit_id or unit_id != self.unit_id:
+            raise ValueError("unit_id must be a non-empty trimmed string")
+        if not isinstance(self.symbol, str):
+            raise ValueError("symbol must be a string")
+        if not isfinite(self.scale_to_base) or self.scale_to_base <= 0.0:
+            raise ValueError("scale_to_base must be finite and greater than zero")
+        if not isfinite(self.offset_to_base):
+            raise ValueError("offset_to_base must be finite")
+
+    @property
+    def is_base_transform(self) -> bool:
+        """是否相对基准单位保持恒等变换（scale=1 且 offset=0）。"""
+        return self.scale_to_base == 1.0 and self.offset_to_base == 0.0
+
+
+def convert_value(value: float, source: Unit, target: Unit) -> float:
+    """在同一工程量类别的单位之间换算数值。
+
+    Args:
+        value: 源单位下的数值。
+        source: 源单位。
+        target: 目标单位。
+
+    Returns:
+        目标单位下的数值。
+
+    Raises:
+        ValueError: source 与 target 属于不同 Quantity。
+    """
+    if source.quantity != target.quantity:
+        raise ValueError(f"incompatible unit quantities: {source.quantity} -> {target.quantity}")
+
+    base_value = value * source.scale_to_base + source.offset_to_base
+    return (base_value - target.offset_to_base) / target.scale_to_base
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,4 +201,10 @@ class UnitCatalog:
         return convert_value(value, self.unit(source_id), self.unit(target_id))
 
 
-__all__ = ["UnitCatalog"]
+__all__ = [
+    "DIMENSIONLESS",
+    "Quantity",
+    "Unit",
+    "UnitCatalog",
+    "convert_value",
+]
