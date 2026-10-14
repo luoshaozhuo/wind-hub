@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TypeVar
 
-from wind_hub_server.adapter.inbound.webapi.errors import APIError
-from wind_hub_server.adapter.inbound.webapi.v1.models import (
+from web_server.adapter.inbound.webapi.errors import APIError
+from web_server.adapter.inbound.webapi.v1.models import (
     DeviceResponse,
     OperationResponse,
     PageMeta,
@@ -14,24 +14,24 @@ from wind_hub_server.adapter.inbound.webapi.v1.models import (
     TrendSampleResponse,
     TrendSeriesResponse,
 )
-from wind_hub_server.application.app_context import AppContext
-from wind_hub_server.application.config.admin_state import AdminStateService
-from wind_hub_server.application.config.definitions import DefinitionQueryService
-from wind_hub_server.application.config.files import ConfigFileService
-from wind_hub_server.application.config.settings import SettingsService
-from wind_hub_server.application.device.command import DeviceCommandService
-from wind_hub_server.application.device.data import DeviceDataService, TrendSeries
-from wind_hub_server.application.device.diagnostic import DiagnosticService
-from wind_hub_server.application.device.query import DeviceQueryService, DeviceSnapshot
-from wind_hub_server.application.monitoring.health import SystemHealthService
-from wind_hub_server.application.monitoring.logs import LogQueryService
-from wind_hub_server.application.monitoring.overview import OverviewService
-from wind_hub_server.application.monitoring.quality import QualityService
-from wind_hub_server.application.operation.registry import OperationRecord
-from wind_hub_server.application.sink.service import SinkService
-from wind_hub_server.application.task.control import TaskControlService
-from wind_hub_server.application.task.model import TaskInstanceDetail, TaskSummary
-from wind_hub_server.application.worker.registry import WorkerRegistry
+from web_server.application.app_context import AppContext
+from web_server.application.config.admin_state import AdminStateService
+from web_server.application.config.definitions import DefinitionQueryService
+from web_server.application.config.files import ConfigFileService
+from web_server.application.config.settings import SettingsService
+from web_server.application.device.command import DeviceCommandService
+from web_server.application.device.data import DeviceDataService, TrendSeries
+from web_server.application.device.diagnostic import DiagnosticService
+from web_server.application.device.query import DeviceQueryService, DeviceSnapshot
+from web_server.application.monitoring.health import SystemHealthService
+from web_server.application.monitoring.logs import LogQueryService
+from web_server.application.monitoring.overview import OverviewService
+from web_server.application.monitoring.quality import QualityService
+from web_server.application.operation.registry import OperationRecord
+from web_server.application.sink.service import SinkService
+from web_server.application.task.control import TaskControlService
+from web_server.application.task.model import TaskInstanceDetail, TaskSummary
+from web_server.application.worker.registry import WorkerRegistry
 
 T = TypeVar("T")
 

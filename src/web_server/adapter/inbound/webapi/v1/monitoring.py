@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from wind_hub_server.adapter.inbound.webapi.context import get_ctx
-from wind_hub_server.adapter.inbound.webapi.v1 import common
-from wind_hub_server.adapter.inbound.webapi.v1.models import (
+from web_server.adapter.inbound.webapi.context import get_ctx
+from web_server.adapter.inbound.webapi.v1 import common
+from web_server.adapter.inbound.webapi.v1.models import (
     LogEntryResponse,
     LogPageResponse,
     OverviewResponse,
@@ -14,10 +14,10 @@ from wind_hub_server.adapter.inbound.webapi.v1.models import (
     QualityResponse,
     SystemHealthResponse,
 )
-from wind_hub_server.application.app_context import AppContext
-from wind_hub_server.application.monitoring.health import HealthRange
-from wind_hub_server.application.monitoring.overview import OverviewSnapshot
-from wind_hub_server.application.monitoring.quality import QualityWindow
+from web_server.application.app_context import AppContext
+from web_server.application.monitoring.health import HealthRange
+from web_server.application.monitoring.overview import OverviewSnapshot
+from web_server.application.monitoring.quality import QualityWindow
 
 router = APIRouter()
 

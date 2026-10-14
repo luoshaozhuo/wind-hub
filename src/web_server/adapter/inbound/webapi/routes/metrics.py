@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Response
 
-from wind_hub_server.adapter.inbound.webapi.context import get_ctx
-from wind_hub_server.adapter.inbound.webapi.errors import APIError
-from wind_hub_server.application.app_context import AppContext
-from wind_hub_server.infra import metrics
+from web_server.adapter.inbound.webapi.context import get_ctx
+from web_server.adapter.inbound.webapi.errors import APIError
+from web_server.application.app_context import AppContext
+from web_server.infra import metrics
 
 router = APIRouter(tags=["metrics"])
 
