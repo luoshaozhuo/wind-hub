@@ -6,13 +6,13 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, defineComponent, h, ref, type Ref } from 'vue'
 
-import { fetchAllDeviceData } from '../../src/api/devices'
-import { useDeviceData, type DeviceDataFeature } from '../../src/composables/useDeviceData'
-import { useConfigStore } from '../../src/stores/config'
-import type { DeviceInst, PointDef } from '../../src/domain/types'
+import { fetchAllDeviceData } from '../../../src/web_admin/src/api/devices'
+import { useDeviceData, type DeviceDataFeature } from '../../../src/web_admin/src/composables/useDeviceData'
+import { useConfigStore } from '../../../src/web_admin/src/stores/config'
+import type { DeviceInst, PointDef } from '../../../src/web_admin/src/domain/types'
 
-vi.mock('../../src/api/devices', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('../../src/api/devices')>()
+vi.mock('../../../src/web_admin/src/api/devices', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../../src/web_admin/src/api/devices')>()
   return { ...mod, fetchAllDeviceData: vi.fn() }
 })
 

@@ -3,10 +3,10 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useDeviceVerification } from '../../src/composables/useDeviceVerification'
-import { emptyVerification } from '../../src/domain/devices'
-import { useConfigStore } from '../../src/stores/config'
-import type { DeviceInst } from '../../src/domain/types'
+import { useDeviceVerification } from '../../../src/web_admin/src/composables/useDeviceVerification'
+import { emptyVerification } from '../../../src/web_admin/src/domain/devices'
+import { useConfigStore } from '../../../src/web_admin/src/stores/config'
+import type { DeviceInst } from '../../../src/web_admin/src/domain/types'
 
 vi.mock('element-plus', async (importOriginal) => {
   const mod = await importOriginal<typeof import('element-plus')>()

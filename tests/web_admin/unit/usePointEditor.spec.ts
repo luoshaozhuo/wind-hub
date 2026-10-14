@@ -5,9 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { usePointEditor } from '../../src/composables/usePointEditor'
-import { useConfigStore } from '../../src/stores/config'
-import type { PointDef, TaskDef } from '../../src/domain/types'
+import { usePointEditor } from '../../../src/web_admin/src/composables/usePointEditor'
+import { useConfigStore } from '../../../src/web_admin/src/stores/config'
+import type { PointDef, TaskDef } from '../../../src/web_admin/src/domain/types'
 
 vi.mock('element-plus', async (importOriginal) => {
   const mod = await importOriginal<typeof import('element-plus')>()

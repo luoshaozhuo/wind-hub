@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 
-import { sendDeviceCommand } from '../../src/api/devices'
-import { queryClient } from '../../src/api/queryClient'
-import { qk } from '../../src/api/queryKeys'
-import { useDeviceCommand } from '../../src/composables/useDeviceCommand'
-import type { DataRow } from '../../src/domain/deviceData'
-import type { DeviceInst, PointDef } from '../../src/domain/types'
+import { sendDeviceCommand } from '../../../src/web_admin/src/api/devices'
+import { queryClient } from '../../../src/web_admin/src/api/queryClient'
+import { qk } from '../../../src/web_admin/src/api/queryKeys'
+import { useDeviceCommand } from '../../../src/web_admin/src/composables/useDeviceCommand'
+import type { DataRow } from '../../../src/web_admin/src/domain/deviceData'
+import type { DeviceInst, PointDef } from '../../../src/web_admin/src/domain/types'
 
 vi.mock('element-plus', async (importOriginal) => {
   const mod = await importOriginal<typeof import('element-plus')>()
@@ -20,8 +20,8 @@ vi.mock('element-plus', async (importOriginal) => {
   }
 })
 
-vi.mock('../../src/api/devices', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('../../src/api/devices')>()
+vi.mock('../../../src/web_admin/src/api/devices', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../../src/web_admin/src/api/devices')>()
   return { ...mod, sendDeviceCommand: vi.fn() }
 })
 

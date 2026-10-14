@@ -4,14 +4,14 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed } from 'vue'
 
-import { protocolRead } from '../../src/api/diagnostics'
-import { usePointReadTest } from '../../src/composables/usePointReadTest'
-import { decodeCandidates, emptyTestCandidates } from '../../src/domain/pointReadTest'
-import { useConfigStore } from '../../src/stores/config'
-import type { DeviceInst, PointDef } from '../../src/domain/types'
+import { protocolRead } from '../../../src/web_admin/src/api/diagnostics'
+import { usePointReadTest } from '../../../src/web_admin/src/composables/usePointReadTest'
+import { decodeCandidates, emptyTestCandidates } from '../../../src/web_admin/src/domain/pointReadTest'
+import { useConfigStore } from '../../../src/web_admin/src/stores/config'
+import type { DeviceInst, PointDef } from '../../../src/web_admin/src/domain/types'
 
-vi.mock('../../src/api/diagnostics', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('../../src/api/diagnostics')>()
+vi.mock('../../../src/web_admin/src/api/diagnostics', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../../src/web_admin/src/api/diagnostics')>()
   return { ...mod, protocolRead: vi.fn() }
 })
 

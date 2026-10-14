@@ -3,7 +3,7 @@ import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
-import { useViewport, VIEWPORT } from '../../src/composables/useViewport'
+import { useViewport, VIEWPORT } from '../../../src/web_admin/src/composables/useViewport'
 
 const Probe = defineComponent({
   setup() {
