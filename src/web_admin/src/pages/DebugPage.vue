@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdminPageHeading from '../components/AdminPageHeading.vue'
 import { onMounted, ref } from 'vue'
 import { runtimeApi, type RuntimeDevice } from '../api/runtime'
 
@@ -51,7 +52,7 @@ onMounted(() => void loadDevices())
 
 <template>
   <section class="runtime-page">
-    <h2>设备与测点诊断</h2>
+    <AdminPageHeading title="设备与测点诊断" description="设备校验、测点解析及批量读取" />
     <p>调用 Commander 正式接口执行只读验证、地址解析和批量读取，不执行控制写入。</p>
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
     <el-form label-position="top">
