@@ -111,6 +111,18 @@ export const runtimeApi = {
       headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     }),
+  verifyPoint: (deviceId: string, pointId: string): Promise<Record<string, unknown>> =>
+    request('/api/v1/commander/devices/' + encodeURIComponent(deviceId) + '/points/' + encodeURIComponent(pointId) + '/verify'),
+  resolvePoint: (deviceId: string, pointId: string): Promise<Record<string, unknown>> =>
+    request('/api/v1/commander/devices/' + encodeURIComponent(deviceId) + '/points/' + encodeURIComponent(pointId) + '/resolve'),
+  verifyPoints: (deviceId: string, pointGroup = ''): Promise<Record<string, unknown>> =>
+    request('/api/v1/commander/devices/' + encodeURIComponent(deviceId) + '/verify-points?point_group=' + encodeURIComponent(pointGroup)),
+  readMany: (deviceId: string, pointIds: string[]): Promise<Record<string, unknown>> =>
+    request('/api/v1/commander/devices/' + encodeURIComponent(deviceId) + '/read-many', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ point_ids: pointIds }),
+    }),
   latestValues: async (deviceId?: string): Promise<LatestPointValue[]> => {
     const query = deviceId ? '?device_id=' + encodeURIComponent(deviceId) : ''
     return (await request<{ values: LatestPointValue[] }>('/api/v1/collector/latest-values' + query)).values
