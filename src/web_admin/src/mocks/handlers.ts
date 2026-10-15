@@ -317,7 +317,7 @@ export const handlers = [
       Object.keys(mockState.workingTexts).map((name) => ({
         name,
         exists: true,
-        optional: name === 'reporting.yaml',
+        optional: false,
       })),
     ),
   ),
