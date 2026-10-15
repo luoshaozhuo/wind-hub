@@ -35,6 +35,8 @@ def _decode_scalar(value: pb.ScalarValue) -> Any:
     kind = value.WhichOneof("kind")
     if kind is None:
         return None
+    if kind == "bytes_value":
+        raise ValueError("byte-valued Commander scalar is not supported by the Server")
     return getattr(value, kind)
 
 
@@ -61,6 +63,8 @@ def _encode_scalar(value: bool | int | float | str) -> pb.ScalarValue:
 
 def _point_value(message: pb.PointValueMessage) -> PointValue:
     """将 Commander 读取结果转换为 Server 采样 DTO。"""
+    if not message.HasField("timestamp"):
+        raise ValueError("Commander point value has no timestamp")
     return PointValue(
         device_id=message.device_id,
         point_id=message.point_id,
@@ -81,6 +85,8 @@ def _command_result(message: pb.CommandResultMessage) -> CommandResult:
     }
     if message.outcome not in outcomes:
         raise ValueError(f"unsupported command outcome: {message.outcome}")
+    if not message.HasField("finished_at"):
+        raise ValueError("Commander command result has no finish timestamp")
     return CommandResult(
         command_id=message.command_id,
         outcome=outcomes[message.outcome],

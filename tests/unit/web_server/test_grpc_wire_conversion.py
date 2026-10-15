@@ -124,3 +124,40 @@ def test_collector_monitoring_event_timestamp_is_utc() -> None:
     event.kind = "acquisition"
     dto = _metrics_snapshot_dto(metrics)
     assert dto.events[0].timestamp == datetime(2026, 10, 15, tzinfo=UTC)
+
+@pytest.mark.parametrize("outcome", [
+    commander_pb2.COMMAND_OUTCOME_CONFIRMED_SUCCESS,
+    commander_pb2.COMMAND_OUTCOME_CONFIRMED_FAILURE,
+    commander_pb2.COMMAND_OUTCOME_UNKNOWN,
+])
+def test_command_result_outcomes(outcome: int) -> None:
+    message = commander_pb2.CommandResultMessage(
+        command_id="c", outcome=outcome
+    )
+    message.finished_at.GetCurrentTime()
+    result = _command_result(message)
+    assert result.command_id == "c"
+    assert result.finished_at.tzinfo is not None
+
+
+def test_command_result_missing_timestamp_is_rejected() -> None:
+    message = commander_pb2.CommandResultMessage(
+        command_id="c",
+        outcome=commander_pb2.COMMAND_OUTCOME_CONFIRMED_SUCCESS,
+    )
+    with pytest.raises(ValueError, match="finish timestamp"):
+        _command_result(message)
+
+
+def test_read_value_missing_timestamp_is_rejected() -> None:
+    message = commander_pb2.PointValueMessage(
+        device_id="d", point_id="p", quality="good"
+    )
+    with pytest.raises(ValueError, match="timestamp"):
+        _point_value(message)
+
+
+def test_bytes_scalar_is_not_misrepresented_as_business_value() -> None:
+    scalar = commander_pb2.ScalarValue(bytes_value=b"abc")
+    with pytest.raises(ValueError, match="byte-valued"):
+        _decode_scalar(scalar)
