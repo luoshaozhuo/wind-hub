@@ -302,7 +302,11 @@ class _IEC104VirtualServer:
     def update(self, rng: random.Random) -> None:
         for point, kind in self.points:
             point.value = random_scalar(kind, rng)
-            point.transmit(c104.Cot.SPONTANEOUS)
+            try:
+                point.transmit(c104.Cot.SPONTANEOUS)
+            except RuntimeError:
+                # 无主站连接时周期刷新仍须继续，后续总召可读取最新值。
+                LOG.debug("IEC104 spontaneous update has no active client")
 
     async def stop(self) -> None:
         if self.server is not None:
