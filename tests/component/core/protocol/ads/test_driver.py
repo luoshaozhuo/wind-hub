@@ -304,6 +304,29 @@ async def test_ads_probe_rejects_none_state_and_closes_connection(
     assert not driver.is_open()
 
 
+@pytest.mark.asyncio
+async def test_ads_health_stop_state_is_unhealthy_without_extra_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _TimeoutProbeConnection.events = []
+    _TimeoutProbeConnection.state = (6, 0)  # ADSSTATE_STOP
+    monkeypatch.setattr(
+        driver_module, "pyads", type("Pyads", (), {"Connection": _TimeoutProbeConnection})
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {},
+    )
+    with pytest.raises(Exception, match="ADS connect failed"):
+        await driver.connect()
+    assert _TimeoutProbeConnection.events == [
+        "open", ("timeout", 5000), "read_state", "close"
+    ]
+    assert driver._connection is None
+    assert not driver.is_open()
+
+
 class _FakeNotificationAttrib:
     last_mode: ClassVar[int]
 
