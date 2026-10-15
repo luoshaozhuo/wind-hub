@@ -461,6 +461,13 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "stale placement generation")
                 raise AssertionError("context.abort must terminate the RPC")
             tasks = frozenset(request.task_ids)
+            unknown = tasks - set(self._app.runtime.task_definitions())
+            if unknown:
+                await context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    f"placement refers to unknown tasks: {sorted(unknown)}",
+                )
+                raise AssertionError("context.abort must terminate the RPC")
             if request.generation == self._placement_generation and tasks != self._placement_tasks:
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "placement generation conflict")
                 raise AssertionError("context.abort must terminate the RPC")
