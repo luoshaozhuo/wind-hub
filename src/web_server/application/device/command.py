@@ -9,7 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from wind_hub_core.model.command import Command
+from commander.application.command import Command
+from core.application.protocol_contract import WriteOutcome
 from web_server.application.port.point_store import TrendStore
 from web_server.application.port.worker import CommanderPort
 
@@ -19,6 +20,7 @@ class DeviceCommandResult(BaseModel):
 
     command_id: str
     requested: Any
+    outcome: WriteOutcome
     success: bool
     error: str | None = None
     sent_at: datetime
@@ -66,7 +68,7 @@ class DeviceCommandService:
         readback_quality = None
         readback_error = None
 
-        if result.success:
+        if result.outcome is WriteOutcome.CONFIRMED_SUCCESS:
             try:
                 observed = await self._commander.read_point(device_id, point_id)
             except Exception as exc:
@@ -80,7 +82,8 @@ class DeviceCommandService:
         return DeviceCommandResult(
             command_id=result.command_id,
             requested=value,
-            success=result.success,
+            outcome=result.outcome,
+            success=result.outcome is WriteOutcome.CONFIRMED_SUCCESS,
             error=result.error,
             sent_at=command.issued_at,
             finished_at=result.finished_at,
