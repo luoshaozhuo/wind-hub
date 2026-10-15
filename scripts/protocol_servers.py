@@ -414,13 +414,14 @@ async def run_fleet(
             await update_task
         yield plans
     finally:
-        if update_task is not None:
-            update_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await update_task
         failure = None
-        if update_task is not None and not update_task.cancelled():
-            failure = update_task.exception()
+        if update_task is not None:
+            if not update_task.done():
+                update_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await update_task
+            elif not update_task.cancelled():
+                failure = update_task.exception()
         for instance in reversed(started):
             try:
                 await instance.stop()
