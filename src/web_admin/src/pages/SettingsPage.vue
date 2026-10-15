@@ -74,14 +74,13 @@ async function save() {
   if (
     !form.siteId.trim() ||
     !form.siteName.trim() ||
-    !form.adsLocalIp.trim() ||
-    !form.adsLocalAms.trim()
+    Boolean(form.adsLocalIp.trim()) !== Boolean(form.adsLocalAms.trim())
   ) {
     ElMessage.error('Required fields cannot be empty')
     return
   }
   const parts = form.adsLocalAms.split('.')
-  if (parts.length !== 6 || parts.some((p) => !/^\d+$/.test(p) || Number(p) > 255)) {
+  if (form.adsLocalAms.trim() && (parts.length !== 6 || parts.some((p) => !/^\d+$/.test(p) || Number(p) > 255))) {
     ElMessage.error('Local AMS Net ID must contain 6 numeric octets')
     return
   }
