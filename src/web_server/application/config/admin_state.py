@@ -93,7 +93,14 @@ class AdminStateService:
                     for item in sinks
                 }
             }
-            documents.update(self._definition_documents(definitions))
+            # 单位目录包含 base_units 与 units 两个正式根，批量保存不得丢失基准单位。
+            definitions_documents = self._definition_documents(definitions)
+            previous_units = documents["units.yaml"]
+            definitions_documents["units.yaml"] = {
+                **previous_units,
+                "units": definitions.units,
+            }
+            documents.update(definitions_documents)
 
         return await self._admin.mutate_yaml_files(
             names,
