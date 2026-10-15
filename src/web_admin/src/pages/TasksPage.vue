@@ -528,7 +528,6 @@ function chooseDevice(d: DeviceInst) {
                     <el-form-item label="Scope">
                       <el-select v-model="form.scope" class="app-full-width">
                         <el-option label="Device Group" value="device_group" />
-                        <el-option label="Single Device" value="device" />
                       </el-select>
                     </el-form-item>
                     <el-form-item v-if="form.scope === 'device_group'" label="Device Group">
@@ -727,9 +726,7 @@ function chooseDevice(d: DeviceInst) {
           <el-form-item label="Task ID"><el-input v-model="form.task_id" /></el-form-item>
           <el-form-item label="Scope"
             ><el-select v-model="form.scope" class="app-full-width"
-              ><el-option label="Device Group" value="device_group" /><el-option
-                label="Single Device"
-                value="device" /></el-select
+              ><el-option label="Device Group" value="device_group" /></el-select
           ></el-form-item>
           <el-form-item v-if="form.scope === 'device_group'" label="Device Group"
             ><el-select v-model="form.device_group" class="app-full-width"
