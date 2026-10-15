@@ -133,6 +133,10 @@ class AdminStateService:
                 raise ValueError(
                     f"task {item.task_id} requires device_group under current Core schema"
                 )
+            if item.interval is None or item.interval <= 0:
+                raise ValueError(f"task {item.task_id} requires a positive interval")
+            if not item.sinks:
+                raise ValueError(f"task {item.task_id} requires at least one sink")
             tasks[item.task_id] = {
                 "device_group_id": item.device_group,
                 "point_group": item.point_group,
