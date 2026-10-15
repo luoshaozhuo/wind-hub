@@ -165,9 +165,21 @@ class CollectorClient:
                 collector_pb.InstanceIdRequest(instance_id=kwargs["instance_id"]),
                 timeout=timeout,
             )
+        elif operation == "apply-placement":
+            response = await control.ApplyTaskPlacement(
+                collector_pb.TaskPlacementSnapshotRequest(
+                    worker_id=kwargs["worker_id"],
+                    generation=kwargs["generation"],
+                    task_ids=kwargs["task_ids"],
+                ),
+                timeout=timeout,
+            )
         elif operation == "start-task":
             response = await control.StartTask(
-                collector_pb.TaskStartRequest(task_id=kwargs["task_id"]),
+                collector_pb.TaskStartRequest(
+                    task_id=kwargs["task_id"],
+                    placement_generation=kwargs["placement_generation"],
+                ),
                 timeout=timeout,
             )
         elif operation == "stop-task":
@@ -177,7 +189,10 @@ class CollectorClient:
             )
         elif operation == "start-instance":
             response = await control.StartTaskInstance(
-                collector_pb.TaskInstanceStartRequest(instance_id=kwargs["instance_id"]),
+                collector_pb.TaskInstanceStartRequest(
+                    instance_id=kwargs["instance_id"],
+                    placement_generation=kwargs["placement_generation"],
+                ),
                 timeout=timeout,
             )
         elif operation == "stop-instance":
