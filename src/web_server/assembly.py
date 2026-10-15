@@ -69,6 +69,8 @@ def assemble_server(
     *,
     collectors: dict[str, str],
     commander: str,
+    api_host: str = "127.0.0.1",
+    api_port: int = 8080,
 ) -> ServerApp:
     """装配独立 Server，不创建任何 Collector/Commander Runtime。"""
     endpoints = dict(collectors)
@@ -165,7 +167,9 @@ def assemble_server(
     operations = OperationRegistry()
     config_admin = ConfigFileService(config)
     admin_state = AdminStateService(config_admin)
-    settings = SettingsService(config, config_admin)
+    settings = SettingsService(
+        config, config_admin, api_host=api_host, api_port=api_port
+    )
     definitions = DefinitionQueryService(config, config_admin)
     sink_ops = SinkService(
         collector_directory,
