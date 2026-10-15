@@ -73,15 +73,15 @@ function seedSinkRuntime(sinks: MockSink[]): Map<string, SinkRuntime> {
   for (const s of sinks) {
     map.set(s.name, {
       writes_total: s.name === 'file_archive' ? 18342 : 0,
-      failures_total: s.name === 'db_main' ? 14 : 0,
-      dropped_points: s.name === 'db_main' ? 6 : 0,
-      queue_depth: s.name === 'db_main' ? 128 : s.name === 'file_archive' ? 2 : 0,
+      failures_total: s.name === 'modbus_main' ? 14 : 0,
+      dropped_points: s.name === 'modbus_main' ? 6 : 0,
+      queue_depth: s.name === 'modbus_main' ? 128 : s.name === 'file_archive' ? 2 : 0,
       latency_ms: s.name === 'file_archive' ? 4 : 0,
       error:
-        s.name === 'db_main'
+        s.name === 'modbus_main'
           ? 'SINK_CONNECTION_REFUSED'
-          : s.name === 'kafka_main'
-            ? 'SINK_BROKER_TIMEOUT'
+          : s.name === 'redis_main'
+            ? 'SINK_REDIS_TIMEOUT'
             : '',
       last_write_at: s.name === 'file_archive' ? '2026-10-08T07:59:58Z' : '',
     })
@@ -108,7 +108,7 @@ function seedState(): MockState {
         revision: 2,
         created_at: '2026-10-07T09:30:00Z',
         source: 'apply',
-        comment: 'enable kafka_main sink',
+        comment: 'enable redis_main sink',
       },
       {
         revision: 1,
