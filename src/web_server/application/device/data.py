@@ -144,7 +144,7 @@ class DeviceDataService:
         return [
             TrendSeries(
                 point_id=point_id,
-                variable_name=definitions[point_id].variable_name,
+                variable_name=definitions[point_id].business_point_id,
                 unit=definitions[point_id].unit,
                 unit_symbol=self._unit_symbol(definitions[point_id].unit),
                 samples=values.get(point_id, []),
