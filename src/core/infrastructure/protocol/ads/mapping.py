@@ -62,6 +62,7 @@ class ADSPoint:
     data_type: str
     size: int
     symbol: str | None = None
+
     @property
     def address_resolved(self) -> bool:
         return self.index_group is not None and self.index_offset is not None
@@ -166,6 +167,12 @@ def parse_ads_point(
     index_offset = (
         None if raw_offset is None else _non_negative_int(raw_offset, "index_offset", point.point_id)
     )
+
+    # Symbol addresses are session-bound. Even an explicitly configured index
+    # pair must not be reused until resolved against the current PLC session.
+    if symbol is not None:
+        index_group = None
+        index_offset = None
 
     explicit_type = options.get("data_type", options.get("type"))
     if explicit_type is None:
