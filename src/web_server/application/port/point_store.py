@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from wind_hub_core.model.point import PointValue
+from web_server.application.device.sample import PointValue
 
 
 class TrendStore(Protocol):

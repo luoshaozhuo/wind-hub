@@ -10,10 +10,9 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
-
-from dataclasses import dataclass, field
 
 from core.application.config_diff import ConfigSnapshotDiff, diff_config_snapshots
 from core.application.config_snapshot import ConfigSnapshot
@@ -28,6 +27,7 @@ class ReloadResult:
     diff: ConfigSnapshotDiff
     errors: list[str] = field(default_factory=list)
     duration_ms: float = 0.0
+
 
 from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.worker import (

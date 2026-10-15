@@ -6,7 +6,7 @@ import threading
 from collections import defaultdict, deque
 from datetime import datetime
 
-from wind_hub_core.model.point import PointValue
+from web_server.application.device.sample import PointValue
 
 
 class InMemoryTrendStore:

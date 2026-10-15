@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from wind_hub_core.config import ResolvedSinkConfig, SinkConfig
+from core.domain.sink import Sink
 from web_server.application.config.files import ConfigApplyResult, ConfigFileService
 from web_server.application.config.service import ConfigService
 from web_server.application.port.collector_directory import CollectorDirectory
@@ -61,17 +61,14 @@ class SinkService:
         runtime = {row.name: row for row in self._monitoring.sinks_snapshot()}
         rows: list[SinkSnapshot] = []
         for cfg in self._config.current_config.sinks.values():
-            current = runtime.get(cfg.name)
+            current = runtime.get(cfg.sink_id)
             rows.append(
                 SinkSnapshot(
-                    name=cfg.name,
-                    type=cfg.type,
+                    name=cfg.sink_id,
+                    type=cfg.kind,
                     enabled=cfg.enabled,
-                    connection=cfg.connection.model_dump(mode="json", by_alias=True),
-                    points=[
-                        point.model_dump(mode="json", by_alias=True)
-                        for point in cfg.points
-                    ],
+                    connection=dict(cfg.connection),
+                    points=list(cfg.points),
                     point_count=len(cfg.points),
                     healthy=(
                         current.healthy
@@ -166,20 +163,14 @@ class SinkService:
 
     async def upsert(self, name: str, payload: dict[str, Any]) -> ConfigApplyResult:
         """新增或更新 Sink；通过 sinks.yaml 配置事务生效。"""
-        cfg = SinkConfig(name=name, **payload)
+        cfg = Sink(sink_id=name, kind=payload["type"], enabled=payload.get("enabled", True), connection=payload["connection"], points=payload.get("points", []))
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
             raw = documents["sinks.yaml"]
-            current = raw.get("sinks") or []
-            if not isinstance(current, list):
-                raise ValueError("sinks.yaml sinks must be a list")
-            sinks = [
-                item
-                for item in current
-                if isinstance(item, dict) and item.get("name") != name
-            ]
-            sinks.append(cfg.model_dump(mode="json", by_alias=True, exclude_none=True))
-            raw["sinks"] = sinks
+            current = raw.setdefault("sinks", {})
+            if not isinstance(current, dict):
+                raise ValueError("sinks.yaml sinks must be a mapping")
+            current[name] = {"type": cfg.kind, "enabled": cfg.enabled, "connection": dict(cfg.connection), "points": list(cfg.points)}
 
         return await self._admin.mutate_yaml_files(
             ("sinks.yaml",),
@@ -194,14 +185,10 @@ class SinkService:
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
             raw = documents["sinks.yaml"]
-            current = raw.get("sinks") or []
-            if not isinstance(current, list):
-                raise ValueError("sinks.yaml sinks must be a list")
-            raw["sinks"] = [
-                item
-                for item in current
-                if isinstance(item, dict) and item.get("name") != name
-            ]
+            current = raw.get("sinks")
+            if not isinstance(current, dict):
+                raise ValueError("sinks.yaml sinks must be a mapping")
+            del current[name]
 
         return await self._admin.mutate_yaml_files(
             ("sinks.yaml",),
@@ -210,9 +197,9 @@ class SinkService:
             comment=f"delete sink {name}",
         )
 
-    def _config_for(self, name: str) -> ResolvedSinkConfig:
+    def _config_for(self, name: str) -> Sink:
         """从当前 resolved Config 取 Sink 定义。"""
         for cfg in self._config.current_config.sinks.values():
-            if cfg.name == name:
+            if cfg.sink_id == name:
                 return cfg
         raise KeyError(name)

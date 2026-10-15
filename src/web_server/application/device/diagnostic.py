@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from wind_hub_core.model.point import PointValue
+from web_server.application.device.sample import PointValue
 from web_server.application.config.service import ConfigService
 from web_server.application.device.command import (
     DeviceCommandResult,
@@ -127,13 +127,11 @@ class DiagnosticService:
     def start_point_table_test(self, device_id: str) -> OperationRecord:
         """按当前 Server 配置取得点表，逐点通过 Commander 在线验证。"""
         cfg = self._config.current_config
-        device = cfg.devices.get(device_id)
+        device = cfg.site.devices.get(device_id)
         if device is None:
             raise KeyError(device_id)
-        point_ids = [
-            point.point_id
-            for point in cfg.point_tables[device.point_table].points
-        ]
+        model = cfg.device_models[device.device_model_id]
+        point_ids = list(cfg.point_tables[model.point_table_id].points)
         operation = self._operations.create(
             "diagnostics.point_table",
             total=len(point_ids),

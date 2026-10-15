@@ -53,10 +53,10 @@ class OverviewService:
         """返回一次一致的当前进程级总览快照。"""
         status = self._monitoring.runtime_status()
         tasks = self._tasks.list_task_summaries()
-        site = self._config.current_config.system.site
+        site = self._config.current_config.site
         return OverviewSnapshot(
-            site_id=site.site_id if site is not None else None,
-            site_name=site.name if site is not None else None,
+            site_id=site.site_id,
+            site_name=site.name,
             runtime_running=status.running,
             runtime_state=(
                 "degraded"

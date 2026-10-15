@@ -7,8 +7,10 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from wind_hub_core.config import PointConfig
-from wind_hub_core.model.point import PointValue, Quality
+from core.domain.point import Point
+from core.domain.sample_value import Quality
+from web_server.application.device.sample import PointValue
+
 from web_server.application.config.service import ConfigService
 from web_server.application.port.point_store import TrendStore
 from web_server.application.port.worker import CommanderPort
@@ -73,7 +75,7 @@ class DeviceDataService:
                     query in str(value or "").lower()
                     for value in (
                         point.point_id,
-                        point.variable_name,
+                        point.business_point_id,
                         point.description,
                     )
                 )
@@ -96,11 +98,11 @@ class DeviceDataService:
             rows.append(
                 DeviceDataItem(
                     point_id=point.point_id,
-                    variable_name=point.variable_name,
+                    variable_name=point.business_point_id,
                     point_groups=list(point.point_groups),
-                    data_type=point.data_type,
-                    unit=point.unit,
-                    unit_symbol=self._unit_symbol(point.unit),
+                    data_type=self._config.current_config.business_points[point.business_point_id].data_type.value,
+                    unit=point.source_unit.unit_id,
+                    unit_symbol=self._unit_symbol(point.source_unit.unit_id),
                     description=point.description,
                     value=value.value if value is not None else None,
                     quality=value.quality if value is not None else None,
@@ -150,15 +152,16 @@ class DeviceDataService:
             for point_id in requested
         ]
 
-    def _points_or_raise(self, device_id: str) -> list[PointConfig]:
+    def _points_or_raise(self, device_id: str) -> list[Point]:
         """从当前配置快照返回设备绑定的 resolved 点表。"""
         cfg = self._config.current_config
-        device = cfg.devices.get(device_id)
+        device = cfg.site.devices.get(device_id)
         if device is None:
             raise KeyError(device_id)
-        return list(cfg.point_tables[device.point_table].points)
+        model = cfg.device_models[device.device_model_id]
+        return list(cfg.point_tables[model.point_table_id].points.values())
 
     def _unit_symbol(self, unit_id: str) -> str:
         """由当前配置快照解析单位显示符号。"""
-        unit = self._config.current_config.units.get(unit_id)
+        unit = self._config.current_config.units.units.get(unit_id)
         return unit.symbol if unit is not None else unit_id
