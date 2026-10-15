@@ -19,7 +19,7 @@ description: Use when a finished task branch must be merged back to main via Git
    - UNKNOWN：继续诊断，不能直接认定为可合并。
 4. RELATED 失败衔接 `ci-fix-loop`。
 5. CI 故障归因与 GitHub 合并许可独立判断。Required checks 未通过时不得宣告可合并。
-6. 默认使用 Merge commit，保留任务分支提交历史；除非用户明确要求，不使用 Squash 或 Rebase。
+6. 默认使用 Squash merge：将任务分支的提交压缩为 `main` 上的一个提交，不保留任务分支内部的提交链；除非用户明确要求且仓库允许，不使用 Merge commit 或 Rebase。
 7. 未经用户明确授权，不自动合并、删除分支或改写 Git 历史。
 
 ## 步骤
@@ -100,7 +100,7 @@ gh pr view <PR-number> \
 - Required checks 满足仓库规则。
 - 必要代码审查已通过。
 - GitHub 允许当前 PR 合并。
-- 仓库允许 Merge commit。
+- 仓库允许 Squash merge。
 
 若 GitHub 返回 UNKNOWN 或合并状态尚未确定，不推断为可合并。
 
@@ -109,12 +109,12 @@ gh pr view <PR-number> \
 只有 PR 满足合并条件时，才提供：
 
 ```bash
-gh pr merge <PR-number> --merge
+gh pr merge <PR-number> --squash
 ```
 
 不得自动执行。
 
-不得默认添加 `--admin`。
+不得默认添加 `--admin`。Squash 不绕过 Required checks、审查要求或分支保护。
 
 如果不满足合并条件，必须说明具体阻塞项，不输出可直接执行的强制合并命令。
 
@@ -126,14 +126,14 @@ gh pr merge <PR-number> --merge
 git status --short --branch
 git switch main
 git pull --ff-only origin main
-git branch -d <task-branch>
+git branch -d <task-branch>  # Squash 后可能拒绝，见下文
 ```
 
 说明：
 
 - 切换分支前确保工作区干净。
 - 如果 `git pull --ff-only` 失败，停止并排查，不使用 `reset --hard`。
-- 如果 `git branch -d` 失败，停止并检查提交是否已被包含，不自动改用 `-D`。
+- Squash 合并后原任务提交不会成为 `main` 的祖先，因此 `git branch -d` 可能失败；先确认远程 PR 确实已合并、工作区干净且任务分支不再需要，再由用户决定使用 `git branch -D <task-branch>`，不得自动强制删除。
 - 远程任务分支是否删除，由用户根据仓库策略决定。
 - 不自动清理其他工作区、其他分支或未合并提交。
 
