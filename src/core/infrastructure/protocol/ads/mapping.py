@@ -134,13 +134,18 @@ def parse_ads_point(
     symbol = _optional_string(options.get("symbol"), "symbol", point.point_id)
     raw_group = options.get("index_group")
     raw_offset = options.get("index_offset")
-    if (raw_group is None) != (raw_offset is None):
+    has_group = raw_group is not None
+    has_offset = raw_offset is not None
+    if has_group != has_offset:
         raise ConfigError(
             f"ADS point '{point.point_id}': index_group and index_offset "
             "must be configured together"
         )
-    if symbol is None and raw_group is None:
-        raise ConfigError(f"ADS point '{point.point_id}' requires symbol or index address")
+    if symbol is None and not has_group:
+        raise ConfigError(
+            f"ADS point '{point.point_id}' requires symbol or "
+            "index_group + index_offset"
+        )
 
     index_group = (
         0 if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
