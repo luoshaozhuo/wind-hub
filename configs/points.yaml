@@ -24,8 +24,8 @@
 #                      选择点集。
 #   address:           Mapping，必填 —— 协议地址（见下），显式配置即整体
 #                      替换父表值，不残留父表字段。
-#   data_type:         bool/int8/int16/int32/int64/uint8/uint16/uint32/
-#                      uint64/float32/float64/string（必填）。
+#   data_type:         必填，按各协议约定填写，见下方类型清单；业务点
+#                      business_points.yaml 仍使用统一逻辑类型。
 #   unit_id:           工程单位引用（units.yaml 的 Unit ID，如
 #                      kilowatt），缺省 none（无量纲）；量纲必须与
 #                      业务点标准单位一致。
@@ -34,6 +34,35 @@
 #                      与 units.yaml 的单位间换算无关，不会叠加。
 #                      （bool/string 点不允许 scaling 且必须 dimensionless）。
 #   description:       str，可选。
+#
+# 协议数据类型（data_type）：
+#   Modbus：bool / int8 / uint8 / int16 / uint16 / int32 / uint32 /
+#           int64 / uint64 / float32 / float64；寄存器值由所选类型
+#           确定占用寄存器数；coil/discrete_input 使用 bool。
+#   ADS（PLC 原生类型）：BOOL / SINT / USINT / INT / UINT /
+#           DINT / UDINT / LINT / ULINT / REAL / LREAL / STRING。
+#           仅 STRING 可在 address.size 指定字节长度，必须 > 0；
+#           其余类型长度由类型确定，不允许任意覆盖。
+#   IEC104：协议原生 ASDU Type ID 填在 address.type（type_id）：
+#           M_SP_NA_1、M_ME_NA_1、C_SC_NA_1 等；
+#           data_type 使用 ASDU 载荷的逻辑标量类型（bool、int16、
+#           float32 等），不是 ASDU Type ID；两者用途不同。
+#
+# address 协议字段完整清单：
+#   Modbus：
+#     register_type / type：holding / input / coil / discrete_input，
+#          兼容别名 holding_register / input_register / discrete；
+#     address：int，0..65535，0-based；
+#     count：int，可选；必须与 data_type 实际占用寄存器数一致；
+#     word_order：big_endian / little_endian，可选，默认型号配置；
+#   ADS：
+#     symbol：str，可选；符号寻址时优先使用，每次会话重新解析；
+#     index_group、index_offset：非负 int，必须成对提供；
+#     symbol 和 index 地址至少配置一组；
+#     size：非负 int，可选；STRING 必须提供正整数长度；
+#   IEC104：
+#     type / type_id：ASDU Type ID（大写），如 M_ME_NC_1；
+#     ioa：int，0..16777215；C_* 命令类型可以写，M_* 监测类型只读。
 #
 # 各协议的 address 字段：
 # - Modbus: `register_type`（或别名 `type`）+ `address`。
@@ -99,7 +128,7 @@ point_tables:
         point_groups: [all]
         address:
           symbol: MAIN.rotorSpeed
-        data_type: float32
+        data_type: REAL
         unit_id: rpm
         description: "风轮转速"
 
@@ -108,7 +137,7 @@ point_tables:
         point_groups: [all]
         address:
           symbol: MAIN.genPower
-        data_type: float32
+        data_type: REAL
         unit_id: kilowatt
         description: "发电机有功功率"
 
@@ -127,7 +156,7 @@ point_tables:
         point_groups: [all]
         address:
           symbol: MAIN.converterTemp
-        data_type: float32
+        data_type: REAL
         unit_id: celsius
         description: "变流器温度"
 
