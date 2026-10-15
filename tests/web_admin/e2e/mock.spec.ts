@@ -45,35 +45,21 @@ test('mock 模式：Tasks 故障目标启动失败', async ({ page }) => {
   await expect(content.locator('.el-table__body')).toContainText('STOPPED')
 })
 
-test('mock 模式：Sinks verify file 成功 / db 固定失败', async ({ page }) => {
+test('mock 模式：Sinks 文件可用 / Modbus 不可达', async ({ page }) => {
   await page.goto('/')
   await page.locator('.el-menu-item', { hasText: 'Sinks' }).first().click()
   const content = page.locator('section.content')
-  await expect(content).toContainText('kafka_main')
-  await expect(content).toContainText('db_main')
+  await expect(content).toContainText('redis_main')
+  await expect(content).toContainText('modbus_main')
   await expect(content).toContainText('file_archive')
 
-  // Verify 入口在 Sink 详情 drawer 的 Test 页签内
-  const drawer = page.getByRole('dialog')
-  await content
-    .locator('tr', { hasText: 'file_archive' })
-    .locator('button', { hasText: 'file_archive' })
-    .first()
-    .click()
-  await drawer.getByRole('tab', { name: 'Test' }).click()
-  await drawer.getByRole('button', { name: 'Verify', exact: true }).click()
-  await expect(page.locator('.el-message--success')).toBeVisible({ timeout: 15000 })
-  await page.keyboard.press('Escape')
-  await expect(drawer).toBeHidden()
+  const file = content.locator('tr', { hasText: 'file_archive' }).first()
+  await file.getByRole('button', { name: '验证' }).click()
+  await expect(file).toContainText('healthy', { timeout: 15000 })
 
-  await content
-    .locator('tr', { hasText: 'db_main' })
-    .locator('button', { hasText: 'db_main' })
-    .first()
-    .click()
-  await drawer.getByRole('tab', { name: 'Test' }).click()
-  await drawer.getByRole('button', { name: 'Verify', exact: true }).click()
-  await expect(page.locator('.el-message--error')).toBeVisible({ timeout: 15000 })
+  const modbus = content.locator('tr', { hasText: 'modbus_main' }).first()
+  await modbus.getByRole('button', { name: '验证' }).click()
+  await expect(modbus).toContainText('failed', { timeout: 15000 })
 })
 
 test('mock 模式：Logs 有内容且 Quality 反映故障场景', async ({ page }) => {
@@ -87,5 +73,5 @@ test('mock 模式：Logs 有内容且 Quality 反映故障场景', async ({ page
   const quality = page.locator('.quality-page')
   await expect(quality).toBeVisible()
   await expect(quality).toContainText('wtg-041')
-  await expect(quality).toContainText('db_main')
+  await expect(quality).toContainText('modbus_main')
 })
