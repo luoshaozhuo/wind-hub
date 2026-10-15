@@ -624,7 +624,7 @@ export function seedYamlFiles(
   const defs = buildDefinitions()
   const units = Object.fromEntries(Object.entries(unitsSeed).map(([id, unit]) => [
     id,
-    { symbol: unit.symbol, quantity: 'dimensionless' },
+    { symbol: unit.symbol, quantity: id },
   ]))
   const points = Object.fromEntries(
     Object.values(pointTablesSeed).flatMap((table) =>
@@ -646,7 +646,9 @@ export function seedYamlFiles(
         : {}),
     }),
     'units.yaml': yamlDocument({
-      quantities: { dimensionless: { base_unit: 'none' } },
+      quantities: Object.fromEntries(Object.keys(unitsSeed).map((id) => [
+        id, { base_unit: id },
+      ])),
       units,
     }),
     'device_models.yaml': yamlDocument({
