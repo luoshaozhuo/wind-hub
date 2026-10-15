@@ -11,7 +11,7 @@ from core.domain.unit import DIMENSIONLESS, Quantity, Unit, UnitCatalog, convert
 from core.infrastructure.config.units import dump_unit_catalog, parse_unit_catalog
 from tests.support.units import MINIMAL_UNITS_DOCUMENT, minimal_unit_catalog
 
-TEMPLATE_DIR = Path(__file__).resolve().parents[4] / "configs" / "template"
+TEMPLATE_DIR = Path(__file__).resolve().parents[4] / "configs"
 
 
 def _catalog(*units: Unit, quantities: dict[str, str] | None = None) -> UnitCatalog:
