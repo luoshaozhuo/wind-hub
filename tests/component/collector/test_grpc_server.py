@@ -92,8 +92,24 @@ async def test_task_lifecycle(running):
     assert tasks.items[0].task_id == "t1"
     assert tasks.items[0].runtime_state == "stopped"
 
-    # 已配置任务可直接启动，无需任何外部授权。
-    summary = await control_stub.StartTask(pb.TaskStartRequest(task_id="t1"))
+    # 未授权启动必须拒绝；随后由控制面下发当前任务归属。
+    with pytest.raises(grpc.aio.AioRpcError) as denied:
+        await control_stub.StartTask(pb.TaskStartRequest(task_id="t1"))
+    assert denied.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+
+    info = await runtime_stub.GetCollectorInfo(empty_pb2.Empty())
+    placement = await control_stub.ApplyTaskPlacement(
+        pb.TaskPlacementSnapshotRequest(
+            worker_id=info.collector_id,
+            generation=1,
+            task_ids=["t1"],
+        )
+    )
+    assert placement.success
+    assert placement.task_count == 1
+    summary = await control_stub.StartTask(
+        pb.TaskStartRequest(task_id="t1", placement_generation=1)
+    )
     assert summary.runtime_state == "running"
     assert summary.running_instances == 1
 
