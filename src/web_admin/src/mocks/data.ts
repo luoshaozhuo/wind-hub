@@ -163,7 +163,7 @@ function adsPoints(prefix: string, count: number): MockPointDef[] {
       data_type: mixedTypes[i % mixedTypes.length],
       scale: i % 6 === 0 ? 0.1 : 1,
       offset: 0,
-      unit: unitIds[i % unitIds.length],
+      unit: (i % 5 === 4 ? 'none' : unitIds[i % unitIds.length]),
       description: `${name.replace(/_/g, ' ')} measurement`,
     }
   })
@@ -185,7 +185,7 @@ function modbusPoints(prefix: string, count: number): MockPointDef[] {
       data_type: ['float32', 'int32', 'int16', 'uint16', 'bool'][i % 5],
       scale: i % 6 === 0 ? 0.01 : 1,
       offset: 0,
-      unit: unitIds[i % unitIds.length],
+      unit: (i % 5 === 4 ? 'none' : unitIds[i % unitIds.length]),
       description: `${name.replace(/_/g, ' ')} measurement`,
     }
   })
@@ -206,7 +206,7 @@ function iec104Points(prefix: string, count: number): MockPointDef[] {
       data_type: ['float32', 'float32', 'int32', 'uint16', 'bool'][i % 5],
       scale: i % 6 === 0 ? 0.1 : 1,
       offset: 0,
-      unit: unitIds[i % unitIds.length],
+      unit: (i % 5 === 4 ? 'none' : unitIds[i % unitIds.length]),
       description: `${name.replace(/_/g, ' ')} measurement`,
     }
   })
@@ -308,9 +308,7 @@ export function buildDefinitions(): DefinitionsDto {
       point_table_id: model.point_table,
       properties: {},
       endpoint_defaults: { port: model.connection_defaults.port },
-      protocol_options: Object.fromEntries(
-        Object.entries(model.connection_defaults).filter(([key]) => key !== 'port'),
-      ),
+      protocol_options: {},
     }
   }
   return {
