@@ -85,3 +85,66 @@ async def test_readback_failure_does_not_fail_successful_write() -> None:
     assert result.success is True
     assert result.readback is None
     assert result.readback_error == "readback timeout"
+
+
+async def test_same_command_id_returns_cached_result_without_second_write() -> None:
+    """相同 command_id + 相同内容的重复请求返回首次结果，不发生二次写入。"""
+    commander = AsyncMock()
+    commander.write.return_value = CommandResult(
+        command_id="c9",
+        outcome=WriteOutcome.UNKNOWN,
+        error="timeout",
+    )
+    service = DeviceCommandService(commander, InMemoryTrendStore())
+
+    first = await service.send("d1", "setpoint", 1.0, command_id="c9")
+    second = await service.send("d1", "setpoint", 1.0, command_id="c9")
+
+    assert second is first
+    assert commander.write.await_count == 1
+
+
+async def test_same_command_id_with_different_content_conflicts() -> None:
+    """相同 command_id 携带不同写入内容必须拒绝，防止语义混淆。"""
+    import pytest
+
+    from web_server.application.device.command import CommandIdConflictError
+
+    commander = AsyncMock()
+    commander.write.return_value = CommandResult(
+        command_id="c10",
+        outcome=WriteOutcome.CONFIRMED_FAILURE,
+    )
+    service = DeviceCommandService(commander, InMemoryTrendStore())
+
+    await service.send("d1", "setpoint", 1.0, command_id="c10")
+    with pytest.raises(CommandIdConflictError):
+        await service.send("d1", "setpoint", 2.0, command_id="c10")
+    assert commander.write.await_count == 1
+
+
+async def test_concurrent_duplicate_shares_single_execution() -> None:
+    """并发重复请求共享同一次执行——in-flight 去重，绝不并行双写。"""
+    import asyncio
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_write(command):  # noqa: ANN001, ANN202
+        started.set()
+        await release.wait()
+        return CommandResult(command_id=command.command_id, outcome=WriteOutcome.UNKNOWN)
+
+    commander = AsyncMock()
+    commander.write.side_effect = slow_write
+    service = DeviceCommandService(commander, InMemoryTrendStore())
+
+    first = asyncio.create_task(service.send("d1", "setpoint", 1.0, command_id="c11"))
+    await started.wait()
+    second = asyncio.create_task(service.send("d1", "setpoint", 1.0, command_id="c11"))
+    await asyncio.sleep(0)
+    release.set()
+
+    first_result, second_result = await asyncio.gather(first, second)
+    assert first_result is second_result
+    assert commander.write.await_count == 1

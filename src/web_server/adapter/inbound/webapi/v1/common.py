@@ -36,100 +36,71 @@ from web_server.application.worker.registry import WorkerRegistry
 T = TypeVar("T")
 
 
+def _require(service: T | None, name: str) -> T:
+    """返回已装配的应用服务；缺失时按服务不可用处理。"""
+    if service is None:
+        raise APIError("SERVICE_UNAVAILABLE", f"{name} is not configured", 503)
+    return service
+
+
 def devices(ctx: AppContext) -> DeviceQueryService:
-    """返回 V1 DeviceQueryService；未装配时按服务不可用处理。"""
-    if ctx.devices is None:
-        raise APIError("SERVICE_UNAVAILABLE", "device use case is not configured", 503)
-    return ctx.devices
+    return _require(ctx.devices, "devices use case")
 
 
 def device_data(ctx: AppContext) -> DeviceDataService:
-    """返回 Devices Data/Trend 服务。"""
-    if ctx.device_data is None:
-        raise APIError("SERVICE_UNAVAILABLE", "device data use case is not configured", 503)
-    return ctx.device_data
+    return _require(ctx.device_data, "device_data use case")
 
 
 def device_control(ctx: AppContext) -> DeviceCommandService:
-    """返回设备控制与回读服务。"""
-    if ctx.device_control is None:
-        raise APIError("SERVICE_UNAVAILABLE", "device control use case is not configured", 503)
-    return ctx.device_control
+    return _require(ctx.device_control, "device_control use case")
 
 
 def admin_state(ctx: AppContext) -> AdminStateService:
-    if ctx.admin_state is None:
-        raise APIError("SERVICE_UNAVAILABLE", "admin state is not configured", 503)
-    return ctx.admin_state
+    return _require(ctx.admin_state, "admin_state use case")
 
 
 def config_admin(ctx: AppContext) -> ConfigFileService:
-    if ctx.config_admin is None:
-        raise APIError("SERVICE_UNAVAILABLE", "config admin is not configured", 503)
-    return ctx.config_admin
+    return _require(ctx.config_admin, "config_admin use case")
 
 
 def settings(ctx: AppContext) -> SettingsService:
-    if ctx.settings is None:
-        raise APIError("SERVICE_UNAVAILABLE", "settings use case is not configured", 503)
-    return ctx.settings
+    return _require(ctx.settings, "settings use case")
 
 
 def definitions(ctx: AppContext) -> DefinitionQueryService:
-    if ctx.definitions is None:
-        raise APIError("SERVICE_UNAVAILABLE", "definitions use case is not configured", 503)
-    return ctx.definitions
+    return _require(ctx.definitions, "definitions use case")
 
 
 def sinks(ctx: AppContext) -> SinkService:
-    if ctx.sinks is None:
-        raise APIError("SERVICE_UNAVAILABLE", "sink use case is not configured", 503)
-    return ctx.sinks
+    return _require(ctx.sinks, "sinks use case")
 
 
 def diagnostics(ctx: AppContext) -> DiagnosticService:
-    if ctx.diagnostics is None:
-        raise APIError("SERVICE_UNAVAILABLE", "diagnostics use case is not configured", 503)
-    return ctx.diagnostics
+    return _require(ctx.diagnostics, "diagnostics use case")
 
 
 def quality(ctx: AppContext) -> QualityService:
-    if ctx.quality is None:
-        raise APIError("SERVICE_UNAVAILABLE", "quality use case is not configured", 503)
-    return ctx.quality
+    return _require(ctx.quality, "quality use case")
 
 
 def logs(ctx: AppContext) -> LogQueryService:
-    if ctx.logs is None:
-        raise APIError("SERVICE_UNAVAILABLE", "logs use case is not configured", 503)
-    return ctx.logs
+    return _require(ctx.logs, "logs use case")
 
 
 def system_health(ctx: AppContext) -> SystemHealthService:
-    if ctx.system_health is None:
-        raise APIError("SERVICE_UNAVAILABLE", "system health use case is not configured", 503)
-    return ctx.system_health
+    return _require(ctx.system_health, "system_health use case")
 
 
 def tasks(ctx: AppContext) -> TaskControlService:
-    """返回 Task 控制服务；未装配时按服务不可用处理。"""
-    if ctx.tasks is None:
-        raise APIError("SERVICE_UNAVAILABLE", "tasks use case is not configured", 503)
-    return ctx.tasks
+    return _require(ctx.tasks, "tasks use case")
 
 
 def workers(ctx: AppContext) -> WorkerRegistry:
-    """返回 Worker Registry；未装配时按服务不可用处理。"""
-    if ctx.workers is None:
-        raise APIError("SERVICE_UNAVAILABLE", "worker registry is not configured", 503)
-    return ctx.workers
+    return _require(ctx.workers, "workers use case")
 
 
 def overview(ctx: AppContext) -> OverviewService:
-    """返回 OverviewService；未装配时按服务不可用处理。"""
-    if ctx.overview is None:
-        raise APIError("SERVICE_UNAVAILABLE", "overview use case is not configured", 503)
-    return ctx.overview
+    return _require(ctx.overview, "overview use case")
 
 
 def page(items: list[T], page: int, page_size: int) -> tuple[list[T], PageMeta]:

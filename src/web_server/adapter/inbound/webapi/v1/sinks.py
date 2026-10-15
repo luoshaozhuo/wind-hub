@@ -14,6 +14,7 @@ from web_server.adapter.inbound.webapi.v1.models import (
     SinkUpsertRequest,
 )
 from web_server.application.app_context import AppContext
+from web_server.infra.audit import audit
 
 router = APIRouter()
 
@@ -42,6 +43,7 @@ async def upsert_sink(
         result = await common.sinks(ctx).upsert(name, request.model_dump())
     except ValueError as exc:
         raise APIError("VALIDATION_ERROR", str(exc), 422) from exc
+    audit("sink.upsert", sink=name, success=result.success)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -51,6 +53,7 @@ async def delete_sink(name: str, ctx: AppContext = Depends(get_ctx)) -> ConfigAp
         result = await common.sinks(ctx).delete(name)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
+    audit("sink.delete", sink=name, success=result.success)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -60,6 +63,7 @@ async def verify_sink(name: str, ctx: AppContext = Depends(get_ctx)) -> SinkTest
         result = await common.sinks(ctx).verify(name)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
+    audit("sink.verify", sink=name, success=result.success)
     return SinkTestResponse(**result.model_dump())
 
 
@@ -73,4 +77,5 @@ async def sink_write_test(name: str, ctx: AppContext = Depends(get_ctx)) -> Sink
         result = await common.sinks(ctx).write_test(name)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
+    audit("sink.write_test", sink=name, success=result.success)
     return SinkTestResponse(**result.model_dump())

@@ -4023,6 +4023,49 @@
         ]
       }
     },
+    "/api/v1/operations/{operation_id}/cancel": {
+      "post": {
+        "description": "\u53d6\u6d88\u8fd0\u884c\u4e2d\u7684\u8bca\u65ad Operation\uff08\u7ec8\u6b62\u5e95\u5c42\u534f\u7a0b\uff0c\u800c\u975e\u4ec5\u6539\u72b6\u6001\uff09\u3002",
+        "operationId": "cancel_operation_api_v1_operations__operation_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Operation",
+        "tags": [
+          "v1-operations"
+        ]
+      }
+    },
     "/api/v1/overview": {
       "get": {
         "description": "\u8fd4\u56de wind-hub-admin \u603b\u89c8\u9875\u7684\u4e00\u6b21\u805a\u5408\u8fd0\u884c\u5feb\u7167\u3002",

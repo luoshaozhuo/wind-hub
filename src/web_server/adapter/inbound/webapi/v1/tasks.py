@@ -16,6 +16,7 @@ from web_server.application.app_context import AppContext
 from web_server.application.task.collector import TaskWorkerUnavailableError
 from web_server.application.task.placement import TaskPlacementError
 from web_server.application.task.reconcile import TaskPlacementUnsafeError
+from web_server.infra.audit import audit
 
 router = APIRouter()
 
@@ -89,6 +90,7 @@ async def start_task(task_id: str, ctx: AppContext = Depends(get_ctx)) -> TaskRe
         raise APIError("WORKER_UNAVAILABLE", str(exc), 503) from exc
     except ValueError as exc:
         raise APIError("TASK_DISABLED", str(exc), 409) from exc
+    audit("task.start", task_id=task_id, runtime_state=row.runtime_state)
     return common.task_response(row)
 
 
@@ -103,4 +105,5 @@ async def stop_task(task_id: str, ctx: AppContext = Depends(get_ctx)) -> TaskRes
         raise APIError("TASK_UNASSIGNED", str(exc), 409) from exc
     except TaskWorkerUnavailableError as exc:
         raise APIError("WORKER_UNAVAILABLE", str(exc), 503) from exc
+    audit("task.stop", task_id=task_id, runtime_state=row.runtime_state)
     return common.task_response(row)

@@ -11,7 +11,11 @@ from core.infrastructure.rpc import collector_pb2 as pb
 
 def _server() -> CollectorControlService:
     app = Mock()
-    app.runtime.task_definitions.return_value = {"a": object(), "task-1": object()}
+    app.runtime.task_definitions.return_value = {
+        "a": object(),
+        "b": object(),
+        "task-1": object(),
+    }
     service = CollectorControlService(app, "collector-a")
     service._tasks = Mock()
     service._tasks.stop_task = AsyncMock()
@@ -28,9 +32,7 @@ def _context() -> Mock:
 async def test_reject_start_without_placement() -> None:
     server, ctx = _server(), _context()
     with pytest.raises(RuntimeError, match="aborted"):
-        await server.StartTask(
-            pb.TaskStartRequest(task_id="task-1", placement_generation=1), ctx
-        )
+        await server.StartTask(pb.TaskStartRequest(task_id="task-1", placement_generation=1), ctx)
     ctx.abort.assert_awaited_once_with(
         grpc.StatusCode.FAILED_PRECONDITION,
         "task placement ownership mismatch",
@@ -42,14 +44,10 @@ async def test_placement_identity_and_generation_checks() -> None:
     server, ctx = _server(), _context()
     with pytest.raises(RuntimeError, match="aborted"):
         await server.ApplyTaskPlacement(
-            pb.TaskPlacementSnapshotRequest(
-                worker_id="collector-b", generation=1, task_ids=["a"]
-            ),
+            pb.TaskPlacementSnapshotRequest(worker_id="collector-b", generation=1, task_ids=["a"]),
             ctx,
         )
-    ctx.abort.assert_awaited_with(
-        grpc.StatusCode.PERMISSION_DENIED, "collector identity mismatch"
-    )
+    ctx.abort.assert_awaited_with(grpc.StatusCode.PERMISSION_DENIED, "collector identity mismatch")
 
 
 @pytest.mark.asyncio
@@ -68,15 +66,11 @@ async def test_revocation_stops_removed_task() -> None:
     server = _server()
     context = _context()
     await server.ApplyTaskPlacement(
-        pb.TaskPlacementSnapshotRequest(
-            worker_id="collector-a", generation=1, task_ids=["task-1"]
-        ),
+        pb.TaskPlacementSnapshotRequest(worker_id="collector-a", generation=1, task_ids=["task-1"]),
         context,
     )
     result = await server.ApplyTaskPlacement(
-        pb.TaskPlacementSnapshotRequest(
-            worker_id="collector-a", generation=2
-        ),
+        pb.TaskPlacementSnapshotRequest(worker_id="collector-a", generation=2),
         context,
     )
     assert result.task_count == 0

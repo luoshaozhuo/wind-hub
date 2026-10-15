@@ -44,12 +44,26 @@ async def test_collector_task_start_stop_via_cli(tmp_path) -> None:
             assert len(tasks["items"]) == 1
             task_id = tasks["items"][0]["task_id"]
 
-            # 未知任务必须映射为稳定的 NOT_FOUND 错误。
+            # 生成号围栏启动要求先下发 placement，再以相同 generation 启动。
+            placement = await client.call(
+                "apply-placement",
+                worker_id="cli-standalone",
+                generation=1,
+                task_ids=[task_id],
+            )
+            assert placement["success"] is True
+
+            # 不属于当前 placement 的任务启动被所有权围栏拒绝。
             with pytest.raises(grpc.aio.AioRpcError) as error:
-                await client.call("start-task", task_id="ghost")
+                await client.call("start-task", task_id="ghost", placement_generation=1)
+            assert error.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+
+            # 未知任务停止必须映射为稳定的 NOT_FOUND 错误。
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await client.call("stop-task", task_id="ghost")
             assert error.value.code() == grpc.StatusCode.NOT_FOUND
 
-            started = await client.call("start-task", task_id=task_id)
+            started = await client.call("start-task", task_id=task_id, placement_generation=1)
             assert started["runtime_state"] == "running"
 
             stopped = await client.call("stop-task", task_id=task_id)

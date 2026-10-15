@@ -17,6 +17,8 @@ from web_server.adapter.inbound.webapi.v1.models import (
     TrendSeriesResponse,
 )
 from web_server.application.app_context import AppContext
+from web_server.application.device.command import CommandIdConflictError
+from web_server.infra.audit import audit
 
 router = APIRouter()
 
@@ -118,11 +120,22 @@ async def send_device_command(
     ctx: AppContext = Depends(get_ctx),
 ) -> DeviceCommandResponse:
     """真实写入设备；写成功后即时回读并追加短期 Trend 样本。"""
-    result = await common.device_control(ctx).send(
-        device_id,
-        request.point_id,
-        request.value,
-        timeout=request.timeout,
+    try:
+        result = await common.device_control(ctx).send(
+            device_id,
+            request.point_id,
+            request.value,
+            timeout=request.timeout,
+            command_id=request.command_id,
+        )
+    except CommandIdConflictError as exc:
+        raise APIError("COMMAND_ID_CONFLICT", str(exc), 409) from exc
+    audit(
+        "device.command",
+        device_id=device_id,
+        point_id=request.point_id,
         command_id=request.command_id,
+        outcome=str(result.outcome),
+        success=result.success,
     )
     return DeviceCommandResponse(**result.model_dump())

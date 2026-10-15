@@ -27,6 +27,7 @@ from web_server.application.config.admin_state import (
     AdminSinkItem,
     AdminTaskItem,
 )
+from web_server.infra.audit import audit
 
 router = APIRouter()
 
@@ -71,6 +72,7 @@ async def apply_config(
         )
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown config file '{request.name}'", 404) from None
+    audit("config.apply", file=request.name, comment=request.comment, success=result.success)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -111,6 +113,7 @@ async def restore_config(revision: int, ctx: AppContext = Depends(get_ctx)) -> C
         result = await common.config_admin(ctx).restore_revision(revision)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown revision '{revision}'", 404) from None
+    audit("config.restore", revision=revision, success=result.success)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -130,6 +133,7 @@ async def update_settings(
     from web_server.application.config.settings import SettingsUpdate
 
     result = await common.settings(ctx).update(SettingsUpdate(**request.model_dump()))
+    audit("settings.update", success=result.success)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -156,6 +160,7 @@ async def upsert_definition(
         result = await common.definitions(ctx).upsert(kind, name, request.value)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown definition kind '{kind}'", 404) from None
+    audit("definition.upsert", kind=kind, name=name, success=result.success)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -173,6 +178,7 @@ async def delete_definition(
         result = await common.definitions(ctx).delete(kind, name)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown definition '{kind}/{name}'", 404) from None
+    audit("definition.delete", kind=kind, name=name, success=result.success)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -193,5 +199,12 @@ async def replace_admin_state(
         tasks=[AdminTaskItem(**item.model_dump()) for item in request.tasks],
         sinks=[AdminSinkItem(**item.model_dump()) for item in request.sinks],
         definitions=AdminDefinitionsState(**request.definitions.model_dump()),
+    )
+    audit(
+        "admin_state.replace",
+        devices=len(request.devices),
+        tasks=len(request.tasks),
+        sinks=len(request.sinks),
+        success=result.success,
     )
     return ConfigApplyResponse(**result.model_dump())

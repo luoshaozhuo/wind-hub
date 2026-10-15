@@ -23,6 +23,7 @@ from web_server.adapter.inbound.webapi.v1.models import (
     SubnetScanRequest,
 )
 from web_server.application.app_context import AppContext
+from web_server.infra.audit import audit
 
 router = APIRouter()
 
@@ -88,10 +89,9 @@ async def diagnostic_protocol_read(
     request: ProtocolReadRequest,
     ctx: AppContext = Depends(get_ctx),
 ) -> ProtocolReadResponse:
-    try:
-        value = await common.diagnostics(ctx).read(request.device_id, request.point_id)
-    except Exception as exc:
-        raise APIError("PROTOCOL_READ_FAILED", str(exc), 503) from exc
+    # 读取失败按来源映射：未知设备/点由 Commander 返回 NOT_FOUND，
+    # 经全局 gRPC 错误处理器映射为 404；链路故障映射为 503/504。
+    value = await common.diagnostics(ctx).read(request.device_id, request.point_id)
     return ProtocolReadResponse(
         device_id=value.device_id,
         point_id=value.point_id,
@@ -128,4 +128,11 @@ async def diagnostic_protocol_write(
     ctx: AppContext = Depends(get_ctx),
 ) -> DeviceCommandResponse:
     result = await common.diagnostics(ctx).write(request.device_id, request.point_id, request.value)
+    audit(
+        "diagnostics.write",
+        device_id=request.device_id,
+        point_id=request.point_id,
+        outcome=str(result.outcome),
+        success=result.success,
+    )
     return DeviceCommandResponse(**result.model_dump())
