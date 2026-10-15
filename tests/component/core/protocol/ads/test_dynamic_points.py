@@ -195,7 +195,7 @@ class TestDynamicWriteOne:
         connection = _Connection()
         driver = _driver(connection)
 
-        result = await driver.write_one(_dyn(), 123)
+        result = await driver.write_one(ProtocolWrite(_dyn(), 123))
 
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert result.point_id == "dyn"
@@ -206,17 +206,11 @@ class TestDynamicWriteOne:
         connection = _Connection()
         driver = _driver(connection)
 
-        result = await driver.write_one(_dyn(data_type="BOOL"), 1)
+        result = await driver.write_one(ProtocolWrite(_dyn(data_type="BOOL"), 1))
 
         assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "bool" in (result.message or "")
         assert connection.write_calls == []
-
-    @pytest.mark.asyncio
-    async def test_dynamic_write_requires_explicit_value(self) -> None:
-        driver = _driver(_Connection())
-        with pytest.raises(TypeError, match="requires an explicit value"):
-            await driver.write_one(_dyn())
 
     @pytest.mark.asyncio
     async def test_protocol_write_form_still_works(self) -> None:
@@ -236,7 +230,7 @@ class TestDynamicWriteOne:
         driver = _driver(connection)
 
         with pytest.raises(ProtocolError, match="write failed"):
-            await driver.write_one(_dyn(), 1)
+            await driver.write_one(ProtocolWrite(_dyn(), 1))
 
         assert driver.is_open() is False
 
