@@ -288,35 +288,28 @@ class ADSDriver:
         *,
         interval: float | None = None,
     ) -> _TrackedADSSubscription:
-        """建立独立 ADS device-notification 订阅。
-
-        interval 是 notification cycle_time，必须由调用方明确提供。空 point_ids
-        表示订阅当前 PointTable 的全部协议点。
-        """
-        if not self._connected:
-            raise ProtocolError("ADS subscribe requires an active connection")
+        """复用当前连接注册已配置测点的周期 ADS 通知。"""
         if interval is None or interval <= 0:
             raise ConfigError("ADS subscription interval must be > 0")
-
-        mapped = (
-            tuple(self._mapped_point(point_id) for point_id in point_ids)
-            if point_ids
-            else tuple(self._points.values())
-        )
-
-        subscription = ADSSubscription(
-            self._config,
-            mapped,
-            callback,
-            cycle_time=interval,
-            loop=asyncio.get_running_loop(),
-        )
-        await subscription.start()
-        self._subscriptions.add(subscription)
-        return _TrackedADSSubscription(
-            self,
-            subscription,
-        )
+        async with self._lock:
+            connection = self._connection
+            if not self._connected or connection is None:
+                raise ProtocolError("ADS subscribe requires an active connection")
+            mapped = (
+                tuple(self._mapped_point(point_id) for point_id in point_ids)
+                if point_ids
+                else tuple(self._points.values())
+            )
+            subscription = ADSSubscription(
+                connection,
+                mapped,
+                callback,
+                cycle_time=interval,
+                loop=asyncio.get_running_loop(),
+            )
+            await subscription.start()
+            self._subscriptions.add(subscription)
+        return _TrackedADSSubscription(self, subscription)
 
     async def read_one(self, point: str) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走 Sum Read、分段或读取分组缓存。

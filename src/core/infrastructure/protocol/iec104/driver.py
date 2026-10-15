@@ -88,8 +88,11 @@ def _release_ioa_lock(
         del registry[ioa]
 
 
+_SUBSCRIPTION_QUEUE_CAPACITY = 1000
+
+
 class _Subscription:
-    """一次 IEC104 样本订阅，close 会 drain 已调度 callback。"""
+    """一个订阅使用一个有界 FIFO 队列和一个长期运行的 Worker。"""
 
     def __init__(
         self,
@@ -101,44 +104,56 @@ class _Subscription:
         self._callback = callback
         self._ioas = ioas
         self._closed = False
-        self._pending: dict[str, ProtocolSample] = {}
-        self._worker: asyncio.Task[None] | None = None
+        self._queue: asyncio.Queue[ProtocolSample] = asyncio.Queue(
+            maxsize=_SUBSCRIPTION_QUEUE_CAPACITY
+        )
+        self._dropped_count = 0
+        self._worker: asyncio.Task[None] = asyncio.create_task(
+            self._drain(), name="iec104-subscription-worker"
+        )
 
     async def close(self, *, timeout: float = 5.0) -> None:
-        """注销订阅，限时等待已调度 callback。"""
         if self._closed:
             return
         self._closed = True
         self._registry.unsubscribe(self)
-
-        self._pending.clear()
-        worker = self._worker
-        if worker is not None and worker is not asyncio.current_task():
+        self._worker.cancel()
+        if self._worker is not asyncio.current_task():
             try:
-                await asyncio.wait_for(asyncio.shield(worker), timeout=timeout)
+                await asyncio.wait_for(self._worker, timeout=timeout)
+            except asyncio.CancelledError:
+                pass
             except TimeoutError:
-                logger.warning("IEC104 subscription callback did not finish within %.3fs", timeout)
-                worker.cancel()
+                logger.warning("IEC104 subscription worker did not stop in %.3fs", timeout)
+        while not self._queue.empty():
+            self._queue.get_nowait()
+            self._queue.task_done()
 
     def schedule(self, sample: ProtocolSample) -> None:
-        """保持每个测点最新的待处理样本，避免慢回调导致任务无限堆积。"""
+        """调用方已经在事件循环线程；队列满时丢弃最旧的数据。"""
         if self._closed:
             return
-        self._pending[sample.point_id] = sample
-        if self._worker is None or self._worker.done():
-            self._worker = asyncio.create_task(self._drain())
+        if self._queue.full():
+            self._queue.get_nowait()
+            self._queue.task_done()
+            self._dropped_count += 1
+            if self._dropped_count == 1 or self._dropped_count % 1000 == 0:
+                logger.warning(
+                    "IEC104 subscription queue dropped %d samples", self._dropped_count
+                )
+        self._queue.put_nowait(sample)
 
     async def _drain(self) -> None:
-        while self._pending and not self._closed:
-            point_id = next(iter(self._pending))
-            sample = self._pending.pop(point_id)
+        while True:
+            sample = await self._queue.get()
             try:
                 await self._callback(sample)
             except Exception:
                 logger.exception(
-                    "IEC104 subscriber callback failed for point '%s'",
-                    sample.point_id,
+                    "IEC104 subscriber callback failed for point '%s'", sample.point_id
                 )
+            finally:
+                self._queue.task_done()
 
 
 class _SubscriptionRegistry:

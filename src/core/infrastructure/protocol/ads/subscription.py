@@ -1,52 +1,35 @@
-"""ADS device-notification 订阅句柄。
+"""使用 Driver 共享连接的 ADS 周期通知订阅。
 
-pyads notification callback 运行在线程中。本模块只在线程回调里构造 ProtocolSample
-并通过 event loop 的线程安全入口投递；所有协程和生命周期状态都留在 asyncio
-线程。每次重建 notification connection 都重新解析 symbol 地址，避免 PLC
-重启/下载后继续使用旧 index_group/index_offset。
+原生 pyads 回调仅负责跨线程投递；一个有界队列和一个异步 Worker
+负责顺序交付样本。连接恢复和订阅重建由上层统一管理。
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import ctypes
 import logging
-import time
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 import pyads  # type: ignore[import-untyped]
 
-from core.application.errors import ConfigError, ProtocolError
+from core.application.errors import ConfigError
 from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
 
-from .config import ADSConfig
-from .mapping import ADSPoint, symbol_index_address
+from .mapping import ADSPoint
 
 logger = logging.getLogger(__name__)
-_WATCHDOG_INTERVAL = 1.0
-
-
-def _plc_datatype(ads_name: str) -> Any:
-    datatype = getattr(pyads, f"PLCTYPE_{ads_name}", None)
-    if datatype is None:
-        raise ConfigError(f"pyads does not expose PLCTYPE_{ads_name}")
-    return datatype
+_QUEUE_CAPACITY = 1000
 
 
 class ADSSubscription:
-    """一次独立 ADS notification 订阅。
-
-    句柄拥有自己的 notification connection pool，因此不会与主 read/write
-    connection 争用同步 pyads session。close 返回前会注销 notification、
-    关闭连接并等待已开始的 callback 执行完毕。
-    """
+    """一次订阅：多个 Notification Handle、一个队列、一个 Worker。"""
 
     def __init__(
         self,
-        config: ADSConfig,
+        connection: Any,
         points: Sequence[ADSPoint],
         callback: Callable[[ProtocolSample], Awaitable[None]],
         *,
@@ -55,226 +38,79 @@ class ADSSubscription:
     ) -> None:
         if cycle_time <= 0:
             raise ConfigError("ADS subscription interval must be > 0")
-
-        self._config = config
+        self._connection = connection
         self._points = tuple(points)
         self._callback = callback
         self._cycle_time = cycle_time
         self._loop = loop
-
-        self._connections: list[Any] = []
-        self._handles: list[tuple[Any, Any, Any]] = []
-        self._tasks: set[asyncio.Task[None]] = set()
-        self._watchdog_task: asyncio.Task[None] | None = None
-        self._last_notification: dict[str, float] = {}
-        self._lock = asyncio.Lock()
+        self._queue: asyncio.Queue[ProtocolSample] = asyncio.Queue(maxsize=_QUEUE_CAPACITY)
+        self._worker_task: asyncio.Task[None] | None = None
+        self._handles: list[tuple[Any, Any]] = []
         self._closed = False
         self._generation = 0
-        self._started = False
+        self._dropped_count = 0
 
     async def start(self) -> None:
-        """建立 notification pool 并注册全部点。"""
-        async with self._lock:
-            if self._closed:
-                raise ProtocolError("ADS subscription is closed")
-            if self._started:
-                raise ProtocolError("ADS subscription is already started")
-            await self._rebuild_locked()
-            self._started = True
-            self._watchdog_task = asyncio.create_task(
-                self._watchdog_loop(),
-                name="ads-notification-watchdog",
-            )
+        """在共享连接上注册通知；失败时注销已注册项。"""
+        if self._closed or self._worker_task is not None:
+            raise RuntimeError("ADS subscription is closed or already started")
+        generation = self._generation
+        try:
+            for point in self._points:
+                attr = pyads.NotificationAttrib(
+                    point.size,
+                    trans_mode=pyads.ADSTRANS_SERVERCYCLE,
+                    cycle_time=self._cycle_time,
+                )
+                datatype = getattr(pyads, f"PLCTYPE_{point.data_type}")
+                wrapped = self._connection.notification(datatype)(
+                    self._notification_callback(point, generation)
+                )
+                handle = await asyncio.to_thread(
+                    self._connection.add_device_notification,
+                    (point.group, point.offset),
+                    attr,
+                    wrapped,
+                )
+                self._handles.append(handle)
+        except BaseException:
+            await self._remove_handles()
+            raise
+        self._worker_task = asyncio.create_task(self._worker(), name="ads-subscription-worker")
 
     async def close(self) -> None:
-        """限时停止通知、关闭连接并回收回调；超时仍保持关闭状态。"""
+        """先阻止投递并注销通知，再取消 Worker；不关闭共享连接。"""
         if self._closed:
             return
         self._closed = True
-        try:
-            async with asyncio.timeout(self._config.timeout):
-                watchdog, self._watchdog_task = self._watchdog_task, None
-                if watchdog is not None and watchdog is not asyncio.current_task():
-                    watchdog.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await watchdog
-
-                async with self._lock:
-                    await self._close_pool_locked()
-
-                current = asyncio.current_task()
-                tasks = tuple(task for task in self._tasks if task is not current)
-                if tasks:
-                    await asyncio.gather(*tasks, return_exceptions=True)
-        except TimeoutError:
-            logger.warning(
-                "ADS subscription close timed out after %.3fs; outstanding "
-                "thread operations may still be running",
-                self._config.timeout,
-            )
-            for task in tuple(self._tasks):
-                if task is not asyncio.current_task():
-                    task.cancel()
-
-    async def _watchdog_loop(self) -> None:
-        """检查连接与每个周期通知；通知失联时重新建立全部订阅。"""
-        timeout = max(1.0, 5 * self._cycle_time + self._config.max_delay)
-        while not self._closed:
-            await asyncio.sleep(_WATCHDOG_INTERVAL)
-            if self._closed:
-                return
-            try:
-                async with self._lock:
-                    if self._points and len(self._handles) != len(self._points):
-                        raise ConnectionError("ADS notification registration is incomplete")
-                    now = time.monotonic()
-                    stalled = [
-                        point_id
-                        for point_id, last in self._last_notification.items()
-                        if now - last > timeout
-                    ]
-                    if stalled:
-                        raise TimeoutError(
-                            f"ADS notifications timed out for {len(stalled)} point(s)"
-                        )
-                    for connection in self._connections:
-                        if not connection.is_open:
-                            raise ConnectionError("ADS notification connection is closed")
-                        await asyncio.to_thread(connection.read_state)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logger.warning(
-                    "ADS notification connection lost: %s; rebuilding",
-                    exc,
-                )
-                try:
-                    async with self._lock:
-                        if not self._closed:
-                            await self._rebuild_locked()
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    logger.exception("ADS notification pool rebuild failed")
-
-    async def _rebuild_locked(self) -> None:
         self._generation += 1
-        await self._close_pool_locked()
-        if not self._points:
-            return
+        await self._remove_handles()
+        task, self._worker_task = self._worker_task, None
+        if task is not None:
+            task.cancel()
+            if task is not asyncio.current_task():
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        while not self._queue.empty():
+            self._queue.get_nowait()
+            self._queue.task_done()
 
-        max_per = self._config.max_notifications_per_connection
-        try:
-            for start in range(0, len(self._points), max_per):
-                chunk = self._points[start : start + max_per]
-                connection = await self._create_connection()
-                self._connections.append(connection)
-                for point in chunk:
-                    resolved = await self._resolve_point(connection, point)
-                    await self._register_point(connection, resolved)
-        except BaseException:
-            await self._close_pool_locked()
-            raise
-
-    async def _create_connection(self) -> Any:
-        connection = pyads.Connection(
-            self._config.target_net_id or None,
-            self._config.target_port,
-            self._config.host,
-        )
-        connection.set_timeout(int(self._config.timeout * 1000))
-        try:
-            await asyncio.to_thread(connection.open)
-            if not connection.is_open:
-                raise ConnectionError(
-                    f"ADS notification connection to "
-                    f"{self._config.host}:{self._config.target_port} did not open"
-                )
-            await asyncio.to_thread(connection.read_state)
-        except Exception:
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(connection.close)
-            raise
-        return connection
-
-    async def _resolve_point(
-        self,
-        connection: Any,
-        point: ADSPoint,
-    ) -> ADSPoint:
-        if point.symbol is None:
-            if not point.address_resolved:
-                raise ConfigError(f"ADS point '{point.point_id}' has no resolved address")
-            return point
-
-        symbol = await asyncio.to_thread(
-            connection.get_symbol,
-            point.symbol,
-        )
-        index_group, index_offset = symbol_index_address(point.symbol, symbol)
-
-        size = point.size
-        plc_type = getattr(symbol, "plc_type", None)
-        if plc_type is not None:
-            with contextlib.suppress(TypeError):
-                size = ctypes.sizeof(plc_type)
-
-        return point.resolved(
-            index_group=index_group,
-            index_offset=index_offset,
-            size=size,
-        )
-
-    async def _register_point(
-        self,
-        connection: Any,
-        point: ADSPoint,
-    ) -> None:
-        if point.size <= 0:
-            raise ConfigError(
-                f"ADS notification point '{point.point_id}' requires a "
-                "resolved positive byte size"
-            )
-        attr = pyads.NotificationAttrib(
-            point.size,
-            trans_mode=pyads.ADSTRANS_SERVERCYCLE,
-            cycle_time=self._cycle_time,
-            max_delay=self._config.max_delay,
-        )
-        callback = connection.notification(_plc_datatype(point.data_type))(
-            self._notification_callback(point, self._generation)
-        )
-        handle, user_handle = await asyncio.to_thread(
-            connection.add_device_notification,
-            (point.group, point.offset),
-            attr,
-            callback,
-        )
-        self._handles.append((connection, handle, user_handle))
-        self._last_notification[point.point_id] = time.monotonic()
-
-    async def _close_pool_locked(self) -> None:
-        for connection, handle, user_handle in self._handles:
-            with contextlib.suppress(Exception):
+    async def _remove_handles(self) -> None:
+        handles, self._handles = self._handles, []
+        for handle, user_handle in handles:
+            try:
                 await asyncio.to_thread(
-                    connection.del_device_notification,
+                    self._connection.del_device_notification,
                     handle,
                     user_handle,
                 )
-        self._handles.clear()
-        self._last_notification.clear()
-
-        for connection in self._connections:
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(connection.close)
-        self._connections.clear()
+            except Exception:
+                logger.exception("ADS notification deregistration failed")
 
     def _notification_callback(
-        self,
-        point: ADSPoint,
-        generation: int,
+        self, point: ADSPoint, generation: int
     ) -> Callable[..., None]:
-        def callback(
+        def on_notification(
             handle: Any,
             address: Any,
             timestamp: Any,
@@ -283,62 +119,52 @@ class ADSSubscription:
             del handle, address
             if self._closed or generation != self._generation:
                 return
-            try:
-                scalar = _as_scalar(value)
-                quality = Quality.GOOD
-            except TypeError:
+            if value is None or not isinstance(value, str | int | float | bool):
                 scalar = None
                 quality = Quality.BAD
-
-            normalized = _normalize_timestamp(timestamp)
+            else:
+                scalar = value
+                quality = Quality.GOOD
+            received_at, source = _normalize_timestamp(timestamp)
             sample = ProtocolSample(
                 point_id=point.point_id,
                 value=scalar,
                 quality=quality,
-                timestamp=normalized[0],
-                timestamp_source=normalized[1],
+                timestamp=received_at,
+                timestamp_source=source,
             )
             with contextlib.suppress(RuntimeError):
-                self._loop.call_soon_threadsafe(
-                    self._schedule_sample,
-                    sample,
-                    generation,
-                )
+                self._loop.call_soon_threadsafe(self._enqueue, sample, generation)
 
-        return callback
+        return on_notification
 
-    def _schedule_sample(self, sample: ProtocolSample, generation: int) -> None:
-        if (
-            self._closed
-            or generation != self._generation
-            or sample.point_id not in self._last_notification
-        ):
+    def _enqueue(self, sample: ProtocolSample, generation: int) -> None:
+        """只在 asyncio 线程操作 Queue；满时丢弃最旧样本。"""
+        if self._closed or generation != self._generation:
             return
-        self._last_notification[sample.point_id] = time.monotonic()
-        task = asyncio.create_task(self._invoke_callback(sample))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        if self._queue.full():
+            self._queue.get_nowait()
+            self._queue.task_done()
+            self._dropped_count += 1
+            if self._dropped_count == 1 or self._dropped_count % 1000 == 0:
+                logger.warning("ADS subscription queue dropped %d samples", self._dropped_count)
+        self._queue.put_nowait(sample)
 
-    async def _invoke_callback(self, sample: ProtocolSample) -> None:
-        try:
-            await self._callback(sample)
-        except Exception:
-            logger.exception(
-                "ADS subscriber callback failed for point '%s'",
-                sample.point_id,
-            )
+    async def _worker(self) -> None:
+        while True:
+            sample = await self._queue.get()
+            try:
+                await self._callback(sample)
+            except Exception:
+                logger.exception("ADS subscription callback failed for '%s'", sample.point_id)
+            finally:
+                self._queue.task_done()
 
 
 def _normalize_timestamp(value: object) -> tuple[datetime, TimestampSource]:
-    """返回 (UTC 时间戳, 来源)；通知缺失/非法时间戳时回退本地接收时刻。"""
+    """优先采用 pyads 通知时标，无效时才使用本地 UTC 接收时间。"""
     if not isinstance(value, datetime):
         return datetime.now(UTC), "local"
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC), "device"
     return value.astimezone(UTC), "device"
-
-
-def _as_scalar(value: object) -> float | int | bool | str | None:
-    if value is None or isinstance(value, str | int | float | bool):
-        return value
-    raise TypeError(f"unsupported ADS notification value type '{type(value).__name__}'")
