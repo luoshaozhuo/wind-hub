@@ -406,7 +406,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'turbine_modbus',
     point_group: 'all',
     interval: 1,
-    sinks: ['file_archive', 'db_main'],
+    sinks: ['file_archive', 'modbus_main'],
     enabled: true,
     running: true,
   },
@@ -436,7 +436,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'storage_pcs',
     point_group: 'fast',
     interval: 1,
-    sinks: ['file_archive', 'kafka_main'],
+    sinks: ['file_archive', 'redis_main'],
     enabled: true,
     running: false,
   },
@@ -464,11 +464,12 @@ export const tasksSeed: MockTask[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// Sinks：file / kafka / db + 一个 disabled；healthy / failed / disabled 全覆盖
+// Sinks：仅使用 Core 支持的 file / redis / modbus 契约。
+// Redis 故障与 Modbus 不可达作为演示用的运行态，由 Mock Runtime 控制。
 // ---------------------------------------------------------------------------
 export interface MockSink {
   name: string
-  type: 'file' | 'kafka' | 'db'
+  type: 'file' | 'redis' | 'modbus'
   enabled: boolean
   connection: Record<string, unknown>
   points: Record<string, unknown>[]
@@ -476,38 +477,40 @@ export interface MockSink {
 
 export const sinksSeed: MockSink[] = [
   {
-    name: 'kafka_main',
-    type: 'kafka',
+    name: 'redis_main',
+    type: 'redis',
     enabled: true,
-    connection: {
-      bootstrap_servers: 'kafka.windhub.local:9092',
-      topic: 'wind-hub.raw',
-      acks: 'all',
-    },
-    points: [{ point_group: 'all' }],
+    connection: { host: 'redis.windhub.local', port: 6379, key_prefix: 'wind-hub' },
+    points: [{
+      source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
+      address: { field: 'wind-speed' },
+    }],
   },
   {
-    name: 'db_main',
-    type: 'db',
+    name: 'modbus_main',
+    type: 'modbus',
     enabled: true,
-    connection: {
-      dsn: 'postgresql://windhub:windhub@db.windhub.local:5432/windhub',
-      table: 'points',
-    },
-    points: [{ point_group: 'all' }],
+    connection: { host: '127.0.0.1', port: 1502 },
+    points: [{
+      source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
+      address: { slave_id: 1, register_type: 'holding', address: 0 },
+    }],
   },
   {
     name: 'file_archive',
     type: 'file',
     enabled: true,
-    connection: { path: '/var/tmp/wind-hub/archive.jsonl', format: 'jsonl' },
-    points: [{ point_group: 'fast' }, { point_group: 'status' }],
+    connection: { path: '/var/tmp/wind-hub/archive.csv', max_size_mb: 100, max_files: 30 },
+    points: [{
+      source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
+      address: { field: 'wind-speed' },
+    }],
   },
   {
     name: 'debug_file',
     type: 'file',
     enabled: false,
-    connection: { path: '/var/tmp/wind-hub/debug.jsonl', format: 'jsonl' },
+    connection: { path: '/var/tmp/wind-hub/debug.csv', max_size_mb: 100, max_files: 10 },
     points: [],
   },
 ]
