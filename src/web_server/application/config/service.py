@@ -405,10 +405,15 @@ class ConfigService:
                     self._applied_config_hash,
                 )
                 for participant_id in participant_ids
-            )
+            ),
+            return_exceptions=True,
         )
         for name, outcome in zip(participant_ids, outcomes, strict=True):
-            if outcome not in {"reconciled", "already-current"}:
+            if isinstance(outcome, BaseException):
+                errors.append(
+                    f"{name} rollback raised: {str(outcome) or type(outcome).__name__}"
+                )
+            elif outcome not in {"reconciled", "already-current"}:
                 errors.append(f"{name} rollback failed: {outcome}")
         return errors
 
