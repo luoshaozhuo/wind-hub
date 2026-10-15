@@ -119,13 +119,13 @@ function asArray(value: unknown) {
 function normalizePoint(raw: Record<string, unknown>): PointDef {
   return {
     point_id: asString(raw.point_id),
-    variable_name: asString(raw.variable_name, asString(raw.point_id)),
+    variable_name: asString(raw.business_point_id, asString(raw.point_id)),
     point_groups: asArray(raw.point_groups).map(String),
     address: { ...asObject(raw.address) } as PointAddress,
     data_type: asString(raw.data_type, 'float32'),
     scale: asNumber(raw.scale, 1),
     offset: asNumber(raw.offset, 0),
-    unit: asString(raw.unit, 'none'),
+    unit: asString(raw.unit_id, 'none'),
     description: asString(raw.description),
   }
 }
@@ -276,10 +276,12 @@ export const useConfigStore = defineStore('config', {
         tables.push({
           id,
           protocol: (asString(value.protocol) || 'generic') as PointTableDef['protocol'],
-          extends: asString(value.extends),
+          extends: asString(value.parent_id),
           remove_points: asArray(value.remove_points).map(String),
         })
-        points[id] = asArray(value.points).map((item) => normalizePoint(asObject(item)))
+        points[id] = Object.entries(asObject(value.points)).map(([pointId, item]) =>
+          normalizePoint({ point_id: pointId, ...asObject(item) }),
+        )
       }
       this.pointTables = tables
       this.points = points
