@@ -91,8 +91,24 @@ message ListTasksResponse { repeated TaskSummaryMessage items = 1; }
 message ListTaskInstancesResponse { repeated TaskInstanceMessage items = 1; }
 message TaskIdRequest { string task_id = 1; }
 message InstanceIdRequest { string instance_id = 1; }
-message TaskStartRequest { string task_id = 1; }
-message TaskInstanceStartRequest { string instance_id = 1; }
+message TaskStartRequest {
+  string task_id = 1;
+  uint64 placement_generation = 2;
+}
+message TaskInstanceStartRequest {
+  string instance_id = 1;
+  uint64 placement_generation = 2;
+}
+message TaskPlacementSnapshotRequest {
+  string worker_id = 1;
+  uint64 generation = 2;
+  repeated string task_ids = 3;
+}
+message TaskPlacementSnapshotResponse {
+  bool success = 1;
+  uint64 generation = 2;
+  uint64 task_count = 3;
+}
 
 message LatestValuesRequest {
   // 为空时返回全部设备的最新值。
@@ -217,6 +233,7 @@ service CollectorRuntimeService {
   rpc GetPointsMetadata(PointsMetadataRequest) returns (PointsMetadataResponse);
 }
 service CollectorControlService {
+  rpc ApplyTaskPlacement(TaskPlacementSnapshotRequest) returns (TaskPlacementSnapshotResponse);
   rpc StartTask(TaskStartRequest) returns (TaskSummaryMessage);
   rpc StopTask(TaskIdRequest) returns (TaskSummaryMessage);
   rpc StartTaskInstance(TaskInstanceStartRequest) returns (TaskInstanceMessage);
