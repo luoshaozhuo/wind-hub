@@ -87,24 +87,34 @@ class ADSSubscription:
             )
 
     async def close(self) -> None:
-        """停止订阅并等待在途 callback 完成；重复调用安全。"""
+        """限时停止通知、关闭连接并回收回调；超时仍保持关闭状态。"""
         if self._closed:
             return
         self._closed = True
+        try:
+            async with asyncio.timeout(self._config.timeout):
+                watchdog, self._watchdog_task = self._watchdog_task, None
+                if watchdog is not None and watchdog is not asyncio.current_task():
+                    watchdog.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await watchdog
 
-        watchdog, self._watchdog_task = self._watchdog_task, None
-        if watchdog is not None and watchdog is not asyncio.current_task():
-            watchdog.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await watchdog
+                async with self._lock:
+                    await self._close_pool_locked()
 
-        async with self._lock:
-            await self._close_pool_locked()
-
-        current = asyncio.current_task()
-        tasks = tuple(task for task in self._tasks if task is not current)
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+                current = asyncio.current_task()
+                tasks = tuple(task for task in self._tasks if task is not current)
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
+        except TimeoutError:
+            logger.warning(
+                "ADS subscription close timed out after %.3fs; outstanding "
+                "thread operations may still be running",
+                self._config.timeout,
+            )
+            for task in tuple(self._tasks):
+                if task is not asyncio.current_task():
+                    task.cancel()
 
     async def _watchdog_loop(self) -> None:
         """检查连接与每个周期通知；通知失联时重新建立全部订阅。"""
