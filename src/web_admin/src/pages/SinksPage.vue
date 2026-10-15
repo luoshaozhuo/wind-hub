@@ -95,9 +95,9 @@ function openEdit(sink: SinkDef) {
   drawerOpen.value = true
 }
 
-function changeType(type: SinkType) {
+function changeType() {
   const name = draft.name
-  reset(type)
+  reset(draft.type)
   draft.name = name
 }
 
