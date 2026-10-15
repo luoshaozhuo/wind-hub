@@ -185,7 +185,6 @@ class ADSDriver:
             self._config.target_port,
             self._config.host,
         )
-        connection.set_timeout(int(self._config.timeout * 1000))
         return connection
 
     def _open_verified_connection(self) -> tuple[Any, Any, Any]:
@@ -195,7 +194,11 @@ class ADSDriver:
             connection.open()
             if not connection.is_open:
                 raise ConnectionError("ADS session did not open")
-            ads_state, device_state = connection.read_state()
+            connection.set_timeout(int(self._config.timeout * 1000))
+            state = connection.read_state()
+            if state is None:
+                raise ConnectionError("ADS state read returned None")
+            ads_state, device_state = state
             return connection, ads_state, device_state
         except BaseException:
             with contextlib.suppress(Exception):
