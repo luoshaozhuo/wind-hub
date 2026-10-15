@@ -68,7 +68,19 @@ class AdminStateService:
         )
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
-            documents["devices.yaml"] = self._devices_document(devices)
+            current_groups = documents["devices.yaml"].get("device_groups", {})
+            if not isinstance(current_groups, dict):
+                raise ValueError("devices.yaml device_groups must be a mapping")
+            device_document = self._devices_document(devices)
+            device_document["device_groups"] = {
+                **current_groups,
+                **{
+                    group_id: {"name": group_id}
+                    for group_id in device_document["device_groups"]
+                    if group_id not in current_groups
+                },
+            }
+            documents["devices.yaml"] = device_document
             documents["tasks.yaml"] = self._tasks_document(tasks)
             documents["sinks.yaml"] = {
                 "sinks": {
