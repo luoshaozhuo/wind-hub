@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from core.domain.sink import Sink
+from core.infrastructure.config.yaml import yaml_plain
 from web_server.application.config.files import ConfigApplyResult, ConfigFileService
 from web_server.application.config.service import ConfigService
 from web_server.application.port.collector_directory import CollectorDirectory
@@ -67,7 +68,7 @@ class SinkService:
                     name=cfg.sink_id,
                     type=cfg.kind,
                     enabled=cfg.enabled,
-                    connection=dict(cfg.connection),
+                    connection=yaml_plain(cfg.connection),
                     points=[dict(point) for point in cfg.points],
                     point_count=len(cfg.points),
                     healthy=(
