@@ -93,7 +93,7 @@ class AdminStateService:
                     for item in sinks
                 }
             }
-            # 单位目录包含 base_units 与 units 两个正式根，批量保存不得丢失基准单位。
+            # 单位目录包含 quantities 与 units 两个正式根，批量保存不得丢失物理量定义。
             definitions_documents = self._definition_documents(definitions)
             previous_units = documents["units.yaml"]
             definitions_documents["units.yaml"] = {
