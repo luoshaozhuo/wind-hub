@@ -187,79 +187,67 @@ class ADSDriver:
         )
         return connection
 
-    def _open_verified_connection(self) -> tuple[Any, Any, Any]:
-        """建立连接并探测 ADS 状态；失败时释放本次创建的连接。"""
-        connection = self._new_connection()
-        try:
-            connection.open()
-            if not connection.is_open:
-                raise ConnectionError("ADS session did not open")
-            connection.set_timeout(int(self._config.timeout * 1000))
-            state = connection.read_state()
-            if state is None:
-                raise ConnectionError("ADS state read returned None")
-            ads_state, device_state = state
-            return connection, ads_state, device_state
-        except BaseException:
-            with contextlib.suppress(Exception):
-                connection.close()
-            raise
-
-    def _connect_with_optional_route(self) -> Any:
-        """先连接并探测；失败后可注册 PLC 反向路由，再尝试一次。"""
-        try:
-            connection, _, _ = self._open_verified_connection()
-            return connection
-        except Exception:
-            if not self._config.route_auto_add:
-                raise
-
-        # pyads.delete_route() 只删除本机 AMS 路由，不删除 PLC 反向路由，
-        # 因而不能在此调用，否则会破坏其他会话使用的本地路由。
-        with _REMOTE_ROUTE_LOCK:
-            identity = _LOCAL_AMS
-            if identity is None:
-                raise ConfigError("ADS local AMS identity is not initialized")
-            try:
-                added = pyads.add_route_to_plc(
-                    identity.local_ams_net_id,
-                    identity.local_ip,
-                    self._config.host,
-                    self._config.username,
-                    self._config.password,
-                )
-                if not added:
-                    raise RuntimeError("remote route registration refused")
-            except Exception:
-                raise ProtocolError(
-                    f"ADS remote route registration failed for {self._config.host}"
-                ) from None
-
-            try:
-                connection, _, _ = self._open_verified_connection()
-                return connection
-            except Exception:
-                raise ProtocolError(
-                    f"ADS still unreachable after remote route registration: {self._config.host}"
-                ) from None
-
     async def connect(self) -> None:
-        """建立并验证 ADS 通信；仅在首次连接失败时按配置添加 PLC 反向路由。"""
+        """连接并检查 PLC RUN 状态；失败时可添加一次反向路由再重连。"""
         async with self._lock:
-            if self._connected:
+            if self._connected and self._connection is not None:
                 return
             self._close_connection()
-            try:
-                connection = await asyncio.to_thread(self._connect_with_optional_route)
-            except ProtocolError:
-                self._connected = False
-                raise
-            except Exception:
-                self._connected = False
-                raise ProtocolError(f"ADS connect failed for {self._config.host}") from None
-            self._connection = connection
-            self._invalidate_symbol_addresses()
-            self._connected = True
+            last_health: ConnectionHealth | None = None
+
+            for attempt in range(2 if self._config.route_auto_add else 1):
+                try:
+                    connection = self._new_connection()
+                    self._connection = connection
+                    await asyncio.to_thread(connection.open)
+                    if not connection.is_open:
+                        raise ConnectionError("ADS session did not open")
+                    await asyncio.to_thread(
+                        connection.set_timeout, int(self._config.timeout * 1000)
+                    )
+                    last_health = await self.health()
+                    if last_health.healthy:
+                        self._invalidate_symbol_addresses()
+                        self._connected = True
+                        return
+                except Exception:
+                    last_health = ConnectionHealth(
+                        healthy=False, message=f"ADS connection failed for {self._config.host}"
+                    )
+                finally:
+                    if not self._connected:
+                        connection = self._connection
+                        self._connection = None
+                        if connection is not None:
+                            with contextlib.suppress(Exception):
+                                await asyncio.to_thread(connection.close)
+
+                if attempt == 0 and self._config.route_auto_add:
+                    identity = _LOCAL_AMS
+                    if identity is None:
+                        raise ConfigError("ADS local AMS identity is not initialized")
+                    try:
+                        # 路由是 PLC 持久资源；pyads.delete_route() 只删本地路由。
+                        with _REMOTE_ROUTE_LOCK:
+                            added = await asyncio.to_thread(
+                                pyads.add_route_to_plc,
+                                identity.local_ams_net_id,
+                                identity.local_ip,
+                                self._config.host,
+                                self._config.username,
+                                self._config.password,
+                            )
+                        if not added:
+                            raise RuntimeError("remote route registration refused")
+                    except Exception:
+                        raise ProtocolError(
+                            f"ADS remote route registration failed for {self._config.host}"
+                        ) from None
+
+            raise ProtocolError(
+                f"ADS connect failed for {self._config.host}: "
+                f"{last_health.message if last_health else 'unknown failure'}"
+            )
 
     async def close(self) -> None:
         """关闭当前 ADS session；重复调用安全。"""
@@ -273,37 +261,25 @@ class ADSDriver:
         return self._connected
 
     async def health(self) -> ConnectionHealth:
-        """通过独立 ADS State Read 会话检查对端通信。
-
-        探测连接与业务 read/write 连接隔离，避免外层健康检查超时取消后
-        同步 pyads 调用仍在线程中运行而与正常 I/O 争用同一 session。
-        PLC 非 RUN 状态仍表示 ADS 通信可达，仅在 message 中报告状态，
-        不通过无意义重连试图改变 PLC 运行模式。
-        """
-
-        def _probe() -> ConnectionHealth:
-            connection = None
-            try:
-                connection, ads_state, device_state = self._open_verified_connection()
-                return ConnectionHealth(
-                    healthy=True,
-                    message=(
-                        "ADS reachable; "
-                        f"ads_state={_ads_state_name(ads_state)}, "
-                        f"device_state={device_state}"
-                    ),
-                )
-            except Exception as exc:
-                return ConnectionHealth(
-                    healthy=False,
-                    message=f"ADS state read failed: {exc}",
-                )
-            finally:
-                if connection is not None:
-                    with contextlib.suppress(Exception):
-                        connection.close()
-
-        return await asyncio.to_thread(_probe)
+        """在当前业务连接上读取 ADS 状态；仅 PLC ADS State=RUN 为健康。"""
+        connection = self._connection
+        if connection is None or not connection.is_open:
+            return ConnectionHealth(healthy=False, message="ADS session is not open")
+        try:
+            state = await asyncio.to_thread(connection.read_state)
+            if state is None:
+                return ConnectionHealth(healthy=False, message="ADS state read returned None")
+            ads_state, device_state = state
+            run_state = getattr(getattr(pyads, "constants", None), "ADSSTATE_RUN", 5)
+            return ConnectionHealth(
+                healthy=ads_state == run_state,
+                message=(
+                    f"ads_state={_ads_state_name(ads_state)}, "
+                    f"device_state={device_state}"
+                ),
+            )
+        except Exception as exc:
+            return ConnectionHealth(healthy=False, message=f"ADS state read failed: {exc}")
 
     async def subscribe(
         self,
