@@ -71,7 +71,7 @@ _ADS_FORMAT: dict[DataType, tuple[str, str, str]] = {
 
 def _ads_value(kind: DataType, value: bool | int | float | str) -> bytes:
     if kind is DataType.STRING:
-        return str(value).encode("utf-8")[:80].ljust(81, b"\\x00")
+        return str(value).encode("utf-8")[:80].ljust(81, b"\x00")
     return struct.pack("<" + _ADS_FORMAT[kind][2], value)
 
 
