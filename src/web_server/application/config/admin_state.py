@@ -92,6 +92,7 @@ class AdminStateService:
                     )
             documents["devices.yaml"] = device_document
             documents["tasks.yaml"] = self._tasks_document(tasks)
+            previous_sinks = documents["sinks.yaml"].get("sinks", {})
             documents["sinks.yaml"] = {
                 "sinks": {
                     item.name: {
@@ -104,7 +105,6 @@ class AdminStateService:
                 }
             }
             # Redis 密码属于只写字段；UI 不回显时沿用同一个 Sink 的原值。
-            previous_sinks = documents["sinks.yaml"].get("sinks", {})
             for sink_id, entry in documents["sinks.yaml"]["sinks"].items():
                 old_sink = previous_sinks.get(sink_id, {})
                 if entry["type"] != "redis" or old_sink.get("type") != "redis":
