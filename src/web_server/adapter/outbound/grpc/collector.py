@@ -6,23 +6,14 @@ Protobuf（经 core codec 的 JSON 兼容中间形）转换为 Server 应用层 
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, cast
+from datetime import UTC
+from typing import cast
 
 import grpc
 from google.protobuf import empty_pb2
 
-from wind_hub_core.rpc import collector_pb2 as pb
-from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
-from wind_hub_core.rpc.collector_codec import (
-    collector_info_to_dict,
-    device_info_to_dict,
-    metrics_snapshot_to_dict,
-    runtime_status_to_dict,
-    sink_info_to_dict,
-    task_instance_to_dict,
-    task_summary_to_dict,
-)
+from core.infrastructure.rpc import collector_pb2 as pb
+from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
 from web_server.adapter.outbound.grpc.common import GrpcClientBase
 from web_server.application.port.monitoring import (
     AcquisitionStatus,
@@ -64,36 +55,78 @@ def _placement_error(exc: grpc.aio.AioRpcError) -> Exception:
     return cast(Exception, exc)
 
 
-def _runtime_status_dto(payload: dict[str, Any]) -> CollectorRuntimeStatus:
-    """codec 字典 → CollectorRuntimeStatus（嵌套 acquisitions 逐条建模）。"""
+def _runtime_status_dto(message: pb.RuntimeStatusResponse) -> CollectorRuntimeStatus:
     return CollectorRuntimeStatus(
-        running=bool(payload["running"]),
-        device_count=int(payload["device_count"]),
-        sink_count=int(payload["sink_count"]),
-        devices_connected=int(payload["devices_connected"]),
-        sinks_healthy=int(payload["sinks_healthy"]),
-        points_collected=int(payload["points_collected"]),
-        points_routed=int(payload["points_routed"]),
-        points_dropped=int(payload["points_dropped"]),
-        acquisitions=[AcquisitionStatus(**item) for item in payload["acquisitions"]],
+        running=message.running,
+        device_count=message.device_count,
+        sink_count=message.sink_count,
+        devices_connected=message.devices_connected,
+        sinks_healthy=message.sinks_healthy,
+        points_collected=message.points_collected,
+        points_routed=message.points_routed,
+        points_dropped=message.points_dropped,
+        acquisitions=[
+            AcquisitionStatus(
+                instance_id=item.instance_id,
+                task_id=item.task_id,
+                device_id=item.device_id,
+                point_group=item.point_group,
+                running=item.running,
+                consecutive_failures=item.consecutive_failures,
+                last_error=item.last_error or None,
+                last_duration=item.last_duration.value if item.HasField("last_duration") else None,
+            )
+            for item in message.acquisitions
+        ],
     )
 
 
-def _metrics_snapshot_dto(payload: dict[str, Any]) -> MetricsSnapshot:
-    """codec 字典 → MetricsSnapshot；事件时间戳从 ISO 文本解析为 datetime。"""
+def _metrics_snapshot_dto(message: pb.MetricsSnapshotResponse) -> MetricsSnapshot:
+    fields = CounterSnapshot.__dataclass_fields__
     return MetricsSnapshot(
-        counters=CounterSnapshot(**payload["counters"]),
-        device_connect_failures=dict(payload["device_connect_failures"]),
-        device_reconnects=dict(payload["device_reconnects"]),
+        counters=CounterSnapshot(**{
+            name: getattr(message.counters, name) for name in fields
+        }),
+        device_connect_failures={item.key: item.value for item in message.device_connect_failures},
+        device_reconnects={item.key: item.value for item in message.device_reconnects},
         events=[
             MonitoringEvent(
-                timestamp=datetime.fromisoformat(str(item["timestamp"])),
-                kind=str(item["kind"]),
-                object=str(item["object"]),
-                message=str(item["message"]),
+                timestamp=item.timestamp.ToDatetime(tzinfo=UTC),
+                kind=item.kind,
+                object=item.object,
+                message=item.message,
             )
-            for item in payload["events"]
+            for item in message.events
         ],
+    )
+
+
+def _task_summary(message: pb.TaskSummaryMessage) -> CollectorTaskSummary:
+    return CollectorTaskSummary(
+        task_id=message.task_id,
+        device=message.device.value if message.HasField("device") else None,
+        device_group=message.device_group.value if message.HasField("device_group") else None,
+        point_group=message.point_group,
+        interval=message.interval.value if message.HasField("interval") else None,
+        targets=list(message.targets),
+        enabled=message.enabled,
+        runtime_state=message.runtime_state,
+        instance_count=message.instance_count,
+        running_instances=message.running_instances,
+        stopped_instances=message.stopped_instances,
+        failed_instances=message.failed_instances,
+    )
+
+
+def _task_instance(message: pb.TaskInstanceMessage) -> CollectorTaskInstance:
+    return CollectorTaskInstance(
+        instance_id=message.instance_id,
+        task_id=message.task_id,
+        device_id=message.device_id,
+        point_group=message.point_group,
+        interval=message.interval.value if message.HasField("interval") else None,
+        targets=list(message.targets),
+        state=message.state,
     )
 
 
@@ -111,7 +144,19 @@ class CollectorGrpcClient(GrpcClientBase):
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return CollectorInfo(**collector_info_to_dict(response))
+        return CollectorInfo(
+            component=response.component,
+            collector_id=response.collector_id,
+            boot_id=response.boot_id,
+            config_hash=response.config_hash,
+            active_config_hash=response.active_config_hash,
+            prepared_config_hash=response.prepared_config_hash or None,
+            boot_config_hash=response.boot_config_hash,
+            config_revision=response.config_revision or None,
+            active_revision=response.active_revision,
+            prepared_revision=response.prepared_revision or None,
+            runtime_running=response.runtime_running,
+        )
 
     async def runtime_status(self) -> CollectorRuntimeStatus:
         """返回 Collector Runtime 聚合状态。"""
@@ -119,7 +164,7 @@ class CollectorGrpcClient(GrpcClientBase):
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return _runtime_status_dto(runtime_status_to_dict(response))
+        return _runtime_status_dto(response)
 
     async def metrics_snapshot(self) -> MetricsSnapshot:
         """返回 Collector 本地采集指标快照。"""
@@ -127,7 +172,7 @@ class CollectorGrpcClient(GrpcClientBase):
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return _metrics_snapshot_dto(metrics_snapshot_to_dict(response))
+        return _metrics_snapshot_dto(response)
 
     async def list_devices(self) -> list[DeviceRuntimeInfo]:
         """列出 Collector 当前设备状态。"""
@@ -135,7 +180,14 @@ class CollectorGrpcClient(GrpcClientBase):
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [DeviceRuntimeInfo(**device_info_to_dict(item)) for item in response.items]
+        return [DeviceRuntimeInfo(
+            device_id=item.device_id,
+            protocol=item.protocol,
+            connected=item.connected,
+            last_seen=item.last_seen.ToJsonString() if item.HasField("last_seen") else None,
+            consecutive_failures=item.consecutive_failures,
+            last_error=item.last_error or None,
+        ) for item in response.items]
 
     async def list_sinks(self) -> list[SinkRuntimeInfo]:
         """列出 Collector 当前 Sink 状态。"""
@@ -143,7 +195,12 @@ class CollectorGrpcClient(GrpcClientBase):
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [SinkRuntimeInfo(**sink_info_to_dict(item)) for item in response.items]
+        return [SinkRuntimeInfo(
+            name=item.name,
+            healthy=item.healthy,
+            message=item.message or None,
+            queue_depth=item.queue_depth,
+        ) for item in response.items]
 
     async def verify_sink(self, name: str) -> SinkOperationResult:
         """检查指定 Sink 健康状态。"""
@@ -175,7 +232,7 @@ class CollectorGrpcClient(GrpcClientBase):
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [CollectorTaskSummary(**task_summary_to_dict(item)) for item in response.items]
+        return [_task_summary(item) for item in response.items]
 
     async def list_task_instances(self) -> list[CollectorTaskInstance]:
         """列出全部 Task Instance。"""
@@ -184,37 +241,16 @@ class CollectorGrpcClient(GrpcClientBase):
             timeout=self.default_timeout,
         )
         return [
-            CollectorTaskInstance(**task_instance_to_dict(item))
+            _task_instance(item)
             for item in response.items
         ]
 
     async def apply_task_placement(
-        self,
-        worker_id: str,
-        generation: int,
-        task_ids: list[str],
+        self, worker_id: str, generation: int, task_ids: list[str]
     ) -> PlacementAck:
-        """向 Collector 下发当前 placement 快照（Start 的前置栅栏）。
-
-        Raises:
-            CollectorPlacementRejectedError: Collector 拒绝快照
-                （worker_id 不匹配或栅栏内部状态错误）。
-        """
-        try:
-            response = await self._control_stub.ApplyTaskPlacement(
-                pb.TaskPlacementSnapshotRequest(
-                    worker_id=worker_id,
-                    generation=generation,
-                    task_ids=task_ids,
-                ),
-                timeout=self.default_timeout,
-            )
-        except grpc.aio.AioRpcError as exc:
-            raise _placement_error(exc) from exc
-        return PlacementAck(
-            success=response.success,
-            generation=response.generation,
-            task_count=response.task_count,
+        """当前 Collector wire 不支持 placement；拒绝确认以保持启动栅栏关闭。"""
+        raise CollectorPlacementRejectedError(
+            "collector.proto does not provide ApplyTaskPlacement; task start is unsafe"
         )
 
     async def start_task(
@@ -232,13 +268,12 @@ class CollectorGrpcClient(GrpcClientBase):
             response = await self._control_stub.StartTask(
                 pb.TaskStartRequest(
                     task_id=task_id,
-                    placement_generation=placement_generation,
                 ),
                 timeout=self.default_timeout,
             )
         except grpc.aio.AioRpcError as exc:
             raise _placement_error(exc) from exc
-        return CollectorTaskSummary(**task_summary_to_dict(response))
+        return _task_summary(response)
 
     async def stop_task(self, task_id: str) -> CollectorTaskSummary:
         """停止指定 Task 的全部实例。"""
@@ -246,7 +281,7 @@ class CollectorGrpcClient(GrpcClientBase):
             pb.TaskIdRequest(task_id=task_id),
             timeout=self.default_timeout,
         )
-        return CollectorTaskSummary(**task_summary_to_dict(response))
+        return _task_summary(response)
 
     async def start_task_instance(
         self,
@@ -263,13 +298,12 @@ class CollectorGrpcClient(GrpcClientBase):
             response = await self._control_stub.StartTaskInstance(
                 pb.TaskInstanceStartRequest(
                     instance_id=instance_id,
-                    placement_generation=placement_generation,
                 ),
                 timeout=self.default_timeout,
             )
         except grpc.aio.AioRpcError as exc:
             raise _placement_error(exc) from exc
-        return CollectorTaskInstance(**task_instance_to_dict(response))
+        return _task_instance(response)
 
     async def stop_task_instance(self, instance_id: str) -> CollectorTaskInstance:
         """停止单个 Task Instance。"""
@@ -277,7 +311,7 @@ class CollectorGrpcClient(GrpcClientBase):
             pb.InstanceIdRequest(instance_id=instance_id),
             timeout=self.default_timeout,
         )
-        return CollectorTaskInstance(**task_instance_to_dict(response))
+        return _task_instance(response)
 
     async def prepare_config(
         self,
