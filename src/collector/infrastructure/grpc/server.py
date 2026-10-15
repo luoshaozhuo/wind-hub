@@ -489,8 +489,9 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskSummaryMessage:
         """验证归属代次并启动 Task；未收到 placement 一律拒绝。"""
-        await self._require_task_ownership(request.task_id, request.placement_generation, context)
-        return await self._set_task(request, context, start=True)
+        async with self._placement_lock:
+            await self._require_task_ownership(request.task_id, request.placement_generation, context)
+            return await self._set_task(request, context, start=True)
 
     async def StopTask(
         self,
@@ -533,8 +534,9 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "unknown task instance")
             raise AssertionError("context.abort must terminate the RPC")
-        await self._require_task_ownership(instance.task_id, request.placement_generation, context)
-        return await self._set_task_instance(request, context, start=True)
+        async with self._placement_lock:
+            await self._require_task_ownership(instance.task_id, request.placement_generation, context)
+            return await self._set_task_instance(request, context, start=True)
 
     async def StopTaskInstance(
         self,
