@@ -32,7 +32,7 @@ from pymodbus.datastore import (
     ModbusServerContext,
 )
 from pymodbus.server import ModbusTcpServer
-from pyads.constants import ADST_REAL32  # type: ignore[import-untyped]
+from pyads import constants as ads_constants  # type: ignore[import-untyped]
 from pyads.testserver import (  # type: ignore[import-untyped]
     AdsTestServer,
     AdvancedHandler,
@@ -52,6 +52,28 @@ _MODBUS_WIDTH = {
     "int32": 2, "uint32": 2, "float32": 2,
     "int64": 4, "uint64": 4, "float64": 4,
 }
+
+
+_ADS_FORMAT: dict[DataType, tuple[str, str, str]] = {
+    DataType.BOOL: ("ADST_BIT", "BOOL", "?"),
+    DataType.INT8: ("ADST_INT8", "SINT", "b"),
+    DataType.UINT8: ("ADST_UINT8", "USINT", "B"),
+    DataType.INT16: ("ADST_INT16", "INT", "h"),
+    DataType.UINT16: ("ADST_UINT16", "UINT", "H"),
+    DataType.INT32: ("ADST_INT32", "DINT", "i"),
+    DataType.UINT32: ("ADST_UINT32", "UDINT", "I"),
+    DataType.INT64: ("ADST_INT64", "LINT", "q"),
+    DataType.UINT64: ("ADST_UINT64", "ULINT", "Q"),
+    DataType.FLOAT32: ("ADST_REAL32", "REAL", "f"),
+    DataType.FLOAT64: ("ADST_REAL64", "LREAL", "d"),
+}
+
+
+def _ads_value(kind: DataType, value: bool | int | float | str) -> bytes:
+    if kind is DataType.STRING:
+        return str(value).encode("utf-8")[:80].ljust(81, b"\\x00")
+    return struct.pack("<" + _ADS_FORMAT[kind][2], value)
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,10 +171,12 @@ def validate_points(plan: EndpointPlan) -> None:
                 raise ValueError(f"{plan.device_id}.{point.point_id}: Modbus address out of range")
             key = (register, offset)
         elif plan.protocol == "ads":
-            if kind is not DataType.FLOAT32:
+            if kind is not DataType.STRING and (
+                kind not in _ADS_FORMAT
+                or not hasattr(ads_constants, _ADS_FORMAT[kind][0])
+            ):
                 raise ValueError(
-                    f"{plan.device_id}.{point.point_id}: ADS testserver supports "
-                    "only float32 REAL; requested type is not simulated"
+                    f"{plan.device_id}.{point.point_id}: unsupported ADS data type {kind}"
                 )
             symbol = str(ext.get("symbol", "")).strip()
             if not symbol:
@@ -292,28 +316,29 @@ class _ADSVirtualServer:
     def __init__(self, plan: EndpointPlan) -> None:
         self.plan = plan
         self.server: AdsTestServer | None = None
-        self.variables: list[PLCVariable] = []
+        self.variables: list[tuple[PLCVariable, DataType]] = []
 
     async def start(self) -> None:
         handler = AdvancedHandler()
         for point in self.plan.points:
             kind = self.plan.data_types[point.point_id]
-            if kind is not DataType.FLOAT32:
-                raise ValueError(
-                    f"{self.plan.device_id}.{point.point_id}: ADS testserver currently "
-                    "supports REAL/float32; cannot silently simulate another type"
-                )
             symbol = str(point.ext.get("symbol", ""))
             if not symbol:
                 raise ValueError(f"{self.plan.device_id}.{point.point_id}: symbol required")
+            if kind is DataType.STRING:
+                ads_type = ads_constants.ADST_STRING
+                symbol_type = "STRING(80)"
+            else:
+                ads_constant, symbol_type, _ = _ADS_FORMAT[kind]
+                ads_type = getattr(ads_constants, ads_constant)
             variable = PLCVariable(
                 name=symbol,
-                value=0.0,
-                ads_type=ADST_REAL32,
-                symbol_type="REAL",
+                value=_ads_value(kind, random_scalar(kind, random.Random(0))),
+                ads_type=ads_type,
+                symbol_type=symbol_type,
             )
             handler.add_variable(variable)
-            self.variables.append(variable)
+            self.variables.append((variable, kind))
         server = AdsTestServer(
             handler=handler,
             ip_address=self.plan.host,
@@ -324,8 +349,8 @@ class _ADSVirtualServer:
         self.server = server
 
     def update(self, rng: random.Random) -> None:
-        for variable in self.variables:
-            variable.value = rng.uniform(0, 100)
+        for variable, kind in self.variables:
+            variable.write(_ads_value(kind, random_scalar(kind, rng)))
 
     async def stop(self) -> None:
         if self.server is not None:
