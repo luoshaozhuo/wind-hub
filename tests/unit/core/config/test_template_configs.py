@@ -1,4 +1,4 @@
-"""configs/template 自动验证：加载、引用、往返与协议参数消费一致性。"""
+"""configs 自动验证：加载、引用、往返与协议参数消费一致性。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from core.infrastructure.protocol.ads.config import parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
-TEMPLATE_DIR = Path(__file__).resolve().parents[4] / "configs" / "template"
+TEMPLATE_DIR = Path(__file__).resolve().parents[4] / "configs"
 
 _OPTION_PARSERS = {
     "ads": parse_ads_config,
