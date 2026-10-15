@@ -143,4 +143,4 @@ class TestWriteContract:
             ProtocolWriteResult(point_id=" ", outcome=WriteOutcome.CONFIRMED_FAILURE, message="x")
 
     def test_write_normalizes_point_id(self) -> None:
-        assert ProtocolWrite(point_id=" p ", value=1).point_id == "p"
+        assert ProtocolWrite(point=" p ", value=1).point_id == "p"
