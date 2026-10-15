@@ -13,8 +13,22 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from wind_hub_core.config import Config, compute_diff, fingerprint_config_set, load_config
-from wind_hub_core.model.reload import ConfigDiff, ReloadResult
+from dataclasses import dataclass, field
+
+from core.application.config_diff import ConfigSnapshotDiff, diff_config_snapshots
+from core.application.config_snapshot import ConfigSnapshot
+from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
+
+
+@dataclass(frozen=True, slots=True)
+class ReloadResult:
+    """配置事务结果；diff 使用当前 Core 的正式快照差异模型。"""
+
+    success: bool
+    diff: ConfigSnapshotDiff
+    errors: list[str] = field(default_factory=list)
+    duration_ms: float = 0.0
+
 from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.worker import (
     CollectorInfo,
@@ -43,7 +57,7 @@ class ConfigService:
         config_dir: str | Path,
         collectors: CollectorDirectory,
         commander: CommanderPort,
-        current_config: Config,
+        current_config: ConfigSnapshot,
     ) -> None:
         self._config_dir = Path(config_dir)
         self._collectors = collectors
@@ -61,7 +75,7 @@ class ConfigService:
         self._transaction_lock = asyncio.Lock()
         self._accept_transactions = True
         self._applied_files = self._snapshot_config_files()
-        self._applied_config_hash = fingerprint_config_set(self._config_dir)
+        self._applied_config_hash = config_dir_digest(self._config_dir)
 
     @property
     def config_dir(self) -> Path:
@@ -69,7 +83,7 @@ class ConfigService:
         return self._config_dir
 
     @property
-    def current_config(self) -> Config:
+    def current_config(self) -> ConfigSnapshot:
         """返回最近一次成功提交的 Server 配置基线。"""
         return self._current
 
@@ -84,27 +98,27 @@ class ConfigService:
         return self._desired_config_hash
 
     @staticmethod
-    def load_directory(config_dir: str | Path) -> Config:
+    def load_directory(config_dir: str | Path) -> ConfigSnapshot:
         """完整加载并校验指定配置目录。"""
-        return load_config(config_dir)
+        return YamlConfigAdapter(config_dir).load()
 
-    def load_disk(self) -> Config:
+    def load_disk(self) -> ConfigSnapshot:
         """加载当前 Server 管理的配置目录。"""
-        return load_config(self._config_dir)
+        return YamlConfigAdapter(self._config_dir).load()
 
     def initialize_desired_revision(self) -> None:
         """基于当前稳定磁盘配置建立 bootstrap desired revision。"""
         if self._desired_revision is not None:
             return
-        before_hash = fingerprint_config_set(self._config_dir)
+        before_hash = config_dir_digest(self._config_dir)
         candidate = self.load_disk()
-        config_hash = fingerprint_config_set(self._config_dir)
+        config_hash = config_dir_digest(self._config_dir)
         if before_hash != config_hash:
             raise ValueError(
                 "config changed while initializing desired revision: "
                 f"before={before_hash} after={config_hash}"
             )
-        if compute_diff(self._current, candidate).has_any_changes:
+        if diff_config_snapshots(self._current, candidate).has_changes:
             raise ValueError(
                 "current config differs from disk while initializing desired revision"
             )
@@ -140,7 +154,7 @@ class ConfigService:
         """构造停机阶段拒绝新配置事务的稳定结果。"""
         return ReloadResult(
             success=False,
-            diff=ConfigDiff(),
+            diff=diff_config_snapshots(self._current, self._current),
             errors=["config transactions are shutting down"],
         )
 
@@ -163,14 +177,14 @@ class ConfigService:
             load_errors.extend(self._restore_applied_files())
             return ReloadResult(
                 success=False,
-                diff=ConfigDiff(),
+                diff=diff_config_snapshots(self._current, self._current),
                 errors=load_errors,
                 duration_ms=(time.monotonic() - started) * 1000,
             )
 
-        diff = compute_diff(self._current, candidate)
+        diff = diff_config_snapshots(self._current, candidate)
         if (
-            not diff.has_any_changes
+            not diff.has_changes
             and not force_workers
             and config_hash == self._applied_config_hash
         ):
@@ -218,11 +232,11 @@ class ConfigService:
             duration_ms=(time.monotonic() - started) * 1000,
         )
 
-    def _load_candidate(self) -> tuple[Config, str]:
+    def _load_candidate(self) -> tuple[ConfigSnapshot, str]:
         """加载候选配置集并校验加载期间磁盘内容稳定。"""
-        before_hash = fingerprint_config_set(self._config_dir)
+        before_hash = config_dir_digest(self._config_dir)
         candidate = self.load_disk()
-        config_hash = fingerprint_config_set(self._config_dir)
+        config_hash = config_dir_digest(self._config_dir)
         if before_hash != config_hash:
             raise ValueError(
                 "config changed while loading candidate: "
@@ -323,7 +337,7 @@ class ConfigService:
 
     def _commit_revision(
         self,
-        candidate: Config,
+        candidate: ConfigSnapshot,
         revision_id: str,
         config_hash: str,
     ) -> None:
@@ -603,4 +617,4 @@ class ConfigService:
         return await collector.config_status()
 
 
-__all__ = ["Config", "ConfigService", "compute_diff"]
+__all__ = ["ConfigService", "ReloadResult"]
