@@ -153,6 +153,88 @@ async def test_ads_driver_local_ams_identity_initializes_once(
     assert fake_pyads.close_calls == 1
 
 
+class _RouteProbeConnection:
+    attempts = 0
+    closed = 0
+
+    def __init__(self, net_id: object, port: int, host: str) -> None:
+        del net_id, port, host
+        self.is_open = False
+
+    def set_timeout(self, timeout_ms: int) -> None:
+        del timeout_ms
+
+    def open(self) -> None:
+        type(self).attempts += 1
+        self.is_open = True
+
+    def read_state(self) -> tuple[int, int]:
+        if type(self).attempts == 1:
+            raise ConnectionError("initial probe failed")
+        return 5, 0
+
+    def close(self) -> None:
+        type(self).closed += 1
+        self.is_open = False
+
+
+@pytest.mark.asyncio
+async def test_ads_connect_probes_then_adds_route_and_retries_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _RouteProbeConnection.attempts = 0
+    _RouteProbeConnection.closed = 0
+    calls: list[str] = []
+
+    class Pyads:
+        Connection = _RouteProbeConnection
+
+        @staticmethod
+        def add_route_to_plc(*args: object) -> bool:
+            del args
+            calls.append("add")
+            return True
+
+    monkeypatch.setattr(driver_module, "pyads", Pyads)
+    monkeypatch.setattr(
+        driver_module, "_LOCAL_AMS", ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {"route_auto_add": True},
+    )
+    try:
+        await driver.connect()
+        assert driver.is_open()
+        assert _RouteProbeConnection.attempts == 2
+        assert _RouteProbeConnection.closed == 1
+        assert calls == ["add"]
+    finally:
+        await driver.close()
+    assert _RouteProbeConnection.closed == 2
+
+
+@pytest.mark.asyncio
+async def test_ads_connect_failure_without_route_does_not_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _RouteProbeConnection.attempts = 0
+    _RouteProbeConnection.closed = 0
+    monkeypatch.setattr(
+        driver_module, "pyads", type("Pyads", (), {"Connection": _RouteProbeConnection})
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {"route_auto_add": False},
+    )
+    with pytest.raises(Exception, match="ADS connect failed"):
+        await driver.connect()
+    assert _RouteProbeConnection.attempts == 1
+    assert _RouteProbeConnection.closed == 1
+
+
 class _FakeNotificationAttrib:
     last_mode: ClassVar[int]
 
