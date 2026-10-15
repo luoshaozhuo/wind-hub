@@ -113,10 +113,7 @@ export function buildDefinitionsPayload(
   baselineProjection: string,
 ): AdminDefinitionsRequestDto {
   const units = Object.fromEntries(
-    Object.entries(state.units).map(([id, value]) => [
-      id,
-      { ...value },
-    ]),
+    Object.entries(state.units).map(([id, value]) => [id, { ...value }]),
   )
   const device_types = Object.fromEntries(
     state.deviceTypes.map((item) => [item.id, { name: item.name || null }]),
@@ -145,18 +142,21 @@ export function buildDefinitionsPayload(
         .map((table) => {
           const value: Record<string, unknown> = {
             remove_points: [...(table.remove_points || [])],
-            points: Object.fromEntries((state.points[table.id] || []).map((point) => [
-              point.point_id, {
-              business_point_id: point.variable_name || point.point_id,
-              point_groups: [...point.point_groups],
-              address: { ...point.address },
-              data_type: point.data_type,
-              scale: point.scale,
-              offset: point.offset,
-              unit_id: point.unit,
-              description: point.description || undefined,
-            },
-            ])),
+            points: Object.fromEntries(
+              (state.points[table.id] || []).map((point) => [
+                point.point_id,
+                {
+                  business_point_id: point.variable_name || point.point_id,
+                  point_groups: [...point.point_groups],
+                  address: { ...point.address },
+                  data_type: point.data_type,
+                  scale: point.scale,
+                  offset: point.offset,
+                  unit_id: point.unit,
+                  description: point.description || undefined,
+                },
+              ]),
+            ),
           }
           if (table.protocol !== 'generic') value.protocol = table.protocol
           if (table.extends) value.parent_id = table.extends

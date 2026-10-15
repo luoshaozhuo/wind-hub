@@ -454,6 +454,7 @@ export function writeDevicePoint(
     return {
       ...base,
       success: false,
+      outcome: code === MOCK_ERROR_CODES.COMMAND_TIMEOUT ? 'unknown' : 'confirmed_failure',
       error: `${code}: ${message}`,
       readback: null,
       readback_error: message,
@@ -485,6 +486,7 @@ export function writeDevicePoint(
   return {
     ...base,
     success: true,
+    outcome: 'confirmed_success',
     error: null,
     readback: value,
     readback_error: null,

@@ -112,9 +112,6 @@ const lastStart = computed(() => {
     .replace('T', ' ')
     .slice(0, 19)
 })
-const lastStop = '—'
-const lastReload = '—'
-
 const formatDuration = (ms: number) => {
   const total = Math.max(0, Math.floor(ms / 1000))
   const days = Math.floor(total / 86400)
@@ -379,12 +376,6 @@ const statTone = (onlineCount: number, total: number): Tone => {
             <div>
               <span>Last start</span
               ><b class="value info">{{ unavailableValue(healthSource, lastStart) }}</b>
-            </div>
-            <div>
-              <span>Last stop</span><b class="value muted">{{ lastStop }}</b>
-            </div>
-            <div>
-              <span>Last reload</span><b class="value info">{{ lastReload }}</b>
             </div>
           </div>
         </article>

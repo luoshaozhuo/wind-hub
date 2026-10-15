@@ -163,7 +163,11 @@ function adsPoints(prefix: string, count: number): MockPointDef[] {
       data_type: mixedTypes[i % mixedTypes.length],
       scale: mixedTypes[i % mixedTypes.length] === 'bool' ? 1 : i % 6 === 0 ? 0.1 : 1,
       offset: 0,
-      unit: (i % 5 === 4 ? 'none' : unitIds[i % unitIds.length]),
+      // 布尔量测无量纲；其余按位置轮转单位。
+      unit:
+        mixedTypes[i % mixedTypes.length] === 'bool' || i % 5 === 4
+          ? 'none'
+          : unitIds[i % unitIds.length],
       description: `${name.replace(/_/g, ' ')} measurement`,
     }
   })
@@ -185,7 +189,7 @@ function modbusPoints(prefix: string, count: number): MockPointDef[] {
       data_type: ['float32', 'int32', 'int16', 'uint16', 'bool'][i % 5],
       scale: i % 5 === 4 ? 1 : i % 6 === 0 ? 0.01 : 1,
       offset: 0,
-      unit: (i % 5 === 4 ? 'none' : unitIds[i % unitIds.length]),
+      unit: i % 5 === 4 ? 'none' : unitIds[i % unitIds.length],
       description: `${name.replace(/_/g, ' ')} measurement`,
     }
   })
@@ -206,7 +210,7 @@ function iec104Points(prefix: string, count: number): MockPointDef[] {
       data_type: ['float32', 'float32', 'int32', 'uint16', 'bool'][i % 5],
       scale: i % 5 === 4 ? 1 : i % 6 === 0 ? 0.1 : 1,
       offset: 0,
-      unit: (i % 5 === 4 ? 'none' : unitIds[i % unitIds.length]),
+      unit: i % 5 === 4 ? 'none' : unitIds[i % unitIds.length],
       description: `${name.replace(/_/g, ' ')} measurement`,
     }
   })
@@ -278,19 +282,21 @@ export function pointsOfTable(tableId: string, stack: string[] = []): MockPointD
 export function buildDefinitions(): DefinitionsDto {
   const point_tables: DefinitionsDto['point_tables'] = {}
   for (const [id, table] of Object.entries(pointTablesSeed)) {
-    const points = Object.fromEntries(table.points.map((point) => [
-      point.point_id,
-      {
-        business_point_id: point.variable_name,
-        point_groups: [...point.point_groups],
-        address: { ...point.address },
-        data_type: point.data_type,
-        scale: point.scale,
-        offset: point.offset,
-        unit_id: point.unit,
-        description: point.description,
-      },
-    ]))
+    const points = Object.fromEntries(
+      table.points.map((point) => [
+        point.point_id,
+        {
+          business_point_id: point.variable_name,
+          point_groups: [...point.point_groups],
+          address: { ...point.address },
+          data_type: point.data_type,
+          scale: point.scale,
+          offset: point.offset,
+          unit_id: point.unit,
+          description: point.description,
+        },
+      ]),
+    )
     point_tables[id] = {
       ...(table.extends
         ? { parent_id: table.extends, remove_points: [...table.remove_points] }
@@ -489,30 +495,36 @@ export const sinksSeed: MockSink[] = [
     type: 'redis',
     enabled: true,
     connection: { host: 'redis.windhub.local', port: 6379, key_prefix: 'wind-hub' },
-    points: [{
-      source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
-      address: { field: 'wind-speed' },
-    }],
+    points: [
+      {
+        source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
+        address: { field: 'wind-speed' },
+      },
+    ],
   },
   {
     name: 'modbus_main',
     type: 'modbus',
     enabled: true,
     connection: { host: '127.0.0.1', port: 1502 },
-    points: [{
-      source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
-      address: { slave_id: 1, register_type: 'holding', address: 0 },
-    }],
+    points: [
+      {
+        source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
+        address: { slave_id: 1, register_type: 'holding', address: 0 },
+      },
+    ],
   },
   {
     name: 'file_archive',
     type: 'file',
     enabled: true,
     connection: { path: '/var/tmp/wind-hub/archive.csv', max_size_mb: 100, max_files: 30 },
-    points: [{
-      source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
-      address: { field: 'wind-speed' },
-    }],
+    points: [
+      {
+        source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
+        address: { field: 'wind-speed' },
+      },
+    ],
   },
   {
     name: 'debug_file',
@@ -580,19 +592,21 @@ function yamlDocument(value: Record<string, unknown>): string {
 
 export function devicesYaml(devices: MockDevice[]): string {
   return yamlDocument({
-    devices: Object.fromEntries(devices.map((device) => [
-      device.device_id,
-      {
-        model_id: device.model,
-        device_group_ids: [device.device_group],
-        endpoint: {
-          host: device.host,
-          ...(device.port == null ? {} : { port: device.port }),
+    devices: Object.fromEntries(
+      devices.map((device) => [
+        device.device_id,
+        {
+          model_id: device.model,
+          device_group_ids: [device.device_group],
+          endpoint: {
+            host: device.host,
+            ...(device.port == null ? {} : { port: device.port }),
+          },
+          protocol_options: { ...device.extensions },
+          enabled: device.enabled,
         },
-        protocol_options: { ...device.extensions },
-        enabled: device.enabled,
-      },
-    ])),
+      ]),
+    ),
     device_groups: Object.fromEntries(deviceGroupsSeed.map((id) => [id, { name: id }])),
   })
 }
@@ -600,16 +614,18 @@ export function devicesYaml(devices: MockDevice[]): string {
 export function tasksYaml(tasks: MockTask[]): string {
   return yamlDocument({
     tasks: Object.fromEntries(
-      tasks.filter((task) => task.device_group && task.interval).map((task) => [
-        task.task_id,
-        {
-          device_group_id: task.device_group,
-          point_group: task.point_group,
-          interval: task.interval,
-          sink_ids: [...task.sinks],
-          enabled: task.enabled,
-        },
-      ]),
+      tasks
+        .filter((task) => task.device_group && task.interval)
+        .map((task) => [
+          task.task_id,
+          {
+            device_group_id: task.device_group,
+            point_group: task.point_group,
+            interval: task.interval,
+            sink_ids: [...task.sinks],
+            enabled: task.enabled,
+          },
+        ]),
     ),
   })
 }
@@ -620,10 +636,9 @@ export function seedYamlFiles(
   tasks: MockTask[],
 ): Record<string, string> {
   const defs = buildDefinitions()
-  const units = Object.fromEntries(Object.entries(unitsSeed).map(([id, unit]) => [
-    id,
-    { symbol: unit.symbol, quantity: id },
-  ]))
+  const units = Object.fromEntries(
+    Object.entries(unitsSeed).map(([id, unit]) => [id, { symbol: unit.symbol, quantity: id }]),
+  )
   const points = Object.fromEntries(
     Object.values(pointTablesSeed).flatMap((table) =>
       table.points.map((point) => [
@@ -637,16 +652,16 @@ export function seedYamlFiles(
       site: { site_id: settings.site_id, name: settings.site_name || settings.site_id },
       runtime: { queue_maxsize: 1000, backpressure_policy: 'drop_old' },
       ...(settings.ads_local_ip && settings.ads_local_ams_net_id
-        ? { ads: {
-            local_ip: settings.ads_local_ip,
-            local_ams_net_id: settings.ads_local_ams_net_id,
-          } }
+        ? {
+            ads: {
+              local_ip: settings.ads_local_ip,
+              local_ams_net_id: settings.ads_local_ams_net_id,
+            },
+          }
         : {}),
     }),
     'units.yaml': yamlDocument({
-      quantities: Object.fromEntries(Object.keys(unitsSeed).map((id) => [
-        id, { base_unit: id },
-      ])),
+      quantities: Object.fromEntries(Object.keys(unitsSeed).map((id) => [id, { base_unit: id }])),
       units,
     }),
     'device_models.yaml': yamlDocument({
@@ -657,10 +672,17 @@ export function seedYamlFiles(
     'devices.yaml': devicesYaml(devices),
     'tasks.yaml': tasksYaml(tasks),
     'sinks.yaml': yamlDocument({
-      sinks: Object.fromEntries(sinksSeed.map((sink) => [
-        sink.name,
-        { type: sink.type, enabled: sink.enabled, connection: sink.connection, points: sink.points },
-      ])),
+      sinks: Object.fromEntries(
+        sinksSeed.map((sink) => [
+          sink.name,
+          {
+            type: sink.type,
+            enabled: sink.enabled,
+            connection: sink.connection,
+            points: sink.points,
+          },
+        ]),
+      ),
     }),
     'business_points.yaml': yamlDocument({ business_points: points }),
   }

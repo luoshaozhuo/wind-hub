@@ -163,10 +163,10 @@ function openEvent(row: CommunicationEvent) {
   drawer.value = {
     kind: 'event',
     title: row.event,
-    subtitle: row.object + ' · ' + row.protocol,
+    subtitle: row.object,
     distribution: [],
     tasks: [],
-    devices: [{ Object: row.object, Target: row.target, State: row.state, Duration: row.duration }],
+    devices: [{ Object: row.object, State: row.state }],
     errors: [{ Time: row.time, Object: row.object, Error: row.error }],
     problems: [],
   }
@@ -347,7 +347,6 @@ onBeforeUnmount(() => {
                 ></el-table-column
               >
               <el-table-column v-if="!isTablet" prop="target" label="Target" min-width="150" />
-              <el-table-column v-if="!isMobile" prop="last" label="Last Success" min-width="165" />
               <el-table-column prop="latency" label="Latency" width="90" />
               <el-table-column v-if="!isTablet" prop="timeouts" label="Timeouts" width="90" />
               <el-table-column v-if="!isTablet" prop="reconnects" label="Reconnects" width="100" />
@@ -393,7 +392,6 @@ onBeforeUnmount(() => {
                 min-width="220"
                 show-overflow-tooltip
               />
-              <el-table-column v-if="!isTablet" prop="last" label="Last Write" min-width="165" />
               <el-table-column prop="latency" label="Latency" width="90" />
               <el-table-column
                 prop="issue"
@@ -420,7 +418,6 @@ onBeforeUnmount(() => {
             >
               <el-table-column prop="time" label="Time" min-width="165" />
               <el-table-column prop="object" label="Object" min-width="130" />
-              <el-table-column v-if="!isMobile" prop="protocol" label="Protocol" width="100" />
               <el-table-column prop="event" label="Event" min-width="150" />
               <el-table-column label="State" width="105"
                 ><template #default="{ row }"
@@ -433,7 +430,6 @@ onBeforeUnmount(() => {
                 min-width="240"
                 show-overflow-tooltip
               />
-              <el-table-column v-if="!isTablet" prop="duration" label="Duration" width="100" />
             </el-table>
             <div v-if="communicationEvents.length > eventPageSize" class="pagination">
               <el-pagination

@@ -125,7 +125,10 @@ function connection(): Record<string, unknown> {
 
 function parsePoints(): Record<string, unknown>[] {
   const value: unknown = JSON.parse(draft.pointsJson)
-  if (!Array.isArray(value) || value.some((row) => !row || typeof row !== 'object' || Array.isArray(row))) {
+  if (
+    !Array.isArray(value) ||
+    value.some((row) => !row || typeof row !== 'object' || Array.isArray(row))
+  ) {
     throw new Error('点映射必须是 JSON 对象数组')
   }
   return value as Record<string, unknown>[]
@@ -218,7 +221,10 @@ async function remove(sink: SinkDef) {
     return
   }
   configStore.mutate(() =>
-    configStore.sinks.splice(configStore.sinks.findIndex((item) => item.name === sink.name), 1),
+    configStore.sinks.splice(
+      configStore.sinks.findIndex((item) => item.name === sink.name),
+      1,
+    ),
   )
   drawerOpen.value = false
 }
@@ -233,8 +239,12 @@ async function remove(sink: SinkDef) {
       </el-col>
       <el-col :xs="24" :sm="12">
         <el-row justify="end" :gutter="8">
-          <el-col :xs="15" :sm="14"><el-input v-model="filter" clearable placeholder="搜索 Sink" /></el-col>
-          <el-col :xs="9" :sm="10"><el-button type="primary" @click="openCreate">新增 Sink</el-button></el-col>
+          <el-col :xs="15" :sm="14"
+            ><el-input v-model="filter" clearable placeholder="搜索 Sink"
+          /></el-col>
+          <el-col :xs="9" :sm="10"
+            ><el-button type="primary" @click="openCreate">新增 Sink</el-button></el-col
+          >
         </el-row>
       </el-col>
     </el-row>
@@ -267,7 +277,11 @@ async function remove(sink: SinkDef) {
       </el-table>
     </el-card>
 
-    <el-drawer v-model="drawerOpen" :title="creating ? '新增 Sink' : '编辑 Sink'" size="min(480px, 95vw)">
+    <el-drawer
+      v-model="drawerOpen"
+      :title="creating ? '新增 Sink' : '编辑 Sink'"
+      size="min(480px, 95vw)"
+    >
       <el-form label-position="top">
         <el-form-item label="Sink ID">
           <el-input v-model="draft.name" :disabled="!creating" />
@@ -283,7 +297,9 @@ async function remove(sink: SinkDef) {
           <el-switch v-model="draft.enabled" />
         </el-form-item>
         <template v-if="draft.type === 'file'">
-          <el-form-item label="目录或 .csv 文件路径"><el-input v-model="draft.path" /></el-form-item>
+          <el-form-item label="目录或 .csv 文件路径"
+            ><el-input v-model="draft.path"
+          /></el-form-item>
           <el-form-item label="最大容量 (MB)">
             <el-input-number v-model="draft.maxSizeMb" :min="0.1" />
           </el-form-item>
@@ -302,7 +318,12 @@ async function remove(sink: SinkDef) {
             </el-form-item>
             <el-form-item label="Key Prefix"><el-input v-model="draft.keyPrefix" /></el-form-item>
             <el-form-item label="Password（不填写则保持已有密码）">
-              <el-input v-model="draft.password" type="password" show-password autocomplete="new-password" />
+              <el-input
+                v-model="draft.password"
+                type="password"
+                show-password
+                autocomplete="new-password"
+              />
             </el-form-item>
           </template>
         </template>

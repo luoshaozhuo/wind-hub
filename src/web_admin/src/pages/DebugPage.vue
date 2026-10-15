@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useViewport } from '../composables/useViewport'
 import {
@@ -9,7 +9,7 @@ import {
   protocolWrite,
   scanSubnet as startSubnetScan,
 } from '../api/diagnostics'
-import { awaitOperation } from '../api/operations'
+import { awaitOperation, OperationWaitCancelledError } from '../api/operations'
 import { effectiveConnection, protocolOfDevice, tableOfDevice, unitSymbol } from '../domain/devices'
 import { pointsOfTable } from '../domain/points'
 import { useConfigStore } from '../stores/config'
@@ -151,13 +151,19 @@ async function probePortRows(host: string, ports: number[]) {
     Latency: Math.round(row.latency_ms) + ' ms',
   }))
 }
+// 子网扫描的本地等待取消器：页面卸载或发起新扫描时停止轮询。
+let scanAbort: AbortController | null = null
+onBeforeUnmount(() => scanAbort?.abort())
+
 async function scanSubnetRows(
   network: string,
   ports: number[],
   onProgress?: (completed: number, total: number) => void,
 ) {
   const op = await startSubnetScan(network, ports, 0.5)
-  const row = await awaitOperation(op.operation_id, onProgress)
+  scanAbort?.abort()
+  scanAbort = new AbortController()
+  const row = await awaitOperation(op.operation_id, onProgress, scanAbort.signal)
   const hosts = Array.isArray(row.result?.hosts)
     ? (row.result.hosts as Array<Record<string, unknown>>)
     : []
@@ -229,6 +235,9 @@ async function runNetwork() {
         scanTotal.value = total
       },
     )
+  } catch (error) {
+    // 本地等待被取消（页面卸载/重新扫描）不是错误，保持现状静默退出。
+    if (!(error instanceof OperationWaitCancelledError)) throw error
   } finally {
     running.value = false
   }

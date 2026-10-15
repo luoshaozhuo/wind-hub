@@ -13,12 +13,9 @@ export interface CommunicationEvent {
   id: number
   time: string
   object: string
-  protocol: string
   event: string
   state: 'Active' | 'Recovered'
   error: string
-  duration: string
-  target: string
 }
 
 export interface QualityProblem {
@@ -36,7 +33,6 @@ export interface ChannelRow {
   protocol: string
   state: 'Healthy' | 'Degraded' | 'Interrupted' | 'Disabled'
   target: string
-  last: string
   latency: string
   timeouts: number
   reconnects: number
@@ -72,7 +68,6 @@ function channelRow(row: ChannelDto): ChannelRow {
     protocol: String(row.protocol),
     state: row.state as ChannelRow['state'],
     target: String(row.target),
-    last: '—',
     latency: row.latency_ms == null ? '—' : Math.round(row.latency_ms) + ' ms',
     timeouts: Number(row.timeouts || 0),
     reconnects: Number(row.reconnects || 0),
@@ -92,12 +87,9 @@ export function mapQualityView(row: QualityDto): QualityView {
       id: i,
       time: String(x.timestamp).replace('T', ' ').slice(0, 19),
       object: x.object,
-      protocol: '—',
       event: x.event,
       state: x.state as CommunicationEvent['state'],
       error: x.evidence,
-      duration: '—',
-      target: '—',
     })),
     dataMetrics: row.data_metrics.map((x) => ({
       key: x.key,

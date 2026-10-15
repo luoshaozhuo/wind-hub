@@ -28,10 +28,15 @@ const params = computed(() => ({
   keyword: keyword.value,
 }))
 
+const LIVE_POLL_MS = 5000
+// 仅第一页是“实时尾部”：翻页浏览历史时停止轮询，避免数据在脚下移动。
+const isLive = computed(() => page.value === 1)
+
 const logsQuery = useQuery({
   queryKey: computed(() => qk.logs(params.value)),
   queryFn: () => fetchLogs(params.value),
   placeholderData: keepPreviousData,
+  refetchInterval: computed(() => (isLive.value ? LIVE_POLL_MS : false)),
 })
 const sourcesQuery = useQuery({ queryKey: qk.logSources, queryFn: fetchLogSources })
 
@@ -64,7 +69,11 @@ watch([level, source, keyword, pageSize], () => {
 
     <el-card shadow="never">
       <div class="logs-toolbar">
-        <div class="row"><b>Log Stream</b><el-tag type="success">live</el-tag></div>
+        <div class="row">
+          <b>Log Stream</b>
+          <el-tag v-if="isLive" type="success">live</el-tag>
+          <el-tag v-else type="info">history</el-tag>
+        </div>
         <div class="logs-filters">
           <el-select v-model="level" aria-label="Log level">
             <el-option

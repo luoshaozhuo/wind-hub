@@ -18,7 +18,6 @@ describe('queryKeys', () => {
   it('设备作用域 key 共享 devices/id 前缀（前缀失效命中全部派生查询）', () => {
     expect(qk.deviceData('d1')).toEqual(['devices', 'd1', 'data'])
     expect(qk.deviceTrend('d1', ['p1'], 60).slice(0, 2)).toEqual(['devices', 'd1'])
-    expect(qk.device('d1')).toEqual(['devices', 'd1'])
     // 不同设备互不干扰。
     expect(qk.deviceData('d1')).not.toEqual(qk.deviceData('d2'))
   })

@@ -68,11 +68,11 @@ function deliveryChannels(factor: number): Channel[] {
         source: 'sink',
         protocol: s.type,
         target:
-          s.type === 'kafka'
-            ? String(s.connection.bootstrap_servers ?? '')
-            : s.type === 'db'
-              ? String(s.connection.dsn ?? '').replace(/:\/\/[^@/]+@/, '://***@')
-              : String(s.connection.path ?? ''),
+          s.type === 'file'
+            ? String(s.connection.path ?? '')
+            : s.type === 'redis'
+              ? `${String(s.connection.host ?? '')}:${String(s.connection.port ?? '')}`
+              : String(s.connection.host ?? ''),
         state,
         timeouts: runtime.error ? factor : 0,
         reconnects: runtime.error ? 2 * factor : 0,

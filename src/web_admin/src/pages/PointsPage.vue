@@ -2,7 +2,7 @@
 // Points 页：Point Table 浏览编排（选择/搜索/分页）与各 feature 宿主。
 // 浏览状态在 usePointTableBrowser；点编辑/删除在 usePointEditor；
 // 元数据管理与连通性测试分别为独立 feature 组件。
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import PointEditorDrawer from '../components/points/PointEditorDrawer.vue'
 import PointMetadataManager from '../components/points/PointMetadataManager.vue'
@@ -15,7 +15,18 @@ import type { PointDef } from '../domain/types'
 const configStore = useConfigStore()
 const { isMobile, isTablet } = useViewport()
 
-const pointTable = ref('beckhoff_wtg_v1')
+const pointTable = ref('')
+// 点表定义异步到达：默认选中第一张可用点表；当前选择被配置变更删除时
+// 回退到第一张，避免停留在不存在的表名上。
+watch(
+  () => configStore.pointTables,
+  (tables) => {
+    if (!tables.some((t) => t.id === pointTable.value)) {
+      pointTable.value = tables[0]?.id ?? ''
+    }
+  },
+  { immediate: true },
+)
 const browser = usePointTableBrowser(pointTable)
 const {
   protocol,
