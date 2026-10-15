@@ -103,8 +103,8 @@ class ADSDriver:
         self._read_cache: dict[
             tuple[ADSPoint, ...],
             tuple[
-                tuple[tuple[tuple[int, int, int], ...], ...],
-                tuple[tuple[Callable[[bytes], PointScalar], ...], ...],
+                tuple[tuple[int, int, int], ...],
+                tuple[Callable[[bytes], PointScalar], ...],
             ],
         ] = {}
         self._points: dict[str, ADSPoint] = {}
@@ -563,23 +563,18 @@ class ADSDriver:
 
     def _build_sum_requests(
         self, points: tuple[ADSPoint, ...]
-    ) -> tuple[tuple[tuple[int, int, int], ...], ...]:
-        """按最大子请求数编排已解析测点地址。"""
-        addresses = tuple((point.group, point.offset, point.size) for point in points)
-        limit = self._config.max_subs_per_sum
-        return tuple(
-            addresses[start:start + limit]
-            for start in range(0, len(addresses), limit)
-        )
+    ) -> tuple[tuple[int, int, int], ...]:
+        """将已解析点表转换为完整的 Sum Read 地址序列。"""
+        return tuple((point.group, point.offset, point.size) for point in points)
 
     def _build_sum_decoders(
         self, points: tuple[ADSPoint, ...]
-    ) -> tuple[tuple[Callable[[bytes], PointScalar], ...], ...]:
-        """构造与 Sum Read 请求位置严格对应的解码器。"""
-        compiled: list[Callable[[bytes], PointScalar]] = []
+    ) -> tuple[Callable[[bytes], PointScalar], ...]:
+        """编译逐点解码器，与请求地址保持相同顺序。"""
+        decoders: list[Callable[[bytes], PointScalar]] = []
         for point in points:
             if point.data_type == "STRING":
-                compiled.append(
+                decoders.append(
                     lambda raw: raw.split(b"\\x00", 1)[0].decode("utf-8")
                 )
             else:
@@ -591,19 +586,14 @@ class ADSDriver:
                         value.value if hasattr(value, "value") else value
                     )
 
-                compiled.append(decode)
-
-        limit = self._config.max_subs_per_sum
-        return tuple(
-            tuple(compiled[start:start + limit])
-            for start in range(0, len(compiled), limit)
-        )
+                decoders.append(decode)
+        return tuple(decoders)
 
     async def _read_sum_raw(
         self,
         points: Sequence[ADSPoint],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        """复用请求与解码器的成对缓存，按调用顺序返回逐点结果。"""
+        """分批取得全部原始响应后，统一按原始测点顺序解码。"""
         key = tuple(points)
         cached = self._read_cache.get(key)
         if cached is None:
@@ -611,24 +601,30 @@ class ADSDriver:
             if len(self._read_cache) >= 32:
                 self._read_cache.pop(next(iter(self._read_cache)))
             self._read_cache[key] = cached
-        requests, decoders = cached
+        request, decoders = cached
 
-        results: list[tuple[PointScalar, Quality]] = []
-        for request, chunk_decoders in zip(requests, decoders, strict=True):
-            raw = await asyncio.to_thread(self._sum_read_bytes, request)
-            count = len(request)
-            expected = 4 * count + sum(size for _, _, size in request)
+        limit = self._config.max_subs_per_sum
+        responses: list[tuple[tuple[tuple[int, int, int], ...], bytes]] = []
+        for start in range(0, len(request), limit):
+            chunk = request[start:start + limit]
+            raw = await asyncio.to_thread(self._sum_read_bytes, chunk)
+            expected = 4 * len(chunk) + sum(size for _, _, size in chunk)
             if len(raw) < expected:
                 raise ProtocolError(
                     f"ADS sum read returned {len(raw)} bytes; expected at least {expected}"
                 )
-            offset = 4 * count
-            for index, ((_, _, size), decoder) in enumerate(
-                zip(request, chunk_decoders, strict=True)
-            ):
+            responses.append((chunk, raw))
+
+        results: list[tuple[PointScalar, Quality]] = []
+        decoder_index = 0
+        for chunk, raw in responses:
+            offset = 4 * len(chunk)
+            for index, (_, _, size) in enumerate(chunk):
                 error = struct.unpack_from("<I", raw, index * 4)[0]
                 data = raw[offset:offset + size]
                 offset += size
+                decoder = decoders[decoder_index]
+                decoder_index += 1
                 if error:
                     results.append((None, Quality.BAD))
                     continue
