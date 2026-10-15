@@ -623,6 +623,11 @@ class CollectorControlServiceStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.ApplyTaskPlacement = channel.unary_unary(
+                '/windhub.collector.v1.CollectorControlService/ApplyTaskPlacement',
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskPlacementSnapshotRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskPlacementSnapshotResponse.FromString,
+                _registered_method=True)
         self.StartTask = channel.unary_unary(
                 '/windhub.collector.v1.CollectorControlService/StartTask',
                 request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskStartRequest.SerializeToString,
@@ -662,6 +667,12 @@ class CollectorControlServiceStub:
 
 class CollectorControlServiceServicer:
     """Missing associated documentation comment in .proto file."""
+
+    def ApplyTaskPlacement(self, request, context):
+        """Apply Collector task assignment before any start operations."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def StartTask(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -708,6 +719,11 @@ class CollectorControlServiceServicer:
 
 def add_CollectorControlServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'ApplyTaskPlacement': grpc.unary_unary_rpc_method_handler(
+                    servicer.ApplyTaskPlacement,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskPlacementSnapshotRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskPlacementSnapshotResponse.SerializeToString,
+            ),
             'StartTask': grpc.unary_unary_rpc_method_handler(
                     servicer.StartTask,
                     request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskStartRequest.FromString,
@@ -753,6 +769,33 @@ def add_CollectorControlServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class CollectorControlService:
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def ApplyTaskPlacement(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.collector.v1.CollectorControlService/ApplyTaskPlacement',
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskPlacementSnapshotRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskPlacementSnapshotResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def StartTask(request,
