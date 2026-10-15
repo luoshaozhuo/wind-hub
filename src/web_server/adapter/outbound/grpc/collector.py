@@ -1,15 +1,12 @@
 """Collector gRPC 出站适配器。
 
 全部调用使用 collector.proto 生成的 Runtime/Control Stub；本模块只负责把
-Protobuf（经 core codec 的 JSON 兼容中间形）转换为 Server 应用层 DTO 边界。
+Protobuf 直接转换为 Server 应用层 DTO，不经过 JSON 中间结构。
 """
 
 from __future__ import annotations
 
 from datetime import UTC
-from typing import cast
-
-import grpc
 from google.protobuf import empty_pb2
 
 from core.infrastructure.rpc import collector_pb2 as pb
@@ -35,24 +32,6 @@ from web_server.application.port.worker import (
     SinkOperationResult,
     SinkRuntimeInfo,
 )
-
-
-def _placement_error(exc: grpc.aio.AioRpcError) -> Exception:
-    """把 placement 相关的 gRPC 拒绝映射为端口层语义错误，其余原样抛出。
-
-    Collector 对 placement 栅栏违例返回 FAILED_PRECONDITION（未下发快照、
-    generation 不一致）或 PERMISSION_DENIED（任务不在快照内）——这两类
-    对 Server 意味着「placement 不再安全」，必须由应用层重建栅栏；
-    其他错误码（UNAVAILABLE 等）按普通 RPC 故障向上传播。
-    """
-    if exc.code() in (
-        grpc.StatusCode.FAILED_PRECONDITION,
-        grpc.StatusCode.PERMISSION_DENIED,
-    ):
-        return CollectorPlacementRejectedError(exc.details() or exc.code().name)
-    # grpcio 无类型 stub，AioRpcError 注解解析为 Any；
-    # 运行时 AioRpcError 是 Exception 子类，这里显式收窄。
-    return cast(Exception, exc)
 
 
 def _runtime_status_dto(message: pb.RuntimeStatusResponse) -> CollectorRuntimeStatus:
