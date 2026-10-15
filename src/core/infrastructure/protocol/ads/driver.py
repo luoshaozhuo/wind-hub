@@ -97,20 +97,11 @@ class ADSDriver:
         # event loop 提前 GC（"Task was destroyed but it is pending"）；
         # done callback 同时取回异常，避免 "exception was never retrieved"。
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
-        # 地址解析与读取分组均绑定当前 ADS session；断连/重连后失效。
-        self._read_plan_cache: dict[
-            tuple[str | ADSPoint, ...],
-            tuple[
-                tuple[tuple[tuple[int, ADSPoint], ...], tuple[tuple[int, int, int], ...], int],
-                ...,
-            ],
-        ] = {}
-        self._read_variable_cache: dict[
-            tuple[str | ADSPoint, ...], tuple[tuple[int, ADSPoint], ...]
-        ] = {}
-        self._read_unresolved_cache: dict[tuple[str | ADSPoint, ...], tuple[int, ...]] = {}
+        # 已解析动态点与注册点分别复用；仅当前 ADS session 有效。
+        self._dynamic_points: dict[ADSPoint, ADSPoint] = {}
+        # ReadPlan 按排序后的完整点序列缓存，包含分批地址和解码器。
+        self._read_plan_cache: dict[tuple[ADSPoint, ...], tuple[Any, ...]] = {}
         self._points: dict[str, ADSPoint] = {}
-        self._symbol_cache: dict[str, tuple[int, int]] = {}
         self.update_point_table(point_table)
 
     def update_point_table(self, point_table: PointTable) -> None:
@@ -124,9 +115,7 @@ class ADSDriver:
             point.point_id: parse_ads_point(point) for point in point_table.points.values()
         }
         self._read_plan_cache.clear()
-        self._read_variable_cache.clear()
-        self._read_unresolved_cache.clear()
-        self._symbol_cache.clear()
+        self._dynamic_points.clear()
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 ADS Driver 实际支持的协议能力。"""
@@ -400,17 +389,17 @@ class ADSDriver:
         self,
         points: Sequence[str | ADSPoint],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        """使用 ADS Sum Read 读取点，返回原始值及逐点质量。"""
+        """先完成符号地址解析，再复用规范化 ReadPlan。"""
         if not points:
             return ()
-
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS read requires an active connection")
             try:
-                for point in points:
-                    await self._resolve_point_locked(point)
-                return await self._read_sum_raw(points)
+                resolved = tuple(
+                    [await self._resolve_point_locked(point) for point in points]
+                )
+                return await self._read_sum_raw(resolved)
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -572,93 +561,70 @@ class ADSDriver:
 
     async def _read_sum_raw(
         self,
-        points: Sequence[str | ADSPoint],
+        points: Sequence[ADSPoint],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        key = tuple(points)
-        cached = self._read_plan_cache.get(key)
-        if cached is None:
-            unresolved: list[int] = []
-            fixed: list[tuple[int, ADSPoint]] = []
-            variable: list[tuple[int, ADSPoint]] = []
-            for index, point in enumerate(key):
-                mapped = self._resolve_point(point)
-                if not mapped.address_resolved:
-                    unresolved.append(index)
-                elif mapped.size > 0:
-                    fixed.append((index, mapped))
+        """单份计划缓存：排序编译、Sum Read、按原输入顺序还原结果。"""
+        key = tuple(sorted(points, key=lambda point: (
+            point.point_id, point.group if point.address_resolved else -1,
+            point.offset if point.address_resolved else -1,
+            point.data_type, point.size, point.symbol or "",
+        )))
+        plan = self._read_plan_cache.get(key)
+        if plan is None:
+            entries = []
+            for point in key:
+                if not point.address_resolved or point.size <= 0:
+                    entries.append((point, None))
+                    continue
+                if point.data_type == "STRING":
+                    decoder = lambda raw: raw.split(b"\\x00", 1)[0].decode("utf-8")
                 else:
-                    variable.append((index, mapped))
-            max_subs = self._config.max_subs_per_sum
-            chunks = []
-            for start in range(0, len(fixed), max_subs):
-                chunk = tuple(fixed[start : start + max_subs])
-                addresses = tuple(
-                    (mapped.group, mapped.offset, mapped.size) for _, mapped in chunk
-                )
-                expected = 4 * len(chunk) + sum(mapped.size for _, mapped in chunk)
-                chunks.append((chunk, addresses, expected))
-            cached = tuple(chunks)
-            if len(self._read_plan_cache) >= 32:
-                old = next(iter(self._read_plan_cache))
-                self._read_plan_cache.pop(old)
-                self._read_variable_cache.pop(old, None)
-                self._read_unresolved_cache.pop(old, None)
-            self._read_plan_cache[key] = cached
-            self._read_variable_cache[key] = tuple(variable)
-            self._read_unresolved_cache[key] = tuple(unresolved)
+                    datatype = _plc_datatype(point.data_type)
+                    def decoder(raw: bytes, datatype: Any = datatype) -> PointScalar:
+                        value = datatype.from_buffer_copy(raw)
+                        return _as_point_scalar(value.value if hasattr(value, "value") else value)
+                entries.append((point, decoder))
 
-        unresolved_indexes = self._read_unresolved_cache.get(key, ())
-        variable_points = self._read_variable_cache.get(key, ())
-        results: list[tuple[PointScalar, Quality] | None] = [None] * len(key)
-        for index in unresolved_indexes:
-            results[index] = (None, Quality.BAD)
-        for chunk, addresses, expected in cached:
-            raw = await asyncio.to_thread(
-                self._sum_read_bytes,
-                addresses,
+            plan = tuple(
+                tuple(entries[start:start + self._config.max_subs_per_sum])
+                for start in range(0, len(entries), self._config.max_subs_per_sum)
             )
-            if len(raw) < expected:
-                raise ProtocolError(
-                    f"ADS sum read returned {len(raw)} bytes; " f"expected at least {expected}"
-                )
+            if len(self._read_plan_cache) >= 32:
+                self._read_plan_cache.pop(next(iter(self._read_plan_cache)))
+            self._read_plan_cache[key] = plan
 
-            data_offset = 4 * len(chunk)
-            for item_index, (result_index, mapped) in enumerate(chunk):
-                error = struct.unpack_from(
-                    "<I",
-                    raw,
-                    item_index * 4,
-                )[0]
-                value_bytes = raw[data_offset : data_offset + mapped.size]
-                data_offset += mapped.size
-                if error:
-                    results[result_index] = (None, Quality.BAD)
-                    continue
-                try:
-                    value = _decode_value(value_bytes, mapped)
-                except (TypeError, ValueError, UnicodeDecodeError):
-                    results[result_index] = (None, Quality.BAD)
-                    continue
-                results[result_index] = (value, Quality.GOOD)
+        decoded: list[tuple[PointScalar, Quality]] = []
+        for chunk in plan:
+            valid = [(point, decoder) for point, decoder in chunk if decoder is not None]
+            values: list[tuple[PointScalar, Quality]] = []
+            if valid:
+                addresses = tuple((p.group, p.offset, p.size) for p, _ in valid)
+                raw = await asyncio.to_thread(self._sum_read_bytes, addresses)
+                expected = 4 * len(valid) + sum(p.size for p, _ in valid)
+                if len(raw) < expected:
+                    raise ProtocolError(
+                        f"ADS sum read returned {len(raw)} bytes; expected at least {expected}"
+                    )
+                offset = 4 * len(valid)
+                for index, (point, decoder) in enumerate(valid):
+                    error = struct.unpack_from("<I", raw, index * 4)[0]
+                    data = raw[offset:offset + point.size]
+                    offset += point.size
+                    if error:
+                        values.append((None, Quality.BAD))
+                        continue
+                    try:
+                        values.append((decoder(data), Quality.GOOD))
+                    except (TypeError, ValueError, UnicodeDecodeError):
+                        values.append((None, Quality.BAD))
+            iterator = iter(values)
+            for _, decoder in chunk:
+                decoded.append(next(iterator) if decoder is not None else (None, Quality.BAD))
 
-        for result_index, mapped in variable_points:
-            try:
-                value = await asyncio.to_thread(
-                    self._connection.read,
-                    mapped.group,
-                    mapped.offset,
-                    _plc_datatype(mapped.data_type),
-                )
-            except Exception as exc:
-                if _is_point_level_error(exc):
-                    results[result_index] = (None, Quality.BAD)
-                    continue
-                raise
-            results[result_index] = (_as_point_scalar(value), Quality.GOOD)
-
-        if any(result is None for result in results):
-            raise RuntimeError("ADS read did not produce a result for every point")
-        return tuple(result for result in results if result is not None)
+        by_point: dict[ADSPoint, list[tuple[PointScalar, Quality]]] = {}
+        for point, value in zip(key, decoded, strict=True):
+            by_point.setdefault(point, []).append(value)
+        return tuple(by_point[point].pop() for point in points)
 
     async def resolve_symbol(self, symbol: str) -> tuple[int, int]:
         """按需查询 PLC 符号地址；同一 ADS session 内复用解析结果。"""
@@ -668,40 +634,37 @@ class ADSDriver:
             return await self._resolve_symbol_locked(symbol)
 
     async def _resolve_symbol_locked(self, symbol: str) -> tuple[int, int]:
-        cached = self._symbol_cache.get(symbol)
-        if cached is not None:
-            return cached
         connection = self._connection
         if connection is None:
             raise ProtocolError("ADS connection is not available")
         info = await asyncio.to_thread(connection.get_symbol, symbol)
-        address = symbol_index_address(symbol, info)
-        self._symbol_cache[symbol] = address
-        return address
+        return symbol_index_address(symbol, info)
 
     async def _resolve_point_locked(self, point: str | ADSPoint) -> ADSPoint:
         mapped = self._resolve_point(point)
         if mapped.address_resolved or mapped.symbol is None:
             return mapped
+        if isinstance(point, ADSPoint):
+            cached = self._dynamic_points.get(point)
+            if cached is not None:
+                return cached
         try:
             group, offset = await self._resolve_symbol_locked(mapped.symbol)
         except Exception as exc:
             if _is_point_level_error(exc):
                 return mapped
             raise
+        # PLC 返回的长度仅供固定类型核对；STRING 始终采用配置的 size。
         resolved = mapped.resolved(index_group=group, index_offset=offset)
         if isinstance(point, str):
             self._points[point] = resolved
-        self._read_plan_cache.clear()
-        self._read_variable_cache.clear()
-        self._read_unresolved_cache.clear()
+        else:
+            self._dynamic_points[point] = resolved
         return resolved
 
     def _invalidate_symbol_addresses(self) -> None:
-        self._symbol_cache.clear()
         self._read_plan_cache.clear()
-        self._read_variable_cache.clear()
-        self._read_unresolved_cache.clear()
+        self._dynamic_points.clear()
         self._points = {point_id: point.unresolved() for point_id, point in self._points.items()}
 
     def _mapped_point(self, point_id: str) -> ADSPoint:
