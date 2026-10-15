@@ -162,7 +162,9 @@ def validate_points(plan: EndpointPlan) -> None:
         if plan.protocol == "modbus":
             register = str(ext.get("type", ext.get("register_type", ""))).lower()
             if register not in _MODBUS_FC:
-                raise ValueError(f"{plan.device_id}.{point.point_id}: unsupported Modbus register type")
+                raise ValueError(
+                    f"{plan.device_id}.{point.point_id}: unsupported Modbus register type"
+                )
             if kind not in _MODBUS_WIDTH:
                 raise ValueError(f"{plan.device_id}.{point.point_id}: unsupported Modbus data type")
             offset = int(ext["address"])
@@ -289,12 +291,16 @@ class _IEC104VirtualServer:
             kind = self.plan.data_types[point.point_id]
             type_name = str(point.ext.get("type", "M_ME_NC_1"))
             if not hasattr(c104.Type, type_name):
-                raise ValueError(f"{self.plan.device_id}.{point.point_id}: unknown IEC104 type {type_name}")
+                raise ValueError(
+                    f"{self.plan.device_id}.{point.point_id}: unknown IEC104 type {type_name}"
+                )
             instance = station.add_point(
                 io_address=int(point.ext["ioa"]), type=getattr(c104.Type, type_name)
             )
             if instance is None:
-                raise ValueError(f"IEC104 IOA conflict in {self.plan.device_id}: {point.ext['ioa']}")
+                raise ValueError(
+                    f"IEC104 IOA conflict in {self.plan.device_id}: {point.ext['ioa']}"
+                )
             self.points.append((instance, kind))
         self.server = server
         await asyncio.to_thread(server.start)
@@ -441,11 +447,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interval", type=float, default=1.0, help="数据更新间隔秒数")
     parser.add_argument("--seed", type=int, default=None, help="可复现的随机种子")
     parser.add_argument("--include-disabled", action="store_true", help="也启动禁用设备")
-    parser.add_argument("--allow-nonloopback", action="store_true", help="允许绑定已配置的本机非 loopback IP")
+    parser.add_argument(
+        "--allow-nonloopback", action="store_true", help="允许绑定已配置的本机非 loopback IP"
+    )
     parser.add_argument("--expected-per-protocol", type=int, default=None,
                         help="严格要求三种协议各有 N 个设备（例如 10）")
     parser.add_argument("--check", action="store_true", help="仅校验配置和绑定地址，不启动")
-    parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
+    parser.add_argument(
+        "--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR")
+    )
     return parser
 
 
