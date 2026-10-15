@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Generic, Literal, Protocol, TypeAlias
+from typing import Generic, Literal, Never, Protocol, TypeAlias
 
 from typing_extensions import TypeVar
 
@@ -32,7 +32,7 @@ class ProtocolPoint(Protocol):
     def point_id(self) -> str: ...
 
 
-TPoint = TypeVar("TPoint", bound=ProtocolPoint, covariant=True, default=ProtocolPoint)
+TPoint = TypeVar("TPoint", bound=ProtocolPoint, covariant=True, default=Never)
 
 
 @dataclass(frozen=True, slots=True)
