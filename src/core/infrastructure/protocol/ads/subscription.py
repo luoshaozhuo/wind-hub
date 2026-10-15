@@ -236,7 +236,7 @@ class ADSSubscription:
         )
         handle, user_handle = await asyncio.to_thread(
             connection.add_device_notification,
-            (point.index_group, point.index_offset),
+            (point.group, point.offset),
             attr,
             callback,
         )
