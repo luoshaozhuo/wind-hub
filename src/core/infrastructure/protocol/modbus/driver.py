@@ -109,7 +109,7 @@ class ModbusDriver:
 
     def update_point_table(self, point_table: PointTable) -> None:
         """热重载点表：重建地址/字序映射并失效读取分组缓存（不断开连接）。"""
-        self._points = {
+        points = {
             point.point_id: parse_modbus_point(
                 point,
                 default_word_order=self._config.word_order,
@@ -117,11 +117,13 @@ class ModbusDriver:
             for point in point_table.points.values()
         }
         health_point_id = self._config.health_point_id
-        if health_point_id is not None and health_point_id not in self._points:
+        if health_point_id is not None and health_point_id not in points:
             raise ConfigError(
                 f"Modbus health point '{health_point_id}' is not part of "
                 f"point table '{point_table.point_table_id}'"
             )
+        self._points = points
+        self._health_point_id = health_point_id or next(iter(points), None)
         self._read_plan_cache.clear()
 
     async def connect(self) -> None:
@@ -187,7 +189,7 @@ class ModbusDriver:
         if not self.is_open():
             return ConnectionHealth(healthy=False, message="not connected")
 
-        point_id = self._config.health_point_id or next(iter(self._points), None)
+        point_id = self._health_point_id
         if point_id is None:
             return ConnectionHealth(
                 healthy=False,
