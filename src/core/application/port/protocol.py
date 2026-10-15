@@ -33,7 +33,7 @@ class SubscriptionHandle(Protocol):
 ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
 
 
-TPoint = TypeVar("TPoint", bound=ProtocolPoint, default=ProtocolPoint)
+TPoint = TypeVar("TPoint", bound=ProtocolPoint, contravariant=True, default=ProtocolPoint)
 
 
 class ProtocolPort(Protocol[TPoint]):
