@@ -348,3 +348,30 @@ class TestDynamicReceive:
         assert observed[0].point_id == "dyn"
         assert observed[0].value == 1.25
         assert observed[0].quality == Quality.UNCERTAIN
+
+
+@pytest.mark.asyncio
+async def test_subscription_close_times_out_when_callback_never_returns() -> None:
+    registry = _SubscriptionRegistry()
+    entered = asyncio.Event()
+    blocker = asyncio.Event()
+
+    async def stalled_callback(sample: ProtocolSample) -> None:
+        del sample
+        entered.set()
+        await blocker.wait()
+
+    subscription = registry.subscribe((9001,), stalled_callback)
+    subscription.schedule(
+        ProtocolSample(
+            point_id="stalled",
+            value=1,
+            timestamp=datetime.now(UTC),
+            quality=Quality.GOOD,
+        )
+    )
+    await asyncio.wait_for(entered.wait(), 1)
+    await asyncio.wait_for(subscription.close(timeout=0.01), 1)
+    assert subscription._closed
+    assert not registry._ioa
+    await asyncio.sleep(0)
