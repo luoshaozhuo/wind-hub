@@ -46,7 +46,7 @@
 # Modbus（modbus_wtg.protocol_options）：
 #   mode:            仅支持 tcp（默认）。
 #   slave_id:        int 0..255，默认 1 —— Modbus 从站地址（Unit
-#                    Identifier）；与工程单位 unit_id 无关。
+#                    Identifier）；与工程单位 unit 无关。
 #   timeout:         float > 0（秒），默认 5.0 —— 协议栈单次请求超时。
 #   word_order:      big_endian / little_endian，默认 little_endian。
 #   health_point_id: str，可选 —— 健康检查读取的 Point ID，必须存在于

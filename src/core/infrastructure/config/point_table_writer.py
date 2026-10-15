@@ -17,7 +17,7 @@ def _point_dict(point: Point) -> dict[str, Any]:
         "data_type": data_type,
         "scale": point.scale,
         "offset": point.offset,
-        "unit_id": point.source_unit.unit_id,
+        "unit": point.source_unit.unit_id,
         "description": point.description,
     }
 

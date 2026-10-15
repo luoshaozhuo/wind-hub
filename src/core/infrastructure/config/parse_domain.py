@@ -69,7 +69,7 @@ _POINT_FIELDS = {
     "data_type",
     "scale",
     "offset",
-    "unit_id",
+    "unit",
     "description",
 }
 _DEVICE_FIELDS = {
@@ -238,9 +238,9 @@ def _point(
         data_type, native_type = _point_data_type(
             _name(entry.get("data_type"), f"{context}.data_type"), protocol
         )
-        unit = units.unit(_name(entry.get("unit_id", "none"), f"{context}.unit_id"))
+        unit = units.unit(_name(entry.get("unit", "none"), f"{context}.unit"))
     except (ValueError, KeyError) as exc:
-        raise ConfigError(f"{context}: invalid data type or unit_id: {exc}") from exc
+        raise ConfigError(f"{context}: invalid data type or unit: {exc}") from exc
     if (
         data_type != business_point.data_type
         or unit.quantity != business_point.standard_unit.quantity

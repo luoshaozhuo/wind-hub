@@ -25,11 +25,11 @@
 #                      替换父表值，不残留父表字段。
 #   data_type:         必填，按各协议约定填写，见下方类型清单；业务点
 #                      business_points.yaml 仍使用统一逻辑类型。
-#   unit_id:           工程单位引用（units.yaml 的 Unit ID，如
+#   unit:           工程单位引用（units.yaml 的 Unit ID，如
 #                      kilowatt），缺省 none（无量纲）；量纲必须与
 #                      业务点标准单位一致。
 #   scale / offset:    float，默认 1.0 / 0.0 —— 把协议原始值换算为
-#                      unit_id 单位下的工程值（value × scale + offset）；
+#                      unit 单位下的工程值（value × scale + offset）；
 #                      与 units.yaml 的单位间换算无关，不会叠加。
 #                      （bool/string 点不允许 scaling 且必须 dimensionless）。
 #   description:       str，可选。
@@ -54,6 +54,7 @@
 #     address：int，0..65535，0-based；
 #     count：int，可选；必须与 data_type 实际占用寄存器数一致；
 #     word_order：big_endian / little_endian，可选，默认型号配置；
+#     slave_id：int 0..255，可选，默认型号 protocol_options.slave_id；
 #   ADS：
 #     symbol：str，可选；符号寻址时优先使用，每次会话重新解析；
 #     index_group、index_offset：非负 int，必须成对提供；
@@ -101,7 +102,7 @@ point_tables:
         data_type: int32
         scale: 0.001
         offset: 0.0
-        unit_id: kilowatt
+        unit: kilowatt
         description: "有功功率"
 
       wind_speed:
@@ -112,7 +113,7 @@ point_tables:
         data_type: int16
         scale: 0.01
         offset: 0.0
-        unit_id: meter_per_second
+        unit: meter_per_second
         description: "风速"
 
   # ---- ADS 风机基础点表（继承基座，不直接绑定） ----
@@ -125,7 +126,7 @@ point_tables:
         address:
           symbol: MAIN.rotorSpeed
         data_type: REAL
-        unit_id: rpm
+        unit: rpm
         description: "风轮转速"
 
       gen_power:
@@ -133,7 +134,7 @@ point_tables:
         address:
           symbol: MAIN.genPower
         data_type: REAL
-        unit_id: kilowatt
+        unit: kilowatt
         description: "发电机有功功率"
 
   # ---- ADS 机型点表：继承基础表并覆盖 Symbol ----
@@ -151,7 +152,7 @@ point_tables:
         address:
           symbol: MAIN.converterTemp
         data_type: REAL
-        unit_id: celsius
+        unit: celsius
         description: "变流器温度"
 
   # ---- IEC104 风机点表 ----
@@ -165,7 +166,7 @@ point_tables:
           type: M_ME_NA_1
           ioa: 1001
         data_type: float32
-        unit_id: kilowatt
+        unit: kilowatt
         description: "有功功率"
 
       turbine_run:
@@ -174,5 +175,5 @@ point_tables:
           type: M_SP_NA_1
           ioa: 2001
         data_type: bool
-        unit_id: none
+        unit: none
         description: "运行状态"
