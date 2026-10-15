@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from wind_hub_core.config import DeviceConfig
+from core.domain.device import Device
 from web_server.application.config.service import ConfigService
 from web_server.application.port.monitoring import (
     DeviceRuntimeSnapshot,
@@ -22,7 +22,7 @@ class DeviceSnapshot(BaseModel):
     device_id: str
     protocol: str
     host: str
-    port: int
+    port: int | None
     point_table: str
     device_type: str | None = None
     model: str | None = None
@@ -52,7 +52,7 @@ class DeviceQueryService:
         runtime = {row.device_id: row for row in self._monitoring.devices_snapshot()}
         rows = [
             self._snapshot(cfg, runtime.get(cfg.device_id))
-            for cfg in self._config.current_config.devices.values()
+            for cfg in self._config.current_config.site.devices.values()
         ]
         query = (search or "").strip().lower()
         if query:
@@ -78,7 +78,7 @@ class DeviceQueryService:
         cfg = next(
             (
                 item
-                for item in self._config.current_config.devices.values()
+                for item in self._config.current_config.site.devices.values()
                 if item.device_id == device_id
             ),
             None,
@@ -97,22 +97,26 @@ class DeviceQueryService:
 
     def _snapshot(
         self,
-        cfg: DeviceConfig,
+        cfg: Device,
         runtime: DeviceRuntimeSnapshot | None,
     ) -> DeviceSnapshot:
-        port_override, extension_overrides = self._connection_overrides(cfg)
+        snapshot = self._config.current_config
+        model = snapshot.device_models[cfg.device_model_id]
+        table = snapshot.point_tables[model.point_table_id]
+        protocol_options = snapshot.protocol_options_by_device.get(cfg.device_id, {})
+        port_override = cfg.endpoint.port
         return DeviceSnapshot(
             device_id=cfg.device_id,
-            protocol=cfg.protocol,
+            protocol=table.protocol.name,
             host=cfg.endpoint.host,
             port=cfg.endpoint.port,
-            point_table=cfg.point_table,
-            device_type=cfg.device_type,
-            model=cfg.model,
-            device_group=cfg.device_group,
-            extensions=dict(cfg.endpoint.extensions),
+            point_table=model.point_table_id,
+            device_type=model.device_type_id,
+            model=cfg.device_model_id,
+            device_group=cfg.device_group_ids[0],
+            extensions=dict(protocol_options),
             port_override=port_override,
-            extension_overrides=extension_overrides,
+            extension_overrides=dict(protocol_options),
             enabled=cfg.enabled,
             connected=runtime.connected if runtime is not None else False,
             consecutive_failures=(
@@ -121,27 +125,3 @@ class DeviceQueryService:
             last_error=runtime.last_error if runtime is not None else None,
         )
 
-    def _connection_overrides(
-        self,
-        cfg: DeviceConfig,
-    ) -> tuple[int | None, dict[str, object]]:
-        """从 resolved endpoint 反推出实例连接差异。"""
-        endpoint = cfg.endpoint
-        if not cfg.model:
-            return endpoint.port, dict(endpoint.extensions)
-        model = self._config.current_config.device_models.get(cfg.model)
-        if model is None:
-            return endpoint.port, dict(endpoint.extensions)
-        defaults = dict(model.connection_defaults)
-        default_port = defaults.pop("port", None)
-        port_override = (
-            endpoint.port
-            if default_port is None or endpoint.port != default_port
-            else None
-        )
-        extensions = {
-            key: value
-            for key, value in endpoint.extensions.items()
-            if key not in defaults or defaults[key] != value
-        }
-        return port_override, extensions
