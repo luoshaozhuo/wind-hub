@@ -40,13 +40,12 @@ class SettingsService:
         system = self._config.current_config.system
         site = self._config.current_config.site
         ads = system.ads
-        api = self._admin.read_yaml_mapping("system.yaml").get("interfaces", {}).get("api", {})
         return SettingsSnapshot(
             site_id=site.site_id,
             site_name=site.name,
-            api_enabled=bool(api.get("enabled", True)),
-            api_host=str(api.get("host", "0.0.0.0")),
-            api_port=int(api.get("port", 8080)),
+            api_enabled=True,
+            api_host="0.0.0.0",
+            api_port=8080,
             ads_local_ip=ads.local_ip if ads is not None else None,
             ads_local_ams_net_id=ads.local_ams_net_id if ads is not None else None,
             ads_username="Administrator",
@@ -55,20 +54,16 @@ class SettingsService:
 
     async def update(self, request: SettingsUpdate) -> ConfigApplyResult:
         """只修改 system.yaml 对应字段，其余字段保持当前已提交内容。"""
+        if (request.api_enabled, request.api_host, request.api_port) != (True, "0.0.0.0", 8080):
+            raise ValueError("API listener options belong to process deployment")
         if request.ads_password or request.ads_username != "Administrator":
             raise ValueError("ADS device credentials must be configured per device protocol_options")
 
         def mutate(documents: dict[str, dict[str, object]]) -> None:
             raw = documents["system.yaml"]
             raw["site"] = {"site_id": request.site_id, "name": request.site_name}
-            interfaces = raw.setdefault("interfaces", {})
-            if not isinstance(interfaces, dict):
-                raise ValueError("system.yaml interfaces must be a mapping")
-            interfaces["api"] = {
-                "enabled": request.api_enabled,
-                "host": request.api_host,
-                "port": request.api_port,
-            }
+            if bool(request.ads_local_ip) != bool(request.ads_local_ams_net_id):
+                raise ValueError("ADS local identity requires both IP and AMS Net ID")
             if request.ads_local_ip and request.ads_local_ams_net_id:
                 raw["ads"] = {
                     "local_ip": request.ads_local_ip,
