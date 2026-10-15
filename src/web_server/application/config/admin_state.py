@@ -84,6 +84,12 @@ class AdminStateService:
                 previous = documents["devices.yaml"].get("devices", {}).get(device_id, {})
                 if "name" in previous:
                     entry["name"] = previous["name"]
+                previous_groups = previous.get("device_group_ids", [])
+                if isinstance(previous_groups, list):
+                    primary = entry["device_group_ids"][0]
+                    entry["device_group_ids"].extend(
+                        group for group in previous_groups[1:] if group != primary
+                    )
             documents["devices.yaml"] = device_document
             documents["tasks.yaml"] = self._tasks_document(tasks)
             documents["sinks.yaml"] = {
