@@ -246,14 +246,14 @@ export const useConfigStore = defineStore('config', {
       }))
       this.deviceModels = Object.entries(defs.device_models).map(([id, value]) => ({
         id,
-        device_type: asString(value.device_type),
+        device_type: asString(value.device_type_id),
         manufacturer: asString(value.manufacturer),
         model: asString(value.model) || undefined,
         protocol: asString(value.protocol) as DeviceModelDef['protocol'],
-        point_table: asString(value.point_table),
+        point_table: asString(value.point_table_id),
         read_mode: asString(value.read_mode),
         properties: { ...asObject(value.properties) },
-        connection_defaults: { ...asObject(value.connection_defaults) },
+        connection_defaults: { ...asObject(value.endpoint_defaults) },
       }))
       // markRaw：raw 透传基线只参与序列化（structuredClone），不能成为
       // 响应式代理（Proxy 不可克隆，会导致保存路径抛 DataCloneError）。
