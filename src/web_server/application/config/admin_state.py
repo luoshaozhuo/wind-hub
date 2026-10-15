@@ -24,7 +24,7 @@ class AdminTaskItem(BaseModel):
     device: str | None = None
     device_group: str | None = None
     point_group: str
-    interval: float | None = None
+    interval: float | None = Field(default=None, gt=0)
     sinks: list[str] = Field(default_factory=list)
     enabled: bool = True
 
