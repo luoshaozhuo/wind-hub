@@ -296,8 +296,8 @@ class _IEC104VirtualServer:
             if instance is None:
                 raise ValueError(f"IEC104 IOA conflict in {self.plan.device_id}: {point.ext['ioa']}")
             self.points.append((instance, kind))
-        await asyncio.to_thread(server.start)
         self.server = server
+        await asyncio.to_thread(server.start)
 
     def update(self, rng: random.Random) -> None:
         for point, kind in self.points:
@@ -345,8 +345,8 @@ class _ADSVirtualServer:
             port=_ADS_TCP_PORT,
             logging=False,
         )
-        server.start()
         self.server = server
+        server.start()
 
     def update(self, rng: random.Random) -> None:
         for variable, kind in self.variables:
@@ -370,6 +370,7 @@ async def run_fleet(
     seed: int | None = None,
     include_disabled: bool = False,
     allow_nonloopback: bool = False,
+    failure_event: asyncio.Event | None = None,
 ) -> AsyncIterator[list[EndpointPlan]]:
     """按配置启动服务并周期更新；任何启动/运行错误均导致整组关闭。"""
     if not 0.01 <= interval <= 3600:
@@ -391,8 +392,8 @@ async def run_fleet(
     try:
         for plan in plans:
             instance = classes[plan.protocol](plan)
-            await instance.start()
             started.append(instance)
+            await instance.start()
             LOG.info("started %s %s %s:%d (%d points)", plan.protocol, plan.device_id,
                      plan.host, plan.port, len(plan.points))
         async def update_loop() -> None:
@@ -400,7 +401,13 @@ async def run_fleet(
                 for instance in started:
                     instance.update(rng)
                 await asyncio.sleep(interval)
-        update_task = asyncio.create_task(update_loop())
+        update_task = asyncio.create_task(update_loop(), name="protocol-random-update")
+        if failure_event is not None:
+            def mark_failed(task: asyncio.Task[None]) -> None:
+                if not task.cancelled() and task.exception() is not None:
+                    failure_event.set()
+
+            update_task.add_done_callback(mark_failed)
         # 首轮更新成功后再交给测试/手工验收使用者。
         await asyncio.sleep(0)
         if update_task.done():
@@ -411,11 +418,16 @@ async def run_fleet(
             update_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await update_task
+        failure = None
+        if update_task is not None and not update_task.cancelled():
+            failure = update_task.exception()
         for instance in reversed(started):
             try:
                 await instance.stop()
             except Exception:
                 LOG.exception("failed to stop virtual server %s", instance.plan.device_id)
+        if failure is not None:
+            raise failure
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -464,6 +476,7 @@ async def main(argv: Sequence[str] | None = None) -> int:
         args.config, interval=args.interval, seed=args.seed,
         include_disabled=args.include_disabled,
         allow_nonloopback=args.allow_nonloopback,
+        failure_event=stopping,
     ):
         await stopping.wait()
     return 0
