@@ -7,7 +7,9 @@ capabilities() 声明实际支持项；调用未支持能力时由 Adapter 显�
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol
+
+from typing_extensions import TypeVar
 
 from ..protocol_contract import (
     ConnectionHealth,
@@ -30,7 +32,7 @@ class SubscriptionHandle(Protocol):
 ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
 
 
-TPoint = TypeVar("TPoint")
+TPoint = TypeVar("TPoint", default=object)
 
 
 class ProtocolPort(Protocol[TPoint]):
