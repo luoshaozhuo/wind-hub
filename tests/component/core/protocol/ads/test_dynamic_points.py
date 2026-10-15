@@ -375,6 +375,29 @@ async def test_ads_sum_write_uses_index_addresses_and_preserves_point_errors(
 
 
 @pytest.mark.asyncio
+async def test_sum_write_accepts_unregistered_dynamic_point(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _driver(_Connection())
+    transmitted: list[tuple[int, int, bytes]] = []
+
+    def send(chunk: Any) -> tuple[int, ...]:
+        transmitted.extend(
+            (point.group, point.offset, payload) for _index, point, payload in chunk
+        )
+        return (0,) * len(chunk)
+
+    monkeypatch.setattr(driver, "_sum_write_bytes", send)
+    result = await driver.write_many((ProtocolWrite(_dyn(offset=123), 17),))
+
+    assert result[0].point_id == "dyn"
+    assert result[0].outcome is WriteOutcome.CONFIRMED_SUCCESS
+    assert len(transmitted) == 1
+    assert transmitted[0][:2] == (0x4020, 123)
+    assert int.from_bytes(transmitted[0][2], "little", signed=True) == 17
+
+
+@pytest.mark.asyncio
 async def test_lazy_symbol_resolution_preserves_plc_string_size() -> None:
     import ctypes
     from types import SimpleNamespace
