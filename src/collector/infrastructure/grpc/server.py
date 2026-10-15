@@ -453,7 +453,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         if request.worker_id != self._collector_id:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "collector identity mismatch")
             raise AssertionError("context.abort must terminate the RPC")
-        if request.generation <= 0 or not request.task_ids or len(set(request.task_ids)) != len(request.task_ids):
+        if request.generation <= 0 or len(set(request.task_ids)) != len(request.task_ids):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid placement snapshot")
             raise AssertionError("context.abort must terminate the RPC")
         async with self._placement_lock:
@@ -464,6 +464,12 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
             if request.generation == self._placement_generation and tasks != self._placement_tasks:
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "placement generation conflict")
                 raise AssertionError("context.abort must terminate the RPC")
+            removed = self._placement_tasks - tasks
+            for task_id in sorted(removed):
+                try:
+                    await self._tasks.stop_task(task_id)
+                except KeyError:
+                    continue
             self._placement_generation = request.generation
             self._placement_tasks = tasks
             return pb.TaskPlacementSnapshotResponse(
