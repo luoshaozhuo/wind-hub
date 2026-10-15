@@ -1,5 +1,4 @@
-// 与 wind-hub 配置 schema（src/wind_hub/config/schema.py、config/loader.py、
-// adapter/outbound/protocol/*/config.py）对齐的前端 api 类型定义。
+// 与 wind-hub 配置 schema（src/core/infrastructure/config/parse_domain.py 及 Core 领域模型）对齐的前端 api 类型定义。
 // 字段名与取值集合均以后端真实代码为准，不另行发明。
 
 export type Protocol = 'ads' | 'modbus' | 'iec104'
@@ -21,7 +20,7 @@ export const DATA_TYPES = [
 ]
 
 export const MODBUS_REGISTER_TYPES = ['holding', 'input', 'coil', 'discrete_input']
-export const ADS_READ_MODES = ['sum', 'sequential']
+export const ADS_READ_MODES = ['sum']
 
 export interface UnitDef {
   symbol: string
@@ -113,7 +112,7 @@ export interface TaskDef {
   updated_at: string
 }
 
-export type SinkType = 'kafka' | 'db' | 'file' | 'iec104' | 'modbus'
+export type SinkType = 'file' | 'modbus' | 'redis'
 export type SinkRuntimeState = 'unknown' | 'healthy' | 'warning' | 'failed' | 'disabled' | 'testing'
 export type SinkCheckState = 'passed' | 'warning' | 'failed' | 'skipped'
 export type SinkCheckLayer = 'network' | 'protocol' | 'target' | 'filesystem'
