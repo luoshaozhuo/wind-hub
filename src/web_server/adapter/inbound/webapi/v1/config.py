@@ -73,6 +73,11 @@ async def apply_config(
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown config file '{request.name}'", 404) from None
     audit("config.apply", file=request.name, comment=request.comment, success=result.success)
+    if not result.success and not result.rollback_performed:
+        # 校验失败属于客户端输入问题：明确 422，而非 200 + success=false 的模糊语义。
+        raise APIError(
+            "VALIDATION_FAILED", "; ".join(result.errors) or "invalid config content", 422
+        )
     return ConfigApplyResponse(**result.model_dump())
 
 

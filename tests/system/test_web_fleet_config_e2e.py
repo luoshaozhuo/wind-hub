@@ -119,7 +119,7 @@ async def test_live_http_exposes_30_protocol_devices(
         items = data["items"] if isinstance(data, dict) else data
         assert len(items) == 30
         assert {item["device_id"].split("-")[0] for item in items} == set(_FAMILY)
-        assert process.proc.poll() is None
+        assert process.is_running()
 
 
 @pytest.mark.parametrize("resource", ["settings", "definitions", "sinks", "tasks", "config/files"])
@@ -142,7 +142,7 @@ async def test_task_start_fails_closed_when_collector_is_unreachable(
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
         response = await client.post(f"/api/v1/tasks/{task_id}/start")
         assert response.status_code in {400, 409, 422, 503}
-        assert process.poll() is None
+        assert process.is_running()
 
 
 @pytest.mark.parametrize(
@@ -207,7 +207,7 @@ async def test_malformed_configuration_fails_without_mutating_live_snapshot(
             assert not response.json().get("valid", False)
         after = (await client.get("/api/v1/settings")).json()
         assert after == before
-        assert process.poll() is None
+        assert process.is_running()
 
 
 async def test_parallel_invalid_requests_do_not_crash_http_server(
@@ -225,4 +225,4 @@ async def test_parallel_invalid_requests_do_not_crash_http_server(
         results = await asyncio.gather(*requests)
         assert all(response.status_code < 500 for response in results)
         assert (await client.get("/openapi.json")).status_code == 200
-        assert process.poll() is None
+        assert process.is_running()

@@ -32,11 +32,8 @@ from pyads.testserver import (  # type: ignore[import-untyped]
     AdvancedHandler,
     PLCVariable,
 )
-from pymodbus.datastore import (
-    ModbusDeviceContext,
-    ModbusSequentialDataBlock,
-    ModbusServerContext,
-)
+from pymodbus.constants import ExcCodes
+from pymodbus.datastore import ModbusServerContext
 from pymodbus.server import ModbusTcpServer
 
 from core.application.config_snapshot import ConfigSnapshot
@@ -48,9 +45,17 @@ _ADS_TCP_PORT = 48898
 _DEFAULT_PORTS = {"modbus": 502, "ads": _ADS_TCP_PORT, "iec104": 2404}
 _MODBUS_FC = {"coil": 1, "discrete": 2, "holding": 3, "input": 4}
 _MODBUS_WIDTH = {
-    "bool": 1, "int8": 1, "uint8": 1, "int16": 1, "uint16": 1,
-    "int32": 2, "uint32": 2, "float32": 2,
-    "int64": 4, "uint64": 4, "float64": 4,
+    "bool": 1,
+    "int8": 1,
+    "uint8": 1,
+    "int16": 1,
+    "uint16": 1,
+    "int32": 2,
+    "uint32": 2,
+    "float32": 2,
+    "int64": 4,
+    "uint64": 4,
+    "float64": 4,
 }
 
 
@@ -73,7 +78,6 @@ def _ads_value(kind: DataType, value: bool | int | float | str) -> bytes:
     if kind is DataType.STRING:
         return str(value).encode("utf-8")[:80].ljust(81, b"\x00")
     return struct.pack("<" + _ADS_FORMAT[kind][2], value)
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,9 +146,7 @@ def plan_devices(
             for point in points
         }
         plans.append(
-            EndpointPlan(
-                str(device.device_id), family, host, port, options, points, data_types
-            )
+            EndpointPlan(str(device.device_id), family, host, port, options, points, data_types)
         )
     if not plans:
         raise ValueError("no enabled devices in provided Core configuration")
@@ -174,8 +176,7 @@ def validate_points(plan: EndpointPlan) -> None:
             key = (register, offset)
         elif plan.protocol == "ads":
             if kind is not DataType.STRING and (
-                kind not in _ADS_FORMAT
-                or not hasattr(ads_constants, _ADS_FORMAT[kind][0])
+                kind not in _ADS_FORMAT or not hasattr(ads_constants, _ADS_FORMAT[kind][0])
             ):
                 raise ValueError(
                     f"{plan.device_id}.{point.point_id}: unsupported ADS data type {kind}"
@@ -218,16 +219,74 @@ def _modbus_words(kind: DataType, value: bool | int | float | str) -> list[int]:
     if kind is DataType.BOOL:
         return [int(bool(value))]
     formats = {
-        DataType.INT8: "h", DataType.UINT8: "H",
-        DataType.INT16: "h", DataType.UINT16: "H",
-        DataType.INT32: "i", DataType.UINT32: "I",
-        DataType.INT64: "q", DataType.UINT64: "Q",
-        DataType.FLOAT32: "f", DataType.FLOAT64: "d",
+        DataType.INT8: "h",
+        DataType.UINT8: "H",
+        DataType.INT16: "h",
+        DataType.UINT16: "H",
+        DataType.INT32: "i",
+        DataType.UINT32: "I",
+        DataType.INT64: "q",
+        DataType.UINT64: "Q",
+        DataType.FLOAT32: "f",
+        DataType.FLOAT64: "d",
     }
     if kind not in formats:
         raise ValueError(f"unsupported Modbus type: {kind}")
     encoded = struct.pack(">" + formats[kind], value)
     return list(struct.unpack(">" + "H" * (len(encoded) // 2), encoded))
+
+
+class _VirtualModbusContext(ModbusServerContext):
+    """旧式 ServerContext 协议的内存实现（pymodbus 3.15）。
+
+    pymodbus 3.15 的 ``ModbusDeviceContext`` 已退化为 SimDevice 兼容壳，
+    不再提供 setValues/getValues；与生产 Sink Server 一样改为自定义
+    context，直接以 async_getValues/async_setValues 暴露内存块。
+    """
+
+    _BLOCK_SIZES = {1: 2048, 2: 2048, 3: 2048, 4: 2048}
+
+    def __init__(self, unit_ids: set[int]) -> None:
+        # 见 collector StoreBackedModbusContext：空 simdevices + old_simulator
+        # 让 ModbusTcpServer 走旧式 async_getValues/async_setValues 协议。
+        self.simdevices: list[object] = []
+        self.old_simulator = True
+        self._blocks: dict[int, dict[int, list[int]]] = {
+            unit: {fc: [0] * size for fc, size in self._BLOCK_SIZES.items()} for unit in unit_ids
+        }
+
+    def write(self, unit: int, func_code: int, address: int, data: list[int]) -> None:
+        """本地（仿真推进）写入，不经功能码校验。"""
+        block = self._blocks[unit][func_code]
+        block[address : address + len(data)] = data
+
+    async def async_getValues(  # noqa: N802
+        self,
+        device_id: int,
+        func_code: int,
+        address: int,
+        count: int = 1,
+    ) -> list[int] | ExcCodes:
+        block = self._blocks.get(device_id, {}).get(func_code)
+        if block is None or address < 0 or address + count > len(block):
+            return ExcCodes.ILLEGAL_ADDRESS
+        return list(block[address : address + count])
+
+    async def async_setValues(  # noqa: N802
+        self,
+        device_id: int,
+        func_code: int,
+        address: int,
+        values: list[int],
+    ) -> ExcCodes | None:
+        block = self._blocks.get(device_id, {}).get(func_code)
+        if block is None or address < 0 or address + len(values) > len(block):
+            return ExcCodes.ILLEGAL_ADDRESS
+        block[address : address + len(values)] = values
+        return None
+
+    def device_ids(self) -> list[int]:
+        return sorted(self._blocks)
 
 
 class _ModbusVirtualServer:
@@ -236,20 +295,11 @@ class _ModbusVirtualServer:
     def __init__(self, plan: EndpointPlan) -> None:
         self.plan = plan
         self.server: ModbusTcpServer | None = None
-        self.devices: dict[int, ModbusDeviceContext] = {}
+        self.context = _VirtualModbusContext({int(plan.options.get("slave_id", 1))})
 
     async def start(self) -> None:
-        maximum = 2048
-        ids = {int(self.plan.options.get("slave_id", 1))}
-        for unit in ids:
-            self.devices[unit] = ModbusDeviceContext(
-                co=ModbusSequentialDataBlock(1, [0] * maximum),
-                di=ModbusSequentialDataBlock(1, [0] * maximum),
-                hr=ModbusSequentialDataBlock(1, [0] * maximum),
-                ir=ModbusSequentialDataBlock(1, [0] * maximum),
-            )
         self.server = ModbusTcpServer(
-            ModbusServerContext(self.devices, single=False),
+            self.context,
             address=self.plan.address,
         )
         await self.server.serve_forever(background=True)
@@ -266,7 +316,7 @@ class _ModbusVirtualServer:
             if register < 0 or register + len(data) > 2046:
                 raise ValueError(f"{self.plan.device_id}.{point.point_id}: register outside 2048")
             unit = int(self.plan.options.get("slave_id", 1))
-            self.devices[unit].setValues(_MODBUS_FC[register_type], register, data)
+            self.context.write(unit, _MODBUS_FC[register_type], register, data)
 
     async def stop(self) -> None:
         if self.server is not None:
@@ -404,15 +454,24 @@ async def run_fleet(
             instance = classes[plan.protocol](plan)
             started.append(instance)
             await instance.start()
-            LOG.info("started %s %s %s:%d (%d points)", plan.protocol, plan.device_id,
-                     plan.host, plan.port, len(plan.points))
+            LOG.info(
+                "started %s %s %s:%d (%d points)",
+                plan.protocol,
+                plan.device_id,
+                plan.host,
+                plan.port,
+                len(plan.points),
+            )
+
         async def update_loop() -> None:
             while True:
                 for instance in started:
                     instance.update(rng)
                 await asyncio.sleep(interval)
+
         update_task = asyncio.create_task(update_loop(), name="protocol-random-update")
         if failure_event is not None:
+
             def mark_failed(task: asyncio.Task[None]) -> None:
                 if not task.cancelled() and task.exception() is not None:
                     failure_event.set()
@@ -450,8 +509,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allow-nonloopback", action="store_true", help="允许绑定已配置的本机非 loopback IP"
     )
-    parser.add_argument("--expected-per-protocol", type=int, default=None,
-                        help="严格要求三种协议各有 N 个设备（例如 10）")
+    parser.add_argument(
+        "--expected-per-protocol",
+        type=int,
+        default=None,
+        help="严格要求三种协议各有 N 个设备（例如 10）",
+    )
     parser.add_argument("--check", action="store_true", help="仅校验配置和绑定地址，不启动")
     parser.add_argument(
         "--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR")
@@ -464,7 +527,8 @@ async def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=getattr(logging, args.log_level))
     snapshot = YamlConfigAdapter(args.config).load()
     plans = plan_devices(
-        snapshot, include_disabled=args.include_disabled,
+        snapshot,
+        include_disabled=args.include_disabled,
         allow_nonloopback=args.allow_nonloopback,
     )
     groups: dict[str, int] = defaultdict(int)
@@ -488,7 +552,9 @@ async def main(argv: Sequence[str] | None = None) -> int:
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(sig, stopping.set)
     async with run_fleet(
-        args.config, interval=args.interval, seed=args.seed,
+        args.config,
+        interval=args.interval,
+        seed=args.seed,
         include_disabled=args.include_disabled,
         allow_nonloopback=args.allow_nonloopback,
         failure_event=stopping,

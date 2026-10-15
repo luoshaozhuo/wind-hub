@@ -616,3 +616,21 @@ class TestComputeDiff:
 
         assert sorted(diff.sections["devices"].added) == ["modbus-2"]
         assert diff.sections["devices"].removed == frozenset()
+
+
+async def test_concurrent_reloads_are_serialized(fx: _Fixture) -> None:
+    """并发 reload 由事务锁串行化：只有一次 prepare/activate 事务。
+
+    第二个 reload 在锁内看到第一个已应用的结果并无变更短路——绝不出现
+    两个事务交错或 Worker 收到重复 revision 的情况。
+    """
+    import asyncio
+
+    _set_interval(fx.config_dir, 0.5)
+
+    first, second = await asyncio.gather(fx.service.reload(), fx.service.reload())
+
+    assert first.success and second.success
+    for worker in fx.workers:
+        assert len(worker.prepare_calls) == 1
+        assert len(worker.activate_calls) == 1

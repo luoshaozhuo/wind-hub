@@ -44,8 +44,10 @@ class ProtocolFleet:
 
 async def _can_connect(host: str, port: int) -> bool:
     try:
+        # c104 串行 accept（实测 ~0.25s/连接）：并发压测时队尾连接需等待
+        # 前置连接完成握手，1s 会误杀正常排队；5s 仍远小于“不接受连接”的故障语义。
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=1.0
+            asyncio.open_connection(host, port), timeout=5.0
         )
     except (OSError, TimeoutError):
         return False

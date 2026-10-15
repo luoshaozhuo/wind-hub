@@ -60,7 +60,7 @@ types-aiofiles = "^25.1.0.20260518"
 wind-hub-collector = "collector.main:main"
 wind-hub = "cli.main:main"
 wind-hub-commander = "commander.main:main"
-wind-hub-web-server = "web_server.main:main"
+wind-hub-server = "web_server.main:main"
 
 [tool.ruff]
 line-length = 100
