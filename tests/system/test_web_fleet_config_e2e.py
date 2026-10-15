@@ -7,7 +7,6 @@ uvicorn 进程对外服务；Worker 不可达时必须安全拒绝启动，但�
 from __future__ import annotations
 
 import asyncio
-import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -16,125 +15,33 @@ import pytest
 import pytest_asyncio
 import yaml
 
+from scripts.generate_virtual_site import generate_site
 from tests.support.process import CollectorProcess, free_port, start_web_server
 from tests.system.test_web_protocol_fleet_e2e import ProtocolFleet, protocol_fleet  # noqa: F401
 from web_server.application.config.service import ConfigService
 
 pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.system]
 
-_ROOT = Path(__file__).resolve().parents[2]
 _FAMILY = ("modbus", "ads", "iec104")
 
 
-def _load(path: Path) -> dict[str, object]:
-    with path.open(encoding="utf-8") as handle:
-        value = yaml.safe_load(handle)
-    if not isinstance(value, dict):
-        raise ValueError(f"invalid test YAML: {path}")
-    return value
-
-
-def _write(path: Path, data: dict[str, object]) -> None:
-    with path.open("w", encoding="utf-8") as handle:
-        yaml.safe_dump(data, handle, allow_unicode=True, sort_keys=False)
-
-
 def build_fleet_config(destination: Path, fleet: ProtocolFleet) -> Path:
-    """以正式 Core 示例为基线生成 30 台设备、三协议点表与采集 Task。"""
-    shutil.copytree(_ROOT / "configs" / "example_modbus", destination)
-    system = _load(destination / "system.yaml")
-    system.pop("interfaces", None)
-    system["ads"] = {
-        "local_ams_net_id": "127.0.0.1.1.1",
-        "local_ip": "127.0.0.1",
-    }
-    _write(destination / "system.yaml", system)
-
-    models = _load(destination / "device_models.yaml")
-    models["device_models"]["e2e_ads"] = {
-        "device_type_id": "turbine",
-        "point_table_id": "e2e_ads",
-        "protocol": "ads",
-        "endpoint_defaults": {"port": 801},
-        "protocol_options": {"twincat_version": "2"},
-    }
-    models["device_models"]["e2e_iec104"] = {
-        "device_type_id": "turbine",
-        "point_table_id": "e2e_iec104",
-        "protocol": "iec104",
-        "endpoint_defaults": {"port": 2404},
-        "protocol_options": {"common_addr": 1},
-    }
-    _write(destination / "device_models.yaml", models)
-
-    business = _load(destination / "business_points.yaml")
-    business["business_points"]["e2e_float"] = {
-        "data_type": "float32",
-        "unit_id": "none",
-    }
-    _write(destination / "business_points.yaml", business)
-
-    points = _load(destination / "points.yaml")
-    base = {
-        "business_point_id": "e2e_float",
-        "point_groups": ["all"],
-        "data_type": "float32",
-        "scale": 1.0,
-        "offset": 0.0,
-        "unit_id": "none",
-    }
-    points["point_tables"]["e2e_ads"] = {
-        "protocol": "ads",
-        "points": {
-            "p1": {**base, "address": {"symbol": "MAIN.var0"}},
-        },
-    }
-    points["point_tables"]["e2e_iec104"] = {
-        "protocol": "iec104",
-        "points": {
-            "p1": {**base, "address": {"ioa": 100, "type": "M_ME_NC_1"}},
-        },
-    }
-    _write(destination / "points.yaml", points)
-
-    devices: dict[str, object] = {}
-    groups: dict[str, object] = {}
+    """复用 scripts 生成的 Core 正式风场配置，仅更新独立测试端口。"""
+    generate_site(destination, count=10)
+    path = destination / "devices.yaml"
+    with path.open(encoding="utf-8") as stream:
+        document = yaml.safe_load(stream)
     for family in _FAMILY:
-        group = f"e2e_{family}"
-        groups[group] = {"name": group}
-        for index, (host, port) in enumerate(fleet.endpoints()[family]):
-            device: dict[str, object] = {
-                "model_id": {
-                    "modbus": "wtg_modbus_site",
-                    "ads": "e2e_ads",
-                    "iec104": "e2e_iec104",
-                }[family],
-                "device_group_ids": [group],
-                "endpoint": {"host": host, "port": port if family != "ads" else 801},
-                "enabled": True,
-            }
-            if family == "modbus":
-                device["protocol_options"] = {"slave_id": 1}
-            elif family == "ads":
-                device["protocol_options"] = {"target_net_id": f"{host}.2.1"}
-            devices[f"{family}-{index:02d}"] = device
-    _write(destination / "devices.yaml", {"devices": devices, "device_groups": groups})
-    tasks = {
-        f"e2e-{family}": {
-            "point_group": "all",
-            "device_group_id": f"e2e_{family}",
-            "interval": 2.0,
-            "sink_ids": ["file_archive"],
-            "enabled": True,
-        }
-        for family in _FAMILY
-    }
-    _write(destination / "tasks.yaml", {"tasks": tasks})
-    sinks = _load(destination / "sinks.yaml")
-    sinks["sinks"]["file_archive"]["connection"]["path"] = str(
-        destination / "e2e.csv"
-    )
-    _write(destination / "sinks.yaml", sinks)
+        endpoints = fleet.endpoints()[family]
+        for index, (host, port) in enumerate(endpoints):
+            device = document["devices"][f"{family}-{index:02d}"]
+            device["endpoint"]["host"] = host
+            device["endpoint"]["port"] = port if family != "ads" else 801
+            if family == "ads":
+                device["protocol_options"]["target_net_id"] = f"{host}.2.1"
+    with path.open("w", encoding="utf-8") as stream:
+        yaml.safe_dump(document, stream, allow_unicode=True, sort_keys=False)
+    ConfigService.load_directory(destination)
     return destination
 
 
