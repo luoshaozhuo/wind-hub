@@ -239,7 +239,7 @@ async def test_command_failure_releases_lock_reference() -> None:
     driver._station = _Station(accepted=False)
     point = iec104_point("cmd", ioa=600, type_id="C_SC_NA_1")
 
-    result = await driver.write_one(point, True)
+    result = await driver.write_one(ProtocolWrite(point, True))
     # 未获肯定确认（无法区分拒绝/超时/断线）→ UNKNOWN；锁必须释放。
     assert result.outcome is WriteOutcome.UNKNOWN
 
@@ -251,7 +251,7 @@ async def test_command_type_error_releases_lock_reference() -> None:
     driver = _driver()
     point = iec104_point("cmd", ioa=600, type_id="C_SC_NA_1")
 
-    result = await driver.write_one(point, "not-a-bool")
+    result = await driver.write_one(ProtocolWrite(point, "not-a-bool"))
     assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
 
     assert 600 not in driver._command_locks
@@ -298,6 +298,6 @@ async def test_high_frequency_same_ioa_reads_never_overlap() -> None:
 async def test_high_frequency_same_ioa_writes_never_overlap() -> None:
     driver = _driver()
     point = iec104_point("cmd", ioa=600, type_id="C_SC_NA_1")
-    results = await asyncio.gather(*(driver.write_one(point, True) for _ in range(50)))
+    results = await asyncio.gather(*(driver.write_one(ProtocolWrite(point, True)) for _ in range(50)))
     assert all(result.outcome is WriteOutcome.CONFIRMED_SUCCESS for result in results)
     assert 600 not in driver._command_locks
