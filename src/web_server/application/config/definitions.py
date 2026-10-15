@@ -35,7 +35,7 @@ class DefinitionQueryService:
             {
                 group
                 for table in cfg.point_tables.values()
-                for point in table.points
+                for point in table.points.values()
                 for group in point.point_groups
             }
         )
@@ -48,9 +48,9 @@ class DefinitionQueryService:
             point_groups=groups,
             device_groups=sorted(
                 {
-                    device.device_group
-                    for device in cfg.devices.values()
-                    if device.device_group is not None
+                    group
+                    for device in cfg.site.devices.values()
+                    for group in device.device_group_ids
                 }
             ),
         )
