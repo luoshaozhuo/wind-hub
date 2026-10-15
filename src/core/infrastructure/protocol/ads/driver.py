@@ -817,8 +817,13 @@ class ADSDriver:
         for subscription in subscriptions:
             await subscription.close()
         if connection is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(connection.close)
+            try:
+                async with asyncio.timeout(self._config.timeout):
+                    await asyncio.to_thread(connection.close)
+            except TimeoutError:
+                logger.warning("ADS connection close exceeded %.3fs", self._config.timeout)
+            except Exception:
+                logger.exception("ADS connection close failed")
 
     def _close_connection(self) -> None:
         connection, self._connection = self._connection, None
