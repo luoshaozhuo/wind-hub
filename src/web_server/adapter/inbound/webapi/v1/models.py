@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from core.application.protocol_contract import WriteOutcome
+
 
 class PageMeta(BaseModel):
     """统一分页元数据。"""
@@ -202,10 +204,11 @@ class DeviceCommandRequest(BaseModel):
 
 
 class DeviceCommandResponse(BaseModel):
-    """写入确认和真实回读结果。"""
+    """返回现场写入的三态结论；UNKNOWN 不代表确认失败，不得自动重发。"""
 
     command_id: str
     requested: Any
+    outcome: WriteOutcome
     success: bool
     error: str | None = None
     sent_at: datetime
