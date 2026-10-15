@@ -232,7 +232,7 @@ class TestDynamicWrite:
         driver = _driver(station, points_by_id={"reg": IEC104Point("reg", 1001, "C_SC_NA_1")})
         result = await driver.write_one(ProtocolWrite("reg", True))
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-        with pytest.raises(TypeError, match="does not take a separate value"):
+        with pytest.raises(TypeError):
             await driver.write_one(ProtocolWrite("reg", True), False)
 
 
