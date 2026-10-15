@@ -184,20 +184,22 @@ async def web_server(
                     pass
                 await asyncio.sleep(0.1)
             else:
-                raise AssertionError(f"server never became ready: {logs.read_text()}")
+                raise AssertionError(f"server never became ready: {proc.read_log()}")
         yield url, proc
     finally:
-        if proc.poll() is None:
+        if proc.is_running():
             proc.terminate()
         try:
             await asyncio.wait_for(asyncio.to_thread(proc.proc.wait), timeout=15)
         except TimeoutError:
             proc.kill_tree()
             await asyncio.to_thread(proc.proc.wait)
+        finally:
+            proc.close_log()
 
 
 async def test_live_http_exposes_30_protocol_devices(
-    web_server: tuple[str, subprocess.Popen[str]],
+    web_server: tuple[str, CollectorProcess],
 ) -> None:
     url, process = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -212,7 +214,7 @@ async def test_live_http_exposes_30_protocol_devices(
 
 @pytest.mark.parametrize("resource", ["settings", "definitions", "sinks", "tasks", "config/files"])
 async def test_live_read_models_remain_available_during_worker_outage(
-    web_server: tuple[str, subprocess.Popen[str]], resource: str,
+    web_server: tuple[str, CollectorProcess], resource: str,
 ) -> None:
     url, _ = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -222,7 +224,7 @@ async def test_live_read_models_remain_available_during_worker_outage(
 
 @pytest.mark.parametrize("task_id", ["e2e-modbus", "e2e-ads", "e2e-iec104"])
 async def test_task_start_fails_closed_when_collector_is_unreachable(
-    web_server: tuple[str, subprocess.Popen[str]], task_id: str,
+    web_server: tuple[str, CollectorProcess], task_id: str,
 ) -> None:
     url, process = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -238,7 +240,7 @@ async def test_task_start_fails_closed_when_collector_is_unreachable(
     "/api/v1/sinks/unknown-sink/verify",
 ])
 async def test_path_traversal_and_invalid_targets_are_rejected(
-    web_server: tuple[str, subprocess.Popen[str]], path: str,
+    web_server: tuple[str, CollectorProcess], path: str,
 ) -> None:
     url, _ = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -253,7 +255,7 @@ async def test_path_traversal_and_invalid_targets_are_rejected(
     {"site_id": "wind", "ads_username": "unsafe"},
 ])
 async def test_invalid_settings_payloads_are_rejected(
-    web_server: tuple[str, subprocess.Popen[str]], body: dict[str, object],
+    web_server: tuple[str, CollectorProcess], body: dict[str, object],
 ) -> None:
     url, _ = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -267,7 +269,7 @@ async def test_invalid_settings_payloads_are_rejected(
     "site:\n  site_id: wrong\nsite:\n  site_id: duplicate\n",
 ])
 async def test_malformed_configuration_fails_without_mutating_live_snapshot(
-    web_server: tuple[str, subprocess.Popen[str]], content: str,
+    web_server: tuple[str, CollectorProcess], content: str,
 ) -> None:
     url, process = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -285,7 +287,7 @@ async def test_malformed_configuration_fails_without_mutating_live_snapshot(
 
 
 async def test_parallel_invalid_requests_do_not_crash_http_server(
-    web_server: tuple[str, subprocess.Popen[str]],
+    web_server: tuple[str, CollectorProcess],
 ) -> None:
     url, process = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
