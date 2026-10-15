@@ -444,8 +444,12 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         request: pb.TaskStartRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskSummaryMessage:
-        """启动一个 Task 当前展开的全部实例。"""
-        return await self._set_task(request, context, start=True)
+        """当前 RPC 缺少任务所有权令牌，服务端必须拒绝无栅栏启动。"""
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "task ownership fencing is not configured",
+        )
+        raise AssertionError("context.abort must terminate the RPC")
 
     async def StopTask(
         self,
@@ -482,8 +486,12 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         request: pb.TaskInstanceStartRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskInstanceMessage:
-        """启动单个 Task Instance。"""
-        return await self._set_task_instance(request, context, start=True)
+        """拒绝无任务所有权栅栏的单实例启动请求。"""
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "task ownership fencing is not configured",
+        )
+        raise AssertionError("context.abort must terminate the RPC")
 
     async def StopTaskInstance(
         self,
