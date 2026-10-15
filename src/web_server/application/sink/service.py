@@ -68,7 +68,11 @@ class SinkService:
                     name=cfg.sink_id,
                     type=cfg.kind,
                     enabled=cfg.enabled,
-                    connection=yaml_plain(cfg.connection),
+                    connection={
+                        key: value
+                        for key, value in yaml_plain(cfg.connection).items()
+                        if key != "password"
+                    },
                     points=yaml_plain(cfg.points),
                     point_count=len(cfg.points),
                     healthy=(
