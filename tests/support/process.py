@@ -267,6 +267,40 @@ def start_commander(
     )
 
 
+def start_web_server(
+    config_dir: Path,
+    *,
+    http_port: int,
+    collectors: tuple[str, ...],
+    commander: str,
+    log_dir: Path,
+    env_extra: dict[str, str] | None = None,
+) -> CollectorProcess:
+    """启动真实 Web Server 进程，共享标准进程组、日志和清理入口。
+
+    collectors 中每项为 worker_id=host:port；端口均由 E2E 自行分配。
+    """
+    if not collectors:
+        raise ValueError("Web Server E2E requires at least one Collector")
+    argv = [
+        "--config", str(config_dir),
+        "--host", "127.0.0.1",
+        "--port", str(http_port),
+        "--commander", commander,
+        "--worker-probe-interval", "60",
+    ]
+    for collector in collectors:
+        argv.extend(["--collector", collector])
+    return _start_service(
+        "wind-hub-server",
+        argv,
+        service="web-server",
+        port=http_port,
+        log_dir=log_dir,
+        env_extra=env_extra,
+    )
+
+
 def _start_service(
     script: str,
     args: list[str],
