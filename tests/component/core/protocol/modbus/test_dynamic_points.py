@@ -172,6 +172,24 @@ class TestDynamicRead:
         assert driver._read_plan_cache[(dynamic,)][0].start == 200
 
     @pytest.mark.asyncio
+    async def test_dynamic_read_plan_cache_is_bounded(self) -> None:
+        client = _Client()
+        client.response = _Response(registers=[1])
+        driver = _driver({}, client)
+
+        for address in range(64):
+            point = modbus_point(
+                f"dyn_{address}",
+                register_type="holding",
+                address=address,
+                data_type="uint16",
+            )
+            await driver.read_many((point,))
+
+        assert len(driver._read_plan_cache) == 32
+        assert client.total_read_calls() == 64
+
+    @pytest.mark.asyncio
     async def test_dynamic_decode_failure_returns_bad_sample(self) -> None:
         client = _Client()
         client.response = _Response(registers=[])  # 空响应段
