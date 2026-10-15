@@ -38,6 +38,42 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+
+def free_port_block(
+    count: int,
+    *,
+    exclude: set[int] | None = None,
+) -> int:
+    """寻找当前全空闲的连续本地端口段。
+
+    使用临时 bind 验证全部端口，返回前关闭句柄；仍存在与其他进程
+    的理论竞态，但失败将由真实协议服务 bind 报错，而非被悄悄跳过。
+    """
+    if not 1 <= count <= 100:
+        raise ValueError("count must be within 1..100")
+    excluded = exclude or set()
+    for _ in range(100):
+        candidate = free_port()
+        if candidate + count > 65535:
+            continue
+        ports = set(range(candidate, candidate + count))
+        if ports & excluded:
+            continue
+        opened: list[socket.socket] = []
+        try:
+            for port in sorted(ports):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                opened.append(sock)
+                sock.bind(("127.0.0.1", port))
+        except OSError:
+            continue
+        finally:
+            for sock in opened:
+                sock.close()
+        return candidate
+    raise RuntimeError(f"could not reserve a free range of {count} TCP ports")
+
+
 @dataclass
 class CliResult:
     """一次 ``wind-hub`` 执行的结果。"""
