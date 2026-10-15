@@ -7,7 +7,6 @@ uvicorn 进程对外服务；Worker 不可达时必须安全拒绝启动，但�
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import shutil
 import subprocess
 from collections.abc import AsyncIterator
@@ -15,10 +14,11 @@ from pathlib import Path
 
 import httpx
 import pytest
+import pytest_asyncio
 import yaml
 
 from tests.support.process import free_port
-from tests.system.test_web_protocol_fleet_e2e import ProtocolFleet, protocol_fleet
+from tests.system.test_web_protocol_fleet_e2e import ProtocolFleet, protocol_fleet  # noqa: F401
 from web_server.application.config.service import ConfigService
 
 pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.system]
@@ -117,7 +117,7 @@ def build_fleet_config(destination: Path, fleet: ProtocolFleet) -> Path:
             if family == "modbus":
                 device["protocol_options"] = {"slave_id": 1}
             elif family == "ads":
-                device["protocol_options"] = {"target_net_id": "127.0.0.1.2.1"}
+                device["protocol_options"] = {"target_net_id": f"{host}.2.1"}
             devices[f"{family}-{index:02d}"] = device
     _write(destination / "devices.yaml", {"devices": devices, "device_groups": groups})
     tasks = {
@@ -154,7 +154,7 @@ def test_core_can_load_all_30_device_endpoints(fleet_config_dir: Path) -> None:
     assert len(snapshot.sinks) >= 1
 
 
-@pytest.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def web_server(
     fleet_config_dir: Path,
     tmp_path_factory: pytest.TempPathFactory,
