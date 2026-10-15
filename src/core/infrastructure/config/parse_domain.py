@@ -201,6 +201,27 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
     return site_id, name, SystemSettings(runtime=runtime, ads=ads)
 
 
+_ADS_LOGICAL_TYPES: dict[str, str] = {
+    "BOOL": "bool", "SINT": "int8", "USINT": "uint8",
+    "INT": "int16", "UINT": "uint16", "DINT": "int32",
+    "UDINT": "uint32", "LINT": "int64", "ULINT": "uint64",
+    "REAL": "float32", "LREAL": "float64", "STRING": "string",
+}
+
+
+def _point_data_type(value: str, protocol: str) -> tuple[DataType, str]:
+    """解析协议测点类型，同时保留协议侧原始表示供 Driver 使用。"""
+    if protocol == "ads":
+        native_type = value.upper()
+        logical = _ADS_LOGICAL_TYPES.get(native_type)
+        if logical is None:
+            raise ConfigError(f"unsupported ADS data_type '{value}'")
+        return DataType(logical), native_type
+    # Modbus 数据编码类型与标准标量命名一致；IEC104 的协议类型
+    # 使用 address.type_id，data_type 表达 ASDU 值的 Python 标量类型。
+    return DataType(value), value
+
+
 def _point(
     point_id: str,
     entry: Mapping[str, Any],
@@ -217,7 +238,9 @@ def _point(
     if business_point is None:
         raise ConfigError(f"{context} unknown business point '{identity}'")
     try:
-        data_type = DataType(_name(entry.get("data_type"), f"{context}.data_type"))
+        data_type, native_type = _point_data_type(
+            _name(entry.get("data_type"), f"{context}.data_type"), protocol
+        )
         unit = units.unit(_name(entry.get("unit_id", "none"), f"{context}.unit_id"))
     except (ValueError, KeyError) as exc:
         raise ConfigError(f"{context}: invalid data type or unit_id: {exc}") from exc
@@ -244,7 +267,7 @@ def _point(
         if isinstance(value, float) and not isfinite(value):
             raise ConfigError(f"{context}.address.{key} must be finite")
         extensions[key] = value
-    extensions["data_type"] = data_type.value
+    extensions["data_type"] = native_type
     groups = tuple(
         _name(name, f"{context}.point_groups")
         for name in _list(entry.get("point_groups", []), f"{context}.point_groups")
