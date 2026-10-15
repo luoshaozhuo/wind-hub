@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import asyncio
 from datetime import datetime
 
 import grpc
@@ -435,21 +436,55 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
 class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
     """Collector 低频运行控制。"""
 
-    def __init__(self, app: CollectorApp) -> None:
+    def __init__(self, app: CollectorApp, collector_id: str) -> None:
         self._app = app
         self._tasks = CollectorTaskService(app.runtime)
+        self._collector_id = collector_id
+        self._placement_generation = 0
+        self._placement_tasks: frozenset[str] = frozenset()
+        self._placement_lock = asyncio.Lock()
+
+    async def ApplyTaskPlacement(
+        self,
+        request: pb.TaskPlacementSnapshotRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb.TaskPlacementSnapshotResponse:
+        """原子设置 Collector 的任务归属。重启后默认为空，拒绝旧代次。"""
+        if request.worker_id != self._collector_id:
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "collector identity mismatch")
+            raise AssertionError("context.abort must terminate the RPC")
+        if request.generation <= 0 or not request.task_ids or len(set(request.task_ids)) != len(request.task_ids):
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid placement snapshot")
+            raise AssertionError("context.abort must terminate the RPC")
+        async with self._placement_lock:
+            if request.generation < self._placement_generation:
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "stale placement generation")
+                raise AssertionError("context.abort must terminate the RPC")
+            tasks = frozenset(request.task_ids)
+            if request.generation == self._placement_generation and tasks != self._placement_tasks:
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "placement generation conflict")
+                raise AssertionError("context.abort must terminate the RPC")
+            self._placement_generation = request.generation
+            self._placement_tasks = tasks
+            return pb.TaskPlacementSnapshotResponse(
+                success=True, generation=request.generation, task_count=len(tasks)
+            )
+
+    async def _require_task_ownership(
+        self, task_id: str, generation: int, context: grpc.aio.ServicerContext
+    ) -> None:
+        if generation <= 0 or generation != self._placement_generation or task_id not in self._placement_tasks:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "task placement ownership mismatch")
+            raise AssertionError("context.abort must terminate the RPC")
 
     async def StartTask(
         self,
         request: pb.TaskStartRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskSummaryMessage:
-        """当前 RPC 缺少任务所有权令牌，服务端必须拒绝无栅栏启动。"""
-        await context.abort(
-            grpc.StatusCode.FAILED_PRECONDITION,
-            "task ownership fencing is not configured",
-        )
-        raise AssertionError("context.abort must terminate the RPC")
+        """验证归属代次并启动 Task；未收到 placement 一律拒绝。"""
+        await self._require_task_ownership(request.task_id, request.placement_generation, context)
+        return await self._set_task(request, context, start=True)
 
     async def StopTask(
         self,
@@ -486,12 +521,14 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         request: pb.TaskInstanceStartRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskInstanceMessage:
-        """拒绝无任务所有权栅栏的单实例启动请求。"""
-        await context.abort(
-            grpc.StatusCode.FAILED_PRECONDITION,
-            "task ownership fencing is not configured",
-        )
-        raise AssertionError("context.abort must terminate the RPC")
+        """先读取真实实例的 Task ID，再验证归属，禁止任意实例越权启动。"""
+        try:
+            instance = await self._tasks.get_instance(request.instance_id)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "unknown task instance")
+            raise AssertionError("context.abort must terminate the RPC")
+        await self._require_task_ownership(instance.task_id, request.placement_generation, context)
+        return await self._set_task_instance(request, context, start=True)
 
     async def StopTaskInstance(
         self,
@@ -608,7 +645,7 @@ def build_grpc_server(
         server,
     )
     pb_grpc.add_CollectorControlServiceServicer_to_server(
-        CollectorControlService(app),
+        CollectorControlService(app, identity.collector_id),
         server,
     )
     requested_endpoint = f"{host}:{port}"
