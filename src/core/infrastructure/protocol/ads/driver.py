@@ -445,7 +445,7 @@ class ADSDriver:
 
     async def write_many(
         self,
-        writes: Sequence[ProtocolWrite],
+        writes: Sequence[ProtocolWrite[ADSPoint]],
     ) -> tuple[ProtocolWriteResult, ...]:
         """按已解析 index 地址批量写入。
 
@@ -458,7 +458,7 @@ class ADSDriver:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
 
-            mapped_batch = [await self._resolve_point_locked(write.point_id) for write in writes]
+            mapped_batch = [await self._resolve_point_locked(write.point) for write in writes]
             results: list[ProtocolWriteResult | None] = [None] * len(writes)
             prepared: list[tuple[int, ADSPoint, bytes]] = []
             for index, (write, point) in enumerate(zip(writes, mapped_batch, strict=True)):
