@@ -124,7 +124,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
     fake_pyads = _FakePyads()
     monkeypatch.setattr(driver_module, "pyads", fake_pyads)
 
-    result = await driver.write_one(ProtocolWrite(point_id=point.point_id, value=10.0))
+    result = await driver.write_one(ProtocolWrite(point=point.point_id, value=10.0))
 
     assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert fake_connection.writes[0][2] == 10
