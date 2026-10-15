@@ -39,21 +39,18 @@ TPoint = TypeVar("TPoint", bound=ProtocolPoint, covariant=True, default=Never)
 class ProtocolWrite(Generic[TPoint]):
     """一次协议点写入请求。"""
 
-    point: str | TPoint
+    point: str
     value: WritableScalar
 
     def __post_init__(self) -> None:
-        if isinstance(self.point, str):
-            point_id = self.point.strip()
-            if not point_id:
-                raise ValueError("point_id must not be empty")
-            object.__setattr__(self, "point", point_id)
+        if not isinstance(self.point, str) or not self.point.strip():
+            raise ValueError("point must be a configured point key")
+        object.__setattr__(self, "point", self.point.strip())
 
     @property
     def point_id(self) -> str:
         """Logical identity for results and existing command consumers."""
-        point = self.point
-        return point if isinstance(point, str) else point.point_id
+        return self.point
 
 
 class WriteOutcome(StrEnum):

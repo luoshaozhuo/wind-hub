@@ -92,7 +92,7 @@ class ModbusDriver:
         # 缓存键混用注册点 point_id（str）与动态 ModbusPoint 对象本身——
         # 同名不同地址的动态点与注册点、以及彼此之间的读取计划天然隔离，
         # 不会发生同 point_id 不同地址的结果错配。
-        self._read_plan_cache: dict[tuple[str | ModbusPoint, ...], tuple[_ReadGroupPlan, ...]] = {}
+        self._read_plan_cache: dict[tuple[str, ...], tuple[_ReadGroupPlan, ...]] = {}
         self._points: dict[str, ModbusPoint] = {}
         self._health_point_id: str | None = None
         self.update_point_table(point_table)
@@ -214,7 +214,7 @@ class ModbusDriver:
             message=f"Modbus health point '{point_id}' responded{detail}",
         )
 
-    async def read_one(self, point: str | ModbusPoint) -> ProtocolSample:
+    async def read_one(self, point: str) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走批量分组规划或缓存。
 
         接受注册点 point_id（str）或动态 ModbusPoint（未在点表中登记的
@@ -260,7 +260,7 @@ class ModbusDriver:
 
     async def write_one(
         self,
-        write: ProtocolWrite[ModbusPoint],
+        write: ProtocolWrite,
     ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不做多点合并或写规划。
 
@@ -303,7 +303,7 @@ class ModbusDriver:
 
     async def read_many(
         self,
-        points: Sequence[str | ModbusPoint],
+        points: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         """按连续寄存器分组批量读取，返回按输入顺序排列的样本元组。
 
@@ -327,7 +327,7 @@ class ModbusDriver:
 
     async def _read_values(
         self,
-        points: Sequence[str | ModbusPoint],
+        points: Sequence[str],
     ) -> tuple[tuple[ModbusPoint, ...], tuple[tuple[PointScalar, Quality], ...]]:
         """执行分组批量读取，返回解析后的点序列与逐点 (原始值, 质量)。"""
         if not points:
@@ -352,7 +352,7 @@ class ModbusDriver:
 
     async def write_many(
         self,
-        writes: Sequence[ProtocolWrite[ModbusPoint]],
+        writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
         """Modbus 不支持多逻辑点批量写入；明确拒绝，绝不降级为逐点 write_one。"""
         del writes
@@ -381,17 +381,13 @@ class ModbusDriver:
             )
         return mapped
 
-    def _resolve_point(self, point: str | ModbusPoint) -> ModbusPoint:
-        """把注册点 point_id 或动态 ModbusPoint 统一解析为 ModbusPoint。
-
-        动态点不进点表映射，只要求调用方给出完整地址定义；其字段合法性
-        由 ModbusPoint 构造方（如 ``modbus_point()`` 工厂）保证。
-        """
-        if isinstance(point, ModbusPoint):
-            return point
+    def _resolve_point(self, point: str) -> ModbusPoint:
+        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
+        if not isinstance(point, str):
+            raise ConfigError("protocol point must be a configured point key")
         return self._mapped_point(point)
 
-    def _read_plan(self, points: Sequence[str | ModbusPoint]) -> tuple[_ReadGroupPlan, ...]:
+    def _read_plan(self, points: Sequence[str]) -> tuple[_ReadGroupPlan, ...]:
         """按点位有序序列缓存寄存器分组；命中时跳过映射及分组合并。"""
         key = tuple(points)
         cached = self._read_plan_cache.get(key)

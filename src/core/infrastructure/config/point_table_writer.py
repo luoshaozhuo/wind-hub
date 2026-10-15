@@ -12,7 +12,6 @@ def _point_dict(point: Point) -> dict[str, Any]:
     address = dict(point.ext)
     data_type = address.pop("data_type")
     return {
-        "business_point_id": str(point.business_point_id),
         "point_groups": list(point.point_groups),
         "address": address,
         "data_type": data_type,

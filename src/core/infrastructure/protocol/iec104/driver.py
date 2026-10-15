@@ -228,7 +228,7 @@ class IEC104Driver:
         # 操作按需登记，使上报和总召响应能路由到订阅者；跨断连保留，重连后
         # 由 on_new_point 重新挂接接收回调。身份策略：PointTable 点优先，
         # 否则保留首个登记的动态 point_id；单次读取按输入对象重标身份。
-        self._dynamic_points: dict[int, IEC104Point] = {}
+
         self._interrogation_lock = asyncio.Lock()
         self._interrogation_waiter: asyncio.Future[None] | None = None
         self._command_locks: dict[int, _IoaLockEntry] = {}
@@ -395,7 +395,7 @@ class IEC104Driver:
             message="IEC104 connection is not OPEN",
         )
 
-    async def read_one(self, point: str | IEC104Point) -> ProtocolSample:
+    async def read_one(self, point: str) -> ProtocolSample:
         """发送 C_RD_NA_1，并等待指定 IOA 的本次读取响应。"""
         if not self._is_open:
             raise ProtocolError("IEC104 read requires an OPEN connection")
@@ -423,7 +423,7 @@ class IEC104Driver:
 
     async def write_one(
         self,
-        write: ProtocolWrite[IEC104Point],
+        write: ProtocolWrite,
     ) -> ProtocolWriteResult:
         """执行单点遥控/设点，并按 ACT_CON 结果返回状态。
 
@@ -434,26 +434,25 @@ class IEC104Driver:
         write_value = write.value
         if not self._is_open or self._station is None:
             raise ProtocolError("IEC104 write requires an OPEN connection")
-        self._register_dynamic_ioa(mapped)
         return await self._execute_write(mapped, write_value)
 
     async def read_many(
         self,
-        points: Sequence[str | IEC104Point],
+        points: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         """IEC104 不支持任意 IOA 集合的批量读取。"""
         raise ProtocolCapabilityError("iec104 does not support read_many")
 
     async def write_many(
         self,
-        writes: Sequence[ProtocolWrite[IEC104Point]],
+        writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
         """IEC104 不支持原子批量控制命令。"""
         raise ProtocolCapabilityError("iec104 does not support write_many")
 
     async def subscribe(
         self,
-        point_ids: Sequence[str | IEC104Point],
+        point_ids: Sequence[str],
         callback: Callable[[ProtocolSample], Awaitable[None]],
         *,
         interval: float | None = None,
@@ -478,7 +477,6 @@ class IEC104Driver:
         """发送单点读取请求；调用方负责等待 REQUEST 响应。"""
         if not self._is_open or self._station is None:
             raise ProtocolError("IEC104 active read requires an OPEN connection")
-        self._register_dynamic_ioa(mapped)
         point = self._station.get_point(mapped.ioa)
         if point is None:
             point = self._register_monitoring_point(mapped)
@@ -690,31 +688,15 @@ class IEC104Driver:
             )
         return mapped
 
-    def _resolve_point(self, point: str | IEC104Point) -> IEC104Point:
-        """把注册点 point_id 或动态 IEC104Point 统一解析为 IEC104Point。
-
-        动态点不进点表映射，直接使用自身携带的 IOA/type_id；其字段合法性
-        由构造方（如 ``iec104_point()`` 工厂）保证。
-        """
-        if isinstance(point, IEC104Point):
-            return point
+    def _resolve_point(self, point: str) -> IEC104Point:
+        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
+        if not isinstance(point, str):
+            raise ConfigError("protocol point must be a configured point key")
         return self._mapped_point(point)
-
-    def _register_dynamic_ioa(self, mapped: IEC104Point) -> None:
-        """按需登记动态 IOA 的接收关联（协议会话级，不写入 PointTable）。
-
-        PointTable 已覆盖的 IOA 不重复登记；同一 IOA 保留首个动态身份。
-        """
-        if mapped.ioa in self._points_by_ioa:
-            return
-        self._dynamic_points.setdefault(mapped.ioa, mapped)
 
     def _ioa_mapping(self, ioa: int) -> IEC104Point | None:
         """IOA 的规范身份映射：PointTable 点优先，其次动态登记。"""
-        mapped = self._points_by_ioa.get(ioa)
-        if mapped is None:
-            mapped = self._dynamic_points.get(ioa)
-        return mapped
+        return self._points_by_ioa.get(ioa)
 
     def _register_monitoring_point(self, mapped: IEC104Point) -> Any:
         """为动态点主动读做 c104 内部注册（协议会话对象，非 PointTable 登记）。
@@ -805,7 +787,7 @@ class IEC104Driver:
     ) -> None:
         if self._closed:
             return
-        if io_address not in self._points_by_ioa and io_address not in self._dynamic_points:
+        if io_address not in self._points_by_ioa :
             return
 
         factory = self._receive_callback_factory

@@ -64,7 +64,6 @@ _OPTION_PARSERS = {
     "iec104": parse_iec104_config,
 }
 _POINT_FIELDS = {
-    "business_point_id",
     "point_groups",
     "address",
     "data_type",
@@ -231,9 +230,7 @@ def _point(
 ) -> Point:
     context = f"point '{point_id}'"
     _keys(entry, _POINT_FIELDS, context)
-    identity = BusinessPointId(
-        _name(entry.get("business_point_id"), f"{context}.business_point_id")
-    )
+    identity = BusinessPointId(point_id)
     business_point = business_points.get(identity)
     if business_point is None:
         raise ConfigError(f"{context} unknown business point '{identity}'")

@@ -309,7 +309,7 @@ class ADSDriver:
             subscription,
         )
 
-    async def read_one(self, point: str | ADSPoint) -> ProtocolSample:
+    async def read_one(self, point: str) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走 Sum Read、分段或读取分组缓存。
 
         接受注册点 point_id（str）或动态 ADSPoint（显式 index 地址，
@@ -350,7 +350,7 @@ class ADSDriver:
 
     async def write_one(
         self,
-        write: ProtocolWrite[ADSPoint],
+        write: ProtocolWrite,
     ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不使用 Sum Write 批量规划。
 
@@ -380,7 +380,7 @@ class ADSDriver:
 
     async def read_many(
         self,
-        points: Sequence[str | ADSPoint],
+        points: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         """使用 ADS Sum Read 批量读取，返回按输入顺序排列的样本元组。
 
@@ -397,7 +397,7 @@ class ADSDriver:
 
     async def _read_values(
         self,
-        points: Sequence[str | ADSPoint],
+        points: Sequence[str],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
         """先完成符号地址解析，再复用规范化 ReadPlan。"""
         if not points:
@@ -429,7 +429,7 @@ class ADSDriver:
 
     async def write_many(
         self,
-        writes: Sequence[ProtocolWrite[ADSPoint]],
+        writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
         """按已解析 index 地址批量写入。
 
@@ -683,7 +683,7 @@ class ADSDriver:
         self._symbol_cache[symbol] = resolved
         return resolved
 
-    async def _resolve_point_locked(self, point: str | ADSPoint) -> ADSPoint:
+    async def _resolve_point_locked(self, point: str) -> ADSPoint:
         mapped = self._resolve_point(point)
         if mapped.address_resolved:
             return mapped
@@ -712,15 +712,10 @@ class ADSDriver:
             )
         return mapped
 
-    def _resolve_point(self, point: str | ADSPoint) -> ADSPoint:
-        """把注册点 point_id 或动态 ADSPoint 统一解析为 ADSPoint。
-
-        动态点不进点表映射；含符号的点通过同一 symbol 缓存解析，
-        显式 index 地址不依赖 session；其字段
-        合法性由构造方（如 ``ads_point()`` 工厂）保证。
-        """
-        if isinstance(point, ADSPoint):
-            return point
+    def _resolve_point(self, point: str) -> ADSPoint:
+        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
+        if not isinstance(point, str):
+            raise ConfigError("protocol point must be a configured point key")
         return self._mapped_point(point)
 
     def _sum_read_bytes(
@@ -856,7 +851,7 @@ def _as_point_scalar(
     raise TypeError(f"unsupported ADS value type '{type(value).__name__}'")
 
 
-def _point_identities(points: Sequence[str | ADSPoint]) -> tuple[str, ...]:
+def _point_identities(points: Sequence[str]) -> tuple[str, ...]:
     """批量读返回样本的身份：str 输入即 point_id，动态点取其 point_id。"""
     return tuple(point if isinstance(point, str) else point.point_id for point in points)
 
