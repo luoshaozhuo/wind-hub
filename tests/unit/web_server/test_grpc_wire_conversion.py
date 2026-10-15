@@ -97,18 +97,43 @@ def test_collector_status_and_metrics() -> None:
 
 
 @pytest.mark.asyncio
-async def test_collector_unsafe_task_operations_do_not_call_rpc() -> None:
-    """当前 wire 没有所有权栅栏；不可绕过 Server 直接启动任务。"""
+async def test_collector_placement_and_fenced_start_requests() -> None:
+    """验证 Server 将代次与任务集合完整传给 Collector RPC。"""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
     from web_server.adapter.outbound.grpc.collector import CollectorGrpcClient
-    from web_server.application.port.worker import CollectorPlacementRejectedError
 
     client = object.__new__(CollectorGrpcClient)
-    with pytest.raises(CollectorPlacementRejectedError, match="ApplyTaskPlacement"):
-        await client.apply_task_placement("collector-1", 1, ["task-1"])
-    with pytest.raises(CollectorPlacementRejectedError, match="ownership fencing"):
-        await client.start_task("task-1", 1)
-    with pytest.raises(CollectorPlacementRejectedError, match="ownership fencing"):
-        await client.start_task_instance("instance-1", 1)
+    client.default_timeout = 5.0
+    client._control_stub = SimpleNamespace(
+        ApplyTaskPlacement=AsyncMock(
+            return_value=collector_pb2.TaskPlacementSnapshotResponse(
+                success=True, generation=17, task_count=2
+            )
+        ),
+        StartTask=AsyncMock(
+            return_value=collector_pb2.TaskSummaryMessage(task_id="t1")
+        ),
+        StartTaskInstance=AsyncMock(
+            return_value=collector_pb2.TaskInstanceMessage(instance_id="i1")
+        ),
+    )
+    ack = await client.apply_task_placement("collector-1", 17, ["t1", "t2"])
+    assert ack.success and ack.generation == 17 and ack.task_count == 2
+    placement_request = client._control_stub.ApplyTaskPlacement.call_args.args[0]
+    assert placement_request.worker_id == "collector-1"
+    assert list(placement_request.task_ids) == ["t1", "t2"]
+
+    await client.start_task("t1", 17)
+    task_request = client._control_stub.StartTask.call_args.args[0]
+    assert task_request.task_id == "t1"
+    assert task_request.placement_generation == 17
+
+    await client.start_task_instance("i1", 17)
+    instance_request = client._control_stub.StartTaskInstance.call_args.args[0]
+    assert instance_request.instance_id == "i1"
+    assert instance_request.placement_generation == 17
 
 
 @pytest.mark.parametrize("value", [2**64, -(2**63) - 1])
