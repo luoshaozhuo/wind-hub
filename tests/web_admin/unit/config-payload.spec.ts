@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDefinitionsPayload, pointProjection, type DefinitionsEditState } from './config'
+import { buildDefinitionsPayload, pointProjection, type DefinitionsEditState } from '../../../src/web_admin/src/api/config'
 
 const state = {
   units: { kW: { symbol: 'kW', name: 'Power' } },
