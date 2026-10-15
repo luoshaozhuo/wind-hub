@@ -7,6 +7,7 @@ Protobuf 直接转换为 Server 应用层 DTO，不经过 JSON 中间结构。
 from __future__ import annotations
 
 from datetime import UTC
+
 from google.protobuf import empty_pb2
 
 from core.infrastructure.rpc import collector_pb2 as pb

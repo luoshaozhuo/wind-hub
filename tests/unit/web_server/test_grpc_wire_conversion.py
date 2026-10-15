@@ -125,6 +125,7 @@ def test_collector_monitoring_event_timestamp_is_utc() -> None:
     dto = _metrics_snapshot_dto(metrics)
     assert dto.events[0].timestamp == datetime(2026, 10, 15, tzinfo=UTC)
 
+
 @pytest.mark.parametrize("outcome", [
     commander_pb2.COMMAND_OUTCOME_CONFIRMED_SUCCESS,
     commander_pb2.COMMAND_OUTCOME_CONFIRMED_FAILURE,
@@ -161,3 +162,36 @@ def test_bytes_scalar_is_not_misrepresented_as_business_value() -> None:
     scalar = commander_pb2.ScalarValue(bytes_value=b"abc")
     with pytest.raises(ValueError, match="byte-valued"):
         _decode_scalar(scalar)
+
+
+def test_empty_commander_scalar_rejected() -> None:
+    with pytest.raises(ValueError, match="no active value"):
+        _decode_scalar(commander_pb2.ScalarValue())
+
+
+def test_point_value_without_scalar_rejected() -> None:
+    message = commander_pb2.PointValueMessage(
+        device_id="d", point_id="p", quality="good"
+    )
+    message.timestamp.GetCurrentTime()
+    with pytest.raises(ValueError, match="no scalar"):
+        _point_value(message)
+
+
+def test_command_result_without_id_rejected() -> None:
+    message = commander_pb2.CommandResultMessage(
+        outcome=commander_pb2.COMMAND_OUTCOME_CONFIRMED_SUCCESS
+    )
+    message.finished_at.GetCurrentTime()
+    with pytest.raises(ValueError, match="command ID"):
+        _command_result(message)
+
+
+def test_invalid_point_quality_rejected() -> None:
+    message = commander_pb2.PointValueMessage(
+        device_id="d", point_id="p", quality="not-a-quality"
+    )
+    message.timestamp.GetCurrentTime()
+    message.value.double_value = 1.0
+    with pytest.raises(ValueError):
+        _point_value(message)

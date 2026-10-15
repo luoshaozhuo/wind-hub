@@ -34,7 +34,7 @@ def _decode_scalar(value: pb.ScalarValue) -> Any:
     """解码 protobuf oneof 标量，避免经过 JSON 中间结构。"""
     kind = value.WhichOneof("kind")
     if kind is None:
-        return None
+        raise ValueError("Commander scalar has no active value")
     if kind == "bytes_value":
         raise ValueError("byte-valued Commander scalar is not supported by the Server")
     return getattr(value, kind)
@@ -65,10 +65,12 @@ def _point_value(message: pb.PointValueMessage) -> PointValue:
     """将 Commander 读取结果转换为 Server 采样 DTO。"""
     if not message.HasField("timestamp"):
         raise ValueError("Commander point value has no timestamp")
+    if not message.HasField("value"):
+        raise ValueError("Commander point value has no scalar")
     return PointValue(
         device_id=message.device_id,
         point_id=message.point_id,
-        value=_decode_scalar(message.value) if message.HasField("value") else None,
+        value=_decode_scalar(message.value),
         quality=Quality(message.quality),
         timestamp=message.timestamp.ToDatetime(tzinfo=UTC),
         source=message.source or None,
@@ -87,6 +89,8 @@ def _command_result(message: pb.CommandResultMessage) -> CommandResult:
         raise ValueError(f"unsupported command outcome: {message.outcome}")
     if not message.HasField("finished_at"):
         raise ValueError("Commander command result has no finish timestamp")
+    if not message.command_id:
+        raise ValueError("Commander command result has no command ID")
     return CommandResult(
         command_id=message.command_id,
         outcome=outcomes[message.outcome],
