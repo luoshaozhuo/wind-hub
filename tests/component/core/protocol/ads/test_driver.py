@@ -235,6 +235,75 @@ async def test_ads_connect_failure_without_route_does_not_retry(
     assert _RouteProbeConnection.closed == 1
 
 
+class _TimeoutProbeConnection:
+    events: list[object] = []
+    state: tuple[int, int] | None = (5, 0)
+
+    def __init__(self, net_id: object, port: int, host: str) -> None:
+        del net_id, port, host
+        self.is_open = False
+
+    def open(self) -> None:
+        self.is_open = True
+        self.events.append("open")
+
+    def set_timeout(self, timeout_ms: int) -> None:
+        assert self.is_open
+        self.events.append(("timeout", timeout_ms))
+
+    def read_state(self) -> tuple[int, int] | None:
+        self.events.append("read_state")
+        return self.state
+
+    def close(self) -> None:
+        self.events.append("close")
+        self.is_open = False
+
+
+@pytest.mark.asyncio
+async def test_ads_probe_sets_timeout_after_open_before_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _TimeoutProbeConnection.events = []
+    _TimeoutProbeConnection.state = (5, 0)
+    monkeypatch.setattr(
+        driver_module, "pyads", type("Pyads", (), {"Connection": _TimeoutProbeConnection})
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {"timeout": 1.25},
+    )
+    await driver.connect()
+    assert _TimeoutProbeConnection.events[:3] == [
+        "open", ("timeout", 1250), "read_state"
+    ]
+    await driver.close()
+    assert _TimeoutProbeConnection.events[-1] == "close"
+
+
+@pytest.mark.asyncio
+async def test_ads_probe_rejects_none_state_and_closes_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _TimeoutProbeConnection.events = []
+    _TimeoutProbeConnection.state = None
+    monkeypatch.setattr(
+        driver_module, "pyads", type("Pyads", (), {"Connection": _TimeoutProbeConnection})
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {},
+    )
+    with pytest.raises(Exception, match="ADS connect failed"):
+        await driver.connect()
+    assert _TimeoutProbeConnection.events == [
+        "open", ("timeout", 5000), "read_state", "close"
+    ]
+    assert not driver.is_open()
+
+
 class _FakeNotificationAttrib:
     last_mode: ClassVar[int]
 
