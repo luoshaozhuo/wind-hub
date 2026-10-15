@@ -168,18 +168,15 @@ class ADSDriver:
     async def initialize_local(cls, config: ADSLocalConfig) -> None:
         await asyncio.to_thread(cls._initialize_local_sync, config)
 
-    @staticmethod
-    def _close_local_sync() -> None:
+    @classmethod
+    async def close_local(cls) -> None:
+        """释放进程级本地 AMS 端口；不得在其他 ADS Driver 工作期间调用。"""
         global _LOCAL_AMS, _LOCAL_PORT_OPEN
         with _LOCAL_AMS_LOCK:
             if _LOCAL_PORT_OPEN:
                 pyads.close_port()
             _LOCAL_PORT_OPEN = False
             _LOCAL_AMS = None
-
-    @classmethod
-    async def close_local(cls) -> None:
-        await asyncio.to_thread(cls._close_local_sync)
 
     def _new_connection(self) -> Any:
         """创建配置一致、尚未 open 的 pyads Connection。"""
@@ -191,58 +188,57 @@ class ADSDriver:
         connection.set_timeout(int(self._config.timeout * 1000))
         return connection
 
-    def _open_verified_connection(self) -> Any:
-        """建立会话并执行真实 ADS State Read；失败时总是释放句柄。"""
+    def _open_verified_connection(self) -> tuple[Any, Any, Any]:
+        """建立连接并探测 ADS 状态；失败时释放本次创建的连接。"""
         connection = self._new_connection()
         try:
             connection.open()
             if not connection.is_open:
                 raise ConnectionError("ADS session did not open")
-            connection.read_state()
-            return connection
+            ads_state, device_state = connection.read_state()
+            return connection, ads_state, device_state
         except BaseException:
             with contextlib.suppress(Exception):
                 connection.close()
             raise
 
     def _connect_with_optional_route(self) -> Any:
+        """先连接并探测；失败后可注册 PLC 反向路由，再尝试一次。"""
         try:
-            return self._open_verified_connection()
+            connection, _, _ = self._open_verified_connection()
+            return connection
         except Exception:
             if not self._config.route_auto_add:
                 raise
-            # Route is a persistent PLC-side resource, not an ADS session.
-            # Serialize registration across drivers and recheck before modifying the PLC.
-            with _REMOTE_ROUTE_LOCK:
-                try:
-                    return self._open_verified_connection()
-                except Exception:
-                    pass
-                identity = _LOCAL_AMS
-                if identity is None:
-                    raise ConfigError("ADS local AMS identity is not initialized") from None
-                try:
-                    added = pyads.add_route_to_plc(
-                        identity.local_ams_net_id,
-                        identity.local_ip,
-                        self._config.host,
-                        self._config.username,
-                        self._config.password,
-                    )
-                    if not added:
-                        raise RuntimeError("remote route registration refused")
-                except Exception:
-                    # pyads errors may contain endpoint arguments; never expose credentials.
-                    raise ProtocolError(
-                        f"ADS remote route registration failed for {self._config.host}"
-                    ) from None
-                try:
-                    return self._open_verified_connection()
-                except Exception:
-                    raise ProtocolError(
-                        "ADS still unreachable after remote route registration: "
-                        f"{self._config.host}"
-                    ) from None
+
+        # pyads.delete_route() 只删除本机 AMS 路由，不删除 PLC 反向路由，
+        # 因而不能在此调用，否则会破坏其他会话使用的本地路由。
+        with _REMOTE_ROUTE_LOCK:
+            identity = _LOCAL_AMS
+            if identity is None:
+                raise ConfigError("ADS local AMS identity is not initialized")
+            try:
+                added = pyads.add_route_to_plc(
+                    identity.local_ams_net_id,
+                    identity.local_ip,
+                    self._config.host,
+                    self._config.username,
+                    self._config.password,
+                )
+                if not added:
+                    raise RuntimeError("remote route registration refused")
+            except Exception:
+                raise ProtocolError(
+                    f"ADS remote route registration failed for {self._config.host}"
+                ) from None
+
+            try:
+                connection, _, _ = self._open_verified_connection()
+                return connection
+            except Exception:
+                raise ProtocolError(
+                    f"ADS still unreachable after remote route registration: {self._config.host}"
+                ) from None
 
     async def connect(self) -> None:
         """建立并验证 ADS 通信；仅在首次连接失败时按配置添加 PLC 反向路由。"""
@@ -283,12 +279,9 @@ class ADSDriver:
         """
 
         def _probe() -> ConnectionHealth:
-            connection = self._new_connection()
+            connection = None
             try:
-                connection.open()
-                if not connection.is_open:
-                    return ConnectionHealth(healthy=False, message="ADS probe did not open")
-                ads_state, device_state = connection.read_state()
+                connection, ads_state, device_state = self._open_verified_connection()
                 return ConnectionHealth(
                     healthy=True,
                     message=(
@@ -303,8 +296,9 @@ class ADSDriver:
                     message=f"ADS state read failed: {exc}",
                 )
             finally:
-                with contextlib.suppress(Exception):
-                    connection.close()
+                if connection is not None:
+                    with contextlib.suppress(Exception):
+                        connection.close()
 
         return await asyncio.to_thread(_probe)
 
