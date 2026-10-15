@@ -278,29 +278,39 @@ export function pointsOfTable(tableId: string, stack: string[] = []): MockPointD
 export function buildDefinitions(): DefinitionsDto {
   const point_tables: DefinitionsDto['point_tables'] = {}
   for (const [id, table] of Object.entries(pointTablesSeed)) {
-    const value: Record<string, unknown> = {
-      remove_points: [...table.remove_points],
-      points: table.points.map((p) => ({
-        ...p,
-        address: { ...p.address },
-        point_groups: [...p.point_groups],
-      })),
+    const points = Object.fromEntries(table.points.map((point) => [
+      point.point_id,
+      {
+        business_point_id: point.variable_name,
+        point_groups: [...point.point_groups],
+        address: { ...point.address },
+        data_type: point.data_type,
+        scale: point.scale,
+        offset: point.offset,
+        unit_id: point.unit,
+        description: point.description,
+      },
+    ]))
+    point_tables[id] = {
+      ...(table.extends
+        ? { parent_id: table.extends, remove_points: [...table.remove_points] }
+        : { protocol: table.protocol }),
+      points,
     }
-    if (table.protocol !== 'generic') value.protocol = table.protocol
-    if (table.extends) value.extends = table.extends
-    point_tables[id] = value
   }
   const device_models: DefinitionsDto['device_models'] = {}
-  for (const [id, m] of Object.entries(deviceModelsSeed)) {
+  for (const [id, model] of Object.entries(deviceModelsSeed)) {
     device_models[id] = {
-      device_type: m.device_type,
-      manufacturer: m.manufacturer || null,
-      model: m.model || null,
-      protocol: m.protocol,
-      point_table: m.point_table,
-      ...(m.read_mode ? { read_mode: m.read_mode } : {}),
+      device_type_id: model.device_type,
+      manufacturer: model.manufacturer,
+      model: model.model,
+      protocol: model.protocol,
+      point_table_id: model.point_table,
       properties: {},
-      connection_defaults: { ...m.connection_defaults },
+      endpoint_defaults: { port: model.connection_defaults.port },
+      protocol_options: Object.fromEntries(
+        Object.entries(model.connection_defaults).filter(([key]) => key !== 'port'),
+      ),
     }
   }
   return {
@@ -552,8 +562,7 @@ export const workersSeed: WorkerDto[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// 配置文件（7 个 YAML）：内容由结构化种子生成，apply/import 后 GET 可见更新。
-// ---------------------------------------------------------------------------
+// 当前 Core 的八份正式配置文件；JSON 序列化同样是有效 YAML。
 export const CONFIG_FILE_NAMES = [
   'system.yaml',
   'units.yaml',
@@ -561,105 +570,50 @@ export const CONFIG_FILE_NAMES = [
   'points.yaml',
   'devices.yaml',
   'tasks.yaml',
-  'reporting.yaml',
+  'sinks.yaml',
+  'business_points.yaml',
 ] as const
 
 export type ConfigFileName = (typeof CONFIG_FILE_NAMES)[number]
 
-function systemYaml(s: SettingsDto): string {
-  return `site:
-  site_id: ${s.site_id}
-  name: "${s.site_name ?? ''}"
-
-runtime:
-  queue_maxsize: 1000
-  backpressure_policy: drop_old
-  shutdown_timeout: 30.0
-  connect_timeout: 10.0
-  read_timeout: 5.0
-  write_timeout: 5.0
-
-ads:
-  local_ams_net_id: "${s.ads_local_ams_net_id ?? ''}"
-  local_ip: "${s.ads_local_ip ?? ''}"
-  username: "${s.ads_username}"
-  password: "${s.ads_password}"
-
-interfaces:
-  api:
-    enabled: ${s.api_enabled}
-    host: "${s.api_host}"
-    port: ${s.api_port}
-`
-}
-
-function unitsYaml(): string {
-  const body = Object.entries(unitsSeed)
-    .map(([id, u]) => `  ${id}:\n    symbol: "${u.symbol}"\n    name: ${u.name}`)
-    .join('\n')
-  return `units:\n${body}\n`
-}
-
-function deviceModelsYaml(): string {
-  const types = Object.entries(deviceTypesSeed)
-    .map(([id, t]) => `  ${id}:\n    name: ${t.name}`)
-    .join('\n')
-  const models = Object.entries(deviceModelsSeed)
-    .map(
-      ([id, m]) =>
-        `  ${id}:\n    device_type: ${m.device_type}\n    protocol: ${m.protocol}\n    point_table: ${m.point_table}\n    connection_defaults:\n` +
-        Object.entries(m.connection_defaults)
-          .map(([k, v]) => `      ${k}: ${typeof v === 'string' ? v : String(v)}`)
-          .join('\n'),
-    )
-    .join('\n\n')
-  return `device_types:\n${types}\n\ndevice_models:\n${models}\n`
-}
-
-function pointsYaml(): string {
-  return Object.entries(pointTablesSeed)
-    .map(([id, t]) => {
-      const header = `  ${id}:\n    protocol: ${t.protocol}${t.extends ? `\n    extends: ${t.extends}` : ''}\n    points:`
-      const rows = t.points
-        .map(
-          (p) =>
-            `      - point_id: ${p.point_id}\n        data_type: ${p.data_type}\n        scale: ${p.scale}\n        unit: ${p.unit}`,
-        )
-        .join('\n')
-      return `${header}\n${rows}`
-    })
-    .join('\n\n')
-    .concat('\n')
+function yamlDocument(value: Record<string, unknown>): string {
+  return JSON.stringify(value, null, 2) + '\n'
 }
 
 export function devicesYaml(devices: MockDevice[]): string {
-  return (
-    'devices:\n' +
-    devices
-      .map(
-        (d) =>
-          `  - device_id: ${d.device_id}\n    model: ${d.model}\n    device_group: ${d.device_group}\n    host: "${d.host}"\n    enabled: ${d.enabled}`,
-      )
-      .join('\n') +
-    '\n'
-  )
+  return yamlDocument({
+    devices: Object.fromEntries(devices.map((device) => [
+      device.device_id,
+      {
+        model_id: device.model,
+        device_group_ids: [device.device_group],
+        endpoint: {
+          host: device.host,
+          ...(device.port == null ? {} : { port: device.port }),
+        },
+        protocol_options: { ...device.extensions },
+        enabled: device.enabled,
+      },
+    ])),
+    device_groups: Object.fromEntries(deviceGroupsSeed.map((id) => [id, { name: id }])),
+  })
 }
 
 export function tasksYaml(tasks: MockTask[]): string {
-  return (
-    'tasks:\n' +
-    tasks
-      .map(
-        (t) =>
-          `  - task_id: ${t.task_id}\n    device: ${t.device ?? 'null'}\n    device_group: ${t.device_group ?? 'null'}\n    point_group: ${t.point_group}\n    interval: ${t.interval ?? 'null'}\n    enabled: ${t.enabled}\n    sinks:${t.sinks.map((s) => `\n      - ${s}`).join('')}`,
-      )
-      .join('\n') +
-    '\n'
-  )
-}
-
-function reportingYaml(): string {
-  return `reporting:\n  enabled: false\n  interval: 300\n  targets: []\n`
+  return yamlDocument({
+    tasks: Object.fromEntries(
+      tasks.filter((task) => task.device_group && task.interval).map((task) => [
+        task.task_id,
+        {
+          device_group_id: task.device_group,
+          point_group: task.point_group,
+          interval: task.interval,
+          sink_ids: [...task.sinks],
+          enabled: task.enabled,
+        },
+      ]),
+    ),
+  })
 }
 
 export function seedYamlFiles(
@@ -667,13 +621,47 @@ export function seedYamlFiles(
   devices: MockDevice[],
   tasks: MockTask[],
 ): Record<string, string> {
+  const defs = buildDefinitions()
+  const units = Object.fromEntries(Object.entries(unitsSeed).map(([id, unit]) => [
+    id,
+    { symbol: unit.symbol, quantity: 'dimensionless' },
+  ]))
+  const points = Object.fromEntries(
+    Object.values(pointTablesSeed).flatMap((table) =>
+      table.points.map((point) => [
+        point.variable_name,
+        { data_type: point.data_type, unit_id: point.unit, description: point.description },
+      ]),
+    ),
+  )
   return {
-    'system.yaml': systemYaml(settings),
-    'units.yaml': unitsYaml(),
-    'device_models.yaml': deviceModelsYaml(),
-    'points.yaml': pointsYaml(),
+    'system.yaml': yamlDocument({
+      site: { site_id: settings.site_id, name: settings.site_name || settings.site_id },
+      runtime: { queue_maxsize: 1000, backpressure_policy: 'drop_old' },
+      ...(settings.ads_local_ip && settings.ads_local_ams_net_id
+        ? { ads: {
+            local_ip: settings.ads_local_ip,
+            local_ams_net_id: settings.ads_local_ams_net_id,
+          } }
+        : {}),
+    }),
+    'units.yaml': yamlDocument({
+      quantities: { dimensionless: { base_unit: 'none' } },
+      units,
+    }),
+    'device_models.yaml': yamlDocument({
+      device_types: defs.device_types,
+      device_models: defs.device_models,
+    }),
+    'points.yaml': yamlDocument({ point_tables: defs.point_tables }),
     'devices.yaml': devicesYaml(devices),
     'tasks.yaml': tasksYaml(tasks),
-    'reporting.yaml': reportingYaml(),
+    'sinks.yaml': yamlDocument({
+      sinks: Object.fromEntries(sinksSeed.map((sink) => [
+        sink.name,
+        { type: sink.type, enabled: sink.enabled, connection: sink.connection, points: sink.points },
+      ])),
+    }),
+    'business_points.yaml': yamlDocument({ business_points: points }),
   }
 }
