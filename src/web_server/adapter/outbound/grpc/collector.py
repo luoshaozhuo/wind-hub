@@ -258,22 +258,10 @@ class CollectorGrpcClient(GrpcClientBase):
         task_id: str,
         placement_generation: int,
     ) -> CollectorTaskSummary:
-        """启动指定 Task 的全部实例（受 placement 栅栏保护）。
-
-        Raises:
-            CollectorPlacementRejectedError: 未先下发 placement 快照或
-                generation 与 Collector 当前栅栏不一致。
-        """
-        try:
-            response = await self._control_stub.StartTask(
-                pb.TaskStartRequest(
-                    task_id=task_id,
-                ),
-                timeout=self.default_timeout,
-            )
-        except grpc.aio.AioRpcError as exc:
-            raise _placement_error(exc) from exc
-        return _task_summary(response)
+        """没有 Collector placement 栅栏时拒绝启动，防止多 Collector 重复采集。"""
+        raise CollectorPlacementRejectedError(
+            "unsafe StartTask: Collector wire has no placement ownership fencing"
+        )
 
     async def stop_task(self, task_id: str) -> CollectorTaskSummary:
         """停止指定 Task 的全部实例。"""
@@ -288,22 +276,10 @@ class CollectorGrpcClient(GrpcClientBase):
         instance_id: str,
         placement_generation: int,
     ) -> CollectorTaskInstance:
-        """启动单个 Task Instance（受 placement 栅栏保护）。
-
-        Raises:
-            CollectorPlacementRejectedError: 未先下发 placement 快照或
-                generation 与 Collector 当前栅栏不一致。
-        """
-        try:
-            response = await self._control_stub.StartTaskInstance(
-                pb.TaskInstanceStartRequest(
-                    instance_id=instance_id,
-                ),
-                timeout=self.default_timeout,
-            )
-        except grpc.aio.AioRpcError as exc:
-            raise _placement_error(exc) from exc
-        return _task_instance(response)
+        """禁止绕过尚未实现的跨 Collector 任务所有权校验。"""
+        raise CollectorPlacementRejectedError(
+            "unsafe StartTaskInstance: Collector wire has no placement ownership fencing"
+        )
 
     async def stop_task_instance(self, instance_id: str) -> CollectorTaskInstance:
         """停止单个 Task Instance。"""
