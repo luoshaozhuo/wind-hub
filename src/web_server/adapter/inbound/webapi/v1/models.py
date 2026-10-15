@@ -28,7 +28,7 @@ class DeviceResponse(BaseModel):
     device_id: str
     protocol: str
     host: str
-    port: int
+    port: int | None
     point_table: str
     device_type: str | None = None
     model: str | None = None
