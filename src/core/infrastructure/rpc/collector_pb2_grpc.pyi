@@ -162,6 +162,7 @@ class CollectorControlServiceStub:
     def __new__(cls, channel: _grpc.Channel) -> _Self: ...
     @_typing.overload
     def __new__(cls, channel: _aio.Channel) -> CollectorControlServiceAsyncStub: ...
+    ApplyTaskPlacement: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskPlacementSnapshotRequest, _collector_pb2.TaskPlacementSnapshotResponse]
     StartTask: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskStartRequest, _collector_pb2.TaskSummaryMessage]
     StopTask: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskIdRequest, _collector_pb2.TaskSummaryMessage]
     StartTaskInstance: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskInstanceStartRequest, _collector_pb2.TaskInstanceMessage]
@@ -173,6 +174,7 @@ class CollectorControlServiceStub:
 @_typing.type_check_only
 class CollectorControlServiceAsyncStub(CollectorControlServiceStub):
     def __init__(self, channel: _aio.Channel) -> None: ...
+    ApplyTaskPlacement: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskPlacementSnapshotRequest, _collector_pb2.TaskPlacementSnapshotResponse]  # type: ignore[assignment]
     StartTask: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskStartRequest, _collector_pb2.TaskSummaryMessage]  # type: ignore[assignment]
     StopTask: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskIdRequest, _collector_pb2.TaskSummaryMessage]  # type: ignore[assignment]
     StartTaskInstance: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskInstanceStartRequest, _collector_pb2.TaskInstanceMessage]  # type: ignore[assignment]
@@ -182,6 +184,13 @@ class CollectorControlServiceAsyncStub(CollectorControlServiceStub):
     AbortConfig: _aio.UnaryUnaryMultiCallable[_collector_pb2.AbortConfigRequest, _collector_pb2.AbortConfigResponse]  # type: ignore[assignment]
 
 class CollectorControlServiceServicer(metaclass=_abc_1.ABCMeta):
+    @_abc_1.abstractmethod
+    def ApplyTaskPlacement(
+        self,
+        request: _collector_pb2.TaskPlacementSnapshotRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_collector_pb2.TaskPlacementSnapshotResponse, _abc.Awaitable[_collector_pb2.TaskPlacementSnapshotResponse]]: ...
+
     @_abc_1.abstractmethod
     def StartTask(
         self,
