@@ -53,16 +53,30 @@ class ADSPoint:
     """规范化 ADS 点地址。
 
     symbol 存在时，index 地址必须在当前 ADS session 建立后重新解析；
-    配置中的 index 值仅作诊断参考，不能直接用于生产读写。
+    未解析地址以 None 表示，不使用合法数值作占位。
     """
 
     point_id: str
-    index_group: int
-    index_offset: int
+    index_group: int | None
+    index_offset: int | None
     data_type: str
     size: int
     symbol: str | None = None
-    address_resolved: bool = True
+    @property
+    def address_resolved(self) -> bool:
+        return self.index_group is not None and self.index_offset is not None
+
+    @property
+    def group(self) -> int:
+        if self.index_group is None:
+            raise ConfigError(f"ADS point '{self.point_id}' index address is unresolved")
+        return self.index_group
+
+    @property
+    def offset(self) -> int:
+        if self.index_offset is None:
+            raise ConfigError(f"ADS point '{self.point_id}' index address is unresolved")
+        return self.index_offset
 
     def resolved(
         self,
@@ -77,14 +91,13 @@ class ADSPoint:
             index_group=index_group,
             index_offset=index_offset,
             size=self.size if size is None else size,
-            address_resolved=True,
         )
 
     def unresolved(self) -> ADSPoint:
         """使 symbol 派生地址失效。"""
         if self.symbol is None:
             return self
-        return replace(self, address_resolved=False)
+        return replace(self, index_group=None, index_offset=None)
 
 
 def ads_point(
@@ -148,10 +161,10 @@ def parse_ads_point(
         )
 
     index_group = (
-        0 if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
+        None if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
     )
     index_offset = (
-        0 if raw_offset is None else _non_negative_int(raw_offset, "index_offset", point.point_id)
+        None if raw_offset is None else _non_negative_int(raw_offset, "index_offset", point.point_id)
     )
 
     explicit_type = options.get("data_type", options.get("type"))
@@ -182,7 +195,6 @@ def parse_ads_point(
         data_type=ads_type,
         size=size,
         symbol=symbol,
-        address_resolved=symbol is None,
     )
 
 
