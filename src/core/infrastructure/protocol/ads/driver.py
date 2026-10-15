@@ -110,6 +110,12 @@ class ADSDriver:
         进行中的 ADS 订阅仍按旧 symbol 通知，由上层重启订阅后按新映射
         重新注册。
         """
+        # update_point_table 是同步方法，无法在这里异步查询 PLC Symbol。
+        # 对于在线 Symbol 表变更，要求通过 reconnect 重新初始化会话地址。
+        if self._connected and any(
+            point.ext.get("symbol") is not None for point in point_table.points.values()
+        ):
+            raise ConfigError("ADS symbol point table update requires reconnect")
         self._point_table_id = point_table.point_table_id
         self._points = {
             point.point_id: parse_ads_point(point) for point in point_table.points.values()
@@ -195,6 +201,7 @@ class ADSDriver:
                     last_health = await self.health()
                     if last_health.healthy:
                         self._invalidate_symbol_addresses()
+                        await self._resolve_configured_points()
                         self._connected = True
                         return
                 except Exception:
@@ -312,20 +319,13 @@ class ADSDriver:
     async def read_one(self, point: str) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走 Sum Read、分段或读取分组缓存。
 
-        接受注册点 point_id（str）或动态 ADSPoint（显式 index 地址，
-        不查点表、不做 symbol 解析）。点级失败（symbol 不存在等）返回
-        BAD 质量样本；通信与操作异常上报 ProtocolError；连接恢复由 Watchdog 负责。
+        只接受已配置 Point Key，地址在连接建立时预先解析。
         """
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS read requires an active connection")
-            point_id = point if isinstance(point, str) else point.point_id
-            try:
-                mapped = await self._resolve_point_locked(point)
-            except Exception as exc:
-                if _is_point_level_error(exc):
-                    return _bad_sample(point_id)
-                raise
+            mapped = self._resolve_point(point)
+            point_id = mapped.point_id
             try:
                 value = await asyncio.to_thread(
                     self._connection.read,
@@ -354,7 +354,7 @@ class ADSDriver:
     ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不使用 Sum Write 批量规划。
 
-        接受 ProtocolWrite，point 可以是注册点 ID 或动态 ADSPoint。
+        ProtocolWrite.point 必须是已配置的 Point Key。
 
         配置/取值级问题返回失败结果；连接/传输级问题统一抛 ProtocolError。
         """
@@ -363,16 +363,6 @@ class ADSDriver:
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
-            try:
-                mapped = await self._resolve_point_locked(mapped)
-            except Exception as exc:
-                if _is_point_level_error(exc):
-                    return ProtocolWriteResult(
-                        point_id=write.point_id,
-                        outcome=WriteOutcome.CONFIRMED_FAILURE,
-                        message=str(exc),
-                    )
-                raise ProtocolError(f"ADS symbol resolution failed: {exc}") from exc
             try:
                 return await self._write_single_point(mapped, write_value)
             except Exception as exc:
@@ -399,29 +389,15 @@ class ADSDriver:
         self,
         points: Sequence[str],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        """先完成符号地址解析，再复用规范化 ReadPlan。"""
+        """按已配置的地址直接执行 Sum Read。"""
         if not points:
             return ()
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS read requires an active connection")
             try:
-                resolved: list[ADSPoint] = []
-                failed: set[int] = set()
-                for index, point in enumerate(points):
-                    try:
-                        resolved.append(await self._resolve_point_locked(point))
-                    except Exception as exc:
-                        if not _is_point_level_error(exc):
-                            raise
-                        failed.add(index)
-                        resolved.append(self._resolve_point(point))
-                values = list(await self._read_sum_raw(tuple(
-                    point for index, point in enumerate(resolved) if index not in failed
-                )))
-                for index in sorted(failed):
-                    values.insert(index, (None, Quality.BAD))
-                return tuple(values)
+                mapped = tuple(self._resolve_point(point) for point in points)
+                return await self._read_sum_raw(mapped)
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -443,23 +419,9 @@ class ADSDriver:
                 raise ProtocolError("ADS write requires an active connection")
 
             results: list[ProtocolWriteResult | None] = [None] * len(writes)
-            mapped_batch: list[ADSPoint | None] = []
-            for index, write in enumerate(writes):
-                try:
-                    mapped_batch.append(await self._resolve_point_locked(write.point))
-                except Exception as exc:
-                    if not _is_point_level_error(exc):
-                        raise ProtocolError(f"ADS symbol resolution failed: {exc}") from exc
-                    mapped_batch.append(None)
-                    results[index] = ProtocolWriteResult(
-                        point_id=write.point_id,
-                        outcome=WriteOutcome.CONFIRMED_FAILURE,
-                        message=str(exc),
-                    )
+            mapped_batch = [self._resolve_point(write.point) for write in writes]
             prepared: list[tuple[int, ADSPoint, bytes]] = []
             for index, (write, point) in enumerate(zip(writes, mapped_batch, strict=True)):
-                if point is None:
-                    continue
                 if not point.address_resolved:
                     results[index] = ProtocolWriteResult(
                         point_id=write.point_id,
@@ -683,21 +645,23 @@ class ADSDriver:
         self._symbol_cache[symbol] = resolved
         return resolved
 
-    async def _resolve_point_locked(self, point: str) -> ADSPoint:
-        mapped = self._resolve_point(point)
-        if mapped.address_resolved:
-            return mapped
-        # ADSPoint 的构造约束保证：缺少 index 地址时必然具有 symbol。
-        assert mapped.symbol is not None
-        group, offset, plc_size = await self._resolve_symbol_locked(mapped.symbol)
-        if mapped.data_type != "STRING" and plc_size is not None and plc_size != mapped.size:
-            raise ConfigError(
-                f"ADS point '{mapped.point_id}': PLC size {plc_size} "
-                f"does not match configured {mapped.data_type} size {mapped.size}"
-            )
-        # STRING 的 size 由配置决定，不接受 PLC 符号信息覆盖。
-        resolved = mapped.resolved(index_group=group, index_offset=offset)
-        return resolved
+    async def _resolve_configured_points(self) -> None:
+        """连接建立后一次性解析当前点表所有符号，读写不再执行符号查询。"""
+        resolved = dict(self._points)
+        for point_id, mapped in resolved.items():
+            if mapped.address_resolved:
+                continue
+            if mapped.symbol is None:
+                raise ConfigError(f"ADS point '{point_id}' has no address")
+            group, offset, plc_size = await self._resolve_symbol_locked(mapped.symbol)
+            if mapped.data_type != "STRING" and plc_size is not None and plc_size != mapped.size:
+                raise ConfigError(
+                    f"ADS point '{point_id}': PLC size {plc_size} "
+                    f"does not match {mapped.data_type} width {mapped.size}"
+                )
+            resolved[point_id] = mapped.resolved(index_group=group, index_offset=offset)
+        self._points = resolved
+        self._read_plan_cache.clear()
 
     def _invalidate_symbol_addresses(self) -> None:
         self._read_plan_cache.clear()
