@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Generic, Literal, TypeAlias
+from typing import Generic, Literal, Protocol, TypeAlias
 
 from typing_extensions import TypeVar
 
@@ -25,7 +25,14 @@ class ConnectionHealth:
     message: str | None = None
 
 
-TPoint = TypeVar("TPoint", default=object)
+class ProtocolPoint(Protocol):
+    """Minimal shared identity interface for protocol-native address objects."""
+
+    @property
+    def point_id(self) -> str: ...
+
+
+TPoint = TypeVar("TPoint", bound=ProtocolPoint, default=ProtocolPoint)
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +53,7 @@ class ProtocolWrite(Generic[TPoint]):
     def point_id(self) -> str:
         """Logical identity for results and existing command consumers."""
         point = self.point
-        return point if isinstance(point, str) else str(getattr(point, "point_id"))
+        return point if isinstance(point, str) else point.point_id
 
 
 class WriteOutcome(StrEnum):
@@ -156,6 +163,7 @@ __all__ = [
     "Quality",
     "TimestampSource",
     "ConnectionHealth",
+    "ProtocolPoint",
     "ProtocolWrite",
     "ProtocolWriteResult",
     "ProtocolCapability",
