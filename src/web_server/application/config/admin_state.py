@@ -65,14 +65,21 @@ class AdminStateService:
             "units.yaml",
             "device_models.yaml",
             "points.yaml",
-            "business_points.yaml",
         )
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
             documents["devices.yaml"] = self._devices_document(devices)
             documents["tasks.yaml"] = self._tasks_document(tasks)
             documents["sinks.yaml"] = {
-                "sinks": {item.name: {key: value for key, value in item.model_dump(mode="json").items() if key != "name"} for item in sinks}
+                "sinks": {
+                    item.name: {
+                        "type": item.type,
+                        "enabled": item.enabled,
+                        "connection": item.connection,
+                        "points": item.points,
+                    }
+                    for item in sinks
+                }
             }
             documents.update(self._definition_documents(definitions))
 
