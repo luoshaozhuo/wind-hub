@@ -314,7 +314,7 @@ class ADSDriver:
 
         接受注册点 point_id（str）或动态 ADSPoint（显式 index 地址，
         不查点表、不做 symbol 解析）。点级失败（symbol 不存在等）返回
-        BAD 质量样本；连接/传输级失败统一标记断线并抛 ProtocolError。
+        BAD 质量样本；通信与操作异常上报 ProtocolError；连接恢复由 Watchdog 负责。
         """
         async with self._lock:
             if not self._connected or self._connection is None:
@@ -333,7 +333,6 @@ class ADSDriver:
             except Exception as exc:
                 if _is_point_level_error(exc):
                     return _bad_sample(point_id)
-                await self._disconnect_after_failure()
                 raise ProtocolError(f"ADS read failed: {exc}") from exc
             try:
                 scalar = _as_point_scalar(value)
@@ -365,7 +364,6 @@ class ADSDriver:
             try:
                 return await self._write_single_point(mapped, write_value)
             except Exception as exc:
-                await self._disconnect_after_failure()
                 raise ProtocolError(f"ADS write failed: {exc}") from exc
 
     async def read_many(
@@ -403,7 +401,6 @@ class ADSDriver:
             except ProtocolError:
                 raise
             except Exception as exc:
-                await self._disconnect_after_failure()
                 raise ProtocolError(f"ADS read failed: {exc}") from exc
 
     async def write_many(
@@ -461,7 +458,6 @@ class ADSDriver:
                             message=None if error == 0 else f"ADS write error {error}",
                         )
             except Exception as exc:
-                await self._disconnect_after_failure()
                 raise ProtocolError(f"ADS sum write failed: {exc}") from exc
 
             if any(result is None for result in results):
@@ -502,7 +498,7 @@ class ADSDriver:
     ) -> ProtocolWriteResult:
         """按已解析 index 地址写入单点；配置/取值级问题收敛为单点失败。
 
-        连接/传输级异常原样抛出，由调用方统一断线处理。
+        连接/传输级异常原样抛出，由调用方上报，不擅自关闭会话。
         """
         if not mapped.address_resolved:
             return ProtocolWriteResult(

@@ -92,7 +92,7 @@ async def test_sum_read_transport_failure_never_falls_back_to_sequential() -> No
     driver = _driver(Connection())
     with pytest.raises(ProtocolError, match="ADS read failed"):
         await driver.read_many(("a", "b"))
-    assert not driver.is_open()
+    assert driver.is_open()  # 一次通信失败不自动销毁会话，由 Watchdog 判定恢复
 
 
 @pytest.mark.asyncio
