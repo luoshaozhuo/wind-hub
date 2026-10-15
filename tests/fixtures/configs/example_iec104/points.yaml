@@ -10,7 +10,7 @@ point_tables:
           ioa: 100
           type: M_ME_NC_1
         data_type: float32
-        unit: none
+        unit_id: none
         description: 有功功率
       meas_freq:
         business_point_id: meas_freq
@@ -20,7 +20,7 @@ point_tables:
           ioa: 200
           type: M_ME_NC_1
         data_type: float32
-        unit: none
+        unit_id: none
         description: 频率
       cmd_breaker:
         business_point_id: cmd_breaker
@@ -30,5 +30,5 @@ point_tables:
           ioa: 300
           type: C_SC_NA_1
         data_type: bool
-        unit: none
+        unit_id: none
         description: 断路器遥控

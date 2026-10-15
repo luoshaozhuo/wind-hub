@@ -1,28 +1,97 @@
-"""Web Server 进程入口及运行参数。"""
+"""wind-hub-server 命令行入口。
+
+仅解析进程宿主参数并调用 :func:`web_server.server.run_server`；
+业务配置继续由 wind-hub YAML 配置体系管理。
+"""
 
 from __future__ import annotations
 
-import os
+import argparse
+import asyncio
+from collections.abc import Sequence
+from pathlib import Path
 
-import uvicorn
-
-from web_server.app import create_app
-from web_server.rpc import RpcSettings
+from web_server.server import run_server
+from web_server.settings import ServerSettings
 
 
-def main() -> None:
-    """通过环境变量配置监听地址及 Collector/Commander RPC 端点。"""
-    settings = RpcSettings(
-        collector_target=os.getenv("WIND_HUB_COLLECTOR_RPC", "127.0.0.1:50051"),
-        commander_target=os.getenv("WIND_HUB_COMMANDER_RPC", "127.0.0.1:50052"),
-        timeout_seconds=float(os.getenv("WIND_HUB_WEB_RPC_TIMEOUT", "5")),
+def build_parser() -> argparse.ArgumentParser:
+    """构建 ``wind-hub-server`` 参数解析器。
+
+    Returns:
+        独立的 argparse 解析器，便于单元测试和嵌入式调用。
+    """
+    parser = argparse.ArgumentParser(
+        prog="wind-hub-server",
+        description="启动 wind-hub 管理 API 与通信 Runtime。",
     )
-    uvicorn.run(
-        create_app(settings, write_token=os.getenv("WIND_HUB_WEB_WRITE_TOKEN")),
-        host=os.getenv("WIND_HUB_WEB_HOST", "127.0.0.1"),
-        port=int(os.getenv("WIND_HUB_WEB_PORT", "8000")),
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="现场配置目录（<site>/；公共定义可位于同级 common/）",
     )
+    parser.add_argument("--host", default="127.0.0.1", help="API 监听地址")
+    parser.add_argument("--port", type=int, default=8080, help="API 监听端口")
+    parser.add_argument(
+        "--shutdown-timeout",
+        type=float,
+        default=30.0,
+        help="Runtime 优雅停机硬超时（秒）",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="info",
+        help="uvicorn 日志级别（debug/info/warning/error/critical）",
+    )
+    parser.add_argument(
+        "--collector",
+        action="append",
+        default=None,
+        help="Collector，可重复，格式 worker_id=host:port",
+    )
+    parser.add_argument(
+        "--commander",
+        default="127.0.0.1:50052",
+        help="Commander gRPC endpoint，默认 127.0.0.1:50052",
+    )
+    parser.add_argument(
+        "--reconcile-interval",
+        type=float,
+        default=30.0,
+        help="Worker 配置 revision/hash 对账周期（秒），默认 30",
+    )
+    parser.add_argument(
+        "--worker-probe-interval",
+        type=float,
+        default=5.0,
+        help="Worker 状态探测周期（秒），默认 5",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """解析命令行参数并启动服务进程。
+
+    Args:
+        argv: 可选参数序列；``None`` 时读取当前进程 argv。
+
+    Returns:
+        服务进程退出码。
+    """
+    args = build_parser().parse_args(argv)
+    settings = ServerSettings(
+        config_dir=Path(args.config),
+        host=args.host,
+        port=args.port,
+        shutdown_timeout=args.shutdown_timeout,
+        log_level=args.log_level,
+        collectors=tuple(args.collector or ["collector=127.0.0.1:50051"]),
+        commander=args.commander,
+        reconcile_interval=args.reconcile_interval,
+        worker_probe_interval=args.worker_probe_interval,
+    )
+    return asyncio.run(run_server(settings))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

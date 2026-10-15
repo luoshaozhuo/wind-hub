@@ -21,16 +21,14 @@ GOVERNANCE_FILES = {"CLAUDE.md", "AGENTS.md", "README.md", ".gitignore"}
 BACKEND_GLOBAL_FILES = {"pyproject.toml", "poetry.lock"}
 
 FAST_TEST_ORDER = ("unit", "component", "contract")
+# 只保留 _backend_pr_targets 能产生、且 ci_gate.PR_TARGETS 能消费的目标；
+# 两张表必须保持一致，否则 PR Gate 会以 unknown targets 失败。
 PR_TARGET_ORDER = (
     "integration-protocol",
     "integration-rpc",
     "integration-sinks",
     "system-acquisition",
     "system-command",
-    "system-diagnostics",
-    "system-reload",
-    "system-startup",
-    "system-task-control",
     "system-e2e",
 )
 
@@ -106,9 +104,10 @@ def _frontend_e2e_required(path: str) -> bool:
         "src/web_admin/src/api/runtime.ts",
         "src/web_admin/src/main.ts",
         "src/web_admin/playwright.config.ts",
+        "src/web_admin/playwright.mock.config.ts",
         "src/web_admin/package.json",
         "src/web_admin/package-lock.json",
-    } or path.startswith("tests/system/web_admin/")
+    } or path.startswith("tests/web_admin/e2e/")
 
 
 def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
@@ -151,11 +150,15 @@ def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
 
 def _frontend_fast_required(path: str) -> bool:
     """判断是否需要 Vitest + type-check/build。"""
+    # Vitest 用例位于 tests/web_admin/unit（由 src/web_admin/vitest.config.ts
+    # 收集），其变更同样需要 frontend fast gate。
+    if path.startswith("tests/web_admin/unit/"):
+        return True
     if not path.startswith(FRONTEND_PREFIX):
         return False
 
-    return not (
-        path.startswith("tests/system/web_admin/") or path == "src/web_admin/playwright.config.ts"
+    return not path.startswith(
+        ("src/web_admin/playwright.config.ts", "src/web_admin/playwright.mock.config.ts")
     )
 
 

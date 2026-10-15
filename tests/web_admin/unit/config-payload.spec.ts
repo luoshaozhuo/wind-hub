@@ -1,0 +1,49 @@
+import { describe, expect, it } from 'vitest'
+import { buildDefinitionsPayload, pointProjection, type DefinitionsEditState } from '../../../src/web_admin/src/api/config'
+
+const state = {
+  units: { kW: { symbol: 'kW', name: 'Power' } },
+  deviceTypes: [{ id: 'turbine', name: 'Turbine' }],
+  deviceModels: [{
+    id: 'm', device_type: 'turbine', manufacturer: 'Vendor', model: 'M',
+    protocol: 'modbus', point_table: 'p', read_mode: '',
+    properties: {}, connection_defaults: { port: 502 },
+  }],
+  pointTables: [{
+    id: 'p', protocol: 'modbus', extends: '', remove_points: [], system: false,
+  }],
+  points: { p: [{
+    point_id: 'P', variable_name: 'power', point_groups: ['all'],
+    address: { register_type: 'holding', address: 1 }, data_type: 'float32',
+    scale: 1, offset: 0, unit: 'kW', description: '',
+  }] },
+} as unknown as DefinitionsEditState
+
+describe('Core definitions payload', () => {
+  it('uses the canonical model IDs and keyed point table structure', () => {
+    const result = buildDefinitionsPayload(state, {}, '')
+    expect(result.device_models.m).toMatchObject({
+      device_type_id: 'turbine',
+      point_table_id: 'p',
+      endpoint_defaults: { port: 502 },
+    })
+    expect(result.point_tables.p).toMatchObject({
+      protocol: 'modbus',
+      points: {
+        P: {
+          business_point_id: 'power',
+          unit_id: 'kW',
+          point_groups: ['all'],
+        },
+      },
+    })
+    expect(result.point_tables.p).not.toHaveProperty('extends')
+  })
+
+  it('preserves the server point table document on an unchanged projection', () => {
+    const raw = { p: { protocol: 'modbus', points: { P: { business_point_id: 'power' } } } }
+    const result = buildDefinitionsPayload(state, raw, pointProjection(state))
+    expect(result.point_tables).toEqual(raw)
+    expect(result.point_tables).not.toBe(raw)
+  })
+})

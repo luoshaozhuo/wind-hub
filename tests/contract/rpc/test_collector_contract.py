@@ -38,6 +38,7 @@ _CONTROL_METHODS = [
     "PrepareConfig",
     "ActivateConfig",
     "AbortConfig",
+    "ApplyTaskPlacement",
 ]
 
 

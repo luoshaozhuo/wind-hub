@@ -65,13 +65,20 @@ def _build_collector_parser(sub: argparse._SubParsersAction[argparse.ArgumentPar
     latest = commands.add_parser("latest-values")
     latest.add_argument("--device", dest="device_id", default=None)
 
+    placement = commands.add_parser("apply-placement")
+    placement.add_argument("worker_id")
+    placement.add_argument("generation", type=int)
+    placement.add_argument("task_ids", nargs="*")
+
     start_task = commands.add_parser("start-task")
     start_task.add_argument("task_id")
+    start_task.add_argument("--placement-generation", type=int, required=True)
     stop_task = commands.add_parser("stop-task")
     stop_task.add_argument("task_id")
 
     start_instance = commands.add_parser("start-instance")
     start_instance.add_argument("instance_id")
+    start_instance.add_argument("--placement-generation", type=int, required=True)
     stop_instance = commands.add_parser("stop-instance")
     stop_instance.add_argument("instance_id")
 
@@ -153,6 +160,10 @@ def _collector_kwargs(args: argparse.Namespace) -> dict[str, Any]:
         "revision_id",
         "config_hash",
         "force",
+        "worker_id",
+        "generation",
+        "task_ids",
+        "placement_generation",
     )
     return {key: getattr(args, key) for key in keys if hasattr(args, key)}
 
