@@ -63,6 +63,18 @@ class ADSPoint:
     size: int
     symbol: str | None = None
 
+    def __post_init__(self) -> None:
+        has_group = self.index_group is not None
+        has_offset = self.index_offset is not None
+        if has_group != has_offset:
+            raise ConfigError(
+                f"ADS point '{self.point_id}' requires a complete index address"
+            )
+        if not has_group and self.symbol is None:
+            raise ConfigError(
+                f"ADS point '{self.point_id}' requires symbol or index address"
+            )
+
     @property
     def address_resolved(self) -> bool:
         return self.index_group is not None and self.index_offset is not None
