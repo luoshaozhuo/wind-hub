@@ -103,7 +103,7 @@ class ADSDriver:
         self._read_cache: dict[
             tuple[ADSPoint, ...],
             tuple[
-                tuple[tuple[int, int, int], ...],
+                tuple[Any, ...],
                 tuple[Callable[[bytes], PointScalar], ...],
             ],
         ] = {}
@@ -561,11 +561,25 @@ class ADSDriver:
         """ADS 不支持 IEC104 式总召能力。"""
         raise ProtocolCapabilityError("ads does not support interrogation")
 
-    def _build_sum_requests(
-        self, points: tuple[ADSPoint, ...]
-    ) -> tuple[tuple[int, int, int], ...]:
-        """将已解析点表转换为完整的 Sum Read 地址序列。"""
-        return tuple((point.group, point.offset, point.size) for point in points)
+    def _build_sum_requests(self, points: tuple[ADSPoint, ...]) -> tuple[Any, ...]:
+        """编译可直接交给 pyads.read_write 的分批 Sum Read 请求。"""
+        from ctypes import Structure, c_uint32
+
+        class _SumReadItem(Structure):
+            _fields_ = [
+                ("iGroup", c_uint32),
+                ("iOffset", c_uint32),
+                ("size", c_uint32),
+            ]
+
+        limit = self._config.max_subs_per_sum
+        return tuple(
+            (_SumReadItem * len(chunk))(
+                *(_SumReadItem(point.group, point.offset, point.size) for point in chunk)
+            )
+            for start in range(0, len(points), limit)
+            if (chunk := points[start:start + limit])
+        )
 
     def _build_sum_decoders(
         self, points: tuple[ADSPoint, ...]
@@ -604,11 +618,27 @@ class ADSDriver:
         request, decoders = cached
 
         limit = self._config.max_subs_per_sum
-        responses: list[tuple[tuple[tuple[int, int, int], ...], bytes]] = []
-        for start in range(0, len(request), limit):
-            chunk = request[start:start + limit]
-            raw = await asyncio.to_thread(self._sum_read_bytes, chunk)
-            expected = 4 * len(chunk) + sum(size for _, _, size in chunk)
+        from pyads.constants import ADSIGRP_SUMUP_READ
+
+        connection = self._connection
+        if connection is None:
+            raise ProtocolError("ADS connection is unavailable")
+
+        responses: list[tuple[Any, bytes]] = []
+        for chunk in request:
+            response = await asyncio.to_thread(
+                connection.read_write,
+                ADSIGRP_SUMUP_READ,
+                len(chunk),
+                None,
+                chunk,
+                None,
+                check_length=False,
+            )
+            if response is None:
+                raise ProtocolError("ADS Sum Read received no response")
+            raw = bytes(response)
+            expected = 4 * len(chunk) + sum(item.size for item in chunk)
             if len(raw) < expected:
                 raise ProtocolError(
                     f"ADS sum read returned {len(raw)} bytes; expected at least {expected}"
@@ -619,7 +649,8 @@ class ADSDriver:
         decoder_index = 0
         for chunk, raw in responses:
             offset = 4 * len(chunk)
-            for index, (_, _, size) in enumerate(chunk):
+            for index, item in enumerate(chunk):
+                size = item.size
                 error = struct.unpack_from("<I", raw, index * 4)[0]
                 data = raw[offset:offset + size]
                 offset += size
@@ -693,47 +724,6 @@ class ADSDriver:
         if not isinstance(point, str):
             raise ConfigError("protocol point must be a configured point key")
         return self._mapped_point(point)
-
-    def _sum_read_bytes(
-        self,
-        addresses: Sequence[tuple[int, int, int]],
-    ) -> bytes:
-        """通过 PyADS 公开 read_write 发送标准 ADS Sum Read 请求。
-
-        请求体是连续 (index_group, index_offset, size) 的 12 字节记录，
-        ADSIGRP_SUMUP_READ 的 index_offset 字段携带子请求数。
-        """
-        from ctypes import Structure, c_uint32
-
-        from pyads.constants import ADSIGRP_SUMUP_READ
-
-        connection = self._connection
-        if connection is None:
-            raise ProtocolError("ADS connection is not available")
-        if not hasattr(connection, "read_write"):
-            raise NotImplementedError("pyads Connection.read_write unavailable")
-
-        class _SumReadItem(Structure):
-            _fields_ = [
-                ("iGroup", c_uint32),
-                ("iOffset", c_uint32),
-                ("size", c_uint32),
-            ]
-
-        request = (_SumReadItem * len(addresses))(
-            *(_SumReadItem(group, offset, size) for group, offset, size in addresses)
-        )
-        response = connection.read_write(
-            ADSIGRP_SUMUP_READ,
-            len(addresses),
-            None,
-            request,
-            None,
-            check_length=False,
-        )
-        if response is None:
-            raise ProtocolError("ADS Sum Read received no response")
-        return bytes(response)
 
     async def _disconnect_after_failure(self) -> None:
         """传输失败后立即摘除运行资源。
