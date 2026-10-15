@@ -8,16 +8,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import ctypes
 import logging
 import struct
 import sys
 import threading
+from ctypes import Structure, c_uint32
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 import pyads  # type: ignore[import-untyped]
+from pyads.constants import ADSIGRP_SUMUP_READ, ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
 
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
@@ -28,7 +29,6 @@ from core.application.protocol_contract import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
-    WritableScalar,
     WriteOutcome,
 )
 from core.application.settings import ADSLocalConfig
@@ -93,13 +93,9 @@ class ADSDriver:
         self._connection: Any = None
         self._connected = False
         self._subscriptions: set[ADSSubscription] = set()
-        # 断连清理 task 的强引用集合——fire-and-forget task 只有弱引用会被
-        # event loop 提前 GC（"Task was destroyed but it is pending"）；
-        # done callback 同时取回异常，避免 "exception was never retrieved"。
-        self._cleanup_tasks: set[asyncio.Task[None]] = set()
-        # 已解析动态点与注册点分别复用；仅当前 ADS session 有效。
+        # Symbol 解析结果仅对当前 ADS session 有效。
         self._symbol_cache: dict[str, tuple[int, int, int | None]] = {}
-        # ReadPlan 按排序后的完整点序列缓存，包含分批地址和解码器。
+        # 缓存预编译的 Sum Read 请求及其逐点解码器。
         self._read_cache: dict[
             tuple[ADSPoint, ...],
             tuple[
@@ -475,8 +471,6 @@ class ADSDriver:
         chunk: Sequence[tuple[int, ADSPoint, bytes]],
     ) -> tuple[int, ...]:
         """Send ADSIGRP_SUMUP_WRITE by index and decode individual ADS error codes."""
-        from pyads.constants import ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
-
         connection = self._connection
         if connection is None:
             raise ProtocolError("ADS connection is unavailable")
@@ -563,8 +557,6 @@ class ADSDriver:
 
     def _build_sum_requests(self, points: tuple[ADSPoint, ...]) -> tuple[Any, ...]:
         """编译可直接交给 pyads.read_write 的分批 Sum Read 请求。"""
-        from ctypes import Structure, c_uint32
-
         class _SumReadItem(Structure):
             _fields_ = [
                 ("iGroup", c_uint32),
@@ -618,8 +610,6 @@ class ADSDriver:
         request, decoders = cached
 
         limit = self._config.max_subs_per_sum
-        from pyads.constants import ADSIGRP_SUMUP_READ
-
         connection = self._connection
         if connection is None:
             raise ProtocolError("ADS connection is unavailable")
@@ -725,30 +715,6 @@ class ADSDriver:
             raise ConfigError("protocol point must be a configured point key")
         return self._mapped_point(point)
 
-    async def _disconnect_after_failure(self) -> None:
-        """传输失败后立即摘除运行资源。
-
-        本方法可能在 Driver lock 内调用，因此不能等待订阅 callback drain；
-        订阅清理转为独立 task，避免 callback 反向等待 Driver lock 形成死锁。
-        """
-        connection, subscriptions = self._detach_runtime()
-        for subscription in subscriptions:
-            task = asyncio.create_task(subscription.close())
-            self._cleanup_tasks.add(task)
-            task.add_done_callback(self._on_cleanup_done)
-        if connection is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(connection.close)
-
-    def _on_cleanup_done(self, task: asyncio.Task[None]) -> None:
-        """取回后台订阅清理结果：异常如实记日志，不向事件循环泄漏。"""
-        self._cleanup_tasks.discard(task)
-        if task.cancelled():
-            return
-        exc = task.exception()
-        if exc is not None:
-            logger.warning("ADS subscription cleanup failed: %s", exc)
-
     def _detach_runtime(
         self,
     ) -> tuple[Any, tuple[ADSSubscription, ...]]:
@@ -795,18 +761,6 @@ def _encode_value(value: float | int | bool | str, point: ADSPoint) -> bytes:
     if len(raw) != point.size:
         raise ValueError(f"ADS point '{point.point_id}' data width mismatch")
     return raw
-
-
-def _decode_value(raw: bytes, point: ADSPoint) -> float | int | bool | str:
-    if point.data_type == "STRING":
-        return raw.split(b"\x00", 1)[0].decode("utf-8")
-    datatype = _plc_datatype(point.data_type)
-    value = datatype.from_buffer_copy(raw)
-    scalar = value.value if hasattr(value, "value") else value
-    result = _as_point_scalar(scalar)
-    if result is None:
-        raise TypeError("ADS scalar cannot be None")
-    return result
 
 
 def _as_point_scalar(
