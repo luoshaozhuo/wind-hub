@@ -103,6 +103,15 @@ class AdminStateService:
                     for item in sinks
                 }
             }
+            # Redis 密码属于只写字段；UI 不回显时沿用同一个 Sink 的原值。
+            previous_sinks = documents["sinks.yaml"].get("sinks", {})
+            for sink_id, entry in documents["sinks.yaml"]["sinks"].items():
+                old_sink = previous_sinks.get(sink_id, {})
+                if entry["type"] != "redis" or old_sink.get("type") != "redis":
+                    continue
+                old_connection = old_sink.get("connection", {})
+                if "password" not in entry["connection"] and "password" in old_connection:
+                    entry["connection"]["password"] = old_connection["password"]
             # 单位目录包含 quantities 与 units 两个正式根，批量保存不得丢失物理量定义。
             definitions_documents = self._definition_documents(definitions)
             previous_units = documents["units.yaml"]
