@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal, TypeAlias
+from typing import Generic, Literal, TypeAlias, TypeVar
 
 from core.domain.sample_value import PointScalar, Quality, WritableScalar
 
@@ -23,18 +23,28 @@ class ConnectionHealth:
     message: str | None = None
 
 
+TPoint = TypeVar("TPoint")
+
+
 @dataclass(frozen=True, slots=True)
-class ProtocolWrite:
+class ProtocolWrite(Generic[TPoint]):
     """一次协议点写入请求。"""
 
-    point_id: str
+    point: str | TPoint
     value: WritableScalar
 
     def __post_init__(self) -> None:
-        point_id = self.point_id.strip()
-        if not point_id:
-            raise ValueError("point_id must not be empty")
-        object.__setattr__(self, "point_id", point_id)
+        if isinstance(self.point, str):
+            point_id = self.point.strip()
+            if not point_id:
+                raise ValueError("point_id must not be empty")
+            object.__setattr__(self, "point", point_id)
+
+    @property
+    def point_id(self) -> str:
+        """Logical identity for results and existing command consumers."""
+        point = self.point
+        return point if isinstance(point, str) else str(getattr(point, "point_id"))
 
 
 class WriteOutcome(StrEnum):
