@@ -104,11 +104,8 @@ class _Subscription:
         self._pending: dict[str, ProtocolSample] = {}
         self._worker: asyncio.Task[None] | None = None
 
-    async def close(self) -> None:
-        """注销订阅并等待已调度 callback 完成。
-
-        若 callback 自己关闭当前订阅，不等待当前 task，避免 self-deadlock。
-        """
+    async def close(self, *, timeout: float = 5.0) -> None:
+        """注销订阅，限时等待已调度 callback。"""
         if self._closed:
             return
         self._closed = True
@@ -117,7 +114,11 @@ class _Subscription:
         self._pending.clear()
         worker = self._worker
         if worker is not None and worker is not asyncio.current_task():
-            await worker
+            try:
+                await asyncio.wait_for(asyncio.shield(worker), timeout=timeout)
+            except TimeoutError:
+                logger.warning("IEC104 subscription callback did not finish within %.3fs", timeout)
+                worker.cancel()
 
     def schedule(self, sample: ProtocolSample) -> None:
         """保持每个测点最新的待处理样本，避免慢回调导致任务无限堆积。"""
@@ -174,15 +175,15 @@ class _SubscriptionRegistry:
             if not subscriptions:
                 del self._ioa[ioa]
 
-    async def close_all(self) -> None:
-        """注销全部订阅并等待在途 callback 完成。"""
+    async def close_all(self, *, timeout: float = 5.0) -> None:
+        """逐个限时注销订阅，避免单个回调阻塞全部关闭。"""
         subscriptions = list(self._global)
         for items in self._ioa.values():
             for subscription in items:
                 if subscription not in subscriptions:
                     subscriptions.append(subscription)
         for subscription in subscriptions:
-            await subscription.close()
+            await subscription.close(timeout=timeout)
 
 
 class IEC104Driver:
@@ -356,7 +357,7 @@ class IEC104Driver:
             self._reject_interrogation("IEC104 connection closed")
             self._loop = None
 
-        await self._subscriptions.close_all()
+        await self._subscriptions.close_all(timeout=self._config.t1)
 
         # 不要显式调 ``connection.disconnect()``：它会持有 GIL 等待 c104
         # 连接线程退出，而连接线程分发 Python 回调时需要同一把 GIL，c104 的
