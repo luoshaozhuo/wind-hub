@@ -98,7 +98,13 @@ class AdminStateService:
             previous_units = documents["units.yaml"]
             definitions_documents["units.yaml"] = {
                 **previous_units,
-                "units": definitions.units,
+                "units": {
+                    unit_id: {
+                        **documents["units.yaml"].get("units", {}).get(unit_id, {}),
+                        "symbol": item.get("symbol", ""),
+                    }
+                    for unit_id, item in definitions.units.items()
+                },
             }
             documents.update(definitions_documents)
 
