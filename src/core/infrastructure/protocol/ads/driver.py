@@ -100,8 +100,13 @@ class ADSDriver:
         # 已解析动态点与注册点分别复用；仅当前 ADS session 有效。
         self._symbol_cache: dict[str, tuple[int, int, int | None]] = {}
         # ReadPlan 按排序后的完整点序列缓存，包含分批地址和解码器。
-        self._request_cache: dict[tuple[ADSPoint, ...], tuple[tuple[tuple[int, int, int], ...], ...]] = {}
-        self._decoders_cache: dict[tuple[ADSPoint, ...], tuple[tuple[Callable[[bytes], PointScalar], ...], ...]] = {}
+        self._read_cache: dict[
+            tuple[ADSPoint, ...],
+            tuple[
+                tuple[tuple[tuple[int, int, int], ...], ...],
+                tuple[tuple[Callable[[bytes], PointScalar], ...], ...],
+            ],
+        ] = {}
         self._points: dict[str, ADSPoint] = {}
         self.update_point_table(point_table)
 
@@ -121,8 +126,7 @@ class ADSDriver:
         self._points = {
             point.point_id: parse_ads_point(point) for point in point_table.points.values()
         }
-        self._request_cache.clear()
-        self._decoders_cache.clear()
+        self._read_cache.clear()
         self._symbol_cache.clear()
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
@@ -557,47 +561,57 @@ class ADSDriver:
         """ADS 不支持 IEC104 式总召能力。"""
         raise ProtocolCapabilityError("ads does not support interrogation")
 
+    def _build_sum_requests(
+        self, points: tuple[ADSPoint, ...]
+    ) -> tuple[tuple[tuple[int, int, int], ...], ...]:
+        """按最大子请求数编排已解析测点地址。"""
+        addresses = tuple((point.group, point.offset, point.size) for point in points)
+        limit = self._config.max_subs_per_sum
+        return tuple(
+            addresses[start:start + limit]
+            for start in range(0, len(addresses), limit)
+        )
+
+    def _build_sum_decoders(
+        self, points: tuple[ADSPoint, ...]
+    ) -> tuple[tuple[Callable[[bytes], PointScalar], ...], ...]:
+        """构造与 Sum Read 请求位置严格对应的解码器。"""
+        compiled: list[Callable[[bytes], PointScalar]] = []
+        for point in points:
+            if point.data_type == "STRING":
+                compiled.append(
+                    lambda raw: raw.split(b"\\x00", 1)[0].decode("utf-8")
+                )
+            else:
+                datatype = _plc_datatype(point.data_type)
+
+                def decode(raw: bytes, datatype: Any = datatype) -> PointScalar:
+                    value = datatype.from_buffer_copy(raw)
+                    return _as_point_scalar(
+                        value.value if hasattr(value, "value") else value
+                    )
+
+                compiled.append(decode)
+
+        limit = self._config.max_subs_per_sum
+        return tuple(
+            tuple(compiled[start:start + limit])
+            for start in range(0, len(compiled), limit)
+        )
+
     async def _read_sum_raw(
         self,
         points: Sequence[ADSPoint],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        """复用预编译 Sum Read 请求与解码器，按调用顺序返回逐点结果。"""
+        """复用请求与解码器的成对缓存，按调用顺序返回逐点结果。"""
         key = tuple(points)
-        requests = self._request_cache.get(key)
-        decoders = self._decoders_cache.get(key)
-        if requests is None or decoders is None:
-            addresses = tuple((point.group, point.offset, point.size) for point in key)
-            compiled: list[Callable[[bytes], PointScalar]] = []
-            for point in key:
-                if point.data_type == "STRING":
-                    compiled.append(
-                        lambda raw: raw.split(b"\\x00", 1)[0].decode("utf-8")
-                    )
-                else:
-                    datatype = _plc_datatype(point.data_type)
-
-                    def decode(raw: bytes, datatype: Any = datatype) -> PointScalar:
-                        value = datatype.from_buffer_copy(raw)
-                        return _as_point_scalar(
-                            value.value if hasattr(value, "value") else value
-                        )
-
-                    compiled.append(decode)
-            limit = self._config.max_subs_per_sum
-            requests = tuple(
-                addresses[start:start + limit]
-                for start in range(0, len(addresses), limit)
-            )
-            decoders = tuple(
-                tuple(compiled[start:start + limit])
-                for start in range(0, len(compiled), limit)
-            )
-            if len(self._request_cache) >= 32:
-                oldest = next(iter(self._request_cache))
-                self._request_cache.pop(oldest)
-                self._decoders_cache.pop(oldest, None)
-            self._request_cache[key] = requests
-            self._decoders_cache[key] = decoders
+        cached = self._read_cache.get(key)
+        if cached is None:
+            cached = (self._build_sum_requests(key), self._build_sum_decoders(key))
+            if len(self._read_cache) >= 32:
+                self._read_cache.pop(next(iter(self._read_cache)))
+            self._read_cache[key] = cached
+        requests, decoders = cached
 
         results: list[tuple[PointScalar, Quality]] = []
         for request, chunk_decoders in zip(requests, decoders, strict=True):
@@ -663,12 +677,10 @@ class ADSDriver:
                 )
             resolved[point_id] = mapped.resolved(index_group=group, index_offset=offset)
         self._points = resolved
-        self._request_cache.clear()
-        self._decoders_cache.clear()
+        self._read_cache.clear()
 
     def _invalidate_symbol_addresses(self) -> None:
-        self._request_cache.clear()
-        self._decoders_cache.clear()
+        self._read_cache.clear()
         self._symbol_cache.clear()
         self._points = {point_id: point.unresolved() for point_id, point in self._points.items()}
 
