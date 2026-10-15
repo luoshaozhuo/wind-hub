@@ -1,0 +1,92 @@
+# ---------------------------------------------------------------------------
+# wind-hub 配置模板 — Sink 输出（仅支持 CSV File、Modbus TCP Server、Redis）
+# ---------------------------------------------------------------------------
+#
+# sinks: Mapping，Key 即 Sink ID（Task 经 `sink_ids` 引用）。字段：
+#   type:       file / modbus / redis（必填）。
+#   enabled:    bool，默认 true；enabled Task 不允许引用 disabled Sink；
+#               同一 host:port 不允许两个 enabled 的 Modbus Sink。
+#   connection: Mapping（必填）—— 按 type 不同（见下）。
+#   points:     list，默认 [] —— 输出点映射（见下）；只有显式映射的点
+#               会被导出，空列表表示不导出任何点。
+#
+# connection 字段：
+# - file:
+#     path:        输出 CSV 文件路径或目录（必填；目录时按段文件写入）。
+#     max_size_mb: float > 0，默认 100 —— 单段文件最大容量，超过即轮转。
+#     max_files:   int >= 1，默认 30 —— 段文件保留数量（保留策略），
+#                  超出后最旧段文件被回收。
+# - redis:
+#     host:       str，默认 localhost。
+#     port:       int 1..65535，默认 6379。
+#     database:   int >= 0，默认 0。
+#     password:   str，可选。
+#     key_prefix: str，默认 "wind-hub"。
+# - modbus（Modbus TCP Server，对 SCADA 暴露寄存器）:
+#     host: str，默认 0.0.0.0 —— 监听地址。
+#     port: int 1..65535，默认 502。
+#
+# points 条目字段：
+#   source:    必填 —— 内部点引用：{device_id, point_id}，必须存在于
+#              该设备绑定点表（继承展开后）。
+#   ref:       str，可选 —— 对外引用名，缺省 "<device_id>.<point_id>"；
+#              Sink 内不允许重复。
+#   datatype:  可选 —— 对外数据类型，缺省与源点一致；数值类型间才可转换。
+#   unit:      可选 —— 对外单位标识，缺省与源点一致。
+#   scale / offset: float，默认 1.0 / 0.0 —— 仅数值类型允许换算。
+#   address:   必填 —— 按 Sink 类型：
+#       file / redis: {field: <对外字段名>}，Sink 内不允许重复。
+#       modbus: {slave_id: 0..255,
+#                register_type: holding / input / coil / discrete,
+#                address: 0..65535,          # 0-based 起始地址
+#                byte_order: big / little,   # 默认 big
+#                word_order: big / little}   # 默认 big
+#              coil/discrete 只接受 bool；寄存器区间按数据类型宽度计算，
+#              不允许重叠或越界（> 65535）。
+
+sinks:
+
+  # CSV 文件归档（段文件轮转：单段 100 MB、保留 30 段）
+  file_archive:
+    type: file
+    enabled: true
+    connection:
+      path: /var/tmp/wind-hub/archive.csv
+      max_size_mb: 100
+      max_files: 30
+    points:
+      - source: {device_id: modbus-001, point_id: active_power}
+        ref: modbus_001_active_power
+        address: {field: modbus_001_active_power}
+
+  # Redis 最新值输出
+  redis_latest:
+    type: redis
+    enabled: true
+    connection:
+      host: "127.0.0.1"
+      port: 6379
+      database: 0
+      key_prefix: "wind-hub"
+    points:
+      - source: {device_id: iec104-001, point_id: active_power}
+        ref: iec104_001_active_power
+        address: {field: iec104_001_active_power}
+
+  # Modbus TCP Server（对 SCADA 暴露寄存器；默认关闭）
+  modbus_scada:
+    type: modbus
+    enabled: false
+    connection:
+      host: "0.0.0.0"
+      port: 1502
+    points:
+      - source: {device_id: modbus-001, point_id: active_power}
+        ref: modbus_001_active_power
+        datatype: float32
+        address:
+          slave_id: 1
+          register_type: holding
+          address: 0
+          byte_order: big
+          word_order: big
