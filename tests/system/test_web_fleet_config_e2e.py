@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -17,7 +16,7 @@ import pytest
 import pytest_asyncio
 import yaml
 
-from tests.support.process import free_port
+from tests.support.process import CollectorProcess, free_port, start_web_server
 from tests.system.test_web_protocol_fleet_e2e import ProtocolFleet, protocol_fleet  # noqa: F401
 from web_server.application.config.service import ConfigService
 
@@ -158,52 +157,43 @@ def test_core_can_load_all_30_device_endpoints(fleet_config_dir: Path) -> None:
 async def web_server(
     fleet_config_dir: Path,
     tmp_path_factory: pytest.TempPathFactory,
-) -> AsyncIterator[tuple[str, subprocess.Popen[str]]]:
+) -> AsyncIterator[tuple[str, CollectorProcess]]:
     """真正启动 wind-hub-server 进程，并记录失败时可检查的日志。"""
     port = free_port()
     collector_port = free_port()
     commander_port = free_port()
     logs = tmp_path_factory.mktemp("web-fleet-server") / "server.log"
-    with logs.open("w", encoding="utf-8") as output:
-        proc = subprocess.Popen(
-            [
-                "wind-hub-server",
-                "--config", str(fleet_config_dir),
-                "--host", "127.0.0.1",
-                "--port", str(port),
-                "--collector", f"collector=127.0.0.1:{collector_port}",
-                "--commander", f"127.0.0.1:{commander_port}",
-                "--worker-probe-interval", "60",
-            ],
-            stdout=output,
-            stderr=subprocess.STDOUT,
-            text=True,
-            start_new_session=True,
-        )
-        url = f"http://127.0.0.1:{port}"
+    proc = start_web_server(
+        fleet_config_dir,
+        http_port=port,
+        collectors=(f"collector=127.0.0.1:{collector_port}",),
+        commander=f"127.0.0.1:{commander_port}",
+        log_dir=logs.parent,
+    )
+    url = f"http://127.0.0.1:{port}"
+    try:
+        async with httpx.AsyncClient(base_url=url, timeout=4) as client:
+            for _ in range(100):
+                if proc.proc.poll() is not None:
+                    raise AssertionError(f"server failed: {proc.read_log()}")
+                try:
+                    response = await client.get("/openapi.json")
+                    if response.status_code == 200:
+                        break
+                except httpx.RequestError:
+                    pass
+                await asyncio.sleep(0.1)
+            else:
+                raise AssertionError(f"server never became ready: {logs.read_text()}")
+        yield url, proc
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
         try:
-            async with httpx.AsyncClient(base_url=url, timeout=4) as client:
-                for _ in range(100):
-                    if proc.poll() is not None:
-                        raise AssertionError(f"server failed: {logs.read_text()}")
-                    try:
-                        response = await client.get("/openapi.json")
-                        if response.status_code == 200:
-                            break
-                    except httpx.RequestError:
-                        pass
-                    await asyncio.sleep(0.1)
-                else:
-                    raise AssertionError(f"server never became ready: {logs.read_text()}")
-            yield url, proc
-        finally:
-            if proc.poll() is None:
-                proc.terminate()
-            try:
-                await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=15)
-            except TimeoutError:
-                proc.kill()
-                await asyncio.to_thread(proc.wait)
+            await asyncio.wait_for(asyncio.to_thread(proc.proc.wait), timeout=15)
+        except TimeoutError:
+            proc.kill_tree()
+            await asyncio.to_thread(proc.proc.wait)
 
 
 async def test_live_http_exposes_30_protocol_devices(
@@ -217,7 +207,7 @@ async def test_live_http_exposes_30_protocol_devices(
         items = data["items"] if isinstance(data, dict) else data
         assert len(items) == 30
         assert {item["device_id"].split("-")[0] for item in items} == set(_FAMILY)
-        assert process.poll() is None
+        assert process.proc.poll() is None
 
 
 @pytest.mark.parametrize("resource", ["settings", "definitions", "sinks", "tasks", "config/files"])
