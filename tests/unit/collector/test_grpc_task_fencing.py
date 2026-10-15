@@ -11,6 +11,7 @@ from core.infrastructure.rpc import collector_pb2 as pb
 
 def _server() -> CollectorControlService:
     app = Mock()
+    app.runtime.task_definitions.return_value = {"a": object(), "task-1": object()}
     service = CollectorControlService(app, "collector-a")
     service._tasks = Mock()
     service._tasks.stop_task = AsyncMock()
