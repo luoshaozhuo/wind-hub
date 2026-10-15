@@ -139,6 +139,8 @@ def ads_point(
             f"ADS point '{point_id}': size {resolved_size} does not match "
             f"{ads_type} width {_ADS_TYPE_SIZES[ads_type]}"
         )
+    if ads_type == "STRING" and resolved_size <= 0:
+        raise ConfigError(f"ADS point '{point_id}': STRING requires positive size")
     return ADSPoint(
         point_id=point_id,
         index_group=group,
@@ -204,8 +206,8 @@ def parse_ads_point(
             f"ADS point '{point.point_id}': size {size} does not match "
             f"{ads_type} width {_ADS_TYPE_SIZES[ads_type]}"
         )
-    if ads_type == "STRING" and size < 0:
-        raise ConfigError(f"ADS point '{point.point_id}': size must be >= 0")
+    if ads_type == "STRING" and size <= 0:
+        raise ConfigError(f"ADS point '{point.point_id}': STRING requires positive size")
 
     return ADSPoint(
         point_id=point.point_id,
