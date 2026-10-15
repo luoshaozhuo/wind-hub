@@ -121,15 +121,14 @@ export function buildDefinitionsPayload(
   const device_models = Object.fromEntries(
     state.deviceModels.map((item) => {
       const value: Record<string, unknown> = {
-        device_type: item.device_type,
+        device_type_id: item.device_type,
         manufacturer: item.manufacturer || null,
         model: item.model || null,
         protocol: item.protocol,
-        point_table: item.point_table,
+        point_table_id: item.point_table,
         properties: { ...item.properties },
-        connection_defaults: { ...item.connection_defaults },
+        endpoint_defaults: { ...item.connection_defaults },
       }
-      if (item.read_mode) value.read_mode = item.read_mode
       return [item.id, value]
     }),
   )
@@ -145,18 +144,18 @@ export function buildDefinitionsPayload(
             remove_points: [...(table.remove_points || [])],
             points: (state.points[table.id] || []).map((point) => ({
               point_id: point.point_id,
-              variable_name: point.variable_name || undefined,
+              business_point_id: point.variable_name || point.point_id,
               point_groups: [...point.point_groups],
               address: { ...point.address },
               data_type: point.data_type,
               scale: point.scale,
               offset: point.offset,
-              unit: point.unit,
+              unit_id: point.unit,
               description: point.description || undefined,
             })),
           }
           if (table.protocol !== 'generic') value.protocol = table.protocol
-          if (table.extends) value.extends = table.extends
+          if (table.extends) value.parent_id = table.extends
           return [table.id, value]
         }),
     )
