@@ -17,7 +17,9 @@ from typing import Any, cast
 import yaml
 from pydantic import BaseModel, Field
 
-from web_server.application.config.service import Config, ConfigService, compute_diff
+from core.application.config_diff import ConfigSnapshotDiff, diff_config_snapshots
+from core.application.config_snapshot import ConfigSnapshot
+from web_server.application.config.service import ConfigService
 
 CONFIG_FILES = (
     "system.yaml",
@@ -28,6 +30,23 @@ CONFIG_FILES = (
     "devices.yaml",
     "tasks.yaml",
 )
+
+
+def _diff_details(diff: ConfigSnapshotDiff) -> dict[str, object]:
+    """以 JSON 可序列化结构公开当前 Core 的配置差异。"""
+    return {
+        "sections": {
+            name: {
+                "added": sorted(section.added),
+                "removed": sorted(section.removed),
+                "changed": sorted(section.changed),
+            }
+            for name, section in diff.sections.items()
+        },
+        "system_changed": diff.system_changed,
+        "site_changed": diff.site_changed,
+        "units_changed": diff.units_changed,
+    }
 
 
 class ConfigFileInfo(BaseModel):
@@ -95,12 +114,12 @@ class ConfigFileService:
             candidate = self._load_candidate(name, content)
         except Exception as exc:
             return ConfigReview(name=name, valid=False, errors=[str(exc)])
-        diff = compute_diff(self._config.current_config, candidate)
+        diff = diff_config_snapshots(self._config.current_config, candidate)
         return ConfigReview(
             name=name,
             valid=True,
-            changed=diff.has_any_changes,
-            diff=diff.model_dump(mode="json"),
+            changed=diff.has_changes,
+            diff=_diff_details(diff),
         )
 
     async def apply_file(
@@ -212,8 +231,8 @@ class ConfigFileService:
             candidate = self._load_candidates(files)
         except Exception as exc:
             return ConfigApplyResult(success=False, errors=[str(exc)])
-        diff = compute_diff(self._config.current_config, candidate)
-        if not diff.has_any_changes:
+        diff = diff_config_snapshots(self._config.current_config, candidate)
+        if not diff.has_changes:
             return ConfigApplyResult(success=True)
         previous = {
             name: (self._base / name).read_bytes()
@@ -288,11 +307,11 @@ class ConfigFileService:
         )
         return ConfigApplyResult(success=True, revision=new_revision)
 
-    def _load_candidate(self, name: str, content: str) -> Config:
+    def _load_candidate(self, name: str, content: str) -> ConfigSnapshot:
         """构造单文件候选配置集并返回正式 Config。"""
         return self._load_candidates({name: content})
 
-    def _load_candidates(self, files: dict[str, str]) -> Config:
+    def _load_candidates(self, files: dict[str, str]) -> ConfigSnapshot:
         """构造多文件候选配置集并执行正式完整加载。"""
         for name in files:
             self._path(name)
