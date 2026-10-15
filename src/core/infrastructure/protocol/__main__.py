@@ -8,7 +8,7 @@
    工作目录设为仓库根目录，并将 src 加入 Python 模块搜索路径。
 2. 修改下方“手工调试配置”的协议、服务端地址与测点参数。
 3. 在 `driver.connect()`、`driver.read_one()` 等位置设置断点。
-4. 默认只读；确需下发指令时明确将 WRITE_ENABLED 改为 True，
+4. 空点表无法为 Modbus 自动选择 health 测点，默认不检查健康状态。\n5. 默认只读；确需下发指令时明确将 WRITE_ENABLED 改为 True，
    并确认连接的是允许写入的测试设备。未知写结果绝不自动重试。
 
 配置示例
@@ -55,7 +55,7 @@ POINT_CONFIG: dict[str, str | int] = {
 }
 
 READ_ENABLED = True
-HEALTH_ENABLED = True
+HEALTH_ENABLED = False  # 空点表的 Modbus 健康探针没有可用注册点
 WRITE_ENABLED = False  # 安全默认值：禁止向真实设备下发写入
 WRITE_VALUE: bool | int | float | str = 1
 # ─────────────────────────────────────────────────────────────────────
