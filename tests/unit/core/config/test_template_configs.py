@@ -135,3 +135,23 @@ def test_template_entity_collections_are_mappings(filename: str) -> None:
     document = yaml.safe_load((TEMPLATE_DIR / filename).read_text(encoding="utf-8"))
     root = next(iter(document.values()))
     assert isinstance(root, dict) or filename == "points.yaml"
+
+
+def test_ads_point_types_use_plc_native_names() -> None:
+    snapshot = YamlConfigAdapter(TEMPLATE_DIR).load()
+    for table in snapshot.point_tables.values():
+        if table.protocol.name != "ads":
+            continue
+        for point in table.points.values():
+            assert point.ext["data_type"] in {
+                "BOOL", "SINT", "USINT", "INT", "UINT",
+                "DINT", "UDINT", "LINT", "ULINT",
+                "REAL", "LREAL", "STRING",
+            }
+
+
+def test_configs_are_flat_without_legacy_samples() -> None:
+    assert (TEMPLATE_DIR / "points.yaml").is_file()
+    assert not (TEMPLATE_DIR / "template").exists()
+    assert not (TEMPLATE_DIR / "example_ads").exists()
+    assert not (TEMPLATE_DIR / "example_modbus").exists()
