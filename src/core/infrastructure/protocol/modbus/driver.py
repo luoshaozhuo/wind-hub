@@ -53,6 +53,7 @@ _INTEGER_RANGES: dict[str, tuple[int, int]] = {
     "uint64": (0, 18446744073709551615),
 }
 _DECODE_FAILED = object()
+_READ_PLAN_CACHE_LIMIT = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,31 +259,19 @@ class ModbusDriver:
 
     async def write_one(
         self,
-        write: ProtocolWrite | str | ModbusPoint,
-        value: WritableScalar | None = None,
+        write: ProtocolWrite[ModbusPoint],
     ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不做多点合并或写规划。
 
-        两种调用形式：
-        - ``write_one(ProtocolWrite(point_id, value))``——注册点写入，
-          与通用 ProtocolPort 契约一致；
-        - ``write_one(modbus_point, value)`` 或 ``write_one("p1", value)``——
-          动态点/注册点的直写便捷形式，校验与第一种完全相同。
+        Accepts ProtocolWrite with a registered point ID or dynamic ModbusPoint.
+
 
         一个逻辑点最多触发一次实际写请求：coil 用 write_coil，单寄存器
         用 write_register，多寄存器逻辑点用一次 write_registers(FC16)。
         只读寄存器类型与取值不合法时在发送前拒绝，不向设备发任何请求。
         """
-        if isinstance(write, ProtocolWrite):
-            if value is not None:
-                raise TypeError("write_one(ProtocolWrite) does not take a separate value")
-            mapped = self._mapped_point(write.point_id)
-            write_value: WritableScalar = write.value
-        else:
-            if value is None:
-                raise TypeError("write_one(point, value) requires an explicit value")
-            mapped = self._resolve_point(write)
-            write_value = value
+        mapped = self._resolve_point(write.point)
+        write_value = write.value
         point_id = mapped.point_id
         if mapped.register_type in _READ_ONLY_TYPES:
             return ProtocolWriteResult(
@@ -420,7 +409,7 @@ class ModbusDriver:
             for group in group_consecutive_reads(mapped)
         )
         # 典型连续轮询通常只有一个 key；动态请求限制内存增长。
-        if len(self._read_plan_cache) >= 32:
+        if len(self._read_plan_cache) >= _READ_PLAN_CACHE_LIMIT:
             self._read_plan_cache.pop(next(iter(self._read_plan_cache)))
         self._read_plan_cache[key] = plan
         return plan
