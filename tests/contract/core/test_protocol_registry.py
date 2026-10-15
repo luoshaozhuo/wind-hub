@@ -101,12 +101,12 @@ class _Protocol:
 
 
 def test_protocol_write_normalizes_point_id() -> None:
-    write = ProtocolWrite(point_id=" power ", value=1.0)
+    write = ProtocolWrite(point=" power ", value=1.0)
 
     assert write.point_id == "power"
 
     with pytest.raises(ValueError, match="point_id"):
-        ProtocolWrite(point_id=" ", value=1.0)
+        ProtocolWrite(point=" ", value=1.0)
 
 
 @pytest.mark.asyncio
