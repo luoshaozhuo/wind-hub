@@ -68,7 +68,7 @@ class SinkService:
                     type=cfg.kind,
                     enabled=cfg.enabled,
                     connection=dict(cfg.connection),
-                    points=list(cfg.points),
+                    points=[dict(point) for point in cfg.points],
                     point_count=len(cfg.points),
                     healthy=(
                         current.healthy
@@ -170,7 +170,7 @@ class SinkService:
             current = raw.setdefault("sinks", {})
             if not isinstance(current, dict):
                 raise ValueError("sinks.yaml sinks must be a mapping")
-            current[name] = {"type": cfg.kind, "enabled": cfg.enabled, "connection": dict(cfg.connection), "points": list(cfg.points)}
+            current[name] = {"type": cfg.kind, "enabled": cfg.enabled, "connection": dict(cfg.connection), "points": [dict(point) for point in cfg.points]}
 
         return await self._admin.mutate_yaml_files(
             ("sinks.yaml",),
