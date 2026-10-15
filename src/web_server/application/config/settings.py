@@ -38,23 +38,26 @@ class SettingsService:
     def get(self) -> SettingsSnapshot:
         """从当前已应用 Config 生成 Settings。"""
         system = self._config.current_config.system
-        site = system.site
+        site = self._config.current_config.site
         ads = system.ads
-        api = system.interfaces.api
+        api = self._admin.read_yaml_mapping("system.yaml").get("interfaces", {}).get("api", {})
         return SettingsSnapshot(
-            site_id=site.site_id if site is not None else "",
-            site_name=site.name if site is not None else None,
-            api_enabled=api.enabled,
-            api_host=api.host,
-            api_port=api.port,
+            site_id=site.site_id,
+            site_name=site.name,
+            api_enabled=bool(api.get("enabled", True)),
+            api_host=str(api.get("host", "0.0.0.0")),
+            api_port=int(api.get("port", 8080)),
             ads_local_ip=ads.local_ip if ads is not None else None,
             ads_local_ams_net_id=ads.local_ams_net_id if ads is not None else None,
-            ads_username=ads.username if ads is not None else "Administrator",
-            ads_password=ads.password if ads is not None else "",
+            ads_username="Administrator",
+            ads_password="",
         )
 
     async def update(self, request: SettingsUpdate) -> ConfigApplyResult:
         """只修改 system.yaml 对应字段，其余字段保持当前已提交内容。"""
+        if request.ads_password or request.ads_username != "Administrator":
+            raise ValueError("ADS device credentials must be configured per device protocol_options")
+
         def mutate(documents: dict[str, dict[str, object]]) -> None:
             raw = documents["system.yaml"]
             raw["site"] = {"site_id": request.site_id, "name": request.site_name}
@@ -70,8 +73,6 @@ class SettingsService:
                 raw["ads"] = {
                     "local_ip": request.ads_local_ip,
                     "local_ams_net_id": request.ads_local_ams_net_id,
-                    "username": request.ads_username,
-                    "password": request.ads_password,
                 }
             else:
                 raw.pop("ads", None)

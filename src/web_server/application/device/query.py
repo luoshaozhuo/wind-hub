@@ -104,7 +104,10 @@ class DeviceQueryService:
         model = snapshot.device_models[cfg.device_model_id]
         table = snapshot.point_tables[model.point_table_id]
         protocol_options = snapshot.protocol_options_by_device.get(cfg.device_id, {})
-        port_override = cfg.endpoint.port
+        defaults = model.endpoint_defaults
+        port_override = (
+            cfg.endpoint.port if cfg.endpoint.port != defaults.get("port") else None
+        )
         return DeviceSnapshot(
             device_id=cfg.device_id,
             protocol=table.protocol.name,
@@ -114,7 +117,7 @@ class DeviceQueryService:
             device_type=model.device_type_id,
             model=cfg.device_model_id,
             device_group=cfg.device_group_ids[0],
-            extensions=dict(protocol_options),
+            extensions={**dict(model.protocol_options), **dict(protocol_options)},
             port_override=port_override,
             extension_overrides=dict(protocol_options),
             enabled=cfg.enabled,

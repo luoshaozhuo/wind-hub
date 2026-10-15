@@ -28,6 +28,7 @@ CONFIG_FILES = (
     "device_models.yaml",
     "points.yaml",
     "devices.yaml",
+    "business_points.yaml",
     "tasks.yaml",
 )
 

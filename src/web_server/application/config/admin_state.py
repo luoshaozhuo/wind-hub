@@ -61,18 +61,18 @@ class AdminStateService:
         names = (
             "devices.yaml",
             "tasks.yaml",
-            "system.yaml",
             "sinks.yaml",
             "units.yaml",
             "device_models.yaml",
             "points.yaml",
+            "business_points.yaml",
         )
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
             documents["devices.yaml"] = self._devices_document(devices)
             documents["tasks.yaml"] = self._tasks_document(tasks)
             documents["sinks.yaml"] = {
-                "sinks": [item.model_dump(mode="json") for item in sinks]
+                "sinks": {item.name: {key: value for key, value in item.model_dump(mode="json").items() if key != "name"} for item in sinks}
             }
             documents.update(self._definition_documents(definitions))
 
@@ -85,42 +85,43 @@ class AdminStateService:
 
     @staticmethod
     def _devices_document(items: list[AdminDeviceItem]) -> dict[str, Any]:
-        rows: list[dict[str, Any]] = []
+        devices: dict[str, Any] = {}
+        groups: set[str] = set()
         for item in items:
-            endpoint: dict[str, Any] = {"host": item.host}
+            if not item.device_group:
+                raise ValueError(f"device {item.device_id} requires a device group")
+            groups.add(item.device_group)
+            endpoint = {"host": item.host}
             if item.port is not None:
                 endpoint["port"] = item.port
-            if item.extensions:
-                endpoint["extensions"] = dict(item.extensions)
-            row: dict[str, Any] = {
-                "device_id": item.device_id,
-                "model": item.model,
-                "enabled": item.enabled,
+            devices[item.device_id] = {
+                "model_id": item.model,
+                "device_group_ids": [item.device_group],
                 "endpoint": endpoint,
+                "protocol_options": dict(item.extensions),
+                "enabled": item.enabled,
             }
-            if item.device_group:
-                row["device_group"] = item.device_group
-            rows.append(row)
-        return {"devices": rows}
+        return {
+            "devices": devices,
+            "device_groups": {group: {"name": group} for group in sorted(groups)},
+        }
 
     @staticmethod
     def _tasks_document(items: list[AdminTaskItem]) -> dict[str, Any]:
-        rows: list[dict[str, Any]] = []
+        tasks: dict[str, Any] = {}
         for item in items:
-            row: dict[str, Any] = {
-                "task_id": item.task_id,
+            if not item.device_group or item.device:
+                raise ValueError(
+                    f"task {item.task_id} requires device_group under current Core schema"
+                )
+            tasks[item.task_id] = {
+                "device_group_id": item.device_group,
                 "point_group": item.point_group,
-                "targets": [{"sink": name} for name in item.sinks],
+                "interval": item.interval,
+                "sink_ids": list(item.sinks),
                 "enabled": item.enabled,
             }
-            if item.device:
-                row["device"] = item.device
-            elif item.device_group:
-                row["device_group"] = item.device_group
-            if item.interval is not None:
-                row["interval"] = item.interval
-            rows.append(row)
-        return {"tasks": rows}
+        return {"tasks": tasks}
 
     @staticmethod
     def _definition_documents(
