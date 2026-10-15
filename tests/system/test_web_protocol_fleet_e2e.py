@@ -15,13 +15,14 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass
 
 import pytest
+import pytest_asyncio
 
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.performance.servers import start_ads_server
 from tests.support.process import free_port
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.system]
+pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.system]
 
 _COUNT = 10
 _HOST = "127.0.0.1"
@@ -32,7 +33,6 @@ class ProtocolFleet:
     modbus: list[ModbusMockServer]
     iec104: list[IEC104MockServer]
     ads_ports: list[int]
-    ads_stack: AsyncExitStack
 
     def endpoints(self) -> dict[str, list[tuple[str, int]]]:
         return {
@@ -66,7 +66,7 @@ async def _await_listening(host: str, port: int) -> None:
     await asyncio.wait_for(ready(), timeout=8.0)
 
 
-@pytest.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def protocol_fleet() -> AsyncIterator[ProtocolFleet]:
     """30 个协议 Server 完整生命周期；部分启动失败也必须清理已启动项。"""
     modbus: list[ModbusMockServer] = []
@@ -98,7 +98,7 @@ async def protocol_fleet() -> AsyncIterator[ProtocolFleet]:
             )
             ads_ports.append(port)
             await _await_listening(_HOST, port)
-        yield ProtocolFleet(modbus, iec104, ads_ports, stack)
+        yield ProtocolFleet(modbus, iec104, ads_ports)
 
 
 async def test_all_30_real_protocol_servers_are_listening(
