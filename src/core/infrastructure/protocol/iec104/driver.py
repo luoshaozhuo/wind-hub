@@ -426,9 +426,8 @@ class IEC104Driver:
     ) -> ProtocolWriteResult:
         """执行单点遥控/设点，并按 ACT_CON 结果返回状态。
 
-        契约形式为 ``write_one(ProtocolWrite)``；动态形式
-        ``write_one(iec104_point, value)`` 按自身 IOA 与命令 type_id
-        定位或创建 c104 命令点，不要求 PointTable 登记。
+        统一接收 ProtocolWrite；point 为 ID 或 IEC104Point。动态点按
+        自身 IOA 和命令 type_id 寻址，不要求预先登记。
         """
         mapped = self._resolve_point(write.point)
         write_value = write.value
@@ -446,7 +445,7 @@ class IEC104Driver:
 
     async def write_many(
         self,
-        writes: Sequence[ProtocolWrite],
+        writes: Sequence[ProtocolWrite[IEC104Point]],
     ) -> tuple[ProtocolWriteResult, ...]:
         """IEC104 不支持原子批量控制命令。"""
         raise ProtocolCapabilityError("iec104 does not support write_many")
