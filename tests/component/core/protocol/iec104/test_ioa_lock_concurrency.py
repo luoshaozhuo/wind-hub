@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from core.application import ProtocolError, ProtocolSample
-from core.application.protocol_contract import WriteOutcome
+from core.application.protocol_contract import ProtocolWrite, WriteOutcome
 from core.infrastructure.protocol.iec104.config import IEC104Config
 from core.infrastructure.protocol.iec104.driver import IEC104Driver, _SubscriptionRegistry
 from core.infrastructure.protocol.iec104.mapping import iec104_point
