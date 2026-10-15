@@ -66,7 +66,10 @@ class SettingsService:
 
         def mutate(documents: dict[str, dict[str, object]]) -> None:
             raw = documents["system.yaml"]
-            raw["site"] = {"site_id": request.site_id, "name": request.site_name}
+            raw["site"] = {
+                "site_id": request.site_id,
+                "name": request.site_name or request.site_id,
+            }
             if bool(request.ads_local_ip) != bool(request.ads_local_ams_net_id):
                 raise ValueError("ADS local identity requires both IP and AMS Net ID")
             if request.ads_local_ip and request.ads_local_ams_net_id:
