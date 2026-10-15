@@ -362,8 +362,8 @@ class ADSDriver:
             try:
                 value = await asyncio.to_thread(
                     self._connection.read,
-                    mapped.index_group,
-                    mapped.index_offset,
+                    mapped.group,
+                    mapped.offset,
                     _plc_datatype(mapped.data_type),
                 )
             except Exception as exc:
@@ -516,7 +516,7 @@ class ADSDriver:
         if connection is None:
             raise ProtocolError("ADS connection is unavailable")
         headers = b"".join(
-            struct.pack("<III", point.index_group, point.index_offset, len(payload))
+            struct.pack("<III", point.group, point.offset, len(payload))
             for _, point, payload in chunk
         )
         request = bytearray(headers + b"".join(payload for _, _, payload in chunk))
@@ -572,8 +572,8 @@ class ADSDriver:
         try:
             await asyncio.to_thread(
                 self._connection.write,
-                mapped.index_group,
-                mapped.index_offset,
+                mapped.group,
+                mapped.offset,
                 raw_value,
                 datatype,
             )
@@ -619,7 +619,7 @@ class ADSDriver:
             for start in range(0, len(fixed), max_subs):
                 chunk = tuple(fixed[start : start + max_subs])
                 addresses = tuple(
-                    (mapped.index_group, mapped.index_offset, mapped.size) for _, mapped in chunk
+                    (mapped.group, mapped.offset, mapped.size) for _, mapped in chunk
                 )
                 expected = 4 * len(chunk) + sum(mapped.size for _, mapped in chunk)
                 chunks.append((chunk, addresses, expected))
@@ -671,8 +671,8 @@ class ADSDriver:
             try:
                 value = await asyncio.to_thread(
                     self._connection.read,
-                    mapped.index_group,
-                    mapped.index_offset,
+                    mapped.group,
+                    mapped.offset,
                     _plc_datatype(mapped.data_type),
                 )
             except Exception as exc:
