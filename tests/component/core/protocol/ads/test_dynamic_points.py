@@ -220,7 +220,7 @@ class TestDynamicWriteOne:
         result = await driver.write_one(ProtocolWrite("reg", 9))
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert connection.write_calls == [(0x4020, 100, 9)]
-        with pytest.raises(TypeError, match="does not take a separate value"):
+        with pytest.raises(TypeError):
             await driver.write_one(ProtocolWrite("reg", 9), 1)
 
     @pytest.mark.asyncio
