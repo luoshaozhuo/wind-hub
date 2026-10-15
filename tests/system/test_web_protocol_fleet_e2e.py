@@ -32,13 +32,13 @@ _HOST = "127.0.0.1"
 class ProtocolFleet:
     modbus: list[ModbusMockServer]
     iec104: list[IEC104MockServer]
-    ads_ports: list[int]
+    ads_hosts: list[str]
 
     def endpoints(self) -> dict[str, list[tuple[str, int]]]:
         return {
             "modbus": [(server.host, server.port) for server in self.modbus],
             "iec104": [(_HOST, server.port) for server in self.iec104],
-            "ads": [(_HOST, port) for port in self.ads_ports],
+            "ads": [(host, 48898) for host in self.ads_hosts],
         }
 
 
@@ -71,10 +71,10 @@ async def protocol_fleet() -> AsyncIterator[ProtocolFleet]:
     """30 个协议 Server 完整生命周期；部分启动失败也必须清理已启动项。"""
     modbus: list[ModbusMockServer] = []
     iec104: list[IEC104MockServer] = []
-    ads_ports: list[int] = []
+    ads_hosts: list[str] = []
     async with AsyncExitStack() as stack:
         async def start_modbus() -> ModbusMockServer:
-            server = ModbusMockServer(port=free_port())
+            server = ModbusMockServer(port=free_port(), holding=[0] * 2048, inputs=[0] * 2048)
             await server.start()
             stack.push_async_callback(server.stop)
             await _await_listening(server.host, server.port)
@@ -91,14 +91,15 @@ async def protocol_fleet() -> AsyncIterator[ProtocolFleet]:
             modbus.append(await start_modbus())
         for _ in range(_COUNT):
             iec104.append(await start_iec104())
-        for _ in range(_COUNT):
-            port = free_port()
+        for index in range(_COUNT):
+            ads_host = f"127.0.1.{11 + index}"
+            port = 48898
             await stack.enter_async_context(
-                start_ads_server(_HOST, port, num_vars=16)
+                start_ads_server(ads_host, port, num_vars=16)
             )
-            ads_ports.append(port)
-            await _await_listening(_HOST, port)
-        yield ProtocolFleet(modbus, iec104, ads_ports)
+            ads_hosts.append(ads_host)
+            await _await_listening(ads_host, port)
+        yield ProtocolFleet(modbus, iec104, ads_hosts)
 
 
 async def test_all_30_real_protocol_servers_are_listening(
@@ -109,7 +110,7 @@ async def test_all_30_real_protocol_servers_are_listening(
     assert all(len(rows) == _COUNT for rows in endpoints.values())
     peers = [address for entries in endpoints.values() for address in entries]
     assert len(peers) == len(set(peers)) == 30
-    assert all(host == _HOST for host, _ in peers)
+    assert all(host.startswith("127.") for host, _ in peers)
     assert all(await asyncio.gather(*(_can_connect(*peer) for peer in peers)))
 
 
