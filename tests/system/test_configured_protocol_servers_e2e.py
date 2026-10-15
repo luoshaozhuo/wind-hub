@@ -10,6 +10,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from pymodbus.client import AsyncModbusTcpClient
 
 from scripts.protocol_servers import (
     EndpointPlan,
@@ -76,6 +77,29 @@ async def test_script_runs_all_thirty_real_servers_with_random_cycles(
         await asyncio.gather(*(open_endpoint(plan) for plan in plans))
         await asyncio.sleep(0.65)
         await asyncio.gather(*(open_endpoint(plan) for plan in plans))
+
+
+async def test_modbus_values_change_over_real_protocol(
+    virtual_site: Path,
+) -> None:
+    """通过真实 Modbus TCP 回读确认随机源按周期持续更新。"""
+    async with run_fleet(virtual_site, interval=0.15, seed=913) as plans:
+        plan = next(plan for plan in plans if plan.protocol == "modbus")
+        client = AsyncModbusTcpClient(plan.host, port=plan.port)
+        await client.connect()
+        assert client.connected
+        try:
+            readings: list[tuple[int, ...]] = []
+            for _ in range(5):
+                response = await client.read_input_registers(
+                    178, count=2, device_id=1
+                )
+                assert not response.isError(), response
+                readings.append(tuple(response.registers))
+                await asyncio.sleep(0.19)
+            assert len(set(readings)) > 1, "Modbus slave values did not advance"
+        finally:
+            client.close()
 
 
 async def test_script_restart_releases_all_thirty_ports(virtual_site: Path) -> None:
