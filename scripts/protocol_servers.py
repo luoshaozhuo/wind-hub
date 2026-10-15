@@ -126,7 +126,52 @@ def plan_devices(
         )
     if not plans:
         raise ValueError("no enabled devices in provided Core configuration")
+    for plan in plans:
+        validate_points(plan)
     return plans
+
+
+def validate_points(plan: EndpointPlan) -> None:
+    """启动前验证实际服务能力，避免部分端口监听后才遇到不支持的点。"""
+    occupied: dict[tuple[object, ...], str] = {}
+    for point in plan.points:
+        ext = point.ext
+        kind = plan.data_types[point.point_id]
+        if plan.protocol == "modbus":
+            register = str(ext.get("type", ext.get("register_type", ""))).lower()
+            if register not in _MODBUS_FC:
+                raise ValueError(f"{plan.device_id}.{point.point_id}: unsupported Modbus register type")
+            if kind not in _MODBUS_WIDTH:
+                raise ValueError(f"{plan.device_id}.{point.point_id}: unsupported Modbus data type")
+            offset = int(ext["address"])
+            width = _MODBUS_WIDTH[kind]
+            if offset < 0 or offset + width > 2046:
+                raise ValueError(f"{plan.device_id}.{point.point_id}: Modbus address out of range")
+            key = (register, offset)
+        elif plan.protocol == "ads":
+            if kind is not DataType.FLOAT32:
+                raise ValueError(
+                    f"{plan.device_id}.{point.point_id}: ADS testserver supports "
+                    "only float32 REAL; requested type is not simulated"
+                )
+            symbol = str(ext.get("symbol", "")).strip()
+            if not symbol:
+                raise ValueError(f"{plan.device_id}.{point.point_id}: missing ADS symbol")
+            key = (symbol,)
+        else:
+            type_name = str(ext.get("type", "M_ME_NC_1"))
+            if not hasattr(c104.Type, type_name):
+                raise ValueError(f"{plan.device_id}.{point.point_id}: unknown IEC104 type")
+            ioa = int(ext["ioa"])
+            if not 1 <= ioa <= 0xFFFFFF:
+                raise ValueError(f"{plan.device_id}.{point.point_id}: invalid IEC104 IOA")
+            key = (ioa,)
+        if key in occupied:
+            raise ValueError(
+                f"{plan.device_id}: duplicate address {key} for "
+                f"{occupied[key]} and {point.point_id}"
+            )
+        occupied[key] = point.point_id
 
 
 def random_scalar(kind: DataType, rng: random.Random) -> bool | int | float | str:
@@ -192,7 +237,7 @@ class _ModbusVirtualServer:
             kind = self.plan.data_types[point.point_id]
             register = int(address["address"])
             data = _modbus_words(kind, random_scalar(kind, rng))
-            if register < 0 or register + len(data) >= 2047:
+            if register < 0 or register + len(data) > 2046:
                 raise ValueError(f"{self.plan.device_id}.{point.point_id}: register outside 2048")
             unit = int(self.plan.options.get("slave_id", 1))
             self.devices[unit].setValues(_MODBUS_FC[register_type], register, data)
@@ -355,6 +400,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=None, help="可复现的随机种子")
     parser.add_argument("--include-disabled", action="store_true", help="也启动禁用设备")
     parser.add_argument("--allow-nonloopback", action="store_true", help="允许绑定已配置的本机非 loopback IP")
+    parser.add_argument("--expected-per-protocol", type=int, default=None,
+                        help="严格要求三种协议各有 N 个设备（例如 10）")
     parser.add_argument("--check", action="store_true", help="仅校验配置和绑定地址，不启动")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser
@@ -372,6 +419,15 @@ async def main(argv: Sequence[str] | None = None) -> int:
     for plan in plans:
         groups[plan.protocol] += 1
     LOG.info("configured virtual servers: %s", dict(groups))
+    if args.expected_per_protocol is not None:
+        if args.expected_per_protocol < 1:
+            raise ValueError("--expected-per-protocol must be positive")
+        for family in _DEFAULT_PORTS:
+            if groups[family] != args.expected_per_protocol:
+                raise ValueError(
+                    f"{family}: expected {args.expected_per_protocol} endpoints, "
+                    f"found {groups[family]}"
+                )
     if args.check:
         return 0
     stopping = asyncio.Event()
