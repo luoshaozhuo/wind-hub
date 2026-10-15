@@ -10,7 +10,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Generic, Literal, TypeAlias, TypeVar
+from typing import Generic, Literal, TypeAlias
+
+from typing_extensions import TypeVar
 
 from core.domain.sample_value import PointScalar, Quality, WritableScalar
 
@@ -23,7 +25,7 @@ class ConnectionHealth:
     message: str | None = None
 
 
-TPoint = TypeVar("TPoint")
+TPoint = TypeVar("TPoint", default=object)
 
 
 @dataclass(frozen=True, slots=True)
