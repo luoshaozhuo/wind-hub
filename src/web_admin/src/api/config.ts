@@ -81,7 +81,6 @@ export function replaceAdminState(body: AdminStateRequestDto): Promise<ConfigApp
 // -- Edit Model → Wire DTO 序列化 -------------------------------------------
 
 export interface DefinitionsEditState {
-  rawUnits: Record<string, Record<string, unknown>>
   units: Record<string, UnitDef>
   deviceTypes: DeviceTypeDef[]
   deviceModels: DeviceModelDef[]
@@ -116,7 +115,7 @@ export function buildDefinitionsPayload(
   const units = Object.fromEntries(
     Object.entries(state.units).map(([id, value]) => [
       id,
-      { ...state.rawUnits[id], symbol: value.symbol },
+      { ...value },
     ]),
   )
   const device_types = Object.fromEntries(
