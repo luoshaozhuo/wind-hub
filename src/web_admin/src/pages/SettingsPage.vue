@@ -180,11 +180,12 @@ async function save() {
             ><el-input v-model="form.adsLocalAms"
           /></el-form-item>
           <el-form-item label="Username"
-            ><el-input v-model="form.adsUsername" autocomplete="username"
+            ><el-input v-model="form.adsUsername" autocomplete="username" disabled
           /></el-form-item>
           <el-form-item label="Password">
             <el-input
               v-model="form.adsPassword"
+              disabled
               type="password"
               show-password
               autocomplete="new-password"
@@ -198,14 +199,14 @@ async function save() {
         <div class="settings-heading">
           <h2>Service</h2>
           <p>
-            管理接口与时间同步。API Host / Port 同步写入 system.yaml interfaces.api；Time
+            管理接口由部署参数设置，不能写入 system.yaml；Time
             Synchronization 由宿主机管理，当前页面只读。
           </p>
         </div>
         <div class="settings-fields">
-          <el-form-item label="API Host"><el-input v-model="form.apiHost" /></el-form-item>
+          <el-form-item label="API Host"><el-input v-model="form.apiHost" disabled /></el-form-item>
           <el-form-item label="API Port"
-            ><el-input-number v-model="form.apiPort" :min="1" :max="65535" class="app-full-width"
+            ><el-input-number v-model="form.apiPort" disabled :min="1" :max="65535" class="app-full-width"
           /></el-form-item>
           <el-form-item label="Time Synchronization">
             <el-select v-model="form.timeSync" disabled>
