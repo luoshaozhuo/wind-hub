@@ -207,3 +207,26 @@ def test_ads_symbol_index_address_rejects_invalid_values() -> None:
                 "MAIN.speed",
                 SimpleNamespace(index_group=group, index_offset=offset),
             )
+
+
+def test_ads_string_requires_explicit_positive_size() -> None:
+    for size in (None, 0):
+        options: dict[str, Any] = {"symbol": "MAIN.name"}
+        if size is not None:
+            options["size"] = size
+        with pytest.raises(ConfigError, match="STRING requires positive size"):
+            parse_ads_point(_point("name", ext=_point_ext(data_type="STRING", **options)))
+
+    point = parse_ads_point(
+        _point("name", ext=_point_ext(data_type="STRING", symbol="MAIN.name", size=81))
+    )
+    assert point.size == 81
+
+
+def test_ads_symbol_resolution_preserves_configured_size() -> None:
+    point = parse_ads_point(
+        _point("power", ext=_point_ext(data_type="REAL", symbol="MAIN.power"))
+    )
+    resolved = point.resolved(index_group=0x4020, index_offset=0)
+    assert resolved.size == 4
+    assert resolved.address_resolved
