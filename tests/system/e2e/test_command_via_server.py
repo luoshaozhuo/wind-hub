@@ -10,9 +10,9 @@ subprocess 的 ``WritePoint``；Commander 经真实 Modbus TCP 写入从站。
 全部断言落在系统边界：REST 响应 + **独立** Modbus 回读（从站寄存器值、
 写请求计数），不读取任何进程内部状态。
 
-错误映射现状（如实记录，非目标契约）：Commander 进程不可达时 gRPC
-``AioRpcError`` 经统一错误处理器返回 ``500 INTERNAL_ERROR``；Commander
-可达但命令失败（如未知设备）时返回 ``200`` 且 ``success=false``。
+错误映射契约：Commander 进程不可达时 gRPC ``UNAVAILABLE`` 经统一错误
+处理器返回 ``503 WORKER_UNAVAILABLE``；Commander 可达但命令失败
+（如未知设备）时返回 ``200`` 且 ``success=false``。
 """
 
 from __future__ import annotations
@@ -123,8 +123,8 @@ class TestCommandViaServer:
             json={"point_id": _COMMAND_POINT, "value": 1.0, "timeout": 5.0},
         )
 
-        # 现行映射：上游 gRPC 不可用 → 500 INTERNAL_ERROR 统一信封。
-        assert response.status_code == 500, response.text
+        # 契约映射：上游 gRPC 不可用 → 503 WORKER_UNAVAILABLE 统一信封。
+        assert response.status_code == 503, response.text
         body = response.json()
-        assert body["error"]["code"] == "INTERNAL_ERROR"
+        assert body["error"]["code"] == "WORKER_UNAVAILABLE"
         assert full_stack.modbus.write_count == 0
