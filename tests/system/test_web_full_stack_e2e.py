@@ -23,6 +23,7 @@ from scripts.protocol_servers import run_fleet
 from tests.support.process import (
     CollectorProcess,
     free_port,
+    free_port_block,
     start_collector,
     start_commander,
     start_web_server,
@@ -53,10 +54,14 @@ def _shutdown(proc: CollectorProcess) -> None:
 @pytest_asyncio.fixture
 async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
     """同一个 config 下启动 30 个真实从站和三个真实应用进程。"""
+    modbus_port = free_port_block(10)
+    iec104_port = free_port_block(
+        10, exclude=set(range(modbus_port, modbus_port + 10))
+    )
     config = generate_site(
         tmp_path / "site",
-        modbus_base_port=free_port(),
-        iec104_base_port=free_port(),
+        modbus_base_port=modbus_port,
+        iec104_base_port=iec104_port,
     )
     processes: list[CollectorProcess] = []
     async with run_fleet(config, interval=0.25, seed=123):
