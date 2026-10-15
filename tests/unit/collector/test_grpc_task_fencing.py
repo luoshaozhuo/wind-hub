@@ -1,4 +1,4 @@
-"""Collector gRPC 控制面必须拒绝未受所有权栅栏保护的启动。"""
+"""Collector RPC placement 所有权栅栏的拒绝、续期、撤销测试。"""
 
 from unittest.mock import AsyncMock, Mock
 
@@ -9,27 +9,93 @@ from collector.infrastructure.grpc.server import CollectorControlService
 from core.infrastructure.rpc import collector_pb2 as pb
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("method", "request"),
-    [
-        ("StartTask", pb.TaskStartRequest(task_id="task-1")),
-        ("StartTaskInstance", pb.TaskInstanceStartRequest(instance_id="instance-1")),
-    ],
-)
-async def test_unfenced_task_start_is_rejected(
-    method: str, request: object
-) -> None:
-    """即使 CLI 直接绕过 Web Server，也不能通过 RPC 启动采集。"""
+def _server() -> CollectorControlService:
     app = Mock()
-    app.runtime = Mock()
-    server = CollectorControlService(app)
-    context = Mock()
-    context.abort = AsyncMock(side_effect=RuntimeError("aborted"))
+    service = CollectorControlService(app, "collector-a")
+    service._tasks = Mock()
+    service._tasks.stop_task = AsyncMock()
+    return service
+
+
+def _context() -> Mock:
+    ctx = Mock()
+    ctx.abort = AsyncMock(side_effect=RuntimeError("aborted"))
+    return ctx
+
+
+@pytest.mark.asyncio
+async def test_reject_start_without_placement() -> None:
+    server, ctx = _server(), _context()
     with pytest.raises(RuntimeError, match="aborted"):
-        await getattr(server, method)(request, context)
-    context.abort.assert_awaited_once_with(
+        await server.StartTask(
+            pb.TaskStartRequest(task_id="task-1", placement_generation=1), ctx
+        )
+    ctx.abort.assert_awaited_once_with(
         grpc.StatusCode.FAILED_PRECONDITION,
-        "task ownership fencing is not configured",
+        "task placement ownership mismatch",
     )
-    app.runtime.start_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_placement_identity_and_generation_checks() -> None:
+    server, ctx = _server(), _context()
+    with pytest.raises(RuntimeError, match="aborted"):
+        await server.ApplyTaskPlacement(
+            pb.TaskPlacementSnapshotRequest(
+                worker_id="collector-b", generation=1, task_ids=["a"]
+            ),
+            ctx,
+        )
+    ctx.abort.assert_awaited_with(
+        grpc.StatusCode.PERMISSION_DENIED, "collector identity mismatch"
+    )
+
+
+@pytest.mark.asyncio
+async def test_empty_placement_is_valid() -> None:
+    server = _server()
+    response = await server.ApplyTaskPlacement(
+        pb.TaskPlacementSnapshotRequest(worker_id="collector-a", generation=1),
+        _context(),
+    )
+    assert response.success
+    assert response.task_count == 0
+
+
+@pytest.mark.asyncio
+async def test_revocation_stops_removed_task() -> None:
+    server = _server()
+    context = _context()
+    await server.ApplyTaskPlacement(
+        pb.TaskPlacementSnapshotRequest(
+            worker_id="collector-a", generation=1, task_ids=["task-1"]
+        ),
+        context,
+    )
+    result = await server.ApplyTaskPlacement(
+        pb.TaskPlacementSnapshotRequest(
+            worker_id="collector-a", generation=2
+        ),
+        context,
+    )
+    assert result.task_count == 0
+    server._tasks.stop_task.assert_awaited_once_with("task-1")
+    with pytest.raises(RuntimeError, match="aborted"):
+        await server._require_task_ownership("task-1", 2, context)
+
+
+@pytest.mark.asyncio
+async def test_same_generation_conflicting_snapshot_rejected() -> None:
+    server, ctx = _server(), _context()
+    await server.ApplyTaskPlacement(
+        pb.TaskPlacementSnapshotRequest(worker_id="collector-a", generation=1, task_ids=["a"]),
+        ctx,
+    )
+    with pytest.raises(RuntimeError, match="aborted"):
+        await server.ApplyTaskPlacement(
+            pb.TaskPlacementSnapshotRequest(worker_id="collector-a", generation=1, task_ids=["b"]),
+            ctx,
+        )
+    ctx.abort.assert_awaited_with(
+        grpc.StatusCode.FAILED_PRECONDITION, "placement generation conflict"
+    )
