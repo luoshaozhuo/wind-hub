@@ -98,7 +98,7 @@ class ADSDriver:
         # done callback 同时取回异常，避免 "exception was never retrieved"。
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
         # 已解析动态点与注册点分别复用；仅当前 ADS session 有效。
-        self._dynamic_points: dict[ADSPoint, ADSPoint] = {}
+        self._symbol_cache: dict[str, tuple[int, int, int | None]] = {}
         # ReadPlan 按排序后的完整点序列缓存，包含分批地址和解码器。
         self._read_plan_cache: dict[tuple[ADSPoint, ...], tuple[Any, ...]] = {}
         self._points: dict[str, ADSPoint] = {}
@@ -115,7 +115,7 @@ class ADSDriver:
             point.point_id: parse_ads_point(point) for point in point_table.points.values()
         }
         self._read_plan_cache.clear()
-        self._dynamic_points.clear()
+        self._symbol_cache.clear()
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 ADS Driver 实际支持的协议能力。"""
@@ -319,10 +319,13 @@ class ADSDriver:
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS read requires an active connection")
-            mapped = await self._resolve_point_locked(point)
-            point_id = mapped.point_id
-            if not mapped.address_resolved:
-                return _bad_sample(point_id)
+            point_id = point if isinstance(point, str) else point.point_id
+            try:
+                mapped = await self._resolve_point_locked(point)
+            except Exception as exc:
+                if _is_point_level_error(exc):
+                    return _bad_sample(point_id)
+                raise
             try:
                 value = await asyncio.to_thread(
                     self._connection.read,
@@ -360,7 +363,16 @@ class ADSDriver:
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
-            mapped = await self._resolve_point_locked(mapped)
+            try:
+                mapped = await self._resolve_point_locked(mapped)
+            except Exception as exc:
+                if _is_point_level_error(exc):
+                    return ProtocolWriteResult(
+                        point_id=write.point_id,
+                        outcome=WriteOutcome.CONFIRMED_FAILURE,
+                        message=str(exc),
+                    )
+                raise ProtocolError(f"ADS symbol resolution failed: {exc}") from exc
             try:
                 return await self._write_single_point(mapped, write_value)
             except Exception as exc:
@@ -394,10 +406,22 @@ class ADSDriver:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS read requires an active connection")
             try:
-                resolved = tuple(
-                    [await self._resolve_point_locked(point) for point in points]
-                )
-                return await self._read_sum_raw(resolved)
+                resolved: list[ADSPoint] = []
+                failed: set[int] = set()
+                for index, point in enumerate(points):
+                    try:
+                        resolved.append(await self._resolve_point_locked(point))
+                    except Exception as exc:
+                        if not _is_point_level_error(exc):
+                            raise
+                        failed.add(index)
+                        resolved.append(self._resolve_point(point))
+                values = list(await self._read_sum_raw(tuple(
+                    point for index, point in enumerate(resolved) if index not in failed
+                )))
+                for index in sorted(failed):
+                    values.insert(index, (None, Quality.BAD))
+                return tuple(values)
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -418,10 +442,24 @@ class ADSDriver:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
 
-            mapped_batch = [await self._resolve_point_locked(write.point) for write in writes]
             results: list[ProtocolWriteResult | None] = [None] * len(writes)
+            mapped_batch: list[ADSPoint | None] = []
+            for index, write in enumerate(writes):
+                try:
+                    mapped_batch.append(await self._resolve_point_locked(write.point))
+                except Exception as exc:
+                    if not _is_point_level_error(exc):
+                        raise ProtocolError(f"ADS symbol resolution failed: {exc}") from exc
+                    mapped_batch.append(None)
+                    results[index] = ProtocolWriteResult(
+                        point_id=write.point_id,
+                        outcome=WriteOutcome.CONFIRMED_FAILURE,
+                        message=str(exc),
+                    )
             prepared: list[tuple[int, ADSPoint, bytes]] = []
             for index, (write, point) in enumerate(zip(writes, mapped_batch, strict=True)):
+                if point is None:
+                    continue
                 if not point.address_resolved:
                     results[index] = ProtocolWriteResult(
                         point_id=write.point_id,
@@ -627,40 +665,43 @@ class ADSDriver:
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS resolve_symbol requires an active connection")
-            return await self._resolve_symbol_locked(symbol)
+            group, offset, _ = await self._resolve_symbol_locked(symbol)
+            return group, offset
 
-    async def _resolve_symbol_locked(self, symbol: str) -> tuple[int, int]:
+    async def _resolve_symbol_locked(self, symbol: str) -> tuple[int, int, int | None]:
+        cached = self._symbol_cache.get(symbol)
+        if cached is not None:
+            return cached
         connection = self._connection
         if connection is None:
             raise ProtocolError("ADS connection is not available")
         info = await asyncio.to_thread(connection.get_symbol, symbol)
-        return symbol_index_address(symbol, info)
+        group, offset = symbol_index_address(symbol, info)
+        raw_size = getattr(info, "size", None)
+        size = raw_size if type(raw_size) is int and raw_size > 0 else None
+        resolved = (group, offset, size)
+        self._symbol_cache[symbol] = resolved
+        return resolved
 
     async def _resolve_point_locked(self, point: str | ADSPoint) -> ADSPoint:
         mapped = self._resolve_point(point)
         if mapped.address_resolved:
             return mapped
-        if isinstance(point, ADSPoint):
-            cached = self._dynamic_points.get(point)
-            if cached is not None:
-                return cached
-        try:
-            group, offset = await self._resolve_symbol_locked(mapped.symbol)
-        except Exception as exc:
-            if _is_point_level_error(exc):
-                return mapped
-            raise
-        # PLC 返回的长度仅供固定类型核对；STRING 始终采用配置的 size。
+        # ADSPoint 的构造约束保证：缺少 index 地址时必然具有 symbol。
+        assert mapped.symbol is not None
+        group, offset, plc_size = await self._resolve_symbol_locked(mapped.symbol)
+        if mapped.data_type != "STRING" and plc_size is not None and plc_size != mapped.size:
+            raise ConfigError(
+                f"ADS point '{mapped.point_id}': PLC size {plc_size} "
+                f"does not match configured {mapped.data_type} size {mapped.size}"
+            )
+        # STRING 的 size 由配置决定，不接受 PLC 符号信息覆盖。
         resolved = mapped.resolved(index_group=group, index_offset=offset)
-        if isinstance(point, str):
-            self._points[point] = resolved
-        else:
-            self._dynamic_points[point] = resolved
         return resolved
 
     def _invalidate_symbol_addresses(self) -> None:
         self._read_plan_cache.clear()
-        self._dynamic_points.clear()
+        self._symbol_cache.clear()
         self._points = {point_id: point.unresolved() for point_id, point in self._points.items()}
 
     def _mapped_point(self, point_id: str) -> ADSPoint:
@@ -674,8 +715,8 @@ class ADSDriver:
     def _resolve_point(self, point: str | ADSPoint) -> ADSPoint:
         """把注册点 point_id 或动态 ADSPoint 统一解析为 ADSPoint。
 
-        动态点不进点表映射，直接使用自身携带的显式 index 地址，也不参与
-        会话地址缓存失效流程——其字段
+        动态点不进点表映射；含符号的点通过同一 symbol 缓存解析，
+        显式 index 地址不依赖 session；其字段
         合法性由构造方（如 ``ads_point()`` 工厂）保证。
         """
         if isinstance(point, ADSPoint):
