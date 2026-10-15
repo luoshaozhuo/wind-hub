@@ -31,9 +31,14 @@ class SettingsUpdate(SettingsSnapshot):
 class SettingsService:
     """Settings 与 system.yaml 的同源结构化入口。"""
 
-    def __init__(self, config: ConfigService, admin: ConfigFileService) -> None:
+    def __init__(
+        self, config: ConfigService, admin: ConfigFileService,
+        *, api_host: str = "127.0.0.1", api_port: int = 8080,
+    ) -> None:
         self._config = config
         self._admin = admin
+        self._api_host = api_host
+        self._api_port = api_port
 
     def get(self) -> SettingsSnapshot:
         """从当前已应用 Config 生成 Settings。"""
@@ -44,8 +49,8 @@ class SettingsService:
             site_id=site.site_id,
             site_name=site.name,
             api_enabled=True,
-            api_host="0.0.0.0",
-            api_port=8080,
+            api_host=self._api_host,
+            api_port=self._api_port,
             ads_local_ip=ads.local_ip if ads is not None else None,
             ads_local_ams_net_id=ads.local_ams_net_id if ads is not None else None,
             ads_username="Administrator",
@@ -54,7 +59,7 @@ class SettingsService:
 
     async def update(self, request: SettingsUpdate) -> ConfigApplyResult:
         """只修改 system.yaml 对应字段，其余字段保持当前已提交内容。"""
-        if (request.api_enabled, request.api_host, request.api_port) != (True, "0.0.0.0", 8080):
+        if (request.api_enabled, request.api_host, request.api_port) != (True, self._api_host, self._api_port):
             raise ValueError("API listener options belong to process deployment")
         if request.ads_password or request.ads_username != "Administrator":
             raise ValueError("ADS device credentials must be configured per device protocol_options")
