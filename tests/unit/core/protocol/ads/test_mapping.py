@@ -99,8 +99,50 @@ def test_ads_symbol_point_requires_session_resolution() -> None:
 
     assert mapped.symbol == "MAIN.speed"
     assert mapped.address_resolved is False
+    assert mapped.index_group is None
+    assert mapped.index_offset is None
+    with pytest.raises(ConfigError, match="unresolved"):
+        _ = mapped.group
     assert mapped.data_type == "REAL"
     assert mapped.size == 4
+
+
+def test_ads_symbol_index_hint_is_not_trusted_before_session_resolution() -> None:
+    mapped = parse_ads_point(
+        _point(
+            "speed",
+            ext=_point_ext(
+                symbol="MAIN.speed",
+                index_group=0x4020,
+                index_offset=0,
+            ),
+        ),
+    )
+    assert mapped.index_group is None
+    assert mapped.index_offset is None
+    assert not mapped.address_resolved
+    resolved = mapped.resolved(index_group=0x4020, index_offset=0)
+    assert resolved.address_resolved
+    assert resolved.unresolved().index_group is None
+
+
+def test_ads_incomplete_index_address_is_rejected() -> None:
+    for options in (
+        {"index_group": 0},
+        {"index_offset": 0},
+        {"symbol": "MAIN.speed", "index_group": 0},
+        {"symbol": "MAIN.speed", "index_offset": 0},
+    ):
+        with pytest.raises(ConfigError, match="configured together"):
+            parse_ads_point(_point("bad", ext=_point_ext(**options)))
+
+
+def test_ads_index_zero_is_valid_address() -> None:
+    point = parse_ads_point(
+        _point("zero", ext=_point_ext(index_group=0, index_offset=0))
+    )
+    assert point.address_resolved
+    assert (point.group, point.offset) == (0, 0)
 
 
 def test_ads_index_point_is_resolved_without_network() -> None:
