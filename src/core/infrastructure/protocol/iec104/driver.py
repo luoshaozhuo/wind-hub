@@ -422,8 +422,7 @@ class IEC104Driver:
 
     async def write_one(
         self,
-        write: ProtocolWrite | IEC104Point,
-        value: WritableScalar | None = None,
+        write: ProtocolWrite[IEC104Point],
     ) -> ProtocolWriteResult:
         """执行单点遥控/设点，并按 ACT_CON 结果返回状态。
 
@@ -431,16 +430,8 @@ class IEC104Driver:
         ``write_one(iec104_point, value)`` 按自身 IOA 与命令 type_id
         定位或创建 c104 命令点，不要求 PointTable 登记。
         """
-        if isinstance(write, ProtocolWrite):
-            if value is not None:
-                raise TypeError("write_one(ProtocolWrite) does not take a separate value")
-            mapped = self._mapped_point(write.point_id)
-            write_value: object = write.value
-        else:
-            if value is None:
-                raise TypeError("write_one(point, value) requires an explicit value")
-            mapped = write
-            write_value = value
+        mapped = self._resolve_point(write.point)
+        write_value = write.value
         if not self._is_open or self._station is None:
             raise ProtocolError("IEC104 write requires an OPEN connection")
         self._register_dynamic_ioa(mapped)
