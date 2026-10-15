@@ -80,6 +80,10 @@ class AdminStateService:
                     if group_id not in current_groups
                 },
             }
+            for device_id, entry in device_document["devices"].items():
+                previous = documents["devices.yaml"].get("devices", {}).get(device_id, {})
+                if "name" in previous:
+                    entry["name"] = previous["name"]
             documents["devices.yaml"] = device_document
             documents["tasks.yaml"] = self._tasks_document(tasks)
             documents["sinks.yaml"] = {
