@@ -638,7 +638,7 @@ class ADSDriver:
 
     async def _resolve_point_locked(self, point: str | ADSPoint) -> ADSPoint:
         mapped = self._resolve_point(point)
-        if mapped.address_resolved or mapped.symbol is None:
+        if mapped.address_resolved:
             return mapped
         if isinstance(point, ADSPoint):
             cached = self._dynamic_points.get(point)
