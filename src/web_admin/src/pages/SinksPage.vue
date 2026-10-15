@@ -30,6 +30,7 @@ const draft = reactive({
   database: 0,
   password: '',
   keyPrefix: 'wind-hub',
+  pointsJson: '[]',
 })
 const snapshot = ref('')
 const changed = computed(() => JSON.stringify(draft) !== snapshot.value)
@@ -56,6 +57,7 @@ function reset(type: SinkType = 'file') {
     database: 0,
     password: '',
     keyPrefix: 'wind-hub',
+    pointsJson: '[]',
   })
   snapshot.value = JSON.stringify(draft)
 }
@@ -74,6 +76,7 @@ function load(sink: SinkDef) {
     database: Number(connection.database ?? 0),
     password: '',
     keyPrefix: String(connection.key_prefix ?? 'wind-hub'),
+    pointsJson: JSON.stringify(sink.points, null, 2),
   })
   snapshot.value = JSON.stringify(draft)
 }
@@ -120,6 +123,14 @@ function connection(): Record<string, unknown> {
   return { host: draft.host.trim(), port: draft.port }
 }
 
+function parsePoints(): Record<string, unknown>[] {
+  const value: unknown = JSON.parse(draft.pointsJson)
+  if (!Array.isArray(value) || value.some((row) => !row || typeof row !== 'object' || Array.isArray(row))) {
+    throw new Error('点映射必须是 JSON 对象数组')
+  }
+  return value as Record<string, unknown>[]
+}
+
 function validate() {
   if (!draft.name.trim()) return 'Sink ID 不能为空'
   if (creating.value && configStore.sinks.some((s) => s.name === draft.name.trim()))
@@ -130,6 +141,11 @@ function validate() {
     return '主机和端口必须有效'
   if (draft.type === 'redis' && (draft.database < 0 || !draft.keyPrefix.trim()))
     return 'Redis 数据库和键前缀必须有效'
+  try {
+    parsePoints()
+  } catch {
+    return '点映射 JSON 格式无效'
+  }
   return ''
 }
 
@@ -146,7 +162,7 @@ function save() {
       type: draft.type,
       enabled: draft.enabled,
       connection: values,
-      points: [],
+      points: parsePoints(),
       runtime_state: 'unknown',
       last_test_at: '',
       last_write_at: '',
@@ -164,6 +180,7 @@ function save() {
     configStore.mutate(() => {
       sink.enabled = draft.enabled
       sink.connection = values
+      sink.points = parsePoints()
     })
   }
   drawerOpen.value = false
@@ -289,6 +306,9 @@ async function remove(sink: SinkDef) {
             </el-form-item>
           </template>
         </template>
+        <el-form-item label="点映射（Core SinkPoint JSON 数组）">
+          <el-input v-model="draft.pointsJson" type="textarea" :rows="7" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-space>
