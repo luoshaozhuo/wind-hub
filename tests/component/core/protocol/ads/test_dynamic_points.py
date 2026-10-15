@@ -356,9 +356,9 @@ async def test_ads_sum_write_uses_index_addresses_and_preserves_point_errors(
     )
     results = await driver.write_many(
         (
-            ProtocolWrite(point_id="a", value=1),
-            ProtocolWrite(point_id="b", value=2),
-            ProtocolWrite(point_id="c", value=3),
+            ProtocolWrite(point="a", value=1),
+            ProtocolWrite(point="b", value=2),
+            ProtocolWrite(point="c", value=3),
         )
     )
     assert [r.outcome for r in results] == [
