@@ -14,6 +14,7 @@ from typing_extensions import TypeVar
 from ..protocol_contract import (
     ConnectionHealth,
     ProtocolCapability,
+    ProtocolPoint,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -32,7 +33,7 @@ class SubscriptionHandle(Protocol):
 ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
 
 
-TPoint = TypeVar("TPoint", default=object)
+TPoint = TypeVar("TPoint", bound=ProtocolPoint, default=ProtocolPoint)
 
 
 class ProtocolPort(Protocol[TPoint]):
