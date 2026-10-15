@@ -229,6 +229,8 @@ async def run_server(settings: ServerSettings) -> int:
         settings.config_dir,
         collectors=settings.collector_endpoints,
         commander=settings.commander,
+        api_host=settings.host,
+        api_port=settings.port,
     )
     runtime.config.initialize_desired_revision()
 
