@@ -388,8 +388,7 @@ class ADSDriver:
     ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不使用 Sum Write 批量规划。
 
-        Accepts ProtocolWrite with a registered point ID or dynamic ADSPoint.
-
+        接受 ProtocolWrite，point 可以是注册点 ID 或动态 ADSPoint。
 
         配置/取值级问题返回失败结果；连接/传输级问题统一抛 ProtocolError。
         """
