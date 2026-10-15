@@ -317,12 +317,12 @@ async def test_symbol_is_resolved_on_first_read_and_cached_per_session() -> None
     driver = _driver(connection)
     driver._points["speed"] = ADSPoint(
         point_id="speed",
-        index_group=0,
-        index_offset=0,
+        index_group=None,
+        index_offset=None,
         data_type="DINT",
         size=4,
         symbol="MAIN.speed",
-        address_resolved=False,
+        
     )
 
     assert await driver.resolve_symbol("MAIN.speed") == (0x4020, 100)
@@ -383,12 +383,12 @@ async def test_lazy_symbol_resolution_preserves_plc_string_size() -> None:
     driver = _driver(connection)
     driver._points["description"] = ADSPoint(
         point_id="description",
-        index_group=0,
-        index_offset=0,
+        index_group=None,
+        index_offset=None,
         data_type="STRING",
         size=0,
         symbol="MAIN.description",
-        address_resolved=False,
+        
     )
 
     connection.get_symbol = lambda _name: SimpleNamespace(  # type: ignore[assignment]
