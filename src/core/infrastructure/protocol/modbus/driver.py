@@ -264,8 +264,7 @@ class ModbusDriver:
     ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不做多点合并或写规划。
 
-        Accepts ProtocolWrite with a registered point ID or dynamic ModbusPoint.
-
+        接受 ProtocolWrite，point 可以是注册点 ID 或动态 ModbusPoint。
 
         一个逻辑点最多触发一次实际写请求：coil 用 write_coil，单寄存器
         用 write_register，多寄存器逻辑点用一次 write_registers(FC16)。
@@ -353,7 +352,7 @@ class ModbusDriver:
 
     async def write_many(
         self,
-        writes: Sequence[ProtocolWrite],
+        writes: Sequence[ProtocolWrite[ModbusPoint]],
     ) -> tuple[ProtocolWriteResult, ...]:
         """Modbus 不支持多逻辑点批量写入；明确拒绝，绝不降级为逐点 write_one。"""
         del writes
