@@ -65,11 +65,11 @@ class TaskControlService:
                             **asdict(current),
                             # 配置定义以 Server 当前成功基线为权威；Monitoring
                             # 仅提供运行态/实例计数，避免配置 Apply 后仍暴露旧值。
-                            "device": cfg.device,
-                            "device_group": cfg.device_group,
+                            "device": None,
+                            "device_group": cfg.device_group_id,
                             "point_group": cfg.point_group,
                             "interval": cfg.interval,
-                            "targets": [target.sink for target in cfg.targets],
+                            "targets": list(cfg.sink_ids),
                             "enabled": cfg.enabled,
                             "assigned_worker_id": current.assigned_worker_id
                             or placement.worker_id,
@@ -228,11 +228,11 @@ class TaskControlService:
             task_id=cfg.task_id,
             assigned_worker_id=worker_id,
             placement_state=placement_state,
-            device=cfg.device,
-            device_group=cfg.device_group,
+            device=None,
+            device_group=cfg.device_group_id,
             point_group=cfg.point_group,
             interval=cfg.interval,
-            targets=[target.sink for target in cfg.targets],
+            targets=list(cfg.sink_ids),
             enabled=cfg.enabled,
             runtime_state=(
                 "orphaned"
