@@ -612,20 +612,10 @@ interface SinkCheckStep {
 }
 
 function sinkEndpoint(s: MockSink): { host: string; port: number } {
-  if (s.type === 'kafka') {
-    const first = String(s.connection.bootstrap_servers || 'localhost:9092')
-      .split(',')[0]
-      .trim()
-    const [host, portText] = first.split(':')
-    return { host: host || 'localhost', port: Number(portText || 9092) }
+  return {
+    host: String(s.connection.host || 'localhost'),
+    port: Number(s.connection.port || (s.type === 'redis' ? 6379 : 502)),
   }
-  if (s.type === 'db') {
-    const match = String(s.connection.dsn || '').match(
-      /^[a-zA-Z0-9+.-]+:\/\/(?:[^@/]+@)?([^:/]+)(?::(\d+))?/,
-    )
-    return { host: match?.[1] || 'localhost', port: Number(match?.[2] || 5432) }
-  }
-  return { host: '', port: 0 }
 }
 
 function resolvedHost(host: string): string {
@@ -687,28 +677,14 @@ export function sinkCheckPlan(s: MockSink): SinkCheckStep[] {
       blocks: true,
     },
   ]
-  if (s.type === 'kafka') {
+  if (s.type === 'redis') {
     return [
       ...common,
       {
         layer: 'protocol',
-        name: 'Broker Session',
+        name: 'Redis PING',
         target: `${ep.host}:${ep.port}`,
-        detail: 'Establish Kafka producer / broker session',
-        blocks: true,
-      },
-      {
-        layer: 'target',
-        name: 'Metadata',
-        target: String(s.connection.topic || ''),
-        detail: 'Request broker metadata',
-        blocks: true,
-      },
-      {
-        layer: 'target',
-        name: 'Topic',
-        target: String(s.connection.topic || ''),
-        detail: 'Verify configured topic is addressable',
+        detail: 'Verify Redis connectivity and authentication',
         blocks: true,
       },
     ]
@@ -717,23 +693,9 @@ export function sinkCheckPlan(s: MockSink): SinkCheckStep[] {
     ...common,
     {
       layer: 'protocol',
-      name: 'PostgreSQL Session',
+      name: 'Modbus Listener',
       target: `${ep.host}:${ep.port}`,
-      detail: 'Establish PostgreSQL protocol session',
-      blocks: true,
-    },
-    {
-      layer: 'protocol',
-      name: 'Authentication',
-      target: ep.host,
-      detail: 'Authenticate configured DSN credentials',
-      blocks: true,
-    },
-    {
-      layer: 'target',
-      name: 'SELECT 1',
-      target: String(s.connection.table || 'points'),
-      detail: 'Execute lightweight read-only query',
+      detail: 'Verify Modbus TCP listener',
       blocks: true,
     },
   ]
@@ -776,8 +738,8 @@ export async function verifySinkByName(
       blocked = true
       continue
     }
-    // Kafka 的 ICMP 仅 advisory：无回复但 TCP 为准 → warning 不阻塞
-    if (step.name === 'ICMP' && s.type === 'kafka') {
+    // ICMP 仅作辅助观察；TCP 才是连接性判定依据。
+    if (step.name === 'ICMP' && s.type === 'redis') {
       steps.push({
         layer: step.layer,
         name: step.name,
