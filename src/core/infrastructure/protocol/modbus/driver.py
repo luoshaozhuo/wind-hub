@@ -123,6 +123,7 @@ class ModbusDriver:
                 f"Modbus health point '{health_point_id}' is not part of "
                 f"point table '{point_table.point_table_id}'"
             )
+        self._point_table_id = point_table.point_table_id
         self._points = points
         self._health_point_id = health_point_id or next(iter(points), None)
         self._read_plan_cache.clear()
