@@ -94,3 +94,33 @@ def test_collector_status_and_metrics() -> None:
     dto = _metrics_snapshot_dto(metrics)
     assert dto.counters.points_total == 13
     assert dto.device_reconnects == {"dev": 3}
+
+
+@pytest.mark.asyncio
+async def test_collector_unsafe_task_operations_do_not_call_rpc() -> None:
+    """当前 wire 没有所有权栅栏；不可绕过 Server 直接启动任务。"""
+    from web_server.adapter.outbound.grpc.collector import CollectorGrpcClient
+    from web_server.application.port.worker import CollectorPlacementRejectedError
+
+    client = object.__new__(CollectorGrpcClient)
+    with pytest.raises(CollectorPlacementRejectedError, match="ApplyTaskPlacement"):
+        await client.apply_task_placement("collector-1", 1, ["task-1"])
+    with pytest.raises(CollectorPlacementRejectedError, match="ownership fencing"):
+        await client.start_task("task-1", 1)
+    with pytest.raises(CollectorPlacementRejectedError, match="ownership fencing"):
+        await client.start_task_instance("instance-1", 1)
+
+
+@pytest.mark.parametrize("value", [2**64, -(2**63) - 1])
+def test_scalar_out_of_wire_range_is_rejected(value: int) -> None:
+    with pytest.raises(ValueError, match="64-bit"):
+        _encode_scalar(value)
+
+
+def test_collector_monitoring_event_timestamp_is_utc() -> None:
+    metrics = collector_pb2.MetricsSnapshotResponse()
+    event = metrics.events.add()
+    event.timestamp.FromDatetime(datetime(2026, 10, 15, tzinfo=UTC))
+    event.kind = "acquisition"
+    dto = _metrics_snapshot_dto(metrics)
+    assert dto.events[0].timestamp == datetime(2026, 10, 15, tzinfo=UTC)

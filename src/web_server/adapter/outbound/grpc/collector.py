@@ -61,11 +61,18 @@ def _runtime_status_dto(message: pb.RuntimeStatusResponse) -> CollectorRuntimeSt
 
 
 def _metrics_snapshot_dto(message: pb.MetricsSnapshotResponse) -> MetricsSnapshot:
-    fields = CounterSnapshot.__dataclass_fields__
     return MetricsSnapshot(
-        counters=CounterSnapshot(**{
-            name: getattr(message.counters, name) for name in fields
-        }),
+        counters=CounterSnapshot(
+            points_total=message.counters.points_total,
+            points_bad=message.counters.points_bad,
+            acquisition_runs=message.counters.acquisition_runs,
+            acquisition_failures=message.counters.acquisition_failures,
+            acquisition_partial=message.counters.acquisition_partial,
+            missed_cycles=message.counters.missed_cycles,
+            poll_overruns=message.counters.poll_overruns,
+            connect_failures=message.counters.connect_failures,
+            reconnects=message.counters.reconnects,
+        ),
         device_connect_failures={item.key: item.value for item in message.device_connect_failures},
         device_reconnects={item.key: item.value for item in message.device_reconnects},
         events=[

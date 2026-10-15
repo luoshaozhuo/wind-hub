@@ -17,9 +17,8 @@ from core.application.protocol_contract import WriteOutcome
 from core.domain.sample_value import Quality
 from core.infrastructure.rpc import commander_pb2 as pb
 from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
-from web_server.application.device.sample import PointValue
-
 from web_server.adapter.outbound.grpc.common import GrpcClientBase
+from web_server.application.device.sample import PointValue
 from web_server.application.port.worker import (
     CommanderStatus,
     ConfigAbortAck,
