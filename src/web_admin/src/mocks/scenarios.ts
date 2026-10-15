@@ -101,15 +101,15 @@ export interface SinkScenario {
   latencyMs: number
 }
 
-// Sink 固定故障场景：kafka_main broker timeout、db_main connection refused。
+// Sink 固定故障场景：Redis 连接超时、Modbus TCP 端口拒绝连接。
 export const sinkScenarios: Record<string, SinkScenario> = {
-  kafka_main: {
-    failingCheck: 'Broker Session',
-    code: 'SINK_BROKER_TIMEOUT',
-    message: 'Broker session timed out after 3000 ms',
+  redis_main: {
+    failingCheck: 'Redis PING',
+    code: 'SINK_REDIS_TIMEOUT',
+    message: 'Redis PING timed out after 3000 ms',
     latencyMs: 3000,
   },
-  db_main: {
+  modbus_main: {
     failingCheck: 'TCP Port',
     code: 'SINK_CONNECTION_REFUSED',
     message: 'TCP connection refused by remote host',
@@ -130,7 +130,7 @@ export const MOCK_ERROR_CODES = {
   TASK_DISABLED: 'TASK_DISABLED',
   TASK_DEVICE_UNAVAILABLE: 'TASK_DEVICE_UNAVAILABLE',
   SINK_DISABLED: 'SINK_DISABLED',
-  SINK_BROKER_TIMEOUT: 'SINK_BROKER_TIMEOUT',
+  SINK_REDIS_TIMEOUT: 'SINK_REDIS_TIMEOUT',
   SINK_CONNECTION_REFUSED: 'SINK_CONNECTION_REFUSED',
   SINK_WRITE_FAILED: 'SINK_WRITE_FAILED',
   CONFIG_VALIDATION_FAILED: 'CONFIG_VALIDATION_FAILED',
