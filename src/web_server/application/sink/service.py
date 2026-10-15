@@ -175,7 +175,18 @@ class SinkService:
             current = raw.setdefault("sinks", {})
             if not isinstance(current, dict):
                 raise ValueError("sinks.yaml sinks must be a mapping")
-            current[name] = {"type": cfg.kind, "enabled": cfg.enabled, "connection": yaml_plain(cfg.connection), "points": yaml_plain(cfg.points)}
+            connection = yaml_plain(cfg.connection)
+            previous = current.get(name, {})
+            if cfg.kind == "redis" and previous.get("type") == "redis":
+                old_connection = previous.get("connection", {})
+                if "password" not in connection and "password" in old_connection:
+                    connection["password"] = old_connection["password"]
+            current[name] = {
+                "type": cfg.kind,
+                "enabled": cfg.enabled,
+                "connection": connection,
+                "points": yaml_plain(cfg.points),
+            }
 
         return await self._admin.mutate_yaml_files(
             ("sinks.yaml",),
