@@ -247,7 +247,7 @@ class TaskPlacementRegistry:
 
     def worker_ids_for_device(self, device_id: str) -> list[str]:
         """返回实际承载指定设备采集 Task 的当前 Collector。"""
-        device = self._config.current_config.devices.get(device_id)
+        device = self._config.current_config.site.devices.get(device_id)
         if device is None:
             raise KeyError(device_id)
 
@@ -262,9 +262,7 @@ class TaskPlacementRegistry:
             if not task.enabled or task.task_id not in placements:
                 continue
             matches = (
-                task.device == device_id
-                if task.device is not None
-                else task.device_group == device.device_group
+                task.device_group_id in device.device_group_ids
             )
             if matches:
                 workers.add(placements[task.task_id])
@@ -287,7 +285,7 @@ class TaskPlacementRegistry:
             if (
                 task.enabled
                 and task.task_id in placements
-                and any(target.sink == sink_name for target in task.targets)
+                and sink_name in task.sink_ids
             )
         }
         return sorted(workers)
