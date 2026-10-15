@@ -235,20 +235,30 @@ class CollectorGrpcClient(GrpcClientBase):
     async def apply_task_placement(
         self, worker_id: str, generation: int, task_ids: list[str]
     ) -> PlacementAck:
-        """当前 Collector wire 不支持 placement；拒绝确认以保持启动栅栏关闭。"""
-        raise CollectorPlacementRejectedError(
-            "collector.proto does not provide ApplyTaskPlacement; task start is unsafe"
+        """向 Collector 下发任务归属快照，验证服务器确认的代次。"""
+        response = await self._control_stub.ApplyTaskPlacement(
+            pb.TaskPlacementSnapshotRequest(
+                worker_id=worker_id, generation=generation, task_ids=task_ids
+            ),
+            timeout=self.default_timeout,
+        )
+        return PlacementAck(
+            success=response.success,
+            generation=response.generation,
+            task_count=response.task_count,
         )
 
     async def start_task(
-        self,
-        task_id: str,
-        placement_generation: int,
+        self, task_id: str, placement_generation: int
     ) -> CollectorTaskSummary:
-        """没有 Collector placement 栅栏时拒绝启动，防止多 Collector 重复采集。"""
-        raise CollectorPlacementRejectedError(
-            "unsafe StartTask: Collector wire has no placement ownership fencing"
+        """携带经过 Server 收敛的任务归属代次启动采集。"""
+        response = await self._control_stub.StartTask(
+            pb.TaskStartRequest(
+                task_id=task_id, placement_generation=placement_generation
+            ),
+            timeout=self.default_timeout,
         )
+        return _task_summary(response)
 
     async def stop_task(self, task_id: str) -> CollectorTaskSummary:
         """停止指定 Task 的全部实例。"""
@@ -259,14 +269,16 @@ class CollectorGrpcClient(GrpcClientBase):
         return _task_summary(response)
 
     async def start_task_instance(
-        self,
-        instance_id: str,
-        placement_generation: int,
+        self, instance_id: str, placement_generation: int
     ) -> CollectorTaskInstance:
-        """禁止绕过尚未实现的跨 Collector 任务所有权校验。"""
-        raise CollectorPlacementRejectedError(
-            "unsafe StartTaskInstance: Collector wire has no placement ownership fencing"
+        """仅允许当前 placement generation 所属 Task 的实例启动。"""
+        response = await self._control_stub.StartTaskInstance(
+            pb.TaskInstanceStartRequest(
+                instance_id=instance_id, placement_generation=placement_generation
+            ),
+            timeout=self.default_timeout,
         )
+        return _task_instance(response)
 
     async def stop_task_instance(self, instance_id: str) -> CollectorTaskInstance:
         """停止单个 Task Instance。"""
