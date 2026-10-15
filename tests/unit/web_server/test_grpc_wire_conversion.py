@@ -1,12 +1,15 @@
 """Web Server 到当前 Collector/Commander 的 protobuf 契约测试。"""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from core.application.protocol_contract import WriteOutcome
 from core.infrastructure.rpc import collector_pb2, commander_pb2
 from web_server.adapter.outbound.grpc.collector import (
+    CollectorGrpcClient,
     _metrics_snapshot_dto,
     _runtime_status_dto,
     _task_instance,
@@ -99,11 +102,6 @@ def test_collector_status_and_metrics() -> None:
 @pytest.mark.asyncio
 async def test_collector_placement_and_fenced_start_requests() -> None:
     """验证 Server 将代次与任务集合完整传给 Collector RPC。"""
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock
-
-    from web_server.adapter.outbound.grpc.collector import CollectorGrpcClient
-
     client = object.__new__(CollectorGrpcClient)
     client.default_timeout = 5.0
     client._control_stub = SimpleNamespace(
