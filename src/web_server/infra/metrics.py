@@ -113,9 +113,7 @@ def update_device_gauges(devices: list[tuple[str, str, bool]]) -> None:
     _device_gauge_labels.clear()
     _device_gauge_labels.update(current)
     for device_id, protocol, connected in devices:
-        device_connected.labels(device_id=device_id, protocol=protocol).set(
-            1 if connected else 0
-        )
+        device_connected.labels(device_id=device_id, protocol=protocol).set(1 if connected else 0)
 
 
 def update_sink_queue_depths(depths: dict[str, int]) -> None:

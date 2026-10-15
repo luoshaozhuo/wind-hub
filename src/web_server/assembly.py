@@ -77,8 +77,7 @@ def assemble_server(
     if not endpoints:
         raise ValueError("collectors must not be empty")
     collector_clients = {
-        worker_id: CollectorGrpcClient(endpoint)
-        for worker_id, endpoint in endpoints.items()
+        worker_id: CollectorGrpcClient(endpoint) for worker_id, endpoint in endpoints.items()
     }
     commander_client = CommanderGrpcClient(commander)
 
@@ -167,9 +166,7 @@ def assemble_server(
     operations = OperationRegistry()
     config_admin = ConfigFileService(config)
     admin_state = AdminStateService(config_admin)
-    settings = SettingsService(
-        config, config_admin, api_host=api_host, api_port=api_port
-    )
+    settings = SettingsService(config, config_admin, api_host=api_host, api_port=api_port)
     definitions = DefinitionQueryService(config, config_admin)
     sink_ops = SinkService(
         collector_directory,

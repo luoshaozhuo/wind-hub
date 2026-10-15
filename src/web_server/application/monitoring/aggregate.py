@@ -129,7 +129,7 @@ class CollectorStatusAggregator:
 
         return RuntimeStatusSnapshot(
             running=running,
-            device_count=len(self._config.current_config.devices),
+            device_count=len(self._config.current_config.site.devices),
             sink_count=len(self._config.current_config.sinks),
             devices_connected=sum(1 for row in devices if row.connected),
             sinks_healthy=sum(1 for row in sinks if row.healthy),
@@ -150,18 +150,18 @@ class CollectorStatusAggregator:
             for worker_id, facts in by_worker.items()
         }
 
+        snapshot = self._config.current_config
         rows: list[DeviceRuntimeSnapshot] = []
-        for cfg in self._config.current_config.devices.values():
+        for cfg in snapshot.site.devices.values():
+            model = snapshot.device_models[cfg.device_model_id]
+            protocol = snapshot.point_tables[model.point_table_id].protocol.name
             owners = self._placements.worker_ids_for_device(cfg.device_id)
-            states = [
-                worker_devices.get(worker_id, {}).get(cfg.device_id)
-                for worker_id in owners
-            ]
+            states = [worker_devices.get(worker_id, {}).get(cfg.device_id) for worker_id in owners]
             present = [row for row in states if row is not None]
             rows.append(
                 DeviceRuntimeSnapshot(
                     device_id=cfg.device_id,
-                    protocol=cfg.protocol,
+                    protocol=protocol,
                     connected=(
                         bool(owners)
                         and len(present) == len(owners)
@@ -194,15 +194,12 @@ class CollectorStatusAggregator:
 
         rows: list[SinkRuntimeSnapshot] = []
         for cfg in self._config.current_config.sinks.values():
-            owners = self._placements.worker_ids_for_sink(cfg.name)
-            states = [
-                worker_sinks.get(worker_id, {}).get(cfg.name)
-                for worker_id in owners
-            ]
+            owners = self._placements.worker_ids_for_sink(cfg.sink_id)
+            states = [worker_sinks.get(worker_id, {}).get(cfg.sink_id) for worker_id in owners]
             present = [row for row in states if row is not None]
             rows.append(
                 SinkRuntimeSnapshot(
-                    name=cfg.name,
+                    name=cfg.sink_id,
                     healthy=(
                         bool(owners)
                         and len(present) == len(owners)

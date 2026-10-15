@@ -16,25 +16,19 @@ import asyncio
 
 import pytest
 
-from commander.application.command import Command
 from commander.application.config import CommanderConfig
 from commander.application.diagnostic import CommanderDiagnosticService
 from commander.application.dispatcher import CommandDispatcher
 from commander.application.runtime import CommanderRuntime
 from core.application import ProtocolWriteResult
+from core.application.command import Command
 from core.application.protocol_contract import WriteOutcome
 from core.application.settings import ADSLocalConfig
 from tests.support.new_commander import FakeRegistry, make_commander_config
 
-_IDENTITY_A = ADSLocalConfig(
-    local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1"
-)
-_IDENTITY_B_NET_ID = ADSLocalConfig(
-    local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1"
-)
-_IDENTITY_B_IP = ADSLocalConfig(
-    local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10"
-)
+_IDENTITY_A = ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1")
+_IDENTITY_B_NET_ID = ADSLocalConfig(local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1")
+_IDENTITY_B_IP = ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10")
 
 _ADS_ADDRESS = {"symbol": "MAIN.value", "data_type": "float32"}
 

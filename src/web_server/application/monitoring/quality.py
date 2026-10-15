@@ -117,9 +117,7 @@ class QualityService:
         ]
         issues = self._issues()
         stale = sum(
-            1
-            for issue in issues
-            if issue.dimension == "Continuity" and issue.kind == "Task"
+            1 for issue in issues if issue.dimension == "Continuity" and issue.kind == "Task"
         )
         worker_faults = sum(1 for issue in issues if issue.kind == "Worker")
         continuity_faults = stale + worker_faults
@@ -130,11 +128,7 @@ class QualityService:
         total_points = max(0, delta["points_total"])
         runs = max(0, delta["acquisition_runs"])
         expected_cycles = runs + missed
-        completeness = (
-            100.0
-            if expected_cycles == 0
-            else runs / expected_cycles * 100.0
-        )
+        completeness = 100.0 if expected_cycles == 0 else runs / expected_cycles * 100.0
 
         dimensions = [
             QualityDimension(
@@ -155,11 +149,7 @@ class QualityService:
                 key="completeness",
                 dimension="Completeness",
                 status=(
-                    "Fault"
-                    if completeness < 99
-                    else "Warning"
-                    if completeness < 99.9
-                    else "Normal"
+                    "Fault" if completeness < 99 else "Warning" if completeness < 99.9 else "Normal"
                 ),
                 metric=f"{missed} missing cycle(s)",
                 detail=f"{completeness:.3f}% scheduled cycles completed",
@@ -179,16 +169,8 @@ class QualityService:
                 detail=f"{last.points_routed - first.points_routed} routed point(s)",
             ),
         ]
-        interrupted = sum(
-            1
-            for row in acquisition + delivery
-            if row.state == "Interrupted"
-        )
-        degraded = sum(
-            1
-            for row in acquisition + delivery
-            if row.state == "Degraded"
-        )
+        interrupted = sum(1 for row in acquisition + delivery if row.state == "Interrupted")
+        degraded = sum(1 for row in acquisition + delivery if row.state == "Degraded")
         return QualitySnapshot(
             window=window,
             sampled_from=first.timestamp,
@@ -284,14 +266,8 @@ class QualityService:
 
         for device in sorted(devices, key=lambda item: item.device_id):
             device_id = device.device_id
-            relevant = [
-                item for item in acquisitions if item.device_id == device_id
-            ]
-            durations = [
-                item.last_duration
-                for item in relevant
-                if item.last_duration is not None
-            ]
+            relevant = [item for item in acquisitions if item.device_id == device_id]
+            durations = [item.last_duration for item in relevant if item.last_duration is not None]
             failures, reconnects = self._monitoring.device_counts(device_id)
             rows.append(
                 QualityChannel(
@@ -312,7 +288,7 @@ class QualityService:
         runtime = {item.name: item for item in self._monitoring.sinks_snapshot()}
         rows: list[QualityChannel] = []
         for cfg in self._config.current_config.sinks.values():
-            current = runtime.get(cfg.name)
+            current = runtime.get(cfg.sink_id)
             if not cfg.enabled:
                 state = "Disabled"
             elif current is not None and current.healthy:
@@ -320,7 +296,7 @@ class QualityService:
             else:
                 state = "Interrupted"
 
-            connection = cfg.connection.model_dump(mode="json")
+            connection = dict(cfg.connection)
             target = str(
                 connection.get("bootstrap_servers")
                 or connection.get("dsn")
@@ -335,9 +311,9 @@ class QualityService:
                 issue = f"queue depth {queue_depth}"
             rows.append(
                 QualityChannel(
-                    object=cfg.name,
+                    object=cfg.sink_id,
                     source="Delivery",
-                    protocol=cfg.type.upper(),
+                    protocol=cfg.kind.upper(),
                     state=state,
                     target=target,
                     issue=issue,
@@ -416,13 +392,11 @@ class QualityService:
             ),
             "acquisition_runs": max(
                 0,
-                last.counters.acquisition_runs
-                - first.counters.acquisition_runs,
+                last.counters.acquisition_runs - first.counters.acquisition_runs,
             ),
             "acquisition_failures": max(
                 0,
-                last.counters.acquisition_failures
-                - first.counters.acquisition_failures,
+                last.counters.acquisition_failures - first.counters.acquisition_failures,
             ),
             "missed_cycles": max(
                 0,

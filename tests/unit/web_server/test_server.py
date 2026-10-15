@@ -10,7 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import uvicorn
 
-from wind_hub_core.model.reload import ConfigDiff, ReloadResult
+from core.application.config_diff import ConfigSnapshotDiff
+from web_server.application.config.service import ReloadResult
 from web_server.server import (
     _wait_for_shutdown_or_api_exit,
     build_api_server,
@@ -42,7 +43,9 @@ async def test_reload_once_delegates_to_config_use_case() -> None:
     config = AsyncMock()
     config.reload.return_value = ReloadResult(
         success=True,
-        diff=ConfigDiff(),
+        diff=ConfigSnapshotDiff(
+            sections={}, system_changed=False, site_changed=False, units_changed=False
+        ),
         errors=[],
         duration_ms=1.0,
     )

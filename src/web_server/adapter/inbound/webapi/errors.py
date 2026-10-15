@@ -6,9 +6,9 @@ Every failure is returned with a single envelope::
 
 Internal stack traces are logged, not leaked to clients.  Status codes follow
 the unified contract (422 validation / 404 not found / 409 conflict /
-500 internal / 503 unavailable / 504 timeout). Domain exceptions are mapped to
-these codes via a small
-lookup table rather than scattered ``try/except`` blocks in the routes.
+500 internal / 503 unavailable / 504 timeout).  Domain and transport
+exceptions are mapped to these codes via small lookup tables rather than
+scattered ``try/except`` blocks in the routes.
 """
 
 from __future__ import annotations
@@ -16,18 +16,12 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
+import grpc
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from wind_hub_core.model.errors import (
-    CommandError,
-    ConfigError,
-    OperationTimeoutError,
-    ProtocolError,
-    SinkError,
-    WindHubError,
-)
+from core.application.errors import ConfigError, CoreError, ProtocolError
 
 logger = logging.getLogger(__name__)
 
@@ -49,38 +43,24 @@ class APIError(Exception):
         self.details = details or {}
 
 
-# -- domain exception → HTTP status / stable code --------------------------
-# Walked in insertion order; the first match wins (all are direct subclasses
-# of WindHubError, so ordering is only a safety net).
-_WINDHUB_ERROR_STATUS: list[tuple[type[WindHubError], int]] = [
-    (CommandError, 404),
-    (ProtocolError, 503),
-    (ConfigError, 400),
-    (SinkError, 502),
-    (OperationTimeoutError, 504),
+# -- core domain exception → HTTP status / stable code ----------------------
+_CORE_ERROR_MAP: list[tuple[type[CoreError], int, str]] = [
+    (ConfigError, 400, "CONFIG_ERROR"),
+    (ProtocolError, 503, "PROTOCOL_ERROR"),
 ]
 
-_WINDHUB_ERROR_CODES: list[tuple[type[WindHubError], str]] = [
-    (CommandError, "COMMAND_FAILED"),
-    (ProtocolError, "PROTOCOL_ERROR"),
-    (ConfigError, "CONFIG_ERROR"),
-    (SinkError, "SINK_ERROR"),
-    (OperationTimeoutError, "OPERATION_TIMEOUT"),
-]
-
-
-def _status_for(exc: WindHubError) -> int:
-    for cls, status in _WINDHUB_ERROR_STATUS:
-        if isinstance(exc, cls):
-            return status
-    return 500
-
-
-def _code_for(exc: WindHubError) -> str:
-    for cls, code in _WINDHUB_ERROR_CODES:
-        if isinstance(exc, cls):
-            return code
-    return "WIND_HUB_ERROR"
+# -- gRPC transport status → HTTP status / stable code ----------------------
+# Worker（Collector/Commander）不可达与超时是正常故障形态，不得落入 500。
+_GRPC_STATUS_MAP: dict[grpc.StatusCode, tuple[int, str]] = {
+    grpc.StatusCode.UNAVAILABLE: (503, "WORKER_UNAVAILABLE"),
+    grpc.StatusCode.DEADLINE_EXCEEDED: (504, "WORKER_TIMEOUT"),
+    grpc.StatusCode.CANCELLED: (503, "WORKER_CALL_CANCELLED"),
+    grpc.StatusCode.NOT_FOUND: (404, "NOT_FOUND"),
+    grpc.StatusCode.INVALID_ARGUMENT: (422, "INVALID_ARGUMENT"),
+    grpc.StatusCode.FAILED_PRECONDITION: (409, "PRECONDITION_FAILED"),
+    grpc.StatusCode.PERMISSION_DENIED: (403, "PERMISSION_DENIED"),
+    grpc.StatusCode.RESOURCE_EXHAUSTED: (429, "RESOURCE_EXHAUSTED"),
+}
 
 
 def _envelope(status_code: int, code: str, message: str, details: dict[str, Any]) -> JSONResponse:
@@ -100,13 +80,27 @@ async def api_error_handler(request: Request, exc: Exception) -> JSONResponse:
     return _envelope(err.status_code, err.code, err.message, err.details)
 
 
-async def domain_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Serialize a domain exception into the unified envelope."""
-    err = cast(WindHubError, exc)
-    details: dict[str, Any] = {}
-    if isinstance(err, CommandError):
-        details["command_id"] = err.command_id
-    return _envelope(_status_for(err), _code_for(err), str(err), details)
+async def core_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Serialize a shared-core domain exception into the unified envelope."""
+    err = cast(CoreError, exc)
+    for cls, status, code in _CORE_ERROR_MAP:
+        if isinstance(err, cls):
+            return _envelope(status, code, str(err), {})
+    return _envelope(500, "CORE_ERROR", str(err), {})
+
+
+async def grpc_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Map worker gRPC transport failures to explicit 503/504 style codes."""
+    err = cast(grpc.aio.AioRpcError, exc)
+    status, code = _GRPC_STATUS_MAP.get(err.code(), (502, "WORKER_RPC_ERROR"))
+    logger.warning(
+        "gRPC call failed for %s %s: %s %s",
+        request.method,
+        request.url.path,
+        err.code(),
+        err.details(),
+    )
+    return _envelope(status, code, err.details() or code, {})
 
 
 async def generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -128,7 +122,8 @@ async def validation_error_handler(request: Request, exc: Exception) -> JSONResp
 def register_error_handlers(app: FastAPI) -> None:
     """Attach all error handlers to a FastAPI application."""
     app.add_exception_handler(APIError, api_error_handler)
-    app.add_exception_handler(WindHubError, domain_error_handler)
+    app.add_exception_handler(CoreError, core_error_handler)
+    app.add_exception_handler(grpc.aio.AioRpcError, grpc_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(Exception, generic_error_handler)
 
@@ -136,7 +131,8 @@ def register_error_handlers(app: FastAPI) -> None:
 __all__ = [
     "APIError",
     "api_error_handler",
-    "domain_error_handler",
+    "core_error_handler",
+    "grpc_error_handler",
     "generic_error_handler",
     "validation_error_handler",
     "register_error_handlers",

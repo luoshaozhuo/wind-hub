@@ -112,8 +112,7 @@ class LogStore:
             rows = [
                 row
                 for row in rows
-                if keyword_norm
-                in f"{row.source} {row.object} {row.message}".lower()
+                if keyword_norm in f"{row.source} {row.object} {row.message}".lower()
             ]
         return rows
 

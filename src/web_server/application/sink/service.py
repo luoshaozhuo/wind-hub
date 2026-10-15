@@ -75,11 +75,7 @@ class SinkService:
                     },
                     points=yaml_plain(cfg.points),
                     point_count=len(cfg.points),
-                    healthy=(
-                        current.healthy
-                        if current is not None and cfg.enabled
-                        else False
-                    ),
+                    healthy=(current.healthy if current is not None and cfg.enabled else False),
                     message=(
                         current.message
                         if current is not None and current.message
@@ -142,10 +138,7 @@ class SinkService:
                 message="sink is not assigned to any collector",
             )
         results = await asyncio.gather(
-            *(
-                self._collectors.get(worker_id).write_test_sink(name)
-                for worker_id in worker_ids
-            )
+            *(self._collectors.get(worker_id).write_test_sink(name) for worker_id in worker_ids)
         )
         steps: list[dict[str, object]] = [
             {
@@ -168,7 +161,13 @@ class SinkService:
 
     async def upsert(self, name: str, payload: dict[str, Any]) -> ConfigApplyResult:
         """新增或更新 Sink；通过 sinks.yaml 配置事务生效。"""
-        cfg = Sink(sink_id=name, kind=payload["type"], enabled=payload.get("enabled", True), connection=payload["connection"], points=payload.get("points", []))
+        cfg = Sink(
+            sink_id=name,
+            kind=payload["type"],
+            enabled=payload.get("enabled", True),
+            connection=payload["connection"],
+            points=payload.get("points", []),
+        )
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
             raw = documents["sinks.yaml"]

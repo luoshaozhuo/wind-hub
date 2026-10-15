@@ -7,12 +7,13 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from web_server.application.device.sample import PointValue
+from core.domain.identities import DeviceId
 from web_server.application.config.service import ConfigService
 from web_server.application.device.command import (
     DeviceCommandResult,
     DeviceCommandService,
 )
+from web_server.application.device.sample import PointValue
 from web_server.application.operation.registry import OperationRecord, OperationRegistry
 from web_server.application.port.network_probe import NetworkProbePort
 from web_server.application.port.worker import CommanderPort
@@ -127,7 +128,7 @@ class DiagnosticService:
     def start_point_table_test(self, device_id: str) -> OperationRecord:
         """按当前 Server 配置取得点表，逐点通过 Commander 在线验证。"""
         cfg = self._config.current_config
-        device = cfg.site.devices.get(device_id)
+        device = cfg.site.devices.get(DeviceId(device_id))
         if device is None:
             raise KeyError(device_id)
         model = cfg.device_models[device.device_model_id]
@@ -207,9 +208,7 @@ class DiagnosticService:
         try:
             for index in range(0, len(ips), 64):
                 chunk = ips[index : index + 64]
-                rows = await asyncio.gather(
-                    *(self._scan_host(ip, timeout, ports) for ip in chunk)
-                )
+                rows = await asyncio.gather(*(self._scan_host(ip, timeout, ports) for ip in chunk))
                 hosts.extend(row for row in rows if row is not None)
                 self._operations.update_progress(
                     operation_id,

@@ -136,9 +136,7 @@ def page(items: list[T], page: int, page_size: int) -> tuple[list[T], PageMeta]:
     """对已完成过滤的内存快照执行稳定分页。"""
     total = len(items)
     start = (page - 1) * page_size
-    return items[start : start + page_size], PageMeta(
-        page=page, page_size=page_size, total=total
-    )
+    return items[start : start + page_size], PageMeta(page=page, page_size=page_size, total=total)
 
 
 def device_response(row: DeviceSnapshot) -> DeviceResponse:

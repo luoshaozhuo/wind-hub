@@ -158,7 +158,7 @@ class AdminStateService:
             if not item.device_group:
                 raise ValueError(f"device {item.device_id} requires a device group")
             groups.add(item.device_group)
-            endpoint = {"host": item.host}
+            endpoint: dict[str, Any] = {"host": item.host}
             if item.port is not None:
                 endpoint["port"] = item.port
             devices[item.device_id] = {

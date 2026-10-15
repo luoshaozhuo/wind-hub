@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from core.application.command import Command, CommandResult
 from core.application.protocol_contract import WriteOutcome
 from core.infrastructure.rpc import commander_pb2 as pb
 from core.infrastructure.rpc.scalar_codec import decode_scalar, encode_scalar
 
-from ...application.command import Command, CommandResult
 from ...application.session import PointReading
 
 __all__ = [

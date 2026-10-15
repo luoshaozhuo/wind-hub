@@ -3,7 +3,8 @@
 import threading
 from datetime import UTC, datetime, timedelta
 
-from wind_hub_core.model.point import PointValue
+from core.domain.sample_value import Quality
+from web_server.application.device.sample import PointValue
 from web_server.infra.point_store import InMemoryTrendStore
 
 
@@ -12,6 +13,7 @@ def _value(point_id: str, value: float, seconds: int = 0) -> PointValue:
         device_id="d1",
         point_id=point_id,
         value=value,
+        quality=Quality.GOOD,
         timestamp=datetime.now(UTC) + timedelta(seconds=seconds),
     )
 

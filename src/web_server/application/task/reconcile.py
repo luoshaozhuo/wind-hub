@@ -66,9 +66,7 @@ class TaskPlacementReconciler:
         """仅在当前 placement 代次完成安全收敛后允许新的 start。"""
         self._placements.sync()
         if not self.placement_safe:
-            raise TaskPlacementUnsafeError(
-                "task placement is not safely reconciled"
-            )
+            raise TaskPlacementUnsafeError("task placement is not safely reconciled")
 
     def invalidate_safety(self) -> None:
         """Collector 拒绝受 placement 保护的操作后重新关闭安全栅栏。"""
@@ -78,19 +76,12 @@ class TaskPlacementReconciler:
         """停止跑在错误 Collector 上的实例，并建立当前 placement 安全栅栏。"""
         self._placements.sync()
         generation = self._placements.generation
-        placements = {
-            row.task_id: row
-            for row in self._placements.list_placements()
-        }
+        placements = {row.task_id: row for row in self._placements.list_placements()}
         enabled_tasks = {
-            task.task_id
-            for task in self._config.current_config.tasks.values()
-            if task.enabled
+            task.task_id for task in self._config.current_config.tasks.values() if task.enabled
         }
         orphaned_tasks = sorted(
-            row.task_id
-            for row in placements.values()
-            if row.state is TaskPlacementState.ORPHANED
+            row.task_id for row in placements.values() if row.state is TaskPlacementState.ORPHANED
         )
         worker_ids = self._collectors.list_worker_ids()
 
@@ -116,13 +107,9 @@ class TaskPlacementReconciler:
             if not placement.success:
                 raise RuntimeError("collector rejected task placement")
             if placement.generation != generation:
-                raise RuntimeError(
-                    "collector placement generation acknowledgment mismatch"
-                )
+                raise RuntimeError("collector placement generation acknowledgment mismatch")
             if placement.task_count != len(assigned_by_worker[worker_id]):
-                raise RuntimeError(
-                    "collector placement task-count acknowledgment mismatch"
-                )
+                raise RuntimeError("collector placement task-count acknowledgment mismatch")
             return collector, await collector.list_task_instances()
 
         results = await asyncio.gather(
@@ -138,9 +125,7 @@ class TaskPlacementReconciler:
         for worker_id, result in zip(worker_ids, results, strict=True):
             if isinstance(result, BaseException):
                 unavailable_workers.append(worker_id)
-                errors.append(
-                    f"{worker_id}: {str(result) or type(result).__name__}"
-                )
+                errors.append(f"{worker_id}: {str(result) or type(result).__name__}")
                 continue
 
             collector, rows = result
@@ -163,9 +148,7 @@ class TaskPlacementReconciler:
                 wrong_running_instances += 1
                 instance_id = row.instance_id
                 if not instance_id:
-                    errors.append(
-                        f"{worker_id}: running task '{task_id}' has empty instance_id"
-                    )
+                    errors.append(f"{worker_id}: running task '{task_id}' has empty instance_id")
                     continue
                 try:
                     await collector.stop_task_instance(instance_id)

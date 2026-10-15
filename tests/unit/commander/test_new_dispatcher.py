@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
-from commander.application.command import Command
 from commander.application.dispatcher import CommandDispatcher
 from commander.application.runtime import CommanderRuntime
+from core.application.command import Command
 from core.application.protocol_contract import ProtocolWriteResult, WriteOutcome
 from tests.support.new_commander import FakeRegistry, make_commander_config
 

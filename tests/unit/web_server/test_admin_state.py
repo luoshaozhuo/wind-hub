@@ -14,9 +14,7 @@ from web_server.application.config.files import ConfigApplyResult
 
 async def test_replace_all_uses_one_multifile_apply() -> None:
     admin = MagicMock()
-    admin.mutate_yaml_files = AsyncMock(
-        return_value=ConfigApplyResult(success=True, revision=7)
-    )
+    admin.mutate_yaml_files = AsyncMock(return_value=ConfigApplyResult(success=True, revision=7))
     service = AdminStateService(admin)
 
     result = await service.replace_all(
@@ -32,7 +30,7 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
         tasks=[
             AdminTaskItem(
                 task_id="t1",
-                device="d1",
+                device_group="g1",
                 point_group="fast",
                 interval=1.0,
                 sinks=["s1"],
@@ -42,7 +40,7 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
             AdminSinkItem(
                 name="s1",
                 type="file",
-                connection={"path": "/tmp/out.jsonl"},
+                connection={"path": "/tmp/out.csv"},
             )
         ],
         definitions=AdminDefinitionsState(
@@ -58,7 +56,7 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
             point_tables={
                 "p1": {
                     "protocol": "modbus",
-                    "points": [],
+                    "points": {},
                 }
             },
         ),
@@ -69,17 +67,56 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
     assert set(names) == {
         "devices.yaml",
         "tasks.yaml",
-        "system.yaml",
         "sinks.yaml",
         "units.yaml",
         "device_models.yaml",
         "points.yaml",
     }
     documents = {name: {} for name in names}
-    documents["system.yaml"] = {"runtime": {"keep": True}}
     mutator(documents)
-    assert documents["system.yaml"]["runtime"] == {"keep": True}
-    assert documents["sinks.yaml"]["sinks"][0]["name"] == "s1"
-    assert documents["devices.yaml"]["devices"][0]["device_id"] == "d1"
-    assert documents["tasks.yaml"]["tasks"][0]["task_id"] == "t1"
+    assert documents["sinks.yaml"]["sinks"]["s1"]["connection"] == {"path": "/tmp/out.csv"}
+    assert documents["devices.yaml"]["devices"]["d1"]["model_id"] == "m1"
+    assert documents["devices.yaml"]["devices"]["d1"]["device_group_ids"] == ["g1"]
+    assert documents["tasks.yaml"]["tasks"]["t1"]["device_group_id"] == "g1"
+    assert documents["tasks.yaml"]["tasks"]["t1"]["sink_ids"] == ["s1"]
     assert admin.mutate_yaml_files.await_count == 1
+
+
+async def test_replace_all_rejects_device_bound_task() -> None:
+    """当前 Core Schema 下 Task 只能绑定 device_group，拒绝 device 直绑。"""
+    admin = MagicMock()
+    admin.mutate_yaml_files = AsyncMock(return_value=ConfigApplyResult(success=True, revision=1))
+    service = AdminStateService(admin)
+    names_mutator: list = []
+
+    async def _capture(names, mutate, **kwargs):  # noqa: ANN001, ANN202
+        names_mutator.append((names, mutate))
+        return ConfigApplyResult(success=True, revision=1)
+
+    admin.mutate_yaml_files = _capture
+    result = await service.replace_all(
+        devices=[],
+        tasks=[
+            AdminTaskItem(
+                task_id="t1",
+                device="d1",
+                point_group="fast",
+                interval=1.0,
+                sinks=["s1"],
+            )
+        ],
+        sinks=[],
+        definitions=AdminDefinitionsState(
+            units={}, device_types={}, device_models={}, point_tables={}
+        ),
+    )
+
+    assert result.success is True
+    _, mutate = names_mutator[0]
+    documents = {name: {} for name in names_mutator[0][0]}
+    try:
+        mutate(documents)
+    except ValueError as exc:
+        assert "device_group" in str(exc)
+    else:  # pragma: no cover - 必须拒绝
+        raise AssertionError("device-bound task must be rejected")

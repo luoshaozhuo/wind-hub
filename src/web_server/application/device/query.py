@@ -86,11 +86,7 @@ class DeviceQueryService:
         if cfg is None:
             raise KeyError(device_id)
         runtime = next(
-            (
-                row
-                for row in self._monitoring.devices_snapshot()
-                if row.device_id == device_id
-            ),
+            (row for row in self._monitoring.devices_snapshot() if row.device_id == device_id),
             None,
         )
         return self._snapshot(cfg, runtime)
@@ -105,9 +101,7 @@ class DeviceQueryService:
         table = snapshot.point_tables[model.point_table_id]
         protocol_options = snapshot.protocol_options_by_device.get(cfg.device_id, {})
         defaults = model.endpoint_defaults
-        port_override = (
-            cfg.endpoint.port if cfg.endpoint.port != defaults.get("port") else None
-        )
+        port_override = cfg.endpoint.port if cfg.endpoint.port != defaults.get("port") else None
         return DeviceSnapshot(
             device_id=cfg.device_id,
             protocol=table.protocol.name,
@@ -122,9 +116,6 @@ class DeviceQueryService:
             extension_overrides=dict(protocol_options),
             enabled=cfg.enabled,
             connected=runtime.connected if runtime is not None else False,
-            consecutive_failures=(
-                runtime.consecutive_failures if runtime is not None else 0
-            ),
+            consecutive_failures=(runtime.consecutive_failures if runtime is not None else 0),
             last_error=runtime.last_error if runtime is not None else None,
         )
-

@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.component.collector.conftest import update_yaml, write_functional_config
+from core.infrastructure.config import config_dir_digest
+from tests.support.functional_config import update_yaml, write_functional_config
 from tests.support.process import CollectorProcess
-from wind_hub_core.config.fingerprint import fingerprint_config_set
 from web_server.adapter.outbound.grpc.collector import CollectorGrpcClient
 from web_server.application.port.worker import CollectorPlacementRejectedError
 
@@ -103,7 +103,7 @@ class TestConfigTransactionRoundTrip:
             "tasks.yaml",
             lambda data: data["tasks"][0].update({"interval": 0.5}),
         )
-        config_hash = fingerprint_config_set(config_dir)
+        config_hash = config_dir_digest(config_dir)
 
         prepared = await grpc_client.prepare_config("rev-it-1", config_hash)
         assert prepared.success is True, prepared.errors
@@ -127,7 +127,7 @@ class TestConfigTransactionRoundTrip:
             "tasks.yaml",
             lambda data: data["tasks"][0].update({"interval": 0.5}),
         )
-        config_hash = fingerprint_config_set(config_dir)
+        config_hash = config_dir_digest(config_dir)
 
         prepared = await grpc_client.prepare_config("rev-it-abort", config_hash)
         assert prepared.success is True, prepared.errors

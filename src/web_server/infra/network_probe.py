@@ -7,7 +7,7 @@ import contextlib
 import ipaddress
 import time
 
-from wind_hub_core.validation.network import ping_host as ping_reachable
+from core.infrastructure.diagnostic.network import ping_host as ping_reachable
 from web_server.application.port.network_probe import (
     PingProbeResult,
     PortProbeResult,
@@ -48,9 +48,7 @@ class NetworkProbe:
         started = time.monotonic()
         state = "open"
         try:
-            _, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port), timeout=timeout
-            )
+            _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
         except ConnectionRefusedError:
             state = "closed"
         except TimeoutError:

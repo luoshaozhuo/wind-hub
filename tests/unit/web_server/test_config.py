@@ -16,10 +16,10 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.component.collector.conftest import update_yaml
+from core.application.config_diff import diff_config_snapshots
+from core.application.config_snapshot import ConfigSnapshot
 from tests.support.config_helper import write_config_tree
-from wind_hub_core.config import Config
-from wind_hub_core.config.diff import compute_diff
+from tests.support.functional_config import update_yaml
 from web_server.application.config.service import ConfigService
 from web_server.application.port.worker import (
     CollectorInfo,
@@ -166,36 +166,33 @@ def _write_site(base: Path, *, interval: float = 0.2) -> Path:
     """写出最小合法配置集（单 Modbus 设备 + file sink + 单采集任务）。"""
     return write_config_tree(
         base,
-        devices=[
-            {
-                "device_id": "modbus-1",
+        devices={
+            "modbus-1": {
                 "protocol": "modbus",
                 "point_table": "modbus",
                 "endpoint": {"host": "127.0.0.1", "port": 5020},
             }
-        ],
+        },
         point_tables={
             "modbus": {
-                "points": [
-                    {
-                        "point_id": "rotor.speed",
+                "points": {
+                    "rotor.speed": {
                         "point_groups": ["telemetry"],
                         "address": {"register_type": "holding", "address": 100},
                         "data_type": "float32",
                     }
-                ]
+                }
             }
         },
-        sinks=[{"name": "file_sink", "type": "file", "connection": {"path": "out.jsonl"}}],
-        tasks=[
-            {
-                "task_id": "modbus-telemetry",
-                "device": "modbus-1",
+        sinks={"file_sink": {"type": "file", "connection": {"path": "out.csv"}}},
+        tasks={
+            "modbus-telemetry": {
+                "device_group_id": "modbus-1",
                 "point_group": "telemetry",
                 "interval": interval,
-                "targets": [{"sink": "file_sink"}],
+                "sink_ids": ["file_sink"],
             }
-        ],
+        },
     )
 
 
@@ -228,13 +225,13 @@ def _set_interval(config_dir: Path, interval: float) -> None:
     update_yaml(
         config_dir,
         "tasks.yaml",
-        lambda data: data["tasks"][0].update({"interval": interval}),
+        lambda data: data["tasks"]["modbus-telemetry"].update({"interval": interval}),
     )
 
 
 def _task_interval(config_dir: Path) -> float:
     data = yaml.safe_load((config_dir / "tasks.yaml").read_text(encoding="utf-8"))
-    return data["tasks"][0]["interval"]
+    return data["tasks"]["modbus-telemetry"]["interval"]
 
 
 # ---------------------------------------------------------------------------
@@ -270,14 +267,12 @@ class TestConstruction:
 
 
 class TestReloadSuccess:
-    async def test_reload_prepares_and_activates_all_participants(
-        self, fx: _Fixture
-    ) -> None:
+    async def test_reload_prepares_and_activates_all_participants(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.5)
         result = await fx.service.reload()
 
         assert result.success is True, result.errors
-        assert result.diff.tasks.updated == ["modbus-telemetry"]
+        assert sorted(result.diff.sections["tasks"].changed) == ["modbus-telemetry"]
         # 全部参与者（collector + commander）按同 revision/hash 两阶段推进。
         for worker in fx.workers:
             assert len(worker.prepare_calls) == 1
@@ -285,9 +280,7 @@ class TestReloadSuccess:
         assert fx.service.desired_revision == fx.collector.activate_calls[0]
         assert fx.service.desired_config_hash is not None
 
-    async def test_unchanged_config_short_circuits_without_rpc(
-        self, fx: _Fixture
-    ) -> None:
+    async def test_unchanged_config_short_circuits_without_rpc(self, fx: _Fixture) -> None:
         first = await fx.service.reload()
         assert first.success is True, first.errors
         for worker in fx.workers:
@@ -297,14 +290,12 @@ class TestReloadSuccess:
         second = await fx.service.reload()
 
         assert second.success is True, second.errors
-        assert second.diff.has_any_changes is False
+        assert second.diff.has_changes is False
         for worker in fx.workers:
             assert worker.prepare_calls == []
             assert worker.activate_calls == []
 
-    async def test_first_reload_without_changes_does_not_touch_workers(
-        self, fx: _Fixture
-    ) -> None:
+    async def test_first_reload_without_changes_does_not_touch_workers(self, fx: _Fixture) -> None:
         """磁盘配置与基线一致时，首次 reload 同样短路（幂等 bootstrap）。"""
         result = await fx.service.reload()
 
@@ -336,7 +327,7 @@ class TestReloadInvalidDiskConfig:
         update_yaml(
             fx.config_dir,
             "tasks.yaml",
-            lambda data: data["tasks"][0].update({"targets": [{"sink": "ghost"}]}),
+            lambda data: data["tasks"]["modbus-telemetry"].update({"sink_ids": ["ghost"]}),
         )
         ghost.write_text("ghost: true\n", encoding="utf-8")
 
@@ -359,13 +350,9 @@ class TestReloadInvalidDiskConfig:
 
 
 class TestPrepareFailures:
-    async def test_prepare_failure_aborts_all_and_restores_disk(
-        self, fx: _Fixture
-    ) -> None:
+    async def test_prepare_failure_aborts_all_and_restores_disk(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.9)
-        fx.collector.prepare_outcomes.append(
-            {"success": False, "errors": ["collector rejected"]}
-        )
+        fx.collector.prepare_outcomes.append({"success": False, "errors": ["collector rejected"]})
 
         result = await fx.service.reload()
 
@@ -381,9 +368,7 @@ class TestPrepareFailures:
 
     async def test_prepare_hash_mismatch_treated_as_failure(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.9)
-        fx.commander.prepare_outcomes.append(
-            {"success": True, "config_hash": "tampered-hash"}
-        )
+        fx.commander.prepare_outcomes.append({"success": True, "config_hash": "tampered-hash"})
 
         result = await fx.service.reload()
 
@@ -426,9 +411,7 @@ class TestActivateFailures:
         assert len(fx.commander.prepare_calls) >= 2
         assert fx.service.desired_revision is None
 
-    async def test_activate_rpc_error_confirmed_by_status_is_success(
-        self, fx: _Fixture
-    ) -> None:
+    async def test_activate_rpc_error_confirmed_by_status_is_success(self, fx: _Fixture) -> None:
         """Activate RPC 异常但状态回查确认已生效 → 按成功收敛（结果未知≠失败）。"""
         _set_interval(fx.config_dir, 0.7)
 
@@ -473,9 +456,7 @@ class TestShutdownSemantics:
         for worker in fx.workers:
             assert worker.prepare_calls == []
 
-    async def test_wait_for_transactions_returns_true_when_idle(
-        self, fx: _Fixture
-    ) -> None:
+    async def test_wait_for_transactions_returns_true_when_idle(self, fx: _Fixture) -> None:
         assert await fx.service.wait_for_transactions(timeout=1.0) is True
 
 
@@ -534,9 +515,7 @@ class TestReconcileWorkers:
         assert outcomes[COLLECTOR_ID].startswith("status-error:")
         assert outcomes[COMMANDER_WORKER_ID] == "already-current"
 
-    async def test_reconcile_rejected_after_transactions_closed(
-        self, fx: _Fixture
-    ) -> None:
+    async def test_reconcile_rejected_after_transactions_closed(self, fx: _Fixture) -> None:
         fx.service.stop_accepting_transactions()
 
         outcomes = await fx.service.reconcile_workers()
@@ -569,18 +548,18 @@ class TestInitializeDesiredRevision:
 # ---------------------------------------------------------------------------
 
 
-def _load(config_dir: Path) -> Config:
+def _load(config_dir: Path) -> ConfigSnapshot:
     return ConfigService.load_directory(config_dir)
 
 
 class TestComputeDiff:
     def test_no_changes(self, tmp_path: Path) -> None:
         config = _load(_write_site(tmp_path / "cfg"))
-        diff = compute_diff(config, config)
+        diff = diff_config_snapshots(config, config)
 
-        assert diff.has_any_changes is False
-        assert diff.devices.unchanged == ["modbus-1"]
-        assert diff.tasks.unchanged == ["modbus-telemetry"]
+        assert diff.has_changes is False
+        assert diff.sections["devices"].has_changes is False
+        assert diff.sections["tasks"].has_changes is False
 
     def test_task_update_and_point_table_change(self, tmp_path: Path) -> None:
         config_dir = _write_site(tmp_path / "cfg")
@@ -589,24 +568,33 @@ class TestComputeDiff:
         update_yaml(
             config_dir,
             "points.yaml",
-            lambda data: data["point_tables"]["modbus"]["points"].append(
+            lambda data: data["point_tables"]["modbus"]["points"].update(
                 {
-                    "point_id": "gen.power",
-                    "point_groups": ["telemetry"],
-                    "address": {"register_type": "holding", "address": 102},
-                    "data_type": "float32",
+                    "gen.power": {
+                        "business_point_id": "gen.power",
+                        "point_groups": ["telemetry"],
+                        "address": {"register_type": "holding", "address": 102},
+                        "data_type": "float32",
+                    }
                 }
+            ),
+        )
+        update_yaml(
+            config_dir,
+            "business_points.yaml",
+            lambda data: data["business_points"].update(
+                {"gen.power": {"data_type": "float32", "unit_id": "none"}}
             ),
         )
         new = _load(config_dir)
 
-        diff = compute_diff(old, new)
+        diff = diff_config_snapshots(old, new)
 
-        assert diff.has_any_changes is True
-        assert diff.tasks.updated == ["modbus-telemetry"]
-        assert diff.points_changed is True
-        assert diff.point_tables_changed == ["modbus"]
-        assert diff.devices.unchanged == ["modbus-1"]
+        assert diff.has_changes is True
+        assert sorted(diff.sections["tasks"].changed) == ["modbus-telemetry"]
+        assert diff.sections["point_tables"].has_changes is True
+        assert sorted(diff.sections["point_tables"].changed) == ["modbus"]
+        assert diff.sections["devices"].has_changes is False
 
     def test_device_added_and_removed(self, tmp_path: Path) -> None:
         config_dir = _write_site(tmp_path / "cfg")
@@ -615,15 +603,16 @@ class TestComputeDiff:
         def _add_device(data: dict) -> None:
             # devices.yaml 存放实例（引用 device_models 中的 model）——复制
             # 现有实例并改 id/端口，保持 model 引用有效。
-            instance = dict(data["devices"][0])
-            instance["device_id"] = "modbus-2"
+            instance = dict(data["devices"]["modbus-1"])
             instance["endpoint"] = {**instance["endpoint"], "port": 5021}
-            data["devices"].append(instance)
+            instance["device_group_ids"] = ["modbus-2"]
+            data["devices"]["modbus-2"] = instance
+            data["device_groups"]["modbus-2"] = {"name": "modbus-2"}
 
         update_yaml(config_dir, "devices.yaml", _add_device)
         new = _load(config_dir)
 
-        diff = compute_diff(old, new)
+        diff = diff_config_snapshots(old, new)
 
-        assert diff.devices.added == ["modbus-2"]
-        assert diff.devices.removed == []
+        assert sorted(diff.sections["devices"].added) == ["modbus-2"]
+        assert diff.sections["devices"].removed == frozenset()

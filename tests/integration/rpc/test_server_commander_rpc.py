@@ -13,10 +13,10 @@ from uuid import uuid4
 import grpc
 import pytest
 
-from tests.component.collector.conftest import update_yaml, write_functional_config
+from core.application.command import Command
+from core.infrastructure.config import config_dir_digest
+from tests.support.functional_config import update_yaml, write_functional_config
 from tests.support.process import CollectorProcess
-from wind_hub_core.config.fingerprint import fingerprint_config_set
-from wind_hub_core.model.command import Command
 from web_server.adapter.outbound.grpc.commander import CommanderGrpcClient
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
@@ -101,7 +101,7 @@ class TestConfigTransactionRoundTrip:
                 }
             ),
         )
-        config_hash = fingerprint_config_set(config_dir)
+        config_hash = config_dir_digest(config_dir)
 
         prepared = await grpc_client.prepare_config("rev-cmd-1", config_hash)
         assert prepared.success is True
@@ -128,7 +128,7 @@ class TestConfigTransactionRoundTrip:
                 }
             ),
         )
-        config_hash = fingerprint_config_set(config_dir)
+        config_hash = config_dir_digest(config_dir)
 
         prepared = await grpc_client.prepare_config("rev-cmd-abort", config_hash)
         assert prepared.success is True

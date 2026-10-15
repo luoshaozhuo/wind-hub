@@ -6,16 +6,19 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
-from wind_hub_core.model.point import PointValue, Quality
+from core.application.protocol_contract import WriteOutcome
+from core.domain.sample_value import Quality
 from web_server.adapter.inbound.webapi.app import build_api
 from web_server.application.app_context import AppContext
 from web_server.application.device.command import DeviceCommandResult
 from web_server.application.device.data import DeviceDataItem, TrendSeries
 from web_server.application.device.query import DeviceSnapshot
+from web_server.application.device.sample import PointValue
 from web_server.application.monitoring.overview import OverviewSnapshot
 from web_server.application.operation.registry import OperationRegistry
 from web_server.application.sink.service import SinkSnapshot
@@ -82,12 +85,22 @@ def test_v1_devices_search_then_paginate() -> None:
     devices = MagicMock()
     devices.list_devices.return_value = [
         DeviceSnapshot(
-            device_id="wtg-001", protocol="ads", host="192.168.151.1", port=801,
-            point_table="wtg", enabled=True, connected=True,
+            device_id="wtg-001",
+            protocol="ads",
+            host="192.168.151.1",
+            port=801,
+            point_table="wtg",
+            enabled=True,
+            connected=True,
         ),
         DeviceSnapshot(
-            device_id="wtg-002", protocol="ads", host="192.168.151.2", port=801,
-            point_table="wtg", enabled=True, connected=False,
+            device_id="wtg-002",
+            protocol="ads",
+            host="192.168.151.2",
+            port=801,
+            point_table="wtg",
+            enabled=True,
+            connected=False,
         ),
     ]
     client = _client(AppContext(devices=devices))
@@ -144,8 +157,13 @@ def test_v1_device_data_is_paginated_cache_view() -> None:
     data = AsyncMock()
     data.list_data.return_value = [
         DeviceDataItem(
-            point_id="p1", point_groups=["fast"], data_type="float32",
-            unit="none", unit_symbol="", value=1.5, quality=Quality.GOOD,
+            point_id="p1",
+            point_groups=["fast"],
+            data_type="float32",
+            unit="none",
+            unit_symbol="",
+            value=1.5,
+            quality=Quality.GOOD,
         )
     ]
     client = _client(AppContext(device_data=data))
@@ -161,8 +179,18 @@ def test_v1_device_trend_returns_samples() -> None:
     data = AsyncMock()
     data.trend.return_value = [
         TrendSeries(
-            point_id="p1", unit="none", unit_symbol="",
-            samples=[PointValue(device_id="d1", point_id="p1", value=2.5)],
+            point_id="p1",
+            unit="none",
+            unit_symbol="",
+            samples=[
+                PointValue(
+                    device_id="d1",
+                    point_id="p1",
+                    value=2.5,
+                    quality=Quality.GOOD,
+                    timestamp=datetime.now(UTC),
+                )
+            ],
         )
     ]
     client = _client(AppContext(device_data=data))
@@ -175,11 +203,17 @@ def test_v1_device_trend_returns_samples() -> None:
 
 def test_v1_device_command_returns_readback_contract() -> None:
     control = AsyncMock()
+    now = datetime.now(UTC)
     control.send.return_value = DeviceCommandResult(
-        command_id="c1", requested=80.0, success=True,
-        sent_at=PointValue(device_id="d", point_id="p", value=0).timestamp,
-        finished_at=PointValue(device_id="d", point_id="p", value=0).timestamp,
-        latency_ms=12.0, readback=79.8, readback_quality="good",
+        command_id="c1",
+        requested=80.0,
+        outcome=WriteOutcome.CONFIRMED_SUCCESS,
+        success=True,
+        sent_at=now,
+        finished_at=now,
+        latency_ms=12.0,
+        readback=79.8,
+        readback_quality="good",
     )
     client = _client(AppContext(device_control=control))
 
@@ -190,9 +224,7 @@ def test_v1_device_command_returns_readback_contract() -> None:
 
     assert response.status_code == 200
     assert response.json()["readback"] == 79.8
-    control.send.assert_awaited_once_with(
-        "d1", "limit", 80.0, timeout=5.0, command_id="c1"
-    )
+    control.send.assert_awaited_once_with("d1", "limit", 80.0, timeout=5.0, command_id="c1")
 
 
 def test_v1_phase5_quality_endpoint() -> None:
@@ -203,9 +235,16 @@ def test_v1_phase5_quality_endpoint() -> None:
 
     now = datetime.now(UTC)
     quality.snapshot.return_value = QualitySnapshot(
-        window="24h", sampled_from=now, sampled_to=now,
-        acquisition_channels=[], delivery_channels=[],
-        channel_summary=[], data_metrics=[], dimensions=[], issues=[], events=[],
+        window="24h",
+        sampled_from=now,
+        sampled_to=now,
+        acquisition_channels=[],
+        delivery_channels=[],
+        channel_summary=[],
+        data_metrics=[],
+        dimensions=[],
+        issues=[],
+        events=[],
     )
     client = _client(AppContext(quality=quality))
 
@@ -239,11 +278,21 @@ def test_v1_phase5_system_health_endpoint() -> None:
 
     now = datetime.now(UTC)
     health.snapshot.return_value = SystemHealthSnapshot(
-        range="24h", sampled_at=now, uptime_seconds=1.0, cpu_count=4,
-        load_average=None, risks=[], mounts=[],
+        range="24h",
+        sampled_at=now,
+        uptime_seconds=1.0,
+        cpu_count=4,
+        load_average=None,
+        risks=[],
+        mounts=[],
         series=ResourceSeries(
-            timestamps=[], memory_host_gb=[], memory_rss_gb=[],
-            cpu_host_pct=[], cpu_process_pct=[], cpu_temp_c=[], disk_free_gb=[],
+            timestamps=[],
+            memory_host_gb=[],
+            memory_rss_gb=[],
+            cpu_host_pct=[],
+            cpu_process_pct=[],
+            cpu_temp_c=[],
+            disk_free_gb=[],
         ),
         current={},
     )
@@ -322,6 +371,7 @@ def test_v1_admin_state_atomic_apply() -> None:
     assert response.status_code == 200
     assert response.json()["revision"] == 9
     admin_state.replace_all.assert_awaited_once()
+
 
 def test_v1_request_validation_uses_422_envelope() -> None:
     client = _client(AppContext())

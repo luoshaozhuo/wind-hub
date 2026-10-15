@@ -7,11 +7,9 @@ from web_server.infra.log_store import LogStore
 
 def test_log_store_filters_and_bounds() -> None:
     store = LogStore(capacity=2)
-    logger = logging.getLogger("wind_hub_collector.test")
+    logger = logging.getLogger("web_server.test")
     for message in ("one", "two", "three"):
-        record = logger.makeRecord(
-            logger.name, logging.ERROR, __file__, 1, message, (), None
-        )
+        record = logger.makeRecord(logger.name, logging.ERROR, __file__, 1, message, (), None)
         store.append_record(record)
 
     rows = store.query(level="ERROR", keyword="three")

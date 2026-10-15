@@ -248,10 +248,10 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             item = await self._tasks.get_task_summary(_required(request.task_id, "task_id"))
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         except KeyError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown task: {exc.args[0]}")
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         return _task_summary_to_proto(item)
 
     async def ListTaskInstances(
@@ -274,13 +274,13 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             item = await self._tasks.get_instance(_required(request.instance_id, "instance_id"))
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         except KeyError as exc:
             await context.abort(
                 grpc.StatusCode.NOT_FOUND,
                 f"unknown task instance: {exc.args[0]}",
             )
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         return _task_instance_to_proto(item)
 
     async def GetPointsMetadata(
@@ -295,10 +295,10 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             )
         except ValueError as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         except KeyError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
 
         response = pb.PointsMetadataResponse(
             device_id=result.device_id,
@@ -307,9 +307,7 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
         )
         for item in result.points:
             if item.metadata is None:
-                response.points.add(
-                    point_id=item.point_id, found=False, error="point not found"
-                )
+                response.points.add(point_id=item.point_id, found=False, error="point not found")
                 continue
             point = item.metadata
             response.points.add(
@@ -403,10 +401,10 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             item = await self._sinks.verify_sink(_required(request.name, "name"))
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         except KeyError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {exc.args[0]}")
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         return pb.SinkOperationResponse(
             success=item.healthy,
             message=item.message,
@@ -423,10 +421,10 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             result = await self._sinks.write_test_sink(_required(request.name, "name"))
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         except KeyError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {exc.args[0]}")
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         return pb.SinkOperationResponse(
             success=result.success,
             message=result.message,
@@ -452,17 +450,17 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         """原子设置 Collector 的任务归属。重启后默认为空，拒绝旧代次。"""
         if request.worker_id != self._collector_id:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "collector identity mismatch")
-            raise AssertionError("context.abort must terminate the RPC")
+            raise AssertionError("context.abort must terminate the RPC") from None
         if request.generation <= 0 or len(set(request.task_ids)) != len(request.task_ids):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid placement snapshot")
-            raise AssertionError("context.abort must terminate the RPC")
+            raise AssertionError("context.abort must terminate the RPC") from None
         async with self._placement_lock:
             if request.generation < self._placement_generation:
                 await context.abort(
                     grpc.StatusCode.FAILED_PRECONDITION,
                     "stale placement generation",
                 )
-                raise AssertionError("context.abort must terminate the RPC")
+                raise AssertionError("context.abort must terminate the RPC") from None
             tasks = frozenset(request.task_ids)
             unknown = tasks - set(self._app.runtime.task_definitions())
             if unknown:
@@ -470,13 +468,13 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
                     grpc.StatusCode.FAILED_PRECONDITION,
                     f"placement refers to unknown tasks: {sorted(unknown)}",
                 )
-                raise AssertionError("context.abort must terminate the RPC")
+                raise AssertionError("context.abort must terminate the RPC") from None
             if request.generation == self._placement_generation and tasks != self._placement_tasks:
                 await context.abort(
                     grpc.StatusCode.FAILED_PRECONDITION,
                     "placement generation conflict",
                 )
-                raise AssertionError("context.abort must terminate the RPC")
+                raise AssertionError("context.abort must terminate the RPC") from None
             removed = self._placement_tasks - tasks
             for task_id in sorted(removed):
                 try:
@@ -501,7 +499,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
                 grpc.StatusCode.FAILED_PRECONDITION,
                 "task placement ownership mismatch",
             )
-            raise AssertionError("context.abort must terminate the RPC")
+            raise AssertionError("context.abort must terminate the RPC") from None
 
     async def StartTask(
         self,
@@ -539,10 +537,10 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
             item = await operation(task_id)
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         except KeyError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown task: {exc.args[0]}")
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         return _task_summary_to_proto(item)
 
     async def StartTaskInstance(
@@ -555,7 +553,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
             instance = await self._tasks.get_instance(request.instance_id)
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "unknown task instance")
-            raise AssertionError("context.abort must terminate the RPC")
+            raise AssertionError("context.abort must terminate the RPC") from None
         async with self._placement_lock:
             await self._require_task_ownership(
                 instance.task_id, request.placement_generation, context
@@ -588,13 +586,13 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
                 item = await self._tasks.stop_instance(instance_id)
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         except KeyError as exc:
             await context.abort(
                 grpc.StatusCode.NOT_FOUND,
                 f"unknown task instance: {exc.args[0]}",
             )
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         return _task_instance_to_proto(item)
 
     async def PrepareConfig(
@@ -613,7 +611,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
             )
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         return pb.PrepareConfigResponse(
             success=result.success,
             revision_id=revision_id,
@@ -634,7 +632,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
             result = await self._app.config.activate_config(revision_id)
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         return pb.ActivateConfigResponse(
             success=result.success,
             revision_id=revision_id,
@@ -655,7 +653,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
             aborted = await self._app.config.abort_config(revision_id)
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from exc
+            raise AssertionError("context.abort must terminate the RPC") from None
         return pb.AbortConfigResponse(
             success=True,
             revision_id=revision_id,

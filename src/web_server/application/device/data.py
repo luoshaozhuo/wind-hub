@@ -7,11 +7,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from core.domain.identities import DeviceId
 from core.domain.point import Point
 from core.domain.sample_value import Quality
-from web_server.application.device.sample import PointValue
-
 from web_server.application.config.service import ConfigService
+from web_server.application.device.sample import PointValue
 from web_server.application.port.point_store import TrendStore
 from web_server.application.port.worker import CommanderPort
 
@@ -100,7 +100,9 @@ class DeviceDataService:
                     point_id=point.point_id,
                     variable_name=point.business_point_id,
                     point_groups=list(point.point_groups),
-                    data_type=self._config.current_config.business_points[point.business_point_id].data_type.value,
+                    data_type=self._config.current_config.business_points[
+                        point.business_point_id
+                    ].data_type.value,
                     unit=point.source_unit.unit_id,
                     unit_symbol=self._unit_symbol(point.source_unit.unit_id),
                     description=point.description,
@@ -145,8 +147,8 @@ class DeviceDataService:
             TrendSeries(
                 point_id=point_id,
                 variable_name=definitions[point_id].business_point_id,
-                unit=definitions[point_id].unit,
-                unit_symbol=self._unit_symbol(definitions[point_id].unit),
+                unit=definitions[point_id].source_unit.unit_id,
+                unit_symbol=self._unit_symbol(definitions[point_id].source_unit.unit_id),
                 samples=values.get(point_id, []),
             )
             for point_id in requested
@@ -155,7 +157,7 @@ class DeviceDataService:
     def _points_or_raise(self, device_id: str) -> list[Point]:
         """从当前配置快照返回设备绑定的 resolved 点表。"""
         cfg = self._config.current_config
-        device = cfg.site.devices.get(device_id)
+        device = cfg.site.devices.get(DeviceId(device_id))
         if device is None:
             raise KeyError(device_id)
         model = cfg.device_models[device.device_model_id]

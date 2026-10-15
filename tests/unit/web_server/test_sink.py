@@ -30,7 +30,7 @@ async def test_verify_preserves_per_worker_results() -> None:
     placements = MagicMock()
     placements.worker_ids_for_sink.return_value = ["collector-a", "collector-b"]
     config = MagicMock()
-    config.current_config.sinks = {"archive": SimpleNamespace(name="archive")}
+    config.current_config.sinks = {"archive": SimpleNamespace(sink_id="archive")}
 
     service = SinkService(
         directory,
@@ -60,35 +60,35 @@ async def test_verify_preserves_per_worker_results() -> None:
     ]
 
 
-
 def test_list_sinks_preserves_resolved_points_for_admin_roundtrip() -> None:
-    from wind_hub_core.config import Config, ResolvedSinkConfig
+    from core.application.config_snapshot import ConfigSnapshot
+    from core.domain.sink import Sink
     from web_server.application.sink.service import SinkService
 
     config = MagicMock()
-    config.current_config = MagicMock(spec=Config)
+    config.current_config = MagicMock(spec=ConfigSnapshot)
     config.current_config.sinks = {
-        "modbus_scada": ResolvedSinkConfig(
-                name="modbus_scada",
-                type="modbus",
-                enabled=False,
-                connection={"host": "0.0.0.0", "port": 1502},
-                points=[
-                    {
-                        "source": {"device_id": "wt01", "point_id": "power"},
-                        "ref": "wt01.power",
-                        "source_data_type": "float32",
-                        "source_unit": "none",
-                        "datatype": "float32",
-                        "unit": "none",
-                        "address": {
-                            "unit_id": 1,
-                            "register_type": "holding",
-                            "address": 100,
-                        },
-                    }
-                ],
-            )
+        "modbus_scada": Sink(
+            sink_id="modbus_scada",
+            kind="modbus",
+            enabled=False,
+            connection={"host": "0.0.0.0", "port": 1502},
+            points=(
+                {
+                    "source": {"device_id": "wt01", "point_id": "power"},
+                    "ref": "wt01.power",
+                    "source_data_type": "float32",
+                    "source_unit": "none",
+                    "datatype": "float32",
+                    "unit": "none",
+                    "address": {
+                        "unit_id": 1,
+                        "register_type": "holding",
+                        "address": 100,
+                    },
+                },
+            ),
+        )
     }
     monitoring = MagicMock()
     monitoring.sinks_snapshot.return_value = []

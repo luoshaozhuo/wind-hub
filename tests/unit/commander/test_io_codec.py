@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from commander.application.command import Command, CommandResult
 from commander.application.session import PointReading
 from commander.infrastructure.grpc.io_codec import (
     command_from_proto,
@@ -17,6 +16,7 @@ from commander.infrastructure.grpc.io_codec import (
     point_value_to_proto,
 )
 from core.application import Quality
+from core.application.command import Command, CommandResult
 from core.application.protocol_contract import WriteOutcome
 from core.infrastructure.rpc import commander_pb2 as pb
 

@@ -33,11 +33,10 @@ class _Config:
             tasks={
                 task_id: SimpleNamespace(
                     task_id=task_id,
-                    device="d1",
-                    device_group=None,
+                    device_group_id="d1",
                     point_group="fast",
                     interval=1.0,
-                    targets=[SimpleNamespace(sink="archive")],
+                    sink_ids=("archive",),
                     enabled=True,
                 )
                 for task_id in task_ids
@@ -316,9 +315,7 @@ async def test_start_and_stop_instance_after_reconcile(tmp_path) -> None:
     started = await control.start_instance("task-a:d1")
     assert started.state.value == "running"
     assert started.assigned_worker_id == owner
-    assert collectors[owner].started_instances == [
-        ("task-a:d1", placements.generation)
-    ]
+    assert collectors[owner].started_instances == [("task-a:d1", placements.generation)]
 
     stopped = await control.stop_instance("task-a:d1")
     assert stopped.state.value == "stopped"
@@ -353,7 +350,7 @@ def test_task_summary_merges_monitoring_runtime(tmp_path) -> None:
 
     summary = control.get_task_summary("task-a")
 
-    assert summary.device == "d1"
+    assert summary.device_group == "d1"
     assert summary.point_group == "fast"
     assert summary.enabled is True
     assert summary.targets == ["archive"]

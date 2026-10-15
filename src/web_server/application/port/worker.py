@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from commander.application.command import Command, CommandResult
+from core.application.command import Command, CommandResult
 from web_server.application.device.sample import PointValue
 from web_server.application.port.monitoring import (
     AcquisitionStatus,

@@ -92,14 +92,17 @@ async def _task_placement_reconcile_loop(
     interval: float,
 ) -> None:
     """周期收敛 Task placement，阻止错误 Worker 持续采集。"""
-    previous: tuple[
-        bool,
-        int,
-        int,
-        tuple[str, ...],
-        tuple[str, ...],
-        tuple[str, ...],
-    ] | None = None
+    previous: (
+        tuple[
+            bool,
+            int,
+            int,
+            tuple[str, ...],
+            tuple[str, ...],
+            tuple[str, ...],
+        ]
+        | None
+    ) = None
     while True:
         try:
             result = await reconciler.reconcile()
@@ -252,8 +255,7 @@ async def run_server(settings: ServerSettings) -> int:
         placement = await runtime.task_reconciler.reconcile()
         if placement.wrong_running_instances:
             logger.warning(
-                "task placement startup reconciliation stopped %d/%d "
-                "wrong running instance(s)",
+                "task placement startup reconciliation stopped %d/%d " "wrong running instance(s)",
                 placement.stopped_instances,
                 placement.wrong_running_instances,
             )
@@ -276,9 +278,7 @@ async def run_server(settings: ServerSettings) -> int:
             settings.host,
             settings.port,
         )
-        reload_task = asyncio.create_task(
-            _reload_loop(reload_event, runtime.config)
-        )
+        reload_task = asyncio.create_task(_reload_loop(reload_event, runtime.config))
         reconcile_task = asyncio.create_task(
             _reconcile_loop(
                 runtime.config,

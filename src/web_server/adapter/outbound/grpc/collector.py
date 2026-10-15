@@ -42,9 +42,7 @@ def _placement_rejected(exc: grpc.aio.AioRpcError) -> CollectorPlacementRejected
         grpc.StatusCode.FAILED_PRECONDITION,
         grpc.StatusCode.PERMISSION_DENIED,
     }:
-        return CollectorPlacementRejectedError(
-            exc.details() or exc.code().name
-        )
+        return CollectorPlacementRejectedError(exc.details() or exc.code().name)
     return None
 
 
@@ -180,14 +178,17 @@ class CollectorGrpcClient(GrpcClientBase):
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [DeviceRuntimeInfo(
-            device_id=item.device_id,
-            protocol=item.protocol,
-            connected=item.connected,
-            last_seen=item.last_seen.ToJsonString() if item.HasField("last_seen") else None,
-            consecutive_failures=item.consecutive_failures,
-            last_error=item.last_error or None,
-        ) for item in response.items]
+        return [
+            DeviceRuntimeInfo(
+                device_id=item.device_id,
+                protocol=item.protocol,
+                connected=item.connected,
+                last_seen=item.last_seen.ToJsonString() if item.HasField("last_seen") else None,
+                consecutive_failures=item.consecutive_failures,
+                last_error=item.last_error or None,
+            )
+            for item in response.items
+        ]
 
     async def list_sinks(self) -> list[SinkRuntimeInfo]:
         """列出 Collector 当前 Sink 状态。"""
@@ -195,12 +196,15 @@ class CollectorGrpcClient(GrpcClientBase):
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [SinkRuntimeInfo(
-            name=item.name,
-            healthy=item.healthy,
-            message=item.message or None,
-            queue_depth=item.queue_depth,
-        ) for item in response.items]
+        return [
+            SinkRuntimeInfo(
+                name=item.name,
+                healthy=item.healthy,
+                message=item.message or None,
+                queue_depth=item.queue_depth,
+            )
+            for item in response.items
+        ]
 
     async def verify_sink(self, name: str) -> SinkOperationResult:
         """检查指定 Sink 健康状态。"""
@@ -240,10 +244,7 @@ class CollectorGrpcClient(GrpcClientBase):
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [
-            _task_instance(item)
-            for item in response.items
-        ]
+        return [_task_instance(item) for item in response.items]
 
     async def apply_task_placement(
         self, worker_id: str, generation: int, task_ids: list[str]
@@ -267,15 +268,11 @@ class CollectorGrpcClient(GrpcClientBase):
             task_count=response.task_count,
         )
 
-    async def start_task(
-        self, task_id: str, placement_generation: int
-    ) -> CollectorTaskSummary:
+    async def start_task(self, task_id: str, placement_generation: int) -> CollectorTaskSummary:
         """携带经过 Server 收敛的任务归属代次启动采集。"""
         try:
             response = await self._control_stub.StartTask(
-                pb.TaskStartRequest(
-                    task_id=task_id, placement_generation=placement_generation
-                ),
+                pb.TaskStartRequest(task_id=task_id, placement_generation=placement_generation),
                 timeout=self.default_timeout,
             )
         except grpc.aio.AioRpcError as exc:

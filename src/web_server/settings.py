@@ -1,7 +1,7 @@
 """wind-hub-server 进程级启动参数。
 
 这里只保存服务宿主自身需要的参数，不复制 ``system.yaml`` 的业务配置。
-现场设备、Task、Sink、ADS 等配置仍由 ``wind_hub_collector.config`` 负责加载和校验。
+现场设备、Task、Sink 等业务配置由 Shared Core 配置体系负责加载和校验。
 """
 
 from __future__ import annotations
@@ -66,11 +66,8 @@ class ServerSettings:
             if not worker_id:
                 raise ValueError("collector worker_id must not be empty")
             if not endpoint:
-                raise ValueError(
-                    f"collector endpoint for '{worker_id}' must not be empty"
-                )
+                raise ValueError(f"collector endpoint for '{worker_id}' must not be empty")
             if worker_id in result:
                 raise ValueError(f"duplicate collector worker_id '{worker_id}'")
             result[worker_id] = endpoint
         return result
-

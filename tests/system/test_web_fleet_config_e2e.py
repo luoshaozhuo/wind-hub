@@ -17,7 +17,10 @@ import yaml
 
 from scripts.generate_virtual_site import generate_site
 from tests.support.process import CollectorProcess, free_port, start_web_server
-from tests.system.test_web_protocol_fleet_e2e import ProtocolFleet, protocol_fleet  # noqa: F401
+from tests.system.test_web_protocol_fleet_e2e import (  # noqa: F401
+    ProtocolFleet,
+    protocol_fleet,
+)
 from web_server.application.config.service import ConfigService
 
 pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.system]
@@ -48,7 +51,7 @@ def build_fleet_config(destination: Path, fleet: ProtocolFleet) -> Path:
 @pytest.fixture(scope="module")
 def fleet_config_dir(
     tmp_path_factory: pytest.TempPathFactory,
-    protocol_fleet: ProtocolFleet,
+    protocol_fleet: ProtocolFleet,  # noqa: F811  # pytest fixture 注入
 ) -> Path:
     return build_fleet_config(tmp_path_factory.mktemp("web-fleet") / "site", protocol_fleet)
 
@@ -121,7 +124,8 @@ async def test_live_http_exposes_30_protocol_devices(
 
 @pytest.mark.parametrize("resource", ["settings", "definitions", "sinks", "tasks", "config/files"])
 async def test_live_read_models_remain_available_during_worker_outage(
-    web_server: tuple[str, CollectorProcess], resource: str,
+    web_server: tuple[str, CollectorProcess],
+    resource: str,
 ) -> None:
     url, _ = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -131,7 +135,8 @@ async def test_live_read_models_remain_available_during_worker_outage(
 
 @pytest.mark.parametrize("task_id", ["e2e-modbus", "e2e-ads", "e2e-iec104"])
 async def test_task_start_fails_closed_when_collector_is_unreachable(
-    web_server: tuple[str, CollectorProcess], task_id: str,
+    web_server: tuple[str, CollectorProcess],
+    task_id: str,
 ) -> None:
     url, process = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -140,14 +145,18 @@ async def test_task_start_fails_closed_when_collector_is_unreachable(
         assert process.poll() is None
 
 
-@pytest.mark.parametrize("path", [
-    "/api/v1/config/files/../../etc/passwd",
-    "/api/v1/config/files/unknown.yaml",
-    "/api/v1/tasks/%00/start",
-    "/api/v1/sinks/unknown-sink/verify",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/config/files/../../etc/passwd",
+        "/api/v1/config/files/unknown.yaml",
+        "/api/v1/tasks/%00/start",
+        "/api/v1/sinks/unknown-sink/verify",
+    ],
+)
 async def test_path_traversal_and_invalid_targets_are_rejected(
-    web_server: tuple[str, CollectorProcess], path: str,
+    web_server: tuple[str, CollectorProcess],
+    path: str,
 ) -> None:
     url, _ = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -155,14 +164,18 @@ async def test_path_traversal_and_invalid_targets_are_rejected(
         assert response.status_code in {400, 404, 405, 409, 422, 503}
 
 
-@pytest.mark.parametrize("body", [
-    {},
-    {"site_id": ""},
-    {"site_id": "wind", "api_port": -1},
-    {"site_id": "wind", "ads_username": "unsafe"},
-])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"site_id": ""},
+        {"site_id": "wind", "api_port": -1},
+        {"site_id": "wind", "ads_username": "unsafe"},
+    ],
+)
 async def test_invalid_settings_payloads_are_rejected(
-    web_server: tuple[str, CollectorProcess], body: dict[str, object],
+    web_server: tuple[str, CollectorProcess],
+    body: dict[str, object],
 ) -> None:
     url, _ = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -170,13 +183,17 @@ async def test_invalid_settings_payloads_are_rejected(
         assert response.status_code in {400, 409, 422}
 
 
-@pytest.mark.parametrize("content", [
-    "not: [valid",
-    "interfaces:\n  api:\n    port: 9\n",
-    "site:\n  site_id: wrong\nsite:\n  site_id: duplicate\n",
-])
+@pytest.mark.parametrize(
+    "content",
+    [
+        "not: [valid",
+        "interfaces:\n  api:\n    port: 9\n",
+        "site:\n  site_id: wrong\nsite:\n  site_id: duplicate\n",
+    ],
+)
 async def test_malformed_configuration_fails_without_mutating_live_snapshot(
-    web_server: tuple[str, CollectorProcess], content: str,
+    web_server: tuple[str, CollectorProcess],
+    content: str,
 ) -> None:
     url, process = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
@@ -199,7 +216,10 @@ async def test_parallel_invalid_requests_do_not_crash_http_server(
     url, process = web_server
     async with httpx.AsyncClient(base_url=url, timeout=8) as client:
         requests = [
-            client.post("/api/v1/config/validate", json={"name": "../etc/passwd", "content": "a: 1"})
+            client.post(
+                "/api/v1/config/validate",
+                json={"name": "../etc/passwd", "content": "a: 1"},
+            )
             for _ in range(30)
         ]
         results = await asyncio.gather(*requests)

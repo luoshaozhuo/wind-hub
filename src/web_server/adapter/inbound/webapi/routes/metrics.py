@@ -33,9 +33,7 @@ async def metrics_endpoint(ctx: AppContext = Depends(get_ctx)) -> Response:
         metrics.update_device_gauges(
             [(row.device_id, row.protocol, row.connected) for row in devices]
         )
-        metrics.update_sink_queue_depths(
-            {row.name: row.queue_depth for row in sinks}
-        )
+        metrics.update_sink_queue_depths({row.name: row.queue_depth for row in sinks})
         body = metrics.render()
     except Exception as exc:
         raise APIError(

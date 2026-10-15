@@ -20,9 +20,9 @@ import logging
 import time
 from collections import OrderedDict
 
+from core.application.command import Command, CommandResult
 from core.application.protocol_contract import WriteOutcome
 
-from .command import Command, CommandResult
 from .errors import CommandError, CommandUncertainError
 from .runtime import CommanderRuntime
 

@@ -20,6 +20,9 @@ async def test_bulk_preserves_unit_quantity_and_model_options() -> None:
     update = admin.mutate_yaml_files.call_args.args[1]
     data = {
         "devices.yaml": {"device_groups": {}, "devices": {}},
+        "tasks.yaml": {"tasks": {}},
+        "sinks.yaml": {"sinks": {}},
+        "points.yaml": {"point_tables": {}},
         "units.yaml": {
             "quantities": {"power": {"base_unit": "W"}},
             "units": {"kW": {"quantity": "power", "scale_to_base": 1000}},

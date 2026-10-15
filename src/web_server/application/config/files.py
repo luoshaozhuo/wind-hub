@@ -98,8 +98,7 @@ class ConfigFileService:
     def list_files(self) -> list[ConfigFileInfo]:
         """列出固定配置集。"""
         return [
-            ConfigFileInfo(name=name, exists=(self._base / name).is_file())
-            for name in CONFIG_FILES
+            ConfigFileInfo(name=name, exists=(self._base / name).is_file()) for name in CONFIG_FILES
         ]
 
     def read_file(self, name: str) -> str:
@@ -128,9 +127,7 @@ class ConfigFileService:
     ) -> ConfigApplyResult:
         """串行化配置 Apply，避免并发替换同一配置集。"""
         async with self._apply_lock:
-            return await self._apply_file_locked(
-                name, content, source=source, comment=comment
-            )
+            return await self._apply_file_locked(name, content, source=source, comment=comment)
 
     async def _apply_file_locked(
         self, name: str, content: str, *, source: str, comment: str
@@ -152,9 +149,7 @@ class ConfigFileService:
             errors = list(result.errors)
             if not rollback.success:
                 errors.append(f"rollback reload failed: {rollback.errors}")
-            return ConfigApplyResult(
-                success=False, errors=errors, rollback_performed=True
-            )
+            return ConfigApplyResult(success=False, errors=errors, rollback_performed=True)
         revision = self._record_revision(source=source, comment=comment)
         return ConfigApplyResult(success=True, revision=revision)
 
@@ -192,10 +187,7 @@ class ConfigFileService:
         if not ordered_names:
             return ConfigApplyResult(success=True)
         async with self._apply_lock:
-            documents = {
-                name: self.read_yaml_mapping(name)
-                for name in ordered_names
-            }
+            documents = {name: self.read_yaml_mapping(name) for name in ordered_names}
             mutator(documents)
             files = {
                 name: yaml.safe_dump(
@@ -300,9 +292,7 @@ class ConfigFileService:
             errors = list(result.errors)
             if not rollback.success:
                 errors.append(f"rollback reload failed: {rollback.errors}")
-            return ConfigApplyResult(
-                success=False, errors=errors, rollback_performed=True
-            )
+            return ConfigApplyResult(success=False, errors=errors, rollback_performed=True)
         new_revision = self._record_revision(
             source="restore", comment=f"restored revision {revision}"
         )

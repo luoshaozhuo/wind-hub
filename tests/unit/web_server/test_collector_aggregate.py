@@ -139,8 +139,12 @@ async def test_snapshot_verifies_identity_once_and_aggregates_all_views() -> Non
     collector = _Collector("collector-a")
     config = SimpleNamespace(
         current_config=SimpleNamespace(
-            devices={"d1": SimpleNamespace(device_id="d1", protocol="ads")},
-            sinks={"archive": SimpleNamespace(name="archive")},
+            site=SimpleNamespace(
+                devices={"d1": SimpleNamespace(device_id="d1", device_model_id="m1")}
+            ),
+            device_models={"m1": SimpleNamespace(point_table_id="wtg")},
+            point_tables={"wtg": SimpleNamespace(protocol=SimpleNamespace(name="ads"))},
+            sinks={"archive": SimpleNamespace(sink_id="archive")},
             system=SimpleNamespace(),
         )
     )

@@ -9,6 +9,7 @@ from hashlib import sha256
 
 from pydantic import BaseModel
 
+from core.domain.identities import DeviceId
 from web_server.application.config.service import ConfigService
 from web_server.application.port.collector_directory import CollectorDirectory
 
@@ -84,42 +85,28 @@ class TaskPlacementRegistry:
         """读取并校验已持久化 placement。"""
         raw = json.loads(self._state_path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict) or raw.get("version") != _STATE_VERSION:
-            raise ValueError(
-                f"unsupported task placement state: {self._state_path}"
-            )
+            raise ValueError(f"unsupported task placement state: {self._state_path}")
         placements = raw.get("placements")
         if not isinstance(placements, dict):
-            raise ValueError(
-                f"invalid task placement state: {self._state_path}"
-            )
+            raise ValueError(f"invalid task placement state: {self._state_path}")
 
         loaded: dict[str, str | None] = {}
         for task_id, worker_id in placements.items():
             if not isinstance(task_id, str) or not task_id:
-                raise ValueError(
-                    f"invalid task_id in placement state: {self._state_path}"
-                )
-            if worker_id is not None and (
-                not isinstance(worker_id, str) or not worker_id
-            ):
-                raise ValueError(
-                    f"invalid worker_id for task '{task_id}' in placement state"
-                )
+                raise ValueError(f"invalid task_id in placement state: {self._state_path}")
+            if worker_id is not None and (not isinstance(worker_id, str) or not worker_id):
+                raise ValueError(f"invalid worker_id for task '{task_id}' in placement state")
             loaded[task_id] = worker_id
         generation = raw.get("generation")
         if not isinstance(generation, int) or generation < 1:
-            raise ValueError(
-                f"invalid placement generation: {self._state_path}"
-            )
+            raise ValueError(f"invalid placement generation: {self._state_path}")
         workers = raw.get("workers")
         if (
             not isinstance(workers, list)
             or any(not isinstance(worker_id, str) or not worker_id for worker_id in workers)
             or len(set(workers)) != len(workers)
         ):
-            raise ValueError(
-                f"invalid placement worker set: {self._state_path}"
-            )
+            raise ValueError(f"invalid placement worker set: {self._state_path}")
         self._placements = loaded
         self._generation = generation
         self._persisted_workers = tuple(sorted(workers))
@@ -133,9 +120,7 @@ class TaskPlacementRegistry:
             "workers": list(self._persisted_workers),
             "placements": dict(sorted(self._placements.items())),
         }
-        temp_path = self._state_path.with_name(
-            f".{self._state_path.name}.{os.getpid()}.tmp"
-        )
+        temp_path = self._state_path.with_name(f".{self._state_path.name}.{os.getpid()}.tmp")
         with temp_path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
@@ -159,10 +144,7 @@ class TaskPlacementRegistry:
     def sync(self) -> None:
         """与当前成功配置和 Worker 集合同步，不迁移已有 Task。"""
         self._sync_worker_set()
-        task_ids = {
-            task.task_id
-            for task in self._config.current_config.tasks.values()
-        }
+        task_ids = {task.task_id for task in self._config.current_config.tasks.values()}
         changed = False
 
         for task_id in list(self._placements):
@@ -185,9 +167,7 @@ class TaskPlacementRegistry:
             return None
         return max(
             worker_ids,
-            key=lambda worker_id: sha256(
-                f"{task_id}\0{worker_id}".encode()
-            ).digest(),
+            key=lambda worker_id: sha256(f"{task_id}\0{worker_id}".encode()).digest(),
         )
 
     def _state_for(self, worker_id: str | None) -> TaskPlacementState:
@@ -217,8 +197,7 @@ class TaskPlacementRegistry:
             raise TaskPlacementError(f"task '{task_id}' is unassigned")
         if placement.state is TaskPlacementState.ORPHANED:
             raise TaskPlacementError(
-                f"task '{task_id}' is orphaned from worker "
-                f"'{placement.worker_id}'"
+                f"task '{task_id}' is orphaned from worker " f"'{placement.worker_id}'"
             )
         assert placement.worker_id is not None
         return placement.worker_id
@@ -241,29 +220,25 @@ class TaskPlacementRegistry:
         return [
             row.task_id
             for row in self.list_placements()
-            if row.state is TaskPlacementState.ASSIGNED
-            and row.worker_id == worker_id
+            if row.state is TaskPlacementState.ASSIGNED and row.worker_id == worker_id
         ]
 
     def worker_ids_for_device(self, device_id: str) -> list[str]:
         """返回实际承载指定设备采集 Task 的当前 Collector。"""
-        device = self._config.current_config.site.devices.get(device_id)
+        device = self._config.current_config.site.devices.get(DeviceId(device_id))
         if device is None:
             raise KeyError(device_id)
 
         placements = {
             row.task_id: row.worker_id
             for row in self.list_placements()
-            if row.state is TaskPlacementState.ASSIGNED
-            and row.worker_id is not None
+            if row.state is TaskPlacementState.ASSIGNED and row.worker_id is not None
         }
         workers: set[str] = set()
         for task in self._config.current_config.tasks.values():
             if not task.enabled or task.task_id not in placements:
                 continue
-            matches = (
-                task.device_group_id in device.device_group_ids
-            )
+            matches = task.device_group_id in device.device_group_ids
             if matches:
                 workers.add(placements[task.task_id])
         return sorted(workers)
@@ -276,17 +251,12 @@ class TaskPlacementRegistry:
         placements = {
             row.task_id: row.worker_id
             for row in self.list_placements()
-            if row.state is TaskPlacementState.ASSIGNED
-            and row.worker_id is not None
+            if row.state is TaskPlacementState.ASSIGNED and row.worker_id is not None
         }
         workers = {
             placements[task.task_id]
             for task in self._config.current_config.tasks.values()
-            if (
-                task.enabled
-                and task.task_id in placements
-                and sink_name in task.sink_ids
-            )
+            if (task.enabled and task.task_id in placements and sink_name in task.sink_ids)
         }
         return sorted(workers)
 

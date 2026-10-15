@@ -32,8 +32,12 @@ class SettingsService:
     """Settings 与 system.yaml 的同源结构化入口。"""
 
     def __init__(
-        self, config: ConfigService, admin: ConfigFileService,
-        *, api_host: str = "127.0.0.1", api_port: int = 8080,
+        self,
+        config: ConfigService,
+        admin: ConfigFileService,
+        *,
+        api_host: str = "127.0.0.1",
+        api_port: int = 8080,
     ) -> None:
         self._config = config
         self._admin = admin
@@ -59,10 +63,13 @@ class SettingsService:
 
     async def update(self, request: SettingsUpdate) -> ConfigApplyResult:
         """只修改 system.yaml 对应字段，其余字段保持当前已提交内容。"""
-        if (request.api_enabled, request.api_host, request.api_port) != (True, self._api_host, self._api_port):
+        listener = (request.api_enabled, request.api_host, request.api_port)
+        if listener != (True, self._api_host, self._api_port):
             raise ValueError("API listener options belong to process deployment")
         if request.ads_password or request.ads_username != "Administrator":
-            raise ValueError("ADS device credentials must be configured per device protocol_options")
+            raise ValueError(
+                "ADS device credentials must be configured per device protocol_options"
+            )
 
         def mutate(documents: dict[str, dict[str, object]]) -> None:
             raw = documents["system.yaml"]

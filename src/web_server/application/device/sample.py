@@ -1,4 +1,4 @@
-"""Server 读取与短期趋势使用的点值 DTO；不依赖旧 Core API。"""
+"""Server 读取与短期趋势使用的点值 DTO。"""
 
 from __future__ import annotations
 
