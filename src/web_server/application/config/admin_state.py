@@ -106,6 +106,14 @@ class AdminStateService:
                     for unit_id, item in definitions.units.items()
                 },
             }
+            old_models = documents["device_models.yaml"].get("device_models", {})
+            if not isinstance(old_models, dict):
+                raise ValueError("device_models.yaml device_models must be a mapping")
+            model_definitions = definitions_documents["device_models.yaml"]["device_models"]
+            definitions_documents["device_models.yaml"]["device_models"] = {
+                model_id: {**old_models.get(model_id, {}), **value}
+                for model_id, value in model_definitions.items()
+            }
             documents.update(definitions_documents)
 
         return await self._admin.mutate_yaml_files(
