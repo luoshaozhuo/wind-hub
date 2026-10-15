@@ -384,28 +384,17 @@ class ADSDriver:
 
     async def write_one(
         self,
-        write: ProtocolWrite | ADSPoint,
-        value: WritableScalar | None = None,
+        write: ProtocolWrite[ADSPoint],
     ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不使用 Sum Write 批量规划。
 
-        两种调用形式：
-        - ``write_one(ProtocolWrite(point_id, value))``——注册点写入；
-        - ``write_one(ads_point, value)``——动态点按显式 index 地址直写，
-          不查点表、不做 symbol 解析，校验与注册点完全相同。
+        Accepts ProtocolWrite with a registered point ID or dynamic ADSPoint.
+
 
         配置/取值级问题返回失败结果；连接/传输级问题统一抛 ProtocolError。
         """
-        if isinstance(write, ProtocolWrite):
-            if value is not None:
-                raise TypeError("write_one(ProtocolWrite) does not take a separate value")
-            mapped = self._mapped_point(write.point_id)
-            write_value: object = write.value
-        else:
-            if value is None:
-                raise TypeError("write_one(point, value) requires an explicit value")
-            mapped = write
-            write_value = value
+        mapped = self._resolve_point(write.point)
+        write_value = write.value
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
