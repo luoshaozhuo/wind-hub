@@ -32,7 +32,7 @@ class ProtocolPoint(Protocol):
     def point_id(self) -> str: ...
 
 
-TPoint = TypeVar("TPoint", bound=ProtocolPoint, default=ProtocolPoint)
+TPoint = TypeVar("TPoint", bound=ProtocolPoint, covariant=True, default=ProtocolPoint)
 
 
 @dataclass(frozen=True, slots=True)
