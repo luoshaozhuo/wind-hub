@@ -43,3 +43,29 @@ def test_collector_sink_service_triggers_rpc_and_sink_gates() -> None:
 
 def test_collector_query_service_triggers_rpc_gate() -> None:
     assert "integration-rpc" in _pr_targets("src/collector/application/services.py")
+
+
+def test_playwright_spec_changes_trigger_frontend_e2e() -> None:
+    result = _load_ci_scope().classify(["tests/web_admin/e2e/shell.spec.ts"])
+    assert result["frontend_e2e"] == "true"
+    assert result["frontend_fast"] == "false"
+
+
+def test_vitest_spec_changes_trigger_frontend_fast() -> None:
+    result = _load_ci_scope().classify(["tests/web_admin/unit/status.spec.ts"])
+    assert result["frontend_fast"] == "true"
+    assert result["frontend_e2e"] == "false"
+
+
+def test_pr_targets_stay_consumable_by_ci_gate() -> None:
+    """ci_scope 输出的 PR target 必须全部存在于 ci_gate.PR_TARGETS。"""
+    import importlib.util as _util
+
+    spec = _util.spec_from_file_location("ci_gate", REPO_ROOT / "scripts" / "ci_gate.py")
+    assert spec is not None and spec.loader is not None
+    ci_gate = _util.module_from_spec(spec)
+    spec.loader.exec_module(ci_gate)
+
+    scope = _load_ci_scope()
+    unknown = set(scope.PR_TARGET_ORDER) - set(ci_gate.PR_TARGETS)
+    assert unknown == set()

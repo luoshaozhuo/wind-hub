@@ -1034,7 +1034,7 @@ export interface components {
         };
         /**
          * DeviceCommandResponse
-         * @description 写入确认和真实回读结果。
+         * @description 返回现场写入的三态结论；UNKNOWN 不代表确认失败，不得自动重发。
          */
         DeviceCommandResponse: {
             /** Command Id */
@@ -1048,6 +1048,7 @@ export interface components {
             finished_at: string;
             /** Latency Ms */
             latency_ms: number;
+            outcome: components["schemas"]["WriteOutcome"];
             /** Readback */
             readback?: unknown;
             /** Readback Error */
@@ -1146,7 +1147,7 @@ export interface components {
             /** Point Table */
             point_table: string;
             /** Port */
-            port: number;
+            port: number | null;
             /** Port Override */
             port_override?: number | null;
             /** Protocol */
@@ -1757,6 +1758,10 @@ export interface components {
         };
         /** ValidationError */
         ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
@@ -1796,6 +1801,19 @@ export interface components {
             /** Worker Id */
             worker_id: string;
         };
+        /**
+         * WriteOutcome
+         * @description 一次写入的现场执行结果分类。
+         *
+         *     - ``CONFIRMED_SUCCESS``：协议证据确认设备已接受并执行；
+         *     - ``CONFIRMED_FAILURE``：请求未发送（本地校验失败）或设备明确
+         *       拒绝（异常响应/否定确认）——可以确证未执行；
+         *     - ``UNKNOWN``：命令可能已送达或已执行，但没有足够证据确认最终
+         *       结果（响应超时、确认丢失、写入期间连接中断）。UNKNOWN 结果
+         *       不得被调用方盲目重试。
+         * @enum {string}
+         */
+        WriteOutcome: "confirmed_success" | "confirmed_failure" | "unknown";
     };
     responses: never;
     parameters: never;
