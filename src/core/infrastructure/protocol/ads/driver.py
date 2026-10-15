@@ -228,15 +228,19 @@ class ADSDriver:
                         raise ConfigError("ADS local AMS identity is not initialized")
                     try:
                         # 路由是 PLC 持久资源；pyads.delete_route() 只删本地路由。
-                        with _REMOTE_ROUTE_LOCK:
-                            added = await asyncio.to_thread(
-                                pyads.add_route_to_plc,
-                                identity.local_ams_net_id,
-                                identity.local_ip,
-                                self._config.host,
-                                self._config.username,
-                                self._config.password,
-                            )
+                        def add_route() -> bool:
+                            with _REMOTE_ROUTE_LOCK:
+                                return bool(
+                                    pyads.add_route_to_plc(
+                                        identity.local_ams_net_id,
+                                        identity.local_ip,
+                                        self._config.host,
+                                        self._config.username,
+                                        self._config.password,
+                                    )
+                                )
+
+                        added = await asyncio.to_thread(add_route)
                         if not added:
                             raise RuntimeError("remote route registration refused")
                     except Exception:
