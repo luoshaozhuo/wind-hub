@@ -53,16 +53,43 @@ class ADSPoint:
     """规范化 ADS 点地址。
 
     symbol 存在时，index 地址必须在当前 ADS session 建立后重新解析；
-    配置中的 index 值仅作诊断参考，不能直接用于生产读写。
+    未解析地址以 None 表示，不使用合法数值作占位。
     """
 
     point_id: str
-    index_group: int
-    index_offset: int
+    index_group: int | None
+    index_offset: int | None
     data_type: str
     size: int
     symbol: str | None = None
-    address_resolved: bool = True
+
+    def __post_init__(self) -> None:
+        has_group = self.index_group is not None
+        has_offset = self.index_offset is not None
+        if has_group != has_offset:
+            raise ConfigError(
+                f"ADS point '{self.point_id}' requires a complete index address"
+            )
+        if not has_group and self.symbol is None:
+            raise ConfigError(
+                f"ADS point '{self.point_id}' requires symbol or index address"
+            )
+
+    @property
+    def address_resolved(self) -> bool:
+        return self.index_group is not None and self.index_offset is not None
+
+    @property
+    def group(self) -> int:
+        if self.index_group is None:
+            raise ConfigError(f"ADS point '{self.point_id}' index address is unresolved")
+        return self.index_group
+
+    @property
+    def offset(self) -> int:
+        if self.index_offset is None:
+            raise ConfigError(f"ADS point '{self.point_id}' index address is unresolved")
+        return self.index_offset
 
     def resolved(
         self,
@@ -77,14 +104,13 @@ class ADSPoint:
             index_group=index_group,
             index_offset=index_offset,
             size=self.size if size is None else size,
-            address_resolved=True,
         )
 
     def unresolved(self) -> ADSPoint:
         """使 symbol 派生地址失效。"""
         if self.symbol is None:
             return self
-        return replace(self, address_resolved=False)
+        return replace(self, index_group=None, index_offset=None)
 
 
 def ads_point(
@@ -113,6 +139,8 @@ def ads_point(
             f"ADS point '{point_id}': size {resolved_size} does not match "
             f"{ads_type} width {_ADS_TYPE_SIZES[ads_type]}"
         )
+    if ads_type == "STRING" and resolved_size <= 0:
+        raise ConfigError(f"ADS point '{point_id}': STRING requires positive size")
     return ADSPoint(
         point_id=point_id,
         index_group=group,
@@ -134,20 +162,31 @@ def parse_ads_point(
     symbol = _optional_string(options.get("symbol"), "symbol", point.point_id)
     raw_group = options.get("index_group")
     raw_offset = options.get("index_offset")
-    if (raw_group is None) != (raw_offset is None):
+    has_group = raw_group is not None
+    has_offset = raw_offset is not None
+    if has_group != has_offset:
         raise ConfigError(
             f"ADS point '{point.point_id}': index_group and index_offset "
             "must be configured together"
         )
-    if symbol is None and raw_group is None:
-        raise ConfigError(f"ADS point '{point.point_id}' requires symbol or index address")
+    if symbol is None and not has_group:
+        raise ConfigError(
+            f"ADS point '{point.point_id}' requires symbol or "
+            "index_group + index_offset"
+        )
 
     index_group = (
-        0 if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
+        None if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
     )
     index_offset = (
-        0 if raw_offset is None else _non_negative_int(raw_offset, "index_offset", point.point_id)
+        None if raw_offset is None else _non_negative_int(raw_offset, "index_offset", point.point_id)
     )
+
+    # Symbol addresses are session-bound. Even an explicitly configured index
+    # pair must not be reused until resolved against the current PLC session.
+    if symbol is not None:
+        index_group = None
+        index_offset = None
 
     explicit_type = options.get("data_type", options.get("type"))
     if explicit_type is None:
@@ -167,8 +206,8 @@ def parse_ads_point(
             f"ADS point '{point.point_id}': size {size} does not match "
             f"{ads_type} width {_ADS_TYPE_SIZES[ads_type]}"
         )
-    if ads_type == "STRING" and size < 0:
-        raise ConfigError(f"ADS point '{point.point_id}': size must be >= 0")
+    if ads_type == "STRING" and size <= 0:
+        raise ConfigError(f"ADS point '{point.point_id}': STRING requires positive size")
 
     return ADSPoint(
         point_id=point.point_id,
@@ -177,7 +216,6 @@ def parse_ads_point(
         data_type=ads_type,
         size=size,
         symbol=symbol,
-        address_resolved=symbol is None,
     )
 
 

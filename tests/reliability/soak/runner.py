@@ -454,7 +454,7 @@ async def _write_loop(app: CollectorApp, profile: SoakProfile, stats: WriteStats
         stats.commands += 1
         try:
             result = await app.runtime.devices[device_id].protocol.write_one(
-                ProtocolWrite(point_id="r.0000", value=tick % 0x8000)
+                ProtocolWrite(point="r.0000", value=tick % 0x8000)
             )
         except Exception:
             # 断连/传输失败 = 本次写失败；写循环本身必须持续。

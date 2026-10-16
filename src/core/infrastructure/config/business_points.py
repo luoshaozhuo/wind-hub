@@ -24,11 +24,11 @@ def parse_business_points(
     for identity, value in entries.items():
         if not isinstance(identity, str) or not identity.strip() or identity != identity.strip():
             raise ConfigError("business point IDs must be non-empty trimmed strings")
-        if not isinstance(value, dict) or set(value) - {"data_type", "unit_id", "description"}:
+        if not isinstance(value, dict) or set(value) - {"data_type", "unit", "description"}:
             raise ConfigError(f"invalid business point '{identity}' fields")
         try:
             data_type = DataType(value["data_type"])
-            unit = units.unit(value["unit_id"])
+            unit = units.unit(value["unit"])
             description = value.get("description")
             if description is not None and not isinstance(description, str):
                 raise ValueError("description must be string")

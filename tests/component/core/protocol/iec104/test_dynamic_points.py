@@ -162,7 +162,7 @@ class TestDynamicWrite:
         station = _Station()
         driver = _driver(station)
 
-        result = await driver.write_one(iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), True)
+        result = await driver.write_one(ProtocolWrite(iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), True))
 
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert result.point_id == "switch"
@@ -180,9 +180,9 @@ class TestDynamicWrite:
         station.add_calls.clear()
         driver = _driver(station)
 
-        result = await driver.write_one(
+        result = await driver.write_one(ProtocolWrite(
             iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), False
-        )
+        ))
 
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert station.add_calls == []
@@ -196,7 +196,7 @@ class TestDynamicWrite:
         existing = station.add_point(io_address=1001, type=c104.Type.M_ME_NC_1)
         driver = _driver(station)
 
-        result = await driver.write_one(iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), True)
+        result = await driver.write_one(ProtocolWrite(iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), True))
 
         assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "already registered" in (result.message or "")
@@ -207,7 +207,7 @@ class TestDynamicWrite:
         station = _Station()
         driver = _driver(station)
 
-        result = await driver.write_one(iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), 1)
+        result = await driver.write_one(ProtocolWrite(iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), 1))
 
         assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert station.add_calls == []
@@ -215,14 +215,14 @@ class TestDynamicWrite:
     @pytest.mark.asyncio
     async def test_missing_type_id_rejected(self) -> None:
         driver = _driver()
-        result = await driver.write_one(iec104_point("switch", ioa=1001), True)
+        result = await driver.write_one(ProtocolWrite(iec104_point("switch", ioa=1001), True))
         assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "type_id" in (result.message or "")
 
     @pytest.mark.asyncio
     async def test_monitoring_type_rejected_as_command(self) -> None:
         driver = _driver()
-        result = await driver.write_one(iec104_point("switch", ioa=1001, type_id="M_ME_NC_1"), True)
+        result = await driver.write_one(ProtocolWrite(iec104_point("switch", ioa=1001, type_id="M_ME_NC_1"), True))
         assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "unsupported command type" in (result.message or "")
 
@@ -232,7 +232,7 @@ class TestDynamicWrite:
         driver = _driver(station, points_by_id={"reg": IEC104Point("reg", 1001, "C_SC_NA_1")})
         result = await driver.write_one(ProtocolWrite("reg", True))
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-        with pytest.raises(TypeError, match="does not take a separate value"):
+        with pytest.raises(TypeError):
             await driver.write_one(ProtocolWrite("reg", True), False)
 
 
@@ -348,3 +348,30 @@ class TestDynamicReceive:
         assert observed[0].point_id == "dyn"
         assert observed[0].value == 1.25
         assert observed[0].quality == Quality.UNCERTAIN
+
+
+@pytest.mark.asyncio
+async def test_subscription_close_times_out_when_callback_never_returns() -> None:
+    registry = _SubscriptionRegistry()
+    entered = asyncio.Event()
+    blocker = asyncio.Event()
+
+    async def stalled_callback(sample: ProtocolSample) -> None:
+        del sample
+        entered.set()
+        await blocker.wait()
+
+    subscription = registry.subscribe((9001,), stalled_callback)
+    subscription.schedule(
+        ProtocolSample(
+            point_id="stalled",
+            value=1,
+            timestamp=datetime.now(UTC),
+            quality=Quality.GOOD,
+        )
+    )
+    await asyncio.wait_for(entered.wait(), 1)
+    await asyncio.wait_for(subscription.close(timeout=0.01), 1)
+    assert subscription._closed
+    assert not registry._ioa
+    await asyncio.sleep(0)

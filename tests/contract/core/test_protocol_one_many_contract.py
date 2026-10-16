@@ -199,7 +199,6 @@ def _ads_point(point_id: str) -> ADSPoint:
         data_type="INT",
         size=2,
         symbol=None,
-        address_resolved=True,
     )
 
 

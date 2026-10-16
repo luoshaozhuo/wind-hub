@@ -53,6 +53,7 @@ _INTEGER_RANGES: dict[str, tuple[int, int]] = {
     "uint64": (0, 18446744073709551615),
 }
 _DECODE_FAILED = object()
+_READ_PLAN_CACHE_LIMIT = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +62,7 @@ class _ReadGroupPlan:
     register_type: str
     start: int
     count: int
+    slave_id: int = 1
 
 
 class ModbusDriver:
@@ -91,7 +93,7 @@ class ModbusDriver:
         # 缓存键混用注册点 point_id（str）与动态 ModbusPoint 对象本身——
         # 同名不同地址的动态点与注册点、以及彼此之间的读取计划天然隔离，
         # 不会发生同 point_id 不同地址的结果错配。
-        self._read_plan_cache: dict[tuple[str | ModbusPoint, ...], tuple[_ReadGroupPlan, ...]] = {}
+        self._read_plan_cache: dict[tuple[str, ...], tuple[_ReadGroupPlan, ...]] = {}
         self._points: dict[str, ModbusPoint] = {}
         self._health_point_id: str | None = None
         self.update_point_table(point_table)
@@ -109,19 +111,23 @@ class ModbusDriver:
 
     def update_point_table(self, point_table: PointTable) -> None:
         """热重载点表：重建地址/字序映射并失效读取分组缓存（不断开连接）。"""
-        self._points = {
+        points = {
             point.point_id: parse_modbus_point(
                 point,
                 default_word_order=self._config.word_order,
+                default_slave_id=self._config.slave_id,
             )
             for point in point_table.points.values()
         }
         health_point_id = self._config.health_point_id
-        if health_point_id is not None and health_point_id not in self._points:
+        if health_point_id is not None and health_point_id not in points:
             raise ConfigError(
                 f"Modbus health point '{health_point_id}' is not part of "
                 f"point table '{point_table.point_table_id}'"
             )
+        self._point_table_id = point_table.point_table_id
+        self._points = points
+        self._health_point_id = health_point_id or next(iter(points), None)
         self._read_plan_cache.clear()
 
     async def connect(self) -> None:
@@ -187,7 +193,7 @@ class ModbusDriver:
         if not self.is_open():
             return ConnectionHealth(healthy=False, message="not connected")
 
-        point_id = self._config.health_point_id or next(iter(self._points), None)
+        point_id = self._health_point_id
         if point_id is None:
             return ConnectionHealth(
                 healthy=False,
@@ -210,7 +216,7 @@ class ModbusDriver:
             message=f"Modbus health point '{point_id}' responded{detail}",
         )
 
-    async def read_one(self, point: str | ModbusPoint) -> ProtocolSample:
+    async def read_one(self, point: str) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走批量分组规划或缓存。
 
         接受注册点 point_id（str）或动态 ModbusPoint（未在点表中登记的
@@ -226,7 +232,7 @@ class ModbusDriver:
                 raise ProtocolConnectionError("Modbus read requires an active connection")
             response = await self._transact(
                 "read",
-                self._read_request(mapped.register_type, mapped.address, mapped.count),
+                self._read_request(mapped.register_type, mapped.address, mapped.count, mapped.slave_id),
             )
             if response.isError():
                 # 设备已应答——通信链路可用，业务失败不作为断线处理。
@@ -256,31 +262,18 @@ class ModbusDriver:
 
     async def write_one(
         self,
-        write: ProtocolWrite | str | ModbusPoint,
-        value: WritableScalar | None = None,
+        write: ProtocolWrite,
     ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不做多点合并或写规划。
 
-        两种调用形式：
-        - ``write_one(ProtocolWrite(point_id, value))``——注册点写入，
-          与通用 ProtocolPort 契约一致；
-        - ``write_one(modbus_point, value)`` 或 ``write_one("p1", value)``——
-          动态点/注册点的直写便捷形式，校验与第一种完全相同。
+        接受 ProtocolWrite，point 可以是注册点 ID 或动态 ModbusPoint。
 
         一个逻辑点最多触发一次实际写请求：coil 用 write_coil，单寄存器
         用 write_register，多寄存器逻辑点用一次 write_registers(FC16)。
         只读寄存器类型与取值不合法时在发送前拒绝，不向设备发任何请求。
         """
-        if isinstance(write, ProtocolWrite):
-            if value is not None:
-                raise TypeError("write_one(ProtocolWrite) does not take a separate value")
-            mapped = self._mapped_point(write.point_id)
-            write_value: WritableScalar = write.value
-        else:
-            if value is None:
-                raise TypeError("write_one(point, value) requires an explicit value")
-            mapped = self._resolve_point(write)
-            write_value = value
+        mapped = self._resolve_point(write.point)
+        write_value = write.value
         point_id = mapped.point_id
         if mapped.register_type in _READ_ONLY_TYPES:
             return ProtocolWriteResult(
@@ -312,7 +305,7 @@ class ModbusDriver:
 
     async def read_many(
         self,
-        points: Sequence[str | ModbusPoint],
+        points: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         """按连续寄存器分组批量读取，返回按输入顺序排列的样本元组。
 
@@ -336,7 +329,7 @@ class ModbusDriver:
 
     async def _read_values(
         self,
-        points: Sequence[str | ModbusPoint],
+        points: Sequence[str],
     ) -> tuple[tuple[ModbusPoint, ...], tuple[tuple[PointScalar, Quality], ...]]:
         """执行分组批量读取，返回解析后的点序列与逐点 (原始值, 质量)。"""
         if not points:
@@ -390,17 +383,13 @@ class ModbusDriver:
             )
         return mapped
 
-    def _resolve_point(self, point: str | ModbusPoint) -> ModbusPoint:
-        """把注册点 point_id 或动态 ModbusPoint 统一解析为 ModbusPoint。
-
-        动态点不进点表映射，只要求调用方给出完整地址定义；其字段合法性
-        由 ModbusPoint 构造方（如 ``modbus_point()`` 工厂）保证。
-        """
-        if isinstance(point, ModbusPoint):
-            return point
+    def _resolve_point(self, point: str) -> ModbusPoint:
+        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
+        if not isinstance(point, str):
+            raise ConfigError("protocol point must be a configured point key")
         return self._mapped_point(point)
 
-    def _read_plan(self, points: Sequence[str | ModbusPoint]) -> tuple[_ReadGroupPlan, ...]:
+    def _read_plan(self, points: Sequence[str]) -> tuple[_ReadGroupPlan, ...]:
         """按点位有序序列缓存寄存器分组；命中时跳过映射及分组合并。"""
         key = tuple(points)
         cached = self._read_plan_cache.get(key)
@@ -412,13 +401,14 @@ class ModbusDriver:
                 points=tuple(group),
                 register_type=group[0].register_type,
                 start=min(point.address for point in group),
+                slave_id=group[0].slave_id,
                 count=max(point.address + point.count for point in group)
                 - min(point.address for point in group),
             )
             for group in group_consecutive_reads(mapped)
         )
         # 典型连续轮询通常只有一个 key；动态请求限制内存增长。
-        if len(self._read_plan_cache) >= 32:
+        if len(self._read_plan_cache) >= _READ_PLAN_CACHE_LIMIT:
             self._read_plan_cache.pop(next(iter(self._read_plan_cache)))
         self._read_plan_cache[key] = plan
         return plan
@@ -428,10 +418,10 @@ class ModbusDriver:
         register_type: str,
         start: int,
         count: int,
+        slave_id: int,
     ) -> Any:
         """发送一次 Modbus 读取请求并返回原始响应；不检查 isError。"""
         client = self._client
-        slave_id = self._config.slave_id
         if register_type == "coil":
             return await client.read_coils(start, count=count, device_id=slave_id)
         if register_type == "discrete_input":
@@ -448,7 +438,7 @@ class ModbusDriver:
         start = group.start
         count = group.count
 
-        response = await self._read_request(register_type, start, count)
+        response = await self._read_request(register_type, start, count, group.slave_id)
 
         if response.isError():
             raise ProtocolError(
@@ -483,7 +473,7 @@ class ModbusDriver:
         返回的协程发送请求并以 ``not response.isError()`` 报告设备是否接受。
         """
         client = self._client
-        slave_id = self._config.slave_id
+        slave_id = point.slave_id
 
         if point.register_type == "coil":
             coil_value = _encode_coil(value, point.data_type)

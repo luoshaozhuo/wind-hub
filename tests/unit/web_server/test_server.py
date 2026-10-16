@@ -24,7 +24,7 @@ def test_build_api_server_uses_server_settings() -> None:
     """uvicorn Server 应采用 wind-hub-server 的监听与日志参数。"""
     rt = MagicMock()
     settings = ServerSettings(
-        config_dir=Path("configs/template"),
+        config_dir=Path("configs"),
         host="0.0.0.0",
         port=9000,
         log_level="warning",

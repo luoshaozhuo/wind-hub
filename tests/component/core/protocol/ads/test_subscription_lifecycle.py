@@ -294,3 +294,31 @@ async def test_watchdog_rebuilds_pool_when_notifications_stall(
     assert received[-1] == 2.0
     await handle.close()
     assert fake_pyads.instances[-1].is_open is False
+
+
+@pytest.mark.asyncio
+async def test_ads_subscription_close_times_out_while_lock_is_held() -> None:
+    from core.infrastructure.protocol.ads.config import ADSConfig
+
+    async def callback(sample: ProtocolSample) -> None:
+        del sample
+
+    config = ADSConfig(
+        host="127.0.0.1",
+        target_net_id="127.0.0.1.1.1",
+        target_port=851,
+        timeout=0.01,
+    )
+    subscription = ADSSubscription(
+        config,
+        (),
+        callback,
+        cycle_time=0.1,
+        loop=asyncio.get_running_loop(),
+    )
+    await subscription._lock.acquire()
+    try:
+        await asyncio.wait_for(subscription.close(), 1)
+        assert subscription._closed
+    finally:
+        subscription._lock.release()

@@ -160,13 +160,13 @@ python3 scripts/dev.py npm --prefix src/wind-hub-admin test
 
 ```bash
 # 管理 API + 通信 Runtime（默认 127.0.0.1:8080）
-wind-hub-server --config configs/template
+wind-hub-server --config configs
 
 # 采集进程（gRPC 控制面默认 127.0.0.1:50051）
-wind-hub-collector --config configs/template
+wind-hub-collector --config configs
 
 # 即时命令与诊断进程（gRPC 默认 127.0.0.1:50052）
-wind-hub-commander --config configs/template
+wind-hub-commander --config configs
 
 # 本地运维 CLI（JSON 输出；不需要启动 Server/Admin）
 wind-hub collector status

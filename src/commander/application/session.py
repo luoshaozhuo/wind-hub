@@ -198,7 +198,7 @@ class DeviceSession:
         if point.access is PointAccess.READ:
             raise CommandError(f"point '{self._device.device_id}/{point_id}' is read-only")
         result = await self._protocol.write_one(
-            ProtocolWrite(point_id=point_id, value=raw_write_value(point, value))
+            ProtocolWrite(point=point_id, value=raw_write_value(point, value))
         )
         if result.outcome is WriteOutcome.CONFIRMED_SUCCESS:
             return

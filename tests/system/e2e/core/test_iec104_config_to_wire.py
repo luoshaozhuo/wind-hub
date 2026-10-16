@@ -103,7 +103,7 @@ class TestIEC104ConfigToWire:
             await wait_until(_spontaneous_arrived, timeout=5.0)
 
             # 遥控命令到达对端
-            result = await driver.write_one(ProtocolWrite(point_id="cmd_breaker", value=True))
+            result = await driver.write_one(ProtocolWrite(point="cmd_breaker", value=True))
             assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS, result.message
             assert server.last_control.get("C_SC_NA_1") == 300
 

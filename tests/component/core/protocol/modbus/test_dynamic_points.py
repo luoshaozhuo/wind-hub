@@ -172,6 +172,24 @@ class TestDynamicRead:
         assert driver._read_plan_cache[(dynamic,)][0].start == 200
 
     @pytest.mark.asyncio
+    async def test_dynamic_read_plan_cache_is_bounded(self) -> None:
+        client = _Client()
+        client.response = _Response(registers=[1])
+        driver = _driver({}, client)
+
+        for address in range(64):
+            point = modbus_point(
+                f"dyn_{address}",
+                register_type="holding",
+                address=address,
+                data_type="uint16",
+            )
+            await driver.read_many((point,))
+
+        assert len(driver._read_plan_cache) == 32
+        assert client.total_read_calls() == 64
+
+    @pytest.mark.asyncio
     async def test_dynamic_decode_failure_returns_bad_sample(self) -> None:
         client = _Client()
         client.response = _Response(registers=[])  # 空响应段
@@ -197,7 +215,7 @@ class TestDynamicWrite:
         driver = _driver({}, client)
         dynamic = modbus_point("dyn", register_type="holding", address=300, data_type="int16")
 
-        result = await driver.write_one(dynamic, -5)
+        result = await driver.write_one(ProtocolWrite(dynamic, -5))
 
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert result.point_id == "dyn"
@@ -208,7 +226,7 @@ class TestDynamicWrite:
         client = _Client()
         driver = _driver({"h": _point("h", "holding", 200, data_type="int16")}, client)
 
-        result = await driver.write_one("h", 10)
+        result = await driver.write_one(ProtocolWrite("h", 10))
 
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert client.write_register_calls == [(200, 10)]
@@ -224,33 +242,12 @@ class TestDynamicWrite:
         assert client.write_register_calls == [(200, 3)]
 
     @pytest.mark.asyncio
-    async def test_write_one_protocol_write_with_extra_value_rejected(self) -> None:
-        client = _Client()
-        driver = _driver({"h": _point("h", "holding", 200)}, client)
-
-        with pytest.raises(TypeError, match="does not take a separate value"):
-            await driver.write_one(ProtocolWrite("h", 3), 4)
-
-        assert client.total_write_calls() == 0
-
-    @pytest.mark.asyncio
-    async def test_write_one_dynamic_missing_value_rejected(self) -> None:
-        client = _Client()
-        driver = _driver({}, client)
-        dynamic = modbus_point("dyn", register_type="holding", address=300, data_type="int16")
-
-        with pytest.raises(TypeError, match="requires an explicit value"):
-            await driver.write_one(dynamic)
-
-        assert client.total_write_calls() == 0
-
-    @pytest.mark.asyncio
     async def test_write_one_dynamic_multi_register_uses_fc16(self) -> None:
         client = _Client()
         driver = _driver({}, client)
         dynamic = modbus_point("dyn", register_type="holding", address=400, data_type="float32")
 
-        result = await driver.write_one(dynamic, 42.5)
+        result = await driver.write_one(ProtocolWrite(dynamic, 42.5))
 
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert client.write_registers_calls == [(400, _float32_registers(42.5))]
@@ -262,7 +259,7 @@ class TestDynamicWrite:
         driver = _driver({}, client)
         dynamic = modbus_point("dyn", register_type="input", address=100, data_type="int16")
 
-        result = await driver.write_one(dynamic, 1)
+        result = await driver.write_one(ProtocolWrite(dynamic, 1))
 
         assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "read-only" in (result.message or "")
@@ -274,7 +271,7 @@ class TestDynamicWrite:
         driver = _driver({}, client)
         dynamic = modbus_point("dyn", register_type="holding", address=100, data_type="uint16")
 
-        result = await driver.write_one(dynamic, 70000)
+        result = await driver.write_one(ProtocolWrite(dynamic, 70000))
 
         assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert client.total_write_calls() == 0
@@ -288,7 +285,7 @@ class TestDynamicWrite:
             raise AssertionError("write_one must not delegate to write_many")
 
         driver.write_many = fail_write_many  # type: ignore[method-assign]
-        result = await driver.write_one("h", 1)
+        result = await driver.write_one(ProtocolWrite("h", 1))
 
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert client.total_write_calls() == 1

@@ -414,7 +414,7 @@ class TestCommandFailures:
         drv = _driver(control_server.port, [_switch_point()])
         try:
             await drv.connect()
-            result = await drv.write_one(ProtocolWrite(point_id="switch.on", value=True))
+            result = await drv.write_one(ProtocolWrite(point="switch.on", value=True))
         finally:
             await drv.close()
 
@@ -429,7 +429,7 @@ class TestCommandFailures:
         try:
             await drv.connect()
             task = asyncio.create_task(
-                drv.write_one(ProtocolWrite(point_id="switch.on", value=True))
+                drv.write_one(ProtocolWrite(point="switch.on", value=True))
             )
             await asyncio.sleep(0.05)
             await control_server.stop()
@@ -452,7 +452,7 @@ class TestCommandFailures:
             description="driver detected disconnect",
         )
         with pytest.raises(ProtocolError, match="OPEN connection"):
-            await driver.write_one(ProtocolWrite(point_id="meas.power", value=1.0))
+            await driver.write_one(ProtocolWrite(point="meas.power", value=1.0))
 
 
 class _StartdtBlackhole:
@@ -542,7 +542,7 @@ class TestCommandTimeout:
         try:
             await drv.connect()
             result = await asyncio.wait_for(
-                drv.write_one(ProtocolWrite(point_id="switch.on", value=True)),
+                drv.write_one(ProtocolWrite(point="switch.on", value=True)),
                 timeout=15.0,
             )
         finally:

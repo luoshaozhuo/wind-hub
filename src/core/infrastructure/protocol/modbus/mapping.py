@@ -19,7 +19,7 @@ _REGISTER_TYPE_ALIASES: dict[str, str] = {
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
 _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
 _ALLOWED_POINT_OPTIONS = frozenset(
-    {"register_type", "type", "address", "count", "word_order", "data_type"}
+    {"register_type", "type", "address", "count", "word_order", "data_type", "slave_id"}
 )
 _MAX_ADDRESS = 0xFFFF
 _MAX_REGISTER_READ = 125
@@ -50,12 +50,14 @@ class ModbusPoint:
     count: int
     data_type: str
     word_order: str
+    slave_id: int = 1
 
 
 def parse_modbus_point(
     point: Point,
     *,
     default_word_order: str,
+    default_slave_id: int = 1,
 ) -> ModbusPoint:
     """把 Point 解析成 ModbusPoint，并尽早校验配置。"""
     options = point.ext
@@ -117,7 +119,11 @@ def parse_modbus_point(
             f"access is '{point.access.value}'"
         )
 
+    slave_id = options.get("slave_id", default_slave_id)
+    if type(slave_id) is not int or not 0 <= slave_id <= 255:
+        raise ConfigError(f"Modbus point '{point.point_id}': slave_id must be in 0..255")
     return ModbusPoint(
+        slave_id=slave_id,
         point_id=point.point_id,
         register_type=register_type,
         address=address,
@@ -192,7 +198,7 @@ def group_consecutive_reads(
 
     by_type: dict[str, list[ModbusPoint]] = {}
     for point in points:
-        by_type.setdefault(point.register_type, []).append(point)
+        by_type.setdefault(f"{point.slave_id:03d}:{point.register_type}", []).append(point)
 
     if max_gap < 0:
         raise ValueError("max_gap must be >= 0")
