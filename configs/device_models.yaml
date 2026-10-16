@@ -58,6 +58,8 @@
 #                    时优先。
 #   timeout:         float > 0（秒），默认 5.0。
 #   max_subs_per_sum:                int > 0，默认 500。
+#   max_block_bytes:                 int > 0，默认 1024 —— 单次 ADS 区块通知最大字节数。
+#   max_gap_bytes:                   int >= 0，默认 16 —— 区块内允许跨越的空洞字节数。
 #   max_delay:                       float >= 0（秒），默认 0.06。
 #   max_notifications_per_connection: int > 0，默认 550。
 #   route_auto_add:  bool，默认 false —— 首次连接失败时是否尝试向远程
@@ -113,6 +115,8 @@ device_models:
       twincat_version: "3"
       timeout: 5.0
       max_subs_per_sum: 500
+      max_block_bytes: 1024
+      max_gap_bytes: 16
       max_delay: 0.06
       max_notifications_per_connection: 550
       route_auto_add: false

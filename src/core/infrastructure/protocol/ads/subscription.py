@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from ctypes import c_ubyte
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -18,6 +19,7 @@ import pyads  # type: ignore[import-untyped]
 from core.application.errors import ConfigError
 from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
 
+from .codec import NotificationBlock, compile_notification_blocks
 from .mapping import ADSPoint
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,8 @@ class ADSSubscription:
         *,
         cycle_time: float,
         loop: asyncio.AbstractEventLoop,
+        max_block_bytes: int = 1024,
+        max_gap_bytes: int = 16,
     ) -> None:
         if cycle_time <= 0:
             raise ConfigError("ADS subscription interval must be > 0")
@@ -43,6 +47,8 @@ class ADSSubscription:
         self._callback = callback
         self._cycle_time = cycle_time
         self._loop = loop
+        self._max_block_bytes = max_block_bytes
+        self._max_gap_bytes = max_gap_bytes
         self._queue: asyncio.Queue[ProtocolSample] = asyncio.Queue(maxsize=_QUEUE_CAPACITY)
         self._worker_task: asyncio.Task[None] | None = None
         self._handles: list[tuple[Any, Any]] = []
@@ -56,27 +62,89 @@ class ADSSubscription:
             raise RuntimeError("ADS subscription is closed or already started")
         generation = self._generation
         try:
-            for point in self._points:
-                attr = pyads.NotificationAttrib(
-                    point.size,
-                    trans_mode=pyads.ADSTRANS_SERVERCYCLE,
-                    cycle_time=self._cycle_time,
-                )
-                datatype = getattr(pyads, f"PLCTYPE_{point.data_type}")
-                wrapped = self._connection.notification(datatype)(
-                    self._notification_callback(point, generation)
-                )
-                handle = await asyncio.to_thread(
-                    self._connection.add_device_notification,
-                    (point.group, point.offset),
-                    attr,
-                    wrapped,
-                )
-                self._handles.append(handle)
+            for block in compile_notification_blocks(
+                self._points,
+                max_bytes=self._max_block_bytes,
+                max_gap_bytes=self._max_gap_bytes,
+            ):
+                try:
+                    await self._register_block(block, generation)
+                except Exception:
+                    if len(block.fields) == 1:
+                        raise
+                    # 某些 PLC 拒绝区块通知；仅此区块回退为逐点注册。
+                    logger.warning(
+                        "ADS block notification rejected at %d:%d; retrying individual points",
+                        block.group, block.offset,
+                    )
+                    for point, _, _ in block.fields:
+                        single = compile_notification_blocks((point,))[0]
+                        await self._register_block(single, generation)
         except BaseException:
             await self._remove_handles()
             raise
         self._worker_task = asyncio.create_task(self._worker(), name="ads-subscription-worker")
+
+    async def _register_block(self, block: NotificationBlock, generation: int) -> None:
+        attr = pyads.NotificationAttrib(
+            block.size,
+            trans_mode=pyads.ADSTRANS_SERVERCYCLE,
+            cycle_time=self._cycle_time,
+        )
+        if len(block.fields) == 1:
+            point = block.fields[0][0]
+            datatype = getattr(pyads, f"PLCTYPE_{point.data_type}")
+            wrapped = self._connection.notification(datatype)(
+                self._notification_callback(point, generation)
+            )
+        else:
+            datatype = c_ubyte * block.size
+            wrapped = self._connection.notification(datatype)(
+                self._block_callback(block, generation)
+            )
+        handle = await asyncio.to_thread(
+            self._connection.add_device_notification,
+            (block.group, block.offset),
+            attr,
+            wrapped,
+        )
+        self._handles.append(handle)
+
+    def _block_callback(self, block: NotificationBlock, generation: int) -> Callable[..., None]:
+        """一个 ADS 原生通知解码成一个批次，跨线程只投递一次。"""
+        def on_notification(
+            handle: Any, address: Any, timestamp: Any, value: Any
+        ) -> None:
+            del handle, address
+            if self._closed or generation != self._generation:
+                return
+            received_at, source = _normalize_timestamp(timestamp)
+            try:
+                raw = bytes(value)
+                if len(raw) != block.size:
+                    raise ValueError("ADS notification block length mismatch")
+                view = memoryview(raw)
+            except (TypeError, ValueError):
+                view = None
+            samples: list[ProtocolSample] = []
+            for point, offset, decoder in block.fields:
+                try:
+                    scalar = decoder(view[offset:offset + point.size]) if view is not None else None
+                    quality = Quality.GOOD if view is not None else Quality.BAD
+                except (ValueError, TypeError, UnicodeDecodeError):
+                    scalar = None
+                    quality = Quality.BAD
+                samples.append(ProtocolSample(
+                    point_id=point.point_id,
+                    value=scalar,
+                    quality=quality,
+                    timestamp=received_at,
+                    timestamp_source=source,
+                ))
+            with contextlib.suppress(RuntimeError):
+                self._loop.call_soon_threadsafe(self._enqueue_batch, tuple(samples), generation)
+
+        return on_notification
 
     async def close(self) -> None:
         """先阻止投递并注销通知，再取消 Worker；不关闭共享连接。"""
@@ -137,6 +205,12 @@ class ADSSubscription:
                 self._loop.call_soon_threadsafe(self._enqueue, sample, generation)
 
         return on_notification
+
+    def _enqueue_batch(self, samples: tuple[ProtocolSample, ...], generation: int) -> None:
+        if self._closed or generation != self._generation:
+            return
+        for sample in samples:
+            self._enqueue(sample, generation)
 
     def _enqueue(self, sample: ProtocolSample, generation: int) -> None:
         """只在 asyncio 线程操作 Queue；满时丢弃最旧样本。"""
