@@ -124,13 +124,19 @@ class ADSSubscription:
 
         return on_notification
 
-    async def close(self) -> None:
-        """先阻止投递并注销通知，再取消 Worker；不关闭共享连接。"""
+    def deactivate(self) -> None:
+        """同步阻止任何后续通知投递；幂等。"""
         if self._closed:
             return
         self._closed = True
         self._generation += 1
+
+    async def deregister(self) -> None:
+        """注销全部 Notification Handle（共享连接上的命令流量）。"""
         await self._remove_handles()
+
+    async def stop_worker(self) -> None:
+        """取消 Worker 并清空残留批次；不触碰共享连接。"""
         task, self._worker_task = self._worker_task, None
         if task is not None:
             task.cancel()
@@ -139,6 +145,14 @@ class ADSSubscription:
                     await task
         while not self._queue.empty():
             self._queue.get_nowait()
+
+    async def close(self) -> None:
+        """先阻止投递并注销通知，再取消 Worker；不关闭共享连接。"""
+        if self._closed:
+            return
+        self.deactivate()
+        await self.deregister()
+        await self.stop_worker()
 
     async def _remove_handles(self) -> None:
         handles, self._handles = self._handles, []

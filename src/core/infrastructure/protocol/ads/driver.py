@@ -201,7 +201,7 @@ class ADSDriver:
                     await asyncio.to_thread(
                         connection.set_timeout, int(self._config.timeout * 1000)
                     )
-                    last_health = await self.health()
+                    last_health = await self._health_locked()
                     if last_health.healthy:
                         self._invalidate_symbol_addresses()
                         await self._resolve_configured_points()
@@ -263,6 +263,14 @@ class ADSDriver:
 
     async def health(self) -> ConnectionHealth:
         """在当前业务连接上读取 ADS 状态；仅 PLC ADS State=RUN 为健康。"""
+        # pyads 单连接不是线程安全的请求/响应通道：read_state 必须与
+        # 读写、通知注册等所有命令流量经同一把锁串行，否则并发命令的
+        # AMS 帧会串扰，产生 ADSError(-1) 假失败与假不健康。
+        async with self._lock:
+            return await self._health_locked()
+
+    async def _health_locked(self) -> ConnectionHealth:
+        """调用方必须已持有 ``_lock``（connect 建链流程内复用）。"""
         connection = self._connection
         if connection is None or not connection.is_open:
             return ConnectionHealth(healthy=False, message="ADS session is not open")
@@ -708,17 +716,31 @@ class ADSDriver:
         connection: Any,
         subscriptions: tuple[ADSSubscription, ...],
     ) -> None:
-        """在 Driver lock 外完成可能等待 callback 的资源清理。"""
+        """摘除运行时后完成可能等待 callback 的资源清理。
+
+        DEL_DEVICE_NOTIFICATION 与连接关闭同样是该 pyads 连接上的命令，
+        必须持有 IO 锁，避免与并发 health/读写发生 AMS 帧串扰；Worker
+        取消可能等待用户回调（回调内可能再做驱动 IO），放在锁外。
+        """
         for subscription in subscriptions:
-            await subscription.close()
-        if connection is not None:
-            try:
-                async with asyncio.timeout(self._config.timeout):
-                    await asyncio.to_thread(connection.close)
-            except TimeoutError:
-                logger.warning("ADS connection close exceeded %.3fs", self._config.timeout)
-            except Exception:
-                logger.exception("ADS connection close failed")
+            subscription.deactivate()
+        try:
+            async with self._lock:
+                for subscription in subscriptions:
+                    await subscription.deregister()
+                if connection is not None:
+                    try:
+                        async with asyncio.timeout(self._config.timeout):
+                            await asyncio.to_thread(connection.close)
+                    except TimeoutError:
+                        logger.warning(
+                            "ADS connection close exceeded %.3fs", self._config.timeout
+                        )
+                    except Exception:
+                        logger.exception("ADS connection close failed")
+        finally:
+            for subscription in subscriptions:
+                await subscription.stop_worker()
 
     def _close_connection(self) -> None:
         connection, self._connection = self._connection, None
@@ -835,5 +857,13 @@ class _TrackedADSSubscription:
         if self._closed:
             return
         self._closed = True
-        self._owner._subscriptions.discard(self._subscription)
-        await self._subscription.close()
+        owner = self._owner
+        subscription = self._subscription
+        subscription.deactivate()
+        # DEL_DEVICE_NOTIFICATION 是共享 pyads 连接上的命令，与
+        # health/读写互斥，统一经 Driver 的 IO 锁串行；Worker 取消放锁外，
+        # 避免用户回调内再做驱动 IO 时自锁。
+        async with owner._lock:
+            owner._subscriptions.discard(subscription)
+            await subscription.deregister()
+        await subscription.stop_worker()
