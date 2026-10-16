@@ -8,20 +8,28 @@ pyads 自带 ``AdvancedHandler`` 以独立 Symbol 为单位存储：每个 index
 
 - 每个 IndexGroup 一块连续字节内存，READ / WRITE / Sum Read / Sum Write
   都按字节偏移寻址，允许空洞和区块跨度；
-- ADD/DELETE_DEVICE_NOTIFICATION 按字节区间注册；测试侧写入区间内任意
-  字节即按注册长度投递原始字节块（与真实 PLC 的区块通知路径一致）；
-- ADS State 可在 RUN/STOP 间切换，用于协议层故障测试；
-- 服务端 Notification 注册表可直接观测，用于验证客户端异常退出后的
-  PLC 侧句柄残留。
+- ADD_DEVICE_NOTIFICATION 完整解析传输模式 / 周期 / 最大延迟 / 通知长度：
+  ``ADSTRANS_SERVERCYCLE`` 注册项由单调时钟驱动的单调度线程按各自注册
+  周期独立节拍（值不变也投递），``ADSTRANS_SERVERONCHA`` 保持写入变化
+  即投递，其余传输模式不主动投递；
+- ADS State 可在 RUN/STOP 间切换：STOP 期间暂停周期投递，恢复 RUN 后
+  按新节拍继续（不补发 STOP 期间数据）；
+- 每条 TCP 客户端连接、客户端 AMS 身份与 Notification Handle 分别记录，
+  用于验证客户端异常退出（SIGKILL）后服务端句柄是否残留以及新客户端
+  是否复用旧句柄；
+- 服务端注册表/连接表可直接观测。
 
-注意：与 pyads 官方 testserver 相同，通知数据面经进程内 ``callback_store``
-触发（注册/注销命令仍走真实 TCP）；跨进程客户端的数据投递必须在真实
-TwinCAT 上验收。
+注意（数据面边界）：与 pyads 官方 testserver 相同，ADD/DELETE 通知等
+**控制面命令走真实 AMS/TCP**，但通知**数据面经进程内 ``callback_store``
+触发**——testserver 不重建客户端 AmsAddr，也不向其他 TCP 连接主动推送
+DEVICE_NOTIFICATION 帧。因此跨进程客户端的通知投递（只能观测注册残留）
+不等于跨进程 ADS Notification 验证，后者必须在真实 TwinCAT 上验收。
 """
 
 from __future__ import annotations
 
 import ctypes
+import select
 import socket
 import struct
 import threading
@@ -39,14 +47,21 @@ from pyads.testserver.handler import (  # type: ignore[import-untyped]
     AmsPacket,
     AmsResponseData,
 )
+from pyads.testserver.testserver import AdsClientConnection  # type: ignore[import-untyped]
 
 #: pyads 客户端固定连接 AMS 路由器 TCP 端口（851/801 只是逻辑端口）。
 ADS_TCP_PORT = 48898
 
 _ERR_INVALID_OFFSET = 1808  # SYMBOL_NOT_FOUND，testserver 对未知地址的等价错误
 
+#: SERVERCYCLE 周期下限：防止异常 0 周期造成调度空转。
+_MIN_CYCLE_SECONDS = 0.001
 
-@dataclass(frozen=True, slots=True)
+#: 无到期注册项时调度线程的最长休眠（注销/停机由 Event 立即唤醒）。
+_IDLE_SLEEP_SECONDS = 1.0
+
+
+@dataclass(slots=True)
 class _Registration:
     """服务端一条 Device Notification 注册。"""
 
@@ -54,6 +69,22 @@ class _Registration:
     group: int
     offset: int
     size: int
+    trans_mode: int
+    cycle_time: float  # 秒；SERVERCYCLE 节拍周期
+    max_delay: float  # 秒；仅记录观测
+    conn_id: int | None
+    source_ams: str
+    next_due: float  # monotonic 下次到期时刻
+
+
+@dataclass(slots=True)
+class _ConnectionInfo:
+    """一条 TCP 客户端连接的服务端观测记录（断开后保留用于残留分析）。"""
+
+    conn_id: int
+    peer: tuple[str, int] | None
+    source_ams: str | None = None
+    alive: bool = True
 
 
 class LinearMemoryHandler:
@@ -71,6 +102,14 @@ class LinearMemoryHandler:
         self._ads_state: int = constants.ADSSTATE_RUN
         self._device_state: int = 0
         self.request_count = 0
+        # 连接跟踪由 _TrackingClientConnection 在其自身线程内绑定。
+        self._tls = threading.local()
+        self._connections: dict[int, _ConnectionInfo] = {}
+        # SERVERCYCLE 单调度线程：随首个周期注册惰性启动，stop 时回收，
+        # 注册/注销不额外创建线程。
+        self._scheduler: threading.Thread | None = None
+        self._scheduler_wake = threading.Event()
+        self._scheduler_shutdown = False
 
     # ------------------------------------------------------------------
     # 测试侧观测与控制 API（由 server 线程之外调用，全部加锁）
@@ -80,6 +119,7 @@ class LinearMemoryHandler:
         with self._lock:
             self._ads_state = ads_state
             self._device_state = device_state
+        self._scheduler_wake.set()
 
     def set_running(self, running: bool) -> None:
         self.set_ads_state(
@@ -94,17 +134,67 @@ class LinearMemoryHandler:
         with self._lock:
             return tuple(self._registrations.values())
 
+    def allocated_handles(self) -> int:
+        """服务端累计分配的 Notification Handle 数量（单调不减）。"""
+        with self._lock:
+            return self._next_handle - 1
+
+    def active_connection_count(self) -> int:
+        with self._lock:
+            return sum(1 for info in self._connections.values() if info.alive)
+
+    def connections(self) -> tuple[_ConnectionInfo, ...]:
+        with self._lock:
+            return tuple(self._connections.values())
+
+    def residue_registrations(self) -> tuple[_Registration, ...]:
+        """所属 TCP 连接已断开但仍未注销的注册（SIGKILL 残留观测）。"""
+        with self._lock:
+            return tuple(
+                reg
+                for reg in self._registrations.values()
+                if (info := self._connections.get(reg.conn_id)) is not None
+                and not info.alive
+            )
+
+    def scheduler_alive(self) -> bool:
+        with self._lock:
+            return self._scheduler is not None and self._scheduler.is_alive()
+
+    def scheduler_ident(self) -> int | None:
+        """当前调度线程身份（注册/注销不应导致线程重建）。"""
+        with self._lock:
+            return self._scheduler.ident if self._scheduler is not None else None
+
     def reset_runtime(self) -> None:
-        """模拟 PLC 重启：内存与 Notification 注册表全部清空。"""
+        """模拟 PLC 重启：内存与 Notification 注册表全部清空。
+
+        调度线程不销毁（与 handler 同生命周期），只清空节拍并解除停机
+        标志，使 AdsMemoryServer.restart 后可继续服务。
+        """
         with self._lock:
             self._buffers.clear()
             self._registrations.clear()
             self._next_handle = 1
             self._ads_state = constants.ADSSTATE_RUN
             self._device_state = 0
+            self._scheduler_shutdown = False
+        self._scheduler_wake.set()
+
+    def shutdown_scheduler(self) -> None:
+        """服务最终停止：终止并回收周期调度线程。"""
+        with self._lock:
+            self._scheduler_shutdown = True
+            thread = self._scheduler
+        self._scheduler_wake.set()
+        if thread is not None:
+            thread.join(timeout=5.0)
+        with self._lock:
+            if self._scheduler is thread:
+                self._scheduler = None
 
     def write_memory(self, group: int, offset: int, data: bytes) -> None:
-        """写入连续内存并触发与写入区间相交的区块通知。"""
+        """写入连续内存；仅 SERVERONCHA 注册在数据变化时立即投递。"""
         fired: list[tuple[int, bytes]] = []
         with self._lock:
             buffer = self._buffer_locked(group)
@@ -115,6 +205,8 @@ class LinearMemoryHandler:
             buffer[offset:end] = data
             if changed:
                 for reg in self._registrations.values():
+                    if reg.trans_mode != constants.ADSTRANS_SERVERONCHA:
+                        continue
                     if reg.group != group:
                         continue
                     reg_end = reg.offset + reg.size
@@ -134,6 +226,25 @@ class LinearMemoryHandler:
             return bytes(buffer[offset:offset + size])
 
     # ------------------------------------------------------------------
+    # TCP 连接跟踪（由 _TrackingClientConnection 在连接线程内调用）
+    # ------------------------------------------------------------------
+
+    def bind_connection(self, conn_id: int, peer: tuple[str, int] | None) -> None:
+        with self._lock:
+            self._connections[conn_id] = _ConnectionInfo(conn_id, peer)
+
+    def unbind_connection(self, conn_id: int) -> None:
+        with self._lock:
+            info = self._connections.get(conn_id)
+            if info is not None:
+                info.alive = False
+            # 不删除该连接的注册项：testserver 不在 TCP 断开时回收句柄，
+            # 正是 SIGKILL 残留观测要记录的行为。
+
+    def _bind_current_thread(self, conn_id: int | None) -> None:
+        self._tls.conn_id = conn_id
+
+    # ------------------------------------------------------------------
     # pyads Handler 协议
     # ------------------------------------------------------------------
 
@@ -142,6 +253,14 @@ class LinearMemoryHandler:
         state = struct.unpack("<H", request.ams_header.state_flags)[0]
         state = struct.pack("<H", state | 0x0001)
         self.request_count += 1
+
+        conn_id = getattr(self._tls, "conn_id", None)
+        source_ams = _format_source_ams(request.ams_header)
+        with self._lock:
+            if conn_id is not None:
+                info = self._connections.get(conn_id)
+                if info is not None:
+                    info.source_ams = source_ams
 
         handlers = {
             constants.ADSCOMMAND_READDEVICEINFO: self._read_device_info,
@@ -254,21 +373,111 @@ class LinearMemoryHandler:
         return bytes(results)
 
     def _add_notification(self, data: bytes) -> bytes:
-        group, offset, size = struct.unpack_from("<III", data)
+        # 与 AdvancedHandler 相同的帧布局：group/offset/length/mode/
+        # max_delay/cycle_time 各 4 字节；时间单位为 100ns。
+        if len(data) < 24:
+            raise _AdsRequestError(_ERR_INVALID_OFFSET)
+        group, offset, size, trans_mode, max_delay_raw, cycle_raw = (
+            struct.unpack_from("<IIIIII", data)
+        )
+        now = time.monotonic()
+        cycle_seconds = max(cycle_raw / 1e7, _MIN_CYCLE_SECONDS)
+        max_delay_seconds = max_delay_raw / 1e7
         with self._lock:
             handle = self._next_handle
             self._next_handle += 1
-            self._registrations[handle] = _Registration(handle, group, offset, size)
+            conn_id = getattr(self._tls, "conn_id", None)
+            source_ams = ""
+            if conn_id is not None:
+                info = self._connections.get(conn_id)
+                if info is not None and info.source_ams is not None:
+                    source_ams = info.source_ams
+            self._registrations[handle] = _Registration(
+                handle=handle,
+                group=group,
+                offset=offset,
+                size=size,
+                trans_mode=trans_mode,
+                cycle_time=cycle_seconds,
+                max_delay=max_delay_seconds,
+                conn_id=conn_id,
+                source_ams=source_ams,
+                next_due=now + cycle_seconds,
+            )
             buffer = self._buffer_locked(group)
             if len(buffer) < offset + size:
                 buffer.extend(b"\x00" * (offset + size - len(buffer)))
+            if trans_mode == constants.ADSTRANS_SERVERCYCLE:
+                self._ensure_scheduler_locked()
+        self._scheduler_wake.set()
         return struct.pack("<I", handle)
 
     def _del_notification(self, data: bytes) -> bytes:
         handle = struct.unpack_from("<I", data)[0]
         with self._lock:
             self._registrations.pop(handle, None)
+        self._scheduler_wake.set()
         return b""
+
+    # ------------------------------------------------------------------
+    # SERVERCYCLE 调度
+    # ------------------------------------------------------------------
+
+    def _ensure_scheduler_locked(self) -> None:
+        """调用方持锁；惰性启动唯一的周期调度线程。"""
+        if self._scheduler_shutdown:
+            return
+        if self._scheduler is None or not self._scheduler.is_alive():
+            thread = threading.Thread(
+                target=self._run_scheduler,
+                name="ads-memory-cycle-scheduler",
+                daemon=True,
+            )
+            self._scheduler = thread
+            thread.start()
+
+    def _run_scheduler(self) -> None:
+        """单线程按各注册项独立周期投递；Event 等待，绝不忙轮询。"""
+        while True:
+            # clear 必须在扫描之前：扫描与等待之间的注册/注销/状态切换
+            # 置位 Event 不会丢失。
+            self._scheduler_wake.clear()
+            fired: list[tuple[int, bytes]] = []
+            with self._lock:
+                if self._scheduler_shutdown:
+                    return
+                now = time.monotonic()
+                running = self._ads_state == constants.ADSSTATE_RUN
+                wait_seconds = _IDLE_SLEEP_SECONDS
+                for reg in self._registrations.values():
+                    if reg.trans_mode != constants.ADSTRANS_SERVERCYCLE:
+                        continue
+                    if now < reg.next_due:
+                        delay = reg.next_due - now
+                    elif running:
+                        buffer = self._buffers.get(reg.group)
+                        end = reg.offset + reg.size
+                        if buffer is not None and len(buffer) >= end:
+                            fired.append(
+                                (reg.handle, bytes(buffer[reg.offset:end]))
+                            )
+                        # 长停顿（STOP/调度延迟）后不补发历史节拍。
+                        advanced = reg.next_due + reg.cycle_time
+                        reg.next_due = (
+                            advanced if advanced >= now else now + reg.cycle_time
+                        )
+                        delay = reg.cycle_time
+                    else:
+                        # Runtime STOP：暂停节拍；恢复 RUN 后按当前时刻
+                        # 重新排期，不批量补发。
+                        reg.next_due = now + reg.cycle_time
+                        delay = reg.cycle_time
+                    if delay < wait_seconds:
+                        wait_seconds = delay
+            # 用户回调在锁外触发，避免回调内再发 ADS 命令时自锁。
+            for handle, payload in fired:
+                self._fire_notification(handle, payload)
+            self._scheduler_wake.wait(timeout=max(wait_seconds, 0.0))
 
     # ------------------------------------------------------------------
     # 内部辅助
@@ -300,6 +509,69 @@ class LinearMemoryHandler:
                 func(ams_addr.amsAddrStruct(), header, 0)
 
 
+def _format_source_ams(ams_header: Any) -> str:
+    """把请求帧源 AMS 地址格式化为 'net-id:port'。"""
+    net_id = ams_header.source_net_id
+    port = struct.unpack("<H", ams_header.source_port)[0]
+    return f"{'.'.join(str(byte) for byte in net_id)}:{port}"
+
+
+class _TrackingClientConnection(AdsClientConnection):
+    """在 pyads 连接线程上绑定/解绑 handler 侧连接身份。"""
+
+    def __init__(self, *args: Any, conn_id: int, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._wh_conn_id = conn_id
+
+    def run(self) -> None:
+        handler = self.handler
+        try:
+            peer: tuple[str, int] | None = self.client.getpeername()
+        except OSError:
+            peer = None
+        handler.bind_connection(self._wh_conn_id, peer)
+        handler._bind_current_thread(self._wh_conn_id)
+        try:
+            super().run()
+        finally:
+            handler._bind_current_thread(None)
+            handler.unbind_connection(self._wh_conn_id)
+
+
+class _TrackingAdsTestServer(AdsTestServer):
+    """AdsTestServer 的连接工厂不可注入：复制 accept 循环以使用跟踪连接。
+
+    循环体与 pyads 3.6 的实现保持一致，仅替换连接类。
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._wh_next_conn_id = 0
+
+    def run(self) -> None:
+        self._run = True
+        self.server.listen(5)
+        while self._run:
+            ready, _, _ = select.select([self.server], [], [], 0.1)
+            if not ready:
+                continue
+            try:
+                client, address = self.server.accept()
+            except OSError:
+                continue
+            self._wh_next_conn_id += 1
+            client_thread = _TrackingClientConnection(
+                handler=self.handler,
+                client=client,
+                address=address,
+                server=self,
+                conn_id=self._wh_next_conn_id,
+            )
+            client_thread.daemon = True
+            client_thread.start()
+            self.clients.append(client_thread)
+
+
 class _AdsRequestError(Exception):
     def __init__(self, code: int) -> None:
         super().__init__(f"ADS request error {code}")
@@ -320,7 +592,7 @@ class AdsMemoryServer:
         self._server: AdsTestServer | None = None
 
     def start(self, *, timeout: float = 5.0) -> None:
-        server = AdsTestServer(
+        server = _TrackingAdsTestServer(
             handler=self.handler,
             ip_address=self.ip_address,
             port=ADS_TCP_PORT,
@@ -339,18 +611,24 @@ class AdsMemoryServer:
             raise RuntimeError(f"ADS memory server did not open {self.ip_address}")
         self._server = server
 
-    def stop(self) -> None:
+    def _stop_tcp(self) -> None:
         server, self._server = self._server, None
         if server is not None:
             server.stop()
             with _SuppressRuntime():
                 server.join(timeout=5.0)
 
+    def stop(self) -> None:
+        """停止 TCP 服务并回收调度线程（最终停机）。"""
+        self._stop_tcp()
+        self.handler.shutdown_scheduler()
+
     def restart(self, *, reset: bool = True) -> None:
         """停止并重新监听同一地址；默认同时清空内存与通知注册表。"""
-        self.stop()
+        # 先清注册表再停 TCP，避免停窗内调度线程投递旧句柄通知。
         if reset:
             self.handler.reset_runtime()
+        self._stop_tcp()
         time.sleep(0.05)  # 等待监听 socket 完成关闭
         self.start()
 
@@ -368,6 +646,24 @@ class AdsMemoryServer:
 
     def registrations(self) -> tuple[Any, ...]:
         return self.handler.registrations()
+
+    def connections(self) -> tuple[Any, ...]:
+        return self.handler.connections()
+
+    def active_connection_count(self) -> int:
+        return self.handler.active_connection_count()
+
+    def residue_registrations(self) -> tuple[Any, ...]:
+        return self.handler.residue_registrations()
+
+    def allocated_handles(self) -> int:
+        return self.handler.allocated_handles()
+
+    def scheduler_alive(self) -> bool:
+        return self.handler.scheduler_alive()
+
+    def scheduler_ident(self) -> int | None:
+        return self.handler.scheduler_ident()
 
 
 class _SuppressRuntime:

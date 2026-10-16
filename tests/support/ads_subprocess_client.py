@@ -55,7 +55,10 @@ def main() -> None:
                 callback,
             )
             handles.append(handle)
-        print(f"READY {len(handles)}", flush=True)
+        # 输出服务端分配的 Notification Handle，供测试侧证明重启客户端
+        # 后服务端分配的是新句柄、旧句柄不会被复用。
+        handle_ids = ",".join(str(handle[0]) for handle in handles)
+        print(f"READY {len(handles)} HANDLES {handle_ids}", flush=True)
         while True:
             time.sleep(0.1)
     finally:
