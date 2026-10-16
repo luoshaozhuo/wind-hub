@@ -48,7 +48,7 @@ class ADSSubscription:
         self._cycle_time = cycle_time
         self._loop = loop
         self._max_block_bytes = max_block_bytes
-        self._queue: asyncio.Queue[ProtocolSample] = asyncio.Queue(maxsize=_QUEUE_CAPACITY)
+        self._queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=_QUEUE_CAPACITY)
         self._worker_task: asyncio.Task[None] | None = None
         self._handles: list[tuple[Any, Any]] = []
         self._closed = False
@@ -77,8 +77,8 @@ class ADSSubscription:
             trans_mode=pyads.ADSTRANS_SERVERCYCLE,
             cycle_time=self._cycle_time,
         )
-        datatype = c_ubyte * block.size
-        wrapped = self._connection.notification(datatype)(
+        buffer_type = c_ubyte * block.size
+        wrapped = self._connection.notification(buffer_type)(
             self._block_callback(block, generation)
         )
         handle = await asyncio.to_thread(
@@ -139,7 +139,6 @@ class ADSSubscription:
                     await task
         while not self._queue.empty():
             self._queue.get_nowait()
-            self._queue.task_done()
 
     async def _remove_handles(self) -> None:
         handles, self._handles = self._handles, []
@@ -154,32 +153,28 @@ class ADSSubscription:
                 logger.exception("ADS notification deregistration failed")
 
     def _enqueue_batch(self, samples: tuple[ProtocolSample, ...], generation: int) -> None:
-        if self._closed or generation != self._generation:
-            return
-        for sample in samples:
-            self._enqueue(sample, generation)
-
-    def _enqueue(self, sample: ProtocolSample, generation: int) -> None:
-        """只在 asyncio 线程操作 Queue；满时丢弃最旧样本。"""
+        """只在事件循环线程入队；满时丢弃最旧的整个 Block。"""
         if self._closed or generation != self._generation:
             return
         if self._queue.full():
             self._queue.get_nowait()
-            self._queue.task_done()
             self._dropped_count += 1
             if self._dropped_count == 1 or self._dropped_count % 1000 == 0:
-                logger.warning("ADS subscription queue dropped %d samples", self._dropped_count)
-        self._queue.put_nowait(sample)
+                logger.warning(
+                    "ADS subscription queue dropped %d blocks", self._dropped_count
+                )
+        self._queue.put_nowait(samples)
 
     async def _worker(self) -> None:
         while True:
-            sample = await self._queue.get()
-            try:
-                await self._callback(sample)
-            except Exception:
-                logger.exception("ADS subscription callback failed for '%s'", sample.point_id)
-            finally:
-                self._queue.task_done()
+            samples = await self._queue.get()
+            for sample in samples:
+                try:
+                    await self._callback(sample)
+                except Exception:
+                    logger.exception(
+                        "ADS subscription callback failed for '%s'", sample.point_id
+                    )
 
 
 def _normalize_timestamp(value: object) -> tuple[datetime, TimestampSource]:

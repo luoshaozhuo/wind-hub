@@ -184,3 +184,70 @@ async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.Monk
         assert samples[0].value == 3.5
     finally:
         await subscription.close()
+
+@pytest.mark.asyncio
+async def test_queue_drops_oldest_whole_block() -> None:
+    async def callback(sample: ProtocolSample) -> None:
+        del sample
+
+    subscription = ADSSubscription(
+        object(), (point("a", 100),), callback,
+        cycle_time=0.1, loop=asyncio.get_running_loop(),
+    )
+    subscription._queue = asyncio.Queue(maxsize=2)
+    stamp = datetime.now(UTC)
+
+    def batch(prefix: str) -> tuple[ProtocolSample, ...]:
+        return tuple(
+            ProtocolSample(
+                point_id=f"{prefix}_{i}",
+                value=i,
+                quality=Quality.GOOD,
+                timestamp=stamp,
+                timestamp_source="device",
+            )
+            for i in range(3)
+        )
+
+    subscription._enqueue_batch(batch("first"), 0)
+    subscription._enqueue_batch(batch("second"), 0)
+    subscription._enqueue_batch(batch("third"), 0)
+    assert subscription._dropped_count == 1
+    assert subscription._queue.qsize() == 2
+    assert [item[0].point_id for item in (
+        subscription._queue.get_nowait(),
+        subscription._queue.get_nowait(),
+    )] == ["second_0", "third_0"]
+    assert subscription._queue.empty()
+    await subscription.close()
+
+
+@pytest.mark.asyncio
+async def test_worker_consumes_complete_blocks_in_order() -> None:
+    received: list[str] = []
+    complete = asyncio.Event()
+
+    async def callback(sample: ProtocolSample) -> None:
+        received.append(sample.point_id)
+        if len(received) == 4:
+            complete.set()
+
+    subscription = ADSSubscription(
+        object(), (point("a", 100),), callback,
+        cycle_time=0.1, loop=asyncio.get_running_loop(),
+    )
+    stamp = datetime.now(UTC)
+    def sample(name: str) -> ProtocolSample:
+        return ProtocolSample(
+            point_id=name, value=1, quality=Quality.GOOD,
+            timestamp=stamp, timestamp_source="device",
+        )
+
+    subscription._worker_task = asyncio.create_task(subscription._worker())
+    subscription._enqueue_batch((sample("a"), sample("b")), 0)
+    subscription._enqueue_batch((sample("c"), sample("d")), 0)
+    try:
+        await asyncio.wait_for(complete.wait(), 1)
+        assert received == ["a", "b", "c", "d"]
+    finally:
+        await subscription.close()
