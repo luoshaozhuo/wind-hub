@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from core.application.errors import ConfigError
 from core.application.protocol_contract import ProtocolSample, Quality
 from core.infrastructure.protocol.ads.codec import compile_notification_blocks
 from core.infrastructure.protocol.ads.mapping import ADSPoint
@@ -18,15 +19,16 @@ def point(name: str, offset: int, kind: str = "REAL", size: int = 4) -> ADSPoint
     return ADSPoint(name, 0x4020, offset, kind, size)
 
 
-def test_block_compiler_respects_groups_gaps_and_overlap() -> None:
+def test_block_compiler_rejects_overlap() -> None:
     blocks = compile_notification_blocks((
-        point("c", 108), point("a", 100), point("b", 104),
-        point("overlap", 104), point("gap", 200),
+        point("c", 108), point("a", 100), point("b", 104), point("gap", 200),
     ))
-    assert sum(len(block.fields) for block in blocks) == 5
-    assert any(block.size == 8 for block in blocks)
-    assert len(blocks) >= 3
-    assert len(compile_notification_blocks((point("a", 100), point("b", 104)), max_bytes=4)) == 2
+    assert len(blocks) == 1
+    assert blocks[0].size == 104
+    with pytest.raises(ConfigError, match="overlap"):
+        compile_notification_blocks((point("a", 100), point("duplicate", 100)))
+    with pytest.raises(ConfigError, match="overlap"):
+        compile_notification_blocks((point("a", 100, "STRING", 20), point("b", 104)))
 
 
 @pytest.mark.asyncio
@@ -63,7 +65,7 @@ def test_compiled_mixed_type_decoders() -> None:
     blocks = compile_notification_blocks((point("a", 0, "DINT"), point("b", 4, "REAL")))
     fields = blocks[0].fields
     raw = memoryview(struct.pack("<if", -7, 2.5))
-    assert [decode(raw[offset:offset + pt.size]) for pt, offset, decode in fields] == [-7, 2.5]
+    assert [decode(raw, offset) for pt, offset, decode in fields] == [-7, 2.5]
 
 def test_block_compiler_uses_total_span_not_gap() -> None:
     points = (point("a", 100), point("b", 112), point("c", 140))
@@ -132,3 +134,53 @@ async def test_block_registration_failure_does_not_fallback() -> None:
     assert connection.registered == [(0x4020, 0), (0x4020, 100)]
     assert connection.deleted == [1]
     assert subscription._worker_task is None
+
+@pytest.mark.asyncio
+async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ctypes
+    import core.infrastructure.protocol.ads.subscription as mod
+
+    class Attrib:
+        def __init__(self, length: int, **kwargs: object) -> None:
+            self.length = length
+
+    class Connection:
+        def __init__(self) -> None:
+            self.datatype: object = None
+            self.callback: object = None
+
+        def notification(self, datatype: object):
+            self.datatype = datatype
+            return lambda callback: callback
+
+        def add_device_notification(self, address, attr, callback):
+            self.callback = callback
+            assert address == (0x4020, 100)
+            assert attr.length == 4
+            return (1, None)
+
+        def del_device_notification(self, handle, user_handle):
+            pass
+
+    monkeypatch.setattr(mod.pyads, "NotificationAttrib", Attrib)
+    connection = Connection()
+    samples: list[ProtocolSample] = []
+    event = asyncio.Event()
+
+    async def on_sample(sample: ProtocolSample) -> None:
+        samples.append(sample)
+        event.set()
+
+    subscription = ADSSubscription(
+        connection, (point("single", 100),), on_sample,
+        cycle_time=0.1, loop=asyncio.get_running_loop(),
+    )
+    await subscription.start()
+    try:
+        assert ctypes.sizeof(connection.datatype) == 4
+        assert connection.callback is not None
+        connection.callback(None, None, datetime.now(UTC), struct.pack("<f", 3.5))
+        await asyncio.wait_for(event.wait(), 1)
+        assert samples[0].value == 3.5
+    finally:
+        await subscription.close()

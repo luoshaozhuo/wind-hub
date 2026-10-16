@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import struct
 from ctypes import c_ubyte
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
@@ -76,17 +77,10 @@ class ADSSubscription:
             trans_mode=pyads.ADSTRANS_SERVERCYCLE,
             cycle_time=self._cycle_time,
         )
-        if len(block.fields) == 1:
-            point = block.fields[0][0]
-            datatype = getattr(pyads, f"PLCTYPE_{point.data_type}")
-            wrapped = self._connection.notification(datatype)(
-                self._notification_callback(point, generation)
-            )
-        else:
-            datatype = c_ubyte * block.size
-            wrapped = self._connection.notification(datatype)(
-                self._block_callback(block, generation)
-            )
+        datatype = c_ubyte * block.size
+        wrapped = self._connection.notification(datatype)(
+            self._block_callback(block, generation)
+        )
         handle = await asyncio.to_thread(
             self._connection.add_device_notification,
             (block.group, block.offset),
@@ -108,15 +102,14 @@ class ADSSubscription:
                 raw = bytes(value)
                 if len(raw) != block.size:
                     raise ValueError("ADS notification block length mismatch")
-                view = memoryview(raw)
             except (TypeError, ValueError):
-                view = None
+                raw = b""
             samples: list[ProtocolSample] = []
             for point, offset, decoder in block.fields:
                 try:
-                    scalar = decoder(view[offset:offset + point.size]) if view is not None else None
-                    quality = Quality.GOOD if view is not None else Quality.BAD
-                except (ValueError, TypeError, UnicodeDecodeError):
+                    scalar = decoder(raw, offset) if len(raw) == block.size else None
+                    quality = Quality.GOOD if len(raw) == block.size else Quality.BAD
+                except (ValueError, TypeError, UnicodeDecodeError, struct.error):
                     scalar = None
                     quality = Quality.BAD
                 samples.append(ProtocolSample(
@@ -159,37 +152,6 @@ class ADSSubscription:
                 )
             except Exception:
                 logger.exception("ADS notification deregistration failed")
-
-    def _notification_callback(
-        self, point: ADSPoint, generation: int
-    ) -> Callable[..., None]:
-        def on_notification(
-            handle: Any,
-            address: Any,
-            timestamp: Any,
-            value: Any,
-        ) -> None:
-            del handle, address
-            if self._closed or generation != self._generation:
-                return
-            if value is None or not isinstance(value, str | int | float | bool):
-                scalar = None
-                quality = Quality.BAD
-            else:
-                scalar = value
-                quality = Quality.GOOD
-            received_at, source = _normalize_timestamp(timestamp)
-            sample = ProtocolSample(
-                point_id=point.point_id,
-                value=scalar,
-                quality=quality,
-                timestamp=received_at,
-                timestamp_source=source,
-            )
-            with contextlib.suppress(RuntimeError):
-                self._loop.call_soon_threadsafe(self._enqueue, sample, generation)
-
-        return on_notification
 
     def _enqueue_batch(self, samples: tuple[ProtocolSample, ...], generation: int) -> None:
         if self._closed or generation != self._generation:

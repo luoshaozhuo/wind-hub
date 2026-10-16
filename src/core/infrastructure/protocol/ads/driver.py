@@ -101,7 +101,7 @@ class ADSDriver:
             tuple[ADSPoint, ...],
             tuple[
                 tuple[Any, ...],
-                tuple[Callable[[bytes | memoryview], PointScalar], ...],
+                tuple[Callable[[bytes | memoryview, int], PointScalar], ...],
             ],
         ] = {}
         self._points: dict[str, ADSPoint] = {}
@@ -570,7 +570,7 @@ class ADSDriver:
 
     def _build_sum_decoders(
         self, points: tuple[ADSPoint, ...]
-    ) -> tuple[Callable[[bytes | memoryview], PointScalar], ...]:
+    ) -> tuple[Callable[[bytes | memoryview, int], PointScalar], ...]:
         """编译逐点解码器，与请求地址保持相同顺序。"""
         return tuple(compile_decoder(point) for point in points)
 
@@ -621,7 +621,6 @@ class ADSDriver:
             data_view = memoryview(raw)
             for item, error in zip(chunk, errors):
                 size = item.size
-                data = data_view[offset:offset + size]
                 offset += size
                 decoder = decoders[decoder_index]
                 decoder_index += 1
@@ -629,7 +628,7 @@ class ADSDriver:
                     results.append((None, Quality.BAD))
                     continue
                 try:
-                    results.append((decoder(data), Quality.GOOD))
+                    results.append((decoder(data_view, offset - size), Quality.GOOD))
                 except (TypeError, ValueError, UnicodeDecodeError, struct.error):
                     results.append((None, Quality.BAD))
         return tuple(results)
