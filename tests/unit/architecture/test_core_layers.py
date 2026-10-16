@@ -50,7 +50,13 @@ def test_application_port_modules_contain_interfaces_only() -> None:
         for node in tree.body:
             if not isinstance(node, ast.ClassDef):
                 continue
-            base_names = {base.id for base in node.bases if isinstance(base, ast.Name)}
+            base_names: set[str] = set()
+            for base in node.bases:
+                # 允许 class X(Protocol) 与泛型 class X(Protocol[T]) 两种形态。
+                if isinstance(base, ast.Name):
+                    base_names.add(base.id)
+                elif isinstance(base, ast.Subscript) and isinstance(base.value, ast.Name):
+                    base_names.add(base.value.id)
             if "Protocol" not in base_names:
                 violations.append(
                     f"{path.name}:{node.lineno} class {node.name} " "is not a typing.Protocol"

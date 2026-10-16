@@ -13,6 +13,7 @@ from .errors import (
 from .port import (
     ConfigPort,
     ExclusiveOpenSinkPort,
+    ListenHandle,
     ProtocolPort,
     ProtocolSampleCallback,
     SinkPort,
@@ -56,6 +57,7 @@ __all__ = [
     "WriteOutcome",
     "Quality",
     "SubscriptionHandle",
+    "ListenHandle",
     "TimestampSource",
     "WritableScalar",
     "WatchdogUseCase",
