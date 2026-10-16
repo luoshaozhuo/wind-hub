@@ -15,7 +15,7 @@ from core.domain import (
     PointTableId,
     Protocol,
 )
-from core.infrastructure.protocol.ads.driver import ADSDriver
+from core.infrastructure.protocol.ads.driver import ADSDriver, _AdsSession
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 from tests.support.units import NONE_UNIT
 
@@ -84,7 +84,7 @@ async def test_ads_sum_plan_reuses_groups_and_invalidates_on_session_reset(monke
         {},
     )
     conn = _SumReadConn(struct.pack("<IIii", 0, 0, 11, 22))
-    driver._connection = conn
+    driver._session = _AdsSession(conn)
     driver._connected = True
 
     builds = 0
@@ -172,7 +172,7 @@ async def test_ads_internal_values_and_wrapped_samples_preserve_bad(monkeypatch)
         {},
     )
     # 首个错误码 0 + DINT 23；第二个错误码 1808（设备点级错误）→ BAD。
-    driver._connection = _SumReadConn(struct.pack("<IIii", 0, 1808, 23, 0))
+    driver._session = _AdsSession(_SumReadConn(struct.pack("<IIii", 0, 1808, 23, 0)))
     driver._connected = True
 
     assert await driver._read_values(["good", "bad"]) == (
@@ -264,7 +264,7 @@ async def test_ads_sum_read_survives_point_table_reload_mid_flight(monkeypatch):
             driver.update_point_table(PointTable(PointTableId("ads"), Protocol("ads"), points))
             return struct.pack("<Ii", 0, 11)
 
-    driver._connection = _ReloadConn()
+    driver._session = _AdsSession(_ReloadConn())
     driver._connected = True
 
     result = await driver.read_many(["a"])
@@ -302,7 +302,7 @@ async def test_ads_mixed_plan_survives_point_table_reload_mid_flight():
             driver.update_point_table(PointTable(PointTableId("ads"), Protocol("ads"), points))
             return struct.pack("<IIi", 0, 0, 11) + b"ok\x00\x00"
 
-    driver._connection = Conn()
+    driver._session = _AdsSession(Conn())
     driver._connected = True
 
     result = await driver.read_many(["a", "s"])

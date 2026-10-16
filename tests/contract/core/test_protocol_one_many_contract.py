@@ -28,7 +28,7 @@ from core.application.protocol_contract import (
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint
-from core.infrastructure.protocol.ads.driver import ADSDriver
+from core.infrastructure.protocol.ads.driver import ADSDriver, _AdsSession
 from core.infrastructure.protocol.ads.mapping import ADSPoint
 from core.infrastructure.protocol.iec104.config import IEC104Config
 from core.infrastructure.protocol.iec104.driver import IEC104Driver, _SubscriptionRegistry
@@ -206,7 +206,7 @@ def _connected_ads_driver(connection: _ADSConnection) -> ADSDriver:
     driver = object.__new__(ADSDriver)
     driver._lock = asyncio.Lock()
     driver._points = {"p1": _ads_point("p1")}
-    driver._connection = connection
+    driver._session = _AdsSession(connection)
     driver._connected = True
     return driver
 
@@ -214,7 +214,7 @@ def _connected_ads_driver(connection: _ADSConnection) -> ADSDriver:
 def _bare_ads_driver() -> ADSDriver:
     driver = _connected_ads_driver(_ADSConnection())
     driver._connected = False
-    driver._connection = None
+    driver._session = None
     return driver
 
 
