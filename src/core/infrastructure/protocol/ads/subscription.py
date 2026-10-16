@@ -74,10 +74,12 @@ class ADSSubscription:
         self._worker_task = asyncio.create_task(self._worker(), name="ads-subscription-worker")
 
     async def _register_block(self, block: NotificationBlock, generation: int) -> None:
+        # pyads NotificationAttrib 的 cycle_time 单位是毫秒（内部换算为
+        # 100ns 单位）；self._cycle_time 为秒。
         attr = pyads.NotificationAttrib(
             block.size,
             trans_mode=pyads.ADSTRANS_SERVERCYCLE,
-            cycle_time=self._cycle_time,
+            cycle_time=self._cycle_time * 1000.0,
         )
         buffer_type = c_ubyte * block.size
         wrapped = self._connection.notification(buffer_type)(
