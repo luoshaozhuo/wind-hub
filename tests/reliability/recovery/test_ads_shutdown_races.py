@@ -198,49 +198,49 @@ async def stack() -> AsyncIterator[tuple[AdsMemoryServer, TCPFaultProxy]]:
 
 
 class TestShutdownRaces:
-    async def test_driver_close_owns_active_subscription_cleanup_30(
+    async def test_driver_close_owns_active_subscription_cleanup_100(
         self, server: AdsMemoryServer, local_ams: None
     ) -> None:
-        """上层只关 Driver 不关订阅句柄：30 轮全部有界、零残留。"""
+        """上层只关 Driver 不关订阅句柄：100 轮全部有界、零残留。"""
         del local_ams
         server.set_values(_GROUP, 0, pack_points([("DINT", 1)]))
         threads_start = threading.active_count()
-        for _ in range(30):
+        for _ in range(100):
             await _close_with_active_subscription_cycle(server)
         assert len(callback_store) == 0
         assert threading.active_count() <= threads_start + 2
 
-    async def test_concurrent_handle_close_and_driver_close_30(
+    async def test_concurrent_handle_close_and_driver_close_100(
         self, server: AdsMemoryServer, local_ams: None
     ) -> None:
         """handle.close() 与 driver.close() 同时发生：幂等、有界、不抛错。"""
         del local_ams
         server.set_values(_GROUP, 0, b"\x00" * 9000)
-        for _ in range(30):
+        for _ in range(100):
             await _concurrent_close_cycle(server)
         assert len(callback_store) == 0
 
-    async def test_subscribe_races_with_close_30(
+    async def test_subscribe_races_with_close_100(
         self, server: AdsMemoryServer, local_ams: None
     ) -> None:
         """注册途中与 close 并发：要么注册成功后被 close 清掉，要么明确失败。"""
         del local_ams
         server.set_values(_GROUP, 0, b"\x00" * 9000)
-        for _ in range(30):
+        for _ in range(100):
             await _subscribe_close_race_cycle(server)
         assert len(callback_store) == 0
 
-    async def test_drop_then_close_active_subscription_bounded_30(
+    async def test_drop_then_close_active_subscription_bounded_100(
         self,
         stack: tuple[AdsMemoryServer, TCPFaultProxy],
         local_ams: None,
     ) -> None:
-        """活跃订阅期间断链后关闭：30 轮全部有界完成，新会话可重建订阅。"""
+        """活跃订阅期间断链后关闭：100 轮全部有界完成，新会话可重建订阅。"""
         del local_ams
         server, proxy = stack
         server.set_values(_GROUP, 0, b"\x00" * 9000)
         current = proxy
-        for _ in range(30):
+        for _ in range(100):
             driver = _driver(_PROXY_IP, max_block_bytes=64)
             await asyncio.wait_for(driver.connect(), timeout=5.0)
             await driver.subscribe(("a", "b"), _ignore_sample, interval=0.05)
@@ -259,7 +259,7 @@ class TestShutdownRaces:
         # PLC 是否回收须硬件验收）；末轮在新代理上重新订阅，活跃注册必须
         # 恰好是本轮的两个，并能干净注销。
         residue = len(server.residue_registrations())
-        assert residue == 60, residue
+        assert residue == 200, residue
         driver = _driver(_PROXY_IP, max_block_bytes=64)
         await asyncio.wait_for(driver.connect(), timeout=5.0)
         handle = await driver.subscribe(("a", "b"), _ignore_sample, interval=0.05)
@@ -274,12 +274,12 @@ class TestShutdownRaces:
         assert server.notification_count() == residue
         await current.stop()
 
-    async def test_restart_resubscribe_redelivers_30(
+    async def test_restart_resubscribe_redelivers_100(
         self, server: AdsMemoryServer, local_ams: None
     ) -> None:
-        """30 次服务重启 + 重连 + 重订阅：每轮重新收到真实周期数据。"""
+        """100 次服务重启 + 重连 + 重订阅：每轮重新收到真实周期数据。"""
         del local_ams
-        for index in range(30):
+        for index in range(100):
             await _restart_resubscribe_cycle(server, index)
         assert len(callback_store) == 0
 
