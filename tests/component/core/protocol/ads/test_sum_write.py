@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import struct
+from collections.abc import Sequence
+from dataclasses import replace
 
 import pytest
 from pyads.constants import (  # type: ignore[import-untyped]  # pyads 无 py.typed，与 src 处理方式一致
@@ -21,6 +23,7 @@ from core.domain import (
     Protocol,
 )
 from core.infrastructure.protocol.ads import ADSDriver
+from core.infrastructure.protocol.ads.mapping import ADSPoint
 from tests.support.units import NONE_UNIT
 
 
@@ -124,19 +127,48 @@ async def test_sum_write_rejects_invalid_value_without_discarding_valid_points()
 
 
 @pytest.mark.asyncio
-async def test_sum_write_transport_failure_disconnects() -> None:
+async def test_sum_write_transport_failure_keeps_session_open() -> None:
+    """传输级失败（响应长度非法）抛 ProtocolError，但不擅自关闭会话。
+
+    是否重连由上层 Watchdog 依据 health 决定；Driver 不把一次命令
+    传输失败等同为 TCP 断链。
+    """
     driver, connection = _driver(_point("a", 10), _point("b", 20))
-    connection.errors = [0]  # Invalid Sum Write response size
+    connection.errors = [0]  # 只返回 1 个错误码，响应长度非法
     with pytest.raises(ProtocolError, match="sum write failed"):
         await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert not driver.is_open()
-    assert connection.closed
+    assert driver.is_open()
+    assert not connection.closed
+
+
+@pytest.mark.asyncio
+async def test_sum_write_chunk_preserves_point_errors() -> None:
+    """分批 Sum Write：逐点 ADS 错误码隔离，失败点不影响其他批次。"""
+    driver, connection = _driver(_point("a", 10), _point("b", 20), _point("c", 30))
+    driver._config = replace(driver._config, max_subs_per_sum=2)
+
+    def fake_sum_write(chunk: Sequence[tuple[int, ADSPoint, bytes]]) -> tuple[int, ...]:
+        return tuple(0 if point.offset != 20 else 1808 for _index, point, _payload in chunk)
+
+    driver._sum_write_bytes = fake_sum_write  # type: ignore[method-assign]
+    results = await driver.write_many(
+        (
+            ProtocolWrite("a", 1),
+            ProtocolWrite("b", 2),
+            ProtocolWrite("c", 3),
+        )
+    )
+    assert [r.outcome for r in results] == [
+        WriteOutcome.CONFIRMED_SUCCESS,
+        WriteOutcome.CONFIRMED_FAILURE,
+        WriteOutcome.CONFIRMED_SUCCESS,
+    ]
+    assert [r.message for r in results] == [None, "ADS write error 1808", None]
+    assert connection.requests == []
 
 
 @pytest.mark.asyncio
 async def test_sum_write_chunks_by_limit() -> None:
-    from dataclasses import replace
-
     driver, connection = _driver(_point("a", 10), _point("b", 20), _point("c", 30))
     driver._config = replace(driver._config, max_subs_per_sum=2)
     results = await driver.write_many(

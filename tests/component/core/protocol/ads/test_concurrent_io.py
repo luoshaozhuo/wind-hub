@@ -99,7 +99,7 @@ async def test_health_concurrent_with_writes_never_corrupts_commands(
         for _ in range(iterations):
             health = await memory_driver.health()
             if not health.healthy:
-                unhealthy.append(health.message)
+                unhealthy.append(health.message or "")
 
     await asyncio.gather(write_loop(), health_loop())
 
@@ -129,7 +129,7 @@ async def test_health_concurrent_with_sum_reads_never_corrupts_commands(
         for _ in range(iterations):
             health = await memory_driver.health()
             if not health.healthy:
-                unhealthy.append(health.message)
+                unhealthy.append(health.message or "")
 
     await asyncio.gather(read_loop(), health_loop())
 

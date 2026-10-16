@@ -379,15 +379,14 @@ class ADSDriver:
     ) -> tuple[ProtocolSample, ...]:
         """使用 ADS Sum Read 批量读取，返回按输入顺序排列的样本元组。
 
-        支持注册点 point_id 与动态 ADSPoint 混合；动态点按显式 index 地址
-        参与 Sum Read，不降级为逐点读取。
+        入参只接受已配置 Point Key；传输失败不降级为逐点读取。
         """
         raw = await self._read_values(points)
         # 全批次共享同一读取时刻——Driver 在获得读取结果时生成 UTC 时间戳。
         received_at = datetime.now(UTC)
         return tuple(
             ProtocolSample(point_id=pid, value=value, timestamp=received_at, quality=quality)
-            for pid, (value, quality) in zip(_point_identities(points), raw, strict=True)
+            for pid, (value, quality) in zip(points, raw, strict=True)
         )
 
     async def _read_values(
@@ -769,11 +768,6 @@ def _as_point_scalar(
     if value is None or isinstance(value, str | int | float | bool):
         return value
     raise TypeError(f"unsupported ADS value type '{type(value).__name__}'")
-
-
-def _point_identities(points: Sequence[str]) -> tuple[str, ...]:
-    """批量读返回样本的身份：str 输入即 point_id，动态点取其 point_id。"""
-    return tuple(point if isinstance(point, str) else point.point_id for point in points)
 
 
 def _bad_sample(point_id: str) -> ProtocolSample:

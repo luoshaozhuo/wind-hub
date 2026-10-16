@@ -121,12 +121,15 @@ def ads_point(
     data_type: str,
     size: int | None = None,
 ) -> ADSPoint:
-    """构造并校验一个动态 ADSPoint（显式 index 地址，无需点表登记）。
+    """构造并校验一个 ADSPoint（显式 index 地址定义）。
+
+    供点表解析与测试构造使用；运行时读写只接受 PointTable 已配置的
+    Point Key，不能以此对象直接寻址。
 
     校验规则与 ``parse_ads_point`` 一致：index 地址为非负整数（拒绝布尔
     冒充）、data_type 归一化、size 与类型宽度匹配（STRING 允许显式长度）。
-    动态点不携带 symbol，``address_resolved`` 恒为 True——显式 index 地址
-    不依赖 ADS session 的符号解析。
+    显式 index 地址不携带 symbol，``address_resolved`` 恒为 True，不依赖
+    ADS session 的符号解析。
     """
     group = _non_negative_int(index_group, "index_group", point_id)
     offset = _non_negative_int(index_offset, "index_offset", point_id)

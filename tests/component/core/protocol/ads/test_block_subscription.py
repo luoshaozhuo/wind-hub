@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import struct
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 
@@ -138,6 +140,7 @@ async def test_block_registration_failure_does_not_fallback() -> None:
 @pytest.mark.asyncio
 async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.MonkeyPatch) -> None:
     import ctypes
+
     import core.infrastructure.protocol.ads.subscription as mod
 
     class Attrib:
@@ -146,23 +149,29 @@ async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.Monk
 
     class Connection:
         def __init__(self) -> None:
-            self.datatype: object = None
-            self.callback: object = None
+            self.datatype: Any = None
+            self.callback: Callable[..., None] | None = None
 
-        def notification(self, datatype: object):
+        def notification(
+            self, datatype: Any
+        ) -> Callable[[Callable[..., None]], Callable[..., None]]:
             self.datatype = datatype
             return lambda callback: callback
 
-        def add_device_notification(self, address, attr, callback):
-            self.callback = callback
+        def add_device_notification(self, address: object, attr: object, callback: object):
+            self.callback = cast("Callable[..., None]", callback)
             assert address == (0x4020, 100)
-            assert attr.length == 4
+            assert cast("Any", attr).length == 4
             return (1, None)
 
-        def del_device_notification(self, handle, user_handle):
-            pass
+        def del_device_notification(self, handle: object, user_handle: object) -> None:
+            del handle, user_handle
 
-    monkeypatch.setattr(mod.pyads, "NotificationAttrib", Attrib)
+    monkeypatch.setattr(
+        mod.pyads,  # type: ignore[attr-defined]  # pyads 为第三方动态模块属性
+        "NotificationAttrib",
+        Attrib,
+    )
     connection = Connection()
     samples: list[ProtocolSample] = []
     event = asyncio.Event()
