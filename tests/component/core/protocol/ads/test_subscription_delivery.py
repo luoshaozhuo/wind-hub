@@ -64,6 +64,9 @@ class _Connection:
             self.callbacks.pop(handle, None)
             self.deleted.append(handle)
 
+    def run(self, name: str, *args: object) -> object:
+        return getattr(self, name)(*args)
+
     def fire(self, handle: int, raw: bytes, *, timestamp: Any = None) -> None:
         self.callbacks[handle](handle, (0x4020, 0), timestamp, raw)
 

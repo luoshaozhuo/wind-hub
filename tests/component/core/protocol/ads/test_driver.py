@@ -122,7 +122,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
         {},
     )
     fake_connection = _FakeADSConnection()
-    driver._connection = fake_connection
+    driver._session = driver_module._AdsSession(fake_connection)
     driver._connected = True
 
     fake_pyads = _FakePyads()
@@ -149,9 +149,7 @@ async def test_ads_driver_local_ams_identity_initializes_once(
         assert fake_pyads.open_calls == 1
         assert fake_pyads.local_addresses == ["192.0.2.10.1.2"]
         with pytest.raises(ConfigError, match="conflicts"):
-            await ADSDriver.initialize_local(
-                ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11")
-            )
+            await ADSDriver.initialize_local(ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11"))
     finally:
         await ADSDriver.close_local()
     assert fake_pyads.close_calls == 1
@@ -200,9 +198,7 @@ async def test_ads_connect_probes_then_adds_route_and_retries_once(
             return True
 
     monkeypatch.setattr(driver_module, "pyads", Pyads)
-    monkeypatch.setattr(
-        driver_module, "_LOCAL_AMS", ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
-    )
+    monkeypatch.setattr(driver_module, "_LOCAL_AMS", ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10"))
     driver = ADSDriver(
         _endpoint(),
         PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
@@ -279,9 +275,7 @@ async def test_ads_probe_sets_timeout_after_open_before_read(
         {"timeout": 1.25},
     )
     await driver.connect()
-    assert _TimeoutProbeConnection.events[:3] == [
-        "open", ("timeout", 1250), "read_state"
-    ]
+    assert _TimeoutProbeConnection.events[:3] == ["open", ("timeout", 1250), "read_state"]
     await driver.close()
     assert _TimeoutProbeConnection.events[-1] == "close"
 
@@ -302,9 +296,7 @@ async def test_ads_probe_rejects_none_state_and_closes_connection(
     )
     with pytest.raises(Exception, match="ADS connect failed"):
         await driver.connect()
-    assert _TimeoutProbeConnection.events == [
-        "open", ("timeout", 5000), "read_state", "close"
-    ]
+    assert _TimeoutProbeConnection.events == ["open", ("timeout", 5000), "read_state", "close"]
     assert not driver.is_open()
 
 
@@ -324,10 +316,8 @@ async def test_ads_health_stop_state_is_unhealthy_without_extra_connection(
     )
     with pytest.raises(Exception, match="ADS connect failed"):
         await driver.connect()
-    assert _TimeoutProbeConnection.events == [
-        "open", ("timeout", 5000), "read_state", "close"
-    ]
-    assert driver._connection is None
+    assert _TimeoutProbeConnection.events == ["open", ("timeout", 5000), "read_state", "close"]
+    assert driver._session is None
     assert not driver.is_open()
 
 
@@ -411,7 +401,7 @@ def _notification_driver(
     table = PointTable(PointTableId("ads_pt"), Protocol("ads"), {"speed": point})
     driver = ADSDriver(_endpoint(), table, {})
     connection = _FakeNotificationConnection()
-    driver._connection = connection
+    driver._session = driver_module._AdsSession(connection)
     driver._connected = True
     monkeypatch.setattr(subscription_module, "pyads", _FakeNotificationPyads)
     return driver, connection
@@ -686,7 +676,7 @@ def _connected_driver(
         PointTable(PointTableId("ads_pt"), Protocol("ads"), {"speed": point}),
         {},
     )
-    driver._connection = connection
+    driver._session = driver_module._AdsSession(connection)
     driver._connected = True
     return driver
 
@@ -701,7 +691,7 @@ async def test_close_is_idempotent_and_clears_session() -> None:
 
     assert connection.close_calls == 1
     assert not driver.is_open()
-    assert driver._connection is None
+    assert driver._session is None
     assert driver._subscriptions == set()
 
 

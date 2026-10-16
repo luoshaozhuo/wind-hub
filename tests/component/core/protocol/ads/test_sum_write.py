@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import struct
-from collections.abc import Sequence
 from dataclasses import replace
 
 import pytest
@@ -11,6 +10,7 @@ from pyads.constants import (  # type: ignore[import-untyped]  # pyads 无 py.ty
     ADSIGRP_SUMUP_WRITE,
 )
 
+import core.infrastructure.protocol.ads.driver as driver_module
 from core.application import ProtocolError, ProtocolWrite
 from core.application.protocol_contract import WriteOutcome
 from core.domain import (
@@ -23,7 +23,6 @@ from core.domain import (
     Protocol,
 )
 from core.infrastructure.protocol.ads import ADSDriver
-from core.infrastructure.protocol.ads.mapping import ADSPoint
 from tests.support.units import NONE_UNIT
 
 
@@ -76,7 +75,7 @@ def _driver(*points: Point) -> tuple[ADSDriver, _Connection]:
     table = PointTable(PointTableId("ads"), Protocol("ads"), {p.point_id: p for p in points})
     driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
     connection = _Connection()
-    driver._connection = connection
+    driver._session = driver_module._AdsSession(connection)
     driver._connected = True
     return driver, connection
 
@@ -144,13 +143,21 @@ async def test_sum_write_transport_failure_keeps_session_open() -> None:
 @pytest.mark.asyncio
 async def test_sum_write_chunk_preserves_point_errors() -> None:
     """分批 Sum Write：逐点 ADS 错误码隔离，失败点不影响其他批次。"""
-    driver, connection = _driver(_point("a", 10), _point("b", 20), _point("c", 30))
+    driver, _unused = _driver(_point("a", 10), _point("b", 20), _point("c", 30))
     driver._config = replace(driver._config, max_subs_per_sum=2)
 
-    def fake_sum_write(chunk: Sequence[tuple[int, ADSPoint, bytes]]) -> tuple[int, ...]:
-        return tuple(0 if point.offset != 20 else 1808 for _index, point, _payload in chunk)
+    class SelectiveErrors(_Connection):
+        def read_write(
+            self, index_group, count, read_datatype, value, write_datatype, *, check_length
+        ) -> bytes:
+            del read_datatype, write_datatype, check_length
+            assert index_group == ADSIGRP_SUMUP_WRITE
+            raw = bytes(value)
+            offsets = [struct.unpack_from("<III", raw, i * 12)[1] for i in range(count)]
+            return b"".join(struct.pack("<I", 1808 if offset == 20 else 0) for offset in offsets)
 
-    driver._sum_write_bytes = fake_sum_write  # type: ignore[method-assign]
+    connection = SelectiveErrors()
+    driver._session = driver_module._AdsSession(connection)
     results = await driver.write_many(
         (
             ProtocolWrite("a", 1),

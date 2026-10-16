@@ -50,12 +50,16 @@ def _point(point_id: str, *, offset: int) -> Point:
 
 
 def _driver(*points: Point) -> ADSDriver:
-    table = PointTable(
-        PointTableId("ads_pt"), Protocol("ads"), {p.point_id: p for p in points}
-    )
+    table = PointTable(PointTableId("ads_pt"), Protocol("ads"), {p.point_id: p for p in points})
     driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
     driver._connected = True
     return driver
+
+
+def _wrap(driver: ADSDriver, connection: _Connection) -> None:
+    from core.infrastructure.protocol.ads.driver import _AdsSession
+
+    driver._session = _AdsSession(connection)
 
 
 class _Attrib:
@@ -138,7 +142,7 @@ async def test_multiple_subscriptions_share_one_connection_and_are_independent(
     fake_pyads: _Connection,
 ) -> None:
     driver = _driver(_point("speed", offset=10))
-    driver._connection = fake_pyads
+    _wrap(driver, fake_pyads)
     first_samples: list[ProtocolSample] = []
     second_samples: list[ProtocolSample] = []
     second_received = asyncio.Event()
@@ -153,7 +157,7 @@ async def test_multiple_subscriptions_share_one_connection_and_are_independent(
     first = await driver.subscribe(("speed",), first_cb, interval=0.25)
     second = await driver.subscribe(("speed",), second_cb, interval=0.25)
     # 共享连接：两个订阅都注册在 driver 的同一条连接上。
-    assert driver._connection is not None
+    assert driver._session is not None
     assert set(fake_pyads.callbacks) == {1, 2}
 
     await first.close()
@@ -172,7 +176,7 @@ async def test_callback_exception_does_not_stop_subscription(
     fake_pyads: _Connection,
 ) -> None:
     driver = _driver(_point("speed", offset=10))
-    driver._connection = fake_pyads
+    _wrap(driver, fake_pyads)
     received: list[float] = []
     delivered = asyncio.Event()
     calls = 0
@@ -201,7 +205,7 @@ async def test_close_deregisters_all_handles_and_is_idempotent(
     fake_pyads: _Connection,
 ) -> None:
     driver = _driver(_point("speed", offset=10), _point("torque", offset=1100))
-    driver._connection = fake_pyads
+    _wrap(driver, fake_pyads)
     handle = await driver.subscribe((), _noop, interval=0.25)
     assert len(fake_pyads.callbacks) == 2
 
@@ -223,7 +227,7 @@ async def test_start_failure_deregisters_partial_blocks_and_is_not_tracked(
 ) -> None:
     """第二个区块注册失败：已注册 handle 被清理，异常上抛，Driver 不跟踪。"""
     driver = _driver(_point("speed", offset=10), _point("torque", offset=1100))
-    driver._connection = fake_pyads
+    _wrap(driver, fake_pyads)
     fake_pyads.fail_registration_after = 1
 
     # 传输级注册失败与读写路径同口径归一化为 ProtocolError，原始异常保留为 __cause__。
@@ -243,7 +247,7 @@ async def test_deregistration_failure_does_not_block_close(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     driver = _driver(_point("speed", offset=10))
-    driver._connection = fake_pyads
+    _wrap(driver, fake_pyads)
 
     def raise_on_delete(handle: object, user_handle: object) -> None:
         raise ConnectionError("deregistration lost")
@@ -262,7 +266,7 @@ async def test_old_generation_native_callback_is_silently_dropped(
 ) -> None:
     """订阅关闭后再订阅：旧订阅残留的原生回调不得再投递样本。"""
     driver = _driver(_point("speed", offset=10))
-    driver._connection = fake_pyads
+    _wrap(driver, fake_pyads)
     received: list[float] = []
 
     async def collect(sample: ProtocolSample) -> None:

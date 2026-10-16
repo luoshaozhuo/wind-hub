@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import core.infrastructure.protocol.ads.driver as driver_module
 from core.application.errors import ProtocolError
 from core.application.protocol_contract import Quality
 from core.domain import (
@@ -45,7 +46,7 @@ def _driver(connection: object) -> ADSDriver:
         ),
         {},
     )
-    driver._connection = connection
+    driver._session = driver_module._AdsSession(connection)
     driver._connected = True
     return driver
 
@@ -154,7 +155,7 @@ async def test_index_sum_read_uses_public_read_write(
         {},
     )
     connection = _ConnectionWithSum()
-    driver._connection = connection
+    driver._session = driver_module._AdsSession(connection)
     driver._connected = True
     samples = await driver.read_many(("a", "b"))
     assert [(sample.value, sample.quality) for sample in samples] == [
@@ -201,7 +202,7 @@ async def test_symbol_cache_shared_by_multiple_configured_points() -> None:
     )
     driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
     connection = Connection()
-    driver._connection = connection
+    driver._session = driver_module._AdsSession(connection)
 
     await driver._resolve_configured_points()
 
@@ -232,7 +233,7 @@ async def test_symbol_size_rules_and_point_resolution_failure() -> None:
         },
     )
     driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
-    driver._connection = Connection()
+    driver._session = driver_module._AdsSession(Connection())
 
     with pytest.raises(ConfigError, match="PLC size"):
         await driver._resolve_configured_points()
@@ -244,6 +245,6 @@ async def test_symbol_size_rules_and_point_resolution_failure() -> None:
         {"name": _symbol_point("name", "MAIN.name", "STRING", 81)},
     )
     string_driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), string_table, {})
-    string_driver._connection = Connection()
+    string_driver._session = driver_module._AdsSession(Connection())
     await string_driver._resolve_configured_points()
     assert string_driver._points["name"].size == 81

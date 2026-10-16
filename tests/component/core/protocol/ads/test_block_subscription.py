@@ -22,9 +22,14 @@ def point(name: str, offset: int, kind: str = "REAL", size: int = 4) -> ADSPoint
 
 
 def test_block_compiler_rejects_overlap() -> None:
-    blocks = compile_notification_blocks((
-        point("c", 108), point("a", 100), point("b", 104), point("gap", 200),
-    ))
+    blocks = compile_notification_blocks(
+        (
+            point("c", 108),
+            point("a", 100),
+            point("b", 104),
+            point("gap", 200),
+        )
+    )
     assert len(blocks) == 1
     assert blocks[0].size == 104
     with pytest.raises(ConfigError, match="overlap"):
@@ -44,8 +49,11 @@ async def test_block_callback_delivers_two_samples_with_original_timestamp() -> 
             finished.set()
 
     subscription = ADSSubscription(
-        object(), (point("a", 100), point("b", 104)), callback,
-        cycle_time=0.1, loop=asyncio.get_running_loop(),
+        object(),
+        (point("a", 100), point("b", 104)),
+        callback,
+        cycle_time=0.1,
+        loop=asyncio.get_running_loop(),
     )
     block = compile_notification_blocks(subscription._points)[0]
     subscription._worker_task = asyncio.create_task(subscription._worker())
@@ -57,7 +65,7 @@ async def test_block_callback_delivers_two_samples_with_original_timestamp() -> 
         assert all(sample.timestamp == stamp for sample in collected)
         assert all(sample.quality == Quality.GOOD for sample in collected)
     finally:
-        subscription._closed = True
+        subscription.deactivate()
         subscription._worker_task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await subscription._worker_task
@@ -68,6 +76,7 @@ def test_compiled_mixed_type_decoders() -> None:
     fields = blocks[0].fields
     raw = memoryview(struct.pack("<if", -7, 2.5))
     assert [decode(raw, offset) for pt, offset, decode in fields] == [-7, 2.5]
+
 
 def test_block_compiler_uses_total_span_not_gap() -> None:
     points = (point("a", 100), point("b", 112), point("c", 140))
@@ -101,6 +110,7 @@ def test_ads_block_config_validation() -> None:
 @pytest.mark.asyncio
 async def test_block_registration_failure_does_not_fallback() -> None:
     """区块注册失败直接传播异常，已注册的 Handle 必须清理。"""
+
     class Connection:
         def __init__(self) -> None:
             self.registered: list[tuple[int, int]] = []
@@ -117,6 +127,9 @@ async def test_block_registration_failure_does_not_fallback() -> None:
 
         def del_device_notification(self, handle, _user_handle):
             self.deleted.append(handle)
+
+        def run(self, name, *args):
+            return getattr(self, name)(*args)
 
     connection = Connection()
 
@@ -136,6 +149,7 @@ async def test_block_registration_failure_does_not_fallback() -> None:
     assert connection.registered == [(0x4020, 0), (0x4020, 100)]
     assert connection.deleted == [1]
     assert subscription._worker_task is None
+
 
 @pytest.mark.asyncio
 async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -167,6 +181,9 @@ async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.Monk
         def del_device_notification(self, handle: object, user_handle: object) -> None:
             del handle, user_handle
 
+        def run(self, name: str, *args: object) -> object:
+            return getattr(self, name)(*args)
+
     monkeypatch.setattr(
         mod.pyads,  # type: ignore[attr-defined]  # pyads 为第三方动态模块属性
         "NotificationAttrib",
@@ -181,8 +198,11 @@ async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.Monk
         event.set()
 
     subscription = ADSSubscription(
-        connection, (point("single", 100),), on_sample,
-        cycle_time=0.1, loop=asyncio.get_running_loop(),
+        connection,
+        (point("single", 100),),
+        on_sample,
+        cycle_time=0.1,
+        loop=asyncio.get_running_loop(),
     )
     await subscription.start()
     try:
@@ -194,14 +214,18 @@ async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.Monk
     finally:
         await subscription.close()
 
+
 @pytest.mark.asyncio
 async def test_queue_drops_oldest_whole_block() -> None:
     async def callback(sample: ProtocolSample) -> None:
         del sample
 
     subscription = ADSSubscription(
-        object(), (point("a", 100),), callback,
-        cycle_time=0.1, loop=asyncio.get_running_loop(),
+        object(),
+        (point("a", 100),),
+        callback,
+        cycle_time=0.1,
+        loop=asyncio.get_running_loop(),
     )
     subscription._queue = asyncio.Queue(maxsize=2)
     stamp = datetime.now(UTC)
@@ -223,10 +247,13 @@ async def test_queue_drops_oldest_whole_block() -> None:
     subscription._enqueue_batch(batch("third"), 0)
     assert subscription._dropped_count == 1
     assert subscription._queue.qsize() == 2
-    assert [item[0].point_id for item in (
-        subscription._queue.get_nowait(),
-        subscription._queue.get_nowait(),
-    )] == ["second_0", "third_0"]
+    assert [
+        item[0].point_id
+        for item in (
+            subscription._queue.get_nowait(),
+            subscription._queue.get_nowait(),
+        )
+    ] == ["second_0", "third_0"]
     assert subscription._queue.empty()
     await subscription.close()
 
@@ -242,14 +269,21 @@ async def test_worker_consumes_complete_blocks_in_order() -> None:
             complete.set()
 
     subscription = ADSSubscription(
-        object(), (point("a", 100),), callback,
-        cycle_time=0.1, loop=asyncio.get_running_loop(),
+        object(),
+        (point("a", 100),),
+        callback,
+        cycle_time=0.1,
+        loop=asyncio.get_running_loop(),
     )
     stamp = datetime.now(UTC)
+
     def sample(name: str) -> ProtocolSample:
         return ProtocolSample(
-            point_id=name, value=1, quality=Quality.GOOD,
-            timestamp=stamp, timestamp_source="device",
+            point_id=name,
+            value=1,
+            quality=Quality.GOOD,
+            timestamp=stamp,
+            timestamp_source="device",
         )
 
     subscription._worker_task = asyncio.create_task(subscription._worker())
