@@ -317,7 +317,15 @@ class ADSDriver:
                 loop=asyncio.get_running_loop(),
                 max_block_bytes=self._config.max_block_bytes,
             )
-            await subscription.start()
+            try:
+                await subscription.start()
+            except ConfigError:
+                # 配置级问题（重叠/超限）保持原错误类型，由上层按配置故障处理。
+                raise
+            except Exception as exc:
+                # 传输级失败（超时/断链/设备拒绝）与读写路径同口径归一化；
+                # subscription.start 已尝试注销已注册的区块句柄。
+                raise ProtocolError(f"ADS subscribe failed: {exc}") from exc
             self._subscriptions.add(subscription)
         return _TrackedADSSubscription(self, subscription)
 
