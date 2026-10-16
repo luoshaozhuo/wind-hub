@@ -51,6 +51,13 @@ from tests.support.units import MINIMAL_UNITS_DOCUMENT, NONE_UNIT, minimal_unit_
 # YAML 配置树
 # ---------------------------------------------------------------------------
 
+_ADS_LOGICAL_TYPES = {
+    "BOOL": "bool", "SINT": "int8", "USINT": "uint8",
+    "INT": "int16", "UINT": "uint16", "DINT": "int32",
+    "UDINT": "uint32", "LINT": "int64", "ULINT": "uint64",
+    "REAL": "float32", "LREAL": "float64", "STRING": "string",
+}
+
 
 def write_yaml(dir_path: Path, name: str, data: dict[str, Any]) -> None:
     """写出一个 YAML 文件。"""
@@ -133,17 +140,19 @@ def write_minimal_config_tree(
         point_tables = {"tab": {"protocol": protocol, "points": points}}
     business_points: dict[str, dict[str, str]] = {}
     for table in point_tables.values():
+        table_protocol = table.get("protocol", protocol)
         for point_id, point in table.get("points", {}).items():
-            identity = point.setdefault("business_point_id", point_id)
             if "data_type" in point:
+                data_type = point["data_type"]
+                if table_protocol == "ads":
+                    data_type = _ADS_LOGICAL_TYPES.get(str(data_type).upper(), data_type)
                 definition = {
-                    "data_type": point["data_type"],
-                    "unit_id": point.get("unit_id", "none"),
+                    "data_type": data_type,
+                    "unit": point.get("unit", "none"),
                 }
-                previous = business_points.get(identity)
-                if previous is not None and previous != definition:
-                    raise ValueError(f"conflicting business point definition: {identity}")
-                business_points[identity] = definition
+                # 同一 Point Key 跨点表的类型冲突由 loader 检测，helper
+                # 保留首个定义即可。
+                business_points.setdefault(point_id, definition)
     write_yaml(base, "units.yaml", dict(MINIMAL_UNITS_DOCUMENT))
     write_yaml(base, "business_points.yaml", {"business_points": business_points})
     write_yaml(base, "points.yaml", {"point_tables": point_tables})

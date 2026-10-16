@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import core.infrastructure.protocol.ads.driver as driver_module
 from core.application.errors import ProtocolError
 from core.application.protocol_contract import Quality
 from core.domain import (
@@ -45,7 +46,7 @@ def _driver(connection: object) -> ADSDriver:
         ),
         {},
     )
-    driver._connection = connection
+    driver._session = driver_module._AdsSession(connection)
     driver._connected = True
     return driver
 
@@ -154,7 +155,7 @@ async def test_index_sum_read_uses_public_read_write(
         {},
     )
     connection = _ConnectionWithSum()
-    driver._connection = connection
+    driver._session = driver_module._AdsSession(connection)
     driver._connected = True
     samples = await driver.read_many(("a", "b"))
     assert [(sample.value, sample.quality) for sample in samples] == [
@@ -164,11 +165,23 @@ async def test_index_sum_read_uses_public_read_write(
     assert connection.calls == 1
 
 
-@pytest.mark.asyncio
-async def test_symbol_cache_shared_by_registered_and_dynamic_points() -> None:
-    from types import SimpleNamespace
+def _symbol_point(point_id: str, symbol: str, data_type: str, size: int | None = None) -> Point:
+    ext: dict[str, str | int] = {"symbol": symbol, "data_type": data_type}
+    if size is not None:
+        ext["size"] = size
+    return Point(
+        point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
+        source_unit=NONE_UNIT,
+        access=PointAccess.READ_WRITE,
+        ext=ext,
+    )
 
-    from core.infrastructure.protocol.ads.mapping import ADSPoint
+
+@pytest.mark.asyncio
+async def test_symbol_cache_shared_by_multiple_configured_points() -> None:
+    """同一符号被多个配置点引用时，一个 session 内只查询一次符号。"""
+    from types import SimpleNamespace
 
     class Connection:
         def __init__(self) -> None:
@@ -179,29 +192,59 @@ async def test_symbol_cache_shared_by_registered_and_dynamic_points() -> None:
             self.calls += 1
             return SimpleNamespace(index_group=0x4020, index_offset=120, size=4)
 
+    table = PointTable(
+        PointTableId("ads"),
+        Protocol("ads"),
+        {
+            "a": _symbol_point("a", "MAIN.power", "DINT"),
+            "b": _symbol_point("b", "MAIN.power", "DINT"),
+        },
+    )
+    driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
     connection = Connection()
-    driver = _driver(connection)
-    dynamic = ADSPoint("other", None, None, "DINT", 4, "MAIN.power")
-    first = await driver._resolve_point_locked(dynamic)
-    second = await driver._resolve_point_locked(dynamic)
-    assert first.address_resolved and second.address_resolved
+    driver._session = driver_module._AdsSession(connection)
+
+    await driver._resolve_configured_points()
+
     assert connection.calls == 1
+    assert driver._points["a"].address_resolved
+    assert (driver._points["a"].group, driver._points["a"].offset) == (0x4020, 120)
+    assert (driver._points["b"].group, driver._points["b"].offset) == (0x4020, 120)
 
 
 @pytest.mark.asyncio
 async def test_symbol_size_rules_and_point_resolution_failure() -> None:
+    """STRING 保持配置长度；定长标量与 PLC 符号宽度不符时拒绝建链。"""
     from types import SimpleNamespace
 
     from core.application.errors import ConfigError
-    from core.infrastructure.protocol.ads.mapping import ADSPoint
 
     class Connection:
-        def get_symbol(self, _symbol: str) -> object:
-            return SimpleNamespace(index_group=0x4020, index_offset=12, size=8)
+        def get_symbol(self, symbol: str) -> object:
+            offset = 12 if symbol == "MAIN.name" else 20
+            return SimpleNamespace(index_group=0x4020, index_offset=offset, size=8)
 
-    driver = _driver(Connection())
-    string = ADSPoint("name", None, None, "STRING", 81, "MAIN.name")
-    assert (await driver._resolve_point_locked(string)).size == 81
-    fixed = ADSPoint("power", None, None, "DINT", 4, "MAIN.power")
+    table = PointTable(
+        PointTableId("ads"),
+        Protocol("ads"),
+        {
+            "name": _symbol_point("name", "MAIN.name", "STRING", 81),
+            "power": _symbol_point("power", "MAIN.power", "DINT"),
+        },
+    )
+    driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
+    driver._session = driver_module._AdsSession(Connection())
+
     with pytest.raises(ConfigError, match="PLC size"):
-        await driver._resolve_point_locked(fixed)
+        await driver._resolve_configured_points()
+
+    # 仅 STRING 点时宽度不参与校验，保持配置长度。
+    string_table = PointTable(
+        PointTableId("ads2"),
+        Protocol("ads"),
+        {"name": _symbol_point("name", "MAIN.name", "STRING", 81)},
+    )
+    string_driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), string_table, {})
+    string_driver._session = driver_module._AdsSession(Connection())
+    await string_driver._resolve_configured_points()
+    assert string_driver._points["name"].size == 81

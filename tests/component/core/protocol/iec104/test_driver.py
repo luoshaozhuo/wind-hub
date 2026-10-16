@@ -78,7 +78,12 @@ def _driver_for_monitoring_point() -> tuple[IEC104Driver, Point]:
 
 
 @pytest.mark.asyncio
-async def test_iec104_subscription_close_drains_inflight_callback() -> None:
+async def test_iec104_subscription_close_cancels_stuck_callback_bounded() -> None:
+    """当前架构：close 不排空在途回调，而是限时取消 Worker，保证关闭有界。
+
+    卡在用户回调中的订阅必须在 close timeout 内结束，关闭后到达的样本
+    不再投递。旧“drain 在途回调”保证已随 #81 队列架构移除。
+    """
     driver, point = _driver_for_monitoring_point()
     started = asyncio.Event()
     release = asyncio.Event()
@@ -102,13 +107,9 @@ async def test_iec104_subscription_close_drains_inflight_callback() -> None:
     )
     await started.wait()
 
-    closer = asyncio.create_task(handle.close())
-    await asyncio.sleep(0)
-    assert not closer.done()
-
-    release.set()
-    await closer
-    assert received == [42.0]
+    # 即使回调永远不释放，close 也必须在有界超时内完成（取消在途 Worker）。
+    await asyncio.wait_for(handle.close(timeout=0.2), timeout=1.0)
+    assert received == []
 
     driver._store_sample(
         100,
@@ -119,7 +120,8 @@ async def test_iec104_subscription_close_drains_inflight_callback() -> None:
         ),
     )
     await asyncio.sleep(0)
-    assert received == [42.0]
+    release.set()
+    assert received == []
 
 
 @pytest.mark.asyncio
@@ -212,8 +214,13 @@ async def test_iec104_rejects_batch_operations_without_network_io() -> None:
 
 
 @pytest.mark.asyncio
-async def test_slow_subscriber_coalesces_new_samples_per_point() -> None:
-    """慢订阅者期间，同一点的待派发样本按点合并：中间值丢弃、最新值至多派发一次。"""
+async def test_slow_subscriber_queue_drops_oldest_samples(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """慢订阅者期间队列满：丢弃最旧样本，在途样本与最新样本保留，FIFO 不合并。"""
+    import core.infrastructure.protocol.iec104.driver as driver_module
+
+    monkeypatch.setattr(driver_module, "_SUBSCRIPTION_QUEUE_CAPACITY", 2)
     driver, _ = _driver_for_monitoring_point()
     driver._closed = False
     driver._is_open = True
@@ -235,25 +242,25 @@ async def test_slow_subscriber_coalesces_new_samples_per_point() -> None:
         100, ProtocolSample(point_id="power", value=1, timestamp=datetime.now(UTC))
     )
     await asyncio.wait_for(started.wait(), 1)
-    for value in range(2, 20):
+    # Worker 已取出 1（在途，不占队列）；2..5 填容量 2 后挤掉最旧值。
+    for value in range(2, 6):
         driver._store_sample(
             100, ProtocolSample(point_id="power", value=value, timestamp=datetime.now(UTC))
         )
-    assert seen == [1]
 
     release.set()
-    # 合并后的最新值 19 至多派发一次；中间值 2..18 不得出现。
     deadline = asyncio.get_running_loop().time() + 1.0
-    while len(seen) < 2 and asyncio.get_running_loop().time() < deadline:
+    while len(seen) < 3 and asyncio.get_running_loop().time() < deadline:
         await asyncio.sleep(0)
-    assert seen == [1, 19]
+    # 在途 1 必达；队列中仅保留最后两个批次 4、5。
+    assert seen == [1, 4, 5]
 
     await asyncio.wait_for(handle.close(), 1)
     driver._store_sample(
         100, ProtocolSample(point_id="power", value=20, timestamp=datetime.now(UTC))
     )
     await asyncio.sleep(0)
-    assert seen == [1, 19]
+    assert seen == [1, 4, 5]
 
 
 @pytest.mark.asyncio

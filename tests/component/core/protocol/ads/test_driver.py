@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import struct
 import sys
+import time
 from collections.abc import Callable
+from ctypes import c_ubyte
 from typing import ClassVar
 from typing import Protocol as TypingProtocol
 
@@ -16,6 +19,7 @@ from core.application import (
     ProtocolWrite,
     WriteOutcome,
 )
+from core.application.protocol_contract import Quality
 from core.application.settings import ADSLocalConfig
 from core.domain import (
     BusinessPointId,
@@ -118,7 +122,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
         {},
     )
     fake_connection = _FakeADSConnection()
-    driver._connection = fake_connection
+    driver._session = driver_module._AdsSession(fake_connection)
     driver._connected = True
 
     fake_pyads = _FakePyads()
@@ -145,9 +149,7 @@ async def test_ads_driver_local_ams_identity_initializes_once(
         assert fake_pyads.open_calls == 1
         assert fake_pyads.local_addresses == ["192.0.2.10.1.2"]
         with pytest.raises(ConfigError, match="conflicts"):
-            await ADSDriver.initialize_local(
-                ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11")
-            )
+            await ADSDriver.initialize_local(ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11"))
     finally:
         await ADSDriver.close_local()
     assert fake_pyads.close_calls == 1
@@ -196,9 +198,7 @@ async def test_ads_connect_probes_then_adds_route_and_retries_once(
             return True
 
     monkeypatch.setattr(driver_module, "pyads", Pyads)
-    monkeypatch.setattr(
-        driver_module, "_LOCAL_AMS", ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
-    )
+    monkeypatch.setattr(driver_module, "_LOCAL_AMS", ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10"))
     driver = ADSDriver(
         _endpoint(),
         PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
@@ -275,9 +275,7 @@ async def test_ads_probe_sets_timeout_after_open_before_read(
         {"timeout": 1.25},
     )
     await driver.connect()
-    assert _TimeoutProbeConnection.events[:3] == [
-        "open", ("timeout", 1250), "read_state"
-    ]
+    assert _TimeoutProbeConnection.events[:3] == ["open", ("timeout", 1250), "read_state"]
     await driver.close()
     assert _TimeoutProbeConnection.events[-1] == "close"
 
@@ -298,9 +296,7 @@ async def test_ads_probe_rejects_none_state_and_closes_connection(
     )
     with pytest.raises(Exception, match="ADS connect failed"):
         await driver.connect()
-    assert _TimeoutProbeConnection.events == [
-        "open", ("timeout", 5000), "read_state", "close"
-    ]
+    assert _TimeoutProbeConnection.events == ["open", ("timeout", 5000), "read_state", "close"]
     assert not driver.is_open()
 
 
@@ -320,10 +316,8 @@ async def test_ads_health_stop_state_is_unhealthy_without_extra_connection(
     )
     with pytest.raises(Exception, match="ADS connect failed"):
         await driver.connect()
-    assert _TimeoutProbeConnection.events == [
-        "open", ("timeout", 5000), "read_state", "close"
-    ]
-    assert driver._connection is None
+    assert _TimeoutProbeConnection.events == ["open", ("timeout", 5000), "read_state", "close"]
+    assert driver._session is None
     assert not driver.is_open()
 
 
@@ -335,41 +329,20 @@ class _FakeNotificationAttrib:
         length: int,
         *,
         cycle_time: float,
-        max_delay: float,
         trans_mode: int,
     ) -> None:
         self.trans_mode = trans_mode
         self.length = length
         self.cycle_time = cycle_time
-        self.max_delay = max_delay
         type(self).last_mode = self.trans_mode
 
 
 class _FakeNotificationConnection:
-    instances: list[_FakeNotificationConnection] = []
-
-    def __init__(
-        self,
-        net_id: object,
-        port: int,
-        host: str,
-    ) -> None:
-        del net_id, port, host
-        self.is_open = False
-        self.callback: Callable[..., None] | None = None
-        type(self).instances.append(self)
-
-    def set_timeout(self, timeout_ms: int) -> None:
-        del timeout_ms
-
-    def open(self) -> None:
+    def __init__(self) -> None:
         self.is_open = True
-
-    def close(self) -> None:
-        self.is_open = False
-
-    def read_state(self) -> tuple[int, int]:
-        return (5, 0)
+        self.callbacks: dict[int, Callable[..., None]] = {}
+        self.deleted: list[int] = []
+        self._next_handle = 1
 
     def notification(
         self,
@@ -380,7 +353,6 @@ class _FakeNotificationConnection:
         def decorator(
             callback: Callable[..., None],
         ) -> Callable[..., None]:
-            self.callback = callback
             return callback
 
         return decorator
@@ -391,54 +363,55 @@ class _FakeNotificationConnection:
         attr: object,
         callback: Callable[..., None],
     ) -> tuple[object, object]:
-        del attr
-        self.callback = callback
-        return ((address, "handle"), None)
+        del address, attr
+        handle = self._next_handle
+        self._next_handle += 1
+        self.callbacks[handle] = callback
+        return (handle, None)
 
     def del_device_notification(
         self,
         handle: object,
         user_handle: object,
     ) -> None:
-        del handle, user_handle
+        del user_handle
+        if isinstance(handle, int):
+            self.callbacks.pop(handle, None)
+            self.deleted.append(handle)
+
+    def fire(self, handle: int, value: float) -> None:
+        raw = (c_ubyte * 4)(*struct_pack_real(value))
+        self.callbacks[handle](handle, (0x4020, 10), None, raw)
 
 
 class _FakeNotificationPyads:
     ADSTRANS_SERVERCYCLE = 3
     PLCTYPE_REAL = object()
-    Connection = _FakeNotificationConnection
     NotificationAttrib = _FakeNotificationAttrib
+
+
+def struct_pack_real(value: float) -> bytes:
+    return struct.pack("<f", value)
+
+
+def _notification_driver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[ADSDriver, _FakeNotificationConnection]:
+    point = _point("speed", ext=_point_ext(index_group=0x4020, index_offset=10))
+    table = PointTable(PointTableId("ads_pt"), Protocol("ads"), {"speed": point})
+    driver = ADSDriver(_endpoint(), table, {})
+    connection = _FakeNotificationConnection()
+    driver._session = driver_module._AdsSession(connection)
+    driver._connected = True
+    monkeypatch.setattr(subscription_module, "pyads", _FakeNotificationPyads)
+    return driver, connection
 
 
 @pytest.mark.asyncio
 async def test_ads_driver_exposes_notification_subscription(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point = _point(
-        "speed",
-        ext=_point_ext(
-            index_group=0x4020,
-            index_offset=10,
-        ),
-    )
-    table = PointTable(
-        PointTableId("ads_pt"),
-        Protocol("ads"),
-        {"speed": point},
-    )
-    driver = ADSDriver(
-        _endpoint(),
-        table,
-        {},
-    )
-    driver._connected = True
-
-    _FakeNotificationConnection.instances = []
-    monkeypatch.setattr(
-        subscription_module,
-        "pyads",
-        _FakeNotificationPyads,
-    )
+    driver, connection = _notification_driver(monkeypatch)
     received: list[ProtocolSample] = []
     delivered = asyncio.Event()
 
@@ -446,131 +419,78 @@ async def test_ads_driver_exposes_notification_subscription(
         received.append(sample)
         delivered.set()
 
-    handle = await driver.subscribe(
-        (point.point_id,),
-        callback,
-        interval=0.25,
-    )
-    connection = _FakeNotificationConnection.instances[0]
+    handle = await driver.subscribe(("speed",), callback, interval=0.25)
     assert _FakeNotificationAttrib.last_mode == _FakeNotificationPyads.ADSTRANS_SERVERCYCLE
-    assert connection.callback is not None
+    assert connection.callbacks.keys() == {1}
 
-    connection.callback(
-        None,
-        (0x4020, 10),
-        None,
-        12.5,
-    )
+    connection.fire(1, 12.5)
     await asyncio.wait_for(delivered.wait(), timeout=1.0)
 
     assert received[0].point_id == "speed"
     assert received[0].value == 12.5
 
     await handle.close()
-    assert connection.is_open is False
+    # 订阅句柄关闭只注销 notification，不关闭 Driver 的共享业务连接。
+    assert connection.deleted == [1]
+    assert connection.is_open
+    assert driver._subscriptions == set()
 
 
 @pytest.mark.asyncio
 async def test_ads_subscription_ignores_old_generation_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point = _point(
-        "speed",
-        ext=_point_ext(index_group=0x4020, index_offset=10),
-    )
-    driver = ADSDriver(
-        _endpoint(),
-        PointTable(PointTableId("ads_pt"), Protocol("ads"), {"speed": point}),
-        {},
-    )
-    driver._connected = True
-    _FakeNotificationConnection.instances = []
-    monkeypatch.setattr(subscription_module, "pyads", _FakeNotificationPyads)
-
+    driver, connection = _notification_driver(monkeypatch)
     received: list[ProtocolSample] = []
 
     async def on_sample(sample: ProtocolSample) -> None:
         received.append(sample)
 
     handle = await driver.subscribe(("speed",), on_sample, interval=0.25)
-    subscription = handle._subscription
-    old_connection = _FakeNotificationConnection.instances[-1]
-    old_callback = old_connection.callback
-    assert old_callback is not None
-
-    async with subscription._lock:
-        await subscription._rebuild_locked()
-
-    new_connection = _FakeNotificationConnection.instances[-1]
-    assert new_connection is not old_connection
-    assert new_connection.callback is not None
-
-    # A callback from a closed ADS connection must not refresh the new watchdog.
-    previous = subscription._last_notification["speed"]
-    old_callback(None, (0x4020, 10), None, 1.0)
-    await asyncio.sleep(0)
-    assert subscription._last_notification["speed"] == previous
-    assert received == []
-
-    new_connection.callback(None, (0x4020, 10), None, 2.0)
-    for _ in range(10):
-        await asyncio.sleep(0)
-        if received:
-            break
-    assert received and received[0].value == 2.0
+    old_callback = connection.callbacks[1]
     await handle.close()
+    assert connection.deleted == [1]
+
+    # 关闭后在同连接上重新订阅；旧一代原生回调残留触发时必须静默丢弃。
+    new_handle = await driver.subscribe(("speed",), on_sample, interval=0.25)
+    try:
+        old_callback(1, (0x4020, 10), None, (c_ubyte * 4)(*struct_pack_real(1.0)))
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert received == []
+
+        connection.fire(2, 2.0)
+        for _ in range(10):
+            await asyncio.sleep(0)
+            if received:
+                break
+        assert len(received) == 1 and received[0].value == 2.0
+    finally:
+        await new_handle.close()
 
 
 @pytest.mark.asyncio
 async def test_ads_subscription_can_close_itself_from_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point = _point(
-        "speed",
-        ext=_point_ext(
-            index_group=0x4020,
-            index_offset=10,
-        ),
-    )
-    table = PointTable(
-        PointTableId("ads_pt"),
-        Protocol("ads"),
-        {"speed": point},
-    )
-    driver = ADSDriver(
-        _endpoint(),
-        table,
-        {},
-    )
-    driver._connected = True
-
-    _FakeNotificationConnection.instances = []
-    monkeypatch.setattr(
-        subscription_module,
-        "pyads",
-        _FakeNotificationPyads,
-    )
+    driver, connection = _notification_driver(monkeypatch)
     done = asyncio.Event()
     handle_box: list[_Closable] = []
 
     async def callback(sample: ProtocolSample) -> None:
         del sample
-        handle = handle_box[0]
-        await handle.close()
+        await handle_box[0].close()
         done.set()
 
-    handle = await driver.subscribe(
-        (point.point_id,),
-        callback,
-        interval=0.25,
-    )
+    handle = await driver.subscribe(("speed",), callback, interval=0.25)
     handle_box.append(handle)
-    connection = _FakeNotificationConnection.instances[0]
-    assert connection.callback is not None
-    connection.callback(None, (0x4020, 10), None, 12.5)
+    connection.fire(1, 12.5)
 
     await asyncio.wait_for(done.wait(), timeout=1.0)
-    assert connection.is_open is False
+    # Worker 在用户回调内关闭自身订阅：注销成功、不死锁，共享连接保持打开。
+    assert connection.deleted == [1]
+    assert connection.is_open
+    assert driver._subscriptions == set()
 
 
 @pytest.mark.asyncio
@@ -586,6 +506,9 @@ async def test_ads_route_added_only_when_normal_connect_fails(
 
         def open(self) -> None:
             self.is_open = True
+
+        def set_timeout(self, timeout_ms: int) -> None:
+            del timeout_ms
 
         def read_state(self) -> tuple[int, int]:
             if not self.reachable:
@@ -685,6 +608,9 @@ async def test_ads_route_not_added_when_connect_succeeds(
         def open(self) -> None:
             self.is_open = True
 
+        def set_timeout(self, timeout_ms: int) -> None:
+            del timeout_ms
+
         def read_state(self) -> tuple[int, int]:
             return (5, 0)
 
@@ -710,3 +636,123 @@ async def test_ads_route_not_added_when_connect_succeeds(
     assert driver.is_open()
     assert fake_ads.route_calls == 0
     await driver.close()
+
+
+class _SessionConnection:
+    """支持 read_state/read/write/close 的最小会话 fake。"""
+
+    def __init__(self, *, read_delay: float = 0.0, read_raises: bool = False) -> None:
+        self.is_open = True
+        self.close_calls = 0
+        self._read_delay = read_delay
+        self._read_raises = read_raises
+
+    def read_state(self) -> tuple[int, int]:
+        return (5, 0)
+
+    def read(self, group: int, offset: int, datatype: object) -> int:
+        del group, datatype
+        if self._read_delay:
+            time.sleep(self._read_delay)
+        if self._read_raises or not self.is_open:
+            raise ConnectionError("socket reset by peer")
+        return offset + 1
+
+    def write(self, *args: object) -> None:
+        if not self.is_open:
+            raise ConnectionError("closed")
+
+    def close(self) -> None:
+        self.is_open = False
+        self.close_calls += 1
+
+
+def _connected_driver(
+    connection: _SessionConnection,
+) -> ADSDriver:
+    point = _point("speed", ext=_point_ext(data_type="DINT", index_group=0x4020, index_offset=10))
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {"speed": point}),
+        {},
+    )
+    driver._session = driver_module._AdsSession(connection)
+    driver._connected = True
+    return driver
+
+
+@pytest.mark.asyncio
+async def test_close_is_idempotent_and_clears_session() -> None:
+    connection = _SessionConnection()
+    driver = _connected_driver(connection)
+
+    await driver.close()
+    await driver.close()  # 重复关闭不得操作已摘除的连接或报错
+
+    assert connection.close_calls == 1
+    assert not driver.is_open()
+    assert driver._session is None
+    assert driver._subscriptions == set()
+
+
+@pytest.mark.asyncio
+async def test_io_after_close_raises_protocol_error_without_false_success() -> None:
+    connection = _SessionConnection()
+    driver = _connected_driver(connection)
+    await driver.close()
+
+    with pytest.raises(Exception, match="active connection"):
+        await driver.read_one("speed")
+    with pytest.raises(Exception, match="active connection"):
+        await driver.read_many(("speed",))
+    with pytest.raises(Exception, match="active connection"):
+        await driver.write_one(ProtocolWrite(point="speed", value=1))
+    with pytest.raises(Exception, match="active connection"):
+        await driver.write_many((ProtocolWrite(point="speed", value=1),))
+    assert (await driver.health()).healthy is False
+    with pytest.raises(Exception, match="active connection"):
+        await driver.subscribe(("speed",), _noop_callback, interval=0.1)
+
+
+async def _noop_callback(sample: ProtocolSample) -> None:
+    del sample
+
+
+@pytest.mark.asyncio
+async def test_subscribe_requires_active_connection() -> None:
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {},
+    )
+    with pytest.raises(Exception, match="active connection"):
+        await driver.subscribe((), _noop_callback, interval=0.1)
+
+
+@pytest.mark.asyncio
+async def test_close_during_pending_io_completes_with_bounded_time() -> None:
+    connection = _SessionConnection(read_delay=0.2)
+    driver = _connected_driver(connection)
+
+    read_task = asyncio.create_task(driver.read_one("speed"))
+    await asyncio.sleep(0.05)  # 确保读命令已占用 IO 锁
+    # close 等在 IO 锁后：在途读正常完成，close 在有限时间内收尾，不丢结果、不挂死。
+    await asyncio.wait_for(driver.close(), timeout=2.0)
+
+    sample = await read_task
+    assert sample.quality is Quality.GOOD
+    assert sample.value == 11
+    assert not driver.is_open()
+    assert connection.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_transport_error_keeps_session_open_and_surfaces_failure() -> None:
+    connection = _SessionConnection(read_raises=True)
+    driver = _connected_driver(connection)
+
+    with pytest.raises(Exception, match="ADS read failed"):
+        await driver.read_one("speed")
+    # 一次传输失败不等于 TCP 断链：会话保持打开，由上层 Watchdog 决定恢复。
+    assert driver.is_open()
+    assert connection.is_open

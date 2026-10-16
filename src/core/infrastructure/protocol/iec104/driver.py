@@ -25,7 +25,6 @@ from core.application.protocol_contract import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
-    WritableScalar,
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolOptions
@@ -442,8 +441,8 @@ class IEC104Driver:
     ) -> ProtocolWriteResult:
         """执行单点遥控/设点，并按 ACT_CON 结果返回状态。
 
-        统一接收 ProtocolWrite；point 为 ID 或 IEC104Point。动态点按
-        自身 IOA 和命令 type_id 寻址，不要求预先登记。
+        ProtocolWrite.point 必须是已配置 Point Key；命令 type_id 来自
+        PointTable 配置，c104 Point 按需创建或复用。
         """
         mapped = self._resolve_point(write.point)
         write_value = write.value
@@ -474,15 +473,14 @@ class IEC104Driver:
     ) -> _Subscription:
         """注册 IEC104 主动上送/总召响应的样本回调。
 
-        空 point_ids 表示订阅本 PointTable 内的全部已知 IOA。动态
-        IEC104Point 按自身 IOA 订阅并登记接收关联。生命周期由调用方
-        持有返回句柄；订阅不自动触发总召。
+        空 point_ids 表示订阅本 PointTable 内的全部已知 IOA；非空时只
+        接受已配置 Point Key 并按其 IOA 过滤。c104 Point 由服务端通告
+        （on_new_point）或主动读路径注册，订阅本身不做动态点登记。
+        生命周期由调用方持有返回句柄；订阅不自动触发总召。
         """
         del interval
         if point_ids:
             mapped = tuple(self._resolve_point(point) for point in point_ids)
-            for point in mapped:
-                self._register_dynamic_ioa(point)
             ioas = tuple(point.ioa for point in mapped)
         else:
             ioas = None

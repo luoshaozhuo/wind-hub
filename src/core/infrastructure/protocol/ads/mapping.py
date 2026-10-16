@@ -67,13 +67,9 @@ class ADSPoint:
         has_group = self.index_group is not None
         has_offset = self.index_offset is not None
         if has_group != has_offset:
-            raise ConfigError(
-                f"ADS point '{self.point_id}' requires a complete index address"
-            )
+            raise ConfigError(f"ADS point '{self.point_id}' requires a complete index address")
         if not has_group and self.symbol is None:
-            raise ConfigError(
-                f"ADS point '{self.point_id}' requires symbol or index address"
-            )
+            raise ConfigError(f"ADS point '{self.point_id}' requires symbol or index address")
 
     @property
     def address_resolved(self) -> bool:
@@ -121,12 +117,15 @@ def ads_point(
     data_type: str,
     size: int | None = None,
 ) -> ADSPoint:
-    """构造并校验一个动态 ADSPoint（显式 index 地址，无需点表登记）。
+    """构造并校验一个 ADSPoint（显式 index 地址定义）。
+
+    供点表解析与测试构造使用；运行时读写只接受 PointTable 已配置的
+    Point Key，不能以此对象直接寻址。
 
     校验规则与 ``parse_ads_point`` 一致：index 地址为非负整数（拒绝布尔
     冒充）、data_type 归一化、size 与类型宽度匹配（STRING 允许显式长度）。
-    动态点不携带 symbol，``address_resolved`` 恒为 True——显式 index 地址
-    不依赖 ADS session 的符号解析。
+    显式 index 地址不携带 symbol，``address_resolved`` 恒为 True，不依赖
+    ADS session 的符号解析。
     """
     group = _non_negative_int(index_group, "index_group", point_id)
     offset = _non_negative_int(index_offset, "index_offset", point_id)
@@ -171,15 +170,16 @@ def parse_ads_point(
         )
     if symbol is None and not has_group:
         raise ConfigError(
-            f"ADS point '{point.point_id}' requires symbol or "
-            "index_group + index_offset"
+            f"ADS point '{point.point_id}' requires symbol or " "index_group + index_offset"
         )
 
     index_group = (
         None if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
     )
     index_offset = (
-        None if raw_offset is None else _non_negative_int(raw_offset, "index_offset", point.point_id)
+        None
+        if raw_offset is None
+        else _non_negative_int(raw_offset, "index_offset", point.point_id)
     )
 
     # Symbol addresses are session-bound. Even an explicitly configured index

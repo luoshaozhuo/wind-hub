@@ -1,8 +1,11 @@
 """IEC104 per-IOA 锁并发正确性与生命周期测试。
 
 验证同 IOA 操作严格互斥、不同 IOA 并行、取消/超时/异常路径释放引用，
-以及动态 IOA 高频操作后锁表不无界增长。所有竞争通过事件与 future
+以及多 IOA 高频操作后锁表不无界增长。所有竞争通过事件与 future
 确定性构造，不依赖 sleep 碰运气。
+
+统一契约后读写只接受已配置 Point Key；测试通过 PointTable 解析得到
+的映射索引直接构造 Driver 内部状态，不启动真实 c104 会话。
 """
 
 from __future__ import annotations
@@ -55,14 +58,24 @@ def _driver(t1: float = 0.2) -> IEC104Driver:
     driver._station = _Station()
     driver._points_by_id = {}
     driver._points_by_ioa = {}
-    driver._dynamic_points = {}
     driver._command_locks = {}
-    driver._active_reads = {}
     driver._active_read_locks = {}
+    driver._active_reads = {}
     driver._receive_callback_factory = None
     driver._subscriptions = _SubscriptionRegistry()
 
     driver._config = IEC104Config(host="192.0.2.30", port=2404, t1=t1)
+
+    def register(point_id: str, ioa: int, type_id: str) -> None:
+        mapped = iec104_point(point_id, ioa=ioa, type_id=type_id)
+        driver._points_by_id[point_id] = mapped
+        driver._points_by_ioa[ioa] = mapped
+
+    register("p11", 11, "M_ME_NC_1")
+    register("p22", 22, "M_ME_NC_1")
+    register("cmd", 600, "C_SC_NA_1")
+    for ioa in range(1000, 1300):
+        register(f"d{ioa}", ioa, "M_ME_NC_1")
     return driver
 
 
@@ -93,8 +106,8 @@ class _ReadGate:
     def finish(self, ioa: int) -> None:
         self.events.append(("end", ioa))
 
-    async def read(self, driver: IEC104Driver, ioa: int) -> ProtocolSample:
-        result = await driver.read_one(iec104_point(f"p{ioa}", ioa=ioa, type_id="M_ME_NC_1"))
+    async def read(self, driver: IEC104Driver, point_id: str, ioa: int) -> ProtocolSample:
+        result = await driver.read_one(point_id)
         self.finish(ioa)
         return result
 
@@ -104,13 +117,12 @@ async def test_same_ioa_three_coroutines_serialize() -> None:
     driver = _driver()
     gate = _ReadGate(driver)
 
-    first = asyncio.create_task(gate.read(driver, 11))
-    await gate.entered[11].wait() if 11 in gate.entered else None
-    # 第一个协程已进入临界区后再启动竞争者
+    first = asyncio.create_task(gate.read(driver, "p11", 11))
     while ("start", 11) not in gate.events:
         await asyncio.sleep(0)
-    second = asyncio.create_task(gate.read(driver, 11))
-    third = asyncio.create_task(gate.read(driver, 11))
+    # 第一个协程已进入临界区后再启动竞争者
+    second = asyncio.create_task(gate.read(driver, "p11", 11))
+    third = asyncio.create_task(gate.read(driver, "p11", 11))
     await asyncio.sleep(0)
     await asyncio.sleep(0)
     assert gate.events == [("start", 11)]
@@ -135,10 +147,10 @@ async def test_different_ioa_run_in_parallel() -> None:
     driver = _driver()
     gate = _ReadGate(driver)
 
-    first = asyncio.create_task(gate.read(driver, 11))
+    first = asyncio.create_task(gate.read(driver, "p11", 11))
     while ("start", 11) not in gate.events:
         await asyncio.sleep(0)
-    second = asyncio.create_task(gate.read(driver, 22))
+    second = asyncio.create_task(gate.read(driver, "p22", 22))
     while ("start", 22) not in gate.events:
         await asyncio.sleep(0)
     # 两个 IOA 同时处于临界区内
@@ -156,10 +168,10 @@ async def test_cancel_while_waiting_for_lock_releases_reference() -> None:
     driver = _driver()
     gate = _ReadGate(driver)
 
-    holder = asyncio.create_task(gate.read(driver, 11))
+    holder = asyncio.create_task(gate.read(driver, "p11", 11))
     while ("start", 11) not in gate.events:
         await asyncio.sleep(0)
-    waiter = asyncio.create_task(gate.read(driver, 11))
+    waiter = asyncio.create_task(gate.read(driver, "p11", 11))
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
@@ -173,7 +185,7 @@ async def test_cancel_while_waiting_for_lock_releases_reference() -> None:
     assert 11 not in driver._active_read_locks
 
     # 后续操作可立即获得新锁
-    again = asyncio.create_task(gate.read(driver, 11))
+    again = asyncio.create_task(gate.read(driver, "p11", 11))
     while len([e for e in gate.events if e == ("start", 11)]) < 2:
         await asyncio.sleep(0)
     gate.complete(driver, 11)
@@ -186,10 +198,10 @@ async def test_cancel_while_holding_lock_releases_for_next() -> None:
     driver = _driver()
     gate = _ReadGate(driver)
 
-    holder = asyncio.create_task(gate.read(driver, 11))
+    holder = asyncio.create_task(gate.read(driver, "p11", 11))
     while ("start", 11) not in gate.events:
         await asyncio.sleep(0)
-    waiter = asyncio.create_task(gate.read(driver, 11))
+    waiter = asyncio.create_task(gate.read(driver, "p11", 11))
     await asyncio.sleep(0)
 
     holder.cancel()
@@ -214,7 +226,7 @@ async def test_timeout_releases_lock_reference() -> None:
 
     driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     with pytest.raises(ProtocolError, match="timed out"):
-        await driver.read_one(iec104_point("p", ioa=11, type_id="M_ME_NC_1"))
+        await driver.read_one("p11")
     assert 11 not in driver._active_read_locks
     assert not driver._active_reads
 
@@ -228,7 +240,7 @@ async def test_send_read_failure_releases_lock_reference() -> None:
 
     driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     with pytest.raises(ProtocolError, match="send failed"):
-        await driver.read_one(iec104_point("p", ioa=11, type_id="M_ME_NC_1"))
+        await driver.read_one("p11")
     assert 11 not in driver._active_read_locks
     assert not driver._active_reads
 
@@ -237,9 +249,8 @@ async def test_send_read_failure_releases_lock_reference() -> None:
 async def test_command_failure_releases_lock_reference() -> None:
     driver = _driver()
     driver._station = _Station(accepted=False)
-    point = iec104_point("cmd", ioa=600, type_id="C_SC_NA_1")
 
-    result = await driver.write_one(ProtocolWrite(point, True))
+    result = await driver.write_one(ProtocolWrite("cmd", True))
     # 未获肯定确认（无法区分拒绝/超时/断线）→ UNKNOWN；锁必须释放。
     assert result.outcome is WriteOutcome.UNKNOWN
 
@@ -249,24 +260,23 @@ async def test_command_failure_releases_lock_reference() -> None:
 @pytest.mark.asyncio
 async def test_command_type_error_releases_lock_reference() -> None:
     driver = _driver()
-    point = iec104_point("cmd", ioa=600, type_id="C_SC_NA_1")
 
-    result = await driver.write_one(ProtocolWrite(point, "not-a-bool"))
+    result = await driver.write_one(ProtocolWrite("cmd", "not-a-bool"))
     assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
 
     assert 600 not in driver._command_locks
 
 
 @pytest.mark.asyncio
-async def test_many_dynamic_ioas_leave_empty_lock_tables() -> None:
+async def test_many_ioas_leave_empty_lock_tables() -> None:
     driver = _driver()
 
     async def send(mapped: Any) -> None:
         driver._active_reads[mapped.ioa].set_result(_sample(mapped.point_id, 1.0))
 
     driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
-    points = [iec104_point(f"d{ioa}", ioa=ioa, type_id="M_ME_NC_1") for ioa in range(1000, 1300)]
-    results = await asyncio.gather(*(driver.read_one(point) for point in points))
+    point_ids = [f"d{ioa}" for ioa in range(1000, 1300)]
+    results = await asyncio.gather(*(driver.read_one(point_id) for point_id in point_ids))
     assert len(results) == 300
     assert not driver._active_read_locks
     assert not driver._active_reads
@@ -287,8 +297,7 @@ async def test_high_frequency_same_ioa_reads_never_overlap() -> None:
         driver._active_reads[mapped.ioa].set_result(_sample(mapped.point_id, 1.0))
 
     driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
-    point = iec104_point("p", ioa=11, type_id="M_ME_NC_1")
-    results = await asyncio.gather(*(driver.read_one(point) for _ in range(50)))
+    results = await asyncio.gather(*(driver.read_one("p11") for _ in range(50)))
     assert len(results) == 50
     assert max_active == 1
     assert 11 not in driver._active_read_locks
@@ -297,7 +306,8 @@ async def test_high_frequency_same_ioa_reads_never_overlap() -> None:
 @pytest.mark.asyncio
 async def test_high_frequency_same_ioa_writes_never_overlap() -> None:
     driver = _driver()
-    point = iec104_point("cmd", ioa=600, type_id="C_SC_NA_1")
-    results = await asyncio.gather(*(driver.write_one(ProtocolWrite(point, True)) for _ in range(50)))
+    results = await asyncio.gather(
+        *(driver.write_one(ProtocolWrite("cmd", True)) for _ in range(50))
+    )
     assert all(result.outcome is WriteOutcome.CONFIRMED_SUCCESS for result in results)
     assert 600 not in driver._command_locks

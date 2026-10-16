@@ -142,7 +142,10 @@ def modbus_point(
     count: int | None = None,
     word_order: str = "big_endian",
 ) -> ModbusPoint:
-    """构造并校验一个动态 ModbusPoint（无需 Point 领域对象/点表登记）。
+    """构造并校验一个 ModbusPoint（显式寄存器地址定义）。
+
+    供点表解析与测试构造使用；运行时读写只接受 PointTable 已配置的
+    Point Key，不能以此对象直接寻址。
 
     校验规则与 ``parse_modbus_point`` 一致：寄存器类型别名归一化、
     地址范围、count 与 data_type 匹配、字序合法；只读类型（discrete_input/
@@ -206,13 +209,15 @@ def group_consecutive_reads(
         raise ValueError("Modbus request limits must be > 0")
 
     groups: list[list[ModbusPoint]] = []
-    for register_type in sorted(by_type):
+    for group_key in sorted(by_type):
+        # by_type 的键带 slave 前缀（"001:coil"），类型判断必须取冒号后部分。
+        register_type = group_key.split(":", 1)[1]
         request_limit = (
             max_bits_per_request
             if register_type in {"coil", "discrete_input"}
             else max_registers_per_request
         )
-        ordered = sorted(by_type[register_type], key=lambda item: item.address)
+        ordered = sorted(by_type[group_key], key=lambda item: item.address)
         current = [ordered[0]]
         previous_end = ordered[0].address + ordered[0].count
 
