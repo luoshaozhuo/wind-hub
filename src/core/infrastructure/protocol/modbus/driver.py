@@ -20,7 +20,7 @@ from core.application.errors import (
     ProtocolConnectionError,
     ProtocolError,
 )
-from core.application.port import ProtocolSampleCallback, SubscriptionHandle
+from core.application.port import ListenHandle, ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     PointScalar,
@@ -355,7 +355,7 @@ class ModbusDriver:
     ) -> tuple[ProtocolWriteResult, ...]:
         """Modbus 不支持多逻辑点批量写入；明确拒绝，绝不降级为逐点 write_one。"""
         del writes
-        raise NotImplementedError("Modbus write_many is not implemented")
+        raise ProtocolCapabilityError("modbus does not support write_many")
 
     async def subscribe(
         self,
@@ -364,12 +364,34 @@ class ModbusDriver:
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
-        """Modbus TCP 不支持协议级主动订阅。"""
+        """Modbus TCP 不支持协议级主动订阅（周期采集由 Collector 轮询承担）。"""
         del point_ids, callback, interval
         raise ProtocolCapabilityError("modbus does not support subscription")
 
-    async def interrogate(self) -> None:
+    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        """Modbus TCP 不支持协议级主动订阅。"""
+        del handle
+        raise ProtocolCapabilityError("modbus does not support subscription")
+
+    async def listen(
+        self,
+        point_ids: Sequence[str],
+        callback: ProtocolSampleCallback,
+        *,
+        interval: float | None = None,
+    ) -> ListenHandle:
+        """Modbus TCP 不存在设备主动上送通道。"""
+        del point_ids, callback, interval
+        raise ProtocolCapabilityError("modbus does not support listen")
+
+    async def unlisten(self, handle: ListenHandle) -> None:
+        """Modbus TCP 不存在设备主动上送通道。"""
+        del handle
+        raise ProtocolCapabilityError("modbus does not support listen")
+
+    async def interrogate(self, common_address: int | None = None) -> None:
         """Modbus TCP 不支持 IEC104 式总召能力。"""
+        del common_address
         raise ProtocolCapabilityError("modbus does not support interrogation")
 
     def _mapped_point(self, point_id: str) -> ModbusPoint:

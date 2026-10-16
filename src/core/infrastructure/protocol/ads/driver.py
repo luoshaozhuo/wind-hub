@@ -20,6 +20,7 @@ import pyads  # type: ignore[import-untyped]
 from pyads.constants import ADSIGRP_SUMUP_READ, ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
 
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
+from core.application.port.protocol import ListenHandle, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     PointScalar,
@@ -690,9 +691,30 @@ class ADSDriver:
             outcome=WriteOutcome.CONFIRMED_SUCCESS,
         )
 
-    async def interrogate(self) -> None:
+    async def interrogate(self, common_address: int | None = None) -> None:
         """ADS 不支持 IEC104 式总召能力。"""
+        del common_address
         raise ProtocolCapabilityError("ads does not support interrogation")
+
+    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        """注销一次原生 Device Notification 订阅（幂等由句柄保证）。"""
+        await handle.close()
+
+    async def listen(
+        self,
+        point_ids: Sequence[str],
+        callback: Callable[[ProtocolSample], Awaitable[None]],
+        *,
+        interval: float | None = None,
+    ) -> ListenHandle:
+        """ADS 的远程数据获取只有原生订阅（subscribe），没有被动监听语义。"""
+        del point_ids, callback, interval
+        raise ProtocolCapabilityError("ads does not support passive listen — use subscribe")
+
+    async def unlisten(self, handle: ListenHandle) -> None:
+        """ADS 不支持被动监听。"""
+        del handle
+        raise ProtocolCapabilityError("ads does not support passive listen — use subscribe")
 
     def _build_sum_requests(self, points: tuple[ADSPoint, ...]) -> tuple[Any, ...]:
         """编译可直接交给 pyads.read_write 的分批 Sum Read 请求。"""
