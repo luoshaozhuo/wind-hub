@@ -302,18 +302,21 @@ class TestMidSessionDisconnect:
         arrived = asyncio.Event()
 
         async def on_sample(sample: ProtocolSample) -> None:
-            seen.append(int(sample.value))  # type: ignore[arg-type]  # 测点为 DINT
-            arrived.set()
+            value = int(sample.value)  # type: ignore[arg-type]  # 测点为 DINT
+            seen.append(value)
+            if value == 42:
+                arrived.set()
 
         await driver.subscribe(("a",), on_sample, interval=0.05)
         memory_server.set_values(_GROUP, 0, pack_points([("DINT", 42)]))
+        # SERVERCYCLE：新值在下一周期由服务端主动推送（无需再写）。
         await asyncio.wait_for(arrived.wait(), timeout=3.0)
 
         await proxy.drop()
         start = time.monotonic()
         await driver.close()
         assert time.monotonic() - start < 5.0
-        assert seen == [42]
+        assert 42 in seen and seen[-1] == 42
         await proxy.stop()
 
 

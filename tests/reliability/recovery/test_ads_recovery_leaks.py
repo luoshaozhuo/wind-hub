@@ -47,6 +47,9 @@ _LOCAL_NET_ID = "127.0.0.1.1.1"
 _SERVER_IP = "127.0.0.71"
 _PROXY_IP = "127.0.0.72"
 _KILL_SERVER_IP = "127.0.0.73"
+#: 不重启 Server 的 SIGKILL 重复订阅测试使用独立 loopback，避免端口竞争。
+_KILL_NORESTART_IP = "127.0.0.74"
+_BLOCKS_PER_CLIENT = 2
 
 pytestmark = [pytest.mark.ads, pytest.mark.reliability, pytest.mark.real_service]
 
@@ -115,22 +118,30 @@ async def _subscribe_expect(
     *,
     value: int,
 ) -> tuple[Any, list[int]]:
-    """注册订阅并通过真实服务端通知投递拿到数据，返回 (handle, 收到的值)。"""
+    """注册订阅并通过真实服务端通知投递拿到数据，返回 (handle, 收到的值)。
+
+    先写值再订阅：SERVERCYCLE 语义下即使之后数据不再变化，首个周期也
+    必须把当前值主动推上来。
+    """
     seen: list[int] = []
     done = asyncio.Event()
+    arrived: set[str] = set()
     expected = set(point_ids)
 
     async def on_sample(sample: ProtocolSample) -> None:
-        seen.append(int(sample.value))  # type: ignore[arg-type]  # 测点为 DINT
-        if len(seen) >= len(expected):
-            done.set()
+        received = int(sample.value)  # type: ignore[arg-type]  # 测点为 DINT
+        seen.append(received)
+        if received == value:
+            arrived.add(sample.point_id)
+            if expected <= arrived:
+                done.set()
 
-    handle = await driver.subscribe(point_ids, on_sample, interval=0.05)
     server.set_values(
         _GROUP,
         offsets[0],
         b"".join(pack_points([("DINT", value)]) for _ in offsets),
     )
+    handle = await driver.subscribe(point_ids, on_sample, interval=0.05)
     await asyncio.wait_for(done.wait(), timeout=4.0)
     return handle, seen
 
@@ -152,7 +163,8 @@ class TestRecoveryWithData:
         handle, seen = await _subscribe_expect(
             driver, server, ("a",), (0,), value=11
         )
-        assert seen == [11]
+        # 周期语义下同一值可能被多次上送，只断言它确实经通知到达。
+        assert 11 in seen
         await handle.close()
         await proxy.drop()
         await driver.close()
@@ -166,7 +178,7 @@ class TestRecoveryWithData:
             _, seen2 = await _subscribe_expect(
                 driver2, server, ("a",), (0,), value=22
             )
-            assert seen2 == [22]
+            assert 22 in seen2
         finally:
             await driver2.close()
 
@@ -332,7 +344,7 @@ class TestSigKillResidue:
             )
             assert process.stdout is not None
             ready = await asyncio.wait_for(process.stdout.readline(), timeout=5.0)
-            assert ready.decode().strip() == "READY 2"
+            assert ready.decode().startswith("READY 2 ")
             await asyncio.sleep(0.1)
             assert server.notification_count() == 2
 
@@ -346,6 +358,108 @@ class TestSigKillResidue:
 
             server.restart()
             assert server.notification_count() == 0
+        finally:
+            server.stop()
+
+    async def test_30_sigkill_rounds_without_server_restart_no_handle_reuse(
+        self, local_ams: None
+    ) -> None:
+        """同一 Server 不重启：30 轮独立客户端注册→SIGKILL 的资源累积观测。
+
+        每轮新客户端注册完全相同的两个 Block。服务端必须证明：
+
+        - 旧客户端被 SIGKILL 后 TCP 连接计数归零；
+        - Notification Handle 严格单调分配，新客户端不复用旧句柄；
+        - 旧注册作为残留保留（testserver 不做断连回收）；
+        - 30 轮后控制面仍可正常注册/注销。
+
+        这是测试服务的实测行为，**不得据此断言真实 TwinCAT 一定泄漏**；
+        真实 PLC 的对应行为见硬件验收清单。
+        """
+        del local_ams
+        server = AdsMemoryServer(ip_address=_KILL_NORESTART_IP)
+        server.start()
+        try:
+            previous_handles: set[int] = set()
+            previous_max = 0
+            for round_index in range(30):
+                process = await asyncio.create_subprocess_exec(
+                    sys.executable,
+                    "-m",
+                    "tests.support.ads_subprocess_client",
+                    _KILL_NORESTART_IP,
+                    str(_BLOCKS_PER_CLIENT),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                assert process.stdout is not None
+                ready = await asyncio.wait_for(process.stdout.readline(), timeout=5.0)
+                tokens = ready.decode().strip().split()
+                assert tokens[:2] == ["READY", str(_BLOCKS_PER_CLIENT)], ready
+                handles = [int(value) for value in tokens[3].split(",")]
+                assert len(handles) == _BLOCKS_PER_CLIENT
+
+                # 新客户端不复用任何历史句柄：服务端句柄严格递增。
+                assert not previous_handles.intersection(handles)
+                assert min(handles) > previous_max
+
+                assert server.active_connection_count() == 1
+                expected_total = _BLOCKS_PER_CLIENT * (round_index + 1)
+                assert server.notification_count() == expected_total
+                assert server.allocated_handles() == expected_total
+
+                process.send_signal(signal.SIGKILL)
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+                assert process.returncode == -signal.SIGKILL
+                # 有界等待服务端观察到 TCP 断开（不靠固定 sleep）。
+                deadline = asyncio.get_running_loop().time() + 3.0
+                while asyncio.get_running_loop().time() < deadline:
+                    if server.active_connection_count() == 0:
+                        break
+                    await asyncio.sleep(0.02)
+                assert server.active_connection_count() == 0
+                # 句柄残留：连接消失但注册仍在（模拟服务的真实行为）。
+                assert len(server.residue_registrations()) == expected_total
+
+                previous_max = max(handles)
+                previous_handles.update(handles)
+
+            # 30 个客户端各在一条承载 AMS 命令的 TCP 连接上注册（pyads 在
+            # Linux 还会产生不带 AMS 帧的辅助连接，不计入会话判断）。
+            connections = server.connections()
+            registering = [info for info in connections if info.source_ams]
+            assert len(registering) == 30, len(registering)
+            assert all(not info.alive for info in connections)
+            # 所有残留注册来自相同的客户端 AMS 身份：相同 Net ID 重启客户端
+            # 不会让服务端把新会话关联到旧订阅。
+            identities = {
+                reg.source_ams
+                for reg in server.registrations()
+                if reg.source_ams
+            }
+            assert len(identities) == 1, identities
+            registered_conns = {reg.conn_id for reg in server.registrations()}
+            assert len(registered_conns) == 30, registered_conns
+            # 调度线程仍然只有一个，资源累积仅限注册表本身。
+            assert server.scheduler_alive()
+
+            # 控制面未被累积打坏：本进程新客户端仍能注册并干净注销。
+            driver = _driver({"a": _point("a", 0)}, host=_KILL_NORESTART_IP)
+            await driver.connect()
+
+            async def on_sample(_sample: ProtocolSample) -> None:
+                pass
+
+            handle = await driver.subscribe(("a",), on_sample, interval=1.0)
+            try:
+                assert (
+                    server.notification_count()
+                    == 30 * _BLOCKS_PER_CLIENT + 1
+                )
+            finally:
+                await handle.close()
+                await driver.close()
+            assert server.notification_count() == 30 * _BLOCKS_PER_CLIENT
         finally:
             server.stop()
 
@@ -368,7 +482,8 @@ class TestSigKillResidue:
                     stderr=asyncio.subprocess.DEVNULL,
                 )
                 assert process.stdout is not None
-                await asyncio.wait_for(process.stdout.readline(), timeout=5.0)
+                ready = await asyncio.wait_for(process.stdout.readline(), timeout=5.0)
+                assert ready.decode().startswith("READY 2 ")
                 await asyncio.sleep(0.1)
                 assert server.notification_count() == expected
                 process.send_signal(signal.SIGKILL)
