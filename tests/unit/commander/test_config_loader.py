@@ -127,11 +127,11 @@ def test_unknown_unit_rejected(tmp_path):
                 "point_groups": ["g"],
                 "address": {"register_type": "holding", "address": 100},
                 "data_type": "float32",
-                "unit_id": "furlong",
+                "unit": "furlong",
             }
         },
     )
-    with pytest.raises(ConfigError, match="invalid business point|invalid data type or unit_id"):
+    with pytest.raises(ConfigError, match="invalid business point|invalid data type or unit"):
         load_commander_config(YamlConfigAdapter(config_dir))
 
 
@@ -140,7 +140,7 @@ def test_bool_point_must_be_dimensionless(tmp_path):
     write_yaml(
         config_dir,
         "business_points.yaml",
-        {"business_points": {"flag": {"data_type": "bool", "unit_id": "percent"}}},
+        {"business_points": {"flag": {"data_type": "bool", "unit": "percent"}}},
     )
     write_yaml(
         config_dir,
@@ -151,11 +151,10 @@ def test_bool_point_must_be_dimensionless(tmp_path):
                     "protocol": "modbus",
                     "points": {
                         "flag": {
-                            "business_point_id": "flag",
                             "point_groups": ["g"],
                             "address": {"register_type": "coil", "address": 1},
                             "data_type": "bool",
-                            "unit_id": "percent",
+                            "unit": "percent",
                         }
                     },
                 }
@@ -215,7 +214,13 @@ def test_ads_connection_options_preserved(tmp_path):
     config_dir = write_minimal_config_tree(
         tmp_path,
         protocol="ads",
-        address={"symbol": "MAIN.n", "data_type": "float32"},
+        points={
+            "p1": {
+                "point_groups": ["g"],
+                "address": {"symbol": "MAIN.n", "data_type": "REAL"},
+                "data_type": "REAL",
+            }
+        },
         protocol_options={"target_net_id": "1.2.3.4.5.6"},
         devices={
             "dev1": {
@@ -230,8 +235,8 @@ def test_ads_connection_options_preserved(tmp_path):
     assert options["target_net_id"] == "1.2.3.4.5.6"
 
 
-def test_distinct_business_point_ids_are_explicit(tmp_path):
-    """同名协议点映射不同业务量时必须显式指定不同业务点 ID。"""
+def test_business_point_identity_is_point_key(tmp_path):
+    """统一 Schema 下业务点身份即 Point Key，不再支持显式 business_point_id。"""
     config_dir = write_minimal_config_tree(
         tmp_path,
         point_tables={
@@ -249,7 +254,38 @@ def test_distinct_business_point_ids_are_explicit(tmp_path):
                 "protocol": "modbus",
                 "points": {
                     "p1": {
-                        "business_point_id": "tab_b:p1",
+                        "point_groups": ["g"],
+                        "address": {"register_type": "holding", "address": 2},
+                        "data_type": "float32",
+                    }
+                },
+            },
+        },
+    )
+    config = load_commander_config(YamlConfigAdapter(config_dir))
+    bp_ids = {str(bp) for bp in config.business_points}
+    assert bp_ids == {"p1"}
+
+
+def test_same_point_key_conflicting_data_type_rejected(tmp_path):
+    """同名 Point Key 跨点表类型冲突时，按业务点不兼容拒绝。"""
+    config_dir = write_minimal_config_tree(
+        tmp_path,
+        point_tables={
+            "tab": {
+                "protocol": "modbus",
+                "points": {
+                    "p1": {
+                        "point_groups": ["g"],
+                        "address": {"register_type": "holding", "address": 1},
+                        "data_type": "float32",
+                    }
+                },
+            },
+            "tab_b": {
+                "protocol": "modbus",
+                "points": {
+                    "p1": {
                         "point_groups": ["g"],
                         "address": {"register_type": "holding", "address": 2},
                         "data_type": "int16",
@@ -258,11 +294,8 @@ def test_distinct_business_point_ids_are_explicit(tmp_path):
             },
         },
     )
-    config = load_commander_config(YamlConfigAdapter(config_dir))
-    bp_ids = {str(bp) for bp in config.business_points}
-    assert "p1" in bp_ids
-    # 业务点身份由配置显式给出，不在解析时自动改写。
-    assert "tab_b:p1" in bp_ids
+    with pytest.raises(ConfigError, match="incompatible business point"):
+        load_commander_config(YamlConfigAdapter(config_dir))
 
 
 def test_disabled_devices_excluded_from_snapshot(tmp_path):

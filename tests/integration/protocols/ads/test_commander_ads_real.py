@@ -38,14 +38,14 @@ def _write_ads_config(base: Path, ads: dict[str, str | int]) -> Path:
     if ads["read_symbol"]:
         points["plc.readback"] = {
             "point_groups": ["telemetry"],
-            "address": {"symbol": ads["read_symbol"], "data_type": "float32"},
-            "data_type": "float32",
+            "address": {"symbol": ads["read_symbol"], "data_type": "REAL"},
+            "data_type": "REAL",
         }
     if ads["write_symbol"]:
         points["plc.setpoint"] = {
             "point_groups": ["telemetry", "control"],
-            "address": {"symbol": ads["write_symbol"], "data_type": "float32"},
-            "data_type": "float32",
+            "address": {"symbol": ads["write_symbol"], "data_type": "REAL"},
+            "data_type": "REAL",
         }
     ads_identity = None
     if ads["local_net_id"] and ads["local_ip"]:
