@@ -13,6 +13,8 @@ _ALLOWED_OPTIONS = frozenset(
         "timeout",
         "twincat_version",
         "max_subs_per_sum",
+        "max_block_bytes",
+        "max_gap_bytes",
         "max_delay",
         "max_notifications_per_connection",
         "route_auto_add",
@@ -32,6 +34,8 @@ class ADSConfig:
     timeout: float = 5.0
     twincat_version: str = "2"
     max_subs_per_sum: int = 500
+    max_block_bytes: int = 1024
+    max_gap_bytes: int = 16
     max_delay: float = 0.06
     max_notifications_per_connection: int = 550
     route_auto_add: bool = False
@@ -80,6 +84,18 @@ def parse_ads_config(
     if max_subs <= 0:
         raise ConfigError(f"connection '{endpoint}': max_subs_per_sum must be > 0")
 
+    max_block_bytes = _int_option(
+        options.get("max_block_bytes"), "max_block_bytes", default=1024
+    )
+    if max_block_bytes <= 0:
+        raise ConfigError("ADS max_block_bytes must be > 0")
+
+    max_gap_bytes = _int_option(
+        options.get("max_gap_bytes"), "max_gap_bytes", default=16
+    )
+    if max_gap_bytes < 0:
+        raise ConfigError("ADS max_gap_bytes must be >= 0")
+
     max_delay = _float_option(
         options.get("max_delay"),
         "max_delay",
@@ -122,6 +138,8 @@ def parse_ads_config(
         timeout=timeout,
         twincat_version=twincat_version,
         max_subs_per_sum=max_subs,
+        max_block_bytes=max_block_bytes,
+        max_gap_bytes=max_gap_bytes,
         max_delay=max_delay,
         max_notifications_per_connection=max_notifications,
         route_auto_add=route_auto_add,

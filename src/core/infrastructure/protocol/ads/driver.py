@@ -34,6 +34,7 @@ from core.application.protocol_contract import (
 from core.application.settings import ADSLocalConfig
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
+from .codec import compile_decoder
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point, symbol_index_address
 from .subscription import ADSSubscription
@@ -100,7 +101,7 @@ class ADSDriver:
             tuple[ADSPoint, ...],
             tuple[
                 tuple[Any, ...],
-                tuple[Callable[[bytes], PointScalar], ...],
+                tuple[Callable[[bytes | memoryview], PointScalar], ...],
             ],
         ] = {}
         self._points: dict[str, ADSPoint] = {}
@@ -306,6 +307,8 @@ class ADSDriver:
                 callback,
                 cycle_time=interval,
                 loop=asyncio.get_running_loop(),
+                max_block_bytes=self._config.max_block_bytes,
+                max_gap_bytes=self._config.max_gap_bytes,
             )
             await subscription.start()
             self._subscriptions.add(subscription)
@@ -568,25 +571,9 @@ class ADSDriver:
 
     def _build_sum_decoders(
         self, points: tuple[ADSPoint, ...]
-    ) -> tuple[Callable[[bytes], PointScalar], ...]:
+    ) -> tuple[Callable[[bytes | memoryview], PointScalar], ...]:
         """编译逐点解码器，与请求地址保持相同顺序。"""
-        decoders: list[Callable[[bytes], PointScalar]] = []
-        for point in points:
-            if point.data_type == "STRING":
-                decoders.append(
-                    lambda raw: raw.split(b"\\x00", 1)[0].decode("utf-8")
-                )
-            else:
-                datatype = _plc_datatype(point.data_type)
-
-                def decode(raw: bytes, datatype: Any = datatype) -> PointScalar:
-                    value = datatype.from_buffer_copy(raw)
-                    return _as_point_scalar(
-                        value.value if hasattr(value, "value") else value
-                    )
-
-                decoders.append(decode)
-        return tuple(decoders)
+        return tuple(compile_decoder(point) for point in points)
 
     async def _read_sum_raw(
         self,
@@ -602,7 +589,6 @@ class ADSDriver:
             self._read_cache[key] = cached
         request, decoders = cached
 
-        limit = self._config.max_subs_per_sum
         connection = self._connection
         if connection is None:
             raise ProtocolError("ADS connection is unavailable")
@@ -620,7 +606,7 @@ class ADSDriver:
             )
             if response is None:
                 raise ProtocolError("ADS Sum Read received no response")
-            raw = bytes(response)
+            raw = response if isinstance(response, bytes) else bytes(response)
             expected = 4 * len(chunk) + sum(item.size for item in chunk)
             if len(raw) < expected:
                 raise ProtocolError(
@@ -632,10 +618,11 @@ class ADSDriver:
         decoder_index = 0
         for chunk, raw in responses:
             offset = 4 * len(chunk)
-            for index, item in enumerate(chunk):
+            errors = struct.unpack_from(f"<{len(chunk)}I", raw)
+            data_view = memoryview(raw)
+            for item, error in zip(chunk, errors):
                 size = item.size
-                error = struct.unpack_from("<I", raw, index * 4)[0]
-                data = raw[offset:offset + size]
+                data = data_view[offset:offset + size]
                 offset += size
                 decoder = decoders[decoder_index]
                 decoder_index += 1
@@ -644,7 +631,7 @@ class ADSDriver:
                     continue
                 try:
                     results.append((decoder(data), Quality.GOOD))
-                except (TypeError, ValueError, UnicodeDecodeError):
+                except (TypeError, ValueError, UnicodeDecodeError, struct.error):
                     results.append((None, Quality.BAD))
         return tuple(results)
 

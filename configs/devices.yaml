@@ -51,6 +51,9 @@
 #   timeout:         float > 0（秒），默认 5.0 —— ADS 请求超时。
 #   max_subs_per_sum:                int > 0，默认 500 —— 单次 Sum Read
 #                                    最大订阅数。
+#   max_block_bytes:                 int > 0，默认 1024 —— 单次 ADS 区块通知最大字节数。
+#   max_gap_bytes:                   int >= 0，默认 16 —— 合并相邻测点允许的最大空洞字节数；
+#                                    仅在 PLC 支持完整区间通知时有效。
 #   max_delay:                       float >= 0（秒），默认 0.06 —— 通知
 #                                    最大延迟。
 #   max_notifications_per_connection: int > 0，默认 550 —— 单连接最大通知数。
