@@ -82,9 +82,7 @@ def parse_ads_config(
     if max_subs <= 0:
         raise ConfigError(f"connection '{endpoint}': max_subs_per_sum must be > 0")
 
-    max_block_bytes = _int_option(
-        options.get("max_block_bytes"), "max_block_bytes", default=1024
-    )
+    max_block_bytes = _int_option(options.get("max_block_bytes"), "max_block_bytes", default=1024)
     if max_block_bytes <= 0:
         raise ConfigError("ADS max_block_bytes must be > 0")
 

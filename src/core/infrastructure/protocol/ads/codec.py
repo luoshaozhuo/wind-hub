@@ -25,13 +25,14 @@ _FORMATS = {
     "LREAL": "d",
 }
 
+
 def compile_decoder(point: ADSPoint) -> Callable[[bytes | memoryview, int], PointScalar]:
     """一次编译标量解码器，运行时不重复查找类型或建立 ctypes 对象。"""
     if point.data_type == "STRING":
         size = point.size
 
         def decode_string(raw: bytes | memoryview, offset: int) -> str:
-            return bytes(raw[offset:offset + size]).split(b"\x00", 1)[0].decode("utf-8")
+            return bytes(raw[offset : offset + size]).split(b"\x00", 1)[0].decode("utf-8")
 
         return decode_string
     unpacker = struct.Struct("<" + _FORMATS[point.data_type])
@@ -66,8 +67,7 @@ def compile_notification_blocks(
         last = current[-1]
         end = last.offset + last.size
         fields = tuple(
-            (point, point.offset - first.offset, compile_decoder(point))
-            for point in current
+            (point, point.offset - first.offset, compile_decoder(point)) for point in current
         )
         blocks.append(NotificationBlock(first.group, first.offset, end - first.offset, fields))
 
@@ -78,18 +78,13 @@ def compile_notification_blocks(
             and point.group == previous.group
             and point.offset < previous.offset + previous.size
         ):
-            raise ConfigError(
-                f"ADS points '{previous.point_id}' and '{point.point_id}' overlap"
-            )
+            raise ConfigError(f"ADS points '{previous.point_id}' and '{point.point_id}' overlap")
         previous = point
         if point.size > max_bytes:
             raise ValueError(f"ADS point '{point.point_id}' exceeds notification block size")
         if current:
             first = current[0]
-            if (
-                point.group != first.group
-                or point.offset + point.size - first.offset > max_bytes
-            ):
+            if point.group != first.group or point.offset + point.size - first.offset > max_bytes:
                 append_block()
                 current = []
         current.append(point)

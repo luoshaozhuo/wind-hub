@@ -67,13 +67,9 @@ class ADSPoint:
         has_group = self.index_group is not None
         has_offset = self.index_offset is not None
         if has_group != has_offset:
-            raise ConfigError(
-                f"ADS point '{self.point_id}' requires a complete index address"
-            )
+            raise ConfigError(f"ADS point '{self.point_id}' requires a complete index address")
         if not has_group and self.symbol is None:
-            raise ConfigError(
-                f"ADS point '{self.point_id}' requires symbol or index address"
-            )
+            raise ConfigError(f"ADS point '{self.point_id}' requires symbol or index address")
 
     @property
     def address_resolved(self) -> bool:
@@ -174,14 +170,11 @@ def parse_ads_point(
         )
     if symbol is None and not has_group:
         raise ConfigError(
-            f"ADS point '{point.point_id}' requires symbol or "
-            "index_group + index_offset"
+            f"ADS point '{point.point_id}' requires symbol or " "index_group + index_offset"
         )
 
     index_group = (
-        None
-        if raw_group is None
-        else _non_negative_int(raw_group, "index_group", point.point_id)
+        None if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
     )
     index_offset = (
         None
