@@ -94,3 +94,42 @@ def test_ads_block_config_validation() -> None:
         parse_ads_config(endpoint, {"max_block_bytes": 0})
     with pytest.raises(ConfigError, match="max_gap_bytes"):
         parse_ads_config(endpoint, {"max_gap_bytes": -1})
+
+
+@pytest.mark.asyncio
+async def test_block_registration_failure_does_not_fallback() -> None:
+    """区块注册失败直接传播异常，已注册的 Handle 必须清理。"""
+    class Connection:
+        def __init__(self) -> None:
+            self.registered: list[tuple[int, int]] = []
+            self.deleted: list[object] = []
+
+        def notification(self, _datatype: object):
+            return lambda callback: callback
+
+        def add_device_notification(self, address, _attr, _callback):
+            self.registered.append(address)
+            if address == (0x4020, 100):
+                raise RuntimeError("block rejected")
+            return (len(self.registered), None)
+
+        def del_device_notification(self, handle, _user_handle):
+            self.deleted.append(handle)
+
+    connection = Connection()
+
+    async def callback(sample: ProtocolSample) -> None:
+        del sample
+
+    subscription = ADSSubscription(
+        connection,
+        (point("a", 0), point("b", 100), point("c", 104)),
+        callback,
+        cycle_time=0.1,
+        loop=asyncio.get_running_loop(),
+    )
+    with pytest.raises(RuntimeError, match="block rejected"):
+        await subscription.start()
+    assert connection.registered == [(0x4020, 0), (0x4020, 100)]
+    assert connection.deleted == [1]
+    assert subscription._worker_task is None

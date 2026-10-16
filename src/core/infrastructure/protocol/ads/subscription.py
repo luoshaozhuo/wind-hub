@@ -67,19 +67,7 @@ class ADSSubscription:
                 max_bytes=self._max_block_bytes,
                 max_gap_bytes=self._max_gap_bytes,
             ):
-                try:
-                    await self._register_block(block, generation)
-                except Exception:
-                    if len(block.fields) == 1:
-                        raise
-                    # 某些 PLC 拒绝区块通知；仅此区块回退为逐点注册。
-                    logger.warning(
-                        "ADS block notification rejected at %d:%d; retrying individual points",
-                        block.group, block.offset,
-                    )
-                    for point, _, _ in block.fields:
-                        single = compile_notification_blocks((point,))[0]
-                        await self._register_block(single, generation)
+                await self._register_block(block, generation)
         except BaseException:
             await self._remove_handles()
             raise
