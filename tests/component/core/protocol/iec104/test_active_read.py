@@ -1,135 +1,102 @@
-"""IEC104 单点读取只接受本次 C_RD_NA_1 响应。"""
+"""C_RD_NA_1 主动读取的请求-响应关联（完整 (ca,ioa) 地址 + COT）。"""
 
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
 
 import pytest
+from hat.drivers.iec101 import common as iec101
 
-from core.application import ProtocolError, ProtocolSample
-from core.infrastructure.protocol.iec104.config import IEC104Config
-from core.infrastructure.protocol.iec104.driver import IEC104Driver
-from core.infrastructure.protocol.iec104.mapping import IEC104Point
-
-
-def _driver() -> IEC104Driver:
-    driver = object.__new__(IEC104Driver)
-    driver._is_open = True
-    driver._closed = False
-    driver._points_by_id = {"p": IEC104Point("p", 11, None)}
-    driver._active_reads = {}
-    driver._active_read_locks = {}
-
-    driver._config = IEC104Config(host="192.0.2.30", port=2404, t1=0.02)
-    return driver
+from core.application.errors import ProtocolConnectionError
+from core.infrastructure.protocol.iec104.driver import (
+    IEC104ActiveReadRejectedError,
+)
+from tests.support.iec104_hat_fake import (
+    connected_driver,
+    floating_data_msg,
+    make_point,
+    read_negative_msg,
+)
 
 
-@pytest.mark.asyncio
-async def test_read_one_waits_for_requested_response_not_mirror() -> None:
-    driver = _driver()
-    calls = []
-
-    async def send(mapped: IEC104Point) -> None:
-        calls.append(mapped.ioa)
-
-    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
+async def test_read_one_returns_fresh_request_cause_response() -> None:
+    driver, conn = await connected_driver([make_point("p", 100)])
     task = asyncio.create_task(driver.read_one("p"))
-    await asyncio.sleep(0)
-    assert calls == [11]
+    await asyncio.sleep(0.05)
+
+    conn.deliver(
+        [floating_data_msg(1, 100, 7.5, cause=iec101.DataResCause.REQUEST)]
+    )
+    sample = await asyncio.wait_for(task, timeout=1)
+    assert sample.point_id == "p"
+    assert sample.value == pytest.approx(7.5)
+    sent = conn.last_message()
+    assert isinstance(sent, iec101.ReadMsg)
+    assert sent.cause is iec101.ReadReqCause.REQUEST
+    await driver.close()
+
+
+async def test_spontaneous_update_does_not_complete_pending_read() -> None:
+    driver, conn = await connected_driver([make_point("p", 100)])
+    task = asyncio.create_task(driver.read_one("p"))
+    await asyncio.sleep(0.05)
+
+    conn.deliver(
+        [floating_data_msg(1, 100, 9.9, cause=iec101.DataResCause.SPONTANEOUS)]
+    )
+    # 真正的请求响应随后到达。
+    await asyncio.sleep(0.05)
     assert not task.done()
-    driver._active_reads[11].set_result(
-        ProtocolSample(point_id="p", value=7, timestamp=datetime.now(UTC))
+    conn.deliver(
+        [floating_data_msg(1, 100, 7.5, cause=iec101.DataResCause.REQUEST)]
     )
-    assert (await task).value == 7
+    sample = await asyncio.wait_for(task, timeout=1)
+    assert sample.value == pytest.approx(7.5)
+    await driver.close()
 
 
-@pytest.mark.asyncio
-async def test_read_one_times_out_without_response() -> None:
-    driver = _driver()
+async def test_negative_read_response_raises_application_rejection() -> None:
+    driver, conn = await connected_driver([make_point("p", 999)])
+    task = asyncio.create_task(driver.read_one("p"))
+    await asyncio.sleep(0.05)
+    conn.deliver(
+        [read_negative_msg(1, 999, iec101.ReadResCause.UNKNOWN_IO_ADDRESS)]
+    )
+    with pytest.raises(IEC104ActiveReadRejectedError):
+        await task
+    await driver.close()
 
-    async def send(mapped: IEC104Point) -> None:
-        del mapped
 
-    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
-    with pytest.raises(ProtocolError, match="timed out"):
+async def test_read_times_out_without_response() -> None:
+    driver, _conn = await connected_driver([make_point("p", 100)])
+    with pytest.raises(Exception, match="timed out"):
         await driver.read_one("p")
-    assert not driver._active_reads
+    await driver.close()
 
 
-@pytest.mark.asyncio
-async def test_read_one_serializes_same_ioa() -> None:
-    driver = _driver()
-    sent = []
+async def test_close_fails_pending_read_with_connection_error() -> None:
+    driver, _conn = await connected_driver([make_point("p", 100)])
+    task = asyncio.create_task(driver.read_one("p"))
+    await asyncio.sleep(0.05)
+    await driver.close()
+    with pytest.raises(ProtocolConnectionError):
+        await task
 
-    async def send(mapped: IEC104Point) -> None:
-        sent.append(mapped.ioa)
 
-    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
-    first = asyncio.create_task(driver.read_one("p"))
-    await asyncio.sleep(0)
-    second = asyncio.create_task(driver.read_one("p"))
-    await asyncio.sleep(0)
-    assert sent == [11]
-    driver._active_reads[11].set_result(
-        ProtocolSample(point_id="p", value=1, timestamp=datetime.now(UTC))
+async def test_read_response_for_other_ca_does_not_correlate() -> None:
+    points = [make_point("ca1", 100, ca=1), make_point("ca2", 100, ca=2)]
+    driver, conn = await connected_driver(points, common_addresses="1,2")
+    task = asyncio.create_task(driver.read_one("ca1"))
+    await asyncio.sleep(0.05)
+    # 同 IOA、错误 CA 的响应不得完成 ca1 的读取。
+    conn.deliver(
+        [floating_data_msg(2, 100, 5.0, cause=iec101.DataResCause.REQUEST)]
     )
-    await first
-    await asyncio.sleep(0)
-    assert sent == [11, 11]
-    driver._active_reads[11].set_result(
-        ProtocolSample(point_id="p", value=2, timestamp=datetime.now(UTC))
+    await asyncio.sleep(0.05)
+    assert not task.done()
+    conn.deliver(
+        [floating_data_msg(1, 100, 8.0, cause=iec101.DataResCause.REQUEST)]
     )
-    assert (await second).value == 2
-
-
-@pytest.mark.asyncio
-async def test_send_read_uses_supported_point_api() -> None:
-    driver = _driver()
-    seen = []
-
-    class Point:
-        def read(self) -> bool:
-            seen.append(True)
-            return True
-
-    class Station:
-        def get_point(self, ioa: int) -> Point:
-            assert ioa == 11
-            return Point()
-
-    driver._station = Station()
-    driver._points_by_ioa = {11: driver._points_by_id["p"]}
-    await driver._send_read(driver._points_by_id["p"])
-    assert seen == [True]
-
-
-@pytest.mark.asyncio
-async def test_send_read_rejected_by_library() -> None:
-    driver = _driver()
-
-    class Point:
-        def read(self) -> bool:
-            return False
-
-    class Station:
-        def get_point(self, ioa: int) -> Point:
-            return Point()
-
-    driver._station = Station()
-    driver._points_by_ioa = {11: driver._points_by_id["p"]}
-    with pytest.raises(ProtocolError, match="rejected"):
-        await driver._send_read(driver._points_by_id["p"])
-
-
-@pytest.mark.asyncio
-async def test_read_request_failed_before_response_cleans_waiter() -> None:
-    driver = _driver()
-
-    async def send(mapped: IEC104Point) -> None:
-        raise ProtocolError("send failed")
-
-    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
-    with pytest.raises(ProtocolError, match="send failed"):
-        await driver.read_one("p")
-    assert driver._active_reads == {}
+    sample = await asyncio.wait_for(task, timeout=1)
+    assert sample.value == pytest.approx(8.0)
+    await driver.close()

@@ -25,7 +25,7 @@ from core.application import (
     ProtocolSample,
     Quality,
 )
-from core.application.port.protocol import SubscriptionHandle
+from core.application.port.protocol import ListenHandle, SubscriptionHandle
 from core.domain import (
     BusinessPointId,
     ConnectionEndpoint,
@@ -55,7 +55,7 @@ class CollectorFakeProtocol(FakeProtocol):
     def __init__(self) -> None:
         super().__init__()
         self.subscriptions: list[tuple[tuple[str, ...], Any, float | None]] = []
-        self.interrogate_calls = 0
+        self.listeners: list[tuple[tuple[str, ...], Any, float | None]] = []
         self.read_error: Exception | None = None
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
@@ -73,12 +73,39 @@ class CollectorFakeProtocol(FakeProtocol):
         self.subscriptions.append((tuple(point_ids), callback, interval))
         return FakeSubscriptionHandle()
 
-    async def interrogate(self) -> None:
-        self.interrogate_calls += 1
+    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        await handle.close()
+
+    async def listen(
+        self,
+        point_ids: Sequence[str],
+        callback: Any,
+        *,
+        interval: float | None = None,
+    ) -> ListenHandle:
+        self.listeners.append((tuple(point_ids), callback, interval))
+        return FakeSubscriptionHandle()
+
+    async def unlisten(self, handle: ListenHandle) -> None:
+        await handle.close()
+
+    async def interrogate(self, common_address: int | None = None) -> None:
+        self.interrogate_calls.append(common_address)
 
     async def emit(self, index: int, point_id: str, value: Any, quality: Quality = Quality.GOOD):
-        """向第 index 个订阅回调推送一条样本（模拟协议上送）。"""
+        """向第 index 个订阅回调推送一条样本（模拟协议原生订阅上送）。"""
         _, callback, _ = self.subscriptions[index]
+        await self._push(callback, point_id, value, quality)
+
+    async def emit_listener(
+        self, index: int, point_id: str, value: Any, quality: Quality = Quality.GOOD
+    ) -> None:
+        """向第 index 个监听回调推送一条样本（模拟设备自发上送）。"""
+        _, callback, _ = self.listeners[index]
+        await self._push(callback, point_id, value, quality)
+
+    @staticmethod
+    async def _push(callback: Any, point_id: str, value: Any, quality: Quality) -> None:
         await callback(
             ProtocolSample(
                 point_id=point_id,

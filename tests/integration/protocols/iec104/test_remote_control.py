@@ -2,15 +2,16 @@
 
 对端是 :class:`tests.fixtures.servers.iec104_control_server.IEC104ControlServer`
 （真实 TCP 从站，处理单点/双点/设点遥控命令：activation → ACT_CON →
-ACT_TERM），覆盖三类控制命令的完整成功链路、写值校验与未寻址点错误，
-以及总召数据经订阅分发。
+ACT_TERM），覆盖三类控制命令的确认链路、三分类结果、写值本地校验与
+未寻址点错误，以及总召数据经本地 listen 分发。
 
-与旧栈语义差异：控制命令类型由点表 ``ext.type_id`` 显式声明（可写点必填），
-不再按 data_type/写值推断；未寻址 point_id 的写入抛 ConfigError。
+命令类型由点表 ``ext.type_id`` 显式声明（可写点必填），不按写值推断；
+未寻址 point_id 的写入抛 ConfigError。
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 
 import pytest
@@ -45,7 +46,7 @@ def _command_point(point_id: str, ioa: int, type_id: str) -> Point:
         business_point_id=BusinessPointId(point_id),
         source_unit=NONE_UNIT,
         access=PointAccess.WRITE,
-        ext={"ioa": ioa, "type_id": type_id},
+        ext={"ioa": ioa, "ca": 1, "type_id": type_id},
     )
 
 
@@ -55,11 +56,16 @@ def _monitoring_point(point_id: str, ioa: int) -> Point:
         business_point_id=BusinessPointId(point_id),
         source_unit=NONE_UNIT,
         access=PointAccess.READ,
-        ext={"ioa": ioa},
+        ext={"ioa": ioa, "ca": 1},
     )
 
 
-def _driver(port: int, points: Sequence[Point]) -> IEC104Driver:
+def _driver(
+    port: int,
+    points: Sequence[Point],
+    *,
+    t1: float = 3.0,
+) -> IEC104Driver:
     return IEC104Driver(
         ConnectionEndpoint("127.0.0.1", port),
         PointTable(
@@ -67,7 +73,7 @@ def _driver(port: int, points: Sequence[Point]) -> IEC104Driver:
             Protocol("iec104"),
             {point.point_id: point for point in points},
         ),
-        {"common_addr": 1, "t1": 2.0, "t2": 1.0, "t3": 5.0},
+        {"common_addresses": "1", "t0": 5.0, "t1": t1, "t2": 1.0, "t3": 5.0},
     )
 
 
@@ -81,8 +87,20 @@ async def control_server() -> AsyncIterator[IEC104ControlServer]:
         await server.stop()
 
 
+@pytest.fixture
+async def rejecting_server() -> AsyncIterator[IEC104ControlServer]:
+    server = IEC104ControlServer(
+        common_addr=1, data_points={100: 1500.5}, reject_ioas={1001}
+    )
+    await server.start()
+    try:
+        yield server
+    finally:
+        await server.stop()
+
+
 class TestRemoteControlIntegration:
-    """三类控制命令的完整成功链路（activation → ACT_CON → ACT_TERM）。"""
+    """三类控制命令的确认链路（activation → 肯定 ACT_CON）。"""
 
     async def test_single_point_control_bool(
         self,
@@ -101,7 +119,6 @@ class TestRemoteControlIntegration:
 
         assert result.point_id == "switch.on"
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-        assert result.message is None
         assert control_server.last_control.get("C_SC_NA_1") == 1001
 
     async def test_double_point_control(
@@ -133,18 +150,47 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(ProtocolWrite(point="setpoint.val", value=42.5))
+            result = await driver.write_one(
+                ProtocolWrite(point="setpoint.val", value=42.5)
+            )
         finally:
             await driver.close()
 
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert control_server.last_control.get("C_SE_NC_1") == 1003
 
+    async def test_rejected_command_is_confirmed_failure(
+        self,
+        rejecting_server: IEC104ControlServer,
+    ) -> None:
+        """从站 on_receive 返回 FAILURE：结果必须是明确的 CONFIRMED_FAILURE。
+
+        c104/lib60870 对 FAILURE 的线上行为（否定 ACT_CON 或静默）由本
+        测试真实观测；无论帧形态如何，只要在 t1 窗口内拿到否定证据，就不
+        允许归类为成功。若对端静默则按无确认证据归 UNKNOWN（见超时测试）。
+        """
+        driver = _driver(
+            rejecting_server.port,
+            [_command_point("switch.on", 1001, "C_SC_NA_1")],
+        )
+        await driver.connect()
+        try:
+            result = await driver.write_one(
+                ProtocolWrite(point="switch.on", value=True)
+            )
+        finally:
+            await driver.close()
+
+        # 实证（hat 主站 × c104/lib60870 从站）：on_receive FAILURE 对应
+        # 线上否定 ACT_CON，三分类必须给出确定的 CONFIRMED_FAILURE。
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
+        assert rejecting_server.last_control.get("C_SC_NA_1") == 1001
+
     async def test_write_many_is_not_supported(
         self,
         control_server: IEC104ControlServer,
     ) -> None:
-        """IEC104 不支持批量写：write_many 必须显式拒绝，不得静默逐点下发。"""
+        """IEC104 不支持批量写：write_many 必须显式拒绝，不得逐点下发。"""
         driver = _driver(
             control_server.port,
             [
@@ -155,13 +201,13 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            with pytest.raises(ProtocolCapabilityError, match="write_many"):
+            with pytest.raises(ProtocolCapabilityError, match="batch write"):
                 await driver.write_many(
-                    [
+                    (
                         ProtocolWrite(point="switch.on", value=True),
                         ProtocolWrite(point="breaker.cmd", value=2),
                         ProtocolWrite(point="setpoint.val", value=42.5),
-                    ]
+                    )
                 )
         finally:
             await driver.close()
@@ -185,7 +231,6 @@ class TestRemoteControlIntegration:
 
         assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "boolean" in (result.message or "")
-        # 值校验失败，命令不得上到 wire。
         assert "C_SC_NA_1" not in control_server.last_control
 
     async def test_unknown_point_raises(
@@ -202,20 +247,72 @@ class TestRemoteControlIntegration:
             await driver.close()
 
     async def test_write_raises_when_not_connected(self) -> None:
-        """write_one 在未建连 driver 上立即抛 ProtocolError。"""
-        driver = _driver(2404, [_command_point("p1", 1001, "C_SC_NA_1")])
-        with pytest.raises(ProtocolError, match="OPEN connection"):
+        """write_one 在未建连 driver 上立即抛 ProtocolError，不假装排队。"""
+        from tests.support.process import free_port
+
+        driver = _driver(free_port(), [_command_point("p1", 1001, "C_SC_NA_1")])
+        with pytest.raises(ProtocolError, match="OPEN"):
             await driver.write_one(ProtocolWrite(point="p1", value=True))
+        await driver.close()
 
-
-class TestInterrogationDispatch:
-    """总召数据经订阅分发的端到端链路。"""
-
-    async def test_subscribe_receives_interrogation_data(
+    async def test_unknown_command_ioa_is_confirmed_failure(
         self,
         control_server: IEC104ControlServer,
     ) -> None:
-        """connect + 显式总召后，全局订阅者收到数据点样本。"""
+        """从站未注册的控制 IOA：c104/lib60870 实证回否定 ACT_CON。"""
+        driver = _driver(
+            control_server.port,
+            [_command_point("ghost.cmd", 4999, "C_SC_NA_1")],
+            t1=3.0,
+        )
+        await driver.connect()
+        try:
+            result = await asyncio.wait_for(
+                driver.write_one(ProtocolWrite(point="ghost.cmd", value=True)),
+                timeout=10.0,
+            )
+        finally:
+            await driver.close()
+
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
+
+    async def test_command_timeout_with_transport_acks_only_is_unknown(self) -> None:
+        """黑洞只回 S 帧传输确认、无 ACT_CON：t1×2 后归 UNKNOWN（可能已执行）。
+
+        传输 ACK 不等于应用确认——这是写分类的核心边界。
+        """
+        from tests.support.iec104_blackhole import StartdtBlackhole
+        from tests.support.process import free_port
+
+        blackhole = StartdtBlackhole(free_port())
+        await blackhole.start()
+        driver = _driver(
+            blackhole.port,
+            [_command_point("switch.on", 1001, "C_SC_NA_1")],
+            t1=1.0,
+        )
+        try:
+            await driver.connect()
+            result = await asyncio.wait_for(
+                driver.write_one(ProtocolWrite(point="switch.on", value=True)),
+                timeout=10.0,
+            )
+        finally:
+            await driver.close()
+            await blackhole.stop()
+
+        assert result.outcome is WriteOutcome.UNKNOWN
+        assert "may have executed" in (result.message or "")
+
+
+class TestInterrogationDispatch:
+    """总召数据经本地 listen 分发的端到端链路。"""
+
+    async def test_listen_receives_interrogation_data(
+        self,
+        control_server: IEC104ControlServer,
+    ) -> None:
+        """connect + listen + 显式总召后，监听者收到数据点样本。"""
         driver = _driver(
             control_server.port,
             [_monitoring_point("rotor.speed", 100)],
@@ -225,19 +322,19 @@ class TestInterrogationDispatch:
         async def cb(sample: ProtocolSample) -> None:
             received.append(sample)
 
-        await driver.subscribe([], cb)
         await driver.connect()
+        await driver.listen((), cb)
         try:
             await driver.interrogate()
             await wait_until(
                 lambda: received or None,
                 timeout=10.0,
-                description="subscription receives interrogation data",
+                description="listener receives interrogation data",
             )
         finally:
             await driver.close()
 
         speeds = [s for s in received if s.point_id == "rotor.speed"]
         assert speeds
-        assert speeds[0].value == pytest.approx(1500.5)
+        assert speeds[0].value == pytest.approx(1500.5, abs=1e-4)
         assert speeds[0].quality is Quality.GOOD

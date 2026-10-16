@@ -5,9 +5,9 @@
 device/model/point table/protocol options 经 ``ProtocolRegistry``
 创建 ``IEC104Driver``，对端为真实 c104 Server（IEC104ControlServer）。
 
-覆盖：建连与健康、显式总召经订阅分发、spontaneous 主动上送、
-值/timestamp/quality 语义、C_SC_NA_1 遥控到达对端、关闭与资源释放。
-不经过 collector/commander/server 任何进程层。
+覆盖：建连与链路健康、真实 C_RD 主动读、listen + 显式总召分发、
+spontaneous 主动上送、值/时标/品质语义、C_SC_NA_1 遥控到达对端、
+关闭与资源释放。不经过 collector/commander/server 任何进程层。
 """
 
 from __future__ import annotations
@@ -73,18 +73,29 @@ class TestIEC104ConfigToWire:
             health = await driver.health()
             assert health.healthy
 
-            subscription = await driver.subscribe((), on_sample)
+            # 真实 C_RD 主动读（无总召、无缓存）。
+            sample = await driver.read_one("meas_power")
+            assert sample.value == pytest.approx(1500.5, abs=1e-4)
+            assert sample.quality is Quality.GOOD
+            assert sample.timestamp.tzinfo is not None
 
-            # 显式总召：两个监测点经订阅回调到达，语义完整
+            # 本地监听：不向从站注册；随后显式总召，两个监测点经监听回调到达。
+            handle = await driver.listen((), on_sample)
             await driver.interrogate()
-            by_point = {sample.point_id: sample for sample in samples}
-            assert by_point["meas_power"].value == pytest.approx(1500.5)
-            assert by_point["meas_freq"].value == pytest.approx(50.0)
-            for sample in by_point.values():
-                assert sample.quality is Quality.GOOD
-                assert sample.timestamp.tzinfo is not None
 
-            # 主动上报：对端改值后新样本到达
+            def _both_interrogated() -> dict[str, ProtocolSample] | None:
+                by_point = {s.point_id: s for s in samples}
+                return by_point if {"meas_power", "meas_freq"} <= set(by_point) else None
+
+            await wait_until(_both_interrogated, timeout=5.0)
+            by_point = {s.point_id: s for s in samples}
+            assert by_point["meas_power"].value == pytest.approx(1500.5, abs=1e-4)
+            assert by_point["meas_freq"].value == pytest.approx(50.0, abs=1e-4)
+            for delivered in by_point.values():
+                assert delivered.quality is Quality.GOOD
+                assert delivered.timestamp.tzinfo is not None
+
+            # 主动上报：对端改值后新样本到达监听者。
             received.clear()
             station = server._station
             assert station is not None
@@ -102,12 +113,12 @@ class TestIEC104ConfigToWire:
 
             await wait_until(_spontaneous_arrived, timeout=5.0)
 
-            # 遥控命令到达对端
+            # 遥控命令到达对端并获肯定 ACT_CON。
             result = await driver.write_one(ProtocolWrite(point="cmd_breaker", value=True))
             assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS, result.message
             assert server.last_control.get("C_SC_NA_1") == 300
 
-            await subscription.close()
+            await handle.close()
         finally:
             await driver.close()
             await server.stop()

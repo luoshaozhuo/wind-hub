@@ -2,25 +2,30 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 import pytest
+from hat.drivers.iec101 import common as iec101
 
 from core.application import Quality
 from core.application.protocol_contract import ProtocolSample
 from core.infrastructure.protocol.ads.subscription import _normalize_timestamp
-from core.infrastructure.protocol.iec104.codec import sample_from_c104
+from core.infrastructure.protocol.iec104.codec import decode_sample
 
 
-class _C104Quality:
-    value = 0
-
-
-class _C104Point:
-    def __init__(self, value: object, recorded_at: object = None) -> None:
-        self.value = value
-        self.quality = _C104Quality()
-        self.recorded_at = recorded_at
+def _floating_msg(time: object | None = None) -> iec101.DataMsg:
+    return iec101.DataMsg(
+        is_test=False,
+        originator_address=1,
+        asdu_address=1,
+        io_address=100,
+        data=iec101.FloatingData(
+            value=iec101.FloatingValue(42.0),
+            quality=iec101.MeasurementQuality(False, False, False, False, False),
+        ),
+        time=time,
+        cause=iec101.DataResCause.SPONTANEOUS,
+    )
 
 
 class TestProtocolSampleValidation:
@@ -52,38 +57,43 @@ class TestProtocolSampleValidation:
 class TestIEC104NativeTimestamp:
     def test_native_cp56_timestamp_marked_as_device(self) -> None:
         device_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
-        sample = sample_from_c104(_C104Point(42.0, device_time), "p")
+        cp56 = iec101.time_from_datetime(device_time)
+
+        sample = decode_sample("p", _floating_msg(cp56))
 
         assert sample.timestamp == device_time
+        assert sample.timestamp.tzinfo is not None
         assert sample.timestamp_source == "device"
 
-    def test_naive_native_timestamp_falls_back_to_local(self) -> None:
-        """CP56Time2a 不编码时区，naive 设备时间不得假定为 UTC，回退本地接收时刻。"""
+    def test_naive_device_wall_clock_is_local_wall_time(self) -> None:
+        """CP56Time2a 不带时区：设备本地墙钟时刻由 hat 按主机本地时区归一。"""
+        wall_clock = datetime(2026, 1, 1, 12, 0, 0)  # 设备本地墙钟，无时区
+        cp56 = iec101.time_from_datetime(wall_clock)
+
+        sample = decode_sample("p", _floating_msg(cp56))
+
+        assert sample.timestamp == iec101.time_to_datetime(cp56)
+        assert sample.timestamp.tzinfo is not None
+        assert sample.timestamp_source == "device"
+
+    def test_missing_timestamp_falls_back_to_local_receive_time(self) -> None:
         before = datetime.now(UTC)
-        sample = sample_from_c104(_C104Point(42.0, datetime(2026, 1, 1, 12, 0, 0)), "p")
+        sample = decode_sample("p", _floating_msg(None))
         after = datetime.now(UTC)
 
         assert before <= sample.timestamp <= after
         assert sample.timestamp_source == "local"
 
-    def test_aware_native_timestamp_converted_to_utc(self) -> None:
-        tz = timezone(timedelta(hours=8))
-        sample = sample_from_c104(_C104Point(1, datetime(2026, 1, 1, 20, tzinfo=tz)), "p")
+    def test_invalid_timestamp_falls_back_to_local_receive_time(self) -> None:
+        wall_clock = datetime(2026, 1, 1, 12, 0, 0)
+        invalid_cp56 = iec101.time_from_datetime(wall_clock, invalid=True)
 
-        assert sample.timestamp == datetime(2026, 1, 1, 12, tzinfo=UTC)
-        assert sample.timestamp_source == "device"
-
-    def test_missing_native_timestamp_falls_back_to_local_receive_time(self) -> None:
         before = datetime.now(UTC)
-        sample = sample_from_c104(_C104Point(42.0, None), "p")
+        sample = decode_sample("p", _floating_msg(invalid_cp56))
         after = datetime.now(UTC)
 
         assert before <= sample.timestamp <= after
         assert sample.timestamp_source == "local"
-
-    def test_invalid_recorded_at_type_raises(self) -> None:
-        with pytest.raises(TypeError, match="recorded_at"):
-            sample_from_c104(_C104Point(42.0, "not-a-datetime"), "p")
 
 
 class TestADSNotificationTimestamp:
