@@ -37,7 +37,10 @@ def iec104_point(
     ioa: int,
     type_id: str | None = None,
 ) -> IEC104Point:
-    """构造并校验一个动态 IEC104Point（显式 IOA，无需点表登记）。
+    """构造并校验一个 IEC104Point（显式 IOA 地址定义）。
+
+    供点表解析与测试构造使用；运行时读写只接受 PointTable 已配置的
+    Point Key，不能以此对象直接寻址。
 
     校验规则与 ``parse_iec104_point`` 一致：IOA 为 0..0xFFFFFF 的整数
     （拒绝布尔冒充），type_id 为非空字符串并归一化为大写。type_id 的

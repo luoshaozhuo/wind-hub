@@ -99,7 +99,6 @@ async def test_send_read_uses_supported_point_api() -> None:
             return Point()
 
     driver._station = Station()
-    driver._dynamic_points = {}
     driver._points_by_ioa = {11: driver._points_by_id["p"]}
     await driver._send_read(driver._points_by_id["p"])
     assert seen == [True]
@@ -118,7 +117,6 @@ async def test_send_read_rejected_by_library() -> None:
             return Point()
 
     driver._station = Station()
-    driver._dynamic_points = {}
     driver._points_by_ioa = {11: driver._points_by_id["p"]}
     with pytest.raises(ProtocolError, match="rejected"):
         await driver._send_read(driver._points_by_id["p"])
