@@ -5,7 +5,8 @@ CollectorDeviceSession 把共享领域对象（Device / PointTable）与
 
 - 读：按 point_group 选点批量读，``ProtocolSample`` 原始值按点表
   scale/offset 换算为工程值并盖上设备身份；
-- 持续采集：fixed-rate polling（POLL）或协议订阅（SUBSCRIBE），
+- 持续采集：fixed-rate polling（POLL）、协议原生订阅（SUBSCRIBE，
+  仅 ADS notification）或本地监听（LISTEN，仅 IEC104 自发上送），
   机制由协议能力与进程级 ``subscribe_enabled`` 策略决定；
 - 轻量热更新：点表/分组变化时就地换表（不重建协议连接）。
 
@@ -42,14 +43,17 @@ class AcquisitionMode(Enum):
     """主动轮询（Modbus、ADS Sum read）。"""
 
     SUBSCRIBE = "subscribe"
-    """订阅推送（ADS notification、IEC104 spontaneous/periodic）。"""
+    """协议原生远程订阅（仅 ADS AddDeviceNotification）。"""
+
+    LISTEN = "listen"
+    """本地监听设备自发上送（仅 IEC104；无远程注册、无轮询）。"""
 
 
 class AcquisitionHandle(Protocol):
     """一次持续采集的句柄——关闭即停止采集，不影响同设备的其他实例。
 
     底层可能是 fixed-rate polling 协程、ADS notification 或 IEC104
-    订阅；Runtime 只依赖 ``close()``，不感知具体机制。
+    本地监听；Runtime 只依赖 ``close()``，不感知具体机制。
     """
 
     async def close(self) -> None:
@@ -145,8 +149,8 @@ class CollectorDeviceSession:
         point_table: 设备型号绑定的 resolved 点表。
         point_meta: 本点表的进程级点位元数据（按 point_id 索引）。
         protocol: 组合根经 ProtocolRegistry 创建的协议 Driver。
-        subscribe_enabled: ADS 设备是否使用订阅推送（notification）采集；
-            非 ADS 设备忽略（IEC104 恒订阅、Modbus 恒轮询）。
+        subscribe_enabled: ADS 设备是否使用原生订阅推送（notification）
+            采集；非 ADS 设备忽略（IEC104 恒本地监听、Modbus 恒轮询）。
     """
 
     def __init__(
@@ -201,14 +205,19 @@ class CollectorDeviceSession:
     def acquisition_mode(self) -> AcquisitionMode:
         """返回本设备的持续采集机制。
 
-        - 协议声明 SUBSCRIBE 能力且（非 ADS 或进程级开启订阅）→ SUBSCRIBE；
+        - ADS 声明 SUBSCRIBE 且进程级开启 → 原生远程订阅；
+        - 协议声明 LISTEN（IEC104）→ 本地监听自发上送；
         - 其余 → POLL（Modbus、ADS Sum read）。
         """
-        if ProtocolCapability.SUBSCRIBE not in self._protocol.capabilities():
-            return AcquisitionMode.POLL
-        if self.protocol_name == "ads" and not self._subscribe_enabled:
-            return AcquisitionMode.POLL
-        return AcquisitionMode.SUBSCRIBE
+        capabilities = self._protocol.capabilities()
+        if (
+            ProtocolCapability.SUBSCRIBE in capabilities
+            and (self.protocol_name != "ads" or self._subscribe_enabled)
+        ):
+            return AcquisitionMode.SUBSCRIBE
+        if ProtocolCapability.LISTEN in capabilities:
+            return AcquisitionMode.LISTEN
+        return AcquisitionMode.POLL
 
     # ------------------------------------------------------------------
     # 轻量热更新（不重建协议连接）
@@ -327,10 +336,12 @@ class CollectorDeviceSession:
 
         - ``POLL``：``interval`` 必填且 > 0；以 fixed-rate 调度调用
           ``acquire``（由 Runtime 注入「读 → 处理 → 派发」闭包）；
-        - ``SUBSCRIBE``：注册协议订阅，数据到达即 ``on_data(batch)``；
-          ``interval`` 透传给协议（ADS 作为 notification cycle_time；
-          IEC104 忽略）。协议声明 INTERROGATE 能力时订阅建立后自动
-          发送一次 General Interrogation。
+        - ``SUBSCRIBE``（ADS）：注册协议原生订阅，数据到达即
+          ``on_data(batch)``；``interval`` 透传为 notification cycle_time；
+        - ``LISTEN``（IEC104）：注册纯本地监听（不向从站注册、不轮询），
+          ``interval`` 忽略；监听建立后由 Collector 显式发送一次
+          General Interrogation 做初始全量上送——这是 Collector 的显式
+          采集动作，不是 listen 的隐式副作用。
 
         Raises:
             ConfigError: 采集机制与参数不匹配（如 POLL 缺 interval）。
@@ -350,20 +361,25 @@ class CollectorDeviceSession:
             return handle
 
         if on_data is None:
+            mode = self.acquisition_mode
             raise ConfigError(
-                f"Device '{self.device_id}': SUBSCRIBE acquisition requires an on_data callback"
+                f"Device '{self.device_id}': {mode.name} acquisition requires an on_data callback"
             )
 
         async def _forward(sample: ProtocolSample) -> None:
-            # 订阅上送没有设备身份上下文，协议驱动无法保证盖上设备身份
-            # （IEC104 上送 device_id 为空）——采集句柄本就属于本设备，
-            # 由会话聚合统一补盖；协议原生值换算为工程值（与轮询同语义）。
+            # 推送没有设备身份上下文，协议驱动无法盖上设备身份——采集句柄
+            # 本就属于本设备，由会话聚合统一补盖；协议原生值换算工程值。
             await on_data(self._to_values([sample]))
 
-        subscription = await self._protocol.subscribe(
-            self.point_ids(point_group), _forward, interval=interval
-        )
-        if ProtocolCapability.INTERROGATE in self._protocol.capabilities():
-            # 先建立订阅、再发总召——总召响应经既有订阅链路上报。
+        point_ids = self.point_ids(point_group)
+        push_handle: AcquisitionHandle
+        if self.acquisition_mode is AcquisitionMode.LISTEN:
+            push_handle = await self._protocol.listen(point_ids, _forward, interval=interval)
+            # 先建立监听、再发总召——总召响应经监听链路上报。
             await self._protocol.interrogate()
-        return subscription
+            return push_handle
+
+        push_handle = await self._protocol.subscribe(
+            point_ids, _forward, interval=interval
+        )
+        return push_handle
