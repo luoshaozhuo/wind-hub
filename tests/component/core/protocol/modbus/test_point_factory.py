@@ -1,20 +1,20 @@
-"""Modbus 动态测点（未登记点表的 ModbusPoint）读写与缓存隔离测试。"""
+"""ModbusPoint 工厂校验与统一 Point Key 契约测试。
+
+统一契约后不存在“动态点”读写：read_one/read_many/subscribe 只接受
+PointTable 已配置的 Point Key（str），write_one 通过 ProtocolWrite 携带
+str Key。配置点的读写行为在 test_single_ops.py 完整覆盖；本文件保留
+modbus_point 工厂自身的入参校验，并验证旧的 ModbusPoint 直传入口已关闭。
+"""
 
 from __future__ import annotations
 
 import pytest
 
-from core.application import ConfigError, Quality
-from core.application.protocol_contract import ProtocolWrite, WriteOutcome
+from core.application import ConfigError
+from core.application.protocol_contract import ProtocolWrite
 from core.infrastructure.protocol.modbus.mapping import modbus_point
 
-from .test_single_ops import (
-    _Client,
-    _driver,
-    _float32_registers,
-    _point,
-    _Response,
-)
+from .test_single_ops import _Client, _driver, _point, _Response
 
 # ---------------------------------------------------------------------------
 # modbus_point 工厂校验
@@ -64,228 +64,49 @@ class TestModbusPointFactory:
 
 
 # ---------------------------------------------------------------------------
-# 动态点读取
+# 旧动态点入口（直接传 ModbusPoint）已关闭
 # ---------------------------------------------------------------------------
 
 
-class TestDynamicRead:
+class TestObjectPointAPIRejected:
     @pytest.mark.asyncio
-    async def test_read_one_with_dynamic_point(self) -> None:
+    async def test_read_one_rejects_point_object(self) -> None:
         client = _Client()
-        client.response = _Response(registers=[42])
         driver = _driver({}, client)
         dynamic = modbus_point("dyn", register_type="holding", address=200, data_type="uint16")
 
-        sample = await driver.read_one(dynamic)
+        with pytest.raises(ConfigError, match="configured point key"):
+            await driver.read_one(dynamic)  # type: ignore[arg-type]  # 故意传入旧对象 API
 
-        assert client.read_holding_calls == [(200, 1)]
-        assert sample.point_id == "dyn"
-        assert sample.value == 42
-        assert sample.quality == Quality.GOOD
-        assert sample.timestamp.tzinfo is not None
-        assert sample.timestamp_source == "local"
+        assert client.total_read_calls() == 0
 
     @pytest.mark.asyncio
-    async def test_read_many_mixed_registered_and_dynamic(self) -> None:
+    async def test_read_many_rejects_point_object(self) -> None:
         client = _Client()
-        client.response = _Response(registers=[1, 2])
         driver = _driver({"reg": _point("reg", "holding", 100)}, client)
         dynamic = modbus_point("dyn", register_type="holding", address=101, data_type="uint16")
 
-        samples = await driver.read_many(["reg", dynamic])
+        with pytest.raises(ConfigError, match="configured point key"):
+            await driver.read_many(["reg", dynamic])  # type: ignore[list-item]  # 旧对象 API
 
-        # 相邻地址合并为一次请求
-        assert client.total_read_calls() == 1
-        assert client.read_holding_calls == [(100, 2)]
-        assert [s.point_id for s in samples] == ["reg", "dyn"]
-        assert [s.value for s in samples] == [1, 2]
+        assert client.total_read_calls() == 0
 
-    @pytest.mark.asyncio
-    async def test_read_many_preserves_order_and_duplicates(self) -> None:
-        client = _Client()
-        client.response = _Response(registers=[7])
-        driver = _driver({}, client)
-        dynamic = modbus_point("dyn", register_type="holding", address=100, data_type="uint16")
+    def test_protocol_write_rejects_point_object(self) -> None:
+        dynamic = modbus_point("dyn", register_type="holding", address=300, data_type="int16")
 
-        samples = await driver.read_many([dynamic, dynamic, dynamic])
-
-        assert client.total_read_calls() == 1
-        assert len(samples) == 3
-        assert all(s.value == 7 for s in samples)
+        with pytest.raises(ValueError, match="configured point key"):
+            ProtocolWrite(dynamic, -5)  # type: ignore[arg-type]  # 旧对象 API
 
     @pytest.mark.asyncio
-    async def test_same_point_id_different_addresses_do_not_collide(self) -> None:
-        """同 point_id 不同地址的动态点：各自返回各自地址的值，不互相覆盖。"""
-        client = _Client()
-        client.response = _Response(registers=[11, 22])
-        driver = _driver({}, client)
-        first = modbus_point("dup", register_type="holding", address=100, data_type="uint16")
-        second = modbus_point("dup", register_type="holding", address=101, data_type="uint16")
-
-        samples = await driver.read_many([first, second])
-
-        assert client.read_holding_calls == [(100, 2)]
-        assert [s.value for s in samples] == [11, 22]
-
-    @pytest.mark.asyncio
-    async def test_dynamic_point_does_not_collide_with_registered_point(self) -> None:
-        """动态点与注册点同名不同地址：值按地址定义隔离。"""
-        client = _Client()
-        client.response = _Response(registers=[11, 22])
-        driver = _driver({"p": _point("p", "holding", 100)}, client)
-        dynamic = modbus_point("p", register_type="holding", address=200, data_type="uint16")
-
-        # 地址不连续（gap 100 > 8），拆成两组请求，各自响应最后一条 registers
-        responses = [_Response(registers=[11]), _Response(registers=[22])]
-
-        original = client.read_holding_registers
-
-        async def sequenced(address: int, *, count: int, device_id: int) -> _Response:
-            await original.__self__._maybe_raise(None)  # type: ignore[attr-defined]
-            client.read_holding_calls.append((address, count))
-            return responses.pop(0)
-
-        client.read_holding_registers = sequenced  # type: ignore[method-assign]
-
-        samples = await driver.read_many(["p", dynamic])
-
-        assert [s.value for s in samples] == [11, 22]
-        assert samples[0].point_id == "p"
-        assert samples[1].point_id == "p"
-
-    @pytest.mark.asyncio
-    async def test_plan_cache_isolates_dynamic_and_registered_keys(self) -> None:
-        """同名动态点与注册点的读取计划缓存键不同，不互相命中。"""
+    async def test_read_plan_cache_is_bounded_for_configured_keys(self) -> None:
+        """读取计划缓存仍按 key 序列限界，防止长期轮询积累无界内存。"""
         client = _Client()
         client.response = _Response(registers=[1])
-        driver = _driver({"p": _point("p", "holding", 100)}, client)
-        dynamic = modbus_point("p", register_type="holding", address=200, data_type="uint16")
-
-        await driver.read_many(["p"])
-        await driver.read_many([dynamic])
-
-        assert ("p",) in driver._read_plan_cache
-        assert (dynamic,) in driver._read_plan_cache
-        assert len(driver._read_plan_cache) == 2
-        # 两条计划地址不同
-        assert driver._read_plan_cache[("p",)][0].start == 100
-        assert driver._read_plan_cache[(dynamic,)][0].start == 200
-
-    @pytest.mark.asyncio
-    async def test_dynamic_read_plan_cache_is_bounded(self) -> None:
-        client = _Client()
-        client.response = _Response(registers=[1])
-        driver = _driver({}, client)
+        points = {f"p{address}": _point(f"p{address}", "holding", address) for address in range(64)}
+        driver = _driver(points, client)
 
         for address in range(64):
-            point = modbus_point(
-                f"dyn_{address}",
-                register_type="holding",
-                address=address,
-                data_type="uint16",
-            )
-            await driver.read_many((point,))
+            await driver.read_many((f"p{address}",))
 
         assert len(driver._read_plan_cache) == 32
         assert client.total_read_calls() == 64
-
-    @pytest.mark.asyncio
-    async def test_dynamic_decode_failure_returns_bad_sample(self) -> None:
-        client = _Client()
-        client.response = _Response(registers=[])  # 空响应段
-        driver = _driver({}, client)
-        dynamic = modbus_point("dyn", register_type="holding", address=100, data_type="uint16")
-
-        sample = await driver.read_one(dynamic)
-
-        assert sample.quality == Quality.BAD
-        assert sample.value is None
-        assert sample.timestamp.tzinfo is not None
-
-
-# ---------------------------------------------------------------------------
-# 动态点写入
-# ---------------------------------------------------------------------------
-
-
-class TestDynamicWrite:
-    @pytest.mark.asyncio
-    async def test_write_one_with_modbus_point_and_value(self) -> None:
-        client = _Client()
-        driver = _driver({}, client)
-        dynamic = modbus_point("dyn", register_type="holding", address=300, data_type="int16")
-
-        result = await driver.write_one(ProtocolWrite(dynamic, -5))
-
-        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-        assert result.point_id == "dyn"
-        assert client.write_register_calls == [(300, 0xFFFB)]
-
-    @pytest.mark.asyncio
-    async def test_write_one_with_registered_point_id_and_value(self) -> None:
-        client = _Client()
-        driver = _driver({"h": _point("h", "holding", 200, data_type="int16")}, client)
-
-        result = await driver.write_one(ProtocolWrite("h", 10))
-
-        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-        assert client.write_register_calls == [(200, 10)]
-
-    @pytest.mark.asyncio
-    async def test_write_one_protocol_write_form_still_works(self) -> None:
-        client = _Client()
-        driver = _driver({"h": _point("h", "holding", 200, data_type="int16")}, client)
-
-        result = await driver.write_one(ProtocolWrite("h", 3))
-
-        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-        assert client.write_register_calls == [(200, 3)]
-
-    @pytest.mark.asyncio
-    async def test_write_one_dynamic_multi_register_uses_fc16(self) -> None:
-        client = _Client()
-        driver = _driver({}, client)
-        dynamic = modbus_point("dyn", register_type="holding", address=400, data_type="float32")
-
-        result = await driver.write_one(ProtocolWrite(dynamic, 42.5))
-
-        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-        assert client.write_registers_calls == [(400, _float32_registers(42.5))]
-        assert client.total_write_calls() == 1
-
-    @pytest.mark.asyncio
-    async def test_write_one_dynamic_read_only_rejected_before_send(self) -> None:
-        client = _Client()
-        driver = _driver({}, client)
-        dynamic = modbus_point("dyn", register_type="input", address=100, data_type="int16")
-
-        result = await driver.write_one(ProtocolWrite(dynamic, 1))
-
-        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
-        assert "read-only" in (result.message or "")
-        assert client.total_write_calls() == 0
-
-    @pytest.mark.asyncio
-    async def test_write_one_dynamic_value_range_checked_before_send(self) -> None:
-        client = _Client()
-        driver = _driver({}, client)
-        dynamic = modbus_point("dyn", register_type="holding", address=100, data_type="uint16")
-
-        result = await driver.write_one(ProtocolWrite(dynamic, 70000))
-
-        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
-        assert client.total_write_calls() == 0
-
-    @pytest.mark.asyncio
-    async def test_write_one_does_not_delegate_to_write_many(self) -> None:
-        client = _Client()
-        driver = _driver({"h": _point("h", "holding", 100)}, client)
-
-        async def fail_write_many(writes: object) -> tuple[()]:
-            raise AssertionError("write_one must not delegate to write_many")
-
-        driver.write_many = fail_write_many  # type: ignore[method-assign]
-        result = await driver.write_one(ProtocolWrite("h", 1))
-
-        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-        assert client.total_write_calls() == 1

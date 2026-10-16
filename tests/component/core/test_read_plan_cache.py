@@ -59,6 +59,19 @@ def test_modbus_reuses_plan_and_caps_dynamic_cache():
     assert len(driver._read_plan_cache) <= 32
 
 
+class _SumReadConn:
+    """记录 Sum Read 请求地址定义并返回预置原始帧的连接替身。"""
+
+    def __init__(self, raw: bytes) -> None:
+        self.raw = raw
+        self.seen: list[tuple[tuple[int, int, int], ...]] = []
+
+    def read_write(self, _group, _offset, _datatype, data, _buffer, *, check_length):
+        del _group, _offset, _datatype, _buffer, check_length
+        self.seen.append(tuple((item.iGroup, item.iOffset, item.size) for item in data))
+        return self.raw
+
+
 @pytest.mark.asyncio
 async def test_ads_sum_plan_reuses_groups_and_invalidates_on_session_reset(monkeypatch):
     points = {
@@ -70,30 +83,33 @@ async def test_ads_sum_plan_reuses_groups_and_invalidates_on_session_reset(monke
         PointTable(PointTableId("ads"), Protocol("ads"), points),
         {},
     )
-    driver._connection = object()
+    conn = _SumReadConn(struct.pack("<IIii", 0, 0, 11, 22))
+    driver._connection = conn
     driver._connected = True
-    seen = []
 
-    def _read(addresses):
-        seen.append(tuple(addresses))
-        return struct.pack("<IIii", 0, 0, 11, 22)
+    builds = 0
+    original_build = driver._build_sum_requests
 
-    monkeypatch.setattr(driver, "_sum_read_bytes", _read)
-    # DINT 解码需要 pyads 类型；采用独立的确定性解码替身。
-    import core.infrastructure.protocol.ads.driver as ads_module
+    def counting_build(key):
+        nonlocal builds
+        builds += 1
+        return original_build(key)
 
-    monkeypatch.setattr(
-        ads_module, "_decode_value", lambda raw, _point: struct.unpack("<i", raw)[0]
-    )
+    monkeypatch.setattr(driver, "_build_sum_requests", counting_build)
+
     first = await driver.read_many(["a", "b"])
-    plan = driver._read_plan_cache[("a", "b")]
+    plan = next(iter(driver._read_cache.values()))
     second = await driver.read_many(["a", "b"])
+    assert builds == 1  # 第二次命中预编译计划，不重新分组/编译
     assert [(x.value, x.quality) for x in first] == [(x.value, x.quality) for x in second]
     assert [x.value for x in second] == [11, 22]
-    assert driver._read_plan_cache[("a", "b")] is plan
-    assert seen == [((0x4020, 0, 4), (0x4020, 4, 4))] * 2
+    assert next(iter(driver._read_cache.values()))[0] is plan[0]
+    assert conn.seen == [((0x4020, 0, 4), (0x4020, 4, 4))] * 2
+
     driver._invalidate_symbol_addresses()
-    assert driver._read_plan_cache == {}
+    assert driver._read_cache == {}
+    await driver.read_many(["a", "b"])
+    assert builds == 2  # 失效后重新编译
 
 
 @pytest.mark.asyncio
@@ -155,21 +171,10 @@ async def test_ads_internal_values_and_wrapped_samples_preserve_bad(monkeypatch)
         PointTable(PointTableId("ads"), Protocol("ads"), points),
         {},
     )
-    driver._connection = object()
+    # 首个错误码 0 + DINT 23；第二个错误码 1808（设备点级错误）→ BAD。
+    driver._connection = _SumReadConn(struct.pack("<IIii", 0, 1808, 23, 0))
     driver._connected = True
 
-    monkeypatch.setattr(
-        driver,
-        "_sum_read_bytes",
-        lambda _addresses: struct.pack("<IIii", 0, 1808, 23, 0),
-    )
-    import core.infrastructure.protocol.ads.driver as ads_module
-
-    monkeypatch.setattr(
-        ads_module,
-        "_decode_value",
-        lambda data, _mapped: struct.unpack("<i", data)[0],
-    )
     assert await driver._read_values(["good", "bad"]) == (
         (23, Quality.GOOD),
         (None, Quality.BAD),
@@ -252,20 +257,15 @@ async def test_ads_sum_read_survives_point_table_reload_mid_flight(monkeypatch):
         PointTable(PointTableId("ads"), Protocol("ads"), points),
         {},
     )
-    driver._connection = object()
+    class _ReloadConn:
+        def read_write(self, _group, _offset, _datatype, _data, _buffer, *, check_length):
+            del self, _group, _offset, _datatype, _data, _buffer, check_length
+            # 模拟在途读期间发生热重载：读计划缓存被整体清空。
+            driver.update_point_table(PointTable(PointTableId("ads"), Protocol("ads"), points))
+            return struct.pack("<Ii", 0, 11)
+
+    driver._connection = _ReloadConn()
     driver._connected = True
-
-    def _read(_addresses):
-        # 模拟在途读期间发生热重载：读计划缓存被整体清空。
-        driver.update_point_table(PointTable(PointTableId("ads"), Protocol("ads"), points))
-        return struct.pack("<Ii", 0, 11)
-
-    monkeypatch.setattr(driver, "_sum_read_bytes", _read)
-    import core.infrastructure.protocol.ads.driver as ads_module
-
-    monkeypatch.setattr(
-        ads_module, "_decode_value", lambda raw, _point: struct.unpack("<i", raw)[0]
-    )
 
     result = await driver.read_many(["a"])
     from core.application import Quality
@@ -274,11 +274,20 @@ async def test_ads_sum_read_survives_point_table_reload_mid_flight(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ads_mixed_plan_survives_point_table_reload_mid_flight(monkeypatch):
-    """固定+变量尺寸混合计划：sum read 期间热重载后，变量点直读仍用局部快照。"""
+async def test_ads_mixed_plan_survives_point_table_reload_mid_flight():
+    """固定尺寸 DINT + 变长 STRING 同一 Sum Read 批次：返回前热重载，
+    本轮仍用调用时解析的局部点快照完成解码，不把热重载误判为传输故障。"""
     points = {
         "a": _point("a", {"data_type": "DINT", "index_group": 0x4020, "index_offset": 0}),
-        "s": _point("s", {"data_type": "STRING", "index_group": 0x4020, "index_offset": 16}),
+        "s": _point(
+            "s",
+            {
+                "data_type": "STRING",
+                "size": 4,
+                "index_group": 0x4020,
+                "index_offset": 16,
+            },
+        ),
     }
     driver = ADSDriver(
         ConnectionEndpoint("127.0.0.1", 801),
@@ -287,23 +296,14 @@ async def test_ads_mixed_plan_survives_point_table_reload_mid_flight(monkeypatch
     )
 
     class Conn:
-        def read(self, *_args):
-            return "ok"
+        def read_write(self, _group, _offset, _datatype, _data, _buffer, *, check_length):
+            del self, _group, _offset, _datatype, _data, _buffer, check_length
+            # sum read 返回前发生热重载：预编译计划缓存被清空。
+            driver.update_point_table(PointTable(PointTableId("ads"), Protocol("ads"), points))
+            return struct.pack("<IIi", 0, 0, 11) + b"ok\x00\x00"
 
     driver._connection = Conn()
     driver._connected = True
-
-    def _read(_addresses):
-        # sum read 返回前发生热重载：两份读缓存都被清空。
-        driver.update_point_table(PointTable(PointTableId("ads"), Protocol("ads"), points))
-        return struct.pack("<Ii", 0, 11)
-
-    monkeypatch.setattr(driver, "_sum_read_bytes", _read)
-    import core.infrastructure.protocol.ads.driver as ads_module
-
-    monkeypatch.setattr(
-        ads_module, "_decode_value", lambda raw, _point: struct.unpack("<i", raw)[0]
-    )
 
     result = await driver.read_many(["a", "s"])
     from core.application import Quality

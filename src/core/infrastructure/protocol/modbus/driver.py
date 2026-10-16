@@ -29,7 +29,6 @@ from core.application.protocol_contract import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
-    WritableScalar,
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
@@ -89,10 +88,8 @@ class ModbusDriver:
             endpoint,
             protocol_options,
         )
-        # 相同选点序列复用预编译读取组；点表热更新时整体失效。
-        # 缓存键混用注册点 point_id（str）与动态 ModbusPoint 对象本身——
-        # 同名不同地址的动态点与注册点、以及彼此之间的读取计划天然隔离，
-        # 不会发生同 point_id 不同地址的结果错配。
+        # 相同选点序列（Point Key 元组）复用预编译读取组；
+        # 点表热更新时整体失效，缓存限界防止长期轮询积累。
         self._read_plan_cache: dict[tuple[str, ...], tuple[_ReadGroupPlan, ...]] = {}
         self._points: dict[str, ModbusPoint] = {}
         self._health_point_id: str | None = None
@@ -309,10 +306,8 @@ class ModbusDriver:
     ) -> tuple[ProtocolSample, ...]:
         """按连续寄存器分组批量读取，返回按输入顺序排列的样本元组。
 
-        支持注册点 point_id 与动态 ModbusPoint 的混合序列；重复项（同一
-        point_id 或地址定义完全相同的 ModbusPoint）按出现位置重复返回，
-        顺序与输入严格一致。读取结果以 ModbusPoint（含地址定义）为键，
-        同 point_id 不同地址的动态点不会互相覆盖或与注册点混淆。
+        入参只接受当前 PointTable 已配置的 Point Key；重复 Key 按出现
+        位置重复返回，顺序与输入严格一致。
         """
         mapped_points, values = await self._read_values(points)
         # 全批次共享同一读取时刻——Driver 在获得读取结果时生成 UTC 时间戳。
@@ -450,8 +445,7 @@ class ModbusDriver:
         raw: Sequence[object]
         raw = response.bits if register_type in _BIT_TYPES else response.registers
 
-        # 以完整地址定义（ModbusPoint，frozen 可哈希）为键：同 point_id
-        # 不同地址的动态点在同组内也不会互相覆盖。
+        # 以 ModbusPoint（frozen 可哈希）为键承载组内各点解码结果。
         values: dict[ModbusPoint, object] = {}
         for point in group.points:
             offset = point.address - start
