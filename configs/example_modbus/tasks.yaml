@@ -1,8 +1,0 @@
-tasks:
-  turbine-modbus-all:
-    point_group: all
-    interval: 1.0
-    enabled: true
-    device_group_id: turbine_modbus
-    sink_ids:
-    - file_archive

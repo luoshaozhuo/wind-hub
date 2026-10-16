@@ -88,8 +88,11 @@ def _release_ioa_lock(
         del registry[ioa]
 
 
+_SUBSCRIPTION_QUEUE_CAPACITY = 1000
+
+
 class _Subscription:
-    """一次 IEC104 样本订阅，close 会 drain 已调度 callback。"""
+    """一个订阅使用一个有界 FIFO 队列和一个长期运行的 Worker。"""
 
     def __init__(
         self,
@@ -101,43 +104,56 @@ class _Subscription:
         self._callback = callback
         self._ioas = ioas
         self._closed = False
-        self._pending: dict[str, ProtocolSample] = {}
-        self._worker: asyncio.Task[None] | None = None
+        self._queue: asyncio.Queue[ProtocolSample] = asyncio.Queue(
+            maxsize=_SUBSCRIPTION_QUEUE_CAPACITY
+        )
+        self._dropped_count = 0
+        self._worker: asyncio.Task[None] = asyncio.create_task(
+            self._drain(), name="iec104-subscription-worker"
+        )
 
-    async def close(self) -> None:
-        """注销订阅并等待已调度 callback 完成。
-
-        若 callback 自己关闭当前订阅，不等待当前 task，避免 self-deadlock。
-        """
+    async def close(self, *, timeout: float = 5.0) -> None:
         if self._closed:
             return
         self._closed = True
         self._registry.unsubscribe(self)
-
-        self._pending.clear()
-        worker = self._worker
-        if worker is not None and worker is not asyncio.current_task():
-            await worker
+        self._worker.cancel()
+        if self._worker is not asyncio.current_task():
+            try:
+                await asyncio.wait_for(self._worker, timeout=timeout)
+            except asyncio.CancelledError:
+                pass
+            except TimeoutError:
+                logger.warning("IEC104 subscription worker did not stop in %.3fs", timeout)
+        while not self._queue.empty():
+            self._queue.get_nowait()
+            self._queue.task_done()
 
     def schedule(self, sample: ProtocolSample) -> None:
-        """保持每个测点最新的待处理样本，避免慢回调导致任务无限堆积。"""
+        """调用方已经在事件循环线程；队列满时丢弃最旧的数据。"""
         if self._closed:
             return
-        self._pending[sample.point_id] = sample
-        if self._worker is None or self._worker.done():
-            self._worker = asyncio.create_task(self._drain())
+        if self._queue.full():
+            self._queue.get_nowait()
+            self._queue.task_done()
+            self._dropped_count += 1
+            if self._dropped_count == 1 or self._dropped_count % 1000 == 0:
+                logger.warning(
+                    "IEC104 subscription queue dropped %d samples", self._dropped_count
+                )
+        self._queue.put_nowait(sample)
 
     async def _drain(self) -> None:
-        while self._pending and not self._closed:
-            point_id = next(iter(self._pending))
-            sample = self._pending.pop(point_id)
+        while True:
+            sample = await self._queue.get()
             try:
                 await self._callback(sample)
             except Exception:
                 logger.exception(
-                    "IEC104 subscriber callback failed for point '%s'",
-                    sample.point_id,
+                    "IEC104 subscriber callback failed for point '%s'", sample.point_id
                 )
+            finally:
+                self._queue.task_done()
 
 
 class _SubscriptionRegistry:
@@ -174,15 +190,15 @@ class _SubscriptionRegistry:
             if not subscriptions:
                 del self._ioa[ioa]
 
-    async def close_all(self) -> None:
-        """注销全部订阅并等待在途 callback 完成。"""
+    async def close_all(self, *, timeout: float = 5.0) -> None:
+        """逐个限时注销订阅，避免单个回调阻塞全部关闭。"""
         subscriptions = list(self._global)
         for items in self._ioa.values():
             for subscription in items:
                 if subscription not in subscriptions:
                     subscriptions.append(subscription)
         for subscription in subscriptions:
-            await subscription.close()
+            await subscription.close(timeout=timeout)
 
 
 class IEC104Driver:
@@ -227,7 +243,7 @@ class IEC104Driver:
         # 操作按需登记，使上报和总召响应能路由到订阅者；跨断连保留，重连后
         # 由 on_new_point 重新挂接接收回调。身份策略：PointTable 点优先，
         # 否则保留首个登记的动态 point_id；单次读取按输入对象重标身份。
-        self._dynamic_points: dict[int, IEC104Point] = {}
+
         self._interrogation_lock = asyncio.Lock()
         self._interrogation_waiter: asyncio.Future[None] | None = None
         self._command_locks: dict[int, _IoaLockEntry] = {}
@@ -356,7 +372,7 @@ class IEC104Driver:
             self._reject_interrogation("IEC104 connection closed")
             self._loop = None
 
-        await self._subscriptions.close_all()
+        await self._subscriptions.close_all(timeout=self._config.t1)
 
         # 不要显式调 ``connection.disconnect()``：它会持有 GIL 等待 c104
         # 连接线程退出，而连接线程分发 Python 回调时需要同一把 GIL，c104 的
@@ -394,7 +410,7 @@ class IEC104Driver:
             message="IEC104 connection is not OPEN",
         )
 
-    async def read_one(self, point: str | IEC104Point) -> ProtocolSample:
+    async def read_one(self, point: str) -> ProtocolSample:
         """发送 C_RD_NA_1，并等待指定 IOA 的本次读取响应。"""
         if not self._is_open:
             raise ProtocolError("IEC104 read requires an OPEN connection")
@@ -422,33 +438,22 @@ class IEC104Driver:
 
     async def write_one(
         self,
-        write: ProtocolWrite | IEC104Point,
-        value: WritableScalar | None = None,
+        write: ProtocolWrite,
     ) -> ProtocolWriteResult:
         """执行单点遥控/设点，并按 ACT_CON 结果返回状态。
 
-        契约形式为 ``write_one(ProtocolWrite)``；动态形式
-        ``write_one(iec104_point, value)`` 按自身 IOA 与命令 type_id
-        定位或创建 c104 命令点，不要求 PointTable 登记。
+        统一接收 ProtocolWrite；point 为 ID 或 IEC104Point。动态点按
+        自身 IOA 和命令 type_id 寻址，不要求预先登记。
         """
-        if isinstance(write, ProtocolWrite):
-            if value is not None:
-                raise TypeError("write_one(ProtocolWrite) does not take a separate value")
-            mapped = self._mapped_point(write.point_id)
-            write_value: object = write.value
-        else:
-            if value is None:
-                raise TypeError("write_one(point, value) requires an explicit value")
-            mapped = write
-            write_value = value
+        mapped = self._resolve_point(write.point)
+        write_value = write.value
         if not self._is_open or self._station is None:
             raise ProtocolError("IEC104 write requires an OPEN connection")
-        self._register_dynamic_ioa(mapped)
         return await self._execute_write(mapped, write_value)
 
     async def read_many(
         self,
-        points: Sequence[str | IEC104Point],
+        points: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         """IEC104 不支持任意 IOA 集合的批量读取。"""
         raise ProtocolCapabilityError("iec104 does not support read_many")
@@ -462,7 +467,7 @@ class IEC104Driver:
 
     async def subscribe(
         self,
-        point_ids: Sequence[str | IEC104Point],
+        point_ids: Sequence[str],
         callback: Callable[[ProtocolSample], Awaitable[None]],
         *,
         interval: float | None = None,
@@ -487,7 +492,6 @@ class IEC104Driver:
         """发送单点读取请求；调用方负责等待 REQUEST 响应。"""
         if not self._is_open or self._station is None:
             raise ProtocolError("IEC104 active read requires an OPEN connection")
-        self._register_dynamic_ioa(mapped)
         point = self._station.get_point(mapped.ioa)
         if point is None:
             point = self._register_monitoring_point(mapped)
@@ -699,31 +703,15 @@ class IEC104Driver:
             )
         return mapped
 
-    def _resolve_point(self, point: str | IEC104Point) -> IEC104Point:
-        """把注册点 point_id 或动态 IEC104Point 统一解析为 IEC104Point。
-
-        动态点不进点表映射，直接使用自身携带的 IOA/type_id；其字段合法性
-        由构造方（如 ``iec104_point()`` 工厂）保证。
-        """
-        if isinstance(point, IEC104Point):
-            return point
+    def _resolve_point(self, point: str) -> IEC104Point:
+        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
+        if not isinstance(point, str):
+            raise ConfigError("protocol point must be a configured point key")
         return self._mapped_point(point)
-
-    def _register_dynamic_ioa(self, mapped: IEC104Point) -> None:
-        """按需登记动态 IOA 的接收关联（协议会话级，不写入 PointTable）。
-
-        PointTable 已覆盖的 IOA 不重复登记；同一 IOA 保留首个动态身份。
-        """
-        if mapped.ioa in self._points_by_ioa:
-            return
-        self._dynamic_points.setdefault(mapped.ioa, mapped)
 
     def _ioa_mapping(self, ioa: int) -> IEC104Point | None:
         """IOA 的规范身份映射：PointTable 点优先，其次动态登记。"""
-        mapped = self._points_by_ioa.get(ioa)
-        if mapped is None:
-            mapped = self._dynamic_points.get(ioa)
-        return mapped
+        return self._points_by_ioa.get(ioa)
 
     def _register_monitoring_point(self, mapped: IEC104Point) -> Any:
         """为动态点主动读做 c104 内部注册（协议会话对象，非 PointTable 登记）。
@@ -814,7 +802,7 @@ class IEC104Driver:
     ) -> None:
         if self._closed:
             return
-        if io_address not in self._points_by_ioa and io_address not in self._dynamic_points:
+        if io_address not in self._points_by_ioa :
             return
 
         factory = self._receive_callback_factory

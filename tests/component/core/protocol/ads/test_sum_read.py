@@ -92,7 +92,7 @@ async def test_sum_read_transport_failure_never_falls_back_to_sequential() -> No
     driver = _driver(Connection())
     with pytest.raises(ProtocolError, match="ADS read failed"):
         await driver.read_many(("a", "b"))
-    assert not driver.is_open()
+    assert driver.is_open()  # 一次通信失败不自动销毁会话，由 Watchdog 判定恢复
 
 
 @pytest.mark.asyncio
@@ -162,3 +162,46 @@ async def test_index_sum_read_uses_public_read_write(
         (456, Quality.GOOD),
     ]
     assert connection.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_symbol_cache_shared_by_registered_and_dynamic_points() -> None:
+    from types import SimpleNamespace
+
+    from core.infrastructure.protocol.ads.mapping import ADSPoint
+
+    class Connection:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get_symbol(self, symbol: str) -> object:
+            assert symbol == "MAIN.power"
+            self.calls += 1
+            return SimpleNamespace(index_group=0x4020, index_offset=120, size=4)
+
+    connection = Connection()
+    driver = _driver(connection)
+    dynamic = ADSPoint("other", None, None, "DINT", 4, "MAIN.power")
+    first = await driver._resolve_point_locked(dynamic)
+    second = await driver._resolve_point_locked(dynamic)
+    assert first.address_resolved and second.address_resolved
+    assert connection.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_symbol_size_rules_and_point_resolution_failure() -> None:
+    from types import SimpleNamespace
+
+    from core.application.errors import ConfigError
+    from core.infrastructure.protocol.ads.mapping import ADSPoint
+
+    class Connection:
+        def get_symbol(self, _symbol: str) -> object:
+            return SimpleNamespace(index_group=0x4020, index_offset=12, size=8)
+
+    driver = _driver(Connection())
+    string = ADSPoint("name", None, None, "STRING", 81, "MAIN.name")
+    assert (await driver._resolve_point_locked(string)).size == 81
+    fixed = ADSPoint("power", None, None, "DINT", 4, "MAIN.power")
+    with pytest.raises(ConfigError, match="PLC size"):
+        await driver._resolve_point_locked(fixed)

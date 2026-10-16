@@ -1,8 +1,0 @@
-sinks:
-  file_archive:
-    type: file
-    enabled: true
-    connection:
-      path: /var/tmp/wind-hub/archive.csv
-      max_size_mb: 100
-    points: []

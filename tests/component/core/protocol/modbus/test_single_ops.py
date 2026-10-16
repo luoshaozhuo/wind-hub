@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import struct
 
 import pytest
@@ -377,6 +378,46 @@ class TestReadMany:
         )
         driver.update_point_table(PointTable(PointTableId("pt"), Protocol("modbus"), {"h": point}))
         assert driver._read_plan_cache == {}
+
+    @pytest.mark.asyncio
+    async def test_point_table_update_reselects_health_point(self) -> None:
+        client = _Client()
+        client.response = _Response(registers=[7])
+        driver = _driver({"old": _point("old", address=100)}, client)
+
+        point = Point(
+            point_id="new",
+            business_point_id=BusinessPointId("new"),
+            source_unit=NONE_UNIT,
+            access=PointAccess.READ,
+            ext={"register_type": "holding", "address": 200, "data_type": "uint16"},
+        )
+        driver.update_point_table(
+            PointTable(PointTableId("pt"), Protocol("modbus"), {"new": point})
+        )
+
+        assert driver._health_point_id == "new"
+        assert (await driver.health()).healthy is True
+        assert client.read_holding_calls == [(200, 1)]
+
+    @pytest.mark.asyncio
+    async def test_invalid_health_point_update_preserves_previous_mapping(self) -> None:
+        client = _Client()
+        driver = _driver({"old": _point("old", address=100)}, client)
+        driver._config = dataclasses.replace(driver._config, health_point_id="missing")
+        point = Point(
+            point_id="new",
+            business_point_id=BusinessPointId("new"),
+            source_unit=NONE_UNIT,
+            access=PointAccess.READ,
+            ext={"register_type": "holding", "address": 200, "data_type": "uint16"},
+        )
+        with pytest.raises(ConfigError, match="health point"):
+            driver.update_point_table(
+                PointTable(PointTableId("pt"), Protocol("modbus"), {"new": point})
+            )
+        assert tuple(driver._points) == ("old",)
+        assert driver._health_point_id == "old"
 
     @pytest.mark.asyncio
     async def test_partial_decode_failure_marks_single_point_bad(self) -> None:

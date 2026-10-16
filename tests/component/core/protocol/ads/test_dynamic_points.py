@@ -195,7 +195,7 @@ class TestDynamicWriteOne:
         connection = _Connection()
         driver = _driver(connection)
 
-        result = await driver.write_one(_dyn(), 123)
+        result = await driver.write_one(ProtocolWrite(_dyn(), 123))
 
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert result.point_id == "dyn"
@@ -206,17 +206,11 @@ class TestDynamicWriteOne:
         connection = _Connection()
         driver = _driver(connection)
 
-        result = await driver.write_one(_dyn(data_type="BOOL"), 1)
+        result = await driver.write_one(ProtocolWrite(_dyn(data_type="BOOL"), 1))
 
         assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "bool" in (result.message or "")
         assert connection.write_calls == []
-
-    @pytest.mark.asyncio
-    async def test_dynamic_write_requires_explicit_value(self) -> None:
-        driver = _driver(_Connection())
-        with pytest.raises(TypeError, match="requires an explicit value"):
-            await driver.write_one(_dyn())
 
     @pytest.mark.asyncio
     async def test_protocol_write_form_still_works(self) -> None:
@@ -226,7 +220,7 @@ class TestDynamicWriteOne:
         result = await driver.write_one(ProtocolWrite("reg", 9))
         assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert connection.write_calls == [(0x4020, 100, 9)]
-        with pytest.raises(TypeError, match="does not take a separate value"):
+        with pytest.raises(TypeError):
             await driver.write_one(ProtocolWrite("reg", 9), 1)
 
     @pytest.mark.asyncio
@@ -236,7 +230,7 @@ class TestDynamicWriteOne:
         driver = _driver(connection)
 
         with pytest.raises(ProtocolError, match="write failed"):
-            await driver.write_one(_dyn(), 1)
+            await driver.write_one(ProtocolWrite(_dyn(), 1))
 
         assert driver.is_open() is False
 
@@ -323,12 +317,12 @@ async def test_symbol_is_resolved_on_first_read_and_cached_per_session() -> None
     driver = _driver(connection)
     driver._points["speed"] = ADSPoint(
         point_id="speed",
-        index_group=0,
-        index_offset=0,
+        index_group=None,
+        index_offset=None,
         data_type="DINT",
         size=4,
         symbol="MAIN.speed",
-        address_resolved=False,
+        
     )
 
     assert await driver.resolve_symbol("MAIN.speed") == (0x4020, 100)
@@ -362,9 +356,9 @@ async def test_ads_sum_write_uses_index_addresses_and_preserves_point_errors(
     )
     results = await driver.write_many(
         (
-            ProtocolWrite(point_id="a", value=1),
-            ProtocolWrite(point_id="b", value=2),
-            ProtocolWrite(point_id="c", value=3),
+            ProtocolWrite(point="a", value=1),
+            ProtocolWrite(point="b", value=2),
+            ProtocolWrite(point="c", value=3),
         )
     )
     assert [r.outcome for r in results] == [
@@ -381,6 +375,29 @@ async def test_ads_sum_write_uses_index_addresses_and_preserves_point_errors(
 
 
 @pytest.mark.asyncio
+async def test_sum_write_accepts_unregistered_dynamic_point(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _driver(_Connection())
+    transmitted: list[tuple[int, int, bytes]] = []
+
+    def send(chunk: Any) -> tuple[int, ...]:
+        transmitted.extend(
+            (point.group, point.offset, payload) for _index, point, payload in chunk
+        )
+        return (0,) * len(chunk)
+
+    monkeypatch.setattr(driver, "_sum_write_bytes", send)
+    result = await driver.write_many((ProtocolWrite(_dyn(offset=123), 17),))
+
+    assert result[0].point_id == "dyn"
+    assert result[0].outcome is WriteOutcome.CONFIRMED_SUCCESS
+    assert len(transmitted) == 1
+    assert transmitted[0][:2] == (0x4020, 123)
+    assert int.from_bytes(transmitted[0][2], "little", signed=True) == 17
+
+
+@pytest.mark.asyncio
 async def test_lazy_symbol_resolution_preserves_plc_string_size() -> None:
     import ctypes
     from types import SimpleNamespace
@@ -389,12 +406,12 @@ async def test_lazy_symbol_resolution_preserves_plc_string_size() -> None:
     driver = _driver(connection)
     driver._points["description"] = ADSPoint(
         point_id="description",
-        index_group=0,
-        index_offset=0,
+        index_group=None,
+        index_offset=None,
         data_type="STRING",
         size=0,
         symbol="MAIN.description",
-        address_resolved=False,
+        
     )
 
     connection.get_symbol = lambda _name: SimpleNamespace(  # type: ignore[assignment]

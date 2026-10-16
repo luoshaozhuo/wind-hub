@@ -12,28 +12,57 @@
 #   parent_id:     str，可选 —— 单继承父表 ID，允许多级链，禁止成环。
 #   remove_points: list[str]，可选 —— 按 Point ID 从父表继承结果中删除；
 #                  重复或删除不存在的点是配置错误。
-#   points:        Mapping，Key 即 Point ID（表内局部唯一）。子表中：写父表
+#   points:        Mapping，Key 即 BusinessPoint ID（必须已在 business_points.yaml 定义）。子表中：写父表
 #                  已有的 Point ID → 按字段覆盖（未写字段保持父表值）；
 #                  写新 ID → 新增。
 #
 # Point 字段：
-#   business_point_id: 引用 business_points.yaml 的业务点（必填）——数据
 #                      类型与量纲必须兼容；Point ID 与 BusinessPoint ID 是
 #                      两种身份，必须显式引用，不会自动等同。
 #   point_groups:      list[str]，可选 —— 采集分组，Task 按 point_group
 #                      选择点集。
 #   address:           Mapping，必填 —— 协议地址（见下），显式配置即整体
 #                      替换父表值，不残留父表字段。
-#   data_type:         bool/int8/int16/int32/int64/uint8/uint16/uint32/
-#                      uint64/float32/float64/string（必填）。
-#   unit_id:           工程单位引用（units.yaml 的 Unit ID，如
+#   data_type:         必填，按各协议约定填写，见下方类型清单；业务点
+#                      business_points.yaml 仍使用统一逻辑类型。
+#   unit:           工程单位引用（units.yaml 的 Unit ID，如
 #                      kilowatt），缺省 none（无量纲）；量纲必须与
 #                      业务点标准单位一致。
 #   scale / offset:    float，默认 1.0 / 0.0 —— 把协议原始值换算为
-#                      unit_id 单位下的工程值（value × scale + offset）；
+#                      unit 单位下的工程值（value × scale + offset）；
 #                      与 units.yaml 的单位间换算无关，不会叠加。
 #                      （bool/string 点不允许 scaling 且必须 dimensionless）。
 #   description:       str，可选。
+#
+# 协议数据类型（data_type）：
+#   Modbus：bool / int8 / uint8 / int16 / uint16 / int32 / uint32 /
+#           int64 / uint64 / float32 / float64；寄存器值由所选类型
+#           确定占用寄存器数；coil/discrete_input 使用 bool。
+#   ADS（PLC 原生类型）：BOOL / SINT / USINT / INT / UINT /
+#           DINT / UDINT / LINT / ULINT / REAL / LREAL / STRING。
+#           仅 STRING 可在 address.size 指定字节长度，必须 > 0；
+#           其余类型长度由类型确定，不允许任意覆盖。
+#   IEC104：协议原生 ASDU Type ID 填在 address.type（type_id）：
+#           M_SP_NA_1、M_ME_NA_1、C_SC_NA_1 等；
+#           data_type 使用 ASDU 载荷的逻辑标量类型（bool、int16、
+#           float32 等），不是 ASDU Type ID；两者用途不同。
+#
+# address 协议字段完整清单：
+#   Modbus：
+#     register_type / type：holding / input / coil / discrete_input，
+#          兼容别名 holding_register / input_register / discrete；
+#     address：int，0..65535，0-based；
+#     count：int，可选；必须与 data_type 实际占用寄存器数一致；
+#     word_order：big_endian / little_endian，可选，默认型号配置；
+#     slave_id：int 0..255，可选，默认型号 protocol_options.slave_id；
+#   ADS：
+#     symbol：str，可选；符号寻址时优先使用，每次会话重新解析；
+#     index_group、index_offset：非负 int，必须成对提供；
+#     symbol 和 index 地址至少配置一组；
+#     size：非负 int，可选；STRING 必须提供正整数长度；
+#   IEC104：
+#     type / type_id：ASDU Type ID（大写），如 M_ME_NC_1；
+#     ioa：int，0..16777215；C_* 命令类型可以写，M_* 监测类型只读。
 #
 # 各协议的 address 字段：
 # - Modbus: `register_type`（或别名 `type`）+ `address`。
@@ -66,7 +95,6 @@ point_tables:
     points:
 
       active_power:
-        business_point_id: active_power
         point_groups: [all]
         address:
           register_type: input
@@ -74,11 +102,10 @@ point_tables:
         data_type: int32
         scale: 0.001
         offset: 0.0
-        unit_id: kilowatt
+        unit: kilowatt
         description: "有功功率"
 
       wind_speed:
-        business_point_id: wind_speed
         point_groups: [all]
         address:
           register_type: input
@@ -86,7 +113,7 @@ point_tables:
         data_type: int16
         scale: 0.01
         offset: 0.0
-        unit_id: meter_per_second
+        unit: meter_per_second
         description: "风速"
 
   # ---- ADS 风机基础点表（继承基座，不直接绑定） ----
@@ -95,21 +122,19 @@ point_tables:
     points:
 
       rotor_speed:
-        business_point_id: rotor_speed
         point_groups: [all]
         address:
           symbol: MAIN.rotorSpeed
-        data_type: float32
-        unit_id: rpm
+        data_type: REAL
+        unit: rpm
         description: "风轮转速"
 
       gen_power:
-        business_point_id: gen_power
         point_groups: [all]
         address:
           symbol: MAIN.genPower
-        data_type: float32
-        unit_id: kilowatt
+        data_type: REAL
+        unit: kilowatt
         description: "发电机有功功率"
 
   # ---- ADS 机型点表：继承基础表并覆盖 Symbol ----
@@ -123,12 +148,11 @@ point_tables:
           symbol: MAIN.power.genActivePower
 
       converter_temp:                   # 新增点
-        business_point_id: converter_temp
         point_groups: [all]
         address:
           symbol: MAIN.converterTemp
-        data_type: float32
-        unit_id: celsius
+        data_type: REAL
+        unit: celsius
         description: "变流器温度"
 
   # ---- IEC104 风机点表 ----
@@ -137,21 +161,19 @@ point_tables:
     points:
 
       active_power:
-        business_point_id: active_power_iec
         point_groups: [all]
         address:
           type: M_ME_NA_1
           ioa: 1001
         data_type: float32
-        unit_id: kilowatt
+        unit: kilowatt
         description: "有功功率"
 
       turbine_run:
-        business_point_id: turbine_run
         point_groups: [all]
         address:
           type: M_SP_NA_1
           ioa: 2001
         data_type: bool
-        unit_id: none
+        unit: none
         description: "运行状态"

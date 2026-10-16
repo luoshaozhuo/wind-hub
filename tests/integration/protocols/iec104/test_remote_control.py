@@ -95,7 +95,7 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(ProtocolWrite(point_id="switch.on", value=True))
+            result = await driver.write_one(ProtocolWrite(point="switch.on", value=True))
         finally:
             await driver.close()
 
@@ -115,7 +115,7 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(ProtocolWrite(point_id="breaker.cmd", value=2))
+            result = await driver.write_one(ProtocolWrite(point="breaker.cmd", value=2))
         finally:
             await driver.close()
 
@@ -133,7 +133,7 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(ProtocolWrite(point_id="setpoint.val", value=42.5))
+            result = await driver.write_one(ProtocolWrite(point="setpoint.val", value=42.5))
         finally:
             await driver.close()
 
@@ -158,9 +158,9 @@ class TestRemoteControlIntegration:
             with pytest.raises(ProtocolCapabilityError, match="write_many"):
                 await driver.write_many(
                     [
-                        ProtocolWrite(point_id="switch.on", value=True),
-                        ProtocolWrite(point_id="breaker.cmd", value=2),
-                        ProtocolWrite(point_id="setpoint.val", value=42.5),
+                        ProtocolWrite(point="switch.on", value=True),
+                        ProtocolWrite(point="breaker.cmd", value=2),
+                        ProtocolWrite(point="setpoint.val", value=42.5),
                     ]
                 )
         finally:
@@ -179,7 +179,7 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(ProtocolWrite(point_id="switch.off", value=0))
+            result = await driver.write_one(ProtocolWrite(point="switch.off", value=0))
         finally:
             await driver.close()
 
@@ -197,7 +197,7 @@ class TestRemoteControlIntegration:
         await driver.connect()
         try:
             with pytest.raises(ConfigError, match="no.such.point"):
-                await driver.write_one(ProtocolWrite(point_id="no.such.point", value=True))
+                await driver.write_one(ProtocolWrite(point="no.such.point", value=True))
         finally:
             await driver.close()
 
@@ -205,7 +205,7 @@ class TestRemoteControlIntegration:
         """write_one 在未建连 driver 上立即抛 ProtocolError。"""
         driver = _driver(2404, [_command_point("p1", 1001, "C_SC_NA_1")])
         with pytest.raises(ProtocolError, match="OPEN connection"):
-            await driver.write_one(ProtocolWrite(point_id="p1", value=True))
+            await driver.write_one(ProtocolWrite(point="p1", value=True))
 
 
 class TestInterrogationDispatch:

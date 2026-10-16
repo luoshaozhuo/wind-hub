@@ -124,7 +124,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
     fake_pyads = _FakePyads()
     monkeypatch.setattr(driver_module, "pyads", fake_pyads)
 
-    result = await driver.write_one(ProtocolWrite(point_id=point.point_id, value=10.0))
+    result = await driver.write_one(ProtocolWrite(point=point.point_id, value=10.0))
 
     assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert fake_connection.writes[0][2] == 10
@@ -151,6 +151,180 @@ async def test_ads_driver_local_ams_identity_initializes_once(
     finally:
         await ADSDriver.close_local()
     assert fake_pyads.close_calls == 1
+
+
+class _RouteProbeConnection:
+    attempts = 0
+    closed = 0
+
+    def __init__(self, net_id: object, port: int, host: str) -> None:
+        del net_id, port, host
+        self.is_open = False
+
+    def set_timeout(self, timeout_ms: int) -> None:
+        del timeout_ms
+
+    def open(self) -> None:
+        type(self).attempts += 1
+        self.is_open = True
+
+    def read_state(self) -> tuple[int, int]:
+        if type(self).attempts == 1:
+            raise ConnectionError("initial probe failed")
+        return 5, 0
+
+    def close(self) -> None:
+        type(self).closed += 1
+        self.is_open = False
+
+
+@pytest.mark.asyncio
+async def test_ads_connect_probes_then_adds_route_and_retries_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _RouteProbeConnection.attempts = 0
+    _RouteProbeConnection.closed = 0
+    calls: list[str] = []
+
+    class Pyads:
+        Connection = _RouteProbeConnection
+
+        @staticmethod
+        def add_route_to_plc(*args: object) -> bool:
+            del args
+            calls.append("add")
+            return True
+
+    monkeypatch.setattr(driver_module, "pyads", Pyads)
+    monkeypatch.setattr(
+        driver_module, "_LOCAL_AMS", ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {"route_auto_add": True},
+    )
+    try:
+        await driver.connect()
+        assert driver.is_open()
+        assert _RouteProbeConnection.attempts == 2
+        assert _RouteProbeConnection.closed == 1
+        assert calls == ["add"]
+    finally:
+        await driver.close()
+    assert _RouteProbeConnection.closed == 2
+
+
+@pytest.mark.asyncio
+async def test_ads_connect_failure_without_route_does_not_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _RouteProbeConnection.attempts = 0
+    _RouteProbeConnection.closed = 0
+    monkeypatch.setattr(
+        driver_module, "pyads", type("Pyads", (), {"Connection": _RouteProbeConnection})
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {"route_auto_add": False},
+    )
+    with pytest.raises(Exception, match="ADS connect failed"):
+        await driver.connect()
+    assert _RouteProbeConnection.attempts == 1
+    assert _RouteProbeConnection.closed == 1
+
+
+class _TimeoutProbeConnection:
+    events: list[object] = []
+    state: tuple[int, int] | None = (5, 0)
+
+    def __init__(self, net_id: object, port: int, host: str) -> None:
+        del net_id, port, host
+        self.is_open = False
+
+    def open(self) -> None:
+        self.is_open = True
+        self.events.append("open")
+
+    def set_timeout(self, timeout_ms: int) -> None:
+        assert self.is_open
+        self.events.append(("timeout", timeout_ms))
+
+    def read_state(self) -> tuple[int, int] | None:
+        self.events.append("read_state")
+        return self.state
+
+    def close(self) -> None:
+        self.events.append("close")
+        self.is_open = False
+
+
+@pytest.mark.asyncio
+async def test_ads_probe_sets_timeout_after_open_before_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _TimeoutProbeConnection.events = []
+    _TimeoutProbeConnection.state = (5, 0)
+    monkeypatch.setattr(
+        driver_module, "pyads", type("Pyads", (), {"Connection": _TimeoutProbeConnection})
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {"timeout": 1.25},
+    )
+    await driver.connect()
+    assert _TimeoutProbeConnection.events[:3] == [
+        "open", ("timeout", 1250), "read_state"
+    ]
+    await driver.close()
+    assert _TimeoutProbeConnection.events[-1] == "close"
+
+
+@pytest.mark.asyncio
+async def test_ads_probe_rejects_none_state_and_closes_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _TimeoutProbeConnection.events = []
+    _TimeoutProbeConnection.state = None
+    monkeypatch.setattr(
+        driver_module, "pyads", type("Pyads", (), {"Connection": _TimeoutProbeConnection})
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {},
+    )
+    with pytest.raises(Exception, match="ADS connect failed"):
+        await driver.connect()
+    assert _TimeoutProbeConnection.events == [
+        "open", ("timeout", 5000), "read_state", "close"
+    ]
+    assert not driver.is_open()
+
+
+@pytest.mark.asyncio
+async def test_ads_health_stop_state_is_unhealthy_without_extra_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _TimeoutProbeConnection.events = []
+    _TimeoutProbeConnection.state = (6, 0)  # ADSSTATE_STOP
+    monkeypatch.setattr(
+        driver_module, "pyads", type("Pyads", (), {"Connection": _TimeoutProbeConnection})
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {},
+    )
+    with pytest.raises(Exception, match="ADS connect failed"):
+        await driver.connect()
+    assert _TimeoutProbeConnection.events == [
+        "open", ("timeout", 5000), "read_state", "close"
+    ]
+    assert driver._connection is None
+    assert not driver.is_open()
 
 
 class _FakeNotificationAttrib:

@@ -12,7 +12,7 @@ from core.infrastructure.config import YamlConfigAdapter
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.protocol.ads.config import parse_ads_config
 
-TEMPLATE_DIR = Path(__file__).resolve().parents[4] / "configs" / "template"
+TEMPLATE_DIR = Path(__file__).resolve().parents[4] / "configs"
 
 
 def test_ads_credentials_defaults() -> None:

@@ -1,6 +1,6 @@
 """Core-only E2E：YAML 配置目录 → 领域快照 → 驱动 → 真实 Modbus wire 读回。
 
-链路：``YamlConfigAdapter.load()`` 加载 ``configs/example_modbus``，
+链路：``YamlConfigAdapter.load()`` 加载 ``configs``，
 由快照中的 device/model/point table/protocol options 经
 ``ProtocolRegistry`` 创建 ``ModbusDriver``，对端为 pymodbus 进程内
 真实 TCP Server；断言配置里声明的输入寄存器值经驱动解码后逐点读回。
@@ -19,7 +19,7 @@ from tests.support.process import free_port
 
 pytestmark = pytest.mark.real_service
 
-_CONFIG_DIR = "configs/example_modbus"
+_CONFIG_DIR = "configs"
 
 # active_power: input @178 int32（little_endian 字序：低字在前）
 _ACTIVE_POWER_ADDR = 178

@@ -7,11 +7,14 @@ capabilities() 声明实际支持项；调用未支持能力时由 Adapter 显�
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Never, Protocol
+
+from typing_extensions import TypeVar
 
 from ..protocol_contract import (
     ConnectionHealth,
     ProtocolCapability,
+    ProtocolPoint,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -30,7 +33,10 @@ class SubscriptionHandle(Protocol):
 ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
 
 
-class ProtocolPort(Protocol):
+TPoint = TypeVar("TPoint", bound=ProtocolPoint, contravariant=True, default=Never)
+
+
+class ProtocolPort(Protocol[TPoint]):
     """统一设备协议运行时能力边界。"""
 
     def capabilities(self) -> frozenset[ProtocolCapability]: ...
@@ -62,11 +68,11 @@ class ProtocolPort(Protocol):
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]: ...
 
-    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult: ...
+    async def write_one(self, write: ProtocolWrite[TPoint]) -> ProtocolWriteResult: ...
 
     async def write_many(
         self,
-        writes: Sequence[ProtocolWrite],
+        writes: Sequence[ProtocolWrite[TPoint]],
     ) -> tuple[ProtocolWriteResult, ...]: ...
 
     def update_point_table(self, point_table: PointTable) -> None:
