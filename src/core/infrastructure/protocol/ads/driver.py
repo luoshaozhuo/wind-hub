@@ -12,8 +12,8 @@ import logging
 import struct
 import sys
 import threading
-from ctypes import Structure, c_uint32
 from collections.abc import Awaitable, Callable, Sequence
+from ctypes import Structure, c_uint32
 from datetime import UTC, datetime
 from typing import Any
 
@@ -225,7 +225,7 @@ class ADSDriver:
                         raise ConfigError("ADS local AMS identity is not initialized")
                     try:
                         # 路由是 PLC 持久资源；pyads.delete_route() 只删本地路由。
-                        def add_route() -> bool:
+                        def add_route(identity: ADSLocalConfig) -> bool:
                             with _REMOTE_ROUTE_LOCK:
                                 return bool(
                                     pyads.add_route_to_plc(
@@ -237,7 +237,7 @@ class ADSDriver:
                                     )
                                 )
 
-                        added = await asyncio.to_thread(add_route)
+                        added = await asyncio.to_thread(add_route, identity)
                         if not added:
                             raise RuntimeError("remote route registration refused")
                     except Exception:
@@ -634,7 +634,7 @@ class ADSDriver:
             offset = 4 * len(chunk)
             errors = struct.unpack_from(f"<{len(chunk)}I", raw)
             data_view = memoryview(raw)
-            for item, error in zip(chunk, errors):
+            for item, error in zip(chunk, errors, strict=True):
                 size = item.size
                 offset += size
                 decoder = decoders[decoder_index]

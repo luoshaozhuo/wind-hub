@@ -343,7 +343,7 @@ class AdsMemoryServer:
         server, self._server = self._server, None
         if server is not None:
             server.stop()
-            with _suppress_runtime():
+            with _SuppressRuntime():
                 server.join(timeout=5.0)
 
     def restart(self, *, reset: bool = True) -> None:
@@ -370,7 +370,7 @@ class AdsMemoryServer:
         return self.handler.registrations()
 
 
-class _suppress_runtime:
+class _SuppressRuntime:
     def __enter__(self) -> None:
         return None
 

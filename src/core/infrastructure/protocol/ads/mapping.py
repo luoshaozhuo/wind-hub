@@ -179,10 +179,14 @@ def parse_ads_point(
         )
 
     index_group = (
-        None if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
+        None
+        if raw_group is None
+        else _non_negative_int(raw_group, "index_group", point.point_id)
     )
     index_offset = (
-        None if raw_offset is None else _non_negative_int(raw_offset, "index_offset", point.point_id)
+        None
+        if raw_offset is None
+        else _non_negative_int(raw_offset, "index_offset", point.point_id)
     )
 
     # Symbol addresses are session-bound. Even an explicitly configured index

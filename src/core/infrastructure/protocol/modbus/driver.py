@@ -229,7 +229,9 @@ class ModbusDriver:
                 raise ProtocolConnectionError("Modbus read requires an active connection")
             response = await self._transact(
                 "read",
-                self._read_request(mapped.register_type, mapped.address, mapped.count, mapped.slave_id),
+                self._read_request(
+                    mapped.register_type, mapped.address, mapped.count, mapped.slave_id
+                ),
             )
             if response.isError():
                 # 设备已应答——通信链路可用，业务失败不作为断线处理。

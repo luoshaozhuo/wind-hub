@@ -10,8 +10,8 @@ import asyncio
 import contextlib
 import logging
 import struct
-from ctypes import c_ubyte
 from collections.abc import Awaitable, Callable, Sequence
+from ctypes import c_ubyte
 from datetime import UTC, datetime
 from typing import Any
 
@@ -48,7 +48,9 @@ class ADSSubscription:
         self._cycle_time = cycle_time
         self._loop = loop
         self._max_block_bytes = max_block_bytes
-        self._queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=_QUEUE_CAPACITY)
+        self._queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(
+            maxsize=_QUEUE_CAPACITY
+        )
         self._worker_task: asyncio.Task[None] | None = None
         self._handles: list[tuple[Any, Any]] = []
         self._closed = False

@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import struct
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from collections.abc import Sequence
-from typing import Callable
 
 from core.application.errors import ConfigError
 from core.application.protocol_contract import PointScalar
@@ -29,7 +28,12 @@ _FORMATS = {
 def compile_decoder(point: ADSPoint) -> Callable[[bytes | memoryview, int], PointScalar]:
     """一次编译标量解码器，运行时不重复查找类型或建立 ctypes 对象。"""
     if point.data_type == "STRING":
-        return lambda raw, offset: bytes(raw[offset:offset + point.size]).split(b"\x00", 1)[0].decode("utf-8")
+        size = point.size
+
+        def decode_string(raw: bytes | memoryview, offset: int) -> str:
+            return bytes(raw[offset:offset + size]).split(b"\x00", 1)[0].decode("utf-8")
+
+        return decode_string
     unpacker = struct.Struct("<" + _FORMATS[point.data_type])
     if unpacker.size != point.size:
         raise ValueError(f"ADS point '{point.point_id}' size mismatch")
@@ -69,11 +73,14 @@ def compile_notification_blocks(
 
     previous: ADSPoint | None = None
     for point in ordered:
-        if previous is not None and point.group == previous.group:
-            if point.offset < previous.offset + previous.size:
-                raise ConfigError(
-                    f"ADS points '{previous.point_id}' and '{point.point_id}' overlap"
-                )
+        if (
+            previous is not None
+            and point.group == previous.group
+            and point.offset < previous.offset + previous.size
+        ):
+            raise ConfigError(
+                f"ADS points '{previous.point_id}' and '{point.point_id}' overlap"
+            )
         previous = point
         if point.size > max_bytes:
             raise ValueError(f"ADS point '{point.point_id}' exceeds notification block size")

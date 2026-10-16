@@ -25,6 +25,7 @@ import pytest
 
 import core.infrastructure.protocol.ads.subscription as subscription_module
 from core.application import ProtocolSample
+from core.application.errors import ProtocolError
 from core.domain import (
     BusinessPointId,
     ConnectionEndpoint,
@@ -225,8 +226,10 @@ async def test_start_failure_deregisters_partial_blocks_and_is_not_tracked(
     driver._connection = fake_pyads
     fake_pyads.fail_registration_after = 1
 
-    with pytest.raises(ConnectionError, match="registration rejected"):
+    # 传输级注册失败与读写路径同口径归一化为 ProtocolError，原始异常保留为 __cause__。
+    with pytest.raises(ProtocolError, match="ADS subscribe failed") as exc_info:
         await driver.subscribe(("speed", "torque"), _noop, interval=0.25)
+    assert isinstance(exc_info.value.__cause__, ConnectionError)
 
     assert fake_pyads.deleted == [1]
     assert driver._subscriptions == set()
