@@ -46,37 +46,38 @@ class NotificationBlock:
 
 
 def compile_notification_blocks(
-    points: Sequence[ADSPoint], *, max_bytes: int = 1024, max_gap_bytes: int = 16
+    points: Sequence[ADSPoint], *, max_bytes: int = 1024
 ) -> tuple[NotificationBlock, ...]:
-    """同组地址按允许的最大间隙与通知字节上限分块。"""
+    """按 IndexGroup 和区块总跨度分组；空洞计入字节上限。"""
     if max_bytes <= 0:
         raise ValueError("max_bytes must be positive")
-    if max_gap_bytes < 0:
-        raise ValueError("max_gap_bytes must be non-negative")
+
     ordered = sorted(points, key=lambda point: (point.group, point.offset))
     blocks: list[NotificationBlock] = []
-    fields: list[tuple[ADSPoint, int, Callable[[bytes | memoryview], PointScalar]]] = []
-    group = offset = size = 0
+    current: list[ADSPoint] = []
 
-    def flush() -> None:
-        if fields:
-            blocks.append(NotificationBlock(group, offset, size, tuple(fields)))
+    def append_block() -> None:
+        first = current[0]
+        end = max(point.offset + point.size for point in current)
+        fields = tuple(
+            (point, point.offset - first.offset, compile_decoder(point))
+            for point in current
+        )
+        blocks.append(NotificationBlock(first.group, first.offset, end - first.offset, fields))
 
     for point in ordered:
         if point.size > max_bytes:
             raise ValueError(f"ADS point '{point.point_id}' exceeds notification block size")
-        gap = point.offset - (offset + size)
-        if fields and (
-            point.group != group
-            or gap < 0
-            or gap > max_gap_bytes
-            or point.offset + point.size - offset > max_bytes
-        ):
-            flush()
-            fields = []
-        if not fields:
-            group, offset, size = point.group, point.offset, 0
-        fields.append((point, point.offset - offset, compile_decoder(point)))
-        size = point.offset + point.size - offset
-    flush()
+        if current:
+            first = current[0]
+            if (
+                point.group != first.group
+                or point.offset + point.size - first.offset > max_bytes
+            ):
+                append_block()
+                current = []
+        current.append(point)
+
+    if current:
+        append_block()
     return tuple(blocks)

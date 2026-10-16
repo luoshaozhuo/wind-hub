@@ -308,7 +308,6 @@ class ADSDriver:
                 cycle_time=interval,
                 loop=asyncio.get_running_loop(),
                 max_block_bytes=self._config.max_block_bytes,
-                max_gap_bytes=self._config.max_gap_bytes,
             )
             await subscription.start()
             self._subscriptions.add(subscription)

@@ -38,7 +38,6 @@ class ADSSubscription:
         cycle_time: float,
         loop: asyncio.AbstractEventLoop,
         max_block_bytes: int = 1024,
-        max_gap_bytes: int = 16,
     ) -> None:
         if cycle_time <= 0:
             raise ConfigError("ADS subscription interval must be > 0")
@@ -48,7 +47,6 @@ class ADSSubscription:
         self._cycle_time = cycle_time
         self._loop = loop
         self._max_block_bytes = max_block_bytes
-        self._max_gap_bytes = max_gap_bytes
         self._queue: asyncio.Queue[ProtocolSample] = asyncio.Queue(maxsize=_QUEUE_CAPACITY)
         self._worker_task: asyncio.Task[None] | None = None
         self._handles: list[tuple[Any, Any]] = []
@@ -65,7 +63,6 @@ class ADSSubscription:
             for block in compile_notification_blocks(
                 self._points,
                 max_bytes=self._max_block_bytes,
-                max_gap_bytes=self._max_gap_bytes,
             ):
                 await self._register_block(block, generation)
         except BaseException:

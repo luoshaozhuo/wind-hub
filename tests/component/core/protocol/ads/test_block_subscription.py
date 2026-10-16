@@ -65,20 +65,19 @@ def test_compiled_mixed_type_decoders() -> None:
     raw = memoryview(struct.pack("<if", -7, 2.5))
     assert [decode(raw[offset:offset + pt.size]) for pt, offset, decode in fields] == [-7, 2.5]
 
-def test_block_compiler_merges_small_gaps_but_not_large_gaps() -> None:
+def test_block_compiler_uses_total_span_not_gap() -> None:
     points = (point("a", 100), point("b", 112), point("c", 140))
-    blocks = compile_notification_blocks(points, max_bytes=64, max_gap_bytes=8)
+    blocks = compile_notification_blocks(points, max_bytes=44)
     assert [(block.offset, block.size, len(block.fields)) for block in blocks] == [
-        (100, 16, 2),
-        (140, 4, 1),
+        (100, 44, 3),
     ]
-    assert [offset for _, offset, _ in blocks[0].fields] == [0, 12]
+    assert [offset for _, offset, _ in blocks[0].fields] == [0, 12, 40]
 
 
-def test_block_compiler_respects_capacity_and_zero_gap() -> None:
+def test_block_compiler_respects_capacity() -> None:
     points = (point("a", 100), point("b", 108))
-    assert len(compile_notification_blocks(points, max_bytes=11, max_gap_bytes=16)) == 2
-    assert len(compile_notification_blocks(points, max_bytes=64, max_gap_bytes=0)) == 2
+    assert len(compile_notification_blocks(points, max_bytes=11)) == 2
+    assert len(compile_notification_blocks(points, max_bytes=12)) == 1
 
 
 def test_ads_block_config_validation() -> None:
@@ -87,13 +86,12 @@ def test_ads_block_config_validation() -> None:
     from core.infrastructure.protocol.ads.config import parse_ads_config
 
     endpoint = ConnectionEndpoint("192.0.2.20", 851)
-    config = parse_ads_config(endpoint, {"max_block_bytes": 2048, "max_gap_bytes": 32})
+    config = parse_ads_config(endpoint, {"max_block_bytes": 2048})
     assert config.max_block_bytes == 2048
-    assert config.max_gap_bytes == 32
     with pytest.raises(ConfigError, match="max_block_bytes"):
         parse_ads_config(endpoint, {"max_block_bytes": 0})
     with pytest.raises(ConfigError, match="max_gap_bytes"):
-        parse_ads_config(endpoint, {"max_gap_bytes": -1})
+        parse_ads_config(endpoint, {"max_gap_bytes": 16})
 
 
 @pytest.mark.asyncio
@@ -127,6 +125,7 @@ async def test_block_registration_failure_does_not_fallback() -> None:
         callback,
         cycle_time=0.1,
         loop=asyncio.get_running_loop(),
+        max_block_bytes=64,
     )
     with pytest.raises(RuntimeError, match="block rejected"):
         await subscription.start()
