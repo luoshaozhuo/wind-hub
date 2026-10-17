@@ -308,7 +308,15 @@ class ADSSubscription:
 
 
 def _normalize_timestamp(value: object) -> tuple[datetime, TimestampSource]:
-    """优先采用 pyads 通知时标，无效时才使用本地 UTC 接收时间。"""
+    """优先采用 pyads 通知时标，无效时才使用本地 UTC 接收时间。
+
+    ADS 通知时间戳是 Win32 FILETIME——按定义就是 UTC 纪元起算的绝对
+    时刻，与 PLC/本机时区和夏令时无关。pyads 3.6.0 的
+    ``filetimes.filetime_to_dt`` 已经返回 aware UTC datetime；naive
+    分支只防御未来版本/替身返回 naive 值的情形，此时也必须按
+    **UTC-naive** 直接挂 UTC（``replace``），绝不能按主机本地时区解释
+    （``astimezone`` 会把换主机时区/DST 变成时移）。
+    """
     if not isinstance(value, datetime):
         return datetime.now(UTC), "local"
     if value.tzinfo is None:
