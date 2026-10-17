@@ -14,7 +14,6 @@ from typing import Any
 from collector.application.config import (
     CollectionTask,
     CollectorConfig,
-    DeviceView,
     RuntimeParams,
 )
 from collector.application.runtime import CollectorRuntime
