@@ -1,0 +1,7 @@
+business_points:
+  active_power:
+    data_type: int32
+    unit: kilowatt
+  wind_speed:
+    data_type: int16
+    unit: meter_per_second

@@ -1,0 +1,23 @@
+devices:
+  ads-001:
+    model_id: beckhoff_wtg
+    device_group_ids:
+    - turbine_ads
+    endpoint:
+      host: 127.0.0.21
+    protocol_options:
+      target_net_id: "127.0.0.21.1.1"
+    enabled: true
+  ads-010:
+    model_id: beckhoff_wtg
+    device_group_ids:
+    - turbine_ads
+    endpoint:
+      host: 127.0.0.30
+    protocol_options:
+      target_net_id: "127.0.0.30.1.1"
+      username: RouteAdmin
+    enabled: true
+device_groups:
+  turbine_ads:
+    name: turbine_ads

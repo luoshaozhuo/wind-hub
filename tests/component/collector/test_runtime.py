@@ -94,8 +94,8 @@ async def test_reconfigure_add_and_remove_device():
     assert errors == []
     assert "dev1" not in runtime.devices and "dev2" in runtime.devices
     # dev2 会话由 session_factory 创建并已尝试连接
-    view = runtime.device_runtime.view_of("dev2")
-    assert view is not None and str(view.device.device_id) == "dev2"
+    new_session = runtime.devices.get("dev2")
+    assert new_session is not None and str(new_session.device.device_id) == "dev2"
     await runtime.stop()
 
 
@@ -123,8 +123,8 @@ async def test_reconfigure_endpoint_change_rebuilds_device():
     await runtime.start()
     await runtime.start_task_instance("t1:dev1")
 
-    view = config.device_view(DeviceId("dev1"))
-    new_device = replace(view.device, endpoint=replace(view.device.endpoint, port=503))
+    old_device = config.devices[DeviceId("dev1")]
+    new_device = replace(old_device, endpoint=replace(old_device.endpoint, port=503))
     new_config = replace(config, devices={DeviceId("dev1"): new_device})
     diff = compute_diff(config, new_config)
     assert diff.devices.updated == ["dev1"]

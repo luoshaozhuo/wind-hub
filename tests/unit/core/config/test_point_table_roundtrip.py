@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
-    source = ROOT / "configs" / "template"
+    source = ROOT / "tests" / "fixtures" / "configs" / "example_ads"
     for filename in (
         "system.yaml",
         "units.yaml",
@@ -41,7 +41,7 @@ def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
 
 
 def test_point_table_save_reload_keeps_changed_and_removed_points(tmp_path: Path) -> None:
-    source = ROOT / "configs" / "template"
+    source = ROOT / "tests" / "fixtures" / "configs" / "example_ads"
     for filename in (
         "system.yaml",
         "units.yaml",

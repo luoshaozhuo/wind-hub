@@ -94,7 +94,13 @@ def test_ads_subscribe_enabled_kept_on_device(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
         protocol="ads",
-        address={"symbol": "MAIN.n", "data_type": "float32"},
+        points={
+            "p1": {
+                "point_groups": ["g"],
+                "address": {"symbol": "MAIN.n"},
+                "data_type": "REAL",
+            }
+        },
         protocol_options={"target_net_id": "1.2.3.4.5.6"},
         devices={
             "dev1": {
@@ -103,12 +109,48 @@ def test_ads_subscribe_enabled_kept_on_device(tmp_path):
                 "protocol_options": {"subscribe_enabled": True},
             }
         },
+        sinks={},
+        tasks={},
     )
     config = load_collector_config(YamlConfigAdapter(config_dir))
-    assert config.devices[DeviceId("dev1")].subscribe_enabled
-    options = config.protocol_options_for(DeviceId("dev1"))
-    assert "subscribe_enabled" not in options
-    assert options["target_net_id"] == "1.2.3.4.5.6"
+    device = config.devices[DeviceId("dev1")]
+    assert device.subscribe_enabled
+    # subscribe_enabled 已从协议参数中剥离，不随 Device.protocol_options 下发
+    assert "subscribe_enabled" not in device.protocol_options
+    model = config.device_models[device.device_model_id]
+    assert model.protocol_options["target_net_id"] == "1.2.3.4.5.6"
+
+
+def test_sink_reference_to_ads_point_uses_logical_data_type(tmp_path):
+    """复现生产缺陷：Sink 引用 ADS 点时应解析为逻辑类型 float32（REAL 的逻辑类型），
+    而不是协议原生名 REAL；当前 collector loader 直接取 point.ext['data_type']，
+    导致任何映射 ADS 点的 Sink 配置都无法加载。"""
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        protocol="ads",
+        points={
+            "p1": {
+                "point_groups": ["g"],
+                "address": {"symbol": "MAIN.power"},
+                "data_type": "REAL",
+            }
+        },
+        protocol_options={"target_net_id": "1.2.3.4.5.6"},
+        sinks={
+            "s1": {
+                "type": "file",
+                "connection": {"path": str(tmp_path / "out.csv")},
+                "points": [
+                    {
+                        "source": {"device_id": "dev1", "point_id": "p1"},
+                        "address": {"field": "value"},
+                    }
+                ],
+            }
+        },
+    )
+    config = load_collector_config(YamlConfigAdapter(config_dir))
+    assert config.sinks["s1"].points[0]["source_data_type"] == "float32"
 
 
 def test_disabled_device_excluded_but_task_reference_allowed(tmp_path):

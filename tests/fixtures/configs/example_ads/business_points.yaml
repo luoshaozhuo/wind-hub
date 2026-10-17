@@ -1,0 +1,10 @@
+business_points:
+  rotor_speed:
+    data_type: float32
+    unit: rpm
+  gen_power:
+    data_type: float32
+    unit: kilowatt
+  converter_temp:
+    data_type: float32
+    unit: celsius

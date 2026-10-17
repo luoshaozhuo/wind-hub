@@ -1,0 +1,16 @@
+device_types:
+  turbine:
+    name: 风力发电机组
+device_models:
+  modbus_wtg:
+    protocol: modbus
+    device_type_id: turbine
+    point_table_id: wtg_modbus_site_v1
+    endpoint_defaults:
+      port: 502
+    protocol_options:
+      mode: tcp
+      slave_id: 1
+      timeout: 5.0
+      word_order: little_endian
+      health_point_id: active_power

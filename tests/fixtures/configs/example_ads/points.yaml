@@ -1,0 +1,34 @@
+point_tables:
+  beckhoff_base_v1:
+    protocol: ads
+    points:
+      rotor_speed:
+        point_groups:
+        - all
+        address:
+          symbol: MAIN.rotorSpeed
+        data_type: REAL
+        unit: rpm
+        description: 风轮转速
+      gen_power:
+        point_groups:
+        - all
+        address:
+          symbol: MAIN.genPower
+        data_type: REAL
+        unit: kilowatt
+        description: 发电机有功功率
+  beckhoff_wtg_v1:
+    parent_id: beckhoff_base_v1
+    points:
+      gen_power:
+        address:
+          symbol: MAIN.power.genActivePower
+      converter_temp:
+        point_groups:
+        - all
+        address:
+          symbol: MAIN.converterTemp
+        data_type: REAL
+        unit: celsius
+        description: 变流器温度

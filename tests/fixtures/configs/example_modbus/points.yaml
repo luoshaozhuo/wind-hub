@@ -1,0 +1,26 @@
+point_tables:
+  wtg_modbus_site_v1:
+    protocol: modbus
+    points:
+      active_power:
+        point_groups:
+        - all
+        address:
+          register_type: input
+          address: 178
+        data_type: int32
+        scale: 0.001
+        offset: 0.0
+        unit: kilowatt
+        description: 有功功率
+      wind_speed:
+        point_groups:
+        - all
+        address:
+          register_type: input
+          address: 357
+        data_type: int16
+        scale: 0.01
+        offset: 0.0
+        unit: meter_per_second
+        description: 风速

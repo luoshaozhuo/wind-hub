@@ -1,0 +1,23 @@
+site:
+  site_id: example_ads
+  name: ADS 测试现场
+
+runtime:
+  queue_maxsize: 1000
+  backpressure_policy: drop_old
+  shutdown_timeout: 30.0
+  connect_timeout: 10.0
+  read_timeout: 5.0
+  watchdog_interval: 5.0
+  health_timeout: 1.0
+  write_timeout: 5.0
+
+interfaces:
+  api:
+    enabled: false
+    host: "127.0.0.1"
+    port: 8080
+
+ads:
+  local_ams_net_id: "127.0.0.1.1.1"
+  local_ip: "127.0.0.1"

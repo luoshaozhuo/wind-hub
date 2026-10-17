@@ -14,7 +14,7 @@ def test_parse_shared_business_point() -> None:
             "business_points": {
                 "active_power": {
                     "data_type": "float32",
-                    "unit_id": "kilowatt",
+                    "unit": "kilowatt",
                     "description": "有功功率",
                 }
             }
@@ -29,10 +29,10 @@ def test_parse_shared_business_point() -> None:
 @pytest.mark.parametrize(
     "definition",
     [
-        {"data_type": "float32", "unit_id": "not-a-unit"},
-        {"data_type": "unknown", "unit_id": "kilowatt"},
+        {"data_type": "float32", "unit": "not-a-unit"},
+        {"data_type": "unknown", "unit": "kilowatt"},
         {"data_type": "float32"},
-        {"data_type": "float32", "unit_id": "kilowatt", "extra": 1},
+        {"data_type": "float32", "unit": "kilowatt", "extra": 1},
     ],
 )
 def test_reject_invalid_business_point(definition: dict[str, object]) -> None:

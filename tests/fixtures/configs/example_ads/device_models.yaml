@@ -1,0 +1,14 @@
+device_types:
+  turbine:
+    name: 风力发电机组
+device_models:
+  beckhoff_wtg:
+    protocol: ads
+    device_type_id: turbine
+    point_table_id: beckhoff_wtg_v1
+    endpoint_defaults:
+      port: 851
+    protocol_options:
+      twincat_version: "3"
+      timeout: 5.0
+      route_auto_add: false
