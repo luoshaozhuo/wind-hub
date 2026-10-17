@@ -131,7 +131,9 @@ def get_point_configs(protocol: str, num_points: int) -> dict[str, dict[str, obj
             point_id = f"mv.{i:04d}"
         else:  # ads（Sum 批量读要求符号寻址）
             address = {"symbol": f"MAIN.var{i}"}
-            data_type = "float32"
+            # 统一 Schema：ADS 点表 data_type 必须使用 PLC 原生名
+            # （REAL→逻辑 float32），与生产 configs/points.yaml 一致。
+            data_type = "REAL"
             point_id = f"v.{i:04d}"
         points[point_id] = {
             "point_groups": ["default"],
