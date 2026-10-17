@@ -25,7 +25,24 @@ def gh_json(*args: str) -> Any:
     return json.loads(command("gh", *args))
 
 
-def inspect(pr_number: int) -> dict[str, Any]:
+def actions_disabled() -> bool:
+    """仓库级 GitHub Actions 是否被显式禁用。
+
+    仅以 API 确证的 ``enabled == false`` 为 True；查询失败或结果不明
+    抛 Blocked（UNKNOWN 不得作为放行依据）。
+    """
+    repo = command(
+        "gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"
+    )
+    data = gh_json("api", f"repos/{repo}/actions/permissions")
+    if data.get("enabled") is False:
+        return True
+    if data.get("enabled") is True:
+        return False
+    raise Blocked(f"无法确认 GitHub Actions 启用状态: {data}")
+
+
+def inspect(pr_number: int, *, allow_no_ci: bool = False) -> dict[str, Any]:
     branch = command("git", "branch", "--show-current")
     if not branch or branch in ("main", "master"):
         raise Blocked("必须在任务分支上运行")
@@ -50,8 +67,22 @@ def inspect(pr_number: int) -> dict[str, Any]:
         raise Blocked(f"代码审查未满足要求: {pr['reviewDecision']}")
 
     checks = pr.get("statusCheckRollup") or []
+    ci_state = "PASS"
     if not checks:
-        raise Blocked("没有 CI 检查结果，不能视作通过")
+        # 默认：无检查结果绝不视作通过。仅当调用方显式 --allow-no-ci，
+        # 且 API 确证仓库 Actions 被整体禁用（CI 设施关闭，而非检查未触发/
+        # 未完成）时降级放行，并如实标注 NOT_RUN，不伪装为 CI PASS。
+        if not allow_no_ci:
+            raise Blocked(
+                "没有 CI 检查结果，不能视作通过；若 GitHub Actions 已被仓库"
+                "设置整体禁用，可在确认本地 Gate 后显式加 --allow-no-ci"
+            )
+        if not actions_disabled():
+            raise Blocked(
+                "GitHub Actions 处于启用状态却没有检查结果（可能未触发或尚未"
+                "完成），--allow-no-ci 不适用"
+            )
+        ci_state = "NOT_RUN_ACTIONS_DISABLED"
     failures = []
     pending = []
     for item in checks:
@@ -65,7 +96,7 @@ def inspect(pr_number: int) -> dict[str, Any]:
         raise Blocked(f"CI 未全部完成或存在失败; failed={failures}, pending={pending}")
     if pr["mergeStateStatus"] != "CLEAN":
         raise Blocked("合并状态非 CLEAN，需人工核实 Hook 或特殊仓库门禁")
-    return {"state": "READY", "pr": pr, "checks": len(checks)}
+    return {"state": "READY", "pr": pr, "checks": len(checks), "ci": ci_state}
 
 
 def verify_merged(pr_number: int) -> dict[str, Any]:
@@ -84,14 +115,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", nargs="?", choices=("check", "merge"), default="merge")
     parser.add_argument("--pr", type=int, required=True)
+    parser.add_argument(
+        "--allow-no-ci",
+        action="store_true",
+        help="仅当仓库 GitHub Actions 被整体禁用（API 确证）时，允许无检查结果合并",
+    )
     args = parser.parse_args()
-    info = inspect(args.pr)
+    info = inspect(args.pr, allow_no_ci=args.allow_no_ci)
     if info["state"] == "MERGED":
         print(json.dumps(verify_merged(args.pr), ensure_ascii=False))
         return 0
     if args.action == "check":
         pr = info["pr"]
-        print(json.dumps({"state": "READY", "pr": args.pr, "url": pr["url"], "head_sha": pr["headRefOid"], "ci_checks": info["checks"]}, ensure_ascii=False))
+        print(json.dumps({"state": "READY", "pr": args.pr, "url": pr["url"], "head_sha": pr["headRefOid"], "ci_checks": info["checks"], "ci": info["ci"]}, ensure_ascii=False))
         return 0
 
     pr = info["pr"]
@@ -109,7 +145,9 @@ def main() -> int:
         result = gh_json("pr", "view", str(args.pr), "--json", "state")
         if result.get("state") != "MERGED":
             raise
-    print(json.dumps(verify_merged(args.pr), ensure_ascii=False))
+    merged = verify_merged(args.pr)
+    merged["ci"] = info["ci"]
+    print(json.dumps(merged, ensure_ascii=False))
     return 0
 
 
