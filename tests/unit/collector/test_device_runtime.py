@@ -376,3 +376,101 @@ async def test_ensure_connected_aborts_when_device_rebuilt_while_awaiting_lock()
     await asyncio.gather(first, rebuild)
     assert await second is False
     assert runtime.devices["dev1"] is new_session
+
+
+async def _runtime_with_hung_connect(
+    connect_timeout: float = 0.2,
+) -> tuple[DeviceRuntime, CollectorDeviceSession, _RecordingMetrics, asyncio.Event]:
+    """构造 connect 永久挂起的设备运行时（黑洞/无响应对端的确定性替身）。"""
+    import asyncio
+
+    metrics = _RecordingMetrics()
+    config = make_collector_config()
+    session = make_session(config, CollectorFakeProtocol())
+    runtime = DeviceRuntime(
+        {"dev1": session},
+        RuntimeParams(connect_timeout=connect_timeout),
+        clock=lambda: 0.0,
+        metrics_hook=metrics,  # type: ignore[arg-type]
+    )
+    entered = asyncio.Event()
+
+    async def hung_connect() -> None:
+        entered.set()
+        await asyncio.Event().wait()
+
+    session.connect = hung_connect  # type: ignore[method-assign]
+    return runtime, session, metrics, entered
+
+
+async def test_watchdog_connect_timeout_is_counted_as_failure():
+    """内部 asyncio.timeout 取消挂起的 connect 必须记账（FINDING-RELIAB-BH-01 单元复现）。
+
+    旧实现的记账包装是 except Exception，捕获不到 CancelledError
+    （BaseException 子类），黑洞下每次 connect 超时都漏记
+    device_connect_failures。
+    """
+    import asyncio
+
+    runtime, _session, metrics, entered = await _runtime_with_hung_connect()
+    watchdog = runtime._watchdogs["dev1"]
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(watchdog.reconnect(), timeout=2.0)
+    await entered.wait()
+    assert metrics.connect_failed == [("dev1", "modbus")]
+    state = runtime.device_state("dev1")
+    assert state is not None and state.consecutive_failures == 1
+
+
+async def test_watchdog_stop_during_hung_connect_is_external_cancel_not_failure():
+    """停机取消挂起的 connect：原样传播、不记为一次 connect 失败。"""
+    import asyncio
+    import contextlib
+
+    runtime, _session, metrics, entered = await _runtime_with_hung_connect(connect_timeout=5.0)
+    watchdog = runtime._watchdogs["dev1"]
+    reconnect = asyncio.create_task(watchdog.reconnect())
+    await entered.wait()
+    await watchdog.stop()
+    # Python 3.11 的 asyncio.timeout 会把停机取消在 reconnect() 边界
+    # 转换成 TimeoutError（Watchdog 既有语义，与内部超时同形）；本测试
+    # 关心的是停机取消不得记为一次 connect 失败。
+    with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+        await reconnect
+    assert metrics.connect_failed == []
+    state = runtime.device_state("dev1")
+    assert state is not None and state.consecutive_failures == 0
+
+
+async def test_failure_success_failure_connect_metrics_accumulate():
+    """失败→恢复→再次失败：失败计数与连续失败状态随周期单调累计/清零。"""
+    import asyncio
+
+    runtime, session, metrics, _entered = await _runtime_with_hung_connect()
+    watchdog = runtime._watchdogs["dev1"]
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(watchdog.reconnect(), timeout=2.0)
+    assert metrics.connect_failed == [("dev1", "modbus")]
+
+    async def good_connect() -> None:
+        return None
+
+    session.connect = good_connect  # type: ignore[method-assign]
+    await watchdog.reconnect()
+    assert metrics.reconnected == [("dev1", "modbus")]
+    state = runtime.device_state("dev1")
+    assert state is not None and state.connected and state.consecutive_failures == 0
+
+    gate = asyncio.Event()
+    entered2 = asyncio.Event()
+
+    async def hung_again() -> None:
+        entered2.set()
+        await gate.wait()
+
+    session.connect = hung_again  # type: ignore[method-assign]
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(watchdog.reconnect(), timeout=2.0)
+    assert metrics.connect_failed == [("dev1", "modbus"), ("dev1", "modbus")]
+    assert state.consecutive_failures == 1
+    gate.set()

@@ -73,6 +73,15 @@ class WatchdogUseCase:
         self._connect_timeout = float(connect_timeout)
         self._wake.set()
 
+    @property
+    def enabled(self) -> bool:
+        """是否仍处于启用状态；:meth:`stop` 置 False 后不再发起重连。
+
+        供回调区分 CancelledError 来源：``stop()`` 先置 False 再取消周期
+        任务，而 ``asyncio.timeout`` 到期触发的内部取消不会改变本标志。
+        """
+        return self._enabled
+
     async def check_once(self) -> ConnectionHealth:
         """执行一次有界健康检查；需要时最多触发一次重连。"""
         generation = self._generation

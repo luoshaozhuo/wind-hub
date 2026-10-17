@@ -365,9 +365,37 @@ class DeviceRuntime:
         async def _connect() -> None:
             try:
                 await session.connect()
+            except asyncio.CancelledError:
+                # 到达这里的取消有两个来源：watchdog 的 asyncio.timeout
+                # 到期（内部超时，本质是一次真实的 connect 失败尝试）与
+                # 外部停机。stop() 先把 watchdog.enabled 置 False 再取消，
+                # 据此区分——内部超时准确记账一次，外部停机不计故障；
+                # 两种情况都必须继续传播，不能吞掉 CancelledError。
+                watchdog = self._watchdogs.get(device_id)
+                if (
+                    self._devices.get(device_id) is session
+                    and watchdog is not None
+                    and watchdog.enabled
+                ):
+                    self._note_connect_failure(
+                        device_id, TimeoutError("connect timeout")
+                    )
+                    logger.warning(
+                        "connect timeout: device=%s stage=watchdog_connect "
+                        "timeout=%.1fs — reconnect attempt cancelled by deadline",
+                        device_id,
+                        self._params.connect_timeout,
+                    )
+                raise
             except Exception as exc:
                 if self._devices.get(device_id) is session:
                     self._note_connect_failure(device_id, exc)
+                    logger.warning(
+                        "Device '%s' watchdog reconnect connect failed "
+                        "(stage=watchdog_connect): %s",
+                        device_id,
+                        exc,
+                    )
                 raise
 
         async def _on_success() -> None:
