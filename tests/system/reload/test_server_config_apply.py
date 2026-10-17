@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 from tests.support.wait import wait_until
-from tests.system.conftest import SYSTEM_TASK_ID, FullStack
+from tests.system.conftest import SYSTEM_COLLECTOR_ID, SYSTEM_TASK_ID, FullStack
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -25,7 +25,7 @@ class TestConfigApplyViaRest:
         assert current.status_code == 200, current.text
         content = current.json()["content"]
         data = yaml.safe_load(content)
-        data["tasks"][0]["interval"] = 0.7
+        data["tasks"][SYSTEM_TASK_ID]["interval"] = 0.7
         modified = yaml.safe_dump(data, allow_unicode=True)
 
         # ---- Apply：全 Worker 两段事务 ----
@@ -52,7 +52,7 @@ class TestConfigApplyViaRest:
             timeout=15.0,
             description="all workers converged to same active revision",
         )
-        assert set(revisions) == {"collector-1", "commander"}
+        assert set(revisions) == {SYSTEM_COLLECTOR_ID, "commander"}
 
     async def test_apply_invalid_content_rejected_and_system_unaffected(
         self, full_stack: FullStack
@@ -89,7 +89,7 @@ class TestConfigApplyViaRest:
     ) -> None:
         current = await full_stack.http.get("/api/v1/config/files/tasks.yaml")
         data = yaml.safe_load(current.json()["content"])
-        data["tasks"][0]["interval"] = 3.3
+        data["tasks"][SYSTEM_TASK_ID]["interval"] = 3.3
         candidate = yaml.safe_dump(data, allow_unicode=True)
 
         review = await full_stack.http.post(

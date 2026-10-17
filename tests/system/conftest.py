@@ -27,6 +27,11 @@ from tests.support.process import (
 )
 from tests.support.wait import wait_until
 
+#: full_stack 现场的稳定身份：collector_id 由本 fixture 显式指定，
+#: task id 来自 write_functional_config 的默认任务（见 functional_config）。
+SYSTEM_COLLECTOR_ID = "collector"
+SYSTEM_TASK_ID = "modbus-telemetry"
+
 
 @pytest.fixture
 async def modbus_server() -> AsyncIterator[ModbusMockServer]:
