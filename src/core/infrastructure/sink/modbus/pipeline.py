@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from collector.application.sink_export import SinkReferenceExporter
+from core.application.sink_export import SinkReferenceExporter
 from core.infrastructure.sink.modbus.codec import encode_modbus_value
 from core.infrastructure.sink.modbus.store import ModbusSinkStore
 from core.application import Quality

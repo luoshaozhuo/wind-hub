@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from collector.infrastructure.sink import build_sink_registry
-from collector.infrastructure.sink.file.csv import FileSink
-from collector.infrastructure.sink.redis import RedisSink
+from collector.infrastructure.sink_registry import build_sink_registry
+from core.infrastructure.sink.file.csv import FileSink
+from core.infrastructure.sink.redis import RedisSink
 from core.domain import Sink
 
 

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from collector.application.errors import SinkError
-from collector.infrastructure.sink.file.csv import FileSink
+from core.application.sink_error import SinkError
+from core.infrastructure.sink.file.csv import FileSink
 from core.domain import Sink
 from core.domain.point_value import PointValue
 

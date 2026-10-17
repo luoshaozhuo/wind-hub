@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from collector.infrastructure.sink.file.csv import FileSink
-from collector.infrastructure.sink.redis import RedisSink
+from core.infrastructure.sink.file.csv import FileSink
+from core.infrastructure.sink.redis import RedisSink
 from core.domain import Sink
 from core.domain.point_value import PointValue
 

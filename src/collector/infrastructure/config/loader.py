@@ -43,7 +43,7 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
             continue
         model = snapshot.device_models[device.device_model_id]
         protocol = snapshot.point_tables[model.point_table_id].protocol.name
-        merged_device, _merged_options = resolve_effective_device(
+        merged_device, _ = resolve_effective_device(
             device,
             model,
             protocol,
