@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -17,11 +17,14 @@ import pytest
 from tests.support.process import CollectorProcess, start_collector, start_commander
 from tests.support.wait import wait_commander_ready, wait_grpc_ready
 
+#: 工厂本体：``await factory(config_dir, ...)`` 返回 gRPC 已就绪的进程。
+WorkerFactory = Callable[..., Awaitable[CollectorProcess]]
+
 
 @pytest.fixture
 def collector_factory(
     tmp_path: Path,
-) -> Iterator:
+) -> Iterator[WorkerFactory]:
     started: list[CollectorProcess] = []
 
     async def _start(config_dir: Path, **kwargs: object) -> CollectorProcess:
@@ -51,7 +54,7 @@ def collector_factory(
 @pytest.fixture
 def commander_factory(
     tmp_path: Path,
-) -> Iterator:
+) -> Iterator[WorkerFactory]:
     started: list[CollectorProcess] = []
 
     async def _start(config_dir: Path, **kwargs: object) -> CollectorProcess:

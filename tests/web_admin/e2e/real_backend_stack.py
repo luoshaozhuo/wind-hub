@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import contextlib
 import signal
 import subprocess
 import sys
@@ -121,6 +122,7 @@ async def main() -> int:
         loop.add_signal_handler(sig, _request_stop)
 
     async def _ready() -> bool | None:
+        """wait_until 谓词：200 返回 True（就绪），其余/异常返回 None。"""
         try:
             async with httpx.AsyncClient(timeout=1.0) as client:
                 response = await client.get(
@@ -137,10 +139,8 @@ async def main() -> int:
                 proc.send_signal(signal.SIGTERM)
                 proc.wait(timeout=8.0)
         except Exception:
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 proc.kill()
-            except ProcessLookupError:
-                pass
 
     async def _shutdown() -> None:
         await asyncio.gather(
@@ -151,7 +151,12 @@ async def main() -> int:
 
     try:
         try:
-            await wait_until(_ready, timeout=40.0, interval=0.3)
+            # mypy 无法从 bool | None 返回推断 wait_until 的类型参数 T。
+            await wait_until(
+                _ready,  # type: ignore[arg-type]
+                timeout=40.0,
+                interval=0.3,
+            )
         except BaseException:
             await _shutdown()
             raise
