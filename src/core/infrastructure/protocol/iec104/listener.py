@@ -73,7 +73,7 @@ async def _cancel_and_await_task(
 class _Listener:
     """单个监听注册：按 point_id 集合过滤（None = 全部已配置点）。"""
 
-    __slots__ = ("id", "filter", "callback", "removed", "inflight", "finished")
+    __slots__ = ("id", "filter", "callback", "removed", "inflight")
 
     def __init__(
         self,
@@ -85,11 +85,9 @@ class _Listener:
         self.filter = point_filter
         self.callback = callback
         self.removed = False
-        # 正在执行的回调任务（None 表示无在途回调）。
+        # 正在执行的回调任务（None 表示无在途回调）；unlisten/close
+        # 直接 await 该任务收敛，不再需要额外的完成事件。
         self.inflight: asyncio.Task[None] | None = None
-        # 无在途回调时 set；unlisten/close 等待在途回调收敛。
-        self.finished = asyncio.Event()
-        self.finished.set()
 
 
 class ListenerRegistry:
@@ -286,7 +284,6 @@ class ListenerRegistry:
             name=f"iec104-listen-callback-{listener.id}",
         )
         listener.inflight = task
-        listener.finished.clear()
         try:
             # shield：超时后放弃的是「等待」，取消权由本方法显式控制，
             # 避免 wait_for 在不协作回调处无限等待其取消完成。
@@ -365,7 +362,6 @@ class ListenerRegistry:
         task = listener.inflight
         if task is None or task.done():
             listener.inflight = None
-            listener.finished.set()
             return
         await _cancel_and_await_task(
             task,
@@ -376,12 +372,10 @@ class ListenerRegistry:
             ),
         )
         listener.inflight = None
-        listener.finished.set()
 
     def _clear_inflight(self, listener: _Listener, task: asyncio.Task[None]) -> None:
         if listener.inflight is task:
             listener.inflight = None
-            listener.finished.set()
 
     def _drain_queue(self) -> None:
         while not self._queue.empty():
