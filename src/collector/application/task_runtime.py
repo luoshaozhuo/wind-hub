@@ -173,13 +173,14 @@ class TaskRuntime:
         await self._close_acquisition_handle(instance_id)
 
     async def restore_subscriptions(self, device_id: str) -> None:
-        """重连成功后仅重建该设备当前 RUNNING 的订阅型采集句柄。
+        """重连成功后重建该设备当前 RUNNING 的推送型采集句柄。
 
-        Watchdog 只调用本业务回调，不感知 ADS notification、IEC104 回调或
-        总召细节；这些仍由 CollectorDeviceSession.start_acquisition 负责。
+        覆盖 ADS 原生订阅（SUBSCRIBE）与 IEC104 本地监听（LISTEN，含
+        重建后由 start_acquisition 显式触发的首次总召）。Watchdog 只调用
+        本业务回调，不感知 notification、监听注册或总召细节。
         """
         device = self._devices.devices.get(device_id)
-        if device is None or device.acquisition_mode is not AcquisitionMode.SUBSCRIBE:
+        if device is None or device.acquisition_mode is AcquisitionMode.POLL:
             return
 
         running = [

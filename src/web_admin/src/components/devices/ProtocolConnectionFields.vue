@@ -120,14 +120,13 @@ const MODE_LABELS: Record<string, string> = { tcp: 'TCP', rtu: 'RTU' }
   </template>
 
   <template v-else-if="protocol === 'iec104'">
-    <el-form-item label="Common Address"
-      ><el-input-number
-        v-model="connection.common_addr"
-        :min="1"
-        :max="65535"
-        :controls="controls"
+    <el-form-item label="Common Addresses">
+      <el-input
+        v-model="connection.common_addresses"
+        placeholder="1 或多 CA：1,2,3"
         class="app-full-width"
-    /></el-form-item>
+      />
+    </el-form-item>
     <el-form-item label="K Window"
       ><el-input-number v-model="connection.k" :min="1" :controls="controls" class="app-full-width"
     /></el-form-item>
@@ -159,13 +158,6 @@ const MODE_LABELS: Record<string, string> = { tcp: 'TCP', rtu: 'RTU' }
       ><el-input-number
         v-model="connection.t3"
         :min="0.1"
-        :controls="controls"
-        class="app-full-width"
-    /></el-form-item>
-    <el-form-item label="Max Reconnect Retries"
-      ><el-input-number
-        v-model="connection.max_reconnect_retries"
-        :min="0"
         :controls="controls"
         class="app-full-width"
     /></el-form-item>

@@ -109,7 +109,7 @@ def generate_site(
             "point_table_id": "e2e_iec104",
             "protocol": "iec104",
             "endpoint_defaults": {"port": 2404},
-            "protocol_options": {"common_addr": 1},
+            "protocol_options": {"common_addresses": "1"},
         }
         _write(output, "device_models.yaml", models)
 

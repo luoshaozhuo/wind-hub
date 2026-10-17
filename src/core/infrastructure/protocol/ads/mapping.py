@@ -254,7 +254,7 @@ def _non_negative_int(
 
 
 def symbol_index_address(symbol: str, info: object) -> tuple[int, int]:
-    """Validate index addresses returned by pyads.get_symbol()."""
+    """校验 pyads.get_symbol() 返回的 index group/offset 地址。"""
     group = getattr(info, "index_group", None)
     offset = getattr(info, "index_offset", None)
     if type(group) is not int or type(offset) is not int or group < 0 or offset < 0:

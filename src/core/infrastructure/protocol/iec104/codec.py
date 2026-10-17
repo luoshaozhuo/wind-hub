@@ -1,128 +1,187 @@
-"""IEC104 c104 值、品质、时间戳与控制命令转换。"""
+"""hat.drivers.iec104 报文与 wind-hub 协议契约之间的转换。
+
+- 监测方向：hat 的 ``DataMsg`` → ``ProtocolSample``（值、质量、CP56Time2a）；
+- 控制方向：按点表 type_id 把写值构造为 hat 命令对象，严格对应协议类型，
+  本地类型/范围校验失败抛 TypeError/ValueError，由 Driver 归为确定失败。
+"""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import IntEnum
-from typing import Any, cast
+from typing import cast
 
-import c104
+from hat.drivers.iec101 import common as iec101
 
 from core.application.errors import ConfigError
-from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
+from core.application.protocol_contract import (
+    ProtocolSample,
+    Quality,
+    TimestampSource,
+)
+from core.domain.sample_value import PointScalar
 
 from .mapping import IEC104Point
 
 
-def sample_from_c104(point: Any, point_id: str) -> ProtocolSample:
-    """把 c104 Point 当前状态转换为共享 ProtocolSample。
+def decode_sample(point_id: str, msg: iec101.DataMsg) -> ProtocolSample:
+    """把一条监测 ASDU（一个 IO 元素）解码为 ProtocolSample。
 
-    具备原生时标（CP56Time2a）的点使用设备采样时刻（``device``）；
-    无时标点以本地接收时刻兜底（``local``），不伪装成设备时间。
+    合法数据携带 Invalid 等品质位时正常返回 quality=BAD 的真实样本，
+    不在这里抛错；只有协议数据本身畸形/类型不受支持才抛异常。
+
+    Raises:
+        ValueError: 报文携带当前不支持的数据类型。主动读响应由调用方
+            以 ProtocolError 显式完成请求 future；自发数据由调用方记
+            错误日志并丢弃，两种情形都不伪造样本、不中断接收管线。
     """
-    timestamp, source = _timestamp_from_c104(getattr(point, "recorded_at", None))
+    timestamp, source = decode_timestamp(msg)
+    value, quality = decode_data(cast(iec101.Data, msg.data))
     return ProtocolSample(
         point_id=point_id,
-        value=_value_from_c104(getattr(point, "value", None)),
-        quality=_quality_from_c104(getattr(point, "quality", None)),
+        value=value,
         timestamp=timestamp,
+        quality=quality,
         timestamp_source=source,
     )
 
 
-def command_to_c104(
-    mapped: IEC104Point,
-    value: object,
-) -> tuple[Any, object]:
-    """按点表 type_id 把协议侧值转换成 c104 控制类型和值。"""
+def decode_timestamp(msg: iec101.DataMsg) -> tuple[datetime, TimestampSource]:
+    """CP56Time2a → UTC datetime；无时标或时标无效时本地接收时刻兜底。"""
+    time = getattr(msg, "time", None)
+    if time is not None and not getattr(time, "invalid", False):
+        # CP56Time2a 按设备本地时间编码（不含时区），hat 依主机本地时区
+        # 归一到 UTC，是协议可提供的最佳设备时间证据。
+        return iec101.time_to_datetime(time), "device"
+    return datetime.now(UTC), "local"
+
+
+def decode_data(data: iec101.Data) -> tuple[PointScalar, Quality]:
+    """把 hat 数据 IO 元素转换为 (标量值, 统一质量)。"""
+    quality = decode_quality(getattr(data, "quality", None))
+
+    if isinstance(data, iec101.SingleData):
+        return data.value is iec101.SingleValue.ON, quality
+    if isinstance(data, iec101.DoubleData):
+        return int(data.value.value), quality
+    if isinstance(data, iec101.StepPositionData):
+        # transient 表示设备处于调节过渡态，值仍可用但质量不确定。
+        if quality is Quality.GOOD and data.value.transient:
+            quality = Quality.UNCERTAIN
+        return int(data.value.value), quality
+    if isinstance(data, iec101.BitstringData):
+        return int(data.value.value), quality
+    if isinstance(data, iec101.NormalizedData):
+        return float(data.value.value), quality
+    if isinstance(data, iec101.ScaledData):
+        return int(data.value.value), quality
+    if isinstance(data, iec101.FloatingData):
+        return float(data.value.value), quality
+    if isinstance(data, iec101.BinaryCounterData):
+        return int(data.value.value), quality
+    if isinstance(data, iec101.StatusData):
+        # 32 位比特串状态；按整数暴露，change 标志不改变值语义。
+        bits = data.value.value
+        result = 0
+        for position, bit in enumerate(bits):
+            if bit:
+                result |= 1 << position
+        return result, quality
+    raise ValueError(f"unsupported IEC104 monitoring data type: {type(data).__name__}")
+
+
+def decode_quality(quality: object) -> Quality:
+    """hat 品质位 → wind-hub GOOD/BAD/UNCERTAIN。
+
+    invalid → BAD；non_topical/substituted/blocked/overflow/adjusted →
+    UNCERTAIN。品质对象缺失（理论上不应出现）按 UNCERTAIN 处理，
+    绝不当 GOOD。
+    """
+    if quality is None:
+        return Quality.UNCERTAIN
+    if bool(getattr(quality, "invalid", False)):
+        return Quality.BAD
+    uncertain_flags = (
+        "not_topical",
+        "substituted",
+        "blocked",
+        "overflow",
+        "adjusted",
+    )
+    if any(bool(getattr(quality, flag, False)) for flag in uncertain_flags):
+        return Quality.UNCERTAIN
+    return Quality.GOOD
+
+
+def build_command(mapped: IEC104Point, value: object) -> iec101.Command:
+    """按 type_id 把写值严格转换为 hat 命令对象。
+
+    Raises:
+        ConfigError: type_id 缺失或不是受支持的控制类型。
+        TypeError: 值的 Python 类型与协议类型不匹配。
+        ValueError: 值超出协议范围。
+    """
     type_id = mapped.type_id
     if type_id is None:
         raise ConfigError(f"IEC104 writable point '{mapped.point_id}' requires type_id")
 
     if type_id == "C_SC_NA_1":
         if type(value) is not bool:
-            raise ValueError("C_SC_NA_1 requires boolean value")
-        return c104.Type.C_SC_NA_1, value
+            raise TypeError("C_SC_NA_1 requires boolean value")
+        return iec101.SingleCommand(
+            value=iec101.SingleValue.ON if value else iec101.SingleValue.OFF,
+            select=False,
+            qualifier=0,
+        )
 
     if type_id == "C_DC_NA_1":
         if isinstance(value, bool) or not isinstance(value, int | float):
-            raise TypeError("C_DC_NA_1 requires double-point value 1 or 2")
+            raise TypeError("C_DC_NA_1 requires double-point value 1 (OFF) or 2 (ON)")
         integer = int(value)
         if float(value) != float(integer) or integer not in (1, 2):
-            raise ValueError("C_DC_NA_1 requires 1=OFF or 2=ON")
-        state = c104.Double.OFF if integer == 1 else c104.Double.ON
-        return c104.Type.C_DC_NA_1, state
+            raise ValueError("C_DC_NA_1 requires 1 (OFF) or 2 (ON)")
+        return iec101.DoubleCommand(
+            value=iec101.DoubleValue.OFF if integer == 1 else iec101.DoubleValue.ON,
+            select=False,
+            qualifier=0,
+        )
 
     if type_id == "C_SE_NA_1":
         number = _numeric(value, type_id)
         if not -1.0 <= number <= 1.0:
             raise ValueError("C_SE_NA_1 normalized value must be in -1..1")
-        return c104.Type.C_SE_NA_1, c104.NormalizedFloat(number)
+        return iec101.NormalizedCommand(
+            value=iec101.NormalizedValue(number), select=False
+        )
 
     if type_id == "C_SE_NB_1":
-        number = _integer(value, type_id)
-        if not -32768 <= number <= 32767:
+        integer = _integer(value, type_id)
+        if not -32768 <= integer <= 32767:
             raise ValueError("C_SE_NB_1 scaled value must be in int16 range")
-        return c104.Type.C_SE_NB_1, c104.Int16(number)
+        return iec101.ScaledCommand(value=iec101.ScaledValue(integer), select=False)
 
     if type_id == "C_SE_NC_1":
-        return c104.Type.C_SE_NC_1, _numeric(value, type_id)
+        return iec101.FloatingCommand(
+            value=iec101.FloatingValue(_numeric(value, type_id)), select=False
+        )
 
     raise ConfigError(
-        f"IEC104 point '{mapped.point_id}' uses unsupported command type " f"'{type_id}'"
+        f"IEC104 point '{mapped.point_id}' uses unsupported command type '{type_id}'"
     )
 
 
-def _quality_from_c104(quality: Any) -> Quality:
-    if quality is None:
-        return Quality.UNCERTAIN
-
-    bits = getattr(quality, "value", 0)
-    invalid = getattr(c104.Quality.Invalid, "value", 0)
-    uncertain = (
-        getattr(c104.Quality.NonTopical, "value", 0)
-        | getattr(c104.Quality.Substituted, "value", 0)
-        | getattr(c104.Quality.Blocked, "value", 0)
-        | getattr(c104.Quality.Overflow, "value", 0)
-    )
-    if bits & invalid:
-        return Quality.BAD
-    if bits & uncertain:
-        return Quality.UNCERTAIN
-    return Quality.GOOD
-
-
-def _timestamp_from_c104(value: object) -> tuple[datetime, TimestampSource]:
-    """返回 (UTC 时间戳, 来源)；无原生时标的点回退本地接收时刻。"""
-    if value is None:
-        return datetime.now(UTC), "local"
-    if not isinstance(value, datetime):
-        raise TypeError("c104 recorded_at must be datetime or None")
-    if value.tzinfo is None:
-        # CP56Time2a 不编码时区，不能假定无时区设备时间为 UTC。
-        return datetime.now(UTC), "local"
-    return value.astimezone(UTC), "device"
-
-
-def _value_from_c104(value: object) -> float | int | bool | str | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, IntEnum):
-        return int(value)
-    if isinstance(value, str | int | float):
-        return value
-    try:
-        return float(cast(Any, value))
-    except (TypeError, ValueError):
-        return None
+def negative_read_message(cause: object) -> str:
+    """把 hat 的否定读取 COT 转为可读失败原因。"""
+    name = getattr(cause, "name", str(cause))
+    return f"IEC104 station rejected active read ({name})"
 
 
 def _numeric(value: object, type_id: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError(f"{type_id} requires numeric value")
-    return float(value)
+    number = float(value)
+    if number != number or number in (float("inf"), float("-inf")):
+        raise ValueError(f"{type_id} requires a finite numeric value")
+    return number
 
 
 def _integer(value: object, type_id: str) -> int:

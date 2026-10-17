@@ -23,7 +23,7 @@ prometheus-client = "^0.21"
 grpcio = "^1.75"
 protobuf = "^6.32"
 pymodbus = "^3.6"
-c104 = "^2.2"
+hat-drivers = "^0.10.10"
 pyads = "^3.4"
 aiokafka = { version = "^0.14", optional = true }
 asyncpg = { version = "^0.31", optional = true }
@@ -55,6 +55,9 @@ types-PyYAML = "^6.0"
 ruff = "^0.8"
 import-linter = "^2.0"
 types-aiofiles = "^25.1.0.20260518"
+# IEC104 集成/可靠性测试的真实异构从站（lib60870-C 协议栈），
+# 与生产侧 hat.drivers.iec104 主站做跨实现互操作验证。
+c104 = "^2.2"
 
 [tool.poetry.scripts]
 wind-hub-collector = "collector.main:main"
@@ -100,6 +103,13 @@ exclude = "(_pb2\\.py|_pb2_grpc\\.py)$"
 # 将 grpc 视为动态类型模块（Any），边界类型安全由 pb2 .pyi stub 保证。
 [[tool.mypy.overrides]]
 module = ["grpc", "grpc.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
+# hat-drivers 未附带 py.typed；协议边界转换集中在 iec104 codec/driver，
+# 报文类型正确性由真实从站互通测试覆盖，库侧按动态类型处理。
+[[tool.mypy.overrides]]
+module = ["hat", "hat.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
 

@@ -20,6 +20,7 @@ import pyads  # type: ignore[import-untyped]
 from pyads.constants import ADSIGRP_SUMUP_READ, ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
 
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
+from core.application.port.protocol import ListenHandle, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     PointScalar,
@@ -207,7 +208,7 @@ class ADSDriver:
 
     @staticmethod
     def _initialize_local_sync(config: ADSLocalConfig) -> None:
-        """Initialize process-wide AMS identity once, independently of device sessions."""
+        """进程级 AMS 身份只初始化一次，与具体设备会话无关。"""
         global _LOCAL_AMS, _LOCAL_PORT_OPEN
         with _LOCAL_AMS_LOCK:
             if _LOCAL_AMS is not None:
@@ -619,7 +620,7 @@ class ADSDriver:
 
     @staticmethod
     def _encode_sum_write(chunk: Sequence[tuple[int, ADSPoint, bytes]]) -> bytearray:
-        """Build the Sum Write payload (headers + per-point data)."""
+        """构造 Sum Write 请求载荷（逐点头部拼接 + 逐点数据拼接）。"""
         headers = b"".join(
             struct.pack("<III", point.group, point.offset, len(payload))
             for _, point, payload in chunk
@@ -690,9 +691,30 @@ class ADSDriver:
             outcome=WriteOutcome.CONFIRMED_SUCCESS,
         )
 
-    async def interrogate(self) -> None:
+    async def interrogate(self, common_address: int | None = None) -> None:
         """ADS 不支持 IEC104 式总召能力。"""
+        del common_address
         raise ProtocolCapabilityError("ads does not support interrogation")
+
+    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        """注销一次原生 Device Notification 订阅（幂等由句柄保证）。"""
+        await handle.close()
+
+    async def listen(
+        self,
+        point_ids: Sequence[str],
+        callback: Callable[[ProtocolSample], Awaitable[None]],
+        *,
+        interval: float | None = None,
+    ) -> ListenHandle:
+        """ADS 的远程数据获取只有原生订阅（subscribe），没有被动监听语义。"""
+        del point_ids, callback, interval
+        raise ProtocolCapabilityError("ads does not support passive listen — use subscribe")
+
+    async def unlisten(self, handle: ListenHandle) -> None:
+        """ADS 不支持被动监听。"""
+        del handle
+        raise ProtocolCapabilityError("ads does not support passive listen — use subscribe")
 
     def _build_sum_requests(self, points: tuple[ADSPoint, ...]) -> tuple[Any, ...]:
         """编译可直接交给 pyads.read_write 的分批 Sum Read 请求。"""
@@ -849,7 +871,7 @@ class ADSDriver:
 
 
 def _decode_sum_write_errors(raw: object, count: int) -> tuple[int, ...]:
-    """Decode per-point ADS error codes from a Sum Write response.
+    """从 Sum Write 响应解出逐点 ADS 错误码。
 
     pyads 对无读取类型的 Sum Write 实际返回 ctypes ``c_ubyte`` 数组
     （并非 bytes，且 ctypes.Array 不注册为 collections.abc.Sequence），
@@ -868,7 +890,7 @@ def _decode_sum_write_errors(raw: object, count: int) -> tuple[int, ...]:
 
 
 def _encode_value(value: float | int | bool | str, point: ADSPoint) -> bytes:
-    """Serialize one ADS scalar to exactly the addressed byte width."""
+    """把单个 ADS 标量序列化为寻址宽度恰好一致的字节串。"""
     if point.data_type == "STRING":
         encoded = value.encode("utf-8") if isinstance(value, str) else b""
         if point.size <= 0 or len(encoded) >= point.size:

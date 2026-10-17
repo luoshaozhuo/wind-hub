@@ -30,11 +30,14 @@ class IEC104MockServer:
         common_addr: int = 1,
         data_points: dict[int, float] | None = None,
         point_type: c104.Type = c104.Type.M_ME_NC_1,
+        stations: dict[int, dict[int, float]] | None = None,
     ) -> None:
         self._port = port
         self._common_addr = common_addr
         self._data_points = dict(data_points or {100: 1500.5, 200: 50.0})
         self._point_type = point_type
+        # 多 CA：一条 TCP 上挂多个 station（CA → {IOA: 值}）；缺省单 CA。
+        self._stations = stations or {self._common_addr: self._data_points}
         self._server: c104.Server | None = None
 
     @property
@@ -46,12 +49,13 @@ class IEC104MockServer:
         if self._server is not None:
             return
         server = c104.Server(ip="127.0.0.1", port=self._port)
-        station = server.add_station(common_address=self._common_addr)
-        assert station is not None
-        for ioa, value in self._data_points.items():
-            point = station.add_point(io_address=ioa, type=self._point_type)
-            assert point is not None
-            point.value = float(value)
+        for ca, points in self._stations.items():
+            station = server.add_station(common_address=ca)
+            assert station is not None
+            for ioa, value in points.items():
+                point = station.add_point(io_address=ioa, type=self._point_type)
+                assert point is not None
+                point.value = float(value)
         await asyncio.get_running_loop().run_in_executor(None, server.start)
         self._server = server
 

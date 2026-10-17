@@ -20,7 +20,7 @@ from core.application.errors import (
     ProtocolConnectionError,
     ProtocolError,
 )
-from core.application.port import ProtocolSampleCallback, SubscriptionHandle
+from core.application.port import ListenHandle, ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     PointScalar,
@@ -62,6 +62,10 @@ class _ReadGroupPlan:
     start: int
     count: int
     slave_id: int = 1
+
+
+# 批量读取结果中单点的 (业务标量值, 统一质量) 二元组。
+_PointValueQuality = tuple[PointScalar, Quality]
 
 
 class ModbusDriver:
@@ -216,11 +220,12 @@ class ModbusDriver:
     async def read_one(self, point: str) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走批量分组规划或缓存。
 
-        接受注册点 point_id（str）或动态 ModbusPoint（未在点表中登记的
-        临时地址）。一个逻辑点可能占多个寄存器（如 float32 占 2 个），但
-        仍只发送一次 Modbus 读取请求。解码失败返回 BAD 质量样本；Modbus
-        异常响应（设备已应答）抛 ProtocolError 且不影响连接复用，通信
-        错误抛 ProtocolConnectionError。
+        只接受当前 PointTable 中已配置点的 point_id（str），不接受动态
+        ModbusPoint 或临时地址（与 read_many 寻址规则一致，由
+        ``_resolve_point`` 强制）。一个逻辑点可能占多个寄存器（如
+        float32 占 2 个），但仍只发送一次 Modbus 读取请求。解码失败返回
+        BAD 质量样本；Modbus 异常响应（设备已应答）抛 ProtocolError 且
+        不影响连接复用，通信错误抛 ProtocolConnectionError。
         """
         mapped = self._resolve_point(point)
         point_id = mapped.point_id
@@ -265,7 +270,8 @@ class ModbusDriver:
     ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不做多点合并或写规划。
 
-        接受 ProtocolWrite，point 可以是注册点 ID 或动态 ModbusPoint。
+        接受 ProtocolWrite，其 point 必须是当前 PointTable 已配置点的
+        point_id（str），不接受动态 ModbusPoint 或临时地址。
 
         一个逻辑点最多触发一次实际写请求：coil 用 write_coil，单寄存器
         用 write_register，多寄存器逻辑点用一次 write_registers(FC16)。
@@ -327,7 +333,7 @@ class ModbusDriver:
     async def _read_values(
         self,
         points: Sequence[str],
-    ) -> tuple[tuple[ModbusPoint, ...], tuple[tuple[PointScalar, Quality], ...]]:
+    ) -> tuple[tuple[ModbusPoint, ...], tuple[_PointValueQuality, ...]]:
         """执行分组批量读取，返回解析后的点序列与逐点 (原始值, 质量)。"""
         if not points:
             return (), ()
@@ -355,7 +361,7 @@ class ModbusDriver:
     ) -> tuple[ProtocolWriteResult, ...]:
         """Modbus 不支持多逻辑点批量写入；明确拒绝，绝不降级为逐点 write_one。"""
         del writes
-        raise NotImplementedError("Modbus write_many is not implemented")
+        raise ProtocolCapabilityError("modbus does not support write_many")
 
     async def subscribe(
         self,
@@ -364,12 +370,34 @@ class ModbusDriver:
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
-        """Modbus TCP 不支持协议级主动订阅。"""
+        """Modbus TCP 不支持协议级主动订阅（周期采集由 Collector 轮询承担）。"""
         del point_ids, callback, interval
         raise ProtocolCapabilityError("modbus does not support subscription")
 
-    async def interrogate(self) -> None:
+    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        """Modbus TCP 不支持协议级主动订阅。"""
+        del handle
+        raise ProtocolCapabilityError("modbus does not support subscription")
+
+    async def listen(
+        self,
+        point_ids: Sequence[str],
+        callback: ProtocolSampleCallback,
+        *,
+        interval: float | None = None,
+    ) -> ListenHandle:
+        """Modbus TCP 不存在设备主动上送通道。"""
+        del point_ids, callback, interval
+        raise ProtocolCapabilityError("modbus does not support listen")
+
+    async def unlisten(self, handle: ListenHandle) -> None:
+        """Modbus TCP 不存在设备主动上送通道。"""
+        del handle
+        raise ProtocolCapabilityError("modbus does not support listen")
+
+    async def interrogate(self, common_address: int | None = None) -> None:
         """Modbus TCP 不支持 IEC104 式总召能力。"""
+        del common_address
         raise ProtocolCapabilityError("modbus does not support interrogation")
 
     def _mapped_point(self, point_id: str) -> ModbusPoint:
@@ -393,17 +421,20 @@ class ModbusDriver:
         if cached is not None:
             return cached
         mapped = [self._resolve_point(point) for point in key]
-        plan = tuple(
-            _ReadGroupPlan(
-                points=tuple(group),
-                register_type=group[0].register_type,
-                start=min(point.address for point in group),
-                slave_id=group[0].slave_id,
-                count=max(point.address + point.count for point in group)
-                - min(point.address for point in group),
+        plans: list[_ReadGroupPlan] = []
+        for group in group_consecutive_reads(mapped):
+            start = min(point.address for point in group)
+            end = max(point.address + point.count for point in group)
+            plans.append(
+                _ReadGroupPlan(
+                    points=tuple(group),
+                    register_type=group[0].register_type,
+                    start=start,
+                    slave_id=group[0].slave_id,
+                    count=end - start,
+                )
             )
-            for group in group_consecutive_reads(mapped)
-        )
+        plan = tuple(plans)
         # 典型连续轮询通常只有一个 key；动态请求限制内存增长。
         if len(self._read_plan_cache) >= _READ_PLAN_CACHE_LIMIT:
             self._read_plan_cache.pop(next(iter(self._read_plan_cache)))

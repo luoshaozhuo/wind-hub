@@ -45,14 +45,13 @@ describe('defaultConnectionForm', () => {
     const form = defaultConnectionForm('iec104')
     expect(form).toMatchObject({
       port: 2404,
-      common_addr: 1,
+      common_addresses: '1',
       k: 12,
       w: 8,
       t0: 30,
       t1: 15,
       t2: 10,
       t3: 20,
-      max_reconnect_retries: 5,
     })
   })
 })
@@ -75,9 +74,12 @@ describe('formFromConnection', () => {
     expect(form.timeout).toBe(3)
   })
 
-  it('数值规范化：字符串数字转为 number', () => {
-    const form = formFromConnection('iec104', { common_addr: '7', t1: '2.5' })
-    expect(form.common_addr).toBe(7)
+  it('多 CA 逗号串原样保留；数字输入规范化为字符串', () => {
+    const numericForm = formFromConnection('iec104', { common_addresses: 7 })
+    expect(numericForm.common_addresses).toBe('7')
+
+    const form = formFromConnection('iec104', { common_addresses: '1,2,3', t1: '2.5' })
+    expect(form.common_addresses).toBe('1,2,3')
     expect(form.t1).toBe(2.5)
   })
 
@@ -113,8 +115,8 @@ describe('formFromModelDefaults / applyModelDefaults', () => {
 
   it('协议切换：modbus → iec104 应用 iec104 defaults，不残留 modbus 语义', () => {
     const form = defaultConnectionForm('modbus')
-    applyModelDefaults(form, model('iec104', { common_addr: 3, k: 6 }))
-    expect(form).toMatchObject({ common_addr: 3, k: 6, port: 2404 })
+    applyModelDefaults(form, model('iec104', { common_addresses: '3', k: 6 }))
+    expect(form).toMatchObject({ common_addresses: '3', k: 6, port: 2404 })
   })
 
   it('model 无 port 默认时回落协议默认端口', () => {
@@ -148,7 +150,7 @@ const MODBUS_FULL_DEFAULTS = {
 
 const IEC104_FULL_DEFAULTS = {
   port: 2404,
-  common_addr: 1,
+  common_addresses: '1',
   k: 12,
   w: 8,
   t0: 30,
@@ -195,16 +197,16 @@ describe('connectionOverridesFromForm', () => {
   it('IEC104 仅差异流控键落 extensions', () => {
     const m = model('iec104', IEC104_FULL_DEFAULTS)
     const form = defaultConnectionForm('iec104')
-    form.common_addr = 2
+    form.common_addresses = '2'
     form.t3 = 25
     const { extensions } = connectionOverridesFromForm(form, m)
-    expect(extensions).toEqual({ common_addr: 2, t3: 25 })
+    expect(extensions).toEqual({ common_addresses: '2', t3: 25 })
   })
 
   it('round-trip：overrides 合并回 defaults 后表单等价', () => {
     const m = model('iec104', IEC104_FULL_DEFAULTS)
     const form = defaultConnectionForm('iec104')
-    form.common_addr = 9
+    form.common_addresses = '9'
     form.t1 = 3
     const { extensions, port } = connectionOverridesFromForm(form, m)
     const merged = {
@@ -233,7 +235,7 @@ describe('connectionDefaultsFromForm', () => {
     const form = defaultConnectionForm('iec104')
     const defaults = connectionDefaultsFromForm(form, 'iec104')
     expect(Object.keys(defaults).sort()).toEqual(
-      ['common_addr', 'k', 'max_reconnect_retries', 'port', 't0', 't1', 't2', 't3', 'w'].sort(),
+      ['common_addresses', 'k', 'port', 't0', 't1', 't2', 't3', 'w'].sort(),
     )
   })
 })

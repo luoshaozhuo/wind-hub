@@ -63,11 +63,15 @@ def test_modbus_session_polls():
     assert session.acquisition_mode is AcquisitionMode.POLL
 
 
-def test_iec104_session_subscribes():
+def test_iec104_session_listens():
     proto = CollectorFakeProtocol()
-    proto.capabilities_value = _caps(ProtocolCapability.READ, ProtocolCapability.SUBSCRIBE)
+    proto.capabilities_value = _caps(
+        ProtocolCapability.READ,
+        ProtocolCapability.LISTEN,
+        ProtocolCapability.INTERROGATE,
+    )
     session = make_session(make_collector_config(protocol="iec104"), proto)
-    assert session.acquisition_mode is AcquisitionMode.SUBSCRIBE
+    assert session.acquisition_mode is AcquisitionMode.LISTEN
 
 
 def test_ads_polls_unless_subscribe_enabled():
@@ -124,30 +128,36 @@ async def test_poll_handle_runs_acquire_and_closes():
 
 
 # ---------------------------------------------------------------------------
-# start_acquisition——SUBSCRIBE
+# start_acquisition——SUBSCRIBE（ADS 原生订阅）
 # ---------------------------------------------------------------------------
 
 
 async def test_subscribe_requires_on_data():
     proto = CollectorFakeProtocol()
     proto.capabilities_value = _caps(ProtocolCapability.SUBSCRIBE)
-    session = make_session(make_collector_config(protocol="iec104"), proto)
+    session = make_session(
+        make_collector_config(protocol="ads", ads_subscribe=True), proto
+    )
     with pytest.raises(ConfigError, match="on_data"):
         await session.start_acquisition(point_group="g", interval=None)
 
 
-async def test_subscribe_registers_points_and_interrogates_when_capable():
+async def test_subscribe_registers_native_subscription_without_interrogate():
     proto = CollectorFakeProtocol()
-    proto.capabilities_value = _caps(ProtocolCapability.SUBSCRIBE, ProtocolCapability.INTERROGATE)
-    session = make_session(make_collector_config(protocol="iec104"), proto)
+    proto.capabilities_value = _caps(ProtocolCapability.SUBSCRIBE)
+    session = make_session(
+        make_collector_config(protocol="ads", ads_subscribe=True), proto
+    )
     received: list[tuple[Any, ...]] = []
 
     async def on_data(batch):
         received.append(batch)
 
-    handle = await session.start_acquisition(point_group="g", interval=None, on_data=on_data)
+    handle = await session.start_acquisition(point_group="g", interval=1.0, on_data=on_data)
+    # ADS 原生订阅：注册 notification，cycle_time 透传，不触发总召。
     assert proto.subscriptions[0][0] == ("p1",)
-    assert proto.interrogate_calls == 1  # 订阅建立后自动总召
+    assert proto.subscriptions[0][2] == 1.0
+    assert proto.interrogate_calls == []
 
     await proto.emit(0, "p1", 5.0)
     assert len(received) == 1
@@ -156,20 +166,39 @@ async def test_subscribe_registers_points_and_interrogates_when_capable():
     await handle.close()
 
 
-async def test_subscribe_skips_interrogate_when_not_capable():
+# ---------------------------------------------------------------------------
+# start_acquisition——LISTEN（IEC104 本地监听 + 显式总召）
+# ---------------------------------------------------------------------------
+
+
+async def test_listen_requires_on_data():
     proto = CollectorFakeProtocol()
-    proto.capabilities_value = _caps(ProtocolCapability.SUBSCRIBE)
+    proto.capabilities_value = _caps(ProtocolCapability.LISTEN)
     session = make_session(make_collector_config(protocol="iec104"), proto)
+    with pytest.raises(ConfigError, match="on_data"):
+        await session.start_acquisition(point_group="g", interval=None)
 
-    async def noop_on_data(_batch) -> None:
-        return None
 
-    handle = await session.start_acquisition(
-        point_group="g",
-        interval=None,
-        on_data=noop_on_data,
+async def test_listen_registers_points_and_interrogates_after_listen():
+    proto = CollectorFakeProtocol()
+    proto.capabilities_value = _caps(
+        ProtocolCapability.LISTEN, ProtocolCapability.INTERROGATE
     )
-    assert proto.interrogate_calls == 0
+    session = make_session(make_collector_config(protocol="iec104"), proto)
+    received: list[tuple[Any, ...]] = []
+
+    async def on_data(batch):
+        received.append(batch)
+
+    handle = await session.start_acquisition(point_group="g", interval=None, on_data=on_data)
+    assert proto.listeners[0][0] == ("p1",)
+    assert proto.subscriptions == []  # 严禁把 listen 伪装成 subscribe
+    assert proto.interrogate_calls == [None]  # 监听建立后 Collector 显式全 CA 总召
+
+    await proto.emit_listener(0, "p1", 5.0)
+    assert len(received) == 1
+    assert received[0][0].device_id == "dev1"
+    assert received[0][0].value == 5.0
     await handle.close()
 
 

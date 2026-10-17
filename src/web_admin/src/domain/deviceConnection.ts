@@ -17,14 +17,13 @@ export interface ConnectionFormState {
   unit_id: number
   mode: string
   word_order: string
-  common_addr: number
+  common_addresses: string
   k: number
   w: number
   t0: number
   t1: number
   t2: number
   t3: number
-  max_reconnect_retries: number
   reconnect_max_retries: number
   reconnect_backoff_max: number
 }
@@ -43,7 +42,7 @@ export const PROTOCOL_DEFAULT_PORTS: Record<Protocol, number> = {
 export const PROTOCOL_OVERRIDE_KEYS: Record<Protocol, readonly string[]> = {
   ads: ['twincat_version', 'timeout'],
   modbus: ['unit_id', 'mode', 'timeout', 'word_order'],
-  iec104: ['common_addr', 'k', 'w', 't0', 't1', 't2', 't3', 'max_reconnect_retries'],
+  iec104: ['common_addresses', 'k', 'w', 't0', 't1', 't2', 't3'],
 }
 
 /** 各协议序列化为 model connection_defaults 的键。 */
@@ -58,7 +57,7 @@ export const PROTOCOL_DEFAULT_KEYS: Record<Protocol, readonly string[]> = {
     'reconnect_max_retries',
     'reconnect_backoff_max',
   ],
-  iec104: ['port', 'common_addr', 'k', 'w', 't0', 't1', 't2', 't3', 'max_reconnect_retries'],
+  iec104: ['port', 'common_addresses', 'k', 'w', 't0', 't1', 't2', 't3'],
 }
 
 function num(value: unknown, fallback: number): number {
@@ -68,6 +67,12 @@ function num(value: unknown, fallback: number): number {
 
 function str(value: unknown, fallback: string): string {
   return typeof value === 'string' && value !== '' ? value : fallback
+}
+
+/** 后端接受 int 或逗号分隔整数串；表单统一为字符串。 */
+function caString(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return str(value, '1')
 }
 
 /** 协议无关的全量默认值（port 按协议）。 */
@@ -80,14 +85,13 @@ export function defaultConnectionForm(protocol: Protocol): ConnectionFormState {
     unit_id: 1,
     mode: 'tcp',
     word_order: 'little_endian',
-    common_addr: 1,
+    common_addresses: '1',
     k: 12,
     w: 8,
     t0: 30,
     t1: 15,
     t2: 10,
     t3: 20,
-    max_reconnect_retries: 5,
     reconnect_max_retries: 5,
     reconnect_backoff_max: 30,
   }
@@ -110,14 +114,13 @@ export function formFromConnection(
     unit_id: num(connection.unit_id, base.unit_id),
     mode: str(connection.mode, base.mode),
     word_order: str(connection.word_order, base.word_order),
-    common_addr: num(connection.common_addr, base.common_addr),
+    common_addresses: caString(connection.common_addresses),
     k: num(connection.k, base.k),
     w: num(connection.w, base.w),
     t0: num(connection.t0, base.t0),
     t1: num(connection.t1, base.t1),
     t2: num(connection.t2, base.t2),
     t3: num(connection.t3, base.t3),
-    max_reconnect_retries: num(connection.max_reconnect_retries, base.max_reconnect_retries),
     reconnect_max_retries: num(connection.reconnect_max_retries, base.reconnect_max_retries),
     reconnect_backoff_max: num(connection.reconnect_backoff_max, base.reconnect_backoff_max),
   }
@@ -156,14 +159,13 @@ export function applyModelDefaults(
     form.timeout = fresh.timeout
     form.word_order = fresh.word_order
   } else if (model.protocol === 'iec104') {
-    form.common_addr = fresh.common_addr
+    form.common_addresses = fresh.common_addresses
     form.k = fresh.k
     form.w = fresh.w
     form.t0 = fresh.t0
     form.t1 = fresh.t1
     form.t2 = fresh.t2
     form.t3 = fresh.t3
-    form.max_reconnect_retries = fresh.max_reconnect_retries
   }
 }
 

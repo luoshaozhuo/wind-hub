@@ -51,6 +51,8 @@ from .task_runtime import TaskRuntime
 
 logger = logging.getLogger(__name__)
 
+_PUSH_MODES = (AcquisitionMode.SUBSCRIBE, AcquisitionMode.LISTEN)
+
 
 class RuntimeMetricsPort(Protocol):
     """运行时指标端口——由组合根注入（接 Prometheus 计数器/直方图）。
@@ -490,7 +492,7 @@ class CollectorRuntime:
                 and session is not None
                 and old_view.point_table.point_table_id != new_view.point_table.point_table_id
                 and self._device_runtime.is_lightweight_update(did, new_view)
-                and session.acquisition_mode is AcquisitionMode.SUBSCRIBE
+                and session.acquisition_mode in _PUSH_MODES
             ):
                 restart_subscription_devices.add(did)
 
@@ -523,7 +525,7 @@ class CollectorRuntime:
             for did, session in self._device_runtime.devices.items():
                 if (
                     str(session.point_table.point_table_id) in changed_tables
-                    and session.acquisition_mode is AcquisitionMode.SUBSCRIBE
+                    and session.acquisition_mode in _PUSH_MODES
                 ):
                     restart_subscription_devices.add(did)
 

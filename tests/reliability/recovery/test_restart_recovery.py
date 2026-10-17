@@ -60,9 +60,9 @@ def _iec104_config(base: Path, port: int, sink_path: Path) -> Path:
                     "port": port,
                 },
                 "protocol_options": {
-                    "common_addr": 1,
-                    # 缩短协议定时器；重试次数给足，保证断连窗口内驱动
-                    # 持续自动重连（恢复阶段不依赖人工干预）。
+                    "common_addresses": "1",
+                    # 缩短协议定时器；断连后由 Watchdog 显式重连并恢复
+                    # LISTEN + 总召（恢复阶段不依赖人工干预）。
                     "t0": 5.0,
                     "t1": 3.0,
                     "t2": 2.0,
@@ -172,10 +172,10 @@ class TestSubscriptionRestartPending:
         # ---- 断连期间变更点表：订阅必须重建但设备不可达 → reload 失败 ----
         def _add_point(data: dict[str, Any]) -> None:
             data["point_tables"]["iec104"]["points"]["meas.reactive_power"] = {
-                "business_point_id": "meas.reactive_power",
                 "point_groups": ["telemetry"],
-                "address": {"ioa": 300},
+                "address": {"ioa": 300, "type": "M_ME_NC_1"},
                 "data_type": "float32",
+                "unit": "none",
             }
 
         def _add_business_point(data: dict[str, Any]) -> None:

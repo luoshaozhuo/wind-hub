@@ -334,7 +334,11 @@ class _IEC104VirtualServer:
 
     async def start(self) -> None:
         server = c104.Server(ip=self.plan.host, port=self.plan.port)
-        station = server.add_station(common_address=int(self.plan.options.get("common_addr", 1)))
+        ca_option = self.plan.options.get(
+            "common_addresses", self.plan.options.get("common_addr", 1)
+        )
+        common_address = int(str(ca_option).split(",")[0])
+        station = server.add_station(common_address=common_address)
         if station is None:
             raise RuntimeError("cannot create IEC104 station")
         for point in self.plan.points:
