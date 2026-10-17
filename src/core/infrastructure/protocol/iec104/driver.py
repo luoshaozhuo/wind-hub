@@ -326,7 +326,11 @@ class IEC104Driver:
         )
         health_point = self._config.health_point
         if health_point is None:
-            return ConnectionHealth(healthy=True, message=link_message)
+            # 只有链路/APCI 证据，文案必须显式说明未做应用层探测。
+            return ConnectionHealth(
+                healthy=True,
+                message=f"{link_message}; link/APCI evidence only, no application probe",
+            )
 
         mapped = self._points_by_id.get(health_point)
         if mapped is None:
@@ -334,23 +338,41 @@ class IEC104Driver:
                 healthy=False,
                 message=f"health point '{health_point}' missing from point table",
             )
+        probe_location = f"ca={mapped.common_address}, ioa={mapped.ioa}"
         try:
             await self.read_one(health_point)
         except IEC104ActiveReadRejectedError as exc:
             if exc.cause in _PROBE_UNSUPPORTED_CAUSES:
+                # 显式 C_RD 拒绝（UNKNOWN_*）：链路仍然健康，只是该点
+                # 不支持主动读探测；不断开连接、不触发任何恢复动作。
                 return ConnectionHealth(
                     healthy=True,
                     message=(
-                        f"{link_message}; station does not support active read probe "
-                        f"at ca={mapped.common_address}, ioa={mapped.ioa}: {exc.cause}"
+                        f"{link_message}; application probe unsupported at {probe_location}"
+                        f" (station rejected C_RD: {exc.cause}); link stays OPEN"
                     ),
                 )
-            return ConnectionHealth(healthy=False, message=str(exc))
+            return ConnectionHealth(
+                healthy=False,
+                message=f"application probe rejected at {probe_location}: {exc}",
+            )
+        except ProtocolConnectionError as exc:
+            return ConnectionHealth(
+                healthy=False,
+                message=f"link failed during application probe at {probe_location}: {exc}",
+            )
         except ProtocolError as exc:
-            return ConnectionHealth(healthy=False, message=f"application probe failed: {exc}")
+            # 读取超时/解码失败等：区分超时与其他读取失败，底层原因保留。
+            kind = "timed out" if "timed out" in str(exc) else "failed"
+            return ConnectionHealth(
+                healthy=False,
+                message=f"application probe {kind} at {probe_location}: {exc}",
+            )
+        # 拿到本次新鲜响应即应用层健康——即使样本品质位 BAD（坏品质是
+        # 合法的通信证据，不代表链路不健康）。
         return ConnectionHealth(
             healthy=True,
-            message=f"{link_message}; probe ok at ca={mapped.common_address}, ioa={mapped.ioa}",
+            message=f"{link_message}; application probe ok at {probe_location}",
         )
 
     # ------------------------------------------------------------------
