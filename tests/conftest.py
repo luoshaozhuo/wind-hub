@@ -28,6 +28,8 @@ import pytest
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 
+pytest_plugins = ("tests.support.worker_fixtures",)
+
 _TESTS_ROOT = Path(__file__).resolve().parent
 
 _LEVEL_MARKERS = (

@@ -32,30 +32,24 @@ async def client(
     collector_factory,
     tmp_path: Path,
 ) -> tuple[CollectorGrpcClient, Path, CollectorProcess]:
-    sink_path = tmp_path / "out" / "telemetry.jsonl"
+    sink_path = tmp_path / "out" / "telemetry.csv"
     config_dir = write_functional_config(
         tmp_path / "cfg",
         modbus_server.port,
-        sinks=[
-            {
-                "name": "file_sink",
+        sinks={
+            "file_sink": {
                 "type": "file",
-                "connection": {
-                    "path": str(sink_path),
-                    "buffer_size": 4,
-                    "flush_interval": 0.5,
-                },
+                "connection": {"path": str(sink_path)},
             }
-        ],
-        tasks=[
-            {
-                "task_id": TASK_ID,
-                "device": "modbus-1",
+        },
+        tasks={
+            TASK_ID: {
+                "device_group_id": "modbus-1",
                 "point_group": "telemetry",
                 "interval": 0.2,
-                "targets": [{"sink": "file_sink"}],
+                "sink_ids": ["file_sink"],
             }
-        ],
+        },
     )
     proc: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
     client = CollectorGrpcClient(proc.grpc_target)
@@ -101,7 +95,7 @@ class TestConfigTransactionRoundTrip:
         update_yaml(
             config_dir,
             "tasks.yaml",
-            lambda data: data["tasks"][0].update({"interval": 0.5}),
+            lambda data: data["tasks"][TASK_ID].update({"interval": 0.5}),
         )
         config_hash = config_dir_digest(config_dir)
 
@@ -125,7 +119,7 @@ class TestConfigTransactionRoundTrip:
         update_yaml(
             config_dir,
             "tasks.yaml",
-            lambda data: data["tasks"][0].update({"interval": 0.5}),
+            lambda data: data["tasks"][TASK_ID].update({"interval": 0.5}),
         )
         config_hash = config_dir_digest(config_dir)
 
