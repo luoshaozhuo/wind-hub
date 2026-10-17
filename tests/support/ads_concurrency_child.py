@@ -39,7 +39,7 @@ import threading
 import time
 from collections import Counter
 from collections.abc import Callable
-from ctypes import c_ubyte
+from ctypes import Structure, c_uint32
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -137,9 +137,18 @@ class _Counters:
             self.values.append(value)
 
 
+class _SumReadItem(Structure):  # type: ignore[misc]
+    _fields_ = [
+        ("iGroup", c_uint32),
+        ("iOffset", c_uint32),
+        ("size", c_uint32),
+    ]
+
+
 def _sum_read(conn: Any, items: list[tuple[int, int, int]]) -> bytes:
-    raw_items = b"".join(struct.pack("<III", *item) for item in items)
-    buf = (c_ubyte * len(raw_items))(*raw_items)
+    # pyads 对 ADSIGRP_SUMUP_READ 用 len(value) 与元素 .size 计算响应长度，
+    # 必须传入带 .size 的 ctypes Structure 数组（与 Driver 生产路径一致）。
+    buf = (_SumReadItem * len(items))(*(_SumReadItem(*item) for item in items))
     raw = conn.read_write(
         constants.ADSIGRP_SUMUP_READ,
         len(items),
@@ -572,14 +581,30 @@ def run_experiment(spec: dict[str, Any]) -> ExperimentResult:
             threading.Thread(target=_drop, name="ads-exp-fault", daemon=True).start()
 
         threads: list[threading.Thread] = []
-        if scenario == "A10":
-            # 每线程独占一条独立 pyads Connection。
+        if scenario == "A10" and mode == "sequential":
+            # 真正单线程，在 N 条独立连接间轮流发命令：零客户端并发基线。
+            def _a10_sequential() -> None:
+                for call_index in range(n_threads * iters):
+                    _op_read_on(ctx, call_index % n_threads,
+                                connections[call_index % n_threads],
+                                call_index // n_threads)
+
+            threads = [
+                threading.Thread(target=_a10_sequential, name="ads-exp-seq")
+            ]
+        elif scenario == "A10":
+            # 每线程独占一条独立 pyads Connection；locked 模式额外经
+            # 全局锁串行，用于区分"客户端竞争"与"共享传输"两类根因。
             ctx.gate = threading.Barrier(n_threads)
 
             def thread_main(index: int) -> None:
                 ctx.gate_wait()
                 for iteration in range(iters):
-                    _op_read_on(ctx, index, connections[index], iteration)
+                    if mode == "locked":
+                        with ctx.io_lock:
+                            _op_read_on(ctx, index, connections[index], iteration)
+                    else:
+                        _op_read_on(ctx, index, connections[index], iteration)
 
             threads = [
                 threading.Thread(target=thread_main, args=(i,), name=f"ads-exp-{i}")
