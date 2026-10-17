@@ -480,14 +480,12 @@ class CollectorRuntime:
         restart_subscription_devices: set[str] = set()
         for did in diff.devices.updated:
             device_id = DeviceId(did)
-            old_session = self._device_runtime.devices.get(did)
+            session = self._device_runtime.devices.get(did)
             new_device = new_config.devices[device_id]
             new_table = new_config.point_table_for_device(device_id)
-            session = self._device_runtime.devices.get(did)
             if (
-                old_session is not None
-                and session is not None
-                and old_session.point_table.point_table_id != new_table.point_table_id
+                session is not None
+                and session.point_table.point_table_id != new_table.point_table_id
                 and self._device_runtime.is_lightweight_update(did, new_device, new_table)
                 and session.acquisition_mode is AcquisitionMode.SUBSCRIBE
             ):

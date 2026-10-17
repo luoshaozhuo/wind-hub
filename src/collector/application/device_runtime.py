@@ -127,8 +127,8 @@ class DeviceRuntime:
     def requires_rebuild(self, device_id: str, device: Device, point_table: PointTable) -> bool:
         """重复热增遇到不同配置/点表时，通知协调器先停旧会话的采集句柄。"""
         existing = self._devices.get(device_id)
-        if device_id not in self._devices or existing is None:
-            return device_id in self._devices
+        if existing is None:
+            return False
         return _session_signature(existing) != (device, point_table.point_table_id)
 
     def is_lightweight_update(self, device_id: str, device: Device, point_table: PointTable) -> bool:
@@ -150,9 +150,10 @@ class DeviceRuntime:
         Task 展开由调用方在整体 reconfigure 收尾时同步。
         """
         session = self._devices[device_id]
-        session.set_device(device)
-        # 点表绑定切换与元数据/表内容更新同路径——重注入内存映射。
+        # Driver 映射先成功变更，才能提交会话配置，避免部分失败后
+        # 将旧协议状态误认为已收敛到新配置。
         session.set_points(point_table)
+        session.set_device(device)
         logger.info("Hot-reload: device '%s' updated in place (no reconnect)", device_id)
 
     def set_points(self, device_id: str, device: Device, point_table: PointTable) -> None:
