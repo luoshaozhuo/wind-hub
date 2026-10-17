@@ -34,4 +34,14 @@ def test_collector_accepts_snapshot_port_source(tmp_path: Path) -> None:
 
     config = load_collector_config(Source())
     assert config.tasks == snapshot.tasks
-    assert {device_id for device_id, device in config.devices.items() if device.subscribe_enabled} == {device_id for device_id, device in snapshot.site.devices.items() if device.subscribe_enabled and device.enabled}
+    enabled_subscribers = {
+        device_id
+        for device_id, device in config.devices.items()
+        if device.subscribe_enabled
+    }
+    expected_subscribers = {
+        device_id
+        for device_id, device in snapshot.site.devices.items()
+        if device.subscribe_enabled and device.enabled
+    }
+    assert enabled_subscribers == expected_subscribers

@@ -12,15 +12,15 @@ from collections.abc import AsyncIterator
 import pytest
 from pymodbus.client import AsyncModbusTcpClient
 
-from core.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
-from core.infrastructure.sink.modbus.server import ModbusTcpSinkServer
-from core.domain.point_value import PointValue
-from core.infrastructure.config.sink_schema import (
+from core.application.sink_contract import (
     ModbusSinkAddress,
-    ModbusSinkConnection,
     ResolvedSinkPoint,
     SinkSource,
 )
+from core.domain.point_value import PointValue
+from core.infrastructure.config.sink_schema import ModbusSinkConnection
+from core.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
+from core.infrastructure.sink.modbus.server import ModbusTcpSinkServer
 from tests.support.process import free_port
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]

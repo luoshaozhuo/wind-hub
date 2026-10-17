@@ -8,13 +8,12 @@ from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
+from core.application.sink_contract import ModbusSinkAddress, ResolvedSinkPoint
 from core.domain import Device, DeviceId, Sink
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.sink_schema import (
     MODBUS_WORD_WIDTH,
     SINK_NUMERIC_DATA_TYPES,
-    ModbusSinkAddress,
-    ResolvedSinkPoint,
 )
 
 from ...application.config import BackpressurePolicy, CollectorConfig, RuntimeParams

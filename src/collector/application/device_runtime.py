@@ -18,9 +18,9 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from core.application import ConnectionHealth, WatchdogUseCase
+from core.domain import Device, PointTable
 
 from .config import RuntimeParams
-from core.domain import Device, PointTable
 from .device_state import DeviceRuntimeState
 from .session import CollectorDeviceSession
 
@@ -131,7 +131,9 @@ class DeviceRuntime:
             return False
         return _session_signature(existing) != (device, point_table.point_table_id)
 
-    def is_lightweight_update(self, device_id: str, device: Device, point_table: PointTable) -> bool:
+    def is_lightweight_update(
+        self, device_id: str, device: Device, point_table: PointTable
+    ) -> bool:
         """仅点表绑定/设备分组/名称变化时可保留现有协议连接。"""
         existing = self._devices.get(device_id)
         if existing is None:
@@ -276,7 +278,11 @@ class DeviceRuntime:
     # ------------------------------------------------------------------
 
     async def add_device(
-        self, device_id: str, device: Device, point_table: PointTable, session: CollectorDeviceSession
+        self,
+        device_id: str,
+        device: Device,
+        point_table: PointTable,
+        session: CollectorDeviceSession,
     ) -> None:
         """运行时新增设备会话并立即尝试连接；失败记账后保留会话，由 Watchdog 后续周期恢复。
 
@@ -311,7 +317,11 @@ class DeviceRuntime:
         self._connect_locks.pop(device_id, None)
 
     async def rebuild_device(
-        self, device_id: str, device: Device, point_table: PointTable, session: CollectorDeviceSession
+        self,
+        device_id: str,
+        device: Device,
+        point_table: PointTable,
+        session: CollectorDeviceSession,
     ) -> None:
         """重建设备——关闭旧连接，换入新会话后重新接入。
 

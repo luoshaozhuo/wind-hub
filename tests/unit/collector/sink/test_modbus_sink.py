@@ -11,21 +11,23 @@ from typing import Literal
 
 import pytest
 
+from core.application import ConfigError, Quality
+from core.application.sink_contract import (
+    ModbusSinkAddress,
+    ResolvedSinkPoint,
+    SinkSource,
+)
 from core.application.sink_export import ExportedSinkPointValue
+from core.domain import Sink
+from core.domain.point_value import PointValue
+from core.infrastructure.config.sink_schema import (
+    ModbusSinkConnection,
+    parse_sink_definitions,
+)
 from core.infrastructure.sink.modbus.codec import encode_modbus_value
 from core.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from core.infrastructure.sink.modbus.sink import ModbusSink
 from core.infrastructure.sink.modbus.store import ModbusSinkStore
-from core.application import ConfigError, Quality
-from core.domain import Sink
-from core.domain.point_value import PointValue
-from core.infrastructure.config.sink_schema import (
-    ModbusSinkAddress,
-    ModbusSinkConnection,
-    ResolvedSinkPoint,
-    SinkSource,
-    parse_sink_definitions,
-)
 
 
 def _point(

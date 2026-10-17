@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from collector.application.config import CollectorConfig, RuntimeParams
 from collector.application.device_runtime import DeviceRuntime, is_connection_level
+from collector.application.session import CollectorDeviceSession
 from core.domain import Device, DeviceId, PointTable
 from tests.support.new_collector import (
     CollectorFakeProtocol,
@@ -164,7 +167,6 @@ def test_lightweight_update_only_table_or_group_change():
 
 async def test_close_all_bounds_hung_device_close():
     """单台关闭挂起以 connect_timeout 为上界，不阻断其余设备释放。"""
-    import asyncio
 
     hung = CollectorFakeProtocol()
     healthy = CollectorFakeProtocol()
@@ -302,7 +304,6 @@ async def test_removed_device_watchdog_cannot_reconnect():
 
 async def test_concurrent_ensure_connected_single_connect_and_metric():
     """并发 ensure_connected 在同一断线事件上串行：只 connect 一次、只记账一次。"""
-    import asyncio
 
     metrics = _RecordingMetrics()
     proto = CollectorFakeProtocol()
@@ -335,7 +336,6 @@ async def test_concurrent_ensure_connected_single_connect_and_metric():
 
 async def test_ensure_connected_aborts_when_device_rebuilt_while_awaiting_lock():
     """等锁期间设备被重建：旧调用不再触碰新会话，直接返回 False。"""
-    import asyncio
 
     proto = CollectorFakeProtocol()
     config = make_collector_config()
@@ -382,7 +382,6 @@ async def _runtime_with_hung_connect(
     connect_timeout: float = 0.2,
 ) -> tuple[DeviceRuntime, CollectorDeviceSession, _RecordingMetrics, asyncio.Event]:
     """构造 connect 永久挂起的设备运行时（黑洞/无响应对端的确定性替身）。"""
-    import asyncio
 
     metrics = _RecordingMetrics()
     config = make_collector_config()
@@ -410,7 +409,6 @@ async def test_watchdog_connect_timeout_is_counted_as_failure():
     （BaseException 子类），黑洞下每次 connect 超时都漏记
     device_connect_failures。
     """
-    import asyncio
 
     runtime, _session, metrics, entered = await _runtime_with_hung_connect()
     watchdog = runtime._watchdogs["dev1"]
@@ -424,7 +422,6 @@ async def test_watchdog_connect_timeout_is_counted_as_failure():
 
 async def test_watchdog_stop_during_hung_connect_is_external_cancel_not_failure():
     """停机取消挂起的 connect：原样传播、不记为一次 connect 失败。"""
-    import asyncio
     import contextlib
 
     runtime, _session, metrics, entered = await _runtime_with_hung_connect(connect_timeout=5.0)
@@ -444,7 +441,6 @@ async def test_watchdog_stop_during_hung_connect_is_external_cancel_not_failure(
 
 async def test_failure_success_failure_connect_metrics_accumulate():
     """失败→恢复→再次失败：失败计数与连续失败状态随周期单调累计/清零。"""
-    import asyncio
 
     runtime, session, metrics, _entered = await _runtime_with_hung_connect()
     watchdog = runtime._watchdogs["dev1"]

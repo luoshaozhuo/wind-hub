@@ -6,12 +6,12 @@
 
 from __future__ import annotations
 
+from core.application import Quality
+from core.application.sink_contract import ResolvedSinkPoint
 from core.application.sink_export import SinkReferenceExporter
+from core.domain.point_value import PointValue
 from core.infrastructure.sink.modbus.codec import encode_modbus_value
 from core.infrastructure.sink.modbus.store import ModbusSinkStore
-from core.application import Quality
-from core.domain.point_value import PointValue
-from core.infrastructure.config.sink_schema import ResolvedSinkPoint
 
 
 class ModbusSinkDataPath:
