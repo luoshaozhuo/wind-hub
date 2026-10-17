@@ -129,6 +129,17 @@ def test_template_save_load_round_trip(tmp_path: Path) -> None:
     adapter.save(first)
     second = adapter.load()
     assert not diff_config_snapshots(first, second).has_changes
+    # 再次保存必须与首次输出字节一致：不允许逐次保存产生配置漂移。
+    first_dump = {
+        path.name: path.read_text(encoding="utf-8") for path in tmp_path.glob("*.yaml")
+    }
+    adapter.save(second)
+    third = adapter.load()
+    assert not diff_config_snapshots(second, third).has_changes
+    second_dump = {
+        path.name: path.read_text(encoding="utf-8") for path in tmp_path.glob("*.yaml")
+    }
+    assert first_dump == second_dump
 
 
 @pytest.mark.parametrize("filename", ["devices.yaml", "tasks.yaml", "sinks.yaml", "points.yaml"])

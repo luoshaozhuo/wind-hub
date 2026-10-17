@@ -69,7 +69,7 @@ sinks:
       database: 0
       key_prefix: "wind-hub"
     points:
-      - source: {device_id: iec104-001, point_id: active_power}
+      - source: {device_id: iec104-001, point_id: active_power_iec}
         ref: iec104_001_active_power
         address: {field: iec104_001_active_power}
 

@@ -64,7 +64,7 @@ async def test_yaml_config_drives_real_modbus_readback() -> None:
     device = next(iter(snapshot.site.devices.values()))
     model = snapshot.device_models[device.device_model_id]
     table = snapshot.point_tables[model.point_table_id]
-    options = dict(snapshot.protocol_options_by_device.get(device.device_id, {}))
+    options = {**model.protocol_options, **device.protocol_options}
     assert "active_power" in table.points and "wind_speed" in table.points
 
     port = free_port()
