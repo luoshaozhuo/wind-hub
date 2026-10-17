@@ -552,7 +552,10 @@ class SinkRuntime:
 
     def _restart_consumer(self, sink_name: str, sink: SinkPort) -> None:
         """运行中为重建后的 Sink 补建消费者；停机/未启动时不建。"""
-        if not self._running:
+        if not self._running or self._sinks.get(sink_name) is not sink:
+            return
+        current = self._consumer_tasks.get(sink_name)
+        if current is not None and not current.done():
             return
         self._consumer_tasks[sink_name] = asyncio.create_task(self._consumer(sink_name, sink))
 
@@ -589,3 +592,8 @@ class SinkRuntime:
         except asyncio.CancelledError:
             logger.info("Sink consumer '%s' cancelled", sink_name)
             raise
+        finally:
+            # 只清除当前任务自己的登记；热重载可能已安装新消费者。
+            current = asyncio.current_task()
+            if self._consumer_tasks.get(sink_name) is current:
+                self._consumer_tasks.pop(sink_name, None)
