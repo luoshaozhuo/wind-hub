@@ -8,7 +8,7 @@ from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
-from core.domain import Device, DeviceId, ProtocolOptions, Sink
+from core.domain import Device, DeviceId, Sink
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.sink_schema import (
     MODBUS_WORD_WIDTH,
@@ -38,30 +38,26 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
     devices = snapshot.site.devices
     settings = snapshot.system.runtime
     effective_devices: dict[DeviceId, Device] = {}
-    effective_options: dict[DeviceId, ProtocolOptions] = {}
     for key, device in devices.items():
         if not device.enabled:
             continue
         model = snapshot.device_models[device.device_model_id]
         protocol = snapshot.point_tables[model.point_table_id].protocol.name
-        merged_device, merged_options = resolve_effective_device(
+        merged_device, _merged_options = resolve_effective_device(
             device,
             model,
             protocol,
         )
         effective_devices[key] = merged_device
-        effective_options[key] = merged_options
     return CollectorConfig(
         units=snapshot.units,
         devices=effective_devices,
         device_models=snapshot.device_models,
         point_tables=snapshot.point_tables,
-        protocol_options_by_device=effective_options,
         runtime=_runtime_params(settings),
         ads_local=snapshot.system.ads,
         tasks=snapshot.tasks,
         sinks=_resolve_sinks(snapshot),
-        ads_subscribe_devices=frozenset(key for key, device in devices.items() if device.subscribe_enabled),
         disabled_devices=frozenset(
             DeviceId(key) for key, device in devices.items() if not device.enabled
         ),

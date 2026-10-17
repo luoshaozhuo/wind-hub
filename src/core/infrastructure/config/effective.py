@@ -51,6 +51,8 @@ def resolve_effective_device(
     if endpoint.port != port:
         endpoint = ConnectionEndpoint(host=endpoint.host, port=int(port))
         device = replace(device, endpoint=endpoint)
+    if dict(device.protocol_options) != dict(options):
+        device = replace(device, protocol_options=options)
     return device, options
 
 
