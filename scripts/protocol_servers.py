@@ -139,7 +139,7 @@ def plan_devices(
             )
         claimed.add(key)
         options = dict(model.protocol_options)
-        options.update(snapshot.protocol_options_by_device.get(device.device_id, {}))
+        options.update(device.protocol_options)
         points = tuple(table.points.values())
         data_types = {
             point.point_id: snapshot.business_points[point.business_point_id].data_type

@@ -99,7 +99,7 @@ class DeviceQueryService:
         snapshot = self._config.current_config
         model = snapshot.device_models[cfg.device_model_id]
         table = snapshot.point_tables[model.point_table_id]
-        protocol_options = snapshot.protocol_options_by_device.get(cfg.device_id, {})
+        protocol_options = cfg.protocol_options
         defaults = model.endpoint_defaults
         port_override = cfg.endpoint.port if cfg.endpoint.port != defaults.get("port") else None
         return DeviceSnapshot(

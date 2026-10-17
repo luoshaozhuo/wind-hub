@@ -48,7 +48,6 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
             device,
             model,
             protocol,
-            snapshot.protocol_options_by_device.get(key, {}),
         )
         effective_devices[key] = merged_device
         effective_options[key] = merged_options
@@ -62,7 +61,7 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
         ads_local=snapshot.system.ads,
         tasks=snapshot.tasks,
         sinks=_resolve_sinks(snapshot),
-        ads_subscribe_devices=snapshot.ads_subscribe_devices,
+        ads_subscribe_devices=frozenset(key for key, device in devices.items() if device.subscribe_enabled),
         disabled_devices=frozenset(
             DeviceId(key) for key, device in devices.items() if not device.enabled
         ),

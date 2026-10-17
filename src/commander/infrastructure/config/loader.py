@@ -29,7 +29,6 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CommanderConfig:
             device,
             model,
             protocol,
-            snapshot.protocol_options_by_device.get(key, {}),
         )
         devices[key] = merged_device
         options[key] = merged_options
