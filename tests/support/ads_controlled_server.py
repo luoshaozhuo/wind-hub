@@ -67,6 +67,9 @@ class ControlledMemoryHandler(LinearMemoryHandler):
         self._rules_lock = threading.Lock()
         self._rules: dict[int, _CommandRule] = {}
         self.request_log: deque[RequestRecord] = deque(maxlen=log_maxlen)
+        # 入口到达记录：在延迟/拒绝规则应用**之前**记录，供取消测试确认命令
+        # 已在途（request_count 在 super().handle_request 内才递增，太晚）。
+        self.arrival_log: deque[tuple[int, int, float]] = deque(maxlen=log_maxlen)
         self._active_lock = threading.Lock()
         self._active_by_command: dict[int, int] = {}
         self._peak_by_command: dict[int, int] = {}
@@ -106,6 +109,7 @@ class ControlledMemoryHandler(LinearMemoryHandler):
         with self._rules_lock:
             self._rules.clear()
         self.request_log.clear()
+        self.arrival_log.clear()
         with self._active_lock:
             self._active_by_command.clear()
             self._peak_by_command.clear()
@@ -120,6 +124,22 @@ class ControlledMemoryHandler(LinearMemoryHandler):
 
     def records(self) -> tuple[RequestRecord, ...]:
         return tuple(self.request_log)
+
+    def arrival_count(self, command_id: int) -> int:
+        """命令到达入口的次数（含仍在延迟/拒绝窗口内未完成的）。"""
+        return sum(1 for command, _invoke, _t in self.arrival_log if command == command_id)
+
+    def reset_telemetry(self) -> None:
+        """清空到达/完成/峰值记录，保留延迟/拒绝/屏障规则。
+
+        connect 自身会发一条 READSTATE 做健康校验，各实验在连接建立后
+        调用本方法归零，避免基线污染。
+        """
+        self.request_log.clear()
+        self.arrival_log.clear()
+        with self._active_lock:
+            self._active_by_command.clear()
+            self._peak_by_command.clear()
 
     def invoke_ids(self, command_id: int) -> tuple[int, ...]:
         return tuple(r.invoke_id for r in self.request_log if r.command_id == command_id)
@@ -141,6 +161,7 @@ class ControlledMemoryHandler(LinearMemoryHandler):
         state_flags = struct.unpack("<H", request.ams_header.state_flags)[0]
         state = struct.pack("<H", state_flags | 0x0001)
         t_recv = time.monotonic()
+        self.arrival_log.append((command_id, invoke_id, t_recv))
 
         with self._rules_lock:
             rule = self._rules.get(command_id)
