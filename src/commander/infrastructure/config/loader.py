@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.port import ConfigPort
-from core.domain import Device, DeviceId, ProtocolOptions
+from core.domain import Device, DeviceId
 from core.infrastructure.config.effective import resolve_effective_device
 
 from ...application.config import CommanderConfig
@@ -18,21 +18,18 @@ def load_commander_config(source: ConfigPort) -> CommanderConfig:
 def _from_snapshot(snapshot: ConfigSnapshot) -> CommanderConfig:
     runtime = snapshot.system.runtime
     devices: dict[DeviceId, Device] = {}
-    options: dict[DeviceId, ProtocolOptions] = {}
     for key, device in snapshot.site.devices.items():
         if not device.enabled:
             continue
         # 合并「设备显式 > 型号默认 > 协议代码默认」得到有效连接参数。
         model = snapshot.device_models[device.device_model_id]
         protocol = snapshot.point_tables[model.point_table_id].protocol.name
-        merged_device, merged_options = resolve_effective_device(
+        merged_device, _ = resolve_effective_device(
             device,
             model,
             protocol,
-            snapshot.protocol_options_by_device.get(key, {}),
         )
         devices[key] = merged_device
-        options[key] = merged_options
     return CommanderConfig(
         units=snapshot.units,
         devices=devices,
@@ -40,7 +37,6 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CommanderConfig:
         device_groups=snapshot.device_groups,
         point_tables=snapshot.point_tables,
         business_points=snapshot.business_points,
-        protocol_options_by_device=options,
         ads_local=snapshot.system.ads,
         connect_timeout=runtime.connect_timeout if runtime.connect_timeout is not None else 1.0,
         write_timeout=runtime.write_timeout if runtime.write_timeout is not None else 1.0,

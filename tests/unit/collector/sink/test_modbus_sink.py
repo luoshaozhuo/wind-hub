@@ -11,11 +11,11 @@ from typing import Literal
 
 import pytest
 
-from collector.application.sink_export import ExportedSinkPointValue
-from collector.infrastructure.sink.modbus.codec import encode_modbus_value
-from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
-from collector.infrastructure.sink.modbus.sink import ModbusSink
-from collector.infrastructure.sink.modbus.store import ModbusSinkStore
+from core.application.sink_export import ExportedSinkPointValue
+from core.infrastructure.sink.modbus.codec import encode_modbus_value
+from core.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
+from core.infrastructure.sink.modbus.sink import ModbusSink
+from core.infrastructure.sink.modbus.store import ModbusSinkStore
 from core.application import ConfigError, Quality
 from core.domain import Sink
 from core.domain.point_value import PointValue

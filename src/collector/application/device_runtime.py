@@ -19,7 +19,8 @@ from typing import TYPE_CHECKING
 
 from core.application import ConnectionHealth, WatchdogUseCase
 
-from .config import DeviceView, RuntimeParams
+from .config import RuntimeParams
+from core.domain import Device, PointTable
 from .device_state import DeviceRuntimeState
 from .session import CollectorDeviceSession
 
@@ -72,8 +73,6 @@ class DeviceRuntime:
         # 同一设备的显式 connect 与 Watchdog close/connect 共用锁，
         # 避免热更新期间并发连接和重复指标记账。
         self._connect_locks: dict[str, asyncio.Lock] = {}
-        # 每台设备建会话时使用的 DeviceView（轻量更新判定的比较基线）。
-        self._views: dict[str, DeviceView] = {}
         for device_id, device in devices.items():
             self._watchdogs[device_id] = self._make_watchdog(device_id, device)
 
@@ -125,56 +124,47 @@ class DeviceRuntime:
     # 热更新判定（CollectorRuntime 在 reconfigure 时调用）
     # ------------------------------------------------------------------
 
-    def register_view(self, device_id: str, view: DeviceView) -> None:
-        """登记设备会话的创建视图（启动装配与 add/rebuild 后调用）。"""
-        self._views[device_id] = view
-
-    def requires_rebuild(self, device_id: str, view: DeviceView) -> bool:
+    def requires_rebuild(self, device_id: str, device: Device, point_table: PointTable) -> bool:
         """重复热增遇到不同配置/点表时，通知协调器先停旧会话的采集句柄。"""
-        existing = self._views.get(device_id)
-        if device_id not in self._devices or existing is None:
-            return device_id in self._devices
-        return _view_signature(existing) != _view_signature(view)
+        existing = self._devices.get(device_id)
+        if existing is None:
+            return False
+        return _session_signature(existing) != (device, point_table.point_table_id)
 
-    def is_lightweight_update(self, device_id: str, view: DeviceView) -> bool:
+    def is_lightweight_update(self, device_id: str, device: Device, point_table: PointTable) -> bool:
         """仅点表绑定/设备分组/名称变化时可保留现有协议连接。"""
-        existing = self._views.get(device_id)
-        if device_id not in self._devices or existing is None:
+        existing = self._devices.get(device_id)
+        if existing is None:
             return False
         return (
-            existing.device.endpoint == view.device.endpoint
-            and dict(existing.options) == dict(view.options)
-            and existing.device.device_model_id == view.device.device_model_id
-            and existing.subscribe_enabled == view.subscribe_enabled
+            existing.device.endpoint == device.endpoint
+            and dict(existing.device.protocol_options) == dict(device.protocol_options)
+            and existing.device.device_model_id == device.device_model_id
+            and existing.subscribe_enabled == device.subscribe_enabled
         )
 
-    def update_device(self, device_id: str, view: DeviceView) -> None:
+    def update_device(self, device_id: str, device: Device, point_table: PointTable) -> None:
         """就地应用轻量配置；先换设备快照，再仅在绑定改变时重注入点表。
 
         保留原有点表解析时机与失败语义；device_group 变化不触碰协议连接。
         Task 展开由调用方在整体 reconfigure 收尾时同步。
         """
-        device = self._devices[device_id]
-        device.set_device(view.device)
-        # 点表绑定切换与元数据/表内容更新同路径——重注入内存映射。
-        device.set_points(view.point_table)
-        self._views[device_id] = view
+        session = self._devices[device_id]
+        # Driver 映射先成功变更，才能提交会话配置，避免部分失败后
+        # 将旧协议状态误认为已收敛到新配置。
+        session.set_points(point_table)
+        session.set_device(device)
         logger.info("Hot-reload: device '%s' updated in place (no reconnect)", device_id)
 
-    def set_points(self, device_id: str, view: DeviceView) -> None:
+    def set_points(self, device_id: str, device: Device, point_table: PointTable) -> None:
         """重注入已收敛设备的点映射/元数据，不重建协议连接。"""
-        device = self._devices[device_id]
-        device.set_points(view.point_table)
-        self._views[device_id] = view
+        session = self._devices[device_id]
+        session.set_points(point_table)
         logger.info(
             "Hot-reload: point mapping re-injected for '%s' (table '%s')",
             device_id,
-            view.point_table.point_table_id,
+            point_table.point_table_id,
         )
-
-    def view_of(self, device_id: str) -> DeviceView | None:
-        """返回设备当前登记的创建视图（reconfigure 收敛判定用）。"""
-        return self._views.get(device_id)
 
     # ------------------------------------------------------------------
     # 连接生命周期
@@ -286,7 +276,7 @@ class DeviceRuntime:
     # ------------------------------------------------------------------
 
     async def add_device(
-        self, device_id: str, view: DeviceView, session: CollectorDeviceSession
+        self, device_id: str, device: Device, point_table: PointTable, session: CollectorDeviceSession
     ) -> None:
         """运行时新增设备会话并立即尝试连接；失败记账后保留会话，由 Watchdog 后续周期恢复。
 
@@ -295,7 +285,6 @@ class DeviceRuntime:
         """
         self._devices[device_id] = session
         self._device_states[device_id] = DeviceRuntimeState()
-        self._views[device_id] = view
         watchdog = self._make_watchdog(device_id, session)
         self._watchdogs[device_id] = watchdog
         await self._connect_new(device_id, session, "connected")
@@ -319,11 +308,10 @@ class DeviceRuntime:
                 )
 
         self._device_states.pop(device_id, None)
-        self._views.pop(device_id, None)
         self._connect_locks.pop(device_id, None)
 
     async def rebuild_device(
-        self, device_id: str, view: DeviceView, session: CollectorDeviceSession
+        self, device_id: str, device: Device, point_table: PointTable, session: CollectorDeviceSession
     ) -> None:
         """重建设备——关闭旧连接，换入新会话后重新接入。
 
@@ -347,7 +335,6 @@ class DeviceRuntime:
         # 驱动实例已更换——运行状态随之重置（新驱动的首次 connect 结果
         # 立即写入全新状态）。
         self._device_states[device_id] = DeviceRuntimeState()
-        self._views[device_id] = view
         watchdog = self._make_watchdog(device_id, session)
         self._watchdogs[device_id] = watchdog
         await self._connect_new(device_id, session, "reconnected")
@@ -453,11 +440,6 @@ def _transport_open(device: CollectorDeviceSession) -> bool:
         return False
 
 
-def _view_signature(view: DeviceView) -> object:
-    """设备视图的重建判定签名（与 reload.compute_diff 的设备签名同口径）。"""
-    return (
-        view.device,
-        dict(view.options),
-        view.point_table.point_table_id,
-        view.subscribe_enabled,
-    )
+def _session_signature(session: CollectorDeviceSession) -> object:
+    """Compare the currently applied session configuration."""
+    return (session.device, session.point_table.point_table_id)

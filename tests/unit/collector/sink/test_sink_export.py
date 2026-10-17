@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from collector.application.sink_export import SinkReferenceExporter
+from core.application.sink_export import SinkReferenceExporter
 from core.application import Quality
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import (

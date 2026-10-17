@@ -33,9 +33,9 @@ def _adapter(tmp_path: Path) -> YamlConfigAdapter:
 
 def test_snapshot_nested_configuration_is_immutable(tmp_path: Path) -> None:
     snapshot = _adapter(tmp_path).load()
-    device_id = next(iter(snapshot.protocol_options_by_device))
+    device = next(iter(snapshot.site.devices.values()))
     with pytest.raises(TypeError):
-        snapshot.protocol_options_by_device[device_id]["timeout"] = 99  # type: ignore[index]  # 故意探测 Mapping 不可变性
+        device.protocol_options["timeout"] = 99  # type: ignore[index]  # 故意探测 Mapping 不可变性
     model = next(iter(snapshot.device_models.values()))
     with pytest.raises(TypeError):
         model.endpoint_defaults["port"] = 999  # type: ignore[index]  # 故意探测 Mapping 不可变性

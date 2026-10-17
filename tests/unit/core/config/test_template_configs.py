@@ -58,7 +58,7 @@ def test_template_assembles_collector_and_commander() -> None:
 def test_template_device_overrides_merge_with_model_defaults() -> None:
     """设备显式值按同名 Key 覆盖型号默认值，未覆盖字段继续继承。"""
     snapshot = YamlConfigAdapter(TEMPLATE_DIR).load()
-    options = snapshot.protocol_options_by_device
+    options = {device_id: device.protocol_options for device_id, device in snapshot.site.devices.items()}
     models = snapshot.device_models
 
     modbus_override = options[DeviceId("modbus-010")]
@@ -94,7 +94,7 @@ def test_template_protocol_options_accepted_by_parsers() -> None:
         )
         options = {
             **model.protocol_options,
-            **snapshot.protocol_options_by_device.get(device_id, {}),
+            **device.protocol_options,
         }
         _OPTION_PARSERS[protocol](endpoint, options)
 
@@ -114,7 +114,7 @@ def test_template_defaults_match_protocol_code_defaults() -> None:
     ads3 = parse_ads_config(endpoint, {"twincat_version": "3"})
     assert ads3.target_port == 851
     iec = parse_iec104_config(endpoint, {})
-    assert (iec.port, iec.common_addresses, iec.k, iec.w) == (2404, (1,), 12, 8)
+    assert (iec.port, iec.common_addr, iec.k, iec.w) == (2404, 1, 12, 8)
     assert (iec.t0, iec.t1, iec.t2, iec.t3) == (30.0, 15.0, 10.0, 20.0)
 
 

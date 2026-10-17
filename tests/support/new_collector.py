@@ -14,7 +14,6 @@ from typing import Any
 from collector.application.config import (
     CollectionTask,
     CollectorConfig,
-    DeviceView,
     RuntimeParams,
 )
 from collector.application.runtime import CollectorRuntime
@@ -122,7 +121,7 @@ class CollectorFakeRegistry(FakeRegistry):
     # list 不变性：收窄基类 instances 元素类型需要显式忽略
     instances: list[CollectorFakeProtocol]  # type: ignore[assignment]
 
-    def create(self, endpoint, point_table, protocol_options_by_device):
+    def create(self, endpoint, point_table, protocol_options):
         instance = CollectorFakeProtocol()
         self.instances.append(instance)
         return instance
@@ -219,6 +218,7 @@ def make_collector_config(
             device_model_id=DeviceModelId("mod"),
             endpoint=ConnectionEndpoint(host="127.0.0.1", port=502),
             device_group_ids=group_ids,
+            subscribe_enabled=ads_subscribe,
         )
     }
     point_tables = {PointTableId("tab"): table}
@@ -240,7 +240,6 @@ def make_collector_config(
         runtime=params or RuntimeParams(connect_timeout=0.2, shutdown_timeout=0.5),
         tasks=tasks,
         sinks=sinks or {},
-        ads_subscribe_devices=frozenset({DeviceId(device_id)}) if ads_subscribe else frozenset(),
     )
 
 
@@ -250,13 +249,13 @@ def make_session(
     *,
     device_id: str = "dev1",
 ) -> CollectorDeviceSession:
-    """按 config 的 device_view 构造采集会话（协议为 Fake）。"""
-    view = config.device_view(DeviceId(device_id))
+    """按 Device 与 PointTable 构造采集会话（协议为 Fake）。"""
+    device = config.devices[DeviceId(device_id)]
     return CollectorDeviceSession(
-        view.device,
-        view.point_table,
+        device,
+        config.point_table_for_device(DeviceId(device_id)),
         protocol or CollectorFakeProtocol(),
-        subscribe_enabled=view.subscribe_enabled,
+        subscribe_enabled=device.subscribe_enabled,
     )
 
 
@@ -275,20 +274,18 @@ def make_runtime(
     """
     proto = protocol or CollectorFakeProtocol()
     session = make_session(config, proto)
-    views = {"dev1": config.device_view(DeviceId("dev1"))}
     registry = CollectorFakeRegistry()
 
-    def session_factory(view: DeviceView) -> CollectorDeviceSession:
+    def session_factory(device: Device, point_table: PointTable) -> CollectorDeviceSession:
         return CollectorDeviceSession(
-            view.device,
-            view.point_table,
-            registry.create(view.device.endpoint, view.point_table, view.options),
-            subscribe_enabled=view.subscribe_enabled,
+            device,
+            point_table,
+            registry.create(device.endpoint, point_table, device.protocol_options),
+            subscribe_enabled=device.subscribe_enabled,
         )
 
     runtime = CollectorRuntime(
         devices={"dev1": session},
-        device_views=views,
         sinks=dict(sinks or {}),
         engine=engine or AcquisitionEngine(),
         params=config.runtime,

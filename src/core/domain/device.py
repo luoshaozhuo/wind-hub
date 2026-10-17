@@ -123,13 +123,15 @@ class DeviceModel:
 class Device:
     """现场具体设备聚合根。
 
-    每台 Device 固定对应一个通信端点。协议会话、启停状态和协议专有参数
-    不属于本聚合。
+    每台 Device 对应一个通信端点，并保留设备显式协议参数与采集策略。
+    运行时连接会话和连接健康状态不属于本聚合。
     """
 
     device_id: DeviceId
     device_model_id: DeviceModelId
     endpoint: ConnectionEndpoint
+    protocol_options: ProtocolOptions = field(default_factory=dict)
+    subscribe_enabled: bool = False
     name: str | None = None
     device_group_ids: tuple[DeviceGroupId, ...] = ()
     enabled: bool = True
@@ -156,6 +158,9 @@ class Device:
         if len(group_ids) != len(set(group_ids)):
             raise ValueError("device_group_ids must not contain duplicates")
 
+        if not isinstance(self.subscribe_enabled, bool):
+            raise ValueError("subscribe_enabled must be bool")
+        object.__setattr__(self, "protocol_options", freeze_protocol_options(self.protocol_options))
         object.__setattr__(self, "device_id", DeviceId(device_id))
         object.__setattr__(self, "device_model_id", DeviceModelId(device_model_id))
         object.__setattr__(self, "name", name)

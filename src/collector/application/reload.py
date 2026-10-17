@@ -171,8 +171,6 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
         if (
             old.device_models.get(previous.device_model_id)
             != new.device_models.get(current.device_model_id)
-            or old.protocol_options_by_device.get(device_id)
-            != new.protocol_options_by_device.get(device_id)
             or old.point_table_for_device(device_id) != new.point_table_for_device(device_id)
         ):
             updated.add(str(device_id))

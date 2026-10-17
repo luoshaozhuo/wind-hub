@@ -37,7 +37,6 @@ def _effective_ads_options(snapshot: ConfigSnapshot, device_id: str) -> Protocol
         device,
         model,
         "ads",
-        snapshot.protocol_options_by_device[device.device_id],
     )
     return options
 

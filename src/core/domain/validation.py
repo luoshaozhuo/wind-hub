@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from typing import Any
 
-from .device import Device, DeviceGroup, DeviceModel, DeviceType, ProtocolOptions
+from .device import Device, DeviceGroup, DeviceModel, DeviceType
 from .identities import (
     BusinessPointId,
     DeviceGroupId,
@@ -30,7 +30,6 @@ def validate_core_config(
     devices: Mapping[DeviceId, Device],
     business_points: Mapping[BusinessPointId, BusinessPoint],
     point_tables: Mapping[PointTableId, PointTable],
-    protocol_options_by_device: Mapping[DeviceId, ProtocolOptions],
     tasks: Mapping[str, Task] | None = None,
     sink_ids: Collection[str] = (),
     sinks: Mapping[str, Sink] | None = None,
@@ -47,7 +46,6 @@ def validate_core_config(
     _validate_point_tables(point_tables, business_points, units)
     _validate_device_models(device_models, device_types, point_tables)
     _validate_devices(devices, device_models, device_groups)
-    _validate_device_options(protocol_options_by_device, devices)
     if sinks is not None:
         _validate_sinks(sinks, devices, device_models, point_tables)
     if tasks is not None:
@@ -192,18 +190,6 @@ def _validate_devices(
                 f"device '{device.device_id}' references unknown groups "
                 f"{sorted(str(value) for value in unknown_groups)}"
             )
-
-
-def _validate_device_options(
-    protocol_options_by_device: Mapping[DeviceId, ProtocolOptions],
-    devices: Mapping[DeviceId, Device],
-) -> None:
-    unknown_devices = set(protocol_options_by_device) - set(devices)
-    if unknown_devices:
-        raise ValueError(
-            "device options reference unknown devices: "
-            f"{sorted(str(value) for value in unknown_devices)}"
-        )
 
 
 def _validate_catalog_unit(unit: Unit, catalog: UnitCatalog, *, context: str) -> None:

@@ -11,7 +11,7 @@
   ``protocol_options``；型号连接默认值拆分为 ``endpoint_defaults``
   （仅 port）与 ``protocol_options``；
 - 快照只保存显式配置：``Device.endpoint`` 与
-  ``protocol_options_by_device`` 均为设备实例显式值，型号默认值留在
+  ``Device.protocol_options`` 均为设备实例显式值，型号默认值留在
   ``DeviceModel`` 上，运行时有效参数由 Collector/Commander 装配层合并。
 """
 
@@ -458,8 +458,6 @@ def _devices(
 ) -> tuple[
     dict[DeviceGroupId, DeviceGroup],
     dict[DeviceId, Device],
-    dict[DeviceId, dict[str, Any]],
-    frozenset[DeviceId],
 ]:
     groups: dict[DeviceGroupId, DeviceGroup] = {}
     for raw_key, item in _map(raw.get("device_groups", {}), "devices.device_groups").items():
@@ -474,8 +472,6 @@ def _devices(
         )
 
     devices: dict[DeviceId, Device] = {}
-    options_by_device: dict[DeviceId, dict[str, Any]] = {}
-    ads_subscriptions: set[DeviceId] = set()
     for raw_key, item in _map(raw.get("devices", {}), "devices").items():
         key = _id_key(raw_key, "device ID")
         identity = DeviceId(key)
@@ -517,8 +513,6 @@ def _devices(
                 raise ConfigError(f"{context}: subscribe_enabled is only valid for ADS devices")
             if not isinstance(subscribe, bool):
                 raise ConfigError(f"{context}.protocol_options.subscribe_enabled must be boolean")
-            if subscribe:
-                ads_subscriptions.add(identity)
         # 按「设备显式 > 型号默认 > 协议代码默认」校验有效参数组合。
         effective_port = endpoint.port or model.endpoint_defaults.get("port")
         effective_endpoint = ConnectionEndpoint(host=endpoint.host, port=effective_port)
@@ -532,12 +526,13 @@ def _devices(
             device_id=identity,
             device_model_id=model_id,
             endpoint=endpoint,
+            protocol_options=options,
+            subscribe_enabled=bool(subscribe),
             name=definition.get("name"),
             device_group_ids=memberships,
             enabled=_flag(definition.get("enabled", True), f"{context}.enabled"),
         )
-        options_by_device[identity] = options
-    return groups, devices, options_by_device, frozenset(ads_subscriptions)
+    return groups, devices
 
 
 def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
@@ -603,7 +598,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
         types = _device_types(model_document)
         models = _device_models(model_document, types, point_tables)
         _keys(device_document, {"devices", "device_groups"}, "devices.yaml")
-        groups, devices, options, ads_subscriptions = _devices(
+        groups, devices = _devices(
             device_document,
             models,
             point_tables,
@@ -618,7 +613,6 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
             devices=devices,
             business_points=business_points,
             point_tables=point_tables,
-            protocol_options_by_device=options,
             tasks=tasks,
             sink_ids=set(sinks),
             sinks=sinks,
@@ -635,8 +629,6 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
             business_points=business_points,
             tasks=tasks,
             sinks=sinks,
-            protocol_options_by_device=options,
-            ads_subscribe_devices=ads_subscriptions,
         )
     except (ValueError, TypeError, KeyError) as exc:
         raise ConfigError(f"invalid configuration: {exc}") from exc

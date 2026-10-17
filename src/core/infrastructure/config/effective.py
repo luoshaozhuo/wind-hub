@@ -1,7 +1,7 @@
 """运行时有效连接参数合成：设备显式 > 型号默认 > 协议代码默认。
 
 ConfigSnapshot 只保存显式配置（Device.endpoint 与
-protocol_options_by_device 为设备实例显式值，型号默认值留于
+Device.protocol_options 为设备实例显式值，型号默认值留于
 DeviceModel）；Collector/Commander 装配层经本模块合成运行时消费的
 有效 endpoint（端口三级回退后必然具体）与有效协议参数。
 """
@@ -33,7 +33,6 @@ def resolve_effective_device(
     device: Device,
     model: DeviceModel,
     protocol: str,
-    device_options: ProtocolOptions,
 ) -> tuple[Device, ProtocolOptions]:
     """合成单台设备的有效 endpoint 与有效协议参数。
 
@@ -42,7 +41,7 @@ def resolve_effective_device(
     协议参数回退：设备 protocol_options → 型号 protocol_options → 协议
     代码默认（由 Driver 解析层在 connect 时再次应用，不在此展开）。
     """
-    options: ProtocolOptions = {**model.protocol_options, **device_options}
+    options: ProtocolOptions = {**model.protocol_options, **device.protocol_options}
     endpoint = device.endpoint
     port = endpoint.port or model.endpoint_defaults.get("port")
     if port is None:
@@ -52,6 +51,8 @@ def resolve_effective_device(
     if endpoint.port != port:
         endpoint = ConnectionEndpoint(host=endpoint.host, port=int(port))
         device = replace(device, endpoint=endpoint)
+    if dict(device.protocol_options) != dict(options):
+        device = replace(device, protocol_options=options)
     return device, options
 
 

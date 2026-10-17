@@ -552,15 +552,19 @@ class SinkRuntime:
 
     def _restart_consumer(self, sink_name: str, sink: SinkPort) -> None:
         """运行中为重建后的 Sink 补建消费者；停机/未启动时不建。"""
-        if not self._running:
+        if not self._running or self._sinks.get(sink_name) is not sink:
+            return
+        current = self._consumer_tasks.get(sink_name)
+        if current is not None and not current.done():
             return
         self._consumer_tasks[sink_name] = asyncio.create_task(self._consumer(sink_name, sink))
 
     async def _consumer(self, sink_name: str, sink: SinkPort) -> None:
         """Per-sink 消费者任务——从队列取批次并写入 SinkPort。
 
-        单次 write 失败只记日志、继续消费后续批次（不标记 unhealthy，
-        健康状态由 SinkPort 自报）；空批次为停机哨兵。
+        write 失败后立即停止本消费者，避免不健康连接继续消耗队列；
+        后续由 Watchdog 关闭连接、重新打开并恢复消费者。
+        失败批次按 best-effort 计入丢弃，不自动重发；空批次为停机哨兵。
         """
         queue = self._queues[sink_name]
         try:
@@ -573,6 +577,10 @@ class SinkRuntime:
                 except Exception as exc:
                     # 写失败根因立即进入健康视图；watchdog 重连成功后清除。
                     self._write_failures[sink_name] = self._write_failures.get(sink_name, 0) + 1
+                    self._points_dropped += len(batch)
+                    self._drops_by_sink[sink_name] = (
+                        self._drops_by_sink.get(sink_name, 0) + len(batch)
+                    )
                     self._mark_unhealthy(sink_name, f"write_failed: {exc}")
                     logger.warning(
                         "sink write failed sink=%s stage=write_failed points=%d",
@@ -580,6 +588,12 @@ class SinkRuntime:
                         len(batch),
                         exc_info=True,
                     )
+                    break
         except asyncio.CancelledError:
             logger.info("Sink consumer '%s' cancelled", sink_name)
             raise
+        finally:
+            # 只清除当前任务自己的登记；热重载可能已安装新消费者。
+            current = asyncio.current_task()
+            if self._consumer_tasks.get(sink_name) is current:
+                self._consumer_tasks.pop(sink_name, None)

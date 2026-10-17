@@ -12,8 +12,8 @@ from collections.abc import AsyncIterator
 import pytest
 from pymodbus.client import AsyncModbusTcpClient
 
-from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
-from collector.infrastructure.sink.modbus.server import ModbusTcpSinkServer
+from core.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
+from core.infrastructure.sink.modbus.server import ModbusTcpSinkServer
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import (
     ModbusSinkAddress,

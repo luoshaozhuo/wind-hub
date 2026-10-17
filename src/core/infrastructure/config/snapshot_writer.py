@@ -55,8 +55,8 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
         endpoint: dict[str, Any] = {"host": device.endpoint.host}
         if device.endpoint.port is not None:
             endpoint["port"] = device.endpoint.port
-        options = dict(snapshot.protocol_options_by_device.get(device_key, {}))
-        if device_key in snapshot.ads_subscribe_devices:
+        options = dict(device.protocol_options)
+        if device.subscribe_enabled:
             options["subscribe_enabled"] = True
         definition = {
             "model_id": str(device.device_model_id),

@@ -33,7 +33,8 @@ from core.domain import DeviceId
 
 from ..domain.acquisition import AcquisitionEngine
 from .acquisition_state import AcquisitionRuntimeState
-from .config import CollectionTask, CollectorConfig, DeviceView, RuntimeParams
+from .config import CollectionTask, CollectorConfig, RuntimeParams
+from core.domain import Device, PointTable
 from .device_runtime import DeviceRuntime
 from .device_state import DeviceRuntimeState
 from .reload import (
@@ -91,7 +92,7 @@ class RuntimeMetricsPort(Protocol):
 
 
 #: 设备会话工厂——由组合根注入（ProtocolRegistry.create + 会话装配）。
-SessionFactory = Callable[[DeviceView], CollectorDeviceSession]
+SessionFactory = Callable[[Device, PointTable], CollectorDeviceSession]
 
 
 class CollectorRuntime:
@@ -99,7 +100,7 @@ class CollectorRuntime:
 
     注入依赖（构造期均为纯内存装配，无网络 I/O）：
 
-    - ``devices`` — 初始设备会话注册表与其创建视图，构造时把所有权交给
+    - ``devices`` — 初始设备会话注册表，构造时把所有权交给
       DeviceRuntime；
     - ``sinks`` — Sink 注册表，构造时把所有权交给 SinkRuntime；
     - ``engine`` — 采集引擎；本类构造时把三个状态端口分别绑定到对应
@@ -113,7 +114,6 @@ class CollectorRuntime:
     def __init__(
         self,
         devices: dict[str, CollectorDeviceSession],
-        device_views: dict[str, DeviceView],
         sinks: dict[str, SinkPort],
         engine: AcquisitionEngine,
         params: RuntimeParams,
@@ -124,8 +124,6 @@ class CollectorRuntime:
         metrics_hook: RuntimeMetricsPort | None = None,
     ) -> None:
         self._device_runtime = DeviceRuntime(devices, params, clock, metrics_hook)
-        for device_id, view in device_views.items():
-            self._device_runtime.register_view(device_id, view)
         self._task_runtime = TaskRuntime(
             tasks or {}, self._device_runtime, engine, clock, metrics_hook
         )
@@ -371,22 +369,25 @@ class CollectorRuntime:
             raise RuntimeError("session factory is not wired into Runtime")
         return self._session_factory
 
-    async def add_device(self, device_id: str, view: DeviceView) -> None:
+    async def add_device(self, device_id: str, device: Device, point_table: PointTable) -> None:
         """运行时新增设备；重复应用同一目标配置时安全收敛。
 
         部分 reload 失败后下一次会重放同一 diff。若设备已经按目标配置存在，
         不重复替换协议实例，只立即重试连接；若同 ID 但配置不同，则走 rebuild。
         """
-        if self._device_runtime.requires_rebuild(device_id, view):
-            await self.rebuild_device(device_id, view)
-            return
         if device_id in self._device_runtime.devices:
-            # 已按目标配置存在——立即重试连接后收敛。
+            if self._device_runtime.requires_rebuild(device_id, device, point_table):
+                if self._device_runtime.is_lightweight_update(device_id, device, point_table):
+                    self._device_runtime.update_device(device_id, device, point_table)
+                else:
+                    await self.rebuild_device(device_id, device, point_table)
+                    return
+            # 重放热增时，已收敛的会话不需要重建协议实例。
             await self._device_runtime.ensure_connected(device_id, force=True)
             await self._task_runtime.sync_instances()
             return
         factory = self._require_session_factory()
-        await self._device_runtime.add_device(device_id, view, factory(view))
+        await self._device_runtime.add_device(device_id, device, point_table, factory(device, point_table))
         # 新设备或重放热增可能影响 device_group Task 的展开。
         await self._task_runtime.sync_instances()
 
@@ -396,7 +397,7 @@ class CollectorRuntime:
         await self._task_runtime.sync_instances()
         logger.info("Hot-reload: device '%s' removed", device_id)
 
-    async def rebuild_device(self, device_id: str, view: DeviceView) -> None:
+    async def rebuild_device(self, device_id: str, device: Device, point_table: PointTable) -> None:
         """重建设备——关闭旧连接，换入新会话后重新接入。
 
         正在运行的相关 TaskInstance：先关闭旧采集句柄，会话重建完成后
@@ -405,7 +406,7 @@ class CollectorRuntime:
         factory = self._require_session_factory()
         was_running = await self._task_runtime.suspend_for_device_change(device_id)
 
-        await self._device_runtime.rebuild_device(device_id, view, factory(view))
+        await self._device_runtime.rebuild_device(device_id, device, point_table, factory(device, point_table))
 
         # device_group 可能随新配置变化——重新展开采集实例。
         await self._task_runtime.sync_instances()
@@ -479,22 +480,7 @@ class CollectorRuntime:
         """
         errors: list[str] = []
 
-        # 在设备配置被就地更新前记录“point_table 绑定发生变化”的订阅设备。
-        # 这类变化即使两张表内容本身都未修改，也必须重新注册 notification。
         restart_subscription_devices: set[str] = set()
-        for did in diff.devices.updated:
-            device_id = DeviceId(did)
-            old_view = self._device_runtime.view_of(did)
-            new_view = new_config.device_view(device_id)
-            session = self._device_runtime.devices.get(did)
-            if (
-                old_view is not None
-                and session is not None
-                and old_view.point_table.point_table_id != new_view.point_table.point_table_id
-                and self._device_runtime.is_lightweight_update(did, new_view)
-                and session.acquisition_mode in _PUSH_MODES
-            ):
-                restart_subscription_devices.add(did)
 
         try:
             await self._apply_device_diff(diff, new_config)
@@ -520,11 +506,20 @@ class CollectorRuntime:
         # Task 定义变化：整体替换注册表并重新展开实例。设备/点表变化也可能
         # 改变展开结果（device_group 成员变化），统一在此收尾同步——实例
         # 增删只影响对应实例，不触碰任何 Protocol 连接。
-        if diff.point_tables_changed:
+        # 仅为已成功应用到目标配置的订阅会话重建通知。
+        # 同时覆盖“切换到另一张点表”和“当前点表内容变化”。
+        if not any(error.startswith(("device:", "points:")) for error in errors):
             changed_tables = set(diff.point_tables_changed)
+            changed_devices = set(diff.devices.updated)
             for did, session in self._device_runtime.devices.items():
+                target_device = new_config.devices.get(DeviceId(did))
+                if target_device is None:
+                    continue
+                target_table = new_config.point_table_for_device(DeviceId(did))
                 if (
-                    str(session.point_table.point_table_id) in changed_tables
+                    (did in changed_devices or str(target_table.point_table_id) in changed_tables)
+                    and _session_matches(session, target_device, target_table)
+                    and session.point_table == target_table
                     and session.acquisition_mode in _PUSH_MODES
                 ):
                     restart_subscription_devices.add(did)
@@ -578,15 +573,16 @@ class CollectorRuntime:
             if DeviceId(did) not in new_config.devices:
                 # 部分失败残留：目标配置已无此设备，等下一轮 diff 收敛。
                 continue
-            target_view = new_config.device_view(DeviceId(did))
-            current_view = self._device_runtime.view_of(did)
+            target_device = new_config.devices[DeviceId(did)]
+            target_table = new_config.point_table_for_device(DeviceId(did))
+            current_session = self._device_runtime.devices.get(did)
             # 设备更新阶段若未成功收敛到目标配置，不在这里继续叠加点表变化；
             # 成功的轻量更新/重建以及未更新设备都可安全重注入当前目标点表。
-            if current_view is not None and not _views_match(current_view, target_view):
+            if current_session is not None and not _session_matches(current_session, target_device, target_table):
                 continue
             if str(session.point_table.point_table_id) not in changed_tables:
                 continue
-            self._device_runtime.set_points(did, target_view)
+            self._device_runtime.set_points(did, target_device, target_table)
 
     async def _apply_device_diff(self, diff: ConfigDiff, new_cfg: CollectorConfig) -> None:
         """按 diff 增删重建设备；新增/重建的会话由工厂创建。
@@ -596,7 +592,7 @@ class CollectorRuntime:
         """
         lightweight: set[str] = set()
         for did in diff.devices.updated:
-            if self._device_runtime.is_lightweight_update(did, new_cfg.device_view(DeviceId(did))):
+            if self._device_runtime.is_lightweight_update(did, new_cfg.devices[DeviceId(did)], new_cfg.point_table_for_device(DeviceId(did))):
                 lightweight.add(did)
 
         if diff.devices.added or set(diff.devices.updated) - lightweight:
@@ -606,21 +602,17 @@ class CollectorRuntime:
             await self.remove_device(did)
 
         for did in diff.devices.added:
-            await self.add_device(did, new_cfg.device_view(DeviceId(did)))
+            await self.add_device(did, new_cfg.devices[DeviceId(did)], new_cfg.point_table_for_device(DeviceId(did)))
 
         for did in diff.devices.updated:
-            view = new_cfg.device_view(DeviceId(did))
+            device = new_cfg.devices[DeviceId(did)]
+            point_table = new_cfg.point_table_for_device(DeviceId(did))
             if did in lightweight:
-                self._device_runtime.update_device(did, view)
+                self._device_runtime.update_device(did, device, point_table)
                 continue
-            await self.rebuild_device(did, view)
+            await self.rebuild_device(did, device, point_table)
 
 
-def _views_match(current: DeviceView, target: DeviceView) -> bool:
-    """设备是否已收敛到目标视图（与 reload.compute_diff 的设备签名同口径）。"""
-    return (
-        current.device == target.device
-        and dict(current.options) == dict(target.options)
-        and current.point_table.point_table_id == target.point_table.point_table_id
-        and current.subscribe_enabled == target.subscribe_enabled
-    )
+def _session_matches(session: CollectorDeviceSession, device: Device, point_table: PointTable) -> bool:
+    """Check whether the applied session converged to the target configuration."""
+    return session.device == device and session.point_table.point_table_id == point_table.point_table_id

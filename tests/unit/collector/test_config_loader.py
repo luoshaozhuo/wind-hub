@@ -29,7 +29,7 @@ def test_load_minimal_config(tmp_path):
     assert point["source_unit"] == "none"
     assert config.runtime.queue_maxsize == 1000
     assert config.runtime.backpressure_policy == "drop_old"
-    assert config.ads_subscribe_devices == frozenset()
+    assert not any(device.subscribe_enabled for device in config.devices.values())
 
 
 def test_runtime_params_parsed(tmp_path):
@@ -89,8 +89,8 @@ def test_unknown_runtime_key_rejected(tmp_path):
         load_collector_config(YamlConfigAdapter(config_dir))
 
 
-def test_ads_subscribe_enabled_extracted_and_stripped(tmp_path):
-    """subscribe_enabled 不进入 protocol_options_by_device，记入 ads_subscribe_devices。"""
+def test_ads_subscribe_enabled_kept_on_device(tmp_path):
+    """subscribe_enabled 保存在 Device，不传入 Driver 协议参数。"""
     config_dir = write_collector_config_tree(
         tmp_path,
         protocol="ads",
@@ -105,12 +105,10 @@ def test_ads_subscribe_enabled_extracted_and_stripped(tmp_path):
         },
     )
     config = load_collector_config(YamlConfigAdapter(config_dir))
-    assert config.ads_subscribe_devices == frozenset({DeviceId("dev1")})
+    assert config.devices[DeviceId("dev1")].subscribe_enabled
     options = config.protocol_options_for(DeviceId("dev1"))
     assert "subscribe_enabled" not in options
     assert options["target_net_id"] == "1.2.3.4.5.6"
-    view = config.device_view(DeviceId("dev1"))
-    assert view.subscribe_enabled is True
 
 
 def test_disabled_device_excluded_but_task_reference_allowed(tmp_path):

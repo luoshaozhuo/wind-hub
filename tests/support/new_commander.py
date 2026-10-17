@@ -362,15 +362,11 @@ def make_commander_config(
                 device_model_id=DeviceModelId("mod"),
                 endpoint=ConnectionEndpoint(host="127.0.0.1", port=502),
                 device_group_ids=(DeviceGroupId("grp"),),
+                protocol_options=protocol_options_by_device or {},
             )
         },
         business_points={bp.business_point_id: bp},
         point_tables={PointTableId("tab"): table},
-        protocol_options_by_device=(
-            {DeviceId(device_id): dict(protocol_options_by_device)}
-            if protocol_options_by_device is not None
-            else {}
-        ),
         ads_local=ads_local,
         connect_timeout=connect_timeout,
         write_timeout=write_timeout,
