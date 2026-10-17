@@ -585,13 +585,14 @@ def run_experiment(spec: dict[str, Any]) -> ExperimentResult:
             # 真正单线程，在 N 条独立连接间轮流发命令：零客户端并发基线。
             def _a10_sequential() -> None:
                 for call_index in range(n_threads * iters):
-                    _op_read_on(ctx, call_index % n_threads,
-                                connections[call_index % n_threads],
-                                call_index // n_threads)
+                    _op_read_on(
+                        ctx,
+                        call_index % n_threads,
+                        connections[call_index % n_threads],
+                        call_index // n_threads,
+                    )
 
-            threads = [
-                threading.Thread(target=_a10_sequential, name="ads-exp-seq")
-            ]
+            threads = [threading.Thread(target=_a10_sequential, name="ads-exp-seq")]
         elif scenario == "A10":
             # 每线程独占一条独立 pyads Connection；locked 模式额外经
             # 全局锁串行，用于区分"客户端竞争"与"共享传输"两类根因。

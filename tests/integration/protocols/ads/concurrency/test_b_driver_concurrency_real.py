@@ -179,9 +179,7 @@ async def test_chunked_sum_read_write_concurrent_interleaving(
 
     async def writer() -> None:
         for _ in range(15):
-            await driver.write_many(
-                [ProtocolWrite(pid, final_values[pid]) for pid in point_ids]
-            )
+            await driver.write_many([ProtocolWrite(pid, final_values[pid]) for pid in point_ids])
 
     async def reader() -> None:
         try:
@@ -323,18 +321,14 @@ async def test_double_close_concurrent_is_idempotent(
     driver = _driver(points, ip=server.ip_address)
     await driver.connect()
 
-    results = await asyncio.gather(
-        driver.close(), driver.close(), return_exceptions=True
-    )
+    results = await asyncio.gather(driver.close(), driver.close(), return_exceptions=True)
     assert all(not isinstance(item, BaseException) for item in results), results
     await driver.close()  # 串行再关一次也必须幂等
     await _wait_for(lambda: server.active_connection_count() == 0)
     assert not driver.is_open()
 
 
-async def test_reconnect_during_health_loop(
-    server: AdsMemoryServer, local_ams: None
-) -> None:
+async def test_reconnect_during_health_loop(server: AdsMemoryServer, local_ams: None) -> None:
     """health 循环期间 close→connect：新会话健康，服务端最终恰有一条连接。"""
     del local_ams
     points = {pid: _point(pid, i * 4) for i, pid in enumerate(["a", "b"])}
@@ -366,9 +360,7 @@ async def test_update_point_table_concurrent_with_reads(
         return _table({f"p{i}": _point(f"p{i}", i * 4) for i in range(n)}, table_id)
 
     server.set_values(_GROUP, 0, pack_points([("REAL", 7.0)] * 8))
-    driver = _driver(
-        {f"p{i}": _point(f"p{i}", i * 4) for i in range(4)}, ip=server.ip_address
-    )
+    driver = _driver({f"p{i}": _point(f"p{i}", i * 4) for i in range(4)}, ip=server.ip_address)
     await driver.connect()
     errors: list[BaseException] = []
 

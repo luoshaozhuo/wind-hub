@@ -338,13 +338,9 @@ async def test_resources_reclaimed_after_cancel_storm(gated: GatedConnection) ->
     gated.release()
     await asyncio.wait_for(close_task, timeout=5.0)
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    assert all(
-        isinstance(item, ConnectionHealth | asyncio.CancelledError) for item in results
-    )
+    assert all(isinstance(item, ConnectionHealth | asyncio.CancelledError) for item in results)
     leftover = [
-        task
-        for task in asyncio.all_tasks()
-        if not task.done() and "ads" in (task.get_name() or "")
+        task for task in asyncio.all_tasks() if not task.done() and "ads" in (task.get_name() or "")
     ]
     assert not leftover
     # 给被取消命令的工作线程一点时间退出同步段；最终不得有线程仍在驱动调用里。

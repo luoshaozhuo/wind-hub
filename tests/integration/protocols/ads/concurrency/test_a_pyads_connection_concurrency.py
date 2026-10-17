@@ -168,9 +168,7 @@ def test_pyads_connection_concurrency_cell(cell_id: str, spec: dict[str, object]
     assert rc != 2, f"child harness error: {evidence.get('stderr_tail', '')[:500]}"
     # 父级已设 40s 硬超时：若子进程报告挂死，只允许在 unlocked 探索中作为
     # 证据存在；串行模式挂死在下方判失败。
-    assert rc in {0, 4, -11, -6} or result is not None, (
-        f"unexpected child exit {rc}: {evidence}"
-    )
+    assert rc in {0, 4, -11, -6} or result is not None, f"unexpected child exit {rc}: {evidence}"
 
     # 数据完整性是任何模式都不可越过的红线：错配即真实帧串扰。
     if result is not None:
