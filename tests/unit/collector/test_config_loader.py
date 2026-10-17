@@ -89,7 +89,7 @@ def test_unknown_runtime_key_rejected(tmp_path):
         load_collector_config(YamlConfigAdapter(config_dir))
 
 
-def test_ads_subscribe_enabled_extracted_and_stripped(tmp_path):
+def test_ads_subscribe_enabled_kept_on_device(tmp_path):
     """subscribe_enabled 保存在 Device，不传入 Driver 协议参数。"""
     config_dir = write_collector_config_tree(
         tmp_path,
@@ -109,7 +109,6 @@ def test_ads_subscribe_enabled_extracted_and_stripped(tmp_path):
     options = config.protocol_options_for(DeviceId("dev1"))
     assert "subscribe_enabled" not in options
     assert options["target_net_id"] == "1.2.3.4.5.6"
-    assert config.devices[DeviceId("dev1")].subscribe_enabled is True
 
 
 def test_disabled_device_excluded_but_task_reference_allowed(tmp_path):

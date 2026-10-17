@@ -98,7 +98,7 @@ class CollectorRuntime:
 
     注入依赖（构造期均为纯内存装配，无网络 I/O）：
 
-    - ``devices`` — 初始设备会话注册表与其创建视图，构造时把所有权交给
+    - ``devices`` — 初始设备会话注册表，构造时把所有权交给
       DeviceRuntime；
     - ``sinks`` — Sink 注册表，构造时把所有权交给 SinkRuntime；
     - ``engine`` — 采集引擎；本类构造时把三个状态端口分别绑定到对应
