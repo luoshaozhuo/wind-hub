@@ -28,7 +28,7 @@ from .application.session import CollectorDeviceSession
 from .application.sink_registry import SinkFactory
 from .domain.acquisition import AcquisitionEngine
 from .infrastructure.config.loader import load_collector_config
-from .infrastructure.sink import build_sink_registry
+from .infrastructure.sink_registry import build_sink_registry
 
 
 def build_protocol_registry() -> ProtocolRegistry:

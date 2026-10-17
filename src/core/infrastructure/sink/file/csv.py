@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
-from collector.application.errors import SinkError
+from core.application.sink_error import SinkError
 from core.application.csv_sink_record import FileSegment, iter_csv_rows, should_rotate
 from core.application.file_sink_segments import (
     is_owned_segment,

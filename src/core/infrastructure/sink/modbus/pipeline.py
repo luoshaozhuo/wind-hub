@@ -7,8 +7,8 @@
 from __future__ import annotations
 
 from collector.application.sink_export import SinkReferenceExporter
-from collector.infrastructure.sink.modbus.codec import encode_modbus_value
-from collector.infrastructure.sink.modbus.store import ModbusSinkStore
+from core.infrastructure.sink.modbus.codec import encode_modbus_value
+from core.infrastructure.sink.modbus.store import ModbusSinkStore
 from core.application import Quality
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import ResolvedSinkPoint
