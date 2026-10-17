@@ -191,6 +191,9 @@ class IEC104Driver:
         self._command_locks = _KeyLocks()
         self._gi_locks = _KeyLocks()
         self._listeners = ListenerRegistry()
+        # close 时存在未收敛回调、未能一次性关闭成功的旧注册表：继续持有，
+        # 后续 close() 重新等待其任务结束，不丢失对遗留任务的追踪。
+        self._closing_listeners: list[ListenerRegistry] = []
         self._encoder = iec104_encoder.Encoder()
 
     # ------------------------------------------------------------------
@@ -277,7 +280,13 @@ class IEC104Driver:
         )
 
     async def close(self) -> None:
-        """关闭当前会话与监听分发表；幂等，可随后再次 connect。"""
+        """关闭当前会话与监听分发表；幂等，可随后再次 connect。
+
+        会话释放先于监听收敛且其失败不阻断连接关闭；监听回调在取消后仍
+        未结束时，旧注册表被保留到 ``_closing_listeners``，本方法抛出
+        ``TimeoutError``，再次调用 ``close()`` 会继续等待遗留任务收敛。
+        全流程持生命周期锁，并发关闭串行执行。
+        """
         async with self._lifecycle:
             session = self._session
             self._session = None
@@ -292,10 +301,23 @@ class IEC104Driver:
                         await session.task
                 with contextlib.suppress(Exception):
                     await session.conn.async_close()
-        # 全部监听随会话结束；重连后由上层 restore 重新注册。换新注册表，
-        # 旧句柄之后重复 close 时作用于游离注册表，天然幂等 no-op。
-        old_registry, self._listeners = self._listeners, ListenerRegistry()
-        await old_registry.close()
+            # 全部监听随会话结束；重连后由上层 restore 重新注册。换新注册表。
+            # 上次 close 超时的旧注册表仍在 _closing_listeners 中，一并重新
+            # 等待；仍有未结束回调时保留引用并在最后显式抛出 TimeoutError。
+            old_registry, self._listeners = self._listeners, ListenerRegistry()
+            registries = [*self._closing_listeners, old_registry]
+            pending: list[ListenerRegistry] = []
+            for registry in registries:
+                try:
+                    await registry.close()
+                except TimeoutError:
+                    pending.append(registry)
+            self._closing_listeners = pending
+            if pending:
+                raise TimeoutError(
+                    f"IEC104 close: {len(pending)} listener registry(ies) still "
+                    f"have callback task(s) running after cancellation"
+                )
 
     def is_open(self) -> bool:
         """STARTDT 数据传输已使能且会话存在（纯本地查询）。"""

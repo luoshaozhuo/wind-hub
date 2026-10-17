@@ -70,6 +70,12 @@ async def _cancel_and_await_task(
             raise
 
 
+def _consume_task_result(task: asyncio.Task[None]) -> None:
+    """取回已结束任务的结果，避免未检索异常的 GC 告警。"""
+    with contextlib.suppress(asyncio.CancelledError):
+        task.exception()
+
+
 class _Listener:
     """单个监听注册：按 point_id 集合过滤（None = 全部已配置点）。"""
 
@@ -112,6 +118,12 @@ class ListenerRegistry:
         self._worker: asyncio.Task[None] | None = None
         self._closed = False
         self._dropped = 0
+        # close 串行锁：保证资源拆除只执行一次，并发/重复关闭都在锁内
+        # 重新等待未收敛任务，而不是仅凭 _closed 提前返回。
+        self._close_lock = asyncio.Lock()
+        # 已请求取消但尚未结束的回调任务的持久强引用；任务真正结束时
+        # 由 done 回调自动摘除。首次 close 超时后这些任务仍受跟踪。
+        self._unresolved: set[asyncio.Task[None]] = set()
 
     @property
     def dropped_count(self) -> int:
@@ -184,58 +196,85 @@ class ListenerRegistry:
     async def close(self, *, timeout: float | None = None) -> None:
         """关闭分发表：摘光监听者、取消 worker、取消并收敛全部在途回调、清空队列。
 
-        幂等：重复调用立即返回。任何在途回调都会被请求取消；若回调在
-        ``timeout`` 内仍未结束，显式抛出 ``TimeoutError``，不把未完成的
-        取消报告为成功。
+        ``_closed`` 只表示**停止接受新监听与新数据**（拆除只执行一次），
+        不代表后台资源已全部释放：存在取消后仍未结束的回调时，任务由
+        注册表持久跟踪（``_unresolved``），本方法显式抛出 ``TimeoutError``。
+        此后重复调用会**继续等待**这些任务：任务结束则正常返回，仍超时
+        则再次抛出，绝不把未完成的取消报告为成功。并发关闭由锁串行化，
+        资源清理不重复执行；取消其中一个等待方不影响其他调用者收敛。
 
         Raises:
             TimeoutError: 存在回调在取消后仍未结束。
         """
-        if self._closed:
-            return
-        self._closed = True
-        listeners = tuple(self._listeners.values())
-        self._listeners.clear()
-        for listener in listeners:
-            listener.removed = True
+        async with self._close_lock:
+            bound = timeout or self._callback_timeout
+            if not self._closed:
+                self._closed = True
+                listeners = tuple(self._listeners.values())
+                self._listeners.clear()
+                for listener in listeners:
+                    listener.removed = True
 
-        worker, self._worker = self._worker, None
-        if worker is not None and worker is not asyncio.current_task():
-            worker.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await worker
+                worker, self._worker = self._worker, None
+                if worker is not None and worker is not asyncio.current_task():
+                    worker.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await worker
 
-        # worker 取消只中断分发等待；每个回调包裹任务在此统一收敛。
-        bound = timeout or self._callback_timeout
-        current = asyncio.current_task()
-        inflight = [
-            task
-            for listener in listeners
-            if (task := listener.inflight) is not None
-            and not task.done()
-            and task is not current
-        ]
-        for task in inflight:
-            task.cancel()
-        self._drain_queue()
+                # worker 取消只中断分发等待；每个回调包裹任务在此统一收敛。
+                current = asyncio.current_task()
+                for listener in listeners:
+                    task = listener.inflight
+                    if task is None or task is current:
+                        continue
+                    if task.done():
+                        self._retire_task(task)
+                    else:
+                        task.cancel()
+                        self._track_task(task)
+                self._drain_queue()
+            await self._converge(bound)
+
+    async def _converge(self, bound: float) -> None:
+        """等待全部受跟踪回调任务结束；仍有任务未结束时显式失败。
+
+        只等待、不重复 ``cancel()``：任务此前已收到取消，重复取消可能
+        打断其清理代码。``shield`` 隔绝等待方自身被外层取消。
+        """
         stuck: list[asyncio.Task[None]] = []
-        for task in inflight:
+        for task in tuple(self._unresolved):
+            if task.done():
+                self._retire_task(task)
+                continue
             try:
-                await _cancel_and_await_task(
-                    task,
-                    bound,
-                    timeout_message=(
-                        f"IEC104 listener close: callback task did not finish "
-                        f"within {bound:.1f}s after cancellation"
-                    ),
-                )
+                await asyncio.wait_for(asyncio.shield(task), timeout=bound)
             except TimeoutError:
                 stuck.append(task)
+                continue
+            except asyncio.CancelledError:
+                # 任务以 CancelledError 结束是对本注册表 cancel() 的正常
+                # 响应；仅当等待方自身被外层取消，或任务竟未结束时才传播。
+                if _current_task_cancelling() or not task.done():
+                    raise
+            self._retire_task(task)
         if stuck:
             raise TimeoutError(
                 f"IEC104 listener close: {len(stuck)} callback task(s) did not "
                 f"finish within {bound:.1f}s after cancellation"
             )
+
+    def _track_task(self, task: asyncio.Task[None]) -> None:
+        """持久持有未收敛回调任务的强引用，直到其真正结束。"""
+        self._unresolved.add(task)
+        task.add_done_callback(self._on_tracked_done)
+
+    def _on_tracked_done(self, task: asyncio.Task[None]) -> None:
+        self._unresolved.discard(task)
+        _consume_task_result(task)
+
+    def _retire_task(self, task: asyncio.Task[None]) -> None:
+        self._unresolved.discard(task)
+        _consume_task_result(task)
 
     async def _dispatch(self) -> None:
         while True:

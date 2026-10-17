@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+
 import pytest
 
 from core.application.errors import ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import ProtocolCapability, ProtocolWrite
+from core.infrastructure.protocol.iec104.listener import ListenerRegistry
 from tests.support.iec104_hat_fake import (
     FakeApciConnection,
     connected_driver,
+    floating_data_msg,
     make_driver,
     make_point,
     patch_dial,
@@ -61,6 +66,51 @@ async def test_connect_is_idempotent_and_close_is_idempotent() -> None:
     await driver.close()
     assert driver.is_open() is False
     assert conn._closed is True
+
+
+async def test_listener_close_timeout_does_not_leak_connection_and_retries() -> None:
+    """测试 F：监听回调拒绝结束时连接仍释放；再次 close 收敛遗留任务。"""
+    driver, conn = await connected_driver([make_point("p", 100)])
+    # 缩短回调收敛时限，让 close 的取消等待确定性地快速超时。
+    driver._listeners = ListenerRegistry(callback_timeout=0.05)
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stubborn(_sample: object) -> None:
+        entered.set()
+        while not release.is_set():
+            with contextlib.suppress(asyncio.CancelledError):
+                await release.wait()
+
+    await driver.listen((), stubborn)
+    conn.deliver([floating_data_msg(1, 100, 1.0)])
+    await entered.wait()
+
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(driver.close(), timeout=2.0)
+
+    # Listener 失败没有跳过连接释放，会话与接收任务已清理。
+    assert conn._closed is True
+    assert driver.is_open() is False
+    assert driver._session is None
+    assert len(driver._closing_listeners) == 1
+    assert not [
+        task
+        for task in asyncio.all_tasks()
+        if not task.done() and task.get_name() == "iec104-receive"
+    ]
+
+    # 回调放行后，再次 close 能确认遗留任务结束；第三次幂等。
+    release.set()
+    await asyncio.wait_for(driver.close(), timeout=2.0)
+    assert driver._closing_listeners == []
+    await driver.close()
+    assert not [
+        task
+        for task in asyncio.all_tasks()
+        if not task.done() and "iec104-listen" in (task.get_name() or "")
+    ]
 
 
 async def test_reconnect_creates_independent_session() -> None:

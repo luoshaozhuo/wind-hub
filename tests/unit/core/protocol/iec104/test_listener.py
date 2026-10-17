@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 
 import pytest
 
 from core.application.protocol_contract import ProtocolSample
-from core.infrastructure.protocol.iec104.listener import ListenerRegistry
+from core.infrastructure.protocol.iec104.listener import (
+    ListenerRegistry,
+    ProtocolListenerCallback,
+)
 
 
 def _sample(point_id: str, value: float = 1.0) -> ProtocolSample:
@@ -341,6 +345,170 @@ async def test_close_leaves_no_residual_worker_or_callback_tasks() -> None:
         and "iec104-listen" in (task.get_name() or "")
     ]
     assert tasks == []
+
+
+def _residual_listener_tasks() -> list[asyncio.Task[None]]:
+    return [
+        task
+        for task in asyncio.all_tasks()
+        if not task.done() and "iec104-listen" in (task.get_name() or "")
+    ]
+
+
+def _stubborn_callback() -> tuple[
+    ProtocolListenerCallback, asyncio.Event, asyncio.Event
+]:
+    """吞掉 CancelledError 持续阻塞，直到 release 置位才结束的不可协作回调。"""
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stubborn(_sample: ProtocolSample) -> None:
+        entered.set()
+        while not release.is_set():
+            with contextlib.suppress(asyncio.CancelledError):
+                await release.wait()
+
+    return stubborn, entered, release
+
+
+async def test_close_timeout_keeps_unfinished_callback_tracked() -> None:
+    """测试 A：首次关闭超时后注册表停用，但未完成回调仍受跟踪。"""
+    registry = ListenerRegistry(callback_timeout=1.0)
+    stubborn, entered, release = _stubborn_callback()
+    registry.add((), stubborn)
+    registry.offer(_sample("p1"))
+    await entered.wait()
+
+    with pytest.raises(TimeoutError):
+        await registry.close(timeout=0.05)
+
+    # 已停止接受新监听者与新数据。
+    with pytest.raises(RuntimeError, match="closed"):
+        registry.add((), stubborn)
+    assert registry.active is False
+    registry.offer(_sample("p2"))
+    assert registry._queue.qsize() == 0
+    # 未完成回调任务仍被注册表持久跟踪。
+    assert len(registry._unresolved) == 1
+    tracked = next(iter(registry._unresolved))
+    assert not tracked.done()
+
+    release.set()
+    await asyncio.wait_for(registry.close(), timeout=1.0)
+
+
+async def test_repeated_close_succeeds_after_tracked_task_finishes() -> None:
+    """测试 B：超时后放行回调，再次 close 成功；第三次安全返回。"""
+    registry = ListenerRegistry(callback_timeout=1.0)
+    stubborn, entered, release = _stubborn_callback()
+    registry.add((), stubborn)
+    registry.offer(_sample("p1"))
+    await entered.wait()
+
+    with pytest.raises(TimeoutError):
+        await registry.close(timeout=0.05)
+    tracked = next(iter(registry._unresolved))
+
+    release.set()
+    await asyncio.wait_for(tracked, timeout=1.0)
+    await asyncio.wait_for(registry.close(), timeout=1.0)
+
+    assert registry._unresolved == set()
+    assert _residual_listener_tasks() == []
+    await registry.close()  # 第三次调用安全返回
+
+
+async def test_repeated_close_times_out_again_while_callback_still_running() -> None:
+    """测试 C：回调仍拒绝结束时，再次 close 必须再次超时而非虚报成功。"""
+    registry = ListenerRegistry(callback_timeout=1.0)
+    stubborn, entered, release = _stubborn_callback()
+    registry.add((), stubborn)
+    registry.offer(_sample("p1"))
+    await entered.wait()
+
+    with pytest.raises(TimeoutError):
+        await registry.close(timeout=0.05)
+    tracked = next(iter(registry._unresolved))
+
+    with pytest.raises(TimeoutError):
+        await registry.close(timeout=0.05)
+    assert not tracked.done()
+    assert tracked in registry._unresolved  # 引用没有丢失
+
+    release.set()
+    await asyncio.wait_for(registry.close(), timeout=1.0)
+    assert _residual_listener_tasks() == []
+
+
+async def test_concurrent_close_both_succeed_when_resources_converge() -> None:
+    """测试 D1：并发关闭、协作回调——两者都成功，无重复清理、无死锁。"""
+    registry = ListenerRegistry(callback_timeout=1.0)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def cooperative(_sample: ProtocolSample) -> None:
+        entered.set()
+        await release.wait()
+
+    registry.add((), cooperative)
+    registry.offer(_sample("p1"))
+    await entered.wait()
+
+    first = asyncio.create_task(registry.close())
+    second = asyncio.create_task(registry.close())
+    await asyncio.sleep(0.05)  # 等首个关闭进入收敛等待
+    release.set()
+    await asyncio.wait_for(asyncio.gather(first, second), timeout=2.0)
+    assert _residual_listener_tasks() == []
+    await registry.close()
+
+
+async def test_concurrent_close_both_fail_while_callback_unconverged() -> None:
+    """测试 D2：回调不可协作时，两个并发关闭者都必须得到 TimeoutError。"""
+    registry = ListenerRegistry(callback_timeout=1.0)
+    stubborn, entered, release = _stubborn_callback()
+    registry.add((), stubborn)
+    registry.offer(_sample("p1"))
+    await entered.wait()
+
+    first = asyncio.create_task(registry.close(timeout=0.05))
+    second = asyncio.create_task(registry.close(timeout=0.05))
+    results = await asyncio.wait_for(
+        asyncio.gather(first, second, return_exceptions=True), timeout=2.0
+    )
+    assert len([exc for exc in results if isinstance(exc, TimeoutError)]) == 2
+    assert len(registry._unresolved) == 1
+
+    release.set()
+    await asyncio.wait_for(registry.close(), timeout=1.0)
+    assert _residual_listener_tasks() == []
+
+
+async def test_cancelling_one_closer_keeps_other_closer_on_track() -> None:
+    """测试 E：取消一个关闭等待者不破坏任务追踪，另一关闭者仍能收敛资源。"""
+    registry = ListenerRegistry(callback_timeout=1.0)
+    stubborn, entered, release = _stubborn_callback()
+    registry.add((), stubborn)
+    registry.offer(_sample("p1"))
+    await entered.wait()
+
+    first = asyncio.create_task(registry.close())
+    await asyncio.sleep(0.05)  # 等首个关闭进入收敛等待
+    second = asyncio.create_task(registry.close())
+    await asyncio.sleep(0.02)  # 第二关闭者在锁上排队
+
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+
+    tracked = next(iter(registry._unresolved))
+    assert not tracked.done()  # 外层取消未取消底层回调
+
+    release.set()
+    await asyncio.wait_for(second, timeout=2.0)
+    assert registry._unresolved == set()
+    assert _residual_listener_tasks() == []
+    await registry.close()
 
 
 async def test_close_cancels_in_flight_callback_and_waits_for_cleanup() -> None:
