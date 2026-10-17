@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from core.infrastructure.sink.file.csv import FileSink
 from core.domain import Sink
 from core.domain.point_value import PointValue
+from core.infrastructure.sink.file import FileSink
 
 pytestmark = pytest.mark.real_service
 

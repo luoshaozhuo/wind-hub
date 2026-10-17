@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
-from core.application.sink_error import SinkError
 from core.application.csv_sink_record import FileSegment, iter_csv_rows, should_rotate
 from core.application.file_sink_segments import (
     is_owned_segment,
@@ -17,6 +16,7 @@ from core.application.file_sink_segments import (
     segment_filename,
 )
 from core.application.protocol_contract import ConnectionHealth
+from core.application.sink_error import SinkError
 from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import FileSinkConnection

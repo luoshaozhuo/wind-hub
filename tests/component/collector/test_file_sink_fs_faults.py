@@ -17,8 +17,8 @@ from typing import Any
 
 import pytest
 
-from core.infrastructure.sink.file.csv import FileSink
 from core.domain.point_value import PointValue
+from core.infrastructure.sink.file import FileSink
 from tests.support.functional_config import update_yaml
 from tests.support.wait import read_csv, wait_file_rows, wait_until
 
