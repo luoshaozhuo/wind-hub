@@ -15,7 +15,8 @@ from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.support.process import free_port
 
 # 直接复用 system conftest 的 fixture 定义（import 即注册，不复制实现）。
-from tests.system.conftest import collector_factory, modbus_server  # noqa: F401
+from tests.support.worker_fixtures import collector_factory  # noqa: F401
+from tests.system.conftest import modbus_server  # noqa: F401
 
 
 @pytest.fixture

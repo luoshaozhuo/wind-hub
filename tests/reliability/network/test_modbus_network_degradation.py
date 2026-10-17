@@ -194,16 +194,27 @@ class TestPacketLoss:
                 description="blackhole detected as disconnect",
             )
 
-            # 黑洞持续 6s：connect 尝试必须被退避节流（≈4 次，远少于
-            # 采集 tick 的 30 次）。
+            # 黑洞持续 12s：connect 尝试必须被退避节流。一个完整失败周期
+            # 的预算为 health_timeout(0.5) + close 上界(1.0) +
+            # connect_timeout(1.0) + interval(0.5) ≈ 3s，12s 窗口跨
+            # 3~4 个周期且与快照相位无关地保证至少观察到 1 次；若无节流
+            # （每个采集 tick 都尝试），同期会有 ~60 次，上界 10 严格区分。
+            #
+            # 已知生产缺陷 FINDING-RELIAB-BH-01（本用例复现，修复前稳定
+            # 失败于 attempts == 0）：watchdog 以 asyncio.timeout 取消挂起
+            # 的 connect，session.connect() 内抛 CancelledError（BaseException
+            # 子类，非 Exception），DeviceRuntime._make_watchdog 的记账包装
+            # `except Exception` 捕获不到，黑洞期每次 connect 超时都漏记
+            # device_connect_failures——尝试真实发生（collector 日志可见
+            # "watchdog cycle failed"），指标却恒为 0。
             first = await metrics_snapshot(proc.grpc_target)
-            await asyncio.sleep(6.0)
+            await asyncio.sleep(12.0)
             last = await metrics_snapshot(proc.grpc_target)
             attempts = last["device_connect_failures"].get(DEVICE_ID, 0) - first[
                 "device_connect_failures"
             ].get(DEVICE_ID, 0)
             runs = last["counters"]["acquisition_runs"] - first["counters"]["acquisition_runs"]
-            assert 1 <= attempts <= 6, f"黑洞期 connect 尝试未被退避节流: {attempts}"
+            assert 1 <= attempts <= 10, f"黑洞期 connect 尝试未被退避节流或失败未记账: {attempts}"
             assert attempts * 5 < runs
         finally:
             netem_link.clear()
