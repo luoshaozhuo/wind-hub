@@ -278,34 +278,52 @@ class SinkRuntime:
         self._running = False
         for watchdog in self._watchdogs.values():
             await watchdog.stop()
-        # 只向仍有消费者的队列投递哨兵——无消费者的队列（open 失败 /
-        # 独占重建失败的 unhealthy Sink）无人取哨兵，满队列会让 put 挂起。
-        for name, queue in self._queues.items():
-            if name in self._consumer_tasks:
-                try:
-                    await asyncio.wait_for(queue.put([]), timeout=self._params.shutdown_timeout)
-                except TimeoutError:
-                    # 队列满且消费者卡死（如 sink.write 挂起）：哨兵投递
-                    # 无期限等待会让整体硬超时失效，改为直接取消消费者。
-                    logger.warning(
-                        "Sink '%s' queue full at stop — cancelling consumer "
-                        "(%d pending batches dropped)",
-                        name,
-                        queue.qsize(),
-                    )
-                    self._consumer_tasks[name].cancel()
-        for task in self._consumer_tasks.values():
+        # 此刻起不会再补建消费者：watchdog 已全部停止，且 _restart_consumer
+        # 在 _running=False 时直接返回。_consumer_tasks 之后唯一的变化是
+        # 消费者在 finally 中注销自己，因此先快照登记，避免「遍历字典时
+        # 字典被消费者并发修改」（迭代中 pop 抛 RuntimeError，会跳过其余
+        # Sink 的 flush/close）。
+        consumers = dict(self._consumer_tasks)
+        # 只向仍存活的消费者队列投递哨兵——无消费者的队列（open 失败 /
+        # 独占重建失败的 unhealthy Sink）无人取哨兵，满队列会让 put 挂起；
+        # 已自行退出（write 失败）的消费者同理。
+        for name, task in consumers.items():
+            if task.done():
+                continue
+            queue = self._queues.get(name)
+            if queue is None:
+                continue
             try:
-                await asyncio.wait_for(task, timeout=self._params.shutdown_timeout)
+                await asyncio.wait_for(queue.put([]), timeout=self._params.shutdown_timeout)
             except TimeoutError:
+                # 队列满且消费者卡死（如 sink.write 挂起）：哨兵投递
+                # 无期限等待会让整体硬超时失效，改为直接取消消费者。
+                logger.warning(
+                    "Sink '%s' queue full at stop — cancelling consumer "
+                    "(%d pending batches dropped)",
+                    name,
+                    queue.qsize(),
+                )
                 task.cancel()
-            except asyncio.CancelledError:
-                # 消费者自身被取消视为已结束；若取消来自外层（停机硬超时
-                # 取消了 stop 本身），必须向上传播，不能吞掉后无限拖延。
-                if _outer_cancel_pending():
+        try:
+            for task in consumers.values():
+                try:
+                    await asyncio.wait_for(task, timeout=self._params.shutdown_timeout)
+                except TimeoutError:
                     task.cancel()
-                    raise
-        self._consumer_tasks.clear()
+                except asyncio.CancelledError:
+                    # 消费者自身被取消视为已结束；若取消来自外层（停机硬超时
+                    # 取消了 stop 本身），必须向上传播，不能吞掉后无限拖延。
+                    if _outer_cancel_pending():
+                        task.cancel()
+                        raise
+        finally:
+            # 外层取消路径下仍可能有未 await 到的存活消费者，统一取消以防
+            # 遗留后台 task；登记快照整体作废（热重建由下一次 start 重建）。
+            for task in consumers.values():
+                if not task.done():
+                    task.cancel()
+            self._consumer_tasks.clear()
 
         for name, sink in self._sinks.items():
             await self._flush_and_close(name, sink, "during shutdown")
