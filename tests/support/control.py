@@ -46,19 +46,40 @@ async def start_task_instance(
     *,
     task_id: str,
     instance_id: str,
+    placement_generation: int = 1,
 ) -> None:
     """启动单个已配置 Task Instance。
 
+    生产路径下 Start 受 placement 栅栏保护：先向 Collector 下发当前
+    worker 的任务归属快照，再带 generation 启动。worker_id 不经参数
+    传递，而是向目标 Collector 查询其身份，避免测试与 collector_id
+    传参重复维护。
+
     Args:
         target: Collector gRPC endpoint（``host:port``）。
-        task_id: Task Definition ID（仅用于校验实例归属，配置必须包含）。
+        task_id: Task Definition ID（placement 快照中的任务归属）。
         instance_id: 要启动的实例（``{task_id}:{device_id}``）。
+        placement_generation: placement 快照代次，默认 1。
     """
-    del task_id  # instance_id 已携带 task 归属；保留参数以明示调用意图
     channel = grpc.aio.insecure_channel(target)
-    stub = pb_grpc.CollectorControlServiceStub(channel)
+    control = pb_grpc.CollectorControlServiceStub(channel)
+    runtime = pb_grpc.CollectorRuntimeServiceStub(channel)
     try:
-        await stub.StartTaskInstance(pb.TaskInstanceStartRequest(instance_id=instance_id))
+        info = await runtime.GetCollectorInfo(empty_pb2.Empty())
+        placement = await control.ApplyTaskPlacement(
+            pb.TaskPlacementSnapshotRequest(
+                worker_id=info.collector_id,
+                generation=placement_generation,
+                task_ids=[task_id],
+            )
+        )
+        assert placement.success, f"ApplyTaskPlacement rejected: {list(placement.errors)}"
+        await control.StartTaskInstance(
+            pb.TaskInstanceStartRequest(
+                instance_id=instance_id,
+                placement_generation=placement_generation,
+            )
+        )
     finally:
         await channel.close()
 

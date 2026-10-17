@@ -268,7 +268,9 @@ class CollectorConfigService:
                 # 避免最新值查询返回已脱离配置的陈旧采样。
                 self._latest_values.retain(
                     {
-                        str(device_id): frozenset(candidate.point_table_for_device(device_id).points)
+                        str(device_id): frozenset(
+                            candidate.point_table_for_device(device_id).points
+                        )
                         for device_id in candidate.devices
                     }
                 )

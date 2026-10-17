@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 
 from collector.infrastructure.sink_registry import build_sink_registry
-from core.infrastructure.sink.file.csv import FileSink
-from core.infrastructure.sink.redis import RedisSink
 from core.domain import Sink
+from core.infrastructure.sink.file import FileSink
+from core.infrastructure.sink.redis import RedisSink
 
 
 def test_three_builtin_types() -> None:

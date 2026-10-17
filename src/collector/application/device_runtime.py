@@ -18,9 +18,9 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from core.application import ConnectionHealth, WatchdogUseCase
+from core.domain import Device, PointTable
 
 from .config import RuntimeParams
-from core.domain import Device, PointTable
 from .device_state import DeviceRuntimeState
 from .session import CollectorDeviceSession
 
@@ -131,7 +131,9 @@ class DeviceRuntime:
             return False
         return _session_signature(existing) != (device, point_table.point_table_id)
 
-    def is_lightweight_update(self, device_id: str, device: Device, point_table: PointTable) -> bool:
+    def is_lightweight_update(
+        self, device_id: str, device: Device, point_table: PointTable
+    ) -> bool:
         """仅点表绑定/设备分组/名称变化时可保留现有协议连接。"""
         existing = self._devices.get(device_id)
         if existing is None:
@@ -276,7 +278,11 @@ class DeviceRuntime:
     # ------------------------------------------------------------------
 
     async def add_device(
-        self, device_id: str, device: Device, point_table: PointTable, session: CollectorDeviceSession
+        self,
+        device_id: str,
+        device: Device,
+        point_table: PointTable,
+        session: CollectorDeviceSession,
     ) -> None:
         """运行时新增设备会话并立即尝试连接；失败记账后保留会话，由 Watchdog 后续周期恢复。
 
@@ -311,7 +317,11 @@ class DeviceRuntime:
         self._connect_locks.pop(device_id, None)
 
     async def rebuild_device(
-        self, device_id: str, device: Device, point_table: PointTable, session: CollectorDeviceSession
+        self,
+        device_id: str,
+        device: Device,
+        point_table: PointTable,
+        session: CollectorDeviceSession,
     ) -> None:
         """重建设备——关闭旧连接，换入新会话后重新接入。
 
@@ -365,9 +375,37 @@ class DeviceRuntime:
         async def _connect() -> None:
             try:
                 await session.connect()
+            except asyncio.CancelledError:
+                # 到达这里的取消有两个来源：watchdog 的 asyncio.timeout
+                # 到期（内部超时，本质是一次真实的 connect 失败尝试）与
+                # 外部停机。stop() 先把 watchdog.enabled 置 False 再取消，
+                # 据此区分——内部超时准确记账一次，外部停机不计故障；
+                # 两种情况都必须继续传播，不能吞掉 CancelledError。
+                watchdog = self._watchdogs.get(device_id)
+                if (
+                    self._devices.get(device_id) is session
+                    and watchdog is not None
+                    and watchdog.enabled
+                ):
+                    self._note_connect_failure(
+                        device_id, TimeoutError("connect timeout")
+                    )
+                    logger.warning(
+                        "connect timeout: device=%s stage=watchdog_connect "
+                        "timeout=%.1fs — reconnect attempt cancelled by deadline",
+                        device_id,
+                        self._params.connect_timeout,
+                    )
+                raise
             except Exception as exc:
                 if self._devices.get(device_id) is session:
                     self._note_connect_failure(device_id, exc)
+                    logger.warning(
+                        "Device '%s' watchdog reconnect connect failed "
+                        "(stage=watchdog_connect): %s",
+                        device_id,
+                        exc,
+                    )
                 raise
 
         async def _on_success() -> None:

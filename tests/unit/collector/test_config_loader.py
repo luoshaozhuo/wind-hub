@@ -94,7 +94,13 @@ def test_ads_subscribe_enabled_kept_on_device(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
         protocol="ads",
-        address={"symbol": "MAIN.n", "data_type": "float32"},
+        points={
+            "p1": {
+                "point_groups": ["g"],
+                "address": {"symbol": "MAIN.n"},
+                "data_type": "REAL",
+            }
+        },
         protocol_options={"target_net_id": "1.2.3.4.5.6"},
         devices={
             "dev1": {
@@ -103,12 +109,106 @@ def test_ads_subscribe_enabled_kept_on_device(tmp_path):
                 "protocol_options": {"subscribe_enabled": True},
             }
         },
+        sinks={},
+        tasks={},
     )
     config = load_collector_config(YamlConfigAdapter(config_dir))
-    assert config.devices[DeviceId("dev1")].subscribe_enabled
-    options = config.protocol_options_for(DeviceId("dev1"))
-    assert "subscribe_enabled" not in options
-    assert options["target_net_id"] == "1.2.3.4.5.6"
+    device = config.devices[DeviceId("dev1")]
+    assert device.subscribe_enabled
+    # subscribe_enabled 已从协议参数中剥离，不随 Device.protocol_options 下发
+    assert "subscribe_enabled" not in device.protocol_options
+    model = config.device_models[device.device_model_id]
+    assert model.protocol_options["target_net_id"] == "1.2.3.4.5.6"
+
+
+def test_sink_reference_to_ads_point_uses_logical_data_type(tmp_path):
+    """复现生产缺陷：Sink 引用 ADS 点时应解析为逻辑类型 float32（REAL 的逻辑类型），
+    而不是协议原生名 REAL；当前 collector loader 直接取 point.ext['data_type']，
+    导致任何映射 ADS 点的 Sink 配置都无法加载。"""
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        protocol="ads",
+        points={
+            "p1": {
+                "point_groups": ["g"],
+                "address": {"symbol": "MAIN.power"},
+                "data_type": "REAL",
+            }
+        },
+        protocol_options={"target_net_id": "1.2.3.4.5.6"},
+        sinks={
+            "s1": {
+                "type": "file",
+                "connection": {"path": str(tmp_path / "out.csv")},
+                "points": [
+                    {
+                        "source": {"device_id": "dev1", "point_id": "p1"},
+                        "address": {"field": "value"},
+                    }
+                ],
+            }
+        },
+    )
+    config = load_collector_config(YamlConfigAdapter(config_dir))
+    assert config.sinks["s1"].points[0]["source_data_type"] == "float32"
+
+
+@pytest.mark.parametrize(
+    ("protocol", "address", "native_type", "logical_type", "protocol_options"),
+    [
+        ("ads", {"symbol": "MAIN.flag"}, "BOOL", "bool", {"target_net_id": "1.2.3.4.5.6"}),
+        ("ads", {"symbol": "MAIN.code"}, "INT", "int16", {"target_net_id": "1.2.3.4.5.6"}),
+        ("ads", {"symbol": "MAIN.count"}, "DINT", "int32", {"target_net_id": "1.2.3.4.5.6"}),
+        ("ads", {"symbol": "MAIN.power"}, "REAL", "float32", {"target_net_id": "1.2.3.4.5.6"}),
+        ("ads", {"symbol": "MAIN.energy"}, "LREAL", "float64", {"target_net_id": "1.2.3.4.5.6"}),
+        (
+            "ads",
+            {"symbol": "MAIN.serial", "size": 16},
+            "STRING",
+            "str",
+            {"target_net_id": "1.2.3.4.5.6"},
+        ),
+        # Modbus / IEC104 原生表示与逻辑标量同名，但同样必须以业务点目录的
+        # 逻辑类型为 Sink 边界真值，而不是直接透传 point.ext。
+        ("modbus", {"register_type": "holding", "address": 100}, "int32", "int32", None),
+        ("iec104", {"type": "M_ME_NC_1", "ioa": 1}, "float32", "float32", None),
+    ],
+)
+def test_sink_source_data_type_is_always_logical(
+    tmp_path, protocol, address, native_type, logical_type, protocol_options
+):
+    """Sink 源类型参数化：ADS 各常见原生类型映射到逻辑类型；Modbus/IEC104 同名透传。"""
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        protocol=protocol,
+        points={
+            "p1": {
+                "point_groups": ["g"],
+                "address": address,
+                "data_type": native_type,
+            }
+        },
+        protocol_options=protocol_options,
+        sinks={
+            "s1": {
+                "type": "file",
+                "connection": {"path": str(tmp_path / "out.csv")},
+                "points": [
+                    {
+                        "source": {"device_id": "dev1", "point_id": "p1"},
+                        "address": {"field": "value"},
+                    }
+                ],
+            }
+        },
+    )
+    config = load_collector_config(YamlConfigAdapter(config_dir))
+    resolved = config.sinks["s1"].points[0]
+    assert resolved["source_data_type"] == logical_type
+    assert resolved["datatype"] == logical_type
+    # Driver 侧仍保留协议原生编码信息。
+    table = config.point_table_for_device(DeviceId("dev1"))
+    assert table.points["p1"].ext["data_type"] == native_type
 
 
 def test_disabled_device_excluded_but_task_reference_allowed(tmp_path):

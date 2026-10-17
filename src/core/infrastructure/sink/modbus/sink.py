@@ -6,17 +6,14 @@ export/scale/encode/store，TCP Server 只读暴露同一份 ModbusSinkStore。
 
 from __future__ import annotations
 
-from core.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
-from core.infrastructure.sink.modbus.server import ModbusTcpSinkServer
 from core.application import ConfigError, ConnectionHealth
 from core.application.port import SinkPort
+from core.application.sink_contract import ModbusSinkAddress, ResolvedSinkPoint
 from core.domain import Sink
 from core.domain.point_value import PointValue
-from core.infrastructure.config.sink_schema import (
-    ModbusSinkAddress,
-    ModbusSinkConnection,
-    ResolvedSinkPoint,
-)
+from core.infrastructure.config.sink_schema import ModbusSinkConnection
+from core.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
+from core.infrastructure.sink.modbus.server import ModbusTcpSinkServer
 
 
 class ModbusSink(SinkPort):

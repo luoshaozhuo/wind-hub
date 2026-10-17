@@ -355,6 +355,57 @@ async def test_stop_propagates_outer_cancellation():
     await runtime.stop()
 
 
+async def test_stop_survives_consumer_unregistering_during_await_phase():
+    """消费者在 stop 等待窗口内自行注销（write 失败退出语义）不得中断关闭链。
+
+    确定性编排（不依赖随机 sleep 碰运气）：
+    - s1 消费者永远卡在 write，stop 对其哨兵/等待在 shutdown_timeout(0.2s)
+      后超时取消；
+    - s2 消费者卡在 write 闸门上，stop 进入任务等待循环、跨过 s1 之后
+      才放行——s2 写完批次、取出哨兵自行退出，并在 finally 中把自己从
+      _consumer_tasks 注销。
+    旧实现直接遍历活动字典，循环末尾再取 __next__ 时抛
+    RuntimeError("dictionary changed size")，导致 s2 的 flush/close 被跳过。
+    """
+    hung = FakeSink()
+    gated = FakeSink()
+    release_s2 = asyncio.Event()
+    s2_entered = asyncio.Event()
+
+    async def hung_write(_batch):
+        await asyncio.Event().wait()
+
+    async def gated_write(_batch):
+        s2_entered.set()
+        await release_s2.wait()
+
+    hung.write = hung_write  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
+    gated.write = gated_write  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
+    runtime = SinkRuntime(
+        {"s1": hung, "s2": gated},
+        RuntimeParams(  # type: ignore[arg-type]
+            queue_maxsize=2,
+            backpressure_policy="drop_old",
+            shutdown_timeout=0.2,
+        ),
+    )
+    await runtime.start()
+    await runtime.dispatch({"s1": [_value(1.0)], "s2": [_value(2.0)]})
+    await s2_entered.wait()
+
+    stop_task = asyncio.create_task(runtime.stop())
+    # 等待 stop 跨过 s1 的 shutdown_timeout 超时、进入对 s2 的 await。
+    await asyncio.sleep(0.35)
+    release_s2.set()
+    await asyncio.wait_for(stop_task, timeout=5.0)
+
+    assert hung.close_calls == 1
+    assert gated.flush_calls == 1 and gated.close_calls == 1
+    assert not runtime._consumer_tasks  # noqa: SLF001 — 停机后无残留登记
+    pending = [task for task in asyncio.all_tasks() if not task.done()]
+    assert not [task for task in pending if "SinkRuntime" in str(task)]
+
+
 async def test_watchdog_stops_consumer_before_reopening_failed_sink():
     sink = FakeSink()
     runtime = _runtime({"s1": sink})

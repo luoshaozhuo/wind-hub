@@ -191,7 +191,7 @@ onBeforeUnmount(() => {
         <el-card shadow="never" class="storage-detail-card">
           <h3>Storage</h3>
           <el-table :data="mounts" size="small" table-layout="fixed">
-            <el-table-column prop="mount" label="Mount" width="70" />
+            <el-table-column prop="mount" label="Mount" min-width="160" show-overflow-tooltip />
             <el-table-column prop="used" label="Used / Total" min-width="120" />
             <el-table-column prop="free" label="Free" width="80" />
             <el-table-column prop="usage" label="Usage" width="70" />

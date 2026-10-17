@@ -29,12 +29,11 @@ from typing import Protocol
 
 from core.application import ConnectionHealth
 from core.application.port import SinkPort
-from core.domain import DeviceId
+from core.domain import Device, DeviceId, PointTable
 
 from ..domain.acquisition import AcquisitionEngine
 from .acquisition_state import AcquisitionRuntimeState
 from .config import CollectionTask, CollectorConfig, RuntimeParams
-from core.domain import Device, PointTable
 from .device_runtime import DeviceRuntime
 from .device_state import DeviceRuntimeState
 from .reload import (
@@ -387,7 +386,9 @@ class CollectorRuntime:
             await self._task_runtime.sync_instances()
             return
         factory = self._require_session_factory()
-        await self._device_runtime.add_device(device_id, device, point_table, factory(device, point_table))
+        await self._device_runtime.add_device(
+            device_id, device, point_table, factory(device, point_table)
+        )
         # 新设备或重放热增可能影响 device_group Task 的展开。
         await self._task_runtime.sync_instances()
 
@@ -406,7 +407,9 @@ class CollectorRuntime:
         factory = self._require_session_factory()
         was_running = await self._task_runtime.suspend_for_device_change(device_id)
 
-        await self._device_runtime.rebuild_device(device_id, device, point_table, factory(device, point_table))
+        await self._device_runtime.rebuild_device(
+            device_id, device, point_table, factory(device, point_table)
+        )
 
         # device_group 可能随新配置变化——重新展开采集实例。
         await self._task_runtime.sync_instances()
@@ -578,7 +581,9 @@ class CollectorRuntime:
             current_session = self._device_runtime.devices.get(did)
             # 设备更新阶段若未成功收敛到目标配置，不在这里继续叠加点表变化；
             # 成功的轻量更新/重建以及未更新设备都可安全重注入当前目标点表。
-            if current_session is not None and not _session_matches(current_session, target_device, target_table):
+            if current_session is not None and not _session_matches(
+                current_session, target_device, target_table
+            ):
                 continue
             if str(session.point_table.point_table_id) not in changed_tables:
                 continue
@@ -592,7 +597,11 @@ class CollectorRuntime:
         """
         lightweight: set[str] = set()
         for did in diff.devices.updated:
-            if self._device_runtime.is_lightweight_update(did, new_cfg.devices[DeviceId(did)], new_cfg.point_table_for_device(DeviceId(did))):
+            if self._device_runtime.is_lightweight_update(
+                did,
+                new_cfg.devices[DeviceId(did)],
+                new_cfg.point_table_for_device(DeviceId(did)),
+            ):
                 lightweight.add(did)
 
         if diff.devices.added or set(diff.devices.updated) - lightweight:
@@ -602,7 +611,11 @@ class CollectorRuntime:
             await self.remove_device(did)
 
         for did in diff.devices.added:
-            await self.add_device(did, new_cfg.devices[DeviceId(did)], new_cfg.point_table_for_device(DeviceId(did)))
+            await self.add_device(
+                did,
+                new_cfg.devices[DeviceId(did)],
+                new_cfg.point_table_for_device(DeviceId(did)),
+            )
 
         for did in diff.devices.updated:
             device = new_cfg.devices[DeviceId(did)]
@@ -613,6 +626,11 @@ class CollectorRuntime:
             await self.rebuild_device(did, device, point_table)
 
 
-def _session_matches(session: CollectorDeviceSession, device: Device, point_table: PointTable) -> bool:
+def _session_matches(
+    session: CollectorDeviceSession, device: Device, point_table: PointTable
+) -> bool:
     """Check whether the applied session converged to the target configuration."""
-    return session.device == device and session.point_table.point_table_id == point_table.point_table_id
+    return (
+        session.device == device
+        and session.point_table.point_table_id == point_table.point_table_id
+    )

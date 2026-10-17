@@ -37,7 +37,8 @@ def _load_driver(port: int) -> IEC104Driver:
     device = next(iter(snapshot.site.devices.values()))
     model = snapshot.device_models[device.device_model_id]
     table = snapshot.point_tables[model.point_table_id]
-    options = dict(snapshot.protocol_options_by_device[device.device_id])
+    # 有效协议选项按「设备显式覆盖型号默认」合并（三级回退口径）。
+    options = {**model.protocol_options, **device.protocol_options}
     assert {"meas_power", "meas_freq", "cmd_breaker"} <= set(table.points)
 
     registry = ProtocolRegistry()

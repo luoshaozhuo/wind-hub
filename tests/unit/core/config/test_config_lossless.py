@@ -25,7 +25,7 @@ FILES = (
 
 def _fixture(tmp_path: Path, example: str) -> YamlConfigAdapter:
     for name in FILES:
-        copy2(ROOT / "configs" / example / name, tmp_path / name)
+        copy2(ROOT / "tests" / "fixtures" / "configs" / example / name, tmp_path / name)
     return YamlConfigAdapter(tmp_path)
 
 
@@ -61,7 +61,14 @@ def test_ads_subscription_option_round_trip(tmp_path: Path) -> None:
     assert any(device.subscribe_enabled for device in before.site.devices.values())
     adapter.save(before)
     after = adapter.load()
-    assert {key for key, device in after.site.devices.items() if device.subscribe_enabled} == {key for key, device in before.site.devices.items() if device.subscribe_enabled}
+    def _subscribed(snapshot: object) -> set:
+        return {
+            key
+            for key, device in snapshot.site.devices.items()  # type: ignore[attr-defined]
+            if device.subscribe_enabled
+        }
+
+    assert _subscribed(after) == _subscribed(before)
     assert not diff_config_snapshots(before, after).has_changes
 
 

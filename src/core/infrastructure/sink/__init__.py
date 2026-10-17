@@ -1,6 +1,6 @@
 """Reusable File, Redis and Modbus output adapters."""
 
-from .file.csv import FileSink
+from .file import FileSink
 from .modbus import ModbusSink
 from .redis import RedisSink
 

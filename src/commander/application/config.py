@@ -28,6 +28,7 @@ from core.domain import (
     DeviceModelId,
     PointTable,
     PointTableId,
+    ProtocolOptions,
 )
 from core.domain.unit import UnitCatalog
 

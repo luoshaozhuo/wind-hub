@@ -571,7 +571,6 @@ class TestComputeDiff:
             lambda data: data["point_tables"]["modbus"]["points"].update(
                 {
                     "gen.power": {
-                        "business_point_id": "gen.power",
                         "point_groups": ["telemetry"],
                         "address": {"register_type": "holding", "address": 102},
                         "data_type": "float32",
@@ -583,7 +582,7 @@ class TestComputeDiff:
             config_dir,
             "business_points.yaml",
             lambda data: data["business_points"].update(
-                {"gen.power": {"data_type": "float32", "unit_id": "none"}}
+                {"gen.power": {"data_type": "float32", "unit": "none"}}
             ),
         )
         new = _load(config_dir)

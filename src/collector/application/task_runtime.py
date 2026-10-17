@@ -9,9 +9,11 @@ collect 的业务执行仍属于 Domain AcquisitionEngine，本对象只决定�
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable
 from typing import TYPE_CHECKING
 
 from core.domain.point_value import PointValue
@@ -77,6 +79,34 @@ class TaskRuntime:
         # 上报演进。
         self._acquisition_states: dict[str, AcquisitionRuntimeState] = {}
 
+        # 每实例启停串行锁：start/stop 的 check→await→act 必须原子化，
+        # 否则并发 Start/Stop 下 stop 可能在 start 的 await 窗口里看到
+        # STOPPED 提前返回，随后 start 提交 RUNNING，留下脱离关闭路径的
+        # 采集句柄。按实例分锁，不阻塞其他设备/任务；锁对象在实例注销且
+        # 无竞争者时回收，同名实例删除后重建会复用（或重建）同一把锁，
+        # 不会绕过串行化。
+        self._operation_locks: dict[str, asyncio.Lock] = {}
+        self._lock_refs: dict[str, int] = {}
+
+    @contextlib.asynccontextmanager
+    async def _instance_guard(self, instance_id: str) -> AsyncIterator[None]:
+        # setdefault 与引用计数 +1 在同一同步段完成：并发调用者必然拿到
+        # 同一把锁，即便实例在等待期间被删除并同名重建也不会分裂。
+        lock = self._operation_locks.setdefault(instance_id, asyncio.Lock())
+        self._lock_refs[instance_id] = self._lock_refs.get(instance_id, 0) + 1
+        try:
+            async with lock:
+                yield
+        finally:
+            refs = self._lock_refs[instance_id] - 1
+            # 最后一个使用者退出且实例已注销时回收，避免锁字典随热更新
+            # 无限增长；仍有等待者或同名实例仍在时保留。
+            if refs <= 0 and instance_id not in self._task_instances:
+                self._operation_locks.pop(instance_id, None)
+                self._lock_refs.pop(instance_id, None)
+            else:
+                self._lock_refs[instance_id] = refs
+
     # ------------------------------------------------------------------
     # 只读视图（查询/控制服务经此读取，热重载安全）
     # ------------------------------------------------------------------
@@ -113,6 +143,14 @@ class TaskRuntime:
             Exception: 采集启动失败（如订阅注册失败）——状态保持 STOPPED，
                 错误原样上抛给控制面调用方。
         """
+        # 全段持锁：状态检查、句柄创建与状态提交对 stop/热更新串行化，
+        # 消除 check-then-await-act 竞态（stop 在 start 建句柄期间到达时
+        # 会在锁后看到 RUNNING 并关闭句柄，而不是看到 STOPPED 提前返回）。
+        async with self._instance_guard(instance_id):
+            await self._start_locked(instance_id)
+
+    async def _start_locked(self, instance_id: str) -> None:
+        """调用方必须已持有该实例的 :meth:`_instance_guard`。"""
         instance = self._task_instances.get(instance_id)
         if instance is None:
             raise KeyError(instance_id)
@@ -143,13 +181,18 @@ class TaskRuntime:
                 return
             await self._engine.process(values, list(current.targets))
 
-        handle = await device.start_acquisition(
-            point_group=instance.point_group,
-            interval=instance.interval,
-            acquire=acquire,
-            on_data=on_data,
-            on_poll_stats=self._poll_stats_hook(instance),
-        )
+        try:
+            handle = await device.start_acquisition(
+                point_group=instance.point_group,
+                interval=instance.interval,
+                acquire=acquire,
+                on_data=on_data,
+                on_poll_stats=self._poll_stats_hook(instance),
+            )
+        except BaseException:
+            # 启动失败/外部取消：状态维持 STOPPED，绝不提交半成品 RUNNING。
+            self._instance_states[instance_id] = TaskInstanceState.STOPPED
+            raise
         self._acquisition_handles[instance_id] = handle
         self._instance_states[instance_id] = TaskInstanceState.RUNNING
         self._restart_pending.discard(instance_id)
@@ -163,14 +206,17 @@ class TaskRuntime:
         Raises:
             KeyError: ``instance_id`` 不存在。
         """
-        if instance_id not in self._task_instances:
-            raise KeyError(instance_id)
-        if self._instance_states[instance_id] is TaskInstanceState.STOPPED:
+        # 与 start_instance 同一把实例锁串行：stop 不会在 start 的建句柄
+        # 窗口里基于旧状态提前返回，保证返回后不存在运行中的句柄。
+        async with self._instance_guard(instance_id):
+            if instance_id not in self._task_instances:
+                raise KeyError(instance_id)
+            if self._instance_states[instance_id] is TaskInstanceState.STOPPED:
+                self._restart_pending.discard(instance_id)
+                return
+            self._instance_states[instance_id] = TaskInstanceState.STOPPED
             self._restart_pending.discard(instance_id)
-            return
-        self._instance_states[instance_id] = TaskInstanceState.STOPPED
-        self._restart_pending.discard(instance_id)
-        await self._close_acquisition_handle(instance_id)
+            await self._close_acquisition_handle(instance_id)
 
     async def restore_subscriptions(self, device_id: str) -> None:
         """重连成功后重建该设备当前 RUNNING 的推送型采集句柄。
@@ -190,21 +236,24 @@ class TaskRuntime:
             and self._instance_states.get(iid) is TaskInstanceState.RUNNING
         ]
         for iid in running:
-            self._instance_states[iid] = TaskInstanceState.STOPPED
-            await self._close_acquisition_handle(iid)
-            await self.start_instance(iid)
+            # 关旧句柄与建新句柄必须在同一把实例锁内原子完成，避免显式
+            # stop/start 或热更新在两步之间交错。
+            async with self._instance_guard(iid):
+                self._instance_states[iid] = TaskInstanceState.STOPPED
+                await self._close_acquisition_handle(iid)
+                await self._start_locked(iid)
 
     async def stop_all(self) -> None:
         """停机路径：关闭全部实例采集句柄——polling 协程取消、订阅注销，
         不留后台 task 或订阅。
 
         实例定义保留，统一标记 STOPPED——重启后需显式 start，与启动语义
-        一致。句柄关闭失败只记录不阻断。
+        一致。逐实例走与显式 stop 相同的串行锁路径，停机期间到达的
+        start 调用要么先于本方法提交（随后即被关闭），要么在锁后看到
+        STOPPED——不会在 stop_all 之后留下运行句柄。
         """
-        for instance_id in list(self._acquisition_handles):
-            await self._close_acquisition_handle(instance_id)
-        for instance_id in self._instance_states:
-            self._instance_states[instance_id] = TaskInstanceState.STOPPED
+        for instance_id in list(self._task_instances):
+            await self.stop_instance(instance_id)
 
     # ------------------------------------------------------------------
     # 设备变更协调（CollectorRuntime 在 session 变更前后调用）
@@ -223,8 +272,9 @@ class TaskRuntime:
             and self._instance_states.get(iid) is TaskInstanceState.RUNNING
         ]
         for iid in was_running:
-            self._instance_states[iid] = TaskInstanceState.STOPPED
-            await self._close_acquisition_handle(iid)
+            async with self._instance_guard(iid):
+                self._instance_states[iid] = TaskInstanceState.STOPPED
+                await self._close_acquisition_handle(iid)
         return was_running
 
     async def resume_after_device_change(self, instance_ids: Iterable[str]) -> None:
@@ -279,11 +329,12 @@ class TaskRuntime:
         restart_subscription_devices = restart_subscription_devices or set()
 
         for iid in set(self._task_instances) - set(desired):
-            await self._close_acquisition_handle(iid)
-            self._task_instances.pop(iid, None)
-            self._instance_states.pop(iid, None)
-            self._acquisition_states.pop(iid, None)
-            self._restart_pending.discard(iid)
+            async with self._instance_guard(iid):
+                await self._close_acquisition_handle(iid)
+                self._task_instances.pop(iid, None)
+                self._instance_states.pop(iid, None)
+                self._acquisition_states.pop(iid, None)
+                self._restart_pending.discard(iid)
             logger.info("Task instance '%s' unregistered", iid)
 
         for iid, instance in desired.items():
@@ -306,12 +357,14 @@ class TaskRuntime:
                     # 节拍、选点或订阅地址变化：重建采集句柄并恢复 RUNNING。
                     # 失败时保留 pending，reconfigure 向上返回错误，下一次 reload
                     # 继续重试，避免“reload 成功但实例永久 STOPPED”。
+                    # 关旧与建新在同一实例锁内完成，显式 stop/start 无法插入。
                     self._restart_pending.add(iid)
-                    if was_running:
-                        self._instance_states[iid] = TaskInstanceState.STOPPED
-                        await self._close_acquisition_handle(iid)
                     try:
-                        await self.start_instance(iid)
+                        async with self._instance_guard(iid):
+                            if was_running:
+                                self._instance_states[iid] = TaskInstanceState.STOPPED
+                                await self._close_acquisition_handle(iid)
+                            await self._start_locked(iid)
                     except Exception:
                         logger.warning(
                             "Task instance '%s' failed to restart acquisition after reload",

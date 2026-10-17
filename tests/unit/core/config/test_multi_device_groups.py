@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def test_device_multi_groups_survive_save_and_reload(tmp_path: Path) -> None:
-    source = ROOT / "configs" / "example_modbus"
+    source = ROOT / "tests" / "fixtures" / "configs" / "example_modbus"
     for filename in (
         "system.yaml",
     "units.yaml",

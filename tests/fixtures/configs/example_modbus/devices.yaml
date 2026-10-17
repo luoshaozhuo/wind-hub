@@ -1,0 +1,11 @@
+devices:
+  modbus-001:
+    model_id: modbus_wtg
+    device_group_ids:
+    - turbine_modbus
+    endpoint:
+      host: 127.0.0.11
+    enabled: true
+device_groups:
+  turbine_modbus:
+    name: turbine_modbus

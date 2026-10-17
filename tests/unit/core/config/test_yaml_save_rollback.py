@@ -27,7 +27,7 @@ def test_save_rolls_back_when_one_file_write_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source = ROOT / "configs" / "example_modbus"
+    source = ROOT / "tests" / "fixtures" / "configs" / "example_modbus"
     for filename in FILES:
         copy2(source / filename, tmp_path / filename)
     original_bytes = {filename: (tmp_path / filename).read_bytes() for filename in FILES}

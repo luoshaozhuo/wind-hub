@@ -11,14 +11,14 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def test_snapshot_diff_no_changes() -> None:
-    config = YamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
+    config = YamlConfigAdapter(ROOT / "tests" / "fixtures" / "configs" / "example_modbus").load()
     diff = diff_config_snapshots(config, config)
     assert not diff.has_changes
     assert not any(section.has_changes for section in diff.sections.values())
 
 
 def test_snapshot_diff_device_and_site() -> None:
-    config = YamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
+    config = YamlConfigAdapter(ROOT / "tests" / "fixtures" / "configs" / "example_modbus").load()
     devices = dict(config.site.devices)
     removed = next(iter(devices))
     del devices[removed]
@@ -31,7 +31,7 @@ def test_snapshot_diff_device_and_site() -> None:
 
 
 def test_snapshot_diff_task_change() -> None:
-    config = YamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
+    config = YamlConfigAdapter(ROOT / "tests" / "fixtures" / "configs" / "example_modbus").load()
     task_id, task = next(iter(config.tasks.items()))
     modified = replace(config, tasks={**config.tasks, task_id: replace(task, interval=2.0)})
     diff = diff_config_snapshots(config, modified)

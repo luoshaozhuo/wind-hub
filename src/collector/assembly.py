@@ -13,9 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.application import ProtocolRegistry
-from core.domain import Device, PointTable
 from core.application.port import SinkPort
 from core.application.settings import ADSLocalConfig
+from core.domain import Device, PointTable
 from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 

@@ -16,7 +16,9 @@ import yaml
 from core.infrastructure.config import YamlConfigAdapter
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_TEMPLATE = _REPO_ROOT / "configs" / "example_modbus"
+#: 完整三协议风场以测试夹具中的 Modbus 示例站点为种子（configs/ 下的
+#: example_modbus 已随配置 Schema 整改移除，单文件出厂配置不适合整目录复制）。
+_TEMPLATE = _REPO_ROOT / "tests" / "fixtures" / "configs" / "example_modbus"
 
 
 def _read(directory: Path, filename: str) -> dict[str, object]:
@@ -70,26 +72,35 @@ def generate_site(
 
         business = _read(output, "business_points.yaml")
         business["business_points"]["e2e_float"] = {
-            "data_type": "float32", "unit_id": "none",
+            "data_type": "float32", "unit": "none",
         }
         _write(output, "business_points.yaml", business)
 
         points = _read(output, "points.yaml")
+        # Mapping Key 身份：点表 points 的键即 BusinessPoint ID，
+        # 不再有 business_point_id 字段。
         float_point = {
-            "business_point_id": "e2e_float",
-            "data_type": "float32",
-            "unit_id": "none",
+            "unit": "none",
             "point_groups": ["all"],
         }
+        # ADS 点表写 PLC 原生类型名（REAL→float32 逻辑类型）；
+        # 其余协议直接写逻辑数据类型。
         points["point_tables"]["e2e_ads"] = {
             "protocol": "ads",
-            "points": {"p1": {**float_point, "address": {"symbol": "MAIN.var0"}}},
+            "points": {
+                "e2e_float": {
+                    **float_point,
+                    "data_type": "REAL",
+                    "address": {"symbol": "MAIN.var0"},
+                }
+            },
         }
         points["point_tables"]["e2e_iec104"] = {
             "protocol": "iec104",
             "points": {
-                "p1": {
+                "e2e_float": {
                     **float_point,
+                    "data_type": "float32",
                     "address": {"ioa": 100, "type": "M_ME_NC_1"},
                 }
             },
@@ -119,7 +130,7 @@ def generate_site(
         for index in range(count):
             mb_id = f"modbus-{index:02d}"
             devices[mb_id] = {
-                "model_id": "wtg_modbus_site",
+                "model_id": "modbus_wtg",
                 "device_group_ids": ["virtual_modbus"],
                 "endpoint": {
                     "host": "127.0.0.1",
@@ -169,7 +180,17 @@ def generate_site(
         _write(output, "tasks.yaml", {"tasks": tasks})
 
         sinks = _read(output, "sinks.yaml")
-        sinks["sinks"]["file_archive"]["connection"]["path"] = str(output / "virtual.csv")
+        archive = sinks["sinks"]["file_archive"]
+        archive["connection"]["path"] = str(output / "virtual.csv")
+        # 种子模板的映射指向 modbus-001；整站重写为生成的 Modbus 设备。
+        archive["points"] = [
+            {
+                "source": {"device_id": f"modbus-{index:02d}", "point_id": "active_power"},
+                "ref": f"modbus_{index:02d}_active_power",
+                "address": {"field": f"modbus_{index:02d}_active_power"},
+            }
+            for index in range(count)
+        ]
         _write(output, "sinks.yaml", sinks)
 
         # 拒绝留下不可由 Core 解析的半成品，和 Web Server/Collector 共用契约。

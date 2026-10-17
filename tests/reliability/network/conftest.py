@@ -44,7 +44,7 @@ from tests.performance.netem import NetemController, NetemScenario
 from tests.performance.veth import VethManager, VethPair
 
 # 复用 system conftest 的 collector harness（import 即注册，不复制实现）。
-from tests.system.conftest import collector_factory  # noqa: F401
+from tests.support.worker_fixtures import collector_factory  # noqa: F401
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

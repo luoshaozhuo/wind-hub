@@ -11,7 +11,9 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def test_load_example_modbus() -> None:
-    config = YamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
+    config = YamlConfigAdapter(
+        ROOT / "tests" / "fixtures" / "configs" / "example_modbus"
+    ).load()
     assert type(config).__name__ == "ConfigSnapshot"
     active = config.business_points[BusinessPointId("active_power")]
     assert active.standard_unit.unit_id == "kilowatt"
@@ -40,7 +42,7 @@ def test_full_loader_requires_business_point_catalog(tmp_path: Path) -> None:
     """不再隐式合成 BusinessPoint；目录必须提供 business_points.yaml。"""
     import shutil
 
-    source = ROOT / "configs" / "example_modbus"
+    source = ROOT / "tests" / "fixtures" / "configs" / "example_modbus"
     for filename in (
         "system.yaml",
         "units.yaml",

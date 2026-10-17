@@ -9,13 +9,24 @@ from collector.application.device_runtime import DeviceRuntime
 from collector.application.task_instance import TaskInstanceState
 from collector.application.task_runtime import TaskRuntime
 from collector.domain.acquisition import AcquisitionEngine
-from core.domain.identities import DeviceGroupId, DeviceId
+from core.domain.identities import DeviceGroupId
 from tests.support.new_collector import (
     CollectorFakeProtocol,
     FakeSink,
     make_collector_config,
     make_session,
 )
+
+_RUNTIMES: list[DeviceRuntime] = []
+
+
+@pytest.fixture(autouse=True)
+async def _close_device_runtimes():
+    """connect_all 会启动 Watchdog 后台任务；用例结束统一关闭，防止任务随 GC 销毁。"""
+    yield
+    for devices in _RUNTIMES:
+        await devices.close_all()
+    _RUNTIMES.clear()
 
 
 def _runtime(
@@ -26,7 +37,7 @@ def _runtime(
     proto = proto or CollectorFakeProtocol()
     session = make_session(config, proto)
     devices = DeviceRuntime({"dev1": session}, RuntimeParams(connect_timeout=0.2))
-    devices.register_view(DeviceId("dev1"), config.device_view(DeviceId("dev1")))
+    _RUNTIMES.append(devices)
     sink = FakeSink()
     engine = AcquisitionEngine()
     engine.attach_sink_dispatch(_Dispatch(sink))

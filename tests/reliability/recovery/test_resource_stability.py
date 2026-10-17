@@ -127,10 +127,10 @@ class TestReloadStability:
             max_files = 4 if cycle % 2 == 0 else 8
 
             def _mutate_tasks(data: dict[str, Any], iv: float = interval) -> None:
-                data["tasks"][0]["interval"] = iv
+                data["tasks"][TASK_ID]["interval"] = iv
 
             def _mutate_sinks(data: dict[str, Any], mf: int = max_files) -> None:
-                data["sinks"][0]["connection"]["max_files"] = mf
+                data["sinks"]["file_sink"]["connection"]["max_files"] = mf
 
             update_yaml(config_dir, "tasks.yaml", _mutate_tasks)
             update_yaml(config_dir, "sinks.yaml", _mutate_sinks)

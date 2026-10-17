@@ -8,13 +8,12 @@ from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
+from core.application.sink_contract import ModbusSinkAddress, ResolvedSinkPoint
 from core.domain import Device, DeviceId, Sink
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.sink_schema import (
     MODBUS_WORD_WIDTH,
     SINK_NUMERIC_DATA_TYPES,
-    ModbusSinkAddress,
-    ResolvedSinkPoint,
 )
 
 from ...application.config import BackpressurePolicy, CollectorConfig, RuntimeParams
@@ -84,7 +83,13 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                 raise ConfigError(
                     f"Sink '{sink_id}' references unknown point '{source['point_id']}'"
                 )
-            source_data_type = point.ext["data_type"]
+            # Sink 边界只认统一逻辑数据类型（float32/int32/...）；
+            # point.ext["data_type"] 是协议原生表示（如 ADS 的 REAL），
+            # 仅供 Driver 编解码，不能传给 Sink Schema。领域加载已保证
+            # Point 必然引用存在的业务点，且两者逻辑类型一致。
+            source_data_type = snapshot.business_points[
+                point.business_point_id
+            ].data_type.value
             source_unit = point.source_unit.unit_id
             unit = raw.get("unit") or source_unit
             try:

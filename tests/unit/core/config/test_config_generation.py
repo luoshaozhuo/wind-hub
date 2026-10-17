@@ -21,7 +21,7 @@ FILES = (
 
 
 def test_save_updates_files_and_reload_diff(tmp_path: Path) -> None:
-    source = ROOT / "configs" / "example_modbus"
+    source = ROOT / "tests" / "fixtures" / "configs" / "example_modbus"
     for name in FILES:
         copy2(source / name, tmp_path / name)
     adapter = YamlConfigAdapter(tmp_path)
@@ -46,7 +46,7 @@ def test_save_updates_files_and_reload_diff(tmp_path: Path) -> None:
 
 
 def test_repeated_save_uses_same_directory(tmp_path: Path) -> None:
-    source = ROOT / "configs" / "example_modbus"
+    source = ROOT / "tests" / "fixtures" / "configs" / "example_modbus"
     for name in FILES:
         copy2(source / name, tmp_path / name)
     adapter = YamlConfigAdapter(tmp_path)

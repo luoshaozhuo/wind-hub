@@ -14,7 +14,8 @@
     "generate:api": "python3 ../../scripts/generate_api_contract.py",
     "check:api": "python3 ../../scripts/generate_api_contract.py --check",
     "dev:mock": "vite --mode mock",
-    "test:e2e:mock": "NODE_PATH=node_modules playwright test --config playwright.mock.config.ts"
+    "test:e2e:mock": "NODE_PATH=node_modules playwright test --config playwright.mock.config.ts",
+    "test:e2e:real": "NODE_PATH=node_modules playwright test --config playwright.real.config.ts"
   },
   "dependencies": {
     "@tanstack/vue-query": "^5.104.1",

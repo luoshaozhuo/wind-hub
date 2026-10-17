@@ -25,7 +25,7 @@ FILES = (
 
 
 def _adapter(tmp_path: Path) -> YamlConfigAdapter:
-    base = ROOT / "configs" / "example_modbus"
+    base = ROOT / "tests" / "fixtures" / "configs" / "example_modbus"
     for filename in FILES:
         copy2(base / filename, tmp_path / filename)
     return YamlConfigAdapter(tmp_path)

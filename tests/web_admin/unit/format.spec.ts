@@ -1,7 +1,13 @@
 // format.ts 单元测试：全站统一的时间格式与空值占位契约。
 import { describe, expect, it } from 'vitest'
 
-import { EMPTY, formatTimestamp, nowText, orEmpty } from '../../../src/web_admin/src/utils/format'
+import {
+  EMPTY,
+  formatPercent,
+  formatTimestamp,
+  nowText,
+  orEmpty,
+} from '../../../src/web_admin/src/utils/format'
 
 describe('formatTimestamp', () => {
   it('格式化为 YYYY-MM-DD HH:mm:ss 并零填充', () => {
@@ -32,5 +38,23 @@ describe('orEmpty', () => {
     expect(orEmpty(0)).toBe(0)
     expect(orEmpty('0')).toBe('0')
     expect(orEmpty('ok')).toBe('ok')
+  })
+})
+
+
+describe('formatPercent（P3-08：Overview 资源百分比展示契约）', () => {
+  it('统一保留一位小数（与 System Health 一致）', () => {
+    expect(formatPercent(11.521181001283697)).toBe('11.5%')
+    expect(formatPercent(0)).toBe('0.0%')
+    expect(formatPercent(100)).toBe('100.0%')
+    expect(formatPercent(3.06)).toBe('3.1%') // 四舍五入，不截断
+  })
+
+  it('null/undefined/NaN/Infinity 统一兜底为占位符', () => {
+    expect(formatPercent(null)).toBe(EMPTY)
+    expect(formatPercent(undefined)).toBe(EMPTY)
+    expect(formatPercent(Number.NaN)).toBe(EMPTY)
+    expect(formatPercent(Number.POSITIVE_INFINITY)).toBe(EMPTY)
+    expect(formatPercent(Number.NEGATIVE_INFINITY)).toBe(EMPTY)
   })
 })

@@ -302,7 +302,16 @@ class _ModbusVirtualServer:
             self.context,
             address=self.plan.address,
         )
-        await self.server.serve_forever(background=True)
+        try:
+            await self.server.serve_forever(background=True)
+        except RuntimeError as exc:
+            # pymodbus >=3.7 把 bind/listen 失败（底层 OSError，如端口
+            # 冲突 EADDRINUSE）吞成 RuntimeError("Could not start listen")。
+            # 调用方与端口冲突验收依赖 OSError 区分绑定失败，这里归一化，
+            # 并保留 fleet 启动「失败即退出、不挂死」的语义。
+            if "Could not start listen" in str(exc):
+                raise OSError(f"modbus bind failed on {self.plan.address}: {exc}") from exc
+            raise
 
     def update(self, rng: random.Random) -> None:
         for point in self.plan.points:

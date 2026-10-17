@@ -14,12 +14,37 @@ import grpc
 import pytest
 
 from core.application.command import Command
+from core.application.protocol_contract import WriteOutcome
 from core.infrastructure.config import config_dir_digest
 from tests.support.functional_config import update_yaml, write_functional_config
 from tests.support.process import CollectorProcess
 from web_server.adapter.outbound.grpc.commander import CommanderGrpcClient
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
+
+
+def _add_reactive_point(config_dir: Path) -> None:
+    """新增一个遥测点：Mapping Key 即业务点 ID，points 与业务点目录须同步新增。"""
+    update_yaml(
+        config_dir,
+        "points.yaml",
+        lambda data: data["point_tables"]["modbus"]["points"].update(
+            {
+                "gen.reactive": {
+                    "point_groups": ["telemetry"],
+                    "address": {"register_type": "holding", "address": 106},
+                    "data_type": "float32",
+                }
+            }
+        ),
+    )
+    update_yaml(
+        config_dir,
+        "business_points.yaml",
+        lambda data: data["business_points"].update(
+            {"gen.reactive": {"data_type": "float32", "unit": "none"}}
+        ),
+    )
 
 
 @pytest.fixture
@@ -78,7 +103,7 @@ class TestReadWriteRoundTrip:
             )
         )
 
-        assert result.success is True, result.error
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS, result.error
         assert modbus_server.write_count == before + 1
 
         # 回读确认从站寄存器真实更新。
@@ -89,18 +114,7 @@ class TestReadWriteRoundTrip:
 class TestConfigTransactionRoundTrip:
     async def test_prepare_activate_abort_cycle(self, client) -> None:
         grpc_client, config_dir, _ = client
-        update_yaml(
-            config_dir,
-            "points.yaml",
-            lambda data: data["point_tables"]["modbus"]["points"].append(
-                {
-                    "point_id": "gen.reactive",
-                    "point_groups": ["telemetry"],
-                    "address": {"register_type": "holding", "address": 106},
-                    "data_type": "float32",
-                }
-            ),
-        )
+        _add_reactive_point(config_dir)
         config_hash = config_dir_digest(config_dir)
 
         prepared = await grpc_client.prepare_config("rev-cmd-1", config_hash)
@@ -116,18 +130,7 @@ class TestConfigTransactionRoundTrip:
 
     async def test_abort_discards_prepared_revision(self, client) -> None:
         grpc_client, config_dir, _ = client
-        update_yaml(
-            config_dir,
-            "points.yaml",
-            lambda data: data["point_tables"]["modbus"]["points"].append(
-                {
-                    "point_id": "gen.reactive",
-                    "point_groups": ["telemetry"],
-                    "address": {"register_type": "holding", "address": 106},
-                    "data_type": "float32",
-                }
-            ),
-        )
+        _add_reactive_point(config_dir)
         config_hash = config_dir_digest(config_dir)
 
         prepared = await grpc_client.prepare_config("rev-cmd-abort", config_hash)

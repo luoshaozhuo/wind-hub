@@ -13,6 +13,7 @@ import { useQuality } from '../composables/useQuality'
 import { useSystemHealth } from '../composables/useSystemHealth'
 import { useViewport } from '../composables/useViewport'
 import { protocolOfDevice } from '../domain/devices'
+import { formatPercent } from '../utils/format'
 import { useConfigStore } from '../stores/config'
 
 const { isMobile, isTablet } = useViewport()
@@ -580,23 +581,48 @@ const statTone = (onlineCount: number, total: number): Tone => {
           <div class="resource-grid">
             <div>
               <span>CPU</span>
-              <b class="value info">{{ healthSource === 'valid' ? host.cpu + '%' : '—' }}</b>
+              <b class="value info">{{
+                healthSource === 'valid' ? formatPercent(host.cpu) : '—'
+              }}</b>
               <div class="meter">
-                <i :style="{ width: healthSource === 'valid' ? `${host.cpu}%` : '0%' }"></i>
+                <i
+                  :style="{
+                    width:
+                      healthSource === 'valid' && Number.isFinite(host.cpu) ? `${host.cpu}%` : '0%',
+                  }"
+                ></i>
               </div>
             </div>
             <div>
               <span>Memory</span>
-              <b class="value info">{{ healthSource === 'valid' ? host.memory + '%' : '—' }}</b>
+              <b class="value info">{{
+                healthSource === 'valid' ? formatPercent(host.memory) : '—'
+              }}</b>
               <div class="meter">
-                <i :style="{ width: healthSource === 'valid' ? `${host.memory}%` : '0%' }"></i>
+                <i
+                  :style="{
+                    width:
+                      healthSource === 'valid' && Number.isFinite(host.memory)
+                        ? `${host.memory}%`
+                        : '0%',
+                  }"
+                ></i>
               </div>
             </div>
             <div>
               <span>Disk free</span>
-              <b class="value normal">{{ healthSource === 'valid' ? host.diskFree + '%' : '—' }}</b>
+              <b class="value normal">{{
+                healthSource === 'valid' ? formatPercent(host.diskFree) : '—'
+              }}</b>
               <div class="meter normal">
-                <i :style="{ width: healthSource === 'valid' ? `${host.diskFree}%` : '0%' }"></i>
+                <i
+                  :style="{
+                    width:
+                      healthSource === 'valid' && Number.isFinite(host.diskFree)
+                        ? `${host.diskFree}%`
+                        : '0%',
+                  }"
+                ></i>
               </div>
             </div>
           </div>

@@ -163,14 +163,14 @@ point_tables:
     protocol: iec104
     points:
 
-      active_power:
+      active_power_iec:
         point_groups: [all]
         address:
           type: M_ME_NA_1
           ioa: 1001
         data_type: float32
         unit: kilowatt
-        description: "有功功率"
+        description: "有功功率（IEC104 浮点）"
 
       turbine_run:
         point_groups: [all]

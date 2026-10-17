@@ -55,6 +55,8 @@ soak_report_*.md
 soak_report_*.json
 perf_report_*.md
 perf_report_*.json
+perf_report.md
+perf_report.json
 perf_latency.png
 # 前端测试输出（Playwright）
 src/web_admin/test-results/

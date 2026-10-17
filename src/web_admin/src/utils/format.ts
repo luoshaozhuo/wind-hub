@@ -20,3 +20,11 @@ export function nowText(): string {
 export function orEmpty(v: string | number | null | undefined): string | number {
   return v === null || v === undefined || v === '' ? EMPTY : v
 }
+
+/**
+ * 百分比统一展示契约：一位小数（与 System Health 一致），仅做展示格式化，
+ * 不改变采集数据/API 精度。null/undefined/NaN/Infinity 等无效值显示 '—'。
+ */
+export function formatPercent(v: number | null | undefined): string {
+  return typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(1)}%` : EMPTY
+}
