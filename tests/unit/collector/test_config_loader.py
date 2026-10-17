@@ -153,6 +153,64 @@ def test_sink_reference_to_ads_point_uses_logical_data_type(tmp_path):
     assert config.sinks["s1"].points[0]["source_data_type"] == "float32"
 
 
+@pytest.mark.parametrize(
+    ("protocol", "address", "native_type", "logical_type", "protocol_options"),
+    [
+        ("ads", {"symbol": "MAIN.flag"}, "BOOL", "bool", {"target_net_id": "1.2.3.4.5.6"}),
+        ("ads", {"symbol": "MAIN.code"}, "INT", "int16", {"target_net_id": "1.2.3.4.5.6"}),
+        ("ads", {"symbol": "MAIN.count"}, "DINT", "int32", {"target_net_id": "1.2.3.4.5.6"}),
+        ("ads", {"symbol": "MAIN.power"}, "REAL", "float32", {"target_net_id": "1.2.3.4.5.6"}),
+        ("ads", {"symbol": "MAIN.energy"}, "LREAL", "float64", {"target_net_id": "1.2.3.4.5.6"}),
+        (
+            "ads",
+            {"symbol": "MAIN.serial", "size": 16},
+            "STRING",
+            "str",
+            {"target_net_id": "1.2.3.4.5.6"},
+        ),
+        # Modbus / IEC104 原生表示与逻辑标量同名，但同样必须以业务点目录的
+        # 逻辑类型为 Sink 边界真值，而不是直接透传 point.ext。
+        ("modbus", {"register_type": "holding", "address": 100}, "int32", "int32", None),
+        ("iec104", {"type": "M_ME_NC_1", "ioa": 1}, "float32", "float32", None),
+    ],
+)
+def test_sink_source_data_type_is_always_logical(
+    tmp_path, protocol, address, native_type, logical_type, protocol_options
+):
+    """Sink 源类型参数化：ADS 各常见原生类型映射到逻辑类型；Modbus/IEC104 同名透传。"""
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        protocol=protocol,
+        points={
+            "p1": {
+                "point_groups": ["g"],
+                "address": address,
+                "data_type": native_type,
+            }
+        },
+        protocol_options=protocol_options,
+        sinks={
+            "s1": {
+                "type": "file",
+                "connection": {"path": str(tmp_path / "out.csv")},
+                "points": [
+                    {
+                        "source": {"device_id": "dev1", "point_id": "p1"},
+                        "address": {"field": "value"},
+                    }
+                ],
+            }
+        },
+    )
+    config = load_collector_config(YamlConfigAdapter(config_dir))
+    resolved = config.sinks["s1"].points[0]
+    assert resolved["source_data_type"] == logical_type
+    assert resolved["datatype"] == logical_type
+    # Driver 侧仍保留协议原生编码信息。
+    table = config.point_table_for_device(DeviceId("dev1"))
+    assert table.points["p1"].ext["data_type"] == native_type
+
+
 def test_disabled_device_excluded_but_task_reference_allowed(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,

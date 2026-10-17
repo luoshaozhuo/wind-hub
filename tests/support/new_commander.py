@@ -56,7 +56,7 @@ _ADS_LOGICAL_TYPES = {
     "BOOL": "bool", "SINT": "int8", "USINT": "uint8",
     "INT": "int16", "UINT": "uint16", "DINT": "int32",
     "UDINT": "uint32", "LINT": "int64", "ULINT": "uint64",
-    "REAL": "float32", "LREAL": "float64", "STRING": "string",
+    "REAL": "float32", "LREAL": "float64", "STRING": "str",
 }
 
 
