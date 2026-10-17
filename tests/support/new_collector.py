@@ -94,7 +94,7 @@ class CollectorFakeRegistry(FakeRegistry):
     # list 不变性：收窄基类 instances 元素类型需要显式忽略
     instances: list[CollectorFakeProtocol]  # type: ignore[assignment]
 
-    def create(self, endpoint, point_table, protocol_options_by_device):
+    def create(self, endpoint, point_table, protocol_options):
         instance = CollectorFakeProtocol()
         self.instances.append(instance)
         return instance
@@ -191,6 +191,7 @@ def make_collector_config(
             device_model_id=DeviceModelId("mod"),
             endpoint=ConnectionEndpoint(host="127.0.0.1", port=502),
             device_group_ids=group_ids,
+            subscribe_enabled=ads_subscribe,
         )
     }
     point_tables = {PointTableId("tab"): table}
@@ -212,7 +213,6 @@ def make_collector_config(
         runtime=params or RuntimeParams(connect_timeout=0.2, shutdown_timeout=0.5),
         tasks=tasks,
         sinks=sinks or {},
-        ads_subscribe_devices=frozenset({DeviceId(device_id)}) if ads_subscribe else frozenset(),
     )
 
 
@@ -222,7 +222,7 @@ def make_session(
     *,
     device_id: str = "dev1",
 ) -> CollectorDeviceSession:
-    """按 config 的 device_view 构造采集会话（协议为 Fake）。"""
+    """按 Device 与 PointTable 构造采集会话（协议为 Fake）。"""
     device = config.devices[DeviceId(device_id)]
     return CollectorDeviceSession(
         device,

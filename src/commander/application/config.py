@@ -28,7 +28,6 @@ from core.domain import (
     DeviceModelId,
     PointTable,
     PointTableId,
-    ProtocolOptions,
 )
 from core.domain.unit import UnitCatalog
 
@@ -43,7 +42,6 @@ class CommanderConfig:
         device_groups: 设备分组索引。
         point_tables: resolved 点表索引。
         business_points: 业务点索引（诊断展示单位/数据类型）。
-        protocol_options_by_device: 合并后的协议参数索引。
         ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
         connect_timeout: 单设备连接超时（秒）。
         write_timeout: 默认写超时（秒）；Command.timeout <= 0 时生效。
@@ -57,7 +55,6 @@ class CommanderConfig:
     device_groups: Mapping[DeviceGroupId, DeviceGroup] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
-    protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
     ads_local: ADSLocalConfig | None = None
     connect_timeout: float = 1.0
     write_timeout: float = 1.0
@@ -83,7 +80,6 @@ class CommanderConfig:
             "device_groups",
             "point_tables",
             "business_points",
-            "protocol_options_by_device",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
 
@@ -95,4 +91,4 @@ class CommanderConfig:
 
     def protocol_options_for(self, device_id: DeviceId) -> ProtocolOptions:
         """返回指定 Device 的协议专有连接配置；缺省为空映射。"""
-        return self.protocol_options_by_device.get(device_id, MappingProxyType({}))
+        return self.devices[device_id].protocol_options

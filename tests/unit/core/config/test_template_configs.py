@@ -58,7 +58,7 @@ def test_template_assembles_collector_and_commander() -> None:
 def test_template_device_overrides_merge_with_model_defaults() -> None:
     """设备显式值按同名 Key 覆盖型号默认值，未覆盖字段继续继承。"""
     snapshot = YamlConfigAdapter(TEMPLATE_DIR).load()
-    options = snapshot.protocol_options_by_device
+    options = {device_id: device.protocol_options for device_id, device in snapshot.site.devices.items()}
     models = snapshot.device_models
 
     modbus_override = options[DeviceId("modbus-010")]
@@ -94,7 +94,7 @@ def test_template_protocol_options_accepted_by_parsers() -> None:
         )
         options = {
             **model.protocol_options,
-            **snapshot.protocol_options_by_device.get(device_id, {}),
+            **device.protocol_options,
         }
         _OPTION_PARSERS[protocol](endpoint, options)
 

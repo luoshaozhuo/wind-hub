@@ -58,10 +58,10 @@ def test_ads_subscription_option_round_trip(tmp_path: Path) -> None:
     first_device.setdefault("protocol_options", {})["subscribe_enabled"] = True
     devices.write_text(yaml.safe_dump(document, sort_keys=False))
     before = adapter.load()
-    assert before.ads_subscribe_devices
+    assert any(device.subscribe_enabled for device in before.site.devices.values())
     adapter.save(before)
     after = adapter.load()
-    assert after.ads_subscribe_devices == before.ads_subscribe_devices
+    assert {key for key, device in after.site.devices.items() if device.subscribe_enabled} == {key for key, device in before.site.devices.items() if device.subscribe_enabled}
     assert not diff_config_snapshots(before, after).has_changes
 
 

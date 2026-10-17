@@ -106,7 +106,6 @@ def test_central_domain_validation_checks_tasks() -> None:
         "devices": {},
         "business_points": {},
         "point_tables": {},
-        "protocol_options_by_device": {},
         "units": minimal_unit_catalog(),
         "tasks": {task.task_id: task},
     }

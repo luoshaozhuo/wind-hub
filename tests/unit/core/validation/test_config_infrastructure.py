@@ -83,7 +83,6 @@ def _indexes(
         "devices": {device.device_id: device},
         "business_points": {point.business_point_id: point},
         "point_tables": {table.point_table_id: table},
-        "protocol_options_by_device": {device.device_id: {"slave_id": 1}},
         "units": minimal_unit_catalog(),
     }
 
