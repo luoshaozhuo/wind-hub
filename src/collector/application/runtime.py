@@ -373,11 +373,14 @@ class CollectorRuntime:
         部分 reload 失败后下一次会重放同一 diff。若设备已经按目标配置存在，
         不重复替换协议实例，只立即重试连接；若同 ID 但配置不同，则走 rebuild。
         """
-        if self._device_runtime.requires_rebuild(device_id, device, point_table):
-            await self.rebuild_device(device_id, device, point_table)
-            return
         if device_id in self._device_runtime.devices:
-            # 已按目标配置存在——立即重试连接后收敛。
+            if self._device_runtime.requires_rebuild(device_id, device, point_table):
+                if self._device_runtime.is_lightweight_update(device_id, device, point_table):
+                    self._device_runtime.update_device(device_id, device, point_table)
+                else:
+                    await self.rebuild_device(device_id, device, point_table)
+                    return
+            # 重放热增时，已收敛的会话不需要重建协议实例。
             await self._device_runtime.ensure_connected(device_id, force=True)
             await self._task_runtime.sync_instances()
             return
@@ -515,11 +518,17 @@ class CollectorRuntime:
         # Task 定义变化：整体替换注册表并重新展开实例。设备/点表变化也可能
         # 改变展开结果（device_group 成员变化），统一在此收尾同步——实例
         # 增删只影响对应实例，不触碰任何 Protocol 连接。
-        if diff.point_tables_changed:
+        if diff.point_tables_changed and not errors:
             changed_tables = set(diff.point_tables_changed)
             for did, session in self._device_runtime.devices.items():
+                target_device = new_config.devices.get(DeviceId(did))
+                if target_device is None:
+                    continue
+                target_table = new_config.point_table_for_device(DeviceId(did))
                 if (
-                    str(session.point_table.point_table_id) in changed_tables
+                    str(target_table.point_table_id) in changed_tables
+                    and _session_matches(session, target_device, target_table)
+                    and session.point_table == target_table
                     and session.acquisition_mode is AcquisitionMode.SUBSCRIBE
                 ):
                     restart_subscription_devices.add(did)

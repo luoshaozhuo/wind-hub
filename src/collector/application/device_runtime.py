@@ -134,7 +134,7 @@ class DeviceRuntime:
     def is_lightweight_update(self, device_id: str, device: Device, point_table: PointTable) -> bool:
         """仅点表绑定/设备分组/名称变化时可保留现有协议连接。"""
         existing = self._devices.get(device_id)
-        if device_id not in self._devices or existing is None:
+        if existing is None:
             return False
         return (
             existing.device.endpoint == device.endpoint
