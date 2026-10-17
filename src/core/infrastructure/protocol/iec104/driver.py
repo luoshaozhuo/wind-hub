@@ -25,7 +25,6 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 
 from hat.drivers import net
@@ -47,7 +46,6 @@ from core.application.protocol_contract import (
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
-    Quality,
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
@@ -95,16 +93,6 @@ def _set_result(future: asyncio.Future[Any], value: Any) -> None:
 def _set_exception(future: asyncio.Future[Any], exc: BaseException) -> None:
     if not future.done():
         future.set_exception(exc)
-
-
-def _bad_sample(point_id: str) -> ProtocolSample:
-    """解码失败时的显式坏质量样本（绝不伪造 GOOD 质量）。"""
-    return ProtocolSample(
-        point_id=point_id,
-        value=None,
-        timestamp=datetime.now(UTC),
-        quality=Quality.BAD,
-    )
 
 
 @dataclass(slots=True)
@@ -645,14 +633,41 @@ class IEC104Driver:
             await self._on_session_end(session)
 
     def _decode_and_dispatch(self, session: _Session, data: bytes) -> None:
-        # hat Encoder.decode 是生成器：单 ASDU 多 IO 元素会展开为多条 Msg。
-        try:
-            for message in self._encoder.decode(data):
+        # hat Encoder.decode 是生成器（单 ASDU 多 IO 元素展开为多条 Msg），
+        # 异常可能在任何一次 next() 抛出——本协议栈在进入生成器时急切解码
+        # 整个 ASDU，截断/非法类型通常在第一次 next() 即失败。解码与逐条
+        # 分发严格隔离：当前 APDU 不可解码的剩余部分只丢这一帧并记日志，
+        # 绝不杀死接收任务，后续 APDU 正常处理。出错后不重新迭代同一生成器。
+        messages = self._encoder.decode(data)
+        while True:
+            try:
+                message = next(messages)
+            except StopIteration:
+                return
+            except iec101.AsduTypeError as exc:
+                logger.warning(
+                    "IEC104 unsupported ASDU type (%s); APDU remainder dropped: %s",
+                    exc,
+                    data.hex(),
+                )
+                return
+            except Exception:
+                logger.exception(
+                    "IEC104 ASDU decode failed (malformed/truncated APDU); "
+                    "remainder of this APDU dropped: %s",
+                    data.hex(),
+                )
+                return
+            try:
                 self._dispatch(session, message)
-        except iec101.AsduTypeError:
-            logger.warning("IEC104 received unsupported ASDU type: %s", data.hex())
-        except Exception:
-            logger.exception("IEC104 ASDU decode failed: %s", data.hex())
+            except Exception:
+                logger.exception(
+                    "IEC104 dispatch failed for %s ca=%s ioa=%s; "
+                    "subsequent messages are unaffected",
+                    type(message).__name__,
+                    getattr(message, "asdu_address", "?"),
+                    getattr(message, "io_address", "?"),
+                )
 
     def _dispatch(self, session: _Session, message: iec101.Msg) -> None:
         if isinstance(message, iec101.DataMsg):
@@ -667,17 +682,35 @@ class IEC104Driver:
 
     def _dispatch_data(self, session: _Session, message: iec101.DataMsg) -> None:
         key: Address = (message.asdu_address, message.io_address)
+        data_type = type(message.data).__name__
         if message.cause is iec101.DataResCause.REQUEST:
             request = session.reads.get(key)
             if request is None or request.future.done():
                 return
+            # 主动读响应畸形/类型不受支持：请求必须显式失败，绝不以
+            # 伪造的坏样本完成（合法数据 + Invalid 品质位仍正常解出
+            # quality=BAD 的真实样本，走 decode_sample 成功路径）。
             try:
                 sample = decode_sample(request.point_id, message)
-            except (ValueError, TypeError):
-                logger.exception(
-                    "IEC104 failed to decode read response ca=%s ioa=%s", key[0], key[1]
+            except (ValueError, TypeError) as exc:
+                logger.error(
+                    "IEC104 malformed read response for '%s' ca=%s ioa=%s "
+                    "data_type=%s: %s: %s",
+                    request.point_id,
+                    key[0],
+                    key[1],
+                    data_type,
+                    type(exc).__name__,
+                    exc,
                 )
-                sample = _bad_sample(request.point_id)
+                _set_exception(
+                    request.future,
+                    ProtocolError(
+                        f"IEC104 malformed read response for '{request.point_id}' "
+                        f"(ca={key[0]}, ioa={key[1]}, data_type={data_type}): {exc}"
+                    ),
+                )
+                return
             _set_result(request.future, sample)
             return
 
@@ -687,15 +720,21 @@ class IEC104Driver:
                 "IEC104 drop update for unconfigured address ca=%s ioa=%s", key[0], key[1]
             )
             return
+        # 自发/总召数据畸形：记错误日志并丢弃，绝不伪造值或 BAD 样本。
         try:
             sample = decode_sample(mapped.point_id, message)
-        except (ValueError, TypeError):
-            logger.warning(
-                "IEC104 undecodable monitoring data for '%s' — emitting BAD sample",
+        except (ValueError, TypeError) as exc:
+            logger.error(
+                "IEC104 malformed monitoring data for '%s' ca=%s ioa=%s "
+                "data_type=%s — dropped: %s: %s",
                 mapped.point_id,
-                exc_info=True,
+                key[0],
+                key[1],
+                data_type,
+                type(exc).__name__,
+                exc,
             )
-            sample = _bad_sample(mapped.point_id)
+            return
         self._listeners.offer(sample)
 
     def _dispatch_read_negative(self, session: _Session, message: iec101.ReadMsg) -> None:
