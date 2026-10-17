@@ -7,6 +7,7 @@ import pytest
 from core.application import (
     ConfigError,
     ConnectionHealth,
+    ListenHandle,
     ProtocolCapability,
     ProtocolCapabilityError,
     ProtocolRegistry,
@@ -93,7 +94,26 @@ class _Protocol:
         del point_ids, callback, interval
         raise ProtocolCapabilityError("not supported")
 
-    async def interrogate(self) -> None:
+    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        del handle
+        raise ProtocolCapabilityError("not supported")
+
+    async def listen(
+        self,
+        point_ids: Sequence[str],
+        callback: ProtocolSampleCallback,
+        *,
+        interval: float | None = None,
+    ) -> ListenHandle:
+        del point_ids, callback, interval
+        raise ProtocolCapabilityError("not supported")
+
+    async def unlisten(self, handle: ListenHandle) -> None:
+        del handle
+        raise ProtocolCapabilityError("not supported")
+
+    async def interrogate(self, common_address: int | None = None) -> None:
+        del common_address
         raise ProtocolCapabilityError("not supported")
 
     def update_point_table(self, point_table: PointTable) -> None:
@@ -214,7 +234,7 @@ def test_protocol_drivers_declare_supported_capabilities() -> None:
         {
             ProtocolCapability.READ,
             ProtocolCapability.WRITE,
-            ProtocolCapability.SUBSCRIBE,
+            ProtocolCapability.LISTEN,
             ProtocolCapability.INTERROGATE,
         }
     )
@@ -236,6 +256,25 @@ async def test_modbus_rejects_unsupported_protocol_capabilities() -> None:
 
     with pytest.raises(ProtocolCapabilityError, match="interrogation"):
         await driver.interrogate()
+
+
+@pytest.mark.asyncio
+async def test_iec104_rejects_unsupported_protocol_capabilities() -> None:
+    driver = IEC104Driver(
+        ConnectionEndpoint("127.0.0.1", 2404),
+        PointTable(PointTableId("iec104_pt"), Protocol("iec104"), {}),
+        {},
+    )
+
+    async def callback(_sample: ProtocolSample) -> None:
+        return None
+
+    with pytest.raises(ProtocolCapabilityError, match="subscription"):
+        await driver.subscribe((), callback)
+    with pytest.raises(ProtocolCapabilityError, match="batch read"):
+        await driver.read_many(("p1",))
+    with pytest.raises(ProtocolCapabilityError, match="batch write"):
+        await driver.write_many((ProtocolWrite(point="p1", value=True),))
 
 
 @pytest.mark.asyncio

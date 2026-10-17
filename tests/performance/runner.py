@@ -91,7 +91,7 @@ def get_device_config(protocol: str, host: str, port: int) -> dict[str, dict[str
     if protocol == "modbus":
         protocol_options: dict[str, object] = {"slave_id": 1}
     elif protocol == "iec104":
-        protocol_options = {"common_addr": 1}
+        protocol_options = {"common_addresses": "1"}
     else:  # ads
         # max_subs_per_sum=256：单条 Sum 请求 ~330+ 子命令会撑爆 pyads
         # testserver 的 4096 接收缓冲（截断后永不应答），256 留足余量

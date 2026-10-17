@@ -24,7 +24,8 @@ from core.application import (
     Quality,
     WriteOutcome,
 )
-from core.application.port.protocol import SubscriptionHandle
+from core.application.errors import ProtocolCapabilityError
+from core.application.port.protocol import ListenHandle, SubscriptionHandle
 from core.application.protocol_registry import ProtocolRegistry
 from core.application.settings import ADSLocalConfig
 from core.domain import (
@@ -187,6 +188,7 @@ class FakeProtocol:
         self.read_values: dict[str, Any] = {}
         self.writes: list[ProtocolWrite] = []
         self.point_table_updates: list[PointTable] = []
+        self.interrogate_calls: list[int | None] = []
         self.write_success = True
         self.capabilities_value: frozenset[ProtocolCapability] = frozenset(
             {ProtocolCapability.READ, ProtocolCapability.WRITE}
@@ -259,10 +261,31 @@ class FakeProtocol:
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
-        return FakeSubscriptionHandle()
+        # 默认 Fake 只具备 READ/WRITE：与 Modbus 行为一致，明确拒绝。
+        raise ProtocolCapabilityError("fake protocol does not support subscribe")
 
-    async def interrogate(self) -> None:
-        return None
+    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        raise ProtocolCapabilityError("fake protocol does not support subscribe")
+
+    async def listen(
+        self,
+        point_ids: Sequence[str],
+        callback: Any,
+        *,
+        interval: float | None = None,
+    ) -> ListenHandle:
+        raise ProtocolCapabilityError("fake protocol does not support listen")
+
+    async def unlisten(self, handle: ListenHandle) -> None:
+        raise ProtocolCapabilityError("fake protocol does not support listen")
+
+    async def interrogate(self, common_address: int | None = None) -> None:
+        self.interrogate_calls.append(common_address)
+
+    @property
+    def interrogate_last(self) -> int | None:
+        """最近一次总召目标 CA（None 表示全部站址）。"""
+        return self.interrogate_calls[-1] if self.interrogate_calls else None
 
 
 class FakeRegistry(ProtocolRegistry):

@@ -1,7 +1,15 @@
 """共享设备协议 outbound port。
 
 ProtocolPort 统一描述 Shared Core 支持的协议运行时能力集合。具体协议通过
-capabilities() 声明实际支持项；调用未支持能力时由 Adapter 显式失败。
+capabilities() 声明**真实具备**的能力；调用未支持能力时由 Adapter 抛出
+``ProtocolCapabilityError``，不允许以轮询、缓存或其他协议操作伪装。
+
+两类推送语义严格区分：
+
+- ``subscribe``：协议**原生远程订阅**（如 ADS AddDeviceNotification），
+  调用会在对端设备注册通知；
+- ``listen``：**本地监听**设备主动上送（如 IEC104 自发上送/总召数据），
+  只做本地注册与分发，不向对端注册、不轮询、不隐式总召。
 """
 
 from __future__ import annotations
@@ -25,13 +33,18 @@ if TYPE_CHECKING:
 
 
 class SubscriptionHandle(Protocol):
-    """协议订阅生命周期句柄。"""
+    """一次协议原生远程订阅的生命周期句柄。"""
+
+    async def close(self) -> None: ...
+
+
+class ListenHandle(Protocol):
+    """一次本地主动上送监听的生命周期句柄。"""
 
     async def close(self) -> None: ...
 
 
 ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
-
 
 TPoint = TypeVar("TPoint", bound=ProtocolPoint, contravariant=True, default=Never)
 
@@ -79,8 +92,8 @@ class ProtocolPort(Protocol[TPoint]):
         """用热重载后的点表重建协议寻址映射（纯内存操作，不断开连接）。
 
         点表内容（地址/数据类型/字序）或绑定变化时由会话层调用。实现方
-        必须同步失效依赖旧寻址的缓存（读取分组、地址解析等）；订阅类
-        Driver 的已注册通知由上层重启订阅后按新映射重建。
+        必须同步失效依赖旧寻址的缓存（读取分组、地址解析等）；推送类
+        Driver 的句柄由上层重启采集后按新映射重建。
         """
         ...
 
@@ -90,6 +103,41 @@ class ProtocolPort(Protocol[TPoint]):
         callback: ProtocolSampleCallback,
         *,
         interval: float | None = None,
-    ) -> SubscriptionHandle: ...
+    ) -> SubscriptionHandle:
+        """注册协议**原生远程订阅**（对端设备真实支持通知机制时）。
 
-    async def interrogate(self) -> None: ...
+        空 ``point_ids`` 表示订阅点表全部点。实现必须返回可显式注销的句柄，
+        且 ``unsubscribe`` 幂等；注销后不得继续投递新数据。
+        """
+        ...
+
+    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        """注销一次远程订阅（幂等）。"""
+        ...
+
+    async def listen(
+        self,
+        point_ids: Sequence[str],
+        callback: ProtocolSampleCallback,
+        *,
+        interval: float | None = None,
+    ) -> ListenHandle:
+        """注册本地监听：接收设备**主动上送**的数据。
+
+        本调用不向对端注册任何东西、不触发轮询或隐式总召、不创建额外
+        连接。空 ``point_ids`` 表示监听点表内全部已配置点；未配置地址的
+        上送不得投递到业务回调。``unlisten`` 必须幂等，注销后不再投递。
+        """
+        ...
+
+    async def unlisten(self, handle: ListenHandle) -> None:
+        """取消一次本地监听（幂等）。"""
+        ...
+
+    async def interrogate(self, common_address: int | None = None) -> None:
+        """执行一次协议总召；``common_address=None`` 表示全部已配置站址。
+
+        总召完成以协议应用层确认为据（如 IEC104 ACT_TERM），不能把请求
+        发送成功当作完成。
+        """
+        ...

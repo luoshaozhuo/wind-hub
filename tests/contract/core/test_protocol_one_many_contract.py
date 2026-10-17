@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from hat.drivers.iec101 import common as iec101
 
-from core.application.errors import ProtocolError
+from core.application.errors import ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
     ProtocolSample,
     ProtocolWrite,
@@ -30,12 +30,24 @@ from core.application.protocol_contract import (
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.ads.driver import ADSDriver, _AdsSession
 from core.infrastructure.protocol.ads.mapping import ADSPoint
-from core.infrastructure.protocol.iec104.config import IEC104Config
-from core.infrastructure.protocol.iec104.driver import IEC104Driver, _SubscriptionRegistry
-from core.infrastructure.protocol.iec104.mapping import IEC104Point
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 from core.infrastructure.protocol.modbus.mapping import ModbusPoint
+from tests.support.iec104_hat_fake import (
+    command_confirmation_msg as command_confirmation_iec104,
+)
+from tests.support.iec104_hat_fake import (
+    connected_driver as connected_iec104_driver,
+)
+from tests.support.iec104_hat_fake import (
+    floating_data_msg as floating_data_iec104,
+)
+from tests.support.iec104_hat_fake import (
+    make_driver as make_iec104_driver,
+)
+from tests.support.iec104_hat_fake import (
+    make_point as make_iec104_point,
+)
 
 
 def _fail_many(driver: object) -> None:
@@ -256,102 +268,60 @@ async def test_ads_single_operations_succeed_without_many_on_connected_path() ->
 # ---------------------------------------------------------------------------
 
 
-class _IEC104CommandPoint:
-    """记录 transmit 调用的最小 c104 命令点替身（同步 API）。"""
+def _iec104_points() -> list[Any]:
+    from core.domain import PointAccess
 
-    def __init__(self, point_type: Any) -> None:
-        self.type = point_type
-        self.value: object = None
-        self.transmit_calls: list[Any] = []
-
-    def transmit(self, cot: Any) -> bool:
-        self.transmit_calls.append(cot)
-        return True
-
-
-class _IEC104Station:
-    def __init__(self, points: dict[int, _IEC104CommandPoint]) -> None:
-        self._points = points
-
-    def get_point(self, ioa: int) -> _IEC104CommandPoint | None:
-        return self._points.get(ioa)
-
-
-def _connected_iec104_driver() -> IEC104Driver:
-    import c104
-
-    driver = object.__new__(IEC104Driver)
-    driver._is_open = True
-    driver._closed = False
-    driver._points_by_id = {
-        "p1": IEC104Point(point_id="p1", ioa=100, type_id="M_ME_NC_1"),
-        "c1": IEC104Point(point_id="c1", ioa=200, type_id="C_SC_NA_1"),
-    }
-    driver._points_by_ioa = {p.ioa: p for p in driver._points_by_id.values()}
-    driver._dynamic_points = {}
-    driver._command_locks = {}
-    driver._active_reads = {}
-    driver._active_read_locks = {}
-    driver._subscriptions = _SubscriptionRegistry()
-    command_point = _IEC104CommandPoint(c104.Type.C_SC_NA_1)
-    driver._station = _IEC104Station({200: command_point})
-
-    driver._config = IEC104Config(host="192.0.2.30", port=2404, t1=0.2)
-    return driver
-
-
-def _bare_iec104_driver() -> IEC104Driver:
-    driver = _connected_iec104_driver()
-    driver._is_open = False
-    driver._station = None
-    return driver
+    return [
+        make_iec104_point("p1", 100),
+        make_iec104_point("c1", 200, type_id="C_SC_NA_1", access=PointAccess.WRITE),
+    ]
 
 
 @pytest.mark.asyncio
 async def test_iec104_single_operations_do_not_delegate_to_many() -> None:
     """IEC104 read_one/write_one 独立实现，不经过 read_many/write_many。"""
-    driver = _bare_iec104_driver()
+    driver, _conn = make_iec104_driver(_iec104_points())
     _fail_many(driver)
 
-    with pytest.raises(ProtocolError, match="OPEN connection"):
+    with pytest.raises(ProtocolError, match="OPEN"):
         await driver.read_one("p1")
-    with pytest.raises(ProtocolError, match="OPEN connection"):
-        await driver.write_one(ProtocolWrite("p1", 1))
+    with pytest.raises(ProtocolError, match="OPEN"):
+        await driver.write_one(ProtocolWrite("c1", True))
+    await driver.close()
 
 
 @pytest.mark.asyncio
 async def test_iec104_single_operations_succeed_without_many_on_open_path() -> None:
-    """OPEN 路径：read_one 完成一次主动 C_RD 读；write_one 发送一次真实遥控命令。"""
-    driver = _connected_iec104_driver()
+    """OPEN 路径：read_one 完成一次真实 C_RD 关联；write_one 发送一帧真实命令。
+
+    上下行走 hat 生产编解码字节管线（内存 APCI 假连接），read_many/
+    write_many 全程不得被调用。
+    """
+    driver, conn = await connected_iec104_driver(
+        _iec104_points(), options={"t1": 2.0}
+    )
     _fail_many(driver)
 
-    sent: list[IEC104Point] = []
-
-    async def send(mapped: IEC104Point) -> None:
-        sent.append(mapped)
-
-    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     read_task = asyncio.create_task(driver.read_one("p1"))
-    await asyncio.sleep(0)
-    driver._active_reads[100].set_result(
-        ProtocolSample(
-            point_id="p1",
-            value=True,
-            quality=Quality.GOOD,
-            timestamp=datetime.now(UTC),
-        )
+    await asyncio.sleep(0.05)
+    conn.deliver(
+        [floating_data_iec104(1, 100, 7.5, cause=iec101.DataResCause.REQUEST)]
     )
-    sample = await read_task
-    assert [mapped.ioa for mapped in sent] == [100]
-    assert sample.value is True
+    sample = await asyncio.wait_for(read_task, timeout=2)
+    assert sample.value == 7.5
     assert sample.quality == Quality.GOOD
+    assert isinstance(conn.last_message(), iec101.ReadMsg)
 
-    result = await driver.write_one(ProtocolWrite("c1", True))
+    write_task = asyncio.create_task(
+        driver.write_one(ProtocolWrite("c1", True))
+    )
+    await asyncio.sleep(0.05)
+    conn.deliver(
+        [command_confirmation_iec104(1, 200)]
+    )
+    result = await asyncio.wait_for(write_task, timeout=2)
     assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-    command_point = driver._station.get_point(200)
-    assert command_point is not None
-    assert len(command_point.transmit_calls) == 1
-    assert command_point.value is True
+    await driver.close()
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +332,7 @@ async def test_iec104_single_operations_succeed_without_many_on_open_path() -> N
 @pytest.mark.asyncio
 async def test_modbus_write_many_always_not_implemented() -> None:
     driver = object.__new__(ModbusDriver)
-    with pytest.raises(NotImplementedError, match="write_many"):
+    with pytest.raises(ProtocolCapabilityError, match="write_many"):
         await driver.write_many(())
-    with pytest.raises(NotImplementedError, match="write_many"):
+    with pytest.raises(ProtocolCapabilityError, match="write_many"):
         await driver.write_many((ProtocolWrite("p1", 1),))

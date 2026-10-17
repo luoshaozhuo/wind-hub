@@ -3,32 +3,29 @@ point_tables:
     protocol: iec104
     points:
       meas_power:
-        business_point_id: meas_power
         point_groups:
         - all
         address:
-          ioa: 100
           type: M_ME_NC_1
+          ioa: 100
         data_type: float32
-        unit_id: none
+        unit: none
         description: 有功功率
       meas_freq:
-        business_point_id: meas_freq
         point_groups:
         - all
         address:
-          ioa: 200
           type: M_ME_NC_1
+          ioa: 200
         data_type: float32
-        unit_id: none
+        unit: none
         description: 频率
       cmd_breaker:
-        business_point_id: cmd_breaker
         point_groups:
         - all
         address:
-          ioa: 300
           type: C_SC_NA_1
+          ioa: 300
         data_type: bool
-        unit_id: none
+        unit: none
         description: 断路器遥控

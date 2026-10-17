@@ -10,7 +10,11 @@ import pytest
 from pymodbus.exceptions import ModbusIOException
 
 from core.application import ConfigError
-from core.application.errors import ProtocolConnectionError, ProtocolError
+from core.application.errors import (
+    ProtocolCapabilityError,
+    ProtocolConnectionError,
+    ProtocolError,
+)
 from core.application.protocol_contract import ProtocolWrite, Quality, WriteOutcome
 from core.domain import (
     BusinessPointId,
@@ -745,7 +749,7 @@ class TestWriteManyUnsupported:
     async def test_empty_input_raises(self) -> None:
         client = _Client()
         driver = _driver({}, client)
-        with pytest.raises(NotImplementedError, match="write_many"):
+        with pytest.raises(ProtocolCapabilityError, match="write_many"):
             await driver.write_many(())
         assert client.total_write_calls() == 0
 
@@ -753,7 +757,7 @@ class TestWriteManyUnsupported:
     async def test_non_empty_input_raises(self) -> None:
         client = _Client()
         driver = _driver({"h": _point("h")}, client)
-        with pytest.raises(NotImplementedError, match="write_many"):
+        with pytest.raises(ProtocolCapabilityError, match="write_many"):
             await driver.write_many((ProtocolWrite("h", 1),))
         assert client.total_write_calls() == 0
 

@@ -9,7 +9,7 @@ device_models:
     endpoint_defaults:
       port: 2404
     protocol_options:
-      common_addr: 1
+      common_addresses: "1"
       t0: 5.0
       t1: 3.0
       t2: 1.0

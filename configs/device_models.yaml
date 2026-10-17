@@ -72,7 +72,10 @@
 #                    固定（见 devices.yaml）。
 #
 # IEC104（iec104_wtg.protocol_options）：
-#   common_addr: int 0..65535，默认 1 —— ASDU 公共地址。
+#   common_addresses: int 或逗号分隔整数串，默认 1 —— 一条 TCP 连接承载
+#                    的全部 ASDU 公共地址（多 CA）；首项为点缺省 CA。
+#   health_point:   str，可选 —— 应用层健康探测点 point_id；不配置时只
+#                    判断链路健康（TCP/STARTDT/APCI）。
 #   k:           int >= 1，默认 12 —— 发送窗口（未确认 I 帧上限）。
 #   w:           int >= 1 且 <= k，默认 8 —— 接收确认窗口。
 #   t0:          float > 0（秒），默认 30 —— 连接建立超时。
@@ -121,7 +124,7 @@ device_models:
       username: Administrator  # 远程 PLC 路由注册凭据（wind-hub 应用层默认值）
       password: ""             # 空密码表示未提供有效密码，不保证 PLC 接受
 
-  # IEC104 风机控制器（公共参数：common_addr/k/w/t0/t1/t2/t3）
+  # IEC104 风机控制器（公共参数：common_addresses/health_point/k/w/t0..t3）
   iec104_wtg:
     device_type_id: turbine
     protocol: iec104
@@ -129,7 +132,7 @@ device_models:
     endpoint_defaults:
       port: 12404              # 本机模拟非特权 TCP 端口
     protocol_options:
-      common_addr: 1
+      common_addresses: "1"
       k: 12
       w: 8
       t0: 30.0

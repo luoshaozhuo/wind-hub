@@ -92,6 +92,7 @@ class ProtocolCapability(StrEnum):
     # 多逻辑点批量写；未声明时 write_many 必须在连接恢复前明确拒绝。
     WRITE_MANY = "write_many"
     SUBSCRIBE = "subscribe"
+    LISTEN = "listen"
     INTERROGATE = "interrogate"
 
 
