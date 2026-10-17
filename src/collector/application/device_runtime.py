@@ -131,7 +131,7 @@ class DeviceRuntime:
             return device_id in self._devices
         return _session_signature(existing) != (device, point_table.point_table_id)
 
-    def is_lightweight_update(self, device_id: str, view: DeviceView) -> bool:
+    def is_lightweight_update(self, device_id: str, device: Device, point_table: PointTable) -> bool:
         """仅点表绑定/设备分组/名称变化时可保留现有协议连接。"""
         existing = self._devices.get(device_id)
         if device_id not in self._devices or existing is None:
@@ -143,7 +143,7 @@ class DeviceRuntime:
             and existing.subscribe_enabled == device.subscribe_enabled
         )
 
-    def update_device(self, device_id: str, view: DeviceView) -> None:
+    def update_device(self, device_id: str, device: Device, point_table: PointTable) -> None:
         """就地应用轻量配置；先换设备快照，再仅在绑定改变时重注入点表。
 
         保留原有点表解析时机与失败语义；device_group 变化不触碰协议连接。
@@ -155,7 +155,7 @@ class DeviceRuntime:
         session.set_points(point_table)
         logger.info("Hot-reload: device '%s' updated in place (no reconnect)", device_id)
 
-    def set_points(self, device_id: str, view: DeviceView) -> None:
+    def set_points(self, device_id: str, device: Device, point_table: PointTable) -> None:
         """重注入已收敛设备的点映射/元数据，不重建协议连接。"""
         session = self._devices[device_id]
         session.set_points(point_table)
@@ -275,7 +275,7 @@ class DeviceRuntime:
     # ------------------------------------------------------------------
 
     async def add_device(
-        self, device_id: str, view: DeviceView, session: CollectorDeviceSession
+        self, device_id: str, device: Device, point_table: PointTable, session: CollectorDeviceSession
     ) -> None:
         """运行时新增设备会话并立即尝试连接；失败记账后保留会话，由 Watchdog 后续周期恢复。
 
@@ -310,7 +310,7 @@ class DeviceRuntime:
         self._connect_locks.pop(device_id, None)
 
     async def rebuild_device(
-        self, device_id: str, view: DeviceView, session: CollectorDeviceSession
+        self, device_id: str, device: Device, point_table: PointTable, session: CollectorDeviceSession
     ) -> None:
         """重建设备——关闭旧连接，换入新会话后重新接入。
 
