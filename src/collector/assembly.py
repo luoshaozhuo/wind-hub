@@ -13,12 +13,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.application import ProtocolRegistry
+from core.domain import Device, PointTable
 from core.application.port import SinkPort
 from core.application.settings import ADSLocalConfig
 from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
-from .application.config import CollectorConfig, DeviceView
+from .application.config import CollectorConfig
 from .application.config_service import CollectorConfigService
 from .application.identity import CollectorIdentity, build_collector_identity
 from .application.latest_values import LatestValues
@@ -109,21 +110,23 @@ def assemble_collector(
 
     protocol_registry = build_protocol_registry()
 
-    def session_factory(view: DeviceView) -> CollectorDeviceSession:
+    def session_factory(device: Device, point_table: PointTable) -> CollectorDeviceSession:
         protocol = protocol_registry.create(
-            view.device.endpoint,
-            view.point_table,
-            view.options,
+            device.endpoint,
+            point_table,
+            device.protocol_options,
         )
         return CollectorDeviceSession(
-            view.device,
-            view.point_table,
+            device,
+            point_table,
             protocol,
-            subscribe_enabled=view.subscribe_enabled,
+            subscribe_enabled=device.subscribe_enabled,
         )
 
-    views = config.device_views()
-    devices = {str(device_id): session_factory(view) for device_id, view in views.items()}
+    devices = {
+        str(device_id): session_factory(device, config.point_table_for_device(device_id))
+        for device_id, device in config.devices.items()
+    }
 
     sink_registry = build_sink_registry()
     for type_name, factory in (sink_factories or {}).items():
@@ -144,7 +147,6 @@ def assemble_collector(
     engine.add_observer(latest_values.update)
     runtime = CollectorRuntime(
         devices,
-        {str(device_id): view for device_id, view in views.items()},
         sinks,
         engine,
         config.runtime,

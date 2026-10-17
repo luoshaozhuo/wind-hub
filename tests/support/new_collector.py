@@ -14,7 +14,6 @@ from typing import Any
 from collector.application.config import (
     CollectionTask,
     CollectorConfig,
-    DeviceView,
     RuntimeParams,
 )
 from collector.application.runtime import CollectorRuntime
@@ -224,12 +223,12 @@ def make_session(
     device_id: str = "dev1",
 ) -> CollectorDeviceSession:
     """按 config 的 device_view 构造采集会话（协议为 Fake）。"""
-    view = config.device_view(DeviceId(device_id))
+    device = config.devices[DeviceId(device_id)]
     return CollectorDeviceSession(
-        view.device,
-        view.point_table,
+        device,
+        config.point_table_for_device(DeviceId(device_id)),
         protocol or CollectorFakeProtocol(),
-        subscribe_enabled=view.subscribe_enabled,
+        subscribe_enabled=device.subscribe_enabled,
     )
 
 
@@ -248,20 +247,18 @@ def make_runtime(
     """
     proto = protocol or CollectorFakeProtocol()
     session = make_session(config, proto)
-    views = {"dev1": config.device_view(DeviceId("dev1"))}
     registry = CollectorFakeRegistry()
 
-    def session_factory(view: DeviceView) -> CollectorDeviceSession:
+    def session_factory(device: Device, point_table: PointTable) -> CollectorDeviceSession:
         return CollectorDeviceSession(
-            view.device,
-            view.point_table,
-            registry.create(view.device.endpoint, view.point_table, view.options),
-            subscribe_enabled=view.subscribe_enabled,
+            device,
+            point_table,
+            registry.create(device.endpoint, point_table, device.protocol_options),
+            subscribe_enabled=device.subscribe_enabled,
         )
 
     runtime = CollectorRuntime(
         devices={"dev1": session},
-        device_views=views,
         sinks=dict(sinks or {}),
         engine=engine or AcquisitionEngine(),
         params=config.runtime,

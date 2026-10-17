@@ -25,7 +25,6 @@ from core.domain import (
     DeviceModelId,
     PointTable,
     PointTableId,
-    ProtocolOptions,
     Sink,
     Task,
 )
@@ -80,25 +79,6 @@ CollectionTask = Task
 
 
 @dataclass(frozen=True, slots=True)
-class DeviceView:
-    """单台设备在 Collector 运行时的完整视图（由 CollectorConfig 派生）。
-
-    Attributes:
-        device: 共享领域设备聚合。
-        point_table: 设备型号绑定的 resolved 点表。
-        options: 合并后的协议参数（设备显式 protocol_options 覆盖型号
-            protocol_options 默认值；协议代码默认值由 Driver 解析层补全）。
-        subscribe_enabled: 本设备是否使用订阅推送采集（ADS 进程级策略；
-            IEC104 恒为订阅、Modbus 恒为轮询，由会话按协议判定）。
-    """
-
-    device: Device
-    point_table: PointTable
-    options: ProtocolOptions
-    subscribe_enabled: bool
-
-
-@dataclass(frozen=True, slots=True)
 class CollectorConfig:
     """Collector 启动与 reload 使用的完整配置快照。
 
@@ -144,28 +124,3 @@ class CollectorConfig:
         model = self.device_models[device.device_model_id]
         return self.point_tables[model.point_table_id]
 
-    def protocol_options_for(self, device_id: DeviceId) -> ProtocolOptions:
-        """返回指定 Device 的协议专有连接配置；缺省为空映射。"""
-        return self.devices[device_id].protocol_options
-
-    def device_view(self, device_id: DeviceId) -> DeviceView:
-        """派生单台设备的运行时视图。
-
-        Raises:
-            ConfigError: 设备不存在于索引（停用设备不在索引内）。
-        """
-        device = self.devices.get(device_id)
-        if device is None:
-            raise ConfigError(f"unknown device '{device_id}'")
-        point_table = self.point_table_for_device(device_id)
-        options = self.protocol_options_for(device_id)
-        return DeviceView(
-            device=device,
-            point_table=point_table,
-            options=options,
-            subscribe_enabled=device.subscribe_enabled,
-        )
-
-    def device_views(self) -> dict[DeviceId, DeviceView]:
-        """派生全部设备的运行时视图（启动装配用）。"""
-        return {device_id: self.device_view(device_id) for device_id in self.devices}

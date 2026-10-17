@@ -161,7 +161,7 @@ class CollectorDeviceSession:
         self._point_table = point_table
         self._point_group_cache: dict[str, tuple[str, ...]] = {}
         self._protocol = protocol
-        self._subscribe_enabled = subscribe_enabled
+        self._subscribe_enabled = subscribe_enabled or device.subscribe_enabled
 
     # ------------------------------------------------------------------
     # 身份与配置快照
@@ -176,6 +176,10 @@ class CollectorDeviceSession:
     def device(self) -> Device:
         """返回当前设备领域快照。"""
         return self._device
+
+    @property
+    def subscribe_enabled(self) -> bool:
+        return self._subscribe_enabled
 
     @property
     def device_group_ids(self) -> tuple[str, ...]:
