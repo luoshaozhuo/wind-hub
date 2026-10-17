@@ -478,21 +478,7 @@ class CollectorRuntime:
         """
         errors: list[str] = []
 
-        # 在设备配置被就地更新前记录“point_table 绑定发生变化”的订阅设备。
-        # 这类变化即使两张表内容本身都未修改，也必须重新注册 notification。
         restart_subscription_devices: set[str] = set()
-        for did in diff.devices.updated:
-            device_id = DeviceId(did)
-            session = self._device_runtime.devices.get(did)
-            new_device = new_config.devices[device_id]
-            new_table = new_config.point_table_for_device(device_id)
-            if (
-                session is not None
-                and session.point_table.point_table_id != new_table.point_table_id
-                and self._device_runtime.is_lightweight_update(did, new_device, new_table)
-                and session.acquisition_mode is AcquisitionMode.SUBSCRIBE
-            ):
-                restart_subscription_devices.add(did)
 
         try:
             await self._apply_device_diff(diff, new_config)
@@ -518,15 +504,18 @@ class CollectorRuntime:
         # Task 定义变化：整体替换注册表并重新展开实例。设备/点表变化也可能
         # 改变展开结果（device_group 成员变化），统一在此收尾同步——实例
         # 增删只影响对应实例，不触碰任何 Protocol 连接。
-        if diff.point_tables_changed and not errors:
+        # 仅为已成功应用到目标配置的订阅会话重建通知。
+        # 同时覆盖“切换到另一张点表”和“当前点表内容变化”。
+        if not any(error.startswith(("device:", "points:")) for error in errors):
             changed_tables = set(diff.point_tables_changed)
+            changed_devices = set(diff.devices.updated)
             for did, session in self._device_runtime.devices.items():
                 target_device = new_config.devices.get(DeviceId(did))
                 if target_device is None:
                     continue
                 target_table = new_config.point_table_for_device(DeviceId(did))
                 if (
-                    str(target_table.point_table_id) in changed_tables
+                    (did in changed_devices or str(target_table.point_table_id) in changed_tables)
                     and _session_matches(session, target_device, target_table)
                     and session.point_table == target_table
                     and session.acquisition_mode is AcquisitionMode.SUBSCRIBE
