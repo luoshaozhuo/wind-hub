@@ -37,7 +37,10 @@ def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
 
     written = (tmp_path / "points.yaml").read_text(encoding="utf-8")
     assert "parent_id: beckhoff_base_v1" in written
-    assert "business_point_id" in written
+    # 统一 Schema 下 Point Mapping Key 即 BusinessPoint 身份，
+    # writer 不得再输出已废弃的 business_point_id 字段。
+    assert "business_point_id" not in written
+    assert "rotor_speed:" in written
 
 
 def test_point_table_save_reload_keeps_changed_and_removed_points(tmp_path: Path) -> None:

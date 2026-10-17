@@ -81,7 +81,7 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
     catalog = {
         str(key): {
             "data_type": point.data_type.value,
-            "unit_id": point.standard_unit.unit_id,
+            "unit": point.standard_unit.unit_id,
             "description": point.description,
         }
         for key, point in snapshot.business_points.items()
