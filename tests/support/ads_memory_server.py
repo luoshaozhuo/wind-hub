@@ -532,10 +532,70 @@ class _TrackingClientConnection(AdsClientConnection):
         handler.bind_connection(self._wh_conn_id, peer)
         handler._bind_current_thread(self._wh_conn_id)
         try:
-            super().run()
+            self._run_full_frames()
         finally:
             handler._bind_current_thread(None)
             handler.unbind_connection(self._wh_conn_id)
+
+    def _run_full_frames(self) -> None:
+        """与 pyads AdsClientConnection.run 同语义，但按 TCP 头收全整帧。
+
+        上游 ``recvfrom(4096)`` 会截断 >4090 字节的请求（500 点 Sum Read
+        请求约 6KB），使大批次测试无法在真实帧栈上进行。此处：
+
+        - 小帧（一次 recv 即完整）行为与上游完全一致；
+        - 大帧循环 recv 直到 6 + AMS 长度收全；
+        - 保留单次 recv 中粘连的下一帧余量供下轮处理；
+        - 响应使用 sendall，避免大响应部分发送。
+        """
+        self._run = True
+        leftover = b""
+        while self._run:
+            ready, _, _ = select.select([self.client], [], [], 0.1)
+            if not ready:
+                continue
+
+            if leftover:
+                data = leftover
+                leftover = b""
+            else:
+                data, _ = self.client.recvfrom(4096)
+                if not data:
+                    self.client.close()
+                    self._run = False
+                    continue
+
+            while len(data) < 6:
+                chunk = self.client.recv(4096)
+                if not chunk:
+                    self.client.close()
+                    self._run = False
+                    return
+                data += chunk
+
+            ams_length = struct.unpack("<I", data[2:6])[0]
+            total = 6 + ams_length
+            while len(data) < total:
+                chunk = self.client.recv(min(65536, total - len(data)))
+                if not chunk:
+                    self.client.close()
+                    self._run = False
+                    return
+                data += chunk
+
+            if total < len(data):
+                leftover = data[total:]
+                data = data[:total]
+
+            if len(data) < 38:
+                continue
+
+            request_packet = self.construct_request(data)
+            self.server.request_history.append(request_packet)
+            response = self.handler.handle_request(request_packet)
+            if isinstance(response, AmsResponseData):
+                response_bytes = self.construct_response(response, request_packet)
+                self.client.sendall(response_bytes)
 
 
 class _TrackingAdsTestServer(AdsTestServer):
