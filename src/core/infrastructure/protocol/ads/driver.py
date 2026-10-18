@@ -397,14 +397,11 @@ class ADSDriver:
             except TimeoutError:
                 # 防御路径：同路由只允许一个活动 Driver，持锁者只能是本 Driver
                 # 之前尚未收敛的物理关闭。绝不无锁下发 adsDelRoute。
-                logger.error(
-                    "%sADS close could not acquire route lock for %s within %.3fs; "
-                    "skipping physical close to protect the shared route",
-                    self._label,
-                    self._route_key,
-                    route_timeout,
-                )
-                return
+                raise ProtocolError(
+                    f"ADS close blocked for route {self._route_key!r}: route lock "
+                    f"not acquired within {route_timeout:.3f}s; "
+                    "physical close not attempted"
+                ) from None
             try:
                 # Driver 锁只在摘除注册表/会话的瞬间持有：注销命令经 Session
                 # 命令门在锁外执行，避免 DEL_DEVICE_NOTIFICATION 的网络往返
