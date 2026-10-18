@@ -9,7 +9,7 @@ from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
 from core.application.sink_contract import ModbusSinkAddress, ResolvedSinkPoint
-from core.domain import Device, DeviceId, Sink
+from core.domain import Device, DeviceId, Sink, Task
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.sink_schema import (
     MODBUS_WORD_WIDTH,
@@ -61,6 +61,20 @@ def collector_config_from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
             DeviceId(key) for key, device in devices.items() if not device.enabled
         ),
     )
+
+
+def _task_group_sources(snapshot: ConfigSnapshot, task: Task) -> list[list[str]]:
+    """展开空 points 输出：任务设备组 × 测点组内的全部 (device, point)。"""
+    sources: list[list[str]] = []
+    for device in snapshot.site.devices.values():
+        if not device.enabled or task.device_group_id not in device.device_group_ids:
+            continue
+        model = snapshot.device_models[device.device_model_id]
+        table = snapshot.point_tables[model.point_table_id]
+        for point_id, point in table.points.items():
+            if task.point_group in point.point_groups:
+                sources.append([str(device.device_id), point_id])
+    return sources
 
 
 def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
@@ -161,11 +175,17 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
             points.append(resolved.model_dump(mode="json"))
         connection = dict(sink.connection)
         if sink.kind in {"modbus", "redis"}:
+            # 显式 points 是选择性输出；空 points 对 Redis 表示任务组全量
+            # （Modbus 已在解析层强制显式点表，空列表不会走到这里）。
             connection["task_sources"] = {
-                task.task_id: [
-                    [raw["source"]["device_id"], raw["source"]["point_id"]]
-                    for raw in output.points
-                ]
+                task.task_id: (
+                    [
+                        [raw["source"]["device_id"], raw["source"]["point_id"]]
+                        for raw in output.points
+                    ]
+                    if output.points
+                    else _task_group_sources(snapshot, task)
+                )
                 for task, output in task_outputs
             }
         if sink.kind == "redis":

@@ -657,6 +657,13 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
                     raise ConfigError(
                         f"Task '{task.task_id}' key_prefix requires a Redis Sink"
                     )
+                if not output.points and sink.kind == "modbus":
+                    # Modbus 从站必须为每个点显式分配寄存器地址；空 points
+                    # 无法安全展开为通配（file/redis 可按任务组全量投递）。
+                    raise ConfigError(
+                        f"Task '{task.task_id}' modbus output '{output.sink_id}' "
+                        "must declare explicit points with register addresses"
+                    )
                 if output.points:
                     # TaskOutput.points 在领域模型内被递归冻结（MappingProxy/tuple），
                     # 校验与 Sink 类型规则一律使用还原后的普通 dict/list 视图。

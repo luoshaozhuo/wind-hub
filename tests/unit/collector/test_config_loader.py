@@ -618,3 +618,54 @@ def test_watchdog_timing_defaults(tmp_path):
     config = load_collector_config(YamlConfigAdapter(config_dir))
     assert config.runtime.watchdog_interval == 5.0
     assert config.runtime.health_timeout == 1.0
+
+
+def test_redis_wildcard_output_expands_to_task_group_sources(tmp_path):
+    """空 points 的 Redis 输出 = 任务组全量；loader 物化显式白名单与默认前缀。"""
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        sinks={
+            "r1": {
+                "type": "redis",
+                "connection": {"host": "127.0.0.1", "port": 6379},
+            }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [{"sink_id": "r1", "key_prefix": "wf"}],
+            }
+        },
+    )
+
+    config = load_collector_config(YamlConfigAdapter(config_dir))
+
+    connection = config.sinks["r1"].connection
+    assert connection["task_sources"] == {"t1": (("dev1", "p1"),)}
+    assert connection["task_key_prefixes"] == {"t1": "wf"}
+
+
+def test_modbus_output_without_explicit_points_rejected(tmp_path):
+    """Modbus 从站无法为通配点分配寄存器：空 points 在解析期拒绝。"""
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        sinks={
+            "m1": {
+                "type": "modbus",
+                "connection": {"host": "127.0.0.1", "port": 1502},
+            }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [{"sink_id": "m1"}],
+            }
+        },
+    )
+
+    with pytest.raises(ConfigError, match="modbus output"):
+        load_collector_config(YamlConfigAdapter(config_dir))
