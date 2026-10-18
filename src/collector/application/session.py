@@ -372,10 +372,10 @@ class CollectorDeviceSession:
                 f"Device '{self.device_id}': {mode.name} acquisition requires an on_data callback"
             )
 
-        async def _forward(sample: ProtocolSample) -> None:
-            # 推送没有设备身份上下文，协议驱动无法盖上设备身份——采集句柄
-            # 本就属于本设备，由会话聚合统一补盖；协议原生值换算工程值。
-            await on_data(self._to_values([sample]))
+        async def _forward(samples: tuple[ProtocolSample, ...]) -> None:
+            # 一次协议批次只触发一次业务交付，按设备点表进行工程值换算。
+            if samples:
+                await on_data(self._to_values(samples))
 
         point_ids = self.point_ids(point_group)
         push_handle: AcquisitionHandle
