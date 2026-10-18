@@ -294,7 +294,7 @@ class AcquisitionEngine:
     # ------------------------------------------------------------------
 
     async def process(
-        self, batch: list[PointValue], targets: list[str], *, task_id: str = ""
+        self, batch: list[PointValue], targets: list[str], *, task_id: str = "manual"
     ) -> None:
         """统计 → Observers → 按 targets 原样派发到 Sink。
 
