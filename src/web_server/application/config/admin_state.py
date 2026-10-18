@@ -91,7 +91,9 @@ class AdminStateService:
                         group for group in previous_groups[1:] if group != primary
                     )
             documents["devices.yaml"] = device_document
-            documents["tasks.yaml"] = self._tasks_document(tasks)
+            documents["tasks.yaml"] = self._tasks_document(
+                tasks, documents["tasks.yaml"].get("tasks", {})
+            )
             previous_sinks = documents["sinks.yaml"].get("sinks", {})
             documents["sinks.yaml"] = {
                 "sinks": {
@@ -99,7 +101,6 @@ class AdminStateService:
                         "type": item.type,
                         "enabled": item.enabled,
                         "connection": item.connection,
-                        "points": item.points,
                     }
                     for item in sinks
                 }
@@ -174,7 +175,9 @@ class AdminStateService:
         }
 
     @staticmethod
-    def _tasks_document(items: list[AdminTaskItem]) -> dict[str, Any]:
+    def _tasks_document(
+        items: list[AdminTaskItem], previous: dict[str, Any]
+    ) -> dict[str, Any]:
         tasks: dict[str, Any] = {}
         for item in items:
             if not item.device_group or item.device:
@@ -185,11 +188,20 @@ class AdminStateService:
                 raise ValueError(f"task {item.task_id} requires a positive interval")
             if not item.sinks:
                 raise ValueError(f"task {item.task_id} requires at least one sink")
+            previous_outputs = previous.get(item.task_id, {}).get("outputs", [])
+            mapped = {
+                item_output.get("sink_id"): item_output
+                for item_output in previous_outputs
+                if isinstance(item_output, dict)
+            }
             tasks[item.task_id] = {
                 "device_group_id": item.device_group,
                 "point_group": item.point_group,
                 "interval": item.interval,
-                "sink_ids": list(item.sinks),
+                "outputs": [
+                    dict(mapped.get(sink_id, {"sink_id": sink_id}))
+                    for sink_id in item.sinks
+                ],
                 "enabled": item.enabled,
             }
         return {"tasks": tasks}
