@@ -252,7 +252,7 @@ def merge_gate(paths: list[str]) -> bool:
         commands.append(("ruff", _python_module("ruff", "check", *python_files)))
 
     backend = any(p.startswith(("src/core/", "src/collector/", "src/commander/",
-                                 "src/cli/", "src/web_server/")) for p in changed)
+                                 "src/cli/", "src/web_server/")) or p in {"pyproject.toml", "poetry.lock"} for p in changed)
     frontend = any(p.startswith(("src/web_admin/", "tests/web_admin/")) for p in changed)
     tooling = any(p.startswith(("scripts/", "ai_shared/agent_config/")) for p in changed)
 
@@ -328,6 +328,10 @@ def merge_gate(paths: list[str]) -> bool:
             candidates.append("tests/contract")
         elif p.startswith("tests/") and p.endswith(".py"):
             candidates.append(p)
+        elif p in {"pyproject.toml", "poetry.lock"}:
+            candidates.extend(["tests/unit", "tests/component", "tests/contract"])
+        elif p.startswith(("src/", "tests/")):
+            candidates.extend(["tests/unit", "tests/component", "tests/contract"])
 
     if backend and not candidates:
         candidates.extend(["tests/unit", "tests/component", "tests/contract"])
