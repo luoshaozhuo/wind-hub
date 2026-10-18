@@ -147,12 +147,14 @@ async def test_multiple_subscriptions_share_one_connection_and_are_independent(
     second_samples: list[ProtocolSample] = []
     second_received = asyncio.Event()
 
-    async def first_cb(sample: ProtocolSample) -> None:
-        first_samples.append(sample)
+    async def first_cb(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            first_samples.append(sample)
 
-    async def second_cb(sample: ProtocolSample) -> None:
-        second_samples.append(sample)
-        second_received.set()
+    async def second_cb(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            second_samples.append(sample)
+            second_received.set()
 
     first = await driver.subscribe(("speed",), first_cb, interval=0.25)
     second = await driver.subscribe(("speed",), second_cb, interval=0.25)
@@ -181,14 +183,15 @@ async def test_callback_exception_does_not_stop_subscription(
     delivered = asyncio.Event()
     calls = 0
 
-    async def flaky(sample: ProtocolSample) -> None:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise RuntimeError("subscriber bug")
-        assert sample.value is not None
-        received.append(float(sample.value))
-        delivered.set()
+    async def flaky(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("subscriber bug")
+            assert sample.value is not None
+            received.append(float(sample.value))
+            delivered.set()
 
     handle = await driver.subscribe(("speed",), flaky, interval=0.25)
     try:
@@ -217,8 +220,9 @@ async def test_close_deregisters_all_handles_and_is_idempotent(
     assert fake_pyads.deleted == [1, 2]
 
 
-async def _noop(sample: ProtocolSample) -> None:
-    del sample
+async def _noop(samples: tuple[ProtocolSample, ...]) -> None:
+    for sample in samples:
+        del sample
 
 
 @pytest.mark.asyncio
@@ -269,8 +273,9 @@ async def test_old_generation_native_callback_is_silently_dropped(
     _wrap(driver, fake_pyads)
     received: list[float] = []
 
-    async def collect(sample: ProtocolSample) -> None:
-        received.append(float(sample.value))  # type: ignore[arg-type]
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(float(sample.value))  # type: ignore[arg-type]
 
     first = await driver.subscribe(("speed",), collect, interval=0.25)
     old_callback = fake_pyads.callbacks[1]
