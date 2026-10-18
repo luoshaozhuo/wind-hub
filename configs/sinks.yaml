@@ -1,16 +1,15 @@
 # ---------------------------------------------------------------------------
-# wind-hub 配置模板 — Sink 输出（仅支持 Modbus TCP Server、Redis）
+# wind-hub 配置模板 — Sink 输出（支持 TDengine 历史存储、Modbus TCP Server、Redis）
 # ---------------------------------------------------------------------------
 #
 # sinks: Mapping，Key 即 Sink ID（Task 经 outputs[].sink_id 引用）。字段：
-#   type:       modbus / redis（必填）。
+#   type:       modbus / redis / tdengine（必填）。
 #   enabled:    bool，默认 true；enabled Task 不允许引用 disabled Sink；
 #               同一 host:port 不允许两个 enabled 的 Modbus Sink。
 #   connection: Mapping（必填）—— 按 type 不同（见下）。
 #
 # connection 字段：
-# - redis:
-#     host:       str，默认 localhost。
+# - tdengine: host, port(6041), database, stable, username, password, timeout, tls\n#             使用 taosAdapter REST；数据库需提前创建。\n# - redis:\n#     host:       str，默认 localhost。
 #     port:       int 1..65535，默认 6379。
 #     database:   int >= 0，默认 0。
 #     username:   str，可选，ACL 用户名；配置后必须同时设置 password。
@@ -51,6 +50,20 @@ sinks:
       database: 0
       timeout: 1.0
       key_prefix: "wind-hub"
+
+  # 历史时序库：密码应由部署时安全注入，勿在生产仓库保存明文。
+  tdengine_history:
+    type: tdengine
+    enabled: false
+    connection:
+      host: "127.0.0.1"
+      port: 6041
+      database: wind_hub
+      stable: point_values
+      username: root
+      password: "CHANGE_ME"
+      timeout: 5
+      tls: false
 
   # Modbus TCP Server（对 SCADA 暴露寄存器；默认关闭）
   modbus_scada:
