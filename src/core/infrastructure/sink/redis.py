@@ -106,9 +106,7 @@ class RedisSink:
             return
         if task_id:
             allowed = self._task_sources.get(task_id, set())
-            batch = [
-                item for item in batch if (item.device_id, item.point_id) in allowed
-            ]
+            batch = [item for item in batch if (item.device_id, item.point_id) in allowed]
             if not batch:
                 return
         async with self._lock:
@@ -120,7 +118,15 @@ class RedisSink:
                 commands = [
                     _command("SET", record.key, record.payload)
                     for point in batch
-                    for record in (encode_redis_record(self._config, point, key_prefix=self._task_prefixes.get(task_id, self._config.key_prefix)),)
+                    for record in (
+                        encode_redis_record(
+                            self._config,
+                            point,
+                            key_prefix=self._task_prefixes.get(
+                                task_id, self._config.key_prefix
+                            ),
+                        ),
+                    )
                 ]
                 self._writer.write(b"".join(commands))
                 await asyncio.wait_for(self._writer.drain(), timeout=self._config.timeout)
