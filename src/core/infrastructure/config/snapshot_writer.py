@@ -118,7 +118,11 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
                 for key, group in snapshot.device_groups.items()
             },
         },
-        "points.yaml": dump_point_tables(snapshot.point_tables),
+        "points.yaml": dump_point_tables(
+            snapshot.point_tables,
+            definitions=snapshot.point_table_definitions,
+            baseline=snapshot.point_table_baseline,
+        ),
         "business_points.yaml": {"business_points": catalog},
         "tasks.yaml": {"tasks": tasks},
         "sinks.yaml": {
