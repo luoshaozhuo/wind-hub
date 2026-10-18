@@ -159,7 +159,7 @@ class TestReloadStability:
 
         for cycle in range(CYCLES):
             interval = 0.2 if cycle % 2 == 0 else 0.3
-            timeout = 1.0 if cycle % 2 == 0 else 1.5
+            timeout = 1.5 if cycle % 2 == 0 else 1.0
 
             def _mutate_tasks(data: dict[str, Any], iv: float = interval) -> None:
                 data["tasks"][TASK_ID]["interval"] = iv
