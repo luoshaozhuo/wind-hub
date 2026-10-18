@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import shutil
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -179,18 +180,16 @@ def generate_site(
         }
         _write(output, "tasks.yaml", {"tasks": tasks})
 
+        # File Sink 只持有连接/存储参数：归档根为输出目录下的 archive/，
+        # 点的归属与映射全部由各 Task 的 outputs 声明（此处输出全组点，
+        # 不再逐条枚举）。sink 级 points 已随 Task outputs 整改移除。
         sinks = _read(output, "sinks.yaml")
-        archive = sinks["sinks"]["file_archive"]
-        archive["connection"]["path"] = str(output / "virtual.csv")
-        # 种子模板的映射指向 modbus-001；整站重写为生成的 Modbus 设备。
-        archive["points"] = [
-            {
-                "source": {"device_id": f"modbus-{index:02d}", "point_id": "active_power"},
-                "ref": f"modbus_{index:02d}_active_power",
-                "address": {"field": f"modbus_{index:02d}_active_power"},
-            }
-            for index in range(count)
-        ]
+        sink_defs = cast("dict[str, object]", sinks["sinks"])
+        archive = cast("dict[str, object]", sink_defs["file_archive"])
+        connection = cast("dict[str, object]", archive["connection"])
+        connection["path"] = str(output / "archive")
+        connection.pop("points", None)
+        archive.pop("points", None)
         _write(output, "sinks.yaml", sinks)
 
         # 拒绝留下不可由 Core 解析的半成品，和 Web Server/Collector 共用契约。
