@@ -166,8 +166,9 @@ class ListenerRegistry:
                 self._queue.task_done()
             except asyncio.QueueEmpty:
                 pass
+            previous = self._dropped
             self._dropped += len(dropped)
-            if self._dropped == len(dropped) or self._dropped % 1000 == 0:
+            if previous == 0 or self._dropped // 1000 > previous // 1000:
                 logger.warning(
                     "IEC104 listener queue overflow — %d sample(s) dropped "
                     "(slow consumer)",
