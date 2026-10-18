@@ -54,12 +54,15 @@ class ADSSubscription:
         cycle_time: float,
         loop: asyncio.AbstractEventLoop,
         max_block_bytes: int = 1024,
+        max_delay: float = 0.06,
         label: str = "",
         batch_size: int = 256,
         batch_wait: float = 0.01,
     ) -> None:
         if cycle_time <= 0:
             raise ConfigError("ADS subscription interval must be > 0")
+        if max_delay < 0:
+            raise ConfigError("ADS max_delay must be >= 0")
         if batch_size <= 0 or batch_wait < 0:
             raise ConfigError("ADS batch_size must be > 0 and batch_wait must be >= 0")
         # 设备标签（host:port），仅用于错误/丢弃日志的现场定位。
@@ -70,6 +73,7 @@ class ADSSubscription:
         self._cycle_time = cycle_time
         self._loop = loop
         self._max_block_bytes = max_block_bytes
+        self._max_delay = max_delay
         self._batch_size = batch_size
         self._batch_wait = batch_wait
         self._queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(
@@ -131,6 +135,7 @@ class ADSSubscription:
             block.size,
             trans_mode=pyads.ADSTRANS_SERVERCYCLE,
             cycle_time=self._cycle_time * 1000.0,
+            max_delay=self._max_delay * 1000.0,
         )
         buffer_type = c_ubyte * block.size
         wrapped = self._block_callback(block, generation)
@@ -140,6 +145,7 @@ class ADSSubscription:
             block.size,
             pyads.ADSTRANS_SERVERCYCLE,
             self._cycle_time,
+            self._max_delay,
         )
         # 注册任务独立于等待者：外层协程被取消后同步线程仍可能成功返回
         # Handle；凭据在任务体内、to_thread 返回的那一刻入表，与等待者
@@ -154,7 +160,7 @@ class ADSSubscription:
 
     async def _add_notification(
         self,
-        key: tuple[int, int, int, int, float],
+        key: tuple[int, int, int, int, float, float],
         attr: pyads.NotificationAttrib,
         wrapped: Callable[..., None],
         buffer_type: object,
