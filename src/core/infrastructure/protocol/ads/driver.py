@@ -53,8 +53,10 @@ _LOCAL_PORT_OPEN = False
 class _CommandStats:
     """单个 Session 生命周期内的命令计数与耗时诊断。
 
-    所有写入都发生在事件循环线程（``execute``/``aclose`` 调用方），
-    因此不需要额外加锁；命令名只有固定的几种 ADS 命令，基数有界。
+    所有写入都发生在事件循环线程（``execute`` 调用方与命令 owner task、
+    ``aclose`` 关闭管线），因此不需要额外加锁；命令名只有固定的几种 ADS
+    命令，基数有界。同步执行的统计由 owner task 在线程真正结束后记录，
+    调用方是否取消不影响计数真值（见 :class:`_AdsSession`）。
     """
 
     __slots__ = (
@@ -67,6 +69,7 @@ class _CommandStats:
         "exec_max",
         "timeouts",
         "rejected",
+        "cancelled_while_queued",
         "shutdown_abandoned",
     )
 
@@ -80,6 +83,7 @@ class _CommandStats:
         self.exec_max = 0.0
         self.timeouts = 0
         self.rejected = 0
+        self.cancelled_while_queued = 0
         self.shutdown_abandoned = 0
 
     def record_gate_wait(self, name: str, seconds: float) -> None:
@@ -91,7 +95,7 @@ class _CommandStats:
             self.wait_max = seconds
 
     def record_execution(self, seconds: float, *, timeout: bool = False) -> None:
-        """记录一次同步命令的实际执行时长。"""
+        """记录一次同步命令的实际执行时长（owner 在线程结束后调用）。"""
         self.exec_count += 1
         self.exec_seconds += seconds
         if seconds > self.exec_max:
@@ -101,6 +105,10 @@ class _CommandStats:
 
     def record_rejected(self) -> None:
         self.rejected += 1
+
+    def record_queued_cancel(self) -> None:
+        """命令仍在门后排队即被取消：从未进入线程池，不计执行数。"""
+        self.cancelled_while_queued += 1
 
     def snapshot(self) -> dict[str, object]:
         return {
@@ -117,6 +125,7 @@ class _CommandStats:
             },
             "timeouts": self.timeouts,
             "rejected_after_closing": self.rejected,
+            "cancelled_while_queued": self.cancelled_while_queued,
             "shutdown_abandoned": self.shutdown_abandoned,
         }
 
@@ -144,9 +153,18 @@ class _AdsSession:
 
     - ``execute`` 外层的异步门 ``_gate``：命令先在 asyncio 层排队，批量
       Sum Read/Write 的分块之间会释放该门，允许 health/控制写插入；
-    - ``run`` 内的线程锁 ``_cmd_lock``：调用方 Task 被取消时异步门立即
-      释放，但工作线程仍会跑完同步命令——线程锁保证下一条命令必须等旧
-      线程真正退出，且 ``shutdown`` 不会在命令在途时关闭连接。
+    - ``run`` 内的线程锁 ``_cmd_lock``：串行实际 pyads 调用，并保证
+      ``shutdown`` 不会在命令在途时关闭连接。
+
+    **门的所有权在取得后转交给命令 owner task。** 调用方在门后排队
+    （可取消，取消即永不上线）；取得门后创建短命的 owner task 执行
+    ``to_thread``，调用方通过 ``asyncio.shield`` 等待。调用方随后被
+    取消时 owner 不会取消：同步命令（可能已经写向 PLC）必须跑完且不
+    重发，门也必须持有到工作线程真正退出——否则后续命令会提前进入线程
+    池、空耗一个工作线程阻塞在 ``_cmd_lock`` 上。owner 完成后由其自身
+    释放门并记录真实执行统计；owner 集合（``_owners``）保证强引用，
+    done 回调消费异常，杜绝无人观察的 Task 异常。这不是驻留 Worker：
+    owner 每命令一个，结束即回收，Session 不做任何排队调度。
 
     ``shutdown`` 必须获取 ``_cmd_lock`` 后才关闭端口，因此：
 
@@ -154,7 +172,8 @@ class _AdsSession:
     - 外层 ``asyncio`` 超时/取消后迟到返回的旧线程不可能关闭新会话；
     - ``shutdown`` 的等待上界 = 在途命令的 pyads 原生超时 + grace。
 
-    获取锁超过 grace 仍失败时放弃关闭该端口（显式记录），绝不无限等待。
+    获取锁超过 grace 仍失败、或 ``connection.close()`` 抛错时放弃关闭
+    该端口（显式记录、返回 False），绝不无限等待、绝不谎称关闭成功。
     """
 
     def __init__(self, connection: Any, label: str = "") -> None:
@@ -163,10 +182,15 @@ class _AdsSession:
         self._label = f"[{label}] " if label else ""
         self._cmd_lock = threading.Lock()
         # 异步命令门：同一 Session 至多一条命令获得 to_thread 执行资格。
+        # 门由命令 owner task 持有到同步线程真正结束（见类文档）。
         # asyncio.Lock 在 3.11 首次使用时绑定循环，Driver 通常在循环外构造。
         self._gate = asyncio.Lock()
         self._closing = False
         self._stats = _CommandStats()
+        # 在途 owner task 强引用集合；done 回调移除并消费其异常。
+        self._owners: set[asyncio.Task[Any]] = set()
+        # aclose 幂等收敛到同一个关闭管线 task（调用方取消不中断清理）。
+        self._close_task: asyncio.Task[bool] | None = None
 
     @property
     def connection(self) -> Any:
@@ -187,37 +211,80 @@ class _AdsSession:
         )
 
     async def execute(self, name: str, *args: Any, **kwargs: Any) -> Any:
-        """统一的异步命令入口：异步门排队 → to_thread 内线程锁串行执行。
+        """统一的异步命令入口：异步门排队 → owner 持门到线程结束。
 
-        关闭（``aclose`` 置位 ``_closing``）开始后，所有取得门的新命令
-        快速拒绝；调用方被取消时，已进入工作线程的命令仍由 ``_cmd_lock``
-        保护到实际结束，关闭流程会等待该线程。
+        - 在门后排队期间被取消：命令从未进入线程池，记录
+          ``cancelled_while_queued``，不上线、不计数执行；
+        - 取得门后若 Session 正在关闭：快速拒绝并立即释放门；
+        - owner 启动后调用方被取消：owner 继续把唯一一次同步命令跑完
+          （不重发），门与统计都以线程真实结束为准；
+        - 成功/异常/1861 超时的执行统计由 owner 在线程结束后记录，
+          与调用方是否仍在等待无关。
         """
         loop = asyncio.get_running_loop()
         queued_at = loop.time()
-        async with self._gate:
-            self._stats.record_gate_wait(name, loop.time() - queued_at)
-            if self._closing:
-                self._stats.record_rejected()
-                raise ProtocolError(f"ADS session is closing; command '{name}' rejected")
-            started = loop.time()
-            try:
-                return await asyncio.to_thread(self.run, name, *args, **kwargs)
-            except BaseException as exc:
-                timed_out = _is_ads_client_timeout(exc)
-                self._stats.record_execution(loop.time() - started, timeout=timed_out)
-                if timed_out:
-                    # 客户端 1861 超时是连接级风险信号（后续会话恢复依赖
-                    # 上层断线处理），低频且可操作：带设备/命令/状态记录。
-                    logger.warning(
-                        "%sADS command '%s' timed out (ADSError 1861); session_closing=%s",
-                        self._label,
-                        name,
-                        self._closing,
-                    )
-                raise
-            else:
-                self._stats.record_execution(loop.time() - started)
+        try:
+            await self._gate.acquire()
+        except asyncio.CancelledError:
+            # 等待门期间取消：门未取得（asyncio 授予后取消会落在后续
+            # await，即 shield 处而非此处），命令不可能上线。
+            self._stats.record_queued_cancel()
+            raise
+        # 门已取得；自此到 owner 创建之间没有 await，单线程内不会被
+        # 取消打断，门的所有权随即转交给 owner。
+        self._stats.record_gate_wait(name, loop.time() - queued_at)
+        if self._closing:
+            self._gate.release()
+            self._stats.record_rejected()
+            raise ProtocolError(f"ADS session is closing; command '{name}' rejected")
+        owner = loop.create_task(
+            self._run_owned(name, args, kwargs, loop.time()),
+            name=f"ads-command-{name}",
+        )
+        self._owners.add(owner)
+        owner.add_done_callback(self._owner_done)
+        # shield：调用方取消只中断等待，不取消 owner；owner 永不被取消。
+        return await asyncio.shield(owner)
+
+    async def _run_owned(
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        started: float,
+    ) -> Any:
+        """owner task：持门执行同步命令，线程真正结束后才释放门并记账。"""
+        loop = asyncio.get_running_loop()
+        try:
+            result = await asyncio.to_thread(self.run, name, *args, **kwargs)
+        except BaseException as exc:
+            timed_out = _is_ads_client_timeout(exc)
+            # 记账点在 to_thread 返回之后：调用方已取消时，记录的仍是
+            # 同步命令的真实耗时与真实结局，不会把取消误记成提前完成。
+            self._stats.record_execution(loop.time() - started, timeout=timed_out)
+            if timed_out:
+                # 客户端 1861 超时是连接级风险信号（后续会话恢复依赖
+                # 上层断线处理），低频且可操作：带设备/命令/状态记录。
+                logger.warning(
+                    "%sADS command '%s' timed out (ADSError 1861); session_closing=%s",
+                    self._label,
+                    name,
+                    self._closing,
+                )
+            raise
+        else:
+            self._stats.record_execution(loop.time() - started)
+            return result
+        finally:
+            # 释放点是"同步线程已退出 run"，早于此点发放的下一个资格
+            # 都会在线程池里空等 _cmd_lock。
+            self._gate.release()
+
+    def _owner_done(self, task: asyncio.Task[Any]) -> None:
+        """回收 owner 强引用并消费异常（调用方可能已取消，无人再 await）。"""
+        self._owners.discard(task)
+        if not task.cancelled():
+            task.exception()
 
     def run(self, name: str, *args: Any, **kwargs: Any) -> Any:
         """在工作线程内执行一条 pyads 同步命令（``_cmd_lock`` 串行）。"""
@@ -227,34 +294,72 @@ class _AdsSession:
             return getattr(self._connection, name)(*args, **kwargs)
 
     async def aclose(self, grace: float) -> bool:
-        """异步关闭会话：拒绝新命令，等待在途线程结束后关闭端口。
+        """异步关闭会话：拒绝新命令，等待在途 owner 结束后关闭端口。
 
-        先置 ``_closing`` 再取得异步门，保证门后等待的命令全部拒绝；
-        门内的线程级 ``shutdown`` 负责 join 在途工作线程。超时放弃时
-        返回 False（端口保持打开），由调用方记录。
+        幂等且不受调用方取消影响：首次调用同步置位 ``_closing`` 并启动
+        关闭管线，重复/并发调用与取消后的再次 await 收敛到同一 task。
+        管线失败（放弃/异常）返回 False，端口状态不谎报为已关闭。
         """
-        self._closing = True
+        if self._close_task is None:
+            # 必须在首个 await 前同步置位：此后取得门的新命令一律拒绝。
+            self._closing = True
+            self._close_task = asyncio.create_task(
+                self._close_pipeline(grace), name="ads-session-close"
+            )
+        return await asyncio.shield(self._close_task)
+
+    async def _close_pipeline(self, grace: float) -> bool:
+        """关闭总预算 = grace + 2s，覆盖"等门排空"与"shutdown 线程"两段。"""
+        loop = asyncio.get_running_loop()
+        budget = grace + 2.0
+        deadline = loop.time() + budget
+        # 第一段：等待门。门由在途 owner 在线程真正结束后释放，门后排队
+        # 的命令看到 _closing 会自行拒绝并放门（FIFO 保证管线最终取得）。
         try:
-            async with self._gate:
-                closed = await asyncio.wait_for(
-                    asyncio.to_thread(self.shutdown, grace),
-                    timeout=grace + 2.0,
-                )
+            await asyncio.wait_for(self._gate.acquire(), timeout=budget)
         except TimeoutError:
             self._stats.shutdown_abandoned += 1
             logger.error(
-                "%sADS session shutdown exceeded %.3fs and was abandoned (port left open)",
+                "%sADS session shutdown abandoned: command gate did not drain within "
+                "%.3fs (%d command owner(s) still running); port left open (no close issued)",
                 self._label,
-                grace + 2.0,
+                budget,
+                len(self._owners),
             )
             return False
+        try:
+            remaining = deadline - loop.time()
+            try:
+                closed = await asyncio.wait_for(
+                    asyncio.to_thread(self.shutdown, min(grace, max(remaining, 0.0))),
+                    timeout=remaining,
+                )
+            except TimeoutError:
+                # shutdown 线程未收敛：线程池排队过久或 connection.close()
+                # 卡住。线程不可杀，端口状态未知，绝不补一次 close。
+                self._stats.shutdown_abandoned += 1
+                logger.error(
+                    "%sADS session shutdown abandoned: shutdown thread did not converge "
+                    "within %.3fs total budget; port state unknown",
+                    self._label,
+                    budget,
+                )
+                return False
+        finally:
+            self._gate.release()
         if not closed:
             self._stats.shutdown_abandoned += 1
-            logger.error("%sADS session shutdown gave up; port left open", self._label)
+            logger.error("%sADS session shutdown did not close; port left open", self._label)
         return closed
 
     def shutdown(self, grace: float) -> bool:
-        """等待在途命令线程结束后关闭连接；超时放弃，返回 False。"""
+        """等待在途命令线程结束后关闭连接；失败返回 False，不吞异常语义。
+
+        - 抢不到 ``_cmd_lock``（仍有同步线程在途）：超时放弃，不发出
+          close，返回 False；
+        - ``connection.close()`` 抛异常：记录设备标识与异常堆栈，连接
+          状态不可确认，返回 False（绝不记为成功关闭）。
+        """
         if not self._cmd_lock.acquire(timeout=grace):
             logger.error(
                 "%sADS session shutdown gave up after %.3fs: a command thread is "
@@ -269,6 +374,7 @@ class _AdsSession:
                 self._connection.close()
             except Exception:
                 logger.exception("%sADS connection close failed", self._label)
+                return False
         finally:
             self._cmd_lock.release()
         return True
@@ -763,11 +869,28 @@ class ADSDriver:
             session = self._require_session_locked("read")
             try:
                 mapped = tuple(self._resolve_point(point) for point in points)
-                requests, decoders = self._compile_sum_read_locked(mapped)
+                cached = self._read_cache.get(mapped)
             except ProtocolError:
                 raise
             except Exception as exc:
                 raise ProtocolError(f"ADS read failed: {exc}") from exc
+        if cached is None:
+            # 缓存未命中：ctypes 请求数组构造与逐点解码器编译是纯 CPU
+            # 操作且只依赖不可变 ADSPoint 元组，放在锁外，不挡其他路径
+            # 取状态快照。并发未命中最多重复编译一次，结果等价。
+            try:
+                compiled = (
+                    self._build_sum_requests(mapped),
+                    self._build_sum_decoders(mapped),
+                )
+            except ProtocolError:
+                raise
+            except Exception as exc:
+                raise ProtocolError(f"ADS read failed: {exc}") from exc
+            async with self._lock:
+                self._store_sum_read_cache_locked(mapped, compiled)
+            cached = compiled
+        requests, decoders = cached
         try:
             return await self._execute_sum_read(session, mapped, requests, decoders)
         except ProtocolError:
@@ -796,31 +919,35 @@ class ADSDriver:
         if not writes:
             return ()
 
+        # 锁内只取语义稳定的快照：Session 引用 + 不可变 ADSPoint 元组
+        # （frozen dataclass）。点表热更新只替换 self._points 映射，
+        # 已取得的本批次映射不会改变；coercion/编码全部在锁外完成。
         async with self._lock:
             session = self._require_session_locked("write")
-            results: list[ProtocolWriteResult | None] = [None] * len(writes)
-            mapped_batch = [self._resolve_point(write.point) for write in writes]
-            prepared: list[tuple[int, ADSPoint, bytes]] = []
-            for index, (write, point) in enumerate(zip(writes, mapped_batch, strict=True)):
-                if not point.address_resolved:
-                    results[index] = ProtocolWriteResult(
-                        point_id=write.point,
-                        outcome=WriteOutcome.CONFIRMED_FAILURE,
-                        message="ADS address is unresolved",
-                    )
-                    continue
-                try:
-                    raw_value = _coerce_write_value(write.value, point.data_type)
-                    payload = _encode_value(raw_value, point)
-                except (ConfigError, TypeError, ValueError, OverflowError) as exc:
-                    results[index] = ProtocolWriteResult(
-                        point_id=write.point,
-                        outcome=WriteOutcome.CONFIRMED_FAILURE,
-                        message=str(exc),
-                    )
-                    continue
-                prepared.append((index, point, payload))
+            mapped_batch = tuple(self._resolve_point(write.point) for write in writes)
             chunk_size = self._config.max_subs_per_sum
+
+        results: list[ProtocolWriteResult | None] = [None] * len(writes)
+        prepared: list[tuple[int, ADSPoint, bytes]] = []
+        for index, (write, point) in enumerate(zip(writes, mapped_batch, strict=True)):
+            if not point.address_resolved:
+                results[index] = ProtocolWriteResult(
+                    point_id=write.point,
+                    outcome=WriteOutcome.CONFIRMED_FAILURE,
+                    message="ADS address is unresolved",
+                )
+                continue
+            try:
+                raw_value = _coerce_write_value(write.value, point.data_type)
+                payload = _encode_value(raw_value, point)
+            except (ConfigError, TypeError, ValueError, OverflowError) as exc:
+                results[index] = ProtocolWriteResult(
+                    point_id=write.point,
+                    outcome=WriteOutcome.CONFIRMED_FAILURE,
+                    message=str(exc),
+                )
+                continue
+            prepared.append((index, point, payload))
 
         try:
             for start in range(0, len(prepared), chunk_size):
@@ -966,18 +1093,24 @@ class ADSDriver:
         """编译逐点解码器，与请求地址保持相同顺序。"""
         return tuple(compile_decoder(point) for point in points)
 
-    def _compile_sum_read_locked(
+    def _store_sum_read_cache_locked(
         self,
         points: tuple[ADSPoint, ...],
-    ) -> tuple[tuple[Any, ...], tuple[Callable[[bytes | memoryview, int], PointScalar], ...]]:
-        """编译（或取缓存的）Sum Read 分批请求与逐点解码器；调用方持状态锁。"""
-        cached = self._read_cache.get(points)
-        if cached is None:
-            cached = (self._build_sum_requests(points), self._build_sum_decoders(points))
-            if len(self._read_cache) >= 32:
-                self._read_cache.pop(next(iter(self._read_cache)))
-            self._read_cache[points] = cached
-        return cached
+        compiled: tuple[
+            tuple[Any, ...],
+            tuple[Callable[[bytes | memoryview, int], PointScalar], ...],
+        ],
+    ) -> None:
+        """把锁外编译结果写回 FIFO（容量 32）缓存；调用方持状态锁。
+
+        键是不可变 ADSPoint 元组：点表热更新产生的是新对象元组，旧键
+        自然失效，无需代际序号。并发未命中的重复写回内容等价。
+        """
+        if points in self._read_cache:
+            return
+        if len(self._read_cache) >= 32:
+            self._read_cache.pop(next(iter(self._read_cache)))
+        self._read_cache[points] = compiled
 
     async def _execute_sum_read(
         self,
