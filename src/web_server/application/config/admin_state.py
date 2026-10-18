@@ -34,7 +34,6 @@ class AdminSinkItem(BaseModel):
     type: str
     enabled: bool = True
     connection: dict[str, Any]
-    points: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AdminDefinitionsState(BaseModel):
