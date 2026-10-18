@@ -12,6 +12,7 @@ import signal
 
 import uvicorn
 
+from core.infrastructure.diagnostic.log_setup import configure_process_logging
 from web_server.adapter.inbound.webapi.app import build_api
 from web_server.application.config.service import ConfigService
 from web_server.application.task.reconcile import TaskPlacementReconciler
@@ -243,6 +244,9 @@ async def run_server(settings: ServerSettings) -> int:
         api_host=settings.host,
         api_port=settings.port,
     )
+    configure_process_logging(runtime.config.current_config.system.logs, process_name="web_server")
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(RequestIdFilter())
     runtime.config.initialize_desired_revision()
 
     runtime.log_store.install()
