@@ -450,7 +450,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'storage_pcs',
     point_group: 'fast',
     interval: 1,
-    sinks: ['redis_main', 'redis_main'],
+    sinks: ['redis_main'],
     enabled: true,
     running: false,
   },
@@ -478,7 +478,7 @@ export const tasksSeed: MockTask[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// Sinks：仅使用 Core 支持的 file / redis / modbus 契约。
+// Sinks：仅使用 Core 支持的 redis / modbus 契约。
 // Redis 故障与 Modbus 不可达作为演示用的运行态，由 Mock Runtime 控制。
 // ---------------------------------------------------------------------------
 export interface MockSink {
@@ -509,18 +509,7 @@ export const sinksSeed: MockSink[] = [
     enabled: true,
     connection: { host: '127.0.0.1', port: 1502 },
   },
-  {
-    name: 'redis_main',
-    type: 'file',
-    enabled: true,
-    connection: { path: '/var/tmp/wind-hub/archive', max_size_mb: 100, retention_days: 30 },
-  },
-  {
-    name: 'debug_file',
-    type: 'file',
-    enabled: false,
-    connection: { path: '/var/tmp/wind-hub/debug', max_size_mb: 100, retention_days: 10 },
-  },
+
 ]
 
 // ---------------------------------------------------------------------------
