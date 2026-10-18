@@ -28,7 +28,7 @@ _OPTION_PARSERS = {
 def test_template_loads_with_valid_references() -> None:
     snapshot = YamlConfigAdapter(TEMPLATE_DIR).load()
     assert len(snapshot.site.devices) == 30
-    assert len(snapshot.tasks) == 3
+    assert len(snapshot.tasks) == 4
     assert len(snapshot.sinks) == 3
     # 每个机型正好十台设备。
     per_model: dict[str, int] = {}

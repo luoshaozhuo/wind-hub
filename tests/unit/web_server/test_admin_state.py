@@ -40,7 +40,7 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
             AdminSinkItem(
                 name="s1",
                 type="file",
-                connection={"path": "/tmp/out.csv"},
+                connection={"path": "/tmp/out"},
             )
         ],
         definitions=AdminDefinitionsState(
@@ -74,11 +74,11 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
     }
     documents = {name: {} for name in names}
     mutator(documents)
-    assert documents["sinks.yaml"]["sinks"]["s1"]["connection"] == {"path": "/tmp/out.csv"}
+    assert documents["sinks.yaml"]["sinks"]["s1"]["connection"] == {"path": "/tmp/out"}
     assert documents["devices.yaml"]["devices"]["d1"]["model_id"] == "m1"
     assert documents["devices.yaml"]["devices"]["d1"]["device_group_ids"] == ["g1"]
     assert documents["tasks.yaml"]["tasks"]["t1"]["device_group_id"] == "g1"
-    assert documents["tasks.yaml"]["tasks"]["t1"]["sink_ids"] == ["s1"]
+    assert documents["tasks.yaml"]["tasks"]["t1"]["outputs"] == [{"sink_id": "s1"}]
     assert admin.mutate_yaml_files.await_count == 1
 
 

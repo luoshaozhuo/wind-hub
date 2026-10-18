@@ -184,13 +184,13 @@ def _write_site(base: Path, *, interval: float = 0.2) -> Path:
                 }
             }
         },
-        sinks={"file_sink": {"type": "file", "connection": {"path": "out.csv"}}},
+        sinks={"file_sink": {"type": "file", "connection": {"path": "out"}}},
         tasks={
             "modbus-telemetry": {
                 "device_group_id": "modbus-1",
                 "point_group": "telemetry",
                 "interval": interval,
-                "sink_ids": ["file_sink"],
+                "outputs": [{"sink_id": "file_sink"}],
             }
         },
     )
@@ -327,7 +327,9 @@ class TestReloadInvalidDiskConfig:
         update_yaml(
             fx.config_dir,
             "tasks.yaml",
-            lambda data: data["tasks"]["modbus-telemetry"].update({"sink_ids": ["ghost"]}),
+            lambda data: data["tasks"]["modbus-telemetry"].update(
+                {"outputs": [{"sink_id": "ghost"}]}
+            ),
         )
         ghost.write_text("ghost: true\n", encoding="utf-8")
 

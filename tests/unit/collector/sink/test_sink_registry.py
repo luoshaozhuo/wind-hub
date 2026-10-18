@@ -19,7 +19,7 @@ def test_file_factory(tmp_path: Path) -> None:
         sink_id="file",
         kind="file",
         enabled=True,
-        connection={"path": str(tmp_path / "x.csv")},
+        connection={"path": str(tmp_path / "archive")},
     )
     sink = build_sink_registry().create(config)
     assert isinstance(sink, FileSink)

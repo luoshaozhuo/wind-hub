@@ -322,9 +322,9 @@ def write_collector_config_tree(
 ) -> Path:
     """写出 Collector 最小自包含配置树（含 tasks.yaml / sinks.yaml）。
 
-    默认：单设备 dev1、单点 p1(group g)、单 file Sink ``s1``（映射
-    dev1.p1 → field value）、单 Task ``t1``（device_group_id=dev1,
-    point_group=g, interval=1.0, sink_ids=[s1]）。
+    默认：单设备 dev1、单点 p1(group g)、单 file Sink ``s1``（归档根目录
+    ``out/``）、单 Task ``t1``（device_group_id=dev1, point_group=g,
+    interval=1.0），其 outputs 引用 s1 并映射 dev1.p1 → field value。
     """
     from tests.support.new_commander import write_minimal_config_tree, write_yaml
 
@@ -344,13 +344,7 @@ def write_collector_config_tree(
         sinks = {
             "s1": {
                 "type": "file",
-                "connection": {"path": str(base / "out.csv")},
-                "points": [
-                    {
-                        "source": {"device_id": "dev1", "point_id": "p1"},
-                        "address": {"field": "value"},
-                    }
-                ],
+                "connection": {"path": str(base / "out")},
             }
         }
     write_yaml(config_dir, "sinks.yaml", {"sinks": sinks})
@@ -360,7 +354,17 @@ def write_collector_config_tree(
                 "device_group_id": "dev1",
                 "point_group": "g",
                 "interval": 1.0,
-                "sink_ids": ["s1"],
+                "outputs": [
+                    {
+                        "sink_id": "s1",
+                        "points": [
+                            {
+                                "source": {"device_id": "dev1", "point_id": "p1"},
+                                "address": {"field": "value"},
+                            }
+                        ],
+                    }
+                ],
             }
         }
     write_yaml(config_dir, "tasks.yaml", {"tasks": tasks})

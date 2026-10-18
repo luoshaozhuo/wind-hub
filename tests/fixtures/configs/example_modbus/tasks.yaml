@@ -3,6 +3,10 @@ tasks:
     device_group_id: turbine_modbus
     point_group: all
     interval: 1.0
-    sink_ids:
-    - file_archive
     enabled: true
+    outputs:
+      - sink_id: file_archive
+        points:
+          - source: {device_id: modbus-001, point_id: active_power}
+            ref: modbus_001_active_power
+            address: {field: modbus_001_active_power}

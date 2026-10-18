@@ -20,7 +20,7 @@ import pytest
 from core.domain.point_value import PointValue
 from core.infrastructure.sink.file import FileSink
 from tests.support.functional_config import update_yaml
-from tests.support.wait import read_csv, wait_file_rows, wait_until
+from tests.support.wait import read_csv, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -30,20 +30,20 @@ SINKS = "sinks.yaml"
 _UNHEALTHY_TIMEOUT = 8.0
 
 
-def _two_file_sinks(bad_path: Path, good_path: Path) -> dict[str, Any]:
+def _two_file_sinks(bad_root: Path, good_root: Path) -> dict[str, Any]:
     return {
         "bad_file": {
             "type": "file",
             "connection": {
-                "path": str(bad_path),
-                "max_files": 3,
+                "path": str(bad_root),
+                "retention_days": 3,
             },
         },
         "good_file": {
             "type": "file",
             "connection": {
-                "path": str(good_path),
-                "max_files": 4,
+                "path": str(good_root),
+                "retention_days": 4,
             },
         },
     }
@@ -55,9 +55,28 @@ def _task_both_sinks() -> dict[str, Any]:
             "device_group_id": "modbus-1",
             "point_group": "telemetry",
             "interval": 0.2,
-            "sink_ids": ["bad_file", "good_file"],
+            "outputs": [
+                {"sink_id": "bad_file"},
+                {"sink_id": "good_file"},
+            ],
         }
     }
+
+
+def _archive_rows(root: Path) -> list[dict[str, Any]]:
+    """汇总 FileSink 归档目录下所有 Task/Device/年月分段的数据行。"""
+    rows: list[dict[str, Any]] = []
+    for segment in root.glob("*/*/[0-9][0-9][0-9][0-9]/[0-9][0-9]/*.csv"):
+        rows.extend(read_csv(segment))
+    return rows
+
+
+async def _wait_archive_rows(root: Path, *, min_rows: int, timeout: float) -> list[dict[str, Any]]:
+    async def _probe() -> list[dict[str, Any]] | None:
+        rows = _archive_rows(root)
+        return rows if len(rows) >= min_rows else None
+
+    return await wait_until(_probe, timeout=timeout, description=f"{min_rows} rows under {root}")
 
 
 class TestFileSinkFsFaults:
@@ -67,13 +86,13 @@ class TestFileSinkFsFaults:
         """启动期 EACCES：坏 sink open failed，好 sink 正常；修复+reload 后恢复。"""
         readonly_dir = tmp_path / "readonly"
         readonly_dir.mkdir()
-        bad_path = readonly_dir / "out" / "telemetry.csv"
-        good_path = tmp_path / "good" / "telemetry.csv"
+        bad_root = readonly_dir / "out"
+        good_root = tmp_path / "good"
         readonly_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)  # 0o500：不可写
 
         try:
             ctx = await app_factory(
-                sinks=_two_file_sinks(bad_path, good_path),
+                sinks=_two_file_sinks(bad_root, good_root),
                 tasks=_task_both_sinks(),
             )
             await ctx.start_instances()
@@ -91,15 +110,15 @@ class TestFileSinkFsFaults:
             assert "open failed" in ((await app.runtime.health())["bad_file"].message or "")
 
             # ---- 隔离：好 sink 持续出数，采集主循环不受影响 ----
-            await wait_file_rows(good_path, min_rows=3, timeout=10.0)
+            await _wait_archive_rows(good_root, min_rows=3, timeout=10.0)
             snap = app.metrics.snapshot()
             assert (await app.runtime.health())["good_file"].healthy is True
 
-            # ---- 恢复：修复权限 + 触发 sink 重建（max_files 变更） ----
+            # ---- 恢复：修复权限 + 触发 sink 重建（retention_days 变更） ----
             readonly_dir.chmod(stat.S_IRWXU)  # 0o700
 
             def mutate(data: dict[str, Any]) -> None:
-                data["sinks"]["bad_file"]["connection"]["max_files"] = 5
+                data["sinks"]["bad_file"]["connection"]["retention_days"] = 5
 
             update_yaml(ctx.config_dir, SINKS, mutate)
             result = await app.config.reload()
@@ -112,7 +131,7 @@ class TestFileSinkFsFaults:
                 _bad_healthy, timeout=5.0, description="bad sink reopened after fix"
             )
             assert reopened
-            await wait_file_rows(bad_path, min_rows=2, timeout=10.0)
+            await _wait_archive_rows(bad_root, min_rows=2, timeout=10.0)
 
             # 好 sink 全程无中断。
             assert (
@@ -128,25 +147,25 @@ class TestFileSinkFsFaults:
         self, app_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """运行期注入 ENOSPC：坏 sink unhealthy，好 sink 不受影响。"""
-        good_path = tmp_path / "good" / "telemetry.csv"
-        bad_path = tmp_path / "bad" / "fault.csv"
-        original_write = FileSink._write
+        good_root = tmp_path / "good"
+        bad_root = tmp_path / "bad"
+        original_write = FileSink._write_task
 
-        def fail_bad_file(self: FileSink, batch: list[PointValue]) -> None:
-            if self._path == bad_path:
+        def fail_bad_file(self: FileSink, task_id: str, batch: list[PointValue]) -> None:
+            if self._root == bad_root:
                 raise OSError(28, "No space left on device")
-            original_write(self, batch)
+            original_write(self, task_id, batch)
 
-        monkeypatch.setattr(FileSink, "_write", fail_bad_file)
+        monkeypatch.setattr(FileSink, "_write_task", fail_bad_file)
         ctx = await app_factory(
-            sinks=_two_file_sinks(bad_path, good_path),
+            sinks=_two_file_sinks(bad_root, good_root),
             tasks=_task_both_sinks(),
         )
         await ctx.start_instances()
         app = ctx.app
 
         # 故障前：好 sink 正常出数。
-        await wait_file_rows(good_path, min_rows=2, timeout=10.0)
+        await _wait_archive_rows(good_root, min_rows=2, timeout=10.0)
 
         # ---- 故障被检测：连续写失败越阈，unhealthy 且错误消息可见 ENOSPC ----
         async def _full_unhealthy() -> bool | None:
@@ -162,10 +181,10 @@ class TestFileSinkFsFaults:
         assert "No space" in message, f"错误消息应暴露 ENOSPC 根因: {message}"
 
         # ---- 隔离：坏 sink 持续失败期间，好 sink 与采集主循环不受影响 ----
-        rows_before = len(read_csv(good_path))
+        rows_before = len(_archive_rows(good_root))
         runs_before = app.metrics.snapshot()["counters"]["acquisition_runs"]
         await asyncio.sleep(2.0)
-        await wait_file_rows(good_path, min_rows=rows_before + 2, timeout=5.0)
+        await _wait_archive_rows(good_root, min_rows=rows_before + 2, timeout=5.0)
         runs_after = app.metrics.snapshot()["counters"]["acquisition_runs"]
         assert runs_after - runs_before >= 5
         assert (await app.runtime.health())["good_file"].healthy is True

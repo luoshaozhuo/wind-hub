@@ -33,6 +33,8 @@ async def test_redis_password_is_preserved_without_disclosure() -> None:
     mutate = admin.mutate_yaml_files.call_args.args[1]
     documents = {
         "devices.yaml": {"devices": {}, "device_groups": {}},
+        "tasks.yaml": {"tasks": {}},
+        "points.yaml": {"point_tables": {}},
         "units.yaml": {"quantities": {}, "units": {}},
         "device_models.yaml": {"device_types": {}, "device_models": {}},
         "sinks.yaml": {

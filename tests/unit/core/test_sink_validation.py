@@ -23,7 +23,7 @@ def sink(kind: str, connection: dict[str, Any], enabled: bool = True) -> _SinkSc
 def test_valid_three_sinks() -> None:
     validate_sink_definitions(
         {
-            "file": sink("file", {"path": "./data.csv"}),
+            "file": sink("file", {"path": "./data"}),
             "server": sink("modbus", {"port": 1502}),
             "cache": sink("redis", {}),
         }

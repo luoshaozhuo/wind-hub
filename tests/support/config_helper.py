@@ -194,7 +194,7 @@ def write_config_tree(
             else {
                 "s1": {
                     "type": "file",
-                    "connection": {"path": "/tmp/wind-hub-test.csv"},
+                    "connection": {"path": "/tmp/wind-hub-test"},
                 }
             }
         },

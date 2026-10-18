@@ -49,7 +49,7 @@ DEFAULT_TASK: dict[str, Any] = {
     "device_group_id": "modbus-1",
     "point_group": "telemetry",
     "interval": 0.2,
-    "sink_ids": ["null_sink"],
+    "outputs": [{"sink_id": "null_sink"}],
 }
 
 
@@ -104,7 +104,7 @@ def write_functional_config(
         else {
             "null_sink": {
                 "type": "file",
-                "connection": {"path": "/tmp/wind-hub-null.csv"},
+                "connection": {"path": "/tmp/wind-hub-null"},
             }
         },
         tasks=tasks if tasks is not None else {"modbus-telemetry": dict(DEFAULT_TASK)},

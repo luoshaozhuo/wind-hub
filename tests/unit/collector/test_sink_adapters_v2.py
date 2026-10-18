@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -17,35 +18,40 @@ from core.infrastructure.sink.redis import RedisSink
 
 @pytest.mark.asyncio
 async def test_csv_appends_and_reopens(tmp_path: Path) -> None:
-    path = tmp_path / "data.csv"
-    cfg = Sink(sink_id="archive", kind="file", enabled=True, connection={"path": str(path)})
+    root = tmp_path / "archive"
+    cfg = Sink(sink_id="archive", kind="file", enabled=True, connection={"path": str(root)})
     sink = FileSink(cfg)
     await sink.open()
-    await sink.write([PointValue("WT001", "power", 125.5)])
+    await sink.write_task("t1", [PointValue("WT001", "power", 125.5)])
     await sink.close()
     await sink.open()
-    await sink.write([PointValue("WT001", "speed", 8.4)])
+    await sink.write_task("t1", [PointValue("WT001", "speed", 8.4)])
     await sink.close()
+    day = datetime.now(UTC).strftime("%Y%m%d")
+    path = root / "t1" / "WT001" / day[:4] / day[4:6] / f"{day}_000.csv"
     with path.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert [row["point_id"] for row in rows] == ["power", "speed"]
 
 
 @pytest.mark.asyncio
-async def test_csv_rotates_and_prunes_owned_archives(tmp_path: Path) -> None:
-    path = tmp_path / "data.csv"
+async def test_csv_rotates_by_size(tmp_path: Path) -> None:
+    root = tmp_path / "archive"
     cfg = Sink(
         sink_id="archive",
         kind="file",
         enabled=True,
-        connection={"path": str(path), "max_size_mb": 0.0001, "max_files": 2},
+        connection={"path": str(root), "max_size_mb": 0.0001},
     )
     sink = FileSink(cfg)
     await sink.open()
-    await sink.write([PointValue("WT001", f"point{i}", "x" * 60) for i in range(12)])
+    await sink.write_task("t1", [PointValue("WT001", f"point{i}", "x" * 60) for i in range(12)])
     await sink.close()
-    assert len(list(tmp_path.glob("data.*.csv"))) <= 2
-    assert path.exists()
+    day = datetime.now(UTC).strftime("%Y%m%d")
+    directory = root / "t1" / "WT001" / day[:4] / day[4:6]
+    segments = sorted(directory.glob(f"{day}_*.csv"))
+    assert len(segments) >= 2
+    assert all(path.stat().st_size > 0 for path in segments)
 
 
 @pytest.mark.asyncio
