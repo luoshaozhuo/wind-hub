@@ -154,6 +154,17 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                 occupied.append((address.address, end))
             points.append(resolved.model_dump(mode="json"))
         connection = dict(sink.connection)
+        if sink.kind == "modbus":
+            connection["task_sources"] = {
+                task.task_id: [
+                    [raw["source"]["device_id"], raw["source"]["point_id"]]
+                    for output in task.outputs
+                    if output.sink_id == sink_id
+                    for raw in output.points
+                ]
+                for task in snapshot.tasks.values()
+                if sink_id in task.sink_ids
+            }
         if sink.kind == "redis":
             connection["task_key_prefixes"] = {
                 task.task_id: output.key_prefix or connection.get("key_prefix", "wind-hub")
