@@ -120,8 +120,11 @@ def verify_merged(pr_number: int) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", nargs="?", choices=("check", "merge"), default="merge")
-    parser.add_argument("--pr", type=int, required=True)
+    parser.add_argument("--pr", type=int, help="不指定时自动识别当前分支 PR")
     args = parser.parse_args()
+    if args.pr is None:
+        current_pr = gh_json("pr", "view", "--json", "number")
+        args.pr = int(current_pr["number"])
     info = inspect(args.pr)
     if info["state"] == "MERGED":
         print(json.dumps(verify_merged(args.pr), ensure_ascii=False))
