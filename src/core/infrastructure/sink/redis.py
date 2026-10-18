@@ -49,7 +49,7 @@ class RedisSink:
     async def _request(self, *args: str) -> str:
         assert self._writer is not None
         self._writer.write(_command(*args))
-        await asyncio.wait_for(self._writer.drain(), timeout=5.0)
+        await asyncio.wait_for(self._writer.drain(), timeout=self._config.timeout)
         return await self._response()
 
     async def _disconnect(self) -> None:
@@ -58,7 +58,7 @@ class RedisSink:
         if writer is not None:
             writer.close()
             with suppress(ConnectionError, OSError, TimeoutError):
-                await asyncio.wait_for(writer.wait_closed(), timeout=5.0)
+                await asyncio.wait_for(writer.wait_closed(), timeout=self._config.timeout)
         self._healthy = False
 
     async def _connect(self) -> None:
@@ -66,7 +66,7 @@ class RedisSink:
         try:
             self._reader, self._writer = await asyncio.wait_for(
                 asyncio.open_connection(self._config.host, self._config.port),
-                timeout=5.0,
+                timeout=self._config.timeout,
             )
             if self._config.username is not None:
                 if self._config.password is None:
@@ -107,7 +107,7 @@ class RedisSink:
                     for record in (encode_redis_record(self._config, point),)
                 ]
                 self._writer.write(b"".join(commands))
-                await asyncio.wait_for(self._writer.drain(), timeout=5.0)
+                await asyncio.wait_for(self._writer.drain(), timeout=self._config.timeout)
                 for _ in commands:
                     if await self._response() != "OK":
                         raise SinkError("Redis SET returned non-OK status")
