@@ -314,8 +314,14 @@ def merge_gate(paths: list[str]) -> bool:
             candidates.extend(["tests/unit/commander", "tests/component/commander"])
             if p.startswith("src/commander/application/"):
                 candidates.append("tests/system/command")
+        elif p.startswith("src/core/infrastructure/config/") or p.startswith("src/core/domain/config/"):
+            candidates.extend(["tests/unit/core/config", "tests/contract"])
         elif p.startswith("src/core/"):
             candidates.extend(["tests/unit/core", "tests/component/core"])
+        elif p.startswith("src/web_server/"):
+            candidates.extend(["tests/unit/web_server", "tests/component/web_server"])
+        elif p.startswith("src/cli/"):
+            candidates.extend(["tests/unit/cli", "tests/component/cli"])
         elif p.startswith("src/"):
             candidates.extend(["tests/unit", "tests/component"])
         elif p.startswith("configs/"):
