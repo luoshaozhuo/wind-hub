@@ -189,3 +189,39 @@ async def test_cleanup_never_unlinks_symlinked_segments(tmp_path: Path) -> None:
     await sink.close()
     assert link.is_symlink()
     assert target.read_text(encoding="utf-8") == "KEEP"
+
+
+async def test_batch_opens_each_segment_only_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "archive"
+    sink = make_sink(root)
+    opened: list[Path] = []
+    original = sink._open_segment
+
+    def tracked(path: Path, flags: int) -> int:
+        opened.append(path)
+        return original(path, flags)
+
+    monkeypatch.setattr(sink, "_open_segment", tracked)
+    await sink.open()
+    await sink.write_task("t1", [_point(f"p{i}", i) for i in range(500)])
+    await sink.close()
+    assert len(opened) == 1, "one batch in one segment must use one file open"
+    day = datetime.now(UTC).strftime("%Y%m%d")
+    with _segment(root, "t1", "d", day, 0).open(newline="", encoding="utf-8") as f:
+        assert len(list(csv.DictReader(f))) == 500
+
+
+async def test_oversized_row_does_not_loop_or_lose_following_rows(tmp_path: Path) -> None:
+    root = tmp_path / "archive"
+    sink = make_sink(root, max_size_mb=0.0001)
+    await sink.open()
+    await sink.write_task("t1", [_point("huge", "z" * 2000), _point("small", 1)])
+    await sink.close()
+    day = datetime.now(UTC).strftime("%Y%m%d")
+    segments = sorted((root / "t1" / "d" / day[:4] / day[4:6]).glob("*.csv"))
+    rows = []
+    for segment in segments:
+        with segment.open(newline="", encoding="utf-8") as f:
+            rows.extend(csv.DictReader(f))
+    assert [r["point_id"] for r in rows] == ["huge", "small"]
+    assert len(segments) == 2
