@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from collections.abc import Callable
 from typing import Any, cast
 
 import pyads  # type: ignore[import-untyped]
@@ -13,6 +14,7 @@ from core.application.errors import ProtocolError
 
 logger = logging.getLogger(__name__)
 _ADSERR_CLIENT_TIMEOUT = 1861
+
 
 class _CommandStats:
     """单个 Session 生命周期内的命令计数与耗时诊断。
