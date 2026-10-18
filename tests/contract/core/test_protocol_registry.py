@@ -240,7 +240,7 @@ async def test_modbus_rejects_unsupported_protocol_capabilities() -> None:
         {},
     )
 
-    async def callback(_sample: ProtocolSample) -> None:
+    async def callback(_samples: tuple[ProtocolSample, ...]) -> None:
         return None
 
     with pytest.raises(ProtocolCapabilityError, match="subscription"):
@@ -258,7 +258,7 @@ async def test_iec104_rejects_unsupported_protocol_capabilities() -> None:
         {},
     )
 
-    async def callback(_sample: ProtocolSample) -> None:
+    async def callback(_samples: tuple[ProtocolSample, ...]) -> None:
         return None
 
     with pytest.raises(ProtocolCapabilityError, match="subscription"):
