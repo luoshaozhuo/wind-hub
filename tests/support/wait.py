@@ -174,46 +174,6 @@ async def wait_file_rows(
     )
 
 
-_ARCHIVE_GLOB = "{task_id}/{device_id}/????/??/????????_???.csv"
-
-
-def archive_csv_files(root: Path, task_id: str, device_id: str) -> list[Path]:
-    """列出 File sink 归档根目录下某 Task/Device 的全部分段（按名排序）。"""
-    return sorted(root.glob(_ARCHIVE_GLOB.format(task_id=task_id, device_id=device_id)))
-
-
-def read_archive(root: Path, task_id: str, device_id: str) -> list[dict[str, Any]]:
-    """按分段顺序读取归档全部行（单测不依赖容量轮转，通常只有一个分段）。"""
-    rows: list[dict[str, Any]] = []
-    for path in archive_csv_files(root, task_id, device_id):
-        rows.extend(read_csv(path))
-    return rows
-
-
-async def wait_archive_rows(
-    root: Path,
-    *,
-    task_id: str,
-    device_id: str,
-    min_rows: int = 1,
-    timeout: float = 20.0,
-    match: Callable[[dict[str, Any]], bool] | None = None,
-) -> list[dict[str, Any]]:
-    """等待归档根目录下出现足够行；跨全部日期分段聚合。"""
-
-    async def _probe() -> list[dict[str, Any]] | None:
-        rows = read_archive(root, task_id, device_id)
-        if match is not None:
-            rows = [row for row in rows if match(row)]
-        return rows if len(rows) >= min_rows else None
-
-    return await wait_until(
-        _probe,
-        timeout=timeout,
-        description=f"{min_rows} archive rows under {root}/{task_id}/{device_id}",
-    )
-
-
 async def read_redis_value(address: str, key: str) -> dict[str, Any] | None:
     """用独立连接读取 Redis key 的 JSON 值；key 不存在返回 ``None``。
 
