@@ -213,7 +213,8 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
             local_ams_net_id=net_id,
             local_ip=_name(values.get("local_ip"), "ads.local_ip"),
         )
-    _keys(raw, {"site", "runtime", "ads", "logs"}, "system.yaml")
+    # system.yaml 顶层允许透传非托管段（如 interfaces）：域模型不解析，
+    # 保存时由 YamlConfigAdapter 原样合并写回。已知段在上方各自严格校验。
     logs_raw = _map(raw.get("logs", {}), "system.logs")
     _keys(logs_raw, set(LogSettings.__dataclass_fields__), "system.logs")
     logs = LogSettings(**logs_raw)
@@ -250,7 +251,10 @@ def _point(
 ) -> Point:
     context = f"point '{point_id}'"
     _keys(entry, _POINT_FIELDS, context)
-    identity = BusinessPointId(_name(entry.get("business_point_id", point_id), f"{context}.business_point_id"))
+    raw_business_id = entry.get("business_point_id", point_id)
+    identity = BusinessPointId(
+        _name(raw_business_id, f"{context}.business_point_id")
+    )
     business_point = business_points.get(identity)
     if business_point is None:
         raise ConfigError(f"{context} unknown business point '{identity}'")
@@ -647,14 +651,17 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
                 sink = sinks.get(output.sink_id)
                 if sink is None:
                     raise ConfigError(
-                        f"Task '{task.task_id}' references unknown Sink '{output.sink_id}'"
+                        f"Task '{task.task_id}' references unknown sink '{output.sink_id}'"
                     )
                 if output.key_prefix is not None and sink.kind != "redis":
                     raise ConfigError(
                         f"Task '{task.task_id}' key_prefix requires a Redis Sink"
                     )
                 if output.points:
-                    for mapping in output.points:
+                    # TaskOutput.points 在领域模型内被递归冻结（MappingProxy/tuple），
+                    # 校验与 Sink 类型规则一律使用还原后的普通 dict/list 视图。
+                    plain_points = [_yaml_plain(point) for point in output.points]
+                    for mapping in plain_points:
                         source = _map(mapping.get("source"), "task output source")
                         device_id = _name(source.get("device_id"), "task output source.device_id")
                         point_id = _name(source.get("point_id"), "task output source.point_id")
@@ -666,15 +673,17 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
                             )
                         model = models[device.device_model_id]
                         point = point_tables[model.point_table_id].points.get(point_id)
-                        if point is None or task.point_group not in point.point_groups:
+                        if point is None:
+                            raise ConfigError(
+                                f"Task '{task.task_id}' output references unknown point "
+                                f"'{device_id}.{point_id}'"
+                            )
+                        if task.point_group not in point.point_groups:
                             raise ConfigError(
                                 f"Task '{task.task_id}' output point '{device_id}.{point_id}' "
-                                "is not collected by this Task"
+                                "is not collected by this Task (point group mismatch)"
                             )
-                    validate_task_sink_points(
-                        sink.kind,
-                        [_yaml_plain(point) for point in output.points],
-                    )
+                    validate_task_sink_points(sink.kind, plain_points)
         validate_core_config(
             units=units,
             device_types=types,
