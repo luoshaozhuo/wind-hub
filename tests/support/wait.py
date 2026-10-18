@@ -7,13 +7,10 @@
 from __future__ import annotations
 
 import asyncio
-import csv
 import inspect
 import json
 import time
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
-from pathlib import Path
 from typing import Any, TypeVar
 
 T = TypeVar("T")
@@ -128,50 +125,6 @@ async def wait_process_exit(
         return proc_wait()
 
     return await wait_until(_probe, timeout=timeout, interval=0.1, description=description)
-
-
-def read_csv(path: Path) -> list[dict[str, Any]]:
-    """读取通用 CSV 表格；将 JSON 数值与空值恢复为便于断言的标量。"""
-    if not path.is_file():
-        return []
-    rows: list[dict[str, Any]] = []
-    with path.open(newline="", encoding="utf-8") as handle:
-        for parsed_row in csv.DictReader(handle):
-            row: dict[str, Any] = dict(parsed_row)
-            value = row["value"]
-            if not value:
-                row["value"] = None
-            elif value == "True":
-                row["value"] = True
-            elif value == "False":
-                row["value"] = False
-            else:
-                with suppress(ValueError, TypeError):
-                    row["value"] = json.loads(value)
-            rows.append(row)
-    return rows
-
-
-async def wait_file_rows(
-    path: Path,
-    *,
-    min_rows: int = 1,
-    timeout: float = 20.0,
-    match: Callable[[dict[str, Any]], bool] | None = None,
-) -> list[dict[str, Any]]:
-    """等待 CSV 文件出现至少 ``min_rows`` 行（可选按 ``match`` 过滤）。"""
-
-    async def _probe() -> list[dict[str, Any]] | None:
-        rows = read_csv(path)
-        if match is not None:
-            rows = [row for row in rows if match(row)]
-        return rows if len(rows) >= min_rows else None
-
-    return await wait_until(
-        _probe,
-        timeout=timeout,
-        description=f"{min_rows} rows in {path}",
-    )
 
 
 async def read_redis_value(address: str, key: str) -> dict[str, Any] | None:
