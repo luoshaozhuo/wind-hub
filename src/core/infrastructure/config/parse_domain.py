@@ -26,6 +26,7 @@ from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.settings import (
     ADSLocalConfig,
+    LogSettings,
     RuntimeSettings,
     SystemSettings,
     ThreadPoolSettings,
