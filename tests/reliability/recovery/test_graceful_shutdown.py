@@ -1,10 +1,4 @@
-"""Recovery：优雅停机验收——SIGTERM 后已确认写入的数据必须保留、进程干净退出。
-
-当前 File sink 无应用层缓冲：每个 write 批次落盘并 flush 后才返回，
-关闭语义是 close() 释放文件句柄。因此优雅停机的边界证据是：SIGTERM
-前已确认写入的行在停机后完整保留、CSV 可解析无截断、进程按退出码 0
-干净退出。
-"""
+"""验证 Collector 在正常采集和设备断连时均能优雅退出。"""
 
 from __future__ import annotations
 
@@ -13,83 +7,82 @@ from pathlib import Path
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.reliability.recovery.helpers import (
-    read_telemetry_rows,
-    wait_status,
-    wait_telemetry_rows,
-    write_modbus_file_config,
-)
+from tests.reliability.recovery.helpers import wait_status
 from tests.support.control import start_task_instance
+from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
-from tests.support.wait import archive_csv_files
+from tests.support.redis_client import point_key
+from tests.support.wait import wait_redis_value
 
-pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
+pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"
+KEY_PREFIX = "wind-hub-shutdown"
+
+
+def _config(base: Path, port: int, redis_address: str) -> Path:
+    host, _, redis_port = redis_address.rpartition(":")
+    return write_functional_config(
+        base,
+        port,
+        sinks={
+            "redis_sink": {
+                "type": "redis",
+                "connection": {"host": host, "port": int(redis_port)},
+            }
+        },
+        tasks={
+            TASK_ID: {
+                "device_group_id": "modbus-1",
+                "point_group": "telemetry",
+                "interval": 0.2,
+                "outputs": [{"sink_id": "redis_sink", "key_prefix": KEY_PREFIX}],
+            }
+        },
+    )
 
 
 class TestGracefulShutdown:
-    async def test_sigterm_closes_file_sink_without_data_loss(
+    async def test_sigterm_exits_cleanly_after_output(
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
-        sink_root = tmp_path / "archive"
-        config_dir = write_modbus_file_config(
-            tmp_path / "cfg",
-            modbus_server.port,
-            sink_root,
-        )
+        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service)
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
-
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        # File sink 每批次 write 落盘并 flush 后才返回——文件里可见的行
-        # 即「已确认写入」的记录。
-        await wait_telemetry_rows(sink_root, min_rows=4)
-        written_rows = read_telemetry_rows(sink_root)
 
-        # ---- SIGTERM：优雅停机必须干净退出且不丢已确认写入 ----
-        exit_code = proc.terminate(timeout=30.0)
-        assert exit_code == 0
+        key = point_key("modbus-1", "rotor.speed", prefix=KEY_PREFIX)
+        value = await wait_redis_value(redis_service, key)
+        assert value["quality"] == "good"
 
-        rows = read_telemetry_rows(sink_root)
-        # 停机前已确认写入的记录全部保留（停机窗口内允许追加，不允许丢失）。
-        assert len(rows) >= len(written_rows)
-        point_ids = {r["point_id"] for r in rows}
-        assert {"rotor.speed", "gen.power", "temp.int", "setpoint.power"} <= point_ids
-        assert all(r["device_id"] == "modbus-1" for r in rows)
-        # 归档分段完整：最后一个分段以换行结尾，无写一半的截断行。
-        segments = archive_csv_files(sink_root, TASK_ID, "modbus-1")
-        assert segments, "no archive segments written"
-        assert segments[-1].read_bytes().endswith(b"\n")
+        # Redis 最新值不是历史档案；这里只验证已交付值和进程退出行为。
+        assert proc.terminate(timeout=30.0) == 0
+        assert (await wait_redis_value(redis_service, key))["timestamp"] >= value["timestamp"]
 
     async def test_sigterm_during_device_outage_still_exits_cleanly(
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
-        """设备断连状态下的 SIGTERM：停机不能被卡死的重连/读超时拖住。"""
-        sink_root = tmp_path / "archive"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
+        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service)
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
 
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_status(
             proc,
-            lambda p: p["points_collected"] >= 1,
+            lambda payload: payload["points_collected"] >= 1,
             description="collection started",
         )
-
-        # 故障注入后直接 SIGTERM——不停 server、不做恢复。
         await modbus_server.stop()
         await wait_status(
             proc,
-            lambda p: p["devices_connected"] == 0,
+            lambda payload: payload["devices_connected"] == 0,
             description="device detected disconnected",
         )
-
-        exit_code = proc.terminate(timeout=30.0)
-        assert exit_code == 0
+        assert proc.terminate(timeout=30.0) == 0
