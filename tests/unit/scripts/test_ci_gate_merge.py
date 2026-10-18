@@ -89,12 +89,12 @@ def test_sink_uses_real_locations(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     selected, _, _ = _selected_paths(
-        monkeypatch, capsys, "src/core/infrastructure/sink/file.py"
+        monkeypatch, capsys, "src/core/infrastructure/sink/redis.py"
     )
     assert "tests/integration/sinks" in selected
     assert "tests/unit/collector/sink" in selected
     assert "tests/unit/core/test_sink_contract.py" in selected
-    assert "tests/component/collector/test_file_sink_fs_faults.py" in selected
+    assert "tests/component/collector/test_modbus_sink_server.py" in selected
     # 旧的不存在目录不得再出现在选择结果中。
     assert "tests/unit/core/sink" not in selected
     assert "tests/component/core/sink" not in selected
