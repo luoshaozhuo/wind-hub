@@ -595,6 +595,7 @@ class ADSDriver:
                 cycle_time=interval,
                 loop=asyncio.get_running_loop(),
                 max_block_bytes=self._config.max_block_bytes,
+                max_delay=self._config.max_delay,
                 batch_size=self._config.push_batch_size,
                 batch_wait=self._config.push_batch_wait,
                 label=self._label,
