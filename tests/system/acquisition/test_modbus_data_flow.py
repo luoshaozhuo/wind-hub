@@ -8,21 +8,20 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.support.control import start_task_instance
+from tests.support.control import start_task_instance, stop_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import point_key
-from tests.support.wait import (
-    wait_redis_value,
-)
+from tests.support.wait import read_redis_value, wait_redis_value
 
-pytestmark = pytest.mark.real_service
+pytestmark = [pytest.mark.redis, pytest.mark.real_service]
 
 TASK_ID = "modbus-telemetry"
 DEVICE_ID = "modbus-1"
@@ -92,3 +91,43 @@ class TestModbusToRedis:
             )
             assert value["quality"] == "good"
             assert value["timestamp"]
+
+    async def test_stop_task_prevents_further_redis_updates(
+        self,
+        modbus_server: ModbusMockServer,
+        collector_factory,
+        redis_service: str,
+        tmp_path: Path,
+    ) -> None:
+        """任务停止后，Redis 最新值时间戳必须保持稳定。"""
+        host, _, port = redis_service.rpartition(":")
+        config_dir = write_functional_config(
+            tmp_path / "cfg",
+            modbus_server.port,
+            sinks={
+                "redis_sink": {
+                    "type": "redis",
+                    "connection": {"host": host, "port": int(port)},
+                }
+            },
+            tasks=_task("redis_sink", key_prefix=REDIS_KEY_PREFIX),
+        )
+        proc: CollectorProcess = await collector_factory(config_dir)
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        key = point_key(DEVICE_ID, "rotor.speed", prefix=REDIS_KEY_PREFIX)
+        initial = await wait_redis_value(redis_service, key)
+        await wait_redis_value(
+            redis_service,
+            key,
+            match=lambda item: item["timestamp"] > initial["timestamp"],
+        )
+
+        await stop_instance(proc.grpc_target, INSTANCE_ID)
+        # 允许已入队的在途批次排空，再观察连续多个采集周期。
+        await asyncio.sleep(0.8)
+        settled = await read_redis_value(redis_service, key)
+        assert settled is not None
+        await asyncio.sleep(0.8)
+        after = await read_redis_value(redis_service, key)
+        assert after is not None
+        assert after["timestamp"] == settled["timestamp"]
