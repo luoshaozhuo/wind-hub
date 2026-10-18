@@ -264,19 +264,33 @@ class ADSSubscription:
             self._worker_task = None
             self._drain_queue()
             return
-        if self._stop_worker_task is None:
+        if self._stop_worker_task is None or (
+            self._stop_worker_task.done() and self._worker_task is not None
+        ):
             self._stop_worker_task = asyncio.create_task(
                 self._stop_worker_all(), name="ads-stop-subscription-worker"
             )
         await asyncio.shield(self._stop_worker_task)
 
     async def _stop_worker_all(self) -> None:
-        task, self._worker_task = self._worker_task, None
+        task = self._worker_task
         if task is not None:
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-        self._drain_queue()
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+            except asyncio.CancelledError:
+                current = asyncio.current_task()
+                if current is not None and current.cancelling():
+                    raise
+            except TimeoutError as exc:
+                raise ProtocolError(
+                    "ADS notification callback did not stop within 5 seconds"
+                ) from exc
+            finally:
+                self._drain_queue()
+            self._worker_task = None
+        else:
+            self._drain_queue()
 
     def _drain_queue(self) -> None:
         while not self._queue.empty():
