@@ -1461,9 +1461,11 @@ class ADSDriver:
             outcome=WriteOutcome.CONFIRMED_SUCCESS,
         )
 
-    async def interrogate(self, common_address: int | None = None) -> None:
+    async def interrogate(
+        self, common_address: int | None = None, *, qoi: int = 20
+    ) -> tuple[ProtocolSample, ...]:
         """ADS 不支持 IEC104 式总召能力。"""
-        del common_address
+        del common_address, qoi
         raise ProtocolCapabilityError("ads does not support interrogation")
 
     async def listen(
