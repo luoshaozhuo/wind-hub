@@ -12,7 +12,7 @@ import logging
 import signal
 from pathlib import Path
 
-from core.infrastructure.diagnostic.log_setup import configure_logging
+from core.infrastructure.diagnostic.log_setup import configure_logging, configure_process_logging
 from core.infrastructure.runtime import configure_default_thread_pool
 
 from .assembly import assemble_commander
@@ -40,6 +40,7 @@ async def run_commander(
 ) -> int:
     """启动 Commander 与 gRPC Server，并阻塞到收到停机信号。"""
     app = assemble_commander(config_dir)
+    configure_process_logging(app.boot_config.system.logs, process_name="commander")
     # 进程级协议命令线程池：所有 Driver/探测会话的 to_thread 共用，
     # 必须先于任何协议命令安装（每进程一次；配置变更 restart-required）。
     configure_default_thread_pool(app.runtime.config.thread_pool_max_workers)
