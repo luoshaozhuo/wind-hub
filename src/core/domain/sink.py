@@ -21,13 +21,12 @@ def freeze_sink_value(value: Any) -> Any:
 
 @dataclass(frozen=True, slots=True)
 class Sink:
-    """输出 Sink；connection/points 的协议细节由 Infrastructure 解释。"""
+    """输出 Sink 领域定义：只描述目标身份和连接配置。"""
 
     sink_id: str
     kind: str
     enabled: bool
     connection: Mapping[str, Any]
-    points: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.sink_id, str) or not self.sink_id.strip():
@@ -38,4 +37,3 @@ class Sink:
             raise ValueError("sink enabled must be bool")
         object.__setattr__(self, "sink_id", self.sink_id.strip())
         object.__setattr__(self, "connection", freeze_sink_value(self.connection))
-        object.__setattr__(self, "points", tuple(freeze_sink_value(point) for point in self.points))
