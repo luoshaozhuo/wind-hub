@@ -333,8 +333,8 @@ async def test_offer_after_close_is_dropped_and_add_rejected() -> None:
         registry.add((), lambda s: _append(received, s))
 
 
-async def _append(target: list[str], sample: ProtocolSample) -> None:
-    target.append(sample.point_id)
+async def _append(target: list[str], samples: tuple[ProtocolSample, ...]) -> None:
+    target.extend(sample.point_id for sample in samples)
 
 
 async def test_close_leaves_no_residual_worker_or_callback_tasks() -> None:
