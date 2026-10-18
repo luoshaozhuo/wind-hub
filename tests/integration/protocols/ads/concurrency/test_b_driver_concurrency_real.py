@@ -214,11 +214,12 @@ async def test_subscribe_concurrent_with_health_read_write(
     delivered = 0
     delivered_lock = asyncio.Lock()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        nonlocal delivered
-        assert sample.point_id in {"a", "b"}, sample
-        async with delivered_lock:
-            delivered += 1
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            nonlocal delivered
+            assert sample.point_id in {"a", "b"}, sample
+            async with delivered_lock:
+                delivered += 1
 
     handle = await driver.subscribe(("a", "b"), on_sample, interval=0.02)
     await _wait_for(lambda: server.notification_count() >= 1)
@@ -255,8 +256,9 @@ async def test_deregister_concurrent_with_io_storm(
     driver = _driver(points, ip=server.ip_address)
     await driver.connect()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        del sample
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            del sample
 
     handle = await driver.subscribe(("a",), on_sample, interval=0.02)
     await _wait_for(lambda: server.notification_count() == 1)
