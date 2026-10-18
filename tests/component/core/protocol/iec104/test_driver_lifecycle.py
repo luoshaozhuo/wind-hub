@@ -145,3 +145,18 @@ async def test_unconfigured_ca_interrogation_rejected() -> None:
     with pytest.raises(Exception, match="not configured"):
         await driver.interrogate(9)
     await driver.close()
+
+
+async def test_explicit_ca_interrogation_returns_samples() -> None:
+    driver, _conn = make_driver([make_point("p", 100)])
+    expected = ("sample-marker",)
+    calls: list[tuple[int, int]] = []
+
+    async def interrogate_one(ca: int, *, qoi: int):
+        calls.append((ca, qoi))
+        return expected
+
+    driver._interrogate_one = interrogate_one  # type: ignore[method-assign]
+    result = await driver.interrogate(common_address=1, qoi=20)
+    assert result == expected
+    assert calls == [(1, 20)]
