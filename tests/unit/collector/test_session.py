@@ -411,3 +411,31 @@ async def test_listen_interrogation_failure_closes_registered_handle() -> None:
     with pytest.raises(RuntimeError, match="injected interrogation failure"):
         await session.start_acquisition(point_group="g", interval=None, on_data=on_data)
     assert closed == 1
+
+
+async def test_listen_preserves_protocol_batch_to_collector() -> None:
+    """一个 Push 批次只执行一次工程值转换与业务回调。"""
+    from core.application.protocol_contract import ProtocolSample
+
+    proto = CollectorFakeProtocol()
+    proto.capabilities_value = _caps(
+        ProtocolCapability.LISTEN, ProtocolCapability.INTERROGATE
+    )
+    session = make_session(make_collector_config(protocol="iec104", scale=2.0), proto)
+    batches: list[list[Any]] = []
+
+    async def on_data(values: list[Any]) -> None:
+        batches.append(values)
+
+    handle = await session.start_acquisition(point_group="g", interval=None, on_data=on_data)
+    _, callback, _ = proto.listeners[0]
+    now = datetime.now(UTC)
+    await callback(
+        (
+            ProtocolSample(point_id="p1", value=1.0, quality=Quality.GOOD, timestamp=now),
+            ProtocolSample(point_id="p1", value=2.0, quality=Quality.GOOD, timestamp=now),
+        )
+    )
+    assert len(batches) == 1
+    assert [value.value for value in batches[0]] == [2.0, 4.0]
+    await handle.close()
