@@ -77,6 +77,20 @@ _PROBE_UNSUPPORTED_CAUSES = frozenset(
 )
 
 
+class IEC104InterrogationIncompleteError(ProtocolError):
+    """总召未得到终结证据；samples 为终止前收到的部分有效结果。"""
+
+    def __init__(self, ca: int, qoi: int, samples: tuple[ProtocolSample, ...], reason: str):
+        super().__init__(
+            f"IEC104 interrogation incomplete for ca={ca}, qoi={qoi}: {reason}; "
+            f"partial_samples={len(samples)}"
+        )
+        self.common_address = ca
+        self.qoi = qoi
+        self.samples = samples
+        self.completed = False
+
+
 class IEC104ActiveReadRejectedError(ProtocolError):
     """从站对 C_RD_NA_1 给出否定响应（应用层拒绝，非链路故障）。"""
 
@@ -617,9 +631,14 @@ class IEC104Driver:
                     await asyncio.wait_for(future, timeout=self._config.t1 * 2)
                     return tuple(session.interrogation_samples[ca])
                 except TimeoutError as exc:
+                    partial = tuple(session.interrogation_samples[ca])
                     self._invalidate_session(session, "interrogation timed out")
-                    raise ProtocolError(
-                        f"IEC104 general interrogation ACT_TERM timed out for ca={ca}"
+                    raise IEC104InterrogationIncompleteError(
+                        ca, qoi, partial, "ACT_TERM timed out"
+                    ) from exc
+                except ProtocolConnectionError as exc:
+                    raise IEC104InterrogationIncompleteError(
+                        ca, qoi, tuple(session.interrogation_samples[ca]), str(exc)
                     ) from exc
             except asyncio.CancelledError:
                 # 总召取消后可能仍有分批响应在途，隔离旧会话。
@@ -965,7 +984,7 @@ class IEC104Driver:
         session.command_accepted.clear()
         session.interrogations.clear()
         session.interrogation_qoi.clear()
-        session.interrogation_samples.clear()
+        # 由等待方 finally 清理各自的部分结果；否则断链时结果提前丢失。
 
     # ------------------------------------------------------------------
     # 索引与校验
