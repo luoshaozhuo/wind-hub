@@ -63,8 +63,9 @@ async def test_unsupported_asdu_type_is_logged_and_receive_continues() -> None:
     driver, conn = await connected_driver([make_point("p1", 100)])
     received: list[str] = []
 
-    async def collect(sample: ProtocolSample) -> None:
-        received.append(sample.point_id)
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(sample.point_id)
 
     await driver.listen((), collect)
     # 0x68 启动字节被 hat 当作 ASDU 类型 → AsduTypeError。
@@ -80,8 +81,9 @@ async def test_truncated_apdu_dropped_without_stopping_worker() -> None:
     driver, conn = await connected_driver([make_point("p1", 100)])
     received: list[float] = []
 
-    async def collect(sample: ProtocolSample) -> None:
-        received.append(float(sample.value))  # type: ignore[arg-type]
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(float(sample.value))  # type: ignore[arg-type]
 
     await driver.listen((), collect)
     chunks = encode_messages([floating_data_msg(1, 100, 1.0)])
@@ -98,8 +100,9 @@ async def test_malformed_multi_io_asdu_dropped_and_receive_continues() -> None:
     )
     received: list[str] = []
 
-    async def collect(sample: ProtocolSample) -> None:
-        received.append(sample.point_id)
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(sample.point_id)
 
     await driver.listen((), collect)
     # VSQ=2，第二个 IO 元素截断：hat 在进入生成器时急切解码整个 ASDU，
@@ -123,8 +126,9 @@ async def test_dispatch_exception_does_not_stop_receive_worker(
     driver, conn = await connected_driver([make_point("p1", 100)])
     received: list[float] = []
 
-    async def collect(sample: ProtocolSample) -> None:
-        received.append(float(sample.value))  # type: ignore[arg-type]
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(float(sample.value))  # type: ignore[arg-type]
 
     await driver.listen((), collect)
     original_dispatch = driver._dispatch
@@ -192,8 +196,9 @@ async def test_malformed_spontaneous_data_is_dropped_not_fabricated() -> None:
     driver, conn = await connected_driver([make_point("p1", 100)])
     received: list[ProtocolSample] = []
 
-    async def collect(sample: ProtocolSample) -> None:
-        received.append(sample)
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(sample)
 
     await driver.listen((), collect)
     _inject(conn, _unsupported_data_frame(100, cause_byte=3))  # COT SPONTANEOUS
