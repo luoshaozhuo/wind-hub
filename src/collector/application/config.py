@@ -43,6 +43,7 @@ class RuntimeParams:
         shutdown_timeout: 停机阶段等待消费者/资源释放的超时（秒）。
         connect_timeout: 单设备连接（含重连）超时（秒）。
         read_timeout: 应用层单次批量读外层兜底超时（秒）；``None`` 不加外层超时。
+        thread_pool_max_workers: 进程级协议命令线程池大小（restart-required）。
     """
 
     queue_maxsize: int = 1000
@@ -53,6 +54,7 @@ class RuntimeParams:
     write_timeout: float = 1.0
     watchdog_interval: float = 5.0
     health_timeout: float = 1.0
+    thread_pool_max_workers: int = 32
 
     def __post_init__(self) -> None:
         if self.queue_maxsize <= 0:

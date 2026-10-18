@@ -13,6 +13,7 @@ import signal
 from pathlib import Path
 
 from core.infrastructure.diagnostic.log_setup import configure_logging
+from core.infrastructure.runtime import configure_default_thread_pool
 
 from .assembly import assemble_commander
 from .infrastructure.grpc import build_grpc_server
@@ -39,6 +40,9 @@ async def run_commander(
 ) -> int:
     """启动 Commander 与 gRPC Server，并阻塞到收到停机信号。"""
     app = assemble_commander(config_dir)
+    # 进程级协议命令线程池：所有 Driver/探测会话的 to_thread 共用，
+    # 必须先于任何协议命令安装（每进程一次；配置变更 restart-required）。
+    configure_default_thread_pool(app.runtime.config.thread_pool_max_workers)
     grpc_server = build_grpc_server(app, host=grpc_host, port=grpc_port)
     shutdown_event = asyncio.Event()
     _install_signal_handlers(shutdown_event)

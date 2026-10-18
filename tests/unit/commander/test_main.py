@@ -14,7 +14,10 @@ class _HungStopApp:
     """stop 永久挂起的 App 替身——模拟协议关闭卡死。"""
 
     def __init__(self) -> None:
-        self.runtime = SimpleNamespace(devices={})
+        self.runtime = SimpleNamespace(
+            devices={},
+            config=SimpleNamespace(thread_pool_max_workers=32),
+        )
         self.config_hash = "deadbeefcafe"
         self.started = False
 

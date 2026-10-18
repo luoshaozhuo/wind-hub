@@ -197,6 +197,8 @@ class CommanderRuntime:
             raise ValueError("ADS local identity change requires process restart")
         if config.units != self._current.config.units:
             raise ValueError("unit catalog change requires process restart")
+        if config.thread_pool_max_workers != self._current.config.thread_pool_max_workers:
+            raise ValueError("runtime.thread_pool.max_workers change requires process restart")
         candidate = self._build_generation(config)
         async with self._reload_lock:
             if self._stopping:

@@ -43,6 +43,9 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CommanderConfig:
         read_timeout=runtime.read_timeout if runtime.read_timeout is not None else 1.0,
         watchdog_interval=runtime.watchdog_interval,
         health_timeout=runtime.health_timeout,
+        thread_pool_max_workers=(
+            runtime.thread_pool.max_workers if runtime.thread_pool is not None else 32
+        ),
         disabled_devices=frozenset(
             key for key, device in snapshot.site.devices.items() if not device.enabled
         ),

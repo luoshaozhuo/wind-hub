@@ -24,7 +24,12 @@ from typing import Any
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
-from core.application.settings import ADSLocalConfig, RuntimeSettings, SystemSettings
+from core.application.settings import (
+    ADSLocalConfig,
+    RuntimeSettings,
+    SystemSettings,
+    ThreadPoolSettings,
+)
 from core.domain import (
     BusinessPointId,
     ConnectionEndpoint,
@@ -184,6 +189,14 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
         value = settings["queue_maxsize"]
         if isinstance(value, bool) or not isinstance(value, int):
             raise ConfigError("runtime.queue_maxsize must be an integer")
+    thread_pool_raw = settings.pop("thread_pool", None)
+    if thread_pool_raw is not None:
+        pool = _map(thread_pool_raw, "system.runtime.thread_pool")
+        _keys(pool, set(ThreadPoolSettings.__dataclass_fields__), "system.runtime.thread_pool")
+        max_workers = pool.get("max_workers", 32)
+        if isinstance(max_workers, bool) or not isinstance(max_workers, int):
+            raise ConfigError("runtime.thread_pool.max_workers must be an integer")
+        settings["thread_pool"] = ThreadPoolSettings(max_workers=max_workers)
     runtime = RuntimeSettings(**settings)
     ads_raw = raw.get("ads")
     ads = None

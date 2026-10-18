@@ -14,6 +14,7 @@ import signal
 from pathlib import Path
 
 from core.infrastructure.diagnostic.log_setup import configure_logging
+from core.infrastructure.runtime import configure_default_thread_pool
 
 from .assembly import assemble_collector
 from .infrastructure.grpc import build_grpc_server
@@ -51,6 +52,9 @@ async def run_collector(
             Collector ``--shutdown-timeout`` 语义一致）。
     """
     app = assemble_collector(config_dir, collector_id=collector_id)
+    # 进程级协议命令线程池：所有 Driver 的 to_thread 共用，必须先于任何
+    # 协议命令安装（每进程一次；配置变更 restart-required）。
+    configure_default_thread_pool(app.boot_config.runtime.thread_pool_max_workers)
     grpc_server = build_grpc_server(app, app.identity, host=grpc_host, port=grpc_port)
     shutdown_event = asyncio.Event()
     _install_signal_handlers(shutdown_event)

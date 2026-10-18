@@ -19,11 +19,19 @@ from .yaml import yaml_plain as _yaml_plain
 
 def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
     system: dict[str, Any] = {}
-    runtime = {
-        name: getattr(snapshot.system.runtime, name)
-        for name in snapshot.system.runtime.__dataclass_fields__
-        if getattr(snapshot.system.runtime, name) is not None
-    }
+    runtime: dict[str, Any] = {}
+    for name in snapshot.system.runtime.__dataclass_fields__:
+        value = getattr(snapshot.system.runtime, name)
+        if value is None:
+            continue
+        # 嵌套段（如 thread_pool）按其 dataclass 字段展开为 mapping。
+        if hasattr(value, "__dataclass_fields__"):
+            value = {
+                sub: getattr(value, sub)
+                for sub in value.__dataclass_fields__
+                if getattr(value, sub) is not None
+            }
+        runtime[name] = value
     if runtime:
         system["runtime"] = runtime
     if snapshot.system.ads is not None:
