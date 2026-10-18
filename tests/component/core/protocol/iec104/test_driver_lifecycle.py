@@ -183,3 +183,24 @@ async def test_cancelled_control_invalidates_session_before_next_command() -> No
     assert driver._session is None
     assert len(conn.sent_messages) == 1
     await driver.close()
+
+
+@pytest.mark.parametrize("operation", ["read", "interrogate"])
+async def test_cancelled_iec104_request_invalidates_session(operation: str) -> None:
+    """主动读取/总召取消后，迟到报文不得进入后续新会话。"""
+    driver, conn = await connected_driver([make_point("p", 100)])
+    if operation == "read":
+        task = asyncio.create_task(driver.read_one("p"))
+    else:
+        task = asyncio.create_task(driver.interrogate(common_address=1))
+    for _ in range(100):
+        if conn.sent_messages:
+            break
+        await asyncio.sleep(0.001)
+    assert conn.sent_messages
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert driver._session is None
+    assert not driver.is_open()
+    await driver.close()
