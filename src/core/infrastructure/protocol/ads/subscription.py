@@ -49,7 +49,7 @@ class ADSSubscription:
         self,
         session: Any,
         points: Sequence[ADSPoint],
-        callback: Callable[[ProtocolSample], Awaitable[None]],
+        callback: Callable[[tuple[ProtocolSample, ...]], Awaitable[None]],
         *,
         cycle_time: float,
         loop: asyncio.AbstractEventLoop,
