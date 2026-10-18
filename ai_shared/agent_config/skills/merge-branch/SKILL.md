@@ -1,6 +1,6 @@
 ---
 name: merge-branch
-description: 由 Coding Agent 的 //merge-branch 指令触发；检查当前任务分支及 PR，满足门禁后立即 Squash Merge 到 main 并验证。
+description: 由 Coding Agent 的 //merge-branch 指令触发；检查当前任务分支及 PR，执行一次本地受影响范围验证，通过后 Squash Merge 到 main 并验证。
 ---
 
 # merge-branch
@@ -17,6 +17,10 @@ python <skill-dir>/scripts/merge.py merge --pr <PR-number>
 
 如果尚无 PR，先检查当前任务分支、创建指向 `main` 的 PR，再执行脚本。
 `check` 仅用于排错，不得用 READY 代替实际合并结果。
+
+## 本地合并验收
+
+用户触发合并时，`merge.py` 在确认远端分支与当前 HEAD 一致后，调用 `scripts/ci_gate.py merge`。验证范围由任务分支与 `origin/main` 的完整差异决定；开发、Commit、Push 和创建 PR 不强制运行完整产品测试。任何验证失败都阻止合并，代码或 main 变化后重新验收。GitHub Fast/PR 工作流仅运行轻量治理检查，不重复产品测试。
 
 ## 门禁
 
