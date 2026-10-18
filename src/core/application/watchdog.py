@@ -57,7 +57,7 @@ class WatchdogUseCase:
         self._task: asyncio.Task[None] | None = None
         self._enabled = True
         self._generation = 0
-        self._restore_pending = False
+        self._pending_restore: ReconnectCallback | None = None
 
     def configure(
         self,
@@ -102,8 +102,8 @@ class WatchdogUseCase:
         if not self._enabled:
             return health
         if health.healthy:
-            if self._restore_pending and self._on_success is not None:
-                await self._restore_after_connect(self._on_success)
+            if self._pending_restore is not None:
+                await self._restore_after_connect(self._pending_restore)
             return health
 
         await self._reconnect_if_current(generation)
@@ -130,6 +130,7 @@ class WatchdogUseCase:
     async def stop(self) -> None:
         """停止后续检查；不会在停止后发起新的重连。"""
         self._enabled = False
+        self._pending_restore = None
         self._wake.set()
         task = self._task
         self._task = None
@@ -168,19 +169,20 @@ class WatchdogUseCase:
                 async with asyncio.timeout(self._connect_timeout):
                     await self._connect()
                 self._generation += 1
+                self._pending_restore = callback
 
         # 恢复失败不应强制重建已健康的连接；在下一个健康周期单独重试。
-        self._restore_pending = callback is not None
         if callback is not None and self._enabled:
             await self._restore_after_connect(callback)
         return True
 
     async def _restore_after_connect(self, callback: ReconnectCallback) -> None:
         async with self._reconnect_lock:
-            if not self._enabled or not self._restore_pending:
+            if not self._enabled or self._pending_restore is not callback:
                 return
             await callback()
-            self._restore_pending = False
+            if self._pending_restore is callback:
+                self._pending_restore = None
 
     async def _run(self) -> None:
         while self._enabled:
