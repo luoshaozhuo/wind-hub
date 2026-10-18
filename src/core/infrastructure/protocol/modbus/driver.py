@@ -254,13 +254,15 @@ class ModbusDriver:
                 return ProtocolSample(
                     point_id=point_id,
                     value=None,
-                    timestamp=datetime.now(UTC),
+                    timestamp=(received_at := datetime.now(UTC)),
+                    receive_time=received_at,
                     quality=Quality.BAD,
                 )
             return ProtocolSample(
                 point_id=point_id,
                 value=_as_point_scalar(value),
-                timestamp=datetime.now(UTC),
+                timestamp=(received_at := datetime.now(UTC)),
+                    receive_time=received_at,
                 quality=Quality.GOOD,
             )
 
