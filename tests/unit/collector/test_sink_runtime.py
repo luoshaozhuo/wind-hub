@@ -207,7 +207,7 @@ async def test_apply_diff_requires_factory_before_any_removal():
     runtime = _runtime({"old": sink})
     await runtime.start()
 
-    new_cfg = Sink(sink_id="new", kind="file", enabled=True, connection={"path": "/tmp/z.csv"})
+    new_cfg = Sink(sink_id="new", kind="redis", enabled=True, connection={"host": "127.0.0.1"})
     diff = SinkDiff(added=["new"], removed=["old"])
     with pytest.raises(RuntimeError, match="sink factory"):
         await runtime.apply_diff(diff, {"new": new_cfg})
@@ -228,8 +228,8 @@ async def test_apply_diff_add_remove_update():
         return sink
 
     runtime._sink_factory = factory
-    cfg_keep = Sink(sink_id="keep", kind="file", enabled=True, connection={"path": "/tmp/k2.csv"})
-    cfg_new = Sink(sink_id="new", kind="file", enabled=True, connection={"path": "/tmp/n.csv"})
+    cfg_keep = Sink(sink_id="keep", kind="redis", enabled=True, connection={"host": "127.0.0.2"})
+    cfg_new = Sink(sink_id="new", kind="redis", enabled=True, connection={"host": "127.0.0.3"})
     diff = SinkDiff(added=["new"], removed=["drop"], updated=["keep"])
     await runtime.apply_diff(diff, {"keep": cfg_keep, "new": cfg_new})
     assert set(runtime.sinks) == {"keep", "new"}
