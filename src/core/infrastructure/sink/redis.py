@@ -46,11 +46,15 @@ class RedisSink:
 
     def __init__(self, config: Sink) -> None:
         connection = dict(config.connection)
-        self._task_prefixes = dict(config.task_key_prefixes or {}) if isinstance(config, ResolvedSink) else {}
-        self._task_sources = {
-            task_id: {(device, point) for device, point in sources}
-            for task_id, sources in (config.task_sources or {}).items()
-        } if isinstance(config, ResolvedSink) else {}
+        routes = config if isinstance(config, ResolvedSink) else None
+        self._task_prefixes = dict(routes.task_key_prefixes or {}) if routes else {}
+        self._task_sources = (
+            {
+                task_id: {(device, point) for device, point in sources}
+                for task_id, sources in (routes.task_sources or {}).items()
+            }
+            if routes else {}
+        )
         self._config = RedisSinkConnection.model_validate(connection)
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
