@@ -25,6 +25,8 @@ class ResolvedSink(Sink):
     """Collector 装配期生成的 Sink 运行时描述，不属于 Domain Sink。"""
 
     points: tuple[Mapping[str, Any], ...] = ()
+    task_sources: Mapping[str, tuple[tuple[str, str], ...]] | None = None
+    task_key_prefixes: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
         super(ResolvedSink, self).__post_init__()
@@ -33,6 +35,10 @@ class ResolvedSink(Sink):
             "points",
             tuple(freeze_sink_value(point) for point in self.points),
         )
+        if self.task_sources is not None:
+            object.__setattr__(self, "task_sources", freeze_sink_value(self.task_sources))
+        if self.task_key_prefixes is not None:
+            object.__setattr__(self, "task_key_prefixes", freeze_sink_value(self.task_key_prefixes))
 
 
 SINK_DATA_TYPES = frozenset(data_type.value for data_type in DataType)
