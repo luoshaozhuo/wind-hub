@@ -16,9 +16,9 @@ def test_csv_header_and_values_are_readable() -> None:
     ]
     output = encode_csv_batch(values, include_header=True).decode("utf-8")
     rows = list(csv.reader(io.StringIO(output)))
-    assert rows[0] == ["timestamp", "device_id", "point_id", "value", "quality", "source"]
-    assert rows[1] == ["2026-10-10T00:00:00Z", "WT001", "power", "123.5", "good", ""]
-    assert rows[2][3:] == ["", "good", "modbus"]
+    assert rows[0] == ["timestamp", "device_id", "point_id", "value", "quality", "source", "receive_time", "device_time"]
+    assert rows[1] == ["2026-10-10T00:00:00Z", "WT001", "power", "123.5", "good", "", "2026-10-10T00:00:00Z", ""]
+    assert rows[2][3:6] == ["", "good", "modbus"]
 
 
 def test_csv_escapes_quotes_commas_and_newlines() -> None:
