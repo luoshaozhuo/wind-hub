@@ -126,7 +126,7 @@ def fake_pyads(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subscription_module, "pyads", _FakePyads)
 
 
-async def _noop(_sample: ProtocolSample) -> None:
+async def _noop(_samples: tuple[ProtocolSample, ...]) -> None:
     pass
 
 
