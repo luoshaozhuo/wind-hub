@@ -635,3 +635,60 @@ async def test_concurrent_reloads_are_serialized(fx: _Fixture) -> None:
     for worker in fx.workers:
         assert len(worker.prepare_calls) == 1
         assert len(worker.activate_calls) == 1
+
+
+class TestCommitHooks:
+    """成功提交后的副作用回调契约。"""
+
+    async def test_hook_receives_previous_and_candidate(self, fx: _Fixture) -> None:
+        calls: list[tuple[ConfigSnapshot, ConfigSnapshot]] = []
+        fx.service.add_commit_hook(lambda previous, candidate: calls.append((previous, candidate)))
+
+        _set_interval(fx.config_dir, 0.5)
+        result = await fx.service.reload()
+
+        assert result.success is True, result.errors
+        assert len(calls) == 1
+        previous, candidate = calls[0]
+        task = "modbus-telemetry"
+        assert previous.tasks[task].interval == 0.2
+        assert candidate.tasks[task].interval == 0.5
+        assert fx.service.current_config is candidate
+
+    async def test_failing_hook_does_not_break_commit_or_other_hooks(
+        self,
+        fx: _Fixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        reached: list[bool] = []
+
+        def boom(previous: ConfigSnapshot, candidate: ConfigSnapshot) -> None:
+            raise RuntimeError("hook boom")
+
+        fx.service.add_commit_hook(boom)
+        fx.service.add_commit_hook(lambda previous, candidate: reached.append(True))
+
+        _set_interval(fx.config_dir, 0.5)
+        with caplog.at_level("WARNING"):
+            result = await fx.service.reload()
+
+        assert result.success is True, result.errors
+        assert reached == [True]
+        assert "hook boom" in caplog.text
+        # 基线仍然完成提交。
+        assert fx.service.current_config.tasks["modbus-telemetry"].interval == 0.5
+
+    async def test_hooks_skip_no_change_short_circuit(self, fx: _Fixture) -> None:
+        """无变更短路不经过 _commit_revision：钩子不应触发。"""
+        calls = 0
+
+        def counting(previous: ConfigSnapshot, candidate: ConfigSnapshot) -> None:
+            nonlocal calls
+            calls += 1
+
+        fx.service.add_commit_hook(counting)
+        result = await fx.service.reload()
+
+        assert result.success is True
+        assert result.diff.has_changes is False
+        assert calls == 0

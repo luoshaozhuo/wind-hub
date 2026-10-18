@@ -105,6 +105,75 @@ def test_uvicorn_access_records_carry_request_id_to_root(
     assert records[0].request_id == "req-uvicorn-1"
 
 
+def test_reconfigure_logging_applies_new_log_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """system.logs 变更时重配进程日志，并重挂 LogStore 缓冲 handler。"""
+    import web_server.server as server_module
+    from core.application.settings import LogSettings
+
+    applied: list[LogSettings] = []
+    monkeypatch.setattr(
+        server_module,
+        "configure_process_logging",
+        lambda settings, process_name: applied.append(settings),
+    )
+    log_store = MagicMock()
+    old = LogSettings()
+    new = LogSettings(level="DEBUG")
+    candidate = MagicMock()
+    candidate.system.logs = new
+    previous = MagicMock()
+    previous.system.logs = old
+
+    changed = server_module.reconfigure_logging_on_commit(log_store, previous, candidate)
+
+    assert changed is True
+    assert applied == [new]
+    log_store.uninstall.assert_called_once_with()
+    log_store.install.assert_called_once_with()
+
+
+def test_reconfigure_logging_skips_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    import web_server.server as server_module
+    from core.application.settings import LogSettings
+
+    def _boom(settings: object, process_name: str) -> None:
+        raise AssertionError("must not reconfigure")
+
+    monkeypatch.setattr(server_module, "configure_process_logging", _boom)
+    log_store = MagicMock()
+    snapshot = MagicMock()
+    snapshot.system.logs = LogSettings()
+
+    changed = server_module.reconfigure_logging_on_commit(log_store, snapshot, snapshot)
+
+    assert changed is False
+    log_store.uninstall.assert_not_called()
+    log_store.install.assert_not_called()
+
+
+def test_reconfigure_logging_reinstalls_store_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import web_server.server as server_module
+    from core.application.settings import LogSettings
+
+    def _boom(settings: object, process_name: str) -> None:
+        raise PermissionError("cannot create log dir")
+
+    monkeypatch.setattr(server_module, "configure_process_logging", _boom)
+    log_store = MagicMock()
+    previous = MagicMock()
+    previous.system.logs = LogSettings()
+    candidate = MagicMock()
+    candidate.system.logs = LogSettings(path="/forbidden/path")
+
+    # 异常交给 ConfigService 的钩子隔离记录；缓冲 handler 必须先于异常重挂。
+    with pytest.raises(PermissionError):
+        server_module.reconfigure_logging_on_commit(log_store, previous, candidate)
+    log_store.uninstall.assert_called_once_with()
+    log_store.install.assert_called_once_with()
+
+
 async def test_reload_once_delegates_to_config_use_case() -> None:
     """SIGHUP helper 只调用一次 ConfigService.reload。"""
     config = AsyncMock()

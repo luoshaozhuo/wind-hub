@@ -13,12 +13,14 @@ import signal
 import uvicorn
 from uvicorn.config import LOG_LEVELS
 
+from core.application.config_snapshot import ConfigSnapshot
 from core.infrastructure.diagnostic.log_setup import configure_process_logging
 from web_server.adapter.inbound.webapi.app import build_api
 from web_server.application.config.service import ConfigService
 from web_server.application.task.reconcile import TaskPlacementReconciler
 from web_server.application.worker.registry import WorkerRegistry
 from web_server.assembly import ServerApp, assemble_server
+from web_server.infra.log_store import LogStore
 from web_server.settings import ServerSettings
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,27 @@ def build_api_server(
         settings.port,
     )
     return uvicorn.Server(config)
+
+
+def reconfigure_logging_on_commit(
+    log_store: LogStore,
+    previous: ConfigSnapshot,
+    candidate: ConfigSnapshot,
+) -> bool:
+    """成功提交后按新 system.logs 热更进程日志；未变更则不动。
+
+    configure_process_logging 使用 force=True，会清空 root handler，
+    因此必须先卸载 LogStore 的缓冲 handler，重配后再装回。
+    """
+    if previous.system.logs == candidate.system.logs:
+        return False
+    logger.info("检测到日志配置变更，热更新进程日志 handler")
+    log_store.uninstall()
+    try:
+        configure_process_logging(candidate.system.logs, process_name="web_server")
+    finally:
+        log_store.install()
+    return True
 
 
 async def reload_once(config: ConfigService) -> None:
@@ -248,6 +271,11 @@ async def run_server(settings: ServerSettings) -> int:
     runtime.config.initialize_desired_revision()
 
     runtime.log_store.install()
+
+    def _reconfigure_logging(previous: ConfigSnapshot, candidate: ConfigSnapshot) -> None:
+        reconfigure_logging_on_commit(runtime.log_store, previous, candidate)
+
+    runtime.config.add_commit_hook(_reconfigure_logging)
 
     shutdown_event = asyncio.Event()
     reload_event = asyncio.Event()

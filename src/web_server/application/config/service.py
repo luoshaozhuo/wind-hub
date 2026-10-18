@@ -8,8 +8,10 @@ Server 指定 revision/hash 的 Prepare/Activate/Abort。配置事务在进程�
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
@@ -38,6 +40,11 @@ class ReloadResult:
     diff: ConfigSnapshotDiff
     errors: list[str] = field(default_factory=list)
     duration_ms: float = 0.0
+
+
+logger = logging.getLogger(__name__)
+
+ConfigCommitHook = Callable[[ConfigSnapshot, ConfigSnapshot], None]
 
 
 def _active_config_hash(status: CommanderStatus | CollectorInfo) -> str:
@@ -74,6 +81,23 @@ class ConfigService:
         self._accept_transactions = True
         self._applied_files = self._snapshot_config_files()
         self._applied_config_hash = config_dir_digest(self._config_dir)
+        self._commit_hooks: list[ConfigCommitHook] = []
+
+    def add_commit_hook(self, hook: ConfigCommitHook) -> None:
+        """登记成功提交后的副作用回调（previous, candidate），随事务串行触发。"""
+        self._commit_hooks.append(hook)
+
+    def _run_commit_hooks(
+        self,
+        previous: ConfigSnapshot,
+        candidate: ConfigSnapshot,
+    ) -> None:
+        for hook in self._commit_hooks:
+            try:
+                hook(previous, candidate)
+            except Exception:
+                # 基线已提交成功：副作用失败不得回滚配置，只记录诊断。
+                logger.warning("config commit hook failed", exc_info=True)
 
     @property
     def config_dir(self) -> Path:
@@ -331,11 +355,13 @@ class ConfigService:
         config_hash: str,
     ) -> None:
         """提交已激活 revision 为 Server 成功基线并刷新磁盘快照。"""
+        previous = self._current
         self._current = candidate
         self._desired_revision = revision_id
         self._desired_config_hash = config_hash
         self._applied_files = self._snapshot_config_files()
         self._applied_config_hash = config_hash
+        self._run_commit_hooks(previous, candidate)
 
     def _snapshot_config_files(self) -> dict[Path, bytes]:
         """保存当前已接受配置集的 YAML 文件快照。"""
