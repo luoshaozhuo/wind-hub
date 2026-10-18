@@ -22,7 +22,7 @@ NotificationKey = tuple[int, int, int, int, float, float]
 
 @dataclass(slots=True)
 class _SharedNotification:
-    handle: tuple[Any, Any]
+    handle: tuple[Any, Any] | None
     callbacks: tuple[Callable[..., None], ...]
     uncertain: bool = False
 
@@ -274,12 +274,20 @@ class _AdsSession:
                 for callback in current.callbacks:
                     callback(*args)
 
-            callback = self.notification(datatype)(dispatch)
-            handle = cast(
-                tuple[Any, Any],
-                await self.execute("add_device_notification", key[:2], attribute, callback),
-            )
-            self._notifications[key] = _SharedNotification(handle, (wrapped,))
+            # 先建立接收入口，再提交注册，避免设备立即通知时丢掉首批数据。
+            entry = _SharedNotification(None, (wrapped,))
+            self._notifications[key] = entry
+            try:
+                callback = self.notification(datatype)(dispatch)
+                entry.handle = cast(
+                    tuple[Any, Any],
+                    await self.execute(
+                        "add_device_notification", key[:2], attribute, callback
+                    ),
+                )
+            except BaseException:
+                self._notifications.pop(key, None)
+                raise
 
     async def release_notification(
         self, key: NotificationKey, wrapped: Callable[..., None]
@@ -296,6 +304,8 @@ class _AdsSession:
                 return
             if entry.uncertain:
                 raise ProtocolError("ADS notification deregistration remains unconfirmed")
+            if entry.handle is None:
+                raise ProtocolError("ADS notification registration has not settled")
             try:
                 await self.execute(
                     "del_device_notification", entry.handle[0], entry.handle[1]
