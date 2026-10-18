@@ -173,11 +173,11 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                     )
                 occupied.append((address.address, end))
             points.append(resolved.model_dump(mode="json"))
-        connection = dict(sink.connection)
+        task_sources = None
         if sink.kind in {"modbus", "redis"}:
             # 显式 points 是选择性输出；空 points 对 Redis 表示任务组全量
             # （Modbus 已在解析层强制显式点表，空列表不会走到这里）。
-            connection["task_sources"] = {
+            task_sources = {
                 task.task_id: (
                     [
                         [raw["source"]["device_id"], raw["source"]["point_id"]]
@@ -188,17 +188,20 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                 )
                 for task, output in task_outputs
             }
+        task_key_prefixes = None
         if sink.kind == "redis":
-            connection["task_key_prefixes"] = {
-                task.task_id: output.key_prefix or connection.get("key_prefix", "wind-hub")
+            task_key_prefixes = {
+                task.task_id: output.key_prefix or sink.connection.get("key_prefix", "wind-hub")
                 for task, output in task_outputs
             }
         result[sink_id] = ResolvedSink(
             sink_id=sink.sink_id,
             kind=sink.kind,
             enabled=sink.enabled,
-            connection=connection,
+            connection=sink.connection,
             points=tuple(points),
+            task_sources=task_sources,
+            task_key_prefixes=task_key_prefixes,
         )
     return result
 
