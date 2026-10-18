@@ -1,9 +1,11 @@
 ---
 name: local-fast-gate
-description: Run only Fast checks selected by the current product-code scope; non-product tooling receives lightweight validation only.
+description: Legacy optional focused checks; ordinary development does not require a Fast Gate.
 ---
 
-# Local Fast Gate
+# Local Fast Gate（可选诊断，不自动调用）
+
+日常开发、Commit、Push 和 PR 创建不强制执行本 Skill。用户调用 `//merge-branch` 后才统一执行合并验收。
 
 先获取 `origin/main...HEAD` 的变更文件并运行：
 
