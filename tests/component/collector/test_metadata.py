@@ -150,7 +150,7 @@ async def test_metadata_reflects_task_and_sink_changes_after_reload() -> None:
     from collector.application.config import CollectionTask
     from core.domain import DeviceGroupId, Sink
 
-    enabled_s1 = Sink(sink_id="s1", kind="file", enabled=True, connection={})
+    enabled_s1 = Sink(sink_id="s1", kind="redis", enabled=True, connection={})
     config = make_collector_config(sinks={"s1": enabled_s1})
     runtime, _ = make_runtime(config)
     state: dict[str, object] = {"config": config, "hash": "h1"}
