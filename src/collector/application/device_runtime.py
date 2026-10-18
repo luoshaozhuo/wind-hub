@@ -408,12 +408,16 @@ class DeviceRuntime:
                     )
                 raise
 
-        async def _on_success() -> None:
+        async def _on_connected() -> None:
             if self._devices.get(device_id) is not session:
                 return
             self._state_for(device_id).mark_success(self._clock())
             if self._metrics is not None:
                 self._metrics.device_reconnected(device_id, session.protocol_name)
+
+        async def _restore_push() -> None:
+            if self._devices.get(device_id) is not session:
+                return
             callback = self._reconnect_callback
             if callback is not None:
                 await callback(device_id)
@@ -425,7 +429,8 @@ class DeviceRuntime:
             interval=self._params.watchdog_interval,
             health_timeout=self._params.health_timeout,
             connect_timeout=self._params.connect_timeout,
-            on_success=_on_success,
+            on_success=_restore_push,
+            on_connected=_on_connected,
             lifecycle_lock=self._connect_locks.setdefault(device_id, asyncio.Lock()),
             name=f"device:{device_id}",
         )
