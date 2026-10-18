@@ -4,8 +4,8 @@
 领域配置索引与进程级 ``CommanderConfig``。
 """
 
-from .loader import load_commander_config
+from .loader import commander_config_from_snapshot, load_commander_config
 
 __all__ = [
-    "load_commander_config",
+    "load_commander_config", "commander_config_from_snapshot",
 ]

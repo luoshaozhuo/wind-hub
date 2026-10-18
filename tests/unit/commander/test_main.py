@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import commander.main as main_module
 from commander.main import build_parser, run_commander
+from core.application.settings import LogSettings
 
 
 class _HungStopApp:
@@ -19,6 +20,7 @@ class _HungStopApp:
             config=SimpleNamespace(thread_pool_max_workers=32),
         )
         self.config_hash = "deadbeefcafe"
+        self.log_settings = LogSettings()
         self.started = False
 
     async def start(self) -> None:

@@ -21,10 +21,10 @@ from ...application.config import BackpressurePolicy, CollectorConfig, RuntimePa
 
 def load_collector_config(source: ConfigPort) -> CollectorConfig:
     """从注入的配置来源加载 Collector 配置；不在 Loader 内实例化 Adapter。"""
-    return _from_snapshot(source.load())
+    return collector_config_from_snapshot(source.load())
 
 
-def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
+def collector_config_from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
     enabled_sinks = {sink_id for sink_id, sink in snapshot.sinks.items() if sink.enabled}
     for task in snapshot.tasks.values():
         if not task.enabled:
@@ -212,4 +212,4 @@ def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
     )
 
 
-__all__ = ["load_collector_config"]
+__all__ = ["load_collector_config", "collector_config_from_snapshot"]
