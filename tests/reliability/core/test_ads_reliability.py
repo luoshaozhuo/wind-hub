@@ -301,11 +301,12 @@ class TestMidSessionDisconnect:
         seen: list[int] = []
         arrived = asyncio.Event()
 
-        async def on_sample(sample: ProtocolSample) -> None:
-            value = int(sample.value)  # type: ignore[arg-type]  # 测点为 DINT
-            seen.append(value)
-            if value == 42:
-                arrived.set()
+        async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                value = int(sample.value)  # type: ignore[arg-type]  # 测点为 DINT
+                seen.append(value)
+                if value == 42:
+                    arrived.set()
 
         await driver.subscribe(("a",), on_sample, interval=0.05)
         memory_server.set_values(_GROUP, 0, pack_points([("DINT", 42)]))
