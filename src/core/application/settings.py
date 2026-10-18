@@ -109,8 +109,32 @@ class RuntimeSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class LogSettings:
+    """跨进程日志策略；日志处理器由各进程初始化，文件必须独占。"""
+
+    level: str = "INFO"
+    path: str = "/var/log/wind-hub"
+    console: bool = True
+    max_size_mb: float = 100.0
+    retention_days: int = 30
+
+    def __post_init__(self) -> None:
+        if self.level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("logs.level must be a standard uppercase logging level")
+        _require_non_empty(self.path, "logs.path")
+        if not isinstance(self.console, bool):
+            raise ValueError("logs.console must be boolean")
+        _require_finite(self.max_size_mb, "logs.max_size_mb")
+        if self.max_size_mb <= 0:
+            raise ValueError("logs.max_size_mb must be > 0")
+        if isinstance(self.retention_days, bool) or not isinstance(self.retention_days, int) or self.retention_days < 1:
+            raise ValueError("logs.retention_days must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
 class SystemSettings:
     """无现场标识的进程配置；风场 ID、名称只保存在 Site。"""
 
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
     ads: ADSLocalConfig | None = None
+    logs: LogSettings = field(default_factory=LogSettings)
