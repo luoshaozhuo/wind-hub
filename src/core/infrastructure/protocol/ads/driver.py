@@ -419,12 +419,18 @@ class ADSDriver:
                     subscription.deactivate()
                 # Worker 取消不持任何 IO 锁：用户回调内可能再做驱动 IO（经
                 # detach 后的快速失败返回）。
+                worker_error: BaseException | None = None
                 for result in await asyncio.gather(
                     *(subscription.stop_worker() for subscription in subscriptions),
                     return_exceptions=True,
                 ):
                     if isinstance(result, BaseException):
-                        logger.exception("ADS subscription worker stop failed", exc_info=result)
+                        if worker_error is None:
+                            worker_error = result
+                        logger.error(
+                            "%sADS subscription worker stop failed: %r",
+                            self._label, result, exc_info=result,
+                        )
                 deregister_error: Exception | None = None
                 for subscription in subscriptions:
                     try:
@@ -443,6 +449,10 @@ class ADSDriver:
                     await self._shutdown_session(session)
                 if deregister_error is not None:
                     raise deregister_error
+                if worker_error is not None:
+                    raise ProtocolError(
+                        "ADS subscription worker cancellation not confirmed"
+                    ) from worker_error
             finally:
                 self._release_route_after_settle(route, session)
         finally:
