@@ -43,7 +43,7 @@ class _DailySizeFileHandler(logging.Handler):
         self._date = day
         while True:
             target = self._root / f"{day}_{self._index:03d}.log"
-            if not target.exists() or target.stat().st_size + size <= self._limit:
+            if not target.exists() or target.stat().st_size == 0 or target.stat().st_size + size <= self._limit:
                 break
             self._index += 1
         self._stream = target.open("a", encoding="utf-8")
