@@ -41,20 +41,11 @@ ai_shared/agent_config/hooks/
 ## 3. 开发生命周期
 
 ```text
-origin/main
-→ task branch
-→ 修改
-→ 按变更范围验证
-→ commit(s)
-→ push / PR
-→ scope-aware GitHub CI
-→ 仅处理 RELATED CI failure
-→ merge
+origin/main → task branch → 开发 / 按需定向测试 → commit / push / PR
+→ //merge-branch（一次受影响范围本地验证）→ squash merge main
 ```
 
-产品代码默认进入 Local Fast Gate；含产品代码的 PR 进入 Local PR Gate。
-
-纯 CI/Agent 工具、rules、skills 等非产品代码变更不运行产品代码 Gate，只做与修改对象直接相关的轻量验证。
+开发、Commit、Push 和 PR 创建均不强制完整测试。GitHub Fast/PR 仅执行轻量治理检查；Release 与硬件、性能、长稳测试仍使用独立门禁。
 
 ## 4. CI 失败
 

@@ -16,7 +16,8 @@ ALWAYS_DENIED = (
     r"\bgit\s+clean\b",
     r"\bgit\s+restore\b",
     r"\bgit\s+checkout\b",
-    r"\bgit\s+merge\b",
+    # 只拦截 merge 子命令本身；merge-base/merge-file 等只读/管道命令需放行。
+    r"\bgit\s+merge(?=\s|$)",
     r"\bgit\s+rebase\b",
     r"\bgit\s+cherry-pick\b",
     r"\bgit\s+tag\b",

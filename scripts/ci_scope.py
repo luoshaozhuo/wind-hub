@@ -44,7 +44,7 @@ def _backend_pr_targets(path: str) -> set[str]:
 
     if _starts(
         path,
-        "src/core/infrastructure/protocols/",
+        "src/core/infrastructure/protocol/",
         "tests/integration/protocols/",
     ):
         targets.add("integration-protocol")
@@ -64,7 +64,7 @@ def _backend_pr_targets(path: str) -> set[str]:
     if (
         _starts(
             path,
-            "src/collector/infrastructure/sink/",
+            "src/core/infrastructure/sink/",
             "tests/integration/sinks/",
         )
         or path == "src/collector/application/sink_runtime.py"
@@ -116,13 +116,25 @@ def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
     targets: set[str] = set()
 
     for path in paths:
+        if path.startswith(("src/core/infrastructure/config/",
+                            "src/core/domain/config/")):
+            static_required = True
+            targets.update({"unit", "contract"})
+            continue
+
         if path in BACKEND_GLOBAL_FILES or path.startswith(BACKEND_PREFIXES):
             static_required = True
-            targets.update(FAST_TEST_ORDER)
+            targets.add("unit")
             continue
 
         if path.startswith("configs/"):
             targets.add("contract")
+            continue
+
+        if path.startswith("src/") and not path.startswith(FRONTEND_PREFIX):
+            # 未知后端产品子树不得静默判为非产品；保守回退到 unit/component。
+            static_required = True
+            targets.update({"unit", "component"})
             continue
 
         if path.startswith("tests/unit/"):

@@ -7,6 +7,9 @@ import argparse
 import json
 import subprocess
 import sys
+import tempfile
+import time
+from pathlib import Path
 from typing import Any
 
 
@@ -26,30 +29,123 @@ def gh_json(*args: str) -> Any:
     return json.loads(command("gh", *args))
 
 
-def actions_disabled() -> bool:
-    """仓库级 GitHub Actions 是否被显式禁用。
+PASS_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED", "EXPECTED"}
+FAIL_CONCLUSIONS = {
+    "FAILURE",
+    "ERROR",
+    "TIMED_OUT",
+    "CANCELLED",
+    "ACTION_REQUIRED",
+}
 
-    仅以 API 确证的 ``enabled == false`` 为 True；查询失败或结果不明
-    抛 BlockedError（UNKNOWN 不得作为放行依据）。
+
+def gh_api(path: str) -> Any:
+    """GET a GitHub REST endpoint.
+
+    Returns parsed JSON, None when the resource is absent (HTTP 404), and
+    raises BlockedError for any transport failure or other error status so an
+    unknown CI state can never be mistaken for "no checks".
     """
-    repo = command(
-        "gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"
+    result = subprocess.run(
+        ["gh", "api", path], capture_output=True, text=True, check=False
     )
-    data = gh_json("api", f"repos/{repo}/actions/permissions")
-    if data.get("enabled") is False:
-        return True
-    if data.get("enabled") is True:
-        return False
-    raise BlockedError(f"无法确认 GitHub Actions 启用状态: {data}")
+    if result.returncode == 0:
+        return json.loads(result.stdout)
+    try:
+        status = str(json.loads(result.stdout).get("status"))
+    except (json.JSONDecodeError, ValueError):
+        status = ""
+    if status == "404":
+        return None
+    detail = result.stderr.strip() or result.stdout.strip()
+    raise BlockedError(f"gh api {path}: {detail}")
 
 
-def inspect(pr_number: int, *, allow_no_ci: bool = False) -> dict[str, Any]:
+def repo_slug() -> str:
+    return str(gh_json("repo", "view", "--json", "nameWithOwner")["nameWithOwner"])
+
+
+def required_contexts(slug: str, base: str) -> set[str]:
+    """Effective required status-check contexts from classic protection and rulesets."""
+    contexts: set[str] = set()
+    classic = gh_api(f"repos/{slug}/branches/{base}/protection/required_status_checks")
+    if isinstance(classic, dict):
+        contexts.update(str(c) for c in (classic.get("contexts") or []))
+        for entry in classic.get("checks") or []:
+            if isinstance(entry, dict) and entry.get("context"):
+                contexts.add(str(entry["context"]))
+    rules = gh_api(f"repos/{slug}/rules/branches/{base}")
+    if isinstance(rules, list):
+        for rule in rules:
+            if rule.get("type") != "required_status_checks":
+                continue
+            params = rule.get("parameters") or {}
+            for entry in params.get("required_status_checks") or []:
+                if isinstance(entry, str):
+                    contexts.add(entry)
+                elif isinstance(entry, dict) and entry.get("context"):
+                    contexts.add(str(entry["context"]))
+            contexts.update(str(c) for c in (params.get("contexts") or []))
+    return contexts
+
+
+def _check_name(item: dict[str, Any]) -> str:
+    return str(item.get("name") or item.get("context") or "unnamed")
+
+
+def _check_result(item: dict[str, Any]) -> Any:
+    return item.get("conclusion") or item.get("state")
+
+
+def evaluate_ci(pr: dict[str, Any], slug: str) -> str:
+    """Decide CI readiness from the repo-level Actions switch and effective rules.
+
+    Returns "PASS" (Actions enabled, all checks green) or
+    "NOT_RUN_ACTIONS_DISABLED" (Actions explicitly disabled at repo level and
+    no external required check unmet). Everything else blocks.
+    """
+    checks = pr.get("statusCheckRollup") or []
+    permissions = gh_api(f"repos/{slug}/actions/permissions")
+    if not isinstance(permissions, dict) or not isinstance(
+        permissions.get("enabled"), bool
+    ):
+        raise BlockedError("无法确认 GitHub Actions 仓库级开关状态（enabled 未知），禁止合并")
+    actions_enabled: bool = permissions["enabled"]
+
+    if actions_enabled:
+        if not checks:
+            raise BlockedError("GitHub Actions 已启用但当前 PR 没有任何 Check，禁止合并")
+        failures: list[str] = []
+        pending: list[str] = []
+        for item in checks:
+            name = _check_name(item)
+            result = _check_result(item)
+            if result in FAIL_CONCLUSIONS:
+                failures.append(name)
+            elif result not in PASS_CONCLUSIONS:
+                pending.append(f"{name}:{result}")
+        if failures or pending:
+            raise BlockedError(
+                f"CI 未全部完成或存在失败; failed={failures}, pending={pending}"
+            )
+        return "PASS"
+
+    # Actions explicitly disabled: only external required checks may block.
+    results = {_check_name(item): _check_result(item) for item in checks}
+    unmet = [c for c in required_contexts(slug, pr["baseRefName"])
+             if results.get(c) not in PASS_CONCLUSIONS]
+    if unmet:
+        raise BlockedError(f"Actions 已禁用，但存在未满足的外部必需检查: {unmet}")
+    return "NOT_RUN_ACTIONS_DISABLED"
+
+
+def inspect(pr_number: int) -> dict[str, Any]:
     branch = command("git", "branch", "--show-current")
     if not branch or branch in ("main", "master"):
         raise BlockedError("必须在任务分支上运行")
     if command("git", "status", "--porcelain"):
         raise BlockedError("工作区或暂存区不干净")
-    command("git", "fetch", "origin", "--prune")
+    command("git", "fetch", "origin", "main", branch)
     if command("git", "rev-parse", "HEAD") != command(
         "git", "rev-parse", f"origin/{branch}"
     ):
@@ -79,41 +175,7 @@ def inspect(pr_number: int, *, allow_no_ci: bool = False) -> dict[str, Any]:
         raise BlockedError(f"代码审查未满足要求: {pr['reviewDecision']}")
 
     checks = pr.get("statusCheckRollup") or []
-    ci_state = "PASS"
-    if not checks:
-        # 默认：无检查结果绝不视作通过。仅当调用方显式 --allow-no-ci，
-        # 且 API 确证仓库 Actions 被整体禁用（CI 设施关闭，而非检查未触发/
-        # 未完成）时降级放行，并如实标注 NOT_RUN，不伪装为 CI PASS。
-        if not allow_no_ci:
-            raise BlockedError(
-                "没有 CI 检查结果，不能视作通过；若 GitHub Actions 已被仓库"
-                "设置整体禁用，可在确认本地 Gate 后显式加 --allow-no-ci"
-            )
-        if not actions_disabled():
-            raise BlockedError(
-                "GitHub Actions 处于启用状态却没有检查结果（可能未触发或尚未"
-                "完成），--allow-no-ci 不适用"
-            )
-        ci_state = "NOT_RUN_ACTIONS_DISABLED"
-    failures = []
-    pending = []
-    for item in checks:
-        name = item.get("name") or item.get("context") or "unnamed"
-        conclusion = item.get("conclusion") or item.get("state")
-        if conclusion in (
-            "FAILURE",
-            "ERROR",
-            "TIMED_OUT",
-            "CANCELLED",
-            "ACTION_REQUIRED",
-        ):
-            failures.append(name)
-        elif conclusion not in ("SUCCESS", "NEUTRAL", "SKIPPED", "EXPECTED"):
-            pending.append(f"{name}:{conclusion}")
-    if failures or pending:
-        raise BlockedError(
-            f"CI 未全部完成或存在失败; failed={failures}, pending={pending}"
-        )
+    ci_state = evaluate_ci(pr, repo_slug())
     if pr["mergeStateStatus"] != "CLEAN":
         raise BlockedError("合并状态非 CLEAN，需人工核实 Hook 或特殊仓库门禁")
     return {"state": "READY", "pr": pr, "checks": len(checks), "ci": ci_state}
@@ -147,14 +209,12 @@ def verify_merged(pr_number: int) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", nargs="?", choices=("check", "merge"), default="merge")
-    parser.add_argument("--pr", type=int, required=True)
-    parser.add_argument(
-        "--allow-no-ci",
-        action="store_true",
-        help="仅当仓库 GitHub Actions 被整体禁用（API 确证）时，允许无检查结果合并",
-    )
+    parser.add_argument("--pr", type=int, help="不指定时自动识别当前分支 PR")
     args = parser.parse_args()
-    info = inspect(args.pr, allow_no_ci=args.allow_no_ci)
+    if args.pr is None:
+        current_pr = gh_json("pr", "view", "--json", "number")
+        args.pr = int(current_pr["number"])
+    info = inspect(args.pr)
     if info["state"] == "MERGED":
         print(json.dumps(verify_merged(args.pr), ensure_ascii=False))
         return 0
@@ -171,7 +231,31 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False))
         return 0
 
+
     pr = info["pr"]
+    started = time.perf_counter()
+    base_sha = command("git", "rev-parse", "origin/main")
+    changed = command("git", "diff", "--name-only", "origin/main...HEAD").splitlines()
+    gate_script = Path(__file__).resolve().parents[5] / "scripts" / "ci_gate.py"
+    if not gate_script.is_file():
+        raise BlockedError(f"合并验证执行器不存在: {gate_script}")
+    with tempfile.TemporaryDirectory(prefix="wind-hub-merge-") as temp_dir:
+        changed_file = Path(temp_dir) / "changed.txt"
+        changed_file.write_text("\n".join(changed) + "\n", encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(gate_script), "merge", "--file-list", str(changed_file)],
+            check=False,
+        )
+        if result.returncode:
+            raise BlockedError(f"受影响范围验证失败: exit={result.returncode}")
+    if command("git", "status", "--porcelain"):
+        raise BlockedError("验证过程产生未提交修改；停止合并")
+    if command("git", "rev-parse", "HEAD") != pr["headRefOid"]:
+        raise BlockedError("本地 HEAD 在验证过程中发生变化")
+    command("git", "fetch", "origin", "main")
+    if command("git", "rev-parse", "origin/main") != base_sha:
+        raise BlockedError("main 在验证过程中更新，需重新验证")
+    validation_elapsed = round(time.perf_counter() - started, 3)
     # GitHub enforces branch protection for the ordinary squash merge.
     # Recheck HEAD before merging; never use --admin.
     current = gh_json(
@@ -193,6 +277,7 @@ def main() -> int:
             raise
     merged = verify_merged(args.pr)
     merged["ci"] = info["ci"]
+    merged["local_validation_seconds"] = validation_elapsed
     print(json.dumps(merged, ensure_ascii=False))
     return 0
 

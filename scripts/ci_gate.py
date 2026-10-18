@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,24 @@ PR_TARGETS: dict[str, tuple[str, ...]] = {
     "system-acquisition": ("tests/system/acquisition",),
     "system-command": ("tests/system/command",),
     "system-e2e": ("tests/system/e2e",),
+}
+
+BACKEND_PREFIXES = (
+    "src/core/",
+    "src/collector/",
+    "src/commander/",
+    "src/cli/",
+    "src/web_server/",
+)
+BACKEND_GLOBAL_FILES = {"pyproject.toml", "poetry.lock"}
+FRONTEND_E2E_FILES = {
+    "src/web_admin/src/App.vue",
+    "src/web_admin/src/api/runtime.ts",
+    "src/web_admin/src/main.ts",
+    "src/web_admin/playwright.config.ts",
+    "src/web_admin/playwright.mock.config.ts",
+    "src/web_admin/package.json",
+    "src/web_admin/package-lock.json",
 }
 
 
@@ -239,6 +258,180 @@ def soak_gate() -> bool:
     )
 
 
+
+def _frontend_fast_required(path: str) -> bool:
+    """与 ci_scope 的前端快速层判定保持一致。"""
+    if path.startswith("tests/web_admin/unit/"):
+        return True
+    if not path.startswith("src/web_admin/"):
+        return False
+    return not path.startswith((
+        "src/web_admin/playwright.config.ts",
+        "src/web_admin/playwright.mock.config.ts",
+    ))
+
+
+def _resolve_test_paths(patterns: list[str]) -> tuple[list[str], list[str]]:
+    """把候选路径或 glob 解析为真实存在的测试路径。
+
+    不存在的普通路径或无匹配的 glob 原样返回，交由调用方按失败处理，
+    避免选择器路径漂移被静默当作“无需测试”。
+    """
+    resolved: list[str] = []
+    missing: list[str] = []
+    for pattern in dict.fromkeys(patterns):
+        if any(char in pattern for char in "*?["):
+            matches = sorted(
+                path.relative_to(REPO_ROOT).as_posix()
+                for path in REPO_ROOT.glob(pattern)
+                if path.is_file() or path.is_dir()
+            )
+            if matches:
+                resolved.extend(matches)
+            else:
+                missing.append(pattern)
+        elif (REPO_ROOT / pattern).exists():
+            resolved.append(pattern)
+        else:
+            missing.append(pattern)
+    return list(dict.fromkeys(resolved)), missing
+
+
+def merge_gate(paths: list[str]) -> bool:
+    """合并前验证受影响范围；未知生产路径保守回退。"""
+    changed = sorted({p.strip() for p in paths if p.strip()})
+    commands: list[tuple[str, list[str]]] = []
+    python_files = [
+        p for p in changed if p.endswith(".py") and (REPO_ROOT / p).is_file()
+    ]
+    if python_files:
+        commands.append(("ruff", _python_module("ruff", "check", *python_files)))
+
+    backend = any(
+        p.startswith(BACKEND_PREFIXES) or p in BACKEND_GLOBAL_FILES for p in changed
+    )
+    frontend_fast = any(_frontend_fast_required(p) for p in changed)
+    frontend_e2e = any(
+        p in FRONTEND_E2E_FILES or p.startswith("tests/web_admin/e2e/")
+        for p in changed
+    )
+    tooling = any(p.startswith(("scripts/", "ai_shared/agent_config/")) for p in changed)
+
+    if backend:
+        commands.extend([
+            ("mypy", _python_module("mypy", "src")),
+            ("import-linter", _tool("lint-imports")),
+        ])
+    if frontend_fast:
+        commands.extend([
+            ("frontend-build", _npm("--prefix", str(FRONTEND_DIR), "run", "build")),
+            ("frontend-unit", _npm("--prefix", str(FRONTEND_DIR), "test")),
+        ])
+    if frontend_e2e:
+        commands.append(("frontend-e2e", _npm(
+            "--prefix", str(FRONTEND_DIR), "run", "test:e2e"
+        )))
+    if tooling:
+        commands.append(("tooling-syntax", _python_module(
+            "compileall", "-q", "scripts", "ai_shared/agent_config/hooks",
+            "ai_shared/agent_config/skills/merge-branch/scripts"
+        )))
+
+    candidates: list[str] = []
+    for p in changed:
+        if p.startswith("src/core/infrastructure/protocol/"):
+            parts = Path(p).parts
+            protocol = parts[4] if len(parts) > 4 else ""
+            if protocol in {"ads", "modbus", "iec104"}:
+                candidates.extend([
+                    f"tests/unit/core/protocol/{protocol}",
+                    f"tests/component/core/protocol/{protocol}",
+                    f"tests/integration/protocols/{protocol}",
+                ])
+                if protocol == "ads":
+                    candidates.append("tests/reliability/recovery")
+            else:
+                candidates.extend([
+                    "tests/unit/core/protocol",
+                    "tests/component/core/protocol",
+                    "tests/integration/protocols",
+                ])
+        elif p.startswith("src/core/infrastructure/sink/"):
+            # sink 单测分散在 core 根目录散文件与 collector/sink 子包。
+            candidates.extend([
+                "tests/unit/core/test_*sink*.py",
+                "tests/unit/collector/sink",
+                "tests/component/collector/test_*sink*.py",
+                "tests/integration/sinks",
+            ])
+        elif p.startswith("src/core/infrastructure/rpc/") or "/grpc/" in p:
+            candidates.extend(["tests/contract/rpc", "tests/component/collector"])
+            # /grpc/ 也存在于 collector/commander/web_server 子树，
+            # 不能让 RPC 规则遮蔽各子系统自己的测试。
+            if p.startswith("src/collector/"):
+                candidates.append("tests/unit/collector")
+            elif p.startswith("src/commander/"):
+                candidates.extend(["tests/unit/commander", "tests/component/commander"])
+            elif p.startswith("src/web_server/"):
+                candidates.append("tests/unit/web_server")
+        elif p.startswith("src/collector/"):
+            candidates.extend(["tests/unit/collector", "tests/component/collector"])
+            if p.startswith("src/collector/application/") or p in {
+                "src/collector/assembly.py",
+                "src/collector/main.py",
+            }:
+                candidates.append("tests/system/acquisition")
+        elif p.startswith("src/commander/"):
+            candidates.extend(["tests/unit/commander", "tests/component/commander"])
+            if p.startswith("src/commander/application/"):
+                candidates.append("tests/system/command")
+        elif (
+            p.startswith("src/core/infrastructure/config/")
+            or p.startswith("src/core/domain/config/")
+        ):
+            candidates.extend(["tests/unit/core/config", "tests/contract"])
+        elif p.startswith("src/web_server/"):
+            candidates.append("tests/unit/web_server")
+        elif p.startswith("src/cli/"):
+            candidates.extend(["tests/unit/cli", "tests/component/cli"])
+        elif p.startswith("src/core/"):
+            candidates.extend(["tests/unit/core", "tests/component/core"])
+        elif p.startswith("src/"):
+            candidates.extend(["tests/unit", "tests/component"])
+        elif p.startswith("configs/"):
+            candidates.append("tests/contract")
+        elif p.startswith("tests/") and p.endswith(".py"):
+            candidates.append(p)
+        elif p in BACKEND_GLOBAL_FILES or (
+            p.startswith("tests/") and not p.startswith("tests/web_admin/")
+        ):
+            # 依赖文件影响全局；后端 tests 下的非 py 资源（fixture 等）保守回退；
+            # tests/web_admin 由前端 build/unit/e2e 标志覆盖。
+            candidates.extend(["tests/unit", "tests/component", "tests/contract"])
+
+    if backend and not candidates:
+        candidates.extend(["tests/unit", "tests/component", "tests/contract"])
+    # 对未知生产目录不可静默判定为不需要测试。
+    available, missing = _resolve_test_paths(candidates)
+    if missing:
+        print(
+            f"[FAIL] selected test paths do not exist: {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        return False
+    if backend and not available:
+        print("[FAIL] no test paths resolved for backend changes", file=sys.stderr)
+        return False
+    if available:
+        commands.append(("affected-tests", _python_module(
+            "pytest", *available, "-q", "-m",
+            "not hardware and not performance and not soak"
+        )))
+    print(json.dumps({"changed_files": changed, "selected_tests": available,
+                      "checks": [label for label, _ in commands]}, ensure_ascii=False))
+    return _run_many(commands)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """构建 CLI。"""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -254,6 +447,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = subparsers.add_parser("pr")
     pr.add_argument("--targets", default="")
+
+    merge = subparsers.add_parser("merge")
+    merge.add_argument("--file-list", type=Path, required=True)
 
     subparsers.add_parser("frontend-e2e")
 
@@ -276,7 +472,9 @@ def main() -> int:
     """运行指定 Gate。"""
     args = build_parser().parse_args()
 
-    if args.gate == "fast":
+    if args.gate == "merge":
+        passed = merge_gate(args.file_list.read_text(encoding="utf-8").splitlines())
+    elif args.gate == "fast":
         passed = fast_gate(args.part, args.targets)
     elif args.gate == "pr":
         passed = pr_gate(args.targets)
