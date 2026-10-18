@@ -34,7 +34,7 @@ python <skill-dir>/scripts/merge.py merge
 - 不允许 `--admin`、强制推送或绕过保护；不设置 `--allow-no-ci` 或任何人肉绕过开关。CI 异常按 RELATED / UNRELATED / UNKNOWN 处理。
 - 合并后核实 PR 为 MERGED，且 Squash Commit 已进入远程 `main` 历史。
 - 若合并响应不确定，先重新查询 PR 状态，不盲目重复执行合并。
-- 不自动删除本地分支；远程分支仅根据独立的清理请求使用 `scripts/cleanup.py` 处理。
+- 成功合并并核验远程 main 后，必须自动快进同步本地 main、切换到 main、删除经 PR HEAD 核验的本地任务分支；远程任务分支不自动删除。不得强行覆盖、重置或删除其他 worktree 使用的分支。
 
 ## Hook
 
@@ -47,11 +47,4 @@ python <skill-dir>/scripts/merge.py merge
 
 报告 PR 链接、CI 状态、Squash Commit SHA、远程 `main` 验证结果和 MERGED / BLOCKED / UNKNOWN 状态。
 
-合并成功后，只提示用户按需进行本地收尾：
-
-```bash
-git switch main
-git pull --ff-only origin main
-# 确认原开发分支不再需要后，按需执行：
-git branch -D <task-branch>
-```
+合并成功后由 `merge.py` **自动**执行本地收尾：`fetch origin main`、验证快进条件、`git switch main`、`git merge --ff-only origin/main`、核对本地 main 与 origin/main 一致、删除已验证的本地任务分支。仅在合并事实已核验、工作区干净且无其他 worktree 占用时允许 `git branch -D`。输出 `MERGED_AND_CLEANED`；若远程已合并但本地收尾失败，则输出 `MERGED_LOCAL_CLEANUP_BLOCKED` 和原因，不将远程合并误报为失败。
