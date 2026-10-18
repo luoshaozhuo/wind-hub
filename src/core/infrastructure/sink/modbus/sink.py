@@ -26,10 +26,10 @@ class ModbusSink(SinkPort):
 
     def __init__(self, config: Sink) -> None:
         connection_values = dict(config.connection)
-        raw_sources = connection_values.pop("task_sources", {})
+        raw_sources = config.task_sources if isinstance(config, ResolvedSink) else None
         self._task_sources = {
             task_id: {(device, point) for device, point in sources}
-            for task_id, sources in raw_sources.items()
+            for task_id, sources in (raw_sources or {}).items()
         }
         connection = ModbusSinkConnection.model_validate(connection_values)
         if not isinstance(config, ResolvedSink):
