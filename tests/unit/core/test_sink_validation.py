@@ -85,3 +85,11 @@ def test_redis_empty_password_normalizes_to_none() -> None:
     # 仍带 username 时必须拒绝（ACL 规则不变）。
     with pytest.raises(ValidationError):
         RedisSinkConnection(host="127.0.0.1", username="app", password="")
+
+
+def test_removed_file_sink_type_is_rejected() -> None:
+    """历史文件输出不得重新进入公开配置类型。"""
+    with pytest.raises((ValidationError, ConfigError)):
+        _SinkSchema.model_validate(
+            {"type": "file", "connection": {"path": "/tmp/archive"}}
+        )
