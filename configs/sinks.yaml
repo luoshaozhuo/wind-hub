@@ -9,7 +9,9 @@
 #   connection: Mapping（必填）—— 按 type 不同（见下）。
 #
 # connection 字段：
-# - tdengine: host, port(6041), database, stable, username, password, timeout, tls\n#             使用 taosAdapter REST；数据库需提前创建。\n# - redis:\n#     host:       str，默认 localhost。
+# - tdengine: host, port(6041), database, stable, username, password, timeout, tls
+#             使用 taosAdapter REST；数据库需提前创建。
+# - redis:\n#     host:       str，默认 localhost。
 #     port:       int 1..65535，默认 6379。
 #     database:   int >= 0，默认 0。
 #     username:   str，可选，ACL 用户名；配置后必须同时设置 password。
