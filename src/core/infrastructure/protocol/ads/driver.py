@@ -595,6 +595,8 @@ class ADSDriver:
                 cycle_time=interval,
                 loop=asyncio.get_running_loop(),
                 max_block_bytes=self._config.max_block_bytes,
+                batch_size=self._config.push_batch_size,
+                batch_wait=self._config.push_batch_wait,
                 label=self._label,
             )
             # 先放入在途集合：注册协程若被取消，start 调度的后台清理仍由
