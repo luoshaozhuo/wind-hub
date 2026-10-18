@@ -33,6 +33,8 @@ const draft = reactive({
   clearPassword: false,
   timeoutSec: 1.0,
   keyPrefix: 'wind-hub',
+  stable: 'point_values',
+  tls: false,
 })
 const snapshot = ref('')
 const changed = computed(() => JSON.stringify(draft) !== snapshot.value)
@@ -60,6 +62,8 @@ function reset(type: SinkType = 'redis') {
     clearPassword: false,
     timeoutSec: 1.0,
     keyPrefix: 'wind-hub',
+    stable: 'point_values',
+    tls: false,
   })
   snapshot.value = JSON.stringify(draft)
 }
@@ -123,6 +127,14 @@ function connection(): Record<string, unknown> {
       connection.password = ''
     }
     return connection
+  }
+  if (draft.type === 'tdengine') {
+    return {
+      host: draft.host.trim(), port: draft.port, database: String(draft.database),
+      stable: draft.stable.trim(), username: draft.username.trim(),
+      timeout: draft.timeoutSec, tls: draft.tls,
+      ...(draft.password ? { password: draft.password } : {}),
+    }
   }
   return { host: draft.host.trim(), port: draft.port }
 }
@@ -289,6 +301,7 @@ async function remove(sink: SinkDef) {
           <el-select v-model="draft.type" :disabled="!creating" @change="changeType">
             <el-option label="Redis" value="redis" />
             <el-option label="Modbus TCP" value="modbus" />
+            <el-option label="TDengine" value="tdengine" />
           </el-select>
         </el-form-item>
         <el-form-item label="启用">
@@ -298,6 +311,10 @@ async function remove(sink: SinkDef) {
           <el-form-item label="Port">
             <el-input-number v-model="draft.port" :min="1" :max="65535" />
           </el-form-item>
+          <template v-if="draft.type === 'tdengine'">
+            <el-form-item label="Stable"><el-input v-model="draft.stable" /></el-form-item>
+            <el-form-item label="TLS"><el-switch v-model="draft.tls" /></el-form-item>
+          </template>
           <template v-if="draft.type === 'redis'">
             <el-form-item label="Database">
               <el-input-number v-model="draft.database" :min="0" />
