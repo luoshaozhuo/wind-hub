@@ -361,6 +361,55 @@ def test_v1_admin_state_atomic_apply() -> None:
     admin_state.replace_all.assert_awaited_once()
 
 
+def _empty_admin_state_payload() -> dict[str, object]:
+    return {
+        "devices": [],
+        "tasks": [],
+        "sinks": [],
+        "definitions": {
+            "units": {},
+            "device_types": {},
+            "device_models": {},
+            "point_tables": {},
+        },
+    }
+
+
+def test_v1_admin_state_validation_failure_maps_to_422() -> None:
+    from web_server.application.config.files import ConfigApplyResult
+
+    admin_state = AsyncMock()
+    admin_state.replace_all.return_value = ConfigApplyResult(
+        success=False, errors=["task references unknown sink"]
+    )
+    client = _client(AppContext(admin_state=admin_state))
+
+    response = client.put("/api/v1/admin-state", json=_empty_admin_state_payload())
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_FAILED"
+
+
+def test_v1_admin_state_rollback_failure_stays_200() -> None:
+    """写盘后 reload 失败且已回滚：live 未变，保留 200 + success=false 语义。"""
+    from web_server.application.config.files import ConfigApplyResult
+
+    admin_state = AsyncMock()
+    admin_state.replace_all.return_value = ConfigApplyResult(
+        success=False,
+        errors=["worker rejected config"],
+        rollback_performed=True,
+    )
+    client = _client(AppContext(admin_state=admin_state))
+
+    response = client.put("/api/v1/admin-state", json=_empty_admin_state_payload())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["rollback_performed"] is True
+
+
 def test_v1_request_validation_uses_422_envelope() -> None:
     client = _client(AppContext())
 
