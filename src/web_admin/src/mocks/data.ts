@@ -518,7 +518,7 @@ export const sinksSeed: MockSink[] = [
     name: 'file_archive',
     type: 'file',
     enabled: true,
-    connection: { path: '/var/tmp/wind-hub/archive.csv', max_size_mb: 100, max_files: 30 },
+    connection: { path: '/var/tmp/wind-hub/archive', max_size_mb: 100, retention_days: 30 },
     points: [
       {
         source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
@@ -530,7 +530,7 @@ export const sinksSeed: MockSink[] = [
     name: 'debug_file',
     type: 'file',
     enabled: false,
-    connection: { path: '/var/tmp/wind-hub/debug.csv', max_size_mb: 100, max_files: 10 },
+    connection: { path: '/var/tmp/wind-hub/debug', max_size_mb: 100, retention_days: 10 },
     points: [],
   },
 ]
@@ -622,7 +622,7 @@ export function tasksYaml(tasks: MockTask[]): string {
             device_group_id: task.device_group,
             point_group: task.point_group,
             interval: task.interval,
-            sink_ids: [...task.sinks],
+            outputs: task.sinks.map((sink_id) => ({ sink_id })),
             enabled: task.enabled,
           },
         ]),
