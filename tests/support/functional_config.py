@@ -103,8 +103,8 @@ def write_functional_config(
         if sinks is not None
         else {
             "null_sink": {
-                "type": "file",
-                "connection": {"path": "/tmp/wind-hub-null"},
+                "type": "redis",
+                "connection": {"host": "127.0.0.1", "port": 6379},
             }
         },
         tasks=tasks if tasks is not None else {"modbus-telemetry": dict(DEFAULT_TASK)},
