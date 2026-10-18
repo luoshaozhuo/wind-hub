@@ -386,9 +386,11 @@ class ModbusDriver:
         del point_ids, callback, interval
         raise ProtocolCapabilityError("modbus does not support listen")
 
-    async def interrogate(self, common_address: int | None = None) -> None:
+    async def interrogate(
+        self, common_address: int | None = None, *, qoi: int = 20
+    ) -> tuple[ProtocolSample, ...]:
         """Modbus TCP 不支持 IEC104 式总召能力。"""
-        del common_address
+        del common_address, qoi
         raise ProtocolCapabilityError("modbus does not support interrogation")
 
     def _mapped_point(self, point_id: str) -> ModbusPoint:
