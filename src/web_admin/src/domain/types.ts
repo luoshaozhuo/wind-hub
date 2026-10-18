@@ -150,6 +150,7 @@ export interface SinkDef {
   failures_total: number
   dropped_points: number
   verification: SinkVerification
+  has_password?: boolean
 }
 
 export type VerifyStepState = 'unknown' | 'checking' | 'success' | 'partial' | 'failed'

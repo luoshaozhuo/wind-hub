@@ -27,6 +27,7 @@ class SinkSnapshot(BaseModel):
     healthy: bool
     message: str | None = None
     queue_depth: int = 0
+    has_password: bool = False
 
 
 class SinkTestResult(BaseModel):
@@ -61,6 +62,7 @@ class SinkService:
         rows: list[SinkSnapshot] = []
         for cfg in self._config.current_config.sinks.values():
             current = runtime.get(cfg.sink_id)
+            plain_connection = yaml_plain(cfg.connection)
             rows.append(
                 SinkSnapshot(
                     name=cfg.sink_id,
@@ -68,9 +70,10 @@ class SinkService:
                     enabled=cfg.enabled,
                     connection={
                         key: value
-                        for key, value in yaml_plain(cfg.connection).items()
+                        for key, value in plain_connection.items()
                         if key != "password"
                     },
+                    has_password=bool(plain_connection.get("password")),
                     healthy=(current.healthy if current is not None and cfg.enabled else False),
                     message=(
                         current.message
@@ -173,8 +176,14 @@ class SinkService:
             previous = current.get(name, {})
             if cfg.kind == "redis" and previous.get("type") == "redis":
                 old_connection = previous.get("connection", {})
-                if "password" not in connection and "password" in old_connection:
-                    connection["password"] = old_connection["password"]
+                if "password" not in connection:
+                    # 只写字段缺省：UI 未回显密码，沿用原值。
+                    if old_connection.get("password"):
+                        connection["password"] = old_connection["password"]
+                elif not connection.get("password"):
+                    # 显式清空（null/""）：删除凭据键；仍带 username 时
+                    # 由配置校验（ACL 必须同时有密码）拒绝 Apply。
+                    connection.pop("password", None)
             current[name] = {
                 "type": cfg.kind,
                 "enabled": cfg.enabled,

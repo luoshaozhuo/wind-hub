@@ -203,6 +203,7 @@ export function sinkDto(s: MockSink): SinkDto {
     message: !s.enabled ? 'disabled' : runtime.error || null,
     queue_depth: runtime.queue_depth,
     connection: { ...s.connection },
+    has_password: s.has_password ?? false,
   }
 }
 

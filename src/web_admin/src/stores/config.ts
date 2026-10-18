@@ -382,6 +382,7 @@ export const useConfigStore = defineStore('config', {
           type: row.type as SinkDef['type'],
           enabled: row.enabled,
           connection: { ...row.connection },
+          has_password: row.has_password ?? false,
           runtime_state: (!row.enabled
             ? 'disabled'
             : row.healthy

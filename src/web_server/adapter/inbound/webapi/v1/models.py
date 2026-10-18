@@ -296,6 +296,7 @@ class SinkResponse(BaseModel):
     healthy: bool
     message: str | None = None
     queue_depth: int
+    has_password: bool = False
 
 
 class SinkUpsertRequest(BaseModel):

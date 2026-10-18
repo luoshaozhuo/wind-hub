@@ -30,6 +30,7 @@ const draft = reactive({
   database: 0,
   username: '',
   password: '',
+  clearPassword: false,
   timeoutSec: 1.0,
   keyPrefix: 'wind-hub',
 })
@@ -58,6 +59,7 @@ function reset(type: SinkType = 'file') {
     database: 0,
     username: '',
     password: '',
+    clearPassword: false,
     timeoutSec: 1.0,
     keyPrefix: 'wind-hub',
   })
@@ -78,6 +80,7 @@ function load(sink: SinkDef) {
     database: Number(connection.database ?? 0),
     username: String(connection.username ?? ''),
     password: '',
+    clearPassword: false,
     timeoutSec: Number(connection.timeout ?? 1.0),
     keyPrefix: String(connection.key_prefix ?? 'wind-hub'),
   })
@@ -122,7 +125,12 @@ function connection(): Record<string, unknown> {
     }
     // username 非密文，后端正常回显；为空表示不启用 ACL。
     if (draft.username.trim()) connection.username = draft.username.trim()
-    if (draft.password) connection.password = draft.password
+    if (draft.password) {
+      connection.password = draft.password
+    } else if (!creating.value && draft.clearPassword) {
+      // 编辑态显式清空："" 让后端移除凭据（与"不回传=保留"区分）。
+      connection.password = ''
+    }
     return connection
   }
   return { host: draft.host.trim(), port: draft.port }
@@ -144,6 +152,14 @@ function validate() {
   if (draft.type === 'redis' && draft.timeoutSec <= 0) return 'Redis 超时时间必须大于 0 秒'
   if (draft.type === 'redis' && draft.username.trim() && creating.value && !draft.password)
     return '新建 ACL Redis Sink 时，设置用户名必须同时提供密码'
+  if (
+    draft.type === 'redis' &&
+    !creating.value &&
+    draft.clearPassword &&
+    !draft.password &&
+    draft.username.trim()
+  )
+    return '清空密码时必须同时移除 ACL 用户名（或改填新密码）'
   return ''
 }
 
@@ -170,6 +186,7 @@ function save() {
       failures_total: 0,
       dropped_points: 0,
       verification: { state: 'never', checked_at: '', passed: 0, total: 0, checks: [] },
+      has_password: draft.type === 'redis' && Boolean(draft.password),
     }
     configStore.mutate(() => configStore.sinks.push(sink))
   } else if (selected.value) {
@@ -177,6 +194,9 @@ function save() {
     configStore.mutate(() => {
       sink.enabled = draft.enabled
       sink.connection = values
+      if (draft.type === 'redis') {
+        sink.has_password = Boolean(draft.password) || (!draft.clearPassword && sink.has_password)
+      }
     })
   }
   drawerOpen.value = false
@@ -322,7 +342,13 @@ async function remove(sink: SinkDef) {
                 type="password"
                 show-password
                 autocomplete="new-password"
+                :placeholder="!creating && selected?.has_password ? '已保存密码，留空保持不变' : ''"
               />
+              <div v-if="!creating && selected?.has_password" class="password-clear">
+                <el-checkbox v-model="draft.clearPassword" :disabled="Boolean(draft.password)">
+                  清空已保存的密码
+                </el-checkbox>
+              </div>
             </el-form-item>
           </template>
         </template>
@@ -336,3 +362,9 @@ async function remove(sink: SinkDef) {
     </el-drawer>
   </div>
 </template>
+
+<style scoped>
+.password-clear {
+  margin-top: var(--app-space-1);
+}
+</style>

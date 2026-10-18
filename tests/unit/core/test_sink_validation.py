@@ -76,3 +76,12 @@ def test_redis_port_and_credentials() -> None:
 def test_csv_limits() -> None:
     with pytest.raises(ValidationError):
         FileSinkConnection(path="./data", max_files=0)
+
+
+def test_redis_empty_password_normalizes_to_none() -> None:
+    """显式空密码与缺省同义：不残留空 SecretStr，允许无 ACL 连接。"""
+    connection = RedisSinkConnection(host="127.0.0.1", password="")
+    assert connection.password is None
+    # 仍带 username 时必须拒绝（ACL 规则不变）。
+    with pytest.raises(ValidationError):
+        RedisSinkConnection(host="127.0.0.1", username="app", password="")

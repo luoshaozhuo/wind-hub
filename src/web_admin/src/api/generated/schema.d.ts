@@ -1573,6 +1573,11 @@ export interface components {
             };
             /** Enabled */
             enabled: boolean;
+            /**
+             * Has Password
+             * @default false
+             */
+            has_password: boolean;
             /** Healthy */
             healthy: boolean;
             /** Message */

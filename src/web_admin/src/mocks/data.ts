@@ -486,6 +486,7 @@ export interface MockSink {
   type: 'file' | 'redis' | 'modbus'
   enabled: boolean
   connection: Record<string, unknown>
+  has_password?: boolean
 }
 
 export const sinksSeed: MockSink[] = [
@@ -493,6 +494,7 @@ export const sinksSeed: MockSink[] = [
     name: 'redis_main',
     type: 'redis',
     enabled: true,
+    has_password: true,
     connection: {
       host: 'redis.windhub.local',
       port: 6379,

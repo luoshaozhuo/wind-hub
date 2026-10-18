@@ -117,6 +117,14 @@ class RedisSinkConnection(BaseModel):
             raise ValueError("Redis ACL username requires password")
         return self
 
+    @field_validator("password", mode="before")
+    @classmethod
+    def _empty_password_is_none(cls, value: object) -> object:
+        # 显式清空（""）与缺省/null 同义，避免空 SecretStr 残留配置文件。
+        if isinstance(value, str) and value == "":
+            return None
+        return value
+
     @field_validator("username")
     @classmethod
     def _validate_username(cls, value: str | None) -> str | None:

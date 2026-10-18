@@ -110,8 +110,11 @@ class AdminStateService:
                 if entry["type"] != "redis" or old_sink.get("type") != "redis":
                     continue
                 old_connection = old_sink.get("connection", {})
-                if "password" not in entry["connection"] and "password" in old_connection:
-                    entry["connection"]["password"] = old_connection["password"]
+                if "password" not in entry["connection"]:
+                    if old_connection.get("password"):
+                        entry["connection"]["password"] = old_connection["password"]
+                elif not entry["connection"].get("password"):
+                    entry["connection"].pop("password", None)
             # 单位目录包含 quantities 与 units 两个正式根，批量保存不得丢失物理量定义。
             definitions_documents = self._definition_documents(definitions)
             previous_units = documents["units.yaml"]

@@ -2007,6 +2007,11 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "has_password": {
+            "default": false,
+            "title": "Has Password",
+            "type": "boolean"
+          },
           "healthy": {
             "title": "Healthy",
             "type": "boolean"
