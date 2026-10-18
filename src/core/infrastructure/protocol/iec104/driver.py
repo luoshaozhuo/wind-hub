@@ -531,6 +531,10 @@ class IEC104Driver:
                         outcome=WriteOutcome.UNKNOWN,
                         message=f"connection lost after command send: {exc}",
                     )
+            except asyncio.CancelledError:
+                # 请求可能已上线；取消后不能让迟到确认为下一条同地址控制背书。
+                self._invalidate_session(session, "command cancelled with uncertain delivery")
+                raise
             finally:
                 session.commands.pop(key, None)
             if accepted:
