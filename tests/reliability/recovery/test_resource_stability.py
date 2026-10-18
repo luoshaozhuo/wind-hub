@@ -22,20 +22,19 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import (
     cli_instance_states,
-    read_telemetry_rows,
     wait_status,
-    wait_telemetry_rows,
-    write_modbus_file_config,
 )
 from tests.support.control import (
     metrics_snapshot,
     reload_config,
     start_task_instance,
 )
-from tests.support.functional_config import update_yaml
+from tests.support.functional_config import update_yaml, write_functional_config
 from tests.support.process import CollectorProcess
+from tests.support.redis_client import point_key
+from tests.support.wait import wait_redis_value
 
-pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
+pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"
@@ -44,6 +43,41 @@ CYCLES = 10
 #: FD 采样容忍的瞬时波动（日志 flush、metrics 连接等）；泄漏是单调增长，
 #: 10 次循环后仍落在基线 +3 以内即不成立。
 FD_SLACK = 3
+
+
+KEY_PREFIX = "wind-hub-resources"
+
+
+def _config(base: Path, device_port: int, redis_address: str) -> Path:
+    host, _, port = redis_address.rpartition(":")
+    return write_functional_config(
+        base,
+        device_port,
+        sinks={
+            "redis_sink": {
+                "type": "redis",
+                "connection": {"host": host, "port": int(port)},
+            }
+        },
+        tasks={
+            TASK_ID: {
+                "device_group_id": "modbus-1",
+                "point_group": "telemetry",
+                "interval": 0.2,
+                "outputs": [{"sink_id": "redis_sink", "key_prefix": KEY_PREFIX}],
+            }
+        },
+    )
+
+
+async def _wait_data(address: str, *, after: str | None = None) -> str:
+    key = point_key("modbus-1", "rotor.speed", prefix=KEY_PREFIX)
+    value = await wait_redis_value(
+        address,
+        key,
+        match=(lambda payload: payload["timestamp"] > after) if after else None,
+    )
+    return str(value["timestamp"])
 
 
 async def _single_running_instance(proc: CollectorProcess) -> None:
@@ -58,14 +92,14 @@ class TestReconnectFlapStability:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
         """RES-01：10 次断连/恢复循环后实例唯一、FD 不增长。"""
-        sink_root = tmp_path / "archive"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
+        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_telemetry_rows(sink_root, min_rows=2)
+        await _wait_data(redis_service)
 
         baseline_reconnects = (await metrics_snapshot(proc.grpc_target))["device_reconnects"].get(
             "modbus-1", 0
@@ -88,8 +122,8 @@ class TestReconnectFlapStability:
             await _single_running_instance(proc)
 
         # 数据面在最后一次恢复后继续出数。
-        settled = len(read_telemetry_rows(sink_root))
-        await wait_telemetry_rows(sink_root, min_rows=settled + 2)
+        previous = await _wait_data(redis_service)
+        await _wait_data(redis_service, after=previous)
 
         reconnects = (await metrics_snapshot(proc.grpc_target))["device_reconnects"].get(
             "modbus-1", 0
@@ -108,30 +142,30 @@ class TestReloadStability:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
         """RES-02：10 次 reload（task 重启 + sink 重建）后实例唯一、FD 不增长。
 
         每轮同时变更 task interval（触发 acquisition handle 重启）与 sink
-        max_size_mb（触发 sink 重建、consumer 协程替换）——两条重建路径
+        Redis timeout（触发 sink 重建、consumer 协程替换）——两条重建路径
         都是 asyncio task / 句柄泄漏高发区。
         """
-        sink_root = tmp_path / "archive"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
+        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_telemetry_rows(sink_root, min_rows=2)
+        await _wait_data(redis_service)
         baseline_fd = proc.fd_count()
 
         for cycle in range(CYCLES):
             interval = 0.2 if cycle % 2 == 0 else 0.3
-            max_size_mb = 1.0 if cycle % 2 == 0 else 2.0
+            timeout = 1.0 if cycle % 2 == 0 else 1.5
 
             def _mutate_tasks(data: dict[str, Any], iv: float = interval) -> None:
                 data["tasks"][TASK_ID]["interval"] = iv
 
-            def _mutate_sinks(data: dict[str, Any], mf: float = max_size_mb) -> None:
-                data["sinks"]["file_sink"]["connection"]["max_size_mb"] = mf
+            def _mutate_sinks(data: dict[str, Any], value: float = timeout) -> None:
+                data["sinks"]["redis_sink"]["connection"]["timeout"] = value
 
             update_yaml(config_dir, "tasks.yaml", _mutate_tasks)
             update_yaml(config_dir, "sinks.yaml", _mutate_sinks)
@@ -142,8 +176,8 @@ class TestReloadStability:
             await _single_running_instance(proc)
 
         # 采集在最后一轮配置下继续出数。
-        settled = len(read_telemetry_rows(sink_root))
-        await wait_telemetry_rows(sink_root, min_rows=settled + 2)
+        previous = await _wait_data(redis_service)
+        await _wait_data(redis_service, after=previous)
         await asyncio.sleep(1.0)  # 等最后一轮重建的旧句柄完成释放
 
         final_fd = proc.fd_count()
