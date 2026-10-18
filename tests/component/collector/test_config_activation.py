@@ -253,18 +253,18 @@ async def test_point_table_address_change_updates_driver_mapping():
 # ---------------------------------------------------------------------------
 
 
-def _file_sink_cfg(name: str, path: str):
+def _redis_sink_cfg(name: str, host: str):
     from core.domain import Sink
 
-    return Sink(sink_id=name, kind="file", enabled=True, connection={"path": path})
+    return Sink(sink_id=name, kind="redis", enabled=True, connection={"host": host})
 
 
 async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
     """Sink 重建抛错：Task 阶段仍应用，baseline 保持，修复后重试全量收敛。"""
     from collector.application.config import CollectionTask
 
-    config = make_collector_config(sinks={"s1": _file_sink_cfg("s1", "/tmp/a.csv")})
-    new_sinks = {"s1": _file_sink_cfg("s1", "/tmp/b.csv")}
+    config = make_collector_config(sinks={"s1": _redis_sink_cfg("s1", "127.0.0.1")})
+    new_sinks = {"s1": _redis_sink_cfg("s1", "127.0.0.2")}
     new_tasks = {
         "t1": CollectionTask(
             task_id="t1",
