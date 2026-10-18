@@ -67,7 +67,7 @@ def check_environment(*, frontend: bool) -> int:
         return 2
 
     passed = True
-    if sys.version_info < (3, 11):
+    if sys.version_info < (3, 11):  # noqa: UP036  # 预检可能运行在低于最低版本的解释器上
         print(f"[FAIL] Python >= 3.11: {sys.version}")
         passed = False
     else:
