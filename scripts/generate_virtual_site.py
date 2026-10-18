@@ -172,7 +172,7 @@ def generate_site(
                 "device_group_id": f"virtual_{family}",
                 "point_group": "all",
                 "interval": 1.0,
-                "sink_ids": ["file_archive"],
+                "outputs": [{"sink_id": "file_archive"}],
                 "enabled": True,
             }
             for family in ("modbus", "ads", "iec104")
