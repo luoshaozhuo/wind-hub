@@ -323,7 +323,7 @@ def write_collector_config_tree(
     """写出 Collector 最小自包含配置树（含 tasks.yaml / sinks.yaml）。
 
     默认：单设备 dev1、单点 p1(group g)、单 file Sink ``s1``（归档根目录
-    ``out/``）、单 Task ``t1``（device_group_id=dev1, point_group=g,
+    Redis output）、单 Task ``t1``（device_group_id=dev1, point_group=g,
     interval=1.0），其 outputs 引用 s1 并映射 dev1.p1 → field value。
     """
     from tests.support.new_commander import write_minimal_config_tree, write_yaml
@@ -343,8 +343,8 @@ def write_collector_config_tree(
     if sinks is None:
         sinks = {
             "s1": {
-                "type": "file",
-                "connection": {"path": str(base / "out")},
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
             }
         }
     write_yaml(config_dir, "sinks.yaml", {"sinks": sinks})
