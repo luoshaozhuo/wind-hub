@@ -77,13 +77,14 @@ class _RouteState:
     3.11 的 contended asyncio.Lock 会校验循环归属，必须随循环隔离。
     """
 
-    __slots__ = ("key", "op_lock", "active", "closing")
+    __slots__ = ("key", "op_lock", "active", "closing", "unsafe_reason")
 
     def __init__(self, key: str) -> None:
         self.key = key
         self.op_lock = asyncio.Lock()
         self.active: set[ADSDriver] = set()
         self.closing: set[_AdsSession] = set()
+        self.unsafe_reason: str | None = None
 
 
 class _LoopRouteRegistry:
@@ -789,7 +790,7 @@ class ADSDriver:
         registry = _registry()
         async with registry.barrier:
             occupied = sorted(
-                key for key, state in registry.routes.items() if state.active or state.closing
+                key for key, state in registry.routes.items() if state.active or state.closing or state.unsafe_reason is not None
             )
             if occupied:
                 raise ProtocolError(
@@ -871,6 +872,10 @@ class ADSDriver:
                 # 重试循环之外直接抛出。
                 async with _ams_barrier():
                     self._reject_duplicate_route_user(route)
+                    if route.unsafe_reason is not None:
+                        raise ProtocolError(
+                            f"ADS route {route.key!r} quarantined: {route.unsafe_reason}"
+                        )
 
                 for attempt in range(2 if self._config.route_auto_add else 1):
                     session = _AdsSession(self._new_connection(), self._label)
@@ -1008,13 +1013,13 @@ class ADSDriver:
                 ):
                     if isinstance(result, BaseException):
                         logger.exception("ADS subscription worker stop failed", exc_info=result)
-                for subscription in subscriptions:
-                    # 幂等：与 tracked handle.close 并发时收敛到同一注销任务；
-                    # 必须在 session.aclose 之前完成，DEL 仍是旧 Session 上的
-                    # 串行命令，关闭门会等待在途 DEL 结束。
-                    await subscription.deregister()
-                if session is not None:
-                    await self._shutdown_session(session)
+                try:
+                    for subscription in subscriptions:
+                        await subscription.deregister()
+                finally:
+                    # 即使注销失败，也必须尝试真正关闭物理 Session。
+                    if session is not None:
+                        await self._shutdown_session(session)
             finally:
                 self._release_route_after_settle(route, session)
         finally:
@@ -1032,6 +1037,16 @@ class ADSDriver:
         settled = session.shutdown_settled_future
 
         def _finish() -> None:
+            confirmed = (
+                settled is not None
+                and settled.done()
+                and not settled.cancelled()
+                and settled.exception() is None
+                and bool(settled.result())
+            )
+            if not confirmed:
+                route.unsafe_reason = "physical ADS close not confirmed"
+                logger.error("%sADS route %s quarantined: close unconfirmed", self._label, route.key)
             route.active.discard(self)
             route.closing.discard(session)
             route.op_lock.release()
@@ -1059,7 +1074,9 @@ class ADSDriver:
         async with _ams_barrier_closing():
             route.closing.add(session)
         try:
-            await session.shutdown_inline(grace)
+            closed = await session.shutdown_inline(grace)
+            if not closed:
+                route.unsafe_reason = "inline physical ADS close not confirmed"
         finally:
             route.active.discard(self)
             route.closing.discard(session)
