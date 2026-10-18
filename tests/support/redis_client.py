@@ -64,7 +64,7 @@ class RedisTestClient:
     async def __aexit__(self, *exc: object) -> None:
         await self.close()
 
-    async def _reply(self) -> str | None:
+    async def _reply(self) -> str | int | None:
         assert self._reader is not None
         line = await asyncio.wait_for(self._reader.readline(), timeout=5.0)
         if not line or not line.endswith(b"\r\n"):
@@ -74,6 +74,8 @@ class RedisTestClient:
             raise RuntimeError(f"Redis command failed: {value.decode(errors='replace')}")
         if prefix == b"+":
             return value.decode("utf-8")
+        if prefix == b":":
+            return int(value)
         if prefix == b"$":
             length = int(value)
             if length < 0:
@@ -82,7 +84,7 @@ class RedisTestClient:
             return blob[:-2].decode("utf-8")
         raise RuntimeError(f"Redis command returned unexpected RESP type: {prefix!r}")
 
-    async def _request(self, *args: str) -> str | None:
+    async def _request(self, *args: str) -> str | int | None:
         assert self._writer is not None
         self._writer.write(_command(*args))
         await asyncio.wait_for(self._writer.drain(), timeout=5.0)
@@ -90,9 +92,11 @@ class RedisTestClient:
 
     async def ping(self) -> str:
         reply = await self._request("PING")
-        assert reply is not None
+        assert isinstance(reply, str)
         return reply
 
     async def get(self, key: str) -> str | None:
         """读取 key 的当前值；不存在返回 ``None``。"""
-        return await self._request("GET", key)
+        reply = await self._request("GET", key)
+        assert reply is None or isinstance(reply, str)
+        return reply

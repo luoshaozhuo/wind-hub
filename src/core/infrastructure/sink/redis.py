@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import math
 from contextlib import suppress
 
 from core.application.protocol_contract import ConnectionHealth
@@ -12,6 +14,8 @@ from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import RedisSinkConnection
 
+logger = logging.getLogger(__name__)
+
 
 def _command(*arguments: str) -> bytes:
     """只编码 Redis 数组命令；每个参数按 UTF-8 字节长度计算。"""
@@ -20,6 +24,20 @@ def _command(*arguments: str) -> bytes:
         value = argument.encode("utf-8")
         payload.extend((f"${len(value)}\r\n".encode("ascii"), value, b"\r\n"))
     return b"".join(payload)
+
+
+#: 只在新采样时间戳 >= 现存值时间戳时覆盖（单 key 原子 CAS）。
+#: 多 Collector 并发写同一 key 时，迟到的旧批次不得回滚已落库的新值；
+#: 时间戳缺省（null）按空串处理，等同最旧。ISO-8601 UTC（Z）定宽字符串
+#: 可直接字典序比较。返回 1=已写入，0=因过期被拒。
+_CAS_SCRIPT = (
+    "local current=redis.call('GET',KEYS[1]) "
+    "if not current then redis.call('SET',KEYS[1],ARGV[1]); return 1 end "
+    "local ct=cjson.decode(current)['timestamp'] "
+    "local nt=cjson.decode(ARGV[1])['timestamp'] "
+    "if (nt or '')>=(ct or '') then redis.call('SET',KEYS[1],ARGV[1]); return 1 end "
+    "return 0"
+)
 
 
 class RedisSink:
@@ -51,6 +69,35 @@ class RedisSink:
         if prefix != b"+":
             raise SinkError("Redis command returned unexpected RESP type")
         return value
+
+    async def _integer_response(self) -> int:
+        """读取 RESP 整数回复（``:n``）；用于 EVAL CAS 的 0/1 判定。"""
+        assert self._reader is not None
+        line = await asyncio.wait_for(self._reader.readline(), timeout=self._config.timeout)
+        if not line or not line.endswith(b"\r\n"):
+            raise ConnectionError("Redis connection closed or invalid RESP reply")
+        prefix, value = line[:1], line[1:-2].decode("utf-8", errors="replace")
+        if prefix == b"-":
+            raise SinkError(f"Redis command failed: {value}")
+        if prefix != b":":
+            raise SinkError("Redis command returned unexpected RESP type")
+        return int(value)
+
+    @staticmethod
+    def _dropped_non_finite(batch: list[PointValue]) -> list[PointValue]:
+        """剔除非有限浮点（NaN/Inf）——strict JSON 无法表示，否则整批失败。"""
+        finite: list[PointValue] = []
+        for point in batch:
+            if isinstance(point.value, float) and not math.isfinite(point.value):
+                logger.warning(
+                    "drop non-finite value for %s.%s: %r",
+                    point.device_id,
+                    point.point_id,
+                    point.value,
+                )
+                continue
+            finite.append(point)
+        return finite
 
     async def _request(self, *args: str) -> str:
         assert self._writer is not None
@@ -107,32 +154,35 @@ class RedisSink:
         if task_id:
             allowed = self._task_sources.get(task_id, set())
             batch = [item for item in batch if (item.device_id, item.point_id) in allowed]
-            if not batch:
-                return
+        batch = self._dropped_non_finite(batch)
+        if not batch:
+            return
         async with self._lock:
             if self._writer is None:
                 self._healthy = False
                 raise SinkError("Redis sink is not connected")
             assert self._writer is not None
             try:
-                commands = [
-                    _command("SET", record.key, record.payload)
-                    for point in batch
-                    for record in (
-                        encode_redis_record(
-                            self._config,
-                            point,
-                            key_prefix=self._task_prefixes.get(
-                                task_id, self._config.key_prefix
-                            ),
-                        ),
+                records = [
+                    encode_redis_record(
+                        self._config,
+                        point,
+                        key_prefix=self._task_prefixes.get(task_id, self._config.key_prefix),
                     )
+                    for point in batch
+                ]
+                commands = [
+                    _command("EVAL", _CAS_SCRIPT, "1", record.key, record.payload)
+                    for record in records
                 ]
                 self._writer.write(b"".join(commands))
                 await asyncio.wait_for(self._writer.drain(), timeout=self._config.timeout)
-                for _ in commands:
-                    if await self._response() != "OK":
-                        raise SinkError("Redis SET returned non-OK status")
+                for record in records:
+                    result = await self._integer_response()
+                    if result not in {0, 1}:
+                        raise SinkError(f"Redis CAS EVAL returned unexpected result: {result}")
+                    if result == 0:
+                        logger.debug("stale sample rejected for key %s", record.key)
                 self._healthy, self._message = True, None
             except Exception as exc:
                 await self._disconnect()

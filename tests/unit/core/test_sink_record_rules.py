@@ -33,3 +33,13 @@ def test_redis_key_handles_embedded_colons() -> None:
     point = PointValue(device_id="WT:1", point_id="p:1", value=True)
     result = encode_redis_record(RedisSinkConnection(), point)
     assert result.key == "wind-hub:4:WT:1:3:p:1"
+
+
+def test_redis_record_rejects_non_finite_floats() -> None:
+    """strict JSON（allow_nan=False）：NaN/Inf 必须在编码层显式失败。"""
+    import pytest
+
+    for value in (float("nan"), float("inf"), float("-inf")):
+        point = PointValue(device_id="WT001", point_id="p", value=value)
+        with pytest.raises(ValueError):
+            encode_redis_record(RedisSinkConnection(), point)
