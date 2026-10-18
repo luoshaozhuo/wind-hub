@@ -27,7 +27,7 @@ from typing import Any, cast
 
 import pyads  # type: ignore[import-untyped]
 
-from core.application.errors import ConfigError
+from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
 
 from .codec import NotificationBlock, compile_notification_blocks
