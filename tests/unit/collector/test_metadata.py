@@ -299,7 +299,7 @@ def test_modbus_sink_requires_explicit_point_mapping() -> None:
         sinks={
             "m_mapped": _sink("m_mapped", kind="modbus", points=(mapped, other)),
             "m_unmapped": _sink("m_unmapped", kind="modbus", points=(other,)),
-            "f1": _sink("f1", kind="file"),
+            "f1": _sink("f1", kind="redis"),
         },
     )
     row = _metadata(config).get_points_metadata("dev1", ["p1"]).points[0]
