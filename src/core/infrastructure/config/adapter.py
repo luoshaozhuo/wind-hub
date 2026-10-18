@@ -31,7 +31,7 @@ class YamlConfigAdapter:
         external = {
             key: value
             for key, value in current_system.items()
-            if key not in {"site", "runtime", "ads"}
+            if key not in {"site", "runtime", "ads", "logs"}
         }
         documents["system.yaml"] = {**external, **documents["system.yaml"]}
 
