@@ -44,7 +44,7 @@ def _backend_pr_targets(path: str) -> set[str]:
 
     if _starts(
         path,
-        "src/core/infrastructure/protocols/",
+        "src/core/infrastructure/protocol/",
         "tests/integration/protocols/",
     ):
         targets.add("integration-protocol")
@@ -64,7 +64,7 @@ def _backend_pr_targets(path: str) -> set[str]:
     if (
         _starts(
             path,
-            "src/collector/infrastructure/sink/",
+            "src/core/infrastructure/sink/",
             "tests/integration/sinks/",
         )
         or path == "src/collector/application/sink_runtime.py"
@@ -118,7 +118,7 @@ def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
     for path in paths:
         if path in BACKEND_GLOBAL_FILES or path.startswith(BACKEND_PREFIXES):
             static_required = True
-            targets.update(FAST_TEST_ORDER)
+            targets.add("unit")
             continue
 
         if path.startswith("configs/"):
