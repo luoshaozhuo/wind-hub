@@ -564,3 +564,39 @@ async def test_deregister_failure_still_closes_physical_session() -> None:
     route = _route_state(_NET)
     assert route.unsafe_reason is None
     assert not route.op_lock.locked()
+
+
+async def test_inline_cleanup_exception_quarantines_route() -> None:
+    """建链失败后的 inline close 抛异常，旧路由不得被再次开放。"""
+    order: list[str] = []
+    driver = _driver()
+
+    class BrokenConnection(ControlledConnection):
+        def read_state(self) -> tuple[int, int]:
+            raise OSError("injected health failure")
+
+        def close(self) -> None:
+            raise OSError("injected inline close failure")
+
+    def factory(*_args: object, **_kwargs: object) -> BrokenConnection:
+        connection = BrokenConnection("broken", order)
+        connection.open_gate.set()
+        return connection
+
+    driver._new_connection = factory  # type: ignore[method-assign]
+    with pytest.raises(OSError, match="injected inline close failure"):
+        await driver.connect()
+    route = _route_state(_NET)
+    assert route.unsafe_reason is not None
+
+    replacement = _driver(host_last=11)
+    attempted = threading.Event()
+
+    def prohibited_factory(*_args: object, **_kwargs: object) -> ControlledConnection:
+        attempted.set()
+        raise AssertionError("quarantined route must not open")
+
+    replacement._new_connection = prohibited_factory  # type: ignore[method-assign]
+    with pytest.raises(ProtocolError, match="quarantined"):
+        await replacement.connect()
+    assert not attempted.is_set()
