@@ -165,10 +165,7 @@ async def test_large_batch_concurrent_with_point_table_updates() -> None:
     reloader = asyncio.create_task(reload_loop())
     try:
         batches = await asyncio.gather(
-            *(
-                driver.write_many([ProtocolWrite(f"p{i}", i) for i in range(1000)])
-                for _ in range(5)
-            )
+            *(driver.write_many([ProtocolWrite(f"p{i}", i) for i in range(1000)]) for _ in range(5))
         )
     finally:
         stop.set()

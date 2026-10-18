@@ -84,7 +84,7 @@ async def _wait_predicate(predicate: Callable[[], bool], timeout: float = 3.0) -
 
 
 class RealRig:
-    def __init__(self, n_points: int = 4) -> None:
+    def __init__(self, n_points: int = 4, *, timeout: float = 5.0) -> None:
         index = next(_seq)
         address = f"127.35.{index // 250}.{1 + index % 250}"
         points = {f"p{i}": _point(f"p{i}", i * 4) for i in range(n_points)}
@@ -93,7 +93,7 @@ class RealRig:
         self.driver = ADSDriver(
             ConnectionEndpoint(address, 48898),
             PointTable(PointTableId("c"), Protocol("ads"), points),
-            {"target_net_id": _NET_ID, "timeout": 5.0, "twincat_version": "3"},
+            {"target_net_id": _NET_ID, "timeout": timeout, "twincat_version": "3"},
         )
 
     async def start(self) -> None:
@@ -287,8 +287,8 @@ async def test_c05_cancel_storm_then_close_bounded(local_ams: None) -> None:
             # 任何其他异常（无假失败、无帧串扰）。
             if isinstance(item, BaseException) and not isinstance(item, asyncio.CancelledError):
                 assert isinstance(item, ProtocolError), repr(item)
-                assert "session is closing" in str(item) or "active connection" in str(item), (
-                    repr(item)
+                assert "session is closing" in str(item) or "active connection" in str(item), repr(
+                    item
                 )
         # 服务端全部命令串行（按命令峰值 1）。
         for command in (_READ, _WRITE, _READ_STATE):
@@ -300,3 +300,97 @@ async def test_c05_cancel_storm_then_close_bounded(local_ams: None) -> None:
         await _wait_predicate(connections_gone, timeout=3.0)
     finally:
         rig.server.stop()
+
+
+async def test_c06_command_stats_reflect_real_success_counts(
+    local_ams: None,
+) -> None:
+    """真实栈：成功命令的计数与耗时准确（修复 try/else 不可达后）。"""
+    del local_ams
+    rig = RealRig(n_points=2)
+    await rig.start()
+    try:
+        rig.init_memory()
+        session = rig.driver._session  # noqa: SLF001
+        assert session is not None
+        before = session.stats.snapshot()
+        assert await rig.driver.read_one("p0")
+        await rig.driver.health()
+        await rig.driver.write_one(ProtocolWrite("p1", 2.5))
+        after = session.stats.snapshot()
+
+        assert after["execution"]["count"] - before["execution"]["count"] == 3
+        assert after["execution"]["total_seconds"] > 0.0
+        assert after["timeouts"] == 0
+        commands = after["commands"]
+        assert commands.get("read", 0) - before["commands"].get("read", 0) == 1
+        assert commands.get("read_state", 0) - before["commands"].get("read_state", 0) == 1
+        assert commands.get("write", 0) - before["commands"].get("write", 0) == 1
+    finally:
+        await rig.stop()
+
+
+async def test_c07_command_stats_record_1861_client_timeout(
+    local_ams: None,
+) -> None:
+    """真实栈：客户端 1861 超时计入 timeouts，且执行计数恰为 1。"""
+    del local_ams
+    rig = RealRig(n_points=1, timeout=0.5)
+    await rig.start()
+    try:
+        rig.init_memory()
+        session = rig.driver._session  # noqa: SLF001
+        assert session is not None
+        rig.control.set_delay(_READ, 2.0)  # type: ignore[attr-defined]
+        before = session.stats.snapshot()
+        with pytest.raises(ProtocolError):
+            await rig.driver.read_one("p0")
+        after = session.stats.snapshot()
+        assert after["execution"]["count"] - before["execution"]["count"] == 1
+        assert after["timeouts"] - before["timeouts"] == 1
+        # 客户端超时后 AdsLib 请求槽需等迟到响应（2s）回流才恢复：
+        # 先排空迟到帧，再验证后续 health 不与超时命令重叠。
+        rig.control.set_delay(_READ, 0.0)  # type: ignore[attr-defined]
+        await asyncio.sleep(2.0)
+        health = await asyncio.wait_for(rig.driver.health(), timeout=3.0)
+        assert health.healthy
+        assert rig.control.peak_active(_READ) <= 1  # type: ignore[attr-defined]
+    finally:
+        await rig.stop()
+
+
+async def test_c08_cancel_while_queued_never_sent_and_counted(
+    local_ams: None,
+) -> None:
+    """真实栈：门后排队取消的命令不上线，计入 cancelled_while_queued。"""
+    del local_ams
+    rig = RealRig(n_points=2)
+    await rig.start()
+    try:
+        rig.init_memory()
+        session = rig.driver._session  # noqa: SLF001
+        assert session is not None
+        rig.control.set_delay(_READ, 0.5)  # type: ignore[attr-defined]
+        inflight = asyncio.create_task(rig.driver.read_one("p0"))
+        await _wait_arrivals(rig.control, _READ, 1)
+
+        queued = asyncio.create_task(rig.driver.health())
+        await asyncio.sleep(0.1)
+        assert not queued.done()
+        queued.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await queued
+
+        snap = session.stats.snapshot()
+        assert snap["cancelled_while_queued"] >= 1
+        # 被取消的 health 绝不上线：在途 READ 完成前无 READSTATE 到达。
+        assert rig.control.arrival_count(_READ_STATE) == 0  # type: ignore[attr-defined]
+
+        rig.control.set_delay(_READ, 0.0)  # type: ignore[attr-defined]
+        sample = await asyncio.wait_for(inflight, timeout=3.0)
+        assert sample.quality.name == "GOOD"
+        # 之后 health 正常，串行性不变。
+        assert (await rig.driver.health()).healthy
+        assert rig.control.peak_active(_READ_STATE) <= 1  # type: ignore[attr-defined]
+    finally:
+        await rig.stop()
