@@ -1213,7 +1213,8 @@ class ADSDriver:
         return ProtocolSample(
             point_id=point_id,
             value=scalar,
-            timestamp=datetime.now(UTC),
+            timestamp=(received_at := datetime.now(UTC)),
+            receive_time=received_at,
             quality=Quality.GOOD,
         )
 
@@ -1700,7 +1701,8 @@ def _bad_sample(point_id: str) -> ProtocolSample:
     return ProtocolSample(
         point_id=point_id,
         value=None,
-        timestamp=datetime.now(UTC),
+        timestamp=(received_at := datetime.now(UTC)),
+            receive_time=received_at,
         quality=Quality.BAD,
     )
 
