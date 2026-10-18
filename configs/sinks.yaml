@@ -20,7 +20,9 @@
 #     host:       str，默认 localhost。
 #     port:       int 1..65535，默认 6379。
 #     database:   int >= 0，默认 0。
+#     username:   str，可选，ACL 用户名；配置后必须同时设置 password。
 #     password:   str，可选。
+#     timeout:    float > 0，默认 1 秒，连接及命令超时。
 #     key_prefix: str，默认 "wind-hub"。
 # - modbus（Modbus TCP Server，对 SCADA 暴露寄存器）:
 #     host: str，默认 0.0.0.0 —— 监听地址。
@@ -67,6 +69,7 @@ sinks:
       host: "127.0.0.1"
       port: 6379
       database: 0
+      timeout: 1.0
       key_prefix: "wind-hub"
     points:
       - source: {device_id: iec104-001, point_id: active_power_iec}
