@@ -91,7 +91,7 @@ def write_functional_config(
     system: dict[str, Any] | None = None,
     device_models: dict[str, Any] | None = None,
 ) -> Path:
-    """写出 functional 测试默认配置树（单 Modbus 设备 + null sink）。"""
+    """写出单 Modbus 设备的测试配置；缺省输出为本机 Redis。\n\n    历史 sink ID ``null_sink`` 仅保留兼容旧测试引用；它是实际 Redis\n    输出，不是空操作实现。测试若需要端口隔离应显式提供 ``sinks``。\n    """
     if callable(devices):
         devices = devices(port)
     return write_config_tree(
