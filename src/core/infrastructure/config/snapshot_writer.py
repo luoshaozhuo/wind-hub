@@ -134,7 +134,6 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
                     "type": sink.kind,
                     "enabled": sink.enabled,
                     "connection": _yaml_plain(sink.connection),
-                    "points": _yaml_plain(sink.points),
                 }
                 for sink_id, sink in snapshot.sinks.items()
             },
