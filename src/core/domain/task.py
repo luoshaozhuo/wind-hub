@@ -10,6 +10,7 @@ from types import MappingProxyType
 
 from .device import Device, DeviceGroup
 from .identities import DeviceGroupId, DeviceId
+from .sink import freeze_sink_value
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,8 +24,6 @@ class TaskOutput:
     def __post_init__(self) -> None:
         if not isinstance(self.sink_id, str) or not self.sink_id.strip():
             raise ValueError("TaskOutput.sink_id must be non-empty")
-        from .sink import freeze_sink_value
-
         object.__setattr__(self, "points", tuple(freeze_sink_value(point) for point in self.points))
         if self.key_prefix is not None and (
             not isinstance(self.key_prefix, str) or not self.key_prefix.strip()
