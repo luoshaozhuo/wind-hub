@@ -47,26 +47,26 @@ async def test_upsert_writes_sink_without_points_and_applies(tmp_path: Path) -> 
     service, base = _service(tmp_path)
 
     result = await service.upsert(
-        "file_archive",
+        "redis_archive",
         {
-            "type": "file",
+            "type": "redis",
             "enabled": True,
-            "connection": {"path": "/tmp/wind-hub-upsert", "retention_days": 14},
+            "connection": {"host": "127.0.0.1", "port": 6379},
         },
     )
 
     assert result.success, result.errors
     raw = yaml.safe_load((base / "sinks.yaml").read_text(encoding="utf-8"))
-    entry = raw["sinks"]["file_archive"]
+    entry = raw["sinks"]["redis_archive"]
     assert entry == {
-        "type": "file",
+        "type": "redis",
         "enabled": True,
-        "connection": {"path": "/tmp/wind-hub-upsert", "retention_days": 14},
+        "connection": {"host": "127.0.0.1", "port": 6379},
     }
     assert "points" not in entry
     # 落盘结果必须通过正式 Schema 重新加载（旧实现在此抛 extra-forbid）。
     snapshot = YamlConfigAdapter(base).load()
-    assert snapshot.sinks["file_archive"].kind == "file"
+    assert snapshot.sinks["redis_archive"].kind == "redis"
 
 
 async def test_upsert_ignores_legacy_points_in_payload(tmp_path: Path) -> None:
@@ -74,15 +74,15 @@ async def test_upsert_ignores_legacy_points_in_payload(tmp_path: Path) -> None:
     service, base = _service(tmp_path)
 
     result = await service.upsert(
-        "file_legacy",
+        "redis_legacy",
         {
-            "type": "file",
+            "type": "redis",
             "enabled": True,
-            "connection": {"path": "/tmp/wind-hub-legacy"},
+            "connection": {"host": "127.0.0.1"},
             "points": [{"ref": "ghost"}],
         },
     )
 
     assert result.success, result.errors
     raw = yaml.safe_load((base / "sinks.yaml").read_text(encoding="utf-8"))
-    assert "points" not in raw["sinks"]["file_legacy"]
+    assert "points" not in raw["sinks"]["redis_legacy"]
