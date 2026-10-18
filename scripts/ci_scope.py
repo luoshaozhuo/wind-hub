@@ -131,8 +131,8 @@ def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
             targets.add("contract")
             continue
 
-        if path.startswith("src/"):
-            # 未知产品子树不得静默判为非产品；保守回退到 unit/component。
+        if path.startswith("src/") and not path.startswith(FRONTEND_PREFIX):
+            # 未知后端产品子树不得静默判为非产品；保守回退到 unit/component。
             static_required = True
             targets.update({"unit", "component"})
             continue

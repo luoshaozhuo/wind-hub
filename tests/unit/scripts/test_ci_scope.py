@@ -49,3 +49,10 @@ def test_unknown_src_subtree_fails_safe_to_product_tests() -> None:
 def test_config_code_selects_unit_and_contract() -> None:
     result = _classify("src/core/infrastructure/config/point_table_writer.py")
     assert result["backend_fast_targets"] == "unit,contract"
+
+
+def test_unknown_src_fallback_does_not_swallow_frontend() -> None:
+    result = _classify("src/web_admin/src/views/Home.vue")
+    assert result["backend_static"] == "false"
+    assert result["backend_fast_required"] == "false"
+    assert result["frontend_fast"] == "true"
