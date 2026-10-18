@@ -73,11 +73,31 @@ class FileSink:
                 raise SinkError(f"refusing to write through symlink: {path}") from exc
             raise
 
+    def _ensure_safe_directory(self, directory: Path) -> None:
+        """逐级拒绝符号链接；仅允许由归档根向下创建目录。"""
+        root = self._root.absolute()
+        target = directory.absolute()
+        try:
+            parts = target.relative_to(root).parts
+        except ValueError as exc:
+            raise SinkError(f"archive directory escapes root: {directory}") from exc
+        current = root
+        if current.is_symlink():
+            raise SinkError(f"archive directory escapes root via symlink: {current}")
+        for part in parts:
+            current = current / part
+            try:
+                current.mkdir()
+            except FileExistsError:
+                pass
+            if current.is_symlink() or not current.is_dir():
+                raise SinkError(f"archive directory escapes root via symlink: {current}")
+        if not self._within_root(target):
+            raise SinkError(f"archive directory escapes root via symlink: {directory}")
+
     def _append_rows(self, directory: Path, day: str, values: list[PointValue]) -> None:
         """每个分段只打开、验证一次；按行边界聚合写入。"""
-        directory.mkdir(parents=True, exist_ok=True)
-        if not self._within_root(directory):
-            raise SinkError(f"archive directory escapes root via symlink: {directory}")
+        self._ensure_safe_directory(directory)
         header = next(iter_csv_rows([], include_header=True))
         max_size = self._policy.max_size_bytes
         flags = os.O_RDWR | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
@@ -93,8 +113,8 @@ class FileSink:
                 try:
                     if pending:
                         file.write(pending)
-                        pending.clear()
                     file.flush()
+                    pending.clear()
                 finally:
                     file.close()
                     file = None
