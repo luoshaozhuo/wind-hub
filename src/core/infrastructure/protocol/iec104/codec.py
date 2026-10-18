@@ -23,7 +23,9 @@ from core.domain.sample_value import PointScalar
 from .mapping import IEC104Point
 
 
-def decode_sample(point_id: str, msg: iec101.DataMsg) -> ProtocolSample:
+def decode_sample(
+    point_id: str, msg: iec101.DataMsg, *, receive_time: datetime | None = None
+) -> ProtocolSample:
     """把一条监测 ASDU（一个 IO 元素）解码为 ProtocolSample。
 
     合法数据携带 Invalid 等品质位时正常返回 quality=BAD 的真实样本，
@@ -34,7 +36,8 @@ def decode_sample(point_id: str, msg: iec101.DataMsg) -> ProtocolSample:
             以 ProtocolError 显式完成请求 future；自发数据由调用方记
             错误日志并丢弃，两种情形都不伪造样本、不中断接收管线。
     """
-    receive_time = datetime.now(UTC)
+    if receive_time is None:
+        receive_time = datetime.now(UTC)
     timestamp, source = decode_timestamp(msg)
     value, quality = decode_data(cast(iec101.Data, msg.data))
     return ProtocolSample(
