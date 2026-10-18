@@ -444,6 +444,10 @@ class IEC104Driver:
                     raise ProtocolError(
                         f"IEC104 active read timed out for '{point_id}'"
                     ) from exc
+            except asyncio.CancelledError:
+                # 请求可能已发送；隔离迟到响应，禁止复用旧会话。
+                self._invalidate_session(session, "active read cancelled")
+                raise
             finally:
                 if session.reads.get(key) is request:
                     session.reads.pop(key, None)
@@ -614,6 +618,10 @@ class IEC104Driver:
                     raise ProtocolError(
                         f"IEC104 general interrogation ACT_TERM timed out for ca={ca}"
                     ) from exc
+            except asyncio.CancelledError:
+                # 总召取消后可能仍有分批响应在途，隔离旧会话。
+                self._invalidate_session(session, "interrogation cancelled")
+                raise
             finally:
                 session.interrogations.pop(ca, None)
                 session.interrogation_qoi.pop(ca, None)
