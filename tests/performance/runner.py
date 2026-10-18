@@ -171,7 +171,7 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
             "perf_null": {
                 "type": "file",
                 "enabled": True,
-                "connection": {"path": str(config_dir / "perf-null.csv")},
+                "connection": {"path": str(config_dir / "perf-out")},
             }
         },
         tasks={
@@ -179,7 +179,7 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
                 "device_group_id": plan.device_id,
                 "point_group": "default",
                 "interval": plan.poll_interval_s,
-                "sink_ids": ["perf_null"],
+                "outputs": [{"sink_id": "perf_null"}],
             }
         },
     )
