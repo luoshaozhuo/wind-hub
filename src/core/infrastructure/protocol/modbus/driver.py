@@ -326,6 +326,7 @@ class ModbusDriver:
                 value=value,
                 timestamp=received_at,
                 quality=quality,
+                receive_time=received_at,
             )
             for mapped, (value, quality) in zip(mapped_points, values, strict=True)
         )
