@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from core.application.errors import ConfigError
 from core.domain import Point, PointAccess
 
-_ALLOWED_OPTIONS = frozenset({"ca", "ioa", "type", "type_id", "data_type"})
+_ALLOWED_OPTIONS = frozenset({"ca", "ioa", "type", "type_id", "data_type", "qoi", "cot", "report_interval_ms"})
 _MAX_IOA = 0xFFFFFF
 _MAX_CA = 65535
 _COMMAND_TYPE_IDS = frozenset(
@@ -35,6 +35,9 @@ class IEC104Point:
     common_address: int
     ioa: int
     type_id: str | None
+    qoi: int | None = None
+    cot: tuple[int, ...] | None = None
+    report_interval_ms: int | None = None
 
 
 def iec104_point(
@@ -83,12 +86,50 @@ def parse_iec104_point(point: Point, *, default_ca: int) -> IEC104Point:
         options.get("type_id", options.get("type")),
         point.point_id,
     )
+    qoi = _optional_int(options.get("qoi"), point.point_id, "qoi", 21, 36)
+    cot_raw = options.get("cot")
+    cot: tuple[int, ...] | None = None
+    if cot_raw is not None:
+        if not isinstance(cot_raw, (list, tuple)) or not cot_raw:
+            raise ConfigError(f"IEC104 point '{point.point_id}': cot must be a non-empty list")
+        cot = tuple(
+            _required_int(value, point.point_id, "cot", 1, 47)
+            for value in cot_raw
+        )
+        if len(cot) != len(set(cot)):
+            raise ConfigError(f"IEC104 point '{point.point_id}': cot contains duplicates")
+    report_interval_ms = _optional_int(
+        options.get("report_interval_ms"),
+        point.point_id,
+        "report_interval_ms",
+        1,
+        2**31 - 1,
+    )
     return IEC104Point(
         point_id=point.point_id,
         common_address=ca,
         ioa=ioa,
         type_id=type_id,
+        qoi=qoi,
+        cot=cot,
+        report_interval_ms=report_interval_ms,
     )
+
+
+def _required_int(value: object, point_id: str, field: str, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise ConfigError(
+            f"IEC104 point '{point_id}': {field} must be an integer in {minimum}..{maximum}"
+        )
+    return value
+
+
+def _optional_int(
+    value: object, point_id: str, field: str, minimum: int, maximum: int
+) -> int | None:
+    if value is None:
+        return None
+    return _required_int(value, point_id, field, minimum, maximum)
 
 
 def build_iec104_index(
