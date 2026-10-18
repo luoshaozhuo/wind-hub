@@ -138,8 +138,8 @@ def test_sink_reference_to_ads_point_uses_logical_data_type(tmp_path):
         protocol_options={"target_net_id": "1.2.3.4.5.6"},
         sinks={
             "s1": {
-                "type": "file",
-                "connection": {"path": str(tmp_path / "out")},
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
             }
         },
         tasks={
@@ -203,8 +203,8 @@ def test_sink_source_data_type_is_always_logical(
         protocol_options=protocol_options,
         sinks={
             "s1": {
-                "type": "file",
-                "connection": {"path": str(tmp_path / "out")},
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
             }
         },
         tasks={
@@ -378,8 +378,8 @@ def test_sink_scale_offset_on_numeric_source(tmp_path):
         tmp_path,
         sinks={
             "s1": {
-                "type": "file",
-                "connection": {"path": str(tmp_path / "o")},
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
             }
         },
         tasks={
@@ -415,8 +415,8 @@ def test_sink_unknown_point_rejected(tmp_path):
         tmp_path,
         sinks={
             "s1": {
-                "type": "file",
-                "connection": {"path": str(tmp_path / "o")},
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
             }
         },
         tasks={
@@ -454,8 +454,8 @@ def test_sink_scale_on_bool_source_rejected(tmp_path):
         },
         sinks={
             "s1": {
-                "type": "file",
-                "connection": {"path": str(tmp_path / "o")},
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
             }
         },
         tasks={
@@ -546,9 +546,9 @@ def test_disabled_sink_not_a_valid_task_target(tmp_path):
         tmp_path,
         sinks={
             "s1": {
-                "type": "file",
+                "type": "redis",
                 "enabled": False,
-                "connection": {"path": str(tmp_path / "o")},
+                "connection": {"host": "127.0.0.1"},
             }
         },
     )
