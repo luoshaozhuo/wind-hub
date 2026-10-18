@@ -163,7 +163,8 @@ class ADSSubscription:
             del handle, address
             if self._deactivated or generation != self._generation:
                 return
-            received_at, source = _normalize_timestamp(timestamp)
+            receive_time = datetime.now(UTC)
+            device_timestamp, source = _normalize_timestamp(timestamp)
             try:
                 raw = bytes(value)
                 if len(raw) != block.size:
@@ -183,8 +184,10 @@ class ADSSubscription:
                         point_id=point.point_id,
                         value=scalar,
                         quality=quality,
-                        timestamp=received_at,
+                        timestamp=device_timestamp,
                         timestamp_source=source,
+                        receive_time=receive_time,
+                        device_time=device_timestamp if source == "device" else None,
                     )
                 )
             with contextlib.suppress(RuntimeError):
