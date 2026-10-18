@@ -32,6 +32,7 @@ class WatchdogUseCase:
         health_timeout: float,
         connect_timeout: float,
         on_success: ReconnectCallback | None = None,
+        on_connected: ReconnectCallback | None = None,
         lifecycle_lock: asyncio.Lock | None = None,
         name: str = "",
     ) -> None:
@@ -49,6 +50,7 @@ class WatchdogUseCase:
         self._health_timeout = float(health_timeout)
         self._connect_timeout = float(connect_timeout)
         self._on_success = on_success
+        self._on_connected = on_connected
         self._lifecycle_lock = lifecycle_lock or asyncio.Lock()
         self._name = name
 
@@ -171,6 +173,9 @@ class WatchdogUseCase:
                 self._generation += 1
                 self._pending_restore = callback
 
+        # 建链成功事件只记录一次；Push 恢复可独立失败及重试。
+        if self._on_connected is not None and self._enabled:
+            await self._on_connected()
         # 恢复失败不应强制重建已健康的连接；在下一个健康周期单独重试。
         if callback is not None and self._enabled:
             await self._restore_after_connect(callback)
