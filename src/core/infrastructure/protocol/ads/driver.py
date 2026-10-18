@@ -1702,7 +1702,7 @@ def _bad_sample(point_id: str) -> ProtocolSample:
         point_id=point_id,
         value=None,
         timestamp=(received_at := datetime.now(UTC)),
-            receive_time=received_at,
+        receive_time=received_at,
         quality=Quality.BAD,
     )
 
