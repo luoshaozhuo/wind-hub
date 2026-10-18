@@ -1127,14 +1127,11 @@ class _TrackedADSSubscription:
         self._closed = True
         owner = self._owner
         subscription = self._subscription
-        subscription.deactivate()
-        # DEL_DEVICE_NOTIFICATION 是共享 pyads 连接上的命令，经 Session
-        # 命令门与 health/读写串行；注销完成前订阅保留在注册表里，使并发
-        # driver.close() 的 detach 能等住同一个注销任务（幂等收敛），避免
-        # DEL 与 Session 关闭竞争。Driver 状态锁不覆盖网络往返。
-        await subscription.deregister()
-        async with owner._lock:
-            owner._subscriptions.discard(subscription)
-            owner._starting_subscriptions.discard(subscription)
-        # Worker 取消放锁外：用户回调内可能再做驱动 IO。
-        await subscription.stop_worker()
+        # 一个物理 Handle 注销失败也必须停止本逻辑订阅的交付 Worker。
+        # close() 复用 Subscription 已有的幂等、可取消等待收敛管线。
+        try:
+            await subscription.close()
+        finally:
+            async with owner._lock:
+                owner._subscriptions.discard(subscription)
+                owner._starting_subscriptions.discard(subscription)
