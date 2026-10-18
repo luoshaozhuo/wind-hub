@@ -99,14 +99,16 @@ class CollectorFakeProtocol(FakeProtocol):
 
     @staticmethod
     async def _push(callback: Any, point_id: str, value: Any, quality: Quality) -> None:
-        await callback((
-            ProtocolSample(
-                point_id=point_id,
-                value=value,
-                quality=quality,
-                timestamp=datetime.now(UTC),
-            ),
-        ))
+        await callback(
+            (
+                ProtocolSample(
+                    point_id=point_id,
+                    value=value,
+                    quality=quality,
+                    timestamp=datetime.now(UTC),
+                ),
+            )
+        )
 
 
 class CollectorFakeRegistry(FakeRegistry):
