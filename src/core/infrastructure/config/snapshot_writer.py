@@ -86,7 +86,7 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
             "point_group": task.point_group,
             "interval": task.interval,
             **({"outputs": [
-                {"sink_id": output.sink_id, **({"key_prefix": output.key_prefix} if output.key_prefix is not None else {})}
+                {"sink_id": output.sink_id, **({"key_prefix": output.key_prefix} if output.key_prefix is not None else {}), **({"points": _yaml_plain(output.points)} if output.points else {})}
                 for output in task.outputs
             ]} if task.outputs else {"sink_ids": list(task.sink_ids)}),
             "enabled": task.enabled,
