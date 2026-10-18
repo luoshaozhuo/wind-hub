@@ -189,7 +189,7 @@ class TestConnectAndActiveRead:
     async def test_subscribe_is_not_supported(self, driver: IEC104Driver) -> None:
         await driver.connect()
 
-        async def _cb(_sample: ProtocolSample) -> None:
+        async def _cb(_samples: tuple[ProtocolSample, ...]) -> None:
             return None
 
         with pytest.raises(ProtocolCapabilityError, match="subscription"):
@@ -207,7 +207,7 @@ class TestConnectAndActiveRead:
     async def test_listen_without_connect_raises(self, driver: IEC104Driver) -> None:
         with pytest.raises(ProtocolError, match="established connection"):
 
-            async def _cb(_sample: ProtocolSample) -> None:
+            async def _cb(_samples: tuple[ProtocolSample, ...]) -> None:
                 return None
 
             await driver.listen(["meas.power"], _cb)
