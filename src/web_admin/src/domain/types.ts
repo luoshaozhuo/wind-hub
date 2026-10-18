@@ -140,7 +140,6 @@ export interface SinkDef {
   type: SinkType
   enabled: boolean
   connection: Record<string, unknown>
-  points: Record<string, unknown>[]
   runtime_state: SinkRuntimeState
   last_test_at: string
   last_write_at: string
