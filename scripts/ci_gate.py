@@ -242,59 +242,82 @@ def soak_gate() -> bool:
 
 
 def merge_gate(paths: list[str]) -> bool:
-    """合并前执行一次受影响范围验证；未知后端范围采用保守回退。"""
-    changed = sorted(set(paths))
-    backend = [p for p in changed if p.startswith(("src/core/", "src/collector/", "src/commander/", "src/cli/", "src/web_server/"))]
-    python_changed = [p for p in changed if p.endswith(".py") and Path(p).is_file()]
+    """合并前验证受影响范围；未知生产路径保守回退。"""
+    changed = sorted({p.strip() for p in paths if p.strip()})
     commands: list[tuple[str, list[str]]] = []
-    if python_changed:
-        commands.append(("changed-ruff", _python_module("ruff", "check", *python_changed)))
-    frontend = any(p.startswith(("src/web_admin/", "tests/web_admin/")) for p in changed)
-    configs = any(p.startswith("configs/") for p in changed)
-    tooling = any(p.startswith(("scripts/", "ai_shared/agent_config/")) for p in changed)
-    if backend:
-        commands.append(("backend-types", _python_module("mypy", "src")))
-        commands.append(("backend-imports", _tool("lint-imports")))
+    python_files = [
+        p for p in changed if p.endswith(".py") and (REPO_ROOT / p).is_file()
+    ]
+    if python_files:
+        commands.append(("ruff", _python_module("ruff", "check", *python_files)))
 
+    backend = any(p.startswith(("src/core/", "src/collector/", "src/commander/",
+                                 "src/cli/", "src/web_server/")) for p in changed)
+    frontend = any(p.startswith(("src/web_admin/", "tests/web_admin/")) for p in changed)
+    tooling = any(p.startswith(("scripts/", "ai_shared/agent_config/")) for p in changed)
+
+    if backend:
+        commands.extend([
+            ("mypy", _python_module("mypy", "src")),
+            ("import-linter", _tool("lint-imports")),
+        ])
     if frontend:
-        commands.append(("frontend", _npm("--prefix", str(FRONTEND_DIR), "run", "build")))
-        commands.append(("frontend-tests", _npm("--prefix", str(FRONTEND_DIR), "test")))
+        commands.extend([
+            ("frontend-build", _npm("--prefix", str(FRONTEND_DIR), "run", "build")),
+            ("frontend-unit", _npm("--prefix", str(FRONTEND_DIR), "test")),
+        ])
     if tooling:
-        commands.append(("tooling-syntax", _python_module("compileall", "-q", "scripts", "ai_shared/agent_config/hooks", "ai_shared/agent_config/skills/merge-branch/scripts")))
+        commands.append(("tooling-syntax", _python_module(
+            "compileall", "-q", "scripts", "ai_shared/agent_config/hooks",
+            "ai_shared/agent_config/skills/merge-branch/scripts"
+        )))
+
     candidates: list[str] = []
-    roots = ("core", "collector", "commander", "cli", "web_server")
     for p in changed:
-        parts = Path(p).parts
-        if len(parts) >= 3 and parts[0] == "src" and parts[1] in roots:
-            module = parts[1]
-            for layer in ("unit", "component"):
-                candidate = REPO_ROOT / "tests" / layer / module
-                if candidate.exists():
-                    candidates.append(str(candidate.relative_to(REPO_ROOT)))
         if p.startswith("src/core/infrastructure/protocol/"):
-            candidates.append("tests/integration/protocols")
-        if p.startswith("src/core/infrastructure/sink/"):
-            candidates.append("tests/integration/sinks")
-        if p.startswith(("src/core/infrastructure/rpc/", "src/collector/infrastructure/grpc/")) or "/grpc/" in p:
+            parts = Path(p).parts
+            protocol = parts[4] if len(parts) > 4 else ""
+            for layer in ("unit", "component", "integration"):
+                base = "protocols" if layer == "integration" else "core"
+                target = f"tests/{layer}/{base}"
+                if layer == "integration" and protocol in {"ads", "modbus", "iec104"}:
+                    target += f"/{protocol}"
+                candidates.append(target)
+        elif p.startswith("src/core/infrastructure/sink/"):
+            candidates.extend(["tests/unit/core", "tests/integration/sinks"])
+        elif p.startswith("src/core/infrastructure/rpc/") or "/grpc/" in p:
             candidates.append("tests/contract/rpc")
-        if p.startswith("src/collector/application/"):
-            candidates.append("tests/system/acquisition")
-        if p.startswith("src/commander/application/"):
-            candidates.append("tests/system/command")
-        if p.startswith("tests/"):
-            candidate = REPO_ROOT / p
-            if candidate.is_file() and p.endswith(".py"):
-                candidates.append(p)
-    if configs:
-        candidates.append("tests/contract")
+        elif p.startswith("src/collector/"):
+            candidates.extend(["tests/unit/collector", "tests/component/collector"])
+            if p.startswith("src/collector/application/"):
+                candidates.append("tests/system/acquisition")
+        elif p.startswith("src/commander/"):
+            candidates.extend(["tests/unit/commander", "tests/component/commander"])
+            if p.startswith("src/commander/application/"):
+                candidates.append("tests/system/command")
+        elif p.startswith("src/core/"):
+            candidates.extend(["tests/unit/core", "tests/component/core"])
+        elif p.startswith("src/"):
+            candidates.extend(["tests/unit", "tests/component"])
+        elif p.startswith("configs/"):
+            candidates.append("tests/contract")
+        elif p.startswith("tests/") and p.endswith(".py"):
+            candidates.append(p)
+
     if backend and not candidates:
         candidates.extend(["tests/unit", "tests/component", "tests/contract"])
-    selected = [p for p in dict.fromkeys(candidates) if (REPO_ROOT / p).exists()]
-    if selected:
-        commands.append(("affected-tests", _python_module("pytest", *selected, "-q",
-            "-m", "not hardware and not performance and not soak")))
-    print(json.dumps({"changed_files": changed, "selected_tests": selected,
-                      "checks": [name for name, _ in commands]}, ensure_ascii=False))
+    # 对未知生产目录不可静默判定为不需要测试。
+    available = [p for p in dict.fromkeys(candidates) if (REPO_ROOT / p).exists()]
+    if backend and not available:
+        print("[FAIL] no test paths resolved for backend changes", file=sys.stderr)
+        return False
+    if available:
+        commands.append(("affected-tests", _python_module(
+            "pytest", *available, "-q", "-m",
+            "not hardware and not performance and not soak"
+        )))
+    print(json.dumps({"changed_files": changed, "selected_tests": available,
+                      "checks": [label for label, _ in commands]}, ensure_ascii=False))
     return _run_many(commands)
 
 
