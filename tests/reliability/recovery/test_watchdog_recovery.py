@@ -51,7 +51,13 @@ def _write_fast_config(base: Path, port: int, redis_address: str) -> Path:
         devices=modbus_device_dict(port),
         point_tables={"modbus": {"points": dict(MODBUS_POINTS)}},
         sinks={
-            "redis_sink": {"type": "redis", "connection": {"host": redis_address.rpartition(":")[0], "port": int(redis_address.rpartition(":")[2])}}
+            "redis_sink": {
+                "type": "redis",
+                "connection": {
+                    "host": redis_address.rpartition(":")[0],
+                    "port": int(redis_address.rpartition(":")[2]),
+                },
+            }
         },
         tasks=task,
         system={"runtime": {"connect_timeout": 1.0, "read_timeout": 2.0}},
@@ -113,7 +119,9 @@ class TestWatchdogRecovery:
             )
             snap = await metrics_snapshot(proc.grpc_target)
             assert snap["device_reconnects"].get(DEVICE_ID, 0) >= 1
-            value = await wait_redis_value(redis_service, point_key(DEVICE_ID, "rotor.speed", prefix="wind-hub-watchdog"))
+            value = await wait_redis_value(
+                redis_service, point_key(DEVICE_ID, "rotor.speed", prefix="wind-hub-watchdog")
+            )
             assert value["quality"] == "good"
 
             # 二次故障后仍由同一个 Watchdog 周期执行连接检查。
