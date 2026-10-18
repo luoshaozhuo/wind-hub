@@ -66,8 +66,10 @@ class _DailySizeFileHandler(logging.Handler):
             # 清理仅在日界发生时执行；活动文件不参与删除。
             if getattr(self, "_last_cleanup", None) != day:
                 self._last_cleanup = day
-                for file in self._root.glob("????????_???.log"):
-                    if file.name[:8].isdigit() and file.name[:8] < cutoff:
+                for file in self._root.glob("????????_*.log"):
+                    stem = file.stem
+                    date, separator, index = stem.partition("_")
+                    if separator and len(date) == 8 and date.isdigit() and index.isdigit() and date < cutoff:
                         file.unlink(missing_ok=True)
         except Exception:
             self.handleError(record)
