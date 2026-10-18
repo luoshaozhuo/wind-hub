@@ -101,7 +101,6 @@ class TestPointTableChangeWhileOffline:
         assert latest["value"] == pytest.approx(RAW_POWER)
 
 
-
 class TestStopTaskDuringReconnect:
     async def test_task_stays_stopped_after_device_recovery(
         self,
