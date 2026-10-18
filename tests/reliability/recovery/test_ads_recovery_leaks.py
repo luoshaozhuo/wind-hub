@@ -214,7 +214,7 @@ class TestResourceCycles:
         driver = _driver({"a": _point("a", 0)}, host=_PROXY_IP)
         await driver.connect()
         try:
-            async def on_sample(_sample: ProtocolSample) -> None:
+            async def on_sample(_samples: tuple[ProtocolSample, ...]) -> None:
                 pass
 
             for index in range(100):
@@ -449,7 +449,7 @@ class TestSigKillResidue:
             driver = _driver({"a": _point("a", 0)}, host=_KILL_NORESTART_IP)
             await driver.connect()
 
-            async def on_sample(_sample: ProtocolSample) -> None:
+            async def on_sample(_samples: tuple[ProtocolSample, ...]) -> None:
                 pass
 
             handle = await driver.subscribe(("a",), on_sample, interval=1.0)
