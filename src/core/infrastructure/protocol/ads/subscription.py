@@ -237,10 +237,9 @@ class ADSSubscription:
                     handle[0],
                 )
         if self._unconfirmed_handles:
-            logger.warning(
-                "%sADS subscription closed with %d unconfirmed notification handle(s)",
-                self._label,
-                len(self._unconfirmed_handles),
+            raise ProtocolError(
+                f"{self._label}ADS notification cleanup unconfirmed for "
+                f"{len(self._unconfirmed_handles)} handle(s)"
             )
 
     async def stop_worker(self) -> None:
