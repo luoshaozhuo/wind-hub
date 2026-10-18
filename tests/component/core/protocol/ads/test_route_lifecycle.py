@@ -526,6 +526,8 @@ async def test_failed_physical_close_quarantines_route() -> None:
     route = _route_state(_NET)
     assert route.unsafe_reason is not None
     assert not route.op_lock.locked()
+    with pytest.raises(ProtocolError, match="cannot be closed"):
+        await ADSDriver.close_local()
 
     replacement = _driver(host_last=11)
     attempted = threading.Event()
