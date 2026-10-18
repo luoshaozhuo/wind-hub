@@ -40,12 +40,12 @@ def _points_with_bad_address() -> dict[str, Any]:
     return {"modbus": {"points": {**MODBUS_POINTS, "bad.address": dict(BAD_POINT)}}}
 
 
-def _redis_sink(redis_address: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def _redis_sink(redis_address: str, prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
     host, _, port = redis_address.rpartition(":")
     sinks = {
         "redis_sink": {
             "type": "redis",
-            "connection": {"host": host, "port": int(port), "key_prefix": "wind-hub-exception"},
+            "connection": {"host": host, "port": int(port), "key_prefix": prefix},
         }
     }
     tasks = {
@@ -63,7 +63,7 @@ class TestExceptionResponseClassification:
     async def test_exception_response_not_classified_as_disconnect(
         self, app_factory, redis_service: str, tmp_path: Path
     ) -> None:
-        sinks, tasks = _redis_sink(redis_service)
+        sinks, tasks = _redis_sink(redis_service, f"wind-hub-exception-{tmp_path.name}")
         ctx = await app_factory(point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks)
         await ctx.start_instances()
         app = ctx.app
@@ -106,11 +106,11 @@ class TestExceptionResponseClassification:
     async def test_fixing_point_table_recovers_without_reconnect(
         self, app_factory, tmp_path: Path
     ) -> None:
-        sinks, tasks = _redis_sink(redis_service)
+        sinks, tasks = _redis_sink(redis_service, f"wind-hub-exception-{tmp_path.name}")
         ctx = await app_factory(point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks)
         await ctx.start_instances()
         app = ctx.app
-        key = point_key("modbus-1", "rotor.speed", prefix="wind-hub-exception")
+        key = point_key("modbus-1", "rotor.speed", prefix=f"wind-hub-exception-{tmp_path.name}")
         await asyncio.sleep(1.0)  # 故障点表不得产生完整采集输出
         assert await read_redis_value(redis_service, key) is None
 
