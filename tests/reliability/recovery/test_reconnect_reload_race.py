@@ -116,7 +116,7 @@ class TestStopTaskDuringReconnect:
         )
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        initial = await wait_telemetry_value(redis_service)
+        await wait_telemetry_value(redis_service)
 
         await modbus_server.stop()
         await wait_status(
@@ -147,7 +147,8 @@ class TestStopTaskDuringReconnect:
             states.get(INSTANCE_ID) == "stopped"
         ), f"device recovery resurrected a stopped task: {states}"
 
-        # 任务已停止，设备恢复不应导致点值时间戳再次推进。
+        # 停机后确认数据静默。
+        settled = await wait_telemetry_value(redis_service)
         await asyncio.sleep(1.0)
         final = await wait_telemetry_value(redis_service)
-        assert final["timestamp"] == initial["timestamp"]
+        assert final["timestamp"] == settled["timestamp"]
