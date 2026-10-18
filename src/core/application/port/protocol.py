@@ -44,6 +44,8 @@ class ListenHandle(Protocol):
     async def close(self) -> None: ...
 
 
+# Push 的交付单元是不可变、非空的协议原生批次：ADS Notification Block
+# 或 IEC104 一次 APDU 解出的有效监视点，调用方不可假定每次只有一个点。
 ProtocolSampleCallback = Callable[[tuple[ProtocolSample, ...]], Awaitable[None]]
 
 TPoint = TypeVar("TPoint", bound=ProtocolPoint, contravariant=True, default=Never)
