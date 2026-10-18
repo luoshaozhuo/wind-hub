@@ -7,8 +7,8 @@ Collector 采集结果模型或 Commander 命令用例模型。
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Generic, Literal, Never, Protocol, TypeAlias
 
@@ -121,6 +121,10 @@ class ProtocolSample:
     timestamp: datetime
     quality: Quality = Quality.GOOD
     timestamp_source: TimestampSource = "local"
+    # 迁移阶段保留旧字段，避免未同步的 Collector/Sink 读写契约中断。
+    # receive_time 记录 Driver 构造样本时的 UTC 时刻；协议接收边界将逐步前移。
+    receive_time: datetime = field(default_factory=lambda: datetime.now(UTC))
+    device_time: datetime | None = None
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()
@@ -128,6 +132,12 @@ class ProtocolSample:
             raise ValueError("point_id must not be empty")
         if self.timestamp.tzinfo is None:
             raise ValueError("protocol sample timestamp must be timezone-aware")
+        if self.receive_time.tzinfo is None:
+            raise ValueError("protocol sample receive_time must be timezone-aware")
+        if self.device_time is not None and self.device_time.tzinfo is None:
+            raise ValueError("protocol sample device_time must be timezone-aware")
+        if self.device_time is None and self.timestamp_source == "device":
+            object.__setattr__(self, "device_time", self.timestamp)
         object.__setattr__(self, "point_id", point_id)
 
 

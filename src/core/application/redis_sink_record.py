@@ -37,6 +37,8 @@ def encode_redis_record(config: RedisKeyOptions, point: PointValue) -> RedisReco
             "quality": point.quality.value,
             "timestamp": point.timestamp.astimezone(UTC).isoformat().replace("+00:00", "Z"),
             "source": point.source,
+            "receive_time": point.receive_time.astimezone(UTC).isoformat().replace("+00:00", "Z") if point.receive_time is not None else None,
+            "device_time": point.device_time.astimezone(UTC).isoformat().replace("+00:00", "Z") if point.device_time is not None else None,
         },
         ensure_ascii=False,
         separators=(",", ":"),

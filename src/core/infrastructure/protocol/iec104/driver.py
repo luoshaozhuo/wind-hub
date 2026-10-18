@@ -25,6 +25,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from hat.drivers import net
@@ -113,6 +114,8 @@ class _Session:
     reads: dict[Address, _ReadRequest] = field(default_factory=dict)
     commands: dict[Address, asyncio.Future[bool]] = field(default_factory=dict)
     interrogations: dict[int, asyncio.Future[None]] = field(default_factory=dict)
+    interrogation_samples: dict[int, list[ProtocolSample]] = field(default_factory=dict)
+    interrogation_qoi: dict[int, int] = field(default_factory=dict)
 
     def originator(self) -> int:
         """分配 1..255 的始发地址（诊断用；响应关联以完整地址+串行锁为准）。"""
@@ -437,6 +440,7 @@ class IEC104Driver:
                 try:
                     return await asyncio.wait_for(future, timeout=self._config.t1)
                 except TimeoutError as exc:
+                    self._invalidate_session(session, "active read timed out")
                     raise ProtocolError(
                         f"IEC104 active read timed out for '{point_id}'"
                     ) from exc
@@ -513,6 +517,7 @@ class IEC104Driver:
                 try:
                     accepted = await asyncio.wait_for(future, timeout=self._config.t1 * 2)
                 except TimeoutError:
+                    self._invalidate_session(session, "command confirmation timed out")
                     return ProtocolWriteResult(
                         point_id=mapped.point_id,
                         outcome=WriteOutcome.UNKNOWN,
@@ -551,31 +556,38 @@ class IEC104Driver:
     # 总召
     # ------------------------------------------------------------------
 
-    async def interrogate(self, common_address: int | None = None) -> None:
-        """对指定 CA（缺省：全部已配置 CA 逐个）发送 C_IC_NA_1 站总召。
+    async def interrogate(
+        self, common_address: int | None = None, *, qoi: int = 20
+    ) -> tuple[ProtocolSample, ...]:
+        """对指定 CA（缺省：全部已配置 CA 逐个）发送 C_IC_NA_1（QOI=20 站总召，21..36 组召）。
 
-        以每个 CA 的 ACT_TERM（或否定确认）为完成依据；请求发送成功
+        以每个 CA 和当前 QOI 对应的 ACT_TERM（或否定确认）为完成依据；请求发送成功
         不代表总召完成。ACT_TERM 只表示协议总召流程结束，业务测点完整性
         由 Collector 判断。
         """
+        if not isinstance(qoi, int) or isinstance(qoi, bool) or not 20 <= qoi <= 36:
+            raise ConfigError("IEC104 interrogation QOI must be an integer in 20..36")
         if common_address is None:
+            batches = []
             for ca in self._config.common_addresses:
-                await self._interrogate_one(ca)
-            return
+                batches.extend(await self._interrogate_one(ca, qoi=qoi))
+            return tuple(batches)
         if common_address not in self._config.common_addresses:
             raise ConfigError(
                 f"IEC104 common address {common_address} is not configured "
                 f"(configured: {list(self._config.common_addresses)})"
             )
-        await self._interrogate_one(common_address)
+        await self._interrogate_one(common_address, qoi=qoi)
 
-    async def _interrogate_one(self, ca: int) -> None:
+    async def _interrogate_one(self, ca: int, *, qoi: int) -> tuple[ProtocolSample, ...]:
         session = self._require_session()
         async with self._gi_locks.locked(ca):
             if self._session is not session:
                 raise ProtocolConnectionError("IEC104 session changed during interrogation")
             future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
             session.interrogations[ca] = future
+            session.interrogation_qoi[ca] = qoi
+            session.interrogation_samples[ca] = []
             try:
                 await self._send(
                     session,
@@ -584,7 +596,7 @@ class IEC104Driver:
                             is_test=False,
                             originator_address=session.originator(),
                             asdu_address=ca,
-                            request=20,  # QOI = station-wide interrogation
+                            request=qoi,
                             is_negative_confirm=False,
                             cause=iec101.CommandReqCause.ACTIVATION,
                         )
@@ -592,12 +604,16 @@ class IEC104Driver:
                 )
                 try:
                     await asyncio.wait_for(future, timeout=self._config.t1 * 2)
+                    return tuple(session.interrogation_samples[ca])
                 except TimeoutError as exc:
+                    self._invalidate_session(session, "interrogation timed out")
                     raise ProtocolError(
                         f"IEC104 general interrogation ACT_TERM timed out for ca={ca}"
                     ) from exc
             finally:
                 session.interrogations.pop(ca, None)
+                session.interrogation_qoi.pop(ca, None)
+                session.interrogation_samples.pop(ca, None)
 
     # ------------------------------------------------------------------
     # 推送：只有本地监听，没有远程订阅
@@ -655,7 +671,8 @@ class IEC104Driver:
         try:
             while True:
                 data = await session.conn.receive()
-                self._decode_and_dispatch(session, data)
+                received_at = datetime.now(UTC)
+                self._decode_and_dispatch(session, data, receive_time=received_at)
         except asyncio.CancelledError:
             raise
         except ConnectionError:
@@ -665,7 +682,9 @@ class IEC104Driver:
         finally:
             await self._on_session_end(session)
 
-    def _decode_and_dispatch(self, session: _Session, data: bytes) -> None:
+    def _decode_and_dispatch(
+        self, session: _Session, data: bytes, *, receive_time: datetime | None = None
+    ) -> None:
         # hat Encoder.decode 是生成器（单 ASDU 多 IO 元素展开为多条 Msg），
         # 异常可能在任何一次 next() 抛出——本协议栈在进入生成器时急切解码
         # 整个 ASDU，截断/非法类型通常在第一次 next() 即失败。解码与逐条
@@ -692,7 +711,7 @@ class IEC104Driver:
                 )
                 return
             try:
-                self._dispatch(session, message)
+                self._dispatch(session, message, receive_time=receive_time)
             except Exception:
                 logger.exception(
                     "IEC104 dispatch failed for %s ca=%s ioa=%s; "
@@ -702,9 +721,11 @@ class IEC104Driver:
                     getattr(message, "io_address", "?"),
                 )
 
-    def _dispatch(self, session: _Session, message: iec101.Msg) -> None:
+    def _dispatch(
+        self, session: _Session, message: iec101.Msg, *, receive_time: datetime | None = None
+    ) -> None:
         if isinstance(message, iec101.DataMsg):
-            self._dispatch_data(session, message)
+            self._dispatch_data(session, message, receive_time=receive_time)
         elif isinstance(message, iec101.ReadMsg):
             self._dispatch_read_negative(session, message)
         elif isinstance(message, iec104common.CommandMsg):
@@ -713,7 +734,9 @@ class IEC104Driver:
             self._dispatch_interrogation(session, message)
         # 时钟同步、初始化、参数等报文当前无业务语义，忽略。
 
-    def _dispatch_data(self, session: _Session, message: iec101.DataMsg) -> None:
+    def _dispatch_data(
+        self, session: _Session, message: iec101.DataMsg, *, receive_time: datetime | None = None
+    ) -> None:
         key: Address = (message.asdu_address, message.io_address)
         data_type = type(message.data).__name__
         if message.cause is iec101.DataResCause.REQUEST:
@@ -724,7 +747,7 @@ class IEC104Driver:
             # 伪造的坏样本完成（合法数据 + Invalid 品质位仍正常解出
             # quality=BAD 的真实样本，走 decode_sample 成功路径）。
             try:
-                sample = decode_sample(request.point_id, message)
+                sample = decode_sample(request.point_id, message, receive_time=receive_time)
             except (ValueError, TypeError) as exc:
                 logger.error(
                     "IEC104 malformed read response for '%s' ca=%s ioa=%s "
@@ -755,7 +778,7 @@ class IEC104Driver:
             return
         # 自发/总召数据畸形：记错误日志并丢弃，绝不伪造值或 BAD 样本。
         try:
-            sample = decode_sample(mapped.point_id, message)
+            sample = decode_sample(mapped.point_id, message, receive_time=receive_time)
         except (ValueError, TypeError) as exc:
             logger.error(
                 "IEC104 malformed monitoring data for '%s' ca=%s ioa=%s "
@@ -768,6 +791,13 @@ class IEC104Driver:
                 exc,
             )
             return
+        qoi = session.interrogation_qoi.get(message.asdu_address)
+        if (
+            qoi is not None
+            and message.cause.value == qoi
+            and message.asdu_address in session.interrogation_samples
+        ):
+            session.interrogation_samples[message.asdu_address].append(sample)
         self._listeners.offer(sample)
 
     def _dispatch_read_negative(self, session: _Session, message: iec101.ReadMsg) -> None:
@@ -801,7 +831,7 @@ class IEC104Driver:
         session: _Session,
         message: iec101.InterrogationMsg,
     ) -> None:
-        if message.request != 20:
+        if message.request != session.interrogation_qoi.get(message.asdu_address):
             return
         waiter = session.interrogations.get(message.asdu_address)
         if waiter is None or waiter.done():
@@ -870,6 +900,16 @@ class IEC104Driver:
         with contextlib.suppress(Exception):
             await session.conn.async_close()
 
+    def _invalidate_session(self, session: _Session, reason: str) -> None:
+        """请求超时后禁止复用会话，隔离无法关联的旧响应。"""
+        if self._session is not session:
+            return
+        self._session = None
+        session.enabled = False
+        self._fail_session(session, ProtocolConnectionError(reason))
+        if session.task is not None:
+            session.task.cancel()
+
     @classmethod
     def _fail_session(cls, session: _Session, exc: Exception) -> None:
         """结束会话内全部在途 Future（幂等）。命令路径把链路类异常映射为 UNKNOWN。"""
@@ -890,6 +930,8 @@ class IEC104Driver:
         session.reads.clear()
         session.commands.clear()
         session.interrogations.clear()
+        session.interrogation_qoi.clear()
+        session.interrogation_samples.clear()
 
     # ------------------------------------------------------------------
     # 索引与校验

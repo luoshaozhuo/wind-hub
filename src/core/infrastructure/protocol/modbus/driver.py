@@ -254,13 +254,15 @@ class ModbusDriver:
                 return ProtocolSample(
                     point_id=point_id,
                     value=None,
-                    timestamp=datetime.now(UTC),
+                    timestamp=(received_at := datetime.now(UTC)),
+                    receive_time=received_at,
                     quality=Quality.BAD,
                 )
             return ProtocolSample(
                 point_id=point_id,
                 value=_as_point_scalar(value),
-                timestamp=datetime.now(UTC),
+                timestamp=(received_at := datetime.now(UTC)),
+                receive_time=received_at,
                 quality=Quality.GOOD,
             )
 
@@ -318,7 +320,7 @@ class ModbusDriver:
         位置重复返回，顺序与输入严格一致。
         """
         mapped_points, values = await self._read_values(points)
-        # 全批次共享同一读取时刻——Driver 在获得读取结果时生成 UTC 时间戳。
+        # 全批次共享接收完成时刻；Modbus 协议不携带设备时标。
         received_at = datetime.now(UTC)
         return tuple(
             ProtocolSample(
@@ -326,6 +328,7 @@ class ModbusDriver:
                 value=value,
                 timestamp=received_at,
                 quality=quality,
+                receive_time=received_at,
             )
             for mapped, (value, quality) in zip(mapped_points, values, strict=True)
         )
@@ -385,9 +388,11 @@ class ModbusDriver:
         del point_ids, callback, interval
         raise ProtocolCapabilityError("modbus does not support listen")
 
-    async def interrogate(self, common_address: int | None = None) -> None:
+    async def interrogate(
+        self, common_address: int | None = None, *, qoi: int = 20
+    ) -> tuple[ProtocolSample, ...]:
         """Modbus TCP 不支持 IEC104 式总召能力。"""
-        del common_address
+        del common_address, qoi
         raise ProtocolCapabilityError("modbus does not support interrogation")
 
     def _mapped_point(self, point_id: str) -> ModbusPoint:

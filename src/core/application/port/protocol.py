@@ -127,10 +127,12 @@ class ProtocolPort(Protocol[TPoint]):
         """
         ...
 
-    async def interrogate(self, common_address: int | None = None) -> None:
-        """执行一次协议总召；``common_address=None`` 表示全部已配置站址。
+    async def interrogate(
+        self, common_address: int | None = None, *, qoi: int = 20
+    ) -> tuple[ProtocolSample, ...]:
+        """执行一次总召/组召，返回本次召唤的数据集合。
 
-        总召完成以协议应用层确认为据（如 IEC104 ACT_TERM），不能把请求
-        发送成功当作完成。
+        ``common_address=None`` 表示全部已配置站址；QOI 20 为站总召，
+        21..36 为组召。以 ACT_TERM 为完成依据；Listener 仍持续接收。
         """
         ...

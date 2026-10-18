@@ -1213,7 +1213,8 @@ class ADSDriver:
         return ProtocolSample(
             point_id=point_id,
             value=scalar,
-            timestamp=datetime.now(UTC),
+            timestamp=(received_at := datetime.now(UTC)),
+            receive_time=received_at,
             quality=Quality.GOOD,
         )
 
@@ -1257,7 +1258,7 @@ class ADSDriver:
         # 全批次共享同一读取时刻——Driver 在获得读取结果时生成 UTC 时间戳。
         received_at = datetime.now(UTC)
         return tuple(
-            ProtocolSample(point_id=pid, value=value, timestamp=received_at, quality=quality)
+            ProtocolSample(point_id=pid, value=value, timestamp=received_at, quality=quality, receive_time=received_at)
             for pid, (value, quality) in zip(points, raw, strict=True)
         )
 
@@ -1461,9 +1462,11 @@ class ADSDriver:
             outcome=WriteOutcome.CONFIRMED_SUCCESS,
         )
 
-    async def interrogate(self, common_address: int | None = None) -> None:
+    async def interrogate(
+        self, common_address: int | None = None, *, qoi: int = 20
+    ) -> tuple[ProtocolSample, ...]:
         """ADS 不支持 IEC104 式总召能力。"""
-        del common_address
+        del common_address, qoi
         raise ProtocolCapabilityError("ads does not support interrogation")
 
     async def listen(
@@ -1698,7 +1701,8 @@ def _bad_sample(point_id: str) -> ProtocolSample:
     return ProtocolSample(
         point_id=point_id,
         value=None,
-        timestamp=datetime.now(UTC),
+        timestamp=(received_at := datetime.now(UTC)),
+        receive_time=received_at,
         quality=Quality.BAD,
     )
 

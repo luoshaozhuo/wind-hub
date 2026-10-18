@@ -17,7 +17,7 @@ class FileRotationOptions(Protocol):
     max_size_mb: float
 
 
-CSV_COLUMNS = ("timestamp", "device_id", "point_id", "value", "quality", "source")
+CSV_COLUMNS = ("timestamp", "device_id", "point_id", "value", "quality", "source", "receive_time", "device_time")
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +83,8 @@ def iter_csv_rows(values: Sequence[PointValue], *, include_header: bool = False)
                 item.value,
                 item.quality.value,
                 item.source,
+                item.receive_time.astimezone(UTC).isoformat().replace("+00:00", "Z") if item.receive_time is not None else "",
+                item.device_time.astimezone(UTC).isoformat().replace("+00:00", "Z") if item.device_time is not None else "",
             )
         )
 
