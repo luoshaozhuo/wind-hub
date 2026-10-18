@@ -23,6 +23,10 @@ _COMPONENT = re.compile(r"[A-Za-z0-9_.-]+\Z")
 class FileSink:
     """单进程串行写入，无跨批次文件句柄；按 Task/Device 独立归档。"""
 
+    #: 诊断写入也必须携带 Task 身份（裸 write 拒绝），调用方经
+    #: write_task("_diagnostic", ...) 落到独立诊断归档，不污染业务目录。
+    requires_task_context: bool = True
+
     def __init__(self, config: Sink) -> None:
         self._policy = FileSinkConnection.model_validate(dict(config.connection))
         self._root = Path(self._policy.path)

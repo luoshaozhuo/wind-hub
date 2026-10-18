@@ -145,10 +145,13 @@ async def test_sink_check_and_write_test(running, tmp_path):
     assert verify.success is True
 
     result = await runtime_stub.WriteTestSink(pb.SinkRequest(name="s1"))
-    assert result.success is True
-    out = tmp_path / "out.csv"
-    assert out.exists()
-    assert "_write_test" in out.read_text()
+    assert result.success is True, result.message
+    # 诊断点以 _diagnostic Task 身份落入独立归档，不与业务 Task 目录混写。
+    segments = list(
+        (tmp_path / "out").glob("_diagnostic/_diagnostic/[0-9][0-9][0-9][0-9]/[0-9][0-9]/*.csv")
+    )
+    assert len(segments) == 1
+    assert "_write_test" in segments[0].read_text()
 
     with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await runtime_stub.VerifySink(pb.SinkRequest(name="ghost"))

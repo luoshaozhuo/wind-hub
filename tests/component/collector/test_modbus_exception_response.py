@@ -20,7 +20,7 @@ from tests.support.functional_config import (
     MODBUS_POINTS,
     update_yaml,
 )
-from tests.support.wait import read_csv, wait_file_rows
+from tests.support.wait import read_csv, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -40,12 +40,12 @@ def _points_with_bad_address() -> dict[str, Any]:
 
 
 def _file_sink(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any], Path]:
-    sink_path = tmp_path / "out" / "telemetry.csv"
+    sink_root = tmp_path / "out"
     sinks = {
         "file_sink": {
             "type": "file",
             "connection": {
-                "path": str(sink_path),
+                "path": str(sink_root),
             },
         }
     }
@@ -54,10 +54,26 @@ def _file_sink(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any], Path]:
             "device_group_id": "modbus-1",
             "point_group": "telemetry",
             "interval": 0.2,
-            "sink_ids": ["file_sink"],
+            "outputs": [{"sink_id": "file_sink"}],
         }
     }
-    return sinks, tasks, sink_path
+    return sinks, tasks, sink_root
+
+
+def _archive_rows(root: Path) -> list[dict[str, Any]]:
+    """汇总 FileSink 归档目录下所有年月分段的数据行。"""
+    rows: list[dict[str, Any]] = []
+    for segment in root.glob("*/*/[0-9][0-9][0-9][0-9]/[0-9][0-9]/*.csv"):
+        rows.extend(read_csv(segment))
+    return rows
+
+
+async def _wait_archive_rows(root: Path, *, min_rows: int) -> list[dict[str, Any]]:
+    async def _probe() -> list[dict[str, Any]] | None:
+        rows = _archive_rows(root)
+        return rows if len(rows) >= min_rows else None
+
+    return await wait_until(_probe, timeout=10.0, description=f"{min_rows} rows under {root}")
 
 
 class TestExceptionResponseClassification:
@@ -107,12 +123,12 @@ class TestExceptionResponseClassification:
     async def test_fixing_point_table_recovers_without_reconnect(
         self, app_factory, tmp_path: Path
     ) -> None:
-        sinks, tasks, sink_path = _file_sink(tmp_path)
+        sinks, tasks, sink_root = _file_sink(tmp_path)
         ctx = await app_factory(point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks)
         await ctx.start_instances()
         app = ctx.app
         await asyncio.sleep(1.0)  # 确认故障配置下无数据落盘
-        assert not sink_path.exists() or len(read_csv(sink_path)) == 0
+        assert not _archive_rows(sink_root)
 
         # ---- 修复点表（去掉非法地址点）并 reload ----
         def mutate(data: dict[str, Any]) -> None:
@@ -123,6 +139,6 @@ class TestExceptionResponseClassification:
         assert result.success, result.errors
 
         # ---- 同一条连接上数据面恢复，全程零重连 ----
-        await wait_file_rows(sink_path, min_rows=2, timeout=10.0)
+        await _wait_archive_rows(sink_root, min_rows=2)
         snap = app.metrics.snapshot()
         assert snap["device_reconnects"].get("modbus-1", 0) == 0
