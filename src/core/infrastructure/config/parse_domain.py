@@ -60,7 +60,7 @@ from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
 from .business_points import parse_business_points
-from .sink_schema import parse_sink_definitions
+from .sink_schema import parse_sink_definitions, validate_task_sink_points
 from .units import parse_unit_catalog
 from .yaml import read_yaml_mapping
 from .yaml import yaml_plain as _yaml_plain
