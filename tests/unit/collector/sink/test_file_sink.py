@@ -225,3 +225,32 @@ async def test_oversized_row_does_not_loop_or_lose_following_rows(tmp_path: Path
             rows.extend(csv.DictReader(f))
     assert [r["point_id"] for r in rows] == ["huge", "small"]
     assert len(segments) == 2
+
+
+async def test_directory_symlink_inside_root_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "archive"
+    sink = make_sink(root)
+    await sink.open()
+    now = datetime.now(UTC)
+    actual = root / "safe"
+    actual.mkdir()
+    (root / "t1").symlink_to(actual, target_is_directory=True)
+    with pytest.raises(SinkError, match="symlink"):
+        await sink.write_task("t1", [_point("power", when=now)])
+    assert not list(actual.rglob("*.csv"))
+    await sink.close()
+
+
+async def test_batch_appends_after_reopen_without_extra_header(tmp_path: Path) -> None:
+    root = tmp_path / "archive"
+    sink = make_sink(root)
+    await sink.open()
+    await sink.write_task("t1", [_point(f"a{i}", i) for i in range(250)])
+    await sink.write_task("t1", [_point(f"b{i}", i) for i in range(250)])
+    await sink.close()
+    day = datetime.now(UTC).strftime("%Y%m%d")
+    with _segment(root, "t1", "d", day, 0).open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 500
+    assert rows[0]["point_id"] == "a0"
+    assert rows[-1]["point_id"] == "b249"
