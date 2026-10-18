@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import SecretStr
 
 from core.domain import Sink
 from core.domain.point_value import PointValue
@@ -22,7 +21,7 @@ def make_sink() -> TDengineSink:
                 "database": "wind_hub",
                 "stable": "point_values",
                 "username": "admin",
-                "password": SecretStr("local-test"),
+                "password": "local-test",
             },
         )
     )
