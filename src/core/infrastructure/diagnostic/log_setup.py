@@ -52,7 +52,7 @@ class _DailySizeFileHandler(logging.Handler):
         try:
             timestamp = datetime.fromtimestamp(record.created, UTC)
             day = timestamp.strftime("%Y%m%d")
-            message = self.format(record) + "\\n"
+            message = self.format(record) + "\n"
             size = len(message.encode("utf-8"))
             if self._stream is None or day != self._date:
                 self._open_for(day, size)
