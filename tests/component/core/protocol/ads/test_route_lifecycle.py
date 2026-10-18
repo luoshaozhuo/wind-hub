@@ -507,3 +507,58 @@ async def test_t6_repeated_close_is_idempotent_and_releases_route_once() -> None
     driver_a._new_connection = _factory(order)  # type: ignore[method-assign]
     await asyncio.wait_for(driver_a.connect(), timeout=3.0)
     await asyncio.wait_for(driver_a.close(), timeout=3.0)
+
+
+# ---- 关闭失败隔离回归 ------------------------------------------------------
+
+
+async def test_failed_physical_close_quarantines_route() -> None:
+    order: list[str] = []
+    driver = _driver()
+    conn = await _connect_ready(driver, order)
+
+    def broken_close() -> None:
+        conn.close_calls += 1
+        raise OSError("injected close failure")
+
+    conn.close = broken_close  # type: ignore[method-assign]
+    await driver.close()
+    route = _route_state(_NET)
+    assert route.unsafe_reason is not None
+    assert not route.op_lock.locked()
+
+    replacement = _driver(host_last=11)
+    attempted = threading.Event()
+
+    def should_not_open(*_args: object, **_kwargs: object) -> ControlledConnection:
+        attempted.set()
+        raise AssertionError("unsafe route must not open")
+
+    replacement._new_connection = should_not_open  # type: ignore[method-assign]
+    with pytest.raises(ProtocolError, match="quarantined"):
+        await replacement.connect()
+    assert not attempted.is_set()
+
+
+async def test_deregister_failure_still_closes_physical_session() -> None:
+    order: list[str] = []
+    driver = _driver()
+    conn = await _connect_ready(driver, order)
+
+    class FailingSubscription:
+        def deactivate(self) -> None:
+            return None
+
+        async def stop_worker(self) -> None:
+            return None
+
+        async def deregister(self) -> None:
+            raise OSError("injected deregister failure")
+
+    driver._subscriptions.add(FailingSubscription())  # type: ignore[arg-type]
+    with pytest.raises(OSError, match="injected deregister failure"):
+        await driver.close()
+    assert conn.close_calls == 1
+    route = _route_state(_NET)
+    assert route.unsafe_reason is None
+    assert not route.op_lock.locked()
