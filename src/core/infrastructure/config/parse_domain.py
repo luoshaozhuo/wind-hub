@@ -52,6 +52,7 @@ from core.domain import (
     Task,
     validate_core_config,
 )
+from core.domain.task import TaskOutput
 from core.domain.unit import DIMENSIONLESS, UnitCatalog
 from core.infrastructure.protocol.ads.config import is_valid_ams_net_id, parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
@@ -562,13 +563,34 @@ def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
         data = _map(item, context)
         _keys(
             data,
-            {"device_group_id", "point_group", "interval", "sink_ids", "enabled"},
+            {"device_group_id", "point_group", "interval", "sink_ids", "outputs", "enabled"},
             context,
         )
-        sink_ids = tuple(
-            _name(sink, f"{context}.sink_ids")
-            for sink in _list(data.get("sink_ids"), f"{context}.sink_ids")
-        )
+        if "outputs" in data and "sink_ids" in data:
+            raise ConfigError(f"{context}: choose outputs or sink_ids, not both")
+        outputs_raw = data.get("outputs")
+        outputs: tuple[TaskOutput, ...] = ()
+        if outputs_raw is not None:
+            resolved: list[TaskOutput] = []
+            for index, item in enumerate(_list(outputs_raw, f"{context}.outputs")):
+                entry = _map(item, f"{context}.outputs[{index}]")
+                _keys(entry, {"sink_id", "key_prefix"}, f"{context}.outputs[{index}]")
+                resolved.append(
+                    TaskOutput(
+                        sink_id=_name(entry.get("sink_id"), f"{context}.outputs[{index}].sink_id"),
+                        key_prefix=(
+                            _name(entry["key_prefix"], f"{context}.outputs[{index}].key_prefix")
+                            if "key_prefix" in entry else None
+                        ),
+                    )
+                )
+            outputs = tuple(resolved)
+            sink_ids = tuple(output.sink_id for output in outputs)
+        else:
+            sink_ids = tuple(
+                _name(sink, f"{context}.sink_ids")
+                for sink in _list(data.get("sink_ids"), f"{context}.sink_ids")
+            )
         result[identity] = Task(
             task_id=identity,
             device_group_id=DeviceGroupId(
@@ -576,6 +598,7 @@ def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
             ),
             point_group=_name(data.get("point_group"), f"{context}.point_group"),
             sink_ids=sink_ids,
+            outputs=outputs,
             interval=_number(data.get("interval"), f"{context}.interval"),
             enabled=_flag(data.get("enabled", True), f"{context}.enabled"),
         )
