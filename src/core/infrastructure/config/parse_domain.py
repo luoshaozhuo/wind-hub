@@ -76,6 +76,7 @@ _POINT_FIELDS = {
     "offset",
     "unit",
     "description",
+    "business_point_id",
 }
 _DEVICE_FIELDS = {
     "model_id",
@@ -247,7 +248,7 @@ def _point(
 ) -> Point:
     context = f"point '{point_id}'"
     _keys(entry, _POINT_FIELDS, context)
-    identity = BusinessPointId(point_id)
+    identity = BusinessPointId(_name(entry.get("business_point_id", point_id), f"{context}.business_point_id"))
     business_point = business_points.get(identity)
     if business_point is None:
         raise ConfigError(f"{context} unknown business point '{identity}'")
