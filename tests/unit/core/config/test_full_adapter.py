@@ -30,7 +30,7 @@ def test_load_example_modbus() -> None:
 
     task = config.tasks["turbine-modbus-all"]
     assert task.device_group_id == "turbine_modbus"
-    assert task.sink_ids == ("file_archive",)
+    assert task.sink_ids == ("redis_latest",)
 
 
 def test_full_loader_rejects_absent_yaml(tmp_path: Path) -> None:
