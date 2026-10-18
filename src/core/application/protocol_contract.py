@@ -47,12 +47,6 @@ class ProtocolWrite(Generic[TPoint]):
             raise ValueError("point must be a configured point key")
         object.__setattr__(self, "point", self.point.strip())
 
-    @property
-    def point_id(self) -> str:
-        """Logical identity for results and existing command consumers."""
-        return self.point
-
-
 class WriteOutcome(StrEnum):
     """一次写入的现场执行结果分类。
 
