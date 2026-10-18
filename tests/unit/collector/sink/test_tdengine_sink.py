@@ -36,10 +36,12 @@ async def test_open_and_batch_insert(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(sink, "_execute", execute)
     await sink.open()
-    await sink.write([
-        PointValue("WT001", "p", 2.5),
-        PointValue("WT001", "q", 3.5),
-    ])
+    await sink.write(
+        [
+            PointValue("WT001", "p", 2.5),
+            PointValue("WT001", "q", 3.5),
+        ]
+    )
     assert statements[0].startswith("CREATE STABLE IF NOT EXISTS")
     assert statements[1].startswith("INSERT INTO")
     assert statements[1].count(" USING ") == 2
