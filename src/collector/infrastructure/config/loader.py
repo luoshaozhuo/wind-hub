@@ -75,11 +75,9 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
             if output.sink_id == sink_id
             for raw in output.points
         ]
-        if sink.points and task_points:
-            raise ConfigError(f"Sink '{sink_id}' mixes sink-level and task-level point maps")
         refs: set[str] = set()
         addresses: dict[tuple[int, str], list[tuple[int, int]]] = {}
-        for raw in (*sink.points, *task_points):
+        for raw in task_points:
             source = raw["source"]
             device_id = DeviceId(source["device_id"])
             device = snapshot.site.devices.get(device_id)
@@ -155,11 +153,19 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                     )
                 occupied.append((address.address, end))
             points.append(resolved.model_dump(mode="json"))
+        connection = dict(sink.connection)
+        if sink.kind == "redis":
+            connection["task_key_prefixes"] = {
+                task.task_id: output.key_prefix or connection.get("key_prefix", "wind-hub")
+                for task in snapshot.tasks.values()
+                for output in task.outputs
+                if output.sink_id == sink_id
+            }
         result[sink_id] = Sink(
             sink_id=sink.sink_id,
             kind=sink.kind,
             enabled=sink.enabled,
-            connection=sink.connection,
+            connection=connection,
             points=tuple(points),
         )
     return result
