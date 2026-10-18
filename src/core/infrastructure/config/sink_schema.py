@@ -183,7 +183,6 @@ class _SinkSchema(BaseModel):
     type: str
     enabled: bool = True
     connection: SinkConnection
-    points: tuple[SinkPoint, ...] = ()
 
     @model_validator(mode="before")
     @classmethod
@@ -205,25 +204,6 @@ class _SinkSchema(BaseModel):
             except Exception as exc:
                 raise ConfigError(f"invalid sink connection: {exc}") from exc
 
-        address_type = _ADDRESS_TYPES[sink_type][0]
-        points = parsed.get("points")
-        if isinstance(points, list):
-            parsed_points: list[object] = []
-            for raw_point in points:
-                if not isinstance(raw_point, dict):
-                    parsed_points.append(raw_point)
-                    continue
-                point = dict(raw_point)
-                address = point.get("address")
-                if isinstance(address, dict):
-                    try:
-                        point["address"] = address_type.model_validate(address)
-                    except ConfigError:
-                        raise
-                    except Exception as exc:
-                        raise ConfigError(f"invalid sink point address: {exc}") from exc
-                parsed_points.append(point)
-            parsed["points"] = parsed_points
         return parsed
 
     @model_validator(mode="after")
@@ -236,27 +216,6 @@ class _SinkSchema(BaseModel):
         if not isinstance(self.connection, expected_connection):
             raise ConfigError(f"sink connection does not match type '{self.type}'")
 
-        refs: set[str] = set()
-        addresses: set[tuple[object, ...]] = set()
-        for point in self.points:
-            if point.ref is not None:
-                if point.ref in refs:
-                    raise ConfigError(f"duplicate sink point ref '{point.ref}'")
-                refs.add(point.ref)
-
-            point_label = point.ref or f"{point.source.device_id}.{point.source.point_id}"
-            allowed = _ADDRESS_TYPES[self.type]
-            if not isinstance(point.address, allowed):
-                raise ConfigError(
-                    f"sink point '{point_label}': address does not match "
-                    f"type '{self.type}'"
-                )
-            key = _address_key(point.address)
-            if key in addresses:
-                raise ConfigError(
-                    f"sink point '{point_label}': duplicate external address"
-                )
-            addresses.add(key)
         return self
 
 
