@@ -27,6 +27,8 @@ def test_redis_record_preserves_quality_and_time() -> None:
         "quality": "good",
         "timestamp": "2026-10-10T00:00:00Z",
         "source": "modbus",
+        "receive_time": "2026-10-10T00:00:00Z",
+        "device_time": None,
     }
 
 
