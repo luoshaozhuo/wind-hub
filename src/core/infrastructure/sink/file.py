@@ -60,6 +60,25 @@ class FileSink:
         archives = self._archives()
         self._sequence = next_segment_sequence([p.name for p in archives], base=self._path.name)
         existing_size = self._path.stat().st_size if self._path.exists() else 0
+        expected_header = next(iter_csv_rows([], include_header=True))
+        if existing_size:
+            with self._path.open("rb") as existing:
+                old_header = existing.readline()
+            if old_header != expected_header:
+                # CSV 字段变化时不得把新行追加到旧表头下。
+                opened_at = datetime.fromtimestamp(self._path.stat().st_mtime, UTC)
+                while True:
+                    name = segment_filename(
+                        self._path.name,
+                        opened_at=opened_at,
+                        sequence=self._sequence,
+                    )
+                    self._sequence += 1
+                    archive = self._path.with_name(name)
+                    if not archive.exists():
+                        break
+                self._path.rename(archive)
+                existing_size = 0
         now = (
             datetime.fromtimestamp(self._path.stat().st_mtime, UTC)
             if existing_size
