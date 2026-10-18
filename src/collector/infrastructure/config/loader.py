@@ -8,7 +8,7 @@ from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
-from core.application.sink_contract import ModbusSinkAddress, ResolvedSinkPoint
+from core.application.sink_contract import ModbusSinkAddress, ResolvedSink, ResolvedSinkPoint
 from core.domain import Device, DeviceId, Sink, Task
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.sink_schema import (
@@ -193,7 +193,7 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                 task.task_id: output.key_prefix or connection.get("key_prefix", "wind-hub")
                 for task, output in task_outputs
             }
-        result[sink_id] = Sink(
+        result[sink_id] = ResolvedSink(
             sink_id=sink.sink_id,
             kind=sink.kind,
             enabled=sink.enabled,
