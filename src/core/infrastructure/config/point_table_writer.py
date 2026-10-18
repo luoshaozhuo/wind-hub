@@ -30,16 +30,10 @@ def dump_point_tables(
     definitions: Mapping[str, Mapping[str, Any]] | None = None,
     baseline: Mapping[PointTableId, PointTable] | None = None,
 ) -> dict[str, Any]:
-    """以完整子表与父表的字段差异输出 parent_id / remove_points / points。
-
-    子表 ``points`` 是 Mapping（Key 即 Point ID），条目只携带相对父表
-    变化的字段；加载端按「父表展开 + 条目合并」还原，与 Writer 使用同一
-    套 Schema。生成语义等价的精简 YAML，不保留原注释及字段书写习惯。
-    """
+    """输出继承式 YAML；保留显式覆盖字段，且与当前有效点集一致。"""
     result: dict[str, Any] = {}
     for table_id, table in tables.items():
-        # 原始声明比展开后的差异更准确：保留显式等值覆盖的意图。
-        # 一旦本表或父表被修改，回退到当前领域点表的差异重建。
+        # 对未变化的点表保留原始配置；变化时仍保留原来显式声明的字段。
         parent_unchanged = (
             table.parent_id is None
             or (baseline is not None and tables.get(table.parent_id) == baseline.get(table.parent_id))
@@ -69,6 +63,12 @@ def dump_point_tables(
             if parent is not None and point_id in parent.points:
                 previous = _point_dict(parent.points[point_id])
                 changes = {key: value for key, value in current.items() if value != previous.get(key)}
+                original = (definitions or {}).get(str(table_id), {}).get("points", {}).get(point_id, {})
+                for field in original:
+                    if field in current:
+                        # 即使与当前父表相等，也保留显式覆盖；父表更新不会
+                        # 意外改变子表已指定字段的继承语义。
+                        changes[field] = current[field]
                 if "business_point_id" in previous and "business_point_id" not in current:
                     changes["business_point_id"] = point_id
                 if not changes:
