@@ -651,6 +651,28 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
         )
         tasks = _tasks(task_document)
         sinks = _sinks(sink_document)
+        for task in tasks.values():
+            for output in task.outputs:
+                sink = sinks.get(output.sink_id)
+                if sink is None:
+                    raise ConfigError(
+                        f"Task '{task.task_id}' references unknown Sink '{output.sink_id}'"
+                    )
+                if output.key_prefix is not None and sink.kind != "redis":
+                    raise ConfigError(
+                        f"Task '{task.task_id}' key_prefix requires a Redis Sink"
+                    )
+                if output.points:
+                    parse_sink_definitions({
+                        "sinks": {
+                            output.sink_id: {
+                                "type": sink.kind,
+                                "enabled": sink.enabled,
+                                "connection": _yaml_plain(sink.connection),
+                                "points": [_yaml_plain(point) for point in output.points],
+                            }
+                        }
+                    })
         validate_core_config(
             units=units,
             device_types=types,
