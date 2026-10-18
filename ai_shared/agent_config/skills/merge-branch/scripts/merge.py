@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and squash-merge current task PR without switching local branches."""
+"""Validate and squash-merge current task PR then synchronize local main and clean up."""
 
 from __future__ import annotations
 
@@ -206,6 +206,48 @@ def verify_merged(pr_number: int) -> dict[str, Any]:
     return {"state": "MERGED", "pr": pr_number, "squash_sha": commit, "url": pr["url"]}
 
 
+
+def finalize_local(pr: dict[str, Any], squash_sha: str) -> dict[str, Any]:
+    """Fast-forward local main and remove the verified merged task branch."""
+    branch = str(pr["headRefName"])
+    head_sha = str(pr["headRefOid"])
+    if not branch or branch in {"main", "master"}:
+        raise BlockedError("不允许清理主分支")
+    if command("git", "branch", "--show-current") != branch:
+        raise BlockedError("当前任务分支已变化")
+    if command("git", "status", "--porcelain"):
+        raise BlockedError("工作区不干净")
+    if command("git", "rev-parse", "HEAD") != head_sha:
+        raise BlockedError("任务分支 HEAD 与合并的 PR 不一致")
+    command("git", "fetch", "origin", "main")
+    proof = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", squash_sha, "origin/main"],
+        check=False,
+    )
+    if proof.returncode:
+        raise BlockedError("Squash Commit 未进入 origin/main")
+    old_main = command("git", "rev-parse", "refs/heads/main")
+    ff = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", old_main, "origin/main"],
+        check=False,
+    )
+    if ff.returncode:
+        raise BlockedError("本地 main 已分叉，禁止覆盖")
+    worktrees = command("git", "worktree", "list", "--porcelain")
+    if "branch refs/heads/main" in worktrees.splitlines():
+        raise BlockedError("main 正被其他 worktree 使用")
+    command("git", "switch", "main")
+    command("git", "merge", "--ff-only", "origin/main")
+    local_head = command("git", "rev-parse", "HEAD")
+    if local_head != command("git", "rev-parse", "origin/main"):
+        raise BlockedError("本地 main 同步失败")
+    if command("git", "rev-parse", f"refs/heads/{branch}") != head_sha:
+        raise BlockedError("任务分支引用已变化，拒绝删除")
+    command("git", "branch", "-D", branch)
+    return {"local_branch": "main", "local_head": local_head,
+            "deleted_local_branch": branch}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", nargs="?", choices=("check", "merge"), default="merge")
@@ -216,7 +258,15 @@ def main() -> int:
         args.pr = int(current_pr["number"])
     info = inspect(args.pr)
     if info["state"] == "MERGED":
-        print(json.dumps(verify_merged(args.pr), ensure_ascii=False))
+        merged = verify_merged(args.pr)
+        if args.action == "merge":
+            try:
+                merged.update(finalize_local(info["pr"], merged["squash_sha"]))
+                merged["state"] = "MERGED_AND_CLEANED"
+            except BlockedError as exc:
+                merged["state"] = "MERGED_LOCAL_CLEANUP_BLOCKED"
+                merged["local_cleanup_error"] = str(exc)
+        print(json.dumps(merged, ensure_ascii=False))
         return 0
     if args.action == "check":
         pr = info["pr"]
@@ -278,6 +328,12 @@ def main() -> int:
     merged = verify_merged(args.pr)
     merged["ci"] = info["ci"]
     merged["local_validation_seconds"] = validation_elapsed
+    try:
+        merged.update(finalize_local(pr, merged["squash_sha"]))
+        merged["state"] = "MERGED_AND_CLEANED"
+    except BlockedError as exc:
+        merged["state"] = "MERGED_LOCAL_CLEANUP_BLOCKED"
+        merged["local_cleanup_error"] = str(exc)
     print(json.dumps(merged, ensure_ascii=False))
     return 0
 
