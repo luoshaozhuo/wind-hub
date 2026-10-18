@@ -113,6 +113,7 @@ class _Session:
     reads: dict[Address, _ReadRequest] = field(default_factory=dict)
     commands: dict[Address, asyncio.Future[bool]] = field(default_factory=dict)
     interrogations: dict[int, asyncio.Future[None]] = field(default_factory=dict)
+    interrogation_qoi: dict[int, int] = field(default_factory=dict)
 
     def originator(self) -> int:
         """分配 1..255 的始发地址（诊断用；响应关联以完整地址+串行锁为准）。"""
@@ -551,31 +552,34 @@ class IEC104Driver:
     # 总召
     # ------------------------------------------------------------------
 
-    async def interrogate(self, common_address: int | None = None) -> None:
+    async def interrogate(self, common_address: int | None = None, *, qoi: int = 20) -> None:
         """对指定 CA（缺省：全部已配置 CA 逐个）发送 C_IC_NA_1 站总召。
 
         以每个 CA 的 ACT_TERM（或否定确认）为完成依据；请求发送成功
         不代表总召完成。ACT_TERM 只表示协议总召流程结束，业务测点完整性
         由 Collector 判断。
         """
+        if not isinstance(qoi, int) or isinstance(qoi, bool) or not 20 <= qoi <= 36:
+            raise ConfigError("IEC104 interrogation QOI must be an integer in 20..36")
         if common_address is None:
             for ca in self._config.common_addresses:
-                await self._interrogate_one(ca)
+                await self._interrogate_one(ca, qoi=qoi)
             return
         if common_address not in self._config.common_addresses:
             raise ConfigError(
                 f"IEC104 common address {common_address} is not configured "
                 f"(configured: {list(self._config.common_addresses)})"
             )
-        await self._interrogate_one(common_address)
+        await self._interrogate_one(common_address, qoi=qoi)
 
-    async def _interrogate_one(self, ca: int) -> None:
+    async def _interrogate_one(self, ca: int, *, qoi: int) -> None:
         session = self._require_session()
         async with self._gi_locks.locked(ca):
             if self._session is not session:
                 raise ProtocolConnectionError("IEC104 session changed during interrogation")
             future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
             session.interrogations[ca] = future
+            session.interrogation_qoi[ca] = qoi
             try:
                 await self._send(
                     session,
@@ -584,7 +588,7 @@ class IEC104Driver:
                             is_test=False,
                             originator_address=session.originator(),
                             asdu_address=ca,
-                            request=20,  # QOI = station-wide interrogation
+                            request=qoi,
                             is_negative_confirm=False,
                             cause=iec101.CommandReqCause.ACTIVATION,
                         )
@@ -598,6 +602,7 @@ class IEC104Driver:
                     ) from exc
             finally:
                 session.interrogations.pop(ca, None)
+                session.interrogation_qoi.pop(ca, None)
 
     # ------------------------------------------------------------------
     # 推送：只有本地监听，没有远程订阅
@@ -801,7 +806,7 @@ class IEC104Driver:
         session: _Session,
         message: iec101.InterrogationMsg,
     ) -> None:
-        if message.request != 20:
+        if message.request != session.interrogation_qoi.get(message.asdu_address):
             return
         waiter = session.interrogations.get(message.asdu_address)
         if waiter is None or waiter.done():
