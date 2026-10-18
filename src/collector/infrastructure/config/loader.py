@@ -68,9 +68,18 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
     result: dict[str, Sink] = {}
     for sink_id, sink in snapshot.sinks.items():
         points = []
+        task_points = [
+            raw
+            for task in snapshot.tasks.values()
+            for output in task.outputs
+            if output.sink_id == sink_id
+            for raw in output.points
+        ]
+        if sink.points and task_points:
+            raise ConfigError(f"Sink '{sink_id}' mixes sink-level and task-level point maps")
         refs: set[str] = set()
         addresses: dict[tuple[int, str], list[tuple[int, int]]] = {}
-        for raw in sink.points:
+        for raw in (*sink.points, *task_points):
             source = raw["source"]
             device_id = DeviceId(source["device_id"])
             device = snapshot.site.devices.get(device_id)
