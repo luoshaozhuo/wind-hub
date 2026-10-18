@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 _ADSERR_CLIENT_TIMEOUT = 1861
 
 
-NotificationKey = tuple[int, int, int, int, float]
+NotificationKey = tuple[int, int, int, int, float, float]
 
 
 @dataclass(slots=True)
