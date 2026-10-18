@@ -420,7 +420,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'turbine_modbus',
     point_group: 'all',
     interval: 1,
-    sinks: ['file_archive', 'modbus_main'],
+    sinks: ['redis_main', 'modbus_main'],
     enabled: true,
     running: true,
   },
@@ -430,7 +430,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'turbine_ads',
     point_group: 'all',
     interval: 1,
-    sinks: ['file_archive'],
+    sinks: ['redis_main'],
     enabled: true,
     running: true,
   },
@@ -440,7 +440,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'turbine_iec104',
     point_group: 'all',
     interval: 5,
-    sinks: ['file_archive'],
+    sinks: ['redis_main'],
     enabled: true,
     running: false,
   },
@@ -450,7 +450,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'storage_pcs',
     point_group: 'fast',
     interval: 1,
-    sinks: ['file_archive', 'redis_main'],
+    sinks: ['redis_main', 'redis_main'],
     enabled: true,
     running: false,
   },
@@ -460,7 +460,7 @@ export const tasksSeed: MockTask[] = [
     device_group: null,
     point_group: 'status',
     interval: 5,
-    sinks: ['file_archive'],
+    sinks: ['redis_main'],
     enabled: false,
     running: false,
   },
@@ -471,7 +471,7 @@ export const tasksSeed: MockTask[] = [
     device_group: null,
     point_group: 'status',
     interval: 5,
-    sinks: ['file_archive'],
+    sinks: ['redis_main'],
     enabled: true,
     running: false,
   },
@@ -483,7 +483,7 @@ export const tasksSeed: MockTask[] = [
 // ---------------------------------------------------------------------------
 export interface MockSink {
   name: string
-  type: 'file' | 'redis' | 'modbus'
+  type: 'redis' | 'modbus'
   enabled: boolean
   connection: Record<string, unknown>
   has_password?: boolean
@@ -510,7 +510,7 @@ export const sinksSeed: MockSink[] = [
     connection: { host: '127.0.0.1', port: 1502 },
   },
   {
-    name: 'file_archive',
+    name: 'redis_main',
     type: 'file',
     enabled: true,
     connection: { path: '/var/tmp/wind-hub/archive', max_size_mb: 100, retention_days: 30 },
