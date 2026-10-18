@@ -73,6 +73,7 @@ class FileSinkConnection(BaseModel):
     path: str
     max_size_mb: float = Field(default=100, gt=0, allow_inf_nan=False)
     max_files: int = Field(default=30, ge=1)
+    retention_days: int = Field(default=30, ge=1)
 
     @field_validator("path")
     @classmethod
