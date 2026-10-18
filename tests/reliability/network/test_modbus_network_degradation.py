@@ -121,7 +121,9 @@ class TestDelayAndJitter:
         self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-01：10ms→50ms 延迟阶梯——无假断连、零重连、数据连续。"""
-        proc, redis_address = await _start_stack(collector_factory, netem_link, tmp_path, redis_service)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         for delay_ms in (10, 50):
@@ -138,7 +140,9 @@ class TestDelayAndJitter:
         self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-02：20ms±10ms 抖动——健康状态稳定，无重连风暴。"""
-        proc, redis_address = await _start_stack(collector_factory, netem_link, tmp_path, redis_service)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         netem_link.apply(NetemScenario(name="jitter_20ms_10ms", delay_ms=20, jitter_ms=10))
@@ -160,7 +164,9 @@ class TestPacketLoss:
         下允许极个别读超时（请求方向 TCP 重传预算内 4 次传输全丢概率
         ~1e-4/读），但绝不允许重连风暴，且清除后必须恢复。
         """
-        proc, redis_address = await _start_stack(collector_factory, netem_link, tmp_path, redis_service)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         netem_link.apply(NetemScenario(name="loss_1pct", loss_pct=1))
@@ -194,7 +200,9 @@ class TestPacketLoss:
         与「停 modbus 服务」不同：黑洞下 TCP 连接本身不死，只能靠读
         超时检测——这是现场基站掉线的真实形态。
         """
-        proc, redis_address = await _start_stack(collector_factory, netem_link, tmp_path, redis_service)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         netem_link.apply(NetemScenario(name="blackhole", loss_pct=100))
@@ -246,7 +254,9 @@ class TestShortFlap:
         self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-05a：500ms 闪断（< 读超时 2s）——TCP 重传吸收，不得重建连接。"""
-        proc, redis_address = await _start_stack(collector_factory, netem_link, tmp_path, redis_service)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         await netem_link.outage(0.5)
@@ -260,7 +270,9 @@ class TestShortFlap:
         self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-05b：2s 闪断（≈读超时）——允许一次断连重连，但必须自动恢复。"""
-        proc, redis_address = await _start_stack(collector_factory, netem_link, tmp_path, redis_service)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
 
         await netem_link.outage(2.0)
 
@@ -276,7 +288,9 @@ class TestShortFlap:
         self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-05c：5s 闪断（> 读超时）——必须判断连、退避、恢复后重连出数。"""
-        proc, redis_address = await _start_stack(collector_factory, netem_link, tmp_path, redis_service)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         outage = asyncio.create_task(netem_link.outage(5.0))
