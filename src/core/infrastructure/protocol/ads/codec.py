@@ -98,6 +98,8 @@ def compile_notification_blocks(
     if current:
         append_block()
     return tuple(blocks)
+
+
 def _plc_datatype(ads_name: str) -> Any:
     datatype = getattr(pyads, f"PLCTYPE_{ads_name}", None)
     if datatype is None:
