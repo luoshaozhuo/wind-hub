@@ -12,10 +12,10 @@
 #
 # connection 字段：
 # - file:
-#     path:        输出 CSV 文件路径或目录（必填；目录时按段文件写入）。
+#     path:        CSV 归档根目录（必填；不得指定单个 .csv 文件）。
+#                  路径：{path}/{task_id}/{device_id}/{YYYY}/{MM}/{YYYYMMDD}_{index}.csv
 #     max_size_mb: float > 0，默认 100 —— 单段文件最大容量，超过即轮转。
-#     max_files:   int >= 1，默认 30 —— 段文件保留数量（保留策略），
-#                  超出后最旧段文件被回收。
+#     retention_days: int >= 1，默认 30 —— 保留 UTC 自然日数。
 # - redis:
 #     host:       str，默认 localhost。
 #     port:       int 1..65535，默认 6379。
@@ -48,7 +48,7 @@
 
 sinks:
 
-  # CSV 文件归档（段文件轮转：单段 100 MB、保留 30 段）
+  # CSV 文件归档（单文件最多 100 MB，保留 30 天）
   file_archive:
     type: file
     enabled: true
