@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from core.application import ConfigError, ConnectionHealth
 from core.application.port import SinkPort
-from core.application.sink_contract import ModbusSinkAddress, ResolvedSinkPoint
+from core.application.sink_contract import ModbusSinkAddress, ResolvedSink, ResolvedSinkPoint
 from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import ModbusSinkConnection
@@ -32,6 +32,8 @@ class ModbusSink(SinkPort):
             for task_id, sources in raw_sources.items()
         }
         connection = ModbusSinkConnection.model_validate(connection_values)
+        if not isinstance(config, ResolvedSink):
+            raise ConfigError("Modbus Sink requires resolved Task output mapping")
         points = [ResolvedSinkPoint.model_validate(dict(p)) for p in config.points]
         for point in points:
             if not isinstance(point.address, ModbusSinkAddress):
