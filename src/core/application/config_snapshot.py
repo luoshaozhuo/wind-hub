@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from typing import Any
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from core.domain import (
@@ -40,6 +41,9 @@ class ConfigSnapshot:
     business_points: Mapping[BusinessPointId, BusinessPoint]
     tasks: Mapping[str, Task]
     sinks: Mapping[str, Sink]
+    # 原始点表声明仅供配置写回，不参与领域点解析和运行时访问。
+    point_table_definitions: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    point_table_baseline: Mapping[PointTableId, PointTable] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in (
@@ -50,5 +54,7 @@ class ConfigSnapshot:
             "business_points",
             "tasks",
             "sinks",
+            "point_table_definitions",
+            "point_table_baseline",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
