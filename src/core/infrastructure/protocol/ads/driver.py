@@ -565,7 +565,7 @@ class ADSDriver:
     async def subscribe(
         self,
         point_ids: Sequence[str],
-        callback: Callable[[ProtocolSample], Awaitable[None]],
+        callback: Callable[[tuple[ProtocolSample, ...]], Awaitable[None]],
         *,
         interval: float | None = None,
     ) -> _TrackedADSSubscription:
@@ -923,7 +923,7 @@ class ADSDriver:
     async def listen(
         self,
         point_ids: Sequence[str],
-        callback: Callable[[ProtocolSample], Awaitable[None]],
+        callback: Callable[[tuple[ProtocolSample, ...]], Awaitable[None]],
         *,
         interval: float | None = None,
     ) -> ListenHandle:
