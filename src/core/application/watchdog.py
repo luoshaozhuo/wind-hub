@@ -57,6 +57,7 @@ class WatchdogUseCase:
         self._task: asyncio.Task[None] | None = None
         self._enabled = True
         self._generation = 0
+        self._restore_pending = False
 
     def configure(
         self,
@@ -98,7 +99,11 @@ class WatchdogUseCase:
                 message=f"health check failed: {exc}",
             )
 
-        if health.healthy or not self._enabled:
+        if not self._enabled:
+            return health
+        if health.healthy:
+            if self._restore_pending and self._on_success is not None:
+                await self._restore_after_connect(self._on_success)
             return health
 
         await self._reconnect_if_current(generation)
@@ -164,10 +169,18 @@ class WatchdogUseCase:
                     await self._connect()
                 self._generation += 1
 
-        # 外部回调不得在生命周期锁内执行，避免回调重入造成死锁。
+        # 恢复失败不应强制重建已健康的连接；在下一个健康周期单独重试。
+        self._restore_pending = callback is not None
         if callback is not None and self._enabled:
-            await callback()
+            await self._restore_after_connect(callback)
         return True
+
+    async def _restore_after_connect(self, callback: ReconnectCallback) -> None:
+        async with self._reconnect_lock:
+            if not self._enabled or not self._restore_pending:
+                return
+            await callback()
+            self._restore_pending = False
 
     async def _run(self) -> None:
         while self._enabled:
