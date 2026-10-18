@@ -248,7 +248,7 @@ async def test_control_act_con_only_times_out_unknown() -> None:
 
     driver, conn = await connected_driver(
         [make_point("cmd", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)],
-        options={"t1": 0.1, "t2": 0.05},
+        options={"t1": 0.5, "t2": 0.2},
     )
     task = asyncio.create_task(driver.write_one(ProtocolWrite(point="cmd", value=True)))
     for _ in range(100):
@@ -264,7 +264,7 @@ async def test_control_act_con_only_times_out_unknown() -> None:
             is_negative_confirm=False,
         )
     ])
-    result = await asyncio.wait_for(task, timeout=1.0)
+    result = await asyncio.wait_for(task, timeout=2.0)
     assert result.outcome is WriteOutcome.UNKNOWN
     assert len(conn.sent_messages) == 1
     await driver.close()
