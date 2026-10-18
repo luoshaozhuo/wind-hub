@@ -512,10 +512,12 @@ async def test_failed_sink_does_not_interrupt_healthy_sink_delivery() -> None:
     runtime = _runtime({"bad": bad, "good": good})
     await runtime.start()
     try:
-        await runtime.dispatch({
-            "bad": _delivery(_value(1.0)),
-            "good": _delivery(_value(2.0)),
-        })
+        await runtime.dispatch(
+            {
+                "bad": _delivery(_value(1.0)),
+                "good": _delivery(_value(2.0)),
+            }
+        )
         await asyncio.wait_for(failed.wait(), timeout=1.0)
         for _ in range(50):
             if good.batches:
