@@ -43,10 +43,11 @@ async def test_block_callback_delivers_two_samples_with_original_timestamp() -> 
     collected: list[ProtocolSample] = []
     finished = asyncio.Event()
 
-    async def callback(sample: ProtocolSample) -> None:
-        collected.append(sample)
-        if len(collected) == 2:
-            finished.set()
+    async def callback(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            collected.append(sample)
+            if len(collected) == 2:
+                finished.set()
 
     subscription = ADSSubscription(
         object(),
@@ -137,8 +138,9 @@ async def test_block_registration_failure_does_not_fallback() -> None:
 
     connection = Connection()
 
-    async def callback(sample: ProtocolSample) -> None:
-        del sample
+    async def callback(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            del sample
 
     subscription = ADSSubscription(
         connection,
@@ -201,9 +203,10 @@ async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.Monk
     samples: list[ProtocolSample] = []
     event = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        samples.append(sample)
-        event.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            samples.append(sample)
+            event.set()
 
     subscription = ADSSubscription(
         connection,
@@ -225,8 +228,9 @@ async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.Monk
 
 @pytest.mark.asyncio
 async def test_queue_drops_oldest_whole_block() -> None:
-    async def callback(sample: ProtocolSample) -> None:
-        del sample
+    async def callback(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            del sample
 
     subscription = ADSSubscription(
         object(),
@@ -271,10 +275,11 @@ async def test_worker_consumes_complete_blocks_in_order() -> None:
     received: list[str] = []
     complete = asyncio.Event()
 
-    async def callback(sample: ProtocolSample) -> None:
-        received.append(sample.point_id)
-        if len(received) == 4:
-            complete.set()
+    async def callback(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(sample.point_id)
+            if len(received) == 4:
+                complete.set()
 
     subscription = ADSSubscription(
         object(),
