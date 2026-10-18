@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from .driver import ADSDriver
     from .session import _AdsSession
 
+
 class _RouteState:
     """单个 AdsLib 目标路由（目标 Net ID；缺省退化为主机地址）的循环级状态。
 
