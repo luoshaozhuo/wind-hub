@@ -22,7 +22,9 @@ class RedisRecord:
     payload: str
 
 
-def encode_redis_record(config: RedisKeyOptions, point: PointValue) -> RedisRecord:
+def encode_redis_record(
+    config: RedisKeyOptions, point: PointValue, *, key_prefix: str | None = None
+) -> RedisRecord:
     """一设备一点一个 key，覆盖最新值，保留采样时间和质量。
 
     为防止设备/点名称中的冒号导致键路径歧义，使用长度前缀编码。
@@ -30,7 +32,8 @@ def encode_redis_record(config: RedisKeyOptions, point: PointValue) -> RedisReco
     """
     device = point.device_id
     name = point.point_id
-    key = f"{config.key_prefix}:{len(device)}:{device}:{len(name)}:{name}"
+    prefix = key_prefix if key_prefix is not None else config.key_prefix
+    key = f"{prefix}:{len(device)}:{device}:{len(name)}:{name}"
     payload = json.dumps(
         {
             "value": point.value,
