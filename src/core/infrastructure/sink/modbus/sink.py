@@ -25,7 +25,13 @@ class ModbusSink(SinkPort):
         return True
 
     def __init__(self, config: Sink) -> None:
-        connection = ModbusSinkConnection.model_validate(dict(config.connection))
+        connection_values = dict(config.connection)
+        raw_sources = connection_values.pop("task_sources", {})
+        self._task_sources = {
+            task_id: {(device, point) for device, point in sources}
+            for task_id, sources in raw_sources.items()
+        }
+        connection = ModbusSinkConnection.model_validate(connection_values)
         points = [ResolvedSinkPoint.model_validate(dict(p)) for p in config.points]
         for point in points:
             if not isinstance(point.address, ModbusSinkAddress):
@@ -50,6 +56,18 @@ class ModbusSink(SinkPort):
         if not batch:
             return
         self._data_path.update(batch)
+
+    async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
+        """Task 批次只允许更新本 Task 声明的共享寄存器映射。"""
+        allowed = self._task_sources.get(task_id, set())
+        if not allowed:
+            return
+        filtered = [
+            value for value in batch
+            if (value.device_id, value.point_id) in allowed
+        ]
+        if filtered:
+            self._data_path.update(filtered)
 
     async def flush(self) -> None:
         """内存 datastore 无额外 flush 动作。"""
