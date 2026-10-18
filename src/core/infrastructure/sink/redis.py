@@ -26,7 +26,9 @@ class RedisSink:
     """通过 SET 原子覆盖各点最新值，单连接串行 Pipeline。"""
 
     def __init__(self, config: Sink) -> None:
-        self._config = RedisSinkConnection.model_validate(dict(config.connection))
+        connection = dict(config.connection)
+        self._task_prefixes = dict(connection.pop("task_key_prefixes", {}))
+        self._config = RedisSinkConnection.model_validate(connection)
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
@@ -93,6 +95,9 @@ class RedisSink:
             await self._connect()
 
     async def write(self, batch: list[PointValue]) -> None:
+        await self.write_task("", batch)
+
+    async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
         if not batch:
             return
         async with self._lock:
@@ -104,7 +109,7 @@ class RedisSink:
                 commands = [
                     _command("SET", record.key, record.payload)
                     for point in batch
-                    for record in (encode_redis_record(self._config, point),)
+                    for record in (encode_redis_record(self._config, point, key_prefix=self._task_prefixes.get(task_id, self._config.key_prefix)),)
                 ]
                 self._writer.write(b"".join(commands))
                 await asyncio.wait_for(self._writer.drain(), timeout=self._config.timeout)
