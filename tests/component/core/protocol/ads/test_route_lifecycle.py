@@ -601,3 +601,34 @@ async def test_inline_cleanup_exception_quarantines_route() -> None:
     with pytest.raises(ProtocolError, match="quarantined"):
         await replacement.connect()
     assert not attempted.is_set()
+
+
+async def test_deregister_failure_does_not_skip_other_subscriptions() -> None:
+    """某个通知注销失败仍尝试注销其他通知，然后关闭底层连接。"""
+    driver = _driver()
+    conn = await _connect_ready(driver, [])
+    calls: list[str] = []
+
+    class Subscription:
+        def __init__(self, name: str, fail: bool) -> None:
+            self.name = name
+            self.fail = fail
+
+        def deactivate(self) -> None:
+            return None
+
+        async def stop_worker(self) -> None:
+            return None
+
+        async def deregister(self) -> None:
+            calls.append(self.name)
+            if self.fail:
+                raise OSError("injected deregister failure")
+
+    driver._subscriptions.add(Subscription("first", True))  # type: ignore[arg-type]
+    driver._subscriptions.add(Subscription("second", False))  # type: ignore[arg-type]
+    with pytest.raises(OSError, match="injected deregister failure"):
+        await driver.close()
+    assert sorted(calls) == ["first", "second"]
+    assert conn.close_calls == 1
+    assert _route_state(_NET).unsafe_reason is None
