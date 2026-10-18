@@ -63,8 +63,7 @@ class ModbusSink(SinkPort):
         if not allowed:
             return
         filtered = [
-            value for value in batch
-            if (value.device_id, value.point_id) in allowed
+            value for value in batch if (value.device_id, value.point_id) in allowed
         ]
         if filtered:
             self._data_path.update(filtered)
