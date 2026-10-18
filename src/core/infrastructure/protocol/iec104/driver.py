@@ -439,6 +439,7 @@ class IEC104Driver:
                 try:
                     return await asyncio.wait_for(future, timeout=self._config.t1)
                 except TimeoutError as exc:
+                    self._invalidate_session(session, "active read timed out")
                     raise ProtocolError(
                         f"IEC104 active read timed out for '{point_id}'"
                     ) from exc
@@ -515,6 +516,7 @@ class IEC104Driver:
                 try:
                     accepted = await asyncio.wait_for(future, timeout=self._config.t1 * 2)
                 except TimeoutError:
+                    self._invalidate_session(session, "command confirmation timed out")
                     return ProtocolWriteResult(
                         point_id=mapped.point_id,
                         outcome=WriteOutcome.UNKNOWN,
@@ -603,6 +605,7 @@ class IEC104Driver:
                     await asyncio.wait_for(future, timeout=self._config.t1 * 2)
                     return tuple(session.interrogation_samples[ca])
                 except TimeoutError as exc:
+                    self._invalidate_session(session, "interrogation timed out")
                     raise ProtocolError(
                         f"IEC104 general interrogation ACT_TERM timed out for ca={ca}"
                     ) from exc
@@ -889,6 +892,16 @@ class IEC104Driver:
         with contextlib.suppress(Exception):
             await session.conn.async_close()
 
+    def _invalidate_session(self, session: _Session, reason: str) -> None:
+        """请求超时后禁止复用会话，隔离无法关联的旧响应。"""
+        if self._session is not session:
+            return
+        self._session = None
+        session.enabled = False
+        self._fail_session(session, ProtocolConnectionError(reason))
+        if session.task is not None:
+            session.task.cancel()
+
     @classmethod
     def _fail_session(cls, session: _Session, exc: Exception) -> None:
         """结束会话内全部在途 Future（幂等）。命令路径把链路类异常映射为 UNKNOWN。"""
@@ -909,6 +922,8 @@ class IEC104Driver:
         session.reads.clear()
         session.commands.clear()
         session.interrogations.clear()
+        session.interrogation_qoi.clear()
+        session.interrogation_samples.clear()
 
     # ------------------------------------------------------------------
     # 索引与校验
