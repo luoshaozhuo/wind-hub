@@ -43,7 +43,7 @@ async def test_open_and_batch_insert(monkeypatch: pytest.MonkeyPatch) -> None:
     assert statements[0].startswith("CREATE STABLE IF NOT EXISTS")
     assert statements[1].startswith("INSERT INTO")
     assert statements[1].count(" USING ") == 2
-    assert await sink.health()
+    assert (await sink.health()).healthy
     await sink.close()
 
 
