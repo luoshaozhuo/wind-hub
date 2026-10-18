@@ -585,7 +585,7 @@ async def test_inline_cleanup_exception_quarantines_route() -> None:
 
     driver._new_connection = factory  # type: ignore[method-assign]
     # shutdown() 会把底层 close 异常收敛为 False；connect 最终报告建链失败。
-    with pytest.raises(ProtocolError, match="ADS connect failed"):
+    with pytest.raises(ProtocolError, match="cannot retry"):
         await driver.connect()
     route = _route_state(_NET)
     assert route.unsafe_reason is not None
