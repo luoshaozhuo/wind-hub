@@ -644,6 +644,8 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
             device_models=models,
             device_groups=groups,
             point_tables=point_tables,
+            point_table_baseline=point_tables,
+            point_table_definitions=_map(point_document.get("point_tables"), "points.point_tables"),
             business_points=business_points,
             tasks=tasks,
             sinks=sinks,
