@@ -29,7 +29,7 @@ coding.md
 frontend.md
 ```
 
-产品代码完成后运行与范围匹配的 Fast Gate。只有 `scripts/ci_scope.py` 判断存在 PR target 时才运行 `local-pr-gate`。
+开发、Commit、Push、创建 PR 不强制运行产品 Gate；开发中仅按需执行直接相关测试。最终受影响范围验证由用户调用 `//merge-branch` 统一触发。
 
 ## 4. Scope 规则
 
@@ -63,8 +63,8 @@ system-e2e
 
 | 场景 | Skill |
 |---|---|
-| 产品代码阶段完成 | `local-fast-gate` |
-| scope 存在 PR target | `local-pr-gate` |
+| 开发期间 | 按需运行定向检查，不强制 Gate |
+| 合并验收 | `merge-branch` 统一执行受影响范围验证 |
 | Release / tag | `local-release-gate` |
 | hardware/performance/soak | `local-qualification` |
 | 当前 SHA 的相关 CI 失败 | `ci-fix-loop` |
