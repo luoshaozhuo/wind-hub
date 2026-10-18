@@ -265,8 +265,9 @@ class TestInterrogateAndListen:
         drv = _driver(srv.port, [_point("meas.power", 100)])
         received: list[ProtocolSample] = []
 
-        async def cb(sample: ProtocolSample) -> None:
-            received.append(sample)
+        async def cb(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                received.append(sample)
 
         try:
             await drv.connect()
@@ -301,8 +302,9 @@ class TestInterrogateAndListen:
         await driver.connect()
         received: list[ProtocolSample] = []
 
-        async def cb(sample: ProtocolSample) -> None:
-            received.append(sample)
+        async def cb(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                received.append(sample)
 
         await driver.listen((), cb)
         await driver.close()
