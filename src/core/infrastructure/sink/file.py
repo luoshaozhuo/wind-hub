@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+import stat
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -67,34 +68,82 @@ class FileSink:
         return os.open(path, flags, 0o640)
 
     def _append_rows(self, directory: Path, day: str, values: list[PointValue]) -> None:
+        """每个分段只打开、验证一次；按行边界聚合写入。"""
         directory.mkdir(parents=True, exist_ok=True)
         if not self._within_root(directory):
             raise SinkError(f"archive directory escapes root via symlink: {directory}")
         header = next(iter_csv_rows([], include_header=True))
         max_size = self._policy.max_size_bytes
+        flags = os.O_RDWR | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
         index = 0
-        nofollow = getattr(os, "O_NOFOLLOW", 0)
-        for row in iter_csv_rows(values):
+        file = None
+        size = 0
+        has_records = False
+        pending = bytearray()
+
+        def close_segment() -> None:
+            nonlocal file, pending
+            if file is not None:
+                try:
+                    if pending:
+                        file.write(pending)
+                        pending.clear()
+                    file.flush()
+                finally:
+                    file.close()
+                    file = None
+
+        def open_segment() -> None:
+            nonlocal file, size, has_records, index
             while True:
                 path = directory / f"{day}_{index:03d}.csv"
-                size = path.stat().st_size if path.exists() else 0
-                if size:
-                    if path.is_symlink():
-                        raise SinkError(f"refusing to write through symlink: {path}")
-                    fd = self._open_segment(path, os.O_RDONLY | nofollow)
-                    with os.fdopen(fd, "rb") as existing:
-                        if existing.readline() != header:
+                fd = self._open_segment(path, flags)
+                try:
+                    metadata = os.fstat(fd)
+                    if not stat.S_ISREG(metadata.st_mode):
+                        raise SinkError(f"CSV segment is not a regular file: {path}")
+                    candidate = os.fdopen(fd, "r+b", buffering=0)
+                except BaseException:
+                    os.close(fd)
+                    raise
+                try:
+                    size = metadata.st_size
+                    if size:
+                        if candidate.readline() != header:
                             raise SinkError(f"CSV header does not match: {path}")
-                # 超过容量后写入下一个分段。单行超过上限时仍允许独占分段。
-                if size and size + len(row) > max_size:
+                    else:
+                        candidate.write(header)
+                        size = len(header)
+                    has_records = size > len(header)
+                    # 已满分段（包括历史超长记录）不再追加。
+                    if has_records and size >= max_size:
+                        candidate.close()
+                        index += 1
+                        continue
+                    file = candidate
+                    return
+                except BaseException:
+                    candidate.close()
+                    raise
+
+        try:
+            open_segment()
+            for row in iter_csv_rows(values):
+                # 表头计入容量；单条超大记录允许独占一个分段。
+                if has_records and size + len(row) > max_size:
+                    close_segment()
                     index += 1
-                    continue
-                write_flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | nofollow
-                with os.fdopen(self._open_segment(path, write_flags), "ab") as file:
-                    if size == 0:
-                        file.write(header)
-                    file.write(row)
-                break
+                    open_segment()
+                pending.extend(row)
+                size += len(row)
+                has_records = True
+                # 单行大于容量时，后续记录强制进入下一个分段。
+                if len(pending) >= 256 * 1024:
+                    assert file is not None
+                    file.write(pending)
+                    pending.clear()
+        finally:
+            close_segment()
 
     def _cleanup(self, *, force: bool = False) -> None:
         now = time.monotonic()
