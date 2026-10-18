@@ -99,9 +99,11 @@ async def test_multiple_blocks_deliver_only_their_own_fields(
     fake_pyads: _Connection,
 ) -> None:
     received: list[tuple[str, object, Quality]] = []
+    received_batches: list[tuple[str, ...]] = []
     got_second = asyncio.Event()
 
     async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        received_batches.append(tuple(sample.point_id for sample in samples))
         for sample in samples:
             received.append((sample.point_id, sample.value, sample.quality))
             if len(received) == 3:
@@ -123,6 +125,7 @@ async def test_multiple_blocks_deliver_only_their_own_fields(
         fake_pyads.fire(first_handle, struct.pack("<ff", 1.5, -2.0))
         fake_pyads.fire(second_handle, struct.pack("<f", 7.5))
         await asyncio.wait_for(got_second.wait(), timeout=1.0)
+        assert received_batches == [("a", "b"), ("c",)]
         assert received == [
             ("a", 1.5, Quality.GOOD),
             ("b", -2.0, Quality.GOOD),
