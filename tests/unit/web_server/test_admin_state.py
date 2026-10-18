@@ -42,8 +42,8 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
         sinks=[
             AdminSinkItem(
                 name="s1",
-                type="file",
-                connection={"path": "/tmp/out"},
+                type="redis",
+                connection={"host": "127.0.0.1"},
             )
         ],
         definitions=AdminDefinitionsState(
