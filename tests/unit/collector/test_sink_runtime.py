@@ -496,3 +496,34 @@ async def test_task_aware_sink_receives_distinct_task_identities() -> None:
         ("fast", 42.0),
         ("slow", 42.0),
     ]
+
+
+async def test_failed_sink_does_not_interrupt_healthy_sink_delivery() -> None:
+    """同一批次扇出：一个 Sink 写失败，不应中断另一个 Sink 消费。"""
+    failed = asyncio.Event()
+
+    class RejectingSink(FakeSink):
+        async def write(self, batch: list[PointValue]) -> None:
+            failed.set()
+            raise ConnectionError("output unavailable")
+
+    bad = RejectingSink()
+    good = FakeSink()
+    runtime = _runtime({"bad": bad, "good": good})
+    await runtime.start()
+    try:
+        await runtime.dispatch({
+            "bad": _delivery(_value(1.0)),
+            "good": _delivery(_value(2.0)),
+        })
+        await asyncio.wait_for(failed.wait(), timeout=1.0)
+        for _ in range(50):
+            if good.batches:
+                break
+            await asyncio.sleep(0.01)
+
+        assert runtime.write_failures()["bad"] >= 1
+        assert len(good.batches) == 1
+        assert good.batches[0][0].value == 2.0
+    finally:
+        await runtime.stop()
