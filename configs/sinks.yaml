@@ -7,8 +7,6 @@
 #   enabled:    bool，默认 true；enabled Task 不允许引用 disabled Sink；
 #               同一 host:port 不允许两个 enabled 的 Modbus Sink。
 #   connection: Mapping（必填）—— 按 type 不同（见下）。
-#   points:     list，默认 [] —— 输出点映射（见下）；只有显式映射的点
-#               会被导出，空列表表示不导出任何点。
 #
 # connection 字段：
 # - file:
@@ -28,7 +26,7 @@
 #     host: str，默认 0.0.0.0 —— 监听地址。
 #     port: int 1..65535，默认 502。
 #
-# points 条目字段：
+# Task outputs[].points 条目字段（仅在 tasks.yaml 声明）：
 #   source:    必填 —— 内部点引用：{device_id, point_id}，必须存在于
 #              该设备绑定点表（继承展开后）。
 #   ref:       str，可选 —— 对外引用名，缺省 "<device_id>.<point_id>"；
@@ -56,10 +54,6 @@ sinks:
       path: /var/tmp/wind-hub/archive
       max_size_mb: 100
       retention_days: 30
-    points:
-      - source: {device_id: modbus-001, point_id: active_power}
-        ref: modbus_001_active_power
-        address: {field: modbus_001_active_power}
 
   # Redis 最新值输出
   redis_latest:
@@ -79,13 +73,3 @@ sinks:
     connection:
       host: "0.0.0.0"
       port: 1502
-    points:
-      - source: {device_id: modbus-001, point_id: active_power}
-        ref: modbus_001_active_power
-        datatype: float32
-        address:
-          slave_id: 1
-          register_type: holding
-          address: 0
-          byte_order: big
-          word_order: big
