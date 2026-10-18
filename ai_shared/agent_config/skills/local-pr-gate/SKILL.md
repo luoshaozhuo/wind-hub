@@ -1,9 +1,11 @@
 ---
 name: local-pr-gate
-description: Run only targeted integration/system/E2E checks selected by the current product-code risk scope before PR merge.
+description: Legacy optional targeted tests; merge-branch is the sole mandatory validation entry.
 ---
 
-# Local PR Gate
+# Local PR Gate（可选诊断，不自动调用）
+
+本 Skill 不再是 PR 创建前的强制阶段。普通交付由 `//merge-branch` 统一触发验收。
 
 普通 L1 产品代码不需要额外重型测试；Fast Gate 即可。
 
