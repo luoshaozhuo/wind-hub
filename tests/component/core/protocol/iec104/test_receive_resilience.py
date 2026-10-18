@@ -134,12 +134,16 @@ async def test_dispatch_exception_does_not_stop_receive_worker(
     original_dispatch = driver._dispatch
     calls = 0
 
-    def flaky_dispatch(session: object, message: object) -> None:
+    def flaky_dispatch(
+        session: object, message: object, *,
+        receive_time: datetime | None = None,
+        batch: list[ProtocolSample] | None = None,
+    ) -> None:
         nonlocal calls
         calls += 1
         if calls == 1:
             raise RuntimeError("dispatch bug simulation")
-        original_dispatch(session, message)
+        original_dispatch(session, message, receive_time=receive_time, batch=batch)
 
     monkeypatch.setattr(driver, "_dispatch", flaky_dispatch)
     conn.deliver([floating_data_msg(1, 100, 1.0)])
