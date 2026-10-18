@@ -32,7 +32,7 @@ from core.application.sink_contract import (
     StreamSinkAddress,
 )
 
-SINK_TYPES = frozenset({"modbus", "redis"})
+SINK_TYPES = frozenset({"modbus", "redis", "tdengine"})
 
 SINK_NUMERIC_DATA_TYPES = frozenset(
     {
@@ -108,23 +108,56 @@ class RedisSinkConnection(BaseModel):
         return value
 
 
+class TDengineSinkConnection(BaseModel):
+    """TDengine taosAdapter REST SQL 连接；database 必须预先创建。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    host: str = "localhost"
+    port: int = Field(default=6041, ge=1, le=65535)
+    database: str = "wind_hub"
+    stable: str = "point_values"
+    username: str = "root"
+    password: SecretStr
+    timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+    tls: bool = False
+
+    @field_validator("database", "stable")
+    @classmethod
+    def _identifier(cls, value: str) -> str:
+        if not value.isascii() or not value.replace("_", "").isalnum():
+            raise ValueError("TDengine identifier must contain only ASCII letters, digits and _")
+        if not value or value[0].isdigit():
+            raise ValueError("TDengine identifier must start with a letter or _")
+        return value
+
+    @field_validator("host", "username")
+    @classmethod
+    def _not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("TDengine host and username must be non-empty")
+        return value
+
+
 class ModbusSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     host: str = "0.0.0.0"
     port: int = Field(default=502, ge=1, le=65535)
 
 
-SinkConnection = ModbusSinkConnection | RedisSinkConnection
+SinkConnection = ModbusSinkConnection | RedisSinkConnection | TDengineSinkConnection
 
 
 _CONNECTION_TYPES: dict[str, type[BaseModel]] = {
     "modbus": ModbusSinkConnection,
     "redis": RedisSinkConnection,
+    "tdengine": TDengineSinkConnection,
 }
 
 _ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
     "modbus": (ModbusSinkAddress,),
     "redis": (StreamSinkAddress,),
+    "tdengine": (StreamSinkAddress,),
 }
 
 
@@ -267,6 +300,7 @@ __all__ = [
     "MODBUS_WORD_WIDTH",
     "ModbusSinkConnection",
     "RedisSinkConnection",
+    "TDengineSinkConnection",
     "SinkPoint",
 ]
 
