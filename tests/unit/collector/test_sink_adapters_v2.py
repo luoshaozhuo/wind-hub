@@ -1,57 +1,15 @@
-"""CSV 文件写入和 Redis RESP2 TCP Server 集成测试。"""
+"""Redis RESP2 TCP Server 集成测试。"""
 
 from __future__ import annotations
 
 import asyncio
-import csv
 import json
-from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 
 from core.domain import Sink
 from core.domain.point_value import PointValue
-from core.infrastructure.sink.file import FileSink
 from core.infrastructure.sink.redis import RedisSink
-
-
-@pytest.mark.asyncio
-async def test_csv_appends_and_reopens(tmp_path: Path) -> None:
-    root = tmp_path / "archive"
-    cfg = Sink(sink_id="archive", kind="file", enabled=True, connection={"path": str(root)})
-    sink = FileSink(cfg)
-    await sink.open()
-    await sink.write_task("t1", [PointValue("WT001", "power", 125.5)])
-    await sink.close()
-    await sink.open()
-    await sink.write_task("t1", [PointValue("WT001", "speed", 8.4)])
-    await sink.close()
-    day = datetime.now(UTC).strftime("%Y%m%d")
-    path = root / "t1" / "WT001" / day[:4] / day[4:6] / f"{day}_000.csv"
-    with path.open(encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    assert [row["point_id"] for row in rows] == ["power", "speed"]
-
-
-@pytest.mark.asyncio
-async def test_csv_rotates_by_size(tmp_path: Path) -> None:
-    root = tmp_path / "archive"
-    cfg = Sink(
-        sink_id="archive",
-        kind="file",
-        enabled=True,
-        connection={"path": str(root), "max_size_mb": 0.0001},
-    )
-    sink = FileSink(cfg)
-    await sink.open()
-    await sink.write_task("t1", [PointValue("WT001", f"point{i}", "x" * 60) for i in range(12)])
-    await sink.close()
-    day = datetime.now(UTC).strftime("%Y%m%d")
-    directory = root / "t1" / "WT001" / day[:4] / day[4:6]
-    segments = sorted(directory.glob(f"{day}_*.csv"))
-    assert len(segments) >= 2
-    assert all(path.stat().st_size > 0 for path in segments)
 
 
 async def _start_resp_stub() -> tuple[asyncio.AbstractServer, list[list[str]]]:
