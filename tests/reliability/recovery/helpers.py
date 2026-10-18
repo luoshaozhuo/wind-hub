@@ -16,8 +16,11 @@ from typing import Any
 
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess, run_cli_async
+from tests.support.redis_client import point_key
 from tests.support.wait import (
     WaitTimeoutError,
+    read_redis_value,
+    wait_redis_value,
     wait_until,
 )
 
@@ -82,9 +85,6 @@ async def wait_telemetry_value(
     match: Callable[[dict[str, Any]], bool] | None = None,
 ) -> dict[str, Any]:
     """等待 Redis 最新值；after 仅判断严格更新，不表示历史行数。"""
-    from tests.support.redis_client import point_key
-    from tests.support.wait import wait_redis_value
-
     key = point_key(DEVICE_ID, point_id, prefix="wind-hub-recovery")
 
     def _matches(value: dict[str, Any]) -> bool:
@@ -182,8 +182,6 @@ class RedisFlowObserver:
         self._key = key
 
     async def _read_ts(self) -> str | None:
-        from tests.support.wait import read_redis_value
-
         try:
             value = await read_redis_value(self._address, self._key)
         except (ConnectionError, OSError, RuntimeError, TimeoutError):
