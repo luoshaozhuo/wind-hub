@@ -84,6 +84,9 @@ class _ConnectionInfo:
     conn_id: int
     peer: tuple[str, int] | None
     source_ams: str | None = None
+    # 本连接的 AMS 帧实际寻址过的目标 Net ID（驱动配置的目标 Net ID），
+    # 用于多服务器实例下按目标身份过滤进程全局 callback_store 的通知投递。
+    target_net_id: str | None = None
     alive: bool = True
 
 
@@ -256,11 +259,13 @@ class LinearMemoryHandler:
 
         conn_id = getattr(self._tls, "conn_id", None)
         source_ams = _format_source_ams(request.ams_header)
+        target_net_id = ".".join(str(byte) for byte in request.ams_header.target_net_id)
         with self._lock:
             if conn_id is not None:
                 info = self._connections.get(conn_id)
                 if info is not None:
                     info.source_ams = source_ams
+                    info.target_net_id = target_net_id
 
         handlers = {
             constants.ADSCOMMAND_READDEVICEINFO: self._read_device_info,
@@ -504,8 +509,19 @@ class LinearMemoryHandler:
         ctypes.memmove(target, payload, len(payload))
         # 与 AdvancedHandler.PLCVariable.write 相同的投递形式：testserver
         # 不重建客户端 AmsAddr，直接按 notification handle 匹配进程内回调。
+        # callback_store 是进程全局的，多个服务器实例各自从 1 分配 handle；
+        # 而其键的 AmsAddr 是通知绑定的目标地址（驱动配置的目标 Net ID），
+        # 因此除 handle 外再按本服务器存活连接寻址过的目标 Net ID 过滤，
+        # 避免多实例并发测试的交叉投递。
+        with self._lock:
+            live_targets = {
+                info.target_net_id
+                for info in self._connections.values()
+                if info.alive and info.target_net_id is not None
+            }
         for (ams_addr, notification_handle), func in tuple(callback_store.items()):
-            if notification_handle == handle:
+            target_net = _format_ams_addr(ams_addr).rsplit(":", 1)[0]
+            if notification_handle == handle and target_net in live_targets:
                 func(ams_addr.amsAddrStruct(), header, 0)
 
 
@@ -514,6 +530,12 @@ def _format_source_ams(ams_header: Any) -> str:
     net_id = ams_header.source_net_id
     port = struct.unpack("<H", ams_header.source_port)[0]
     return f"{'.'.join(str(byte) for byte in net_id)}:{port}"
+
+
+def _format_ams_addr(ams_addr: Any) -> str:
+    """把 pyads callback_store 键的 AmsAddr 格式化为相同的 'net-id:port'。"""
+    raw = ams_addr.amsAddrStruct()
+    return f"{'.'.join(str(byte) for byte in raw.netId.b)}:{int(raw.port)}"
 
 
 class _TrackingClientConnection(AdsClientConnection):
