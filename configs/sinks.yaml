@@ -53,9 +53,9 @@ sinks:
     type: file
     enabled: true
     connection:
-      path: /var/tmp/wind-hub/archive.csv
+      path: /var/tmp/wind-hub/archive
       max_size_mb: 100
-      max_files: 30
+      retention_days: 30
     points:
       - source: {device_id: modbus-001, point_id: active_power}
         ref: modbus_001_active_power
