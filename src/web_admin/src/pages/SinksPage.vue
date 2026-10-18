@@ -24,20 +24,19 @@ const draft = reactive({
   enabled: true,
   path: '',
   maxSizeMb: 100,
-  maxFiles: 30,
+  retentionDays: 30,
   host: 'localhost',
   port: 6379,
   database: 0,
   password: '',
   keyPrefix: 'wind-hub',
-  pointsJson: '[]',
-})
+  })
 const snapshot = ref('')
 const changed = computed(() => JSON.stringify(draft) !== snapshot.value)
 
 function defaults(type: SinkType) {
   return type === 'file'
-    ? { path: '', max_size_mb: 100, max_files: 30 }
+    ? { path: '', max_size_mb: 100, retention_days: 30 }
     : type === 'redis'
       ? { host: 'localhost', port: 6379, database: 0, key_prefix: 'wind-hub' }
       : { host: '0.0.0.0', port: 502 }
@@ -51,14 +50,13 @@ function reset(type: SinkType = 'file') {
     enabled: true,
     path: '',
     maxSizeMb: 100,
-    maxFiles: 30,
+    retentionDays: 30,
     host: String('host' in settings ? settings.host : 'localhost'),
     port: Number('port' in settings ? settings.port : 6379),
     database: 0,
     password: '',
     keyPrefix: 'wind-hub',
-    pointsJson: '[]',
-  })
+      })
   snapshot.value = JSON.stringify(draft)
 }
 
@@ -70,13 +68,12 @@ function load(sink: SinkDef) {
     enabled: sink.enabled,
     path: String(connection.path ?? ''),
     maxSizeMb: Number(connection.max_size_mb ?? 100),
-    maxFiles: Number(connection.max_files ?? 30),
+    retentionDays: Number(connection.retention_days ?? 30),
     host: String(connection.host ?? 'localhost'),
     port: Number(connection.port ?? (sink.type === 'redis' ? 6379 : 502)),
     database: Number(connection.database ?? 0),
     password: '',
     keyPrefix: String(connection.key_prefix ?? 'wind-hub'),
-    pointsJson: JSON.stringify(sink.points, null, 2),
   })
   snapshot.value = JSON.stringify(draft)
 }
@@ -106,7 +103,7 @@ function connection(): Record<string, unknown> {
     return {
       path: draft.path.trim(),
       max_size_mb: draft.maxSizeMb,
-      max_files: draft.maxFiles,
+      retention_days: draft.retentionDays,
     }
   }
   if (draft.type === 'redis') {
@@ -138,17 +135,12 @@ function validate() {
   if (!draft.name.trim()) return 'Sink ID 不能为空'
   if (creating.value && configStore.sinks.some((s) => s.name === draft.name.trim()))
     return 'Sink ID 已存在'
-  if (draft.type === 'file' && (!draft.path.trim() || draft.maxSizeMb <= 0 || draft.maxFiles < 1))
-    return '文件路径、容量和保留数量必须有效'
+  if (draft.type === 'file' && (!draft.path.trim() || draft.maxSizeMb <= 0 || draft.retentionDays < 1))
+    return '文件归档目录、容量和保留天数必须有效'
   if (draft.type !== 'file' && (!draft.host.trim() || draft.port < 1 || draft.port > 65535))
     return '主机和端口必须有效'
   if (draft.type === 'redis' && (draft.database < 0 || !draft.keyPrefix.trim()))
     return 'Redis 数据库和键前缀必须有效'
-  try {
-    parsePoints()
-  } catch {
-    return '点映射 JSON 格式无效'
-  }
   return ''
 }
 
@@ -165,7 +157,6 @@ function save() {
       type: draft.type,
       enabled: draft.enabled,
       connection: values,
-      points: parsePoints(),
       runtime_state: 'unknown',
       last_test_at: '',
       last_write_at: '',
@@ -183,7 +174,6 @@ function save() {
     configStore.mutate(() => {
       sink.enabled = draft.enabled
       sink.connection = values
-      sink.points = parsePoints()
     })
   }
   drawerOpen.value = false
@@ -304,7 +294,7 @@ async function remove(sink: SinkDef) {
             <el-input-number v-model="draft.maxSizeMb" :min="0.1" />
           </el-form-item>
           <el-form-item label="最多保留文件数">
-            <el-input-number v-model="draft.maxFiles" :min="1" :step="1" />
+            <el-input-number v-model="draft.retentionDays" :min="1" :step="1" />
           </el-form-item>
         </template>
         <template v-else>
