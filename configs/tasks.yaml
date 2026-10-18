@@ -51,3 +51,22 @@ tasks:
             ref: iec104_001_active_power
             address: {field: iec104_001_active_power}
     enabled: true
+
+  # SCADA 寄存器映射示例：任务禁用，启用前还需启用 modbus_scada Sink
+  turbine-modbus-scada:
+    device_group_id: turbine_modbus
+    point_group: all
+    interval: 1.0
+    outputs:
+      - sink_id: modbus_scada
+        points:
+          - source: {device_id: modbus-001, point_id: active_power}
+            ref: modbus_001_active_power
+            datatype: float32
+            address:
+              slave_id: 1
+              register_type: holding
+              address: 0
+              byte_order: big
+              word_order: big
+    enabled: false
