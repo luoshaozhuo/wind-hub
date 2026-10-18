@@ -277,7 +277,7 @@ class TestMidSessionDisconnect:
         driver = _driver({"a": _point("a", 0)}, host=proxy.host, port=proxy.listen_port)
         await driver.connect()
 
-        async def on_sample(_sample: ProtocolSample) -> None:
+        async def on_sample(_samples: tuple[ProtocolSample, ...]) -> None:
             pass
 
         handle = await driver.subscribe(("a",), on_sample, interval=0.05)
@@ -341,7 +341,7 @@ class TestRegistrationFaults:
         try:
             await driver.connect()
 
-            async def on_sample(_sample: ProtocolSample) -> None:
+            async def on_sample(_samples: tuple[ProtocolSample, ...]) -> None:
                 pass
 
             start = time.monotonic()
@@ -367,7 +367,7 @@ class TestRegistrationFaults:
         try:
             await driver2.connect()
 
-            async def on_sample(_sample: ProtocolSample) -> None:
+            async def on_sample(_samples: tuple[ProtocolSample, ...]) -> None:
                 pass
 
             handle = await driver2.subscribe(("a", "b"), on_sample, interval=0.05)
