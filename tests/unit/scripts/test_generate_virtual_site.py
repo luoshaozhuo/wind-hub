@@ -29,4 +29,4 @@ def test_generated_site_loads_with_task_outputs_contract(tmp_path: Path) -> None
 
     snapshot = YamlConfigAdapter(output).load()
     assert len(snapshot.site.devices) == 3
-    assert snapshot.sinks["file_archive"].kind == "redis"
+    assert snapshot.sinks["redis_latest"].kind == "redis"
