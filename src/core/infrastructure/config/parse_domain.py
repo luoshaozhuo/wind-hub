@@ -654,6 +654,23 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
                         f"Task '{task.task_id}' key_prefix requires a Redis Sink"
                     )
                 if output.points:
+                    for mapping in output.points:
+                        source = _map(mapping.get("source"), "task output source")
+                        device_id = _name(source.get("device_id"), "task output source.device_id")
+                        point_id = _name(source.get("point_id"), "task output source.point_id")
+                        device = devices.get(DeviceId(device_id))
+                        if device is None or task.device_group_id not in device.device_group_ids:
+                            raise ConfigError(
+                                f"Task '{task.task_id}' output references device "
+                                f"'{device_id}' outside its device group"
+                            )
+                        model = models[device.device_model_id]
+                        point = point_tables[model.point_table_id].points.get(point_id)
+                        if point is None or task.point_group not in point.point_groups:
+                            raise ConfigError(
+                                f"Task '{task.task_id}' output point '{device_id}.{point_id}' "
+                                "is not collected by this Task"
+                            )
                     validate_task_sink_points(
                         sink.kind,
                         [_yaml_plain(point) for point in output.points],
