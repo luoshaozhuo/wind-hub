@@ -25,6 +25,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from hat.drivers import net
@@ -670,7 +671,8 @@ class IEC104Driver:
         try:
             while True:
                 data = await session.conn.receive()
-                self._decode_and_dispatch(session, data)
+                received_at = datetime.now(UTC)
+                self._decode_and_dispatch(session, data, receive_time=received_at)
         except asyncio.CancelledError:
             raise
         except ConnectionError:
@@ -680,7 +682,9 @@ class IEC104Driver:
         finally:
             await self._on_session_end(session)
 
-    def _decode_and_dispatch(self, session: _Session, data: bytes) -> None:
+    def _decode_and_dispatch(
+        self, session: _Session, data: bytes, *, receive_time: datetime | None = None
+    ) -> None:
         # hat Encoder.decode 是生成器（单 ASDU 多 IO 元素展开为多条 Msg），
         # 异常可能在任何一次 next() 抛出——本协议栈在进入生成器时急切解码
         # 整个 ASDU，截断/非法类型通常在第一次 next() 即失败。解码与逐条
@@ -707,7 +711,7 @@ class IEC104Driver:
                 )
                 return
             try:
-                self._dispatch(session, message)
+                self._dispatch(session, message, receive_time=receive_time)
             except Exception:
                 logger.exception(
                     "IEC104 dispatch failed for %s ca=%s ioa=%s; "
@@ -717,9 +721,11 @@ class IEC104Driver:
                     getattr(message, "io_address", "?"),
                 )
 
-    def _dispatch(self, session: _Session, message: iec101.Msg) -> None:
+    def _dispatch(
+        self, session: _Session, message: iec101.Msg, *, receive_time: datetime | None = None
+    ) -> None:
         if isinstance(message, iec101.DataMsg):
-            self._dispatch_data(session, message)
+            self._dispatch_data(session, message, receive_time=receive_time)
         elif isinstance(message, iec101.ReadMsg):
             self._dispatch_read_negative(session, message)
         elif isinstance(message, iec104common.CommandMsg):
@@ -728,7 +734,9 @@ class IEC104Driver:
             self._dispatch_interrogation(session, message)
         # 时钟同步、初始化、参数等报文当前无业务语义，忽略。
 
-    def _dispatch_data(self, session: _Session, message: iec101.DataMsg) -> None:
+    def _dispatch_data(
+        self, session: _Session, message: iec101.DataMsg, *, receive_time: datetime | None = None
+    ) -> None:
         key: Address = (message.asdu_address, message.io_address)
         data_type = type(message.data).__name__
         if message.cause is iec101.DataResCause.REQUEST:
@@ -739,7 +747,7 @@ class IEC104Driver:
             # 伪造的坏样本完成（合法数据 + Invalid 品质位仍正常解出
             # quality=BAD 的真实样本，走 decode_sample 成功路径）。
             try:
-                sample = decode_sample(request.point_id, message)
+                sample = decode_sample(request.point_id, message, receive_time=receive_time)
             except (ValueError, TypeError) as exc:
                 logger.error(
                     "IEC104 malformed read response for '%s' ca=%s ioa=%s "
@@ -770,7 +778,7 @@ class IEC104Driver:
             return
         # 自发/总召数据畸形：记错误日志并丢弃，绝不伪造值或 BAD 样本。
         try:
-            sample = decode_sample(mapped.point_id, message)
+            sample = decode_sample(mapped.point_id, message, receive_time=receive_time)
         except (ValueError, TypeError) as exc:
             logger.error(
                 "IEC104 malformed monitoring data for '%s' ca=%s ioa=%s "
