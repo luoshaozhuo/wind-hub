@@ -574,13 +574,17 @@ def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
             resolved: list[TaskOutput] = []
             for index, item in enumerate(_list(outputs_raw, f"{context}.outputs")):
                 entry = _map(item, f"{context}.outputs[{index}]")
-                _keys(entry, {"sink_id", "key_prefix"}, f"{context}.outputs[{index}]")
+                _keys(entry, {"sink_id", "key_prefix", "points"}, f"{context}.outputs[{index}]")
                 resolved.append(
                     TaskOutput(
                         sink_id=_name(entry.get("sink_id"), f"{context}.outputs[{index}].sink_id"),
                         key_prefix=(
                             _name(entry["key_prefix"], f"{context}.outputs[{index}].key_prefix")
                             if "key_prefix" in entry else None
+                        ),
+                        points=tuple(
+                            _map(point, f"{context}.outputs[{index}].points")
+                            for point in _list(entry.get("points", []), f"{context}.outputs[{index}].points")
                         ),
                     )
                 )
