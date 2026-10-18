@@ -115,7 +115,7 @@ export interface TaskDef {
 export type SinkType = 'modbus' | 'redis' | 'tdengine'
 export type SinkRuntimeState = 'unknown' | 'healthy' | 'warning' | 'failed' | 'disabled' | 'testing'
 export type SinkCheckState = 'passed' | 'warning' | 'failed' | 'skipped'
-export type SinkCheckLayer = 'network' | 'protocol' | 'target' | 'filesystem'
+export type SinkCheckLayer = 'network' | 'protocol' | 'target'
 
 export interface SinkVerificationCheck {
   layer: SinkCheckLayer
