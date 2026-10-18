@@ -13,6 +13,7 @@ def _point_dict(point: Point) -> dict[str, Any]:
     data_type = address.pop("data_type")
     return {
         "point_groups": list(point.point_groups),
+        **({"business_point_id": str(point.business_point_id)} if point.business_point_id != point.point_id else {}),
         "address": address,
         "data_type": data_type,
         "scale": point.scale,
@@ -48,7 +49,7 @@ def dump_point_tables(
             current = _point_dict(point)
             if parent is not None and point_id in parent.points:
                 previous = _point_dict(parent.points[point_id])
-                changes = {key: value for key, value in current.items() if value != previous[key]}
+                changes = {key: value for key, value in current.items() if value != previous.get(key)}
                 if not changes:
                     continue
                 points[point_id] = changes
