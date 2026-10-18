@@ -173,24 +173,12 @@ def generate_site(
                 "device_group_id": f"virtual_{family}",
                 "point_group": "all",
                 "interval": 1.0,
-                "outputs": [{"sink_id": "file_archive"}],
+                "outputs": [{"sink_id": "redis_latest"}],
                 "enabled": True,
             }
             for family in ("modbus", "ads", "iec104")
         }
         _write(output, "tasks.yaml", {"tasks": tasks})
-
-        # File Sink 只持有连接/存储参数：归档根为输出目录下的 archive/，
-        # 点的归属与映射全部由各 Task 的 outputs 声明（此处输出全组点，
-        # 不再逐条枚举）。sink 级 points 已随 Task outputs 整改移除。
-        sinks = _read(output, "sinks.yaml")
-        sink_defs = cast("dict[str, object]", sinks["sinks"])
-        archive = cast("dict[str, object]", sink_defs["file_archive"])
-        connection = cast("dict[str, object]", archive["connection"])
-        connection["path"] = str(output / "archive")
-        connection.pop("points", None)
-        archive.pop("points", None)
-        _write(output, "sinks.yaml", sinks)
 
         # 拒绝留下不可由 Core 解析的半成品，和 Web Server/Collector 共用契约。
         snapshot = YamlConfigAdapter(output).load()
