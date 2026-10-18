@@ -54,7 +54,7 @@ sinks:
   # 历史时序库：密码应由部署时安全注入，勿在生产仓库保存明文。
   tdengine_history:
     type: tdengine
-    enabled: false
+    enabled: true
     connection:
       host: "127.0.0.1"
       port: 6041
