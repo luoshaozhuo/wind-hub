@@ -883,7 +883,7 @@ class IEC104Driver:
             elif key in session.command_accepted:
                 _set_result(waiter, True)
             return
-        if message.is_negative_confirm:
+        if message.is_negative_confirm or getattr(cause, "value", None) in {44, 45, 46, 47}:
             _set_result(waiter, False)
 
     def _dispatch_interrogation(
@@ -922,7 +922,7 @@ class IEC104Driver:
                 _set_result(waiter, None)
             return
         # UNKNOWN_TYPE/CAUSE/ASDU/IO 等否定 COT：明确失败。
-        if message.is_negative_confirm:
+        if message.is_negative_confirm or getattr(cause, "value", None) in {44, 45, 46, 47}:
             _set_exception(
                 waiter,
                 ProtocolError(
