@@ -44,7 +44,7 @@ class ListenHandle(Protocol):
     async def close(self) -> None: ...
 
 
-ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
+ProtocolSampleCallback = Callable[[tuple[ProtocolSample, ...]], Awaitable[None]]
 
 TPoint = TypeVar("TPoint", bound=ProtocolPoint, contravariant=True, default=Never)
 
