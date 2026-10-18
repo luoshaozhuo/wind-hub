@@ -72,7 +72,7 @@ def _driver(host: str, *, max_block_bytes: int = 1024) -> ADSDriver:
     )
 
 
-async def _ignore_sample(_sample: ProtocolSample) -> None:
+async def _ignore_sample(_samples: tuple[ProtocolSample, ...]) -> None:
     pass
 
 
