@@ -34,6 +34,7 @@ const draft = reactive({
   timeoutSec: 1.0,
   keyPrefix: 'wind-hub',
   stable: 'point_values',
+  tdDatabase: 'wind_hub',
   tls: false,
 })
 const snapshot = ref('')
@@ -41,8 +42,10 @@ const changed = computed(() => JSON.stringify(draft) !== snapshot.value)
 
 function defaults(type: SinkType) {
   return type === 'redis'
-    ? { host: 'localhost', port: 6379, database: 0, key_prefix: 'wind-hub' }
-    : { host: '0.0.0.0', port: 502 }
+    ? { host: 'localhost', port: 6379 }
+    : type === 'tdengine'
+      ? { host: 'localhost', port: 6041 }
+      : { host: '0.0.0.0', port: 502 }
 }
 
 function reset(type: SinkType = 'redis') {
@@ -63,6 +66,7 @@ function reset(type: SinkType = 'redis') {
     timeoutSec: 1.0,
     keyPrefix: 'wind-hub',
     stable: 'point_values',
+    tdDatabase: 'wind_hub',
     tls: false,
   })
   snapshot.value = JSON.stringify(draft)
@@ -78,13 +82,16 @@ function load(sink: SinkDef) {
     maxSizeMb: Number(connection.max_size_mb ?? 100),
     retentionDays: Number(connection.retention_days ?? 30),
     host: String(connection.host ?? 'localhost'),
-    port: Number(connection.port ?? (sink.type === 'redis' ? 6379 : 502)),
+    port: Number(connection.port ?? (sink.type === 'redis' ? 6379 : sink.type === 'tdengine' ? 6041 : 502)),
     database: Number(connection.database ?? 0),
     username: String(connection.username ?? ''),
     password: '',
     clearPassword: false,
     timeoutSec: Number(connection.timeout ?? 1.0),
     keyPrefix: String(connection.key_prefix ?? 'wind-hub'),
+    tdDatabase: String(connection.database ?? 'wind_hub'),
+    stable: String(connection.stable ?? 'point_values'),
+    tls: Boolean(connection.tls ?? false),
   })
   snapshot.value = JSON.stringify(draft)
 }
@@ -130,7 +137,7 @@ function connection(): Record<string, unknown> {
   }
   if (draft.type === 'tdengine') {
     return {
-      host: draft.host.trim(), port: draft.port, database: String(draft.database),
+      host: draft.host.trim(), port: draft.port, database: draft.tdDatabase.trim(),
       stable: draft.stable.trim(), username: draft.username.trim(),
       timeout: draft.timeoutSec, tls: draft.tls,
       ...(draft.password ? { password: draft.password } : {}),
@@ -145,6 +152,10 @@ function validate() {
     return 'Sink ID 已存在'
   if (!draft.host.trim() || draft.port < 1 || draft.port > 65535)
     return '主机和端口必须有效'
+  if (draft.type === 'tdengine' && (!draft.tdDatabase.trim() || !draft.stable.trim() || !draft.username.trim()))
+    return 'TDengine 数据库、超级表和用户名不能为空'
+  if (draft.type === 'tdengine' && creating.value && !draft.password)
+    return '新增 TDengine Sink 必须提供密码'
   if (draft.type === 'redis' && (draft.database < 0 || !draft.keyPrefix.trim()))
     return 'Redis 数据库和键前缀必须有效'
   if (draft.type === 'redis' && draft.timeoutSec <= 0) return 'Redis 超时时间必须大于 0 秒'
@@ -312,7 +323,11 @@ async function remove(sink: SinkDef) {
             <el-input-number v-model="draft.port" :min="1" :max="65535" />
           </el-form-item>
           <template v-if="draft.type === 'tdengine'">
+            <el-form-item label="Database"><el-input v-model="draft.tdDatabase" /></el-form-item>
             <el-form-item label="Stable"><el-input v-model="draft.stable" /></el-form-item>
+            <el-form-item label="Username"><el-input v-model="draft.username" /></el-form-item>
+            <el-form-item label="Password"><el-input v-model="draft.password" type="password" show-password /></el-form-item>
+            <el-form-item label="超时（秒）"><el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" /></el-form-item>
             <el-form-item label="TLS"><el-switch v-model="draft.tls" /></el-form-item>
           </template>
           <template v-if="draft.type === 'redis'">
