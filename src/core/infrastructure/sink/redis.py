@@ -9,6 +9,7 @@ from contextlib import suppress
 
 from core.application.protocol_contract import ConnectionHealth
 from core.application.redis_sink_record import encode_redis_record
+from core.application.sink_contract import ResolvedSink
 from core.application.sink_error import SinkError
 from core.domain import Sink
 from core.domain.point_value import PointValue
@@ -45,11 +46,11 @@ class RedisSink:
 
     def __init__(self, config: Sink) -> None:
         connection = dict(config.connection)
-        self._task_prefixes = dict(connection.pop("task_key_prefixes", {}))
+        self._task_prefixes = dict(config.task_key_prefixes or {}) if isinstance(config, ResolvedSink) else {}
         self._task_sources = {
             task_id: {(device, point) for device, point in sources}
-            for task_id, sources in connection.pop("task_sources", {}).items()
-        }
+            for task_id, sources in (config.task_sources or {}).items()
+        } if isinstance(config, ResolvedSink) else {}
         self._config = RedisSinkConnection.model_validate(connection)
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
