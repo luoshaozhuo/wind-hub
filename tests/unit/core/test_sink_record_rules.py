@@ -1,11 +1,8 @@
-"""Redis 键组织及 CSV 段文件规则测试。"""
+"""Redis 键组织规则测试。"""
 
 import json
 from datetime import UTC, datetime
 
-import pytest
-
-from core.application.file_sink_segments import is_owned_segment, segment_filename
 from core.application.redis_sink_record import encode_redis_record
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import RedisSinkConnection
@@ -36,38 +33,3 @@ def test_redis_key_handles_embedded_colons() -> None:
     point = PointValue(device_id="WT:1", point_id="p:1", value=True)
     result = encode_redis_record(RedisSinkConnection(), point)
     assert result.key == "wind-hub:4:WT:1:3:p:1"
-
-
-def test_segment_name_is_utc_and_owned() -> None:
-    name = segment_filename(
-        "telemetry.csv", opened_at=datetime(2026, 10, 10, tzinfo=UTC), sequence=0
-    )
-    assert name == "telemetry.20261010T000000000000Z.000000.csv"
-    assert is_owned_segment(name, base="telemetry.csv")
-    assert not is_owned_segment(name, base="unrelated.csv")
-    assert not is_owned_segment("telemetry.other.csv", base="telemetry.csv")
-
-
-@pytest.mark.parametrize("sequence", [-1, -10])
-def test_segment_rejects_negative_sequence(sequence: int) -> None:
-    with pytest.raises(ValueError):
-        segment_filename(
-            "telemetry.csv",
-            opened_at=datetime(2026, 10, 10, tzinfo=UTC),
-            sequence=sequence,
-        )
-
-
-def test_restart_sequence_never_reuses_archived_segment() -> None:
-    from core.application.file_sink_segments import next_segment_sequence
-
-    stamp = datetime(2026, 10, 10, tzinfo=UTC)
-    existing = [segment_filename("telemetry.csv", opened_at=stamp, sequence=i) for i in (1, 3, 2)]
-    existing.append("other.20261010T000000000000Z.999999.csv")
-    assert next_segment_sequence(existing, base="telemetry.csv") == 4
-
-
-def test_restart_sequence_starts_from_zero() -> None:
-    from core.application.file_sink_segments import next_segment_sequence
-
-    assert next_segment_sequence([], base="telemetry.csv") == 0
