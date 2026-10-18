@@ -23,10 +23,10 @@ def test_builtin_types() -> None:
     ],
 )
 def test_registered_factory(kind: str, connection: dict[str, str], expected_type: type) -> None:
-    config = ResolvedSink(
-        sink_id=kind, kind=kind, enabled=True, connection=connection
-    ) if kind == "modbus" else Sink(
-        sink_id=kind, kind=kind, enabled=True, connection=connection
+    config = (
+        ResolvedSink(sink_id=kind, kind=kind, enabled=True, connection=connection)
+        if kind == "modbus"
+        else Sink(sink_id=kind, kind=kind, enabled=True, connection=connection)
     )
     assert isinstance(build_sink_registry().create(config), expected_type)
 
