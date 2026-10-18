@@ -36,11 +36,11 @@ from core.application.protocol_contract import (
 from core.application.settings import ADSLocalConfig
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
-from .codec import compile_decoder
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point, symbol_index_address
 from .subscription import ADSSubscription
-from .value_codec import (
+from .codec import (
+    compile_decoder,
     _as_point_scalar,
     _bad_sample,
     _coerce_write_value,
