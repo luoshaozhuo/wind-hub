@@ -1013,13 +1013,24 @@ class ADSDriver:
                 ):
                     if isinstance(result, BaseException):
                         logger.exception("ADS subscription worker stop failed", exc_info=result)
-                try:
-                    for subscription in subscriptions:
+                deregister_error: Exception | None = None
+                for subscription in subscriptions:
+                    try:
                         await subscription.deregister()
-                finally:
-                    # 即使注销失败，也必须尝试真正关闭物理 Session。
-                    if session is not None:
-                        await self._shutdown_session(session)
+                    except Exception as exc:
+                        # 一个 Handle 注销失败，不得跳过其他 Handle 的清理。
+                        if deregister_error is None:
+                            deregister_error = exc
+                        logger.warning(
+                            "%sADS subscription deregistration failed",
+                            self._label,
+                            exc_info=True,
+                        )
+                # 物理关闭与注销分别收敛，禁止将注销失败误当作已安全关端口。
+                if session is not None:
+                    await self._shutdown_session(session)
+                if deregister_error is not None:
+                    raise deregister_error
             finally:
                 self._release_route_after_settle(route, session)
         finally:
