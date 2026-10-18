@@ -31,7 +31,7 @@ from tests.support.process import CollectorProcess, run_cli_async
 from tests.support.redis_client import point_key
 from tests.support.wait import wait_redis_value
 
-pytestmark = pytest.mark.real_service
+pytestmark = [pytest.mark.redis, pytest.mark.real_service]
 
 MODBUS_TASK_ID = "modbus-telemetry"
 MODBUS_INSTANCE_ID = "modbus-telemetry:modbus-1"
