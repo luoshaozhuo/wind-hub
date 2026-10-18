@@ -2,7 +2,7 @@
 中反复使用的边界观测原语与配置生成器。
 
 所有观测都发生在系统边界：CLI subprocess 的 status payload、独立 Redis
-连接、输出文件行数——不读取 Collector 进程内部状态。
+连接——不读取 Collector 进程内部状态。
 """
 
 from __future__ import annotations
@@ -18,8 +18,6 @@ from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess, run_cli_async
 from tests.support.wait import (
     WaitTimeoutError,
-    read_archive,
-    wait_archive_rows,
     wait_until,
 )
 
@@ -60,48 +58,41 @@ def telemetry_multi_task(sink_ids: list[str], *, task_id: str = TASK_ID) -> dict
     }
 
 
-def write_modbus_file_config(
-    base: Path,
-    port: int,
-    sink_root: Path,
-    **sink_params: Any,
-) -> Path:
-    """单 Modbus 设备 + File sink 的现场配置（recovery 各用例的基线拓扑）。
-
-    ``sink_root`` 是归档**根目录**；实际落盘分段在
-    ``{root}/{task}/{device}/YYYY/MM/YYYYMMDD_NNN.csv``。
-    """
-    params = {"path": str(sink_root)}
-    params.update(sink_params)
+def write_modbus_redis_config(base: Path, port: int, redis_address: str) -> Path:
+    """单 Modbus 设备和 Redis 最新值输出，用于进程级恢复测试。"""
+    host, _, redis_port = redis_address.rpartition(":")
     return write_functional_config(
         base,
         port,
-        sinks={"file_sink": {"type": "file", "connection": params}},
-        tasks=telemetry_task("file_sink"),
+        sinks={
+            "redis_sink": {
+                "type": "redis",
+                "connection": {"host": host, "port": int(redis_port)},
+            }
+        },
+        tasks=telemetry_task("redis_sink", key_prefix="wind-hub-recovery"),
     )
 
 
-def read_telemetry_rows(sink_root: Path) -> list[dict[str, Any]]:
-    """读取归档根目录下基线任务/设备的全部行。"""
-    return read_archive(sink_root, TASK_ID, DEVICE_ID)
-
-
-async def wait_telemetry_rows(
-    sink_root: Path,
+async def wait_telemetry_value(
+    redis_address: str,
     *,
-    min_rows: int = 1,
-    timeout: float = 20.0,
+    point_id: str = "rotor.speed",
+    after: str | None = None,
     match: Callable[[dict[str, Any]], bool] | None = None,
-) -> list[dict[str, Any]]:
-    """等待归档根目录下基线任务/设备出现足够行。"""
-    return await wait_archive_rows(
-        sink_root,
-        task_id=TASK_ID,
-        device_id=DEVICE_ID,
-        min_rows=min_rows,
-        timeout=timeout,
-        match=match,
-    )
+) -> dict[str, Any]:
+    """等待 Redis 最新值；after 仅判断严格更新，不表示历史行数。"""
+    from tests.support.redis_client import point_key
+    from tests.support.wait import wait_redis_value
+
+    key = point_key(DEVICE_ID, point_id, prefix="wind-hub-recovery")
+
+    def _matches(value: dict[str, Any]) -> bool:
+        return (after is None or str(value["timestamp"]) > after) and (
+            match is None or match(value)
+        )
+
+    return await wait_redis_value(redis_address, key, match=_matches)
 
 
 async def cli_status(proc: CollectorProcess) -> dict[str, Any] | None:
