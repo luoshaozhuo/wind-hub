@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+from datetime import timedelta
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,6 +44,8 @@ class FileSink:
         self._lock = asyncio.Lock()
         self._healthy = False
         self._error: str | None = "not opened"
+        self._task_root = Path(cfg.path)
+        self._last_retention_check: str | None = None
 
     def _archives(self) -> list[Path]:
         return sorted(
@@ -164,6 +168,67 @@ class FileSink:
             except Exception as exc:
                 self._healthy, self._error = False, str(exc)
                 raise SinkError(f"CSV write failed: {exc}") from exc
+            self._healthy, self._error = True, None
+
+    @staticmethod
+    def _safe_segment(value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", value) or value in {".", ".."}:
+            raise SinkError(f"unsafe archive directory component: {value!r}")
+        return value
+
+    def _write_task(self, task_id: str, batch: list[PointValue]) -> None:
+        """按 Task/设备/年月/采样日期归档，多个迟到日期也不混写。"""
+        task = self._safe_segment(task_id)
+        by_file: dict[tuple[str, str], list[PointValue]] = {}
+        for point in batch:
+            device = self._safe_segment(point.device_id)
+            day = point.timestamp.astimezone(UTC).strftime("%Y%m%d")
+            by_file.setdefault((device, day), []).append(point)
+        header = next(iter_csv_rows([], include_header=True))
+        max_bytes = self._policy.max_size_bytes
+        for (device, day), values in by_file.items():
+            directory = self._task_root / task / device / day[:4] / day[4:6]
+            directory.mkdir(parents=True, exist_ok=True)
+            index = 0
+            for row in iter_csv_rows(values):
+                while True:
+                    target = directory / f"{day}_{index:03d}.csv"
+                    exists = target.exists()
+                    size = target.stat().st_size if exists else 0
+                    if exists and size:
+                        with target.open("rb") as current:
+                            if current.readline() != header:
+                                raise SinkError(f"CSV schema mismatch: {target}")
+                    if size and size + len(row) > max_bytes:
+                        index += 1
+                        continue
+                    with target.open("ab") as out:
+                        if not size:
+                            out.write(header)
+                        out.write(row)
+                    break
+        now_day = datetime.now(UTC).strftime("%Y%m%d")
+        if self._last_retention_check != now_day:
+            self._last_retention_check = now_day
+            cutoff = (
+                datetime.now(UTC).date() - timedelta(days=self._policy.retention_days - 1)
+            ).strftime("%Y%m%d")
+            for target in self._task_root.glob("*/*/[0-9][0-9][0-9][0-9]/[0-9][0-9]/*.csv"):
+                stem = target.stem
+                date, sep, number = stem.partition("_")
+                if sep and len(date) == 8 and date.isdigit() and number.isdigit() and date < cutoff:
+                    target.unlink(missing_ok=True)
+
+    async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
+        """Task 归档入口；异步调用与写入/清理严格串行。"""
+        if not batch:
+            return
+        async with self._lock:
+            try:
+                await self._blocking(lambda: self._write_task(task_id, batch))
+            except Exception as exc:
+                self._healthy, self._error = False, str(exc)
+                raise SinkError(f"CSV task write failed: {exc}") from exc
             self._healthy, self._error = True, None
 
     async def flush(self) -> None:
