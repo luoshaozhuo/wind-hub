@@ -32,14 +32,13 @@ async def client(
     collector_factory,
     tmp_path: Path,
 ) -> tuple[CollectorGrpcClient, Path, CollectorProcess]:
-    sink_root = tmp_path / "archive"
     config_dir = write_functional_config(
         tmp_path / "cfg",
         modbus_server.port,
         sinks={
-            "file_sink": {
-                "type": "file",
-                "connection": {"path": str(sink_root)},
+            "redis_sink": {
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
             }
         },
         tasks={
@@ -47,7 +46,7 @@ async def client(
                 "device_group_id": "modbus-1",
                 "point_group": "telemetry",
                 "interval": 0.2,
-                "outputs": [{"sink_id": "file_sink"}],
+                "outputs": [{"sink_id": "redis_sink"}],
             }
         },
     )
