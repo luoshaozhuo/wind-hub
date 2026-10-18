@@ -11,7 +11,9 @@ from core.infrastructure.sink.tdengine import TDengineSink
 
 
 def test_builtin_types() -> None:
-    assert build_sink_registry().registered_types() == ("modbus", "redis", "tdengine")
+    types = build_sink_registry().registered_types()
+    assert types == ("modbus", "redis", "tdengine")
+    assert "file" not in types
 
 
 @pytest.mark.parametrize(
