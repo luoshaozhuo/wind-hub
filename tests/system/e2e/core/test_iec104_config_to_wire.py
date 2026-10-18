@@ -63,9 +63,10 @@ class TestIEC104ConfigToWire:
         samples: list[ProtocolSample] = []
         received = asyncio.Event()
 
-        async def on_sample(sample: ProtocolSample) -> None:
-            samples.append(sample)
-            received.set()
+        async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                samples.append(sample)
+                received.set()
 
         driver = _load_driver(server.port)
         try:
