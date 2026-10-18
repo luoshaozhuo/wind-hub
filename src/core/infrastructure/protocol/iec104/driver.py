@@ -113,6 +113,7 @@ class _Session:
     reads: dict[Address, _ReadRequest] = field(default_factory=dict)
     commands: dict[Address, asyncio.Future[bool]] = field(default_factory=dict)
     interrogations: dict[int, asyncio.Future[None]] = field(default_factory=dict)
+    interrogation_samples: dict[int, list[ProtocolSample]] = field(default_factory=dict)
     interrogation_qoi: dict[int, int] = field(default_factory=dict)
 
     def originator(self) -> int:
@@ -552,7 +553,9 @@ class IEC104Driver:
     # 总召
     # ------------------------------------------------------------------
 
-    async def interrogate(self, common_address: int | None = None, *, qoi: int = 20) -> None:
+    async def interrogate(
+        self, common_address: int | None = None, *, qoi: int = 20
+    ) -> tuple[ProtocolSample, ...]:
         """对指定 CA（缺省：全部已配置 CA 逐个）发送 C_IC_NA_1（QOI=20 站总召，21..36 组召）。
 
         以每个 CA 和当前 QOI 对应的 ACT_TERM（或否定确认）为完成依据；请求发送成功
@@ -562,9 +565,10 @@ class IEC104Driver:
         if not isinstance(qoi, int) or isinstance(qoi, bool) or not 20 <= qoi <= 36:
             raise ConfigError("IEC104 interrogation QOI must be an integer in 20..36")
         if common_address is None:
+            batches = []
             for ca in self._config.common_addresses:
-                await self._interrogate_one(ca, qoi=qoi)
-            return
+                batches.extend(await self._interrogate_one(ca, qoi=qoi))
+            return tuple(batches)
         if common_address not in self._config.common_addresses:
             raise ConfigError(
                 f"IEC104 common address {common_address} is not configured "
@@ -572,7 +576,7 @@ class IEC104Driver:
             )
         await self._interrogate_one(common_address, qoi=qoi)
 
-    async def _interrogate_one(self, ca: int, *, qoi: int) -> None:
+    async def _interrogate_one(self, ca: int, *, qoi: int) -> tuple[ProtocolSample, ...]:
         session = self._require_session()
         async with self._gi_locks.locked(ca):
             if self._session is not session:
@@ -580,6 +584,7 @@ class IEC104Driver:
             future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
             session.interrogations[ca] = future
             session.interrogation_qoi[ca] = qoi
+            session.interrogation_samples[ca] = []
             try:
                 await self._send(
                     session,
@@ -596,6 +601,7 @@ class IEC104Driver:
                 )
                 try:
                     await asyncio.wait_for(future, timeout=self._config.t1 * 2)
+                    return tuple(session.interrogation_samples[ca])
                 except TimeoutError as exc:
                     raise ProtocolError(
                         f"IEC104 general interrogation ACT_TERM timed out for ca={ca}"
@@ -603,6 +609,7 @@ class IEC104Driver:
             finally:
                 session.interrogations.pop(ca, None)
                 session.interrogation_qoi.pop(ca, None)
+                session.interrogation_samples.pop(ca, None)
 
     # ------------------------------------------------------------------
     # 推送：只有本地监听，没有远程订阅
@@ -773,6 +780,13 @@ class IEC104Driver:
                 exc,
             )
             return
+        qoi = session.interrogation_qoi.get(message.asdu_address)
+        if (
+            qoi is not None
+            and message.cause.value == qoi
+            and message.asdu_address in session.interrogation_samples
+        ):
+            session.interrogation_samples[message.asdu_address].append(sample)
         self._listeners.offer(sample)
 
     def _dispatch_read_negative(self, session: _Session, message: iec101.ReadMsg) -> None:
