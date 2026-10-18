@@ -82,3 +82,41 @@ async def test_value_quotes_are_escaped_in_sql(monkeypatch: pytest.MonkeyPatch) 
     assert "WT''001" in insert
     assert "a''b" in insert
     await sink.close()
+
+
+async def test_later_insert_failure_does_not_replay_accepted_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """部分 INSERT 成功后报错，Sink 不得自动重传造成重复时间序列写入。"""
+    sink = make_sink()
+    calls: list[str] = []
+
+    def execute(sql: str) -> None:
+        calls.append(sql)
+        if sql.startswith("INSERT INTO ") and sum(
+            item.startswith("INSERT INTO ") for item in calls
+        ) == 2:
+            raise OSError("second chunk failed")
+
+    monkeypatch.setattr(sink, "_execute", execute)
+    await sink.open()
+    with pytest.raises(Exception, match="TDengine write failed"):
+        await sink.write([PointValue("WT001", f"p{i}", i) for i in range(201)])
+
+    inserts = [sql for sql in calls if sql.startswith("INSERT INTO ")]
+    assert len(inserts) == 2
+    assert [sql.count(" USING ") for sql in inserts] == [200, 1]
+    await sink.close()
+
+
+async def test_oversized_value_rejected_without_insert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sink = make_sink()
+    calls: list[str] = []
+    monkeypatch.setattr(sink, "_execute", calls.append)
+    await sink.open()
+    with pytest.raises(Exception, match="exceeds 2048"):
+        await sink.write([PointValue("WT001", "message", "x" * 2049)])
+    assert all(not sql.startswith("INSERT INTO ") for sql in calls)
+    await sink.close()
