@@ -98,6 +98,7 @@ class FakeHarness:
         monkeypatch.setattr(module, "command", self.command)
         monkeypatch.setattr(module, "gh_json", self.gh_json)
         monkeypatch.setattr(module, "gh_api", self.gh_api)
+        monkeypatch.setattr(module, "finalize_local", lambda pr, sha: {"local_branch": "main", "deleted_local_branch": "feature/x"})
         monkeypatch.setattr(module.subprocess, "run", self.subprocess_run)
 
     def command(self, *args: str, allow_failure: bool = False) -> str:
@@ -184,7 +185,7 @@ def test_happy_path_merges_once_and_reports(
     assert harness.gate_calls == 1
     assert harness.merge_calls == [["gh", "pr", "merge", "7", "--squash"]]
     report = json.loads(capsys.readouterr().out)
-    assert report["state"] == "MERGED"
+    assert report["state"] == "MERGED_AND_CLEANED"
     assert report["squash_sha"] == "s1"
     assert isinstance(report["local_validation_seconds"], int | float)
 
@@ -254,7 +255,7 @@ def test_merge_error_then_merged_does_not_retry(
     assert rc == 0
     assert len(harness.merge_calls) == 1
     report = json.loads(capsys.readouterr().out)
-    assert report["state"] == "MERGED"
+    assert report["state"] == "MERGED_AND_CLEANED"
 
 
 def test_merge_error_then_open_reports_failure_without_retry(
@@ -349,7 +350,7 @@ def test_already_merged_verifies_remote(
     assert rc == 0
     assert harness.merge_calls == []
     report = json.loads(capsys.readouterr().out)
-    assert report["state"] == "MERGED"
+    assert report["state"] == "MERGED_AND_CLEANED"
 
 
 def test_inspect_rejects_dirty_worktree(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -389,7 +390,7 @@ def test_actions_disabled_no_required_runs_gate_and_reports(
     assert harness.gate_calls == 1
     assert harness.merge_calls == [["gh", "pr", "merge", "7", "--squash"]]
     report = json.loads(capsys.readouterr().out)
-    assert report["state"] == "MERGED"
+    assert report["state"] == "MERGED_AND_CLEANED"
     assert report["ci"] == "NOT_RUN_ACTIONS_DISABLED"
 
 
@@ -545,5 +546,5 @@ def test_actions_disabled_merge_error_then_merged_no_retry(
     assert rc == 0
     assert len(harness.merge_calls) == 1
     report = json.loads(capsys.readouterr().out)
-    assert report["state"] == "MERGED"
+    assert report["state"] == "MERGED_AND_CLEANED"
     assert report["ci"] == "NOT_RUN_ACTIONS_DISABLED"
