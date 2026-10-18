@@ -94,7 +94,9 @@ class RedisSinkConnection(BaseModel):
     host: str = "localhost"
     port: int = Field(default=6379, ge=1, le=65535)
     database: int = Field(default=0, ge=0)
+    username: str | None = None
     password: SecretStr | None = None
+    timeout: float = Field(default=1.0, gt=0, allow_inf_nan=False)
     key_prefix: str = "wind-hub"
 
     @field_validator("host", "key_prefix")
@@ -102,6 +104,13 @@ class RedisSinkConnection(BaseModel):
     def _nonempty(cls, value: str) -> str:
         if not value.strip():
             raise ConfigError("Redis host/key_prefix must not be empty")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _validate_username(cls, value: str | None) -> str | None:
+        if value is not None and (not value.strip() or value != value.strip()):
+            raise ValueError("Redis ACL username must be a non-empty trimmed string")
         return value
 
 
