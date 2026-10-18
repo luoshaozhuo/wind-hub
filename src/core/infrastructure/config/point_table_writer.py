@@ -12,7 +12,7 @@ from core.domain import Point, PointTable, PointTableId
 def _point_dict(point: Point) -> dict[str, Any]:
     address = dict(point.ext)
     data_type = address.pop("data_type")
-    result: dict[str, Any] = {
+    return {
         "point_groups": list(point.point_groups),
         "business_point_id": str(point.business_point_id),
         "address": address,
@@ -22,7 +22,6 @@ def _point_dict(point: Point) -> dict[str, Any]:
         "unit": point.source_unit.unit_id,
         "description": point.description,
     }
-    return result
 
 
 def dump_point_tables(
@@ -37,7 +36,10 @@ def dump_point_tables(
         # 对未变化的点表保留原始配置；变化时仍保留原来显式声明的字段。
         parent_unchanged = (
             table.parent_id is None
-            or (baseline is not None and tables.get(table.parent_id) == baseline.get(table.parent_id))
+            or (
+                baseline is not None
+                and tables.get(table.parent_id) == baseline.get(table.parent_id)
+            )
         )
         if (
             definitions is not None
@@ -63,8 +65,17 @@ def dump_point_tables(
             current = _point_dict(point)
             if parent is not None and point_id in parent.points:
                 previous = _point_dict(parent.points[point_id])
-                changes = {key: value for key, value in current.items() if value != previous.get(key)}
-                original = (definitions or {}).get(str(table_id), {}).get("points", {}).get(point_id, {})
+                changes = {
+                    key: value
+                    for key, value in current.items()
+                    if value != previous.get(key)
+                }
+                original = (
+                    (definitions or {})
+                    .get(str(table_id), {})
+                    .get("points", {})
+                    .get(point_id, {})
+                )
                 for field in original:
                     if field in current:
                         # 即使与当前父表相等，也保留显式覆盖；父表更新不会
