@@ -452,6 +452,7 @@ class LogEntryResponse(BaseModel):
     source: str
     object: str
     message: str
+    request_id: str = "-"
 
 
 class LogPageResponse(BaseModel):

@@ -16,6 +16,7 @@ from google.protobuf import empty_pb2, wrappers_pb2
 from core.infrastructure.rpc import collector_pb2 as pb
 from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
 from core.infrastructure.rpc import commander_pb2 as commander_pb
+from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
 from core.infrastructure.rpc.scalar_codec import encode_scalar
 
 from ...application.identity import CollectorIdentity
@@ -669,7 +670,7 @@ def build_grpc_server(
     port: int,
 ) -> CollectorGrpcServer:
     """构建 Collector gRPC Server，但不开始监听。"""
-    server = grpc.aio.server()
+    server = grpc.aio.server(interceptors=[RequestIdServerInterceptor()])
     pb_grpc.add_CollectorRuntimeServiceServicer_to_server(
         CollectorRuntimeService(app, identity),
         server,

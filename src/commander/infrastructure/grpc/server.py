@@ -16,6 +16,7 @@ from google.protobuf import empty_pb2, wrappers_pb2
 from core.domain.diagnostic import DeviceVerifyResult, PointVerifyResult
 from core.infrastructure.rpc import commander_pb2 as pb
 from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
+from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
 
 from ...application.errors import CommandError
 from ...assembly import CommanderApp
@@ -379,7 +380,7 @@ def build_grpc_server(
     port: int,
 ) -> CommanderGrpcServer:
     """构建 Commander gRPC Server，但不开始监听。"""
-    server = grpc.aio.server()
+    server = grpc.aio.server(interceptors=[RequestIdServerInterceptor()])
     pb_grpc.add_CommanderServiceServicer_to_server(CommanderService(app), server)
     requested = f"{host}:{port}"
     bound = server.add_insecure_port(requested)

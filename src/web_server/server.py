@@ -18,7 +18,6 @@ from web_server.application.config.service import ConfigService
 from web_server.application.task.reconcile import TaskPlacementReconciler
 from web_server.application.worker.registry import WorkerRegistry
 from web_server.assembly import ServerApp, assemble_server
-from web_server.infra.correlation import RequestIdFilter
 from web_server.settings import ServerSettings
 
 logger = logging.getLogger(__name__)
@@ -228,15 +227,6 @@ def _install_signal_handlers(
 
 async def run_server(settings: ServerSettings) -> int:
     """Run the Server-owned API and management composition."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s",
-    )
-    # 所有日志记录注入 Request-ID（无请求上下文时为 '-'），供现场排障检索。
-    # Filter 挂在 handler 上才对传播而来的记录生效。
-    for handler in logging.getLogger().handlers:
-        handler.addFilter(RequestIdFilter())
-
     runtime = assemble_server(
         settings.config_dir,
         collectors=settings.collector_endpoints,
@@ -244,9 +234,9 @@ async def run_server(settings: ServerSettings) -> int:
         api_host=settings.host,
         api_port=settings.port,
     )
+    # 进程日志统一由 core 配置：UTC + [request_id] 格式，handler 已挂
+    # RequestIdFilter（HTTP 中间件/gRPC 拦截器绑定同一 contextvar）。
     configure_process_logging(runtime.config.current_config.system.logs, process_name="web_server")
-    for handler in logging.getLogger().handlers:
-        handler.addFilter(RequestIdFilter())
     runtime.config.initialize_desired_revision()
 
     runtime.log_store.install()

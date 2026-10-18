@@ -16,6 +16,7 @@ class LogEntry(BaseModel):
     source: str
     object: str
     message: str
+    request_id: str = "-"
 
 
 class LogStorePort(Protocol):

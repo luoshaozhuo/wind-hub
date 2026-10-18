@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import TextIO
 
 from core.application.settings import LogSettings
+from core.infrastructure.diagnostic.correlation import RequestIdFilter
 
-_FORMAT = "%(asctime)sZ %(levelname)s %(name)s: %(message)s"
+_FORMAT = "%(asctime)sZ %(levelname)s [%(request_id)s] %(name)s: %(message)s"
 _DATEFMT = "%Y-%m-%dT%H:%M:%S"
 
 
@@ -20,6 +21,7 @@ def configure_logging(level: int = logging.INFO) -> None:
     formatter.converter = time.gmtime
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
+    handler.addFilter(RequestIdFilter())
     logging.basicConfig(level=level, handlers=[handler], force=True)
 
 
@@ -108,8 +110,10 @@ def configure_process_logging(config: LogSettings, *, process_name: str) -> None
     if config.console:
         console = logging.StreamHandler()
         console.setFormatter(formatter)
+        console.addFilter(RequestIdFilter())
         handlers.append(console)
     file_handler = _DailySizeFileHandler(config, process_name)
     file_handler.setFormatter(formatter)
+    file_handler.addFilter(RequestIdFilter())
     handlers.append(file_handler)
     logging.basicConfig(level=getattr(logging, config.level), handlers=handlers, force=True)

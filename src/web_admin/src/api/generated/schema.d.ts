@@ -1193,6 +1193,11 @@ export interface components {
             message: string;
             /** Object */
             object: string;
+            /**
+             * Request Id
+             * @default -
+             */
+            request_id: string;
             /** Source */
             source: string;
             /**

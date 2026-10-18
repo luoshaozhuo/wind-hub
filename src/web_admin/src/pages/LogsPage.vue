@@ -11,6 +11,7 @@ interface Entry {
   source: string
   object: string
   message: string
+  requestId: string
 }
 
 const level = ref<'All' | Entry['level']>('ERROR')
@@ -47,6 +48,7 @@ const rows = computed<Entry[]>(() =>
     source: entry.source,
     object: entry.object,
     message: entry.message,
+    requestId: entry.request_id || '-',
   })),
 )
 const total = computed(() => logsQuery.data.value?.page.total || 0)
@@ -108,6 +110,13 @@ watch([level, source, keyword, pageSize], () => {
         </el-table-column>
         <el-table-column v-if="!isTablet && !isMobile" prop="source" label="Source" width="110" />
         <el-table-column v-if="!isMobile" prop="object" label="Object" width="160" />
+        <el-table-column v-if="!isTablet && !isMobile" label="Request ID" width="120">
+          <template #default="{ row }">
+            <span :title="row.requestId">{{
+              row.requestId === '-' ? '-' : row.requestId.slice(0, 8)
+            }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="message" label="Message" min-width="320" />
       </el-table>
 
