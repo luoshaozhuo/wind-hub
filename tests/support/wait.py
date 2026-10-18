@@ -131,7 +131,7 @@ async def wait_process_exit(
 
 
 def read_csv(path: Path) -> list[dict[str, Any]]:
-    """读取 FileSink CSV 长表；将 JSON 数值与空值恢复为便于断言的标量。"""
+    """读取通用 CSV 表格；将 JSON 数值与空值恢复为便于断言的标量。"""
     if not path.is_file():
         return []
     rows: list[dict[str, Any]] = []
