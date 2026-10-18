@@ -189,22 +189,75 @@ class FileSink:
         now = time.monotonic()
         if not force and now - self._last_cleanup < 3600:
             return
-        cutoff = (datetime.now(UTC).date() - timedelta(days=self._policy.retention_days - 1))
-        # 仅清理本 Sink 所拥有的 Task/Device/年/月/日期索引 CSV；
-        # 符号链接与解析后逃逸出根目录的条目一律不删（防共享根/链接投毒）。
-        for file in self._root.glob("*/*/[0-9][0-9][0-9][0-9]/[0-9][0-9]/*.csv"):
-            if file.is_symlink() or not self._within_root(file):
-                logger.warning("skip cleanup of path escaping archive root: %s", file)
-                continue
-            day, sep, index = file.stem.partition("_")
-            if not sep or len(day) != 8 or not day.isdigit() or not index.isdigit():
-                continue
-            try:
-                file_day = datetime.strptime(day, "%Y%m%d").date()
-            except ValueError:
-                continue
-            if file_day < cutoff:
-                file.unlink(missing_ok=True)
+        cutoff = datetime.now(UTC).date() - timedelta(days=self._policy.retention_days - 1)
+        flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+
+        def child_dirs(parent_fd: int) -> Iterator[tuple[str, int]]:
+            for name in os.listdir(parent_fd):
+                if name in {".", ".."}:
+                    continue
+                try:
+                    fd = os.open(name, flags, dir_fd=parent_fd)
+                except OSError as exc:
+                    if exc.errno in {errno.ELOOP, errno.ENOTDIR, errno.ENOENT}:
+                        continue
+                    raise
+                yield name, fd
+
+        # 仅在 Task/Device/YYYY/MM 四级归档目录中删除匹配日期的常规文件。
+        # 所有目录均由 dir_fd 锚定，即使外部并发替换路径也不会逃逸根目录。
+        with self._directory_fd(self._root) as root_fd:
+            for task, task_fd in child_dirs(root_fd):
+                try:
+                    if not _COMPONENT.fullmatch(task) or task in {".", ".."}:
+                        continue
+                    for device, device_fd in child_dirs(task_fd):
+                        try:
+                            if not _COMPONENT.fullmatch(device) or device in {".", ".."}:
+                                continue
+                            for year, year_fd in child_dirs(device_fd):
+                                try:
+                                    if len(year) != 4 or not year.isdigit():
+                                        continue
+                                    for month, month_fd in child_dirs(year_fd):
+                                        try:
+                                            if len(month) != 2 or not month.isdigit():
+                                                continue
+                                            for name in os.listdir(month_fd):
+                                                match = re.fullmatch(
+                                                    r"([0-9]{8})_([0-9]+)\\.csv", name
+                                                )
+                                                if match is None:
+                                                    continue
+                                                day = match.group(1)
+                                                if day[:4] != year or day[4:6] != month:
+                                                    continue
+                                                try:
+                                                    file_day = datetime.strptime(
+                                                        day, "%Y%m%d"
+                                                    ).date()
+                                                except ValueError:
+                                                    continue
+                                                if file_day >= cutoff:
+                                                    continue
+                                                try:
+                                                    metadata = os.stat(
+                                                        name, dir_fd=month_fd,
+                                                        follow_symlinks=False,
+                                                    )
+                                                    if not stat.S_ISREG(metadata.st_mode):
+                                                        continue
+                                                    os.unlink(name, dir_fd=month_fd)
+                                                except FileNotFoundError:
+                                                    continue
+                                        finally:
+                                            os.close(month_fd)
+                                finally:
+                                    os.close(year_fd)
+                        finally:
+                            os.close(device_fd)
+                finally:
+                    os.close(task_fd)
         self._last_cleanup = now
 
     def _write_task(self, task_id: str, batch: list[PointValue]) -> None:
