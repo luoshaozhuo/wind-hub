@@ -160,3 +160,26 @@ async def test_explicit_ca_interrogation_returns_samples() -> None:
     result = await driver.interrogate(common_address=1, qoi=20)
     assert result == expected
     assert calls == [(1, 20)]
+
+
+async def test_cancelled_control_invalidates_session_before_next_command() -> None:
+    """取消已经发出的控制，不能复用旧 Session 接收迟到的确认。"""
+    from core.application.protocol_contract import ProtocolWrite
+    from core.domain import PointAccess
+
+    driver, conn = await connected_driver(
+        [make_point("command", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)]
+    )
+    task = asyncio.create_task(driver.write_one(ProtocolWrite(point="command", value=True)))
+    for _ in range(100):
+        if conn.sent_messages:
+            break
+        await asyncio.sleep(0.001)
+    assert conn.sent_messages, "control request was not sent"
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not driver.is_open()
+    assert driver._session is None
+    assert len(conn.sent_messages) == 1
+    await driver.close()
