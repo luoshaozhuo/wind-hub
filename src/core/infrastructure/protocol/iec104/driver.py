@@ -616,11 +616,6 @@ class IEC104Driver:
             "iec104 does not support remote subscription — use listen for spontaneous data"
         )
 
-    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
-        """IEC104 无远程订阅原语。"""
-        del handle
-        raise ProtocolCapabilityError("iec104 does not support remote subscription")
-
     async def listen(
         self,
         point_ids: Sequence[str],
@@ -644,12 +639,6 @@ class IEC104Driver:
             filter_ids = tuple(self._points_by_id)
         listener_id = self._listeners.add(filter_ids, callback)
         return _ListenHandleImpl(self, listener_id)
-
-    async def unlisten(self, handle: ListenHandle) -> None:
-        """取消本地监听（幂等由句柄保证）。"""
-        if not isinstance(handle, _ListenHandleImpl):
-            raise ConfigError("unlisten requires a handle returned by IEC104 listen")
-        await handle.close()
 
     async def _remove_listener(self, listener_id: int) -> None:
         await self._listeners.remove(listener_id)

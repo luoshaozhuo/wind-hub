@@ -8,16 +8,16 @@
 - 队列满时丢最旧样本并计数告警，保证慢消费者不能阻塞底层协议接收；
 - 单次回调有**有界执行时间**：超时即取消回调任务，worker 不被
   不可协作的回调无限阻塞；超时后仍未结束的任务仍受注册表跟踪，
-  由 ``unlisten``/``close`` 有界等待并显式报告失败；
+  由监听句柄的 ``close()`` 有界等待并显式报告失败；
 - 业务回调异常隔离，只记录日志，不影响其他监听者与接收管线。
 
-取消语义（``unlisten`` 契约）：
+取消语义（监听句柄 ``close()`` 契约）：
 
 - 未在执行中的监听立即取消；已入队未分发的样本不再投递给该监听者；
-- 正在执行的回调会被请求取消，``unlisten`` 等待其真正结束；
+- 正在执行的回调会被请求取消，``close()`` 等待其真正结束；
 - 回调在规定时间内未结束（吞掉 ``CancelledError`` 或清理阻塞）时，
-  ``unlisten`` 显式抛出 ``TimeoutError``，绝不谎报取消成功；
-- 重复 ``unlisten`` 幂等；成功返回后保证不存在该监听者的在途回调。
+  ``close()`` 显式抛出 ``TimeoutError``，绝不谎报取消成功；
+- 重复 ``close()`` 幂等；成功返回后保证不存在该监听者的在途回调。
 """
 
 from __future__ import annotations
@@ -91,8 +91,8 @@ class _Listener:
         self.filter = point_filter
         self.callback = callback
         self.removed = False
-        # 正在执行的回调任务（None 表示无在途回调）；unlisten/close
-        # 直接 await 该任务收敛，不再需要额外的完成事件。
+        # 正在执行的回调任务（None 表示无在途回调）；句柄 close/注册表
+        # remove 直接 await 该任务收敛，不再需要额外的完成事件。
         self.inflight: asyncio.Task[None] | None = None
 
 

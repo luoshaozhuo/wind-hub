@@ -264,9 +264,6 @@ class FakeProtocol:
         # 默认 Fake 只具备 READ/WRITE：与 Modbus 行为一致，明确拒绝。
         raise ProtocolCapabilityError("fake protocol does not support subscribe")
 
-    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
-        raise ProtocolCapabilityError("fake protocol does not support subscribe")
-
     async def listen(
         self,
         point_ids: Sequence[str],
@@ -274,9 +271,6 @@ class FakeProtocol:
         *,
         interval: float | None = None,
     ) -> ListenHandle:
-        raise ProtocolCapabilityError("fake protocol does not support listen")
-
-    async def unlisten(self, handle: ListenHandle) -> None:
         raise ProtocolCapabilityError("fake protocol does not support listen")
 
     async def interrogate(self, common_address: int | None = None) -> None:

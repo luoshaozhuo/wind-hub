@@ -72,9 +72,6 @@ class CollectorFakeProtocol(FakeProtocol):
         self.subscriptions.append((tuple(point_ids), callback, interval))
         return FakeSubscriptionHandle()
 
-    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
-        await handle.close()
-
     async def listen(
         self,
         point_ids: Sequence[str],
@@ -84,9 +81,6 @@ class CollectorFakeProtocol(FakeProtocol):
     ) -> ListenHandle:
         self.listeners.append((tuple(point_ids), callback, interval))
         return FakeSubscriptionHandle()
-
-    async def unlisten(self, handle: ListenHandle) -> None:
-        await handle.close()
 
     async def interrogate(self, common_address: int | None = None) -> None:
         self.interrogate_calls.append(common_address)
