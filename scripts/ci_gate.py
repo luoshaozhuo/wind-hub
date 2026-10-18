@@ -239,6 +239,56 @@ def soak_gate() -> bool:
     )
 
 
+
+def merge_gate(paths: list[str]) -> bool:
+    """合并前执行一次受影响范围验证；未知后端范围采用保守回退。"""
+    import json
+
+    changed = sorted(set(paths))
+    backend = [p for p in changed if p.startswith(("src/core/", "src/collector/", "src/commander/", "src/cli/", "src/web_server/"))]
+    python_changed = [p for p in changed if p.endswith(".py") and Path(p).is_file()]
+    commands: list[tuple[str, list[str]]] = []
+    if python_changed:
+        commands.append(("changed-ruff", _python_module("ruff", "check", *python_changed)))
+    if backend:
+        commands.append(("backend-types", _python_module("mypy", "src")))
+        commands.append(("backend-imports", _tool("lint-imports")))
+
+    candidates: list[str] = []
+    roots = ("core", "collector", "commander", "cli", "web_server")
+    for p in changed:
+        parts = Path(p).parts
+        if len(parts) >= 3 and parts[0] == "src" and parts[1] in roots:
+            module = parts[1]
+            for layer in ("unit", "component"):
+                candidate = REPO_ROOT / "tests" / layer / module
+                if candidate.exists():
+                    candidates.append(str(candidate.relative_to(REPO_ROOT)))
+        if p.startswith("src/core/infrastructure/protocol/"):
+            candidates.append("tests/integration/protocols")
+        if p.startswith("src/core/infrastructure/sink/"):
+            candidates.append("tests/integration/sinks")
+        if p.startswith(("src/core/infrastructure/rpc/", "src/collector/infrastructure/grpc/")) or "/grpc/" in p:
+            candidates.append("tests/contract/rpc")
+        if p.startswith("src/collector/application/"):
+            candidates.append("tests/system/acquisition")
+        if p.startswith("src/commander/application/"):
+            candidates.append("tests/system/command")
+        if p.startswith("tests/"):
+            candidate = REPO_ROOT / p
+            if candidate.is_file() and p.endswith(".py"):
+                candidates.append(p)
+    if backend and not candidates:
+        candidates.extend(["tests/unit", "tests/component", "tests/contract"])
+    selected = [p for p in dict.fromkeys(candidates) if (REPO_ROOT / p).exists()]
+    if selected:
+        commands.append(("affected-tests", _python_module("pytest", *selected, "-q",
+            "-m", "not hardware and not performance and not soak")))
+    print(json.dumps({"changed_files": changed, "selected_tests": selected,
+                      "checks": [name for name, _ in commands]}, ensure_ascii=False))
+    return _run_many(commands)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """构建 CLI。"""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -254,6 +304,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = subparsers.add_parser("pr")
     pr.add_argument("--targets", default="")
+
+    merge = subparsers.add_parser("merge")
+    merge.add_argument("--file-list", type=Path, required=True)
 
     subparsers.add_parser("frontend-e2e")
 
@@ -276,7 +329,9 @@ def main() -> int:
     """运行指定 Gate。"""
     args = build_parser().parse_args()
 
-    if args.gate == "fast":
+    if args.gate == "merge":
+        passed = merge_gate(args.file_list.read_text(encoding="utf-8").splitlines())
+    elif args.gate == "fast":
         passed = fast_gate(args.part, args.targets)
     elif args.gate == "pr":
         passed = pr_gate(args.targets)
