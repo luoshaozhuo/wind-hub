@@ -12,9 +12,9 @@ from core.domain import Point, PointTable, PointTableId
 def _point_dict(point: Point) -> dict[str, Any]:
     address = dict(point.ext)
     data_type = address.pop("data_type")
-    return {
+    result: dict[str, Any] = {
         "point_groups": list(point.point_groups),
-        **({"business_point_id": str(point.business_point_id)} if point.business_point_id != point.point_id else {}),
+        "business_point_id": str(point.business_point_id),
         "address": address,
         "data_type": data_type,
         "scale": point.scale,
@@ -22,6 +22,7 @@ def _point_dict(point: Point) -> dict[str, Any]:
         "unit": point.source_unit.unit_id,
         "description": point.description,
     }
+    return result
 
 
 def dump_point_tables(
@@ -69,8 +70,6 @@ def dump_point_tables(
                         # 即使与当前父表相等，也保留显式覆盖；父表更新不会
                         # 意外改变子表已指定字段的继承语义。
                         changes[field] = current[field]
-                if "business_point_id" in previous and "business_point_id" not in current:
-                    changes["business_point_id"] = point_id
                 if not changes:
                     continue
                 points[point_id] = changes
