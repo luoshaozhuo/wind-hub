@@ -128,13 +128,14 @@ async def _subscribe_expect(
     arrived: set[str] = set()
     expected = set(point_ids)
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        received = int(sample.value)  # type: ignore[arg-type]  # 测点为 DINT
-        seen.append(received)
-        if received == value:
-            arrived.add(sample.point_id)
-            if expected <= arrived:
-                done.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received = int(sample.value)  # type: ignore[arg-type]  # 测点为 DINT
+            seen.append(received)
+            if received == value:
+                arrived.add(sample.point_id)
+                if expected <= arrived:
+                    done.set()
 
     server.set_values(
         _GROUP,
@@ -298,8 +299,9 @@ class TestResourceCycles:
         await driver.connect()
         tasks_before = len(asyncio.all_tasks())
 
-        async def on_sample(sample: ProtocolSample) -> None:
-            counts[sample.point_id] += 1
+        async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                counts[sample.point_id] += 1
 
         handle = await driver.subscribe(tuple(points), on_sample, interval=0.05)
         try:
