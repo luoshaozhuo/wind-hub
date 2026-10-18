@@ -113,7 +113,7 @@ class LogSettings:
     """跨进程日志策略；日志处理器由各进程初始化，文件必须独占。"""
 
     level: str = "INFO"
-    path: str = "/var/log/wind-hub"
+    path: str = "/var/tmp/wind-hub/logs"
     console: bool = True
     max_size_mb: float = 100.0
     retention_days: int = 30
