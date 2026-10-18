@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from math import isfinite
+from typing import Any
+from types import MappingProxyType
 
 from .device import Device, DeviceGroup
 from .identities import DeviceGroupId, DeviceId
@@ -16,10 +18,12 @@ class TaskOutput:
 
     sink_id: str
     key_prefix: str | None = None
+    points: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.sink_id, str) or not self.sink_id.strip():
             raise ValueError("TaskOutput.sink_id must be non-empty")
+        object.__setattr__(self, "points", tuple(MappingProxyType(dict(point)) for point in self.points))
         if self.key_prefix is not None and (
             not isinstance(self.key_prefix, str) or not self.key_prefix.strip()
         ):
