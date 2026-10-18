@@ -22,7 +22,9 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import (
     cli_instance_states,
+    read_telemetry_rows,
     wait_status,
+    wait_telemetry_rows,
     write_modbus_file_config,
 )
 from tests.support.control import (
@@ -32,7 +34,6 @@ from tests.support.control import (
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -60,11 +61,11 @@ class TestReconnectFlapStability:
         tmp_path: Path,
     ) -> None:
         """RES-01：10 次断连/恢复循环后实例唯一、FD 不增长。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_telemetry_rows(sink_root, min_rows=2)
 
         baseline_reconnects = (await metrics_snapshot(proc.grpc_target))["device_reconnects"].get(
             "modbus-1", 0
@@ -87,8 +88,8 @@ class TestReconnectFlapStability:
             await _single_running_instance(proc)
 
         # 数据面在最后一次恢复后继续出数。
-        settled = len(read_csv(sink_path))
-        await wait_file_rows(sink_path, min_rows=settled + 2)
+        settled = len(read_telemetry_rows(sink_root))
+        await wait_telemetry_rows(sink_root, min_rows=settled + 2)
 
         reconnects = (await metrics_snapshot(proc.grpc_target))["device_reconnects"].get(
             "modbus-1", 0
@@ -112,25 +113,25 @@ class TestReloadStability:
         """RES-02：10 次 reload（task 重启 + sink 重建）后实例唯一、FD 不增长。
 
         每轮同时变更 task interval（触发 acquisition handle 重启）与 sink
-        max_files（触发 sink 重建、consumer 协程替换）——两条重建路径
+        max_size_mb（触发 sink 重建、consumer 协程替换）——两条重建路径
         都是 asyncio task / 句柄泄漏高发区。
         """
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_telemetry_rows(sink_root, min_rows=2)
         baseline_fd = proc.fd_count()
 
         for cycle in range(CYCLES):
             interval = 0.2 if cycle % 2 == 0 else 0.3
-            max_files = 4 if cycle % 2 == 0 else 8
+            max_size_mb = 1.0 if cycle % 2 == 0 else 2.0
 
             def _mutate_tasks(data: dict[str, Any], iv: float = interval) -> None:
                 data["tasks"][TASK_ID]["interval"] = iv
 
-            def _mutate_sinks(data: dict[str, Any], mf: int = max_files) -> None:
-                data["sinks"]["file_sink"]["connection"]["max_files"] = mf
+            def _mutate_sinks(data: dict[str, Any], mf: float = max_size_mb) -> None:
+                data["sinks"]["file_sink"]["connection"]["max_size_mb"] = mf
 
             update_yaml(config_dir, "tasks.yaml", _mutate_tasks)
             update_yaml(config_dir, "sinks.yaml", _mutate_sinks)
@@ -141,8 +142,8 @@ class TestReloadStability:
             await _single_running_instance(proc)
 
         # 采集在最后一轮配置下继续出数。
-        settled = len(read_csv(sink_path))
-        await wait_file_rows(sink_path, min_rows=settled + 2)
+        settled = len(read_telemetry_rows(sink_root))
+        await wait_telemetry_rows(sink_root, min_rows=settled + 2)
         await asyncio.sleep(1.0)  # 等最后一轮重建的旧句柄完成释放
 
         final_fd = proc.fd_count()

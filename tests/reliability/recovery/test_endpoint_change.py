@@ -20,11 +20,15 @@ from typing import Any
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
-from tests.reliability.recovery.helpers import wait_status, write_modbus_file_config
+from tests.reliability.recovery.helpers import (
+    read_telemetry_rows,
+    wait_status,
+    wait_telemetry_rows,
+    write_modbus_file_config,
+)
 from tests.support.control import reload_config, start_task_instance
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, free_port
-from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -49,10 +53,10 @@ def _set_endpoint(config_dir: Path, *, host: str, port: int) -> None:
     update_yaml(config_dir, "devices.yaml", _mutate)
 
 
-def _rows_with_value(sink_path: Path, value: float) -> list[dict[str, Any]]:
+def _rows_with_value(sink_root: Path, value: float) -> list[dict[str, Any]]:
     return [
         r
-        for r in read_csv(sink_path)
+        for r in read_telemetry_rows(sink_root)
         if r["point_id"] == "rotor.speed" and r["value"] == pytest.approx(value)
     ]
 
@@ -73,12 +77,12 @@ class TestEndpointMigration:
         tmp_path: Path,
     ) -> None:
         """DEV-03a：在线迁移 port——Sink 出现 B 值后不再读到 A，连接数保持 1。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(
-            sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_A)
+        await wait_telemetry_rows(
+            sink_root, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_A)
         )
 
         server_b = await _start_server_b()
@@ -90,8 +94,8 @@ class TestEndpointMigration:
             assert activated.success, f"activate failed: {list(activated.errors)}"
 
             # 新值出现 + 设备保持已连接（迁移不允许表现为长期掉线）。
-            await wait_file_rows(
-                sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
+            await wait_telemetry_rows(
+                sink_root, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
             )
             await wait_status(
                 proc, lambda p: p["devices_connected"] == 1, description="device on B"
@@ -99,9 +103,9 @@ class TestEndpointMigration:
 
             # 旧连接已关闭：A 仍在运行，但稳定窗口内不再产生 A 值行。
             await asyncio.sleep(1.0)
-            settled_a = len(_rows_with_value(sink_path, VALUE_A))
+            settled_a = len(_rows_with_value(sink_root, VALUE_A))
             await asyncio.sleep(1.0)
-            assert len(_rows_with_value(sink_path, VALUE_A)) == settled_a
+            assert len(_rows_with_value(sink_root, VALUE_A)) == settled_a
         finally:
             await server_b.stop()
 
@@ -112,12 +116,12 @@ class TestEndpointMigration:
         tmp_path: Path,
     ) -> None:
         """DEV-03b：在线迁移 host（127.0.0.1 → 127.0.0.2）——真实修改 host 字段。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(
-            sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_A)
+        await wait_telemetry_rows(
+            sink_root, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_A)
         )
 
         server_b = await _start_server_b(host="127.0.0.2")
@@ -128,13 +132,13 @@ class TestEndpointMigration:
             )
             assert activated.success, f"activate failed: {list(activated.errors)}"
 
-            await wait_file_rows(
-                sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
+            await wait_telemetry_rows(
+                sink_root, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
             )
             await asyncio.sleep(1.0)
-            settled_a = len(_rows_with_value(sink_path, VALUE_A))
+            settled_a = len(_rows_with_value(sink_root, VALUE_A))
             await asyncio.sleep(1.0)
-            assert len(_rows_with_value(sink_path, VALUE_A)) == settled_a
+            assert len(_rows_with_value(sink_root, VALUE_A)) == settled_a
         finally:
             await server_b.stop()
 
@@ -145,11 +149,11 @@ class TestEndpointMigration:
         tmp_path: Path,
     ) -> None:
         """DEV-04：掉线期间迁移 endpoint——A 不恢复，reload 后直连 B 并出数。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_telemetry_rows(sink_root, min_rows=2)
 
         await modbus_server.stop()
         await wait_status(proc, lambda p: p["devices_connected"] == 0, description="A disconnected")
@@ -166,8 +170,8 @@ class TestEndpointMigration:
             await wait_status(
                 proc, lambda p: p["devices_connected"] == 1, description="connected to B"
             )
-            rows = await wait_file_rows(
-                sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
+            rows = await wait_telemetry_rows(
+                sink_root, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
             )
             assert all(r["point_id"] for r in rows)
         finally:
@@ -180,11 +184,11 @@ class TestEndpointMigration:
         tmp_path: Path,
     ) -> None:
         """DEV-05：迁移到不可达 endpoint——不得残留假 healthy，修正后恢复。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_telemetry_rows(sink_root, min_rows=2)
 
         # ---- 切到无监听者的地址（connect 立即被拒绝） ----
         _set_endpoint(config_dir, host=DEAD_HOST, port=free_port())
@@ -212,8 +216,8 @@ class TestEndpointMigration:
             await wait_status(
                 proc, lambda p: p["devices_connected"] == 1, description="recovered on B"
             )
-            await wait_file_rows(
-                sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
+            await wait_telemetry_rows(
+                sink_root, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
             )
         finally:
             await server_b.stop()
@@ -232,11 +236,11 @@ class TestReloadDuringReconnect:
         不受旧 Watchdog 及旧状态影响。最后重启 A，验证旧
         协议实例不会复活（不再出现 A 值）。
         """
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_telemetry_rows(sink_root, min_rows=2)
 
         await modbus_server.stop()
         await wait_status(proc, lambda p: p["devices_connected"] == 0, description="A disconnected")
@@ -265,11 +269,11 @@ class TestReloadDuringReconnect:
             # 旧协议实例不得复活：A 恢复后，数据仍只能来自 B。
             await modbus_server.start()
             await asyncio.sleep(1.0)
-            settled_a = len(_rows_with_value(sink_path, VALUE_A))
+            settled_a = len(_rows_with_value(sink_root, VALUE_A))
             await asyncio.sleep(1.0)
-            assert len(_rows_with_value(sink_path, VALUE_A)) == settled_a
-            await wait_file_rows(
-                sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
+            assert len(_rows_with_value(sink_root, VALUE_A)) == settled_a
+            await wait_telemetry_rows(
+                sink_root, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
             )
         finally:
             await server_b.stop()

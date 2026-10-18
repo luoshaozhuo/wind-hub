@@ -15,7 +15,11 @@ from typing import Any
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.reliability.recovery.helpers import write_modbus_file_config
+from tests.reliability.recovery.helpers import (
+    read_telemetry_rows,
+    wait_telemetry_rows,
+    write_modbus_file_config,
+)
 from tests.support.control import (
     prepare_config,
     reload_config,
@@ -23,7 +27,6 @@ from tests.support.control import (
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, run_cli_async
-from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -38,19 +41,21 @@ class TestReloadFailureResilience:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
 
         # ---- 正常：采集数据到达 sink ----
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=4)
+        await wait_telemetry_rows(sink_root, min_rows=4)
 
         # ---- 故障：tasks.yaml 指向不存在的 sink，prepare 必须拒绝 ----
         update_yaml(
             config_dir,
             "tasks.yaml",
-            lambda data: data["tasks"]["modbus-telemetry"].update({"sink_ids": ["ghost_sink"]}),
+            lambda data: data["tasks"]["modbus-telemetry"].update(
+                {"outputs": [{"sink_id": "ghost_sink"}]}
+            ),
         )
         prepared = await prepare_config(
             proc.grpc_target, config_dir=config_dir, revision_id="rev-broken"
@@ -60,12 +65,12 @@ class TestReloadFailureResilience:
 
         # ---- 存活：进程在、旧配置继续服役（行数持续增长） ----
         assert proc.is_running()
-        rows_before = len(read_csv(sink_path))
-        await wait_file_rows(sink_path, min_rows=rows_before + 2)
+        rows_before = len(read_telemetry_rows(sink_root))
+        await wait_telemetry_rows(sink_root, min_rows=rows_before + 2)
 
         # ---- 修复：写回合法配置（顺带改节拍证明 diff 生效），reload 成功 ----
         def _restore(data: dict[str, Any]) -> None:
-            data["tasks"]["modbus-telemetry"]["sink_ids"] = ["file_sink"]
+            data["tasks"]["modbus-telemetry"]["outputs"] = [{"sink_id": "file_sink"}]
             data["tasks"]["modbus-telemetry"]["interval"] = 0.5
 
         update_yaml(config_dir, "tasks.yaml", _restore)
@@ -78,4 +83,4 @@ class TestReloadFailureResilience:
         assert json.loads(task.stdout)["interval"] == 0.5
 
         # ---- 数据面贯穿全程不中断 ----
-        await wait_file_rows(sink_path, min_rows=rows_before + 4)
+        await wait_telemetry_rows(sink_root, min_rows=rows_before + 4)

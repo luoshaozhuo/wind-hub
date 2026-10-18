@@ -15,10 +15,15 @@ from pathlib import Path
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.reliability.recovery.helpers import cli_status, wait_status, write_modbus_file_config
+from tests.reliability.recovery.helpers import (
+    cli_status,
+    read_telemetry_rows,
+    wait_status,
+    wait_telemetry_rows,
+    write_modbus_file_config,
+)
 from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -33,13 +38,13 @@ class TestProtocolDisconnectRecovery:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
 
         # ---- 正常：采集数据到达 sink ----
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=4)
+        await wait_telemetry_rows(sink_root, min_rows=4)
 
         # ---- 故障：从站停止（同一端口随后恢复） ----
         await modbus_server.stop()
@@ -52,9 +57,9 @@ class TestProtocolDisconnectRecovery:
         )
         # 数据面静默：先等残余缓冲落盘，再确认行数在数个采集周期内不再增长。
         await asyncio.sleep(1.0)
-        settled = len(read_csv(sink_path))
+        settled = len(read_telemetry_rows(sink_root))
         await asyncio.sleep(0.8)
-        assert len(read_csv(sink_path)) == settled
+        assert len(read_telemetry_rows(sink_root)) == settled
 
         # ---- 主进程存活：控制面正常应答 ----
         assert proc.is_running()
@@ -71,7 +76,7 @@ class TestProtocolDisconnectRecovery:
         )
 
         # ---- 数据恢复：新点值继续到达 sink ----
-        rows = await wait_file_rows(sink_path, min_rows=settled + 2)
+        rows = await wait_telemetry_rows(sink_root, min_rows=settled + 2)
         rotor = [r for r in rows if r["point_id"] == "rotor.speed"]
         assert rotor, "rotor.speed rows missing after recovery"
         assert all(r["value"] == pytest.approx(1200.5) for r in rotor)

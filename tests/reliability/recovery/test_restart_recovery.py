@@ -16,7 +16,12 @@ import pytest
 
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.reliability.recovery.helpers import wait_status, write_modbus_file_config
+from tests.reliability.recovery.helpers import (
+    read_telemetry_rows,
+    wait_status,
+    wait_telemetry_rows,
+    write_modbus_file_config,
+)
 from tests.support.config_helper import write_config_tree
 from tests.support.control import (
     reload_config,
@@ -24,7 +29,7 @@ from tests.support.control import (
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, run_cli_async
-from tests.support.wait import read_csv, wait_file_rows
+from tests.support.wait import read_archive, wait_archive_rows
 
 pytestmark = pytest.mark.real_service
 
@@ -47,7 +52,7 @@ IEC104_POINTS: dict[str, dict[str, Any]] = {
 }
 
 
-def _iec104_config(base: Path, port: int, sink_path: Path) -> Path:
+def _iec104_config(base: Path, port: int, sink_root: Path) -> Path:
     """单 IEC104 设备 + File sink 的现场配置（订阅型采集）。"""
     return write_config_tree(
         base,
@@ -75,7 +80,7 @@ def _iec104_config(base: Path, port: int, sink_path: Path) -> Path:
             "file_sink": {
                 "type": "file",
                 "connection": {
-                    "path": str(sink_path),
+                    "path": str(sink_root),
                     # 订阅型数据稀疏（总召才出数）：逐条刷盘，避免单点
                     # 滞留缓冲导致边界观测不到。
                 },
@@ -87,7 +92,7 @@ def _iec104_config(base: Path, port: int, sink_path: Path) -> Path:
                 "point_group": "telemetry",
                 # IEC104 为订阅型：interval 被协议忽略，仅满足 schema。
                 "interval": 0.2,
-                "sink_ids": ["file_sink"],
+                "outputs": [{"sink_id": "file_sink"}],
             }
         },
         system={
@@ -109,8 +114,8 @@ class TestCollectorRestart:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
 
         # ---- 第一个实例：正常采集后优雅停机 ----
         proc_a: CollectorProcess = await collector_factory(
@@ -121,10 +126,10 @@ class TestCollectorRestart:
             task_id=MODBUS_TASK_ID,
             instance_id=MODBUS_INSTANCE_ID,
         )
-        await wait_file_rows(sink_path, min_rows=3)
+        await wait_telemetry_rows(sink_root, min_rows=3)
         exit_code = proc_a.terminate()
         assert exit_code == 0
-        baseline = len(read_csv(sink_path))
+        baseline = len(read_telemetry_rows(sink_root))
         assert baseline >= 3
 
         # ---- 同配置重启：控制面恢复、读可用、采集可重新启动 ----
@@ -140,7 +145,7 @@ class TestCollectorRestart:
             task_id=MODBUS_TASK_ID,
             instance_id=MODBUS_INSTANCE_ID,
         )
-        await wait_file_rows(sink_path, min_rows=baseline + 2)
+        await wait_telemetry_rows(sink_root, min_rows=baseline + 2)
 
 
 @pytest.mark.iec104
@@ -151,15 +156,20 @@ class TestSubscriptionRestartPending:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = _iec104_config(tmp_path / "cfg", iec104_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = _iec104_config(tmp_path / "cfg", iec104_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
 
         # ---- 正常：订阅建立，总召数据落盘 ----
         await start_task_instance(
             proc.grpc_target, task_id=IEC104_TASK_ID, instance_id=IEC104_INSTANCE_ID
         )
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_archive_rows(
+            sink_root,
+            task_id=IEC104_TASK_ID,
+            device_id="iec104-1",
+            min_rows=2,
+        )
 
         # ---- 故障：从站停止，设备断连在边界可见 ----
         await iec104_server.stop()
@@ -206,7 +216,7 @@ class TestSubscriptionRestartPending:
         )
 
         # ---- 下一次 reload 重试 pending 的订阅重建：成功且数据恢复 ----
-        rows_before = len(read_csv(sink_path))
+        rows_before = len(read_archive(sink_root, IEC104_TASK_ID, "iec104-1"))
         activated = await reload_config(
             proc.grpc_target, config_dir=config_dir, revision_id="rev-recovered"
         )
@@ -214,4 +224,10 @@ class TestSubscriptionRestartPending:
 
         instance = await run_cli_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
         assert json.loads(instance.stdout)["state"] == "running"
-        await wait_file_rows(sink_path, min_rows=rows_before + 2, timeout=30.0)
+        await wait_archive_rows(
+            sink_root,
+            task_id=IEC104_TASK_ID,
+            device_id="iec104-1",
+            min_rows=rows_before + 2,
+            timeout=30.0,
+        )

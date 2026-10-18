@@ -197,11 +197,14 @@ def write_soak_config(
                 "device_group_id": device_id,
                 "point_group": "default",
                 "interval": group.interval_s,
-                "sink_ids": ["soak_sink"],
+                "outputs": [{"sink_id": "soak_sink"}],
             }
 
     sink_type = "file"
-    sink_connection: dict[str, object] = {"path": str(config_dir / "soak-null.csv")}
+    # File sink 的 path 是归档**根目录**（实际分段在
+    # {root}/{task}/{device}/YYYY/MM/...csv）；运行时 sink 实例由
+    # sink_factories 覆盖为计量包装，这里仅提供可解析的占位目录。
+    sink_connection: dict[str, object] = {"path": str(config_dir / "soak-out")}
     system = {
         "runtime": {
             "queue_maxsize": 1_000_000,

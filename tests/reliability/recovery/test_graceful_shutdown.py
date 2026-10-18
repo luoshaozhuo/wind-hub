@@ -13,10 +13,15 @@ from pathlib import Path
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.reliability.recovery.helpers import wait_status, write_modbus_file_config
+from tests.reliability.recovery.helpers import (
+    read_telemetry_rows,
+    wait_status,
+    wait_telemetry_rows,
+    write_modbus_file_config,
+)
 from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_csv, wait_file_rows
+from tests.support.wait import archive_csv_files
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -31,32 +36,34 @@ class TestGracefulShutdown:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.csv"
+        sink_root = tmp_path / "archive"
         config_dir = write_modbus_file_config(
             tmp_path / "cfg",
             modbus_server.port,
-            sink_path,
+            sink_root,
         )
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
 
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         # File sink 每批次 write 落盘并 flush 后才返回——文件里可见的行
         # 即「已确认写入」的记录。
-        await wait_file_rows(sink_path, min_rows=4)
-        written_rows = read_csv(sink_path)
+        await wait_telemetry_rows(sink_root, min_rows=4)
+        written_rows = read_telemetry_rows(sink_root)
 
         # ---- SIGTERM：优雅停机必须干净退出且不丢已确认写入 ----
         exit_code = proc.terminate(timeout=30.0)
         assert exit_code == 0
 
-        rows = read_csv(sink_path)
+        rows = read_telemetry_rows(sink_root)
         # 停机前已确认写入的记录全部保留（停机窗口内允许追加，不允许丢失）。
         assert len(rows) >= len(written_rows)
         point_ids = {r["point_id"] for r in rows}
         assert {"rotor.speed", "gen.power", "temp.int", "setpoint.power"} <= point_ids
         assert all(r["device_id"] == "modbus-1" for r in rows)
-        # 文件完整：最后一行以换行结尾，无写一半的截断行。
-        assert sink_path.read_bytes().endswith(b"\n")
+        # 归档分段完整：最后一个分段以换行结尾，无写一半的截断行。
+        segments = archive_csv_files(sink_root, TASK_ID, "modbus-1")
+        assert segments, "no archive segments written"
+        assert segments[-1].read_bytes().endswith(b"\n")
 
     async def test_sigterm_during_device_outage_still_exits_cleanly(
         self,
@@ -65,8 +72,8 @@ class TestGracefulShutdown:
         tmp_path: Path,
     ) -> None:
         """设备断连状态下的 SIGTERM：停机不能被卡死的重连/读超时拖住。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
 
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)

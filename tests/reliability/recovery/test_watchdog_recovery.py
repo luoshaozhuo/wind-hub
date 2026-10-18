@@ -21,11 +21,10 @@ from pathlib import Path
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.reliability.recovery.helpers import telemetry_task, wait_status
+from tests.reliability.recovery.helpers import telemetry_task, wait_status, wait_telemetry_rows
 from tests.support.config_helper import write_config_tree
 from tests.support.control import metrics_snapshot, start_task_instance
 from tests.support.process import CollectorProcess, free_port
-from tests.support.wait import wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -40,7 +39,7 @@ OUTAGE_WINDOW = 14.0
 SAMPLE_INTERVAL = 0.25
 
 
-def _write_fast_config(base: Path, port: int, sink_path: Path) -> Path:
+def _write_fast_config(base: Path, port: int, sink_root: Path) -> Path:
     from tests.support.functional_config import MODBUS_POINTS, modbus_device_dict
 
     task = telemetry_task("file_sink")
@@ -53,7 +52,7 @@ def _write_fast_config(base: Path, port: int, sink_path: Path) -> Path:
             "file_sink": {
                 "type": "file",
                 "connection": {
-                    "path": str(sink_path),
+                    "path": str(sink_root),
                 },
             }
         },
@@ -97,8 +96,8 @@ class TestWatchdogRecovery:
     ) -> None:
         port = free_port()
         server = ModbusMockServer(port=port)
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = _write_fast_config(tmp_path / "cfg", port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = _write_fast_config(tmp_path / "cfg", port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
@@ -118,7 +117,7 @@ class TestWatchdogRecovery:
             )
             snap = await metrics_snapshot(proc.grpc_target)
             assert snap["device_reconnects"].get(DEVICE_ID, 0) >= 1
-            await wait_file_rows(sink_path, min_rows=2)
+            await wait_telemetry_rows(sink_root, min_rows=2)
 
             # 二次故障后仍由同一个 Watchdog 周期执行连接检查。
             await server.stop()

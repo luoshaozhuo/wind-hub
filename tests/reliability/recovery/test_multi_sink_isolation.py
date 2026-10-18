@@ -16,18 +16,16 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.services import compose
 from tests.reliability.recovery.helpers import (
-    telemetry_task,
+    read_telemetry_rows,
+    telemetry_multi_task,
     wait_status,
+    wait_telemetry_rows,
 )
 from tests.support.control import start_task_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import parse_address, point_key
-from tests.support.wait import (
-    read_csv,
-    wait_file_rows,
-    wait_redis_value,
-)
+from tests.support.wait import wait_redis_value
 
 pytestmark = pytest.mark.real_service
 
@@ -40,14 +38,12 @@ ROTOR_KEY = point_key("modbus-1", "rotor.speed", prefix=REDIS_KEY_PREFIX)
 
 
 def _multi_target_task(*sink_ids: str) -> dict[str, Any]:
-    task = telemetry_task(sink_ids[0])
-    task[TASK_ID]["sink_ids"] = list(sink_ids)
-    return task
+    return telemetry_multi_task(list(sink_ids))
 
 
-async def _assert_file_flow_continues(sink_path: Path, rows_before: int) -> None:
+async def _assert_file_flow_continues(sink_root: Path, rows_before: int) -> None:
     """故障窗口内 File sink 行数必须持续增长（隔离性的核心断言）。"""
-    await wait_file_rows(sink_path, min_rows=rows_before + 4, timeout=20.0)
+    await wait_telemetry_rows(sink_root, min_rows=rows_before + 4, timeout=20.0)
 
 
 @pytest.mark.redis
@@ -61,7 +57,7 @@ class TestRedisOutageIsolation:
     ) -> None:
         """SINK-01：Redis 挂掉期间 File 持续增长；Redis 恢复后重新出数。"""
         host, port = parse_address(redis_service)
-        sink_path = tmp_path / "out" / "telemetry.csv"
+        sink_root = tmp_path / "archive"
         config_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
@@ -69,7 +65,7 @@ class TestRedisOutageIsolation:
                 "file_sink": {
                     "type": "file",
                     "connection": {
-                        "path": str(sink_path),
+                        "path": str(sink_root),
                     },
                 },
                 "redis_sink": {
@@ -88,15 +84,15 @@ class TestRedisOutageIsolation:
         try:
             await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
             baseline = await wait_redis_value(redis_service, ROTOR_KEY)
-            await wait_file_rows(sink_path, min_rows=2)
+            await wait_telemetry_rows(sink_root, min_rows=2)
 
             # ---- 故障：真实停止 Redis ----
             compose.compose_stop_service("redis")
             service_stopped = True
 
             # ---- 隔离：File 数据流不停，采集与进程不受影响 ----
-            rows_before = len(read_csv(sink_path))
-            await _assert_file_flow_continues(sink_path, rows_before)
+            rows_before = len(read_telemetry_rows(sink_root))
+            await _assert_file_flow_continues(sink_root, rows_before)
             assert proc.is_running()
             await wait_status(proc, lambda p: p["running"] is True)
 

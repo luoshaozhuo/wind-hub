@@ -16,17 +16,46 @@ from typing import Any
 
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess, run_cli_async
-from tests.support.wait import WaitTimeoutError, wait_until
+from tests.support.wait import (
+    WaitTimeoutError,
+    read_archive,
+    wait_archive_rows,
+    wait_until,
+)
+
+#: recovery 基线拓扑的固定身份（functional_config 的默认任务/设备）。
+TASK_ID = "modbus-telemetry"
+DEVICE_ID = "modbus-1"
 
 
-def telemetry_task(sink_id: str, *, task_id: str = "modbus-telemetry") -> dict[str, Any]:
-    """单设备 telemetry 采集任务定义（指向指定 sink）。"""
+def telemetry_task(
+    sink_id: str,
+    *,
+    task_id: str = TASK_ID,
+    key_prefix: str | None = None,
+) -> dict[str, Any]:
+    """单设备 telemetry 采集任务定义（新契约：outputs[].sink_id）。"""
+    output: dict[str, Any] = {"sink_id": sink_id}
+    if key_prefix is not None:
+        output["key_prefix"] = key_prefix
     return {
         task_id: {
-            "device_group_id": "modbus-1",
+            "device_group_id": DEVICE_ID,
             "point_group": "telemetry",
             "interval": 0.2,
-            "sink_ids": [sink_id],
+            "outputs": [output],
+        }
+    }
+
+
+def telemetry_multi_task(sink_ids: list[str], *, task_id: str = TASK_ID) -> dict[str, Any]:
+    """单任务多 Sink 扇出（每 Sink 一个 output）。"""
+    return {
+        task_id: {
+            "device_group_id": DEVICE_ID,
+            "point_group": "telemetry",
+            "interval": 0.2,
+            "outputs": [{"sink_id": sink_id} for sink_id in sink_ids],
         }
     }
 
@@ -34,17 +63,44 @@ def telemetry_task(sink_id: str, *, task_id: str = "modbus-telemetry") -> dict[s
 def write_modbus_file_config(
     base: Path,
     port: int,
-    sink_path: Path,
+    sink_root: Path,
     **sink_params: Any,
 ) -> Path:
-    """单 Modbus 设备 + File sink 的现场配置（recovery 各用例的基线拓扑）。"""
-    params = {"path": str(sink_path)}
+    """单 Modbus 设备 + File sink 的现场配置（recovery 各用例的基线拓扑）。
+
+    ``sink_root`` 是归档**根目录**；实际落盘分段在
+    ``{root}/{task}/{device}/YYYY/MM/YYYYMMDD_NNN.csv``。
+    """
+    params = {"path": str(sink_root)}
     params.update(sink_params)
     return write_functional_config(
         base,
         port,
         sinks={"file_sink": {"type": "file", "connection": params}},
         tasks=telemetry_task("file_sink"),
+    )
+
+
+def read_telemetry_rows(sink_root: Path) -> list[dict[str, Any]]:
+    """读取归档根目录下基线任务/设备的全部行。"""
+    return read_archive(sink_root, TASK_ID, DEVICE_ID)
+
+
+async def wait_telemetry_rows(
+    sink_root: Path,
+    *,
+    min_rows: int = 1,
+    timeout: float = 20.0,
+    match: Callable[[dict[str, Any]], bool] | None = None,
+) -> list[dict[str, Any]]:
+    """等待归档根目录下基线任务/设备出现足够行。"""
+    return await wait_archive_rows(
+        sink_root,
+        task_id=TASK_ID,
+        device_id=DEVICE_ID,
+        min_rows=min_rows,
+        timeout=timeout,
+        match=match,
     )
 
 

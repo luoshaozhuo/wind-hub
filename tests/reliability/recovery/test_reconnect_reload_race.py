@@ -19,7 +19,9 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import (
     cli_instance_states,
     cli_status,
+    read_telemetry_rows,
     wait_status,
+    wait_telemetry_rows,
     write_modbus_file_config,
 )
 from tests.support.control import (
@@ -29,7 +31,7 @@ from tests.support.control import (
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_csv, wait_file_rows, wait_until
+from tests.support.wait import wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -49,12 +51,12 @@ class TestPointTableChangeWhileOffline:
         tmp_path: Path,
     ) -> None:
         """CFG-02：掉线期间改点表——设备恢复后必须使用新点表出数。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(
-            sink_path, min_rows=1, match=lambda r: r["value"] == pytest.approx(SCALED_POWER)
+        await wait_telemetry_rows(
+            sink_root, min_rows=1, match=lambda r: r["value"] == pytest.approx(SCALED_POWER)
         )
 
         await modbus_server.stop()
@@ -84,14 +86,22 @@ class TestPointTableChangeWhileOffline:
         await wait_status(
             proc, lambda p: p["devices_connected"] == 1, description="device reconnected"
         )
-        await wait_file_rows(
-            sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(RAW_POWER)
+        await wait_telemetry_rows(
+            sink_root, min_rows=2, match=lambda r: r["value"] == pytest.approx(RAW_POWER)
         )
         await asyncio.sleep(1.0)
-        scaled = [r for r in read_csv(sink_path) if r["value"] == pytest.approx(SCALED_POWER)]
+        scaled = [
+            r
+            for r in read_telemetry_rows(sink_root)
+            if r["value"] == pytest.approx(SCALED_POWER)
+        ]
         settled = len(scaled)
         await asyncio.sleep(1.0)
-        scaled = [r for r in read_csv(sink_path) if r["value"] == pytest.approx(SCALED_POWER)]
+        scaled = [
+            r
+            for r in read_telemetry_rows(sink_root)
+            if r["value"] == pytest.approx(SCALED_POWER)
+        ]
         assert len(scaled) == settled, "stale point table still in use after recovery"
 
 
@@ -103,11 +113,11 @@ class TestStopTaskDuringReconnect:
         tmp_path: Path,
     ) -> None:
         """CFG-03：backoff 期间 stop task——设备恢复后 Task 必须保持 STOPPED。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_telemetry_rows(sink_root, min_rows=2)
 
         await modbus_server.stop()
         await wait_status(
@@ -140,6 +150,6 @@ class TestStopTaskDuringReconnect:
 
         # 数据面保持静默（等残余缓冲落盘后行数不再增长）。
         await asyncio.sleep(1.0)
-        settled = len(read_csv(sink_path))
+        settled = len(read_telemetry_rows(sink_root))
         await asyncio.sleep(1.0)
-        assert len(read_csv(sink_path)) == settled
+        assert len(read_telemetry_rows(sink_root)) == settled

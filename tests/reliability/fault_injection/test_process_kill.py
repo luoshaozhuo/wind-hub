@@ -14,15 +14,18 @@ from pathlib import Path
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.reliability.recovery.helpers import write_modbus_file_config
+from tests.reliability.recovery.helpers import (
+    TASK_ID,
+    read_telemetry_rows,
+    wait_telemetry_rows,
+    write_modbus_file_config,
+)
 from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess, run_cli_async
-from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
-TASK_ID = "modbus-telemetry"
-INSTANCE_ID = "modbus-telemetry:modbus-1"
+INSTANCE_ID = f"{TASK_ID}:modbus-1"
 WORKER_ID = "kill-test"
 
 
@@ -33,8 +36,8 @@ class TestProcessKillRecovery:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
 
         # ---- 第一个实例：正常采集后直接 SIGKILL（无优雅停机） ----
         proc_a: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
@@ -43,7 +46,7 @@ class TestProcessKillRecovery:
             task_id=TASK_ID,
             instance_id=INSTANCE_ID,
         )
-        await wait_file_rows(sink_path, min_rows=3)
+        await wait_telemetry_rows(sink_root, min_rows=3)
         proc_a.kill_tree()
         assert not proc_a.is_running()
 
@@ -53,13 +56,13 @@ class TestProcessKillRecovery:
         assert info.returncode == 0
         assert json.loads(info.stdout)["collector_id"] == WORKER_ID
 
-        baseline = len(read_csv(sink_path))
+        baseline = len(read_telemetry_rows(sink_root))
         await start_task_instance(
             proc_b.grpc_target,
             task_id=TASK_ID,
             instance_id=INSTANCE_ID,
         )
-        await wait_file_rows(sink_path, min_rows=baseline + 2)
+        await wait_telemetry_rows(sink_root, min_rows=baseline + 2)
 
     async def test_sigkill_during_active_collection_loses_at_most_buffer(
         self,
@@ -68,18 +71,18 @@ class TestProcessKillRecovery:
         tmp_path: Path,
     ) -> None:
         """采集中途 SIGKILL：已落盘数据不得损坏（JSONL 每行可解析）。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        sink_root = tmp_path / "archive"
+        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
         proc: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
         await start_task_instance(
             proc.grpc_target,
             task_id=TASK_ID,
             instance_id=INSTANCE_ID,
         )
-        await wait_file_rows(sink_path, min_rows=4)
+        await wait_telemetry_rows(sink_root, min_rows=4)
         proc.kill_tree()
 
         # 落盘文件必须保持可解析——不允许半截行破坏后续消费。
-        rows = read_csv(sink_path)
+        rows = read_telemetry_rows(sink_root)
         assert rows, "rows flushed before kill must survive"
         assert all(r["device_id"] == "modbus-1" for r in rows)
