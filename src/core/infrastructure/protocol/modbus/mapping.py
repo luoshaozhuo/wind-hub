@@ -225,13 +225,11 @@ def group_consecutive_reads(
             span = max(previous_end, point.address + point.count) - current[0].address
             if point.address - previous_end <= max_gap and span <= request_limit:
                 current.append(point)
+                previous_end = max(previous_end, point.address + point.count)
             else:
                 groups.append(current)
                 current = [point]
-            previous_end = max(
-                previous_end,
-                point.address + point.count,
-            )
+                previous_end = point.address + point.count
         groups.append(current)
     return groups
 
