@@ -311,11 +311,10 @@ class ADSSubscription:
     async def _worker(self) -> None:
         while True:
             samples = await self._queue.get()
-            for sample in samples:
-                try:
-                    await self._callback(sample)
-                except Exception:
-                    logger.exception("ADS subscription callback failed for '%s'", sample.point_id)
+            try:
+                await self._callback(samples)
+            except Exception:
+                logger.exception("ADS subscription callback failed for %d-point batch", len(samples))
 
 
 def _normalize_timestamp(value: object) -> tuple[datetime, TimestampSource]:
