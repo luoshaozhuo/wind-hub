@@ -9,9 +9,9 @@
 #                    `point_groups` 含该组的点，该组必须存在于每个匹配
 #                    到的启用设备的点表中（加载期校验）。
 #   interval:        float > 0（秒），周期采集任务必填。
-#   sink_ids:        list[str]（必填，至少一个且不重复）—— 输出去向，
-#                    引用 sinks.yaml 的 sinks Key；enabled Task 引用的
-#                    Sink 必须处于 enabled 状态。
+#   outputs:         list[Mapping]（必填，至少一个且不重复）—— 输出去向。
+#                    sink_id 必填，引用 sinks.yaml；key_prefix 可选，
+#                    用于 Redis 最新值输出的命名空间。
 #   enabled:         bool，默认 true；false 的 Task 不展开任何实例、
 #                    不可启动。
 #
@@ -24,7 +24,8 @@ tasks:
     device_group_id: turbine_modbus
     point_group: all
     interval: 1.0
-    sink_ids: [file_archive]
+    outputs:
+      - sink_id: file_archive
     enabled: true
 
   # ADS 机组遥测（按 device_group 展开）
@@ -32,7 +33,8 @@ tasks:
     device_group_id: turbine_ads
     point_group: all
     interval: 1.0
-    sink_ids: [file_archive]
+    outputs:
+      - sink_id: file_archive
     enabled: true
 
   # IEC104 机组遥测（按 device_group 展开）
@@ -40,5 +42,8 @@ tasks:
     device_group_id: turbine_iec104
     point_group: all
     interval: 1.0
-    sink_ids: [file_archive, redis_latest]
+    outputs:
+      - sink_id: file_archive
+      - sink_id: redis_latest
+        key_prefix: wind-hub
     enabled: true
