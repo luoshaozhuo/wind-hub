@@ -36,3 +36,16 @@ def test_governance_does_not_trigger_product_tests() -> None:
 def test_small_backend_change_does_not_select_all_fast_layers() -> None:
     result = _classify("src/core/domain/point.py")
     assert result["backend_fast_targets"] != "unit,component,contract"
+
+
+def test_unknown_src_subtree_fails_safe_to_product_tests() -> None:
+    result = _classify("src/new_product/service.py")
+    assert result["product"] == "true"
+    assert result["backend_static"] == "true"
+    assert "unit" in result["backend_fast_targets"]
+    assert "component" in result["backend_fast_targets"]
+
+
+def test_config_code_selects_unit_and_contract() -> None:
+    result = _classify("src/core/infrastructure/config/point_table_writer.py")
+    assert result["backend_fast_targets"] == "unit,contract"

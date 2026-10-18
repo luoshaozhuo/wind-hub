@@ -116,6 +116,12 @@ def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
     targets: set[str] = set()
 
     for path in paths:
+        if path.startswith(("src/core/infrastructure/config/",
+                            "src/core/domain/config/")):
+            static_required = True
+            targets.update({"unit", "contract"})
+            continue
+
         if path in BACKEND_GLOBAL_FILES or path.startswith(BACKEND_PREFIXES):
             static_required = True
             targets.add("unit")
@@ -123,6 +129,12 @@ def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
 
         if path.startswith("configs/"):
             targets.add("contract")
+            continue
+
+        if path.startswith("src/"):
+            # 未知产品子树不得静默判为非产品；保守回退到 unit/component。
+            static_required = True
+            targets.update({"unit", "component"})
             continue
 
         if path.startswith("tests/unit/"):
