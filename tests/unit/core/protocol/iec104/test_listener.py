@@ -243,7 +243,7 @@ async def test_remove_is_idempotent() -> None:
     registry = ListenerRegistry()
     listener_id = registry.add(("p",), lambda _s: _noop())
     await registry.remove(listener_id)
-    await registry.remove(listener_id)  # 重复 unlisten 不报错
+    await registry.remove(listener_id)  # 重复 remove（句柄重复 close）不报错
     await registry.close()
     await registry.close()
 
@@ -252,8 +252,8 @@ async def _noop() -> None:
     pass
 
 
-async def test_unlisten_concurrent_with_delivery() -> None:
-    """unlisten 与持续投递并发：取消后绝不再有该监听者的新回调。"""
+async def test_remove_concurrent_with_delivery() -> None:
+    """remove（句柄 close）与持续投递并发：取消后绝不再有该监听者的新回调。"""
     registry = ListenerRegistry(callback_timeout=0.1)
     active = 0
     max_concurrent = 0
@@ -283,7 +283,7 @@ async def test_unlisten_concurrent_with_delivery() -> None:
     await registry.close()
 
 
-async def test_unlisten_concurrent_with_close() -> None:
+async def test_remove_concurrent_with_close() -> None:
     registry = ListenerRegistry()
     entered = asyncio.Event()
     release = asyncio.Event()

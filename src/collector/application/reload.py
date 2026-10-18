@@ -19,10 +19,13 @@ from .config import CollectorConfig, RuntimeParams
 #: 构造期固化、无安全在线迁移方案的 RuntimeParams 字段——变化必须重启进程。
 #:
 #: - ``queue_maxsize``：asyncio.Queue 按启动值创建，运行中改容量会丢队/溢队；
-#: - ``read_timeout``：AcquisitionEngine 构造期固定，引擎不提供更新接口。
+#: - ``read_timeout``：AcquisitionEngine 构造期固定，引擎不提供更新接口；
+#: - ``thread_pool_max_workers``：默认 executor 在进程引导期安装一次，
+#:   不做运行时热替换。
 RESTART_REQUIRED_RUNTIME_FIELDS: tuple[str, ...] = (
     "queue_maxsize",
     "read_timeout",
+    "thread_pool_max_workers",
 )
 
 #: 可安全热更新的 RuntimeParams 字段——owner 在使用点动态读取当前值：

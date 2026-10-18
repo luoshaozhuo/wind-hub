@@ -168,6 +168,11 @@ def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
         write_timeout=settings.write_timeout if settings.write_timeout is not None else 1.0,
         watchdog_interval=settings.watchdog_interval,
         health_timeout=settings.health_timeout,
+        thread_pool_max_workers=(
+            settings.thread_pool.max_workers
+            if settings.thread_pool is not None
+            else 32
+        ),
     )
 
 

@@ -106,13 +106,9 @@ class ProtocolPort(Protocol[TPoint]):
     ) -> SubscriptionHandle:
         """注册协议**原生远程订阅**（对端设备真实支持通知机制时）。
 
-        空 ``point_ids`` 表示订阅点表全部点。实现必须返回可显式注销的句柄，
-        且 ``unsubscribe`` 幂等；注销后不得继续投递新数据。
+        空 ``point_ids`` 表示订阅点表全部点。实现必须返回句柄；注销统一
+        通过 ``handle.close()``（幂等）完成，注销后不得继续投递新数据。
         """
-        ...
-
-    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
-        """注销一次远程订阅（幂等）。"""
         ...
 
     async def listen(
@@ -126,12 +122,9 @@ class ProtocolPort(Protocol[TPoint]):
 
         本调用不向对端注册任何东西、不触发轮询或隐式总召、不创建额外
         连接。空 ``point_ids`` 表示监听点表内全部已配置点；未配置地址的
-        上送不得投递到业务回调。``unlisten`` 必须幂等，注销后不再投递。
+        上送不得投递到业务回调。注销统一通过 ``handle.close()``（幂等），
+        注销后不再投递。
         """
-        ...
-
-    async def unlisten(self, handle: ListenHandle) -> None:
-        """取消一次本地监听（幂等）。"""
         ...
 
     async def interrogate(self, common_address: int | None = None) -> None:

@@ -94,10 +94,6 @@ class _Protocol:
         del point_ids, callback, interval
         raise ProtocolCapabilityError("not supported")
 
-    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
-        del handle
-        raise ProtocolCapabilityError("not supported")
-
     async def listen(
         self,
         point_ids: Sequence[str],
@@ -106,10 +102,6 @@ class _Protocol:
         interval: float | None = None,
     ) -> ListenHandle:
         del point_ids, callback, interval
-        raise ProtocolCapabilityError("not supported")
-
-    async def unlisten(self, handle: ListenHandle) -> None:
-        del handle
         raise ProtocolCapabilityError("not supported")
 
     async def interrogate(self, common_address: int | None = None) -> None:

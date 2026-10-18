@@ -131,6 +131,10 @@ async def test_block_registration_failure_does_not_fallback() -> None:
         def run(self, name, *args):
             return getattr(self, name)(*args)
 
+        async def execute(self, name, *args):
+            # 测试替身：对齐生产 _AdsSession.execute 的异步命令入口契约。
+            return self.run(name, *args)
+
     connection = Connection()
 
     async def callback(sample: ProtocolSample) -> None:
@@ -183,6 +187,10 @@ async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.Monk
 
         def run(self, name: str, *args: object) -> object:
             return getattr(self, name)(*args)
+
+        async def execute(self, name: str, *args: object) -> object:
+            # 测试替身：对齐生产 _AdsSession.execute 的异步命令入口契约。
+            return self.run(name, *args)
 
     monkeypatch.setattr(
         mod.pyads,  # type: ignore[attr-defined]  # pyads 为第三方动态模块属性

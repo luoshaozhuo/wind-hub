@@ -3,7 +3,7 @@
 覆盖：
 - 故障后重建会话必须重新拿到真实通知数据（不只看 is_open()）；
 - 独立客户端进程被 SIGKILL 后，服务端通知句柄/连接/线程的残留观测；
-- 100 次 connect/close、100 次 subscribe/unsubscribe、30 次服务端重启、
+- 100 次 connect/close、100 次 subscribe/handle.close、30 次服务端重启、
   30 次故障恢复、30 次 SIGKILL/重启循环后不累积句柄/线程/连接；
 - 多区块长时运行无整批丢弃、无 worker/句柄泄漏。
 
@@ -202,7 +202,7 @@ class TestResourceCycles:
         assert server.notification_count() == 0
         assert threading.active_count() <= threads_start + 2
 
-    async def test_100_subscribe_unsubscribe_cycles(
+    async def test_100_subscribe_handle_close_cycles(
         self,
         stack: tuple[AdsMemoryServer, TCPFaultProxy],
         local_ams: None,

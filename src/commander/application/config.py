@@ -48,6 +48,7 @@ class CommanderConfig:
         write_timeout: 默认写超时（秒）；Command.timeout <= 0 时生效。
         disabled_devices: 配置级停用设备集合；停用设备不参与即时操作。
         units: 工程单位目录；restart-required——热重载拒绝其任何变化。
+        thread_pool_max_workers: 进程级协议命令线程池大小（restart-required）。
     """
 
     units: UnitCatalog
@@ -62,6 +63,7 @@ class CommanderConfig:
     read_timeout: float = 1.0
     watchdog_interval: float = 5.0
     health_timeout: float = 1.0
+    thread_pool_max_workers: int = 32
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:

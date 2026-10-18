@@ -34,6 +34,33 @@ class ADSLocalConfig:
         _require_non_empty(self.local_ip, "ads.local_ip")
 
 
+# 进程级同步命令线程池上限：默认 32；ADS 无锁实验证明不能假设 AdsLib
+# 28~32 的固定上限（每 Session 仍严格串行），但 64/128 不应成为默认值。
+_THREAD_POOL_MIN_WORKERS = 1
+_THREAD_POOL_MAX_WORKERS = 256
+_THREAD_POOL_DEFAULT_WORKERS = 32
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadPoolSettings:
+    """system.yaml ``runtime.thread_pool`` 段（restart-required）。
+
+    进程级唯一的同步命令线程池（``loop.set_default_executor``），供所有
+    协议 Driver 的 ``asyncio.to_thread`` 共用；Driver 不得自建/销毁线程池。
+    """
+
+    max_workers: int = _THREAD_POOL_DEFAULT_WORKERS
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_workers, bool) or not isinstance(self.max_workers, int):
+            raise ValueError("runtime.thread_pool.max_workers must be an integer")
+        if not _THREAD_POOL_MIN_WORKERS <= self.max_workers <= _THREAD_POOL_MAX_WORKERS:
+            raise ValueError(
+                "runtime.thread_pool.max_workers must be in "
+                f"{_THREAD_POOL_MIN_WORKERS}..{_THREAD_POOL_MAX_WORKERS}"
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeSettings:
     """跨进程共享的运行参数；``None`` 表示未配置，默认值由各进程自定。"""
@@ -46,6 +73,10 @@ class RuntimeSettings:
     write_timeout: float | None = None
     watchdog_interval: float = 5.0
     health_timeout: float = 1.0
+    # None 表示 system.yaml 未配置 runtime.thread_pool；进程引导时回退到
+    # ThreadPoolSettings 的默认 max_workers=32。保留“未配置”语义以保证
+    # 配置保存的无损往返（不为缺省配置凭空写回该段）。
+    thread_pool: ThreadPoolSettings | None = None
 
     def __post_init__(self) -> None:
         if self.queue_maxsize is not None:

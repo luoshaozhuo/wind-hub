@@ -374,11 +374,6 @@ class ModbusDriver:
         del point_ids, callback, interval
         raise ProtocolCapabilityError("modbus does not support subscription")
 
-    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
-        """Modbus TCP 不支持协议级主动订阅。"""
-        del handle
-        raise ProtocolCapabilityError("modbus does not support subscription")
-
     async def listen(
         self,
         point_ids: Sequence[str],
@@ -388,11 +383,6 @@ class ModbusDriver:
     ) -> ListenHandle:
         """Modbus TCP 不存在设备主动上送通道。"""
         del point_ids, callback, interval
-        raise ProtocolCapabilityError("modbus does not support listen")
-
-    async def unlisten(self, handle: ListenHandle) -> None:
-        """Modbus TCP 不存在设备主动上送通道。"""
-        del handle
         raise ProtocolCapabilityError("modbus does not support listen")
 
     async def interrogate(self, common_address: int | None = None) -> None:

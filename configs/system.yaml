@@ -24,6 +24,10 @@
 #                        （Command.timeout <= 0 时生效），默认 1。
 #   watchdog_interval:   float > 0（秒），Watchdog 健康检查周期，默认 5。
 #   health_timeout:      float > 0（秒），单次健康检查超时，默认 1。
+#   thread_pool:         进程级协议命令线程池（asyncio.to_thread 默认
+#                        executor），所有协议 Driver 共用，不按设备建池；
+#                        每进程引导时安装一次，restart-required，热重载拒绝。
+#     max_workers:       int 1..256，默认 32。
 #
 # ads（可选；仅当配置中含 ADS 设备时需要，restart-required，热重载拒绝变更）
 #   只描述【本机 AMS 路由器身份】，不含远程 PLC 凭据：
@@ -50,6 +54,8 @@ runtime:
   write_timeout: 5.0
   watchdog_interval: 5.0
   health_timeout: 1.0
+  thread_pool:
+    max_workers: 32
 
 ads:
   local_ams_net_id: "127.0.0.1.1.1"

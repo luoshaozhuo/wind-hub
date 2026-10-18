@@ -31,7 +31,7 @@ async def test_listener_receives_only_configured_and_filtered_points() -> None:
     )
     await asyncio.sleep(0.05)
     assert got == ["p1"]
-    await driver.unlisten(handle)
+    await handle.close()
     await driver.close()
 
 
@@ -76,7 +76,7 @@ async def test_throwing_callback_does_not_kill_delivery() -> None:
     await driver.close()
 
 
-async def test_unlisten_delivers_no_further_samples_and_is_idempotent() -> None:
+async def test_listen_close_delivers_no_further_samples_and_is_idempotent() -> None:
     driver, conn = await connected_driver([make_point("p1", 100)])
     received: list[float] = []
 
@@ -87,8 +87,7 @@ async def test_unlisten_delivers_no_further_samples_and_is_idempotent() -> None:
     handle = await driver.listen((), on_sample)
     conn.deliver([floating_data_msg(1, 100, 1.0)])
     await asyncio.sleep(0.05)
-    await driver.unlisten(handle)
-    await driver.unlisten(handle)
+    await handle.close()
     await handle.close()
     conn.deliver([floating_data_msg(1, 100, 2.0)])
     await asyncio.sleep(0.05)

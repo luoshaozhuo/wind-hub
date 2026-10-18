@@ -84,6 +84,9 @@ class _ConnectionInfo:
     conn_id: int
     peer: tuple[str, int] | None
     source_ams: str | None = None
+    # 本连接的 AMS 帧实际寻址过的目标 Net ID（驱动配置的目标 Net ID），
+    # 用于多服务器实例下按目标身份过滤进程全局 callback_store 的通知投递。
+    target_net_id: str | None = None
     alive: bool = True
 
 
@@ -256,11 +259,13 @@ class LinearMemoryHandler:
 
         conn_id = getattr(self._tls, "conn_id", None)
         source_ams = _format_source_ams(request.ams_header)
+        target_net_id = ".".join(str(byte) for byte in request.ams_header.target_net_id)
         with self._lock:
             if conn_id is not None:
                 info = self._connections.get(conn_id)
                 if info is not None:
                     info.source_ams = source_ams
+                    info.target_net_id = target_net_id
 
         handlers = {
             constants.ADSCOMMAND_READDEVICEINFO: self._read_device_info,
@@ -504,8 +509,19 @@ class LinearMemoryHandler:
         ctypes.memmove(target, payload, len(payload))
         # 与 AdvancedHandler.PLCVariable.write 相同的投递形式：testserver
         # 不重建客户端 AmsAddr，直接按 notification handle 匹配进程内回调。
+        # callback_store 是进程全局的，多个服务器实例各自从 1 分配 handle；
+        # 而其键的 AmsAddr 是通知绑定的目标地址（驱动配置的目标 Net ID），
+        # 因此除 handle 外再按本服务器存活连接寻址过的目标 Net ID 过滤，
+        # 避免多实例并发测试的交叉投递。
+        with self._lock:
+            live_targets = {
+                info.target_net_id
+                for info in self._connections.values()
+                if info.alive and info.target_net_id is not None
+            }
         for (ams_addr, notification_handle), func in tuple(callback_store.items()):
-            if notification_handle == handle:
+            target_net = _format_ams_addr(ams_addr).rsplit(":", 1)[0]
+            if notification_handle == handle and target_net in live_targets:
                 func(ams_addr.amsAddrStruct(), header, 0)
 
 
@@ -514,6 +530,12 @@ def _format_source_ams(ams_header: Any) -> str:
     net_id = ams_header.source_net_id
     port = struct.unpack("<H", ams_header.source_port)[0]
     return f"{'.'.join(str(byte) for byte in net_id)}:{port}"
+
+
+def _format_ams_addr(ams_addr: Any) -> str:
+    """把 pyads callback_store 键的 AmsAddr 格式化为相同的 'net-id:port'。"""
+    raw = ams_addr.amsAddrStruct()
+    return f"{'.'.join(str(byte) for byte in raw.netId.b)}:{int(raw.port)}"
 
 
 class _TrackingClientConnection(AdsClientConnection):
@@ -532,10 +554,70 @@ class _TrackingClientConnection(AdsClientConnection):
         handler.bind_connection(self._wh_conn_id, peer)
         handler._bind_current_thread(self._wh_conn_id)
         try:
-            super().run()
+            self._run_full_frames()
         finally:
             handler._bind_current_thread(None)
             handler.unbind_connection(self._wh_conn_id)
+
+    def _run_full_frames(self) -> None:
+        """与 pyads AdsClientConnection.run 同语义，但按 TCP 头收全整帧。
+
+        上游 ``recvfrom(4096)`` 会截断 >4090 字节的请求（500 点 Sum Read
+        请求约 6KB），使大批次测试无法在真实帧栈上进行。此处：
+
+        - 小帧（一次 recv 即完整）行为与上游完全一致；
+        - 大帧循环 recv 直到 6 + AMS 长度收全；
+        - 保留单次 recv 中粘连的下一帧余量供下轮处理；
+        - 响应使用 sendall，避免大响应部分发送。
+        """
+        self._run = True
+        leftover = b""
+        while self._run:
+            ready, _, _ = select.select([self.client], [], [], 0.1)
+            if not ready:
+                continue
+
+            if leftover:
+                data = leftover
+                leftover = b""
+            else:
+                data, _ = self.client.recvfrom(4096)
+                if not data:
+                    self.client.close()
+                    self._run = False
+                    continue
+
+            while len(data) < 6:
+                chunk = self.client.recv(4096)
+                if not chunk:
+                    self.client.close()
+                    self._run = False
+                    return
+                data += chunk
+
+            ams_length = struct.unpack("<I", data[2:6])[0]
+            total = 6 + ams_length
+            while len(data) < total:
+                chunk = self.client.recv(min(65536, total - len(data)))
+                if not chunk:
+                    self.client.close()
+                    self._run = False
+                    return
+                data += chunk
+
+            if total < len(data):
+                leftover = data[total:]
+                data = data[:total]
+
+            if len(data) < 38:
+                continue
+
+            request_packet = self.construct_request(data)
+            self.server.request_history.append(request_packet)
+            response = self.handler.handle_request(request_packet)
+            if isinstance(response, AmsResponseData):
+                response_bytes = self.construct_response(response, request_packet)
+                self.client.sendall(response_bytes)
 
 
 class _TrackingAdsTestServer(AdsTestServer):

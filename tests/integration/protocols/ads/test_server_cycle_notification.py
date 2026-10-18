@@ -54,12 +54,21 @@ def _point(point_id: str, offset: int, data_type: str = "DINT") -> Point:
     )
 
 
-def _driver(points: dict[str, Point], *, max_block_bytes: int = 1024) -> ADSDriver:
+def _driver(
+    points: dict[str, Point],
+    *,
+    max_block_bytes: int = 1024,
+    net_id: str = _NET_ID,
+    ip: str = _IP,
+) -> ADSDriver:
     return ADSDriver(
-        ConnectionEndpoint(_IP, 48898),
+        ConnectionEndpoint(ip, 48898),
         PointTable(PointTableId("cycle"), Protocol("ads"), points),
         {
-            "target_net_id": _NET_ID,
+            # AdsLib 目标路由按 Net ID 进程级共享且无引用计数：同 Net ID 的
+            # 并发连接会在任一连接关闭时被连带 adsDelRoute，因此并发连接必须
+            # 使用不同 Net ID（见 driver._RouteState）。
+            "target_net_id": net_id,
             "timeout": 3.0,
             "twincat_version": "3",
             "max_block_bytes": max_block_bytes,
@@ -150,14 +159,21 @@ class TestServerCycleSemantics:
     ) -> None:
         """两个独立连接/句柄按各自周期投递，不相互干扰。"""
         del local_ams
-        # 不同 IndexOffset，避免区块重叠。
+        # 两个连接分别落在独立的服务器/Net ID 上，使用不同 IndexOffset。
         memory_server.set_values(_GROUP, 0, pack_points([("DINT", 1)]))
-        memory_server.set_values(_GROUP, 8192, pack_points([("DINT", 2)]))
         driver_fast = _driver({"a": _point("a", 0)})
-        driver_slow = _driver({"b": _point("b", 8192)})
-        await driver_fast.connect()
-        await driver_slow.connect()
+        # 独立连接必须使用不同 Net ID：同 Net ID 并发连接共享 AdsLib 进程
+        # 路由，任一关闭都会连带删除另一连接依赖的路由（driver 在建链准入期
+        # 直接拒绝这种配置）。第二个连接使用独立服务器 IP；AdsMemoryServer
+        # 按存活连接的目标 Net ID 过滤进程内通知投递，多实例互不串扰。
+        slow_ip = "127.0.0.43"
+        slow_server = AdsMemoryServer(ip_address=slow_ip)
+        slow_server.start()
+        slow_server.set_values(_GROUP, 8192, pack_points([("DINT", 2)]))
+        driver_slow = _driver({"b": _point("b", 8192)}, net_id=f"{slow_ip}.2.1", ip=slow_ip)
         try:
+            await driver_fast.connect()
+            await driver_slow.connect()
             fast: list[int] = []
             slow: list[int] = []
 
@@ -182,6 +198,7 @@ class TestServerCycleSemantics:
         finally:
             await driver_fast.close()
             await driver_slow.close()
+            slow_server.stop()
 
     async def test_cycle_parameter_controls_inter_arrival_time(
         self, memory_server: AdsMemoryServer, local_ams: None
