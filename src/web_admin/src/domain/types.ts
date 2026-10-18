@@ -112,7 +112,7 @@ export interface TaskDef {
   updated_at: string
 }
 
-export type SinkType = 'file' | 'modbus' | 'redis'
+export type SinkType = 'modbus' | 'redis'
 export type SinkRuntimeState = 'unknown' | 'healthy' | 'warning' | 'failed' | 'disabled' | 'testing'
 export type SinkCheckState = 'passed' | 'warning' | 'failed' | 'skipped'
 export type SinkCheckLayer = 'network' | 'protocol' | 'target' | 'filesystem'
