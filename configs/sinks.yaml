@@ -1,19 +1,14 @@
 # ---------------------------------------------------------------------------
-# wind-hub 配置模板 — Sink 输出（仅支持 CSV File、Modbus TCP Server、Redis）
+# wind-hub 配置模板 — Sink 输出（仅支持 Modbus TCP Server、Redis）
 # ---------------------------------------------------------------------------
 #
 # sinks: Mapping，Key 即 Sink ID（Task 经 outputs[].sink_id 引用）。字段：
-#   type:       file / modbus / redis（必填）。
+#   type:       modbus / redis（必填）。
 #   enabled:    bool，默认 true；enabled Task 不允许引用 disabled Sink；
 #               同一 host:port 不允许两个 enabled 的 Modbus Sink。
 #   connection: Mapping（必填）—— 按 type 不同（见下）。
 #
 # connection 字段：
-# - file:
-#     path:        CSV 归档根目录（必填；不得指定单个 .csv 文件）。
-#                  路径：{path}/{task_id}/{device_id}/{YYYY}/{MM}/{YYYYMMDD}_{index}.csv
-#     max_size_mb: float > 0，默认 100 —— 单段文件最大容量，超过即轮转。
-#     retention_days: int >= 1，默认 30 —— 保留 UTC 自然日数。
 # - redis:
 #     host:       str，默认 localhost。
 #     port:       int 1..65535，默认 6379。
@@ -35,7 +30,7 @@
 #   unit:      可选 —— 对外单位标识，缺省与源点一致。
 #   scale / offset: float，默认 1.0 / 0.0 —— 仅数值类型允许换算。
 #   address:   必填 —— 按 Sink 类型：
-#       file / redis: {field: <对外字段名>}，Sink 内不允许重复。
+#       redis: {field: <对外字段名>}，Sink 内不允许重复。
 #       modbus: {slave_id: 0..255,
 #                register_type: holding / input / coil / discrete,
 #                address: 0..65535,          # 0-based 起始地址
@@ -45,15 +40,6 @@
 #              不允许重叠或越界（> 65535）。
 
 sinks:
-
-  # CSV 文件归档（单文件最多 100 MB，保留 30 天）
-  file_archive:
-    type: file
-    enabled: true
-    connection:
-      path: /var/tmp/wind-hub/archive
-      max_size_mb: 100
-      retention_days: 30
 
   # Redis 最新值输出
   redis_latest:
