@@ -159,6 +159,8 @@ def main() -> int:
         )
         if result.returncode:
             raise BlockedError(f"受影响范围验证失败: exit={result.returncode}")
+    if command("git", "status", "--porcelain"):
+        raise BlockedError("验证过程产生未提交修改；停止合并")
     if command("git", "rev-parse", "HEAD") != pr["headRefOid"]:
         raise BlockedError("本地 HEAD 在验证过程中发生变化")
     command("git", "fetch", "origin", "main")
