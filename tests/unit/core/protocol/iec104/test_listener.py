@@ -566,3 +566,26 @@ async def test_single_batch_filtered_once_per_listener() -> None:
     assert all_batches == [("p1", "p2", "p3")]
     assert filtered_batches == [("p1", "p3")]
     await registry.close()
+
+
+async def test_batch_overflow_counts_samples_not_callbacks() -> None:
+    registry = ListenerRegistry(capacity=1)
+    gate = asyncio.Event()
+    started = asyncio.Event()
+    received: list[tuple[float, ...]] = []
+
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+        started.set()
+        await gate.wait()
+        received.append(tuple(float(sample.value) for sample in samples))
+
+    registry.add((), collect)
+    registry.offer((_sample("p", 1.0),))
+    await started.wait()
+    registry.offer((_sample("p", 2.0), _sample("p", 3.0)))
+    registry.offer((_sample("p", 4.0),))
+    assert registry.dropped_count == 2
+    gate.set()
+    await asyncio.sleep(0.02)
+    assert received == [(1.0,), (4.0,)]
+    await registry.close()
