@@ -577,7 +577,7 @@ class IEC104Driver:
                 f"IEC104 common address {common_address} is not configured "
                 f"(configured: {list(self._config.common_addresses)})"
             )
-        await self._interrogate_one(common_address, qoi=qoi)
+        return await self._interrogate_one(common_address, qoi=qoi)
 
     async def _interrogate_one(self, ca: int, *, qoi: int) -> tuple[ProtocolSample, ...]:
         session = self._require_session()
