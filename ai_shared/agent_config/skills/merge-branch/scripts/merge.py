@@ -184,7 +184,7 @@ def main() -> int:
         raise BlockedError(f"合并验证执行器不存在: {gate_script}")
     with tempfile.TemporaryDirectory(prefix="wind-hub-merge-") as temp_dir:
         changed_file = Path(temp_dir) / "changed.txt"
-        changed_file.write_text("\\n".join(changed) + "\\n", encoding="utf-8")
+        changed_file.write_text("\n".join(changed) + "\n", encoding="utf-8")
         result = subprocess.run(
             [sys.executable, str(gate_script), "merge", "--file-list", str(changed_file)],
             check=False,
