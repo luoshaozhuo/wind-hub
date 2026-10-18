@@ -319,6 +319,8 @@ class CollectorDeviceSession:
             timestamp=sample.timestamp,
             timestamp_source=sample.timestamp_source,
             source=self.protocol_name,
+            receive_time=sample.receive_time,
+            device_time=sample.device_time,
         )
 
     # ------------------------------------------------------------------
