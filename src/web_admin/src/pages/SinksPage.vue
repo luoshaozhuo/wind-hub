@@ -120,17 +120,6 @@ function connection(): Record<string, unknown> {
   return { host: draft.host.trim(), port: draft.port }
 }
 
-function parsePoints(): Record<string, unknown>[] {
-  const value: unknown = JSON.parse(draft.pointsJson)
-  if (
-    !Array.isArray(value) ||
-    value.some((row) => !row || typeof row !== 'object' || Array.isArray(row))
-  ) {
-    throw new Error('点映射必须是 JSON 对象数组')
-  }
-  return value as Record<string, unknown>[]
-}
-
 function validate() {
   if (!draft.name.trim()) return 'Sink ID 不能为空'
   if (creating.value && configStore.sinks.some((s) => s.name === draft.name.trim()))
@@ -317,9 +306,7 @@ async function remove(sink: SinkDef) {
             </el-form-item>
           </template>
         </template>
-        <el-form-item label="点映射（Core SinkPoint JSON 数组）">
-          <el-input v-model="draft.pointsJson" type="textarea" :rows="7" />
-        </el-form-item>
+        
       </el-form>
       <template #footer>
         <el-space>
