@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import time
@@ -16,6 +17,8 @@ from core.application.sink_error import SinkError
 from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import FileSinkConnection
+
+logger = logging.getLogger(__name__)
 
 _COMPONENT = re.compile(r"[A-Za-z0-9_.-]+\Z")
 
@@ -53,24 +56,41 @@ class FileSink:
             finally:
                 raise
 
+    def _within_root(self, path: Path) -> bool:
+        """解析后的真实路径必须仍在归档根内（阻断符号链接逃逸）。"""
+        root = self._root.resolve(strict=False)
+        resolved = path.resolve(strict=False)
+        return resolved == root or root in resolved.parents
+
+    def _open_segment(self, path: Path, flags: int) -> int:
+        """O_NOFOLLOW 打开分段：已存在的符号链接一律拒绝，不跟随写入。"""
+        return os.open(path, flags, 0o640)
+
     def _append_rows(self, directory: Path, day: str, values: list[PointValue]) -> None:
         directory.mkdir(parents=True, exist_ok=True)
+        if not self._within_root(directory):
+            raise SinkError(f"archive directory escapes root via symlink: {directory}")
         header = next(iter_csv_rows([], include_header=True))
         max_size = self._policy.max_size_bytes
         index = 0
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
         for row in iter_csv_rows(values):
             while True:
                 path = directory / f"{day}_{index:03d}.csv"
                 size = path.stat().st_size if path.exists() else 0
                 if size:
-                    with path.open("rb") as existing:
+                    if path.is_symlink():
+                        raise SinkError(f"refusing to write through symlink: {path}")
+                    fd = self._open_segment(path, os.O_RDONLY | nofollow)
+                    with os.fdopen(fd, "rb") as existing:
                         if existing.readline() != header:
                             raise SinkError(f"CSV header does not match: {path}")
                 # 超过容量后写入下一个分段。单行超过上限时仍允许独占分段。
                 if size and size + len(row) > max_size:
                     index += 1
                     continue
-                with path.open("ab") as file:
+                write_flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | nofollow
+                with os.fdopen(self._open_segment(path, write_flags), "ab") as file:
                     if size == 0:
                         file.write(header)
                     file.write(row)
@@ -81,8 +101,12 @@ class FileSink:
         if not force and now - self._last_cleanup < 3600:
             return
         cutoff = (datetime.now(UTC).date() - timedelta(days=self._policy.retention_days - 1))
-        # 仅清理本 Sink 所拥有的 Task/Device/年/月/日期索引 CSV。
+        # 仅清理本 Sink 所拥有的 Task/Device/年/月/日期索引 CSV；
+        # 符号链接与解析后逃逸出根目录的条目一律不删（防共享根/链接投毒）。
         for file in self._root.glob("*/*/[0-9][0-9][0-9][0-9]/[0-9][0-9]/*.csv"):
+            if file.is_symlink() or not self._within_root(file):
+                logger.warning("skip cleanup of path escaping archive root: %s", file)
+                continue
             day, sep, index = file.stem.partition("_")
             if not sep or len(day) != 8 or not day.isdigit() or not index.isdigit():
                 continue

@@ -134,3 +134,58 @@ async def test_unsafe_task_or_device_component_rejected(tmp_path: Path) -> None:
     evil = PointValue("../dev", "p", 1.0)
     with pytest.raises(SinkError, match="unsafe archive path component"):
         await sink.write_task("t1", [evil])
+
+
+async def test_write_refuses_segment_symlink_pointing_outside(tmp_path: Path) -> None:
+    """分段文件被预置为指向根外的符号链接时，O_NOFOLLOW 必须拒绝写入。"""
+    root = tmp_path / "archive"
+    outside = tmp_path / "outside.csv"
+    outside.write_text("ORIGINAL", encoding="utf-8")
+    sink = make_sink(root)
+    await sink.open()
+    day = datetime.now(UTC).strftime("%Y%m%d")
+    directory = root / "t1" / "d" / day[:4] / day[4:6]
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{day}_000.csv").symlink_to(outside)
+
+    with pytest.raises(SinkError, match="symlink"):
+        await sink.write_task("t1", [_point("p")])
+    assert outside.read_text(encoding="utf-8") == "ORIGINAL"
+    await sink.close()
+
+
+async def test_write_refuses_symlinked_archive_directory(tmp_path: Path) -> None:
+    """归档中间目录被替换为指向根外的符号链接时，归属校验拒绝写入。"""
+    root = tmp_path / "archive"
+    outside_dir = tmp_path / "elsewhere"
+    outside_dir.mkdir()
+    sink = make_sink(root)
+    await sink.open()
+    now = datetime.now(UTC)
+    day = now.strftime("%Y%m%d")
+    # 将真实写入路径上的月目录替换为指向根外的链接。
+    year_dir = root / "t1" / "d" / day[:4]
+    year_dir.mkdir(parents=True, exist_ok=True)
+    (year_dir / day[4:6]).symlink_to(outside_dir, target_is_directory=True)
+
+    with pytest.raises(SinkError, match="escapes root"):
+        await sink.write_task("t1", [_point("p", when=now)])
+    assert list(outside_dir.iterdir()) == []
+    await sink.close()
+
+
+async def test_cleanup_never_unlinks_symlinked_segments(tmp_path: Path) -> None:
+    """过期分段若为符号链接（哪怕指向根内），cleanup 只跳过、不 unlink 目标。"""
+    root = tmp_path / "archive"
+    target = tmp_path / "real_target.csv"
+    target.write_text("KEEP", encoding="utf-8")
+    sink = make_sink(root, retention_days=1)
+    old_day = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y%m%d")
+    link = _segment(root, "t1", "d", old_day, 0)
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target)
+
+    await sink.open()  # open 触发 force cleanup
+    await sink.close()
+    assert link.is_symlink()
+    assert target.read_text(encoding="utf-8") == "KEEP"
