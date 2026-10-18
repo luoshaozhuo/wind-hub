@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
+from datetime import datetime
 
 import pytest
 from hat.drivers.iec101 import common as iec101
