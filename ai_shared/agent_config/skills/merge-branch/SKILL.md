@@ -15,7 +15,7 @@ description: 由 Coding Agent 的 //merge-branch 指令触发；检查当前任�
 python <skill-dir>/scripts/merge.py merge --pr <PR-number>
 ```
 
-如果尚无 PR，先检查当前任务分支、创建指向 `main` 的 PR，再执行脚本。
+如果尚无 PR，先检查当前任务分支、创建指向 `main` 的 PR，再执行脚本。必须由运行在用户 wind-hub 工作区内的 Coding Agent 调用；远程 GitHub 修改无法代替本地 Conda 验收。
 `check` 仅用于排错，不得用 READY 代替实际合并结果。
 
 ## 本地合并验收
@@ -27,7 +27,7 @@ python <skill-dir>/scripts/merge.py merge --pr <PR-number>
 - 仅允许**当前任务分支 → main**，采用 **Squash Merge**；不得直接在本地 `main` 上操作。
 - 工作区干净，分支已推送且与远程同步；PR 不是 Draft、没有冲突。
 - CI 必须完成且成功；Required Checks 与必需审查必须满足 GitHub 分支保护规则。
-- 没有 CI 检查结果时默认 **BLOCKED**，绝不视作通过。唯一降级路径：调用方显式加 `--allow-no-ci`，且脚本通过 API 确证仓库 GitHub Actions 被整体禁用（`actions/permissions` 的 `enabled=false`）。此时结果必须如实报告 **CI NOT_RUN（Actions 已禁用）**，不得写成 CI PASS；Actions 处于启用状态却无结果（未触发/未完成）、或启用状态无法确认时仍然 BLOCKED。
+- 没有 GitHub Check 结果时默认 **BLOCKED**，绝不视作通过。轻量 GitHub Check 不能替代合并时本地产品验收。
 - 不允许 `--admin`、强制推送或绕过保护。CI 异常按 RELATED / UNRELATED / UNKNOWN 处理，UNKNOWN 不得视作通过。
 - 合并后核实 PR 为 MERGED，且 Squash Commit 已进入远程 `main` 历史。
 - 若合并响应不确定，先重新查询 PR 状态，不盲目重复执行合并。
