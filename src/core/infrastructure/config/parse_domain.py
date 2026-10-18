@@ -619,7 +619,6 @@ def _sinks(raw: Mapping[str, Any]) -> dict[str, Sink]:
             kind=definition.type,
             enabled=definition.enabled,
             connection=entry["connection"],
-            points=tuple(entry.get("points", ())),
         )
     return sinks
 
@@ -663,16 +662,10 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
                         f"Task '{task.task_id}' key_prefix requires a Redis Sink"
                     )
                 if output.points:
-                    parse_sink_definitions({
-                        "sinks": {
-                            output.sink_id: {
-                                "type": sink.kind,
-                                "enabled": sink.enabled,
-                                "connection": _yaml_plain(sink.connection),
-                                "points": [_yaml_plain(point) for point in output.points],
-                            }
-                        }
-                    })
+                    validate_task_sink_points(
+                        sink.kind,
+                        [_yaml_plain(point) for point in output.points],
+                    )
         validate_core_config(
             units=units,
             device_types=types,
