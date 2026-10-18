@@ -219,6 +219,32 @@ class _SinkSchema(BaseModel):
         return self
 
 
+
+def validate_task_sink_points(kind: str, points: list[Mapping[str, Any]]) -> None:
+    """在 Task 边界沿用 SinkPoint 与地址类型校验，并拒绝重复引用/地址。"""
+    if kind not in _ADDRESS_TYPES:
+        raise ConfigError(f"unknown Sink type '{kind}'")
+    refs: set[str] = set()
+    addresses: set[tuple[object, ...]] = set()
+    address_type = _ADDRESS_TYPES[kind][0]
+    for item in points:
+        definition = dict(item)
+        if isinstance(definition.get("address"), Mapping):
+            definition["address"] = address_type.model_validate(dict(definition["address"]))
+        try:
+            point = SinkPoint.model_validate(definition)
+        except Exception as exc:
+            raise ConfigError(f"invalid {kind} Task output point: {exc}") from exc
+        ref = point.ref or f"{point.source.device_id}.{point.source.point_id}"
+        address = _address_key(point.address)
+        if ref in refs:
+            raise ConfigError(f"duplicate Task output ref '{ref}'")
+        if address in addresses:
+            raise ConfigError(f"duplicate Task output address for '{ref}'")
+        refs.add(ref)
+        addresses.add(address)
+
+
 def parse_sink_definitions(raw: Mapping[str, Any]) -> dict[str, _SinkSchema]:
     """解析 sinks.yaml 根 Mapping：Mapping Key 即 Sink ID。"""
     if not isinstance(raw, Mapping) or set(raw) - {"sinks"}:
