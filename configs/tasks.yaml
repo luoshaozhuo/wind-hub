@@ -46,4 +46,8 @@ tasks:
       - sink_id: file_archive
       - sink_id: redis_latest
         key_prefix: wind-hub
+        points:
+          - source: {device_id: iec104-001, point_id: active_power_iec}
+            ref: iec104_001_active_power
+            address: {field: iec104_001_active_power}
     enabled: true
