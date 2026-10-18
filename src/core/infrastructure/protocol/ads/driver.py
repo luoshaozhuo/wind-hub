@@ -507,6 +507,9 @@ class ADSDriver:
             closed = await session.shutdown_inline(grace)
             if not closed:
                 route.unsafe_reason = "inline physical ADS close not confirmed"
+                raise ProtocolError(
+                    f"ADS route {route.key!r} cannot retry: physical close unconfirmed"
+                )
         except BaseException:
             # shutdown_inline 抛错或遭取消时，不能假设底层线程已安全退出。
             route.unsafe_reason = "inline physical ADS close interrupted"
