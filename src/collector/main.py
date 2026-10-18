@@ -15,6 +15,7 @@ from pathlib import Path
 
 from core.infrastructure.diagnostic.log_setup import configure_logging, configure_process_logging
 from core.infrastructure.runtime import configure_default_thread_pool
+from core.infrastructure.config.adapter import YamlConfigAdapter
 
 from .assembly import assemble_collector
 from .infrastructure.grpc import build_grpc_server
@@ -52,7 +53,7 @@ async def run_collector(
             Collector ``--shutdown-timeout`` 语义一致）。
     """
     app = assemble_collector(config_dir, collector_id=collector_id)
-    configure_process_logging(app.boot_config.system.logs, process_name=f"collector-{app.identity.collector_id}")
+    configure_process_logging(YamlConfigAdapter(config_dir).load().system.logs, process_name=f"collector-{app.identity.collector_id}")
     # 进程级协议命令线程池：所有 Driver 的 to_thread 共用，必须先于任何
     # 协议命令安装（每进程一次；配置变更 restart-required）。
     configure_default_thread_pool(app.boot_config.runtime.thread_pool_max_workers)
