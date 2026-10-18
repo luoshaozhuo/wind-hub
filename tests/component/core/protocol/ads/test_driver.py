@@ -415,9 +415,10 @@ async def test_ads_driver_exposes_notification_subscription(
     received: list[ProtocolSample] = []
     delivered = asyncio.Event()
 
-    async def callback(sample: ProtocolSample) -> None:
-        received.append(sample)
-        delivered.set()
+    async def callback(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(sample)
+            delivered.set()
 
     handle = await driver.subscribe(("speed",), callback, interval=0.25)
     assert _FakeNotificationAttrib.last_mode == _FakeNotificationPyads.ADSTRANS_SERVERCYCLE
@@ -443,8 +444,9 @@ async def test_ads_subscription_ignores_old_generation_callback(
     driver, connection = _notification_driver(monkeypatch)
     received: list[ProtocolSample] = []
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        received.append(sample)
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(sample)
 
     handle = await driver.subscribe(("speed",), on_sample, interval=0.25)
     old_callback = connection.callbacks[1]
@@ -477,10 +479,11 @@ async def test_ads_subscription_can_close_itself_from_callback(
     done = asyncio.Event()
     handle_box: list[_Closable] = []
 
-    async def callback(sample: ProtocolSample) -> None:
-        del sample
-        await handle_box[0].close()
-        done.set()
+    async def callback(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            del sample
+            await handle_box[0].close()
+            done.set()
 
     handle = await driver.subscribe(("speed",), callback, interval=0.25)
     handle_box.append(handle)
@@ -714,8 +717,9 @@ async def test_io_after_close_raises_protocol_error_without_false_success() -> N
         await driver.subscribe(("speed",), _noop_callback, interval=0.1)
 
 
-async def _noop_callback(sample: ProtocolSample) -> None:
-    del sample
+async def _noop_callback(samples: tuple[ProtocolSample, ...]) -> None:
+    for sample in samples:
+        del sample
 
 
 @pytest.mark.asyncio
