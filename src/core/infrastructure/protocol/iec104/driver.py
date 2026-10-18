@@ -637,7 +637,7 @@ class IEC104Driver:
     async def subscribe(
         self,
         point_ids: Sequence[str],
-        callback: Callable[[ProtocolSample], object],
+        callback: Callable[[tuple[ProtocolSample, ...]], object],
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
@@ -706,27 +706,28 @@ class IEC104Driver:
         # 分发严格隔离：当前 APDU 不可解码的剩余部分只丢这一帧并记日志，
         # 绝不杀死接收任务，后续 APDU 正常处理。出错后不重新迭代同一生成器。
         messages = self._encoder.decode(data)
+        batch: list[ProtocolSample] = []
         while True:
             try:
                 message = next(messages)
             except StopIteration:
-                return
+                break
             except iec101.AsduTypeError as exc:
                 logger.warning(
                     "IEC104 unsupported ASDU type (%s); APDU remainder dropped: %s",
                     exc,
                     data.hex(),
                 )
-                return
+                break
             except Exception:
                 logger.exception(
                     "IEC104 ASDU decode failed (malformed/truncated APDU); "
                     "remainder of this APDU dropped: %s",
                     data.hex(),
                 )
-                return
+                break
             try:
-                self._dispatch(session, message, receive_time=receive_time)
+                self._dispatch(session, message, receive_time=receive_time, batch=batch)
             except Exception:
                 logger.exception(
                     "IEC104 dispatch failed for %s ca=%s ioa=%s; "
@@ -735,12 +736,16 @@ class IEC104Driver:
                     getattr(message, "asdu_address", "?"),
                     getattr(message, "io_address", "?"),
                 )
+        if batch:
+            self._listeners.offer(tuple(batch))
 
     def _dispatch(
-        self, session: _Session, message: iec101.Msg, *, receive_time: datetime | None = None
+        self, session: _Session, message: iec101.Msg, *,
+        receive_time: datetime | None = None,
+        batch: list[ProtocolSample] | None = None,
     ) -> None:
         if isinstance(message, iec101.DataMsg):
-            self._dispatch_data(session, message, receive_time=receive_time)
+            self._dispatch_data(session, message, receive_time=receive_time, batch=batch)
         elif isinstance(message, iec101.ReadMsg):
             self._dispatch_read_negative(session, message)
         elif isinstance(message, iec104common.CommandMsg):
@@ -750,7 +755,9 @@ class IEC104Driver:
         # 时钟同步、初始化、参数等报文当前无业务语义，忽略。
 
     def _dispatch_data(
-        self, session: _Session, message: iec101.DataMsg, *, receive_time: datetime | None = None
+        self, session: _Session, message: iec101.DataMsg, *,
+        receive_time: datetime | None = None,
+        batch: list[ProtocolSample] | None = None,
     ) -> None:
         key: Address = (message.asdu_address, message.io_address)
         data_type = type(message.data).__name__
@@ -813,7 +820,10 @@ class IEC104Driver:
             and message.asdu_address in session.interrogation_samples
         ):
             session.interrogation_samples[message.asdu_address].append(sample)
-        self._listeners.offer(sample)
+        if batch is None:
+            self._listeners.offer((sample,))
+        else:
+            batch.append(sample)
 
     def _dispatch_read_negative(self, session: _Session, message: iec101.ReadMsg) -> None:
         # 主站发出的请求回响不会回到本侧；这里只处理从站否定（COT 44..47）。
