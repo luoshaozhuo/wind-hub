@@ -2,7 +2,7 @@
 # wind-hub 配置模板 — Sink 输出（仅支持 CSV File、Modbus TCP Server、Redis）
 # ---------------------------------------------------------------------------
 #
-# sinks: Mapping，Key 即 Sink ID（Task 经 `sink_ids` 引用）。字段：
+# sinks: Mapping，Key 即 Sink ID（Task 经 outputs[].sink_id 引用）。字段：
 #   type:       file / modbus / redis（必填）。
 #   enabled:    bool，默认 true；enabled Task 不允许引用 disabled Sink；
 #               同一 host:port 不允许两个 enabled 的 Modbus Sink。
