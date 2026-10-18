@@ -293,8 +293,6 @@ class SinkResponse(BaseModel):
     type: str
     enabled: bool
     connection: dict[str, Any]
-    points: list[dict[str, Any]] = Field(default_factory=list)
-    point_count: int
     healthy: bool
     message: str | None = None
     queue_depth: int
@@ -304,7 +302,6 @@ class SinkUpsertRequest(BaseModel):
     type: str
     enabled: bool = True
     connection: dict[str, Any]
-    points: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SinkTestResponse(BaseModel):
@@ -526,7 +523,6 @@ class AdminSinkItemRequest(BaseModel):
     type: str
     enabled: bool = True
     connection: dict[str, Any]
-    points: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AdminDefinitionsStateRequest(BaseModel):

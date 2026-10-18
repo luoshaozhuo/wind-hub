@@ -304,7 +304,8 @@ def test_v1_phase5_system_health_endpoint() -> None:
     assert response.json()["cpu_count"] == 4
 
 
-def test_v1_sinks_exposes_unified_connection_and_points() -> None:
+def test_v1_sinks_exposes_unified_connection_without_sink_points() -> None:
+    """新契约：点属于 Task outputs，/sinks 不再暴露 sink 级 points。"""
     sinks = MagicMock()
     sinks.list_sinks.return_value = [
         SinkSnapshot(
@@ -312,20 +313,6 @@ def test_v1_sinks_exposes_unified_connection_and_points() -> None:
             type="modbus",
             enabled=False,
             connection={"host": "0.0.0.0", "port": 1502},
-            points=[
-                {
-                    "source": {"device_id": "wt01", "point_id": "power"},
-                    "ref": "wt01.power",
-                    "datatype": "float32",
-                    "unit": "none",
-                    "address": {
-                        "unit_id": 1,
-                        "register_type": "holding",
-                        "address": 100,
-                    },
-                }
-            ],
-            point_count=1,
             healthy=False,
             message="disabled",
             queue_depth=0,
@@ -339,7 +326,8 @@ def test_v1_sinks_exposes_unified_connection_and_points() -> None:
     row = response.json()[0]
     assert row["type"] == "modbus"
     assert row["connection"] == {"host": "0.0.0.0", "port": 1502}
-    assert row["points"][0]["ref"] == "wt01.power"
+    assert "points" not in row
+    assert "point_count" not in row
     assert "params" not in row
 
 

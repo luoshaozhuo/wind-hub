@@ -28,9 +28,11 @@ const draft = reactive({
   host: 'localhost',
   port: 6379,
   database: 0,
+  username: '',
   password: '',
+  timeoutSec: 1.0,
   keyPrefix: 'wind-hub',
-  })
+})
 const snapshot = ref('')
 const changed = computed(() => JSON.stringify(draft) !== snapshot.value)
 
@@ -54,9 +56,11 @@ function reset(type: SinkType = 'file') {
     host: String('host' in settings ? settings.host : 'localhost'),
     port: Number('port' in settings ? settings.port : 6379),
     database: 0,
+    username: '',
     password: '',
+    timeoutSec: 1.0,
     keyPrefix: 'wind-hub',
-      })
+  })
   snapshot.value = JSON.stringify(draft)
 }
 
@@ -72,7 +76,9 @@ function load(sink: SinkDef) {
     host: String(connection.host ?? 'localhost'),
     port: Number(connection.port ?? (sink.type === 'redis' ? 6379 : 502)),
     database: Number(connection.database ?? 0),
+    username: String(connection.username ?? ''),
     password: '',
+    timeoutSec: Number(connection.timeout ?? 1.0),
     keyPrefix: String(connection.key_prefix ?? 'wind-hub'),
   })
   snapshot.value = JSON.stringify(draft)
@@ -107,15 +113,17 @@ function connection(): Record<string, unknown> {
     }
   }
   if (draft.type === 'redis') {
-    const old = !creating.value ? selected.value?.connection : undefined
-    return {
+    const connection: Record<string, unknown> = {
       host: draft.host.trim(),
       port: draft.port,
       database: draft.database,
+      timeout: draft.timeoutSec,
       key_prefix: draft.keyPrefix.trim(),
-      ...(!creating.value && !draft.password ? { password: old?.password } : {}),
-      ...(draft.password ? { password: draft.password } : {}),
     }
+    // username 非密文，后端正常回显；为空表示不启用 ACL。
+    if (draft.username.trim()) connection.username = draft.username.trim()
+    if (draft.password) connection.password = draft.password
+    return connection
   }
   return { host: draft.host.trim(), port: draft.port }
 }
@@ -124,12 +132,18 @@ function validate() {
   if (!draft.name.trim()) return 'Sink ID 不能为空'
   if (creating.value && configStore.sinks.some((s) => s.name === draft.name.trim()))
     return 'Sink ID 已存在'
-  if (draft.type === 'file' && (!draft.path.trim() || draft.maxSizeMb <= 0 || draft.retentionDays < 1))
+  if (
+    draft.type === 'file' &&
+    (!draft.path.trim() || draft.maxSizeMb <= 0 || draft.retentionDays < 1)
+  )
     return '文件归档目录、容量和保留天数必须有效'
   if (draft.type !== 'file' && (!draft.host.trim() || draft.port < 1 || draft.port > 65535))
     return '主机和端口必须有效'
   if (draft.type === 'redis' && (draft.database < 0 || !draft.keyPrefix.trim()))
     return 'Redis 数据库和键前缀必须有效'
+  if (draft.type === 'redis' && draft.timeoutSec <= 0) return 'Redis 超时时间必须大于 0 秒'
+  if (draft.type === 'redis' && draft.username.trim() && creating.value && !draft.password)
+    return '新建 ACL Redis Sink 时，设置用户名必须同时提供密码'
   return ''
 }
 
@@ -276,13 +290,13 @@ async function remove(sink: SinkDef) {
           <el-switch v-model="draft.enabled" />
         </el-form-item>
         <template v-if="draft.type === 'file'">
-          <el-form-item label="目录或 .csv 文件路径"
-            ><el-input v-model="draft.path"
-          /></el-form-item>
+          <el-form-item label="归档目录">
+            <el-input v-model="draft.path" />
+          </el-form-item>
           <el-form-item label="最大容量 (MB)">
             <el-input-number v-model="draft.maxSizeMb" :min="0.1" />
           </el-form-item>
-          <el-form-item label="最多保留文件数">
+          <el-form-item label="保留天数（天）">
             <el-input-number v-model="draft.retentionDays" :min="1" :step="1" />
           </el-form-item>
         </template>
@@ -295,8 +309,14 @@ async function remove(sink: SinkDef) {
             <el-form-item label="Database">
               <el-input-number v-model="draft.database" :min="0" />
             </el-form-item>
+            <el-form-item label="超时（秒）">
+              <el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" />
+            </el-form-item>
             <el-form-item label="Key Prefix"><el-input v-model="draft.keyPrefix" /></el-form-item>
-            <el-form-item label="Password（不填写则保持已有密码）">
+            <el-form-item label="Username（ACL，可空）">
+              <el-input v-model="draft.username" autocomplete="off" />
+            </el-form-item>
+            <el-form-item label="Password（不填写则保持已有密码；设置用户名时必填）">
               <el-input
                 v-model="draft.password"
                 type="password"
@@ -306,7 +326,6 @@ async function remove(sink: SinkDef) {
             </el-form-item>
           </template>
         </template>
-        
       </el-form>
       <template #footer>
         <el-space>

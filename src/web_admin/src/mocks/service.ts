@@ -202,9 +202,7 @@ export function sinkDto(s: MockSink): SinkDto {
     healthy: sinkHealthy(s),
     message: !s.enabled ? 'disabled' : runtime.error || null,
     queue_depth: runtime.queue_depth,
-    point_count: s.points.length,
     connection: { ...s.connection },
-    points: s.points.map((p) => ({ ...p })),
   }
 }
 

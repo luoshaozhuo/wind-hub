@@ -486,7 +486,6 @@ export interface MockSink {
   type: 'file' | 'redis' | 'modbus'
   enabled: boolean
   connection: Record<string, unknown>
-  points: Record<string, unknown>[]
 }
 
 export const sinksSeed: MockSink[] = [
@@ -494,44 +493,31 @@ export const sinksSeed: MockSink[] = [
     name: 'redis_main',
     type: 'redis',
     enabled: true,
-    connection: { host: 'redis.windhub.local', port: 6379, key_prefix: 'wind-hub' },
-    points: [
-      {
-        source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
-        address: { field: 'wind-speed' },
-      },
-    ],
+    connection: {
+      host: 'redis.windhub.local',
+      port: 6379,
+      database: 0,
+      timeout: 1.0,
+      key_prefix: 'wind-hub',
+    },
   },
   {
     name: 'modbus_main',
     type: 'modbus',
     enabled: true,
     connection: { host: '127.0.0.1', port: 1502 },
-    points: [
-      {
-        source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
-        address: { slave_id: 1, register_type: 'holding', address: 0 },
-      },
-    ],
   },
   {
     name: 'file_archive',
     type: 'file',
     enabled: true,
     connection: { path: '/var/tmp/wind-hub/archive', max_size_mb: 100, retention_days: 30 },
-    points: [
-      {
-        source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
-        address: { field: 'wind-speed' },
-      },
-    ],
   },
   {
     name: 'debug_file',
     type: 'file',
     enabled: false,
     connection: { path: '/var/tmp/wind-hub/debug', max_size_mb: 100, retention_days: 10 },
-    points: [],
   },
 ]
 
@@ -679,7 +665,6 @@ export function seedYamlFiles(
             type: sink.type,
             enabled: sink.enabled,
             connection: sink.connection,
-            points: sink.points,
           },
         ]),
       ),

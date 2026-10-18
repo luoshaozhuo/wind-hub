@@ -24,8 +24,6 @@ class SinkSnapshot(BaseModel):
     type: str
     enabled: bool
     connection: dict[str, Any] = Field(default_factory=dict)
-    points: list[dict[str, Any]] = Field(default_factory=list)
-    point_count: int = 0
     healthy: bool
     message: str | None = None
     queue_depth: int = 0
@@ -73,8 +71,6 @@ class SinkService:
                         for key, value in yaml_plain(cfg.connection).items()
                         if key != "password"
                     },
-                    points=yaml_plain(cfg.points),
-                    point_count=len(cfg.points),
                     healthy=(current.healthy if current is not None and cfg.enabled else False),
                     message=(
                         current.message
@@ -166,7 +162,6 @@ class SinkService:
             kind=payload["type"],
             enabled=payload.get("enabled", True),
             connection=payload["connection"],
-            points=payload.get("points", []),
         )
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
@@ -184,7 +179,6 @@ class SinkService:
                 "type": cfg.kind,
                 "enabled": cfg.enabled,
                 "connection": connection,
-                "points": yaml_plain(cfg.points),
             }
 
         return await self._admin.mutate_yaml_files(
