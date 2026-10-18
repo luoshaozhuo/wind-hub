@@ -101,8 +101,9 @@ async def _collect(
     """订阅单个 DINT 点，返回 (订阅句柄, 收到的值序列)。"""
     seen: list[int] = []
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        seen.append(int(sample.value))  # type: ignore[arg-type]  # 测点为 DINT
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            seen.append(int(sample.value))  # type: ignore[arg-type]  # 测点为 DINT
 
     handle = await driver.subscribe((point_id,), on_sample, interval=interval)
     return handle, seen
@@ -177,11 +178,13 @@ class TestServerCycleSemantics:
             fast: list[int] = []
             slow: list[int] = []
 
-            async def on_fast(sample: ProtocolSample) -> None:
-                fast.append(int(sample.value))  # type: ignore[arg-type]
+            async def on_fast(samples: tuple[ProtocolSample, ...]) -> None:
+                for sample in samples:
+                    fast.append(int(sample.value))  # type: ignore[arg-type]
 
-            async def on_slow(sample: ProtocolSample) -> None:
-                slow.append(int(sample.value))  # type: ignore[arg-type]
+            async def on_slow(samples: tuple[ProtocolSample, ...]) -> None:
+                for sample in samples:
+                    slow.append(int(sample.value))  # type: ignore[arg-type]
 
             handle_fast = await driver_fast.subscribe(("a",), on_fast, interval=0.05)
             handle_slow = await driver_slow.subscribe(("b",), on_slow, interval=0.15)
@@ -240,12 +243,13 @@ class TestServerCycleSemantics:
             count_a = 0
             count_b = 0
 
-            async def on_sample(sample: ProtocolSample) -> None:
-                nonlocal count_a, count_b
-                if sample.point_id == "a":
-                    count_a += 1
-                else:
-                    count_b += 1
+            async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+                for sample in samples:
+                    nonlocal count_a, count_b
+                    if sample.point_id == "a":
+                        count_a += 1
+                    else:
+                        count_b += 1
 
             handle = await driver.subscribe(("a", "b"), on_sample, interval=0.05)
             await asyncio.sleep(0.15)
@@ -382,8 +386,9 @@ class TestServerCycleSemantics:
         await driver.connect()
         counts = {name: 0 for name in points}
 
-        async def on_sample(sample: ProtocolSample) -> None:
-            counts[sample.point_id] += 1
+        async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                counts[sample.point_id] += 1
 
         handle = await driver.subscribe(tuple(points), on_sample, interval=0.1)
         try:
