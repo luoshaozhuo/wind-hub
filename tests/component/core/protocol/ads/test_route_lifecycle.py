@@ -632,3 +632,11 @@ async def test_deregister_failure_does_not_skip_other_subscriptions() -> None:
     assert sorted(calls) == ["first", "second"]
     assert conn.close_calls == 1
     assert _route_state(_NET).unsafe_reason is None
+
+
+async def test_extracted_route_module_shares_driver_registry() -> None:
+    """Route 提取为独立模块后，Driver 兼容入口不得创建第二份状态。"""
+    from core.infrastructure.protocol.ads.route import _route_state as route_state
+
+    assert driver_module._route_state(_NET) is route_state(_NET)
+    assert driver_module._route_state(_NET) is not route_state(_NET_OTHER)
