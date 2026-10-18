@@ -131,6 +131,7 @@ class _Session:
     interrogations: dict[int, asyncio.Future[None]] = field(default_factory=dict)
     interrogation_samples: dict[int, list[ProtocolSample]] = field(default_factory=dict)
     interrogation_qoi: dict[int, int] = field(default_factory=dict)
+    interrogation_accepted: set[int] = field(default_factory=set)
 
     def originator(self) -> int:
         """分配 1..255 的始发地址（诊断用；响应关联以完整地址+串行锁为准）。"""
@@ -612,6 +613,7 @@ class IEC104Driver:
             future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
             session.interrogations[ca] = future
             session.interrogation_qoi[ca] = qoi
+            session.interrogation_accepted.discard(ca)
             session.interrogation_samples[ca] = []
             try:
                 await self._send(
@@ -647,6 +649,7 @@ class IEC104Driver:
             finally:
                 session.interrogations.pop(ca, None)
                 session.interrogation_qoi.pop(ca, None)
+                session.interrogation_accepted.discard(ca)
                 session.interrogation_samples.pop(ca, None)
 
     # ------------------------------------------------------------------
@@ -898,6 +901,8 @@ class IEC104Driver:
                         f"ca={message.asdu_address}"
                     ),
                 )
+            else:
+                session.interrogation_accepted.add(message.asdu_address)
             return
         if cause is iec101.CommandResCause.ACTIVATION_TERMINATION:
             if message.is_negative_confirm:
@@ -908,7 +913,7 @@ class IEC104Driver:
                         f"ca={message.asdu_address}"
                     ),
                 )
-            else:
+            elif message.asdu_address in session.interrogation_accepted:
                 _set_result(waiter, None)
             return
         # UNKNOWN_TYPE/CAUSE/ASDU/IO 等否定 COT：明确失败。
@@ -984,6 +989,7 @@ class IEC104Driver:
         session.command_accepted.clear()
         session.interrogations.clear()
         session.interrogation_qoi.clear()
+        session.interrogation_accepted.clear()
         # 由等待方 finally 清理各自的部分结果；否则断链时结果提前丢失。
 
     # ------------------------------------------------------------------
