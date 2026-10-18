@@ -41,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--log-level",
         default="info",
-        help="uvicorn 日志级别（debug/info/warning/error/critical）",
+        help="uvicorn 日志级别（trace/debug/info/warning/error/critical）",
     )
     parser.add_argument(
         "--collector",

@@ -5,12 +5,15 @@ socket；覆盖 API Server 构造和 SIGHUP reload 委托，不能证明生产�
 """
 
 import asyncio
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 import uvicorn
 
 from core.application.config_diff import ConfigSnapshotDiff
+from core.infrastructure.diagnostic.correlation import RequestIdFilter, bind_request_id
 from web_server.application.config.service import ReloadResult
 from web_server.server import (
     _wait_for_shutdown_or_api_exit,
@@ -19,23 +22,87 @@ from web_server.server import (
 )
 from web_server.settings import ServerSettings
 
+_UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
-def test_build_api_server_uses_server_settings() -> None:
-    """uvicorn Server 应采用 wind-hub-server 的监听与日志参数。"""
-    rt = MagicMock()
-    settings = ServerSettings(
+
+@pytest.fixture
+def restored_uvicorn_loggers() -> object:
+    """build_api_server 会调整 uvicorn logger 级别；用后还原避免污染进程状态。"""
+    saved = {
+        name: (
+            logging.getLogger(name).level,
+            logging.getLogger(name).handlers[:],
+            logging.getLogger(name).propagate,
+        )
+        for name in _UVICORN_LOGGERS
+    }
+    yield None
+    for name, (level, handlers, propagate) in saved.items():
+        logger = logging.getLogger(name)
+        logger.level = level
+        logger.handlers = handlers
+        logger.propagate = propagate
+
+
+def _settings(log_level: str = "warning") -> ServerSettings:
+    return ServerSettings(
         config_dir=Path("configs"),
         host="0.0.0.0",
         port=9000,
-        log_level="warning",
+        log_level=log_level,
     )
 
-    server = build_api_server(rt, settings)
+
+def test_build_api_server_uses_server_settings(restored_uvicorn_loggers: object) -> None:
+    """uvicorn Server 应采用 wind-hub-server 的监听与日志参数。"""
+    rt = MagicMock()
+    server = build_api_server(rt, _settings())
 
     assert isinstance(server, uvicorn.Server)
     assert server.config.host == "0.0.0.0"
     assert server.config.port == 9000
     assert server.config.log_level == "warning"
+
+
+def test_build_api_server_routes_uvicorn_logs_through_root(
+    restored_uvicorn_loggers: object,
+) -> None:
+    """log_config=None 时 uvicorn 不得自建 handler；记录须 propagate 到 root。"""
+    server = build_api_server(MagicMock(), _settings("info"))
+
+    assert server.config.log_config is None
+    for name in _UVICORN_LOGGERS:
+        uv_logger = logging.getLogger(name)
+        assert uv_logger.handlers == []
+        assert uv_logger.propagate is True
+        assert uv_logger.level == logging.INFO
+
+
+def test_uvicorn_access_records_carry_request_id_to_root(
+    restored_uvicorn_loggers: object,
+) -> None:
+    """uvicorn.access 经 root handler 输出时必须被 RequestIdFilter 注入 request_id。"""
+    build_api_server(MagicMock(), _settings("info"))
+    records: list[logging.LogRecord] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    root = logging.getLogger()
+    handler = _Capture()
+    # 与 configure_process_logging 一致：request_id 由 handler 上的 filter 注入。
+    handler.addFilter(RequestIdFilter())
+    root.addHandler(handler)
+    try:
+        with bind_request_id("req-uvicorn-1"):
+            logging.getLogger("uvicorn.access").warning("GET /api/v1/overview 200")
+    finally:
+        root.removeHandler(handler)
+
+    assert len(records) == 1
+    assert records[0].name == "uvicorn.access"
+    assert records[0].request_id == "req-uvicorn-1"
 
 
 async def test_reload_once_delegates_to_config_use_case() -> None:

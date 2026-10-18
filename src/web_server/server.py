@@ -11,6 +11,7 @@ import logging
 import signal
 
 import uvicorn
+from uvicorn.config import LOG_LEVELS
 
 from core.infrastructure.diagnostic.log_setup import configure_process_logging
 from web_server.adapter.inbound.webapi.app import build_api
@@ -35,7 +36,14 @@ def build_api_server(
         port=settings.port,
         log_level=settings.log_level,
         lifespan="on",
+        # 禁用 uvicorn 自带 dictConfig：它会另建 handler，绕过 wind-hub
+        # 统一的 [request_id] 格式、UTC 与按日/容量归档文件。显式级别
+        # 下放到 uvicorn logger，记录经 propagate 进 root handler。
+        log_config=None,
     )
+    level = LOG_LEVELS[settings.log_level.lower()]
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logging.getLogger(logger_name).setLevel(level)
     logger.info(
         "wind-hub-server API 启动中（%d 台设备，%d 个 sink）→ %s:%d",
         len(runtime.config.current_config.site.devices),
