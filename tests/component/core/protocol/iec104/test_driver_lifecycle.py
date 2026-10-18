@@ -268,3 +268,33 @@ async def test_control_act_con_only_times_out_unknown() -> None:
     assert result.outcome is WriteOutcome.UNKNOWN
     assert len(conn.sent_messages) == 1
     await driver.close()
+
+
+async def test_control_negative_act_con_is_confirmed_failure_without_retry() -> None:
+    from hat.drivers.iec101 import common as iec101
+    from hat.drivers.iec104 import common as iec104common
+
+    from core.application.protocol_contract import WriteOutcome
+    from core.domain import PointAccess
+
+    driver, conn = await connected_driver(
+        [make_point("cmd", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)]
+    )
+    task = asyncio.create_task(driver.write_one(ProtocolWrite(point="cmd", value=True)))
+    for _ in range(100):
+        if conn.sent_messages:
+            break
+        await asyncio.sleep(0.001)
+    assert conn.sent_messages
+    request = conn.sent_messages[-1]
+    assert isinstance(request, iec104common.CommandMsg)
+    conn.deliver([
+        request._replace(
+            cause=iec101.CommandResCause.ACTIVATION_CONFIRMATION,
+            is_negative_confirm=True,
+        )
+    ])
+    result = await asyncio.wait_for(task, timeout=1.0)
+    assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
+    assert len(conn.sent_messages) == 1
+    await driver.close()
