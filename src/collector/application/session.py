@@ -382,7 +382,17 @@ class CollectorDeviceSession:
         if self.acquisition_mode is AcquisitionMode.LISTEN:
             push_handle = await self._protocol.listen(point_ids, _forward, interval=interval)
             # 先建立监听、再发总召——总召响应经监听链路上报。
-            await self._protocol.interrogate()
+            try:
+                await self._protocol.interrogate()
+            except BaseException:
+                # 启动失败不得遗失已创建的监听句柄，取消时同样需要收敛。
+                cleanup = asyncio.create_task(push_handle.close())
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    await cleanup
+                    raise
+                raise
             return push_handle
 
         push_handle = await self._protocol.subscribe(
