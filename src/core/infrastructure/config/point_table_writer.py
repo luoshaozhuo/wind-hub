@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any
 
 from core.domain import Point, PointTable, PointTableId
@@ -25,6 +26,9 @@ def _point_dict(point: Point) -> dict[str, Any]:
 
 def dump_point_tables(
     tables: Mapping[PointTableId, PointTable],
+    *,
+    definitions: Mapping[str, Mapping[str, Any]] | None = None,
+    baseline: Mapping[PointTableId, PointTable] | None = None,
 ) -> dict[str, Any]:
     """以完整子表与父表的字段差异输出 parent_id / remove_points / points。
 
@@ -34,6 +38,21 @@ def dump_point_tables(
     """
     result: dict[str, Any] = {}
     for table_id, table in tables.items():
+        # 原始声明比展开后的差异更准确：保留显式等值覆盖的意图。
+        # 一旦本表或父表被修改，回退到当前领域点表的差异重建。
+        parent_unchanged = (
+            table.parent_id is None
+            or (baseline is not None and tables.get(table.parent_id) == baseline.get(table.parent_id))
+        )
+        if (
+            definitions is not None
+            and baseline is not None
+            and str(table_id) in definitions
+            and baseline.get(table_id) == table
+            and parent_unchanged
+        ):
+            result[str(table_id)] = deepcopy(dict(definitions[str(table_id)]))
+            continue
         parent = tables[table.parent_id] if table.parent_id is not None else None
         definition: dict[str, Any] = {}
         if parent is None:
