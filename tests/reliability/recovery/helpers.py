@@ -18,6 +18,8 @@ from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess, run_cli_async
 from tests.support.wait import (
     WaitTimeoutError,
+    read_archive,
+    wait_archive_rows,
     wait_until,
 )
 
@@ -93,6 +95,50 @@ async def wait_telemetry_value(
         )
 
     return await wait_redis_value(redis_address, key, match=_matches)
+
+
+def write_modbus_file_config(
+    base: Path,
+    port: int,
+    sink_root: Path,
+    **sink_params: Any,
+) -> Path:
+    """单 Modbus 设备 + File sink 的现场配置（recovery 各用例的基线拓扑）。
+
+    ``sink_root`` 是归档**根目录**；实际落盘分段在
+    ``{root}/{task}/{device}/YYYY/MM/YYYYMMDD_NNN.csv``。
+    """
+    params = {"path": str(sink_root)}
+    params.update(sink_params)
+    return write_functional_config(
+        base,
+        port,
+        sinks={"file_sink": {"type": "file", "connection": params}},
+        tasks=telemetry_task("file_sink"),
+    )
+
+
+def read_telemetry_rows(sink_root: Path) -> list[dict[str, Any]]:
+    """读取归档根目录下基线任务/设备的全部行。"""
+    return read_archive(sink_root, TASK_ID, DEVICE_ID)
+
+
+async def wait_telemetry_rows(
+    sink_root: Path,
+    *,
+    min_rows: int = 1,
+    timeout: float = 20.0,
+    match: Callable[[dict[str, Any]], bool] | None = None,
+) -> list[dict[str, Any]]:
+    """等待归档根目录下基线任务/设备出现足够行。"""
+    return await wait_archive_rows(
+        sink_root,
+        task_id=TASK_ID,
+        device_id=DEVICE_ID,
+        min_rows=min_rows,
+        timeout=timeout,
+        match=match,
+    )
 
 
 async def cli_status(proc: CollectorProcess) -> dict[str, Any] | None:
