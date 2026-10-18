@@ -615,7 +615,7 @@ interface SinkCheckStep {
 function sinkEndpoint(s: MockSink): { host: string; port: number } {
   return {
     host: String(s.connection.host || 'localhost'),
-    port: Number(s.connection.port || (s.type === 'redis' ? 6379 : 502)),
+    port: Number(s.connection.port || (s.type === 'redis' ? 6379 : s.type === 'tdengine' ? 6041 : 502)),
   }
 }
 
