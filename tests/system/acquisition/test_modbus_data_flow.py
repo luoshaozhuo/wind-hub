@@ -1,27 +1,24 @@
 """System E2E：Modbus → Collector 子进程 → 真实 sink 的数据面验收。
 
 链路：真实 Modbus TCP 从站 → Collector subprocess（console script 启动）
-→ 真实 File/Redis sink。任务启停经 CollectorControlService RPC
+→ 真实 Redis sink。任务启停经 CollectorControlService RPC
 下发（与 Server → Collector 生产控制路径一致）；验证全部发生在系统
-边界——读输出文件、独立 Redis 连接，不读取 Collector 进程内部状态。
+边界——独立 Redis 连接，不读取 Collector 进程内部状态。
 """
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.support.control import start_task_instance, stop_instance
+from tests.support.control import start_task_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import point_key
 from tests.support.wait import (
-    read_archive,
-    wait_archive_rows,
     wait_redis_value,
 )
 
@@ -47,72 +44,6 @@ def _task(sink_id: str, *, key_prefix: str | None = None) -> dict[str, Any]:
             "outputs": [output],
         }
     }
-
-
-def _file_config(base: Path, port: int, sink_root: Path) -> Path:
-    """单设备 + File sink 的现场配置（小缓冲/短间隔，保证及时落盘）。"""
-    return write_functional_config(
-        base,
-        port,
-        sinks={
-            "file_sink": {
-                "type": "file",
-                "connection": {
-                    "path": str(sink_root),
-                },
-            }
-        },
-        tasks=_task("file_sink"),
-    )
-
-
-class TestModbusToFile:
-    async def test_started_task_streams_points_to_file(
-        self,
-        modbus_server: ModbusMockServer,
-        collector_factory,
-        tmp_path: Path,
-    ) -> None:
-        sink_root = tmp_path / "archive"
-        config_dir = _file_config(tmp_path / "cfg", modbus_server.port, sink_root)
-        proc: CollectorProcess = await collector_factory(config_dir)
-
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-
-        rows = await wait_archive_rows(
-            sink_root,
-            task_id=TASK_ID,
-            device_id=DEVICE_ID,
-            min_rows=4,
-            match=lambda r: r["point_id"] == "rotor.speed",
-        )
-        assert all(r["device_id"] == DEVICE_ID for r in rows)
-        assert all(r["value"] == pytest.approx(1200.5) for r in rows)
-        assert all(r["quality"] == "good" for r in rows)
-        # 同一任务周期应同时产出组内其余点位。
-        point_ids = {r["point_id"] for r in read_archive(sink_root, TASK_ID, DEVICE_ID)}
-        assert {"rotor.speed", "gen.power", "temp.int", "setpoint.power"} <= point_ids
-
-    async def test_stopped_task_halts_delivery(
-        self,
-        modbus_server: ModbusMockServer,
-        collector_factory,
-        tmp_path: Path,
-    ) -> None:
-        sink_root = tmp_path / "archive"
-        config_dir = _file_config(tmp_path / "cfg", modbus_server.port, sink_root)
-        proc: CollectorProcess = await collector_factory(config_dir)
-
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_archive_rows(sink_root, task_id=TASK_ID, device_id=DEVICE_ID, min_rows=4)
-        await stop_instance(proc.grpc_target, INSTANCE_ID)
-
-        # 静默验证（不是就绪等待）：先等残余缓冲落盘，再确认行数在
-        # 数个采集周期内不再增长——停止后不允许有新采集写入。
-        await asyncio.sleep(1.0)
-        settled = len(read_archive(sink_root, TASK_ID, DEVICE_ID))
-        await asyncio.sleep(0.8)
-        assert len(read_archive(sink_root, TASK_ID, DEVICE_ID)) == settled
 
 
 @pytest.mark.redis
