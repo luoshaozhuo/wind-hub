@@ -491,8 +491,12 @@ class ADSDriver:
         grace = max(self._config.timeout, 5.0) + 1.0
         # aclose 自身完成有界等待与放弃计数；放弃时端口保持打开并已记录，
         # 路由锁由收敛回调持有到物理线程真正结束。
-        await session.aclose(grace)
+        closed = await session.aclose(grace)
         self._log_session_closed(session)
+        if not closed:
+            raise ProtocolError(
+                f"ADS physical close not confirmed for route {self._route_key!r}"
+            )
 
     async def _shutdown_session_inline(self, session: _AdsSession, route: _RouteState) -> None:
         """建链流程内当场关闭全新会话（调用方已持路由变更锁）。"""
