@@ -98,8 +98,11 @@ class FakeHarness:
         monkeypatch.setattr(module, "command", self.command)
         monkeypatch.setattr(module, "gh_json", self.gh_json)
         monkeypatch.setattr(module, "gh_api", self.gh_api)
-        monkeypatch.setattr(module, "finalize_local", lambda pr, sha: {"local_branch": "main", "deleted_local_branch": "feature/x"})
+        monkeypatch.setattr(module, "finalize_local", self.finalize_local)
         monkeypatch.setattr(module.subprocess, "run", self.subprocess_run)
+
+    def finalize_local(self, pr: dict[str, Any], sha: str) -> dict[str, str]:
+        return {"local_branch": "main", "deleted_local_branch": "feature/x"}
 
     def command(self, *args: str, allow_failure: bool = False) -> str:
         a = list(args)
