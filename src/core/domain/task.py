@@ -3,11 +3,27 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 
 from .device import Device, DeviceGroup
 from .identities import DeviceGroupId, DeviceId
+
+
+@dataclass(frozen=True, slots=True)
+class TaskOutput:
+    """一个采集任务面向一个 Sink 的输出定义。"""
+
+    sink_id: str
+    key_prefix: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.sink_id, str) or not self.sink_id.strip():
+            raise ValueError("TaskOutput.sink_id must be non-empty")
+        if self.key_prefix is not None and (
+            not isinstance(self.key_prefix, str) or not self.key_prefix.strip()
+        ):
+            raise ValueError("TaskOutput.key_prefix must be non-empty when provided")
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +36,7 @@ class Task:
     sink_ids: tuple[str, ...]
     interval: float
     enabled: bool = True
+    outputs: tuple[TaskOutput, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         for label, value in (
@@ -46,6 +63,10 @@ class Task:
         object.__setattr__(self, "device_group_id", DeviceGroupId(self.device_group_id.strip()))
         object.__setattr__(self, "point_group", self.point_group.strip())
         object.__setattr__(self, "sink_ids", sink_ids)
+        outputs = tuple(self.outputs)
+        if outputs and tuple(output.sink_id for output in outputs) != sink_ids:
+            raise ValueError("Task outputs must match sink_ids in order")
+        object.__setattr__(self, "outputs", outputs)
         object.__setattr__(self, "interval", float(self.interval))
 
 
