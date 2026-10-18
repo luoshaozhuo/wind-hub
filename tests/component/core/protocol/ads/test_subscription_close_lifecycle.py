@@ -198,8 +198,9 @@ async def test_deactivate_before_close_still_deregisters(fake_pyads: None) -> No
     subscription = await _start(session, _point("a", 0))
     delivered = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        delivered.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            delivered.set()
 
     subscription._callback = on_sample
     subscription.deactivate()  # 只停投递，不代表 Handle/Worker 已清理。
@@ -310,8 +311,9 @@ async def test_late_native_notification_after_close_is_not_delivered(
     session.add_release.set()
     received: list[float] = []
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        received.append(float(sample.value))  # type: ignore[arg-type]
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(float(sample.value))  # type: ignore[arg-type]
 
     subscription = ADSSubscription(
         session,
