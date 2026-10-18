@@ -7,16 +7,14 @@ device-notification。何时订阅、订阅哪些点以及失败后的应用级�
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import struct
 import sys
 import threading
-import weakref
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from ctypes import Structure, c_uint32
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pyads  # type: ignore[import-untyped]
 from pyads.constants import ADSIGRP_SUMUP_READ, ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
