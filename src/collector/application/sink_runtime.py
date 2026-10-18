@@ -20,8 +20,8 @@ from types import MappingProxyType
 from core.application import ConnectionHealth, WatchdogUseCase
 from core.application.port import ExclusiveOpenSinkPort, SinkPort
 from core.domain import Sink
-from core.domain.point_value import PointValue
 
+from ..domain.acquisition import SinkDelivery
 from .config import RuntimeParams
 from .reload import SinkDiff
 from .sink_registry import SinkFactory
@@ -62,7 +62,7 @@ class SinkRuntime:
         self._params = params
         self._sink_factory = sink_factory
         # 每个 Sink 使用独立有界 queue，容量来自 RuntimeParams。
-        self._queues: dict[str, asyncio.Queue[list[PointValue]]] = {
+        self._queues: dict[str, asyncio.Queue[SinkDelivery | None]] = {
             name: asyncio.Queue(maxsize=params.queue_maxsize) for name in sinks
         }
         # Sink 消费者任务簿记。
@@ -154,7 +154,7 @@ class SinkRuntime:
     # Sink 派发端口实现（AcquisitionEngine → SinkRuntime 的落点）
     # ------------------------------------------------------------------
 
-    async def dispatch(self, routed: dict[str, list[PointValue]]) -> None:
+    async def dispatch(self, routed: dict[str, SinkDelivery]) -> None:
         """把按 sink 分组的批次入队，应用背压策略（实现 ``SinkDispatchPort``）。
 
         drop_new/drop_old 显式累计丢弃点数；block 通过 await queue.put()
@@ -163,7 +163,7 @@ class SinkRuntime:
         永久阻塞采集任务。
         """
         for sink_name, batch in routed.items():
-            if not batch:
+            if not batch.values:
                 continue
             queue = self._queues.get(sink_name)
             if queue is None:
@@ -181,7 +181,7 @@ class SinkRuntime:
 
     async def _enqueue(
         self,
-        queue: asyncio.Queue[list[PointValue]],
+        queue: asyncio.Queue[SinkDelivery | None],
         batch: list[PointValue],
         sink_name: str,
     ) -> None:
@@ -346,7 +346,7 @@ class SinkRuntime:
             return
 
         await sink.open()
-        queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(maxsize=self._params.queue_maxsize)
+        queue: asyncio.Queue[SinkDelivery | None] = asyncio.Queue(maxsize=self._params.queue_maxsize)
         self._sinks[sink_name] = sink
         self._queues[sink_name] = queue
         watchdog = self._make_watchdog(sink_name, sink)
@@ -588,10 +588,14 @@ class SinkRuntime:
         try:
             while True:
                 batch = await queue.get()
-                if not batch:  # empty list = shutdown sentinel
+                if batch is None:  # explicit shutdown sentinel
                     break
                 try:
-                    await sink.write(batch)
+                    writer = getattr(sink, "write_task", None)
+                    if writer is not None:
+                        await writer(batch.task_id, batch.values)
+                    else:
+                        await sink.write(batch.values)
                 except Exception as exc:
                     # 写失败根因立即进入健康视图；watchdog 重连成功后清除。
                     self._write_failures[sink_name] = self._write_failures.get(sink_name, 0) + 1
