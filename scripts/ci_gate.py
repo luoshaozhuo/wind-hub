@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -242,8 +243,6 @@ def soak_gate() -> bool:
 
 def merge_gate(paths: list[str]) -> bool:
     """合并前执行一次受影响范围验证；未知后端范围采用保守回退。"""
-    import json
-
     changed = sorted(set(paths))
     backend = [p for p in changed if p.startswith(("src/core/", "src/collector/", "src/commander/", "src/cli/", "src/web_server/"))]
     python_changed = [p for p in changed if p.endswith(".py") and Path(p).is_file()]
