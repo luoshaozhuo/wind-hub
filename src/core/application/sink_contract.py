@@ -10,15 +10,16 @@ YAML/文件细节，也不创建任何运行时资源；sinks.yaml 的原始配�
 
 from __future__ import annotations
 
-from typing import Literal, Any
-from dataclasses import dataclass
 from collections.abc import Mapping
-from core.domain.sink import Sink, freeze_sink_value
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from core.application.errors import ConfigError
 from core.domain import DataType
+from core.domain.sink import Sink, freeze_sink_value
+
 
 @dataclass(frozen=True, slots=True)
 class ResolvedSink(Sink):
