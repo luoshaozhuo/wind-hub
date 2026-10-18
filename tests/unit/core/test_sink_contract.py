@@ -61,7 +61,7 @@ def test_naive_datetime_rejected() -> None:
 @pytest.mark.parametrize(
     "kind,connection",
     [
-        ("file", {"path": "./data"}),
+        ("tdengine", {"password": "local-test"}),
         ("modbus", {"port": 1502}),
         ("redis", {"database": 1}),
     ],
