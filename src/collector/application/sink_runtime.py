@@ -182,7 +182,7 @@ class SinkRuntime:
     async def _enqueue(
         self,
         queue: asyncio.Queue[SinkDelivery | None],
-        batch: list[PointValue],
+        batch: SinkDelivery,
         sink_name: str,
     ) -> None:
         """按当前背压策略把一个批次写入指定 sink 队列。"""
@@ -208,9 +208,9 @@ class SinkRuntime:
                     evicted = queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-                self._points_dropped += len(evicted)
-                self._drops_by_sink[sink_name] = self._drops_by_sink.get(sink_name, 0) + len(
-                    evicted
+                self._points_dropped += len(evicted) if evicted is not None else 0
+                self._drops_by_sink[sink_name] = self._drops_by_sink.get(sink_name, 0) + (
+                    len(evicted) if evicted is not None else 0
                 )
             await queue.put(batch)
             self._points_routed += len(batch)
