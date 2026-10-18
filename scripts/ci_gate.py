@@ -285,16 +285,27 @@ def merge_gate(paths: list[str]) -> bool:
         if p.startswith("src/core/infrastructure/protocol/"):
             parts = Path(p).parts
             protocol = parts[4] if len(parts) > 4 else ""
-            for layer in ("unit", "component", "integration"):
-                base = "protocols" if layer == "integration" else "core"
-                target = f"tests/{layer}/{base}"
-                if layer == "integration" and protocol in {"ads", "modbus", "iec104"}:
-                    target += f"/{protocol}"
-                candidates.append(target)
+            if protocol in {"ads", "modbus", "iec104"}:
+                candidates.extend([
+                    f"tests/unit/core/protocol/{protocol}",
+                    f"tests/component/core/protocol/{protocol}",
+                    f"tests/integration/protocols/{protocol}",
+                ])
+                if protocol == "ads":
+                    candidates.append("tests/reliability/recovery")
+            else:
+                candidates.extend([
+                    "tests/unit/core/protocol",
+                    "tests/component/core/protocol",
+                    "tests/integration/protocols",
+                ])
         elif p.startswith("src/core/infrastructure/sink/"):
-            candidates.extend(["tests/unit/core", "tests/integration/sinks"])
+            candidates.extend([
+                "tests/unit/core/sink", "tests/component/core/sink",
+                "tests/integration/sinks",
+            ])
         elif p.startswith("src/core/infrastructure/rpc/") or "/grpc/" in p:
-            candidates.append("tests/contract/rpc")
+            candidates.extend(["tests/contract/rpc", "tests/component/collector"])
         elif p.startswith("src/collector/"):
             candidates.extend(["tests/unit/collector", "tests/component/collector"])
             if p.startswith("src/collector/application/"):
