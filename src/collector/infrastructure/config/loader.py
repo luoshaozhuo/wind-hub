@@ -64,17 +64,23 @@ def collector_config_from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
 
 
 def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
-    """解析外部 Sink 点引用，明确源类型与单位（单位由快照单位目录解析）。"""
+    """解析外部 Sink 点引用，明确源类型与单位（单位由快照单位目录解析）。
+
+    只聚合**启用 Task** 的 outputs：禁用 Task 不部署，其点不得占用 Modbus
+    寄存器/白名单，其过期设备引用也不得阻断启动（结构正确性在解析层仍对
+    全部 Task 校验，保证重新启用时配置可用）。
+    """
     result: dict[str, Sink] = {}
+    enabled_tasks = [task for task in snapshot.tasks.values() if task.enabled]
     for sink_id, sink in snapshot.sinks.items():
         points = []
-        task_points = [
-            raw
-            for task in snapshot.tasks.values()
+        task_outputs = [
+            (task, output)
+            for task in enabled_tasks
             for output in task.outputs
             if output.sink_id == sink_id
-            for raw in output.points
         ]
+        task_points = [raw for _, output in task_outputs for raw in output.points]
         refs: set[str] = set()
         addresses: dict[tuple[int, str], list[tuple[int, int]]] = {}
         for raw in task_points:
@@ -154,33 +160,18 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                 occupied.append((address.address, end))
             points.append(resolved.model_dump(mode="json"))
         connection = dict(sink.connection)
-        if sink.kind == "modbus":
+        if sink.kind in {"modbus", "redis"}:
             connection["task_sources"] = {
                 task.task_id: [
                     [raw["source"]["device_id"], raw["source"]["point_id"]]
-                    for output in task.outputs
-                    if output.sink_id == sink_id
                     for raw in output.points
                 ]
-                for task in snapshot.tasks.values()
-                if sink_id in task.sink_ids
+                for task, output in task_outputs
             }
         if sink.kind == "redis":
-            connection["task_sources"] = {
-                task.task_id: [
-                    [raw["source"]["device_id"], raw["source"]["point_id"]]
-                    for output in task.outputs
-                    if output.sink_id == sink_id
-                    for raw in output.points
-                ]
-                for task in snapshot.tasks.values()
-                if sink_id in task.sink_ids
-            }
             connection["task_key_prefixes"] = {
                 task.task_id: output.key_prefix or connection.get("key_prefix", "wind-hub")
-                for task in snapshot.tasks.values()
-                for output in task.outputs
-                if output.sink_id == sink_id
+                for task, output in task_outputs
             }
         result[sink_id] = Sink(
             sink_id=sink.sink_id,

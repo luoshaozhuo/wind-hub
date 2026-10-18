@@ -73,3 +73,69 @@ def test_modbus_sink_rejects_missing_source_device(tmp_path: Path) -> None:
     modified_task = replace(task, outputs=(modified_output,))
     with pytest.raises(ConfigError, match="unknown device"):
         collector_config_from_snapshot(replace(snapshot, tasks={"t1": modified_task}))
+
+
+def test_disabled_task_outputs_are_not_aggregated_into_sinks(tmp_path: Path) -> None:
+    """禁用 Task 不部署：其点不得占用寄存器/白名单，也不得触发重叠拒绝。"""
+    snapshot = _snapshot_with_outputs(tmp_path, addresses=(100,))
+    enabled_task = snapshot.tasks["t1"]
+    # 与启用 Task 完全同址的输出——启用状态必被重叠拒绝，禁用必须被忽略。
+    disabled_task = replace(
+        enabled_task,
+        task_id="t2",
+        enabled=False,
+        sink_ids=("test_modbus",),
+        outputs=(
+            TaskOutput(
+                sink_id="test_modbus",
+                points=(
+                    {
+                        "source": enabled_task.outputs[0].points[0]["source"],
+                        "ref": "ghost",
+                        "address": {
+                            "slave_id": 1,
+                            "register_type": "holding",
+                            "address": 100,
+                        },
+                    },
+                ),
+            ),
+        ),
+    )
+    config = collector_config_from_snapshot(
+        replace(snapshot, tasks={"t1": enabled_task, "t2": disabled_task})
+    )
+    sink = config.sinks["test_modbus"]
+    assert {point["ref"] for point in sink.points} == {"scada_0"}
+    assert set(sink.connection["task_sources"]) == {"t1"}
+
+
+def test_disabled_task_with_stale_device_does_not_block_startup(tmp_path: Path) -> None:
+    """禁用 Task 的过期设备引用不得阻断 Collector 启动。"""
+    snapshot = _snapshot_with_outputs(tmp_path, addresses=(100,))
+    enabled_task = snapshot.tasks["t1"]
+    stale_output = TaskOutput(
+        sink_id="test_modbus",
+        points=(
+            {
+                "source": {"device_id": "decommissioned", "point_id": "p"},
+                "ref": "stale",
+                "address": {
+                    "slave_id": 1,
+                    "register_type": "holding",
+                    "address": 200,
+                },
+            },
+        ),
+    )
+    disabled_task = replace(
+        enabled_task,
+        task_id="t2",
+        enabled=False,
+        sink_ids=("test_modbus",),
+        outputs=(stale_output,),
+    )
+    config = collector_config_from_snapshot(
+        replace(snapshot, tasks={"t1": enabled_task, "t2": disabled_task})
+    )
+    assert set(config.sinks["test_modbus"].connection["task_sources"]) == {"t1"}
