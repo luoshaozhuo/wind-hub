@@ -11,7 +11,6 @@ ResolvedSinkPoint）属于 Application 层，见
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -33,7 +32,7 @@ from core.application.sink_contract import (
     StreamSinkAddress,
 )
 
-SINK_TYPES = frozenset({"file", "modbus", "redis"})
+SINK_TYPES = frozenset({"modbus", "redis"})
 
 SINK_NUMERIC_DATA_TYPES = frozenset(
     {
@@ -65,30 +64,6 @@ MODBUS_WORD_WIDTH: Mapping[str, int] = MappingProxyType(
         "float64": 4,
     }
 )
-
-
-class FileSinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    path: str
-    max_size_mb: float = Field(default=100, gt=0, allow_inf_nan=False)
-    retention_days: int = Field(default=30, ge=1)
-
-    @field_validator("path")
-    @classmethod
-    def _validate_path(cls, value: str) -> str:
-        path = Path(value)
-        if not value.strip() or path.suffix:
-            raise ConfigError("File sink path must be a non-empty directory path")
-        # 归档根不得落在文件系统根：cleanup 按拥有的 Task/Device/年/月
-        # 结构递归清理，根过浅会越权删除共享目录内容。
-        if path.parent == path:
-            raise ConfigError("File sink path must not be the filesystem root '/'")
-        return value
-
-    @property
-    def max_size_bytes(self) -> int:
-        return max(1, int(self.max_size_mb * 1024 * 1024))
 
 
 class RedisSinkConnection(BaseModel):
@@ -139,17 +114,15 @@ class ModbusSinkConnection(BaseModel):
     port: int = Field(default=502, ge=1, le=65535)
 
 
-SinkConnection = FileSinkConnection | ModbusSinkConnection | RedisSinkConnection
+SinkConnection = ModbusSinkConnection | RedisSinkConnection
 
 
 _CONNECTION_TYPES: dict[str, type[BaseModel]] = {
-    "file": FileSinkConnection,
     "modbus": ModbusSinkConnection,
     "redis": RedisSinkConnection,
 }
 
 _ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
-    "file": (StreamSinkAddress,),
     "modbus": (ModbusSinkAddress,),
     "redis": (StreamSinkAddress,),
 }
@@ -292,7 +265,6 @@ __all__ = [
     "SINK_TYPES",
     "SINK_NUMERIC_DATA_TYPES",
     "MODBUS_WORD_WIDTH",
-    "FileSinkConnection",
     "ModbusSinkConnection",
     "RedisSinkConnection",
     "SinkPoint",
