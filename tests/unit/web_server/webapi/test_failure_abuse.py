@@ -231,3 +231,20 @@ def test_every_response_carries_request_id() -> None:
 
     echoed = client.get("/api/v1/operations/ghost", headers={"x-request-id": "trace-1"})
     assert echoed.headers["x-request-id"] == "trace-1"
+
+
+def test_get_config_file_never_returns_plaintext_password() -> None:
+    """GET /config/files/{name} 必须经脱敏通道，响应体不得含明文密码。"""
+    admin = MagicMock()
+    admin.read_file_redacted.return_value = (
+        "sinks:\n  redis_main:\n    connection:\n"
+        "      password: __REDACTED_SECRET__\n"
+    )
+    client = _client(AppContext(config_admin=admin))
+
+    response = client.get("/api/v1/config/files/sinks.yaml")
+
+    assert response.status_code == 200
+    admin.read_file_redacted.assert_called_once_with("sinks.yaml")
+    assert "s3cr3t" not in response.text
+    assert "__REDACTED_SECRET__" in response.text

@@ -43,7 +43,7 @@ async def list_config_files(ctx: AppContext = Depends(get_ctx)) -> list[ConfigFi
 @router.get("/config/files/{name}", response_model=ConfigContentResponse, tags=["v1-config"])
 async def get_config_file(name: str, ctx: AppContext = Depends(get_ctx)) -> ConfigContentResponse:
     try:
-        content = common.config_admin(ctx).read_file(name)
+        content = common.config_admin(ctx).read_file_redacted(name)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown config file '{name}'", 404) from None
     return ConfigContentResponse(name=name, content=content)

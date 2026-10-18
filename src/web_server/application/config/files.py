@@ -32,6 +32,118 @@ CONFIG_FILES = (
     "tasks.yaml",
 )
 
+#: 存放远程凭据的配置文件；经 Admin API 读取时必须脱敏。
+SECRET_FILES = frozenset({"sinks.yaml", "devices.yaml", "device_models.yaml"})
+
+#: 脱敏占位符：回读 Apply 时按结构路径从当前磁盘文件还原真实值；
+#: 还原不到（新建/改名实体）时拒绝写入并要求显式提供新值。
+SECRET_PLACEHOLDER = "__REDACTED_SECRET__"
+
+
+def _secret_path_str(path: tuple[Any, ...]) -> str:
+    return ".".join(str(part) for part in path)
+
+
+def _iter_secret_nodes(
+    root: yaml.Node,
+) -> list[tuple[tuple[Any, ...], yaml.ScalarNode]]:
+    """列出 YAML 节点树中所有名为 ``password`` 的标量叶子（含结构路径）。
+
+    基于 compose 节点定位而非正则：注释中的 password 说明、文档示例
+    不会被误伤；节点 start_mark 给出物理行列，便于按原文替换保格式。
+    """
+    found: list[tuple[tuple[Any, ...], yaml.ScalarNode]] = []
+
+    def walk(node: yaml.Node, path: tuple[Any, ...]) -> None:
+        if isinstance(node, yaml.MappingNode):
+            for key_node, value_node in node.value:
+                if not isinstance(key_node, yaml.ScalarNode):
+                    continue
+                child_path = (*path, key_node.value)
+                if key_node.value == "password" and isinstance(value_node, yaml.ScalarNode):
+                    found.append((child_path, value_node))
+                else:
+                    walk(value_node, child_path)
+        elif isinstance(node, yaml.SequenceNode):
+            for index, child in enumerate(node.value):
+                walk(child, (*path, index))
+
+    walk(root, ())
+    return found
+
+
+def _replace_scalar_line(line: str, start_col: int, end_col: int, replacement: str) -> str:
+    suffix_len = len(line) - len(line.rstrip("\r\n"))
+    body, suffix = line[: len(line) - suffix_len], line[len(line) - suffix_len :]
+    return body[:start_col] + replacement + body[end_col:] + suffix
+
+
+def redact_secret_text(text: str) -> str:
+    """把 YAML 文本内的 password 标量替换为脱敏占位符，保留注释与排版。"""
+    try:
+        root = yaml.compose(text)
+    except yaml.YAMLError:
+        return text
+    if root is None:
+        return text
+    lines = text.splitlines(keepends=True)
+    for _path, node in _iter_secret_nodes(root):
+        # 仅处理单行标量；块标量密码在本系统配置契约中不合法，跳过。
+        if node.start_mark.line != node.end_mark.line or not node.value:
+            continue
+        line_index = node.start_mark.line
+        lines[line_index] = _replace_scalar_line(
+            lines[line_index],
+            node.start_mark.column,
+            node.end_mark.column,
+            SECRET_PLACEHOLDER,
+        )
+    return "".join(lines)
+
+
+def restore_secret_text(candidate: str, current: str) -> str:
+    """把候选文本中的占位符按结构路径还原为当前文件的真实密码。
+
+    新建/改名实体导致路径在当前文件中不存在时拒绝还原——占位符若落盘
+    会被当作字面密码使用，必须要求调用方显式提供新值。
+    """
+    current_root = yaml.compose(current) if current.strip() else None
+    old_values = (
+        {path: node.value for path, node in _iter_secret_nodes(current_root)}
+        if current_root is not None
+        else {}
+    )
+    candidate_root = yaml.compose(candidate)
+    if candidate_root is None:
+        return candidate
+    replacements: list[tuple[int, int, int, str]] = []
+    unresolved: list[str] = []
+    for path, node in _iter_secret_nodes(candidate_root):
+        if node.start_mark.line != node.end_mark.line or node.value != SECRET_PLACEHOLDER:
+            continue
+        if path in old_values:
+            replacements.append(
+                (
+                    node.start_mark.line,
+                    node.start_mark.column,
+                    node.end_mark.column,
+                    old_values[path],
+                )
+            )
+        else:
+            unresolved.append(_secret_path_str(path))
+    if unresolved:
+        raise ValueError(
+            "无法还原脱敏密码（实体为新建或已改名），请显式填写新值: "
+            + ", ".join(sorted(unresolved))
+        )
+    lines = candidate.splitlines(keepends=True)
+    for line_index, start_col, end_col, value in sorted(replacements, reverse=True):
+        lines[line_index] = _replace_scalar_line(
+            lines[line_index], start_col, end_col, json.dumps(value, ensure_ascii=False)
+        )
+    return "".join(lines)
+
 
 def _diff_details(diff: ConfigSnapshotDiff) -> dict[str, object]:
     """以 JSON 可序列化结构公开当前 Core 的配置差异。"""
@@ -108,8 +220,24 @@ class ConfigFileService:
             raise KeyError(name)
         return path.read_text(encoding="utf-8")
 
+    def read_file_redacted(self, name: str) -> str:
+        """Admin API 使用：读取文件并把凭据标量替换为脱敏占位符。"""
+        content = self.read_file(name)
+        if name in SECRET_FILES:
+            return redact_secret_text(content)
+        return content
+
+    def _restore_secrets(self, name: str, content: str) -> str:
+        """把回读内容中的脱敏占位符还原为磁盘真实密码；非密钥文件原样返回。"""
+        if name not in SECRET_FILES or SECRET_PLACEHOLDER not in content:
+            return content
+        path = self._path(name)
+        current = path.read_text(encoding="utf-8") if path.is_file() else ""
+        return restore_secret_text(content, current)
+
     def validate_file(self, name: str, content: str) -> ConfigReview:
         """把候选文本放入完整临时配置集后执行正式 load_config 校验。"""
+        content = self._restore_secrets(name, content)
         try:
             candidate = self._load_candidate(name, content)
         except Exception as exc:
@@ -133,6 +261,10 @@ class ConfigFileService:
         self, name: str, content: str, *, source: str, comment: str
     ) -> ConfigApplyResult:
         """校验并原子替换单文件；reload 失败时恢复文件并重新加载旧配置。"""
+        try:
+            content = self._restore_secrets(name, content)
+        except (ValueError, yaml.YAMLError) as exc:
+            return ConfigApplyResult(success=False, errors=[str(exc)])
         review = self.validate_file(name, content)
         if not review.valid:
             return ConfigApplyResult(success=False, errors=review.errors)
