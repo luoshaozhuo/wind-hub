@@ -7,8 +7,8 @@ from pydantic import ValidationError
 
 from core.application.errors import ConfigError
 from core.infrastructure.config.sink_schema import (
-    TDengineSinkConnection,
     RedisSinkConnection,
+    TDengineSinkConnection,
     _SinkSchema,
     validate_sink_definitions,
 )
