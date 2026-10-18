@@ -471,3 +471,28 @@ async def test_write_failure_counted_and_marked_with_stable_stage():
     assert "s1" in runtime._unhealthy
     assert runtime._unhealthy_reason["s1"].startswith("write_failed:")
     await runtime.stop()
+
+
+async def test_task_aware_sink_receives_distinct_task_identities() -> None:
+    """同设备、同测点来自不同 Task 时，必须保留批次来源。"""
+
+    class TaskAwareSink(FakeSink):
+        def __init__(self) -> None:
+            super().__init__()
+            self.deliveries: list[tuple[str, list[PointValue]]] = []
+
+        async def write_task(self, task_id: str, values: list[PointValue]) -> None:
+            self.deliveries.append((task_id, list(values)))
+
+    sink = TaskAwareSink()
+    runtime = _runtime({"s1": sink})
+    await runtime.start()
+    value = _value(42.0)
+    await runtime.dispatch({"s1": _delivery(value, task_id="fast")})
+    await runtime.dispatch({"s1": _delivery(value, task_id="slow")})
+    await runtime.stop()
+
+    assert [(task_id, values[0].value) for task_id, values in sink.deliveries] == [
+        ("fast", 42.0),
+        ("slow", 42.0),
+    ]
