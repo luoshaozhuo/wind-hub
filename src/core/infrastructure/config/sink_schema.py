@@ -106,6 +106,12 @@ class RedisSinkConnection(BaseModel):
             raise ConfigError("Redis host/key_prefix must not be empty")
         return value
 
+    @model_validator(mode="after")
+    def _validate_acl(self) -> RedisSinkConnection:
+        if self.username is not None and self.password is None:
+            raise ValueError("Redis ACL username requires password")
+        return self
+
     @field_validator("username")
     @classmethod
     def _validate_username(cls, value: str | None) -> str | None:
