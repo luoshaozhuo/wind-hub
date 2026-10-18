@@ -11,12 +11,12 @@
 | 等级 | 典型变更 | 验证 |
 |---|---|---|
 | 非产品 | rules/Agent/CI tooling | 只验证修改对象自身 |
-| L1 | 普通内部实现、普通前端页面/样式 | Fast Gate |
-| L2 | protocol/RPC/sink 等边界 | Fast + targeted Integration |
-| L3 | acquisition/command/diagnostics/reload/startup/task-control/跨系统 E2E | Fast + targeted Integration/System |
-| Frontend E2E | 当前 Playwright 实际覆盖的 App shell / E2E 配置与测试 | Fast + Playwright |
+| L1 | 普通内部实现、普通前端页面/样式 | 合并时相关测试 |
+| L2 | protocol/RPC/sink 等边界 | 合并时相关 Contract/Integration |
+| L3 | acquisition/command/diagnostics/reload/startup/task-control/跨系统 E2E | 合并时相关 Integration/System |
+| Frontend E2E | 当前 Playwright 实际覆盖的 App shell / E2E 配置与测试 | 合并时相关 Frontend/E2E |
 
-原则：**PR Gate 不是 PR 固定全量测试，而是 Fast 无法覆盖的风险增量验证。**
+原则：开发阶段不强制测试；合并时验证完整影响范围，明确不可识别的范围采用保守回退。
 
 ## 3. 编码任务
 
@@ -50,10 +50,6 @@ integration-rpc
 integration-sinks
 system-acquisition
 system-command
-system-diagnostics
-system-reload
-system-startup
-system-task-control
 system-e2e
 ```
 
@@ -68,7 +64,6 @@ system-e2e
 | Release / tag | `local-release-gate` |
 | hardware/performance/soak | `local-qualification` |
 | 当前 SHA 的相关 CI 失败 | `ci-fix-loop` |
-| 任务分支经 PR 合并回 main | `merge-branch` |
 | rules/skills/hooks/Agent 配置 | `rule-update` |
 
 ## 6. CI 失败
