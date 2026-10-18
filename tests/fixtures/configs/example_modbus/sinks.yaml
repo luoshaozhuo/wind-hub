@@ -1,8 +1,9 @@
 sinks:
-  file_archive:
-    type: file
+  redis_latest:
+    type: redis
     enabled: true
     connection:
-      path: /var/tmp/wind-hub/example_modbus
-      max_size_mb: 100
-      retention_days: 30
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      key_prefix: wind-hub
