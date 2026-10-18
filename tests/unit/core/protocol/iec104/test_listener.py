@@ -28,16 +28,20 @@ async def test_filter_and_fan_out_to_multiple_listeners() -> None:
     a: list[str] = []
     b: list[str] = []
 
-    async def collect_a(sample: ProtocolSample) -> None:
+    async def collect_a(samples: tuple[ProtocolSample, ...]) -> None:
+
+        sample = samples[0]
         a.append(sample.point_id)
 
-    async def collect_b(sample: ProtocolSample) -> None:
+    async def collect_b(samples: tuple[ProtocolSample, ...]) -> None:
+
+        sample = samples[0]
         b.append(sample.point_id)
 
     id_a = registry.add(("p1",), collect_a)
     registry.add((), collect_b)
-    registry.offer(_sample("p1"))
-    registry.offer(_sample("p2"))
+    registry.offer((_sample("p1"),))
+    registry.offer((_sample("p2"),))
     await asyncio.sleep(0.02)
     assert a == ["p1"]
     assert b == ["p1", "p2"]
@@ -47,8 +51,8 @@ async def test_filter_and_fan_out_to_multiple_listeners() -> None:
 
 async def test_offer_without_listeners_does_not_queue() -> None:
     registry = ListenerRegistry(capacity=2)
-    registry.offer(_sample("p1"))
-    registry.offer(_sample("p2"))
+    registry.offer((_sample("p1"),))
+    registry.offer((_sample("p2"),))
     assert registry.dropped_count == 0
     await registry.close()
 
@@ -58,16 +62,18 @@ async def test_overflow_drops_oldest_and_counts() -> None:
     gate = asyncio.Event()
     received: list[float] = []
 
-    async def gated(sample: ProtocolSample) -> None:
+    async def gated(samples: tuple[ProtocolSample, ...]) -> None:
+
+        sample = samples[0]
         await gate.wait()
         received.append(float(sample.value))  # type: ignore[arg-type]
 
     registry.add((), gated)
     # 第一条被 worker 取走并阻塞在 gate；队列容量 2，再投 4 条。
-    registry.offer(_sample("p", 0.0))
+    registry.offer((_sample("p", 0.0),))
     await asyncio.sleep(0.02)
     for i in range(1, 5):
-        registry.offer(_sample("p", float(i)))
+        registry.offer((_sample("p", float(i)),))
     assert registry.dropped_count == 2
     gate.set()
     await asyncio.sleep(0.05)
@@ -80,15 +86,15 @@ async def test_offer_never_blocks_when_queue_full() -> None:
     registry = ListenerRegistry(capacity=1)
     gate = asyncio.Event()
 
-    async def gated(_sample: ProtocolSample) -> None:
+    async def gated(_samples: tuple[ProtocolSample, ...]) -> None:
         await gate.wait()
 
     registry.add((), gated)
-    registry.offer(_sample("p", 0.0))
+    registry.offer((_sample("p", 0.0),))
     await asyncio.sleep(0.02)
     # 队列满后大量 offer 必须立即返回（不阻塞接收任务）。
     for i in range(100):
-        registry.offer(_sample("p", float(i)))
+        registry.offer((_sample("p", float(i)),))
     gate.set()
     await asyncio.sleep(0.02)
     assert registry.dropped_count == 99
@@ -100,16 +106,18 @@ async def test_one_normal_and_one_throwing_listener() -> None:
     registry = ListenerRegistry()
     received: list[str] = []
 
-    async def boom(_sample: ProtocolSample) -> None:
+    async def boom(_samples: tuple[ProtocolSample, ...]) -> None:
         raise RuntimeError("boom")
 
-    async def collect(sample: ProtocolSample) -> None:
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+
+        sample = samples[0]
         received.append(sample.point_id)
 
     registry.add(("p1",), boom)
     registry.add((), collect)
-    registry.offer(_sample("p1"))
-    registry.offer(_sample("p2"))
+    registry.offer((_sample("p1"),))
+    registry.offer((_sample("p2"),))
     await asyncio.sleep(0.05)
     assert received == ["p1", "p2"]
     await registry.close()
@@ -123,21 +131,23 @@ async def test_slow_listener_does_not_block_others_beyond_timeout() -> None:
     healthy: list[str] = []
     healthy_done = asyncio.Event()
 
-    async def slow(_sample: ProtocolSample) -> None:
+    async def slow(_samples: tuple[ProtocolSample, ...]) -> None:
         blocked_started.set()
         await block.wait()
 
-    async def collect(sample: ProtocolSample) -> None:
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+
+        sample = samples[0]
         healthy.append(sample.point_id)
         if len(healthy) == 2:
             healthy_done.set()
 
     registry.add((), slow)
     registry.add(("p1", "p2"), collect)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await blocked_started.wait()
     # 第一条样本的分发先遇到慢监听者；其超时取消后 p1 才到 collect。
-    registry.offer(_sample("p2"))
+    registry.offer((_sample("p2"),))
     await asyncio.wait_for(healthy_done.wait(), timeout=1.0)
     assert healthy == ["p1", "p2"]
     block.set()
@@ -150,7 +160,9 @@ async def test_callback_timeout_is_cancelled_and_listener_recovers() -> None:
     received: list[str] = []
     second = asyncio.Event()
 
-    async def sometimes_slow(sample: ProtocolSample) -> None:
+    async def sometimes_slow(samples: tuple[ProtocolSample, ...]) -> None:
+
+        sample = samples[0]
         if sample.point_id == "slow":
             await asyncio.sleep(5)
         received.append(sample.point_id)
@@ -158,10 +170,10 @@ async def test_callback_timeout_is_cancelled_and_listener_recovers() -> None:
             second.set()
 
     listener_id = registry.add(("slow", "fast1", "fast2"), sometimes_slow)
-    registry.offer(_sample("slow"))
+    registry.offer((_sample("slow"),))
     await asyncio.sleep(0.2)  # 等超时取消完成
-    registry.offer(_sample("fast1"))
-    registry.offer(_sample("fast2"))
+    registry.offer((_sample("fast1"),))
+    registry.offer((_sample("fast2"),))
     await asyncio.wait_for(second.wait(), timeout=1.0)
     assert received == ["fast1", "fast2"]
     # 取消后的回调任务没有残留。
@@ -175,7 +187,7 @@ async def test_uncooperative_callback_makes_remove_raise_timeout() -> None:
     entered = asyncio.Event()
     allow_finish = asyncio.Event()
 
-    async def stubborn(_sample: ProtocolSample) -> None:
+    async def stubborn(_samples: tuple[ProtocolSample, ...]) -> None:
         entered.set()
         for _ in range(5):
             try:
@@ -186,7 +198,7 @@ async def test_uncooperative_callback_makes_remove_raise_timeout() -> None:
                 continue
 
     listener_id = registry.add((), stubborn)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await entered.wait()
     await asyncio.sleep(0.15)  # 等 worker 超时并进入取消后清理窗口
     with pytest.raises(TimeoutError):
@@ -203,7 +215,7 @@ async def test_callback_runs_cleanup_during_cancellation() -> None:
     cleanup_done = asyncio.Event()
     entered = asyncio.Event()
 
-    async def with_cleanup(_sample: ProtocolSample) -> None:
+    async def with_cleanup(_samples: tuple[ProtocolSample, ...]) -> None:
         entered.set()
         try:
             await asyncio.sleep(10)
@@ -213,7 +225,7 @@ async def test_callback_runs_cleanup_during_cancellation() -> None:
             raise
 
     listener_id = registry.add((), with_cleanup)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await entered.wait()
     remove_task = asyncio.create_task(registry.remove(listener_id))
     await asyncio.wait_for(remove_task, timeout=1.0)
@@ -226,12 +238,14 @@ async def test_remove_before_delivery_is_immediate_and_queued_sample_skipped() -
     registry = ListenerRegistry(capacity=10)
     received: list[str] = []
 
-    async def collect(sample: ProtocolSample) -> None:
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+
+        sample = samples[0]
         received.append(sample.point_id)
 
     listener_id = registry.add(("p1", "p2"), collect)
-    registry.offer(_sample("p3"))  # 不匹配过滤
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p3"),))  # 不匹配过滤
+    registry.offer((_sample("p1"),))
     await registry.remove(listener_id)
     await asyncio.sleep(0.05)
     assert received == []
@@ -258,7 +272,9 @@ async def test_remove_concurrent_with_delivery() -> None:
     active = 0
     max_concurrent = 0
 
-    async def collector(sample: ProtocolSample) -> None:
+    async def collector(samples: tuple[ProtocolSample, ...]) -> None:
+
+        sample = samples[0]
         nonlocal active, max_concurrent
         active += 1
         max_concurrent = max(max_concurrent, active)
@@ -271,7 +287,7 @@ async def test_remove_concurrent_with_delivery() -> None:
 
     async def offer_loop() -> None:
         for i in range(100):
-            registry.offer(_sample("p", float(i)))
+            registry.offer((_sample("p", float(i)),))
             await asyncio.sleep(0)
 
     offer_task = asyncio.create_task(offer_loop())
@@ -288,12 +304,12 @@ async def test_remove_concurrent_with_close() -> None:
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def slow(_sample: ProtocolSample) -> None:
+    async def slow(_samples: tuple[ProtocolSample, ...]) -> None:
         entered.set()
         await release.wait()
 
     listener_id = registry.add((), slow)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await entered.wait()
     remove_task = asyncio.create_task(registry.remove(listener_id))
     close_task = asyncio.create_task(registry.close())
@@ -310,7 +326,7 @@ async def test_offer_after_close_is_dropped_and_add_rejected() -> None:
     received: list[str] = []
     registry.add((), lambda s: _append(received, s))
     await registry.close()
-    registry.offer(_sample("p1"))  # 关闭后投递直接丢弃
+    registry.offer((_sample("p1"),))  # 关闭后投递直接丢弃
     await asyncio.sleep(0.02)
     assert received == []
     with pytest.raises(RuntimeError, match="closed"):
@@ -326,12 +342,12 @@ async def test_close_leaves_no_residual_worker_or_callback_tasks() -> None:
     slow_started = asyncio.Event()
     release = asyncio.Event()
 
-    async def slow(_sample: ProtocolSample) -> None:
+    async def slow(_samples: tuple[ProtocolSample, ...]) -> None:
         slow_started.set()
         await release.wait()
 
     registry.add((), slow)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await slow_started.wait()
     close_task = asyncio.create_task(registry.close())
     await asyncio.sleep(0.02)
@@ -362,7 +378,7 @@ def _stubborn_callback() -> tuple[
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def stubborn(_sample: ProtocolSample) -> None:
+    async def stubborn(_samples: tuple[ProtocolSample, ...]) -> None:
         entered.set()
         while not release.is_set():
             with contextlib.suppress(asyncio.CancelledError):
@@ -376,7 +392,7 @@ async def test_close_timeout_keeps_unfinished_callback_tracked() -> None:
     registry = ListenerRegistry(callback_timeout=1.0)
     stubborn, entered, release = _stubborn_callback()
     registry.add((), stubborn)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await entered.wait()
 
     with pytest.raises(TimeoutError):
@@ -386,7 +402,7 @@ async def test_close_timeout_keeps_unfinished_callback_tracked() -> None:
     with pytest.raises(RuntimeError, match="closed"):
         registry.add((), stubborn)
     assert registry.active is False
-    registry.offer(_sample("p2"))
+    registry.offer((_sample("p2"),))
     assert registry._queue.qsize() == 0
     # 未完成回调任务仍被注册表持久跟踪。
     assert len(registry._unresolved) == 1
@@ -402,7 +418,7 @@ async def test_repeated_close_succeeds_after_tracked_task_finishes() -> None:
     registry = ListenerRegistry(callback_timeout=1.0)
     stubborn, entered, release = _stubborn_callback()
     registry.add((), stubborn)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await entered.wait()
 
     with pytest.raises(TimeoutError):
@@ -423,7 +439,7 @@ async def test_repeated_close_times_out_again_while_callback_still_running() -> 
     registry = ListenerRegistry(callback_timeout=1.0)
     stubborn, entered, release = _stubborn_callback()
     registry.add((), stubborn)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await entered.wait()
 
     with pytest.raises(TimeoutError):
@@ -446,12 +462,12 @@ async def test_concurrent_close_both_succeed_when_resources_converge() -> None:
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def cooperative(_sample: ProtocolSample) -> None:
+    async def cooperative(_samples: tuple[ProtocolSample, ...]) -> None:
         entered.set()
         await release.wait()
 
     registry.add((), cooperative)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await entered.wait()
 
     first = asyncio.create_task(registry.close())
@@ -468,7 +484,7 @@ async def test_concurrent_close_both_fail_while_callback_unconverged() -> None:
     registry = ListenerRegistry(callback_timeout=1.0)
     stubborn, entered, release = _stubborn_callback()
     registry.add((), stubborn)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await entered.wait()
 
     first = asyncio.create_task(registry.close(timeout=0.05))
@@ -489,7 +505,7 @@ async def test_cancelling_one_closer_keeps_other_closer_on_track() -> None:
     registry = ListenerRegistry(callback_timeout=1.0)
     stubborn, entered, release = _stubborn_callback()
     registry.add((), stubborn)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await entered.wait()
 
     first = asyncio.create_task(registry.close())
@@ -516,7 +532,7 @@ async def test_close_cancels_in_flight_callback_and_waits_for_cleanup() -> None:
     cleanup_done = asyncio.Event()
     entered = asyncio.Event()
 
-    async def with_cleanup(_sample: ProtocolSample) -> None:
+    async def with_cleanup(_samples: tuple[ProtocolSample, ...]) -> None:
         entered.set()
         try:
             await asyncio.sleep(10)
@@ -525,7 +541,7 @@ async def test_close_cancels_in_flight_callback_and_waits_for_cleanup() -> None:
             raise
 
     registry.add((), with_cleanup)
-    registry.offer(_sample("p1"))
+    registry.offer((_sample("p1"),))
     await entered.wait()
     await asyncio.wait_for(registry.close(), timeout=1.0)
     assert cleanup_done.is_set()
