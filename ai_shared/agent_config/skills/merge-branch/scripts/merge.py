@@ -7,6 +7,9 @@ import argparse
 import json
 import subprocess
 import sys
+import tempfile
+import time
+from pathlib import Path
 from typing import Any
 
 
@@ -49,7 +52,7 @@ def inspect(pr_number: int, *, allow_no_ci: bool = False) -> dict[str, Any]:
         raise BlockedError("必须在任务分支上运行")
     if command("git", "status", "--porcelain"):
         raise BlockedError("工作区或暂存区不干净")
-    command("git", "fetch", "origin", "--prune")
+    command("git", "fetch", "origin", "main", branch)
     if command("git", "rev-parse", "HEAD") != command(
         "git", "rev-parse", f"origin/{branch}"
     ):
@@ -171,7 +174,29 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False))
         return 0
 
+
     pr = info["pr"]
+    started = time.perf_counter()
+    base_sha = command("git", "rev-parse", "origin/main")
+    changed = command("git", "diff", "--name-only", "origin/main...HEAD").splitlines()
+    gate_script = Path(__file__).resolve().parents[5] / "scripts" / "ci_gate.py"
+    if not gate_script.is_file():
+        raise BlockedError(f"合并验证执行器不存在: {gate_script}")
+    with tempfile.TemporaryDirectory(prefix="wind-hub-merge-") as temp_dir:
+        changed_file = Path(temp_dir) / "changed.txt"
+        changed_file.write_text("\\n".join(changed) + "\\n", encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(gate_script), "merge", "--file-list", str(changed_file)],
+            check=False,
+        )
+        if result.returncode:
+            raise BlockedError(f"受影响范围验证失败: exit={result.returncode}")
+    if command("git", "rev-parse", "HEAD") != pr["headRefOid"]:
+        raise BlockedError("本地 HEAD 在验证过程中发生变化")
+    command("git", "fetch", "origin", "main")
+    if command("git", "rev-parse", "origin/main") != base_sha:
+        raise BlockedError("main 在验证过程中更新，需重新验证")
+    validation_elapsed = round(time.perf_counter() - started, 3)
     # GitHub enforces branch protection for the ordinary squash merge.
     # Recheck HEAD before merging; never use --admin.
     current = gh_json(
@@ -193,6 +218,7 @@ def main() -> int:
             raise
     merged = verify_merged(args.pr)
     merged["ci"] = info["ci"]
+    merged["local_validation_seconds"] = validation_elapsed
     print(json.dumps(merged, ensure_ascii=False))
     return 0
 
