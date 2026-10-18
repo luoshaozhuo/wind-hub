@@ -6,6 +6,7 @@ import asyncio
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, cast
 
 import pyads  # type: ignore[import-untyped]
@@ -14,6 +15,16 @@ from core.application.errors import ProtocolError
 
 logger = logging.getLogger(__name__)
 _ADSERR_CLIENT_TIMEOUT = 1861
+
+
+NotificationKey = tuple[int, int, int, int, float]
+
+
+@dataclass(slots=True)
+class _SharedNotification:
+    handle: tuple[Any, Any]
+    callbacks: tuple[Callable[..., None], ...]
+    uncertain: bool = False
 
 
 class _CommandStats:
@@ -169,6 +180,8 @@ class _AdsSession:
         self._gate = asyncio.Lock()
         self._closing = False
         self._stats = _CommandStats()
+        self._notification_lock = asyncio.Lock()
+        self._notifications: dict[NotificationKey, _SharedNotification] = {}
         # 在途 owner task 强引用集合；done 回调移除并消费其异常。
         self._owners: set[asyncio.Task[Any]] = set()
         # aclose 幂等收敛到同一个关闭管线 task（调用方取消不中断清理）。
@@ -236,6 +249,61 @@ class _AdsSession:
             Callable[..., Callable[..., None]],
             self._connection.notification(datatype),
         )
+
+    async def acquire_notification(
+        self,
+        key: NotificationKey,
+        attribute: object,
+        wrapped: Callable[..., None],
+        datatype: object,
+    ) -> None:
+        """等价 Notification 共享一个物理 Handle；Session 即代际边界。"""
+        async with self._notification_lock:
+            entry = self._notifications.get(key)
+            if entry is not None:
+                if entry.uncertain:
+                    raise ProtocolError("ADS notification registration is unconfirmed")
+                entry.callbacks = (*entry.callbacks, wrapped)
+                return
+
+            # 只读取不可变回调快照，允许 pyads 的外部线程并发调用。
+            def dispatch(*args: Any) -> None:
+                current = self._notifications.get(key)
+                if current is None:
+                    return
+                for callback in current.callbacks:
+                    callback(*args)
+
+            callback = self.notification(datatype)(dispatch)
+            handle = cast(
+                tuple[Any, Any],
+                await self.execute("add_device_notification", key[:2], attribute, callback),
+            )
+            self._notifications[key] = _SharedNotification(handle, (wrapped,))
+
+    async def release_notification(
+        self, key: NotificationKey, wrapped: Callable[..., None]
+    ) -> None:
+        """只有最后一个有效引用退出，才真正注销物理 Notification。"""
+        async with self._notification_lock:
+            entry = self._notifications.get(key)
+            if entry is None:
+                return
+            entry.callbacks = tuple(
+                callback for callback in entry.callbacks if callback is not wrapped
+            )
+            if entry.callbacks:
+                return
+            if entry.uncertain:
+                raise ProtocolError("ADS notification deregistration remains unconfirmed")
+            try:
+                await self.execute(
+                    "del_device_notification", entry.handle[0], entry.handle[1]
+                )
+            except Exception:
+                entry.uncertain = True
+                raise
+            self._notifications.pop(key, None)
 
     async def execute(self, name: str, *args: Any, **kwargs: Any) -> Any:
         """统一的异步命令入口：异步门排队 → owner 持门到线程结束。
