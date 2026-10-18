@@ -48,8 +48,8 @@ from .codec import (
 )
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point, symbol_index_address
-from .subscription import ADSSubscription
 from .session import _AdsSession
+from .subscription import ADSSubscription
 
 logger = logging.getLogger(__name__)
 _REMOTE_ROUTE_LOCK = threading.Lock()
