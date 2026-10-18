@@ -564,38 +564,30 @@ def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
         data = _map(item, context)
         _keys(
             data,
-            {"device_group_id", "point_group", "interval", "sink_ids", "outputs", "enabled"},
+            {"device_group_id", "point_group", "interval", "outputs", "enabled"},
             context,
         )
-        if "outputs" in data and "sink_ids" in data:
-            raise ConfigError(f"{context}: choose outputs or sink_ids, not both")
-        outputs_raw = data.get("outputs")
-        outputs: tuple[TaskOutput, ...] = ()
-        if outputs_raw is not None:
-            resolved: list[TaskOutput] = []
-            for index, item in enumerate(_list(outputs_raw, f"{context}.outputs")):
-                entry = _map(item, f"{context}.outputs[{index}]")
-                _keys(entry, {"sink_id", "key_prefix", "points"}, f"{context}.outputs[{index}]")
-                resolved.append(
-                    TaskOutput(
-                        sink_id=_name(entry.get("sink_id"), f"{context}.outputs[{index}].sink_id"),
-                        key_prefix=(
-                            _name(entry["key_prefix"], f"{context}.outputs[{index}].key_prefix")
-                            if "key_prefix" in entry else None
-                        ),
-                        points=tuple(
-                            _map(point, f"{context}.outputs[{index}].points")
-                            for point in _list(entry.get("points", []), f"{context}.outputs[{index}].points")
-                        ),
-                    )
+        resolved: list[TaskOutput] = []
+        for index, item in enumerate(_list(data.get("outputs"), f"{context}.outputs")):
+            entry = _map(item, f"{context}.outputs[{index}]")
+            _keys(entry, {"sink_id", "key_prefix", "points"}, f"{context}.outputs[{index}]")
+            resolved.append(
+                TaskOutput(
+                    sink_id=_name(entry.get("sink_id"), f"{context}.outputs[{index}].sink_id"),
+                    key_prefix=(
+                        _name(entry["key_prefix"], f"{context}.outputs[{index}].key_prefix")
+                        if "key_prefix" in entry else None
+                    ),
+                    points=tuple(
+                        _map(point, f"{context}.outputs[{index}].points")
+                        for point in _list(
+                            entry.get("points", []), f"{context}.outputs[{index}].points"
+                        )
+                    ),
                 )
-            outputs = tuple(resolved)
-            sink_ids = tuple(output.sink_id for output in outputs)
-        else:
-            sink_ids = tuple(
-                _name(sink, f"{context}.sink_ids")
-                for sink in _list(data.get("sink_ids"), f"{context}.sink_ids")
             )
+        outputs = tuple(resolved)
+        sink_ids = tuple(output.sink_id for output in outputs)
         result[identity] = Task(
             task_id=identity,
             device_group_id=DeviceGroupId(
