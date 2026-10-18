@@ -7,6 +7,8 @@ description: Legacy optional focused checks; ordinary development does not requi
 
 日常开发、Commit、Push 和 PR 创建不强制执行本 Skill。用户调用 `//merge-branch` 后才统一执行合并验收。
 
+仅在用户明确要求定向诊断时调用，不是开发、提交或创建 PR 的强制步骤。
+
 先获取 `origin/main...HEAD` 的变更文件并运行：
 
 ```bash
