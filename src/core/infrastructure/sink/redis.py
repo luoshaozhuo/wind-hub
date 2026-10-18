@@ -28,6 +28,10 @@ class RedisSink:
     def __init__(self, config: Sink) -> None:
         connection = dict(config.connection)
         self._task_prefixes = dict(connection.pop("task_key_prefixes", {}))
+        self._task_sources = {
+            task_id: {(device, point) for device, point in sources}
+            for task_id, sources in connection.pop("task_sources", {}).items()
+        }
         self._config = RedisSinkConnection.model_validate(connection)
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
@@ -100,6 +104,13 @@ class RedisSink:
     async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
         if not batch:
             return
+        if task_id:
+            allowed = self._task_sources.get(task_id, set())
+            batch = [
+                item for item in batch if (item.device_id, item.point_id) in allowed
+            ]
+            if not batch:
+                return
         async with self._lock:
             if self._writer is None:
                 self._healthy = False
