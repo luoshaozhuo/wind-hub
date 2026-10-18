@@ -71,10 +71,6 @@ sinks:
       database: 0
       timeout: 1.0
       key_prefix: "wind-hub"
-    points:
-      - source: {device_id: iec104-001, point_id: active_power_iec}
-        ref: iec104_001_active_power
-        address: {field: iec104_001_active_power}
 
   # Modbus TCP Server（对 SCADA 暴露寄存器；默认关闭）
   modbus_scada:
