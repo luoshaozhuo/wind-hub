@@ -640,3 +640,27 @@ async def test_extracted_route_module_shares_driver_registry() -> None:
 
     assert driver_module._route_state(_NET) is route_state(_NET)
     assert driver_module._route_state(_NET) is not route_state(_NET_OTHER)
+
+
+async def test_close_lock_timeout_is_reported_not_silently_ignored() -> None:
+    """未取得路由锁时不能谎报关闭成功，也不得物理关闭共享路由。"""
+    driver = _driver()
+    conn = await _connect_ready(driver, [])
+    route = _route_state(_NET)
+    original_lock = route.op_lock
+
+    class TimedOutLock:
+        async def acquire(self) -> bool:
+            raise TimeoutError
+
+    route.op_lock = TimedOutLock()  # type: ignore[assignment]
+    try:
+        with pytest.raises(ProtocolError, match="physical close not attempted"):
+            await driver.close()
+        assert conn.close_calls == 0
+        assert driver.is_open()
+    finally:
+        route.op_lock = original_lock
+        conn.close_gate.set()
+    await driver.close()
+    assert conn.close_calls == 1
