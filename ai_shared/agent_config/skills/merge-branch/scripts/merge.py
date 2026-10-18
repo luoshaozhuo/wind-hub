@@ -29,6 +29,116 @@ def gh_json(*args: str) -> Any:
     return json.loads(command("gh", *args))
 
 
+PASS_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED", "EXPECTED"}
+FAIL_CONCLUSIONS = {
+    "FAILURE",
+    "ERROR",
+    "TIMED_OUT",
+    "CANCELLED",
+    "ACTION_REQUIRED",
+}
+
+
+def gh_api(path: str) -> Any:
+    """GET a GitHub REST endpoint.
+
+    Returns parsed JSON, None when the resource is absent (HTTP 404), and
+    raises BlockedError for any transport failure or other error status so an
+    unknown CI state can never be mistaken for "no checks".
+    """
+    result = subprocess.run(
+        ["gh", "api", path], capture_output=True, text=True, check=False
+    )
+    if result.returncode == 0:
+        return json.loads(result.stdout)
+    try:
+        status = str(json.loads(result.stdout).get("status"))
+    except (json.JSONDecodeError, ValueError):
+        status = ""
+    if status == "404":
+        return None
+    detail = result.stderr.strip() or result.stdout.strip()
+    raise BlockedError(f"gh api {path}: {detail}")
+
+
+def repo_slug() -> str:
+    return str(gh_json("repo", "view", "--json", "nameWithOwner")["nameWithOwner"])
+
+
+def required_contexts(slug: str, base: str) -> set[str]:
+    """Effective required status-check contexts from classic protection and rulesets."""
+    contexts: set[str] = set()
+    classic = gh_api(f"repos/{slug}/branches/{base}/protection/required_status_checks")
+    if isinstance(classic, dict):
+        contexts.update(str(c) for c in (classic.get("contexts") or []))
+        for entry in classic.get("checks") or []:
+            if isinstance(entry, dict) and entry.get("context"):
+                contexts.add(str(entry["context"]))
+    rules = gh_api(f"repos/{slug}/rules/branches/{base}")
+    if isinstance(rules, list):
+        for rule in rules:
+            if rule.get("type") != "required_status_checks":
+                continue
+            params = rule.get("parameters") or {}
+            for entry in params.get("required_status_checks") or []:
+                if isinstance(entry, str):
+                    contexts.add(entry)
+                elif isinstance(entry, dict) and entry.get("context"):
+                    contexts.add(str(entry["context"]))
+            contexts.update(str(c) for c in (params.get("contexts") or []))
+    return contexts
+
+
+def _check_name(item: dict[str, Any]) -> str:
+    return str(item.get("name") or item.get("context") or "unnamed")
+
+
+def _check_result(item: dict[str, Any]) -> Any:
+    return item.get("conclusion") or item.get("state")
+
+
+def evaluate_ci(pr: dict[str, Any], slug: str) -> str:
+    """Decide CI readiness from the repo-level Actions switch and effective rules.
+
+    Returns "PASS" (Actions enabled, all checks green) or
+    "NOT_RUN_ACTIONS_DISABLED" (Actions explicitly disabled at repo level and
+    no external required check unmet). Everything else blocks.
+    """
+    checks = pr.get("statusCheckRollup") or []
+    permissions = gh_api(f"repos/{slug}/actions/permissions")
+    if not isinstance(permissions, dict) or not isinstance(
+        permissions.get("enabled"), bool
+    ):
+        raise BlockedError("无法确认 GitHub Actions 仓库级开关状态（enabled 未知），禁止合并")
+    actions_enabled: bool = permissions["enabled"]
+
+    if actions_enabled:
+        if not checks:
+            raise BlockedError("GitHub Actions 已启用但当前 PR 没有任何 Check，禁止合并")
+        failures: list[str] = []
+        pending: list[str] = []
+        for item in checks:
+            name = _check_name(item)
+            result = _check_result(item)
+            if result in FAIL_CONCLUSIONS:
+                failures.append(name)
+            elif result not in PASS_CONCLUSIONS:
+                pending.append(f"{name}:{result}")
+        if failures or pending:
+            raise BlockedError(
+                f"CI 未全部完成或存在失败; failed={failures}, pending={pending}"
+            )
+        return "PASS"
+
+    # Actions explicitly disabled: only external required checks may block.
+    results = {_check_name(item): _check_result(item) for item in checks}
+    unmet = [c for c in required_contexts(slug, pr["baseRefName"])
+             if results.get(c) not in PASS_CONCLUSIONS]
+    if unmet:
+        raise BlockedError(f"Actions 已禁用，但存在未满足的外部必需检查: {unmet}")
+    return "NOT_RUN_ACTIONS_DISABLED"
+
+
 def inspect(pr_number: int) -> dict[str, Any]:
     branch = command("git", "branch", "--show-current")
     if not branch or branch in ("main", "master"):
@@ -65,28 +175,7 @@ def inspect(pr_number: int) -> dict[str, Any]:
         raise BlockedError(f"代码审查未满足要求: {pr['reviewDecision']}")
 
     checks = pr.get("statusCheckRollup") or []
-    ci_state = "PASS"
-    if not checks:
-        raise BlockedError("当前 PR 没有 GitHub Check，禁止合并")
-    failures = []
-    pending = []
-    for item in checks:
-        name = item.get("name") or item.get("context") or "unnamed"
-        conclusion = item.get("conclusion") or item.get("state")
-        if conclusion in (
-            "FAILURE",
-            "ERROR",
-            "TIMED_OUT",
-            "CANCELLED",
-            "ACTION_REQUIRED",
-        ):
-            failures.append(name)
-        elif conclusion not in ("SUCCESS", "NEUTRAL", "SKIPPED", "EXPECTED"):
-            pending.append(f"{name}:{conclusion}")
-    if failures or pending:
-        raise BlockedError(
-            f"CI 未全部完成或存在失败; failed={failures}, pending={pending}"
-        )
+    ci_state = evaluate_ci(pr, repo_slug())
     if pr["mergeStateStatus"] != "CLEAN":
         raise BlockedError("合并状态非 CLEAN，需人工核实 Hook 或特殊仓库门禁")
     return {"state": "READY", "pr": pr, "checks": len(checks), "ci": ci_state}

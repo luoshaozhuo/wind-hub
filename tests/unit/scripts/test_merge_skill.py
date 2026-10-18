@@ -73,6 +73,10 @@ class FakeHarness:
         merge_error: bool = False,
         state_after_merge_error: str = "MERGED",
         pr_overrides: dict[str, Any] | None = None,
+        actions_enabled: bool | None = True,
+        actions_error: bool = False,
+        classic_checks: dict[str, Any] | None = None,
+        rules: list[dict[str, Any]] | None = None,
     ) -> None:
         self.module = module
         self.gate_rc = gate_rc
@@ -82,11 +86,18 @@ class FakeHarness:
         self.merge_error = merge_error
         self.state_after_merge_error = state_after_merge_error
         self.pr_overrides = pr_overrides or {}
+        # bool => actions/permissions.enabled; None => missing/unknown field.
+        self.actions_enabled = actions_enabled
+        self.actions_error = actions_error
+        # None => HTTP 404 (no classic required checks).
+        self.classic_checks = classic_checks
+        self.rules = rules if rules is not None else []
         self.gate_done = False
         self.merge_calls: list[list[str]] = []
         self.gate_calls = 0
         monkeypatch.setattr(module, "command", self.command)
         monkeypatch.setattr(module, "gh_json", self.gh_json)
+        monkeypatch.setattr(module, "gh_api", self.gh_api)
         monkeypatch.setattr(module.subprocess, "run", self.subprocess_run)
 
     def command(self, *args: str, allow_failure: bool = False) -> str:
@@ -116,6 +127,8 @@ class FakeHarness:
 
     def gh_json(self, *args: str) -> Any:
         a = list(args)
+        if a == ["repo", "view", "--json", "nameWithOwner"]:
+            return {"nameWithOwner": "o/r"}
         if a == ["pr", "view", "--json", "number"]:
             return {"number": 7}
         fields = a[a.index("--json") + 1] if "--json" in a else ""
@@ -130,6 +143,19 @@ class FakeHarness:
         if "mergedAt" in fields:
             return MERGED_VIEW
         raise AssertionError(f"unexpected gh json: {a}")
+
+    def gh_api(self, path: str) -> Any:
+        if path.endswith("/actions/permissions"):
+            if self.actions_error:
+                raise self.module.BlockedError("gh api: network failure")
+            if self.actions_enabled is None:
+                return {}
+            return {"enabled": self.actions_enabled}
+        if path.endswith("/protection/required_status_checks"):
+            return self.classic_checks  # None => 404 absent
+        if path.endswith("/rules/branches/main"):
+            return self.rules
+        raise AssertionError(f"unexpected gh api: {path}")
 
     def subprocess_run(
         self, args: list[str], **kwargs: Any
@@ -274,7 +300,7 @@ def test_review_changes_requested_blocks(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_missing_checks_block(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load()
     FakeHarness(module, monkeypatch, pr_overrides={"statusCheckRollup": []})
-    with pytest.raises(module.BlockedError, match="没有 GitHub Check"):
+    with pytest.raises(module.BlockedError, match="没有任何 Check"):
         _run(module, monkeypatch, "check")
 
 
@@ -343,3 +369,181 @@ def test_inspect_rejects_dirty_worktree(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(module, "gh_json", gh_json)
     with pytest.raises(module.BlockedError, match="不干净"):
         module.inspect(7)
+
+
+# --- Actions repo-level disabled handling ---------------------------------
+
+
+def test_actions_disabled_no_required_runs_gate_and_reports(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load()
+    harness = FakeHarness(
+        module,
+        monkeypatch,
+        actions_enabled=False,
+        pr_overrides={"statusCheckRollup": []},
+    )
+    rc = _run(module, monkeypatch, "merge")
+    assert rc == 0
+    assert harness.gate_calls == 1
+    assert harness.merge_calls == [["gh", "pr", "merge", "7", "--squash"]]
+    report = json.loads(capsys.readouterr().out)
+    assert report["state"] == "MERGED"
+    assert report["ci"] == "NOT_RUN_ACTIONS_DISABLED"
+
+
+def test_actions_disabled_check_action_annotates_ci(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load()
+    FakeHarness(
+        module,
+        monkeypatch,
+        actions_enabled=False,
+        pr_overrides={"statusCheckRollup": []},
+    )
+    rc = _run(module, monkeypatch, "check")
+    assert rc == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["state"] == "READY"
+    assert report["ci"] == "NOT_RUN_ACTIONS_DISABLED"
+
+
+def test_actions_disabled_gate_failure_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    harness = FakeHarness(
+        module,
+        monkeypatch,
+        actions_enabled=False,
+        gate_rc=1,
+        pr_overrides={"statusCheckRollup": []},
+    )
+    with pytest.raises(module.BlockedError, match="受影响范围验证失败"):
+        _run(module, monkeypatch, "merge")
+    assert harness.merge_calls == []
+
+
+def test_actions_permission_query_failure_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    harness = FakeHarness(module, monkeypatch, actions_error=True)
+    with pytest.raises(module.BlockedError, match="network failure"):
+        _run(module, monkeypatch, "check")
+    assert harness.merge_calls == []
+
+
+def test_actions_permission_unknown_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    harness = FakeHarness(module, monkeypatch, actions_enabled=None)
+    with pytest.raises(module.BlockedError, match="enabled 未知"):
+        _run(module, monkeypatch, "check")
+    assert harness.merge_calls == []
+
+
+def test_actions_disabled_unmet_ruleset_required_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load()
+    rules = [
+        {
+            "type": "required_status_checks",
+            "parameters": {
+                "required_status_checks": [{"context": "ext/gate", "app_id": 42}]
+            },
+        }
+    ]
+    harness = FakeHarness(
+        module,
+        monkeypatch,
+        actions_enabled=False,
+        rules=rules,
+        pr_overrides={"statusCheckRollup": []},
+    )
+    with pytest.raises(module.BlockedError, match="外部必需检查"):
+        _run(module, monkeypatch, "check")
+    assert harness.merge_calls == []
+
+
+def test_actions_disabled_unmet_classic_required_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load()
+    harness = FakeHarness(
+        module,
+        monkeypatch,
+        actions_enabled=False,
+        classic_checks={"contexts": ["ext/gate"]},
+        pr_overrides={
+            "statusCheckRollup": [{"name": "ext/gate", "conclusion": "PENDING"}]
+        },
+    )
+    with pytest.raises(module.BlockedError, match="外部必需检查"):
+        _run(module, monkeypatch, "check")
+    assert harness.merge_calls == []
+
+
+def test_actions_disabled_satisfied_external_required_allows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load()
+    harness = FakeHarness(
+        module,
+        monkeypatch,
+        actions_enabled=False,
+        classic_checks={"contexts": ["ext/gate"]},
+        pr_overrides={
+            "statusCheckRollup": [{"context": "ext/gate", "state": "SUCCESS"}]
+        },
+    )
+    rc = _run(module, monkeypatch, "check")
+    assert rc == 0
+    assert harness.merge_calls == []
+
+
+def test_actions_disabled_head_change_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    harness = FakeHarness(
+        module, monkeypatch, actions_enabled=False, head_moves=True
+    )
+    with pytest.raises(module.BlockedError, match="HEAD"):
+        _run(module, monkeypatch, "merge")
+    assert harness.merge_calls == []
+
+
+def test_actions_disabled_main_change_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    harness = FakeHarness(
+        module, monkeypatch, actions_enabled=False, main_moves=True
+    )
+    with pytest.raises(module.BlockedError, match="main"):
+        _run(module, monkeypatch, "merge")
+    assert harness.merge_calls == []
+
+
+def test_actions_disabled_dirty_worktree_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    harness = FakeHarness(
+        module, monkeypatch, actions_enabled=False, dirty_after=True
+    )
+    with pytest.raises(module.BlockedError, match="未提交修改"):
+        _run(module, monkeypatch, "merge")
+    assert harness.merge_calls == []
+
+
+def test_actions_disabled_merge_error_then_merged_no_retry(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load()
+    harness = FakeHarness(
+        module,
+        monkeypatch,
+        actions_enabled=False,
+        merge_error=True,
+        state_after_merge_error="MERGED",
+    )
+    rc = _run(module, monkeypatch, "merge")
+    assert rc == 0
+    assert len(harness.merge_calls) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["state"] == "MERGED"
+    assert report["ci"] == "NOT_RUN_ACTIONS_DISABLED"

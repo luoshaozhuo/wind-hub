@@ -26,9 +26,12 @@ python <skill-dir>/scripts/merge.py merge
 
 - 仅允许**当前任务分支 → main**，采用 **Squash Merge**；不得直接在本地 `main` 上操作。
 - 工作区干净，分支已推送且与远程同步；PR 不是 Draft、没有冲突。
-- CI 必须完成且成功；Required Checks 与必需审查必须满足 GitHub 分支保护规则。
-- 没有 GitHub Check 结果时默认 **BLOCKED**，绝不视作通过。轻量 GitHub Check 不能替代合并时本地产品验收。
-- 不允许 `--admin`、强制推送或绕过保护。CI 异常按 RELATED / UNRELATED / UNKNOWN 处理，UNKNOWN 不得视作通过。
+- CI 判定以仓库级 Actions 开关为准：经 GitHub API 明确 `actions/permissions.enabled=false`，且生效中的分支保护 / Ruleset 没有未满足的外部必需检查时，允许进入本地验收，报告 `CI=NOT_RUN_ACTIONS_DISABLED`，不得伪装成 PASS。
+- Actions 启用时，所有适用 Check 必须完成且成功；零 Check、失败、取消、进行中均 **BLOCKED**。
+- Actions 开关查询失败或返回未知，或禁用但存在未满足的外部 Required Checks，一律 **BLOCKED**；UNKNOWN 不得视作通过。
+- Required Checks 与必需审查必须满足实际生效的 GitHub 分支保护 / Ruleset，不能仅凭 PR Check 数为 0 判定无门禁。轻量 GitHub Check 不能替代合并时本地产品验收。
+- Actions 禁用不豁免本地受影响范围验证，Gate 仍必须 PASS。
+- 不允许 `--admin`、强制推送或绕过保护；不设置 `--allow-no-ci` 或任何人肉绕过开关。CI 异常按 RELATED / UNRELATED / UNKNOWN 处理。
 - 合并后核实 PR 为 MERGED，且 Squash Commit 已进入远程 `main` 历史。
 - 若合并响应不确定，先重新查询 PR 状态，不盲目重复执行合并。
 - 不自动删除本地分支；远程分支仅根据独立的清理请求使用 `scripts/cleanup.py` 处理。
