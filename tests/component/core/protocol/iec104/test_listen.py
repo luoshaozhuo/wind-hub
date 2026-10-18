@@ -18,8 +18,8 @@ async def test_listener_receives_only_configured_and_filtered_points() -> None:
     driver, conn = await connected_driver(points)
     got: list[str] = []
 
-    async def on_sample(sample) -> None:
-        got.append(sample.point_id)
+    async def on_sample(samples) -> None:
+        got.extend(sample.point_id for sample in samples)
 
     handle = await driver.listen(("p1",), on_sample)
     conn.deliver(
@@ -39,8 +39,8 @@ async def test_multiple_listeners_share_delivery() -> None:
     driver, conn = await connected_driver([make_point("p1", 100)])
     a: list[float] = []
     b: list[float] = []
-    ha = await driver.listen((), lambda s: _append(a, s.value))
-    hb = await driver.listen((), lambda s: _append(b, s.value))
+    ha = await driver.listen((), lambda samples: _extend(a, samples))
+    hb = await driver.listen((), lambda samples: _extend(b, samples))
     conn.deliver([floating_data_msg(1, 100, 4.0)])
     await asyncio.sleep(0.05)
     assert a == [4.0] and b == [4.0]
@@ -52,8 +52,8 @@ async def test_multiple_listeners_share_delivery() -> None:
     await driver.close()
 
 
-async def _append(target: list[float], value: object) -> None:
-    target.append(float(value))  # type: ignore[arg-type]
+async def _extend(target: list[float], samples) -> None:
+    target.extend(float(sample.value) for sample in samples)  # type: ignore[arg-type]
 
 
 async def test_throwing_callback_does_not_kill_delivery() -> None:
@@ -63,8 +63,8 @@ async def test_throwing_callback_does_not_kill_delivery() -> None:
     async def boom(_sample) -> None:
         raise RuntimeError("listener boom")
 
-    async def collect(sample) -> None:
-        received.append(sample.point_id)
+    async def collect(samples) -> None:
+        received.extend(sample.point_id for sample in samples)
 
     await driver.listen(("p1",), boom)
     await driver.listen(("p1", "p2"), collect)
@@ -80,9 +80,9 @@ async def test_listen_close_delivers_no_further_samples_and_is_idempotent() -> N
     driver, conn = await connected_driver([make_point("p1", 100)])
     received: list[float] = []
 
-    async def on_sample(sample) -> None:
+    async def on_sample(samples) -> None:
         await asyncio.sleep(0.02)
-        received.append(sample.value)
+        received.extend(sample.value for sample in samples)
 
     handle = await driver.listen((), on_sample)
     conn.deliver([floating_data_msg(1, 100, 1.0)])
@@ -99,8 +99,8 @@ async def test_interrogated_and_remote_command_data_also_delivered() -> None:
     driver, conn = await connected_driver([make_point("p1", 100)])
     causes: list[object] = []
 
-    async def on_sample(sample) -> None:
-        causes.append(sample.point_id)
+    async def on_sample(samples) -> None:
+        causes.extend(sample.point_id for sample in samples)
 
     await driver.listen((), on_sample)
     conn.deliver(
