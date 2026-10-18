@@ -101,10 +101,11 @@ async def test_multiple_blocks_deliver_only_their_own_fields(
     received: list[tuple[str, object, Quality]] = []
     got_second = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        received.append((sample.point_id, sample.value, sample.quality))
-        if len(received) == 3:
-            got_second.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append((sample.point_id, sample.value, sample.quality))
+            if len(received) == 3:
+                got_second.set()
 
     subscription = ADSSubscription(
         fake_pyads,
@@ -139,10 +140,11 @@ async def test_raw_length_mismatch_delivers_bad_quality_batch(
     received: list[ProtocolSample] = []
     done = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        received.append(sample)
-        if len(received) == 2:
-            done.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(sample)
+            if len(received) == 2:
+                done.set()
 
     subscription = ADSSubscription(
         fake_pyads,
@@ -171,9 +173,10 @@ async def test_local_fallback_timestamp_marked_local(
     received: list[ProtocolSample] = []
     done = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        received.append(sample)
-        done.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(sample)
+            done.set()
 
     subscription = ADSSubscription(
         fake_pyads,
@@ -220,9 +223,10 @@ async def test_slow_consumer_drops_oldest_whole_blocks_end_to_end(
     gate = asyncio.Event()
     received: list[float] = []
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        await gate.wait()
-        received.append(float(sample.value))  # type: ignore[arg-type]  # 测试点为 REAL
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            await gate.wait()
+            received.append(float(sample.value))  # type: ignore[arg-type]  # 测试点为 REAL
 
     subscription = ADSSubscription(
         fake_pyads,
@@ -261,9 +265,10 @@ async def test_late_native_callback_after_deactivate_is_dropped(
 ) -> None:
     delivered = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        del sample
-        delivered.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            del sample
+            delivered.set()
 
     subscription = ADSSubscription(
         fake_pyads,
