@@ -89,7 +89,7 @@ class TestCapabilityDeclaration:
     async def test_undeclared_capabilities_raise_capability_error(self, driver: object) -> None:
         capabilities = driver.capabilities()  # type: ignore[attr-defined]
 
-        async def callback(_sample: ProtocolSample) -> None:
+        async def callback(_samples: tuple[ProtocolSample, ...]) -> None:
             return None
 
         if ProtocolCapability.SUBSCRIBE not in capabilities:
