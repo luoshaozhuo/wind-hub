@@ -12,7 +12,7 @@ description: 由 Coding Agent 的 //merge-branch 指令触发；检查当前任�
 在仓库工作区，使用本 Skill 所在目录的脚本：
 
 ```bash
-python <skill-dir>/scripts/merge.py merge --pr <PR-number>
+python <skill-dir>/scripts/merge.py merge
 ```
 
 如果尚无 PR，先检查当前任务分支、创建指向 `main` 的 PR，再执行脚本。必须由运行在用户 wind-hub 工作区内的 Coding Agent 调用；远程 GitHub 修改无法代替本地 Conda 验收。
