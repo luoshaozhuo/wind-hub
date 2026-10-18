@@ -422,6 +422,37 @@ def test_v1_request_validation_uses_422_envelope() -> None:
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_v1_admin_tasks_reject_legacy_device_scope_as_422() -> None:
+    """旧 device 直绑 Task 是死路径：请求边界 422，不允许穿透成 500。"""
+    client = _client(AppContext())
+
+    response = client.put(
+        "/api/v1/admin-state",
+        json={
+            "devices": [],
+            "tasks": [
+                {
+                    "task_id": "t1",
+                    "device": "d1",
+                    "point_group": "fast",
+                    "interval": 1.0,
+                    "sinks": ["s1"],
+                }
+            ],
+            "sinks": [],
+            "definitions": {
+                "units": {},
+                "device_types": {},
+                "device_models": {},
+                "point_tables": {},
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
 def test_v1_admin_tasks_reject_ambiguous_selector() -> None:
     client = _client(AppContext())
 

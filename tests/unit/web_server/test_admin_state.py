@@ -2,6 +2,9 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+from pydantic import ValidationError
+
 from web_server.application.config.admin_state import (
     AdminDefinitionsState,
     AdminDeviceItem,
@@ -82,41 +85,33 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
     assert admin.mutate_yaml_files.await_count == 1
 
 
-async def test_replace_all_rejects_device_bound_task() -> None:
-    """当前 Core Schema 下 Task 只能绑定 device_group，拒绝 device 直绑。"""
-    admin = MagicMock()
-    admin.mutate_yaml_files = AsyncMock(return_value=ConfigApplyResult(success=True, revision=1))
-    service = AdminStateService(admin)
-    names_mutator: list = []
+def test_admin_task_item_rejects_device_bound_task() -> None:
+    """device 直绑是旧 Schema 死路径：请求边界（模型构造）即拒绝，映射 422。"""
+    with pytest.raises(ValidationError) as exc_info:
+        AdminTaskItem(
+            task_id="t1",
+            device="d1",
+            point_group="fast",
+            interval=1.0,
+            sinks=["s1"],
+        )
+    assert "device_group" in str(exc_info.value)
 
-    async def _capture(names, mutate, **kwargs):  # noqa: ANN001, ANN202
-        names_mutator.append((names, mutate))
-        return ConfigApplyResult(success=True, revision=1)
 
-    admin.mutate_yaml_files = _capture
-    result = await service.replace_all(
-        devices=[],
-        tasks=[
-            AdminTaskItem(
-                task_id="t1",
-                device="d1",
-                point_group="fast",
-                interval=1.0,
-                sinks=["s1"],
-            )
-        ],
-        sinks=[],
-        definitions=AdminDefinitionsState(
-            units={}, device_types={}, device_models={}, point_tables={}
-        ),
-    )
+def test_admin_task_item_requires_group_interval_and_sinks() -> None:
+    valid = {
+        "task_id": "t1",
+        "device_group": "g1",
+        "point_group": "fast",
+        "interval": 1.0,
+        "sinks": ["s1"],
+    }
+    AdminTaskItem(**valid)  # 基线合法
 
-    assert result.success is True
-    _, mutate = names_mutator[0]
-    documents = {name: {} for name in names_mutator[0][0]}
-    try:
-        mutate(documents)
-    except ValueError as exc:
-        assert "device_group" in str(exc)
-    else:  # pragma: no cover - 必须拒绝
-        raise AssertionError("device-bound task must be rejected")
+    for mutation in (
+        {"device_group": None},
+        {"interval": None},
+        {"sinks": []},
+    ):
+        with pytest.raises(ValidationError):
+            AdminTaskItem(**{**valid, **mutation})

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from web_server.application.config.files import ConfigApplyResult, ConfigFileService
 
@@ -27,6 +27,20 @@ class AdminTaskItem(BaseModel):
     interval: float | None = Field(default=None, gt=0)
     sinks: list[str] = Field(default_factory=list)
     enabled: bool = True
+
+    @model_validator(mode="after")
+    def _validate_group_scope(self) -> AdminTaskItem:
+        # 新契约只支持 device_group 级周期 Task；旧 device 级字段是死路径，
+        # 在请求边界拒绝（422），避免落入 mutator 后以 ValueError 变 500。
+        if self.device:
+            raise ValueError("device-scoped tasks are unsupported; set device_group")
+        if not self.device_group:
+            raise ValueError("task requires device_group")
+        if self.interval is None:
+            raise ValueError("task requires a positive interval")
+        if not self.sinks:
+            raise ValueError("task requires at least one sink")
+        return self
 
 
 class AdminSinkItem(BaseModel):
