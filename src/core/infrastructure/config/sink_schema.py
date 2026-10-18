@@ -82,7 +82,7 @@ class FileSinkConnection(BaseModel):
             raise ConfigError("File sink path must be a non-empty directory path")
         # 归档根不得落在文件系统根：cleanup 按拥有的 Task/Device/年/月
         # 结构递归清理，根过浅会越权删除共享目录内容。
-        if path == path.anchor or path.parent == path:
+        if path.parent == path:
             raise ConfigError("File sink path must not be the filesystem root '/'")
         return value
 
