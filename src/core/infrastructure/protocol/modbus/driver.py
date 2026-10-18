@@ -262,7 +262,7 @@ class ModbusDriver:
                 point_id=point_id,
                 value=_as_point_scalar(value),
                 timestamp=(received_at := datetime.now(UTC)),
-                    receive_time=received_at,
+                receive_time=received_at,
                 quality=Quality.GOOD,
             )
 
