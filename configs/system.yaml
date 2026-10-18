@@ -31,7 +31,7 @@
 #
 # logs（可选；统一日志策略，所有进程使用相同 Schema）
 #   level: DEBUG / INFO / WARNING / ERROR / CRITICAL，默认 INFO。
-#   path: 日志根目录，默认 /var/log/wind-hub。
+#   path: 日志根目录，默认 /var/tmp/wind-hub/logs。
 #   console: 是否保留标准错误输出，默认 true。
 #   max_size_mb: 单个日志文件上限，默认 100。
 #   retention_days: UTC 自然日保留窗口，默认 30。
@@ -66,7 +66,7 @@ runtime:
 
 logs:
   level: INFO
-  path: /var/log/wind-hub
+  path: /var/tmp/wind-hub/logs
   console: true
   max_size_mb: 100
   retention_days: 30
