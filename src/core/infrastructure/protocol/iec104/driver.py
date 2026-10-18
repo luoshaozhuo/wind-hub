@@ -594,9 +594,14 @@ class IEC104Driver:
         if not isinstance(qoi, int) or isinstance(qoi, bool) or not 20 <= qoi <= 36:
             raise ConfigError("IEC104 interrogation QOI must be an integer in 20..36")
         if common_address is None:
-            batches = []
+            batches: list[ProtocolSample] = []
             for ca in self._config.common_addresses:
-                batches.extend(await self._interrogate_one(ca, qoi=qoi))
+                try:
+                    batches.extend(await self._interrogate_one(ca, qoi=qoi))
+                except IEC104InterrogationIncompleteError as exc:
+                    raise IEC104InterrogationIncompleteError(
+                        ca, qoi, (*batches, *exc.samples), str(exc)
+                    ) from exc
             return tuple(batches)
         if common_address not in self._config.common_addresses:
             raise ConfigError(
