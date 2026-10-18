@@ -266,6 +266,14 @@ def merge_gate(paths: list[str]) -> bool:
             ("frontend-build", _npm("--prefix", str(FRONTEND_DIR), "run", "build")),
             ("frontend-unit", _npm("--prefix", str(FRONTEND_DIR), "test")),
         ])
+    if any(p in {
+        "src/web_admin/src/App.vue", "src/web_admin/src/main.ts",
+        "src/web_admin/src/api/runtime.ts", "src/web_admin/playwright.config.ts",
+        "src/web_admin/playwright.mock.config.ts",
+    } or p.startswith("tests/web_admin/e2e/") for p in changed):
+        commands.append(("frontend-e2e", _npm(
+            "--prefix", str(FRONTEND_DIR), "run", "test:e2e"
+        )))
     if tooling:
         commands.append(("tooling-syntax", _python_module(
             "compileall", "-q", "scripts", "ai_shared/agent_config/hooks",
