@@ -40,6 +40,10 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
             for name in snapshot.system.ads.__dataclass_fields__
         }
     system["site"] = {"site_id": snapshot.site.site_id, "name": snapshot.site.name}
+    system["logs"] = {
+        name: getattr(snapshot.system.logs, name)
+        for name in snapshot.system.logs.__dataclass_fields__
+    }
 
     models: dict[str, Any] = {}
     for model_key, model in snapshot.device_models.items():
