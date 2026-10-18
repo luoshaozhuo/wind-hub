@@ -113,6 +113,7 @@ class _Session:
     next_originator: int = 0
     reads: dict[Address, _ReadRequest] = field(default_factory=dict)
     commands: dict[Address, asyncio.Future[bool]] = field(default_factory=dict)
+    command_accepted: set[Address] = field(default_factory=set)
     interrogations: dict[int, asyncio.Future[None]] = field(default_factory=dict)
     interrogation_samples: dict[int, list[ProtocolSample]] = field(default_factory=dict)
     interrogation_qoi: dict[int, int] = field(default_factory=dict)
@@ -468,7 +469,7 @@ class IEC104Driver:
         """执行单点遥控/设点，严格按应用层确认证据三分类。
 
         - 本地校验失败 / 从站否定确认（含 UNKNOWN_* COT）→ CONFIRMED_FAILURE；
-        - 肯定 ACT_CON → CONFIRMED_SUCCESS（设备已明确接受）；
+        - 肯定 ACT_CON 后肯定 ACT_TERM → CONFIRMED_SUCCESS（协议流程完成）；
         - 超时、断线等丢失确认 → UNKNOWN（可能已送达，禁止自动重传）。
         """
         mapped = self._require_point(write.point)
@@ -493,6 +494,7 @@ class IEC104Driver:
                 )
             future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
             session.commands[key] = future
+            session.command_accepted.discard(key)
             try:
                 try:
                     await self._send(
@@ -526,7 +528,7 @@ class IEC104Driver:
                         point_id=mapped.point_id,
                         outcome=WriteOutcome.UNKNOWN,
                         message=(
-                            "activation confirmation timed out — command may have executed"
+                            "command termination timed out — command may have executed"
                         ),
                     )
                 except ProtocolConnectionError as exc:
@@ -541,6 +543,7 @@ class IEC104Driver:
                 raise
             finally:
                 session.commands.pop(key, None)
+                session.command_accepted.discard(key)
             if accepted:
                 return ProtocolWriteResult(
                     point_id=mapped.point_id,
@@ -829,14 +832,22 @@ class IEC104Driver:
         if waiter is None or waiter.done():
             return
         cause = message.cause
-        if (
-            cause is not iec101.CommandResCause.ACTIVATION_CONFIRMATION
-            and cause is not iec101.CommandResCause.ACTIVATION_TERMINATION
-        ):
-            # DEACTIVATION_CONFIRMATION 或 UNKNOWN_* 等非本次激活结果一律按拒绝处理。
-            _set_result(waiter, False)
+        key = (message.asdu_address, message.io_address)
+        if cause is iec101.CommandResCause.ACTIVATION_CONFIRMATION:
+            if message.is_negative_confirm:
+                _set_result(waiter, False)
+            else:
+                # 肯定 ACT_CON 只表示设备受理，尚不是执行完成证据。
+                session.command_accepted.add(key)
             return
-        _set_result(waiter, not message.is_negative_confirm)
+        if cause is iec101.CommandResCause.ACTIVATION_TERMINATION:
+            if message.is_negative_confirm:
+                _set_result(waiter, False)
+            elif key in session.command_accepted:
+                _set_result(waiter, True)
+            return
+        if message.is_negative_confirm:
+            _set_result(waiter, False)
 
     def _dispatch_interrogation(
         self,
@@ -941,6 +952,7 @@ class IEC104Driver:
             _set_exception(interrogation_future, exc)
         session.reads.clear()
         session.commands.clear()
+        session.command_accepted.clear()
         session.interrogations.clear()
         session.interrogation_qoi.clear()
         session.interrogation_samples.clear()
