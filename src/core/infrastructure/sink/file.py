@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import logging
 import os
 import re
@@ -65,7 +66,12 @@ class FileSink:
 
     def _open_segment(self, path: Path, flags: int) -> int:
         """O_NOFOLLOW 打开分段：已存在的符号链接一律拒绝，不跟随写入。"""
-        return os.open(path, flags, 0o640)
+        try:
+            return os.open(path, flags, 0o640)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise SinkError(f"refusing to write through symlink: {path}") from exc
+            raise
 
     def _append_rows(self, directory: Path, day: str, values: list[PointValue]) -> None:
         """每个分段只打开、验证一次；按行边界聚合写入。"""
