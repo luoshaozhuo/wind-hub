@@ -34,6 +34,7 @@ def decode_sample(point_id: str, msg: iec101.DataMsg) -> ProtocolSample:
             以 ProtocolError 显式完成请求 future；自发数据由调用方记
             错误日志并丢弃，两种情形都不伪造样本、不中断接收管线。
     """
+    receive_time = datetime.now(UTC)
     timestamp, source = decode_timestamp(msg)
     value, quality = decode_data(cast(iec101.Data, msg.data))
     return ProtocolSample(
@@ -42,6 +43,8 @@ def decode_sample(point_id: str, msg: iec101.DataMsg) -> ProtocolSample:
         timestamp=timestamp,
         quality=quality,
         timestamp_source=source,
+        receive_time=receive_time,
+        device_time=timestamp if source == "device" else None,
     )
 
 
