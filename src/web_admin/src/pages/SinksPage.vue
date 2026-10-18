@@ -20,7 +20,7 @@ const sinks = computed(() =>
 
 const draft = reactive({
   name: '',
-  type: 'file' as SinkType,
+  type: 'redis' as SinkType,
   enabled: true,
   path: '',
   maxSizeMb: 100,
@@ -38,14 +38,12 @@ const snapshot = ref('')
 const changed = computed(() => JSON.stringify(draft) !== snapshot.value)
 
 function defaults(type: SinkType) {
-  return type === 'file'
-    ? { path: '', max_size_mb: 100, retention_days: 30 }
-    : type === 'redis'
-      ? { host: 'localhost', port: 6379, database: 0, key_prefix: 'wind-hub' }
-      : { host: '0.0.0.0', port: 502 }
+  return type === 'redis'
+    ? { host: 'localhost', port: 6379, database: 0, key_prefix: 'wind-hub' }
+    : { host: '0.0.0.0', port: 502 }
 }
 
-function reset(type: SinkType = 'file') {
+function reset(type: SinkType = 'redis') {
   const settings = defaults(type)
   Object.assign(draft, {
     name: '',
@@ -108,13 +106,6 @@ function changeType() {
 }
 
 function connection(): Record<string, unknown> {
-  if (draft.type === 'file') {
-    return {
-      path: draft.path.trim(),
-      max_size_mb: draft.maxSizeMb,
-      retention_days: draft.retentionDays,
-    }
-  }
   if (draft.type === 'redis') {
     const connection: Record<string, unknown> = {
       host: draft.host.trim(),
@@ -140,12 +131,7 @@ function validate() {
   if (!draft.name.trim()) return 'Sink ID 不能为空'
   if (creating.value && configStore.sinks.some((s) => s.name === draft.name.trim()))
     return 'Sink ID 已存在'
-  if (
-    draft.type === 'file' &&
-    (!draft.path.trim() || draft.maxSizeMb <= 0 || draft.retentionDays < 1)
-  )
-    return '文件归档目录、容量和保留天数必须有效'
-  if (draft.type !== 'file' && (!draft.host.trim() || draft.port < 1 || draft.port > 65535))
+  if (!draft.host.trim() || draft.port < 1 || draft.port > 65535)
     return '主机和端口必须有效'
   if (draft.type === 'redis' && (draft.database < 0 || !draft.keyPrefix.trim()))
     return 'Redis 数据库和键前缀必须有效'
@@ -248,7 +234,7 @@ async function remove(sink: SinkDef) {
     <el-row justify="space-between" align="middle" :gutter="16">
       <el-col :xs="24" :sm="12">
         <h1>Sinks</h1>
-        <p>配置文件、Redis 和 Modbus 输出目标；状态由 Collector 返回。</p>
+        <p>配置 Redis 和 Modbus 输出目标；状态由 Collector 返回。</p>
       </el-col>
       <el-col :xs="24" :sm="12">
         <el-row justify="end" :gutter="8">
@@ -301,7 +287,6 @@ async function remove(sink: SinkDef) {
         </el-form-item>
         <el-form-item label="类型">
           <el-select v-model="draft.type" :disabled="!creating" @change="changeType">
-            <el-option label="文件 CSV" value="file" />
             <el-option label="Redis" value="redis" />
             <el-option label="Modbus TCP" value="modbus" />
           </el-select>
@@ -309,18 +294,6 @@ async function remove(sink: SinkDef) {
         <el-form-item label="启用">
           <el-switch v-model="draft.enabled" />
         </el-form-item>
-        <template v-if="draft.type === 'file'">
-          <el-form-item label="归档目录">
-            <el-input v-model="draft.path" />
-          </el-form-item>
-          <el-form-item label="最大容量 (MB)">
-            <el-input-number v-model="draft.maxSizeMb" :min="0.1" />
-          </el-form-item>
-          <el-form-item label="保留天数（天）">
-            <el-input-number v-model="draft.retentionDays" :min="1" :step="1" />
-          </el-form-item>
-        </template>
-        <template v-else>
           <el-form-item label="Host"><el-input v-model="draft.host" /></el-form-item>
           <el-form-item label="Port">
             <el-input-number v-model="draft.port" :min="1" :max="65535" />
@@ -351,7 +324,6 @@ async function remove(sink: SinkDef) {
               </div>
             </el-form-item>
           </template>
-        </template>
       </el-form>
       <template #footer>
         <el-space>
