@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -65,28 +66,18 @@ def check_environment(*, frontend: bool) -> int:
         print("RESULT: FAIL")
         return 2
 
-    checks = [
-        (
-            "Python >= 3.11",
-            [
-                python,
-                "-c",
-                "import sys; assert sys.version_info >= (3, 11), sys.version; "
-                "print(sys.version.split()[0])",
-            ],
-        ),
-        ("pytest", [python, "-m", "pytest", "--version"]),
-        ("ruff", [python, "-m", "ruff", "--version"]),
-        ("mypy", [python, "-m", "mypy", "--version"]),
-        (
-            "import-linter",
-            [python, "-c", "import importlinter; print('available')"],
-        ),
-    ]
-
     passed = True
-    for label, command in checks:
-        passed = _check(label, command) and passed
+    if sys.version_info < (3, 11):
+        print(f"[FAIL] Python >= 3.11: {sys.version}")
+        passed = False
+    else:
+        print(f"[PASS] Python >= 3.11: {sys.version.split()[0]}")
+
+    # 轻量检查仅确认包存在，不重复启动 pytest/mypy/ruff 等工具进程。
+    for module in ("pytest", "ruff", "mypy", "importlinter"):
+        available = importlib.util.find_spec(module) is not None
+        print(f"[{'PASS' if available else 'FAIL'}] {module}")
+        passed = available and passed
 
     if frontend:
         node = resolve_executable("node")
