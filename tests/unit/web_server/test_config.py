@@ -184,13 +184,13 @@ def _write_site(base: Path, *, interval: float = 0.2) -> Path:
                 }
             }
         },
-        sinks={"file_sink": {"type": "file", "connection": {"path": "out"}}},
+        sinks={"redis_latest": {"type": "redis", "connection": {"host": "127.0.0.1"}}},
         tasks={
             "modbus-telemetry": {
                 "device_group_id": "modbus-1",
                 "point_group": "telemetry",
                 "interval": interval,
-                "outputs": [{"sink_id": "file_sink"}],
+                "outputs": [{"sink_id": "redis_latest"}],
             }
         },
     )
