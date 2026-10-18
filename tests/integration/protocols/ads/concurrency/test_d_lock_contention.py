@@ -6,6 +6,8 @@
 测量手段全部在测试侧（不修改生产代码）：
 
 - ``AsyncLockProfiler`` 替换 ``driver._lock``：逐次记录等待/持有时长；
+- ``AsyncLockProfiler`` 替换 ``session._gate``（Session 异步命令门，
+  命令实际排队的位置）：同上；
 - ``ThreadLockProfiler`` 替换 ``session._cmd_lock``：同上；
 - ``ProfilingExecutor`` 安装为事件循环默认 executor：记录 to_thread
   排队延迟、服务时长与并发线程峰值；
@@ -105,6 +107,7 @@ class Rig:
         self.driver._lock = self.driver_lock  # noqa: SLF001 - 测试侧探针
         self.executor = ProfilingExecutor(max_workers=max_workers)
         self.cmd_lock: ThreadLockProfiler | None = None
+        self.gate_lock: AsyncLockProfiler | None = None
         self.latency = LatencyRecorder()
 
     async def start(self) -> None:
@@ -116,6 +119,8 @@ class Rig:
         assert session is not None
         self.cmd_lock = ThreadLockProfiler()
         session._cmd_lock = self.cmd_lock  # noqa: SLF001 - 测试侧探针
+        self.gate_lock = AsyncLockProfiler()
+        session._gate = self.gate_lock  # noqa: SLF001 - 测试侧探针
 
     def init_memory(self) -> None:
         self.server.set_values(_GROUP, 0, pack_points([("REAL", 1.5)] * self.n_points))
@@ -130,6 +135,7 @@ class Rig:
 
     def report(self, extra: dict[str, object] | None = None) -> dict[str, object]:
         assert self.cmd_lock is not None
+        assert self.gate_lock is not None
         control = self.server.control
         peak = max(
             control.peak_active(command)
@@ -146,6 +152,7 @@ class Rig:
         telemetry["peak_active"] = peak
         data: dict[str, object] = {
             "driver_lock": lock_report(self.driver_lock),
+            "gate_lock": lock_report(self.gate_lock),
             "cmd_lock": lock_report(self.cmd_lock),
             "executor": executor_report(self.executor),
             "server": telemetry,
@@ -211,8 +218,9 @@ async def test_d01_uncontended_latency_baseline(local_ams: None) -> None:
         report = rig.report({"scenario": "D01-uncontended-baseline"})
         _save("d01_uncontended_baseline", report)
 
-        # 无竞争：两把锁都不应出现可观等待。
+        # 无竞争：Driver 状态锁、Session 命令门与线程锁都不应出现可观等待。
         assert report["driver_lock"]["contended_count"] == 0, report
+        assert report["gate_lock"]["contended_count"] == 0, report
         assert report["cmd_lock"]["contended_count"] == 0, report
         # loopback 上的宽松上界，防止性能退化无人知晓。
         assert report["latency"]["health"]["p99"] < 0.05, report
@@ -263,7 +271,10 @@ async def test_d02_control_health_waits_behind_batch_reads(local_ams: None) -> N
         assert contended < 2.0, report  # 宽松有界：单批 100 点 + 2ms
         # 服务端同步调用重叠峰值必须为 1——串行化在真实负载下成立。
         assert report["server"]["peak_active"] == 1, report
-        # asyncio _lock 已把并发压成串行：_cmd_lock 不应观察到竞争等待。
+        # 排队位置已从 Driver 状态锁移到 Session 命令门：状态锁不再被网络
+        # 往返持有，不应观察到竞争（优化后新增的回归红线）。
+        assert report["driver_lock"]["contended_count"] == 0, report
+        # 命令门外的线程锁只做取消/关闭兜底，不应观察到竞争等待。
         assert report["cmd_lock"]["max_wait"] < 0.005, report
     finally:
         await rig.stop()
@@ -306,7 +317,12 @@ async def test_d03_control_write_under_chunked_read_storm(local_ams: None) -> No
 
 
 async def test_d04_chunk_count_scales_lock_hold(local_ams: None) -> None:
-    """同一 1000 点写：2 chunk vs 10 chunk，_lock 持有时间随 chunk 数增长。"""
+    """同一 1000 点写：2 chunk vs 10 chunk，Session 命令门总持有时间随 chunk 数增长。
+
+    优化后 Driver 状态锁不再覆盖网络往返；分块是命令门的独立调度单元，
+    因此缩放关系改在 ``gate_lock`` 上验证（总持有时间），同时确认状态锁
+    持有时间与 chunk 数脱钩。
+    """
     del local_ams
     reports: dict[str, object] = {}
 
@@ -327,10 +343,15 @@ async def test_d04_chunk_count_scales_lock_hold(local_ams: None) -> None:
         finally:
             await rig.stop()
 
-    held_2 = reports["2_chunks"]["driver_lock"]["held"]["p50"]  # type: ignore[index]
-    held_10 = reports["10_chunks"]["driver_lock"]["held"]["p50"]  # type: ignore[index]
-    reports["held_ratio_10_over_2"] = held_10 / max(held_2, 1e-9)
+    held_2 = reports["2_chunks"]["gate_lock"]["held"]["sum"]  # type: ignore[index]
+    held_10 = reports["10_chunks"]["gate_lock"]["held"]["sum"]  # type: ignore[index]
+    reports["gate_held_ratio_10_over_2"] = held_10 / max(held_2, 1e-9)
     _save("d04_chunk_hold_scaling", reports)
-    # 10 个串行 chunk 的持锁时间必须单调高于 2 chunk（具体比值作为测量
-    # 结论落盘；编码开销使比值远小于 chunk 数比值本身是发现，不是失败）。
+    # 10 个串行分块的命令门总持有时间必须单调高于 2 分块（往返次数线性
+    # 增加）；具体比值作为测量结论落盘。
     assert held_10 > held_2, reports
+    # Driver 状态锁不再覆盖分块往返：两台 rig 的状态锁总持有时间都应在
+    # 毫秒以下，且不再随 chunk 数线性放大（宽松红线，防回归）。
+    state_2 = reports["2_chunks"]["driver_lock"]["held"]["sum"]  # type: ignore[index]
+    state_10 = reports["10_chunks"]["driver_lock"]["held"]["sum"]  # type: ignore[index]
+    assert state_2 < 0.05 and state_10 < 0.05, reports

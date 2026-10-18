@@ -24,6 +24,7 @@ from collections.abc import AsyncIterator, Callable
 import pytest
 from pyads import constants  # type: ignore[import-untyped]
 
+from core.application.errors import ProtocolError
 from core.application.protocol_contract import ProtocolSample, ProtocolWrite
 from core.application.settings import ADSLocalConfig
 from core.domain import (
@@ -280,9 +281,15 @@ async def test_c05_cancel_storm_then_close_bounded(local_ams: None) -> None:
         await asyncio.wait_for(rig.driver.close(), timeout=5.0)
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for item in results:
-            # 取消之外的任何异常都不允许出现（无假失败、无帧串扰）。
-            if isinstance(item, BaseException):
-                assert isinstance(item, asyncio.CancelledError), repr(item)
+            # 外部取消的任务只能是 CancelledError；未被取消但在 Session
+            # 关闭时仍在排队的命令，按统一命令入口契约被安全拒绝
+            # （“已接受但尚未执行的命令，关闭时拒绝或取消”），不得到
+            # 任何其他异常（无假失败、无帧串扰）。
+            if isinstance(item, BaseException) and not isinstance(item, asyncio.CancelledError):
+                assert isinstance(item, ProtocolError), repr(item)
+                assert "session is closing" in str(item) or "active connection" in str(item), (
+                    repr(item)
+                )
         # 服务端全部命令串行（按命令峰值 1）。
         for command in (_READ, _WRITE, _READ_STATE):
             assert rig.control.peak_active(command) <= 1  # type: ignore[attr-defined]

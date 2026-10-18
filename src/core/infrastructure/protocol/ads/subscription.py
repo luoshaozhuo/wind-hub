@@ -40,8 +40,9 @@ _QUEUE_CAPACITY = 1000
 class ADSSubscription:
     """一次订阅：多个 Notification Handle、一个队列、一个 Worker。
 
-    ``session`` 必须提供同步方法 ``run(name, *args)``（在工作线程中
-    执行 pyads 命令）与 ``notification(datatype)`` 装饰器。
+    ``session`` 必须提供异步统一命令入口 ``execute(name, *args)``
+    （Session 命令门 + 工作线程内执行 pyads 命令）与
+    ``notification(datatype)`` 装饰器。
     """
 
     def __init__(
@@ -53,9 +54,12 @@ class ADSSubscription:
         cycle_time: float,
         loop: asyncio.AbstractEventLoop,
         max_block_bytes: int = 1024,
+        label: str = "",
     ) -> None:
         if cycle_time <= 0:
             raise ConfigError("ADS subscription interval must be > 0")
+        # 设备标签（host:port），仅用于错误/丢弃日志的现场定位。
+        self._label = f"[{label}] " if label else ""
         self._session = session
         self._points = tuple(points)
         self._callback = callback
@@ -141,8 +145,7 @@ class ADSSubscription:
         attr: pyads.NotificationAttrib,
         wrapped: Callable[..., None],
     ) -> tuple[Any, Any]:
-        handle = await asyncio.to_thread(
-            self._session.run,
+        handle = await self._session.execute(
             "add_device_notification",
             address,
             attr,
@@ -217,8 +220,7 @@ class ADSSubscription:
         while self._handles:
             handle = self._handles.pop(0)
             try:
-                await asyncio.to_thread(
-                    self._session.run,
+                await self._session.execute(
                     "del_device_notification",
                     handle[0],
                     handle[1],
@@ -227,12 +229,14 @@ class ADSSubscription:
                 # 服务端可能已注销也可能未注销：本地状态不确定，显式记录。
                 self._unconfirmed_handles.append(handle)
                 logger.exception(
-                    "ADS notification deregistration failed for handle %r",
+                    "%sADS notification deregistration failed for handle %r",
+                    self._label,
                     handle[0],
                 )
         if self._unconfirmed_handles:
             logger.warning(
-                "ADS subscription closed with %d unconfirmed notification handle(s)",
+                "%sADS subscription closed with %d unconfirmed notification handle(s)",
+                self._label,
                 len(self._unconfirmed_handles),
             )
 
@@ -294,7 +298,11 @@ class ADSSubscription:
             self._queue.get_nowait()
             self._dropped_count += 1
             if self._dropped_count == 1 or self._dropped_count % 1000 == 0:
-                logger.warning("ADS subscription queue dropped %d blocks", self._dropped_count)
+                logger.warning(
+                    "%sADS subscription queue dropped %d blocks",
+                    self._label,
+                    self._dropped_count,
+                )
         self._queue.put_nowait(samples)
 
     async def _worker(self) -> None:

@@ -20,7 +20,7 @@ import pyads  # type: ignore[import-untyped]
 from pyads.constants import ADSIGRP_SUMUP_READ, ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
 
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
-from core.application.port.protocol import ListenHandle, SubscriptionHandle
+from core.application.port.protocol import ListenHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     PointScalar,
@@ -40,6 +40,8 @@ from .mapping import ADSPoint, parse_ads_point, symbol_index_address
 from .subscription import ADSSubscription
 
 _ADSERR_SYMBOL_NOT_FOUND = 1808
+# pyads 同步等待对端响应超时（AdsLib client-side timeout）。
+_ADSERR_CLIENT_TIMEOUT = 1861
 
 logger = logging.getLogger(__name__)
 _REMOTE_ROUTE_LOCK = threading.Lock()
@@ -48,14 +50,105 @@ _LOCAL_AMS: ADSLocalConfig | None = None
 _LOCAL_PORT_OPEN = False
 
 
+class _CommandStats:
+    """单个 Session 生命周期内的命令计数与耗时诊断。
+
+    所有写入都发生在事件循环线程（``execute``/``aclose`` 调用方），
+    因此不需要额外加锁；命令名只有固定的几种 ADS 命令，基数有界。
+    """
+
+    __slots__ = (
+        "command_counts",
+        "wait_count",
+        "wait_seconds",
+        "wait_max",
+        "exec_count",
+        "exec_seconds",
+        "exec_max",
+        "timeouts",
+        "rejected",
+        "shutdown_abandoned",
+    )
+
+    def __init__(self) -> None:
+        self.command_counts: dict[str, int] = {}
+        self.wait_count = 0
+        self.wait_seconds = 0.0
+        self.wait_max = 0.0
+        self.exec_count = 0
+        self.exec_seconds = 0.0
+        self.exec_max = 0.0
+        self.timeouts = 0
+        self.rejected = 0
+        self.shutdown_abandoned = 0
+
+    def record_gate_wait(self, name: str, seconds: float) -> None:
+        """记录一次异步命令门排队等待（含零等待）。"""
+        self.command_counts[name] = self.command_counts.get(name, 0) + 1
+        self.wait_count += 1
+        self.wait_seconds += seconds
+        if seconds > self.wait_max:
+            self.wait_max = seconds
+
+    def record_execution(self, seconds: float, *, timeout: bool = False) -> None:
+        """记录一次同步命令的实际执行时长。"""
+        self.exec_count += 1
+        self.exec_seconds += seconds
+        if seconds > self.exec_max:
+            self.exec_max = seconds
+        if timeout:
+            self.timeouts += 1
+
+    def record_rejected(self) -> None:
+        self.rejected += 1
+
+    def snapshot(self) -> dict[str, object]:
+        return {
+            "commands": dict(self.command_counts),
+            "gate_wait": {
+                "count": self.wait_count,
+                "total_seconds": round(self.wait_seconds, 6),
+                "max_seconds": round(self.wait_max, 6),
+            },
+            "execution": {
+                "count": self.exec_count,
+                "total_seconds": round(self.exec_seconds, 6),
+                "max_seconds": round(self.exec_max, 6),
+            },
+            "timeouts": self.timeouts,
+            "rejected_after_closing": self.rejected,
+            "shutdown_abandoned": self.shutdown_abandoned,
+        }
+
+
+def _is_ads_client_timeout(exc: BaseException) -> bool:
+    """pyads 客户端同步等待超时（错误码 1861）。"""
+    ads_error = getattr(pyads, "ADSError", None)
+    return (
+        ads_error is not None
+        and isinstance(exc, ads_error)
+        and getattr(exc, "err_code", None) == _ADSERR_CLIENT_TIMEOUT
+    )
+
+
 class _AdsSession:
-    """一条 pyads 连接的线程级命令闸门。
+    """一条 pyads 连接的两级命令闸门。
 
-    pyads 连接是同步请求/响应通道，不支持多线程并发收发。所有命令在
-    ``run`` 中经同一把 ``threading.Lock`` 串行（比 asyncio 锁更强：
-    即使等待协程被取消、异步锁被释放，仍在运行的旧命令线程仍然持锁）。
+    A 组并发矩阵已证实：同一 pyads Connection 上多线程并发执行同步命令，
+    会触发 AdsLib 本地 AMS 端口/请求槽竞争（``Port: 30001 already in
+    use``、``ADSError(-1)``），失败发生在客户端本地，多数命令根本不上线；
+    实验中没有观测到 AMS 请求/响应帧错配（0 mismatch），但也无法严格证伪
+    （竞争命令未上线）。因此同一 Session 的所有同步 ADS 命令必须严格串行。
 
-    ``shutdown`` 必须获取同一把锁后才关闭端口，因此：
+    串行化分两层，缺一不可：
+
+    - ``execute`` 外层的异步门 ``_gate``：命令先在 asyncio 层排队，批量
+      Sum Read/Write 的分块之间会释放该门，允许 health/控制写插入；
+    - ``run`` 内的线程锁 ``_cmd_lock``：调用方 Task 被取消时异步门立即
+      释放，但工作线程仍会跑完同步命令——线程锁保证下一条命令必须等旧
+      线程真正退出，且 ``shutdown`` 不会在命令在途时关闭连接。
+
+    ``shutdown`` 必须获取 ``_cmd_lock`` 后才关闭端口，因此：
 
     - 关闭期间不可能有旧命令线程仍在使用该连接（无 use-after-close）；
     - 外层 ``asyncio`` 超时/取消后迟到返回的旧线程不可能关闭新会话；
@@ -64,10 +157,16 @@ class _AdsSession:
     获取锁超过 grace 仍失败时放弃关闭该端口（显式记录），绝不无限等待。
     """
 
-    def __init__(self, connection: Any) -> None:
+    def __init__(self, connection: Any, label: str = "") -> None:
         self._connection = connection
+        # 设备标签仅用于诊断日志；空标签用于单元测试替身。
+        self._label = f"[{label}] " if label else ""
         self._cmd_lock = threading.Lock()
+        # 异步命令门：同一 Session 至多一条命令获得 to_thread 执行资格。
+        # asyncio.Lock 在 3.11 首次使用时绑定循环，Driver 通常在循环外构造。
+        self._gate = asyncio.Lock()
         self._closing = False
+        self._stats = _CommandStats()
 
     @property
     def connection(self) -> Any:
@@ -77,25 +176,90 @@ class _AdsSession:
     def is_open(self) -> bool:
         return bool(self._connection.is_open)
 
+    @property
+    def stats(self) -> _CommandStats:
+        return self._stats
+
     def notification(self, datatype: object) -> Callable[..., Callable[..., None]]:
         return cast(
             Callable[..., Callable[..., None]],
             self._connection.notification(datatype),
         )
 
+    async def execute(self, name: str, *args: Any, **kwargs: Any) -> Any:
+        """统一的异步命令入口：异步门排队 → to_thread 内线程锁串行执行。
+
+        关闭（``aclose`` 置位 ``_closing``）开始后，所有取得门的新命令
+        快速拒绝；调用方被取消时，已进入工作线程的命令仍由 ``_cmd_lock``
+        保护到实际结束，关闭流程会等待该线程。
+        """
+        loop = asyncio.get_running_loop()
+        queued_at = loop.time()
+        async with self._gate:
+            self._stats.record_gate_wait(name, loop.time() - queued_at)
+            if self._closing:
+                self._stats.record_rejected()
+                raise ProtocolError(f"ADS session is closing; command '{name}' rejected")
+            started = loop.time()
+            try:
+                return await asyncio.to_thread(self.run, name, *args, **kwargs)
+            except BaseException as exc:
+                timed_out = _is_ads_client_timeout(exc)
+                self._stats.record_execution(loop.time() - started, timeout=timed_out)
+                if timed_out:
+                    # 客户端 1861 超时是连接级风险信号（后续会话恢复依赖
+                    # 上层断线处理），低频且可操作：带设备/命令/状态记录。
+                    logger.warning(
+                        "%sADS command '%s' timed out (ADSError 1861); session_closing=%s",
+                        self._label,
+                        name,
+                        self._closing,
+                    )
+                raise
+            else:
+                self._stats.record_execution(loop.time() - started)
+
     def run(self, name: str, *args: Any, **kwargs: Any) -> Any:
-        """在命令锁内执行一条 pyads 同步命令；关闭开始后快速拒绝。"""
+        """在工作线程内执行一条 pyads 同步命令（``_cmd_lock`` 串行）。"""
         with self._cmd_lock:
             if self._closing:
                 raise ProtocolError(f"ADS session is closing; command '{name}' rejected")
             return getattr(self._connection, name)(*args, **kwargs)
 
+    async def aclose(self, grace: float) -> bool:
+        """异步关闭会话：拒绝新命令，等待在途线程结束后关闭端口。
+
+        先置 ``_closing`` 再取得异步门，保证门后等待的命令全部拒绝；
+        门内的线程级 ``shutdown`` 负责 join 在途工作线程。超时放弃时
+        返回 False（端口保持打开），由调用方记录。
+        """
+        self._closing = True
+        try:
+            async with self._gate:
+                closed = await asyncio.wait_for(
+                    asyncio.to_thread(self.shutdown, grace),
+                    timeout=grace + 2.0,
+                )
+        except TimeoutError:
+            self._stats.shutdown_abandoned += 1
+            logger.error(
+                "%sADS session shutdown exceeded %.3fs and was abandoned (port left open)",
+                self._label,
+                grace + 2.0,
+            )
+            return False
+        if not closed:
+            self._stats.shutdown_abandoned += 1
+            logger.error("%sADS session shutdown gave up; port left open", self._label)
+        return closed
+
     def shutdown(self, grace: float) -> bool:
-        """等待在途命令结束后关闭连接；超时放弃，返回 False。"""
+        """等待在途命令线程结束后关闭连接；超时放弃，返回 False。"""
         if not self._cmd_lock.acquire(timeout=grace):
             logger.error(
-                "ADS session shutdown gave up after %.3fs: a command thread is "
+                "%sADS session shutdown gave up after %.3fs: a command thread is "
                 "still running; port left open (no close issued)",
+                self._label,
                 grace,
             )
             return False
@@ -104,7 +268,7 @@ class _AdsSession:
             try:
                 self._connection.close()
             except Exception:
-                logger.exception("ADS connection close failed")
+                logger.exception("%sADS connection close failed", self._label)
         finally:
             self._cmd_lock.release()
         return True
@@ -151,6 +315,8 @@ class ADSDriver:
             endpoint,
             protocol_options,
         )
+        # 设备标签：只用于诊断日志（错误/统计/丢弃），不进 metrics 标签。
+        self._label = f"{self._config.host}:{self._config.target_port}"
 
         self._lock = asyncio.Lock()
         # connect 与 close 互斥：旧会话的路由/端口关闭必须完整结束后，
@@ -262,6 +428,10 @@ class ADSDriver:
             await self._connect_locked()
 
     async def _connect_locked(self) -> None:
+        # 建链是生命周期操作（罕见且需要与 close/IO 明确互斥）：全程持
+        # Driver 状态锁，阻止 IO 路径快照到半建立的会话。锁内只等待本
+        # 会话自己的命令门（全新会话，无竞争者），锁序恒为
+        # 「Driver 锁 → Session 门」，不存在反向获取。
         async with self._lock:
             if self._connected and self._session is not None:
                 return
@@ -270,7 +440,7 @@ class ADSDriver:
             last_health: ConnectionHealth | None = None
 
             for attempt in range(2 if self._config.route_auto_add else 1):
-                session = _AdsSession(self._new_connection())
+                session = _AdsSession(self._new_connection(), self._label)
                 connection = session.connection
                 self._session = session
                 try:
@@ -280,7 +450,7 @@ class ADSDriver:
                     await asyncio.to_thread(
                         connection.set_timeout, int(self._config.timeout * 1000)
                     )
-                    last_health = await self._health_locked()
+                    last_health = await self._read_health(session)
                     if last_health.healthy:
                         self._invalidate_symbol_addresses()
                         await self._resolve_configured_points()
@@ -348,56 +518,71 @@ class ADSDriver:
     async def _close_all(self) -> None:
         # 生命周期锁由 close() 在入队前取得，这里负责释放（asyncio 锁不绑定任务）。
         try:
+            # Driver 锁只在摘除注册表/会话的瞬间持有：注销命令经 Session
+            # 命令门在锁外执行，避免 DEL_DEVICE_NOTIFICATION 的网络往返
+            # 长时间挡住注册表操作。旧 Session 已摘除，新连接无法建立
+            # （_lifecycle 仍持有），因此注销不会跨 Session。
             async with self._lock:
                 session, subscriptions = self._detach_runtime()
             for subscription in subscriptions:
                 subscription.deactivate()
-            # Worker 取消放在 IO 锁外：用户回调内可能再做驱动 IO（经
-            # detach 后的快速失败返回），持锁取消会自锁。
+            # Worker 取消不持任何 IO 锁：用户回调内可能再做驱动 IO（经
+            # detach 后的快速失败返回）。
             for result in await asyncio.gather(
                 *(subscription.stop_worker() for subscription in subscriptions),
                 return_exceptions=True,
             ):
                 if isinstance(result, BaseException):
                     logger.exception("ADS subscription worker stop failed", exc_info=result)
-            async with self._lock:
-                for subscription in subscriptions:
-                    # 幂等：与 tracked handle.close 并发时收敛到同一任务。
-                    await subscription.deregister()
-                if session is not None:
-                    await self._shutdown_session(session)
+            for subscription in subscriptions:
+                # 幂等：与 tracked handle.close 并发时收敛到同一任务；
+                # 必须在 session.aclose 之前完成，DEL 仍是旧 Session 上的
+                # 串行命令，关闭门会等待在途 DEL 结束。
+                await subscription.deregister()
+            if session is not None:
+                await self._shutdown_session(session)
         finally:
             self._lifecycle.release()
 
     async def _shutdown_session(self, session: _AdsSession | None) -> None:
-        """有界关闭会话：等待旧命令线程结束后再关闭端口，超时则放弃并记录。"""
+        """有界关闭会话：拒绝新命令、等待旧命令线程结束后关闭端口。"""
         if session is None:
             return
         grace = max(self._config.timeout, 5.0) + 1.0
-        try:
-            await asyncio.wait_for(asyncio.to_thread(session.shutdown, grace), timeout=grace + 2.0)
-        except TimeoutError:
-            logger.error("ADS session shutdown exceeded %.3fs and was abandoned", grace + 2.0)
+        # aclose 自身完成有界等待与放弃计数；放弃时端口保持打开并已记录。
+        await session.aclose(grace)
+        stats = session.stats.snapshot()
+        abnormal = (
+            stats["timeouts"] or stats["shutdown_abandoned"] or stats["rejected_after_closing"]
+        )
+        # 每会话关闭时一行汇总：无异常计数用 INFO（每会话仅一行，低频、
+        # 零基数），含超时/放弃/拒绝时升级 WARNING。
+        level = logging.WARNING if abnormal else logging.INFO
+        logger.log(level, "%sADS session closed stats=%s", self._label, stats)
 
     def is_open(self) -> bool:
         """本地 ADS session 是否处于已连接状态（含路由与符号解析完成）。"""
         return self._connected
 
     async def health(self) -> ConnectionHealth:
-        """在当前业务连接上读取 ADS 状态；仅 PLC ADS State=RUN 为健康。"""
-        # pyads 单连接不是线程安全的请求/响应通道：read_state 必须与
-        # 读写、通知注册等所有命令流量经同一把锁串行，否则并发命令的
-        # AMS 帧会串扰，产生 ADSError(-1) 假失败与假不健康。
-        async with self._lock:
-            return await self._health_locked()
+        """在当前业务连接上读取 ADS 状态；仅 PLC ADS State=RUN 为健康。
 
-    async def _health_locked(self) -> ConnectionHealth:
-        """调用方必须已持有 ``_lock``（connect 建链流程内复用）。"""
-        session = self._session
-        if session is None or not session.is_open:
+        会话快照在 Driver 状态锁内取得，实际 ``read_state`` 经 Session
+        统一命令门在锁外执行，不被批量采集的状态锁阻塞；同一 Session 的
+        命令串行性由 Session 两级闸门保证（见 :class:`_AdsSession`）。
+        """
+        async with self._lock:
+            session = self._session
+            if not self._connected or session is None:
+                return ConnectionHealth(healthy=False, message="ADS session is not open")
+        return await self._read_health(session)
+
+    async def _read_health(self, session: _AdsSession) -> ConnectionHealth:
+        """对指定 Session 执行一次 read_state；任何异常归一化为不健康。"""
+        if not session.is_open:
             return ConnectionHealth(healthy=False, message="ADS session is not open")
         try:
-            state = await asyncio.to_thread(session.run, "read_state")
+            state = await session.execute("read_state")
             if state is None:
                 return ConnectionHealth(healthy=False, message="ADS state read returned None")
             ads_state, device_state = state
@@ -418,7 +603,14 @@ class ADSDriver:
         *,
         interval: float | None = None,
     ) -> _TrackedADSSubscription:
-        """复用当前连接注册已配置测点的周期 ADS 通知。"""
+        """复用当前连接注册已配置测点的周期 ADS 通知。
+
+        注册过程包含多个 ADD_DEVICE_NOTIFICATION 往返：状态锁只在创建/
+        登记订阅的瞬间持有，区块注册经 Session 命令门在锁外执行，不再
+        长时间独占 Driver 状态锁。在途订阅始终登记在
+        ``_starting_subscriptions`` 中：注册被取消时其后台清理仍会被
+        ``close`` 等待收敛，晚到的通知 Handle 不会丢失。
+        """
         if interval is None or interval <= 0:
             raise ConfigError("ADS subscription interval must be > 0")
         async with self._lock:
@@ -437,58 +629,85 @@ class ADSDriver:
                 cycle_time=interval,
                 loop=asyncio.get_running_loop(),
                 max_block_bytes=self._config.max_block_bytes,
+                label=self._label,
             )
             # 先放入在途集合：注册协程若被取消，start 调度的后台清理仍由
             # driver.close 等待收敛，不会留下无人跟踪的订阅。
             self._starting_subscriptions.add(subscription)
-            try:
-                await subscription.start()
-            except ConfigError:
-                # 配置级问题（重叠/超限）保持原错误类型，由上层按配置故障处理。
+
+        # 注意：CancelledError 不在此捕获——订阅保留在在途集合中，
+        # start() 已自行调度后台注销任务，由后续 close/句柄收敛。
+        try:
+            await subscription.start()
+        except ConfigError:
+            # 配置级问题（重叠/超限）保持原错误类型，由上层按配置故障处理。
+            await self._discard_starting(subscription)
+            raise
+        except Exception as exc:
+            await self._discard_starting(subscription)
+            # 传输级失败（超时/断链/设备拒绝）与读写路径同口径归一化；
+            # subscription.start 已尝试注销已注册的区块句柄。
+            raise ProtocolError(f"ADS subscribe failed: {exc}") from exc
+
+        async with self._lock:
+            if self._session is not session or not self._connected:
+                # 注册途中会话被 close/reconnect 摘除：注销与 Worker 收敛
+                # 由 close 路径（同一注销任务）与这里的 close 共同保证。
+                detached = True
+            else:
+                detached = False
                 self._starting_subscriptions.discard(subscription)
-                raise
-            except Exception as exc:
-                self._starting_subscriptions.discard(subscription)
-                # 传输级失败（超时/断链/设备拒绝）与读写路径同口径归一化；
-                # subscription.start 已尝试注销已注册的区块句柄。
-                raise ProtocolError(f"ADS subscribe failed: {exc}") from exc
-            self._starting_subscriptions.discard(subscription)
-            self._subscriptions.add(subscription)
+                self._subscriptions.add(subscription)
+        if detached:
+            await subscription.close()
+            raise ProtocolError("ADS session closed while subscribing")
         return _TrackedADSSubscription(self, subscription)
+
+    async def _discard_starting(self, subscription: ADSSubscription) -> None:
+        """从在途注册表移除已确定失败/完成的订阅（状态锁内）。"""
+        async with self._lock:
+            self._starting_subscriptions.discard(subscription)
 
     async def read_one(self, point: str) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走 Sum Read、分段或读取分组缓存。
 
         只接受已配置 Point Key，地址在连接建立时预先解析。
+
+        会话与点地址在 Driver 状态锁内快照，实际 ADS 读经 Session 统一
+        命令门在锁外执行；本地会话引用保证命令返回前 Session 不会被销毁。
         """
         async with self._lock:
-            session = self._session
-            if not self._connected or session is None:
-                raise ProtocolError("ADS read requires an active connection")
+            session = self._require_session_locked("read")
             mapped = self._resolve_point(point)
-            point_id = mapped.point_id
-            try:
-                value = await asyncio.to_thread(
-                    session.run,
-                    "read",
-                    mapped.group,
-                    mapped.offset,
-                    _plc_datatype(mapped.data_type),
-                )
-            except Exception as exc:
-                if _is_point_level_error(exc):
-                    return _bad_sample(point_id)
-                raise ProtocolError(f"ADS read failed: {exc}") from exc
-            try:
-                scalar = _as_point_scalar(value)
-            except TypeError:
-                return _bad_sample(point_id)
-            return ProtocolSample(
-                point_id=point_id,
-                value=scalar,
-                timestamp=datetime.now(UTC),
-                quality=Quality.GOOD,
+        point_id = mapped.point_id
+        try:
+            value = await session.execute(
+                "read",
+                mapped.group,
+                mapped.offset,
+                _plc_datatype(mapped.data_type),
             )
+        except Exception as exc:
+            if _is_point_level_error(exc):
+                return _bad_sample(point_id)
+            raise ProtocolError(f"ADS read failed: {exc}") from exc
+        try:
+            scalar = _as_point_scalar(value)
+        except TypeError:
+            return _bad_sample(point_id)
+        return ProtocolSample(
+            point_id=point_id,
+            value=scalar,
+            timestamp=datetime.now(UTC),
+            quality=Quality.GOOD,
+        )
+
+    def _require_session_locked(self, action: str) -> _AdsSession:
+        """返回当前已连接会话；调用方必须持有 Driver 状态锁。"""
+        session = self._session
+        if not self._connected or session is None:
+            raise ProtocolError(f"ADS {action} requires an active connection")
+        return session
 
     async def write_one(
         self,
@@ -499,16 +718,17 @@ class ADSDriver:
         ProtocolWrite.point 必须是已配置的 Point Key。
 
         配置/取值级问题返回失败结果；连接/传输级问题统一抛 ProtocolError。
+
+        不存在自动重发：取消发生在命令进入 AdsLib 之后时，工作线程仍会
+        跑完唯一一次写入，结果被丢弃（见 :class:`_AdsSession`）。
         """
-        mapped = self._resolve_point(write.point)
-        write_value = write.value
         async with self._lock:
-            if not self._connected or self._session is None:
-                raise ProtocolError("ADS write requires an active connection")
-            try:
-                return await self._write_single_point(mapped, write_value)
-            except Exception as exc:
-                raise ProtocolError(f"ADS write failed: {exc}") from exc
+            session = self._require_session_locked("write")
+            mapped = self._resolve_point(write.point)
+        try:
+            return await self._write_single_point(session, mapped, write.value)
+        except Exception as exc:
+            raise ProtocolError(f"ADS write failed: {exc}") from exc
 
     async def read_many(
         self,
@@ -530,20 +750,30 @@ class ADSDriver:
         self,
         points: Sequence[str],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        """按已配置的地址直接执行 Sum Read。"""
+        """按已配置的地址直接执行 Sum Read。
+
+        会话快照、点解析与请求编译在 Driver 状态锁内完成；每个 Sum Read
+        分块是独立的 Session 命令单元，在锁外经命令门执行——分块之间允许
+        health/控制写插入。整批只使用快照 Session，关闭/重连会使在途批次
+        失败，绝不混合新旧 Session 的结果。
+        """
         if not points:
             return ()
         async with self._lock:
-            session = self._session
-            if not self._connected or session is None:
-                raise ProtocolError("ADS read requires an active connection")
+            session = self._require_session_locked("read")
             try:
                 mapped = tuple(self._resolve_point(point) for point in points)
-                return await self._read_sum_raw(session, mapped)
+                requests, decoders = self._compile_sum_read_locked(mapped)
             except ProtocolError:
                 raise
             except Exception as exc:
                 raise ProtocolError(f"ADS read failed: {exc}") from exc
+        try:
+            return await self._execute_sum_read(session, mapped, requests, decoders)
+        except ProtocolError:
+            raise
+        except Exception as exc:
+            raise ProtocolError(f"ADS read failed: {exc}") from exc
 
     async def write_many(
         self,
@@ -552,22 +782,29 @@ class ADSDriver:
         """按已解析 index 地址批量写入。
 
         配置级问题收敛为单点失败；连接/传输级问题统一抛 ProtocolError。
+
+        写入顺序语义：
+
+        - 同一批次内各分块严格按输入顺序执行（同一 Task 串行 await）；
+        - 每个分块是独立 Session 命令单元，分块之间允许其他命令插入，
+          因此本批次不是跨其他并发写入的原子事务——不同 API 调用之间的
+          先后顺序本来就由调度决定，本方法只保证每条写入在 Session 上
+          严格串行且不自动重发；
+        - 已确认成功/失败按设备返回码逐点分类；分块传输失败时，尚未确认
+          的分块不重发（请求可能已到达设备），由上层按 UNKNOWN 语义处理。
         """
         if not writes:
             return ()
 
         async with self._lock:
-            session = self._session
-            if not self._connected or session is None:
-                raise ProtocolError("ADS write requires an active connection")
-
+            session = self._require_session_locked("write")
             results: list[ProtocolWriteResult | None] = [None] * len(writes)
             mapped_batch = [self._resolve_point(write.point) for write in writes]
             prepared: list[tuple[int, ADSPoint, bytes]] = []
             for index, (write, point) in enumerate(zip(writes, mapped_batch, strict=True)):
                 if not point.address_resolved:
                     results[index] = ProtocolWriteResult(
-                        point_id=write.point_id,
+                        point_id=write.point,
                         outcome=WriteOutcome.CONFIRMED_FAILURE,
                         message="ADS address is unresolved",
                     )
@@ -577,46 +814,46 @@ class ADSDriver:
                     payload = _encode_value(raw_value, point)
                 except (ConfigError, TypeError, ValueError, OverflowError) as exc:
                     results[index] = ProtocolWriteResult(
-                        point_id=write.point_id,
+                        point_id=write.point,
                         outcome=WriteOutcome.CONFIRMED_FAILURE,
                         message=str(exc),
                     )
                     continue
                 prepared.append((index, point, payload))
+            chunk_size = self._config.max_subs_per_sum
 
-            try:
-                for start in range(0, len(prepared), self._config.max_subs_per_sum):
-                    chunk = prepared[start : start + self._config.max_subs_per_sum]
-                    request = self._encode_sum_write(chunk)
-                    raw = await asyncio.to_thread(
-                        session.run,
-                        "read_write",
-                        ADSIGRP_SUMUP_WRITE,
-                        len(chunk),
-                        None,
-                        request,
-                        None,
-                        check_length=False,
+        try:
+            for start in range(0, len(prepared), chunk_size):
+                chunk = prepared[start : start + chunk_size]
+                request = self._encode_sum_write(chunk)
+                raw = await session.execute(
+                    "read_write",
+                    ADSIGRP_SUMUP_WRITE,
+                    len(chunk),
+                    None,
+                    request,
+                    None,
+                    check_length=False,
+                )
+                errors = _decode_sum_write_errors(raw, len(chunk))
+                for (index, point, _), error in zip(chunk, errors, strict=True):
+                    results[index] = ProtocolWriteResult(
+                        point_id=point.point_id,
+                        # error == 0 为设备确认成功；否则设备返回明确
+                        # ADS 错误码——两种结果都有协议证据。
+                        outcome=(
+                            WriteOutcome.CONFIRMED_SUCCESS
+                            if error == 0
+                            else WriteOutcome.CONFIRMED_FAILURE
+                        ),
+                        message=None if error == 0 else f"ADS write error {error}",
                     )
-                    errors = _decode_sum_write_errors(raw, len(chunk))
-                    for (index, point, _), error in zip(chunk, errors, strict=True):
-                        results[index] = ProtocolWriteResult(
-                            point_id=point.point_id,
-                            # error == 0 为设备确认成功；否则设备返回明确
-                            # ADS 错误码——两种结果都有协议证据。
-                            outcome=(
-                                WriteOutcome.CONFIRMED_SUCCESS
-                                if error == 0
-                                else WriteOutcome.CONFIRMED_FAILURE
-                            ),
-                            message=None if error == 0 else f"ADS write error {error}",
-                        )
-            except Exception as exc:
-                raise ProtocolError(f"ADS sum write failed: {exc}") from exc
+        except Exception as exc:
+            raise ProtocolError(f"ADS sum write failed: {exc}") from exc
 
-            if any(result is None for result in results):
-                raise RuntimeError("ADS sum write did not produce a result for every point")
-            return tuple(result for result in results if result is not None)
+        if any(result is None for result in results):
+            raise RuntimeError("ADS sum write did not produce a result for every point")
+        return tuple(result for result in results if result is not None)
 
     @staticmethod
     def _encode_sum_write(chunk: Sequence[tuple[int, ADSPoint, bytes]]) -> bytearray:
@@ -629,12 +866,13 @@ class ADSDriver:
 
     async def _write_single_point(
         self,
+        session: _AdsSession,
         mapped: ADSPoint,
         value: object,
     ) -> ProtocolWriteResult:
         """按已解析 index 地址写入单点；配置/取值级问题收敛为单点失败。
 
-        连接/传输级异常原样抛出，由调用方上报，不擅自关闭会话。
+        连接/传输级异常原样抛出，由调用方上报，不擅自关闭会话或重发。
         """
         if not mapped.address_resolved:
             return ProtocolWriteResult(
@@ -664,12 +902,8 @@ class ADSDriver:
                 message=str(exc),
             )
 
-        session = self._session
-        if session is None:
-            raise ProtocolError("ADS connection is unavailable")
         try:
-            await asyncio.to_thread(
-                session.run,
+            await session.execute(
                 "write",
                 mapped.group,
                 mapped.offset,
@@ -696,10 +930,6 @@ class ADSDriver:
         del common_address
         raise ProtocolCapabilityError("ads does not support interrogation")
 
-    async def unsubscribe(self, handle: SubscriptionHandle) -> None:
-        """注销一次原生 Device Notification 订阅（幂等由句柄保证）。"""
-        await handle.close()
-
     async def listen(
         self,
         point_ids: Sequence[str],
@@ -709,11 +939,6 @@ class ADSDriver:
     ) -> ListenHandle:
         """ADS 的远程数据获取只有原生订阅（subscribe），没有被动监听语义。"""
         del point_ids, callback, interval
-        raise ProtocolCapabilityError("ads does not support passive listen — use subscribe")
-
-    async def unlisten(self, handle: ListenHandle) -> None:
-        """ADS 不支持被动监听。"""
-        del handle
         raise ProtocolCapabilityError("ads does not support passive listen — use subscribe")
 
     def _build_sum_requests(self, points: tuple[ADSPoint, ...]) -> tuple[Any, ...]:
@@ -741,25 +966,30 @@ class ADSDriver:
         """编译逐点解码器，与请求地址保持相同顺序。"""
         return tuple(compile_decoder(point) for point in points)
 
-    async def _read_sum_raw(
+    def _compile_sum_read_locked(
+        self,
+        points: tuple[ADSPoint, ...],
+    ) -> tuple[tuple[Any, ...], tuple[Callable[[bytes | memoryview, int], PointScalar], ...]]:
+        """编译（或取缓存的）Sum Read 分批请求与逐点解码器；调用方持状态锁。"""
+        cached = self._read_cache.get(points)
+        if cached is None:
+            cached = (self._build_sum_requests(points), self._build_sum_decoders(points))
+            if len(self._read_cache) >= 32:
+                self._read_cache.pop(next(iter(self._read_cache)))
+            self._read_cache[points] = cached
+        return cached
+
+    async def _execute_sum_read(
         self,
         session: _AdsSession,
         points: Sequence[ADSPoint],
+        requests: tuple[Any, ...],
+        decoders: tuple[Callable[[bytes | memoryview, int], PointScalar], ...],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        """分批取得全部原始响应后，统一按原始测点顺序解码。"""
-        key = tuple(points)
-        cached = self._read_cache.get(key)
-        if cached is None:
-            cached = (self._build_sum_requests(key), self._build_sum_decoders(key))
-            if len(self._read_cache) >= 32:
-                self._read_cache.pop(next(iter(self._read_cache)))
-            self._read_cache[key] = cached
-        request, decoders = cached
-
+        """逐分块执行 Sum Read（分块间释放 Session 命令门）后统一按序解码。"""
         responses: list[tuple[Any, bytes]] = []
-        for chunk in request:
-            response = await asyncio.to_thread(
-                session.run,
+        for chunk in requests:
+            response = await session.execute(
                 "read_write",
                 ADSIGRP_SUMUP_READ,
                 len(chunk),
@@ -801,19 +1031,30 @@ class ADSDriver:
     async def resolve_symbol(self, symbol: str) -> tuple[int, int]:
         """按需查询 PLC 符号地址；同一 ADS session 内复用解析结果。"""
         async with self._lock:
-            if not self._connected or self._session is None:
-                raise ProtocolError("ADS resolve_symbol requires an active connection")
-            group, offset, _ = await self._resolve_symbol_locked(symbol)
-            return group, offset
+            session = self._require_session_locked("resolve_symbol")
+            cached = self._symbol_cache.get(symbol)
+        if cached is not None:
+            return cached[0], cached[1]
+        info = await session.execute("get_symbol", symbol)
+        group, offset = symbol_index_address(symbol, info)
+        raw_size = getattr(info, "size", None)
+        size = raw_size if type(raw_size) is int and raw_size > 0 else None
+        resolved = (group, offset, size)
+        async with self._lock:
+            # 并发解析同符号时不覆盖；会话已切换则结果属于旧会话，不入缓存。
+            if self._session is session and self._connected:
+                self._symbol_cache.setdefault(symbol, resolved)
+        return group, offset
 
     async def _resolve_symbol_locked(self, symbol: str) -> tuple[int, int, int | None]:
+        """connect 建链流程内使用：调用方持 Driver 状态锁且会话不会切换。"""
         cached = self._symbol_cache.get(symbol)
         if cached is not None:
             return cached
         session = self._session
         if session is None:
             raise ProtocolError("ADS connection is not available")
-        info = await asyncio.to_thread(session.run, "get_symbol", symbol)
+        info = await session.execute("get_symbol", symbol)
         group, offset = symbol_index_address(symbol, info)
         raw_size = getattr(info, "size", None)
         size = raw_size if type(raw_size) is int and raw_size > 0 else None
@@ -995,10 +1236,13 @@ class _TrackedADSSubscription:
         owner = self._owner
         subscription = self._subscription
         subscription.deactivate()
-        # DEL_DEVICE_NOTIFICATION 是共享 pyads 连接上的命令，与
-        # health/读写互斥，统一经 Driver 的 IO 锁串行；Worker 取消放锁外，
-        # 避免用户回调内再做驱动 IO 时自锁。
+        # DEL_DEVICE_NOTIFICATION 是共享 pyads 连接上的命令，经 Session
+        # 命令门与 health/读写串行；注销完成前订阅保留在注册表里，使并发
+        # driver.close() 的 detach 能等住同一个注销任务（幂等收敛），避免
+        # DEL 与 Session 关闭竞争。Driver 状态锁不覆盖网络往返。
+        await subscription.deregister()
         async with owner._lock:
             owner._subscriptions.discard(subscription)
-            await subscription.deregister()
+            owner._starting_subscriptions.discard(subscription)
+        # Worker 取消放锁外：用户回调内可能再做驱动 IO。
         await subscription.stop_worker()

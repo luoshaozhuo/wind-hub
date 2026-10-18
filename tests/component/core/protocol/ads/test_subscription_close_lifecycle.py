@@ -95,6 +95,11 @@ class _BlockingSession:
     def run(self, name: str, *args: Any) -> Any:
         return getattr(self, name)(*args)
 
+    async def execute(self, name: str, *args: Any) -> Any:
+        # 测试替身：对齐生产 _AdsSession.execute——阻塞命令必须在工作线程，
+        # 否则门控会卡住事件循环（本替身不验证 Session 串行化）。
+        return await asyncio.to_thread(self.run, name, *args)
+
     def release_all_del(self) -> None:
         for event in self.del_release.values():
             event.set()

@@ -67,6 +67,10 @@ class _Connection:
     def run(self, name: str, *args: object) -> object:
         return getattr(self, name)(*args)
 
+    async def execute(self, name: str, *args: object) -> object:
+        # 测试替身：对齐生产 _AdsSession.execute 的异步命令入口契约。
+        return self.run(name, *args)
+
     def fire(self, handle: int, raw: bytes, *, timestamp: Any = None) -> None:
         self.callbacks[handle](handle, (0x4020, 0), timestamp, raw)
 
