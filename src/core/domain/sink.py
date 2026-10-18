@@ -31,7 +31,7 @@ class Sink:
     def __post_init__(self) -> None:
         if not isinstance(self.sink_id, str) or not self.sink_id.strip():
             raise ValueError("sink_id must be non-empty")
-        if self.kind not in {"file", "modbus", "redis"}:
+        if self.kind not in {"modbus", "redis"}:
             raise ValueError(f"unsupported sink type '{self.kind}'")
         if not isinstance(self.enabled, bool):
             raise ValueError("sink enabled must be bool")
