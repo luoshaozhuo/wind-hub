@@ -659,7 +659,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
                     )
                 if not output.points and sink.kind == "modbus":
                     # Modbus 从站必须为每个点显式分配寄存器地址；空 points
-                    # 无法安全展开为通配（file/redis 可按任务组全量投递）。
+                    # 无法安全展开为通配（redis/tdengine 可按任务组全量投递）。
                     raise ConfigError(
                         f"Task '{task.task_id}' modbus output '{output.sink_id}' "
                         "must declare explicit points with register addresses"
