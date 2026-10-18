@@ -9,6 +9,8 @@ description: Legacy optional targeted tests; merge-branch is the sole mandatory 
 
 普通 L1 产品代码不需要额外重型测试；Fast Gate 即可。
 
+仅在用户明确要求定向诊断时调用，合并的最终强制验证由 `merge-branch` 负责。
+
 先基于 `origin/main...HEAD` 获取变更文件并运行：
 
 ```bash
