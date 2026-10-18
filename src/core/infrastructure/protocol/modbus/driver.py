@@ -318,7 +318,7 @@ class ModbusDriver:
         位置重复返回，顺序与输入严格一致。
         """
         mapped_points, values = await self._read_values(points)
-        # 全批次共享同一读取时刻——Driver 在获得读取结果时生成 UTC 时间戳。
+        # 全批次共享接收完成时刻；Modbus 协议不携带设备时标。
         received_at = datetime.now(UTC)
         return tuple(
             ProtocolSample(
