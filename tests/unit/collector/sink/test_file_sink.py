@@ -194,12 +194,12 @@ async def test_cleanup_never_unlinks_symlinked_segments(tmp_path: Path) -> None:
 async def test_batch_opens_each_segment_only_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "archive"
     sink = make_sink(root)
-    opened: list[Path] = []
+    opened: list[str] = []
     original = sink._open_segment
 
-    def tracked(path: Path, flags: int) -> int:
+    def tracked(path: str, flags: int, *, dir_fd: int) -> int:
         opened.append(path)
-        return original(path, flags)
+        return original(path, flags, dir_fd=dir_fd)
 
     monkeypatch.setattr(sink, "_open_segment", tracked)
     await sink.open()
