@@ -36,7 +36,7 @@ class RedisSink:
 
     async def _response(self) -> str:
         assert self._reader is not None
-        line = await asyncio.wait_for(self._reader.readline(), timeout=5.0)
+        line = await asyncio.wait_for(self._reader.readline(), timeout=self._config.timeout)
         if not line or not line.endswith(b"\r\n"):
             raise ConnectionError("Redis connection closed or invalid RESP reply")
         prefix, value = line[:1], line[1:-2].decode("utf-8", errors="replace")
@@ -68,7 +68,13 @@ class RedisSink:
                 asyncio.open_connection(self._config.host, self._config.port),
                 timeout=5.0,
             )
-            if self._config.password is not None:
+            if self._config.username is not None:
+                if self._config.password is None:
+                    raise SinkError("Redis ACL username requires password")
+                await self._request(
+                    "AUTH", self._config.username, self._config.password.get_secret_value()
+                )
+            elif self._config.password is not None:
                 await self._request("AUTH", self._config.password.get_secret_value())
             if self._config.database != 0:
                 await self._request("SELECT", str(self._config.database))
