@@ -92,7 +92,10 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
                     **({"key_prefix": output.key_prefix} if output.key_prefix is not None else {}),
                     **({"points": _yaml_plain(output.points)} if output.points else {}),
                 }
-                for output in (task.outputs or tuple(TaskOutput(sink_id=sink) for sink in task.sink_ids))
+                for output in (
+                    task.outputs
+                    or tuple(TaskOutput(sink_id=sink) for sink in task.sink_ids)
+                )
             ],
             "enabled": task.enabled,
         }

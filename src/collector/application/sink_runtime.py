@@ -346,7 +346,9 @@ class SinkRuntime:
             return
 
         await sink.open()
-        queue: asyncio.Queue[SinkDelivery | None] = asyncio.Queue(maxsize=self._params.queue_maxsize)
+        queue: asyncio.Queue[SinkDelivery | None] = asyncio.Queue(
+            maxsize=self._params.queue_maxsize
+        )
         self._sinks[sink_name] = sink
         self._queues[sink_name] = queue
         watchdog = self._make_watchdog(sink_name, sink)

@@ -6,7 +6,6 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from math import isfinite
 from typing import Any
-from types import MappingProxyType
 
 from .device import Device, DeviceGroup
 from .identities import DeviceGroupId, DeviceId

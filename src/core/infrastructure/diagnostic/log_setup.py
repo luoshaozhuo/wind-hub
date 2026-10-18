@@ -6,6 +6,7 @@ import logging
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TextIO
 
 from core.application.settings import LogSettings
 
@@ -33,7 +34,8 @@ class _DailySizeFileHandler(logging.Handler):
         self._retention_days = settings.retention_days
         self._date = ""
         self._index = 0
-        self._stream = None
+        self._stream: TextIO | None = None
+        self._last_cleanup = ""
 
     def _open_for(self, day: str, size: int) -> None:
         if self._stream is not None:
@@ -43,7 +45,10 @@ class _DailySizeFileHandler(logging.Handler):
         self._date = day
         while True:
             target = self._root / f"{day}_{self._index:03d}.log"
-            if not target.exists() or target.stat().st_size == 0 or target.stat().st_size + size <= self._limit:
+            if not target.exists():
+                break
+            current_size = target.stat().st_size
+            if current_size == 0 or current_size + size <= self._limit:
                 break
             self._index += 1
         self._stream = target.open("a", encoding="utf-8")
@@ -62,14 +67,22 @@ class _DailySizeFileHandler(logging.Handler):
             assert self._stream is not None
             self._stream.write(message)
             self._stream.flush()
-            cutoff = (timestamp.date() - timedelta(days=self._retention_days - 1)).strftime("%Y%m%d")
+            cutoff = (
+                timestamp.date() - timedelta(days=self._retention_days - 1)
+            ).strftime("%Y%m%d")
             # 清理仅在日界发生时执行；活动文件不参与删除。
-            if getattr(self, "_last_cleanup", None) != day:
+            if self._last_cleanup != day:
                 self._last_cleanup = day
                 for file in self._root.glob("????????_*.log"):
                     stem = file.stem
                     date, separator, index = stem.partition("_")
-                    if separator and len(date) == 8 and date.isdigit() and index.isdigit() and date < cutoff:
+                    if (
+                        separator
+                        and len(date) == 8
+                        and date.isdigit()
+                        and index.isdigit()
+                        and date < cutoff
+                    ):
                         file.unlink(missing_ok=True)
         except Exception:
             self.handleError(record)
@@ -85,7 +98,9 @@ class _DailySizeFileHandler(logging.Handler):
 
 def configure_process_logging(config: LogSettings, *, process_name: str) -> None:
     """独占进程日志目录，配置控制台与日期/容量文件输出。"""
-    if not process_name or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for char in process_name):
+    if not process_name or not all(
+        char.isascii() and (char.isalnum() or char in "-_") for char in process_name
+    ):
         raise ValueError("invalid process_name")
     formatter = logging.Formatter(fmt=_FORMAT, datefmt=_DATEFMT)
     formatter.converter = time.gmtime

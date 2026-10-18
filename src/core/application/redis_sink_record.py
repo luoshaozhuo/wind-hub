@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Protocol
 
 from core.domain.point_value import PointValue
@@ -12,6 +12,13 @@ from core.domain.point_value import PointValue
 
 class RedisKeyOptions(Protocol):
     key_prefix: str
+
+
+def _format_utc(value: datetime | None) -> str | None:
+    """统一 ISO-8601 UTC 字符串（Z 后缀）；None 表示该时间戳缺省。"""
+    if value is None:
+        return None
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,10 +45,10 @@ def encode_redis_record(
         {
             "value": point.value,
             "quality": point.quality.value,
-            "timestamp": point.timestamp.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            "timestamp": _format_utc(point.timestamp),
             "source": point.source,
-            "receive_time": point.receive_time.astimezone(UTC).isoformat().replace("+00:00", "Z") if point.receive_time is not None else None,
-            "device_time": point.device_time.astimezone(UTC).isoformat().replace("+00:00", "Z") if point.device_time is not None else None,
+            "receive_time": _format_utc(point.receive_time),
+            "device_time": _format_utc(point.device_time),
         },
         ensure_ascii=False,
         separators=(",", ":"),

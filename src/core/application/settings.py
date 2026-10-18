@@ -127,7 +127,11 @@ class LogSettings:
         _require_finite(self.max_size_mb, "logs.max_size_mb")
         if self.max_size_mb <= 0:
             raise ValueError("logs.max_size_mb must be > 0")
-        if isinstance(self.retention_days, bool) or not isinstance(self.retention_days, int) or self.retention_days < 1:
+        if (
+            isinstance(self.retention_days, bool)
+            or not isinstance(self.retention_days, int)
+            or self.retention_days < 1
+        ):
             raise ValueError("logs.retention_days must be a positive integer")
 
 
