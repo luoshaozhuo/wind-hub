@@ -249,10 +249,18 @@ def merge_gate(paths: list[str]) -> bool:
     commands: list[tuple[str, list[str]]] = []
     if python_changed:
         commands.append(("changed-ruff", _python_module("ruff", "check", *python_changed)))
+    frontend = any(p.startswith(("src/web_admin/", "tests/web_admin/")) for p in changed)
+    configs = any(p.startswith("configs/") for p in changed)
+    tooling = any(p.startswith(("scripts/", "ai_shared/agent_config/")) for p in changed)
     if backend:
         commands.append(("backend-types", _python_module("mypy", "src")))
         commands.append(("backend-imports", _tool("lint-imports")))
 
+    if frontend:
+        commands.append(("frontend", _npm("--prefix", str(FRONTEND_DIR), "run", "build")))
+        commands.append(("frontend-tests", _npm("--prefix", str(FRONTEND_DIR), "test")))
+    if tooling:
+        commands.append(("tooling-syntax", _python_module("compileall", "-q", "scripts", "ai_shared/agent_config/hooks", "ai_shared/agent_config/skills/merge-branch/scripts")))
     candidates: list[str] = []
     roots = ("core", "collector", "commander", "cli", "web_server")
     for p in changed:
@@ -277,6 +285,8 @@ def merge_gate(paths: list[str]) -> bool:
             candidate = REPO_ROOT / p
             if candidate.is_file() and p.endswith(".py"):
                 candidates.append(p)
+    if configs:
+        candidates.append("tests/contract")
     if backend and not candidates:
         candidates.extend(["tests/unit", "tests/component", "tests/contract"])
     selected = [p for p in dict.fromkeys(candidates) if (REPO_ROOT / p).exists()]
