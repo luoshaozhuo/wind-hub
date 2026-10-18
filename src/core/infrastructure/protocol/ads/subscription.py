@@ -55,9 +55,13 @@ class ADSSubscription:
         loop: asyncio.AbstractEventLoop,
         max_block_bytes: int = 1024,
         label: str = "",
+        batch_size: int = 256,
+        batch_wait: float = 0.01,
     ) -> None:
         if cycle_time <= 0:
             raise ConfigError("ADS subscription interval must be > 0")
+        if batch_size <= 0 or batch_wait < 0:
+            raise ConfigError("ADS batch_size must be > 0 and batch_wait must be >= 0")
         # 设备标签（host:port），仅用于错误/丢弃日志的现场定位。
         self._label = f"[{label}] " if label else ""
         self._session = session
@@ -66,6 +70,8 @@ class ADSSubscription:
         self._cycle_time = cycle_time
         self._loop = loop
         self._max_block_bytes = max_block_bytes
+        self._batch_size = batch_size
+        self._batch_wait = batch_wait
         self._queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(
             maxsize=_QUEUE_CAPACITY
         )
@@ -308,12 +314,33 @@ class ADSSubscription:
         self._queue.put_nowait(samples)
 
     async def _worker(self) -> None:
+        loop = asyncio.get_running_loop()
         while True:
-            samples = await self._queue.get()
+            first = await self._queue.get()
+            batch = list(first)
+            deadline = loop.time() + self._batch_wait
+            while len(batch) < self._batch_size:
+                try:
+                    if self._batch_wait == 0:
+                        next_block = self._queue.get_nowait()
+                    else:
+                        remaining = deadline - loop.time()
+                        if remaining <= 0:
+                            break
+                        next_block = await asyncio.wait_for(
+                            self._queue.get(), timeout=remaining
+                        )
+                except (asyncio.QueueEmpty, TimeoutError):
+                    break
+                batch.extend(next_block)
+            if self._deactivated:
+                continue
             try:
-                await self._callback(samples)
+                await self._callback(tuple(batch))
             except Exception:
-                logger.exception("ADS subscription callback failed for %d-point batch", len(samples))
+                logger.exception(
+                    "ADS subscription callback failed for %d-point batch", len(batch)
+                )
 
 
 def _normalize_timestamp(value: object) -> tuple[datetime, TimestampSource]:
