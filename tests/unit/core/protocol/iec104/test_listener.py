@@ -545,3 +545,24 @@ async def test_close_cancels_in_flight_callback_and_waits_for_cleanup() -> None:
     await entered.wait()
     await asyncio.wait_for(registry.close(), timeout=1.0)
     assert cleanup_done.is_set()
+
+
+
+async def test_single_batch_filtered_once_per_listener() -> None:
+    registry = ListenerRegistry()
+    all_batches: list[tuple[str, ...]] = []
+    filtered_batches: list[tuple[str, ...]] = []
+
+    async def receive_all(samples: tuple[ProtocolSample, ...]) -> None:
+        all_batches.append(tuple(sample.point_id for sample in samples))
+
+    async def receive_filtered(samples: tuple[ProtocolSample, ...]) -> None:
+        filtered_batches.append(tuple(sample.point_id for sample in samples))
+
+    registry.add((), receive_all)
+    registry.add(("p1", "p3"), receive_filtered)
+    registry.offer((_sample("p1"), _sample("p2"), _sample("p3")))
+    await asyncio.sleep(0.05)
+    assert all_batches == [("p1", "p2", "p3")]
+    assert filtered_batches == [("p1", "p3")]
+    await registry.close()
