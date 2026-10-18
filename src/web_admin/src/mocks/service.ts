@@ -626,33 +626,6 @@ function resolvedHost(host: string): string {
 }
 
 export function sinkCheckPlan(s: MockSink): SinkCheckStep[] {
-  if (s.type === 'file') {
-    const path = String(s.connection.path || '')
-    const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) || '/' : '.'
-    return [
-      {
-        layer: 'filesystem',
-        name: 'Parent Path',
-        target: parent,
-        detail: 'Resolve parent directory',
-        blocks: true,
-      },
-      {
-        layer: 'filesystem',
-        name: 'Permission',
-        target: parent,
-        detail: 'Check create/append permission',
-        blocks: true,
-      },
-      {
-        layer: 'filesystem',
-        name: 'Open / Append',
-        target: path,
-        detail: 'Open target for append without business payload',
-        blocks: true,
-      },
-    ]
-  }
   const ep = sinkEndpoint(s)
   const ip = resolvedHost(ep.host)
   const common: SinkCheckStep[] = [
