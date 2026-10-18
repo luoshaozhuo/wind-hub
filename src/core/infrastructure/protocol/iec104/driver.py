@@ -553,9 +553,9 @@ class IEC104Driver:
     # ------------------------------------------------------------------
 
     async def interrogate(self, common_address: int | None = None, *, qoi: int = 20) -> None:
-        """对指定 CA（缺省：全部已配置 CA 逐个）发送 C_IC_NA_1 站总召。
+        """对指定 CA（缺省：全部已配置 CA 逐个）发送 C_IC_NA_1（QOI=20 站总召，21..36 组召）。
 
-        以每个 CA 的 ACT_TERM（或否定确认）为完成依据；请求发送成功
+        以每个 CA 和当前 QOI 对应的 ACT_TERM（或否定确认）为完成依据；请求发送成功
         不代表总召完成。ACT_TERM 只表示协议总召流程结束，业务测点完整性
         由 Collector 判断。
         """
