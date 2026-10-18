@@ -40,7 +40,7 @@ from core.application.errors import (
     ProtocolConnectionError,
     ProtocolError,
 )
-from core.application.port.protocol import ListenHandle, SubscriptionHandle
+from core.application.port.protocol import ListenHandle, ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     ProtocolCapability,
@@ -637,7 +637,7 @@ class IEC104Driver:
     async def subscribe(
         self,
         point_ids: Sequence[str],
-        callback: Callable[[tuple[ProtocolSample, ...]], object],
+        callback: ProtocolSampleCallback,
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
