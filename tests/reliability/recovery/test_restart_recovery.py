@@ -160,12 +160,12 @@ class TestSubscriptionRestartPending:
         config_dir = _iec104_config(tmp_path / "cfg", iec104_server.port, redis_service)
         proc: CollectorProcess = await collector_factory(config_dir)
 
-        # ---- 正常：订阅建立，总召数据落盘 ----
+        # ---- 正常：订阅建立，总召数据写入 Redis ----
         await start_task_instance(
             proc.grpc_target, task_id=IEC104_TASK_ID, instance_id=IEC104_INSTANCE_ID
         )
         key = point_key("iec104-1", "meas.active_power", prefix="wind-hub-iec-restart")
-        first = await wait_redis_value(redis_service, key)
+        await wait_redis_value(redis_service, key)
 
         # ---- 故障：从站停止，设备断连在边界可见 ----
         await iec104_server.stop()
