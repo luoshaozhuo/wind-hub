@@ -381,3 +381,33 @@ async def test_set_points_updates_driver_before_session_state():
     session.set_points(table)
     assert proto.point_table_updates[-1] is table
     assert session.point_table is table
+
+
+async def test_listen_interrogation_failure_closes_registered_handle() -> None:
+    proto = CollectorFakeProtocol()
+    proto.capabilities_value = _caps(
+        ProtocolCapability.LISTEN, ProtocolCapability.INTERROGATE
+    )
+    session = make_session(make_collector_config(protocol="iec104"), proto)
+    closed = 0
+
+    class TrackedHandle:
+        async def close(self) -> None:
+            nonlocal closed
+            closed += 1
+
+    async def listen(_points, _callback, *, interval=None):
+        return TrackedHandle()
+
+    async def failed_interrogation(_common_address=None):
+        raise RuntimeError("injected interrogation failure")
+
+    proto.listen = listen  # type: ignore[method-assign]
+    proto.interrogate = failed_interrogation  # type: ignore[method-assign]
+
+    async def on_data(_batch) -> None:
+        return None
+
+    with pytest.raises(RuntimeError, match="injected interrogation failure"):
+        await session.start_acquisition(point_group="g", interval=None, on_data=on_data)
+    assert closed == 1
