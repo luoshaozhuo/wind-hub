@@ -294,7 +294,7 @@ class SinkRuntime:
             if queue is None:
                 continue
             try:
-                await asyncio.wait_for(queue.put([]), timeout=self._params.shutdown_timeout)
+                await asyncio.wait_for(queue.put(None), timeout=self._params.shutdown_timeout)
             except TimeoutError:
                 # 队列满且消费者卡死（如 sink.write 挂起）：哨兵投递
                 # 无期限等待会让整体硬超时失效，改为直接取消消费者。
