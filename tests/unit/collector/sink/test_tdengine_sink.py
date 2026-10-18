@@ -57,3 +57,28 @@ def test_child_table_identifier_stable_and_disambiguated() -> None:
     assert _table_name("WT001", "p") == _table_name("WT001", "p")
     assert _table_name("WT001", "p") != _table_name("WT002", "p")
     assert _table_name("a:b", "c") != _table_name("a", "b:c")
+
+
+async def test_insert_is_batched_at_200_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    """大型批次应分片，不将所有点拼成单个 REST 请求。"""
+    sink = make_sink()
+    statements: list[str] = []
+    monkeypatch.setattr(sink, "_execute", statements.append)
+    await sink.open()
+    await sink.write([PointValue("WT001", f"p{i}", i) for i in range(401)])
+    inserts = [sql for sql in statements if sql.startswith("INSERT INTO ")]
+    assert len(inserts) == 3
+    assert [sql.count(" USING ") for sql in inserts] == [200, 200, 1]
+    await sink.close()
+
+
+async def test_value_quotes_are_escaped_in_sql(monkeypatch: pytest.MonkeyPatch) -> None:
+    sink = make_sink()
+    statements: list[str] = []
+    monkeypatch.setattr(sink, "_execute", statements.append)
+    await sink.open()
+    await sink.write([PointValue("WT'001", "message", "a'b")])
+    insert = statements[-1]
+    assert "WT''001" in insert
+    assert "a''b" in insert
+    await sink.close()
