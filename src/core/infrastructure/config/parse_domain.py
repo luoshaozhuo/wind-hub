@@ -210,7 +210,11 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
             local_ams_net_id=net_id,
             local_ip=_name(values.get("local_ip"), "ads.local_ip"),
         )
-    return site_id, name, SystemSettings(runtime=runtime, ads=ads)
+    _keys(raw, {"site", "runtime", "ads", "logs"}, "system.yaml")
+    logs_raw = _map(raw.get("logs", {}), "system.logs")
+    _keys(logs_raw, set(LogSettings.__dataclass_fields__), "system.logs")
+    logs = LogSettings(**logs_raw)
+    return site_id, name, SystemSettings(runtime=runtime, ads=ads, logs=logs)
 
 
 _ADS_LOGICAL_TYPES: dict[str, str] = {
