@@ -1046,7 +1046,11 @@ class ADSDriver:
             )
             if not confirmed:
                 route.unsafe_reason = "physical ADS close not confirmed"
-                logger.error("%sADS route %s quarantined: close unconfirmed", self._label, route.key)
+                logger.error(
+                    "%sADS route %s quarantined: close unconfirmed",
+                    self._label,
+                    route.key,
+                )
             route.active.discard(self)
             route.closing.discard(session)
             route.op_lock.release()
