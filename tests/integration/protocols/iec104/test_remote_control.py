@@ -319,8 +319,9 @@ class TestInterrogationDispatch:
         )
         received: list[ProtocolSample] = []
 
-        async def cb(sample: ProtocolSample) -> None:
-            received.append(sample)
+        async def cb(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                received.append(sample)
 
         await driver.connect()
         await driver.listen((), cb)
