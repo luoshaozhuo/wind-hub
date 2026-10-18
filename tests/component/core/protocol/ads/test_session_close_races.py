@@ -215,7 +215,7 @@ def _attach(driver: ADSDriver, connection: _ThreadedConnection) -> _AdsSession:
     return session
 
 
-async def _noop(_sample: ProtocolSample) -> None:
+async def _noop(_samples: tuple[ProtocolSample, ...]) -> None:
     pass
 
 
@@ -457,7 +457,7 @@ async def test_r14_worker_processing_batch_on_close_cancels_and_drains_queue(
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def slow_cb(_sample: ProtocolSample) -> None:
+    async def slow_cb(_samples: tuple[ProtocolSample, ...]) -> None:
         entered.set()
         await release.wait()
 
