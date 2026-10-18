@@ -23,7 +23,7 @@ import struct
 from collections.abc import Awaitable, Callable, Sequence
 from ctypes import c_ubyte
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pyads  # type: ignore[import-untyped]
 
@@ -133,12 +133,19 @@ class ADSSubscription:
             cycle_time=self._cycle_time * 1000.0,
         )
         buffer_type = c_ubyte * block.size
-        wrapped = self._session.notification(buffer_type)(self._block_callback(block, generation))
+        wrapped = self._block_callback(block, generation)
+        key = (
+            block.group,
+            block.offset,
+            block.size,
+            pyads.ADSTRANS_SERVERCYCLE,
+            self._cycle_time,
+        )
         # 注册任务独立于等待者：外层协程被取消后同步线程仍可能成功返回
         # Handle；凭据在任务体内、to_thread 返回的那一刻入表，与等待者
         # 是否取消无关，避免“服务端已注册、客户端丢失 Handle”。
         register_task = asyncio.create_task(
-            self._add_notification((block.group, block.offset), attr, wrapped),
+            self._add_notification(key, attr, wrapped, buffer_type),
             name="ads-add-device-notification",
         )
         self._pending_registrations.add(register_task)
@@ -147,20 +154,16 @@ class ADSSubscription:
 
     async def _add_notification(
         self,
-        address: tuple[int, int],
+        key: tuple[int, int, int, int, float],
         attr: pyads.NotificationAttrib,
         wrapped: Callable[..., None],
+        buffer_type: object,
     ) -> tuple[Any, Any]:
-        handle = await self._session.execute(
-            "add_device_notification",
-            address,
-            attr,
-            wrapped,
-        )
-        # 此刻同步注册已确认成功：先记录凭据，任务再返回。
-        confirmed = cast(tuple[Any, Any], handle)
-        self._handles.append(confirmed)
-        return confirmed
+        await self._session.acquire_notification(key, attr, wrapped, buffer_type)
+        # 注册已确认；逻辑引用登记先于 task 返回，取消不会丢失释放权。
+        token: tuple[Any, Any] = (key, wrapped)
+        self._handles.append(token)
+        return token
 
     def _block_callback(self, block: NotificationBlock, generation: int) -> Callable[..., None]:
         """一个 ADS 原生通知解码成一个批次，跨线程只投递一次。"""
@@ -229,11 +232,7 @@ class ADSSubscription:
         while self._handles:
             handle = self._handles.pop(0)
             try:
-                await self._session.execute(
-                    "del_device_notification",
-                    handle[0],
-                    handle[1],
-                )
+                await self._session.release_notification(handle[0], handle[1])
             except Exception:
                 # 服务端可能已注销也可能未注销：本地状态不确定，显式记录。
                 self._unconfirmed_handles.append(handle)
