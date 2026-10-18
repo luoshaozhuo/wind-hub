@@ -108,7 +108,7 @@ class FileSink:
                     metadata = os.fstat(fd)
                     if not stat.S_ISREG(metadata.st_mode):
                         raise SinkError(f"CSV segment is not a regular file: {path}")
-                    candidate = os.fdopen(fd, "r+b", buffering=0)
+                    candidate = os.fdopen(fd, "r+b")
                 except BaseException:
                     os.close(fd)
                     raise
