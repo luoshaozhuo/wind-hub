@@ -23,7 +23,6 @@ from collections.abc import Callable
 
 import pytest
 
-from core.application.errors import ProtocolError
 from core.domain import (
     BusinessPointId,
     ConnectionEndpoint,
@@ -33,7 +32,7 @@ from core.domain import (
     PointTableId,
     Protocol,
 )
-from core.infrastructure.protocol.ads.driver import ADSDriver, _AdsSession
+from core.infrastructure.protocol.ads.driver import ADSDriver, _AdsSession, _route_state
 from tests.support.units import NONE_UNIT
 
 pytestmark = [pytest.mark.ads]
@@ -135,6 +134,20 @@ def _detach(driver: ADSDriver) -> None:
     driver._connected = False  # noqa: SLF001
 
 
+async def _begin_detached_close(driver: ADSDriver, session: _AdsSession) -> None:
+    """模拟 _close_all 的路由保留：摘除前取得路由锁，物理收敛回调时释放。
+
+    独立调用 ``session.aclose()`` 不会经过 Driver 的路由协调器；这里显式
+    复用生产代码的保留/释放路径，才能复现"同路由新连接被挡"的真实条件。
+    """
+    route = _route_state(driver._route_key)  # noqa: SLF001
+    await route.op_lock.acquire()
+    _detach(driver)
+    route.closing.add(session)
+    assert await asyncio.wait_for(session.aclose(_FAST_GRACE), timeout=4.0) is False
+    driver._release_route_after_settle(route, session)  # noqa: SLF001
+
+
 async def _wait_event(event: threading.Event, timeout: float = 2.0) -> None:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
@@ -224,9 +237,8 @@ async def test_t2_connect_waits_for_old_session_close_thread_before_opening_new(
     driver._new_connection = _new_connection_factory(order)  # type: ignore[method-assign]
 
     # 模拟 driver.close() 的有界放弃：先摘除会话，异步预算耗尽，
-    # 物理 close 线程仍在途（_lifecycle 已释放，注册表承载隔离状态）。
-    _detach(driver)
-    assert await asyncio.wait_for(session.aclose(_FAST_GRACE), timeout=4.0) is False
+    # 物理 close 线程仍在途；路由锁由收敛回调保留到线程真正结束。
+    await _begin_detached_close(driver, session)
     assert old.close_started.is_set() and not old.close_finished.is_set()
 
     connect_task = asyncio.create_task(driver.connect())
@@ -251,7 +263,6 @@ async def test_t2_unsettled_session_blocks_same_route_other_driver_only() -> Non
     driver_a = _driver(host="192.0.2.31", target_net_id="192.0.2.31.1.1")
     old = CloseBlockingConnection("oldA", order)
     session_a = _attach(driver_a, old)
-    _detach(driver_a)
 
     driver_b = _driver(host="192.0.2.31", target_net_id="192.0.2.31.1.1")
     driver_b._new_connection = _new_connection_factory(order)  # type: ignore[method-assign]
@@ -272,7 +283,7 @@ async def test_t2_unsettled_session_blocks_same_route_other_driver_only() -> Non
 
     driver_c._new_connection = c_factory  # type: ignore[method-assign]
 
-    assert await asyncio.wait_for(session_a.aclose(_FAST_GRACE), timeout=4.0) is False
+    await _begin_detached_close(driver_a, session_a)
 
     connect_b = asyncio.create_task(driver_b.connect())
     connect_c = asyncio.create_task(driver_c.connect())
@@ -294,12 +305,13 @@ async def test_t2_reconnect_refused_when_close_thread_never_converges() -> None:
     driver = _driver()
     old = CloseBlockingConnection("old", order)
     session = _attach(driver, old)
-    _detach(driver)
     driver._new_connection = _new_connection_factory(order)  # type: ignore[method-assign]
 
-    assert await asyncio.wait_for(session.aclose(_FAST_GRACE), timeout=4.0) is False
-    with pytest.raises(ProtocolError, match="close has not converged|not converged"):
-        await asyncio.wait_for(driver._wait_unsettled_settled(0.1), timeout=2.0)  # noqa: SLF001
+    await _begin_detached_close(driver, session)
+    # 路由变更锁未释放前，建链准入有界等待并超时报错，而不是强行建立新会话。
+    route = _route_state(driver._route_key)  # noqa: SLF001
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(route.op_lock.acquire(), timeout=0.1)
     # 被拒绝期间不允许产生新连接；旧线程仍被追踪，随后释放可在下一轮恢复。
     assert not any("new" in event for event in order)
     old.close_gate.set()
