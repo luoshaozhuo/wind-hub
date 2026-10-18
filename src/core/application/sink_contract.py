@@ -10,12 +10,30 @@ YAML/文件细节，也不创建任何运行时资源；sinks.yaml 的原始配�
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Any
+from dataclasses import dataclass
+from collections.abc import Mapping
+from core.domain.sink import Sink, freeze_sink_value
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from core.application.errors import ConfigError
 from core.domain import DataType
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSink(Sink):
+    """Collector 装配期生成的 Sink 运行时描述，不属于 Domain Sink。"""
+
+    points: tuple[Mapping[str, Any], ...] = ()
+
+    def __post_init__(self) -> None:
+        super(ResolvedSink, self).__post_init__()
+        object.__setattr__(
+            self,
+            "points",
+            tuple(freeze_sink_value(point) for point in self.points),
+        )
+
 
 SINK_DATA_TYPES = frozenset(data_type.value for data_type in DataType)
 
