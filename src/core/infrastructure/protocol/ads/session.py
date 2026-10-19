@@ -287,6 +287,10 @@ class _AdsSession:
             self._notifications[key] = entry
             try:
                 callback = self.notification(datatype)(dispatch)
+            except Exception:
+                self._notifications.pop(key, None)
+                raise
+            try:
                 entry.handle = cast(
                     tuple[Any, Any],
                     await self.execute(
@@ -294,7 +298,10 @@ class _AdsSession:
                     ),
                 )
             except BaseException:
-                self._notifications.pop(key, None)
+                # ADD 可能已被 PLC 执行但回复丢失；保留不确定注册身份，
+                # 禁止误认为资源未分配而重复物理注册。
+                entry.callbacks = ()
+                entry.uncertain = True
                 raise
 
     async def release_notification(
