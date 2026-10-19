@@ -831,10 +831,10 @@ class ADSDriver:
                 continue
             prepared.append((index, point, payload))
 
-        try:
-            for start in range(0, len(prepared), chunk_size):
-                chunk = prepared[start : start + chunk_size]
-                request = self._encode_sum_write(chunk)
+        for start in range(0, len(prepared), chunk_size):
+            chunk = prepared[start : start + chunk_size]
+            request = self._encode_sum_write(chunk)
+            try:
                 raw = await session.execute(
                     "read_write",
                     ADSIGRP_SUMUP_WRITE,
@@ -845,20 +845,31 @@ class ADSDriver:
                     check_length=False,
                 )
                 errors = _decode_sum_write_errors(raw, len(chunk))
-                for (index, point, _), error in zip(chunk, errors, strict=True):
+            except Exception as exc:
+                # 此块可能已经执行，只是确认丢失；后续块则确定未发送。
+                for index, point, _ in chunk:
                     results[index] = ProtocolWriteResult(
                         point_id=point.point_id,
-                        # error == 0 为设备确认成功；否则设备返回明确
-                        # ADS 错误码——两种结果都有协议证据。
-                        outcome=(
-                            WriteOutcome.CONFIRMED_SUCCESS
-                            if error == 0
-                            else WriteOutcome.CONFIRMED_FAILURE
-                        ),
-                        message=None if error == 0 else f"ADS write error {error}",
+                        outcome=WriteOutcome.UNKNOWN,
+                        message=f"ADS sum write confirmation unavailable: {exc}",
                     )
-        except Exception as exc:
-            raise ProtocolError(f"ADS sum write failed: {exc}") from exc
+                for index, point, _ in prepared[start + len(chunk) :]:
+                    results[index] = ProtocolWriteResult(
+                        point_id=point.point_id,
+                        outcome=WriteOutcome.CONFIRMED_FAILURE,
+                        message="ADS sum write not sent after previous chunk failed",
+                    )
+                break
+            for (index, point, _), error in zip(chunk, errors, strict=True):
+                results[index] = ProtocolWriteResult(
+                    point_id=point.point_id,
+                    outcome=(
+                        WriteOutcome.CONFIRMED_SUCCESS
+                        if error == 0
+                        else WriteOutcome.CONFIRMED_FAILURE
+                    ),
+                    message=None if error == 0 else f"ADS write error {error}",
+                )
 
         if any(result is None for result in results):
             raise RuntimeError("ADS sum write did not produce a result for every point")
