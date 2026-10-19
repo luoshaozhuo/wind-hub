@@ -7,7 +7,7 @@ import base64
 import hashlib
 import json
 import urllib.request
-from datetime import UTC
+from datetime import UTC, datetime
 from urllib.error import HTTPError, URLError
 
 from core.application.protocol_contract import ConnectionHealth
@@ -22,7 +22,7 @@ def _sql_text(value: str) -> str:
     return "'" + value.replace("\\", "\\\\").replace("'", "''") + "'"
 
 
-def _timestamp_ms(value: object) -> int:
+def _timestamp_ms(value: datetime) -> int:
     return int(value.astimezone(UTC).timestamp() * 1000)
 
 
@@ -59,7 +59,11 @@ class TDengineSink:
         except (HTTPError, URLError, TimeoutError, ValueError) as exc:
             raise SinkError(f"TDengine request failed: {type(exc).__name__}") from exc
         if not isinstance(body, dict) or body.get("code") != 0:
-            description = body.get("desc", "invalid response") if isinstance(body, dict) else "invalid response"
+            description = (
+                body.get("desc", "invalid response")
+                if isinstance(body, dict)
+                else "invalid response"
+            )
             raise SinkError(f"TDengine SQL rejected: {description}")
 
     async def _blocking(self, sql: str) -> None:
