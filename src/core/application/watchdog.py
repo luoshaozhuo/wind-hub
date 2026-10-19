@@ -60,6 +60,9 @@ class WatchdogUseCase:
         self._enabled = True
         self._generation = 0
         self._pending_restore: ReconnectCallback | None = None
+        self._health_failures = 0
+        self._retry_level = 0
+        self._next_reconnect_at = 0.0
 
     def configure(
         self,
@@ -104,11 +107,29 @@ class WatchdogUseCase:
         if not self._enabled:
             return health
         if health.healthy:
+            self._health_failures = 0
+            self._retry_level = 0
+            self._next_reconnect_at = 0.0
             if self._pending_restore is not None:
                 await self._restore_after_connect(self._pending_restore)
             return health
 
-        await self._reconnect_if_current(generation)
+        self._health_failures += 1
+        now = asyncio.get_running_loop().time()
+        if self._health_failures < 2 or now < self._next_reconnect_at:
+            return health
+        try:
+            reconnected = await self._reconnect_if_current(generation)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self._retry_level = min(self._retry_level + 1, 4)
+            self._next_reconnect_at = now + self._interval * (2 ** self._retry_level)
+            raise
+        if reconnected:
+            self._health_failures = 0
+            self._retry_level = 0
+            self._next_reconnect_at = 0.0
         return health
 
     async def reconnect(
@@ -133,6 +154,9 @@ class WatchdogUseCase:
         """停止后续检查；不会在停止后发起新的重连。"""
         self._enabled = False
         self._pending_restore = None
+        self._health_failures = 0
+        self._retry_level = 0
+        self._next_reconnect_at = 0.0
         self._wake.set()
         task = self._task
         self._task = None
