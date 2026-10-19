@@ -148,9 +148,17 @@ async def test_metadata_never_triggers_field_io() -> None:
 async def test_metadata_reflects_task_and_sink_changes_after_reload() -> None:
     """Task 停用与 Sink 删除在 activate 后正确反映到采集路径。"""
     from collector.application.config import CollectionTask
-    from core.domain import DeviceGroupId, Sink
+    from core.application.sink_contract import ResolvedSink
+    from core.domain import DeviceGroupId
 
-    enabled_s1 = Sink(sink_id="s1", kind="redis", enabled=True, connection={})
+    # 与生产 loader 同形：装配期 config.sinks 携带 task_sources 白名单。
+    enabled_s1 = ResolvedSink(
+        sink_id="s1",
+        kind="redis",
+        enabled=True,
+        connection={"host": "127.0.0.1", "port": 6379},
+        task_sources={"t1": (("dev1", "p1"),)},
+    )
     config = make_collector_config(sinks={"s1": enabled_s1})
     runtime, _ = make_runtime(config)
     state: dict[str, object] = {"config": config, "hash": "h1"}
