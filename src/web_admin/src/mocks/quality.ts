@@ -67,12 +67,7 @@ function deliveryChannels(factor: number): Channel[] {
         object: s.name,
         source: 'sink',
         protocol: s.type,
-        target:
-          s.type === 'file'
-            ? String(s.connection.path ?? '')
-            : s.type === 'redis'
-              ? `${String(s.connection.host ?? '')}:${String(s.connection.port ?? '')}`
-              : String(s.connection.host ?? ''),
+        target: `${String(s.connection.host ?? '')}:${String(s.connection.port ?? '')}`,
         state,
         timeouts: runtime.error ? factor : 0,
         reconnects: runtime.error ? 2 * factor : 0,
