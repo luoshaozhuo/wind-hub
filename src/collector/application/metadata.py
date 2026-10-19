@@ -83,7 +83,6 @@ class CollectorMetadataService:
             task_ids = tuple(sorted(task.task_id for task in tasks))
             # Redis/TDengine Sink 发布 Task 路由的全部点；Modbus Sink 只发布
             # 显式映射的点（见 SinkReferenceExporter），未映射不得上报。
-            resolved_sinks = config.sinks
             sink_ids = tuple(
                 sorted(
                     {
@@ -91,18 +90,16 @@ class CollectorMetadataService:
                         for task in tasks
                         for sink_id in task.sink_ids
                         if sink_id in config.sinks
-                        and config.sinks[sink_id].enabled
+                        for sink in (config.sinks[sink_id],)
+                        if sink.enabled
                         and (
-                            config.sinks[sink_id].kind != "modbus"
-                            or any(
-                                mapping["source"]["device_id"] == device_id
-                                and mapping["source"]["point_id"] == point_id
-                                for mapping in (
-                                    resolved.points
-                                    if isinstance(
-                                        resolved := resolved_sinks[sink_id], ResolvedSink
-                                    )
-                                    else ()
+                            sink.kind != "modbus"
+                            or (
+                                isinstance(sink, ResolvedSink)
+                                and any(
+                                    mapping["source"]["device_id"] == device_id
+                                    and mapping["source"]["point_id"] == point_id
+                                    for mapping in sink.points
                                 )
                             )
                         )
