@@ -688,8 +688,7 @@ class IEC104Driver:
         只记 debug 日志，避免污染业务点表。
         """
         del interval
-        if self._session is None:
-            raise ProtocolError("IEC104 listen requires an established connection")
+        self._require_session()
         if point_ids:
             for point_id in point_ids:
                 self._require_point(point_id)
@@ -947,11 +946,8 @@ class IEC104Driver:
             return
         session.enabled = enabled
         if not enabled:
-            # 对端关闭数据传输（或链路停使能）：结束在途应用请求。
-            self._fail_session(
-                session,
-                ProtocolConnectionError("IEC104 data transfer disabled by peer"),
-            )
+            # STOPDT 后不得复用 failed 会话；由上层重新建链及恢复监听。
+            self._invalidate_session(session, "IEC104 data transfer disabled by peer")
 
     async def _on_session_end(self, session: _Session) -> None:
         if self._session is session:
