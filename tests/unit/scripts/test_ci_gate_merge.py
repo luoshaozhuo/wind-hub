@@ -235,6 +235,36 @@ def test_changed_test_file_runs_itself(
     assert selected == ["tests/unit/scripts/test_ci_scope.py"]
 
 
+def test_deleted_test_file_falls_back_to_existing_parent(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 删除 FileSink 时旧测试文件随提交消失（PR #92 的真实形态）：
+    # 不得把删除路径当作选择器漂移阻断合并，而应回退到最近的现存祖先目录。
+    selected, labels, _ = _selected_paths(
+        monkeypatch,
+        capsys,
+        "src/core/infrastructure/sink/redis.py",
+        "tests/unit/core/test_removed_policy.py",
+        "tests/integration/sinks/removed_pkg/test_removed_real.py",
+    )
+    assert "tests/unit/core" in selected
+    assert "tests/integration/sinks" in selected
+    assert "tests/unit/core/test_removed_policy.py" not in selected
+    assert "tests/integration/sinks/removed_pkg/test_removed_real.py" not in selected
+    assert "affected-tests" in labels
+
+
+def test_deleted_test_file_alone_selects_surrounding_suite(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    selected, _, _ = _selected_paths(
+        monkeypatch,
+        capsys,
+        "tests/unit/collector/sink/test_removed_old_sink.py",
+    )
+    assert selected == ["tests/unit/collector/sink"]
+
+
 def test_missing_candidate_path_fails_closed(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
