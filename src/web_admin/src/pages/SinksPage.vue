@@ -72,9 +72,6 @@ function load(sink: SinkDef) {
   Object.assign(draft, {
     name: sink.name,
     enabled: sink.enabled,
-    path: String(connection.path ?? ''),
-    maxSizeMb: Number(connection.max_size_mb ?? 100),
-    retentionDays: Number(connection.retention_days ?? 30),
     host: String(connection.host ?? 'localhost'),
     port: Number(connection.port ?? (sink.type === 'redis' ? 6379 : sink.type === 'tdengine' ? 6041 : 502)),
     database: Number(connection.database ?? 0),
@@ -189,7 +186,7 @@ function save() {
       failures_total: 0,
       dropped_points: 0,
       verification: { state: 'never', checked_at: '', passed: 0, total: 0, checks: [] },
-      has_password: draft.type === 'redis' && Boolean(draft.password),
+      has_password: draft.type !== 'modbus' && Boolean(draft.password),
     }
     configStore.mutate(() => configStore.sinks.push(sink))
   } else if (selected.value) {
@@ -197,7 +194,7 @@ function save() {
     configStore.mutate(() => {
       sink.enabled = draft.enabled
       sink.connection = values
-      if (draft.type === 'redis') {
+      if (draft.type === 'redis' || draft.type === 'tdengine') {
         sink.has_password = Boolean(draft.password) || (!draft.clearPassword && sink.has_password)
       }
     })
@@ -251,7 +248,7 @@ async function remove(sink: SinkDef) {
     <el-row justify="space-between" align="middle" :gutter="16">
       <el-col :xs="24" :sm="12">
         <h1>Sinks</h1>
-        <p>配置 Redis 和 Modbus 输出目标；状态由 Collector 返回。</p>
+        <p>配置 Redis、TDengine 和 Modbus 输出目标；状态由 Collector 返回。</p>
       </el-col>
       <el-col :xs="24" :sm="12">
         <el-row justify="end" :gutter="8">
