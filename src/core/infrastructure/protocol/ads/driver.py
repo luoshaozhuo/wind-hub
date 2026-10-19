@@ -705,7 +705,7 @@ class ADSDriver:
 
         ProtocolWrite.point 必须是已配置的 Point Key。
 
-        配置/取值级问题返回失败结果；连接/传输级问题统一抛 ProtocolError。
+        配置/取值级问题返回失败；提交后确认不明返回 UNKNOWN，不自动重发。
 
         不存在自动重发：取消发生在命令进入 AdsLib 之后时，工作线程仍会
         跑完唯一一次写入，结果被丢弃（见 :class:`_AdsSession`）。
@@ -931,15 +931,18 @@ class ADSDriver:
                 datatype,
             )
         except Exception as exc:
-            # 点级 ADS 错误（如 symbol 在 PLC 侧已删除）只收敛为单点失败；
-            # 连接/传输级异常继续抛出，由调用方统一断线处理。
+            # 确定的点级拒绝是失败；传输确认丢失时可能已执行，必须 UNKNOWN。
             if _is_point_level_error(exc):
                 return ProtocolWriteResult(
                     point_id=mapped.point_id,
                     outcome=WriteOutcome.CONFIRMED_FAILURE,
                     message=str(exc) or type(exc).__name__,
                 )
-            raise
+            return ProtocolWriteResult(
+                point_id=mapped.point_id,
+                outcome=WriteOutcome.UNKNOWN,
+                message=f"ADS write confirmation unavailable: {exc}",
+            )
         return ProtocolWriteResult(
             point_id=mapped.point_id,
             outcome=WriteOutcome.CONFIRMED_SUCCESS,
