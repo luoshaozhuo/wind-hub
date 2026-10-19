@@ -104,7 +104,7 @@ class TestExceptionResponseClassification:
         ), "异常响应导致的采集失败必须可见，不得静默吞掉"
 
     async def test_fixing_point_table_recovers_without_reconnect(
-        self, app_factory, tmp_path: Path
+        self, app_factory, redis_service: str, tmp_path: Path
     ) -> None:
         sinks, tasks = _redis_sink(redis_service, f"wind-hub-exception-{tmp_path.name}")
         ctx = await app_factory(point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks)

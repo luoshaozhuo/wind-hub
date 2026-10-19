@@ -307,5 +307,5 @@ async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
 
     retry = await service.reload()
     assert retry.success, retry.errors
-    assert service.current_config.sinks["s1"].connection["path"] == "/tmp/b.csv"
+    assert service.current_config.sinks["s1"].connection["host"] == "127.0.0.2"
     assert "s1" in runtime.sinks

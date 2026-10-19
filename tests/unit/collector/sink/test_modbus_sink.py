@@ -17,6 +17,7 @@ from collector.infrastructure.config.loader import load_collector_config
 from core.application import ConfigError, Quality
 from core.application.sink_contract import (
     ModbusSinkAddress,
+    ResolvedSink,
     ResolvedSinkPoint,
     SinkSource,
 )
@@ -245,9 +246,9 @@ def test_pipeline_applies_sink_scale_offset() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _sink_config(**conn: object) -> Sink:
+def _sink_config(**conn: object) -> ResolvedSink:
     connection = ModbusSinkConnection(host="127.0.0.1", port=15020, **conn)
-    return Sink(
+    return ResolvedSink(
         sink_id="mb",
         kind="modbus",
         enabled=True,

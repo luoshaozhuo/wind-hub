@@ -91,7 +91,10 @@ def write_functional_config(
     system: dict[str, Any] | None = None,
     device_models: dict[str, Any] | None = None,
 ) -> Path:
-    """写出单 Modbus 设备的测试配置；缺省输出为本机 Redis。\n\n    如需隔离 Redis 地址，应显式提供 ``sinks``。\n    """
+    """写出单 Modbus 设备的测试配置；缺省输出为本机 Redis。
+
+    如需隔离 Redis 地址，应显式提供 ``sinks``。
+    """
     if callable(devices):
         devices = devices(port)
     return write_config_tree(

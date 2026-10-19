@@ -13,6 +13,7 @@ import pytest
 from collector.application.config import CollectorConfig
 from collector.application.config_service import CollectorConfigService
 from collector.application.metadata import CollectorMetadataService
+from core.application.sink_contract import ResolvedSink
 from core.domain import (
     BusinessPointId,
     ConnectionEndpoint,
@@ -135,16 +136,23 @@ def _task(
 def _sink(
     sink_id: str,
     *,
-    kind: str = "file",
+    kind: str = "redis",
     enabled: bool = True,
     points: tuple[dict[str, object], ...] = (),
 ) -> Sink:
-    return Sink(
+    # 生产装配期 CollectorConfig.sinks 承载的是 ResolvedSink（携带解析期点）；
+    # 元数据发布路由据此判断 Modbus Sink 是否显式映射某点。
+    connection = (
+        {"host": "127.0.0.1", "port": 1502}
+        if kind == "modbus"
+        else {"host": "127.0.0.1", "port": 6379}
+    )
+    return ResolvedSink(
         sink_id=sink_id,
         kind=kind,
         enabled=enabled,
-        connection={"path": "/tmp/out"},
-        points=points,  # type: ignore[arg-type]
+        connection=connection,
+        points=points,
     )
 
 

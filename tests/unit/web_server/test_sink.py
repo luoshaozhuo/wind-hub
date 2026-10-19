@@ -63,17 +63,17 @@ async def test_verify_preserves_per_worker_results() -> None:
 def test_list_sinks_exposes_no_sink_level_points() -> None:
     """新契约下点属于 Task outputs；Sink 快照不得再携带 sink 级 points。
 
-    即便领域 Sink 上残留解析期点（Collector 侧），Web 快照与 API
-    也不暴露该字段，避免前端继续维护已删除的编辑路径。
+    领域 Sink 已无 points；Collector 装配期的 ResolvedSink 仍携带解析期点，
+    但 Web 快照与 API 不暴露该字段，避免前端继续维护已删除的编辑路径。
     """
     from core.application.config_snapshot import ConfigSnapshot
-    from core.domain.sink import Sink
+    from core.application.sink_contract import ResolvedSink
     from web_server.application.sink.service import SinkService
 
     config = MagicMock()
     config.current_config = MagicMock(spec=ConfigSnapshot)
     config.current_config.sinks = {
-        "modbus_scada": Sink(
+        "modbus_scada": ResolvedSink(
             sink_id="modbus_scada",
             kind="modbus",
             enabled=False,

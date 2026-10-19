@@ -77,7 +77,7 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
     }
     documents = {name: {} for name in names}
     mutator(documents)
-    assert documents["sinks.yaml"]["sinks"]["s1"]["connection"] == {"path": "/tmp/out"}
+    assert documents["sinks.yaml"]["sinks"]["s1"]["connection"] == {"host": "127.0.0.1"}
     assert documents["devices.yaml"]["devices"]["d1"]["model_id"] == "m1"
     assert documents["devices.yaml"]["devices"]["d1"]["device_group_ids"] == ["g1"]
     assert documents["tasks.yaml"]["tasks"]["t1"]["device_group_id"] == "g1"
