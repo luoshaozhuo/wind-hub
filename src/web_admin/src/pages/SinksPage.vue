@@ -73,7 +73,9 @@ function load(sink: SinkDef) {
     name: sink.name,
     enabled: sink.enabled,
     host: String(connection.host ?? 'localhost'),
-    port: Number(connection.port ?? (sink.type === 'redis' ? 6379 : sink.type === 'tdengine' ? 6041 : 502)),
+    port: Number(
+      connection.port ?? (sink.type === 'redis' ? 6379 : sink.type === 'tdengine' ? 6041 : 502),
+    ),
     database: Number(connection.database ?? 0),
     username: String(connection.username ?? ''),
     password: '',
