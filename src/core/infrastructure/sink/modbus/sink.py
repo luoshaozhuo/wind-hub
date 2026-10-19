@@ -43,6 +43,10 @@ class ModbusSink(SinkPort):
                 )
 
         self._data_path = ModbusSinkDataPath(points)
+        self._task_points = {
+            task_id: [point for point in points if point.ref in refs]
+            for task_id, refs in (config.task_refs or {}).items()
+        }
         self._server = ModbusTcpSinkServer(connection, self._data_path)
 
     async def open(self) -> None:
@@ -68,7 +72,7 @@ class ModbusSink(SinkPort):
             value for value in batch if (value.device_id, value.point_id) in allowed
         ]
         if filtered:
-            self._data_path.update(filtered)
+            self._data_path.update_selected(filtered, self._task_points.get(task_id, []))
 
     async def flush(self) -> None:
         """内存 datastore 无额外 flush 动作。"""
