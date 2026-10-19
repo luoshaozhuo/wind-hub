@@ -401,7 +401,16 @@ def merge_gate(paths: list[str]) -> bool:
         elif p.startswith("configs/"):
             candidates.append("tests/contract")
         elif p.startswith("tests/") and p.endswith(".py"):
-            candidates.append(p)
+            if (REPO_ROOT / p).is_file():
+                candidates.append(p)
+            else:
+                # 提交删除了测试文件（含其父目录被一并删除）时无法自引用；
+                # 回退到最近的现存祖先测试目录，既不把删除路径误判为选择器漂移，
+                # 也仍要求运行其周边测试。真正的选择器漂移由现存性检查继续 fail-closed。
+                ancestor = Path(p).parent
+                while ancestor.name and not (REPO_ROOT / ancestor).is_dir():
+                    ancestor = ancestor.parent
+                candidates.append(ancestor.as_posix())
         elif p in BACKEND_GLOBAL_FILES or (
             p.startswith("tests/") and not p.startswith("tests/web_admin/")
         ):
