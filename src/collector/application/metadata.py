@@ -81,8 +81,7 @@ class CollectorMetadataService:
                 for task in tasks_by_group.get((group_id, point_group), ())
             )
             task_ids = tuple(sorted(task.task_id for task in tasks))
-            # Redis/TDengine Sink 发布 Task 路由的全部点；Modbus Sink 只发布
-            # 显式映射的点（见 SinkReferenceExporter），未映射不得上报。
+            # 仅将当前 Task 实际路由到 Sink 的测点报告为输出。
             sink_ids = tuple(
                 sorted(
                     {
@@ -93,9 +92,15 @@ class CollectorMetadataService:
                         for sink in (config.sinks[sink_id],)
                         if sink.enabled
                         and (
-                            sink.kind != "modbus"
+                            (
+                                sink.kind in {"redis", "tdengine"}
+                                and isinstance(sink, ResolvedSink)
+                                and (device_id, point_id)
+                                in (sink.task_sources or {}).get(str(task.task_id), ())
+                            )
                             or (
-                                isinstance(sink, ResolvedSink)
+                                sink.kind == "modbus"
+                                and isinstance(sink, ResolvedSink)
                                 and any(
                                     mapping["source"]["device_id"] == device_id
                                     and mapping["source"]["point_id"] == point_id
