@@ -118,10 +118,10 @@ class AdminStateService:
                     for item in sinks
                 }
             }
-            # Redis 密码属于只写字段；UI 不回显时沿用同一个 Sink 的原值。
+            # Redis/TDengine 密码属于只写字段；UI 不回显时沿用同类型 Sink 原值。
             for sink_id, entry in documents["sinks.yaml"]["sinks"].items():
                 old_sink = previous_sinks.get(sink_id, {})
-                if entry["type"] != "redis" or old_sink.get("type") != "redis":
+                if entry["type"] not in {"redis", "tdengine"} or old_sink.get("type") != entry["type"]:
                     continue
                 old_connection = old_sink.get("connection", {})
                 if "password" not in entry["connection"]:
