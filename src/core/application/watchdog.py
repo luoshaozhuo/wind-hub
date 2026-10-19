@@ -55,6 +55,7 @@ class WatchdogUseCase:
         self._name = name
 
         self._reconnect_lock = asyncio.Lock()
+        self._restore_lock = asyncio.Lock()
         self._wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._enabled = True
@@ -206,11 +207,18 @@ class WatchdogUseCase:
         return True
 
     async def _restore_after_connect(self, callback: ReconnectCallback) -> None:
-        async with self._reconnect_lock:
+        # 不持重连锁调用业务回调，允许回调触发显式 reconnect。
+        # 独立锁只用于防止两个周期重复恢复同一个订阅。
+        async with self._restore_lock:
             if not self._enabled or self._pending_restore is not callback:
                 return
+            generation = self._generation
             await callback()
-            if self._pending_restore is callback:
+            if (
+                self._enabled
+                and self._generation == generation
+                and self._pending_restore is callback
+            ):
                 self._pending_restore = None
 
     async def _run(self) -> None:
