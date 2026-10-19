@@ -12,8 +12,8 @@ from datetime import UTC, datetime
 from urllib.error import HTTPError, URLError
 
 from core.application.protocol_contract import ConnectionHealth
-from core.application.sink_error import SinkError
 from core.application.sink_contract import ResolvedSink
+from core.application.sink_error import SinkError
 from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import TDengineSinkConnection
@@ -26,6 +26,11 @@ def _sql_text(value: str) -> str:
 
 def _timestamp_ms(value: datetime) -> int:
     return int(value.astimezone(UTC).timestamp() * 1000)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def _table_name(device_id: str, point_id: str) -> str:
@@ -64,7 +69,8 @@ class TDengineSink:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=self._config.timeout) as response:
+            opener = urllib.request.build_opener(_NoRedirect())
+            with opener.open(request, timeout=self._config.timeout) as response:
                 body = json.loads(response.read())
         except (HTTPError, URLError, TimeoutError, ValueError) as exc:
             raise SinkError(f"TDengine request failed: {type(exc).__name__}") from exc
