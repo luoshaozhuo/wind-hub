@@ -63,9 +63,9 @@ def collector_config_from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
     )
 
 
-def _task_group_sources(snapshot: ConfigSnapshot, task: Task) -> list[list[str]]:
+def _task_group_sources(snapshot: ConfigSnapshot, task: Task) -> tuple[tuple[str, str], ...]:
     """展开空 points 输出：任务设备组 × 测点组内的全部 (device, point)。"""
-    sources: list[list[str]] = []
+    sources: list[tuple[str, str]] = []
     for device in snapshot.site.devices.values():
         if not device.enabled or task.device_group_id not in device.device_group_ids:
             continue
@@ -73,8 +73,8 @@ def _task_group_sources(snapshot: ConfigSnapshot, task: Task) -> list[list[str]]
         table = snapshot.point_tables[model.point_table_id]
         for point_id, point in table.points.items():
             if task.point_group in point.point_groups:
-                sources.append([str(device.device_id), point_id])
-    return sources
+                sources.append((str(device.device_id), point_id))
+    return tuple(sources)
 
 
 def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
@@ -179,10 +179,10 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
             # （Modbus 已在解析层强制显式点表，空列表不会走到这里）。
             task_sources = {
                 task.task_id: (
-                    [
-                        [raw["source"]["device_id"], raw["source"]["point_id"]]
+                    tuple(
+                        (raw["source"]["device_id"], raw["source"]["point_id"])
                         for raw in output.points
-                    ]
+                    )
                     if output.points
                     else _task_group_sources(snapshot, task)
                 )
