@@ -174,15 +174,14 @@ class SinkService:
                 raise ValueError("sinks.yaml sinks must be a mapping")
             connection = yaml_plain(cfg.connection)
             previous = current.get(name, {})
-            if cfg.kind == "redis" and previous.get("type") == "redis":
+            if cfg.kind in {"redis", "tdengine"} and previous.get("type") == cfg.kind:
                 old_connection = previous.get("connection", {})
                 if "password" not in connection:
                     # 只写字段缺省：UI 未回显密码，沿用原值。
                     if old_connection.get("password"):
                         connection["password"] = old_connection["password"]
                 elif not connection.get("password"):
-                    # 显式清空（null/""）：删除凭据键；仍带 username 时
-                    # 由配置校验（ACL 必须同时有密码）拒绝 Apply。
+                    # 显式清空（null/""）：删除凭据键；需密码的连接由配置校验拒绝。
                     connection.pop("password", None)
             current[name] = {
                 "type": cfg.kind,
