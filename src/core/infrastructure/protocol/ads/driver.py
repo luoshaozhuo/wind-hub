@@ -293,7 +293,11 @@ class ADSDriver:
                         )
 
                 for attempt in range(2 if self._config.route_auto_add else 1):
-                    session = _AdsSession(self._new_connection(), self._label)
+                    session = _AdsSession(
+                        self._new_connection(),
+                        self._label,
+                        max_notifications=self._config.max_notifications_per_connection,
+                    )
                     session.route_key = self._route_key
                     connection = session.connection
                     self._session = session
