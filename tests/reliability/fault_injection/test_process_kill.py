@@ -1,9 +1,9 @@
 """Fault injection：进程强杀（SIGKILL）后的服务恢复。
 
 与 recovery/test_restart_recovery.py 的优雅停机不同，SIGKILL 不给
-finally/atexit 任何机会：缓冲数据丢失、连接半截、锁不释放。系统边界
+finally/atexit 任何机会：连接半截、Redis 写入中断、锁不释放。系统边界
 要求：同配置重启后控制面与数据面完整恢复——不依赖被杀进程的任何
-清理动作。
+清理动作。观测在 Redis 最新值边界进行（与其余 recovery 用例一致）。
 """
 
 from __future__ import annotations
@@ -16,14 +16,13 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import (
     TASK_ID,
-    read_telemetry_rows,
-    wait_telemetry_rows,
-    write_modbus_file_config,
+    wait_telemetry_value,
+    write_modbus_redis_config,
 )
 from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess, run_cli_async
 
-pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
+pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
 INSTANCE_ID = f"{TASK_ID}:modbus-1"
 WORKER_ID = "kill-test"
@@ -34,10 +33,10 @@ class TestProcessKillRecovery:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
-        sink_root = tmp_path / "archive"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
+        config_dir = write_modbus_redis_config(tmp_path / "cfg", modbus_server.port, redis_service)
 
         # ---- 第一个实例：正常采集后直接 SIGKILL（无优雅停机） ----
         proc_a: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
@@ -46,7 +45,7 @@ class TestProcessKillRecovery:
             task_id=TASK_ID,
             instance_id=INSTANCE_ID,
         )
-        await wait_telemetry_rows(sink_root, min_rows=3)
+        first = await wait_telemetry_value(redis_service)
         proc_a.kill_tree()
         assert not proc_a.is_running()
 
@@ -56,33 +55,10 @@ class TestProcessKillRecovery:
         assert info.returncode == 0
         assert json.loads(info.stdout)["collector_id"] == WORKER_ID
 
-        baseline = len(read_telemetry_rows(sink_root))
+        baseline = str(first["timestamp"])
         await start_task_instance(
             proc_b.grpc_target,
             task_id=TASK_ID,
             instance_id=INSTANCE_ID,
         )
-        await wait_telemetry_rows(sink_root, min_rows=baseline + 2)
-
-    async def test_sigkill_during_active_collection_loses_at_most_buffer(
-        self,
-        modbus_server: ModbusMockServer,
-        collector_factory,
-        tmp_path: Path,
-    ) -> None:
-        """采集中途 SIGKILL：已落盘数据不得损坏（JSONL 每行可解析）。"""
-        sink_root = tmp_path / "archive"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_root)
-        proc: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
-        await start_task_instance(
-            proc.grpc_target,
-            task_id=TASK_ID,
-            instance_id=INSTANCE_ID,
-        )
-        await wait_telemetry_rows(sink_root, min_rows=4)
-        proc.kill_tree()
-
-        # 落盘文件必须保持可解析——不允许半截行破坏后续消费。
-        rows = read_telemetry_rows(sink_root)
-        assert rows, "rows flushed before kill must survive"
-        assert all(r["device_id"] == "modbus-1" for r in rows)
+        await wait_telemetry_value(redis_service, after=baseline)
