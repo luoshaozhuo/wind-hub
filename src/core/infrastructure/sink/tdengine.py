@@ -6,6 +6,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import math
 import urllib.request
 from datetime import UTC, datetime
 from urllib.error import HTTPError, URLError
@@ -119,6 +120,8 @@ class TDengineSink:
             stable = f"{self._config.database}.{self._config.stable}"
             statements: list[str] = []
             for point in batch:
+                if isinstance(point.value, float) and not math.isfinite(point.value):
+                    continue
                 raw_value = json.dumps(point.value, ensure_ascii=False, allow_nan=False)
                 if len(raw_value) > 2048:
                     raise SinkError("TDengine point JSON value exceeds 2048 characters")
@@ -140,6 +143,8 @@ class TDengineSink:
                     f"{_sql_text(point.quality.value)}, {receive}, {device}, "
                     f"{_sql_text(str(point.source))})"
                 )
+            if not statements:
+                return
             # 控制 HTTP 请求大小；每个分片独立确认，无自动重传。
             try:
                 for offset in range(0, len(statements), 200):
