@@ -299,13 +299,18 @@ class _AdsSession:
             try:
                 entry.handle = cast(tuple[Any, Any], await asyncio.shield(register))
             except asyncio.CancelledError:
+                # 调用方取消后，仍必须接住底层 ADD 的结果并尝试释放。
+                # 无法确认 DEL 时保留隔离条目，不允许下一次重复注册。
+                entry.callbacks = ()
                 try:
                     entry.handle = cast(tuple[Any, Any], await asyncio.shield(register))
+                    await self.execute(
+                        "del_device_notification", entry.handle[0], entry.handle[1]
+                    )
                 except Exception:
                     entry.uncertain = True
-                entry.callbacks = ()
-                # 注册成功却无人持有引用时，交给后续 Session 关闭收敛；
-                # 不能直接删除登记，避免重复 ADD。
+                else:
+                    self._notifications.pop(key, None)
                 raise
             except Exception:
                 entry.callbacks = ()
