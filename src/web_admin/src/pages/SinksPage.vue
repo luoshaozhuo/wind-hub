@@ -336,7 +336,9 @@ async function remove(sink: SinkDef) {
                 :placeholder="!creating && selected?.has_password ? '已保存密码，留空保持不变' : ''"
               />
             </el-form-item>
-            <el-form-item label="超时（秒）"><el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" /></el-form-item>
+            <el-form-item label="超时（秒）">
+              <el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" />
+            </el-form-item>
             <el-form-item label="TLS"><el-switch v-model="draft.tls" /></el-form-item>
           </template>
           <template v-if="draft.type === 'redis'">
