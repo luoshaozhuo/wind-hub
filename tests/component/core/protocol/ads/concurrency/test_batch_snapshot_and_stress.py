@@ -27,7 +27,7 @@ from core.domain import (
     Protocol,
 )
 from core.infrastructure.protocol.ads import ADSDriver
-from core.infrastructure.protocol.ads.driver import _AdsSession
+from core.infrastructure.protocol.ads.session import _AdsSession
 from tests.support.units import NONE_UNIT
 
 pytestmark = [pytest.mark.ads]
