@@ -73,7 +73,10 @@ function load(sink: SinkDef) {
     name: sink.name,
     enabled: sink.enabled,
     host: String(connection.host ?? 'localhost'),
-    port: Number(connection.port ?? (sink.type === 'redis' ? 6379 : sink.type === 'tdengine' ? 6041 : 502)),
+    port: Number(
+      connection.port ??
+        (sink.type === 'redis' ? 6379 : sink.type === 'tdengine' ? 6041 : 502),
+    ),
     database: Number(connection.database ?? 0),
     username: String(connection.username ?? ''),
     password: '',
@@ -128,9 +131,13 @@ function connection(): Record<string, unknown> {
   }
   if (draft.type === 'tdengine') {
     return {
-      host: draft.host.trim(), port: draft.port, database: draft.tdDatabase.trim(),
-      stable: draft.stable.trim(), username: draft.username.trim(),
-      timeout: draft.timeoutSec, tls: draft.tls,
+      host: draft.host.trim(),
+      port: draft.port,
+      database: draft.tdDatabase.trim(),
+      stable: draft.stable.trim(),
+      username: draft.username.trim(),
+      timeout: draft.timeoutSec,
+      tls: draft.tls,
       ...(draft.password ? { password: draft.password } : {}),
     }
   }
@@ -143,7 +150,10 @@ function validate() {
     return 'Sink ID 已存在'
   if (!draft.host.trim() || draft.port < 1 || draft.port > 65535)
     return '主机和端口必须有效'
-  if (draft.type === 'tdengine' && (!draft.tdDatabase.trim() || !draft.stable.trim() || !draft.username.trim()))
+  if (
+    draft.type === 'tdengine' &&
+    (!draft.tdDatabase.trim() || !draft.stable.trim() || !draft.username.trim())
+  )
     return 'TDengine 数据库、超级表和用户名不能为空'
   if (draft.type === 'tdengine' && creating.value && !draft.password)
     return '新增 TDengine Sink 必须提供密码'
@@ -317,7 +327,15 @@ async function remove(sink: SinkDef) {
             <el-form-item label="Database"><el-input v-model="draft.tdDatabase" /></el-form-item>
             <el-form-item label="Stable"><el-input v-model="draft.stable" /></el-form-item>
             <el-form-item label="Username"><el-input v-model="draft.username" /></el-form-item>
-            <el-form-item label="Password"><el-input v-model="draft.password" type="password" show-password /></el-form-item>
+            <el-form-item label="Password（留空保持已有密码）">
+              <el-input
+                v-model="draft.password"
+                type="password"
+                show-password
+                autocomplete="new-password"
+                :placeholder="!creating && selected?.has_password ? '已保存密码，留空保持不变' : ''"
+              />
+            </el-form-item>
             <el-form-item label="超时（秒）"><el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" /></el-form-item>
             <el-form-item label="TLS"><el-switch v-model="draft.tls" /></el-form-item>
           </template>
