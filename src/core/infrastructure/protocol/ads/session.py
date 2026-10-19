@@ -169,7 +169,9 @@ class _AdsSession:
     时记录成功/失败结局，绝不补第二次 close。
     """
 
-    def __init__(self, connection: Any, label: str = "") -> None:
+    def __init__(
+        self, connection: Any, label: str = "", *, max_notifications: int = 550
+    ) -> None:
         self._connection = connection
         # 设备标签仅用于诊断日志；空标签用于单元测试替身。
         self._label = f"[{label}] " if label else ""
@@ -180,6 +182,7 @@ class _AdsSession:
         self._gate = asyncio.Lock()
         self._closing = False
         self._stats = _CommandStats()
+        self._max_notifications = max_notifications
         self._notification_lock = asyncio.Lock()
         self._notifications: dict[NotificationKey, _SharedNotification] = {}
         # 在途 owner task 强引用集合；done 回调移除并消费其异常。
@@ -265,6 +268,11 @@ class _AdsSession:
                     raise ProtocolError("ADS notification registration is unconfirmed")
                 entry.callbacks = (*entry.callbacks, wrapped)
                 return
+
+            if len(self._notifications) >= self._max_notifications:
+                raise ProtocolError(
+                    f"ADS physical notification limit {self._max_notifications} reached"
+                )
 
             # 只读取不可变回调快照，允许 pyads 的外部线程并发调用。
             def dispatch(*args: Any) -> None:
