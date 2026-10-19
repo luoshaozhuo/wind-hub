@@ -400,4 +400,7 @@ class CollectorSinkService:
                 success=False,
                 message=str(exc) or type(exc).__name__,
             )
-        return SinkWriteResult(success=True)
+        return SinkWriteResult(
+            success=True,
+            message="只读连接诊断通过，未写入历史数据" if diagnostic is not None else "",
+        )
