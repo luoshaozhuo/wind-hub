@@ -57,7 +57,7 @@ def _driver(*points: Point) -> ADSDriver:
 
 
 def _wrap(driver: ADSDriver, connection: _Connection) -> None:
-    from core.infrastructure.protocol.ads.driver import _AdsSession
+    from core.infrastructure.protocol.ads.session import _AdsSession
 
     driver._session = _AdsSession(connection)
 
