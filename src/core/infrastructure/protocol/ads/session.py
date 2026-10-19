@@ -290,16 +290,24 @@ class _AdsSession:
             except Exception:
                 self._notifications.pop(key, None)
                 raise
+            # 实际命令收敛必须独立于注册调用方的取消；只有收到真实结果
+            # 才能把 Handle 所有权登记给逻辑订阅。
+            register = asyncio.create_task(
+                self.execute("add_device_notification", key[:2], attribute, callback),
+                name="ads-physical-notification-register",
+            )
             try:
-                entry.handle = cast(
-                    tuple[Any, Any],
-                    await self.execute(
-                        "add_device_notification", key[:2], attribute, callback
-                    ),
-                )
-            except BaseException:
-                # ADD 可能已被 PLC 执行但回复丢失；保留不确定注册身份，
-                # 禁止误认为资源未分配而重复物理注册。
+                entry.handle = cast(tuple[Any, Any], await asyncio.shield(register))
+            except asyncio.CancelledError:
+                try:
+                    entry.handle = cast(tuple[Any, Any], await asyncio.shield(register))
+                except Exception:
+                    entry.uncertain = True
+                entry.callbacks = ()
+                # 注册成功却无人持有引用时，交给后续 Session 关闭收敛；
+                # 不能直接删除登记，避免重复 ADD。
+                raise
+            except Exception:
                 entry.callbacks = ()
                 entry.uncertain = True
                 raise
