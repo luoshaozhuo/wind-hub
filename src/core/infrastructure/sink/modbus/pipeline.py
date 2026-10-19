@@ -32,8 +32,14 @@ class ModbusSinkDataPath:
         Modbus 寄存器本身没有统一的数据质量通道，因此 BAD/UNCERTAIN 或 None
         不覆盖最近一次 GOOD 值。
         """
+        return self._write_exported(self._exporter.export(batch))
+
+    def update_selected(self, batch: list[PointValue], points: list[ResolvedSinkPoint]) -> int:
+        return self._write_exported(SinkReferenceExporter(points).export(batch))
+
+    def _write_exported(self, exported_points: list) -> int:
         updated = 0
-        for exported in self._exporter.export(batch):
+        for exported in exported_points:
             if exported.quality is not Quality.GOOD or exported.value is None:
                 continue
             self._store.write(encode_modbus_value(exported))
