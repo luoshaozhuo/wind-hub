@@ -147,7 +147,7 @@ class TDengineSink:
                     f"{_sql_text(point.point_id)}) VALUES ("
                     f"{_timestamp_ms(point.timestamp)}, {_sql_text(raw_value)}, "
                     f"{_sql_text(point.quality.value)}, {receive}, {device}, "
-                    f"{_sql_text(str(point.source))})"
+                    f"{_sql_text(point.source or point.timestamp_source)})"
                 )
             if not statements:
                 return
