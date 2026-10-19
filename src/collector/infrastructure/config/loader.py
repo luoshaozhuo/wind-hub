@@ -202,6 +202,17 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
             points=tuple(points),
             task_sources=task_sources,
             task_key_prefixes=task_key_prefixes,
+            task_refs=(
+                {
+                    task.task_id: tuple(
+                        raw.get('ref') or f"{raw['source']['device_id']}.{raw['source']['point_id']}"
+                        for raw in output.points
+                    )
+                    for task, output in task_outputs
+                }
+                if sink.kind == 'modbus'
+                else None
+            ),
         )
     return result
 
