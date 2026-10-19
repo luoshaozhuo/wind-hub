@@ -107,7 +107,7 @@ def test_disabled_task_outputs_are_not_aggregated_into_sinks(tmp_path: Path) -> 
     )
     sink = config.sinks["test_modbus"]
     assert {point["ref"] for point in sink.points} == {"scada_0"}
-    assert set(sink.connection["task_sources"]) == {"t1"}
+    assert set(sink.task_sources) == {"t1"}
 
 
 def test_disabled_task_with_stale_device_does_not_block_startup(tmp_path: Path) -> None:
@@ -138,4 +138,4 @@ def test_disabled_task_with_stale_device_does_not_block_startup(tmp_path: Path) 
     config = collector_config_from_snapshot(
         replace(snapshot, tasks={"t1": enabled_task, "t2": disabled_task})
     )
-    assert set(config.sinks["test_modbus"].connection["task_sources"]) == {"t1"}
+    assert set(config.sinks["test_modbus"].task_sources) == {"t1"}

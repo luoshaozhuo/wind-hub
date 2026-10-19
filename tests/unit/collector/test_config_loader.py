@@ -642,9 +642,9 @@ def test_redis_wildcard_output_expands_to_task_group_sources(tmp_path):
 
     config = load_collector_config(YamlConfigAdapter(config_dir))
 
-    connection = config.sinks["r1"].connection
-    assert connection["task_sources"] == {"t1": (("dev1", "p1"),)}
-    assert connection["task_key_prefixes"] == {"t1": "wf"}
+    sink = config.sinks["r1"]
+    assert sink.task_sources == {"t1": (("dev1", "p1"),)}
+    assert sink.task_key_prefixes == {"t1": "wf"}
 
 
 def test_modbus_output_without_explicit_points_rejected(tmp_path):
