@@ -73,10 +73,7 @@ function load(sink: SinkDef) {
     name: sink.name,
     enabled: sink.enabled,
     host: String(connection.host ?? 'localhost'),
-    port: Number(
-      connection.port ??
-        (sink.type === 'redis' ? 6379 : sink.type === 'tdengine' ? 6041 : 502),
-    ),
+    port: Number(connection.port ?? (sink.type === 'redis' ? 6379 : sink.type === 'tdengine' ? 6041 : 502)),
     database: Number(connection.database ?? 0),
     username: String(connection.username ?? ''),
     password: '',
@@ -148,8 +145,7 @@ function validate() {
   if (!draft.name.trim()) return 'Sink ID 不能为空'
   if (creating.value && configStore.sinks.some((s) => s.name === draft.name.trim()))
     return 'Sink ID 已存在'
-  if (!draft.host.trim() || draft.port < 1 || draft.port > 65535)
-    return '主机和端口必须有效'
+  if (!draft.host.trim() || draft.port < 1 || draft.port > 65535) return '主机和端口必须有效'
   if (
     draft.type === 'tdengine' &&
     (!draft.tdDatabase.trim() || !draft.stable.trim() || !draft.username.trim())
