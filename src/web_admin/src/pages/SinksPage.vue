@@ -319,54 +319,54 @@ async function remove(sink: SinkDef) {
         <el-form-item label="启用">
           <el-switch v-model="draft.enabled" />
         </el-form-item>
-          <el-form-item label="Host"><el-input v-model="draft.host" /></el-form-item>
-          <el-form-item label="Port">
-            <el-input-number v-model="draft.port" :min="1" :max="65535" />
+        <el-form-item label="Host"><el-input v-model="draft.host" /></el-form-item>
+        <el-form-item label="Port">
+          <el-input-number v-model="draft.port" :min="1" :max="65535" />
+        </el-form-item>
+        <template v-if="draft.type === 'tdengine'">
+          <el-form-item label="Database"><el-input v-model="draft.tdDatabase" /></el-form-item>
+          <el-form-item label="Stable"><el-input v-model="draft.stable" /></el-form-item>
+          <el-form-item label="Username"><el-input v-model="draft.username" /></el-form-item>
+          <el-form-item label="Password（留空保持已有密码）">
+            <el-input
+              v-model="draft.password"
+              type="password"
+              show-password
+              autocomplete="new-password"
+              :placeholder="!creating && selected?.has_password ? '已保存密码，留空保持不变' : ''"
+            />
           </el-form-item>
-          <template v-if="draft.type === 'tdengine'">
-            <el-form-item label="Database"><el-input v-model="draft.tdDatabase" /></el-form-item>
-            <el-form-item label="Stable"><el-input v-model="draft.stable" /></el-form-item>
-            <el-form-item label="Username"><el-input v-model="draft.username" /></el-form-item>
-            <el-form-item label="Password（留空保持已有密码）">
-              <el-input
-                v-model="draft.password"
-                type="password"
-                show-password
-                autocomplete="new-password"
-                :placeholder="!creating && selected?.has_password ? '已保存密码，留空保持不变' : ''"
-              />
-            </el-form-item>
-            <el-form-item label="超时（秒）">
-              <el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" />
-            </el-form-item>
-            <el-form-item label="TLS"><el-switch v-model="draft.tls" /></el-form-item>
-          </template>
-          <template v-if="draft.type === 'redis'">
-            <el-form-item label="Database">
-              <el-input-number v-model="draft.database" :min="0" />
-            </el-form-item>
-            <el-form-item label="超时（秒）">
-              <el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" />
-            </el-form-item>
-            <el-form-item label="Key Prefix"><el-input v-model="draft.keyPrefix" /></el-form-item>
-            <el-form-item label="Username（ACL，可空）">
-              <el-input v-model="draft.username" autocomplete="off" />
-            </el-form-item>
-            <el-form-item label="Password（不填写则保持已有密码；设置用户名时必填）">
-              <el-input
-                v-model="draft.password"
-                type="password"
-                show-password
-                autocomplete="new-password"
-                :placeholder="!creating && selected?.has_password ? '已保存密码，留空保持不变' : ''"
-              />
-              <div v-if="!creating && selected?.has_password" class="password-clear">
-                <el-checkbox v-model="draft.clearPassword" :disabled="Boolean(draft.password)">
-                  清空已保存的密码
-                </el-checkbox>
-              </div>
-            </el-form-item>
-          </template>
+          <el-form-item label="超时（秒）">
+            <el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" />
+          </el-form-item>
+          <el-form-item label="TLS"><el-switch v-model="draft.tls" /></el-form-item>
+        </template>
+        <template v-if="draft.type === 'redis'">
+          <el-form-item label="Database">
+            <el-input-number v-model="draft.database" :min="0" />
+          </el-form-item>
+          <el-form-item label="超时（秒）">
+            <el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" />
+          </el-form-item>
+          <el-form-item label="Key Prefix"><el-input v-model="draft.keyPrefix" /></el-form-item>
+          <el-form-item label="Username（ACL，可空）">
+            <el-input v-model="draft.username" autocomplete="off" />
+          </el-form-item>
+          <el-form-item label="Password（不填写则保持已有密码；设置用户名时必填）">
+            <el-input
+              v-model="draft.password"
+              type="password"
+              show-password
+              autocomplete="new-password"
+              :placeholder="!creating && selected?.has_password ? '已保存密码，留空保持不变' : ''"
+            />
+            <div v-if="!creating && selected?.has_password" class="password-clear">
+              <el-checkbox v-model="draft.clearPassword" :disabled="Boolean(draft.password)">
+                清空已保存的密码
+              </el-checkbox>
+            </div>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-space>
