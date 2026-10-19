@@ -279,8 +279,15 @@ class _AdsSession:
                 current = self._notifications.get(key)
                 if current is None:
                     return
-                for callback in current.callbacks:
-                    callback(*args)
+                for listener in current.callbacks:
+                    try:
+                        listener(*args)
+                    except Exception:
+                        logger.exception(
+                            "%sADS shared notification listener failed for %s",
+                            self._label,
+                            key[:2],
+                        )
 
             # 先建立接收入口，再提交注册，避免设备立即通知时丢掉首批数据。
             entry = _SharedNotification(None, (wrapped,))
