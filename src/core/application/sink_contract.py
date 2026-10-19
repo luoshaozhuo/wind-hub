@@ -28,6 +28,7 @@ class ResolvedSink(Sink):
     points: tuple[Mapping[str, Any], ...] = ()
     task_sources: Mapping[str, tuple[tuple[str, str], ...]] | None = None
     task_key_prefixes: Mapping[str, str] | None = None
+    task_refs: Mapping[str, tuple[str, ...]] | None = None
 
     def __post_init__(self) -> None:
         super(ResolvedSink, self).__post_init__()
@@ -40,6 +41,8 @@ class ResolvedSink(Sink):
             object.__setattr__(self, "task_sources", freeze_sink_value(self.task_sources))
         if self.task_key_prefixes is not None:
             object.__setattr__(self, "task_key_prefixes", freeze_sink_value(self.task_key_prefixes))
+        if self.task_refs is not None:
+            object.__setattr__(self, "task_refs", freeze_sink_value(self.task_refs))
 
 
 SINK_DATA_TYPES = frozenset(data_type.value for data_type in DataType)
