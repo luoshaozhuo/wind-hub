@@ -483,7 +483,7 @@ export const tasksSeed: MockTask[] = [
 // ---------------------------------------------------------------------------
 export interface MockSink {
   name: string
-  type: 'redis' | 'modbus'
+  type: 'redis' | 'modbus' | 'tdengine'
   enabled: boolean
   connection: Record<string, unknown>
   has_password?: boolean
@@ -509,7 +509,6 @@ export const sinksSeed: MockSink[] = [
     enabled: true,
     connection: { host: '127.0.0.1', port: 1502 },
   },
-
 ]
 
 // ---------------------------------------------------------------------------
