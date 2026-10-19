@@ -389,13 +389,7 @@ class CollectorSinkService:
             raise KeyError(name)
         probe = [PointValue(device_id="_diagnostic", point_id="_write_test", value=1)]
         try:
-            # File Sink 拒绝无 Task 身份的裸写入：诊断点走独立
-            # _diagnostic 归档；Redis/Modbus 仍走裸 write 做真实写入探测。
-            task_writer = getattr(sink, "write_task", None)
-            if getattr(sink, "requires_task_context", False) and task_writer is not None:
-                await task_writer("_diagnostic", probe)
-            else:
-                await sink.write(probe)
+            await sink.write(probe)
             await sink.flush()
         except Exception as exc:
             return SinkWriteResult(
