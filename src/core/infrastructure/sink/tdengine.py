@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_error import SinkError
+from core.application.sink_contract import ResolvedSink
 from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import TDengineSinkConnection
@@ -36,6 +37,14 @@ class TDengineSink:
 
     def __init__(self, config: Sink) -> None:
         self._config = TDengineSinkConnection.model_validate(dict(config.connection))
+        self._task_sources = (
+            {
+                task_id: set(sources)
+                for task_id, sources in (config.task_sources or {}).items()
+            }
+            if isinstance(config, ResolvedSink)
+            else {}
+        )
         self._url = (
             f"{'https' if self._config.tls else 'http'}://"
             f"{self._config.host}:{self._config.port}/rest/sql/{self._config.database}"
@@ -96,6 +105,12 @@ class TDengineSink:
             self._error = None
 
     async def write(self, batch: list[PointValue]) -> None:
+        await self.write_task("", batch)
+
+    async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
+        if task_id:
+            allowed = self._task_sources.get(task_id, set())
+            batch = [point for point in batch if (point.device_id, point.point_id) in allowed]
         if not batch:
             return
         async with self._lock:
