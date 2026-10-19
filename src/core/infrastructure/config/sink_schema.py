@@ -131,11 +131,18 @@ class TDengineSinkConnection(BaseModel):
             raise ValueError("TDengine identifier must start with a letter or _")
         return value
 
-    @field_validator("host", "username")
+    @field_validator("host")
     @classmethod
-    def _not_empty(cls, value: str) -> str:
+    def _host(cls, value: str) -> str:
+        if not value or any(char in value for char in "/\\@?#:% \t\r\n"):
+            raise ValueError("TDengine host must be a plain hostname or IPv4 address")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _username(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("TDengine host and username must be non-empty")
+            raise ValueError("TDengine username must be non-empty")
         return value
 
 
