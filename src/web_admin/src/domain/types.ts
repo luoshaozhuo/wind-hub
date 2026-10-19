@@ -112,10 +112,10 @@ export interface TaskDef {
   updated_at: string
 }
 
-export type SinkType = 'file' | 'modbus' | 'redis'
+export type SinkType = 'modbus' | 'redis' | 'tdengine'
 export type SinkRuntimeState = 'unknown' | 'healthy' | 'warning' | 'failed' | 'disabled' | 'testing'
 export type SinkCheckState = 'passed' | 'warning' | 'failed' | 'skipped'
-export type SinkCheckLayer = 'network' | 'protocol' | 'target' | 'filesystem'
+export type SinkCheckLayer = 'network' | 'protocol' | 'target'
 
 export interface SinkVerificationCheck {
   layer: SinkCheckLayer
@@ -140,7 +140,6 @@ export interface SinkDef {
   type: SinkType
   enabled: boolean
   connection: Record<string, unknown>
-  points: Record<string, unknown>[]
   runtime_state: SinkRuntimeState
   last_test_at: string
   last_write_at: string
@@ -151,6 +150,7 @@ export interface SinkDef {
   failures_total: number
   dropped_points: number
   verification: SinkVerification
+  has_password?: boolean
 }
 
 export type VerifyStepState = 'unknown' | 'checking' | 'success' | 'partial' | 'failed'

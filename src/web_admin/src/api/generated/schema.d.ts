@@ -876,10 +876,6 @@ export interface components {
             enabled: boolean;
             /** Name */
             name: string;
-            /** Points */
-            points?: {
-                [key: string]: unknown;
-            }[];
             /** Type */
             type: string;
         };
@@ -1197,6 +1193,11 @@ export interface components {
             message: string;
             /** Object */
             object: string;
+            /**
+             * Request Id
+             * @default -
+             */
+            request_id: string;
             /** Source */
             source: string;
             /**
@@ -1572,18 +1573,17 @@ export interface components {
             };
             /** Enabled */
             enabled: boolean;
+            /**
+             * Has Password
+             * @default false
+             */
+            has_password: boolean;
             /** Healthy */
             healthy: boolean;
             /** Message */
             message?: string | null;
             /** Name */
             name: string;
-            /** Point Count */
-            point_count: number;
-            /** Points */
-            points?: {
-                [key: string]: unknown;
-            }[];
             /** Queue Depth */
             queue_depth: number;
             /** Type */
@@ -1613,10 +1613,6 @@ export interface components {
              * @default true
              */
             enabled: boolean;
-            /** Points */
-            points?: {
-                [key: string]: unknown;
-            }[];
             /** Type */
             type: string;
         };

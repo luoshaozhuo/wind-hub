@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Protocol
 
 from core.domain.point_value import PointValue
@@ -12,6 +12,13 @@ from core.domain.point_value import PointValue
 
 class RedisKeyOptions(Protocol):
     key_prefix: str
+
+
+def _format_utc(value: datetime | None) -> str | None:
+    """统一 ISO-8601 UTC 字符串（Z 后缀）；None 表示该时间戳缺省。"""
+    if value is None:
+        return None
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,7 +29,9 @@ class RedisRecord:
     payload: str
 
 
-def encode_redis_record(config: RedisKeyOptions, point: PointValue) -> RedisRecord:
+def encode_redis_record(
+    config: RedisKeyOptions, point: PointValue, *, key_prefix: str | None = None
+) -> RedisRecord:
     """一设备一点一个 key，覆盖最新值，保留采样时间和质量。
 
     为防止设备/点名称中的冒号导致键路径歧义，使用长度前缀编码。
@@ -30,15 +39,16 @@ def encode_redis_record(config: RedisKeyOptions, point: PointValue) -> RedisReco
     """
     device = point.device_id
     name = point.point_id
-    key = f"{config.key_prefix}:{len(device)}:{device}:{len(name)}:{name}"
+    prefix = key_prefix if key_prefix is not None else config.key_prefix
+    key = f"{prefix}:{len(device)}:{device}:{len(name)}:{name}"
     payload = json.dumps(
         {
             "value": point.value,
             "quality": point.quality.value,
-            "timestamp": point.timestamp.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            "timestamp": _format_utc(point.timestamp),
             "source": point.source,
-            "receive_time": point.receive_time.astimezone(UTC).isoformat().replace("+00:00", "Z") if point.receive_time is not None else None,
-            "device_time": point.device_time.astimezone(UTC).isoformat().replace("+00:00", "Z") if point.device_time is not None else None,
+            "receive_time": _format_utc(point.receive_time),
+            "device_time": _format_utc(point.device_time),
         },
         ensure_ascii=False,
         separators=(",", ":"),

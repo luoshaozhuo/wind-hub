@@ -202,9 +202,8 @@ export function sinkDto(s: MockSink): SinkDto {
     healthy: sinkHealthy(s),
     message: !s.enabled ? 'disabled' : runtime.error || null,
     queue_depth: runtime.queue_depth,
-    point_count: s.points.length,
     connection: { ...s.connection },
-    points: s.points.map((p) => ({ ...p })),
+    has_password: s.has_password ?? false,
   }
 }
 
@@ -616,7 +615,9 @@ interface SinkCheckStep {
 function sinkEndpoint(s: MockSink): { host: string; port: number } {
   return {
     host: String(s.connection.host || 'localhost'),
-    port: Number(s.connection.port || (s.type === 'redis' ? 6379 : 502)),
+    port: Number(
+      s.connection.port || (s.type === 'redis' ? 6379 : s.type === 'tdengine' ? 6041 : 502),
+    ),
   }
 }
 
@@ -627,33 +628,6 @@ function resolvedHost(host: string): string {
 }
 
 export function sinkCheckPlan(s: MockSink): SinkCheckStep[] {
-  if (s.type === 'file') {
-    const path = String(s.connection.path || '')
-    const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) || '/' : '.'
-    return [
-      {
-        layer: 'filesystem',
-        name: 'Parent Path',
-        target: parent,
-        detail: 'Resolve parent directory',
-        blocks: true,
-      },
-      {
-        layer: 'filesystem',
-        name: 'Permission',
-        target: parent,
-        detail: 'Check create/append permission',
-        blocks: true,
-      },
-      {
-        layer: 'filesystem',
-        name: 'Open / Append',
-        target: path,
-        detail: 'Open target for append without business payload',
-        blocks: true,
-      },
-    ]
-  }
   const ep = sinkEndpoint(s)
   const ip = resolvedHost(ep.host)
   const common: SinkCheckStep[] = [

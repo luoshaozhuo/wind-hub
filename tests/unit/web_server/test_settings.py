@@ -63,3 +63,13 @@ def test_non_positive_shutdown_timeout_is_rejected() -> None:
             config_dir=Path("configs"),
             shutdown_timeout=0,
         )
+
+
+def test_log_level_must_be_uvicorn_level() -> None:
+    with pytest.raises(ValueError, match="log_level"):
+        ServerSettings(config_dir=Path("configs"), log_level="verbose")
+
+
+def test_log_level_is_case_insensitive() -> None:
+    settings = ServerSettings(config_dir=Path("configs"), log_level="INFO")
+    assert settings.log_level == "INFO"

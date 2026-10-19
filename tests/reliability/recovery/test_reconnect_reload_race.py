@@ -20,7 +20,8 @@ from tests.reliability.recovery.helpers import (
     cli_instance_states,
     cli_status,
     wait_status,
-    write_modbus_file_config,
+    wait_telemetry_value,
+    write_modbus_redis_config,
 )
 from tests.support.control import (
     reload_config,
@@ -29,9 +30,9 @@ from tests.support.control import (
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_csv, wait_file_rows, wait_until
+from tests.support.wait import wait_until
 
-pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
+pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"
@@ -46,15 +47,19 @@ class TestPointTableChangeWhileOffline:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
         """CFG-02：掉线期间改点表——设备恢复后必须使用新点表出数。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service
+        )
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(
-            sink_path, min_rows=1, match=lambda r: r["value"] == pytest.approx(SCALED_POWER)
+        await wait_telemetry_value(
+            redis_service,
+            point_id="gen.power",
+            match=lambda value: value["value"] == pytest.approx(SCALED_POWER),
         )
 
         await modbus_server.stop()
@@ -84,15 +89,16 @@ class TestPointTableChangeWhileOffline:
         await wait_status(
             proc, lambda p: p["devices_connected"] == 1, description="device reconnected"
         )
-        await wait_file_rows(
-            sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(RAW_POWER)
+        observed = await wait_telemetry_value(
+            redis_service,
+            point_id="gen.power",
+            match=lambda value: value["value"] == pytest.approx(RAW_POWER),
         )
         await asyncio.sleep(1.0)
-        scaled = [r for r in read_csv(sink_path) if r["value"] == pytest.approx(SCALED_POWER)]
-        settled = len(scaled)
-        await asyncio.sleep(1.0)
-        scaled = [r for r in read_csv(sink_path) if r["value"] == pytest.approx(SCALED_POWER)]
-        assert len(scaled) == settled, "stale point table still in use after recovery"
+        latest = await wait_telemetry_value(
+            redis_service, point_id="gen.power", after=str(observed["timestamp"])
+        )
+        assert latest["value"] == pytest.approx(RAW_POWER)
 
 
 class TestStopTaskDuringReconnect:
@@ -100,14 +106,16 @@ class TestStopTaskDuringReconnect:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
         """CFG-03：backoff 期间 stop task——设备恢复后 Task 必须保持 STOPPED。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service
+        )
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_telemetry_value(redis_service)
 
         await modbus_server.stop()
         await wait_status(
@@ -138,8 +146,8 @@ class TestStopTaskDuringReconnect:
             states.get(INSTANCE_ID) == "stopped"
         ), f"device recovery resurrected a stopped task: {states}"
 
-        # 数据面保持静默（等残余缓冲落盘后行数不再增长）。
+        # 停机后确认数据静默。
+        settled = await wait_telemetry_value(redis_service)
         await asyncio.sleep(1.0)
-        settled = len(read_csv(sink_path))
-        await asyncio.sleep(1.0)
-        assert len(read_csv(sink_path)) == settled
+        final = await wait_telemetry_value(redis_service)
+        assert final["timestamp"] == settled["timestamp"]

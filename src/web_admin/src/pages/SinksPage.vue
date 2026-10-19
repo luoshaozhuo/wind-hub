@@ -20,44 +20,48 @@ const sinks = computed(() =>
 
 const draft = reactive({
   name: '',
-  type: 'file' as SinkType,
+  type: 'redis' as SinkType,
   enabled: true,
-  path: '',
-  maxSizeMb: 100,
-  maxFiles: 30,
   host: 'localhost',
   port: 6379,
   database: 0,
+  username: '',
   password: '',
+  clearPassword: false,
+  timeoutSec: 1.0,
   keyPrefix: 'wind-hub',
-  pointsJson: '[]',
+  stable: 'point_values',
+  tdDatabase: 'wind_hub',
+  tls: false,
 })
 const snapshot = ref('')
 const changed = computed(() => JSON.stringify(draft) !== snapshot.value)
 
 function defaults(type: SinkType) {
-  return type === 'file'
-    ? { path: '', max_size_mb: 100, max_files: 30 }
-    : type === 'redis'
-      ? { host: 'localhost', port: 6379, database: 0, key_prefix: 'wind-hub' }
+  return type === 'redis'
+    ? { host: 'localhost', port: 6379 }
+    : type === 'tdengine'
+      ? { host: 'localhost', port: 6041 }
       : { host: '0.0.0.0', port: 502 }
 }
 
-function reset(type: SinkType = 'file') {
+function reset(type: SinkType = 'redis') {
   const settings = defaults(type)
   Object.assign(draft, {
     name: '',
     type,
     enabled: true,
-    path: '',
-    maxSizeMb: 100,
-    maxFiles: 30,
     host: String('host' in settings ? settings.host : 'localhost'),
     port: Number('port' in settings ? settings.port : 6379),
     database: 0,
+    username: '',
     password: '',
+    clearPassword: false,
+    timeoutSec: 1.0,
     keyPrefix: 'wind-hub',
-    pointsJson: '[]',
+    stable: 'point_values',
+    tdDatabase: 'wind_hub',
+    tls: false,
   })
   snapshot.value = JSON.stringify(draft)
 }
@@ -68,15 +72,19 @@ function load(sink: SinkDef) {
   Object.assign(draft, {
     name: sink.name,
     enabled: sink.enabled,
-    path: String(connection.path ?? ''),
-    maxSizeMb: Number(connection.max_size_mb ?? 100),
-    maxFiles: Number(connection.max_files ?? 30),
     host: String(connection.host ?? 'localhost'),
-    port: Number(connection.port ?? (sink.type === 'redis' ? 6379 : 502)),
+    port: Number(
+      connection.port ?? (sink.type === 'redis' ? 6379 : sink.type === 'tdengine' ? 6041 : 502),
+    ),
     database: Number(connection.database ?? 0),
+    username: String(connection.username ?? ''),
     password: '',
+    clearPassword: false,
+    timeoutSec: Number(connection.timeout ?? 1.0),
     keyPrefix: String(connection.key_prefix ?? 'wind-hub'),
-    pointsJson: JSON.stringify(sink.points, null, 2),
+    tdDatabase: String(connection.database ?? 'wind_hub'),
+    stable: String(connection.stable ?? 'point_values'),
+    tls: Boolean(connection.tls ?? false),
   })
   snapshot.value = JSON.stringify(draft)
 }
@@ -102,53 +110,64 @@ function changeType() {
 }
 
 function connection(): Record<string, unknown> {
-  if (draft.type === 'file') {
-    return {
-      path: draft.path.trim(),
-      max_size_mb: draft.maxSizeMb,
-      max_files: draft.maxFiles,
-    }
-  }
   if (draft.type === 'redis') {
-    const old = !creating.value ? selected.value?.connection : undefined
-    return {
+    const connection: Record<string, unknown> = {
       host: draft.host.trim(),
       port: draft.port,
       database: draft.database,
+      timeout: draft.timeoutSec,
       key_prefix: draft.keyPrefix.trim(),
-      ...(!creating.value && !draft.password ? { password: old?.password } : {}),
+    }
+    // username 非密文，后端正常回显；为空表示不启用 ACL。
+    if (draft.username.trim()) connection.username = draft.username.trim()
+    if (draft.password) {
+      connection.password = draft.password
+    } else if (!creating.value && draft.clearPassword) {
+      // 编辑态显式清空："" 让后端移除凭据（与"不回传=保留"区分）。
+      connection.password = ''
+    }
+    return connection
+  }
+  if (draft.type === 'tdengine') {
+    return {
+      host: draft.host.trim(),
+      port: draft.port,
+      database: draft.tdDatabase.trim(),
+      stable: draft.stable.trim(),
+      username: draft.username.trim(),
+      timeout: draft.timeoutSec,
+      tls: draft.tls,
       ...(draft.password ? { password: draft.password } : {}),
     }
   }
   return { host: draft.host.trim(), port: draft.port }
 }
 
-function parsePoints(): Record<string, unknown>[] {
-  const value: unknown = JSON.parse(draft.pointsJson)
-  if (
-    !Array.isArray(value) ||
-    value.some((row) => !row || typeof row !== 'object' || Array.isArray(row))
-  ) {
-    throw new Error('点映射必须是 JSON 对象数组')
-  }
-  return value as Record<string, unknown>[]
-}
-
 function validate() {
   if (!draft.name.trim()) return 'Sink ID 不能为空'
   if (creating.value && configStore.sinks.some((s) => s.name === draft.name.trim()))
     return 'Sink ID 已存在'
-  if (draft.type === 'file' && (!draft.path.trim() || draft.maxSizeMb <= 0 || draft.maxFiles < 1))
-    return '文件路径、容量和保留数量必须有效'
-  if (draft.type !== 'file' && (!draft.host.trim() || draft.port < 1 || draft.port > 65535))
-    return '主机和端口必须有效'
+  if (!draft.host.trim() || draft.port < 1 || draft.port > 65535) return '主机和端口必须有效'
+  if (
+    draft.type === 'tdengine' &&
+    (!draft.tdDatabase.trim() || !draft.stable.trim() || !draft.username.trim())
+  )
+    return 'TDengine 数据库、超级表和用户名不能为空'
+  if (draft.type === 'tdengine' && creating.value && !draft.password)
+    return '新增 TDengine Sink 必须提供密码'
   if (draft.type === 'redis' && (draft.database < 0 || !draft.keyPrefix.trim()))
     return 'Redis 数据库和键前缀必须有效'
-  try {
-    parsePoints()
-  } catch {
-    return '点映射 JSON 格式无效'
-  }
+  if (draft.type === 'redis' && draft.timeoutSec <= 0) return 'Redis 超时时间必须大于 0 秒'
+  if (draft.type === 'redis' && draft.username.trim() && creating.value && !draft.password)
+    return '新建 ACL Redis Sink 时，设置用户名必须同时提供密码'
+  if (
+    draft.type === 'redis' &&
+    !creating.value &&
+    draft.clearPassword &&
+    !draft.password &&
+    draft.username.trim()
+  )
+    return '清空密码时必须同时移除 ACL 用户名（或改填新密码）'
   return ''
 }
 
@@ -165,7 +184,6 @@ function save() {
       type: draft.type,
       enabled: draft.enabled,
       connection: values,
-      points: parsePoints(),
       runtime_state: 'unknown',
       last_test_at: '',
       last_write_at: '',
@@ -176,6 +194,7 @@ function save() {
       failures_total: 0,
       dropped_points: 0,
       verification: { state: 'never', checked_at: '', passed: 0, total: 0, checks: [] },
+      has_password: draft.type !== 'modbus' && Boolean(draft.password),
     }
     configStore.mutate(() => configStore.sinks.push(sink))
   } else if (selected.value) {
@@ -183,7 +202,9 @@ function save() {
     configStore.mutate(() => {
       sink.enabled = draft.enabled
       sink.connection = values
-      sink.points = parsePoints()
+      if (draft.type === 'redis' || draft.type === 'tdengine') {
+        sink.has_password = Boolean(draft.password) || (!draft.clearPassword && sink.has_password)
+      }
     })
   }
   drawerOpen.value = false
@@ -235,7 +256,7 @@ async function remove(sink: SinkDef) {
     <el-row justify="space-between" align="middle" :gutter="16">
       <el-col :xs="24" :sm="12">
         <h1>Sinks</h1>
-        <p>配置文件、Redis 和 Modbus 输出目标；状态由 Collector 返回。</p>
+        <p>配置 Redis、TDengine 和 Modbus 输出目标；状态由 Collector 返回。</p>
       </el-col>
       <el-col :xs="24" :sm="12">
         <el-row justify="end" :gutter="8">
@@ -288,48 +309,62 @@ async function remove(sink: SinkDef) {
         </el-form-item>
         <el-form-item label="类型">
           <el-select v-model="draft.type" :disabled="!creating" @change="changeType">
-            <el-option label="文件 CSV" value="file" />
             <el-option label="Redis" value="redis" />
             <el-option label="Modbus TCP" value="modbus" />
+            <el-option label="TDengine" value="tdengine" />
           </el-select>
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="draft.enabled" />
         </el-form-item>
-        <template v-if="draft.type === 'file'">
-          <el-form-item label="目录或 .csv 文件路径"
-            ><el-input v-model="draft.path"
-          /></el-form-item>
-          <el-form-item label="最大容量 (MB)">
-            <el-input-number v-model="draft.maxSizeMb" :min="0.1" />
-          </el-form-item>
-          <el-form-item label="最多保留文件数">
-            <el-input-number v-model="draft.maxFiles" :min="1" :step="1" />
-          </el-form-item>
-        </template>
-        <template v-else>
-          <el-form-item label="Host"><el-input v-model="draft.host" /></el-form-item>
-          <el-form-item label="Port">
-            <el-input-number v-model="draft.port" :min="1" :max="65535" />
-          </el-form-item>
-          <template v-if="draft.type === 'redis'">
-            <el-form-item label="Database">
-              <el-input-number v-model="draft.database" :min="0" />
-            </el-form-item>
-            <el-form-item label="Key Prefix"><el-input v-model="draft.keyPrefix" /></el-form-item>
-            <el-form-item label="Password（不填写则保持已有密码）">
-              <el-input
-                v-model="draft.password"
-                type="password"
-                show-password
-                autocomplete="new-password"
-              />
-            </el-form-item>
-          </template>
-        </template>
-        <el-form-item label="点映射（Core SinkPoint JSON 数组）">
-          <el-input v-model="draft.pointsJson" type="textarea" :rows="7" />
+        <el-form-item label="Host"><el-input v-model="draft.host" /></el-form-item>
+        <el-form-item label="Port">
+          <el-input-number v-model="draft.port" :min="1" :max="65535" />
         </el-form-item>
+        <template v-if="draft.type === 'tdengine'">
+          <el-form-item label="Database"><el-input v-model="draft.tdDatabase" /></el-form-item>
+          <el-form-item label="Stable"><el-input v-model="draft.stable" /></el-form-item>
+          <el-form-item label="Username"><el-input v-model="draft.username" /></el-form-item>
+          <el-form-item label="Password（留空保持已有密码）">
+            <el-input
+              v-model="draft.password"
+              type="password"
+              show-password
+              autocomplete="new-password"
+              :placeholder="!creating && selected?.has_password ? '已保存密码，留空保持不变' : ''"
+            />
+          </el-form-item>
+          <el-form-item label="超时（秒）">
+            <el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" />
+          </el-form-item>
+          <el-form-item label="TLS"><el-switch v-model="draft.tls" /></el-form-item>
+        </template>
+        <template v-if="draft.type === 'redis'">
+          <el-form-item label="Database">
+            <el-input-number v-model="draft.database" :min="0" />
+          </el-form-item>
+          <el-form-item label="超时（秒）">
+            <el-input-number v-model="draft.timeoutSec" :min="0.1" :step="0.1" />
+          </el-form-item>
+          <el-form-item label="Key Prefix"><el-input v-model="draft.keyPrefix" /></el-form-item>
+          <el-form-item label="Username（ACL，可空）">
+            <el-input v-model="draft.username" autocomplete="off" />
+          </el-form-item>
+          <el-form-item label="Password（不填写则保持已有密码；设置用户名时必填）">
+            <el-input
+              v-model="draft.password"
+              type="password"
+              show-password
+              autocomplete="new-password"
+              :placeholder="!creating && selected?.has_password ? '已保存密码，留空保持不变' : ''"
+            />
+            <div v-if="!creating && selected?.has_password" class="password-clear">
+              <el-checkbox v-model="draft.clearPassword" :disabled="Boolean(draft.password)">
+                清空已保存的密码
+              </el-checkbox>
+            </div>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-space>
@@ -340,3 +375,9 @@ async function remove(sink: SinkDef) {
     </el-drawer>
   </div>
 </template>
+
+<style scoped>
+.password-clear {
+  margin-top: var(--app-space-1);
+}
+</style>

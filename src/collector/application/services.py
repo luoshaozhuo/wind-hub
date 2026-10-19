@@ -379,7 +379,7 @@ class CollectorSinkService:
         )
 
     async def write_test_sink(self, name: str) -> SinkWriteResult:
-        """向指定运行 Sink 写入诊断测试点并 flush。
+        """对运行 Sink 执行诊断；时序存储只查询，不污染历史数据。
 
         Raises:
             KeyError: Sink 未注册。
@@ -388,11 +388,19 @@ class CollectorSinkService:
         if sink is None:
             raise KeyError(name)
         try:
-            await sink.write([PointValue(device_id="_diagnostic", point_id="_write_test", value=1)])
-            await sink.flush()
+            diagnostic = getattr(sink, "diagnostic", None)
+            if diagnostic is not None:
+                await diagnostic()
+            else:
+                probe = [PointValue(device_id="_diagnostic", point_id="_write_test", value=1)]
+                await sink.write(probe)
+                await sink.flush()
         except Exception as exc:
             return SinkWriteResult(
                 success=False,
                 message=str(exc) or type(exc).__name__,
             )
-        return SinkWriteResult(success=True)
+        return SinkWriteResult(
+            success=True,
+            message="只读连接诊断通过，未写入历史数据" if diagnostic is not None else "",
+        )

@@ -53,8 +53,8 @@ class _Dispatch:
         self.sink = sink
 
     async def dispatch(self, routed):
-        for batch in routed.values():
-            await self.sink.write(batch)
+        for delivery in routed.values():
+            await self.sink.write(delivery.values)
 
 
 async def test_device_task_expands_to_single_instance():

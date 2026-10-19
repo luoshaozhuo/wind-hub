@@ -196,7 +196,6 @@ export function buildAdminStatePayload(
       type: s.type,
       enabled: s.enabled,
       connection: { ...s.connection },
-      points: s.points.map((point) => ({ ...point })),
     })),
     definitions: buildDefinitionsPayload(state, rawPointTables, baselineProjection),
   }

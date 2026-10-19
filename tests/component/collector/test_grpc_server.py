@@ -16,6 +16,8 @@ from collector.infrastructure.grpc import build_grpc_server
 from core.infrastructure.rpc import collector_pb2 as pb
 from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
 from tests.support.new_collector import write_collector_config_tree
+from tests.support.redis_client import RedisTestClient, parse_address, point_key
+from tests.support.wait import wait_redis_value, wait_until
 
 
 @pytest.fixture
@@ -42,6 +44,39 @@ async def running(tmp_path):
             pb_grpc.CollectorRuntimeServiceStub(channel),
             pb_grpc.CollectorControlServiceStub(channel),
         )
+    finally:
+        await channel.close()
+        await server.stop(0)
+        await app.stop()
+
+
+@pytest.fixture
+async def running_redis(redis_service: str, tmp_path):
+    """同 running，但唯一 Sink s1 指向真实 Redis（FileSink 移除后无文件归档）。"""
+    host, port = parse_address(redis_service)
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        devices={
+            "dev1": {
+                "model_id": "mod",
+                "endpoint": {"host": "127.0.0.1", "port": 1},  # 立即拒绝
+            }
+        },
+        runtime={"connect_timeout": 0.5},
+        sinks={
+            "s1": {
+                "type": "redis",
+                "connection": {"host": host, "port": port},
+            }
+        },
+    )
+    app = assemble_collector(config_dir, collector_id="collector-test")
+    server = build_grpc_server(app, app.identity, host="127.0.0.1", port=0)
+    await app.start()
+    await server.start()
+    channel = grpc.aio.insecure_channel(server.endpoint)
+    try:
+        yield app, pb_grpc.CollectorRuntimeServiceStub(channel), redis_service
     finally:
         await channel.close()
         await server.stop(0)
@@ -133,22 +168,37 @@ async def test_task_lifecycle(running):
     assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND
 
 
-async def test_sink_check_and_write_test(running, tmp_path):
-    _, runtime_stub, _ = running
+async def test_sink_check_and_write_test(running_redis):
+    _, runtime_stub, redis_address = running_redis
 
     sinks = await runtime_stub.ListSinks(empty_pb2.Empty())
     assert len(sinks.items) == 1
     assert sinks.items[0].name == "s1"
-    assert sinks.items[0].healthy is True
+
+    # Redis Sink 在后台看门狗中完成首连，轮询真实 health 直到 healthy（非盲等）。
+    async def _healthy() -> bool:
+        report = await runtime_stub.VerifySink(pb.SinkRequest(name="s1"))
+        return report.success is True
+
+    await wait_until(_healthy, timeout=5.0, interval=0.1, description="s1 redis healthy")
 
     verify = await runtime_stub.VerifySink(pb.SinkRequest(name="s1"))
     assert verify.success is True
 
     result = await runtime_stub.WriteTestSink(pb.SinkRequest(name="s1"))
-    assert result.success is True
-    out = tmp_path / "out.csv"
-    assert out.exists()
-    assert "_write_test" in out.read_text()
+    assert result.success is True, result.message
+
+    # 诊断点（device=_diagnostic, point=_write_test）经独立连接从真实 Redis 读回，
+    # 证明 write-test 真正落库，而非仅看 RPC 返回成功。
+    key = point_key("_diagnostic", "_write_test")
+    stored = await wait_redis_value(redis_address, key, timeout=5.0)
+    assert stored["value"] == 1
+    client = RedisTestClient(redis_address)
+    try:
+        await client.connect()
+        await client._request("DEL", key)
+    finally:
+        await client.close()
 
     with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await runtime_stub.VerifySink(pb.SinkRequest(name="ghost"))

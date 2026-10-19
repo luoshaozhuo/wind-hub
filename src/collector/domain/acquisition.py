@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Protocol
 
 from core.application import Quality
@@ -52,10 +53,21 @@ class ReadableDevice(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class SinkDelivery:
+    """带 Task 来源的不可变批次元信息；不修改设备原始 PointValue。"""
+
+    task_id: str
+    values: list[PointValue]
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
 class SinkDispatchPort(Protocol):
     """Sink 派发端口——把按 sink 分组的批次交给 Sink 侧（队列/背压/消费者）。"""
 
-    async def dispatch(self, routed: dict[str, list[PointValue]]) -> None:
+    async def dispatch(self, routed: dict[str, SinkDelivery]) -> None:
         """派发一批按 sink 名分组的点值；空批次由实现方忽略。"""
         ...
 
@@ -179,6 +191,7 @@ class AcquisitionEngine:
         point_group: str,
         targets: list[str],
         execution_id: str,
+        task_id: str | None = None,
     ) -> None:
         """执行一次主动轮询采集：读设备该 point_group 的点 → :meth:`process`。
 
@@ -261,7 +274,7 @@ class AcquisitionEngine:
                     else:
                         partial = bad > 0
             if batch is not None:
-                await self.process(batch, targets)
+                await self.process(batch, targets, task_id=task_id or execution_id)
         except Exception as exc:
             # 派发阶段的意外异常：如实记为失败后原样上抛（由调用方——
             # polling handle——记录并继续下一周期），running 归位。
@@ -280,7 +293,9 @@ class AcquisitionEngine:
     # 统一数据处理入口（主动轮询与订阅推送在此汇合）
     # ------------------------------------------------------------------
 
-    async def process(self, batch: list[PointValue], targets: list[str]) -> None:
+    async def process(
+        self, batch: list[PointValue], targets: list[str], *, task_id: str = "manual"
+    ) -> None:
         """统计 → Observers → 按 targets 原样派发到 Sink。
 
         订阅数据已经到达，不得再绕回 :meth:`collect`。同一个点被多个不同
@@ -299,7 +314,7 @@ class AcquisitionEngine:
         if bad:
             self._on_points_bad(bad)
         self._notify_observers(batch)
-        await self._sink_dispatch.dispatch({sink: batch for sink in targets})
+        await self._sink_dispatch.dispatch({sink: SinkDelivery(task_id, batch) for sink in targets})
 
     # ------------------------------------------------------------------
     # 状态
@@ -329,4 +344,5 @@ __all__ = [
     "DeviceStatePort",
     "ReadableDevice",
     "SinkDispatchPort",
+    "SinkDelivery",
 ]

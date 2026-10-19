@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.application import ProtocolRegistry
+from core.application.settings import LogSettings
 from core.domain import ConnectionEndpoint, Device, ProtocolOptions
 from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
 from core.infrastructure.diagnostic.network import ping_host, tcp_port_open
@@ -28,7 +29,7 @@ from .application.services import (
     CommanderConfigService,
     CommanderReadService,
 )
-from .infrastructure.config import load_commander_config
+from .infrastructure.config import commander_config_from_snapshot, load_commander_config
 from .infrastructure.probe import (
     AdsDiagnosticProbe,
 )
@@ -57,6 +58,7 @@ class CommanderApp:
     config: CommanderConfigService
     config_dir: Path
     config_hash: str
+    log_settings: LogSettings
 
     async def start(self) -> None:
         """启动 Runtime（协议环境准备）。"""
@@ -90,7 +92,9 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
     config_source = YamlConfigAdapter(config_path)
 
     before_hash = config_dir_digest(config_path)
-    config = load_commander_config(config_source)
+    # 启动配置只完整解析一次：装配、日志初始化共用同一份快照。
+    snapshot = config_source.load()
+    config = commander_config_from_snapshot(snapshot)
     config_hash = config_dir_digest(config_path)
     if before_hash != config_hash:
         raise ValueError(
@@ -143,6 +147,7 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         ),
         config_dir=config_path,
         config_hash=config_hash,
+        log_settings=snapshot.system.logs,
     )
 
 

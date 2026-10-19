@@ -11,7 +11,6 @@ ResolvedSinkPoint）属于 Application 层，见
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -33,7 +32,7 @@ from core.application.sink_contract import (
     StreamSinkAddress,
 )
 
-SINK_TYPES = frozenset({"file", "modbus", "redis"})
+SINK_TYPES = frozenset({"modbus", "redis", "tdengine"})
 
 SINK_NUMERIC_DATA_TYPES = frozenset(
     {
@@ -67,25 +66,6 @@ MODBUS_WORD_WIDTH: Mapping[str, int] = MappingProxyType(
 )
 
 
-class FileSinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    path: str
-    max_size_mb: float = Field(default=100, gt=0, allow_inf_nan=False)
-    max_files: int = Field(default=30, ge=1)
-
-    @field_validator("path")
-    @classmethod
-    def _validate_path(cls, value: str) -> str:
-        if not value.strip() or Path(value).suffix.lower() not in ("", ".csv"):
-            raise ConfigError("File sink path must be a directory or .csv file")
-        return value
-
-    @property
-    def max_size_bytes(self) -> int:
-        return max(1, int(self.max_size_mb * 1024 * 1024))
-
-
 class RedisSinkConnection(BaseModel):
     """Redis 最新点值输出连接。"""
 
@@ -94,7 +74,9 @@ class RedisSinkConnection(BaseModel):
     host: str = "localhost"
     port: int = Field(default=6379, ge=1, le=65535)
     database: int = Field(default=0, ge=0)
+    username: str | None = None
     password: SecretStr | None = None
+    timeout: float = Field(default=1.0, gt=0, allow_inf_nan=False)
     key_prefix: str = "wind-hub"
 
     @field_validator("host", "key_prefix")
@@ -104,6 +86,65 @@ class RedisSinkConnection(BaseModel):
             raise ConfigError("Redis host/key_prefix must not be empty")
         return value
 
+    @model_validator(mode="after")
+    def _validate_acl(self) -> RedisSinkConnection:
+        if self.username is not None and self.password is None:
+            raise ValueError("Redis ACL username requires password")
+        return self
+
+    @field_validator("password", mode="before")
+    @classmethod
+    def _empty_password_is_none(cls, value: object) -> object:
+        # 显式清空（""）与缺省/null 同义，避免空 SecretStr 残留配置文件。
+        if isinstance(value, str) and value == "":
+            return None
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _validate_username(cls, value: str | None) -> str | None:
+        if value is not None and (not value.strip() or value != value.strip()):
+            raise ValueError("Redis ACL username must be a non-empty trimmed string")
+        return value
+
+
+class TDengineSinkConnection(BaseModel):
+    """TDengine taosAdapter REST SQL 连接；database 必须预先创建。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    host: str = "localhost"
+    port: int = Field(default=6041, ge=1, le=65535)
+    database: str = "wind_hub"
+    stable: str = "point_values"
+    username: str = "root"
+    password: SecretStr
+    timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+    tls: bool = False
+
+    @field_validator("database", "stable")
+    @classmethod
+    def _identifier(cls, value: str) -> str:
+        if not value.isascii() or not value.replace("_", "").isalnum():
+            raise ValueError("TDengine identifier must contain only ASCII letters, digits and _")
+        if not value or value[0].isdigit():
+            raise ValueError("TDengine identifier must start with a letter or _")
+        return value
+
+    @field_validator("host")
+    @classmethod
+    def _host(cls, value: str) -> str:
+        if not value or any(char in value for char in "/\\@?#:% \t\r\n"):
+            raise ValueError("TDengine host must be a plain hostname or IPv4 address")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _username(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("TDengine username must be non-empty")
+        return value
+
 
 class ModbusSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -111,19 +152,19 @@ class ModbusSinkConnection(BaseModel):
     port: int = Field(default=502, ge=1, le=65535)
 
 
-SinkConnection = FileSinkConnection | ModbusSinkConnection | RedisSinkConnection
+SinkConnection = ModbusSinkConnection | RedisSinkConnection | TDengineSinkConnection
 
 
 _CONNECTION_TYPES: dict[str, type[BaseModel]] = {
-    "file": FileSinkConnection,
     "modbus": ModbusSinkConnection,
     "redis": RedisSinkConnection,
+    "tdengine": TDengineSinkConnection,
 }
 
 _ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
-    "file": (StreamSinkAddress,),
     "modbus": (ModbusSinkAddress,),
     "redis": (StreamSinkAddress,),
+    "tdengine": (StreamSinkAddress,),
 }
 
 
@@ -168,7 +209,6 @@ class _SinkSchema(BaseModel):
     type: str
     enabled: bool = True
     connection: SinkConnection
-    points: tuple[SinkPoint, ...] = ()
 
     @model_validator(mode="before")
     @classmethod
@@ -190,25 +230,6 @@ class _SinkSchema(BaseModel):
             except Exception as exc:
                 raise ConfigError(f"invalid sink connection: {exc}") from exc
 
-        address_type = _ADDRESS_TYPES[sink_type][0]
-        points = parsed.get("points")
-        if isinstance(points, list):
-            parsed_points: list[object] = []
-            for raw_point in points:
-                if not isinstance(raw_point, dict):
-                    parsed_points.append(raw_point)
-                    continue
-                point = dict(raw_point)
-                address = point.get("address")
-                if isinstance(address, dict):
-                    try:
-                        point["address"] = address_type.model_validate(address)
-                    except ConfigError:
-                        raise
-                    except Exception as exc:
-                        raise ConfigError(f"invalid sink point address: {exc}") from exc
-                parsed_points.append(point)
-            parsed["points"] = parsed_points
         return parsed
 
     @model_validator(mode="after")
@@ -221,28 +242,33 @@ class _SinkSchema(BaseModel):
         if not isinstance(self.connection, expected_connection):
             raise ConfigError(f"sink connection does not match type '{self.type}'")
 
-        refs: set[str] = set()
-        addresses: set[tuple[object, ...]] = set()
-        for point in self.points:
-            if point.ref is not None:
-                if point.ref in refs:
-                    raise ConfigError(f"duplicate sink point ref '{point.ref}'")
-                refs.add(point.ref)
-
-            point_label = point.ref or f"{point.source.device_id}.{point.source.point_id}"
-            allowed = _ADDRESS_TYPES[self.type]
-            if not isinstance(point.address, allowed):
-                raise ConfigError(
-                    f"sink point '{point_label}': address does not match "
-                    f"type '{self.type}'"
-                )
-            key = _address_key(point.address)
-            if key in addresses:
-                raise ConfigError(
-                    f"sink point '{point_label}': duplicate external address"
-                )
-            addresses.add(key)
         return self
+
+
+
+def validate_task_sink_points(kind: str, points: list[Mapping[str, Any]]) -> None:
+    """在 Task 边界沿用 SinkPoint 与地址类型校验，并拒绝重复引用/地址。"""
+    if kind not in _ADDRESS_TYPES:
+        raise ConfigError(f"unknown Sink type '{kind}'")
+    refs: set[str] = set()
+    addresses: set[tuple[object, ...]] = set()
+    address_type = _ADDRESS_TYPES[kind][0]
+    for item in points:
+        definition = dict(item)
+        if isinstance(definition.get("address"), Mapping):
+            definition["address"] = address_type.model_validate(dict(definition["address"]))
+        try:
+            point = SinkPoint.model_validate(definition)
+        except Exception as exc:
+            raise ConfigError(f"invalid {kind} Task output point: {exc}") from exc
+        ref = point.ref or f"{point.source.device_id}.{point.source.point_id}"
+        address = _address_key(point.address)
+        if ref in refs:
+            raise ConfigError(f"duplicate Task output ref '{ref}'")
+        if address in addresses:
+            raise ConfigError(f"duplicate Task output address for '{ref}'")
+        refs.add(ref)
+        addresses.add(address)
 
 
 def parse_sink_definitions(raw: Mapping[str, Any]) -> dict[str, _SinkSchema]:
@@ -279,9 +305,9 @@ __all__ = [
     "SINK_TYPES",
     "SINK_NUMERIC_DATA_TYPES",
     "MODBUS_WORD_WIDTH",
-    "FileSinkConnection",
     "ModbusSinkConnection",
     "RedisSinkConnection",
+    "TDengineSinkConnection",
     "SinkPoint",
 ]
 

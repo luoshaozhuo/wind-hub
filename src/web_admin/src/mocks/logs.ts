@@ -17,6 +17,7 @@ export function appendLog(level: string, source: string, object: string, message
     source,
     object,
     message,
+    request_id: `op-${Date.now().toString(16)}-${logStore.length.toString(16)}`,
   })
   if (logStore.length > LOG_CAP) logStore.length = LOG_CAP
 }
@@ -31,7 +32,12 @@ export function queryLogs(filter: LogQuery): MockLogEntry[] {
   let items = logStore
   if (filter.level) items = items.filter((l) => l.level === filter.level)
   if (filter.source) items = items.filter((l) => l.source === filter.source)
-  if (filter.keyword) items = items.filter((l) => l.message.includes(filter.keyword!))
+  if (filter.keyword) {
+    const kw = filter.keyword.toLowerCase()
+    items = items.filter((l) =>
+      `${l.source} ${l.object} ${l.message} ${l.request_id}`.toLowerCase().includes(kw),
+    )
+  }
   return items
 }
 
@@ -63,6 +69,7 @@ export function seedLogs(): void {
       source,
       object,
       message,
+      request_id: `seed-${(SEED_COUNT - i).toString(16).padStart(4, '0')}`,
     })
   }
   logStore = entries

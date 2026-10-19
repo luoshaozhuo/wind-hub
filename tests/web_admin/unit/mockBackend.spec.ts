@@ -43,7 +43,10 @@ describe('MSW mock 后端契约', () => {
     )
     expect(devices.items).toHaveLength(56)
     expect(tasks.items).toHaveLength(6)
-    expect(sinks).toHaveLength(4)
+    // FileSink 移除后 mock 种子仅保留 Core 合法的 redis / modbus 两类
+    expect(sinks).toHaveLength(2)
+    expect(sinks.map((s) => s.name).sort()).toEqual(['modbus_main', 'redis_main'])
+    expect(new Set(sinks.map((s) => s.type))).toEqual(new Set(['redis', 'modbus']))
     expect(overview.device_count).toBe(56)
     // 56 台中：2 台 disabled、wtg-041 网络不可达、wtg-043 协议失败 → 52 connected
     expect(overview.devices_connected).toBe(52)

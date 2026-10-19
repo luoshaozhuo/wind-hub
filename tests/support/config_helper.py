@@ -193,8 +193,8 @@ def write_config_tree(
             if sinks is not None
             else {
                 "s1": {
-                    "type": "file",
-                    "connection": {"path": "/tmp/wind-hub-test.csv"},
+                    "type": "redis",
+                    "connection": {"host": "127.0.0.1"},
                 }
             }
         },

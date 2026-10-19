@@ -293,18 +293,16 @@ class SinkResponse(BaseModel):
     type: str
     enabled: bool
     connection: dict[str, Any]
-    points: list[dict[str, Any]] = Field(default_factory=list)
-    point_count: int
     healthy: bool
     message: str | None = None
     queue_depth: int
+    has_password: bool = False
 
 
 class SinkUpsertRequest(BaseModel):
     type: str
     enabled: bool = True
     connection: dict[str, Any]
-    points: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SinkTestResponse(BaseModel):
@@ -455,6 +453,7 @@ class LogEntryResponse(BaseModel):
     source: str
     object: str
     message: str
+    request_id: str = "-"
 
 
 class LogPageResponse(BaseModel):
@@ -526,7 +525,6 @@ class AdminSinkItemRequest(BaseModel):
     type: str
     enabled: bool = True
     connection: dict[str, Any]
-    points: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AdminDefinitionsStateRequest(BaseModel):
@@ -562,8 +560,17 @@ class AdminStateRequest(BaseModel):
         _ensure_unique((item.task_id for item in self.tasks), "task_id")
         _ensure_unique((item.name for item in self.sinks), "sink name")
         for item in self.tasks:
-            if (item.device is None) == (item.device_group is None):
+            # 新契约只支持 device_group 级周期 Task：device 直绑是旧 Schema
+            # 死路径，必须在请求边界 422，不能穿透到 mutator 变成 500。
+            if item.device is not None:
                 raise ValueError(
-                    f"task '{item.task_id}' requires exactly one of device/device_group"
+                    f"task '{item.task_id}': device-scoped tasks are unsupported; "
+                    "use device_group"
                 )
+            if item.device_group is None:
+                raise ValueError(f"task '{item.task_id}' requires device_group")
+            if item.interval is None or item.interval <= 0:
+                raise ValueError(f"task '{item.task_id}' requires a positive interval")
+            if not item.sinks:
+                raise ValueError(f"task '{item.task_id}' requires at least one sink")
         return self

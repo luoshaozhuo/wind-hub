@@ -10,7 +10,7 @@ veth pair 的链路上注入**连续谱**的网络损伤（拓扑与原因见 co
 - 短抖（亚超时闪断）不得重建连接；超过读超时的中断必须重连恢复。
 
 观测点：CLI status 的 ``devices_connected``、metrics 的
-``device_reconnects`` / ``device_connect_failures``、输出文件行数。
+``device_reconnects`` / ``device_connect_failures``、Redis 最新值时间戳。
 
 需要 root（无权限时整套 skip，报告计 NOT_RUN）。
 """
@@ -25,23 +25,28 @@ import pytest
 
 from tests.performance.netem import NetemScenario
 from tests.reliability.network.conftest import NetemLink
-from tests.reliability.recovery.helpers import cli_status, telemetry_task, wait_status
+from tests.reliability.recovery.helpers import (
+    TASK_ID,
+    cli_status,
+    telemetry_task,
+    wait_status,
+)
 from tests.support.config_helper import write_config_tree
 from tests.support.control import metrics_snapshot, start_task_instance
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_csv, wait_file_rows
+from tests.support.redis_client import point_key
+from tests.support.wait import wait_redis_value
 
-pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
+pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
-TASK_ID = "modbus-telemetry"
-INSTANCE_ID = "modbus-telemetry:modbus-1"
+INSTANCE_ID = f"{TASK_ID}:modbus-1"
 DEVICE_ID = "modbus-1"
 
 #: 采集周期 0.2s、读超时 2.0s——延迟/抖动/丢包断言的判定基准。
 READ_TIMEOUT_S = 2.0
 
 
-def _write_config(base: Path, link: NetemLink, sink_path: Path) -> Path:
+def _write_config(base: Path, link: NetemLink, redis_address: str) -> Path:
     from tests.support.functional_config import MODBUS_POINTS, modbus_device_dict
 
     devices = modbus_device_dict(link.device_port)
@@ -51,24 +56,24 @@ def _write_config(base: Path, link: NetemLink, sink_path: Path) -> Path:
         devices=devices,
         point_tables={"modbus": {"points": dict(MODBUS_POINTS)}},
         sinks={
-            "file_sink": {
-                "type": "file",
+            "redis_sink": {
+                "type": "redis",
                 "connection": {
-                    "path": str(sink_path),
+                    "host": redis_address.rpartition(":")[0],
+                    "port": int(redis_address.rpartition(":")[2]),
                 },
             }
         },
-        tasks=telemetry_task("file_sink"),
+        tasks=telemetry_task("redis_sink", key_prefix="wind-hub-netem"),
         system={"runtime": {"connect_timeout": 1.0, "read_timeout": READ_TIMEOUT_S}},
     )
 
 
 async def _start_stack(
-    collector_factory, link: NetemLink, tmp_path: Path
-) -> tuple[CollectorProcess, Path]:
+    collector_factory, link: NetemLink, tmp_path: Path, redis_address: str
+) -> tuple[CollectorProcess, str]:
     """起 Collector 并确认故障前基线：设备已连接、数据在出。"""
-    sink_path = tmp_path / "out" / "telemetry.csv"
-    config_dir = _write_config(tmp_path / "cfg", link, sink_path)
+    config_dir = _write_config(tmp_path / "cfg", link, redis_address)
     proc: CollectorProcess = await collector_factory(config_dir)
     await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
     await wait_status(
@@ -77,8 +82,8 @@ async def _start_stack(
         timeout=20.0,
         description="device connected over veth link",
     )
-    await wait_file_rows(sink_path, min_rows=2)
-    return proc, sink_path
+    await _wait_flow(redis_address)
+    return proc, redis_address
 
 
 async def _reconnects(proc: CollectorProcess) -> int:
@@ -86,52 +91,63 @@ async def _reconnects(proc: CollectorProcess) -> int:
     return int(snap["device_reconnects"].get(DEVICE_ID, 0))
 
 
-async def _assert_link_healthy(proc: CollectorProcess, sink_path: Path, duration: float) -> None:
-    """在损伤窗口内持续采样：设备必须始终保持已连接、数据持续在出。
+async def _wait_flow(redis_address: str, *, after: str | None = None) -> str:
+    key = point_key(DEVICE_ID, "rotor.speed", prefix="wind-hub-netem")
+    value = await wait_redis_value(
+        redis_address,
+        key,
+        timeout=20.0,
+        match=(lambda item: str(item["timestamp"]) > after) if after else None,
+    )
+    return str(value["timestamp"])
 
-    采样是严格断言（不是 wait_until）——任何一次 ``devices_connected``
-    掉 0 都是假断连，测试失败。
-    """
-    rows_before = len(read_csv(sink_path))
+
+async def _assert_link_healthy(
+    proc: CollectorProcess, redis_address: str, duration: float
+) -> None:
+    """损伤窗口中设备必须保持在线，Redis 最新值必须持续推进。"""
+    before = await _wait_flow(redis_address)
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:
         status = await cli_status(proc)
-        assert status is not None, "本地控制面 status 查询失败（不应受链路损伤影响）"
-        assert (
-            status["devices_connected"] == 1
-        ), f"链路损伤下出现假断连: {status.get('devices_connected')}"
+        assert status is not None, "本地控制面 status 查询失败"
+        assert status["devices_connected"] == 1, "链路损伤下出现假断连"
         await asyncio.sleep(0.5)
-    await wait_file_rows(sink_path, min_rows=rows_before + 2, timeout=5.0)
+    await _wait_flow(redis_address, after=before)
 
 
 class TestDelayAndJitter:
     async def test_delay_ladder_no_false_disconnect(
-        self, netem_link: NetemLink, collector_factory, tmp_path: Path
+        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-01：10ms→50ms 延迟阶梯——无假断连、零重连、数据连续。"""
-        proc, sink_path = await _start_stack(collector_factory, netem_link, tmp_path)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         for delay_ms in (10, 50):
             netem_link.apply(NetemScenario(name=f"delay_{delay_ms}ms", delay_ms=delay_ms))
             try:
-                await _assert_link_healthy(proc, sink_path, duration=3.0)
+                await _assert_link_healthy(proc, redis_address, duration=3.0)
             finally:
                 netem_link.clear()
 
         assert await _reconnects(proc) == reconnects_base, "纯延迟不得触发任何重连（延迟不是断连）"
-        await _assert_link_healthy(proc, sink_path, duration=1.0)
+        await _assert_link_healthy(proc, redis_address, duration=1.0)
 
     async def test_jitter_no_reconnect_storm(
-        self, netem_link: NetemLink, collector_factory, tmp_path: Path
+        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-02：20ms±10ms 抖动——健康状态稳定，无重连风暴。"""
-        proc, sink_path = await _start_stack(collector_factory, netem_link, tmp_path)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         netem_link.apply(NetemScenario(name="jitter_20ms_10ms", delay_ms=20, jitter_ms=10))
         try:
-            await _assert_link_healthy(proc, sink_path, duration=4.0)
+            await _assert_link_healthy(proc, redis_address, duration=4.0)
         finally:
             netem_link.clear()
 
@@ -140,7 +156,7 @@ class TestDelayAndJitter:
 
 class TestPacketLoss:
     async def test_low_loss_tolerated(
-        self, netem_link: NetemLink, collector_factory, tmp_path: Path
+        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-03：1% 丢包零影响（TCP 重传吸收）；10% 丢包可容忍且恢复。
 
@@ -148,12 +164,14 @@ class TestPacketLoss:
         下允许极个别读超时（请求方向 TCP 重传预算内 4 次传输全丢概率
         ~1e-4/读），但绝不允许重连风暴，且清除后必须恢复。
         """
-        proc, sink_path = await _start_stack(collector_factory, netem_link, tmp_path)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         netem_link.apply(NetemScenario(name="loss_1pct", loss_pct=1))
         try:
-            await _assert_link_healthy(proc, sink_path, duration=5.0)
+            await _assert_link_healthy(proc, redis_address, duration=5.0)
         finally:
             netem_link.clear()
         assert (
@@ -172,17 +190,19 @@ class TestPacketLoss:
             timeout=15.0,
             description="device connected after 10% loss cleared",
         )
-        await _assert_link_healthy(proc, sink_path, duration=1.0)
+        await _assert_link_healthy(proc, redis_address, duration=1.0)
 
     async def test_blackhole_detected_and_recovers(
-        self, netem_link: NetemLink, collector_factory, tmp_path: Path
+        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-04：黑洞（100% 丢包）→ 读超时判断连 → 退避重连 → 清除后恢复。
 
         与「停 modbus 服务」不同：黑洞下 TCP 连接本身不死，只能靠读
         超时检测——这是现场基站掉线的真实形态。
         """
-        proc, sink_path = await _start_stack(collector_factory, netem_link, tmp_path)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         netem_link.apply(NetemScenario(name="blackhole", loss_pct=100))
@@ -226,29 +246,33 @@ class TestPacketLoss:
             description="reconnected after blackhole cleared",
         )
         assert await _reconnects(proc) > reconnects_base
-        await _assert_link_healthy(proc, sink_path, duration=1.0)
+        await _assert_link_healthy(proc, redis_address, duration=1.0)
 
 
 class TestShortFlap:
     async def test_sub_timeout_flap_does_not_reconnect(
-        self, netem_link: NetemLink, collector_factory, tmp_path: Path
+        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-05a：500ms 闪断（< 读超时 2s）——TCP 重传吸收，不得重建连接。"""
-        proc, sink_path = await _start_stack(collector_factory, netem_link, tmp_path)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         await netem_link.outage(0.5)
 
-        await _assert_link_healthy(proc, sink_path, duration=1.5)
+        await _assert_link_healthy(proc, redis_address, duration=1.5)
         assert (
             await _reconnects(proc) == reconnects_base
         ), "500ms 闪断不得触发连接重建（亚超时中断应由 TCP 重传吸收）"
 
     async def test_timeout_boundary_flap_recovers(
-        self, netem_link: NetemLink, collector_factory, tmp_path: Path
+        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-05b：2s 闪断（≈读超时）——允许一次断连重连，但必须自动恢复。"""
-        proc, sink_path = await _start_stack(collector_factory, netem_link, tmp_path)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
 
         await netem_link.outage(2.0)
 
@@ -258,13 +282,15 @@ class TestShortFlap:
             timeout=15.0,
             description="link healthy after 2s flap",
         )
-        await _assert_link_healthy(proc, sink_path, duration=1.0)
+        await _assert_link_healthy(proc, redis_address, duration=1.0)
 
     async def test_supra_timeout_flap_reconnects(
-        self, netem_link: NetemLink, collector_factory, tmp_path: Path
+        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         """NET-05c：5s 闪断（> 读超时）——必须判断连、退避、恢复后重连出数。"""
-        proc, sink_path = await _start_stack(collector_factory, netem_link, tmp_path)
+        proc, redis_address = await _start_stack(
+            collector_factory, netem_link, tmp_path, redis_service
+        )
         reconnects_base = await _reconnects(proc)
 
         outage = asyncio.create_task(netem_link.outage(5.0))
@@ -285,4 +311,4 @@ class TestShortFlap:
             description="reconnected after 5s flap",
         )
         assert await _reconnects(proc) > reconnects_base
-        await _assert_link_healthy(proc, sink_path, duration=1.0)
+        await _assert_link_healthy(proc, redis_address, duration=1.0)

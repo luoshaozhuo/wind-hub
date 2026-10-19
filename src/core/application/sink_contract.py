@@ -10,12 +10,40 @@ YAML/文件细节，也不创建任何运行时资源；sinks.yaml 的原始配�
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from core.application.errors import ConfigError
 from core.domain import DataType
+from core.domain.sink import Sink, freeze_sink_value
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSink(Sink):
+    """Collector 装配期生成的 Sink 运行时描述，不属于 Domain Sink。"""
+
+    points: tuple[Mapping[str, Any], ...] = ()
+    task_sources: Mapping[str, tuple[tuple[str, str], ...]] | None = None
+    task_key_prefixes: Mapping[str, str] | None = None
+    task_refs: Mapping[str, tuple[str, ...]] | None = None
+
+    def __post_init__(self) -> None:
+        super(ResolvedSink, self).__post_init__()
+        object.__setattr__(
+            self,
+            "points",
+            tuple(freeze_sink_value(point) for point in self.points),
+        )
+        if self.task_sources is not None:
+            object.__setattr__(self, "task_sources", freeze_sink_value(self.task_sources))
+        if self.task_key_prefixes is not None:
+            object.__setattr__(self, "task_key_prefixes", freeze_sink_value(self.task_key_prefixes))
+        if self.task_refs is not None:
+            object.__setattr__(self, "task_refs", freeze_sink_value(self.task_refs))
+
 
 SINK_DATA_TYPES = frozenset(data_type.value for data_type in DataType)
 

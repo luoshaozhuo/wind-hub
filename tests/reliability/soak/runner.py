@@ -162,8 +162,8 @@ def write_soak_config(
     """生成 soak 配置目录（多设备/多任务/可选真实 sink）。
 
     背压队列放大到 100 万：丢点只反映真实瓶颈而非人为触顶。sink 实例
-    由 ``assemble_collector`` 的 ``sink_factories`` 覆盖注入计量包装，
-    ``type`` 字段决定工厂创建哪种真实内部 sink。
+    由 ``assemble_collector`` 的 ``sink_factories`` 覆盖注入计量包装
+    （RecordingSink）；``type`` 仅为可解析的合法占位（redis），不产生真实 IO。
     """
     devices: dict[str, dict[str, object]] = {}
     device_models: dict[str, object] = {}
@@ -197,11 +197,14 @@ def write_soak_config(
                 "device_group_id": device_id,
                 "point_group": "default",
                 "interval": group.interval_s,
-                "sink_ids": ["soak_sink"],
+                "outputs": [{"sink_id": "soak_sink"}],
             }
 
-    sink_type = "file"
-    sink_connection: dict[str, object] = {"path": str(config_dir / "soak-null.csv")}
+    sink_type = "redis"
+    # FileSink 已移除：用合法的 redis kind 作可解析占位（outputs 无显式点，
+    # 对 redis 即任务组全量）。运行时 sink 实例由 sink_factories 覆盖为
+    # 计量包装 RecordingSink，不会真正连接该占位地址。
+    sink_connection: dict[str, object] = {"host": "127.0.0.1", "port": 6379}
     system = {
         "runtime": {
             "queue_maxsize": 1_000_000,
@@ -263,7 +266,7 @@ async def run_soak(
         recording_holder.append(sink)
         return sink
 
-    sink_type = "file"
+    sink_type = "redis"
 
     controllers = [NetemController(dev) for dev in (netem_devices or [])]
     task_intervals = {

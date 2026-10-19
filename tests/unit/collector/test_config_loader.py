@@ -138,12 +138,24 @@ def test_sink_reference_to_ads_point_uses_logical_data_type(tmp_path):
         protocol_options={"target_net_id": "1.2.3.4.5.6"},
         sinks={
             "s1": {
-                "type": "file",
-                "connection": {"path": str(tmp_path / "out.csv")},
-                "points": [
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
+            }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [
                     {
-                        "source": {"device_id": "dev1", "point_id": "p1"},
-                        "address": {"field": "value"},
+                        "sink_id": "s1",
+                        "points": [
+                            {
+                                "source": {"device_id": "dev1", "point_id": "p1"},
+                                "address": {"field": "value"},
+                            }
+                        ],
                     }
                 ],
             }
@@ -191,12 +203,24 @@ def test_sink_source_data_type_is_always_logical(
         protocol_options=protocol_options,
         sinks={
             "s1": {
-                "type": "file",
-                "connection": {"path": str(tmp_path / "out.csv")},
-                "points": [
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
+            }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [
                     {
-                        "source": {"device_id": "dev1", "point_id": "p1"},
-                        "address": {"field": "value"},
+                        "sink_id": "s1",
+                        "points": [
+                            {
+                                "source": {"device_id": "dev1", "point_id": "p1"},
+                                "address": {"field": "value"},
+                            }
+                        ],
                     }
                 ],
             }
@@ -237,7 +261,7 @@ def test_task_unknown_sink_rejected(tmp_path):
                 "device_group_id": "dev1",
                 "point_group": "g",
                 "interval": 1.0,
-                "sink_ids": ["ghost"],
+                "outputs": [{"sink_id": "ghost"}],
             }
         },
     )
@@ -253,7 +277,7 @@ def test_task_unknown_group_rejected(tmp_path):
                 "device_group_id": "ghost",
                 "point_group": "g",
                 "interval": 1.0,
-                "sink_ids": ["s1"],
+                "outputs": [{"sink_id": "s1"}],
             }
         },
     )
@@ -276,7 +300,7 @@ def test_task_device_group_expansion_and_empty_group_rejected(tmp_path):
                 "device_group_id": "wind",
                 "point_group": "g",
                 "interval": 1.0,
-                "sink_ids": ["s1"],
+                "outputs": [{"sink_id": "s1"}],
             }
         },
     )
@@ -292,7 +316,7 @@ def test_task_device_group_expansion_and_empty_group_rejected(tmp_path):
                     "device_group_id": "solar",
                     "point_group": "g",
                     "interval": 1.0,
-                    "sink_ids": ["s1"],
+                    "outputs": [{"sink_id": "s1"}],
                 }
             }
         },
@@ -309,7 +333,7 @@ def test_task_point_group_must_exist(tmp_path):
                 "device_group_id": "dev1",
                 "point_group": "ghost",
                 "interval": 1.0,
-                "sink_ids": ["s1"],
+                "outputs": [{"sink_id": "s1"}],
             }
         },
     )
@@ -325,7 +349,7 @@ def test_interval_required_for_all_protocols(tmp_path):
             "t1": {
                 "device_group_id": "dev1",
                 "point_group": "g",
-                "sink_ids": ["s1"],
+                "outputs": [{"sink_id": "s1"}],
             }
         },
     )
@@ -341,7 +365,7 @@ def test_interval_required_for_all_protocols(tmp_path):
             "t1": {
                 "device_group_id": "dev1",
                 "point_group": "g",
-                "sink_ids": ["s1"],
+                "outputs": [{"sink_id": "s1"}],
             }
         },
     )
@@ -354,15 +378,27 @@ def test_sink_scale_offset_on_numeric_source(tmp_path):
         tmp_path,
         sinks={
             "s1": {
-                "type": "file",
-                "connection": {"path": str(tmp_path / "o.csv")},
-                "points": [
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
+            }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [
                     {
-                        "source": {"device_id": "dev1", "point_id": "p1"},
-                        "ref": "scada.p1",
-                        "scale": 2.0,
-                        "offset": 1.0,
-                        "address": {"field": "value"},
+                        "sink_id": "s1",
+                        "points": [
+                            {
+                                "source": {"device_id": "dev1", "point_id": "p1"},
+                                "ref": "scada.p1",
+                                "scale": 2.0,
+                                "offset": 1.0,
+                                "address": {"field": "value"},
+                            }
+                        ],
                     }
                 ],
             }
@@ -379,12 +415,24 @@ def test_sink_unknown_point_rejected(tmp_path):
         tmp_path,
         sinks={
             "s1": {
-                "type": "file",
-                "connection": {"path": str(tmp_path / "o.csv")},
-                "points": [
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
+            }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [
                     {
-                        "source": {"device_id": "dev1", "point_id": "ghost"},
-                        "address": {"field": "value"},
+                        "sink_id": "s1",
+                        "points": [
+                            {
+                                "source": {"device_id": "dev1", "point_id": "ghost"},
+                                "address": {"field": "value"},
+                            }
+                        ],
                     }
                 ],
             }
@@ -406,13 +454,25 @@ def test_sink_scale_on_bool_source_rejected(tmp_path):
         },
         sinks={
             "s1": {
-                "type": "file",
-                "connection": {"path": str(tmp_path / "o.csv")},
-                "points": [
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
+            }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [
                     {
-                        "source": {"device_id": "dev1", "point_id": "p1"},
-                        "scale": 2.0,
-                        "address": {"field": "value"},
+                        "sink_id": "s1",
+                        "points": [
+                            {
+                                "source": {"device_id": "dev1", "point_id": "p1"},
+                                "scale": 2.0,
+                                "address": {"field": "value"},
+                            }
+                        ],
                     }
                 ],
             }
@@ -429,24 +489,36 @@ def test_modbus_sink_layout_overlap_rejected(tmp_path):
             "s1": {
                 "type": "modbus",
                 "connection": {"host": "127.0.0.1", "port": 15020},
-                "points": [
+            }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [
                     {
-                        "source": {"device_id": "dev1", "point_id": "p1"},
-                        "address": {
-                            "slave_id": 1,
-                            "register_type": "holding",
-                            "address": 100,
-                        },
-                    },
-                    {
-                        "source": {"device_id": "dev1", "point_id": "p1"},
-                        "ref": "dup",
-                        "address": {
-                            "slave_id": 1,
-                            "register_type": "holding",
-                            "address": 101,  # float32 占 100..101 → 重叠
-                        },
-                    },
+                        "sink_id": "s1",
+                        "points": [
+                            {
+                                "source": {"device_id": "dev1", "point_id": "p1"},
+                                "address": {
+                                    "slave_id": 1,
+                                    "register_type": "holding",
+                                    "address": 100,
+                                },
+                            },
+                            {
+                                "source": {"device_id": "dev1", "point_id": "p1"},
+                                "ref": "dup",
+                                "address": {
+                                    "slave_id": 1,
+                                    "register_type": "holding",
+                                    "address": 101,  # float32 占 100..101 → 重叠
+                                },
+                            },
+                        ],
+                    }
                 ],
             }
         },
@@ -462,16 +534,10 @@ def test_retired_iec104_sink_type_rejected(tmp_path):
             "s1": {
                 "type": "iec104",
                 "connection": {"host": "127.0.0.1", "port": 12404},
-                "points": [
-                    {
-                        "source": {"device_id": "dev1", "point_id": "p1"},
-                        "address": {"ioa": 1001, "type_id": "M_SP_NA_1"},  # 需 bool
-                    }
-                ],
             }
         },
     )
-    with pytest.raises(ConfigError, match="invalid definition"):
+    with pytest.raises(ConfigError, match="sink type 'iec104' must be one of"):
         load_collector_config(YamlConfigAdapter(config_dir))
 
 
@@ -480,10 +546,9 @@ def test_disabled_sink_not_a_valid_task_target(tmp_path):
         tmp_path,
         sinks={
             "s1": {
-                "type": "file",
+                "type": "redis",
                 "enabled": False,
-                "connection": {"path": str(tmp_path / "o.csv")},
-                "points": [],
+                "connection": {"host": "127.0.0.1"},
             }
         },
     )
@@ -553,3 +618,54 @@ def test_watchdog_timing_defaults(tmp_path):
     config = load_collector_config(YamlConfigAdapter(config_dir))
     assert config.runtime.watchdog_interval == 5.0
     assert config.runtime.health_timeout == 1.0
+
+
+def test_redis_wildcard_output_expands_to_task_group_sources(tmp_path):
+    """空 points 的 Redis 输出 = 任务组全量；loader 物化显式白名单与默认前缀。"""
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        sinks={
+            "r1": {
+                "type": "redis",
+                "connection": {"host": "127.0.0.1", "port": 6379},
+            }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [{"sink_id": "r1", "key_prefix": "wf"}],
+            }
+        },
+    )
+
+    config = load_collector_config(YamlConfigAdapter(config_dir))
+
+    sink = config.sinks["r1"]
+    assert sink.task_sources == {"t1": (("dev1", "p1"),)}
+    assert sink.task_key_prefixes == {"t1": "wf"}
+
+
+def test_modbus_output_without_explicit_points_rejected(tmp_path):
+    """Modbus 从站无法为通配点分配寄存器：空 points 在解析期拒绝。"""
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        sinks={
+            "m1": {
+                "type": "modbus",
+                "connection": {"host": "127.0.0.1", "port": 1502},
+            }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [{"sink_id": "m1"}],
+            }
+        },
+    )
+
+    with pytest.raises(ConfigError, match="modbus output"):
+        load_collector_config(YamlConfigAdapter(config_dir))

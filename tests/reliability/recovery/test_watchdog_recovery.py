@@ -25,9 +25,10 @@ from tests.reliability.recovery.helpers import telemetry_task, wait_status
 from tests.support.config_helper import write_config_tree
 from tests.support.control import metrics_snapshot, start_task_instance
 from tests.support.process import CollectorProcess, free_port
-from tests.support.wait import wait_file_rows
+from tests.support.redis_client import point_key
+from tests.support.wait import wait_redis_value
 
-pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
+pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"
@@ -40,20 +41,21 @@ OUTAGE_WINDOW = 14.0
 SAMPLE_INTERVAL = 0.25
 
 
-def _write_fast_config(base: Path, port: int, sink_path: Path) -> Path:
+def _write_fast_config(base: Path, port: int, redis_address: str) -> Path:
     from tests.support.functional_config import MODBUS_POINTS, modbus_device_dict
 
-    task = telemetry_task("file_sink")
+    task = telemetry_task("redis_sink", key_prefix="wind-hub-watchdog")
     task[TASK_ID]["interval"] = FAST_INTERVAL
     return write_config_tree(
         base,
         devices=modbus_device_dict(port),
         point_tables={"modbus": {"points": dict(MODBUS_POINTS)}},
         sinks={
-            "file_sink": {
-                "type": "file",
+            "redis_sink": {
+                "type": "redis",
                 "connection": {
-                    "path": str(sink_path),
+                    "host": redis_address.rpartition(":")[0],
+                    "port": int(redis_address.rpartition(":")[2]),
                 },
             }
         },
@@ -93,12 +95,11 @@ async def _sample_attempts(proc: CollectorProcess, window: float) -> tuple[list[
 
 class TestWatchdogRecovery:
     async def test_watchdog_recovers_without_poll_loop_reconnect(
-        self, collector_factory, tmp_path: Path
+        self, collector_factory, redis_service: str, tmp_path: Path
     ) -> None:
         port = free_port()
         server = ModbusMockServer(port=port)
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = _write_fast_config(tmp_path / "cfg", port, sink_path)
+        config_dir = _write_fast_config(tmp_path / "cfg", port, redis_service)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
@@ -118,7 +119,10 @@ class TestWatchdogRecovery:
             )
             snap = await metrics_snapshot(proc.grpc_target)
             assert snap["device_reconnects"].get(DEVICE_ID, 0) >= 1
-            await wait_file_rows(sink_path, min_rows=2)
+            value = await wait_redis_value(
+                redis_service, point_key(DEVICE_ID, "rotor.speed", prefix="wind-hub-watchdog")
+            )
+            assert value["quality"] == "good"
 
             # 二次故障后仍由同一个 Watchdog 周期执行连接检查。
             await server.stop()

@@ -420,7 +420,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'turbine_modbus',
     point_group: 'all',
     interval: 1,
-    sinks: ['file_archive', 'modbus_main'],
+    sinks: ['redis_main', 'modbus_main'],
     enabled: true,
     running: true,
   },
@@ -430,7 +430,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'turbine_ads',
     point_group: 'all',
     interval: 1,
-    sinks: ['file_archive'],
+    sinks: ['redis_main'],
     enabled: true,
     running: true,
   },
@@ -440,7 +440,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'turbine_iec104',
     point_group: 'all',
     interval: 5,
-    sinks: ['file_archive'],
+    sinks: ['redis_main'],
     enabled: true,
     running: false,
   },
@@ -450,7 +450,7 @@ export const tasksSeed: MockTask[] = [
     device_group: 'storage_pcs',
     point_group: 'fast',
     interval: 1,
-    sinks: ['file_archive', 'redis_main'],
+    sinks: ['redis_main'],
     enabled: true,
     running: false,
   },
@@ -460,7 +460,7 @@ export const tasksSeed: MockTask[] = [
     device_group: null,
     point_group: 'status',
     interval: 5,
-    sinks: ['file_archive'],
+    sinks: ['redis_main'],
     enabled: false,
     running: false,
   },
@@ -471,22 +471,22 @@ export const tasksSeed: MockTask[] = [
     device_group: null,
     point_group: 'status',
     interval: 5,
-    sinks: ['file_archive'],
+    sinks: ['redis_main'],
     enabled: true,
     running: false,
   },
 ]
 
 // ---------------------------------------------------------------------------
-// Sinks：仅使用 Core 支持的 file / redis / modbus 契约。
+// Sinks：仅使用 Core 支持的 redis / modbus 契约。
 // Redis 故障与 Modbus 不可达作为演示用的运行态，由 Mock Runtime 控制。
 // ---------------------------------------------------------------------------
 export interface MockSink {
   name: string
-  type: 'file' | 'redis' | 'modbus'
+  type: 'redis' | 'modbus' | 'tdengine'
   enabled: boolean
   connection: Record<string, unknown>
-  points: Record<string, unknown>[]
+  has_password?: boolean
 }
 
 export const sinksSeed: MockSink[] = [
@@ -494,44 +494,20 @@ export const sinksSeed: MockSink[] = [
     name: 'redis_main',
     type: 'redis',
     enabled: true,
-    connection: { host: 'redis.windhub.local', port: 6379, key_prefix: 'wind-hub' },
-    points: [
-      {
-        source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
-        address: { field: 'wind-speed' },
-      },
-    ],
+    has_password: true,
+    connection: {
+      host: 'redis.windhub.local',
+      port: 6379,
+      database: 0,
+      timeout: 1.0,
+      key_prefix: 'wind-hub',
+    },
   },
   {
     name: 'modbus_main',
     type: 'modbus',
     enabled: true,
     connection: { host: '127.0.0.1', port: 1502 },
-    points: [
-      {
-        source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
-        address: { slave_id: 1, register_type: 'holding', address: 0 },
-      },
-    ],
-  },
-  {
-    name: 'file_archive',
-    type: 'file',
-    enabled: true,
-    connection: { path: '/var/tmp/wind-hub/archive.csv', max_size_mb: 100, max_files: 30 },
-    points: [
-      {
-        source: { device_id: 'wtg-001', point_id: 'wtg_mb_001' },
-        address: { field: 'wind-speed' },
-      },
-    ],
-  },
-  {
-    name: 'debug_file',
-    type: 'file',
-    enabled: false,
-    connection: { path: '/var/tmp/wind-hub/debug.csv', max_size_mb: 100, max_files: 10 },
-    points: [],
   },
 ]
 
@@ -622,7 +598,7 @@ export function tasksYaml(tasks: MockTask[]): string {
             device_group_id: task.device_group,
             point_group: task.point_group,
             interval: task.interval,
-            sink_ids: [...task.sinks],
+            outputs: task.sinks.map((sink_id) => ({ sink_id })),
             enabled: task.enabled,
           },
         ]),
@@ -679,7 +655,6 @@ export function seedYamlFiles(
             type: sink.type,
             enabled: sink.enabled,
             connection: sink.connection,
-            points: sink.points,
           },
         ]),
       ),

@@ -171,6 +171,7 @@ class TaskRuntime:
                 current.point_group,
                 list(current.targets),
                 instance_id,
+                current.task_id,
             )
 
         async def on_data(values: list[PointValue]) -> None:
@@ -179,7 +180,9 @@ class TaskRuntime:
             current = self._task_instances.get(instance_id)
             if current is None:
                 return
-            await self._engine.process(values, list(current.targets))
+            await self._engine.process(
+                values, list(current.targets), task_id=current.task_id
+            )
 
         try:
             handle = await device.start_acquisition(

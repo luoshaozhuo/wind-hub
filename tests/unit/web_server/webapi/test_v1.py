@@ -304,7 +304,8 @@ def test_v1_phase5_system_health_endpoint() -> None:
     assert response.json()["cpu_count"] == 4
 
 
-def test_v1_sinks_exposes_unified_connection_and_points() -> None:
+def test_v1_sinks_exposes_unified_connection_without_sink_points() -> None:
+    """新契约：点属于 Task outputs，/sinks 不再暴露 sink 级 points。"""
     sinks = MagicMock()
     sinks.list_sinks.return_value = [
         SinkSnapshot(
@@ -312,20 +313,6 @@ def test_v1_sinks_exposes_unified_connection_and_points() -> None:
             type="modbus",
             enabled=False,
             connection={"host": "0.0.0.0", "port": 1502},
-            points=[
-                {
-                    "source": {"device_id": "wt01", "point_id": "power"},
-                    "ref": "wt01.power",
-                    "datatype": "float32",
-                    "unit": "none",
-                    "address": {
-                        "unit_id": 1,
-                        "register_type": "holding",
-                        "address": 100,
-                    },
-                }
-            ],
-            point_count=1,
             healthy=False,
             message="disabled",
             queue_depth=0,
@@ -339,7 +326,8 @@ def test_v1_sinks_exposes_unified_connection_and_points() -> None:
     row = response.json()[0]
     assert row["type"] == "modbus"
     assert row["connection"] == {"host": "0.0.0.0", "port": 1502}
-    assert row["points"][0]["ref"] == "wt01.power"
+    assert "points" not in row
+    assert "point_count" not in row
     assert "params" not in row
 
 
@@ -373,12 +361,92 @@ def test_v1_admin_state_atomic_apply() -> None:
     admin_state.replace_all.assert_awaited_once()
 
 
+def _empty_admin_state_payload() -> dict[str, object]:
+    return {
+        "devices": [],
+        "tasks": [],
+        "sinks": [],
+        "definitions": {
+            "units": {},
+            "device_types": {},
+            "device_models": {},
+            "point_tables": {},
+        },
+    }
+
+
+def test_v1_admin_state_validation_failure_maps_to_422() -> None:
+    from web_server.application.config.files import ConfigApplyResult
+
+    admin_state = AsyncMock()
+    admin_state.replace_all.return_value = ConfigApplyResult(
+        success=False, errors=["task references unknown sink"]
+    )
+    client = _client(AppContext(admin_state=admin_state))
+
+    response = client.put("/api/v1/admin-state", json=_empty_admin_state_payload())
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_FAILED"
+
+
+def test_v1_admin_state_rollback_failure_stays_200() -> None:
+    """写盘后 reload 失败且已回滚：live 未变，保留 200 + success=false 语义。"""
+    from web_server.application.config.files import ConfigApplyResult
+
+    admin_state = AsyncMock()
+    admin_state.replace_all.return_value = ConfigApplyResult(
+        success=False,
+        errors=["worker rejected config"],
+        rollback_performed=True,
+    )
+    client = _client(AppContext(admin_state=admin_state))
+
+    response = client.put("/api/v1/admin-state", json=_empty_admin_state_payload())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["rollback_performed"] is True
+
+
 def test_v1_request_validation_uses_422_envelope() -> None:
     client = _client(AppContext())
 
     response = client.post(
         "/api/v1/diagnostics/ports",
         json={"host": "127.0.0.1", "ports": [0]},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_v1_admin_tasks_reject_legacy_device_scope_as_422() -> None:
+    """旧 device 直绑 Task 是死路径：请求边界 422，不允许穿透成 500。"""
+    client = _client(AppContext())
+
+    response = client.put(
+        "/api/v1/admin-state",
+        json={
+            "devices": [],
+            "tasks": [
+                {
+                    "task_id": "t1",
+                    "device": "d1",
+                    "point_group": "fast",
+                    "interval": 1.0,
+                    "sinks": ["s1"],
+                }
+            ],
+            "sinks": [],
+            "definitions": {
+                "units": {},
+                "device_types": {},
+                "device_models": {},
+                "point_tables": {},
+            },
+        },
     )
 
     assert response.status_code == 422

@@ -26,6 +26,7 @@ from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.settings import (
     ADSLocalConfig,
+    LogSettings,
     RuntimeSettings,
     SystemSettings,
     ThreadPoolSettings,
@@ -52,13 +53,14 @@ from core.domain import (
     Task,
     validate_core_config,
 )
+from core.domain.task import TaskOutput
 from core.domain.unit import DIMENSIONLESS, UnitCatalog
 from core.infrastructure.protocol.ads.config import is_valid_ams_net_id, parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
 from .business_points import parse_business_points
-from .sink_schema import parse_sink_definitions
+from .sink_schema import parse_sink_definitions, validate_task_sink_points
 from .units import parse_unit_catalog
 from .yaml import read_yaml_mapping
 from .yaml import yaml_plain as _yaml_plain
@@ -76,6 +78,7 @@ _POINT_FIELDS = {
     "offset",
     "unit",
     "description",
+    "business_point_id",
 }
 _DEVICE_FIELDS = {
     "model_id",
@@ -210,7 +213,12 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
             local_ams_net_id=net_id,
             local_ip=_name(values.get("local_ip"), "ads.local_ip"),
         )
-    return site_id, name, SystemSettings(runtime=runtime, ads=ads)
+    # system.yaml 顶层允许透传非托管段（如 interfaces）：域模型不解析，
+    # 保存时由 YamlConfigAdapter 原样合并写回。已知段在上方各自严格校验。
+    logs_raw = _map(raw.get("logs", {}), "system.logs")
+    _keys(logs_raw, set(LogSettings.__dataclass_fields__), "system.logs")
+    logs = LogSettings(**logs_raw)
+    return site_id, name, SystemSettings(runtime=runtime, ads=ads, logs=logs)
 
 
 _ADS_LOGICAL_TYPES: dict[str, str] = {
@@ -243,7 +251,10 @@ def _point(
 ) -> Point:
     context = f"point '{point_id}'"
     _keys(entry, _POINT_FIELDS, context)
-    identity = BusinessPointId(point_id)
+    raw_business_id = entry.get("business_point_id", point_id)
+    identity = BusinessPointId(
+        _name(raw_business_id, f"{context}.business_point_id")
+    )
     business_point = business_points.get(identity)
     if business_point is None:
         raise ConfigError(f"{context} unknown business point '{identity}'")
@@ -557,13 +568,30 @@ def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
         data = _map(item, context)
         _keys(
             data,
-            {"device_group_id", "point_group", "interval", "sink_ids", "enabled"},
+            {"device_group_id", "point_group", "interval", "outputs", "enabled"},
             context,
         )
-        sink_ids = tuple(
-            _name(sink, f"{context}.sink_ids")
-            for sink in _list(data.get("sink_ids"), f"{context}.sink_ids")
-        )
+        resolved: list[TaskOutput] = []
+        for index, item in enumerate(_list(data.get("outputs"), f"{context}.outputs")):
+            entry = _map(item, f"{context}.outputs[{index}]")
+            _keys(entry, {"sink_id", "key_prefix", "points"}, f"{context}.outputs[{index}]")
+            resolved.append(
+                TaskOutput(
+                    sink_id=_name(entry.get("sink_id"), f"{context}.outputs[{index}].sink_id"),
+                    key_prefix=(
+                        _name(entry["key_prefix"], f"{context}.outputs[{index}].key_prefix")
+                        if "key_prefix" in entry else None
+                    ),
+                    points=tuple(
+                        _map(point, f"{context}.outputs[{index}].points")
+                        for point in _list(
+                            entry.get("points", []), f"{context}.outputs[{index}].points"
+                        )
+                    ),
+                )
+            )
+        outputs = tuple(resolved)
+        sink_ids = tuple(output.sink_id for output in outputs)
         result[identity] = Task(
             task_id=identity,
             device_group_id=DeviceGroupId(
@@ -571,6 +599,7 @@ def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
             ),
             point_group=_name(data.get("point_group"), f"{context}.point_group"),
             sink_ids=sink_ids,
+            outputs=outputs,
             interval=_number(data.get("interval"), f"{context}.interval"),
             enabled=_flag(data.get("enabled", True), f"{context}.enabled"),
         )
@@ -586,7 +615,6 @@ def _sinks(raw: Mapping[str, Any]) -> dict[str, Sink]:
             kind=definition.type,
             enabled=definition.enabled,
             connection=entry["connection"],
-            points=tuple(entry.get("points", ())),
         )
     return sinks
 
@@ -618,6 +646,51 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
         )
         tasks = _tasks(task_document)
         sinks = _sinks(sink_document)
+        for task in tasks.values():
+            for output in task.outputs:
+                sink = sinks.get(output.sink_id)
+                if sink is None:
+                    raise ConfigError(
+                        f"Task '{task.task_id}' references unknown sink '{output.sink_id}'"
+                    )
+                if output.key_prefix is not None and sink.kind != "redis":
+                    raise ConfigError(
+                        f"Task '{task.task_id}' key_prefix requires a Redis Sink"
+                    )
+                if not output.points and sink.kind == "modbus":
+                    # Modbus 从站必须为每个点显式分配寄存器地址；空 points
+                    # 无法安全展开为通配（redis/tdengine 可按任务组全量投递）。
+                    raise ConfigError(
+                        f"Task '{task.task_id}' modbus output '{output.sink_id}' "
+                        "must declare explicit points with register addresses"
+                    )
+                if output.points:
+                    # TaskOutput.points 在领域模型内被递归冻结（MappingProxy/tuple），
+                    # 校验与 Sink 类型规则一律使用还原后的普通 dict/list 视图。
+                    plain_points = [_yaml_plain(point) for point in output.points]
+                    for mapping in plain_points:
+                        source = _map(mapping.get("source"), "task output source")
+                        device_id = _name(source.get("device_id"), "task output source.device_id")
+                        point_id = _name(source.get("point_id"), "task output source.point_id")
+                        device = devices.get(DeviceId(device_id))
+                        if device is None or task.device_group_id not in device.device_group_ids:
+                            raise ConfigError(
+                                f"Task '{task.task_id}' output references device "
+                                f"'{device_id}' outside its device group"
+                            )
+                        model = models[device.device_model_id]
+                        point = point_tables[model.point_table_id].points.get(point_id)
+                        if point is None:
+                            raise ConfigError(
+                                f"Task '{task.task_id}' output references unknown point "
+                                f"'{device_id}.{point_id}'"
+                            )
+                        if task.point_group not in point.point_groups:
+                            raise ConfigError(
+                                f"Task '{task.task_id}' output point '{device_id}.{point_id}' "
+                                "is not collected by this Task (point group mismatch)"
+                            )
+                    validate_task_sink_points(sink.kind, plain_points)
         validate_core_config(
             units=units,
             device_types=types,
@@ -639,6 +712,8 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
             device_models=models,
             device_groups=groups,
             point_tables=point_tables,
+            point_table_baseline=point_tables,
+            point_table_definitions=_map(point_document.get("point_tables"), "points.point_tables"),
             business_points=business_points,
             tasks=tasks,
             sinks=sinks,

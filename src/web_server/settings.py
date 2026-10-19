@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from uvicorn.config import LOG_LEVELS
+
 
 @dataclass(frozen=True, slots=True)
 class ServerSettings:
@@ -40,8 +42,13 @@ class ServerSettings:
             raise ValueError("port must be between 1 and 65535")
         if self.shutdown_timeout <= 0:
             raise ValueError("shutdown_timeout must be greater than 0")
-        if not self.log_level.strip():
+        normalized_level = self.log_level.strip().lower()
+        if not normalized_level:
             raise ValueError("log_level must not be empty")
+        if normalized_level not in LOG_LEVELS:
+            raise ValueError(
+                f"log_level must be one of {sorted(LOG_LEVELS)}, got {self.log_level!r}"
+            )
         if not self.collectors:
             raise ValueError("collectors must not be empty")
         _ = self.collector_endpoints

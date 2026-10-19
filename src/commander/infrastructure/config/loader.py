@@ -12,10 +12,10 @@ from ...application.config import CommanderConfig
 
 def load_commander_config(source: ConfigPort) -> CommanderConfig:
     """从注入的配置来源加载 Commander 配置；不在 Loader 内实例化 Adapter。"""
-    return _from_snapshot(source.load())
+    return commander_config_from_snapshot(source.load())
 
 
-def _from_snapshot(snapshot: ConfigSnapshot) -> CommanderConfig:
+def commander_config_from_snapshot(snapshot: ConfigSnapshot) -> CommanderConfig:
     runtime = snapshot.system.runtime
     devices: dict[DeviceId, Device] = {}
     for key, device in snapshot.site.devices.items():
@@ -52,4 +52,4 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CommanderConfig:
     )
 
 
-__all__ = ["load_commander_config"]
+__all__ = ["load_commander_config", "commander_config_from_snapshot"]

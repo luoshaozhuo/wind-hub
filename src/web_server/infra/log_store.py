@@ -7,6 +7,7 @@ import threading
 from collections import deque
 from datetime import UTC, datetime
 
+from core.infrastructure.diagnostic.correlation import get_request_id
 from web_server.application.port.log_store import LogEntry
 
 
@@ -60,12 +61,16 @@ class LogStore:
             or getattr(record, "sink_name", None)
             or "—"
         )
+        # RequestIdFilter 可能已在先前 handler 上写入 record.request_id；
+        # 缓冲 handler 安装晚于日志配置时回退直接读取 contextvar。
+        request_id = str(getattr(record, "request_id", None) or get_request_id() or "-")
         entry = LogEntry(
             timestamp=datetime.fromtimestamp(record.created, tz=UTC),
             level=level,
             source=self._source(record.name),
             object=object_name,
             message=record.getMessage(),
+            request_id=request_id,
         )
         with self._lock:
             self._entries.appendleft(entry)
@@ -112,7 +117,8 @@ class LogStore:
             rows = [
                 row
                 for row in rows
-                if keyword_norm in f"{row.source} {row.object} {row.message}".lower()
+                if keyword_norm
+                in f"{row.source} {row.object} {row.message} {row.request_id}".lower()
             ]
         return rows
 

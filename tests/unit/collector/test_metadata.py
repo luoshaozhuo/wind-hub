@@ -13,6 +13,7 @@ import pytest
 from collector.application.config import CollectorConfig
 from collector.application.config_service import CollectorConfigService
 from collector.application.metadata import CollectorMetadataService
+from core.application.sink_contract import ResolvedSink
 from core.domain import (
     BusinessPointId,
     ConnectionEndpoint,
@@ -93,8 +94,7 @@ def _config(
     return CollectorConfig(
         units=minimal_unit_catalog(),
         devices={
-            DeviceId(key): value
-            for key, value in (devices or {"dev1": _device("dev1")}).items()
+            DeviceId(key): value for key, value in (devices or {"dev1": _device("dev1")}).items()
         },
         device_models={
             DeviceModelId("mod"): DeviceModel(
@@ -135,16 +135,26 @@ def _task(
 def _sink(
     sink_id: str,
     *,
-    kind: str = "file",
+    kind: str = "redis",
     enabled: bool = True,
     points: tuple[dict[str, object], ...] = (),
+    task_sources: dict[str, tuple[tuple[str, str], ...]] | None = None,
 ) -> Sink:
-    return Sink(
+    # 生产装配期 CollectorConfig.sinks 承载的是 ResolvedSink（携带解析期点）；
+    # 元数据发布路由据此判断 Modbus Sink 是否显式映射某点。Redis/TDengine 的
+    # 选择性输出则依据 loader 填充的 task_sources 白名单。
+    connection = (
+        {"host": "127.0.0.1", "port": 1502}
+        if kind == "modbus"
+        else {"host": "127.0.0.1", "port": 6379}
+    )
+    return ResolvedSink(
         sink_id=sink_id,
         kind=kind,
         enabled=enabled,
-        connection={"path": "/tmp/out"},
-        points=points,  # type: ignore[arg-type]
+        connection=connection,
+        points=points,
+        task_sources=task_sources,
     )
 
 
@@ -251,8 +261,12 @@ def test_disabled_task_and_disabled_sink_are_not_reported() -> None:
             "t_on": _task("t_on", sink_ids=("s_off", "s_on")),
         },
         sinks={
-            "s_off": _sink("s_off", enabled=False),
-            "s_on": _sink("s_on"),
+            "s_off": _sink(
+                "s_off",
+                enabled=False,
+                task_sources={"t_on": (("dev1", "p1"),)},
+            ),
+            "s_on": _sink("s_on", task_sources={"t_on": (("dev1", "p1"),)}),
         },
     )
     row = _metadata(config).get_points_metadata("dev1", ["p1"]).points[0]
@@ -299,7 +313,11 @@ def test_modbus_sink_requires_explicit_point_mapping() -> None:
         sinks={
             "m_mapped": _sink("m_mapped", kind="modbus", points=(mapped, other)),
             "m_unmapped": _sink("m_unmapped", kind="modbus", points=(other,)),
-            "f1": _sink("f1", kind="file"),
+            "f1": _sink(
+                "f1",
+                kind="redis",
+                task_sources={"t1": (("dev1", "p1"),)},
+            ),
         },
     )
     row = _metadata(config).get_points_metadata("dev1", ["p1"]).points[0]
@@ -313,12 +331,47 @@ def test_multiple_tasks_and_sinks_deduplicate() -> None:
             "t1": _task("t1", sink_ids=("s1", "s2")),
             "t2": _task("t2", sink_ids=("s2",)),
         },
-        sinks={"s1": _sink("s1"), "s2": _sink("s2")},
+        sinks={
+            "s1": _sink("s1", task_sources={"t1": (("dev1", "p1"),)}),
+            "s2": _sink(
+                "s2",
+                task_sources={
+                    "t1": (("dev1", "p1"),),
+                    "t2": (("dev1", "p1"),),
+                },
+            ),
+        },
     )
     row = _metadata(config).get_points_metadata("dev1", ["p1"]).points[0]
     assert row.metadata is not None
     assert row.metadata.task_ids == ("t1", "t2")
     assert row.metadata.sink_ids == ("s1", "s2")
+
+
+def test_redis_tdengine_report_selected_task_outputs_only() -> None:
+    """D2：Redis/TDengine 仅在点属于当前 Task 的 output 白名单时上报为输出。"""
+    p1: tuple[tuple[str, str], ...] = (("dev1", "p1"),)
+    config = _config(
+        tasks={
+            "t_select": _task("t_select", sink_ids=("redis_in", "td_out", "shared")),
+            "t_other": _task("t_other", sink_ids=("shared",)),
+        },
+        sinks={
+            # 当前 Task 显式选择 p1
+            "redis_in": _sink("redis_in", task_sources={"t_select": p1}),
+            # Task 路由到该 Sink，但白名单不含 p1（选择性输出）
+            "td_out": _sink("td_out", kind="tdengine", task_sources={"t_select": ()}),
+            # 多 Task 共享：仅 t_select 选择 p1，仍只上报一次
+            "shared": _sink(
+                "shared",
+                task_sources={"t_select": p1, "t_other": ()},
+            ),
+        },
+    )
+    row = _metadata(config).get_points_metadata("dev1", ["p1"]).points[0]
+    assert row.metadata is not None
+    assert row.metadata.task_ids == ("t_other", "t_select")
+    assert row.metadata.sink_ids == ("redis_in", "shared")
 
 
 def test_large_batch_preserves_order_and_duplicates() -> None:

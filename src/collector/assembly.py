@@ -14,7 +14,7 @@ from pathlib import Path
 
 from core.application import ProtocolRegistry
 from core.application.port import SinkPort
-from core.application.settings import ADSLocalConfig
+from core.application.settings import ADSLocalConfig, LogSettings
 from core.domain import Device, PointTable
 from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
@@ -28,7 +28,7 @@ from .application.runtime import CollectorRuntime
 from .application.session import CollectorDeviceSession
 from .application.sink_registry import SinkFactory
 from .domain.acquisition import AcquisitionEngine
-from .infrastructure.config.loader import load_collector_config
+from .infrastructure.config.loader import collector_config_from_snapshot, load_collector_config
 from .infrastructure.sink_registry import build_sink_registry
 
 
@@ -64,6 +64,7 @@ class CollectorApp:
     latest_values: LatestValues
     identity: CollectorIdentity
     ads_local: ADSLocalConfig | None
+    log_settings: LogSettings
 
     async def start(self) -> None:
         """初始化 ADS 本机身份（配置含 ADS 时）并启动 Runtime。"""
@@ -100,7 +101,9 @@ def assemble_collector(
     config_path = Path(config_dir)
     config_source = YamlConfigAdapter(config_path)
     before_hash = config_dir_digest(config_path)
-    config = load_collector_config(config_source)
+    # 启动配置只完整解析一次：装配、日志初始化共用同一份快照。
+    snapshot = config_source.load()
+    config = collector_config_from_snapshot(snapshot)
     config_hash = config_dir_digest(config_path)
     if before_hash != config_hash:
         raise ValueError(
@@ -173,6 +176,7 @@ def assemble_collector(
         latest_values=latest_values,
         identity=build_collector_identity(config_hash, collector_id=collector_id),
         ads_local=config.ads_local,
+        log_settings=snapshot.system.logs,
     )
 
 

@@ -8,8 +8,8 @@ from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
-from core.application.sink_contract import ModbusSinkAddress, ResolvedSinkPoint
-from core.domain import Device, DeviceId, Sink
+from core.application.sink_contract import ModbusSinkAddress, ResolvedSink, ResolvedSinkPoint
+from core.domain import Device, DeviceId, Sink, Task
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.sink_schema import (
     MODBUS_WORD_WIDTH,
@@ -21,10 +21,10 @@ from ...application.config import BackpressurePolicy, CollectorConfig, RuntimePa
 
 def load_collector_config(source: ConfigPort) -> CollectorConfig:
     """从注入的配置来源加载 Collector 配置；不在 Loader 内实例化 Adapter。"""
-    return _from_snapshot(source.load())
+    return collector_config_from_snapshot(source.load())
 
 
-def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
+def collector_config_from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
     enabled_sinks = {sink_id for sink_id, sink in snapshot.sinks.items() if sink.enabled}
     for task in snapshot.tasks.values():
         if not task.enabled:
@@ -63,14 +63,41 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
     )
 
 
+def _task_group_sources(snapshot: ConfigSnapshot, task: Task) -> tuple[tuple[str, str], ...]:
+    """展开空 points 输出：任务设备组 × 测点组内的全部 (device, point)。"""
+    sources: list[tuple[str, str]] = []
+    for device in snapshot.site.devices.values():
+        if not device.enabled or task.device_group_id not in device.device_group_ids:
+            continue
+        model = snapshot.device_models[device.device_model_id]
+        table = snapshot.point_tables[model.point_table_id]
+        for point_id, point in table.points.items():
+            if task.point_group in point.point_groups:
+                sources.append((str(device.device_id), point_id))
+    return tuple(sources)
+
+
 def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
-    """解析外部 Sink 点引用，明确源类型与单位（单位由快照单位目录解析）。"""
+    """解析外部 Sink 点引用，明确源类型与单位（单位由快照单位目录解析）。
+
+    只聚合**启用 Task** 的 outputs：禁用 Task 不部署，其点不得占用 Modbus
+    寄存器/白名单，其过期设备引用也不得阻断启动（结构正确性在解析层仍对
+    全部 Task 校验，保证重新启用时配置可用）。
+    """
     result: dict[str, Sink] = {}
+    enabled_tasks = [task for task in snapshot.tasks.values() if task.enabled]
     for sink_id, sink in snapshot.sinks.items():
         points = []
+        task_outputs = [
+            (task, output)
+            for task in enabled_tasks
+            for output in task.outputs
+            if output.sink_id == sink_id
+        ]
+        task_points = [raw for _, output in task_outputs for raw in output.points]
         refs: set[str] = set()
         addresses: dict[tuple[int, str], list[tuple[int, int]]] = {}
-        for raw in sink.points:
+        for raw in task_points:
             source = raw["source"]
             device_id = DeviceId(source["device_id"])
             device = snapshot.site.devices.get(device_id)
@@ -146,12 +173,47 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                     )
                 occupied.append((address.address, end))
             points.append(resolved.model_dump(mode="json"))
-        result[sink_id] = Sink(
+        task_sources = None
+        if sink.kind in {"modbus", "redis", "tdengine"}:
+            # 显式 points 是选择性输出；空 points 对 Redis/TDengine 表示任务组全量
+            # （Modbus 已在解析层强制显式点表，空列表不会走到这里）。
+            task_sources = {
+                task.task_id: (
+                    tuple(
+                        (raw["source"]["device_id"], raw["source"]["point_id"])
+                        for raw in output.points
+                    )
+                    if output.points
+                    else _task_group_sources(snapshot, task)
+                )
+                for task, output in task_outputs
+            }
+        task_key_prefixes = None
+        if sink.kind == "redis":
+            task_key_prefixes = {
+                task.task_id: output.key_prefix or sink.connection.get("key_prefix", "wind-hub")
+                for task, output in task_outputs
+            }
+        result[sink_id] = ResolvedSink(
             sink_id=sink.sink_id,
             kind=sink.kind,
             enabled=sink.enabled,
             connection=sink.connection,
             points=tuple(points),
+            task_sources=task_sources,
+            task_key_prefixes=task_key_prefixes,
+            task_refs=(
+                {
+                    task.task_id: tuple(
+                        raw.get("ref")
+                        or f"{raw['source']['device_id']}.{raw['source']['point_id']}"
+                        for raw in output.points
+                    )
+                    for task, output in task_outputs
+                }
+                if sink.kind == "modbus"
+                else None
+            ),
         )
     return result
 
@@ -176,4 +238,4 @@ def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
     )
 
 
-__all__ = ["load_collector_config"]
+__all__ = ["load_collector_config", "collector_config_from_snapshot"]

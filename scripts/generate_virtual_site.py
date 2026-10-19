@@ -172,26 +172,12 @@ def generate_site(
                 "device_group_id": f"virtual_{family}",
                 "point_group": "all",
                 "interval": 1.0,
-                "sink_ids": ["file_archive"],
+                "outputs": [{"sink_id": "redis_latest"}],
                 "enabled": True,
             }
             for family in ("modbus", "ads", "iec104")
         }
         _write(output, "tasks.yaml", {"tasks": tasks})
-
-        sinks = _read(output, "sinks.yaml")
-        archive = sinks["sinks"]["file_archive"]
-        archive["connection"]["path"] = str(output / "virtual.csv")
-        # 种子模板的映射指向 modbus-001；整站重写为生成的 Modbus 设备。
-        archive["points"] = [
-            {
-                "source": {"device_id": f"modbus-{index:02d}", "point_id": "active_power"},
-                "ref": f"modbus_{index:02d}_active_power",
-                "address": {"field": f"modbus_{index:02d}_active_power"},
-            }
-            for index in range(count)
-        ]
-        _write(output, "sinks.yaml", sinks)
 
         # 拒绝留下不可由 Core 解析的半成品，和 Web Server/Collector 共用契约。
         snapshot = YamlConfigAdapter(output).load()

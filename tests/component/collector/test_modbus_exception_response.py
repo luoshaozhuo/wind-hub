@@ -20,9 +20,10 @@ from tests.support.functional_config import (
     MODBUS_POINTS,
     update_yaml,
 )
-from tests.support.wait import read_csv, wait_file_rows
+from tests.support.redis_client import point_key
+from tests.support.wait import read_redis_value, wait_redis_value
 
-pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
+pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
 POINTS = "points.yaml"
 
@@ -39,14 +40,12 @@ def _points_with_bad_address() -> dict[str, Any]:
     return {"modbus": {"points": {**MODBUS_POINTS, "bad.address": dict(BAD_POINT)}}}
 
 
-def _file_sink(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any], Path]:
-    sink_path = tmp_path / "out" / "telemetry.csv"
+def _redis_sink(redis_address: str, prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    host, _, port = redis_address.rpartition(":")
     sinks = {
-        "file_sink": {
-            "type": "file",
-            "connection": {
-                "path": str(sink_path),
-            },
+        "redis_sink": {
+            "type": "redis",
+            "connection": {"host": host, "port": int(port), "key_prefix": prefix},
         }
     }
     tasks = {
@@ -54,17 +53,17 @@ def _file_sink(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any], Path]:
             "device_group_id": "modbus-1",
             "point_group": "telemetry",
             "interval": 0.2,
-            "sink_ids": ["file_sink"],
+            "outputs": [{"sink_id": "redis_sink"}],
         }
     }
-    return sinks, tasks, sink_path
+    return sinks, tasks
 
 
 class TestExceptionResponseClassification:
     async def test_exception_response_not_classified_as_disconnect(
-        self, app_factory, tmp_path: Path
+        self, app_factory, redis_service: str, tmp_path: Path
     ) -> None:
-        sinks, tasks, _ = _file_sink(tmp_path)
+        sinks, tasks = _redis_sink(redis_service, f"wind-hub-exception-{tmp_path.name}")
         ctx = await app_factory(point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks)
         await ctx.start_instances()
         app = ctx.app
@@ -105,14 +104,15 @@ class TestExceptionResponseClassification:
         ), "异常响应导致的采集失败必须可见，不得静默吞掉"
 
     async def test_fixing_point_table_recovers_without_reconnect(
-        self, app_factory, tmp_path: Path
+        self, app_factory, redis_service: str, tmp_path: Path
     ) -> None:
-        sinks, tasks, sink_path = _file_sink(tmp_path)
+        sinks, tasks = _redis_sink(redis_service, f"wind-hub-exception-{tmp_path.name}")
         ctx = await app_factory(point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks)
         await ctx.start_instances()
         app = ctx.app
-        await asyncio.sleep(1.0)  # 确认故障配置下无数据落盘
-        assert not sink_path.exists() or len(read_csv(sink_path)) == 0
+        key = point_key("modbus-1", "rotor.speed", prefix=f"wind-hub-exception-{tmp_path.name}")
+        await asyncio.sleep(1.0)  # 故障点表不得产生完整采集输出
+        assert await read_redis_value(redis_service, key) is None
 
         # ---- 修复点表（去掉非法地址点）并 reload ----
         def mutate(data: dict[str, Any]) -> None:
@@ -123,6 +123,7 @@ class TestExceptionResponseClassification:
         assert result.success, result.errors
 
         # ---- 同一条连接上数据面恢复，全程零重连 ----
-        await wait_file_rows(sink_path, min_rows=2, timeout=10.0)
+        value = await wait_redis_value(redis_service, key, timeout=10.0)
+        assert value["quality"] == "good"
         snap = app.metrics.snapshot()
         assert snap["device_reconnects"].get("modbus-1", 0) == 0

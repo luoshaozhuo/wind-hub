@@ -169,9 +169,12 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
         },
         sinks={
             "perf_null": {
-                "type": "file",
+                # FileSink 已移除：用合法的 redis kind 作可解析占位，运行时
+                # 实例由 assemble_collector(sink_factories={"redis": NullSink})
+                # 覆盖，不会真正连接该地址（纯采集性能测量，隔离外部 IO）。
+                "type": "redis",
                 "enabled": True,
-                "connection": {"path": str(config_dir / "perf-null.csv")},
+                "connection": {"host": "127.0.0.1", "port": 6379},
             }
         },
         tasks={
@@ -179,7 +182,7 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
                 "device_group_id": plan.device_id,
                 "point_group": "default",
                 "interval": plan.poll_interval_s,
-                "sink_ids": ["perf_null"],
+                "outputs": [{"sink_id": "perf_null"}],
             }
         },
     )
@@ -263,7 +266,7 @@ async def run_benchmark(
             for c in controllers:
                 c.apply(scenario)  # 中断场景此处是 clear（稳态无规则）
 
-            app = assemble_collector(config_dir, sink_factories={"file": lambda _cfg: NullSink()})
+            app = assemble_collector(config_dir, sink_factories={"redis": lambda _cfg: NullSink()})
             runtime = app.runtime
             runtime.engine.add_observer(_make_latency_observer(collector))
 

@@ -1,4 +1,4 @@
-"""三类 Sink 的配置合法性及资源冲突测试。"""
+"""Sink 配置合法性及资源冲突测试。"""
 
 from typing import Any
 
@@ -7,8 +7,8 @@ from pydantic import ValidationError
 
 from core.application.errors import ConfigError
 from core.infrastructure.config.sink_schema import (
-    FileSinkConnection,
     RedisSinkConnection,
+    TDengineSinkConnection,
     _SinkSchema,
     validate_sink_definitions,
 )
@@ -23,7 +23,7 @@ def sink(kind: str, connection: dict[str, Any], enabled: bool = True) -> _SinkSc
 def test_valid_three_sinks() -> None:
     validate_sink_definitions(
         {
-            "file": sink("file", {"path": "./data.csv"}),
+            "history": sink("tdengine", {"password": "local-test"}),
             "server": sink("modbus", {"port": 1502}),
             "cache": sink("redis", {}),
         }
@@ -40,7 +40,7 @@ def test_duplicate_id_rejected() -> None:
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "sinks.yaml"
         path.write_text(
-            "sinks:\n  same:\n    type: file\n    connection: {path: ./a.csv}\n"
+            "sinks:\n  same:\n    type: tdengine\n    connection: {password: local-test}\n"
             "  same:\n    type: redis\n    connection: {}\n",
             encoding="utf-8",
         )
@@ -73,6 +73,23 @@ def test_redis_port_and_credentials() -> None:
         RedisSinkConnection(port=70000)
 
 
-def test_csv_limits() -> None:
+def test_tdengine_timeout_validation() -> None:
     with pytest.raises(ValidationError):
-        FileSinkConnection(path="./data", max_files=0)
+        TDengineSinkConnection(password="local-test", timeout=0)
+
+
+def test_redis_empty_password_normalizes_to_none() -> None:
+    """显式空密码与缺省同义：不残留空 SecretStr，允许无 ACL 连接。"""
+    connection = RedisSinkConnection(host="127.0.0.1", password="")
+    assert connection.password is None
+    # 仍带 username 时必须拒绝（ACL 规则不变）。
+    with pytest.raises(ValidationError):
+        RedisSinkConnection(host="127.0.0.1", username="app", password="")
+
+
+def test_removed_file_sink_type_is_rejected() -> None:
+    """历史文件输出不得重新进入公开配置类型。"""
+    with pytest.raises((ValidationError, ConfigError)):
+        _SinkSchema.model_validate(
+            {"type": "file", "connection": {"path": "/tmp/archive"}}
+        )

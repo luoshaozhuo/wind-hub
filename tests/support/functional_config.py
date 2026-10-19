@@ -49,7 +49,7 @@ DEFAULT_TASK: dict[str, Any] = {
     "device_group_id": "modbus-1",
     "point_group": "telemetry",
     "interval": 0.2,
-    "sink_ids": ["null_sink"],
+    "outputs": [{"sink_id": "redis_sink"}],
 }
 
 
@@ -91,7 +91,10 @@ def write_functional_config(
     system: dict[str, Any] | None = None,
     device_models: dict[str, Any] | None = None,
 ) -> Path:
-    """写出 functional 测试默认配置树（单 Modbus 设备 + null sink）。"""
+    """写出单 Modbus 设备的测试配置；缺省输出为本机 Redis。
+
+    如需隔离 Redis 地址，应显式提供 ``sinks``。
+    """
     if callable(devices):
         devices = devices(port)
     return write_config_tree(
@@ -102,9 +105,9 @@ def write_functional_config(
         sinks=sinks
         if sinks is not None
         else {
-            "null_sink": {
-                "type": "file",
-                "connection": {"path": "/tmp/wind-hub-null.csv"},
+            "redis_sink": {
+                "type": "redis",
+                "connection": {"host": "127.0.0.1", "port": 6379},
             }
         },
         tasks=tasks if tasks is not None else {"modbus-telemetry": dict(DEFAULT_TASK)},

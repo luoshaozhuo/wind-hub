@@ -10,11 +10,7 @@ def test_nested_sink_configuration_round_trip() -> None:
         kind="redis",
         enabled=True,
         connection={"options": {"names": ["a", "b"]}},
-        points=({"mapping": {"source": "p"}},),
     )
     assert yaml_plain(sink.connection) == {
         "options": {"names": ["a", "b"]}
     }
-    assert yaml_plain(sink.points) == [
-        {"mapping": {"source": "p"}}
-    ]

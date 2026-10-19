@@ -206,22 +206,6 @@ def _validate_sinks(
 ) -> None:
     """检查 Sink 的稳定引用；连接与地址类型由 YAML Adapter 校验。"""
     _validate_identity(sinks, "sinks", "sink_id")
-    for sink_id, sink in sinks.items():
-        for point in sink.points:
-            source = point.get("source")
-            if not isinstance(source, Mapping):
-                raise ValueError(f"sink '{sink_id}' point requires a source mapping")
-            device_value = source.get("device_id")
-            point_id = source.get("point_id")
-            if not isinstance(device_value, str) or not device_value:
-                raise ValueError(f"sink '{sink_id}' invalid source device_id")
-            device_id = DeviceId(device_value)
-            device = devices.get(device_id)
-            if device is None:
-                raise ValueError(f"sink '{sink_id}' unknown device '{device_id}'")
-            table = tables[models[device.device_model_id].point_table_id]
-            if point_id not in table.points:
-                raise ValueError(f"sink '{sink_id}' unknown point '{point_id}' on '{device_id}'")
 
 
 def _validate_task_point_groups(

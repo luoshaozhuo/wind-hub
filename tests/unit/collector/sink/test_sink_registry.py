@@ -1,34 +1,36 @@
-"""仅注册 File / Modbus / Redis 三种 Sink。"""
-
-from pathlib import Path
+"""验证当前 Sink 注册表只暴露受支持的实现。"""
 
 import pytest
 
 from collector.infrastructure.sink_registry import build_sink_registry
+from core.application.sink_contract import ResolvedSink
 from core.domain import Sink
-from core.infrastructure.sink.file import FileSink
+from core.infrastructure.sink.modbus import ModbusSink
 from core.infrastructure.sink.redis import RedisSink
+from core.infrastructure.sink.tdengine import TDengineSink
 
 
-def test_three_builtin_types() -> None:
-    assert build_sink_registry().registered_types() == ("file", "modbus", "redis")
+def test_builtin_types() -> None:
+    types = build_sink_registry().registered_types()
+    assert types == ("modbus", "redis", "tdengine")
+    assert "file" not in types
 
 
-def test_file_factory(tmp_path: Path) -> None:
-    config = Sink(
-        sink_id="file",
-        kind="file",
-        enabled=True,
-        connection={"path": str(tmp_path / "x.csv")},
+@pytest.mark.parametrize(
+    ("kind", "connection", "expected_type"),
+    [
+        ("modbus", {}, ModbusSink),
+        ("redis", {}, RedisSink),
+        ("tdengine", {"password": "local-test"}, TDengineSink),
+    ],
+)
+def test_registered_factory(kind: str, connection: dict[str, str], expected_type: type) -> None:
+    config = (
+        ResolvedSink(sink_id=kind, kind=kind, enabled=True, connection=connection)
+        if kind == "modbus"
+        else Sink(sink_id=kind, kind=kind, enabled=True, connection=connection)
     )
-    sink = build_sink_registry().create(config)
-    assert isinstance(sink, FileSink)
-
-
-def test_redis_factory() -> None:
-    config = Sink(sink_id="redis", kind="redis", enabled=True, connection={})
-    sink = build_sink_registry().create(config)
-    assert isinstance(sink, RedisSink)
+    assert isinstance(build_sink_registry().create(config), expected_type)
 
 
 def test_domain_rejects_unsupported_sink_type() -> None:

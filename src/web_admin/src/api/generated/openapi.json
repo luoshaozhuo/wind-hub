@@ -118,14 +118,6 @@
             "title": "Name",
             "type": "string"
           },
-          "points": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Points",
-            "type": "array"
-          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -954,6 +946,11 @@
           },
           "object": {
             "title": "Object",
+            "type": "string"
+          },
+          "request_id": {
+            "default": "-",
+            "title": "Request Id",
             "type": "string"
           },
           "source": {
@@ -2010,6 +2007,11 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "has_password": {
+            "default": false,
+            "title": "Has Password",
+            "type": "boolean"
+          },
           "healthy": {
             "title": "Healthy",
             "type": "boolean"
@@ -2029,18 +2031,6 @@
             "title": "Name",
             "type": "string"
           },
-          "point_count": {
-            "title": "Point Count",
-            "type": "integer"
-          },
-          "points": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Points",
-            "type": "array"
-          },
           "queue_depth": {
             "title": "Queue Depth",
             "type": "integer"
@@ -2055,7 +2045,6 @@
           "type",
           "enabled",
           "connection",
-          "point_count",
           "healthy",
           "queue_depth"
         ],
@@ -2110,14 +2099,6 @@
             "default": true,
             "title": "Enabled",
             "type": "boolean"
-          },
-          "points": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Points",
-            "type": "array"
           },
           "type": {
             "title": "Type",

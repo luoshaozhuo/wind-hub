@@ -2,10 +2,10 @@
 
 与 component 层 ``test_endpoint_port_change_reconnects_to_new_peer`` 的区别：
 这里的 Collector 是独立 subprocess，reload 经 Prepare/Activate 两段事务
-RPC 下发（与生产路径一致），观测全部在系统边界——sink 文件中的点值来源
+RPC 下发（与生产路径一致），观测全部在系统边界——Redis 最新值的点值来源
 （A=1200.5 / B=1500.5）、CLI status 的 ``devices_connected``。
 
-两个对端都是真实 Modbus 从站：A 与 B 寄存器值不同，sink 行里的值直接
+两个对端都是真实 Modbus 从站：A 与 B 寄存器值不同，Redis 点值直接
 证明「当前连接的是哪一台」。host 变化用 loopback 别名 127.0.0.2 构造
 （Linux 整个 127/8 均为本地回环，无需额外网络配置）。
 """
@@ -20,13 +20,16 @@ from typing import Any
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
-from tests.reliability.recovery.helpers import wait_status, write_modbus_file_config
+from tests.reliability.recovery.helpers import (
+    wait_status,
+    wait_telemetry_value,
+    write_modbus_redis_config,
+)
 from tests.support.control import reload_config, start_task_instance
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, free_port
-from tests.support.wait import read_csv, wait_file_rows
 
-pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
+pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"
@@ -49,12 +52,19 @@ def _set_endpoint(config_dir: Path, *, host: str, port: int) -> None:
     update_yaml(config_dir, "devices.yaml", _mutate)
 
 
-def _rows_with_value(sink_path: Path, value: float) -> list[dict[str, Any]]:
-    return [
-        r
-        for r in read_csv(sink_path)
-        if r["point_id"] == "rotor.speed" and r["value"] == pytest.approx(value)
-    ]
+async def _wait_value(redis_address: str, expected: float) -> dict[str, Any]:
+    return await wait_telemetry_value(
+        redis_address,
+        match=lambda payload: payload["value"] == pytest.approx(expected),
+    )
+
+
+async def _assert_stays_on_b(redis_address: str) -> None:
+    observed = await _wait_value(redis_address, VALUE_B)
+    latest = await wait_telemetry_value(
+        redis_address, after=str(observed["timestamp"])
+    )
+    assert latest["value"] == pytest.approx(VALUE_B)
 
 
 async def _start_server_b(*, host: str = "127.0.0.1") -> ModbusMockServer:
@@ -70,16 +80,16 @@ class TestEndpointMigration:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
         """DEV-03a：在线迁移 port——Sink 出现 B 值后不再读到 A，连接数保持 1。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service
+        )
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(
-            sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_A)
-        )
+        await _wait_value(redis_service, VALUE_A)
 
         server_b = await _start_server_b()
         try:
@@ -90,18 +100,13 @@ class TestEndpointMigration:
             assert activated.success, f"activate failed: {list(activated.errors)}"
 
             # 新值出现 + 设备保持已连接（迁移不允许表现为长期掉线）。
-            await wait_file_rows(
-                sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
-            )
+            await _wait_value(redis_service, VALUE_B)
             await wait_status(
                 proc, lambda p: p["devices_connected"] == 1, description="device on B"
             )
 
-            # 旧连接已关闭：A 仍在运行，但稳定窗口内不再产生 A 值行。
-            await asyncio.sleep(1.0)
-            settled_a = len(_rows_with_value(sink_path, VALUE_A))
-            await asyncio.sleep(1.0)
-            assert len(_rows_with_value(sink_path, VALUE_A)) == settled_a
+            # 新连接连续提供 B 值，不应恢复旧 A 值。
+            await _assert_stays_on_b(redis_service)
         finally:
             await server_b.stop()
 
@@ -109,16 +114,16 @@ class TestEndpointMigration:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
         """DEV-03b：在线迁移 host（127.0.0.1 → 127.0.0.2）——真实修改 host 字段。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service
+        )
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(
-            sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_A)
-        )
+        await _wait_value(redis_service, VALUE_A)
 
         server_b = await _start_server_b(host="127.0.0.2")
         try:
@@ -128,13 +133,8 @@ class TestEndpointMigration:
             )
             assert activated.success, f"activate failed: {list(activated.errors)}"
 
-            await wait_file_rows(
-                sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
-            )
-            await asyncio.sleep(1.0)
-            settled_a = len(_rows_with_value(sink_path, VALUE_A))
-            await asyncio.sleep(1.0)
-            assert len(_rows_with_value(sink_path, VALUE_A)) == settled_a
+            await _wait_value(redis_service, VALUE_B)
+            await _assert_stays_on_b(redis_service)
         finally:
             await server_b.stop()
 
@@ -142,14 +142,16 @@ class TestEndpointMigration:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
         """DEV-04：掉线期间迁移 endpoint——A 不恢复，reload 后直连 B 并出数。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service
+        )
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_telemetry_value(redis_service)
 
         await modbus_server.stop()
         await wait_status(proc, lambda p: p["devices_connected"] == 0, description="A disconnected")
@@ -166,10 +168,8 @@ class TestEndpointMigration:
             await wait_status(
                 proc, lambda p: p["devices_connected"] == 1, description="connected to B"
             )
-            rows = await wait_file_rows(
-                sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
-            )
-            assert all(r["point_id"] for r in rows)
+            value = await _wait_value(redis_service, VALUE_B)
+            assert value["quality"] == "good"
         finally:
             await server_b.stop()
 
@@ -177,14 +177,16 @@ class TestEndpointMigration:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
         """DEV-05：迁移到不可达 endpoint——不得残留假 healthy，修正后恢复。"""
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service
+        )
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_telemetry_value(redis_service)
 
         # ---- 切到无监听者的地址（connect 立即被拒绝） ----
         _set_endpoint(config_dir, host=DEAD_HOST, port=free_port())
@@ -212,9 +214,7 @@ class TestEndpointMigration:
             await wait_status(
                 proc, lambda p: p["devices_connected"] == 1, description="recovered on B"
             )
-            await wait_file_rows(
-                sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
-            )
+            await _wait_value(redis_service, VALUE_B)
         finally:
             await server_b.stop()
 
@@ -224,6 +224,7 @@ class TestReloadDuringReconnect:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
         """CFG-01：Watchdog 恢复期间迁移 endpoint——旧会话不得阻塞新设备连接。
@@ -232,11 +233,12 @@ class TestReloadDuringReconnect:
         不受旧 Watchdog 及旧状态影响。最后重启 A，验证旧
         协议实例不会复活（不再出现 A 值）。
         """
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service
+        )
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=2)
+        await wait_telemetry_value(redis_service)
 
         await modbus_server.stop()
         await wait_status(proc, lambda p: p["devices_connected"] == 0, description="A disconnected")
@@ -264,12 +266,7 @@ class TestReloadDuringReconnect:
 
             # 旧协议实例不得复活：A 恢复后，数据仍只能来自 B。
             await modbus_server.start()
-            await asyncio.sleep(1.0)
-            settled_a = len(_rows_with_value(sink_path, VALUE_A))
-            await asyncio.sleep(1.0)
-            assert len(_rows_with_value(sink_path, VALUE_A)) == settled_a
-            await wait_file_rows(
-                sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_B)
-            )
+            await _assert_stays_on_b(redis_service)
+            await _wait_value(redis_service, VALUE_B)
         finally:
             await server_b.stop()

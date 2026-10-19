@@ -72,18 +72,18 @@ function seedSinkRuntime(sinks: MockSink[]): Map<string, SinkRuntime> {
   const map = new Map<string, SinkRuntime>()
   for (const s of sinks) {
     map.set(s.name, {
-      writes_total: s.name === 'file_archive' ? 18342 : 0,
+      writes_total: s.name === 'redis_main' ? 18342 : 0,
       failures_total: s.name === 'modbus_main' ? 14 : 0,
       dropped_points: s.name === 'modbus_main' ? 6 : 0,
-      queue_depth: s.name === 'modbus_main' ? 128 : s.name === 'file_archive' ? 2 : 0,
-      latency_ms: s.name === 'file_archive' ? 4 : 0,
+      queue_depth: s.name === 'modbus_main' ? 128 : s.name === 'redis_main' ? 2 : 0,
+      latency_ms: s.name === 'redis_main' ? 4 : 0,
       error:
         s.name === 'modbus_main'
           ? 'SINK_CONNECTION_REFUSED'
           : s.name === 'redis_main'
             ? 'SINK_REDIS_TIMEOUT'
             : '',
-      last_write_at: s.name === 'file_archive' ? '2026-10-08T07:59:58Z' : '',
+      last_write_at: s.name === 'redis_main' ? '2026-10-08T07:59:58Z' : '',
     })
   }
   return map

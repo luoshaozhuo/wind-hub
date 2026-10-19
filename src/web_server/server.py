@@ -11,13 +11,16 @@ import logging
 import signal
 
 import uvicorn
+from uvicorn.config import LOG_LEVELS
 
+from core.application.config_snapshot import ConfigSnapshot
+from core.infrastructure.diagnostic.log_setup import configure_process_logging
 from web_server.adapter.inbound.webapi.app import build_api
 from web_server.application.config.service import ConfigService
 from web_server.application.task.reconcile import TaskPlacementReconciler
 from web_server.application.worker.registry import WorkerRegistry
 from web_server.assembly import ServerApp, assemble_server
-from web_server.infra.correlation import RequestIdFilter
+from web_server.infra.log_store import LogStore
 from web_server.settings import ServerSettings
 
 logger = logging.getLogger(__name__)
@@ -35,7 +38,14 @@ def build_api_server(
         port=settings.port,
         log_level=settings.log_level,
         lifespan="on",
+        # 禁用 uvicorn 自带 dictConfig：它会另建 handler，绕过 wind-hub
+        # 统一的 [request_id] 格式、UTC 与按日/容量归档文件。显式级别
+        # 下放到 uvicorn logger，记录经 propagate 进 root handler。
+        log_config=None,
     )
+    level = LOG_LEVELS[settings.log_level.lower()]
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logging.getLogger(logger_name).setLevel(level)
     logger.info(
         "wind-hub-server API 启动中（%d 台设备，%d 个 sink）→ %s:%d",
         len(runtime.config.current_config.site.devices),
@@ -44,6 +54,27 @@ def build_api_server(
         settings.port,
     )
     return uvicorn.Server(config)
+
+
+def reconfigure_logging_on_commit(
+    log_store: LogStore,
+    previous: ConfigSnapshot,
+    candidate: ConfigSnapshot,
+) -> bool:
+    """成功提交后按新 system.logs 热更进程日志；未变更则不动。
+
+    configure_process_logging 使用 force=True，会清空 root handler，
+    因此必须先卸载 LogStore 的缓冲 handler，重配后再装回。
+    """
+    if previous.system.logs == candidate.system.logs:
+        return False
+    logger.info("检测到日志配置变更，热更新进程日志 handler")
+    log_store.uninstall()
+    try:
+        configure_process_logging(candidate.system.logs, process_name="web_server")
+    finally:
+        log_store.install()
+    return True
 
 
 async def reload_once(config: ConfigService) -> None:
@@ -227,15 +258,6 @@ def _install_signal_handlers(
 
 async def run_server(settings: ServerSettings) -> int:
     """Run the Server-owned API and management composition."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s",
-    )
-    # 所有日志记录注入 Request-ID（无请求上下文时为 '-'），供现场排障检索。
-    # Filter 挂在 handler 上才对传播而来的记录生效。
-    for handler in logging.getLogger().handlers:
-        handler.addFilter(RequestIdFilter())
-
     runtime = assemble_server(
         settings.config_dir,
         collectors=settings.collector_endpoints,
@@ -243,9 +265,17 @@ async def run_server(settings: ServerSettings) -> int:
         api_host=settings.host,
         api_port=settings.port,
     )
+    # 进程日志统一由 core 配置：UTC + [request_id] 格式，handler 已挂
+    # RequestIdFilter（HTTP 中间件/gRPC 拦截器绑定同一 contextvar）。
+    configure_process_logging(runtime.config.current_config.system.logs, process_name="web_server")
     runtime.config.initialize_desired_revision()
 
     runtime.log_store.install()
+
+    def _reconfigure_logging(previous: ConfigSnapshot, candidate: ConfigSnapshot) -> None:
+        reconfigure_logging_on_commit(runtime.log_store, previous, candidate)
+
+    runtime.config.add_commit_hook(_reconfigure_logging)
 
     shutdown_event = asyncio.Event()
     reload_event = asyncio.Event()

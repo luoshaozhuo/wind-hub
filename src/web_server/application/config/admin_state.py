@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from web_server.application.config.files import ConfigApplyResult, ConfigFileService
 
@@ -28,13 +28,26 @@ class AdminTaskItem(BaseModel):
     sinks: list[str] = Field(default_factory=list)
     enabled: bool = True
 
+    @model_validator(mode="after")
+    def _validate_group_scope(self) -> AdminTaskItem:
+        # 新契约只支持 device_group 级周期 Task；旧 device 级字段是死路径，
+        # 在请求边界拒绝（422），避免落入 mutator 后以 ValueError 变 500。
+        if self.device:
+            raise ValueError("device-scoped tasks are unsupported; set device_group")
+        if not self.device_group:
+            raise ValueError("task requires device_group")
+        if self.interval is None:
+            raise ValueError("task requires a positive interval")
+        if not self.sinks:
+            raise ValueError("task requires at least one sink")
+        return self
+
 
 class AdminSinkItem(BaseModel):
     name: str
     type: str
     enabled: bool = True
     connection: dict[str, Any]
-    points: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AdminDefinitionsState(BaseModel):
@@ -91,7 +104,9 @@ class AdminStateService:
                         group for group in previous_groups[1:] if group != primary
                     )
             documents["devices.yaml"] = device_document
-            documents["tasks.yaml"] = self._tasks_document(tasks)
+            documents["tasks.yaml"] = self._tasks_document(
+                tasks, documents["tasks.yaml"].get("tasks", {})
+            )
             previous_sinks = documents["sinks.yaml"].get("sinks", {})
             documents["sinks.yaml"] = {
                 "sinks": {
@@ -99,19 +114,24 @@ class AdminStateService:
                         "type": item.type,
                         "enabled": item.enabled,
                         "connection": item.connection,
-                        "points": item.points,
                     }
                     for item in sinks
                 }
             }
-            # Redis 密码属于只写字段；UI 不回显时沿用同一个 Sink 的原值。
+            # Redis/TDengine 密码属于只写字段；UI 不回显时沿用同类型 Sink 原值。
             for sink_id, entry in documents["sinks.yaml"]["sinks"].items():
                 old_sink = previous_sinks.get(sink_id, {})
-                if entry["type"] != "redis" or old_sink.get("type") != "redis":
+                if (
+                    entry["type"] not in {"redis", "tdengine"}
+                    or old_sink.get("type") != entry["type"]
+                ):
                     continue
                 old_connection = old_sink.get("connection", {})
-                if "password" not in entry["connection"] and "password" in old_connection:
-                    entry["connection"]["password"] = old_connection["password"]
+                if "password" not in entry["connection"]:
+                    if old_connection.get("password"):
+                        entry["connection"]["password"] = old_connection["password"]
+                elif not entry["connection"].get("password"):
+                    entry["connection"].pop("password", None)
             # 单位目录包含 quantities 与 units 两个正式根，批量保存不得丢失物理量定义。
             definitions_documents = self._definition_documents(definitions)
             previous_units = documents["units.yaml"]
@@ -174,7 +194,9 @@ class AdminStateService:
         }
 
     @staticmethod
-    def _tasks_document(items: list[AdminTaskItem]) -> dict[str, Any]:
+    def _tasks_document(
+        items: list[AdminTaskItem], previous: dict[str, Any]
+    ) -> dict[str, Any]:
         tasks: dict[str, Any] = {}
         for item in items:
             if not item.device_group or item.device:
@@ -185,11 +207,20 @@ class AdminStateService:
                 raise ValueError(f"task {item.task_id} requires a positive interval")
             if not item.sinks:
                 raise ValueError(f"task {item.task_id} requires at least one sink")
+            previous_outputs = previous.get(item.task_id, {}).get("outputs", [])
+            mapped = {
+                item_output.get("sink_id"): item_output
+                for item_output in previous_outputs
+                if isinstance(item_output, dict)
+            }
             tasks[item.task_id] = {
                 "device_group_id": item.device_group,
                 "point_group": item.point_group,
                 "interval": item.interval,
-                "sink_ids": list(item.sinks),
+                "outputs": [
+                    dict(mapped.get(sink_id, {"sink_id": sink_id}))
+                    for sink_id in item.sinks
+                ],
                 "enabled": item.enabled,
             }
         return {"tasks": tasks}

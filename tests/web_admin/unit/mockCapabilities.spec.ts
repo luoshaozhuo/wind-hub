@@ -10,7 +10,7 @@ import {
   vi,
 } from "vitest";
 import { server } from "../../../src/web_admin/src/mocks/node";
-import { resetMockState } from "../../../src/web_admin/src/mocks/state";
+import { resetMockState, mockState } from "../../../src/web_admin/src/mocks/state";
 import {
   fetchDevice,
   fetchDevices,
@@ -215,9 +215,19 @@ describe("高保真 Mock 能力矩阵", () => {
     expect(byDevice["wtg-025"]).toBe("running");
   });
 
-  it("13. Sink verify 分阶段：file 全过、db 固定失败并阻断后续", async () => {
-    const ok = await verifySink("file_archive");
+  it("13. Sink verify 分阶段：健康 sink 全过、db 固定失败并阻断后续", async () => {
+    // 种子里的 redis/modbus 都带固定故障场景；注入一个无场景的 tdengine
+    // sink（FileSink 移除后 Core 仍支持的合法类型）覆盖全 passed 正向路径。
+    // afterEach 的 resetMockState() 会用种子数组替换 sinks，不污染其他用例。
+    mockState.sinks.push({
+      name: "tdengine_main",
+      type: "tdengine",
+      enabled: true,
+      connection: { host: "tdengine.windhub.local", port: 6041 },
+    });
+    const ok = await verifySink("tdengine_main");
     expect(ok.success).toBe(true);
+    expect(ok.steps!.length).toBeGreaterThan(0);
     expect(ok.steps!.every((s) => s.state === "passed")).toBe(true);
 
     const failed = await verifySink("modbus_main");
@@ -227,11 +237,11 @@ describe("高保真 Mock 能力矩阵", () => {
     expect(states).toContain("skipped");
     expect(failed.message).toContain("SINK_CONNECTION_REFUSED");
 
-    const kafka = await verifySink("redis_main");
-    expect(kafka.success).toBe(false);
-    const kafkaStates = kafka.steps!.map((s) => s.state);
-    expect(kafkaStates).toContain("warning"); // ICMP advisory
-    expect(kafka.message).toContain("SINK_REDIS_TIMEOUT");
+    const redis = await verifySink("redis_main");
+    expect(redis.success).toBe(false);
+    const redisStates = redis.steps!.map((s) => s.state);
+    expect(redisStates).toContain("warning"); // ICMP advisory
+    expect(redis.message).toContain("SINK_REDIS_TIMEOUT");
   });
 
   it("14. Sink write test 失败影响 Quality 与 Logs", async () => {
@@ -281,8 +291,10 @@ describe("高保真 Mock 能力矩阵", () => {
     expect(overview.device_count).toBe(56);
     expect(overview.devices_connected).toBe(52);
     expect(overview.task_count).toBe(6);
-    expect(overview.sink_count).toBe(4);
-    expect(overview.sinks_healthy).toBe(1); // 仅 file_archive 健康
+    // 种子运行态把 redis/modbus 都置为演示故障（REDIS_TIMEOUT / CONNECTION_REFUSED），
+    // 故 2 个 sink 全部不健康；FileSink 移除后不再有“唯一健康”的 file_archive。
+    expect(overview.sink_count).toBe(2);
+    expect(overview.sinks_healthy).toBe(0);
   });
 
   it("18. Config：apply revision+1 / import same → No Changes / restore 新 revision", async () => {

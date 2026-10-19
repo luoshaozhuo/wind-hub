@@ -1,9 +1,9 @@
 """System E2E：Modbus → Collector 子进程 → 真实 sink 的数据面验收。
 
 链路：真实 Modbus TCP 从站 → Collector subprocess（console script 启动）
-→ 真实 File/Redis sink。任务启停经 CollectorControlService RPC
+→ 真实 Redis sink。任务启停经 CollectorControlService RPC
 下发（与 Server → Collector 生产控制路径一致）；验证全部发生在系统
-边界——读输出文件、独立 Redis 连接，不读取 Collector 进程内部状态。
+边界——独立 Redis 连接，不读取 Collector 进程内部状态。
 """
 
 from __future__ import annotations
@@ -19,94 +19,30 @@ from tests.support.control import start_task_instance, stop_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import point_key
-from tests.support.wait import (
-    read_csv,
-    wait_file_rows,
-    wait_redis_value,
-)
+from tests.support.wait import read_redis_value, wait_redis_value
 
-pytestmark = pytest.mark.real_service
+pytestmark = [pytest.mark.redis, pytest.mark.real_service]
 
 TASK_ID = "modbus-telemetry"
-INSTANCE_ID = "modbus-telemetry:modbus-1"
+DEVICE_ID = "modbus-1"
+INSTANCE_ID = f"{TASK_ID}:{DEVICE_ID}"
 
 #: 本文件 Redis sink 的 key_prefix（键规则见 tests.support.redis_client.point_key）。
 REDIS_KEY_PREFIX = "wind-hub-sys"
 
 
-def _task(sink_id: str) -> dict[str, Any]:
+def _task(sink_id: str, *, key_prefix: str | None = None) -> dict[str, Any]:
+    output: dict[str, Any] = {"sink_id": sink_id}
+    if key_prefix is not None:
+        output["key_prefix"] = key_prefix
     return {
         TASK_ID: {
-            "device_group_id": "modbus-1",
+            "device_group_id": DEVICE_ID,
             "point_group": "telemetry",
             "interval": 0.2,
-            "sink_ids": [sink_id],
+            "outputs": [output],
         }
     }
-
-
-def _file_config(base: Path, port: int, sink_path: Path) -> Path:
-    """单设备 + File sink 的现场配置（小缓冲/短间隔，保证及时落盘）。"""
-    return write_functional_config(
-        base,
-        port,
-        sinks={
-            "file_sink": {
-                "type": "file",
-                "connection": {
-                    "path": str(sink_path),
-                },
-            }
-        },
-        tasks=_task("file_sink"),
-    )
-
-
-class TestModbusToFile:
-    async def test_started_task_streams_points_to_file(
-        self,
-        modbus_server: ModbusMockServer,
-        collector_factory,
-        tmp_path: Path,
-    ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = _file_config(tmp_path / "cfg", modbus_server.port, sink_path)
-        proc: CollectorProcess = await collector_factory(config_dir)
-
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-
-        rows = await wait_file_rows(
-            sink_path,
-            min_rows=4,
-            match=lambda r: r["point_id"] == "rotor.speed",
-        )
-        assert all(r["device_id"] == "modbus-1" for r in rows)
-        assert all(r["value"] == pytest.approx(1200.5) for r in rows)
-        assert all(r["quality"] == "good" for r in rows)
-        # 同一任务周期应同时产出组内其余点位。
-        point_ids = {r["point_id"] for r in read_csv(sink_path)}
-        assert {"rotor.speed", "gen.power", "temp.int", "setpoint.power"} <= point_ids
-
-    async def test_stopped_task_halts_delivery(
-        self,
-        modbus_server: ModbusMockServer,
-        collector_factory,
-        tmp_path: Path,
-    ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.csv"
-        config_dir = _file_config(tmp_path / "cfg", modbus_server.port, sink_path)
-        proc: CollectorProcess = await collector_factory(config_dir)
-
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        await wait_file_rows(sink_path, min_rows=4)
-        await stop_instance(proc.grpc_target, INSTANCE_ID)
-
-        # 静默验证（不是就绪等待）：先等残余缓冲落盘，再确认行数在
-        # 数个采集周期内不再增长——停止后不允许有新采集写入。
-        await asyncio.sleep(1.0)
-        settled = len(read_csv(sink_path))
-        await asyncio.sleep(0.8)
-        assert len(read_csv(sink_path)) == settled
 
 
 @pytest.mark.redis
@@ -127,11 +63,10 @@ class TestModbusToRedis:
                     "connection": {
                         "host": redis_service.rpartition(":")[0],
                         "port": int(redis_service.rpartition(":")[2]),
-                        "key_prefix": REDIS_KEY_PREFIX,
                     },
                 }
             },
-            tasks=_task("redis_sink"),
+            tasks=_task("redis_sink", key_prefix=REDIS_KEY_PREFIX),
         )
         proc: CollectorProcess = await collector_factory(config_dir)
 
@@ -156,3 +91,43 @@ class TestModbusToRedis:
             )
             assert value["quality"] == "good"
             assert value["timestamp"]
+
+    async def test_stop_task_prevents_further_redis_updates(
+        self,
+        modbus_server: ModbusMockServer,
+        collector_factory,
+        redis_service: str,
+        tmp_path: Path,
+    ) -> None:
+        """任务停止后，Redis 最新值时间戳必须保持稳定。"""
+        host, _, port = redis_service.rpartition(":")
+        config_dir = write_functional_config(
+            tmp_path / "cfg",
+            modbus_server.port,
+            sinks={
+                "redis_sink": {
+                    "type": "redis",
+                    "connection": {"host": host, "port": int(port)},
+                }
+            },
+            tasks=_task("redis_sink", key_prefix=REDIS_KEY_PREFIX),
+        )
+        proc: CollectorProcess = await collector_factory(config_dir)
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        key = point_key(DEVICE_ID, "rotor.speed", prefix=REDIS_KEY_PREFIX)
+        initial = await wait_redis_value(redis_service, key)
+        await wait_redis_value(
+            redis_service,
+            key,
+            match=lambda item: item["timestamp"] > initial["timestamp"],
+        )
+
+        await stop_instance(proc.grpc_target, INSTANCE_ID)
+        # 允许已入队的在途批次排空，再观察连续多个采集周期。
+        await asyncio.sleep(0.8)
+        settled = await read_redis_value(redis_service, key)
+        assert settled is not None
+        await asyncio.sleep(0.8)
+        after = await read_redis_value(redis_service, key)
+        assert after is not None
+        assert after["timestamp"] == settled["timestamp"]

@@ -7,27 +7,30 @@ Sink.write → store 的端到端内存路径。
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 from typing import Literal
 
 import pytest
+from pydantic import ValidationError
 
+from collector.infrastructure.config.loader import load_collector_config
 from core.application import ConfigError, Quality
 from core.application.sink_contract import (
     ModbusSinkAddress,
+    ResolvedSink,
     ResolvedSinkPoint,
     SinkSource,
 )
 from core.application.sink_export import ExportedSinkPointValue
 from core.domain import Sink
 from core.domain.point_value import PointValue
-from core.infrastructure.config.sink_schema import (
-    ModbusSinkConnection,
-    parse_sink_definitions,
-)
+from core.infrastructure.config import YamlConfigAdapter
+from core.infrastructure.config.sink_schema import ModbusSinkConnection
 from core.infrastructure.sink.modbus.codec import encode_modbus_value
 from core.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from core.infrastructure.sink.modbus.sink import ModbusSink
 from core.infrastructure.sink.modbus.store import ModbusSinkStore
+from tests.support.new_collector import write_collector_config_tree
 
 
 def _point(
@@ -77,70 +80,85 @@ def _exported(point: ResolvedSinkPoint, value: object) -> ExportedSinkPointValue
 # ---------------------------------------------------------------------------
 
 
-def _modbus_sink_document(*addresses: dict[str, object]) -> dict[str, object]:
+def _modbus_task_output(*addresses: dict[str, object]) -> dict[str, object]:
     return {
-        "sinks": {
+        "sink_id": "mb",
+        "points": [
+            {
+                "source": {"device_id": "dev1", "point_id": "p1"},
+                "ref": f"p{index}",
+                "address": address,
+            }
+            for index, address in enumerate(addresses)
+        ],
+    }
+
+
+def _load_with_layout(tmp_path: Path, *addresses: dict[str, object]):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        sinks={
             "mb": {
                 "type": "modbus",
                 "connection": {"host": "127.0.0.1", "port": 15020},
-                "points": [
-                    {
-                        "source": {"device_id": "d1", "point_id": "p1"},
-                        "ref": f"p{index}",
-                        "address": address,
-                    }
-                    for index, address in enumerate(addresses)
-                ],
             }
-        }
-    }
+        },
+        tasks={
+            "t1": {
+                "device_group_id": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "outputs": [_modbus_task_output(*addresses)],
+            }
+        },
+    )
+    return load_collector_config(YamlConfigAdapter(config_dir))
 
 
 def test_schema_accepts_slave_id_bounds() -> None:
     for slave_id in (0, 255):
-        document = _modbus_sink_document(
-            {"slave_id": slave_id, "register_type": "holding", "address": 100}
+        address = ModbusSinkAddress(
+            slave_id=slave_id, register_type="holding", address=100
         )
-        sinks = parse_sink_definitions(document)
-        point = sinks["mb"].points[0]
-        assert isinstance(point.address, ModbusSinkAddress)
-        assert point.address.slave_id == slave_id
+        assert address.slave_id == slave_id
 
 
 @pytest.mark.parametrize("slave_id", [-1, 256, "1"])
 def test_schema_rejects_out_of_range_slave_id(slave_id: object) -> None:
-    document = _modbus_sink_document(
-        {"slave_id": slave_id, "register_type": "holding", "address": 100}
-    )
-    with pytest.raises(ConfigError):
-        parse_sink_definitions(document)
+    with pytest.raises(ValidationError):
+        ModbusSinkAddress(
+            slave_id=slave_id,  # type: ignore[arg-type]
+            register_type="holding",
+            address=100,
+        )
 
 
 def test_schema_rejects_legacy_unit_id() -> None:
-    """旧 Modbus Sink unit_id 配置键不再兼容，直接拒绝。"""
-    document = _modbus_sink_document(
-        {"unit_id": 1, "register_type": "holding", "address": 100}
-    )
-    with pytest.raises(ConfigError):
-        parse_sink_definitions(document)
+    """旧 Modbus 地址 unit_id 配置键不再兼容，直接拒绝。"""
+    with pytest.raises(ValidationError):
+        ModbusSinkAddress.model_validate(
+            {"unit_id": 1, "register_type": "holding", "address": 100}
+        )
 
 
-def test_schema_allows_same_address_on_different_slaves() -> None:
-    document = _modbus_sink_document(
+def test_layout_allows_same_address_on_different_slaves(tmp_path: Path) -> None:
+    config = _load_with_layout(
+        tmp_path,
         {"slave_id": 1, "register_type": "holding", "address": 100},
         {"slave_id": 2, "register_type": "holding", "address": 100},
     )
-    sinks = parse_sink_definitions(document)
-    assert len(sinks["mb"].points) == 2
+    assert len(config.sinks["mb"].points) == 2
 
 
-def test_schema_rejects_duplicate_address_on_same_slave() -> None:
-    document = _modbus_sink_document(
-        {"slave_id": 1, "register_type": "holding", "address": 100},
-        {"slave_id": 1, "register_type": "holding", "address": 100},
-    )
-    with pytest.raises(ConfigError, match="duplicate external address"):
-        parse_sink_definitions(document)
+def test_layout_rejects_duplicate_address_on_same_slave(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="overlapping Modbus register"):
+        # float32 占两个保持寄存器：100..101 与 101 区间重叠（非完全同址，
+        # 精确重复在 schema 阶段先被拦截，这里覆盖 loader 的区间重叠检测）。
+        _load_with_layout(
+            tmp_path,
+            {"slave_id": 1, "register_type": "holding", "address": 100},
+            {"slave_id": 1, "register_type": "holding", "address": 101},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -228,9 +246,9 @@ def test_pipeline_applies_sink_scale_offset() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _sink_config(**conn: object) -> Sink:
+def _sink_config(**conn: object) -> ResolvedSink:
     connection = ModbusSinkConnection(host="127.0.0.1", port=15020, **conn)
-    return Sink(
+    return ResolvedSink(
         sink_id="mb",
         kind="modbus",
         enabled=True,

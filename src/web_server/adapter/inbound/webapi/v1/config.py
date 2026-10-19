@@ -27,9 +27,22 @@ from web_server.application.config.admin_state import (
     AdminSinkItem,
     AdminTaskItem,
 )
+from web_server.application.config.files import ConfigApplyResult
 from web_server.infra.audit import audit
 
 router = APIRouter()
+
+
+def _raise_validation_failure(result: ConfigApplyResult) -> None:
+    """统一配置写操作的失败语义：未写盘/未回滚的校验失败 → 422。
+
+    写盘后 reload 失败且已回滚时保留 200 + success=false：live 状态
+    未变更，但调用方必须看到事务未成功。
+    """
+    if not result.success and not result.rollback_performed:
+        raise APIError(
+            "VALIDATION_FAILED", "; ".join(result.errors) or "invalid config content", 422
+        )
 
 
 # ------------------------------ Config files
@@ -43,7 +56,7 @@ async def list_config_files(ctx: AppContext = Depends(get_ctx)) -> list[ConfigFi
 @router.get("/config/files/{name}", response_model=ConfigContentResponse, tags=["v1-config"])
 async def get_config_file(name: str, ctx: AppContext = Depends(get_ctx)) -> ConfigContentResponse:
     try:
-        content = common.config_admin(ctx).read_file(name)
+        content = common.config_admin(ctx).read_file_redacted(name)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown config file '{name}'", 404) from None
     return ConfigContentResponse(name=name, content=content)
@@ -73,11 +86,7 @@ async def apply_config(
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown config file '{request.name}'", 404) from None
     audit("config.apply", file=request.name, comment=request.comment, success=result.success)
-    if not result.success and not result.rollback_performed:
-        # 校验失败属于客户端输入问题：明确 422，而非 200 + success=false 的模糊语义。
-        raise APIError(
-            "VALIDATION_FAILED", "; ".join(result.errors) or "invalid config content", 422
-        )
+    _raise_validation_failure(result)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -139,6 +148,7 @@ async def update_settings(
 
     result = await common.settings(ctx).update(SettingsUpdate(**request.model_dump()))
     audit("settings.update", success=result.success)
+    _raise_validation_failure(result)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -166,6 +176,7 @@ async def upsert_definition(
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown definition kind '{kind}'", 404) from None
     audit("definition.upsert", kind=kind, name=name, success=result.success)
+    _raise_validation_failure(result)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -184,6 +195,7 @@ async def delete_definition(
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown definition '{kind}/{name}'", 404) from None
     audit("definition.delete", kind=kind, name=name, success=result.success)
+    _raise_validation_failure(result)
     return ConfigApplyResponse(**result.model_dump())
 
 
@@ -212,4 +224,5 @@ async def replace_admin_state(
         sinks=len(request.sinks),
         success=result.success,
     )
+    _raise_validation_failure(result)
     return ConfigApplyResponse(**result.model_dump())

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from collector.domain.acquisition import AcquisitionEngine
+from collector.domain.acquisition import AcquisitionEngine, SinkDelivery
 from core.application import ProtocolSample, Quality
 from core.domain.point_value import PointValue
 from tests.support.new_collector import CollectorFakeProtocol, make_collector_config, make_session
@@ -18,7 +18,7 @@ class _RecordingPorts:
 
     def __init__(self, *, connected: bool = True) -> None:
         self.connected = connected
-        self.dispatched: list[dict[str, list[PointValue]]] = []
+        self.dispatched: list[dict[str, SinkDelivery]] = []
         self.read_success: list[str] = []
         self.read_failure: list[str] = []
         self.started: list[str] = []
@@ -47,7 +47,7 @@ class _RecordingPorts:
     ) -> None:
         self.failure.append((execution_id, error))
 
-    async def dispatch(self, routed: dict[str, list[PointValue]]) -> None:
+    async def dispatch(self, routed: dict[str, SinkDelivery]) -> None:
         self.dispatched.append(routed)
 
 
@@ -66,7 +66,7 @@ def _session(**kwargs):
 async def test_collect_success_dispatches_to_targets():
     ports = _RecordingPorts()
     engine = _engine(ports)
-    await engine.collect(_session(), "g", ["s1", "s2"], "t1:dev1")
+    await engine.collect(_session(), "g", ["s1", "s2"], "t1:dev1", "t1")
 
     assert ports.success == [("t1:dev1", False)]
     assert ports.read_success == ["dev1"]
@@ -74,7 +74,8 @@ async def test_collect_success_dispatches_to_targets():
     routed = ports.dispatched[0]
     assert set(routed) == {"s1", "s2"}
     batch = routed["s1"]
-    assert batch[0].device_id == "dev1" and batch[0].point_id == "p1"
+    assert batch.task_id == "t1"
+    assert batch.values[0].device_id == "dev1" and batch.values[0].point_id == "p1"
     assert engine.points_collected == 1
 
 

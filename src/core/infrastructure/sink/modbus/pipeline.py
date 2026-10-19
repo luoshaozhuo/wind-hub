@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from core.application import Quality
 from core.application.sink_contract import ResolvedSinkPoint
-from core.application.sink_export import SinkReferenceExporter
+from core.application.sink_export import ExportedSinkPointValue, SinkReferenceExporter
 from core.domain.point_value import PointValue
 from core.infrastructure.sink.modbus.codec import encode_modbus_value
 from core.infrastructure.sink.modbus.store import ModbusSinkStore
@@ -32,8 +32,14 @@ class ModbusSinkDataPath:
         Modbus 寄存器本身没有统一的数据质量通道，因此 BAD/UNCERTAIN 或 None
         不覆盖最近一次 GOOD 值。
         """
+        return self._write_exported(self._exporter.export(batch))
+
+    def update_selected(self, batch: list[PointValue], points: list[ResolvedSinkPoint]) -> int:
+        return self._write_exported(SinkReferenceExporter(points).export(batch))
+
+    def _write_exported(self, exported_points: list[ExportedSinkPointValue]) -> int:
         updated = 0
-        for exported in self._exporter.export(batch):
+        for exported in exported_points:
             if exported.quality is not Quality.GOOD or exported.value is None:
                 continue
             self._store.write(encode_modbus_value(exported))
