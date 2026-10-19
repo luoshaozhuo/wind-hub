@@ -29,7 +29,15 @@ def _timestamp_ms(value: datetime) -> int:
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> None:
         return None
 
 
@@ -159,6 +167,12 @@ class TDengineSink:
                 self._error = str(exc)
                 raise SinkError(f"TDengine write failed: {exc}") from exc
             self._error = None
+
+    async def diagnostic(self) -> None:
+        """只执行服务端查询校验，不向历史超级表插入诊断点。"""
+        health = await self.health()
+        if not health.healthy:
+            raise SinkError(health.message or "TDengine diagnostic query failed")
 
     async def flush(self) -> None:
         """write 返回前已获得服务器确认，无本地缓冲。"""
