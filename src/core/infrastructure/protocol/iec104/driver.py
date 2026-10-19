@@ -88,6 +88,7 @@ class IEC104InterrogationIncompleteError(ProtocolError):
         self.common_address = ca
         self.qoi = qoi
         self.samples = samples
+        self.reason = reason
         self.completed = False
 
 
@@ -600,7 +601,7 @@ class IEC104Driver:
                     batches.extend(await self._interrogate_one(ca, qoi=qoi))
                 except IEC104InterrogationIncompleteError as exc:
                     raise IEC104InterrogationIncompleteError(
-                        ca, qoi, (*batches, *exc.samples), str(exc)
+                        ca, qoi, (*batches, *exc.samples), exc.reason
                     ) from exc
             return tuple(batches)
         if common_address not in self._config.common_addresses:
