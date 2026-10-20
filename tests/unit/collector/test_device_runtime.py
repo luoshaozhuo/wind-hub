@@ -71,7 +71,10 @@ async def test_normal_acquisition_does_not_retry_connect():
     assert proto.connect_calls == 1
 
     proto.fail_connect = False
-    await runtime._watchdogs["dev1"].check_once()
+    watchdog = runtime._watchdogs["dev1"]
+    await watchdog.check_once()
+    assert proto.connect_calls == 1
+    await watchdog.check_once()
     assert proto.connect_calls == 2
     assert await runtime.ensure_connected("dev1") is True
     state = runtime.device_state("dev1")
@@ -210,6 +213,7 @@ async def test_watchdog_reconnect_marks_state_and_metric():
     await runtime.connect_all()
     proto.connected = False
     await runtime._watchdogs["dev1"].check_once()
+    await runtime._watchdogs["dev1"].check_once()
     assert events == [("dev1", "modbus")]
     assert proto.connect_calls == 2
     assert runtime.device_state("dev1").connected  # type: ignore[union-attr]
@@ -244,8 +248,10 @@ async def test_watchdog_failed_connect_is_recorded_and_recovers():
 
     proto.connected = False
     proto.fail_connect = True
+    watchdog = runtime._watchdogs["dev1"]
+    await watchdog.check_once()
     with pytest.raises(ConnectionError):
-        await runtime._watchdogs["dev1"].check_once()
+        await watchdog.check_once()
 
     state = runtime.device_state("dev1")
     assert state is not None
@@ -253,7 +259,7 @@ async def test_watchdog_failed_connect_is_recorded_and_recovers():
     assert metrics.connect_failed == [("dev1", "modbus")]
 
     proto.fail_connect = False
-    await runtime._watchdogs["dev1"].check_once()
+    await watchdog.reconnect()
     assert state.connected
     assert state.consecutive_failures == 0
     assert metrics.reconnected == [("dev1", "modbus")]
