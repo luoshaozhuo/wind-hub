@@ -77,7 +77,7 @@ _PROBE_UNSUPPORTED_CAUSES = frozenset(
 )
 
 
-class _InterruptedInterrogation(ProtocolConnectionError):
+class _InterruptedInterrogationError(ProtocolConnectionError):
     """失效会话的总召异常携带结果快照，允许立即清空会话缓存。"""
 
     def __init__(self, message: str, samples: tuple[ProtocolSample, ...]) -> None:
@@ -655,7 +655,7 @@ class IEC104Driver:
                 except ProtocolConnectionError as exc:
                     partial = (
                         exc.samples
-                        if isinstance(exc, _InterruptedInterrogation)
+                        if isinstance(exc, _InterruptedInterrogationError)
                         else tuple(session.interrogation_samples.get(ca, ()))
                     )
                     raise IEC104InterrogationIncompleteError(
@@ -1002,7 +1002,7 @@ class IEC104Driver:
             if partial and isinstance(exc, ProtocolConnectionError):
                 _set_exception(
                     interrogation_future,
-                    _InterruptedInterrogation(str(exc), partial),
+                    _InterruptedInterrogationError(str(exc), partial),
                 )
             else:
                 _set_exception(interrogation_future, exc)
