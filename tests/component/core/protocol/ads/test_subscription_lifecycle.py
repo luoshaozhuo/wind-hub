@@ -296,10 +296,7 @@ async def test_old_generation_native_callback_is_silently_dropped(
         assert received == []
         # 新一代回调正常投递。
         fake_pyads.fire(2, 2.0)
-        for _ in range(20):
-            await asyncio.sleep(0)
-            if received:
-                break
+        await asyncio.sleep(0.05)
         assert received == [2.0]
     finally:
         await second.close()
