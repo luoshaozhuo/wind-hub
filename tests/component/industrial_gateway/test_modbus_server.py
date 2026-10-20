@@ -7,7 +7,7 @@ import pytest
 
 from industrial_gateway.domain import PointDefinition, PointRole
 from industrial_gateway.modbus_codec import RegisterMapping
-from industrial_gateway.modbus_server import ModbusTcpGateway
+from industrial_gateway.modbus_server import ModbusException, ModbusTcpGateway
 from industrial_gateway.point_store import PointStore
 
 
@@ -61,7 +61,7 @@ async def test_command_rejected_without_handler() -> None:
     server = ModbusTcpGateway(
         store, [RegisterMapping("t1", "command", "holding", 3, "uint16")]
     )
-    assert await server._execute(6, struct.pack(">HH", 3, 5)) == bytes((0x86, 4))
+    with pytest.raises(ModbusException) as exc:\n        await server._execute(6, struct.pack(">HH", 3, 5))\n    assert exc.value.code == 4
     assert store.read("t1", "command").version == 0
 
 
