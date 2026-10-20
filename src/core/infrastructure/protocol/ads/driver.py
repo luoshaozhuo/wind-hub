@@ -43,6 +43,7 @@ from .codec import (
     _is_point_level_error,
     _plc_datatype,
     compile_decoder,
+    encode_sum_write,
 )
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point, symbol_index_address
@@ -843,7 +844,7 @@ class ADSDriver:
 
         for start in range(0, len(prepared), chunk_size):
             chunk = prepared[start : start + chunk_size]
-            request = self._encode_sum_write(chunk)
+            request = encode_sum_write(chunk)
             try:
                 raw = await session.execute(
                     "read_write",
@@ -893,15 +894,6 @@ class ADSDriver:
         if any(result is None for result in results):
             raise RuntimeError("ADS sum write did not produce a result for every point")
         return tuple(result for result in results if result is not None)
-
-    @staticmethod
-    def _encode_sum_write(chunk: Sequence[tuple[int, ADSPoint, bytes]]) -> bytearray:
-        """构造 Sum Write 请求载荷（逐点头部拼接 + 逐点数据拼接）。"""
-        headers = b"".join(
-            struct.pack("<III", point.group, point.offset, len(payload))
-            for _, point, payload in chunk
-        )
-        return bytearray(headers + b"".join(payload for _, _, payload in chunk))
 
     async def _write_single_point(
         self,
