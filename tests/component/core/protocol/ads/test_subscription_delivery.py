@@ -123,13 +123,13 @@ async def test_multiple_blocks_deliver_only_their_own_fields(
     )
     await subscription.start()
     try:
-        # 两个区块：[a,b]@0 size 8 与 [c]@2000 size 4。
+        # 两个区块在同一合批窗口到达，形成单次三点回调。
         assert len(fake_pyads.callbacks) == 2
         first_handle, second_handle = 1, 2
         fake_pyads.fire(first_handle, struct.pack("<ff", 1.5, -2.0))
         fake_pyads.fire(second_handle, struct.pack("<f", 7.5))
         await asyncio.wait_for(got_second.wait(), timeout=1.0)
-        assert received_batches == [("a", "b"), ("c",)]
+        assert received_batches == [("a", "b", "c")]
         assert received == [
             ("a", 1.5, Quality.GOOD),
             ("b", -2.0, Quality.GOOD),
@@ -228,10 +228,12 @@ async def test_slow_consumer_drops_oldest_whole_blocks_end_to_end(
     fake_pyads: _Connection,
 ) -> None:
     gate = asyncio.Event()
+    entered = asyncio.Event()
     received: list[float] = []
 
     async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
         for sample in samples:
+            entered.set()
             await gate.wait()
             received.append(float(sample.value))  # type: ignore[arg-type]  # 测试点为 REAL
 
@@ -241,12 +243,16 @@ async def test_slow_consumer_drops_oldest_whole_blocks_end_to_end(
         on_sample,
         cycle_time=0.1,
         loop=asyncio.get_running_loop(),
+        batch_size=1,
+        batch_wait=0.0,
     )
     subscription._queue = asyncio.Queue(maxsize=2)
     await subscription.start()
     try:
         # 前两个批次占满队列（Worker 被 gate 阻塞），随后的批次挤掉最旧批次。
-        for value in range(6):
+        fake_pyads.fire(1, struct.pack("<f", 0.0))
+        await asyncio.wait_for(entered.wait(), timeout=1.0)
+        for value in range(1, 6):
             fake_pyads.fire(1, struct.pack("<f", float(value)))
             await asyncio.sleep(0)
         await asyncio.sleep(0.05)
