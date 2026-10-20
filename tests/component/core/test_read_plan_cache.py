@@ -41,6 +41,11 @@ def _point(
     )
 
 
+def _plan(driver: ModbusDriver, points: tuple[str, ...] | list[str]):
+    """以已解析测点构造读取计划，和 Driver 生产调用保持一致。"""
+    return driver._read_plan(points, tuple(driver._resolve_point(point) for point in points))
+
+
 def test_modbus_reuses_plan_and_caps_dynamic_cache():
     points = {
         f"p{i}": _point(f"p{i}", {"register_type": "holding", "address": i, "data_type": "uint16"})
@@ -51,11 +56,11 @@ def test_modbus_reuses_plan_and_caps_dynamic_cache():
         PointTable(PointTableId("mb"), Protocol("modbus"), points),
         {},
     )
-    first = driver._read_plan(("p0", "p1"))
-    assert driver._read_plan(["p0", "p1"]) is first
-    assert driver._read_plan(("p1", "p0")) is not first
+    first = _plan(driver, ("p0", "p1"))
+    assert _plan(driver, ["p0", "p1"]) is first
+    assert _plan(driver, ("p1", "p0")) is not first
     for i in range(40):
-        driver._read_plan((f"p{i}",))
+        _plan(driver, (f"p{i}",))
     assert len(driver._read_plan_cache) <= 32
 
 
@@ -238,12 +243,12 @@ def test_modbus_read_plan_precomputes_register_ranges():
         PointTable(PointTableId("mb"), Protocol("modbus"), points),
         {},
     )
-    first = driver._read_plan(("x", "y", "z"))
+    first = _plan(driver, ("x", "y", "z"))
     assert sorted((group.register_type, group.start, group.count) for group in first) == [
         ("holding", 12, 2),
         ("input", 8, 1),
     ]
-    assert first is driver._read_plan(("x", "y", "z"))
+    assert first is _plan(driver, ("x", "y", "z"))
 
 
 @pytest.mark.asyncio
@@ -320,7 +325,7 @@ def test_modbus_plan_cache_invalidates_on_point_table_update():
         PointTable(PointTableId("mb"), Protocol("modbus"), points),
         {},
     )
-    assert driver._read_plan(("p0",))
+    assert _plan(driver, ("p0",))
     assert driver._read_plan_cache
 
     driver.update_point_table(PointTable(PointTableId("mb"), Protocol("modbus"), points))
