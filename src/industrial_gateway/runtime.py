@@ -10,6 +10,7 @@ import grpc
 
 from core.infrastructure.rpc import commander_pb2_grpc
 
+from .command_journal import CommandJournal
 from .commands import CommandTarget, CommanderProxy
 from .config import GatewaySettings
 from .domain import PointDefinition, PointRole
@@ -53,7 +54,15 @@ class GatewayRuntime:
             for p in d.points
             if p.role is PointRole.COMMAND
         }
-        proxy = CommanderProxy(commander_pb2_grpc.CommanderServiceStub(self._channel), targets)
+        journal = (
+            CommandJournal(cfg.control_journal)
+            if cfg.control_enabled and cfg.control_journal is not None
+            else None
+        )
+        proxy = CommanderProxy(
+            commander_pb2_grpc.CommanderServiceStub(self._channel), targets,
+            journal=journal,
+        )
         definitions = [
             PointDefinition(d.id, p.id, p.role, p.writable)
             for d in cfg.devices for p in d.points
