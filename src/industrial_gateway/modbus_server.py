@@ -49,6 +49,7 @@ class ModbusTcpGateway:
         self._unit_id = unit_id
         self._write_source = write_source
         self._server: asyncio.AbstractServer | None = None
+        self._clients: set[asyncio.StreamWriter] = set()
 
     async def start(self, host: str, port: int) -> None:
         if self._server is not None:
@@ -60,10 +61,16 @@ class ModbusTcpGateway:
         if server is not None:
             server.close()
             await server.wait_closed()
+        clients = tuple(self._clients)
+        for writer in clients:
+            writer.close()
+        if clients:
+            await asyncio.gather(*(writer.wait_closed() for writer in clients), return_exceptions=True)
 
     async def _client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        self._clients.add(writer)
         try:
             while True:
                 header = await reader.readexactly(7)
@@ -87,6 +94,7 @@ class ModbusTcpGateway:
         except (asyncio.IncompleteReadError, ConnectionError, OSError):
             pass
         finally:
+            self._clients.discard(writer)
             writer.close()
             try:
                 await writer.wait_closed()
