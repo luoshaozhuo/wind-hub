@@ -31,6 +31,7 @@ class GatewayRuntime:
         self._reader: RedisBatchReader | None = None
         self._mirror_task: asyncio.Task[None] | None = None
         self._servers: list[ModbusTcpGateway] = []
+        self._critical: dict[str, tuple[str, ...]] = {}
         self._started = False
         self._store: PointStore | None = None
         self._mirror: RedisMirror | None = None
@@ -39,6 +40,10 @@ class GatewayRuntime:
         if self._started:
             raise RuntimeError("Gateway already running")
         cfg = self._config
+        self._critical = {
+            d.id: tuple(p.id for p in d.points if p.critical)
+            for d in cfg.devices
+        }
         self._channel = grpc.aio.insecure_channel(cfg.commander.target)
         targets = {
             (d.id, p.id): CommandTarget(
@@ -85,6 +90,8 @@ class GatewayRuntime:
                 )
                 await server.start(device.host, device.port)
                 self._servers.append(server)
+                if self._critical[device.id]:
+                    await server.set_available(False)
             self._mirror_task = asyncio.create_task(self._refresh_loop())
             self._started = True
         except BaseException:
@@ -101,6 +108,12 @@ class GatewayRuntime:
                 raise
             except Exception:
                 logger.exception("Gateway Redis mirror refresh failed; feedback invalidated")
+            for device, server in zip(self._config.devices, self._servers, strict=True):
+                available = all(
+                    self._mirror.healthy(device.id, point_id)
+                    for point_id in self._critical[device.id]
+                )
+                await server.set_available(available)
             await asyncio.sleep(self._config.redis.refresh_seconds)
 
     async def stop(self) -> None:
