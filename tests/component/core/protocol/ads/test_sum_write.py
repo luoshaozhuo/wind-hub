@@ -11,7 +11,7 @@ from pyads.constants import (  # type: ignore[import-untyped]  # pyads 无 py.ty
 )
 
 import core.infrastructure.protocol.ads.driver as driver_module
-from core.application import ProtocolError, ProtocolWrite
+from core.application import ProtocolWrite
 from core.application.protocol_contract import WriteOutcome
 from core.domain import (
     BusinessPointId,
