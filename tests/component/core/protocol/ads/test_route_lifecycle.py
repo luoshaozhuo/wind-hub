@@ -522,7 +522,8 @@ async def test_failed_physical_close_quarantines_route() -> None:
         raise OSError("injected close failure")
 
     conn.close = broken_close  # type: ignore[method-assign]
-    await driver.close()
+    with pytest.raises(ProtocolError, match="physical close not confirmed"):
+        await driver.close()
     route = _route_state(_NET)
     assert route.unsafe_reason is not None
     assert not route.op_lock.locked()
@@ -558,8 +559,7 @@ async def test_deregister_failure_still_closes_physical_session() -> None:
             raise OSError("injected deregister failure")
 
     driver._subscriptions.add(FailingSubscription())  # type: ignore[arg-type]
-    with pytest.raises(OSError, match="injected deregister failure"):
-        await driver.close()
+    await driver.close()
     assert conn.close_calls == 1
     route = _route_state(_NET)
     assert route.unsafe_reason is None
@@ -627,8 +627,7 @@ async def test_deregister_failure_does_not_skip_other_subscriptions() -> None:
 
     driver._subscriptions.add(Subscription("first", True))  # type: ignore[arg-type]
     driver._subscriptions.add(Subscription("second", False))  # type: ignore[arg-type]
-    with pytest.raises(OSError, match="injected deregister failure"):
-        await driver.close()
+    await driver.close()
     assert sorted(calls) == ["first", "second"]
     assert conn.close_calls == 1
     assert _route_state(_NET).unsafe_reason is None
