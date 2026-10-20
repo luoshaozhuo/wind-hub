@@ -1076,24 +1076,6 @@ class ADSDriver:
                     results.append((None, Quality.BAD))
         return tuple(results)
 
-    async def resolve_symbol(self, symbol: str) -> tuple[int, int]:
-        """按需查询 PLC 符号地址；同一 ADS session 内复用解析结果。"""
-        async with self._lock:
-            session = self._require_session_locked("resolve_symbol")
-            cached = self._symbol_cache.get(symbol)
-        if cached is not None:
-            return cached[0], cached[1]
-        info = await session.execute("get_symbol", symbol)
-        group, offset = symbol_index_address(symbol, info)
-        raw_size = getattr(info, "size", None)
-        size = raw_size if type(raw_size) is int and raw_size > 0 else None
-        resolved = (group, offset, size)
-        async with self._lock:
-            # 并发解析同符号时不覆盖；会话已切换则结果属于旧会话，不入缓存。
-            if self._session is session and self._connected:
-                self._symbol_cache.setdefault(symbol, resolved)
-        return group, offset
-
     async def _resolve_symbol_locked(self, symbol: str) -> tuple[int, int, int | None]:
         """connect 建链流程内使用：调用方持 Driver 状态锁且会话不会切换。"""
         cached = self._symbol_cache.get(symbol)
