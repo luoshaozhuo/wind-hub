@@ -63,8 +63,8 @@ class TestIEC104ConfigToWire:
         samples: list[ProtocolSample] = []
         received = asyncio.Event()
 
-        async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
-            for sample in samples:
+        async def on_sample(batch: tuple[ProtocolSample, ...]) -> None:
+            for sample in batch:
                 samples.append(sample)
                 received.set()
 
