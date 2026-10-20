@@ -173,9 +173,7 @@ class _AdsSession:
     时记录成功/失败结局，绝不补第二次 close。
     """
 
-    def __init__(
-        self, connection: Any, label: str = "", *, max_notifications: int = 550
-    ) -> None:
+    def __init__(self, connection: Any, label: str = "", *, max_notifications: int = 550) -> None:
         self._connection = connection
         # 设备标签仅用于诊断日志；空标签用于单元测试替身。
         self._label = f"[{label}] " if label else ""
@@ -316,9 +314,7 @@ class _AdsSession:
                 entry.callbacks = ()
                 try:
                     entry.handle = cast(tuple[Any, Any], await asyncio.shield(register))
-                    await self.execute(
-                        "del_device_notification", entry.handle[0], entry.handle[1]
-                    )
+                    await self.execute("del_device_notification", entry.handle[0], entry.handle[1])
                 except Exception:
                     entry.uncertain = True
                 else:
@@ -347,9 +343,7 @@ class _AdsSession:
             if entry.handle is None:
                 raise ProtocolError("ADS notification registration has not settled")
             try:
-                await self.execute(
-                    "del_device_notification", entry.handle[0], entry.handle[1]
-                )
+                await self.execute("del_device_notification", entry.handle[0], entry.handle[1])
             except Exception:
                 entry.uncertain = True
                 raise
@@ -543,9 +537,7 @@ class _AdsSession:
             try:
                 closed = done.result()
             except BaseException:
-                logger.exception(
-                    "%sADS physical close thread raised unexpectedly", self._label
-                )
+                logger.exception("%sADS physical close thread raised unexpectedly", self._label)
                 closed = False
             elapsed = loop.time() - self._shutdown_started
             if self._shutdown_abandoned:
@@ -617,5 +609,3 @@ class _AdsSession:
         finally:
             self._cmd_lock.release()
         return True
-
-

@@ -114,5 +114,3 @@ async def _ams_barrier_closing() -> AsyncIterator[None]:
     """物理关闭登记段的同一闸门；关闭清理在 close_local 之后仍允许执行。"""
     async with _registry().barrier:
         yield
-
-

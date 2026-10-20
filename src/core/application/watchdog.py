@@ -125,7 +125,7 @@ class WatchdogUseCase:
             raise
         except Exception:
             self._retry_level = min(self._retry_level + 1, 4)
-            self._next_reconnect_at = now + self._interval * (2 ** self._retry_level)
+            self._next_reconnect_at = now + self._interval * (2**self._retry_level)
             raise
         if reconnected:
             self._health_failures = 0

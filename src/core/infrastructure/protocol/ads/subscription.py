@@ -355,9 +355,7 @@ class ADSSubscription:
                         remaining = deadline - loop.time()
                         if remaining <= 0:
                             break
-                        next_block = await asyncio.wait_for(
-                            self._queue.get(), timeout=remaining
-                        )
+                        next_block = await asyncio.wait_for(self._queue.get(), timeout=remaining)
                 except (asyncio.QueueEmpty, TimeoutError):
                     break
                 batch.extend(next_block)
@@ -366,9 +364,7 @@ class ADSSubscription:
             try:
                 await self._callback(tuple(batch))
             except Exception:
-                logger.exception(
-                    "ADS subscription callback failed for %d-point batch", len(batch)
-                )
+                logger.exception("ADS subscription callback failed for %d-point batch", len(batch))
             if self._deactivated:
                 return
 

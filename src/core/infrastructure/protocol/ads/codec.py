@@ -212,6 +212,3 @@ def _coerce_write_value(
         return float(value)
 
     raise ValueError(f"unsupported ADS type '{ads_type}'")
-
-
-

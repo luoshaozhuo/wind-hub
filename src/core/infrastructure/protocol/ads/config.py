@@ -90,14 +90,10 @@ def parse_ads_config(
     if max_block_bytes <= 0:
         raise ConfigError("ADS max_block_bytes must be > 0")
 
-    push_batch_size = _int_option(
-        options.get("push_batch_size"), "push_batch_size", default=256
-    )
+    push_batch_size = _int_option(options.get("push_batch_size"), "push_batch_size", default=256)
     if push_batch_size <= 0:
         raise ConfigError("ADS push_batch_size must be > 0")
-    push_batch_wait = _float_option(
-        options.get("push_batch_wait"), "push_batch_wait", default=0.01
-    )
+    push_batch_wait = _float_option(options.get("push_batch_wait"), "push_batch_wait", default=0.01)
     if push_batch_wait < 0:
         raise ConfigError("ADS push_batch_wait must be >= 0")
 
