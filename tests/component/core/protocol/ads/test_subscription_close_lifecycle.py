@@ -278,8 +278,9 @@ async def test_failed_deregistration_keeps_cleaning_and_records_unconfirmed(
     # 独立资源：Handle 1 注销失败不阻断 Handle 2。
     assert session.deleted == [2]
     assert session.delete_attempts == [1, 2]
-    assert [handle[0] for handle in subscription.unconfirmed_handles] == [1]
-    assert "unconfirmed notification handle" in caplog.text
+    assert len(subscription.unconfirmed_handles) == 1
+    assert subscription.unconfirmed_handles[0][0][:2] == (0x4020, 0)
+    assert "notification cleanup unconfirmed" in caplog.text
 
 
 @pytest.mark.asyncio
