@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ipaddress import ip_address
 from pathlib import Path
 
 import yaml
@@ -82,8 +83,6 @@ class GatewaySettings(StrictModel):
 
     @model_validator(mode="after")
     def validate_all(self) -> GatewaySettings:
-        from ipaddress import ip_address
-
         if len(set(self.control_client_ips)) != len(self.control_client_ips):
             raise ValueError("duplicate control client IP")
         for address in self.control_client_ips:
