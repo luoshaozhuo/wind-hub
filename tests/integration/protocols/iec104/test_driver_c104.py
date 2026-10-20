@@ -206,7 +206,7 @@ class TestConnectAndActiveRead:
             await driver.read_one("meas.power")
 
     async def test_listen_without_connect_raises(self, driver: IEC104Driver) -> None:
-        with pytest.raises(ProtocolError, match="established connection"):
+        with pytest.raises(ProtocolError, match="OPEN, enabled connection"):
 
             async def _cb(_samples: tuple[ProtocolSample, ...]) -> None:
                 return None
