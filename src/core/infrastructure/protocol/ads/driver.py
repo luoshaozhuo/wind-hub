@@ -57,6 +57,7 @@ from .route import (
 from .session import ADSCommandNotSentError, _AdsSession
 from .subscription import ADSSubscription
 
+
 class _SumReadItem(Structure):
     """pyads Sum Read 请求头部，类型只创建一次。"""
 
@@ -1117,8 +1118,7 @@ class ADSDriver:
         mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point_id}' is not part of connection "
-                f"'{self._point_table_id}'"
+                f"point '{point_id}' is not part of connection " f"'{self._point_table_id}'"
             )
         return mapped
 
