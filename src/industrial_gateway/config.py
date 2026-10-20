@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .domain import PointDefinition, PointRole
 from .modbus_codec import RegisterMap, RegisterMapping
-from .redis_mirror import RedisPointSource
 
 
 class StrictModel(BaseModel):
