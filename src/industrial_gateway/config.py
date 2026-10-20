@@ -79,6 +79,7 @@ class GatewaySettings(StrictModel):
     commander: CommanderSettings = CommanderSettings()
     devices: list[DeviceSettings] = Field(min_length=1)
     control_enabled: bool = False
+    control_journal: Path | None = None
     control_client_ips: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -87,8 +88,10 @@ class GatewaySettings(StrictModel):
             raise ValueError("duplicate control client IP")
         for address in self.control_client_ips:
             ip_address(address)
-        if self.control_enabled and not self.control_client_ips:
-            raise ValueError("control_enabled requires explicit control_client_ips")
+        if self.control_enabled and (
+            not self.control_client_ips or self.control_journal is None
+        ):
+            raise ValueError("control requires client allowlist and durable journal path")
         ids: set[str] = set()
         endpoints: set[tuple[str, int]] = set()
         for device in self.devices:
