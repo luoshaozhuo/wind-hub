@@ -93,6 +93,7 @@ class GatewaySettings(StrictModel):
         ):
             raise ValueError("control requires client allowlist and durable journal path")
         ids: set[str] = set()
+        control_targets: set[tuple[str, str]] = set()
         endpoints: set[tuple[str, int]] = set()
         for device in self.devices:
             if device.id in ids:
@@ -115,6 +116,11 @@ class GatewaySettings(StrictModel):
                     device.id, point.id, point.area, point.address,
                     point.data_type, point.word_order
                 ))
+                if point.role is PointRole.COMMAND:
+                    target = (point.commander_device_id or "", point.commander_point_id or "")
+                    if target in control_targets:
+                        raise ValueError(f"duplicate physical command target: {target}")
+                    control_targets.add(target)
                 if point.role is PointRole.COMMAND and point.area not in {"holding", "coil"}:
                     raise ValueError("command must use writable Modbus area")
                 if point.role is PointRole.FEEDBACK and point.writable:
