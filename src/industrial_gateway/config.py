@@ -77,9 +77,12 @@ class GatewaySettings(StrictModel):
     commander: CommanderSettings = CommanderSettings()
     devices: list[DeviceSettings] = Field(min_length=1)
     control_enabled: bool = False
+    control_client_ips: list[str] = []
 
     @model_validator(mode="after")
     def validate_all(self) -> GatewaySettings:
+        if self.control_enabled and not self.control_client_ips:
+            raise ValueError("control_enabled requires explicit control_client_ips")
         ids: set[str] = set()
         endpoints: set[tuple[str, int]] = set()
         for device in self.devices:
@@ -96,8 +99,7 @@ class GatewaySettings(StrictModel):
                 if point.id in point_ids:
                     raise ValueError(f"duplicate point {device.id}.{point.id}")
                 point_ids.add(point.id)
-                definition = PointDefinition(device.id, point.id, point.role, point.writable)
-                del definition
+                PointDefinition(device.id, point.id, point.role, point.writable)
                 mappings.append(RegisterMapping(
                     device.id, point.id, point.area, point.address,
                     point.data_type, point.word_order
