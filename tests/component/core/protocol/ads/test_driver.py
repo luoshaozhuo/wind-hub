@@ -330,10 +330,12 @@ class _FakeNotificationAttrib:
         *,
         cycle_time: float,
         trans_mode: int,
+        max_delay: float = 0.0,
     ) -> None:
         self.trans_mode = trans_mode
         self.length = length
         self.cycle_time = cycle_time
+        self.max_delay = max_delay
         type(self).last_mode = self.trans_mode
 
 
