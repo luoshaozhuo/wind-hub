@@ -65,6 +65,7 @@ class CommanderProxy:
         async with self._locks[key]:
             if self._states[key] is CommandState.UNKNOWN:
                 raise RuntimeError("command point locked after unknown outcome")
+            encoded = self._encode(request.value)
             self._states[key] = CommandState.EXECUTING
             command_id = uuid4().hex
             command = pb.WritePointRequest(
@@ -73,7 +74,7 @@ class CommanderProxy:
                 point_id=target.point_id,
                 timeout=target.timeout,
             )
-            command.value.CopyFrom(self._encode(request.value))
+            command.value.CopyFrom(encoded)
             try:
                 result = await self._stub.WritePoint(
                     command, timeout=target.timeout + 1.0
