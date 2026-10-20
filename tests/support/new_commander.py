@@ -242,7 +242,7 @@ class FakeProtocol:
 
     def _write_result(self, write: ProtocolWrite) -> ProtocolWriteResult:
         return ProtocolWriteResult(
-            point_id=write.point_id,
+            point_id=write.point,
             outcome=(
                 WriteOutcome.CONFIRMED_SUCCESS
                 if self.write_success
