@@ -410,8 +410,7 @@ class ModbusDriver:
         mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point_id}' is not part of connection "
-                f"'{self._point_table_id}'"
+                f"point '{point_id}' is not part of connection " f"'{self._point_table_id}'"
             )
         return mapped
 
