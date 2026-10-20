@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 _ADSERR_CLIENT_TIMEOUT = 1861
 
 
+class ADSCommandNotSentError(ProtocolError):
+    """执行前被拒绝的 ADS 命令，确认未发送。"""
+
+
 NotificationKey = tuple[int, int, int, int, float, float]
 
 
@@ -376,7 +380,7 @@ class _AdsSession:
         if self._closing:
             self._gate.release()
             self._stats.record_rejected()
-            raise ProtocolError(f"ADS session is closing; command '{name}' rejected")
+            raise ADSCommandNotSentError(f"ADS session is closing; command '{name}' rejected")
         owner = loop.create_task(
             self._run_owned(name, args, kwargs, loop.time()),
             name=f"ads-command-{name}",
@@ -430,7 +434,7 @@ class _AdsSession:
         """在工作线程内执行一条 pyads 同步命令（``_cmd_lock`` 串行）。"""
         with self._cmd_lock:
             if self._closing:
-                raise ProtocolError(f"ADS session is closing; command '{name}' rejected")
+                raise ADSCommandNotSentError(f"ADS session is closing; command '{name}' rejected")
             return getattr(self._connection, name)(*args, **kwargs)
 
     async def aclose(self, grace: float) -> bool:
