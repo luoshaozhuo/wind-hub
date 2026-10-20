@@ -13,6 +13,7 @@ import grpc
 
 from core.infrastructure.rpc import commander_pb2 as pb
 
+from .command_journal import CommandJournal
 from .domain import PointWrite, Scalar
 
 logger = logging.getLogger(__name__)
@@ -54,8 +55,10 @@ class CommanderProxy:
         self,
         stub: CommanderWriter,
         targets: dict[PointKey, CommandTarget],
+        journal: CommandJournal | None = None,
     ) -> None:
         self._stub = stub
+        self._journal = journal
         self._targets = dict(targets)
         self._locks = {key: asyncio.Lock() for key in targets}
         self._states = {key: CommandState.READY for key in targets}
@@ -69,11 +72,14 @@ class CommanderProxy:
         if target is None:
             raise PermissionError("command point has no Commander target")
         async with self._locks[key]:
-            if self._states[key] is CommandState.UNKNOWN:
+            journal_key = f"{key[0]}:{key[1]}"
+            if (self._journal is not None and self._journal.blocked(journal_key)) or self._states[key] is CommandState.UNKNOWN:
                 raise RuntimeError("command point locked after unknown outcome")
             encoded = self._encode(request.value)
-            self._states[key] = CommandState.EXECUTING
             command_id = uuid4().hex
+            if self._journal is not None:
+                self._journal.begin(journal_key, command_id)
+            self._states[key] = CommandState.EXECUTING
             command = pb.WritePointRequest(
                 command_id=command_id,
                 device_id=target.device_id,
@@ -95,9 +101,13 @@ class CommanderProxy:
                 self._states[key] = CommandState.UNKNOWN
                 raise
             if result.outcome == pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS:
+                if self._journal is not None:
+                    self._journal.confirmed(journal_key)
                 self._states[key] = CommandState.READY
                 return
             if result.outcome == pb.COMMAND_OUTCOME_CONFIRMED_FAILURE:
+                if self._journal is not None:
+                    self._journal.confirmed(journal_key)
                 self._states[key] = CommandState.READY
                 raise RuntimeError(f"Commander rejected command: {result.error}")
             self._states[key] = CommandState.UNKNOWN
