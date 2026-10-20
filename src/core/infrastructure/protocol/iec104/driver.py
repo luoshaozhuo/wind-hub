@@ -77,6 +77,14 @@ _PROBE_UNSUPPORTED_CAUSES = frozenset(
 )
 
 
+class _InterruptedInterrogation(ProtocolConnectionError):
+    """失效会话的总召异常携带结果快照，允许立即清空会话缓存。"""
+
+    def __init__(self, message: str, samples: tuple[ProtocolSample, ...]) -> None:
+        super().__init__(message)
+        self.samples = samples
+
+
 class IEC104InterrogationIncompleteError(ProtocolError):
     """总召未得到终结证据；samples 为终止前收到的部分有效结果。"""
 
@@ -645,8 +653,13 @@ class IEC104Driver:
                         ca, qoi, partial, "ACT_TERM timed out"
                     ) from exc
                 except ProtocolConnectionError as exc:
+                    partial = (
+                        exc.samples
+                        if isinstance(exc, _InterruptedInterrogation)
+                        else tuple(session.interrogation_samples.get(ca, ()))
+                    )
                     raise IEC104InterrogationIncompleteError(
-                        ca, qoi, tuple(session.interrogation_samples[ca]), str(exc)
+                        ca, qoi, partial, str(exc)
                     ) from exc
             except asyncio.CancelledError:
                 # 总召取消后可能仍有分批响应在途，隔离旧会话。
@@ -984,15 +997,22 @@ class IEC104Driver:
             _set_exception(request.future, exc)
         for command_future in session.commands.values():
             _set_exception(command_future, exc)
-        for interrogation_future in session.interrogations.values():
-            _set_exception(interrogation_future, exc)
+        for ca, interrogation_future in session.interrogations.items():
+            partial = tuple(session.interrogation_samples.get(ca, ()))
+            if partial and isinstance(exc, ProtocolConnectionError):
+                _set_exception(
+                    interrogation_future,
+                    _InterruptedInterrogation(str(exc), partial),
+                )
+            else:
+                _set_exception(interrogation_future, exc)
         session.reads.clear()
         session.commands.clear()
         session.command_accepted.clear()
         session.interrogations.clear()
         session.interrogation_qoi.clear()
         session.interrogation_accepted.clear()
-        # 由等待方 finally 清理各自的部分结果；否则断链时结果提前丢失。
+        session.interrogation_samples.clear()
 
     # ------------------------------------------------------------------
     # 索引与校验
