@@ -38,7 +38,7 @@ def decode_record(raw: bytes | None, source: RedisPointSource, now: datetime) ->
         raise ValueError(f"missing Redis key: {source.key}")
     try:
         data = json.loads(raw)
-        if not isinstance(data, dict) or data.get("quality") != "GOOD":
+        if not isinstance(data, dict) or data.get("quality") != "good":
             raise ValueError("Redis sample quality is not GOOD")
         stamp = data["timestamp"]
         if not isinstance(stamp, str):
