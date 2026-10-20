@@ -67,6 +67,14 @@ class PointStore:
         async with self._locks[key]:
             return self._replace(key, value)
 
+    async def invalidate_feedback(self, device_id: str, point_id: str) -> None:
+        """失效时清除可读镜像，防止服务端继续返回过期数据。"""
+        key = (device_id, point_id)
+        if self._definition(key).role is not PointRole.FEEDBACK:
+            raise PermissionError(f"not a feedback point: {key}")
+        async with self._locks[key]:
+            self._values.pop(key, None)
+
     def _replace(self, key: PointKey, value: Scalar) -> PointSnapshot:
         previous = self._values.get(key)
         result = PointSnapshot(key[0], key[1], value, 1 if previous is None else previous.version + 1)
