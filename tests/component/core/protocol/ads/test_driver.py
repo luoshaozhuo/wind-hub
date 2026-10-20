@@ -464,10 +464,7 @@ async def test_ads_subscription_ignores_old_generation_callback(
         assert received == []
 
         connection.fire(2, 2.0)
-        for _ in range(10):
-            await asyncio.sleep(0)
-            if received:
-                break
+        await asyncio.sleep(0.05)
         assert len(received) == 1 and received[0].value == 2.0
     finally:
         await new_handle.close()
