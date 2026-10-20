@@ -44,6 +44,8 @@ class IEC104ControlServer:
         self._data_points = dict(data_points or {100: 1500.5})
         self._command_points = dict(command_points or DEFAULT_COMMAND_POINTS)
         self._reject_ioas = set(reject_ioas or set())
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._termination_tasks: set[asyncio.Task[None]] = set()
         self._server: c104.Server | None = None
         self._station: c104.Station | None = None
         self._last_control: dict[str, Any] = {}
@@ -61,6 +63,7 @@ class IEC104ControlServer:
         """启动从站；重复调用幂等。"""
         if self._server is not None:
             return
+        self._loop = asyncio.get_running_loop()
         server = c104.Server(ip="127.0.0.1", port=self._port)
         station = server.add_station(common_address=self._common_addr)
         assert station is not None
@@ -83,7 +86,13 @@ class IEC104ControlServer:
             return
         self._server = None
         self._station = None
+        pending = tuple(self._termination_tasks)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         await asyncio.get_running_loop().run_in_executor(None, server.stop)
+        self._loop = None
 
     def _on_command(
         self,
@@ -95,7 +104,20 @@ class IEC104ControlServer:
         self._last_control[point.type.name] = point.io_address
         if point.io_address in self._reject_ioas:
             return c104.ResponseState.FAILURE
+        loop = self._loop
+        if loop is not None:
+            loop.call_soon_threadsafe(self._schedule_termination, point)
         return c104.ResponseState.SUCCESS
+
+    def _schedule_termination(self, point: c104.Point) -> None:
+        task = asyncio.create_task(self._send_termination(point))
+        self._termination_tasks.add(task)
+        task.add_done_callback(self._termination_tasks.discard)
+
+    async def _send_termination(self, point: c104.Point) -> None:
+        # c104 先自动发送 ACT_CON；明确的执行完成信号必须随后发送。
+        await asyncio.sleep(0.05)
+        await asyncio.to_thread(point.transmit, c104.Cot.ACTIVATION_TERMINATION)
 
     async def set_value(self, ioa: int, value: float, *, spontaneous: bool = False) -> None:
         """更新数据点；``spontaneous=True`` 时立即以 SPONTANEOUS 上送。"""
