@@ -53,7 +53,7 @@ from .route import (
     _registry,
     _route_state,
 )
-from .session import _AdsSession
+from .session import ADSCommandNotSentError, _AdsSession
 from .subscription import ADSSubscription
 
 logger = logging.getLogger(__name__)
@@ -856,12 +856,21 @@ class ADSDriver:
                 )
                 errors = _decode_sum_write_errors(raw, len(chunk))
             except Exception as exc:
-                # 此块可能已经执行，只是确认丢失；后续块则确定未发送。
+                # 被命令门明确拒绝属于未发送；其他异常可能已提交。
+                not_sent = isinstance(exc, ADSCommandNotSentError)
                 for index, point, _ in chunk:
                     results[index] = ProtocolWriteResult(
                         point_id=point.point_id,
-                        outcome=WriteOutcome.UNKNOWN,
-                        message=f"ADS sum write confirmation unavailable: {exc}",
+                        outcome=(
+                            WriteOutcome.CONFIRMED_FAILURE
+                            if not_sent
+                            else WriteOutcome.UNKNOWN
+                        ),
+                        message=(
+                            f"ADS sum write not sent: {exc}"
+                            if not_sent
+                            else f"ADS sum write confirmation unavailable: {exc}"
+                        ),
                     )
                 for index, point, _ in prepared[start + len(chunk) :]:
                     results[index] = ProtocolWriteResult(
@@ -941,6 +950,12 @@ class ADSDriver:
                 datatype,
             )
         except Exception as exc:
+            if isinstance(exc, ADSCommandNotSentError):
+                return ProtocolWriteResult(
+                    point_id=mapped.point_id,
+                    outcome=WriteOutcome.CONFIRMED_FAILURE,
+                    message=str(exc),
+                )
             # 确定的点级拒绝是失败；传输确认丢失时可能已执行，必须 UNKNOWN。
             if _is_point_level_error(exc):
                 return ProtocolWriteResult(
