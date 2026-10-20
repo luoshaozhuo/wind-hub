@@ -191,10 +191,13 @@ class _ThreadedConnection:
 
 
 class _Attrib:
-    def __init__(self, length: int, *, trans_mode: int, cycle_time: float) -> None:
+    def __init__(
+        self, length: int, *, trans_mode: int, cycle_time: float, max_delay: float = 0.0
+    ) -> None:
         self.length = length
         self.trans_mode = trans_mode
         self.cycle_time = cycle_time
+        self.max_delay = max_delay
 
 
 class _FakePyads:
