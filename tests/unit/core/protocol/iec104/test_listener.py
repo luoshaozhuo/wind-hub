@@ -274,7 +274,6 @@ async def test_remove_concurrent_with_delivery() -> None:
 
     async def collector(samples: tuple[ProtocolSample, ...]) -> None:
 
-        sample = samples[0]
         nonlocal active, max_concurrent
         active += 1
         max_concurrent = max(max_concurrent, active)
