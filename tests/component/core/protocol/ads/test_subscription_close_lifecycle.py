@@ -199,7 +199,7 @@ async def test_deactivate_before_close_still_deregisters(fake_pyads: None) -> No
     delivered = asyncio.Event()
 
     async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
-        for sample in samples:
+        if samples:
             delivered.set()
 
     subscription._callback = on_sample
