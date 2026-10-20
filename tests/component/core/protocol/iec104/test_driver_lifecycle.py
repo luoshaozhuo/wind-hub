@@ -53,7 +53,7 @@ async def test_listen_requires_established_connection() -> None:
     async def _cb(_sample: object) -> None:
         return None
 
-    with pytest.raises(ProtocolError, match="established connection"):
+    with pytest.raises(ProtocolError, match="OPEN, enabled connection"):
         await driver.listen(("p",), _cb)
 
 
@@ -134,7 +134,7 @@ async def test_link_health_reflects_enabled_state() -> None:
     conn.notify_enabled(False)
     health = await driver.health()
     assert not health.healthy
-    assert "STARTDT" in (health.message or "")
+    assert "not connected" in (health.message or "")
     await driver.close()
 
 
