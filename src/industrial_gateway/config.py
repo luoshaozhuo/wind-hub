@@ -43,6 +43,7 @@ class PointSettings(StrictModel):
     redis_point_id: str | None = None
     key_prefix: str | None = None
     max_age_seconds: float = Field(default=3.0, gt=0)
+    critical: bool = False
     commander_device_id: str | None = None
     commander_point_id: str | None = None
     commander_timeout: float = Field(default=1.0, gt=0)
@@ -77,10 +78,16 @@ class GatewaySettings(StrictModel):
     commander: CommanderSettings = CommanderSettings()
     devices: list[DeviceSettings] = Field(min_length=1)
     control_enabled: bool = False
-    control_client_ips: list[str] = []
+    control_client_ips: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_all(self) -> GatewaySettings:
+        from ipaddress import ip_address
+
+        if len(set(self.control_client_ips)) != len(self.control_client_ips):
+            raise ValueError("duplicate control client IP")
+        for address in self.control_client_ips:
+            ip_address(address)
         if self.control_enabled and not self.control_client_ips:
             raise ValueError("control_enabled requires explicit control_client_ips")
         ids: set[str] = set()
@@ -100,6 +107,8 @@ class GatewaySettings(StrictModel):
                     raise ValueError(f"duplicate point {device.id}.{point.id}")
                 point_ids.add(point.id)
                 PointDefinition(device.id, point.id, point.role, point.writable)
+                if point.critical and point.role is not PointRole.FEEDBACK:
+                    raise ValueError("critical requires feedback role")
                 mappings.append(RegisterMapping(
                     device.id, point.id, point.area, point.address,
                     point.data_type, point.word_order
