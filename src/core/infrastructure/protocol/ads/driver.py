@@ -502,10 +502,8 @@ class ADSDriver:
         else:
             settled.add_done_callback(lambda _future: _finish())
 
-    async def _shutdown_session(self, session: _AdsSession | None) -> None:
+    async def _shutdown_session(self, session: _AdsSession) -> None:
         """有界关闭会话：拒绝新命令、等待旧命令线程结束后关闭端口。"""
-        if session is None:
-            return
         session.route_key = self._route_key
         grace = max(self._config.timeout, 5.0) + 1.0
         # aclose 自身完成有界等待与放弃计数；放弃时端口保持打开并已记录，
