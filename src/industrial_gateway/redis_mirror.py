@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+from collections.abc import Awaitable, Protocol
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -58,6 +59,10 @@ def decode_record(raw: bytes | None, source: RedisPointSource, now: datetime) ->
         raise ValueError(f"invalid Redis record for {source.key}") from exc
 
 
+class RedisBatchClient(Protocol):
+    def mget(self, keys: list[str]) -> Awaitable[list[bytes | None]]: ...
+
+
 class RedisMirror:
     """一次 MGET 更新所有已配置反馈点。失效点不再允许作为有效读数。"""
 
@@ -73,14 +78,21 @@ class RedisMirror:
     def healthy(self, device_id: str, point_id: str) -> bool:
         return self._healthy.get((device_id, point_id), False)
 
-    async def refresh(self, client: object) -> None:
+    async def refresh(self, client: RedisBatchClient) -> None:
         """Redis client 提供异步 mget；采用注入接口以便复用现有连接客户端。"""
-        from collections.abc import Awaitable
-
-        fetch = getattr(client, "mget")
-        pending: Awaitable[list[bytes | None]] = fetch([s.key for s in self._sources])
-        records = await pending
+        try:
+            records = await client.mget([s.key for s in self._sources])
+        except Exception:
+            for source in self._sources:
+                key = (source.device_id, source.point_id)
+                self._healthy[key] = False
+                await self._store.invalidate_feedback(*key)
+            raise
         if len(records) != len(self._sources):
+            for source in self._sources:
+                key = (source.device_id, source.point_id)
+                self._healthy[key] = False
+                await self._store.invalidate_feedback(*key)
             raise ValueError("Redis MGET result length mismatch")
         now = datetime.now(UTC)
         for source, raw in zip(self._sources, records, strict=True):
@@ -91,3 +103,4 @@ class RedisMirror:
                 self._healthy[key] = True
             except (ValueError, KeyError, PermissionError, TypeError):
                 self._healthy[key] = False
+                await self._store.invalidate_feedback(*key)
