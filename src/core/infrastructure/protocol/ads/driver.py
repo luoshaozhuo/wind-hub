@@ -57,6 +57,16 @@ from .route import (
 from .session import ADSCommandNotSentError, _AdsSession
 from .subscription import ADSSubscription
 
+class _SumReadItem(Structure):
+    """pyads Sum Read 请求头部，类型只创建一次。"""
+
+    _fields_ = [
+        ("iGroup", c_uint32),
+        ("iOffset", c_uint32),
+        ("size", c_uint32),
+    ]
+
+
 logger = logging.getLogger(__name__)
 _REMOTE_ROUTE_LOCK = threading.Lock()
 _LOCAL_AMS_LOCK = threading.RLock()
@@ -983,13 +993,6 @@ class ADSDriver:
 
     def _build_sum_requests(self, points: tuple[ADSPoint, ...]) -> tuple[Any, ...]:
         """编译可直接交给 pyads.read_write 的分批 Sum Read 请求。"""
-
-        class _SumReadItem(Structure):
-            _fields_ = [
-                ("iGroup", c_uint32),
-                ("iOffset", c_uint32),
-                ("size", c_uint32),
-            ]
 
         limit = self._config.max_subs_per_sum
         return tuple(
