@@ -161,17 +161,19 @@ async def test_multiple_subscriptions_share_one_connection_and_are_independent(
 
     first = await driver.subscribe(("speed",), first_cb, interval=0.25)
     second = await driver.subscribe(("speed",), second_cb, interval=0.25)
-    # 共享连接：两个订阅都注册在 driver 的同一条连接上。
+    # 同一物理通知由两个逻辑订阅共享；一个退出不能提前 DEL。
     assert driver._session is not None
-    assert set(fake_pyads.callbacks) == {1, 2}
+    assert set(fake_pyads.callbacks) == {1}
 
     await first.close()
     assert first._closed
-    fake_pyads.fire(2, 3.0)
+    assert set(fake_pyads.callbacks) == {1}
+    fake_pyads.fire(1, 3.0)
     await asyncio.wait_for(second_received.wait(), timeout=1.0)
     assert [sample.value for sample in second_samples] == [3.0]
     assert first_samples == []
     await second.close()
+    assert not fake_pyads.callbacks
     # 订阅关闭不关闭共享业务连接。
     assert fake_pyads.is_open
 
