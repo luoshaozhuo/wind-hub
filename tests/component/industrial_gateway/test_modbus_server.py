@@ -29,7 +29,8 @@ async def _exchange(
 async def test_two_clients_share_registers_and_partial_write_fails() -> None:
     store = PointStore([PointDefinition("t1", "parameter", PointRole.PARAMETER, writable=True)])
     server = ModbusTcpGateway(
-        store, [RegisterMapping("t1", "parameter", "holding", 100, "float32")]
+        store, [RegisterMapping("t1", "parameter", "holding", 100, "float32")],
+        control_client_ips=frozenset({"127.0.0.1"}),
     )
     await server.start("127.0.0.1", 0)
     assert server._server is not None
