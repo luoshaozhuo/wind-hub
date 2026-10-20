@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ipaddress import ip_address
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -35,10 +36,10 @@ class PointSettings(StrictModel):
     id: str = Field(min_length=1)
     role: PointRole
     writable: bool = False
-    area: str
+    area: Literal["coil", "discrete_input", "holding", "input"]
     address: int = Field(ge=0, le=65535)
     data_type: str
-    word_order: str = "big_endian"
+    word_order: Literal["big_endian", "little_endian"] = "big_endian"
     redis_device_id: str | None = None
     redis_point_id: str | None = None
     key_prefix: str | None = None
