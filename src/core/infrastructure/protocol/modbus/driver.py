@@ -403,19 +403,17 @@ class ModbusDriver:
         del common_address, qoi
         raise ProtocolCapabilityError("modbus does not support interrogation")
 
-    def _mapped_point(self, point_id: str) -> ModbusPoint:
+    def _resolve_point(self, point_id: str) -> ModbusPoint:
+        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
+        if not isinstance(point_id, str):
+            raise ConfigError("protocol point must be a configured point key")
         mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point_id}' is not part of connection " f"'{self._point_table_id}'"
+                f"point '{point_id}' is not part of connection "
+                f"'{self._point_table_id}'"
             )
         return mapped
-
-    def _resolve_point(self, point: str) -> ModbusPoint:
-        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
-        if not isinstance(point, str):
-            raise ConfigError("protocol point must be a configured point key")
-        return self._mapped_point(point)
 
     def _read_plan(self, points: Sequence[str]) -> tuple[_ReadGroupPlan, ...]:
         """按点位有序序列缓存寄存器分组；命中时跳过映射及分组合并。"""
