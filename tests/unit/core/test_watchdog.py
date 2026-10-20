@@ -261,3 +261,28 @@ async def test_repeated_start_and_stop_cycles_keep_single_task() -> None:
         await asyncio.sleep(0.001)
     assert endpoint.health_count >= 1
     await watchdog.stop()
+
+
+@pytest.mark.asyncio
+async def test_single_unhealthy_probe_does_not_reconnect() -> None:
+    endpoint = _Endpoint()
+    endpoint.healthy = False
+    watchdog = _watchdog(endpoint)
+    assert not (await watchdog.check_once()).healthy
+    assert endpoint.close_count == 0
+    assert endpoint.connect_count == 0
+
+
+@pytest.mark.asyncio
+async def test_healthy_probe_resets_consecutive_failure_evidence() -> None:
+    endpoint = _Endpoint()
+    endpoint.healthy = False
+    watchdog = _watchdog(endpoint)
+    await watchdog.check_once()
+    endpoint.healthy = True
+    await watchdog.check_once()
+    endpoint.healthy = False
+    await watchdog.check_once()
+    assert endpoint.connect_count == 0
+    await watchdog.check_once()
+    assert endpoint.connect_count == 1
