@@ -38,6 +38,7 @@ class ModbusTcpGateway:
         *,
         unit_id: int = 1,
         write_source: str = "modbus",
+        control_client_ips: frozenset[str] = frozenset(),
     ) -> None:
         if not 1 <= unit_id <= 247:
             raise ValueError("unit_id must be 1..247")
@@ -48,6 +49,7 @@ class ModbusTcpGateway:
         self._register_map = RegisterMap(self._mappings)
         self._unit_id = unit_id
         self._write_source = write_source
+        self._control_client_ips = control_client_ips
         self._server: asyncio.AbstractServer | None = None
         self._clients: set[asyncio.StreamWriter] = set()
 
@@ -82,6 +84,8 @@ class ModbusTcpGateway:
                     continue
                 function = payload[0]
                 try:
+                    if function in _WRITE_AREAS and writer.get_extra_info("peername")[0] not in self._control_client_ips:
+                        raise ModbusException(2)
                     response = await self._execute(function, payload[1:])
                 except ModbusException as exc:
                     response = bytes((function | 0x80, exc.code))
