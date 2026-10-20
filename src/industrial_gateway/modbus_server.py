@@ -52,11 +52,24 @@ class ModbusTcpGateway:
         self._control_client_ips = control_client_ips
         self._server: asyncio.AbstractServer | None = None
         self._clients: set[asyncio.StreamWriter] = set()
+        self._available = True
 
     async def start(self, host: str, port: int) -> None:
         if self._server is not None:
             raise RuntimeError("server already started")
         self._server = await asyncio.start_server(self._client, host, port)
+
+    async def set_available(self, available: bool) -> None:
+        """关键反馈不可用时停止该虚拟设备服务并断开现有会话。"""
+        self._available = available
+        if not available:
+            clients = tuple(self._clients)
+            for writer in clients:
+                writer.close()
+            if clients:
+                await asyncio.gather(
+                    *(writer.wait_closed() for writer in clients), return_exceptions=True
+                )
 
     async def stop(self) -> None:
         server, self._server = self._server, None
@@ -82,9 +95,14 @@ class ModbusTcpGateway:
                 payload = await reader.readexactly(length - 1)
                 if unit != self._unit_id:
                     continue
+                if not self._available:
+                    break
                 function = payload[0]
                 try:
-                    if function in _WRITE_AREAS and writer.get_extra_info("peername")[0] not in self._control_client_ips:
+                    peer = writer.get_extra_info("peername")
+                    if function in _WRITE_AREAS and (
+                        peer is None or peer[0] not in self._control_client_ips
+                    ):
                         raise ModbusException(2)
                     response = await self._execute(function, payload[1:])
                 except ModbusException as exc:
