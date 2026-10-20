@@ -19,13 +19,17 @@ def _cmd(point_id: str = "breaker", ioa: int = 1001) -> ProtocolWrite:
     return ProtocolWrite(point=point_id, value=True)
 
 
-async def test_positive_act_con_is_confirmed_success() -> None:
+async def test_positive_act_con_and_term_confirm_success() -> None:
     points = [make_point("breaker", 1001, type_id="C_SC_NA_1", access=PointAccess.WRITE)]
     driver, conn = await connected_driver(points)
     task = asyncio.create_task(driver.write_one(_cmd()))
     await asyncio.sleep(0.05)
     conn.deliver(
         [command_confirmation_msg(1, 1001, cause=iec101.CommandResCause.ACTIVATION_CONFIRMATION)]
+    )
+    assert not task.done()
+    conn.deliver(
+        [command_confirmation_msg(1, 1001, cause=iec101.CommandResCause.ACTIVATION_TERMINATION)]
     )
     result = await asyncio.wait_for(task, timeout=1)
     assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
