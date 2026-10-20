@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
@@ -72,7 +73,7 @@ class CommanderProxy:
         if target is None:
             raise PermissionError("command point has no Commander target")
         async with self._locks[key]:
-            journal_key = f"{key[0]}:{key[1]}"
+            journal_key = json.dumps(key, separators=(",", ":"), ensure_ascii=False)
             if (self._journal is not None and self._journal.blocked(journal_key)) or self._states[key] is CommandState.UNKNOWN:
                 raise RuntimeError("command point locked after unknown outcome")
             encoded = self._encode(request.value)
