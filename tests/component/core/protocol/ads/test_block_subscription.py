@@ -204,8 +204,8 @@ async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.Monk
     samples: list[ProtocolSample] = []
     event = asyncio.Event()
 
-    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
-        for sample in samples:
+    async def on_sample(batch: tuple[ProtocolSample, ...]) -> None:
+        for sample in batch:
             samples.append(sample)
             event.set()
 
