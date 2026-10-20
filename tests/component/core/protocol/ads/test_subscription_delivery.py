@@ -22,6 +22,7 @@ import pytest
 import core.infrastructure.protocol.ads.subscription as subscription_module
 from core.application.protocol_contract import ProtocolSample, Quality
 from core.infrastructure.protocol.ads.mapping import ADSPoint
+from core.infrastructure.protocol.ads.session import _AdsSession
 from core.infrastructure.protocol.ads.subscription import ADSSubscription, _normalize_timestamp
 
 
@@ -113,7 +114,7 @@ async def test_multiple_blocks_deliver_only_their_own_fields(
                 got_second.set()
 
     subscription = ADSSubscription(
-        fake_pyads,
+        _AdsSession(fake_pyads),
         (_point("a", 0), _point("b", 4), _point("c", 2000)),
         on_sample,
         cycle_time=0.1,
@@ -153,7 +154,7 @@ async def test_raw_length_mismatch_delivers_bad_quality_batch(
                 done.set()
 
     subscription = ADSSubscription(
-        fake_pyads,
+        _AdsSession(fake_pyads),
         (_point("a", 0), _point("b", 4)),
         on_sample,
         cycle_time=0.1,
@@ -185,7 +186,7 @@ async def test_local_fallback_timestamp_marked_local(
             done.set()
 
     subscription = ADSSubscription(
-        fake_pyads,
+        _AdsSession(fake_pyads),
         (_point("a", 0),),
         on_sample,
         cycle_time=0.1,
@@ -235,7 +236,7 @@ async def test_slow_consumer_drops_oldest_whole_blocks_end_to_end(
             received.append(float(sample.value))  # type: ignore[arg-type]  # 测试点为 REAL
 
     subscription = ADSSubscription(
-        fake_pyads,
+        _AdsSession(fake_pyads),
         (_point("a", 0),),
         on_sample,
         cycle_time=0.1,
@@ -277,7 +278,7 @@ async def test_late_native_callback_after_deactivate_is_dropped(
             delivered.set()
 
     subscription = ADSSubscription(
-        fake_pyads,
+        _AdsSession(fake_pyads),
         (_point("a", 0),),
         on_sample,
         cycle_time=0.1,
