@@ -507,3 +507,159 @@ async def test_t6_repeated_close_is_idempotent_and_releases_route_once() -> None
     driver_a._new_connection = _factory(order)  # type: ignore[method-assign]
     await asyncio.wait_for(driver_a.connect(), timeout=3.0)
     await asyncio.wait_for(driver_a.close(), timeout=3.0)
+
+
+# ---- 关闭失败隔离回归 ------------------------------------------------------
+
+
+async def test_failed_physical_close_quarantines_route() -> None:
+    order: list[str] = []
+    driver = _driver()
+    conn = await _connect_ready(driver, order)
+
+    def broken_close() -> None:
+        conn.close_calls += 1
+        raise OSError("injected close failure")
+
+    conn.close = broken_close  # type: ignore[method-assign]
+    with pytest.raises(ProtocolError, match="physical close not confirmed"):
+        await driver.close()
+    route = _route_state(_NET)
+    assert route.unsafe_reason is not None
+    assert not route.op_lock.locked()
+    with pytest.raises(ProtocolError, match="cannot be closed"):
+        await ADSDriver.close_local()
+
+    replacement = _driver(host_last=11)
+    attempted = threading.Event()
+
+    def should_not_open(*_args: object, **_kwargs: object) -> ControlledConnection:
+        attempted.set()
+        raise AssertionError("unsafe route must not open")
+
+    replacement._new_connection = should_not_open  # type: ignore[method-assign]
+    with pytest.raises(ProtocolError, match="quarantined"):
+        await replacement.connect()
+    assert not attempted.is_set()
+
+
+async def test_deregister_failure_still_closes_physical_session() -> None:
+    order: list[str] = []
+    driver = _driver()
+    conn = await _connect_ready(driver, order)
+
+    class FailingSubscription:
+        def deactivate(self) -> None:
+            return None
+
+        async def stop_worker(self) -> None:
+            return None
+
+        async def deregister(self) -> None:
+            raise OSError("injected deregister failure")
+
+    driver._subscriptions.add(FailingSubscription())  # type: ignore[arg-type]
+    await driver.close()
+    assert conn.close_calls == 1
+    route = _route_state(_NET)
+    assert route.unsafe_reason is None
+    assert not route.op_lock.locked()
+
+
+async def test_inline_cleanup_exception_quarantines_route() -> None:
+    """建链失败后的 inline close 抛异常，旧路由不得被再次开放。"""
+    order: list[str] = []
+    driver = _driver()
+
+    class BrokenConnection(ControlledConnection):
+        def read_state(self) -> tuple[int, int]:
+            raise OSError("injected health failure")
+
+        def close(self) -> None:
+            raise OSError("injected inline close failure")
+
+    def factory(*_args: object, **_kwargs: object) -> BrokenConnection:
+        connection = BrokenConnection("broken", order)
+        connection.open_gate.set()
+        return connection
+
+    driver._new_connection = factory  # type: ignore[method-assign]
+    # shutdown() 会把底层 close 异常收敛为 False；connect 最终报告建链失败。
+    with pytest.raises(ProtocolError, match="cannot retry"):
+        await driver.connect()
+    route = _route_state(_NET)
+    assert route.unsafe_reason is not None
+
+    replacement = _driver(host_last=11)
+    attempted = threading.Event()
+
+    def prohibited_factory(*_args: object, **_kwargs: object) -> ControlledConnection:
+        attempted.set()
+        raise AssertionError("quarantined route must not open")
+
+    replacement._new_connection = prohibited_factory  # type: ignore[method-assign]
+    with pytest.raises(ProtocolError, match="quarantined"):
+        await replacement.connect()
+    assert not attempted.is_set()
+
+
+async def test_deregister_failure_does_not_skip_other_subscriptions() -> None:
+    """某个通知注销失败仍尝试注销其他通知，然后关闭底层连接。"""
+    driver = _driver()
+    conn = await _connect_ready(driver, [])
+    calls: list[str] = []
+
+    class Subscription:
+        def __init__(self, name: str, fail: bool) -> None:
+            self.name = name
+            self.fail = fail
+
+        def deactivate(self) -> None:
+            return None
+
+        async def stop_worker(self) -> None:
+            return None
+
+        async def deregister(self) -> None:
+            calls.append(self.name)
+            if self.fail:
+                raise OSError("injected deregister failure")
+
+    driver._subscriptions.add(Subscription("first", True))  # type: ignore[arg-type]
+    driver._subscriptions.add(Subscription("second", False))  # type: ignore[arg-type]
+    await driver.close()
+    assert sorted(calls) == ["first", "second"]
+    assert conn.close_calls == 1
+    assert _route_state(_NET).unsafe_reason is None
+
+
+async def test_extracted_route_module_shares_driver_registry() -> None:
+    """Route 提取为独立模块后，Driver 兼容入口不得创建第二份状态。"""
+    from core.infrastructure.protocol.ads.route import _route_state as route_state
+
+    assert driver_module._route_state(_NET) is route_state(_NET)
+    assert driver_module._route_state(_NET) is not route_state(_NET_OTHER)
+
+
+async def test_close_lock_timeout_is_reported_not_silently_ignored() -> None:
+    """未取得路由锁时不能谎报关闭成功，也不得物理关闭共享路由。"""
+    driver = _driver()
+    conn = await _connect_ready(driver, [])
+    route = _route_state(_NET)
+    original_lock = route.op_lock
+
+    class TimedOutLock:
+        async def acquire(self) -> bool:
+            raise TimeoutError
+
+    route.op_lock = TimedOutLock()  # type: ignore[assignment]
+    try:
+        with pytest.raises(ProtocolError, match="physical close not attempted"):
+            await driver.close()
+        assert conn.close_calls == 0
+        assert driver.is_open()
+    finally:
+        route.op_lock = original_lock
+        conn.close_gate.set()
+    await driver.close()
+    assert conn.close_calls == 1

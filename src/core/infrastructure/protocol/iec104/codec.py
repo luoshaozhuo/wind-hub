@@ -48,6 +48,11 @@ def decode_sample(
         timestamp_source=source,
         receive_time=receive_time,
         device_time=timestamp if source == "device" else None,
+        protocol_metadata=(
+            ("ca", msg.asdu_address),
+            ("ioa", msg.io_address),
+            ("cot", int(msg.cause.value)),
+        ),
     )
 
 

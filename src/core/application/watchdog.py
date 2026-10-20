@@ -32,6 +32,7 @@ class WatchdogUseCase:
         health_timeout: float,
         connect_timeout: float,
         on_success: ReconnectCallback | None = None,
+        on_connected: ReconnectCallback | None = None,
         lifecycle_lock: asyncio.Lock | None = None,
         name: str = "",
     ) -> None:
@@ -49,14 +50,20 @@ class WatchdogUseCase:
         self._health_timeout = float(health_timeout)
         self._connect_timeout = float(connect_timeout)
         self._on_success = on_success
+        self._on_connected = on_connected
         self._lifecycle_lock = lifecycle_lock or asyncio.Lock()
         self._name = name
 
         self._reconnect_lock = asyncio.Lock()
+        self._restore_lock = asyncio.Lock()
         self._wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._enabled = True
         self._generation = 0
+        self._pending_restore: ReconnectCallback | None = None
+        self._health_failures = 0
+        self._retry_level = 0
+        self._next_reconnect_at = 0.0
 
     def configure(
         self,
@@ -98,10 +105,32 @@ class WatchdogUseCase:
                 message=f"health check failed: {exc}",
             )
 
-        if health.healthy or not self._enabled:
+        if not self._enabled:
+            return health
+        if health.healthy:
+            self._health_failures = 0
+            self._retry_level = 0
+            self._next_reconnect_at = 0.0
+            if self._pending_restore is not None:
+                await self._restore_after_connect(self._pending_restore)
             return health
 
-        await self._reconnect_if_current(generation)
+        self._health_failures += 1
+        now = asyncio.get_running_loop().time()
+        if self._health_failures < 2 or now < self._next_reconnect_at:
+            return health
+        try:
+            reconnected = await self._reconnect_if_current(generation)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self._retry_level = min(self._retry_level + 1, 4)
+            self._next_reconnect_at = now + self._interval * (2**self._retry_level)
+            raise
+        if reconnected:
+            self._health_failures = 0
+            self._retry_level = 0
+            self._next_reconnect_at = 0.0
         return health
 
     async def reconnect(
@@ -125,6 +154,10 @@ class WatchdogUseCase:
     async def stop(self) -> None:
         """停止后续检查；不会在停止后发起新的重连。"""
         self._enabled = False
+        self._pending_restore = None
+        self._health_failures = 0
+        self._retry_level = 0
+        self._next_reconnect_at = 0.0
         self._wake.set()
         task = self._task
         self._task = None
@@ -163,11 +196,30 @@ class WatchdogUseCase:
                 async with asyncio.timeout(self._connect_timeout):
                     await self._connect()
                 self._generation += 1
+                self._pending_restore = callback
 
-        # 外部回调不得在生命周期锁内执行，避免回调重入造成死锁。
+        # 建链成功事件只记录一次；Push 恢复可独立失败及重试。
+        if self._on_connected is not None and self._enabled:
+            await self._on_connected()
+        # 恢复失败不应强制重建已健康的连接；在下一个健康周期单独重试。
         if callback is not None and self._enabled:
-            await callback()
+            await self._restore_after_connect(callback)
         return True
+
+    async def _restore_after_connect(self, callback: ReconnectCallback) -> None:
+        # 不持重连锁调用业务回调，允许回调触发显式 reconnect。
+        # 独立锁只用于防止两个周期重复恢复同一个订阅。
+        async with self._restore_lock:
+            if not self._enabled or self._pending_restore is not callback:
+                return
+            generation = self._generation
+            await callback()
+            if (
+                self._enabled
+                and self._generation == generation
+                and self._pending_restore is callback
+            ):
+                self._pending_restore = None
 
     async def _run(self) -> None:
         while self._enabled:

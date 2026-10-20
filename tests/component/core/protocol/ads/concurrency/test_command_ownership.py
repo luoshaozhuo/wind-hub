@@ -23,7 +23,7 @@ import pyads
 import pytest
 
 from core.application.errors import ConfigError, ProtocolError
-from core.infrastructure.protocol.ads.driver import _AdsSession
+from core.infrastructure.protocol.ads.session import _AdsSession
 
 pytestmark = [pytest.mark.ads]
 

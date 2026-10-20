@@ -201,10 +201,11 @@ class TestRealBlockNotification:
         received: dict[str, float] = {}
         arrived = asyncio.Event()
 
-        async def on_sample(sample: ProtocolSample) -> None:
-            received[sample.point_id] = float(sample.value)  # type: ignore[arg-type]  # 测点为 REAL
-            if {"a", "b"} <= received.keys():
-                arrived.set()
+        async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                received[sample.point_id] = float(sample.value)  # type: ignore[arg-type]  # 测点为 REAL
+                if {"a", "b"} <= received.keys():
+                    arrived.set()
 
         try:
             handle = await driver.subscribe(("a", "b"), on_sample, interval=0.05)

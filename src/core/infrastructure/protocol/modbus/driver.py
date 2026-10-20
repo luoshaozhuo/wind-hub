@@ -300,7 +300,15 @@ class ModbusDriver:
                     outcome=WriteOutcome.CONFIRMED_FAILURE,
                     message=str(exc) or type(exc).__name__,
                 )
-            accepted = await self._transact("write", request)
+            try:
+                accepted = await self._transact("write", request)
+            except ProtocolConnectionError as exc:
+                # 请求可能已送达、回包丢失；不允许将不确定写入隐式重试。
+                return ProtocolWriteResult(
+                    point_id=point_id,
+                    outcome=WriteOutcome.UNKNOWN,
+                    message=f"Modbus write confirmation unavailable: {exc}",
+                )
         if not accepted:
             # 设备已应答异常响应——通信链路可用，业务失败不作为断线处理。
             return ProtocolWriteResult(

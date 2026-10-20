@@ -53,7 +53,7 @@ async def test_listen_requires_established_connection() -> None:
     async def _cb(_sample: object) -> None:
         return None
 
-    with pytest.raises(ProtocolError, match="established connection"):
+    with pytest.raises(ProtocolError, match="OPEN, enabled connection"):
         await driver.listen(("p",), _cb)
 
 
@@ -134,7 +134,7 @@ async def test_link_health_reflects_enabled_state() -> None:
     conn.notify_enabled(False)
     health = await driver.health()
     assert not health.healthy
-    assert "STARTDT" in (health.message or "")
+    assert "not connected" in (health.message or "")
     await driver.close()
 
 
@@ -144,4 +144,157 @@ async def test_unconfigured_ca_interrogation_rejected() -> None:
     )
     with pytest.raises(Exception, match="not configured"):
         await driver.interrogate(9)
+    await driver.close()
+
+
+async def test_explicit_ca_interrogation_returns_samples() -> None:
+    driver, _conn = make_driver([make_point("p", 100)])
+    expected = ("sample-marker",)
+    calls: list[tuple[int, int]] = []
+
+    async def interrogate_one(ca: int, *, qoi: int):
+        calls.append((ca, qoi))
+        return expected
+
+    driver._interrogate_one = interrogate_one  # type: ignore[method-assign]
+    result = await driver.interrogate(common_address=1, qoi=20)
+    assert result == expected
+    assert calls == [(1, 20)]
+
+
+async def test_cancelled_control_invalidates_session_before_next_command() -> None:
+    """取消已经发出的控制，不能复用旧 Session 接收迟到的确认。"""
+    from core.application.protocol_contract import ProtocolWrite
+    from core.domain import PointAccess
+
+    driver, conn = await connected_driver(
+        [make_point("command", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)]
+    )
+    task = asyncio.create_task(driver.write_one(ProtocolWrite(point="command", value=True)))
+    for _ in range(100):
+        if conn.sent_messages:
+            break
+        await asyncio.sleep(0.001)
+    assert conn.sent_messages, "control request was not sent"
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not driver.is_open()
+    assert driver._session is None
+    assert len(conn.sent_messages) == 1
+    await driver.close()
+
+
+@pytest.mark.parametrize("operation", ["read", "interrogate"])
+async def test_cancelled_iec104_request_invalidates_session(operation: str) -> None:
+    """主动读取/总召取消后，迟到报文不得进入后续新会话。"""
+    driver, conn = await connected_driver([make_point("p", 100)])
+    if operation == "read":
+        task = asyncio.create_task(driver.read_one("p"))
+    else:
+        task = asyncio.create_task(driver.interrogate(common_address=1))
+    for _ in range(100):
+        if conn.sent_messages:
+            break
+        await asyncio.sleep(0.001)
+    assert conn.sent_messages
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert driver._session is None
+    assert not driver.is_open()
+    await driver.close()
+
+
+async def test_control_requires_act_term_after_positive_act_con() -> None:
+    """ACT_CON 表示受理，不得提前返回成功；ACT_TERM 才完成本次流程。"""
+    from hat.drivers.iec101 import common as iec101
+    from hat.drivers.iec104 import common as iec104common
+
+    from core.application.protocol_contract import WriteOutcome
+    from core.domain import PointAccess
+
+    driver, conn = await connected_driver(
+        [make_point("cmd", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)]
+    )
+    task = asyncio.create_task(driver.write_one(ProtocolWrite(point="cmd", value=True)))
+    for _ in range(100):
+        if conn.sent_messages:
+            break
+        await asyncio.sleep(0.001)
+    assert conn.sent_messages
+    request = conn.sent_messages[-1]
+    assert isinstance(request, iec104common.CommandMsg)
+
+    def response(cause: iec101.CommandResCause) -> iec104common.CommandMsg:
+        return request._replace(cause=cause, is_negative_confirm=False)
+
+    conn.deliver([response(iec101.CommandResCause.ACTIVATION_CONFIRMATION)])
+    await asyncio.sleep(0.01)
+    assert not task.done()
+    conn.deliver([response(iec101.CommandResCause.ACTIVATION_TERMINATION)])
+    result = await asyncio.wait_for(task, timeout=1.0)
+    assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
+    await driver.close()
+
+
+async def test_control_act_con_only_times_out_unknown() -> None:
+    """只收到肯定 ACT_CON 而无 ACT_TERM，必须保持 UNKNOWN。"""
+    from hat.drivers.iec101 import common as iec101
+    from hat.drivers.iec104 import common as iec104common
+
+    from core.application.protocol_contract import WriteOutcome
+    from core.domain import PointAccess
+
+    driver, conn = await connected_driver(
+        [make_point("cmd", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)],
+        options={"t1": 0.5, "t2": 0.2},
+    )
+    task = asyncio.create_task(driver.write_one(ProtocolWrite(point="cmd", value=True)))
+    for _ in range(100):
+        if conn.sent_messages:
+            break
+        await asyncio.sleep(0.001)
+    assert conn.sent_messages
+    request = conn.sent_messages[-1]
+    assert isinstance(request, iec104common.CommandMsg)
+    conn.deliver([
+        request._replace(
+            cause=iec101.CommandResCause.ACTIVATION_CONFIRMATION,
+            is_negative_confirm=False,
+        )
+    ])
+    result = await asyncio.wait_for(task, timeout=2.0)
+    assert result.outcome is WriteOutcome.UNKNOWN
+    assert len(conn.sent_messages) == 1
+    await driver.close()
+
+
+async def test_control_negative_act_con_is_confirmed_failure_without_retry() -> None:
+    from hat.drivers.iec101 import common as iec101
+    from hat.drivers.iec104 import common as iec104common
+
+    from core.application.protocol_contract import WriteOutcome
+    from core.domain import PointAccess
+
+    driver, conn = await connected_driver(
+        [make_point("cmd", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)]
+    )
+    task = asyncio.create_task(driver.write_one(ProtocolWrite(point="cmd", value=True)))
+    for _ in range(100):
+        if conn.sent_messages:
+            break
+        await asyncio.sleep(0.001)
+    assert conn.sent_messages
+    request = conn.sent_messages[-1]
+    assert isinstance(request, iec104common.CommandMsg)
+    conn.deliver([
+        request._replace(
+            cause=iec101.CommandResCause.ACTIVATION_CONFIRMATION,
+            is_negative_confirm=True,
+        )
+    ])
+    result = await asyncio.wait_for(task, timeout=1.0)
+    assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
+    assert len(conn.sent_messages) == 1
     await driver.close()

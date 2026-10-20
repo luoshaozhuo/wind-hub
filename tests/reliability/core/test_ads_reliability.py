@@ -277,7 +277,7 @@ class TestMidSessionDisconnect:
         driver = _driver({"a": _point("a", 0)}, host=proxy.host, port=proxy.listen_port)
         await driver.connect()
 
-        async def on_sample(_sample: ProtocolSample) -> None:
+        async def on_sample(_samples: tuple[ProtocolSample, ...]) -> None:
             pass
 
         handle = await driver.subscribe(("a",), on_sample, interval=0.05)
@@ -301,11 +301,12 @@ class TestMidSessionDisconnect:
         seen: list[int] = []
         arrived = asyncio.Event()
 
-        async def on_sample(sample: ProtocolSample) -> None:
-            value = int(sample.value)  # type: ignore[arg-type]  # 测点为 DINT
-            seen.append(value)
-            if value == 42:
-                arrived.set()
+        async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                value = int(sample.value)  # type: ignore[arg-type]  # 测点为 DINT
+                seen.append(value)
+                if value == 42:
+                    arrived.set()
 
         await driver.subscribe(("a",), on_sample, interval=0.05)
         memory_server.set_values(_GROUP, 0, pack_points([("DINT", 42)]))
@@ -340,7 +341,7 @@ class TestRegistrationFaults:
         try:
             await driver.connect()
 
-            async def on_sample(_sample: ProtocolSample) -> None:
+            async def on_sample(_samples: tuple[ProtocolSample, ...]) -> None:
                 pass
 
             start = time.monotonic()
@@ -366,7 +367,7 @@ class TestRegistrationFaults:
         try:
             await driver2.connect()
 
-            async def on_sample(_sample: ProtocolSample) -> None:
+            async def on_sample(_samples: tuple[ProtocolSample, ...]) -> None:
                 pass
 
             handle = await driver2.subscribe(("a", "b"), on_sample, interval=0.05)

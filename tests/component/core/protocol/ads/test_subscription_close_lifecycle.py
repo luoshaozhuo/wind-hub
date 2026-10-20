@@ -25,6 +25,7 @@ import pytest
 import core.infrastructure.protocol.ads.subscription as subscription_module
 from core.application.protocol_contract import ProtocolSample
 from core.infrastructure.protocol.ads.mapping import ADSPoint
+from core.infrastructure.protocol.ads.session import _AdsSession
 from core.infrastructure.protocol.ads.subscription import ADSSubscription
 
 
@@ -110,10 +111,13 @@ class _BlockingSession:
 
 
 class _Attrib:
-    def __init__(self, length: int, *, trans_mode: int, cycle_time: float) -> None:
+    def __init__(
+        self, length: int, *, trans_mode: int, cycle_time: float, max_delay: float = 0.0
+    ) -> None:
         self.length = length
         self.trans_mode = trans_mode
         self.cycle_time = cycle_time
+        self.max_delay = max_delay
 
 
 class _FakePyads:
@@ -126,13 +130,13 @@ def fake_pyads(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subscription_module, "pyads", _FakePyads)
 
 
-async def _noop(_sample: ProtocolSample) -> None:
+async def _noop(_samples: tuple[ProtocolSample, ...]) -> None:
     pass
 
 
 async def _start(session: _BlockingSession, *points: ADSPoint) -> ADSSubscription:
     subscription = ADSSubscription(
-        session,
+        _AdsSession(session),
         points,
         _noop,
         cycle_time=0.1,
@@ -198,8 +202,9 @@ async def test_deactivate_before_close_still_deregisters(fake_pyads: None) -> No
     subscription = await _start(session, _point("a", 0))
     delivered = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        delivered.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        if samples:
+            delivered.set()
 
     subscription._callback = on_sample
     subscription.deactivate()  # 只停投递，不代表 Handle/Worker 已清理。
@@ -273,8 +278,9 @@ async def test_failed_deregistration_keeps_cleaning_and_records_unconfirmed(
     # 独立资源：Handle 1 注销失败不阻断 Handle 2。
     assert session.deleted == [2]
     assert session.delete_attempts == [1, 2]
-    assert [handle[0] for handle in subscription.unconfirmed_handles] == [1]
-    assert "unconfirmed notification handle" in caplog.text
+    assert len(subscription.unconfirmed_handles) == 1
+    assert subscription.unconfirmed_handles[0][0][:2] == (0x4020, 0)
+    assert "notification cleanup unconfirmed" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -310,11 +316,12 @@ async def test_late_native_notification_after_close_is_not_delivered(
     session.add_release.set()
     received: list[float] = []
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        received.append(float(sample.value))  # type: ignore[arg-type]
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(float(sample.value))  # type: ignore[arg-type]
 
     subscription = ADSSubscription(
-        session,
+        _AdsSession(session),
         (_point("a", 0),),
         on_sample,
         cycle_time=0.1,
@@ -339,7 +346,7 @@ async def test_cancelled_start_with_late_successful_registration_deletes_handle(
     del fake_pyads
     session = _BlockingSession()  # add_release 初始不放行
     subscription = ADSSubscription(
-        session,
+        _AdsSession(session),
         (_point("a", 0),),
         _noop,
         cycle_time=0.1,
@@ -371,7 +378,7 @@ async def test_cancelled_start_with_late_failed_registration_records_nothing(
     session = _BlockingSession()
     session.add_raises = ConnectionError("device rejected")
     subscription = ADSSubscription(
-        session,
+        _AdsSession(session),
         (_point("a", 0),),
         _noop,
         cycle_time=0.1,

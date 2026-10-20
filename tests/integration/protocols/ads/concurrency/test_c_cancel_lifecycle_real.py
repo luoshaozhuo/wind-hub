@@ -229,8 +229,9 @@ async def test_c04_cancel_subscribe_registration_close_drains_handle(
     rig.init_memory()
     rig.control.set_delay(_ADD_NOTE, 0.5)  # type: ignore[attr-defined]
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        del sample
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            del sample
 
     subscribe_task = asyncio.create_task(rig.driver.subscribe(("p0",), on_sample, interval=0.05))
     try:

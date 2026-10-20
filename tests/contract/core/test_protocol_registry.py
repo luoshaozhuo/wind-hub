@@ -115,7 +115,7 @@ class _Protocol:
 def test_protocol_write_normalizes_point_id() -> None:
     write = ProtocolWrite(point=" power ", value=1.0)
 
-    assert write.point_id == "power"
+    assert write.point == "power"
 
     with pytest.raises(ValueError, match="configured point key"):
         ProtocolWrite(point=" ", value=1.0)
@@ -240,7 +240,7 @@ async def test_modbus_rejects_unsupported_protocol_capabilities() -> None:
         {},
     )
 
-    async def callback(_sample: ProtocolSample) -> None:
+    async def callback(_samples: tuple[ProtocolSample, ...]) -> None:
         return None
 
     with pytest.raises(ProtocolCapabilityError, match="subscription"):
@@ -258,7 +258,7 @@ async def test_iec104_rejects_unsupported_protocol_capabilities() -> None:
         {},
     )
 
-    async def callback(_sample: ProtocolSample) -> None:
+    async def callback(_samples: tuple[ProtocolSample, ...]) -> None:
         return None
 
     with pytest.raises(ProtocolCapabilityError, match="subscription"):

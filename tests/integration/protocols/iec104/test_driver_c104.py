@@ -132,11 +132,12 @@ class _Collector:
         self.point_ids = point_ids
         self._seen: dict[str, asyncio.Event] = {}
 
-    async def __call__(self, sample: ProtocolSample) -> None:
-        self.samples.append(sample)
-        event = self._seen.get(sample.point_id)
-        if event is not None:
-            event.set()
+    async def __call__(self, samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            self.samples.append(sample)
+            event = self._seen.get(sample.point_id)
+            if event is not None:
+                event.set()
 
     def wait_for(self, point_id: str, predicate: Any = None) -> asyncio.Future[ProtocolSample]:
         event = asyncio.Event()
@@ -189,7 +190,7 @@ class TestConnectAndActiveRead:
     async def test_subscribe_is_not_supported(self, driver: IEC104Driver) -> None:
         await driver.connect()
 
-        async def _cb(_sample: ProtocolSample) -> None:
+        async def _cb(_samples: tuple[ProtocolSample, ...]) -> None:
             return None
 
         with pytest.raises(ProtocolCapabilityError, match="subscription"):
@@ -205,9 +206,9 @@ class TestConnectAndActiveRead:
             await driver.read_one("meas.power")
 
     async def test_listen_without_connect_raises(self, driver: IEC104Driver) -> None:
-        with pytest.raises(ProtocolError, match="established connection"):
+        with pytest.raises(ProtocolError, match="OPEN, enabled connection"):
 
-            async def _cb(_sample: ProtocolSample) -> None:
+            async def _cb(_samples: tuple[ProtocolSample, ...]) -> None:
                 return None
 
             await driver.listen(["meas.power"], _cb)
@@ -265,8 +266,9 @@ class TestInterrogateAndListen:
         drv = _driver(srv.port, [_point("meas.power", 100)])
         received: list[ProtocolSample] = []
 
-        async def cb(sample: ProtocolSample) -> None:
-            received.append(sample)
+        async def cb(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                received.append(sample)
 
         try:
             await drv.connect()
@@ -301,8 +303,9 @@ class TestInterrogateAndListen:
         await driver.connect()
         received: list[ProtocolSample] = []
 
-        async def cb(sample: ProtocolSample) -> None:
-            received.append(sample)
+        async def cb(samples: tuple[ProtocolSample, ...]) -> None:
+            for sample in samples:
+                received.append(sample)
 
         await driver.listen((), cb)
         await driver.close()

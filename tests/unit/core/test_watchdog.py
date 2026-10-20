@@ -66,7 +66,11 @@ async def test_healthy_check_does_not_reconnect() -> None:
 async def test_unhealthy_check_reconnects_once_and_runs_callback() -> None:
     endpoint = _Endpoint()
     endpoint.healthy = False
-    result = await _watchdog(endpoint).check_once()
+    watchdog = _watchdog(endpoint)
+    first = await watchdog.check_once()
+    assert not first.healthy
+    assert endpoint.connect_count == 0
+    result = await watchdog.check_once()
     assert not result.healthy
     assert endpoint.close_count == 1
     assert endpoint.connect_count == 1
@@ -77,7 +81,9 @@ async def test_unhealthy_check_reconnects_once_and_runs_callback() -> None:
 async def test_health_exception_triggers_one_reconnect() -> None:
     endpoint = _Endpoint()
     endpoint.health_error = ConnectionError("lost")
-    result = await _watchdog(endpoint).check_once()
+    watchdog = _watchdog(endpoint)
+    await watchdog.check_once()
+    result = await watchdog.check_once()
     assert not result.healthy
     assert "lost" in (result.message or "")
     assert endpoint.connect_count == 1
@@ -88,6 +94,7 @@ async def test_health_timeout_triggers_one_reconnect() -> None:
     endpoint = _Endpoint()
     endpoint.health_gate = asyncio.Event()
     watchdog = _watchdog(endpoint, health_timeout=0.01)
+    await watchdog.check_once()
     result = await watchdog.check_once()
     assert not result.healthy
     assert endpoint.connect_count == 1
@@ -98,8 +105,10 @@ async def test_connect_failure_does_not_run_callback() -> None:
     endpoint = _Endpoint()
     endpoint.healthy = False
     endpoint.connect_error = ConnectionError("still down")
+    watchdog = _watchdog(endpoint)
+    await watchdog.check_once()
     with pytest.raises(ConnectionError, match="still down"):
-        await _watchdog(endpoint).check_once()
+        await watchdog.check_once()
     assert endpoint.callback_count == 0
     assert endpoint.connect_count == 1
 
@@ -122,6 +131,7 @@ async def test_callback_failure_is_observable_without_second_reconnect() -> None
         connect_timeout=0.1,
         on_success=bad_callback,
     )
+    await watchdog.check_once()
     with pytest.raises(RuntimeError, match="restore failed"):
         await watchdog.check_once()
     assert endpoint.connect_count == 1
@@ -159,7 +169,9 @@ async def test_next_cycle_can_check_and_reconnect_again() -> None:
     endpoint.healthy = False
     watchdog = _watchdog(endpoint)
     await watchdog.check_once()
+    await watchdog.check_once()
     endpoint.healthy = False
+    await watchdog.check_once()
     await watchdog.check_once()
     assert endpoint.connect_count == 2
 
@@ -219,6 +231,7 @@ async def test_no_callback_when_stopped_during_reconnect() -> None:
 
     endpoint.connect = slow_connect  # type: ignore[method-assign]
     watchdog = _watchdog(endpoint, connect_timeout=2.0)
+    await watchdog.check_once()
     task = asyncio.create_task(watchdog.check_once())
     await asyncio.wait_for(entered.wait(), timeout=1.0)
     await watchdog.stop()
@@ -248,3 +261,28 @@ async def test_repeated_start_and_stop_cycles_keep_single_task() -> None:
         await asyncio.sleep(0.001)
     assert endpoint.health_count >= 1
     await watchdog.stop()
+
+
+@pytest.mark.asyncio
+async def test_single_unhealthy_probe_does_not_reconnect() -> None:
+    endpoint = _Endpoint()
+    endpoint.healthy = False
+    watchdog = _watchdog(endpoint)
+    assert not (await watchdog.check_once()).healthy
+    assert endpoint.close_count == 0
+    assert endpoint.connect_count == 0
+
+
+@pytest.mark.asyncio
+async def test_healthy_probe_resets_consecutive_failure_evidence() -> None:
+    endpoint = _Endpoint()
+    endpoint.healthy = False
+    watchdog = _watchdog(endpoint)
+    await watchdog.check_once()
+    endpoint.healthy = True
+    await watchdog.check_once()
+    endpoint.healthy = False
+    await watchdog.check_once()
+    assert endpoint.connect_count == 0
+    await watchdog.check_once()
+    assert endpoint.connect_count == 1

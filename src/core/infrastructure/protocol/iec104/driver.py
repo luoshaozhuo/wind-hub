@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -40,7 +40,7 @@ from core.application.errors import (
     ProtocolConnectionError,
     ProtocolError,
 )
-from core.application.port.protocol import ListenHandle, SubscriptionHandle
+from core.application.port.protocol import ListenHandle, ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     ProtocolCapability,
@@ -75,6 +75,29 @@ _PROBE_UNSUPPORTED_CAUSES = frozenset(
         iec101.ReadResCause.UNKNOWN_IO_ADDRESS,
     }
 )
+
+
+class _InterruptedInterrogationError(ProtocolConnectionError):
+    """失效会话的总召异常携带结果快照，允许立即清空会话缓存。"""
+
+    def __init__(self, message: str, samples: tuple[ProtocolSample, ...]) -> None:
+        super().__init__(message)
+        self.samples = samples
+
+
+class IEC104InterrogationIncompleteError(ProtocolError):
+    """总召未得到终结证据；samples 为终止前收到的部分有效结果。"""
+
+    def __init__(self, ca: int, qoi: int, samples: tuple[ProtocolSample, ...], reason: str):
+        super().__init__(
+            f"IEC104 interrogation incomplete for ca={ca}, qoi={qoi}: {reason}; "
+            f"partial_samples={len(samples)}"
+        )
+        self.common_address = ca
+        self.qoi = qoi
+        self.samples = samples
+        self.reason = reason
+        self.completed = False
 
 
 class IEC104ActiveReadRejectedError(ProtocolError):
@@ -113,9 +136,11 @@ class _Session:
     next_originator: int = 0
     reads: dict[Address, _ReadRequest] = field(default_factory=dict)
     commands: dict[Address, asyncio.Future[bool]] = field(default_factory=dict)
+    command_accepted: set[Address] = field(default_factory=set)
     interrogations: dict[int, asyncio.Future[None]] = field(default_factory=dict)
     interrogation_samples: dict[int, list[ProtocolSample]] = field(default_factory=dict)
     interrogation_qoi: dict[int, int] = field(default_factory=dict)
+    interrogation_accepted: set[int] = field(default_factory=set)
 
     def originator(self) -> int:
         """分配 1..255 的始发地址（诊断用；响应关联以完整地址+串行锁为准）。"""
@@ -444,6 +469,10 @@ class IEC104Driver:
                     raise ProtocolError(
                         f"IEC104 active read timed out for '{point_id}'"
                     ) from exc
+            except asyncio.CancelledError:
+                # 请求可能已发送；隔离迟到响应，禁止复用旧会话。
+                self._invalidate_session(session, "active read cancelled")
+                raise
             finally:
                 if session.reads.get(key) is request:
                     session.reads.pop(key, None)
@@ -464,7 +493,7 @@ class IEC104Driver:
         """执行单点遥控/设点，严格按应用层确认证据三分类。
 
         - 本地校验失败 / 从站否定确认（含 UNKNOWN_* COT）→ CONFIRMED_FAILURE；
-        - 肯定 ACT_CON → CONFIRMED_SUCCESS（设备已明确接受）；
+        - 肯定 ACT_CON 后肯定 ACT_TERM → CONFIRMED_SUCCESS（协议流程完成）；
         - 超时、断线等丢失确认 → UNKNOWN（可能已送达，禁止自动重传）。
         """
         mapped = self._require_point(write.point)
@@ -489,6 +518,7 @@ class IEC104Driver:
                 )
             future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
             session.commands[key] = future
+            session.command_accepted.discard(key)
             try:
                 try:
                     await self._send(
@@ -522,7 +552,7 @@ class IEC104Driver:
                         point_id=mapped.point_id,
                         outcome=WriteOutcome.UNKNOWN,
                         message=(
-                            "activation confirmation timed out — command may have executed"
+                            "command termination timed out — command may have executed"
                         ),
                     )
                 except ProtocolConnectionError as exc:
@@ -531,8 +561,13 @@ class IEC104Driver:
                         outcome=WriteOutcome.UNKNOWN,
                         message=f"connection lost after command send: {exc}",
                     )
+            except asyncio.CancelledError:
+                # 请求可能已上线；取消后不能让迟到确认为下一条同地址控制背书。
+                self._invalidate_session(session, "command cancelled with uncertain delivery")
+                raise
             finally:
                 session.commands.pop(key, None)
+                session.command_accepted.discard(key)
             if accepted:
                 return ProtocolWriteResult(
                     point_id=mapped.point_id,
@@ -568,16 +603,21 @@ class IEC104Driver:
         if not isinstance(qoi, int) or isinstance(qoi, bool) or not 20 <= qoi <= 36:
             raise ConfigError("IEC104 interrogation QOI must be an integer in 20..36")
         if common_address is None:
-            batches = []
+            batches: list[ProtocolSample] = []
             for ca in self._config.common_addresses:
-                batches.extend(await self._interrogate_one(ca, qoi=qoi))
+                try:
+                    batches.extend(await self._interrogate_one(ca, qoi=qoi))
+                except IEC104InterrogationIncompleteError as exc:
+                    raise IEC104InterrogationIncompleteError(
+                        ca, qoi, (*batches, *exc.samples), exc.reason
+                    ) from exc
             return tuple(batches)
         if common_address not in self._config.common_addresses:
             raise ConfigError(
                 f"IEC104 common address {common_address} is not configured "
                 f"(configured: {list(self._config.common_addresses)})"
             )
-        await self._interrogate_one(common_address, qoi=qoi)
+        return await self._interrogate_one(common_address, qoi=qoi)
 
     async def _interrogate_one(self, ca: int, *, qoi: int) -> tuple[ProtocolSample, ...]:
         session = self._require_session()
@@ -587,6 +627,7 @@ class IEC104Driver:
             future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
             session.interrogations[ca] = future
             session.interrogation_qoi[ca] = qoi
+            session.interrogation_accepted.discard(ca)
             session.interrogation_samples[ca] = []
             try:
                 await self._send(
@@ -606,13 +647,28 @@ class IEC104Driver:
                     await asyncio.wait_for(future, timeout=self._config.t1 * 2)
                     return tuple(session.interrogation_samples[ca])
                 except TimeoutError as exc:
+                    partial = tuple(session.interrogation_samples[ca])
                     self._invalidate_session(session, "interrogation timed out")
-                    raise ProtocolError(
-                        f"IEC104 general interrogation ACT_TERM timed out for ca={ca}"
+                    raise IEC104InterrogationIncompleteError(
+                        ca, qoi, partial, "ACT_TERM timed out"
                     ) from exc
+                except ProtocolConnectionError as exc:
+                    partial = (
+                        exc.samples
+                        if isinstance(exc, _InterruptedInterrogationError)
+                        else tuple(session.interrogation_samples.get(ca, ()))
+                    )
+                    raise IEC104InterrogationIncompleteError(
+                        ca, qoi, partial, str(exc)
+                    ) from exc
+            except asyncio.CancelledError:
+                # 总召取消后可能仍有分批响应在途，隔离旧会话。
+                self._invalidate_session(session, "interrogation cancelled")
+                raise
             finally:
                 session.interrogations.pop(ca, None)
                 session.interrogation_qoi.pop(ca, None)
+                session.interrogation_accepted.discard(ca)
                 session.interrogation_samples.pop(ca, None)
 
     # ------------------------------------------------------------------
@@ -622,7 +678,7 @@ class IEC104Driver:
     async def subscribe(
         self,
         point_ids: Sequence[str],
-        callback: Callable[[ProtocolSample], object],
+        callback: ProtocolSampleCallback,
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
@@ -645,8 +701,7 @@ class IEC104Driver:
         只记 debug 日志，避免污染业务点表。
         """
         del interval
-        if self._session is None:
-            raise ProtocolError("IEC104 listen requires an established connection")
+        self._require_session()
         if point_ids:
             for point_id in point_ids:
                 self._require_point(point_id)
@@ -691,27 +746,28 @@ class IEC104Driver:
         # 分发严格隔离：当前 APDU 不可解码的剩余部分只丢这一帧并记日志，
         # 绝不杀死接收任务，后续 APDU 正常处理。出错后不重新迭代同一生成器。
         messages = self._encoder.decode(data)
+        batch: list[ProtocolSample] = []
         while True:
             try:
                 message = next(messages)
             except StopIteration:
-                return
+                break
             except iec101.AsduTypeError as exc:
                 logger.warning(
                     "IEC104 unsupported ASDU type (%s); APDU remainder dropped: %s",
                     exc,
                     data.hex(),
                 )
-                return
+                break
             except Exception:
                 logger.exception(
                     "IEC104 ASDU decode failed (malformed/truncated APDU); "
                     "remainder of this APDU dropped: %s",
                     data.hex(),
                 )
-                return
+                break
             try:
-                self._dispatch(session, message, receive_time=receive_time)
+                self._dispatch(session, message, receive_time=receive_time, batch=batch)
             except Exception:
                 logger.exception(
                     "IEC104 dispatch failed for %s ca=%s ioa=%s; "
@@ -720,12 +776,16 @@ class IEC104Driver:
                     getattr(message, "asdu_address", "?"),
                     getattr(message, "io_address", "?"),
                 )
+        if batch:
+            self._listeners.offer(tuple(batch))
 
     def _dispatch(
-        self, session: _Session, message: iec101.Msg, *, receive_time: datetime | None = None
+        self, session: _Session, message: iec101.Msg, *,
+        receive_time: datetime | None = None,
+        batch: list[ProtocolSample] | None = None,
     ) -> None:
         if isinstance(message, iec101.DataMsg):
-            self._dispatch_data(session, message, receive_time=receive_time)
+            self._dispatch_data(session, message, receive_time=receive_time, batch=batch)
         elif isinstance(message, iec101.ReadMsg):
             self._dispatch_read_negative(session, message)
         elif isinstance(message, iec104common.CommandMsg):
@@ -735,7 +795,9 @@ class IEC104Driver:
         # 时钟同步、初始化、参数等报文当前无业务语义，忽略。
 
     def _dispatch_data(
-        self, session: _Session, message: iec101.DataMsg, *, receive_time: datetime | None = None
+        self, session: _Session, message: iec101.DataMsg, *,
+        receive_time: datetime | None = None,
+        batch: list[ProtocolSample] | None = None,
     ) -> None:
         key: Address = (message.asdu_address, message.io_address)
         data_type = type(message.data).__name__
@@ -798,7 +860,10 @@ class IEC104Driver:
             and message.asdu_address in session.interrogation_samples
         ):
             session.interrogation_samples[message.asdu_address].append(sample)
-        self._listeners.offer(sample)
+        if batch is None:
+            self._listeners.offer((sample,))
+        else:
+            batch.append(sample)
 
     def _dispatch_read_negative(self, session: _Session, message: iec101.ReadMsg) -> None:
         # 主站发出的请求回响不会回到本侧；这里只处理从站否定（COT 44..47）。
@@ -817,14 +882,22 @@ class IEC104Driver:
         if waiter is None or waiter.done():
             return
         cause = message.cause
-        if (
-            cause is not iec101.CommandResCause.ACTIVATION_CONFIRMATION
-            and cause is not iec101.CommandResCause.ACTIVATION_TERMINATION
-        ):
-            # DEACTIVATION_CONFIRMATION 或 UNKNOWN_* 等非本次激活结果一律按拒绝处理。
-            _set_result(waiter, False)
+        key = (message.asdu_address, message.io_address)
+        if cause is iec101.CommandResCause.ACTIVATION_CONFIRMATION:
+            if message.is_negative_confirm:
+                _set_result(waiter, False)
+            else:
+                # 肯定 ACT_CON 只表示设备受理，尚不是执行完成证据。
+                session.command_accepted.add(key)
             return
-        _set_result(waiter, not message.is_negative_confirm)
+        if cause is iec101.CommandResCause.ACTIVATION_TERMINATION:
+            if message.is_negative_confirm:
+                _set_result(waiter, False)
+            elif key in session.command_accepted:
+                _set_result(waiter, True)
+            return
+        if message.is_negative_confirm or getattr(cause, "value", None) in {44, 45, 46, 47}:
+            _set_result(waiter, False)
 
     def _dispatch_interrogation(
         self,
@@ -846,6 +919,8 @@ class IEC104Driver:
                         f"ca={message.asdu_address}"
                     ),
                 )
+            else:
+                session.interrogation_accepted.add(message.asdu_address)
             return
         if cause is iec101.CommandResCause.ACTIVATION_TERMINATION:
             if message.is_negative_confirm:
@@ -856,11 +931,11 @@ class IEC104Driver:
                         f"ca={message.asdu_address}"
                     ),
                 )
-            else:
+            elif message.asdu_address in session.interrogation_accepted:
                 _set_result(waiter, None)
             return
         # UNKNOWN_TYPE/CAUSE/ASDU/IO 等否定 COT：明确失败。
-        if message.is_negative_confirm:
+        if message.is_negative_confirm or getattr(cause, "value", None) in {44, 45, 46, 47}:
             _set_exception(
                 waiter,
                 ProtocolError(
@@ -884,11 +959,8 @@ class IEC104Driver:
             return
         session.enabled = enabled
         if not enabled:
-            # 对端关闭数据传输（或链路停使能）：结束在途应用请求。
-            self._fail_session(
-                session,
-                ProtocolConnectionError("IEC104 data transfer disabled by peer"),
-            )
+            # STOPDT 后不得复用 failed 会话；由上层重新建链及恢复监听。
+            self._invalidate_session(session, "IEC104 data transfer disabled by peer")
 
     async def _on_session_end(self, session: _Session) -> None:
         if self._session is session:
@@ -925,12 +997,21 @@ class IEC104Driver:
             _set_exception(request.future, exc)
         for command_future in session.commands.values():
             _set_exception(command_future, exc)
-        for interrogation_future in session.interrogations.values():
-            _set_exception(interrogation_future, exc)
+        for ca, interrogation_future in session.interrogations.items():
+            partial = tuple(session.interrogation_samples.get(ca, ()))
+            if partial and isinstance(exc, ProtocolConnectionError):
+                _set_exception(
+                    interrogation_future,
+                    _InterruptedInterrogationError(str(exc), partial),
+                )
+            else:
+                _set_exception(interrogation_future, exc)
         session.reads.clear()
         session.commands.clear()
+        session.command_accepted.clear()
         session.interrogations.clear()
         session.interrogation_qoi.clear()
+        session.interrogation_accepted.clear()
         session.interrogation_samples.clear()
 
     # ------------------------------------------------------------------

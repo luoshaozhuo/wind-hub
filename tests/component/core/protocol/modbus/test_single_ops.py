@@ -556,9 +556,8 @@ class TestWriteOne:
         client.write_error = ConnectionError("reset by peer")
         driver = _driver({"h": _point("h", "holding", 100)}, client)
 
-        with pytest.raises(ProtocolError, match="write failed"):
-            await driver.write_one(ProtocolWrite("h", 10))
-
+        result = await driver.write_one(ProtocolWrite("h", 10))
+        assert result.outcome is WriteOutcome.UNKNOWN
         assert client.total_write_calls() == 1
 
     @pytest.mark.asyncio

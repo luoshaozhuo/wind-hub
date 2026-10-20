@@ -154,6 +154,8 @@ async def test_watchdog_reconnects_without_lazy_connect_duplication():
     watchdog = generation.watchdogs["dev1"]
     assert not await runtime.ensure_connected("dev1")
     await watchdog.check_once()
+    assert not protocol.connected
+    await watchdog.check_once()
     assert protocol.connected
     assert protocol.connect_calls == 2
     await runtime.stop()

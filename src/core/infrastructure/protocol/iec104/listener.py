@@ -32,7 +32,7 @@ from core.application.protocol_contract import ProtocolSample
 
 logger = logging.getLogger(__name__)
 
-ProtocolListenerCallback = Callable[[ProtocolSample], Awaitable[None]]
+ProtocolListenerCallback = Callable[[tuple[ProtocolSample, ...]], Awaitable[None]]
 
 # 单次回调的默认执行时限，同时作为其被取消后的清理等待上限。
 DEFAULT_CALLBACK_TIMEOUT = 5.0
@@ -109,7 +109,7 @@ class ListenerRegistry:
     ) -> None:
         if callback_timeout <= 0:
             raise ValueError("callback_timeout must be > 0")
-        self._queue: asyncio.Queue[ProtocolSample] = asyncio.Queue(
+        self._queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(
             maxsize=capacity or self.QUEUE_CAPACITY
         )
         self._callback_timeout = callback_timeout
@@ -153,27 +153,28 @@ class ListenerRegistry:
             )
         return listener_id
 
-    def offer(self, sample: ProtocolSample) -> None:
+    def offer(self, samples: tuple[ProtocolSample, ...]) -> None:
         """接收管线入口：入队一条样本；队列满时丢最旧并计数。
 
         永不阻塞调用方（协议接收任务），也不在无监听者/关闭后排队。
         """
-        if self._closed or not self._listeners:
+        if self._closed or not self._listeners or not samples:
             return
         if self._queue.full():
             try:
-                self._queue.get_nowait()
+                dropped = self._queue.get_nowait()
                 self._queue.task_done()
             except asyncio.QueueEmpty:
                 pass
-            self._dropped += 1
-            if self._dropped == 1 or self._dropped % 1000 == 0:
+            previous = self._dropped
+            self._dropped += len(dropped)
+            if previous == 0 or self._dropped // 1000 > previous // 1000:
                 logger.warning(
                     "IEC104 listener queue overflow — %d sample(s) dropped "
                     "(slow consumer)",
                     self._dropped,
                 )
-        self._queue.put_nowait(sample)
+        self._queue.put_nowait(samples)
 
     async def remove(self, listener_id: int, *, timeout: float | None = None) -> None:
         """取消监听（幂等），并等待在途回调真正结束。
@@ -278,9 +279,9 @@ class ListenerRegistry:
 
     async def _dispatch(self) -> None:
         while True:
-            sample = await self._queue.get()
+            samples = await self._queue.get()
             try:
-                await self._fan_out(sample)
+                await self._fan_out(samples)
                 # 取消可能在最后一次 wait_for 处被「回调恰好完成」竞态吞掉，
                 # fan_out 正常返回后仍必须确认关闭状态，避免 worker 带着
                 # 未消费的取消回到 queue.get 永久阻塞。
@@ -289,7 +290,7 @@ class ListenerRegistry:
             finally:
                 self._queue.task_done()
 
-    async def _fan_out(self, sample: ProtocolSample) -> None:
+    async def _fan_out(self, samples: tuple[ProtocolSample, ...]) -> None:
         # close 先于 worker.cancel() 置位。CancelledError 只投递一次：
         # 若 wait_for 因回调恰好完成而在内部吞掉取消（fut.done 分支），
         # 这里无条件重新确认关闭状态，保证 worker 必能退出而不是回到
@@ -301,7 +302,11 @@ class ListenerRegistry:
         for listener in tuple(self._listeners.values()):
             if listener.removed:
                 continue
-            if listener.filter is not None and sample.point_id not in listener.filter:
+            filtered = (
+                samples if listener.filter is None
+                else tuple(sample for sample in samples if sample.point_id in listener.filter)
+            )
+            if not filtered:
                 continue
             inflight = listener.inflight
             if inflight is not None and not inflight.done():
@@ -311,15 +316,15 @@ class ListenerRegistry:
                     "IEC104 listener %s still running a previous callback; "
                     "skipping point '%s'",
                     listener.id,
-                    sample.point_id,
+                    filtered[0].point_id,
                 )
                 continue
-            await self._deliver(listener, sample)
+            await self._deliver(listener, filtered)
 
-    async def _deliver(self, listener: _Listener, sample: ProtocolSample) -> None:
+    async def _deliver(self, listener: _Listener, samples: tuple[ProtocolSample, ...]) -> None:
         """执行单次回调并施加有界超时；任何失败都终止于本方法。"""
         task: asyncio.Task[None] = asyncio.create_task(
-            cast(Coroutine[Any, Any, None], listener.callback(sample)),
+            cast(Coroutine[Any, Any, None], listener.callback(samples)),
             name=f"iec104-listen-callback-{listener.id}",
         )
         listener.inflight = task
@@ -338,12 +343,12 @@ class ListenerRegistry:
             # 回调被 remove() 主动取消：本次投递正常收敛。
             self._clear_inflight(listener, task)
         except TimeoutError:
-            await self._on_timeout(listener, sample, task)
+            await self._on_timeout(listener, samples[0], task)
         except Exception:
             logger.exception(
                 "IEC104 listener %s callback failed for point '%s'",
                 listener.id,
-                sample.point_id,
+                samples[0].point_id,
             )
             self._clear_inflight(listener, task)
         else:

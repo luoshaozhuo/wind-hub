@@ -47,11 +47,6 @@ class ProtocolWrite(Generic[TPoint]):
             raise ValueError("point must be a configured point key")
         object.__setattr__(self, "point", self.point.strip())
 
-    @property
-    def point_id(self) -> str:
-        """Logical identity for results and existing command consumers."""
-        return self.point
-
 
 class WriteOutcome(StrEnum):
     """一次写入的现场执行结果分类。
@@ -121,10 +116,11 @@ class ProtocolSample:
     timestamp: datetime
     quality: Quality = Quality.GOOD
     timestamp_source: TimestampSource = "local"
-    # 迁移阶段保留旧字段，避免未同步的 Collector/Sink 读写契约中断。
-    # receive_time 记录 Driver 构造样本时的 UTC 时刻；协议接收边界将逐步前移。
+    # Driver 在协议接收边界记录的 UTC 时刻，与设备采样时刻独立。
     receive_time: datetime = field(default_factory=lambda: datetime.now(UTC))
     device_time: datetime | None = None
+    # 协议原生诊断信息。不可变条目避免跨协程修改同一样本。
+    protocol_metadata: tuple[tuple[str, int | str], ...] = ()
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()

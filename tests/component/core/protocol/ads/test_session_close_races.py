@@ -36,7 +36,7 @@ from core.domain import (
     Protocol,
 )
 from core.infrastructure.protocol.ads import ADSDriver
-from core.infrastructure.protocol.ads.driver import _AdsSession
+from core.infrastructure.protocol.ads.session import _AdsSession
 from tests.support.units import NONE_UNIT
 
 _GROUP = 0x4020
@@ -191,10 +191,13 @@ class _ThreadedConnection:
 
 
 class _Attrib:
-    def __init__(self, length: int, *, trans_mode: int, cycle_time: float) -> None:
+    def __init__(
+        self, length: int, *, trans_mode: int, cycle_time: float, max_delay: float = 0.0
+    ) -> None:
         self.length = length
         self.trans_mode = trans_mode
         self.cycle_time = cycle_time
+        self.max_delay = max_delay
 
 
 class _FakePyads:
@@ -215,7 +218,7 @@ def _attach(driver: ADSDriver, connection: _ThreadedConnection) -> _AdsSession:
     return session
 
 
-async def _noop(_sample: ProtocolSample) -> None:
+async def _noop(_samples: tuple[ProtocolSample, ...]) -> None:
     pass
 
 
@@ -404,8 +407,9 @@ async def test_r10_late_callback_of_old_session_does_not_reach_new_session(
 
     old_seen: list[int] = []
 
-    async def old_cb(sample: ProtocolSample) -> None:
-        old_seen.append(int(sample.value))  # type: ignore[arg-type]
+    async def old_cb(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            old_seen.append(int(sample.value))  # type: ignore[arg-type]
 
     await driver.subscribe(("a",), old_cb, interval=0.05)
     old_callback = old.callbacks[1]
@@ -421,9 +425,10 @@ async def test_r10_late_callback_of_old_session_does_not_reach_new_session(
     new_seen: list[int] = []
     new_done = asyncio.Event()
 
-    async def new_cb(sample: ProtocolSample) -> None:
-        new_seen.append(int(sample.value))  # type: ignore[arg-type]
-        new_done.set()
+    async def new_cb(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            new_seen.append(int(sample.value))  # type: ignore[arg-type]
+            new_done.set()
 
     await driver.subscribe(("a",), new_cb, interval=0.05)
     try:
@@ -455,7 +460,7 @@ async def test_r14_worker_processing_batch_on_close_cancels_and_drains_queue(
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def slow_cb(_sample: ProtocolSample) -> None:
+    async def slow_cb(_samples: tuple[ProtocolSample, ...]) -> None:
         entered.set()
         await release.wait()
 

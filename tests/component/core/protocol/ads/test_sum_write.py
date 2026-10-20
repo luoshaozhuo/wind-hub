@@ -11,7 +11,7 @@ from pyads.constants import (  # type: ignore[import-untyped]  # pyads 无 py.ty
 )
 
 import core.infrastructure.protocol.ads.driver as driver_module
-from core.application import ProtocolError, ProtocolWrite
+from core.application import ProtocolWrite
 from core.application.protocol_contract import WriteOutcome
 from core.domain import (
     BusinessPointId,
@@ -127,15 +127,15 @@ async def test_sum_write_rejects_invalid_value_without_discarding_valid_points()
 
 @pytest.mark.asyncio
 async def test_sum_write_transport_failure_keeps_session_open() -> None:
-    """传输级失败（响应长度非法）抛 ProtocolError，但不擅自关闭会话。
+    """传输级失败（响应长度非法）逐点返回 UNKNOWN，但不擅自关闭会话。
 
     是否重连由上层 Watchdog 依据 health 决定；Driver 不把一次命令
     传输失败等同为 TCP 断链。
     """
     driver, connection = _driver(_point("a", 10), _point("b", 20))
     connection.errors = [0]  # 只返回 1 个错误码，响应长度非法
-    with pytest.raises(ProtocolError, match="sum write failed"):
-        await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
+    results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
+    assert [result.outcome for result in results] == [WriteOutcome.UNKNOWN] * 2
     assert driver.is_open()
     assert not connection.closed
 

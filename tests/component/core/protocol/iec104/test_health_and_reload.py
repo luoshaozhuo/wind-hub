@@ -180,5 +180,5 @@ async def test_peer_disabling_data_transfer_fails_pending_and_closes_health() ->
         await pending
     assert driver.is_open() is False
     health = await driver.health()
-    assert not health.healthy and "STARTDT" in (health.message or "")
+    assert not health.healthy and "not connected" in (health.message or "")
     await driver.close()

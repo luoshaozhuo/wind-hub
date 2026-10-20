@@ -89,7 +89,7 @@ class TestCapabilityDeclaration:
     async def test_undeclared_capabilities_raise_capability_error(self, driver: object) -> None:
         capabilities = driver.capabilities()  # type: ignore[attr-defined]
 
-        async def callback(_sample: ProtocolSample) -> None:
+        async def callback(_samples: tuple[ProtocolSample, ...]) -> None:
             return None
 
         if ProtocolCapability.SUBSCRIBE not in capabilities:
@@ -143,4 +143,4 @@ class TestWriteContract:
             ProtocolWriteResult(point_id=" ", outcome=WriteOutcome.CONFIRMED_FAILURE, message="x")
 
     def test_write_normalizes_point_id(self) -> None:
-        assert ProtocolWrite(point=" p ", value=1).point_id == "p"
+        assert ProtocolWrite(point=" p ", value=1).point == "p"

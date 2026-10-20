@@ -144,14 +144,15 @@ async def test_listener_callback_exception_does_not_stop_delivery() -> None:
     third_delivered = asyncio.Event()
     calls = 0
 
-    async def flaky_callback(sample: ProtocolSample) -> None:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise RuntimeError("listener bug")
-        received.append(float(sample.value))  # type: ignore[arg-type]
-        if calls == 3:
-            third_delivered.set()
+    async def flaky_callback(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("listener bug")
+            received.append(float(sample.value))  # type: ignore[arg-type]
+            if calls == 3:
+                third_delivered.set()
 
     try:
         await driver.listen((), flaky_callback)

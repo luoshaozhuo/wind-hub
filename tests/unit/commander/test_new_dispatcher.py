@@ -60,7 +60,7 @@ async def test_write_timeout_returns_unknown_result():
 
     async def slow_write(write):
         await asyncio.sleep(5)
-        return ProtocolWriteResult(point_id=write.point_id, outcome=WriteOutcome.CONFIRMED_SUCCESS)
+        return ProtocolWriteResult(point_id=write.point, outcome=WriteOutcome.CONFIRMED_SUCCESS)
 
     runtime = _runtime(registry)
     protocol = runtime.device("dev1").protocol
@@ -227,7 +227,7 @@ async def test_uncertain_driver_result_maps_to_unknown():
 
     async def uncertain_write(write):
         return ProtocolWriteResult(
-            point_id=write.point_id,
+            point_id=write.point,
             outcome=WriteOutcome.UNKNOWN,
             message="activation confirm timeout",
         )

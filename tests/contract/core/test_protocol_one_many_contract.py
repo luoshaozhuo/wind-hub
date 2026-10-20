@@ -316,8 +316,14 @@ async def test_iec104_single_operations_succeed_without_many_on_open_path() -> N
         driver.write_one(ProtocolWrite("c1", True))
     )
     await asyncio.sleep(0.05)
+    conn.deliver([command_confirmation_iec104(1, 200)])
+    assert not write_task.done()
     conn.deliver(
-        [command_confirmation_iec104(1, 200)]
+        [
+            command_confirmation_iec104(
+                1, 200, cause=iec101.CommandResCause.ACTIVATION_TERMINATION
+            )
+        ]
     )
     result = await asyncio.wait_for(write_task, timeout=2)
     assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS

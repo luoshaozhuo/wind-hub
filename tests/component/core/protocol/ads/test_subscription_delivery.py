@@ -22,6 +22,7 @@ import pytest
 import core.infrastructure.protocol.ads.subscription as subscription_module
 from core.application.protocol_contract import ProtocolSample, Quality
 from core.infrastructure.protocol.ads.mapping import ADSPoint
+from core.infrastructure.protocol.ads.session import _AdsSession
 from core.infrastructure.protocol.ads.subscription import ADSSubscription, _normalize_timestamp
 
 
@@ -76,10 +77,13 @@ class _Connection:
 
 
 class _Attrib:
-    def __init__(self, length: int, *, trans_mode: int, cycle_time: float) -> None:
+    def __init__(
+        self, length: int, *, trans_mode: int, cycle_time: float, max_delay: float = 0.0
+    ) -> None:
         self.length = length
         self.trans_mode = trans_mode
         self.cycle_time = cycle_time
+        self.max_delay = max_delay
 
 
 class _FakePyads:
@@ -99,15 +103,18 @@ async def test_multiple_blocks_deliver_only_their_own_fields(
     fake_pyads: _Connection,
 ) -> None:
     received: list[tuple[str, object, Quality]] = []
+    received_batches: list[tuple[str, ...]] = []
     got_second = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        received.append((sample.point_id, sample.value, sample.quality))
-        if len(received) == 3:
-            got_second.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        received_batches.append(tuple(sample.point_id for sample in samples))
+        for sample in samples:
+            received.append((sample.point_id, sample.value, sample.quality))
+            if len(received) == 3:
+                got_second.set()
 
     subscription = ADSSubscription(
-        fake_pyads,
+        _AdsSession(fake_pyads),
         (_point("a", 0), _point("b", 4), _point("c", 2000)),
         on_sample,
         cycle_time=0.1,
@@ -116,12 +123,13 @@ async def test_multiple_blocks_deliver_only_their_own_fields(
     )
     await subscription.start()
     try:
-        # 两个区块：[a,b]@0 size 8 与 [c]@2000 size 4。
+        # 两个区块在同一合批窗口到达，形成单次三点回调。
         assert len(fake_pyads.callbacks) == 2
         first_handle, second_handle = 1, 2
         fake_pyads.fire(first_handle, struct.pack("<ff", 1.5, -2.0))
         fake_pyads.fire(second_handle, struct.pack("<f", 7.5))
         await asyncio.wait_for(got_second.wait(), timeout=1.0)
+        assert received_batches == [("a", "b", "c")]
         assert received == [
             ("a", 1.5, Quality.GOOD),
             ("b", -2.0, Quality.GOOD),
@@ -139,13 +147,14 @@ async def test_raw_length_mismatch_delivers_bad_quality_batch(
     received: list[ProtocolSample] = []
     done = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        received.append(sample)
-        if len(received) == 2:
-            done.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(sample)
+            if len(received) == 2:
+                done.set()
 
     subscription = ADSSubscription(
-        fake_pyads,
+        _AdsSession(fake_pyads),
         (_point("a", 0), _point("b", 4)),
         on_sample,
         cycle_time=0.1,
@@ -171,12 +180,13 @@ async def test_local_fallback_timestamp_marked_local(
     received: list[ProtocolSample] = []
     done = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        received.append(sample)
-        done.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(sample)
+            done.set()
 
     subscription = ADSSubscription(
-        fake_pyads,
+        _AdsSession(fake_pyads),
         (_point("a", 0),),
         on_sample,
         cycle_time=0.1,
@@ -218,24 +228,31 @@ async def test_slow_consumer_drops_oldest_whole_blocks_end_to_end(
     fake_pyads: _Connection,
 ) -> None:
     gate = asyncio.Event()
+    entered = asyncio.Event()
     received: list[float] = []
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        await gate.wait()
-        received.append(float(sample.value))  # type: ignore[arg-type]  # 测试点为 REAL
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            entered.set()
+            await gate.wait()
+            received.append(float(sample.value))  # type: ignore[arg-type]  # 测试点为 REAL
 
     subscription = ADSSubscription(
-        fake_pyads,
+        _AdsSession(fake_pyads),
         (_point("a", 0),),
         on_sample,
         cycle_time=0.1,
         loop=asyncio.get_running_loop(),
+        batch_size=1,
+        batch_wait=0.0,
     )
     subscription._queue = asyncio.Queue(maxsize=2)
     await subscription.start()
     try:
         # 前两个批次占满队列（Worker 被 gate 阻塞），随后的批次挤掉最旧批次。
-        for value in range(6):
+        fake_pyads.fire(1, struct.pack("<f", 0.0))
+        await asyncio.wait_for(entered.wait(), timeout=1.0)
+        for value in range(1, 6):
             fake_pyads.fire(1, struct.pack("<f", float(value)))
             await asyncio.sleep(0)
         await asyncio.sleep(0.05)
@@ -261,12 +278,13 @@ async def test_late_native_callback_after_deactivate_is_dropped(
 ) -> None:
     delivered = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        del sample
-        delivered.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            del sample
+            delivered.set()
 
     subscription = ADSSubscription(
-        fake_pyads,
+        _AdsSession(fake_pyads),
         (_point("a", 0),),
         on_sample,
         cycle_time=0.1,

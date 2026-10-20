@@ -57,16 +57,19 @@ def _driver(*points: Point) -> ADSDriver:
 
 
 def _wrap(driver: ADSDriver, connection: _Connection) -> None:
-    from core.infrastructure.protocol.ads.driver import _AdsSession
+    from core.infrastructure.protocol.ads.session import _AdsSession
 
     driver._session = _AdsSession(connection)
 
 
 class _Attrib:
-    def __init__(self, length: int, *, trans_mode: int, cycle_time: float) -> None:
+    def __init__(
+        self, length: int, *, trans_mode: int, cycle_time: float, max_delay: float = 0.0
+    ) -> None:
         self.length = length
         self.trans_mode = trans_mode
         self.cycle_time = cycle_time
+        self.max_delay = max_delay
 
 
 class _Connection:
@@ -147,26 +150,30 @@ async def test_multiple_subscriptions_share_one_connection_and_are_independent(
     second_samples: list[ProtocolSample] = []
     second_received = asyncio.Event()
 
-    async def first_cb(sample: ProtocolSample) -> None:
-        first_samples.append(sample)
+    async def first_cb(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            first_samples.append(sample)
 
-    async def second_cb(sample: ProtocolSample) -> None:
-        second_samples.append(sample)
-        second_received.set()
+    async def second_cb(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            second_samples.append(sample)
+            second_received.set()
 
     first = await driver.subscribe(("speed",), first_cb, interval=0.25)
     second = await driver.subscribe(("speed",), second_cb, interval=0.25)
-    # 共享连接：两个订阅都注册在 driver 的同一条连接上。
+    # 同一物理通知由两个逻辑订阅共享；一个退出不能提前 DEL。
     assert driver._session is not None
-    assert set(fake_pyads.callbacks) == {1, 2}
+    assert set(fake_pyads.callbacks) == {1}
 
     await first.close()
     assert first._closed
-    fake_pyads.fire(2, 3.0)
+    assert set(fake_pyads.callbacks) == {1}
+    fake_pyads.fire(1, 3.0)
     await asyncio.wait_for(second_received.wait(), timeout=1.0)
     assert [sample.value for sample in second_samples] == [3.0]
     assert first_samples == []
     await second.close()
+    assert not fake_pyads.callbacks
     # 订阅关闭不关闭共享业务连接。
     assert fake_pyads.is_open
 
@@ -181,18 +188,21 @@ async def test_callback_exception_does_not_stop_subscription(
     delivered = asyncio.Event()
     calls = 0
 
-    async def flaky(sample: ProtocolSample) -> None:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise RuntimeError("subscriber bug")
-        assert sample.value is not None
-        received.append(float(sample.value))
-        delivered.set()
+    async def flaky(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("subscriber bug")
+            assert sample.value is not None
+            received.append(float(sample.value))
+            delivered.set()
 
     handle = await driver.subscribe(("speed",), flaky, interval=0.25)
     try:
         fake_pyads.fire(1, 1.0)
+        # 两次 fire 必须跨越合批窗口，才能验证不同批次间的异常隔离。
+        await asyncio.sleep(0.03)
         fake_pyads.fire(1, 2.0)
         await asyncio.wait_for(delivered.wait(), timeout=1.0)
         assert received == [2.0]
@@ -217,8 +227,9 @@ async def test_close_deregisters_all_handles_and_is_idempotent(
     assert fake_pyads.deleted == [1, 2]
 
 
-async def _noop(sample: ProtocolSample) -> None:
-    del sample
+async def _noop(samples: tuple[ProtocolSample, ...]) -> None:
+    for sample in samples:
+        del sample
 
 
 @pytest.mark.asyncio
@@ -269,8 +280,9 @@ async def test_old_generation_native_callback_is_silently_dropped(
     _wrap(driver, fake_pyads)
     received: list[float] = []
 
-    async def collect(sample: ProtocolSample) -> None:
-        received.append(float(sample.value))  # type: ignore[arg-type]
+    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            received.append(float(sample.value))  # type: ignore[arg-type]
 
     first = await driver.subscribe(("speed",), collect, interval=0.25)
     old_callback = fake_pyads.callbacks[1]
@@ -284,10 +296,7 @@ async def test_old_generation_native_callback_is_silently_dropped(
         assert received == []
         # 新一代回调正常投递。
         fake_pyads.fire(2, 2.0)
-        for _ in range(20):
-            await asyncio.sleep(0)
-            if received:
-                break
+        await asyncio.sleep(0.05)
         assert received == [2.0]
     finally:
         await second.close()

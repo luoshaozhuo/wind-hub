@@ -23,11 +23,11 @@ import struct
 from collections.abc import Awaitable, Callable, Sequence
 from ctypes import c_ubyte
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pyads  # type: ignore[import-untyped]
 
-from core.application.errors import ConfigError
+from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
 
 from .codec import NotificationBlock, compile_notification_blocks
@@ -49,15 +49,22 @@ class ADSSubscription:
         self,
         session: Any,
         points: Sequence[ADSPoint],
-        callback: Callable[[ProtocolSample], Awaitable[None]],
+        callback: Callable[[tuple[ProtocolSample, ...]], Awaitable[None]],
         *,
         cycle_time: float,
         loop: asyncio.AbstractEventLoop,
         max_block_bytes: int = 1024,
+        max_delay: float = 0.06,
         label: str = "",
+        batch_size: int = 256,
+        batch_wait: float = 0.01,
     ) -> None:
         if cycle_time <= 0:
             raise ConfigError("ADS subscription interval must be > 0")
+        if max_delay < 0:
+            raise ConfigError("ADS max_delay must be >= 0")
+        if batch_size <= 0 or batch_wait < 0:
+            raise ConfigError("ADS batch_size must be > 0 and batch_wait must be >= 0")
         # 设备标签（host:port），仅用于错误/丢弃日志的现场定位。
         self._label = f"[{label}] " if label else ""
         self._session = session
@@ -66,6 +73,9 @@ class ADSSubscription:
         self._cycle_time = cycle_time
         self._loop = loop
         self._max_block_bytes = max_block_bytes
+        self._max_delay = max_delay
+        self._batch_size = batch_size
+        self._batch_wait = batch_wait
         self._queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(
             maxsize=_QUEUE_CAPACITY
         )
@@ -125,14 +135,23 @@ class ADSSubscription:
             block.size,
             trans_mode=pyads.ADSTRANS_SERVERCYCLE,
             cycle_time=self._cycle_time * 1000.0,
+            max_delay=self._max_delay * 1000.0,
         )
         buffer_type = c_ubyte * block.size
-        wrapped = self._session.notification(buffer_type)(self._block_callback(block, generation))
+        wrapped = self._block_callback(block, generation)
+        key = (
+            block.group,
+            block.offset,
+            block.size,
+            pyads.ADSTRANS_SERVERCYCLE,
+            self._cycle_time,
+            self._max_delay,
+        )
         # 注册任务独立于等待者：外层协程被取消后同步线程仍可能成功返回
         # Handle；凭据在任务体内、to_thread 返回的那一刻入表，与等待者
         # 是否取消无关，避免“服务端已注册、客户端丢失 Handle”。
         register_task = asyncio.create_task(
-            self._add_notification((block.group, block.offset), attr, wrapped),
+            self._add_notification(key, attr, wrapped, buffer_type),
             name="ads-add-device-notification",
         )
         self._pending_registrations.add(register_task)
@@ -141,20 +160,16 @@ class ADSSubscription:
 
     async def _add_notification(
         self,
-        address: tuple[int, int],
+        key: tuple[int, int, int, int, float, float],
         attr: pyads.NotificationAttrib,
         wrapped: Callable[..., None],
+        buffer_type: object,
     ) -> tuple[Any, Any]:
-        handle = await self._session.execute(
-            "add_device_notification",
-            address,
-            attr,
-            wrapped,
-        )
-        # 此刻同步注册已确认成功：先记录凭据，任务再返回。
-        confirmed = cast(tuple[Any, Any], handle)
-        self._handles.append(confirmed)
-        return confirmed
+        await self._session.acquire_notification(key, attr, wrapped, buffer_type)
+        # 注册已确认；逻辑引用登记先于 task 返回，取消不会丢失释放权。
+        token: tuple[Any, Any] = (key, wrapped)
+        self._handles.append(token)
+        return token
 
     def _block_callback(self, block: NotificationBlock, generation: int) -> Callable[..., None]:
         """一个 ADS 原生通知解码成一个批次，跨线程只投递一次。"""
@@ -223,11 +238,7 @@ class ADSSubscription:
         while self._handles:
             handle = self._handles.pop(0)
             try:
-                await self._session.execute(
-                    "del_device_notification",
-                    handle[0],
-                    handle[1],
-                )
+                await self._session.release_notification(handle[0], handle[1])
             except Exception:
                 # 服务端可能已注销也可能未注销：本地状态不确定，显式记录。
                 self._unconfirmed_handles.append(handle)
@@ -238,7 +249,8 @@ class ADSSubscription:
                 )
         if self._unconfirmed_handles:
             logger.warning(
-                "%sADS subscription closed with %d unconfirmed notification handle(s)",
+                "%sADS notification cleanup unconfirmed for %d logical handle(s); "
+                "the shared physical Session must close to release server resources",
                 self._label,
                 len(self._unconfirmed_handles),
             )
@@ -254,19 +266,33 @@ class ADSSubscription:
             self._worker_task = None
             self._drain_queue()
             return
-        if self._stop_worker_task is None:
+        if self._stop_worker_task is None or (
+            self._stop_worker_task.done() and self._worker_task is not None
+        ):
             self._stop_worker_task = asyncio.create_task(
                 self._stop_worker_all(), name="ads-stop-subscription-worker"
             )
         await asyncio.shield(self._stop_worker_task)
 
     async def _stop_worker_all(self) -> None:
-        task, self._worker_task = self._worker_task, None
+        task = self._worker_task
         if task is not None:
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-        self._drain_queue()
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+            except asyncio.CancelledError:
+                current = asyncio.current_task()
+                if current is not None and current.cancelling():
+                    raise
+            except TimeoutError as exc:
+                raise ProtocolError(
+                    "ADS notification callback did not stop within 5 seconds"
+                ) from exc
+            finally:
+                self._drain_queue()
+            self._worker_task = None
+        else:
+            self._drain_queue()
 
     def _drain_queue(self) -> None:
         while not self._queue.empty():
@@ -283,6 +309,13 @@ class ADSSubscription:
         幂等且并发安全：只创建一个关闭任务，多个并发 close 收敛到同一任务。
         调用方协程被取消不会中断实际清理；再次 await close 可等待清理完成。
         """
+        if asyncio.current_task() is self._worker_task:
+            # Worker 在当前用户回调内部关闭自身：注销引用即可，
+            # 回调返回时 Worker 见到 deactivated 状态自行退出。
+            self.deactivate()
+            await self.deregister()
+            self._drain_queue()
+            return
         task = self._begin_close()
         await asyncio.shield(task)
 
@@ -309,13 +342,31 @@ class ADSSubscription:
         self._queue.put_nowait(samples)
 
     async def _worker(self) -> None:
+        loop = asyncio.get_running_loop()
         while True:
-            samples = await self._queue.get()
-            for sample in samples:
+            first = await self._queue.get()
+            batch = list(first)
+            deadline = loop.time() + self._batch_wait
+            while len(batch) < self._batch_size:
                 try:
-                    await self._callback(sample)
-                except Exception:
-                    logger.exception("ADS subscription callback failed for '%s'", sample.point_id)
+                    if self._batch_wait == 0:
+                        next_block = self._queue.get_nowait()
+                    else:
+                        remaining = deadline - loop.time()
+                        if remaining <= 0:
+                            break
+                        next_block = await asyncio.wait_for(self._queue.get(), timeout=remaining)
+                except (asyncio.QueueEmpty, TimeoutError):
+                    break
+                batch.extend(next_block)
+            if self._deactivated:
+                continue
+            try:
+                await self._callback(tuple(batch))
+            except Exception:
+                logger.exception("ADS subscription callback failed for %d-point batch", len(batch))
+            if self._deactivated:
+                return
 
 
 def _normalize_timestamp(value: object) -> tuple[datetime, TimestampSource]:

@@ -372,17 +372,27 @@ class CollectorDeviceSession:
                 f"Device '{self.device_id}': {mode.name} acquisition requires an on_data callback"
             )
 
-        async def _forward(sample: ProtocolSample) -> None:
-            # 推送没有设备身份上下文，协议驱动无法盖上设备身份——采集句柄
-            # 本就属于本设备，由会话聚合统一补盖；协议原生值换算工程值。
-            await on_data(self._to_values([sample]))
+        async def _forward(samples: tuple[ProtocolSample, ...]) -> None:
+            # 一次协议批次只触发一次业务交付，按设备点表进行工程值换算。
+            if samples:
+                await on_data(self._to_values(samples))
 
         point_ids = self.point_ids(point_group)
         push_handle: AcquisitionHandle
         if self.acquisition_mode is AcquisitionMode.LISTEN:
             push_handle = await self._protocol.listen(point_ids, _forward, interval=interval)
             # 先建立监听、再发总召——总召响应经监听链路上报。
-            await self._protocol.interrogate()
+            try:
+                await self._protocol.interrogate()
+            except BaseException:
+                # 启动失败不得遗失已创建的监听句柄，取消时同样需要收敛。
+                cleanup = asyncio.create_task(push_handle.close())
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    await cleanup
+                    raise
+                raise
             return push_handle
 
         push_handle = await self._protocol.subscribe(

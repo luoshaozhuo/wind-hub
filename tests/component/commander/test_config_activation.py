@@ -115,7 +115,7 @@ async def test_startup_write_timeout_applies_to_default_command_timeout():
     async def slow_write(write):
         await asyncio.sleep(5)
         return ProtocolWriteResult(
-            point_id=write.point_id,
+            point_id=write.point,
             outcome=WriteOutcome.CONFIRMED_SUCCESS,
             message=None,
         )
@@ -136,7 +136,7 @@ async def test_reloaded_write_timeout_applies_to_new_operations():
     async def slow_write(write):
         await asyncio.sleep(0.2)
         return ProtocolWriteResult(
-            point_id=write.point_id,
+            point_id=write.point,
             outcome=WriteOutcome.CONFIRMED_SUCCESS,
             message=None,
         )
@@ -168,7 +168,7 @@ async def test_inflight_operation_uses_pinned_generation_timeout():
     async def slow_write(write):
         await asyncio.sleep(0.1)
         return ProtocolWriteResult(
-            point_id=write.point_id,
+            point_id=write.point,
             outcome=WriteOutcome.CONFIRMED_SUCCESS,
             message=None,
         )
@@ -203,7 +203,7 @@ async def test_explicit_command_timeout_takes_precedence():
     async def slow_write(write):
         await asyncio.sleep(0.1)
         return ProtocolWriteResult(
-            point_id=write.point_id,
+            point_id=write.point,
             outcome=WriteOutcome.CONFIRMED_SUCCESS,
             message=None,
         )

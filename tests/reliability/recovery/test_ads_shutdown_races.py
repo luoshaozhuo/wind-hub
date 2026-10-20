@@ -72,7 +72,7 @@ def _driver(host: str, *, max_block_bytes: int = 1024) -> ADSDriver:
     )
 
 
-async def _ignore_sample(_sample: ProtocolSample) -> None:
+async def _ignore_sample(_samples: tuple[ProtocolSample, ...]) -> None:
     pass
 
 
@@ -85,8 +85,9 @@ async def _readback_callback(driver: ADSDriver, sample: ProtocolSample) -> None:
 async def _close_with_active_subscription_cycle(server: AdsMemoryServer) -> None:
     driver = _driver(_SERVER_IP)
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        await _readback_callback(driver, sample)
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            await _readback_callback(driver, sample)
 
     await asyncio.wait_for(driver.connect(), timeout=5.0)
     await driver.subscribe(("a",), on_sample, interval=0.02)
@@ -145,11 +146,12 @@ async def _restart_resubscribe_cycle(server: AdsMemoryServer, index: int) -> Non
     seen: list[int] = []
     done = asyncio.Event()
 
-    async def on_sample(sample: ProtocolSample) -> None:
-        value = int(sample.value)  # type: ignore[arg-type]  # 测点为 DINT
-        seen.append(value)
-        if value == index:
-            done.set()
+    async def on_sample(samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            value = int(sample.value)  # type: ignore[arg-type]  # 测点为 DINT
+            seen.append(value)
+            if value == index:
+                done.set()
 
     await asyncio.wait_for(driver.connect(), timeout=5.0)
     handle = await driver.subscribe(("a",), on_sample, interval=0.02)
