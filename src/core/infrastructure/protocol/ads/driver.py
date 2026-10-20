@@ -606,7 +606,7 @@ class ADSDriver:
             if not self._connected or session is None:
                 raise ProtocolError("ADS subscribe requires an active connection")
             mapped = (
-                tuple(self._mapped_point(point_id) for point_id in point_ids)
+                tuple(self._resolve_point(point_id) for point_id in point_ids)
                 if point_ids
                 else tuple(self._points.values())
             )
@@ -1141,19 +1141,17 @@ class ADSDriver:
         self._symbol_cache.clear()
         self._points = {point_id: point.unresolved() for point_id, point in self._points.items()}
 
-    def _mapped_point(self, point_id: str) -> ADSPoint:
+    def _resolve_point(self, point_id: str) -> ADSPoint:
+        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
+        if not isinstance(point_id, str):
+            raise ConfigError("protocol point must be a configured point key")
         mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point_id}' is not part of connection " f"'{self._point_table_id}'"
+                f"point '{point_id}' is not part of connection "
+                f"'{self._point_table_id}'"
             )
         return mapped
-
-    def _resolve_point(self, point: str) -> ADSPoint:
-        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
-        if not isinstance(point, str):
-            raise ConfigError("protocol point must be a configured point key")
-        return self._mapped_point(point)
 
     def _detach_runtime(
         self,
