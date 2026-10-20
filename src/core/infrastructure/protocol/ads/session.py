@@ -534,44 +534,40 @@ class _AdsSession:
         return closed
 
     async def _shutdown_owned(self, grace: float, settled: asyncio.Future[bool]) -> bool:
-        """物理 close owner：永不被取消，唯一负责 connection.close() 的结局。
-
-        线程真实结束后（成功或异常）收敛 ``settled``；若管线此前已因预算
-        耗尽放弃，此处记录迟到成功/失败。Driver 监听该 future 释放路由变更
-        锁并摘除 closing 登记，被挡住的同路由新连接随后才能建立。
-        """
+        """线程完成是唯一的 settled 证据；等待 owner 被取消也不释放路由。"""
         loop = asyncio.get_running_loop()
-        try:
-            closed = await asyncio.to_thread(self.shutdown, grace)
-        except BaseException:
-            # shutdown 自身不主动抛错（内部已归一化），这里兜底防止异常
-            # 让 settled 永远 pending 而堵死后续 connect。
-            logger.exception(
-                "%sADS physical close thread raised unexpectedly",
-                self._label,
-            )
-            closed = False
-        elapsed = loop.time() - self._shutdown_started
-        abandoned = self._shutdown_abandoned
-        if abandoned:
-            if closed:
-                self._stats.shutdown_late_success += 1
-                logger.warning(
-                    "%sADS physical close succeeded late after %.3fs; route/port now released",
-                    self._label,
-                    elapsed,
+        physical = loop.run_in_executor(None, self.shutdown, grace)
+
+        def on_physical_done(done: asyncio.Future[bool]) -> None:
+            try:
+                closed = done.result()
+            except BaseException:
+                logger.exception(
+                    "%sADS physical close thread raised unexpectedly", self._label
                 )
-            else:
-                self._stats.shutdown_late_failure += 1
-                logger.error(
-                    "%sADS physical close finished late with failure after %.3fs; "
-                    "port state left unconfirmed",
-                    self._label,
-                    elapsed,
-                )
-        if not settled.done():
-            settled.set_result(closed)
-        return closed
+                closed = False
+            elapsed = loop.time() - self._shutdown_started
+            if self._shutdown_abandoned:
+                if closed:
+                    self._stats.shutdown_late_success += 1
+                    logger.warning(
+                        "%sADS physical close succeeded late after %.3fs",
+                        self._label,
+                        elapsed,
+                    )
+                else:
+                    self._stats.shutdown_late_failure += 1
+                    logger.error(
+                        "%sADS physical close finished late with failure after %.3fs",
+                        self._label,
+                        elapsed,
+                    )
+            if not settled.done():
+                settled.set_result(closed)
+
+        physical.add_done_callback(on_physical_done)
+        # 只保护等待者，不取消物理 Future；取消后由 done_callback 收敛。
+        return await asyncio.shield(physical)
 
     async def shutdown_inline(self, grace: float) -> bool:
         """在调用方 task 内直接执行物理关闭（仅用于建链流程中的全新会话）。
