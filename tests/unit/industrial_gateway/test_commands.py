@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any
 
 import pytest
 
@@ -17,14 +15,14 @@ class FakeCommander:
         self.outcome = outcome
         self.requests: list[pb.WritePointRequest] = []
 
-    async def WritePoint(self, request: pb.WritePointRequest, *, timeout: float) -> Any:
+    async def WritePoint(self, request: pb.WritePointRequest, *, timeout: float) -> pb.CommandResultMessage:
         self.requests.append(request)
         return pb.CommandResultMessage(command_id=request.command_id, outcome=self.outcome)
 
 
 async def test_confirmed_success_allows_repeated_same_value() -> None:
     fake = FakeCommander(pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS)
-    proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})  # type: ignore[arg-type]
+    proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})
     command = PointWrite("t1", "command", 42, "dc-ems")
     await proxy(command)
     await proxy(command)
