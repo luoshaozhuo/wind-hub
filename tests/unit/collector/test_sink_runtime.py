@@ -419,12 +419,12 @@ async def test_watchdog_stops_consumer_before_reopening_failed_sink():
     sink.fail_open = False
     # 通过人为使健康检查失败，触发一次 Watchdog close/open。
     original_health = sink.health
-    failed = True
+    failures_remaining = 2
 
     async def probe():
-        nonlocal failed
-        if failed:
-            failed = False
+        nonlocal failures_remaining
+        if failures_remaining:
+            failures_remaining -= 1
             from core.application import ConnectionHealth
 
             return ConnectionHealth(healthy=False, message="connection lost")
