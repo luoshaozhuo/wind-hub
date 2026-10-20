@@ -35,8 +35,7 @@ _FORMATS = {
 def encode_sum_write(chunk: Sequence[tuple[int, ADSPoint, bytes]]) -> bytearray:
     """构造 ADS Sum Write 载荷：逐点地址头部和数据区。"""
     headers = b"".join(
-        struct.pack("<III", point.group, point.offset, len(payload))
-        for _, point, payload in chunk
+        struct.pack("<III", point.group, point.offset, len(payload)) for _, point, payload in chunk
     )
     return bytearray(headers + b"".join(payload for _, _, payload in chunk))
 
