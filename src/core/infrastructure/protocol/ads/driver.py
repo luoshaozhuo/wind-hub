@@ -35,6 +35,7 @@ from core.application.settings import ADSLocalConfig
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
 from .codec import (
+    compile_decoder,
     _as_point_scalar,
     _bad_sample,
     _coerce_write_value,
@@ -42,7 +43,6 @@ from .codec import (
     _encode_value,
     _is_point_level_error,
     _plc_datatype,
-    compile_decoder,
 )
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point, symbol_index_address
