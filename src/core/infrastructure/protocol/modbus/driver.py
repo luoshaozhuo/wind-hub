@@ -354,7 +354,7 @@ class ModbusDriver:
             if not self.is_open():
                 raise ProtocolConnectionError("Modbus read requires an active connection")
 
-            plan = self._read_plan(points)
+            plan = self._read_plan(points, mapped_points)
             values: dict[ModbusPoint, object] = {}
             for group in plan:
                 values.update(await self._transact("read", self._read_group(group)))
@@ -415,15 +415,16 @@ class ModbusDriver:
             )
         return mapped
 
-    def _read_plan(self, points: Sequence[str]) -> tuple[_ReadGroupPlan, ...]:
+    def _read_plan(
+        self, points: Sequence[str], mapped_points: tuple[ModbusPoint, ...]
+    ) -> tuple[_ReadGroupPlan, ...]:
         """按点位有序序列缓存寄存器分组；命中时跳过映射及分组合并。"""
         key = tuple(points)
         cached = self._read_plan_cache.get(key)
         if cached is not None:
             return cached
-        mapped = [self._resolve_point(point) for point in key]
         plans: list[_ReadGroupPlan] = []
-        for group in group_consecutive_reads(mapped):
+        for group in group_consecutive_reads(mapped_points):
             start = min(point.address for point in group)
             end = max(point.address + point.count for point in group)
             plans.append(
