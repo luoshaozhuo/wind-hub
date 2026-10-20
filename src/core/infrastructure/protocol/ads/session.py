@@ -280,10 +280,10 @@ class _AdsSession:
 
             # 只读取不可变回调快照，允许 pyads 的外部线程并发调用。
             def dispatch(*args: Any) -> None:
-                current = self._notifications.get(key)
-                if current is None:
+                # 绑定注册实体，旧 Handle 的迟到回调不能命中新一代同 key 注册。
+                if self._notifications.get(key) is not entry:
                     return
-                for listener in current.callbacks:
+                for listener in entry.callbacks:
                     try:
                         listener(*args)
                     except Exception:
