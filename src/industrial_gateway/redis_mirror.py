@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import math
 from collections.abc import Awaitable, Protocol
@@ -102,7 +101,7 @@ class RedisMirror:
             raise ValueError("Redis MGET result length mismatch")
         now = datetime.now(UTC)
         for source, raw in zip(self._sources, records, strict=True):
-            key = (source.device_id, source.point_id)
+            key = source.target
             try:
                 value = decode_record(raw, source, now)
                 await self._store.update_feedback(*key, value)
