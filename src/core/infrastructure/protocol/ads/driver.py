@@ -1135,11 +1135,11 @@ class ADSDriver:
     ) -> tuple[_AdsSession | None, tuple[ADSSubscription, ...]]:
         """在 Driver lock 内原子摘除当前会话与订阅。"""
         session, self._session = self._session, None
-        subscriptions = tuple(self._subscriptinstance(value, int | float):
-            raise TypeError(f"ADS {ads_type} requires numeric value")
-        return float(value)
-
-    raise ValueError(f"unsupported ADS type '{ads_type}'")
+        subscriptions = tuple(self._subscriptions | self._starting_subscriptions)
+        self._subscriptions.clear()
+        self._starting_subscriptions.clear()
+        self._connected = False
+        return session, subscriptions
 
 
 class _TrackedADSSubscription:
