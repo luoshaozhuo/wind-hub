@@ -309,6 +309,17 @@ class ADSSubscription:
         幂等且并发安全：只创建一个关闭任务，多个并发 close 收敛到同一任务。
         调用方协程被取消不会中断实际清理；再次 await close 可等待清理完成。
         """
+        if asyncio.current_task() is self._worker_task:
+            # 用户回调正在 Worker 上运行；不得等待会反过来等待此 Worker
+            # 的关闭任务。先注销物理引用，再在回调返回后取消自身。
+            self.deactivate()
+            await self.deregister()
+            worker = self._worker_task
+            self._worker_task = None
+            self._drain_queue()
+            if worker is not None:
+                asyncio.get_running_loop().call_soon(worker.cancel)
+            return
         task = self._begin_close()
         await asyncio.shield(task)
 
