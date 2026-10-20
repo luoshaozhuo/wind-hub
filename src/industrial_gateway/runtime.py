@@ -79,7 +79,7 @@ class GatewayRuntime:
                     RegisterMapping(device.id, p.id, p.area, p.address, p.data_type, p.word_order)
                     for p in device.points
                 ]
-                server = ModbusTcpGateway(self._store, mappings, unit_id=device.unit_id)
+                server = ModbusTcpGateway(\n                    self._store, mappings, unit_id=device.unit_id,\n                    control_client_ips=frozenset(cfg.control_client_ips),\n                )
                 await server.start(device.host, device.port)
                 self._servers.append(server)
             self._mirror_task = asyncio.create_task(self._refresh_loop())
