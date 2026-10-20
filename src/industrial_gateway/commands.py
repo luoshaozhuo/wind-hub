@@ -6,12 +6,12 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 from uuid import uuid4
 
 import grpc
 
 from core.infrastructure.rpc import commander_pb2 as pb
-from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
 
 from .domain import PointWrite, Scalar
 
@@ -37,6 +37,12 @@ class CommandState(StrEnum):
     UNKNOWN = "unknown"
 
 
+class CommanderWriter(Protocol):
+    async def WritePoint(
+        self, request: pb.WritePointRequest, *, timeout: float
+    ) -> pb.CommandResultMessage: ...
+
+
 class CommanderProxy:
     """请求期等待真实结果；不将网络超时误判为确定失败。
 
@@ -46,7 +52,7 @@ class CommanderProxy:
 
     def __init__(
         self,
-        stub: pb_grpc.CommanderServiceStub,
+        stub: CommanderWriter,
         targets: dict[PointKey, CommandTarget],
     ) -> None:
         self._stub = stub
