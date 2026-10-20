@@ -115,7 +115,7 @@ class _Protocol:
 def test_protocol_write_normalizes_point_id() -> None:
     write = ProtocolWrite(point=" power ", value=1.0)
 
-    assert write.point_id == "power"
+    assert write.point == "power"
 
     with pytest.raises(ValueError, match="configured point key"):
         ProtocolWrite(point=" ", value=1.0)
