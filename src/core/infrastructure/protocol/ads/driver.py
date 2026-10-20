@@ -774,7 +774,7 @@ class ADSDriver:
             try:
                 compiled = (
                     self._build_sum_requests(mapped),
-                    self._build_sum_decoders(mapped),
+                    tuple(compile_decoder(point) for point in mapped),
                 )
             except ProtocolError:
                 raise
@@ -1001,12 +1001,6 @@ class ADSDriver:
             for start in range(0, len(points), limit)
             if (chunk := points[start : start + limit])
         )
-
-    def _build_sum_decoders(
-        self, points: tuple[ADSPoint, ...]
-    ) -> tuple[Callable[[bytes | memoryview, int], PointScalar], ...]:
-        """编译逐点解码器，与请求地址保持相同顺序。"""
-        return tuple(compile_decoder(point) for point in points)
 
     def _store_sum_read_cache_locked(
         self,
