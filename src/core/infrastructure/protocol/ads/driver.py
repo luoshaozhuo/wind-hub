@@ -35,10 +35,10 @@ from core.application.settings import ADSLocalConfig
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
 from .codec import (
-    compile_decoder,
     _as_point_scalar,
     _bad_sample,
     _coerce_write_value,
+    compile_decoder,
     _decode_sum_write_errors,
     _encode_value,
     _is_point_level_error,
