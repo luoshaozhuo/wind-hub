@@ -1,7 +1,7 @@
 """Redis 反馈镜像：质量、新鲜度和故障失效验证。"""
 
-from datetime import UTC, datetime, timedelta
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
