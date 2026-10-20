@@ -19,12 +19,18 @@ class RedisPointSource:
     point_id: str
     key_prefix: str
     max_age_seconds: float = 3.0
+    target_device_id: str | None = None
+    target_point_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.device_id or not self.point_id or not self.key_prefix:
             raise ValueError("Redis source identifiers must not be empty")
         if self.max_age_seconds <= 0:
             raise ValueError("max_age_seconds must be positive")
+
+    @property
+    def target(self) -> tuple[str, str]:
+        return (self.target_device_id or self.device_id, self.target_point_id or self.point_id)
 
     @property
     def key(self) -> str:
@@ -67,12 +73,12 @@ class RedisMirror:
     """一次 MGET 更新所有已配置反馈点。失效点不再允许作为有效读数。"""
 
     def __init__(self, store: PointStore, sources: list[RedisPointSource]) -> None:
-        if len({(s.device_id, s.point_id) for s in sources}) != len(sources):
+        if len({s.target for s in sources}) != len(sources):
             raise ValueError("duplicate Redis feedback source")
         self._store = store
         self._sources = list(sources)
         self._healthy: dict[tuple[str, str], bool] = {
-            (s.device_id, s.point_id): False for s in sources
+            s.target: False for s in sources
         }
 
     def healthy(self, device_id: str, point_id: str) -> bool:
@@ -84,7 +90,7 @@ class RedisMirror:
             records = await client.mget([s.key for s in self._sources])
         except Exception:
             for source in self._sources:
-                key = (source.device_id, source.point_id)
+                key = source.target
                 self._healthy[key] = False
                 await self._store.invalidate_feedback(*key)
             raise
