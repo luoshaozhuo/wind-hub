@@ -132,11 +132,12 @@ class _Collector:
         self.point_ids = point_ids
         self._seen: dict[str, asyncio.Event] = {}
 
-    async def __call__(self, sample: ProtocolSample) -> None:
-        self.samples.append(sample)
-        event = self._seen.get(sample.point_id)
-        if event is not None:
-            event.set()
+    async def __call__(self, samples: tuple[ProtocolSample, ...]) -> None:
+        for sample in samples:
+            self.samples.append(sample)
+            event = self._seen.get(sample.point_id)
+            if event is not None:
+                event.set()
 
     def wait_for(self, point_id: str, predicate: Any = None) -> asyncio.Future[ProtocolSample]:
         event = asyncio.Event()
