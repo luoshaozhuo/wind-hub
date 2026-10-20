@@ -248,9 +248,11 @@ class ADSSubscription:
                     handle[0],
                 )
         if self._unconfirmed_handles:
-            raise ProtocolError(
-                f"{self._label}ADS notification cleanup unconfirmed for "
-                f"{len(self._unconfirmed_handles)} handle(s)"
+            logger.warning(
+                "%sADS notification cleanup unconfirmed for %d logical handle(s); "
+                "the shared physical Session must close to release server resources",
+                self._label,
+                len(self._unconfirmed_handles),
             )
 
     async def stop_worker(self) -> None:
