@@ -14,6 +14,7 @@ from core.application.errors import ConfigError
 from core.application.protocol_contract import ProtocolSample, Quality
 from core.infrastructure.protocol.ads.codec import compile_notification_blocks
 from core.infrastructure.protocol.ads.mapping import ADSPoint
+from core.infrastructure.protocol.ads.session import _AdsSession
 from core.infrastructure.protocol.ads.subscription import ADSSubscription
 
 
@@ -143,7 +144,7 @@ async def test_block_registration_failure_does_not_fallback() -> None:
             del sample
 
     subscription = ADSSubscription(
-        connection,
+        _AdsSession(connection),
         (point("a", 0), point("b", 100), point("c", 104)),
         callback,
         cycle_time=0.1,
@@ -209,7 +210,7 @@ async def test_single_point_registration_uses_raw_block(monkeypatch: pytest.Monk
             event.set()
 
     subscription = ADSSubscription(
-        connection,
+        _AdsSession(connection),
         (point("single", 100),),
         on_sample,
         cycle_time=0.1,
