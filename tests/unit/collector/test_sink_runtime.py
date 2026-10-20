@@ -78,6 +78,7 @@ async def test_failed_open_recovers_and_restarts_consumer():
 
     sink.fail_open = False
     await runtime._watchdogs["s1"].check_once()
+    await runtime._watchdogs["s1"].check_once()
     assert "s1" not in runtime._unhealthy
     # 后台 watchdog 周期与手动 check_once 可能各自触发一次恢复，
     # 恢复语义是幂等的；只断言确实重新打开过，不锁定具体次数。
@@ -430,6 +431,7 @@ async def test_watchdog_stops_consumer_before_reopening_failed_sink():
         return await original_health()
 
     runtime._watchdogs["s1"]._health = probe
+    await runtime._watchdogs["s1"].check_once()
     await runtime._watchdogs["s1"].check_once()
     assert sink.close_calls == 1
     assert sink.open_calls == 2
