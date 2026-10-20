@@ -25,6 +25,7 @@ import pytest
 import core.infrastructure.protocol.ads.subscription as subscription_module
 from core.application.protocol_contract import ProtocolSample
 from core.infrastructure.protocol.ads.mapping import ADSPoint
+from core.infrastructure.protocol.ads.session import _AdsSession
 from core.infrastructure.protocol.ads.subscription import ADSSubscription
 
 
@@ -135,7 +136,7 @@ async def _noop(_samples: tuple[ProtocolSample, ...]) -> None:
 
 async def _start(session: _BlockingSession, *points: ADSPoint) -> ADSSubscription:
     subscription = ADSSubscription(
-        session,
+        _AdsSession(session),
         points,
         _noop,
         cycle_time=0.1,
@@ -319,7 +320,7 @@ async def test_late_native_notification_after_close_is_not_delivered(
             received.append(float(sample.value))  # type: ignore[arg-type]
 
     subscription = ADSSubscription(
-        session,
+        _AdsSession(session),
         (_point("a", 0),),
         on_sample,
         cycle_time=0.1,
@@ -344,7 +345,7 @@ async def test_cancelled_start_with_late_successful_registration_deletes_handle(
     del fake_pyads
     session = _BlockingSession()  # add_release 初始不放行
     subscription = ADSSubscription(
-        session,
+        _AdsSession(session),
         (_point("a", 0),),
         _noop,
         cycle_time=0.1,
@@ -376,7 +377,7 @@ async def test_cancelled_start_with_late_failed_registration_records_nothing(
     session = _BlockingSession()
     session.add_raises = ConnectionError("device rejected")
     subscription = ADSSubscription(
-        session,
+        _AdsSession(session),
         (_point("a", 0),),
         _noop,
         cycle_time=0.1,
