@@ -205,7 +205,9 @@ class ADSDriver:
         registry = _registry()
         async with registry.barrier:
             occupied = sorted(
-                key for key, state in registry.routes.items() if state.active or state.closing or state.unsafe_reason is not None
+                key
+                for key, state in registry.routes.items()
+                if state.active or state.closing or state.unsafe_reason is not None
             )
             if occupied:
                 raise ProtocolError(
@@ -730,7 +732,13 @@ class ADSDriver:
         # 全批次共享同一读取时刻——Driver 在获得读取结果时生成 UTC 时间戳。
         received_at = datetime.now(UTC)
         return tuple(
-            ProtocolSample(point_id=pid, value=value, timestamp=received_at, quality=quality, receive_time=received_at)
+            ProtocolSample(
+                point_id=pid,
+                value=value,
+                timestamp=received_at,
+                quality=quality,
+                receive_time=received_at,
+            )
             for pid, (value, quality) in zip(points, raw, strict=True)
         )
 
