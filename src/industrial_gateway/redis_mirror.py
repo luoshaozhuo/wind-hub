@@ -96,7 +96,7 @@ class RedisMirror:
             raise
         if len(records) != len(self._sources):
             for source in self._sources:
-                key = (source.device_id, source.point_id)
+                key = source.target
                 self._healthy[key] = False
                 await self._store.invalidate_feedback(*key)
             raise ValueError("Redis MGET result length mismatch")
