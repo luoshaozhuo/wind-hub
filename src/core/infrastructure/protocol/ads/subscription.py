@@ -310,15 +310,11 @@ class ADSSubscription:
         调用方协程被取消不会中断实际清理；再次 await close 可等待清理完成。
         """
         if asyncio.current_task() is self._worker_task:
-            # 用户回调正在 Worker 上运行；不得等待会反过来等待此 Worker
-            # 的关闭任务。先注销物理引用，再在回调返回后取消自身。
+            # Worker 在当前用户回调内部关闭自身：注销引用即可，
+            # 回调返回时 Worker 见到 deactivated 状态自行退出。
             self.deactivate()
             await self.deregister()
-            worker = self._worker_task
-            self._worker_task = None
             self._drain_queue()
-            if worker is not None:
-                asyncio.get_running_loop().call_soon(worker.cancel)
             return
         task = self._begin_close()
         await asyncio.shield(task)
@@ -373,6 +369,8 @@ class ADSSubscription:
                 logger.exception(
                     "ADS subscription callback failed for %d-point batch", len(batch)
                 )
+            if self._deactivated:
+                return
 
 
 def _normalize_timestamp(value: object) -> tuple[datetime, TimestampSource]:
