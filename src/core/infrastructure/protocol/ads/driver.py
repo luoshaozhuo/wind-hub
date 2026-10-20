@@ -453,7 +453,9 @@ class ADSDriver:
                 # 物理关闭与注销分别收敛，禁止将注销失败误当作已安全关端口。
                 if session is not None:
                     await self._shutdown_session(session)
-                if deregister_error is not None:
+                # 单个 DEL 未确认不阻断已确认的物理 Session 关闭。
+                # 原生连接关闭才是最终的通知资源释放边界；诊断已记录。
+                if deregister_error is not None and session is None:
                     raise deregister_error
                 if worker_error is not None:
                     raise ProtocolError(
