@@ -45,7 +45,6 @@ class GatewayRuntime:
             d.id: tuple(p.id for p in d.points if p.critical)
             for d in cfg.devices
         }
-        self._channel = grpc.aio.insecure_channel(cfg.commander.target)
         targets = {
             (d.id, p.id): CommandTarget(
                 p.commander_device_id or "", p.commander_point_id or "", p.commander_timeout
@@ -59,6 +58,7 @@ class GatewayRuntime:
             if cfg.control_enabled and cfg.control_journal is not None
             else None
         )
+        self._channel = grpc.aio.insecure_channel(cfg.commander.target)
         proxy = CommanderProxy(
             commander_pb2_grpc.CommanderServiceStub(self._channel), targets,
             journal=journal,
