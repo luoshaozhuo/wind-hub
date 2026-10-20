@@ -201,6 +201,8 @@ async def test_callback_exception_does_not_stop_subscription(
     handle = await driver.subscribe(("speed",), flaky, interval=0.25)
     try:
         fake_pyads.fire(1, 1.0)
+        # 两次 fire 必须跨越合批窗口，才能验证不同批次间的异常隔离。
+        await asyncio.sleep(0.03)
         fake_pyads.fire(1, 2.0)
         await asyncio.wait_for(delivered.wait(), timeout=1.0)
         assert received == [2.0]
