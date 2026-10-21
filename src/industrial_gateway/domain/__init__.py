@@ -1,1 +1,5 @@
-from .point import PointDefinition, PointRole, PointSnapshot, PointWrite, Scalar
+from .point import PointDefinition as PointDefinition
+from .point import PointRole as PointRole
+from .point import PointSnapshot as PointSnapshot
+from .point import PointWrite as PointWrite
+from .point import Scalar as Scalar
