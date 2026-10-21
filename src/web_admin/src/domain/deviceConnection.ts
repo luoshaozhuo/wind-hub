@@ -24,8 +24,6 @@ export interface ConnectionFormState {
   t1: number
   t2: number
   t3: number
-  reconnect_max_retries: number
-  reconnect_backoff_max: number
 }
 
 /** 各协议默认端口（TwinCAT 2 ADS / Modbus TCP / IEC 60870-5-104）。 */
@@ -47,15 +45,13 @@ export const PROTOCOL_OVERRIDE_KEYS: Record<Protocol, readonly string[]> = {
 
 /** 各协议序列化为 model connection_defaults 的键。 */
 export const PROTOCOL_DEFAULT_KEYS: Record<Protocol, readonly string[]> = {
-  ads: ['port', 'timeout', 'twincat_version', 'reconnect_max_retries', 'reconnect_backoff_max'],
+  ads: ['port', 'timeout', 'twincat_version'],
   modbus: [
     'port',
     'timeout',
     'slave_id',
     'mode',
     'word_order',
-    'reconnect_max_retries',
-    'reconnect_backoff_max',
   ],
   iec104: ['port', 'common_addresses', 'k', 'w', 't0', 't1', 't2', 't3'],
 }
@@ -92,8 +88,6 @@ export function defaultConnectionForm(protocol: Protocol): ConnectionFormState {
     t1: 15,
     t2: 10,
     t3: 20,
-    reconnect_max_retries: 5,
-    reconnect_backoff_max: 30,
   }
 }
 
@@ -121,8 +115,6 @@ export function formFromConnection(
     t1: num(connection.t1, base.t1),
     t2: num(connection.t2, base.t2),
     t3: num(connection.t3, base.t3),
-    reconnect_max_retries: num(connection.reconnect_max_retries, base.reconnect_max_retries),
-    reconnect_backoff_max: num(connection.reconnect_backoff_max, base.reconnect_backoff_max),
   }
 }
 
@@ -220,7 +212,7 @@ export function connectionDefaultsFromForm(
 ): Record<string, unknown> {
   const result: Record<string, unknown> = { port: form.port }
   for (const key of PROTOCOL_DEFAULT_KEYS[protocol]) {
-    if (key === 'port' || key.startsWith('reconnect_')) continue
+    if (key === 'port') continue
     result[key] = form[key as keyof ConnectionFormState]
   }
   return result
