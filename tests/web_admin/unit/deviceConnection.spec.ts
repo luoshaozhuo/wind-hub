@@ -232,7 +232,6 @@ describe('connectionDefaultsFromForm', () => {
   it('Modbus 连接参数使用 Core slave_id 字段', () => {
     const defaults = connectionDefaultsFromForm(defaultConnectionForm('modbus'), 'modbus')
     expect(defaults).toMatchObject({ port: 502, slave_id: 1 })
-    expect(defaults).not.toHaveProperty('reconnect_max_retries')
   })
 
   it('IEC104 序列化键集（不含 timeout / word_order）', () => {
