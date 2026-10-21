@@ -8,15 +8,15 @@ import logging
 import signal
 from pathlib import Path
 
-from .config import load_config
-from .runtime import GatewayRuntime
+from .assembly import assemble_gateway
+from .infrastructure.config.loader import load_config
 
 logger = logging.getLogger(__name__)
 
 
 async def run(config_path: str | Path) -> None:
     config = load_config(config_path)
-    runtime = GatewayRuntime(config)
+    runtime = assemble_gateway(config)
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
