@@ -52,6 +52,7 @@ class GatewayApplication:
 def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
     definitions: list[PointDefinition] = []
     roles: dict[tuple[str, str], PointRole] = {}
+    max_age_seconds: dict[tuple[str, str], float] = {}
     by_endpoint: dict[str, dict[int, list[RegisterMapping]]] = defaultdict(dict)
     for device_id, device in config.devices.items():
         table = config.point_tables[device.point_table_id]
@@ -65,6 +66,8 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
                 )
             )
             roles[(device_id, point_id)] = role
+            if role is PointRole.FEEDBACK and point.max_age_seconds is not None:
+                max_age_seconds[(device_id, point_id)] = point.max_age_seconds
             mappings.append(
                 RegisterMapping(
                     device_id,
@@ -93,7 +96,11 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
         command_handler = CommanderProxy(
             stub, targets, CommandJournal(config.control.journal_path)
         )
-    store = PointStore(definitions, command_handler=command_handler)
+    store = PointStore(
+        definitions,
+        command_handler=command_handler,
+        max_age_seconds=max_age_seconds,
+    )
     writer = WriteService(store, roles)
     servers = [
         PymodbusGatewayServer(
