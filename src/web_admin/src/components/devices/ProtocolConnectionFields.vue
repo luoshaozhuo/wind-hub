@@ -14,15 +14,12 @@ withDefaults(
     showTargetNetId?: boolean
     /** Modbus Mode 可选值：编辑设备允许 tcp/rtu，其余仅 tcp。 */
     modbusModes?: string[]
-    /** 渲染重连参数（仅 Manage Metadata 的模型默认值表单）。 */
-    showReconnect?: boolean
     /** el-input-number 是否显示步进按钮（Manage Metadata 为紧凑无按钮形态）。 */
     controls?: boolean
   }>(),
   {
     showTargetNetId: false,
     modbusModes: () => ['tcp'],
-    showReconnect: false,
     controls: true,
   },
 )
@@ -52,22 +49,6 @@ const MODE_LABELS: Record<string, string> = { tcp: 'TCP', rtu: 'RTU' }
         :controls="controls"
         class="app-full-width"
     /></el-form-item>
-    <template v-if="showReconnect">
-      <el-form-item label="Reconnect Max Retries"
-        ><el-input-number
-          v-model="connection.reconnect_max_retries"
-          :min="0"
-          :controls="controls"
-          class="app-full-width"
-      /></el-form-item>
-      <el-form-item label="Reconnect Backoff Max (s)"
-        ><el-input-number
-          v-model="connection.reconnect_backoff_max"
-          :min="0"
-          :controls="controls"
-          class="app-full-width"
-      /></el-form-item>
-    </template>
   </template>
 
   <template v-else-if="protocol === 'modbus'">
@@ -101,22 +82,6 @@ const MODE_LABELS: Record<string, string> = { tcp: 'TCP', rtu: 'RTU' }
           label="big_endian"
           value="big_endian" /></el-select
     ></el-form-item>
-    <template v-if="showReconnect">
-      <el-form-item label="Reconnect Max Retries"
-        ><el-input-number
-          v-model="connection.reconnect_max_retries"
-          :min="0"
-          :controls="controls"
-          class="app-full-width"
-      /></el-form-item>
-      <el-form-item label="Reconnect Backoff Max (s)"
-        ><el-input-number
-          v-model="connection.reconnect_backoff_max"
-          :min="0"
-          :controls="controls"
-          class="app-full-width"
-      /></el-form-item>
-    </template>
   </template>
 
   <template v-else-if="protocol === 'iec104'">
