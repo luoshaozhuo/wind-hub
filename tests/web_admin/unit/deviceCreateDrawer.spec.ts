@@ -38,7 +38,7 @@ function seedStore() {
       manufacturer: 'generic',
       protocol: 'modbus',
       point_table: 't1',
-      read_mode: '',
+
       properties: {},
       connection_defaults: { ...MODBUS_DEFAULTS },
     },
