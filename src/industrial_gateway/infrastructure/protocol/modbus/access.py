@@ -6,6 +6,10 @@ import asyncio
 from contextvars import ContextVar
 from ipaddress import ip_address
 
+from pymodbus.constants import ExcCodes
+from pymodbus.exceptions import NoSuchIdException
+from pymodbus.pdu import ExceptionResponse, ModbusPDU
+
 from pymodbus.server import ModbusTcpServer
 from pymodbus.server.requesthandler import ServerRequestHandler
 
@@ -23,7 +27,7 @@ class _GatewayRequestHandler(ServerRequestHandler):
     def __init__(self, owner, trace_packet, trace_pdu, trace_connect) -> None:
         super().__init__(owner, trace_packet, trace_pdu, trace_connect)
         self._tcp_pending = bytearray()
-        self._request_queue: asyncio.Queue[tuple[object, tuple | None]] = asyncio.Queue(maxsize=64)
+        self._request_queue: asyncio.Queue[tuple[ModbusPDU, tuple | None]] = asyncio.Queue(maxsize=64)
         self._worker: asyncio.Task[None] | None = None
 
     def datagram_received(self, data: bytes, addr: tuple | None) -> None:
@@ -67,9 +71,20 @@ class _GatewayRequestHandler(ServerRequestHandler):
     async def _run_queue(self) -> None:
         while not self._request_queue.empty():
             pdu, addr = self._request_queue.get_nowait()
-            self.last_pdu = pdu
-            self.last_addr = addr
-            await self.handle_request()
+            await self._handle_one(pdu, addr)
+
+    async def _handle_one(self, pdu: ModbusPDU, addr: tuple | None) -> None:
+        # 不读取 last_pdu：新网络帧可能在 Commander RPC 等待期间到达。
+        try:
+            response = await pdu.datastore_update(self.server.context, pdu.dev_id)
+        except (NoSuchIdException, KeyError):
+            response = ExceptionResponse(pdu.function_code, ExcCodes.GATEWAY_NO_RESPONSE)
+        except Exception:
+            response = ExceptionResponse(pdu.function_code, ExcCodes.DEVICE_FAILURE)
+        response.transaction_id = pdu.transaction_id
+        response.dev_id = pdu.dev_id
+        self.server_send(response, addr)
+
     def callback_disconnected(self, exc: Exception | None) -> None:
         if self._worker is not None and self._worker.done():
             self._worker = None
