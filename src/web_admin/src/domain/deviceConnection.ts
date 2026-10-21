@@ -205,7 +205,7 @@ export function connectionOverridesFromForm(
     const configured = form[key as keyof ConnectionFormState]
     const inherited = defaults[key] ?? protocolDefaults[key as keyof ConnectionFormState]
     if (inherited !== configured) {
-      extensions[key === 'slave_id' ? 'slave_id' : key] = configured
+      extensions[key] = configured
     }
   }
   if (model.protocol === 'ads') extensions.target_net_id = form.target_net_id.trim()
