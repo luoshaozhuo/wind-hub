@@ -129,7 +129,11 @@ export function buildDefinitionsPayload(
         properties: { ...item.properties },
         endpoint_defaults: { port: item.connection_defaults.port },
         protocol_options: {
-          ...item.protocol_options,
+          ...Object.fromEntries(
+            Object.entries(item.protocol_options || {}).filter(
+              ([key]) => key !== 'port' && !(key in item.connection_defaults),
+            ),
+          ),
           ...Object.fromEntries(
             Object.entries(item.connection_defaults).filter(([key]) => key !== 'port'),
           ),
