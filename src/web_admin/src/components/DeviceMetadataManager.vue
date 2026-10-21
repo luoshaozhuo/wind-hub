@@ -205,7 +205,12 @@ async function saveModel() {
     protocol: form.protocol,
     point_table: form.point_table,
     read_mode: form.protocol === 'ads' ? form.read_mode : '',
-    properties: {},
+    properties: editingId.value
+      ? { ...(configStore.deviceModels.find((x) => x.id === editingId.value)?.properties || {}) }
+      : {},
+    protocol_options: editingId.value
+      ? { ...(configStore.deviceModels.find((x) => x.id === editingId.value)?.protocol_options || {}) }
+      : {},
     connection_defaults: connectionDefaults(),
   }
   if (editingId.value) {
