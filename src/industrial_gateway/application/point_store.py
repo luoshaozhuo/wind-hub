@@ -105,7 +105,8 @@ class PointStore:
 
     def _replace(self, key: PointKey, value: Scalar) -> PointSnapshot:
         previous = self._values.get(key)
-        result = PointSnapshot(key[0], key[1], value, 1 if previous is None else previous.version + 1)
+        version = 1 if previous is None else previous.version + 1
+        result = PointSnapshot(key[0], key[1], value, version)
         self._values[key] = result
         self._updated_at[key] = monotonic()
         return result
