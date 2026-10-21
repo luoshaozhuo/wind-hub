@@ -209,7 +209,9 @@ async function saveModel() {
       ? { ...(configStore.deviceModels.find((x) => x.id === editingId.value)?.properties || {}) }
       : {},
     protocol_options: editingId.value
-      ? { ...(configStore.deviceModels.find((x) => x.id === editingId.value)?.protocol_options || {}) }
+      ? { ...(configStore.deviceModels.find((x) => x.id === editingId.value)?.protocol === form.protocol
+          ? configStore.deviceModels.find((x) => x.id === editingId.value)?.protocol_options || {}
+          : {}) }
       : {},
     connection_defaults: connectionDefaults(),
   }
