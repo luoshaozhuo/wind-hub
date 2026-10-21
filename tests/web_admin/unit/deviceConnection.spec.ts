@@ -38,7 +38,7 @@ describe('defaultConnectionForm', () => {
 
   it('Modbus 默认：port 502 / unit 1 / tcp / little_endian', () => {
     const form = defaultConnectionForm('modbus')
-    expect(form).toMatchObject({ port: 502, unit_id: 1, mode: 'tcp', word_order: 'little_endian' })
+    expect(form).toMatchObject({ port: 502, slave_id: 1, mode: 'tcp', word_order: 'little_endian' })
   })
 
   it('IEC104 默认：port 2404 + 流控参数', () => {
@@ -64,12 +64,12 @@ describe('formFromConnection', () => {
   it('undefined / null / 空字符串均按缺省处理', () => {
     const form = formFromConnection('modbus', {
       port: undefined,
-      unit_id: null,
+      slave_id: null,
       mode: '',
       timeout: 'not-a-number',
     })
     expect(form.port).toBe(502)
-    expect(form.unit_id).toBe(1)
+    expect(form.slave_id).toBe(1)
     expect(form.mode).toBe('tcp')
     expect(form.timeout).toBe(3)
   })
@@ -84,17 +84,17 @@ describe('formFromConnection', () => {
   })
 
   it('0 是合法值，不被默认值覆盖', () => {
-    const form = formFromConnection('modbus', { unit_id: 0, timeout: 0.5 })
-    expect(form.unit_id).toBe(0)
+    const form = formFromConnection('modbus', { slave_id: 0, timeout: 0.5 })
+    expect(form.slave_id).toBe(0)
     expect(form.timeout).toBe(0.5)
   })
 })
 
 describe('formFromModelDefaults / applyModelDefaults', () => {
   it('从 model connection_defaults 填充表单', () => {
-    const m = model('modbus', { port: 1502, unit_id: 9, mode: 'rtu' })
+    const m = model('modbus', { port: 1502, slave_id: 9, mode: 'rtu' })
     const form = formFromModelDefaults(m)
-    expect(form).toMatchObject({ port: 1502, unit_id: 9, mode: 'rtu', word_order: 'little_endian' })
+    expect(form).toMatchObject({ port: 1502, slave_id: 9, mode: 'rtu', word_order: 'little_endian' })
   })
 
   it('model 切换时应用 defaults；ADS 按 host 推导空缺的 target_net_id', () => {
@@ -142,7 +142,7 @@ describe('resetFormForProtocol', () => {
 
 const MODBUS_FULL_DEFAULTS = {
   port: 502,
-  unit_id: 1,
+  slave_id: 1,
   mode: 'tcp',
   timeout: 3,
   word_order: 'little_endian',
@@ -171,7 +171,7 @@ describe('connectionOverridesFromForm', () => {
   it('差异项落 extensions；port 差异单独返回', () => {
     const m = model('modbus', MODBUS_FULL_DEFAULTS)
     const form = defaultConnectionForm('modbus')
-    form.unit_id = 5
+    form.slave_id = 5
     form.port = 1502
     form.word_order = 'big_endian'
     const { extensions, port } = connectionOverridesFromForm(form, m)
@@ -229,10 +229,9 @@ describe('connectionDefaultsFromForm', () => {
     })
   })
 
-  it('Modbus 将表单 unit_id 映射为 Core slave_id', () => {
+  it('Modbus 连接参数使用 Core slave_id 字段', () => {
     const defaults = connectionDefaultsFromForm(defaultConnectionForm('modbus'), 'modbus')
     expect(defaults).toMatchObject({ port: 502, slave_id: 1 })
-    expect(defaults).not.toHaveProperty('unit_id')
     expect(defaults).not.toHaveProperty('reconnect_max_retries')
   })
 
