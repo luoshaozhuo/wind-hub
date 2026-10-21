@@ -35,7 +35,7 @@ function model(id: string, overrides: Partial<DeviceModelDef> = {}): DeviceModel
     manufacturer: 'generic',
     protocol: 'modbus',
     point_table: 't1',
-    read_mode: 'poll',
+
     properties: {},
     connection_defaults: { ...MODBUS_DEFAULTS },
     ...overrides,
