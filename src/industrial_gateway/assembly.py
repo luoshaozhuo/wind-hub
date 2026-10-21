@@ -14,6 +14,7 @@ from industrial_gateway.domain import PointDefinition, PointRole
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
 from industrial_gateway.infrastructure.protocol.modbus.server import PymodbusGatewayServer
 from industrial_gateway.modbus_codec import RegisterMapping
+from ipaddress import ip_address
 from industrial_gateway.point_store import PointStore
 
 
@@ -75,7 +76,10 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
             units=by_endpoint[endpoint_id],
             store=store,
             writes=writer,
-            writer_role=None,
+            data_writers=frozenset(str(ip_address(ip)) for ip in config.control.access.data_writers),
+            command_writers=frozenset(
+                str(ip_address(ip)) for ip in config.control.access.command_writers
+            ) if config.control.enabled else frozenset(),
         )
         for endpoint_id, endpoint in config.endpoints.items()
     ]
