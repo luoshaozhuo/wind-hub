@@ -27,9 +27,15 @@ class CommandTarget:
     device_id: str
     point_id: str
     timeout: float = 1.0
+    rpc_timeout: float = 2.0
 
     def __post_init__(self) -> None:
-        if not self.device_id or not self.point_id or self.timeout <= 0:
+        if (
+            not self.device_id
+            or not self.point_id
+            or self.timeout <= 0
+            or self.rpc_timeout <= self.timeout
+        ):
             raise ValueError("invalid Commander target")
 
 
@@ -90,7 +96,7 @@ class CommanderProxy:
             command.value.CopyFrom(encoded)
             try:
                 result = await self._stub.WritePoint(
-                    command, timeout=target.timeout + 1.0
+                    command, timeout=target.rpc_timeout
                 )
             except grpc.RpcError as exc:
                 # RPC 断开/超时可能发生在现场已经执行之后。

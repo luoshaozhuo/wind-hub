@@ -88,7 +88,10 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
         stub = commander_pb2_grpc.CommanderServiceStub(commander_channel)
         targets = {
             (device_id, point_id): CommandTarget(
-                target.device_id, target.point_id, commander_config.command_timeout
+                target.device_id,
+                target.point_id,
+                commander_config.command_timeout,
+                commander_config.rpc_timeout
             )
             for device_id, device in config.devices.items()
             for point_id, target in device.commands.items()
