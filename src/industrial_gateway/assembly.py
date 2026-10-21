@@ -8,8 +8,15 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from ipaddress import ip_address
+
+import grpc
+
+from core.infrastructure.rpc import commander_pb2_grpc
 
 from industrial_gateway.application.write_service import WriteService
+from industrial_gateway.command_journal import CommandJournal
+from industrial_gateway.commands import CommandTarget, CommanderProxy
 from industrial_gateway.domain import PointDefinition, PointRole
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
 from industrial_gateway.infrastructure.protocol.modbus.server import PymodbusGatewayServer
@@ -22,6 +29,7 @@ from industrial_gateway.point_store import PointStore
 class GatewayApplication:
     store: PointStore
     servers: list[PymodbusGatewayServer]
+    commander_channel: grpc.aio.Channel | None = None
 
     async def start(self) -> None:
         started: list[PymodbusGatewayServer] = []
@@ -37,6 +45,8 @@ class GatewayApplication:
     async def stop(self) -> None:
         for server in reversed(self.servers):
             await server.stop()
+        if self.commander_channel is not None:
+            await self.commander_channel.close()
 
 
 def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
@@ -67,7 +77,23 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
             )
         by_endpoint[device.endpoint_id][device.protocol_address.unit_id] = mappings
 
-    store = PointStore(definitions)
+    commander_channel: grpc.aio.Channel | None = None
+    command_handler = None
+    if config.control.enabled:
+        commander_config = config.control.commander
+        commander_channel = grpc.aio.insecure_channel(commander_config.endpoint)
+        stub = commander_pb2_grpc.CommanderServiceStub(commander_channel)
+        targets = {
+            (device_id, point_id): CommandTarget(
+                target.device_id, target.point_id, commander_config.command_timeout
+            )
+            for device_id, device in config.devices.items()
+            for point_id, target in device.commands.items()
+        }
+        command_handler = CommanderProxy(
+            stub, targets, CommandJournal(config.control.journal_path)
+        )
+    store = PointStore(definitions, command_handler=command_handler)
     writer = WriteService(store, roles)
     servers = [
         PymodbusGatewayServer(
@@ -83,4 +109,6 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
         )
         for endpoint_id, endpoint in config.endpoints.items()
     ]
-    return GatewayApplication(store=store, servers=servers)
+    return GatewayApplication(
+        store=store, servers=servers, commander_channel=commander_channel
+    )
