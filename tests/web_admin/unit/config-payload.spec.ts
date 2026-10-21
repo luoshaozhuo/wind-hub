@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildDefinitionsPayload, pointProjection, type DefinitionsEditState } from '../../../src/web_admin/src/api/config'
+import { connectionDefaultsFromForm, defaultConnectionForm } from '../../../src/web_admin/src/domain/deviceConnection'
 
 const state = {
   units: { kW: { symbol: 'kW', name: 'Power' } },
@@ -41,6 +42,29 @@ describe('Core definitions payload', () => {
       },
     })
     expect(result.point_tables.p).not.toHaveProperty('extends')
+  })
+
+  it('三协议型号参数与 Core endpoint_defaults 契约一致', () => {
+    for (const protocol of ['ads', 'modbus', 'iec104'] as const) {
+      const snapshot = {
+        ...state,
+        deviceModels: [{
+          ...state.deviceModels[0],
+          protocol,
+          connection_defaults: connectionDefaultsFromForm(defaultConnectionForm(protocol), protocol),
+          protocol_options: {},
+        }],
+      } as unknown as DefinitionsEditState
+      const serialized = buildDefinitionsPayload(snapshot, {}, '')
+      const model = serialized.device_models.m
+      expect(model.endpoint_defaults).toEqual({ port: defaultConnectionForm(protocol).port })
+      expect(model.protocol_options).not.toHaveProperty('port')
+      expect(model.protocol_options).not.toHaveProperty('reconnect_max_retries')
+      if (protocol === 'modbus') {
+        expect(model.protocol_options).toHaveProperty('slave_id', 1)
+        expect(model.protocol_options).not.toHaveProperty('unit_id')
+      }
+    }
   })
 
   it('preserves the server point table document on an unchanged projection', () => {
