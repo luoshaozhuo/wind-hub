@@ -17,7 +17,7 @@ function model(protocol: 'ads' | 'modbus' | 'iec104'): DeviceModelDef {
     manufacturer: 'generic',
     protocol,
     point_table: 't1',
-    read_mode: '',
+
     properties: {},
     connection_defaults: {},
   }
