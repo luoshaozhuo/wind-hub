@@ -23,7 +23,7 @@ class _GatewayRequestHandler(ServerRequestHandler):
     def __init__(self, owner, trace_packet, trace_pdu, trace_connect) -> None:
         super().__init__(owner, trace_packet, trace_pdu, trace_connect)
         self._tcp_pending = bytearray()
-        self._request_queue: asyncio.Queue[tuple[object, tuple | None]] = asyncio.Queue()
+        self._request_queue: asyncio.Queue[tuple[object, tuple | None]] = asyncio.Queue(maxsize=64)
         self._worker: asyncio.Task[None] | None = None
 
     def datagram_received(self, data: bytes, addr: tuple | None) -> None:
@@ -50,7 +50,12 @@ class _GatewayRequestHandler(ServerRequestHandler):
     def callback_data(self, data: bytes, addr: tuple | None = None) -> int:
         cut = super().callback_data(data, addr)
         if self.last_pdu is not None:
-            self._request_queue.put_nowait((self.last_pdu, self.last_addr))
+            try:
+                self._request_queue.put_nowait((self.last_pdu, self.last_addr))
+            except asyncio.QueueFull:
+                if self.transport:
+                    self.transport.close()
+                return cut
             if self._worker is None or self._worker.done():
                 self._worker = asyncio.create_task(self._run_queue())
         return cut
@@ -65,6 +70,11 @@ class _GatewayRequestHandler(ServerRequestHandler):
             self.last_pdu = pdu
             self.last_addr = addr
             await self.handle_request()
+    def callback_disconnected(self, exc: Exception | None) -> None:
+        if self._worker is not None and self._worker.done():
+            self._worker = None
+        super().callback_disconnected(exc)
+
     async def handle_request(self) -> None:
         transport = self.transport
         peer = transport.get_extra_info("peername") if transport else None
