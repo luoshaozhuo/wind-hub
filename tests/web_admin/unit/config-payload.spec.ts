@@ -6,7 +6,7 @@ const state = {
   deviceTypes: [{ id: 'turbine', name: 'Turbine' }],
   deviceModels: [{
     id: 'm', device_type: 'turbine', manufacturer: 'Vendor', model: 'M',
-    protocol: 'modbus', point_table: 'p', read_mode: '',
+    protocol: 'modbus', point_table: 'p',
     properties: { location: 'site-a' }, connection_defaults: { port: 502, timeout: 4, slave_id: 2 },
     protocol_options: { health_point_id: 'ALIVE' },
   }],
