@@ -251,7 +251,6 @@ export const useConfigStore = defineStore('config', {
         model: asString(value.model) || undefined,
         protocol: asString(value.protocol) as DeviceModelDef['protocol'],
         point_table: asString(value.point_table_id),
-        read_mode: asString(value.read_mode),
         properties: { ...asObject(value.properties) },
         connection_defaults: {
           ...asObject(value.endpoint_defaults),
