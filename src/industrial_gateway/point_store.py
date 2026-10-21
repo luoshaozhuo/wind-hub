@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 
 from .domain import PointDefinition, PointRole, PointSnapshot, PointWrite, Scalar
 
@@ -66,6 +66,20 @@ class PointStore:
         self._validate_scalar(value)
         async with self._locks[key]:
             return self._replace(key, value)
+
+    async def update_batch(
+        self, values: Mapping[PointKey, Scalar], *, source: str
+    ) -> None:
+        """Collector 数据批次：整体校验后一次提交，不产生控制事件。"""
+        if not source:
+            raise ValueError("source must not be empty")
+        for key, value in values.items():
+            if self._definition(key).role is not PointRole.FEEDBACK:
+                raise PermissionError(f"not a feedback point: {key}")
+            self._validate_scalar(value)
+        # 本方法不包含 await；同一事件循环内的读操作不会看见半个批次。
+        for key, value in values.items():
+            self._replace(key, value)
 
     async def invalidate_feedback(self, device_id: str, point_id: str) -> None:
         """失效时清除可读镜像，防止服务端继续返回过期数据。"""
