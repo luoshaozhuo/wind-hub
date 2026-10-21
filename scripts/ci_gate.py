@@ -29,6 +29,7 @@ BACKEND_PREFIXES = (
     "src/commander/",
     "src/cli/",
     "src/web_server/",
+    "src/industrial_gateway/",
 )
 BACKEND_GLOBAL_FILES = {"pyproject.toml", "poetry.lock"}
 FRONTEND_E2E_FILES = {
@@ -294,7 +295,13 @@ def _resolve_test_paths(patterns: list[str]) -> tuple[list[str], list[str]]:
             resolved.append(pattern)
         else:
             missing.append(pattern)
-    return list(dict.fromkeys(resolved)), missing
+    unique = list(dict.fromkeys(resolved))
+    # pytest 同时收到目录与其子路径时可能只收集子路径，必须移除被覆盖项。
+    roots = [
+        path for path in unique
+        if not any(Path(parent) in Path(path).parents for parent in unique)
+    ]
+    return roots, missing
 
 
 def merge_gate(paths: list[str]) -> bool:
@@ -374,6 +381,11 @@ def merge_gate(paths: list[str]) -> bool:
                 candidates.extend(["tests/unit/commander", "tests/component/commander"])
             elif p.startswith("src/web_server/"):
                 candidates.append("tests/unit/web_server")
+            elif p.startswith("src/industrial_gateway/"):
+                candidates.extend([
+                    "tests/unit", "tests/component",
+                    "tests/integration/protocols/test_gateway*.py",
+                ])
         elif p.startswith("src/collector/"):
             candidates.extend(["tests/unit/collector", "tests/component/collector"])
             if p.startswith("src/collector/application/") or p in {
@@ -396,6 +408,11 @@ def merge_gate(paths: list[str]) -> bool:
             candidates.extend(["tests/unit/cli", "tests/component/cli"])
         elif p.startswith("src/core/"):
             candidates.extend(["tests/unit/core", "tests/component/core"])
+        elif p.startswith("src/industrial_gateway/"):
+            candidates.extend([
+                "tests/unit", "tests/component",
+                "tests/integration/protocols/test_gateway*.py",
+            ])
         elif p.startswith("src/"):
             candidates.extend(["tests/unit", "tests/component"])
         elif p.startswith("configs/"):
@@ -433,7 +450,7 @@ def merge_gate(paths: list[str]) -> bool:
         return False
     if available:
         commands.append(("affected-tests", _python_module(
-            "pytest", *available, "-q", "-m",
+            "pytest", *available, "--import-mode=importlib", "-q", "-m",
             "not hardware and not performance and not soak"
         )))
     print(json.dumps({"changed_files": changed, "selected_tests": available,

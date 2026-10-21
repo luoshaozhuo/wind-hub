@@ -25,6 +25,7 @@ _ALLOWED_PB2_PREFIXES = (
     "web_server/",
     "collector/infrastructure/grpc/",
     "commander/infrastructure/grpc/",
+    "industrial_gateway/infrastructure/grpc/",
 )
 
 # application/domain 一律不感知 wire 形态。
@@ -33,6 +34,8 @@ _NO_PB2_PREFIXES = (
     "collector/domain/",
     "commander/application/",
     "commander/domain/",
+    "industrial_gateway/application/",
+    "industrial_gateway/domain/",
 )
 
 _LEGACY_USECASE_NAMES = (

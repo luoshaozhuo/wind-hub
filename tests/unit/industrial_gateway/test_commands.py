@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from core.infrastructure.rpc import commander_pb2 as pb
 from industrial_gateway.application.command_service import (
     CommanderProxy,
+    CommandOutcome,
+    CommandRequest,
+    CommandResult,
     CommandState,
     CommandTarget,
 )
@@ -14,19 +16,19 @@ from industrial_gateway.domain import PointWrite
 
 
 class FakeCommander:
-    def __init__(self, outcome: int) -> None:
+    def __init__(self, outcome: CommandOutcome) -> None:
         self.outcome = outcome
-        self.requests: list[pb.WritePointRequest] = []
+        self.requests: list[CommandRequest] = []
 
-    async def WritePoint(  # noqa: N802
-        self, request: pb.WritePointRequest, *, timeout: float
-    ) -> pb.CommandResultMessage:
+    async def write_point(
+        self, request: CommandRequest, *, timeout: float
+    ) -> CommandResult:
         self.requests.append(request)
-        return pb.CommandResultMessage(command_id=request.command_id, outcome=self.outcome)
+        return CommandResult(outcome=self.outcome)
 
 
 async def test_confirmed_success_allows_repeated_same_value() -> None:
-    fake = FakeCommander(pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS)
+    fake = FakeCommander(CommandOutcome.CONFIRMED_SUCCESS)
     proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})
     command = PointWrite("t1", "command", 42, "dc-ems")
     await proxy(command)
@@ -38,7 +40,7 @@ async def test_confirmed_success_allows_repeated_same_value() -> None:
 
 
 async def test_unknown_blocks_subsequent_writes() -> None:
-    fake = FakeCommander(pb.COMMAND_OUTCOME_UNKNOWN)
+    fake = FakeCommander(CommandOutcome.UNKNOWN)
     proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})
     command = PointWrite("t1", "command", 42, "collector")
     with pytest.raises(RuntimeError, match="unknown"):
@@ -50,8 +52,18 @@ async def test_unknown_blocks_subsequent_writes() -> None:
 
 
 async def test_confirmed_failure_does_not_lock() -> None:
-    fake = FakeCommander(pb.COMMAND_OUTCOME_CONFIRMED_FAILURE)
-    proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})  # type: ignore[arg-type]
+    fake = FakeCommander(CommandOutcome.CONFIRMED_FAILURE)
+    proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})
     with pytest.raises(RuntimeError, match="rejected"):
         await proxy(PointWrite("t1", "command", 2, "dc-ems"))
+    assert proxy.state("t1", "command") is CommandState.READY
+
+
+@pytest.mark.parametrize("value", [-(1 << 63) - 1, 1 << 64])
+async def test_invalid_scalar_does_not_enter_executing_state(value: int) -> None:
+    fake = FakeCommander(CommandOutcome.CONFIRMED_SUCCESS)
+    proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})
+    with pytest.raises(ValueError, match="64-bit range"):
+        await proxy(PointWrite("t1", "command", value, "dc-ems"))
+    assert fake.requests == []
     assert proxy.state("t1", "command") is CommandState.READY

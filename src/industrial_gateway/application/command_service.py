@@ -10,9 +10,6 @@ from enum import StrEnum
 from typing import Protocol
 from uuid import uuid4
 
-import grpc
-
-from core.infrastructure.rpc import commander_pb2 as pb
 from industrial_gateway.domain import PointWrite, Scalar
 from industrial_gateway.infrastructure.commander.journal import CommandJournal
 
@@ -44,10 +41,35 @@ class CommandState(StrEnum):
     UNKNOWN = "unknown"
 
 
+class CommandOutcome(StrEnum):
+    CONFIRMED_SUCCESS = "confirmed_success"
+    CONFIRMED_FAILURE = "confirmed_failure"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class CommandRequest:
+    command_id: str
+    device_id: str
+    point_id: str
+    value: Scalar
+    timeout: float
+
+
+@dataclass(frozen=True, slots=True)
+class CommandResult:
+    outcome: CommandOutcome
+    error: str = ""
+
+
+class CommanderUnavailableError(RuntimeError):
+    """传输层无法确认命令执行结果。"""
+
+
 class CommanderWriter(Protocol):
-    async def WritePoint(  # noqa: N802
-        self, request: pb.WritePointRequest, *, timeout: float
-    ) -> pb.CommandResultMessage: ...
+    async def write_point(
+        self, request: CommandRequest, *, timeout: float
+    ) -> CommandResult: ...
 
 
 class CommanderProxy:
@@ -83,21 +105,21 @@ class CommanderProxy:
                 key
             ] is CommandState.UNKNOWN:
                 raise RuntimeError("command point locked after unknown outcome")
-            encoded = self._encode(request.value)
+            self._validate_value(request.value)
             command_id = uuid4().hex
             if self._journal is not None:
                 self._journal.begin(journal_key, command_id)
             self._states[key] = CommandState.EXECUTING
-            command = pb.WritePointRequest(
+            command = CommandRequest(
                 command_id=command_id,
                 device_id=target.device_id,
                 point_id=target.point_id,
+                value=request.value,
                 timeout=target.timeout,
             )
-            command.value.CopyFrom(encoded)
             try:
-                result = await self._stub.WritePoint(command, timeout=target.rpc_timeout)
-            except grpc.RpcError as exc:
+                result = await self._stub.write_point(command, timeout=target.rpc_timeout)
+            except CommanderUnavailableError as exc:
                 # RPC 断开/超时可能发生在现场已经执行之后。
                 self._states[key] = CommandState.UNKNOWN
                 logger.error(
@@ -111,12 +133,12 @@ class CommanderProxy:
                 # 包含取消：如果请求已发出，必须按未知执行状态闭锁。
                 self._states[key] = CommandState.UNKNOWN
                 raise
-            if result.outcome == pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS:
+            if result.outcome == CommandOutcome.CONFIRMED_SUCCESS:
                 if self._journal is not None:
                     self._journal.confirmed(journal_key)
                 self._states[key] = CommandState.READY
                 return
-            if result.outcome == pb.COMMAND_OUTCOME_CONFIRMED_FAILURE:
+            if result.outcome == CommandOutcome.CONFIRMED_FAILURE:
                 if self._journal is not None:
                     self._journal.confirmed(journal_key)
                 self._states[key] = CommandState.READY
@@ -126,15 +148,9 @@ class CommanderProxy:
             raise RuntimeError("Commander result unknown; control locked")
 
     @staticmethod
-    def _encode(value: Scalar) -> pb.ScalarValue:
-        if isinstance(value, bool):
-            return pb.ScalarValue(bool_value=value)
+    def _validate_value(value: Scalar) -> None:
         if isinstance(value, int):
-            if value < 0:
-                if value < -(1 << 63):
-                    raise ValueError("integer below signed 64-bit range")
-                return pb.ScalarValue(sint64_value=value)
+            if value < -(1 << 63):
+                raise ValueError("integer below signed 64-bit range")
             if value > (1 << 64) - 1:
                 raise ValueError("integer above unsigned 64-bit range")
-            return pb.ScalarValue(uint64_value=value)
-        return pb.ScalarValue(double_value=value)
