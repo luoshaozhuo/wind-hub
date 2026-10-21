@@ -47,12 +47,17 @@ class _GatewayRequestHandler(ServerRequestHandler):
             del self._tcp_pending[:frame_size]
             super().datagram_received(frame, addr)
 
+    def callback_data(self, data: bytes, addr: tuple | None = None) -> int:
+        cut = super().callback_data(data, addr)
+        if self.last_pdu is not None:
+            self._request_queue.put_nowait((self.last_pdu, self.last_addr))
+            if self._worker is None or self._worker.done():
+                self._worker = asyncio.create_task(self._run_queue())
+        return cut
+
     def handle_later(self) -> None:
-        if self.last_pdu is None:
-            return
-        self._request_queue.put_nowait((self.last_pdu, self.last_addr))
-        if self._worker is None or self._worker.done():
-            self._worker = asyncio.create_task(self._run_queue())
+        # 已在 callback_data 中复制请求，取消父类的延后共享字段读取。
+        return
 
     async def _run_queue(self) -> None:
         while not self._request_queue.empty():
