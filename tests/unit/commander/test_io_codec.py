@@ -115,6 +115,12 @@ def test_command_roundtrip_and_result():
     assert message.outcome == pb.COMMAND_OUTCOME_UNKNOWN
 
 
+def test_command_rejects_unset_scalar_value():
+    request = pb.WritePointRequest(command_id="empty", device_id="dev1", point_id="p1")
+    with pytest.raises(ValueError, match="must not be empty"):
+        command_from_proto(request)
+
+
 def test_pb_module_is_shared_core_contract():
     """pb2 模块必须来自 Core 共享 RPC 契约（不依赖任何旧 wind_hub_* 包）。"""
     assert pb.__name__.startswith("core.infrastructure.rpc")
