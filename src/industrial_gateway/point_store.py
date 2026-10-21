@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from time import monotonic
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 
 from .domain import PointDefinition, PointRole, PointSnapshot, PointWrite, Scalar
@@ -20,6 +21,7 @@ class PointStore:
         definitions: Iterable[PointDefinition],
         *,
         command_handler: CommandHandler | None = None,
+        max_age_seconds: Mapping[PointKey, float] | None = None,
     ) -> None:
         self._definitions: dict[PointKey, PointDefinition] = {}
         for definition in definitions:
@@ -28,13 +30,24 @@ class PointStore:
                 raise ValueError(f"duplicate point: {key}")
             self._definitions[key] = definition
         self._values: dict[PointKey, PointSnapshot] = {}
+        self._updated_at: dict[PointKey, float] = {}
+        self._max_age_seconds = dict(max_age_seconds or {})
+        for key, seconds in self._max_age_seconds.items():
+            if key not in self._definitions or not math.isfinite(seconds) or seconds <= 0:
+                raise ValueError(f"invalid feedback max age: {key}")
         self._locks = {key: asyncio.Lock() for key in self._definitions}
         self._command_handler = command_handler
 
     def read(self, device_id: str, point_id: str) -> PointSnapshot:
         key = (device_id, point_id)
         self._definition(key)
-        return self._values.get(key, PointSnapshot(device_id, point_id, None, 0))
+        snapshot = self._values.get(key)
+        if snapshot is None:
+            return PointSnapshot(device_id, point_id, None, 0)
+        max_age = self._max_age_seconds.get(key)
+        if max_age is not None and monotonic() - self._updated_at[key] > max_age:
+            return PointSnapshot(device_id, point_id, None, snapshot.version)
+        return snapshot
 
     async def write(self, request: PointWrite) -> PointSnapshot:
         """校验并提交逻辑点位；命令须由执行端接受后才提交内存镜像。
@@ -88,11 +101,13 @@ class PointStore:
             raise PermissionError(f"not a feedback point: {key}")
         async with self._locks[key]:
             self._values.pop(key, None)
+            self._updated_at.pop(key, None)
 
     def _replace(self, key: PointKey, value: Scalar) -> PointSnapshot:
         previous = self._values.get(key)
         result = PointSnapshot(key[0], key[1], value, 1 if previous is None else previous.version + 1)
         self._values[key] = result
+        self._updated_at[key] = monotonic()
         return result
 
     def _definition(self, key: PointKey) -> PointDefinition:
