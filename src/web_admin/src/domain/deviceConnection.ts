@@ -203,7 +203,7 @@ export function connectionOverridesFromForm(
   const protocolDefaults = defaultConnectionForm(model.protocol)
   for (const key of PROTOCOL_OVERRIDE_KEYS[model.protocol]) {
     const configured = form[key as keyof ConnectionFormState]
-    const inherited = defaults[key] ?? protocolDefaults[key as keyof ConnectionFormState]
+    const inherited = defaults[key === 'unit_id' ? 'slave_id' : key] ?? protocolDefaults[key as keyof ConnectionFormState]
     if (inherited !== configured) {
       extensions[key === 'unit_id' ? 'slave_id' : key] = configured
     }
