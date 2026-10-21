@@ -26,7 +26,7 @@ async def run(config_path: str | Path) -> None:
             logger.warning("signal handlers not supported: %s", signum)
     try:
         await runtime.start()
-        logger.info("industrial gateway started: %d endpoints", len(config.devices))
+        logger.info("industrial gateway started: %d endpoints", len(config.endpoints))
         await shutdown.wait()
     finally:
         await runtime.stop()
