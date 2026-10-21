@@ -72,9 +72,16 @@ class PymodbusGatewayServer:
                     readonly=mapping.area in {"input", "discrete_input"},
                 )
                 blocks[_AREAS[mapping.area]].append(block)
-            for block in blocks:
+            for index, block in enumerate(blocks):
                 if not block:
-                    block.append(SimData(address=0, datatype=DataType.BITS if block in blocks[:2] else DataType.INVALID, values=False if block in blocks[:2] else 0))
+                    bit_block = index < 2
+                    block.append(
+                        SimData(
+                            address=0,
+                            datatype=DataType.BITS if bit_block else DataType.INVALID,
+                            values=False if bit_block else 0,
+                        )
+                    )
             devices.append(
                 SimDevice(
                     id=unit_id,
@@ -109,12 +116,15 @@ class PymodbusGatewayServer:
                 5: "coil", 6: "holding", 15: "coil", 16: "holding",
             }[function_code]
             write_request = function_code in _WRITE_CODES and set_values is not None
-            span = len(set_values) if write_request and area in {"coil", "discrete_input"} else count
+            bit_area = area in {"coil", "discrete_input"}
+            span = len(set_values) if write_request and bit_area else count
+            bit_start = address // 16 * 16 if bit_area and not write_request else address
+            bit_end = bit_start + count * 16 if bit_area and not write_request else address + span
             relevant = [
                 mapping for mapping in mappings
                 if mapping.area == area
-                and mapping.address < address + span
-                and mapping.address + mapping.count > address
+                and mapping.address < bit_end
+                and mapping.address + mapping.count > bit_start
             ]
             if write_request:
                 peer = request_ip()
@@ -172,6 +182,8 @@ class PymodbusGatewayServer:
             for mapping in relevant:
                 snapshot: PointSnapshot = store.read(mapping.device_id, mapping.point_id)
                 if snapshot.value is None:
+                    if bits is not None and mapping.address != address:
+                        continue
                     return ExcCodes.DEVICE_FAILURE
                 try:
                     encoded = encode_registers(mapping, snapshot.value)
