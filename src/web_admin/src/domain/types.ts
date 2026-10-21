@@ -47,6 +47,7 @@ export interface DeviceModelDef {
   read_mode: string
   properties: Record<string, unknown>
   connection_defaults: Record<string, unknown>
+  protocol_options?: Record<string, unknown>
 }
 
 export interface PointTableDef {
