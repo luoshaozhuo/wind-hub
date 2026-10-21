@@ -74,31 +74,29 @@ class _GatewayRequestHandler(ServerRequestHandler):
             await self._handle_one(pdu, addr)
 
     async def _handle_one(self, pdu: ModbusPDU, addr: tuple | None) -> None:
-        # 不读取 last_pdu：新网络帧可能在 Commander RPC 等待期间到达。
+        # 来源身份绑定本次请求，PDU 与事务 ID 都是局部变量。
+        transport = self.transport
+        peer = transport.get_extra_info("peername") if transport else None
+        remote = str(ip_address(peer[0])) if isinstance(peer, tuple) and peer else None
+        token = _request_ip.set(remote)
         try:
-            response = await pdu.datastore_update(self.server.context, pdu.dev_id)
-        except (NoSuchIdException, KeyError):
-            response = ExceptionResponse(pdu.function_code, ExcCodes.GATEWAY_NO_RESPONSE)
-        except Exception:
-            response = ExceptionResponse(pdu.function_code, ExcCodes.DEVICE_FAILURE)
-        response.transaction_id = pdu.transaction_id
-        response.dev_id = pdu.dev_id
-        self.server_send(response, addr)
+            try:
+                response = await pdu.datastore_update(self.server.context, pdu.dev_id)
+            except (NoSuchIdException, KeyError):
+                response = ExceptionResponse(pdu.function_code, ExcCodes.GATEWAY_NO_RESPONSE)
+            except Exception:
+                response = ExceptionResponse(pdu.function_code, ExcCodes.DEVICE_FAILURE)
+            response.transaction_id = pdu.transaction_id
+            response.dev_id = pdu.dev_id
+            self.server_send(response, addr)
+        finally:
+            _request_ip.reset(token)
 
     def callback_disconnected(self, exc: Exception | None) -> None:
         if self._worker is not None and self._worker.done():
             self._worker = None
         super().callback_disconnected(exc)
 
-    async def handle_request(self) -> None:
-        transport = self.transport
-        peer = transport.get_extra_info("peername") if transport else None
-        remote = str(ip_address(peer[0])) if isinstance(peer, tuple) and peer else None
-        token = _request_ip.set(remote)
-        try:
-            await super().handle_request()
-        finally:
-            _request_ip.reset(token)
 
 
 class GatewayTcpServer(ModbusTcpServer):
