@@ -9,16 +9,15 @@ import logging
 from collections.abc import Mapping
 
 from pymodbus.constants import ExcCodes
-from pymodbus.simulator import SimData, SimDevice
-from pymodbus.simulator import DataType
+from pymodbus.simulator import DataType, SimData, SimDevice
 
-from industrial_gateway.infrastructure.protocol.modbus.access import GatewayTcpServer, request_ip
 from industrial_gateway.application.write_service import (
     ResolvedWrite,
     WriteService,
     WriterRole,
 )
 from industrial_gateway.domain import PointSnapshot
+from industrial_gateway.infrastructure.protocol.modbus.access import GatewayTcpServer, request_ip
 from industrial_gateway.modbus_codec import (
     RegisterMap,
     RegisterMapping,
@@ -52,6 +51,8 @@ class PymodbusGatewayServer:
         self._host = host
         self._port = port
         self._server: GatewayTcpServer | None = None
+        if data_writers & command_writers:
+            raise ValueError("data and command writer IPs must not overlap")
         devices: list[SimDevice] = []
         for unit_id, mappings in units.items():
             if not 1 <= unit_id <= 247:
@@ -144,13 +145,19 @@ class PymodbusGatewayServer:
                     return ExcCodes.ILLEGAL_ADDRESS
                 try:
                     await writes.write(ResolvedWrite(decoded, writer_role))
-                except (ValueError, PermissionError, KeyError):
+                except (TypeError, ValueError, PermissionError, KeyError):
                     return ExcCodes.ILLEGAL_ADDRESS
                 except Exception:
                     logger.exception("Gateway feedback batch rejected")
                     return ExcCodes.DEVICE_FAILURE
                 return None
-            if sum(mapping.count for mapping in relevant) != count:
+            # 拒绝未映射地址及跨越逻辑点边界的读取。
+            cursor = address
+            for mapping in sorted(relevant, key=lambda item: item.address):
+                if mapping.address != cursor:
+                    return ExcCodes.ILLEGAL_ADDRESS
+                cursor += mapping.count
+            if cursor != address + count:
                 return ExcCodes.ILLEGAL_ADDRESS
             # 每次读前从业务 PointStore 投影到 pymodbus 寄存器内存。
             for mapping in relevant:
