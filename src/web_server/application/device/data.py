@@ -81,13 +81,11 @@ class DeviceDataService:
                 )
             )
         ]
-        try:
-            observed = await self._commander.read_points(
-                device_id,
-                [point.point_id for point in selected],
-            )
-        except Exception:
-            observed = []
+        observed = (
+            await self._commander.read_points(device_id, [point.point_id for point in selected])
+            if selected
+            else []
+        )
         if observed:
             self._trend.append_batch(observed)
         current = {value.point_id: value for value in observed}
@@ -129,10 +127,7 @@ class DeviceDataService:
         unknown = [point_id for point_id in requested if point_id not in definitions]
         if unknown:
             raise KeyError(f"unknown points: {', '.join(unknown)}")
-        try:
-            observed = await self._commander.read_points(device_id, requested)
-        except Exception:
-            observed = []
+        observed = await self._commander.read_points(device_id, requested) if requested else []
         if observed:
             self._trend.append_batch(observed)
 
