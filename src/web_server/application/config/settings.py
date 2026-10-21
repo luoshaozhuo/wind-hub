@@ -8,6 +8,10 @@ from web_server.application.config.files import ConfigApplyResult, ConfigFileSer
 from web_server.application.config.service import ConfigService
 
 
+class SettingsValidationError(ValueError):
+    """Settings 请求与部署边界冲突。"""
+
+
 class SettingsSnapshot(BaseModel):
     """当前 system.yaml 中可由 Settings 页编辑的正式字段。"""
 
@@ -65,9 +69,9 @@ class SettingsService:
         """只修改 system.yaml 对应字段，其余字段保持当前已提交内容。"""
         listener = (request.api_enabled, request.api_host, request.api_port)
         if listener != (True, self._api_host, self._api_port):
-            raise ValueError("API listener options belong to process deployment")
+            raise SettingsValidationError("API listener options belong to process deployment")
         if request.ads_password or request.ads_username != "Administrator":
-            raise ValueError(
+            raise SettingsValidationError(
                 "ADS device credentials must be configured per device protocol_options"
             )
 
@@ -78,7 +82,7 @@ class SettingsService:
                 "name": request.site_name or request.site_id,
             }
             if bool(request.ads_local_ip) != bool(request.ads_local_ams_net_id):
-                raise ValueError("ADS local identity requires both IP and AMS Net ID")
+                raise SettingsValidationError("ADS local identity requires both IP and AMS Net ID")
             if request.ads_local_ip and request.ads_local_ams_net_id:
                 raw["ads"] = {
                     "local_ip": request.ads_local_ip,
