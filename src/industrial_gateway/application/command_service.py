@@ -14,8 +14,8 @@ import grpc
 
 from core.infrastructure.rpc import commander_pb2 as pb
 
-from .command_journal import CommandJournal
-from .domain import PointWrite, Scalar
+from industrial_gateway.infrastructure.commander.journal import CommandJournal
+from industrial_gateway.domain import PointWrite, Scalar
 
 logger = logging.getLogger(__name__)
 

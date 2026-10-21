@@ -15,14 +15,14 @@ import grpc
 from core.infrastructure.rpc import commander_pb2_grpc
 
 from industrial_gateway.application.write_service import WriteService
-from industrial_gateway.command_journal import CommandJournal
-from industrial_gateway.commands import CommandTarget, CommanderProxy
+from industrial_gateway.infrastructure.commander.journal import CommandJournal
+from industrial_gateway.application.command_service import CommandTarget, CommanderProxy
 from industrial_gateway.domain import PointDefinition, PointRole
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
 from industrial_gateway.infrastructure.protocol.modbus.server import PymodbusGatewayServer
-from industrial_gateway.modbus_codec import RegisterMapping
+from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMapping
 from ipaddress import ip_address
-from industrial_gateway.point_store import PointStore
+from industrial_gateway.application.point_store import PointStore
 
 
 @dataclass(slots=True)

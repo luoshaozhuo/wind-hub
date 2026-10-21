@@ -9,7 +9,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from industrial_gateway.modbus_codec import RegisterMap, RegisterMapping
+from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMap, RegisterMapping
 
 
 class _Strict(BaseModel):

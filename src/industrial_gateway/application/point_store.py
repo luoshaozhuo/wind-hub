@@ -7,7 +7,7 @@ import math
 from time import monotonic
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 
-from .domain import PointDefinition, PointRole, PointSnapshot, PointWrite, Scalar
+from industrial_gateway.domain import PointDefinition, PointRole, PointSnapshot, PointWrite, Scalar
 
 CommandHandler = Callable[[PointWrite], Awaitable[None]]
 PointKey = tuple[str, str]

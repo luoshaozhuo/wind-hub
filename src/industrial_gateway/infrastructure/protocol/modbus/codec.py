@@ -7,7 +7,7 @@ import struct
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from .domain import Scalar
+from industrial_gateway.domain import Scalar
 
 RegisterArea = Literal["coil", "discrete_input", "holding", "input"]
 WordOrder = Literal["big_endian", "little_endian"]

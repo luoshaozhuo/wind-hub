@@ -19,13 +19,13 @@ from industrial_gateway.application.write_service import (
 )
 from industrial_gateway.domain import PointSnapshot
 from industrial_gateway.infrastructure.protocol.modbus.access import GatewayTcpServer, request_ip
-from industrial_gateway.modbus_codec import (
+from industrial_gateway.infrastructure.protocol.modbus.codec import (
     RegisterMap,
     RegisterMapping,
     decode_registers,
     encode_registers,
 )
-from industrial_gateway.point_store import PointStore
+from industrial_gateway.application.point_store import PointStore
 
 logger = logging.getLogger(__name__)
 
