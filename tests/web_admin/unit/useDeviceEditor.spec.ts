@@ -22,7 +22,7 @@ const confirmMock = vi.mocked(ElMessageBox.confirm)
 
 const MODBUS_DEFAULTS = {
   port: 502,
-  unit_id: 1,
+  slave_id: 1,
   mode: 'tcp',
   timeout: 5,
   word_order: 'little_endian',
@@ -130,7 +130,7 @@ describe('useDeviceEditor', () => {
     })
     expect(editor.editForm.value.connection).toMatchObject({
       port: 502,
-      unit_id: 1,
+      slave_id: 1,
       mode: 'tcp',
       word_order: 'little_endian',
     })
@@ -143,7 +143,7 @@ describe('useDeviceEditor', () => {
     editor.loadEditForm()
 
     editor.editForm.value.host = '10.0.0.9'
-    editor.editForm.value.connection.unit_id = 5
+    editor.editForm.value.connection.slave_id = 5
     expect(editor.dirty.value).toBe(true)
 
     await editor.saveConfig()
@@ -151,7 +151,7 @@ describe('useDeviceEditor', () => {
     const saved = store.devices[0]
     expect(saved.host).toBe('10.0.0.9')
     // 仅 diff 键成为 extensions 覆盖；port 与默认一致不落地。
-    expect(saved.extensions).toEqual({ unit_id: 5 })
+    expect(saved.extensions).toEqual({ slave_id: 5 })
     expect(saved.port).toBeUndefined()
     expect(editor.dirty.value).toBe(false)
   })
