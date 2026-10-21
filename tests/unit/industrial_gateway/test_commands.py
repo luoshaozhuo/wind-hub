@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from core.infrastructure.rpc import commander_pb2 as pb
-from industrial_gateway.commands import CommandState, CommandTarget, CommanderProxy
+from industrial_gateway.application.command_service import CommandState, CommandTarget, CommanderProxy
 from industrial_gateway.domain import PointWrite
 
 

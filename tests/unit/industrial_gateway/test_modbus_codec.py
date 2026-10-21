@@ -2,7 +2,7 @@
 
 import pytest
 
-from industrial_gateway.modbus_codec import (
+from industrial_gateway.infrastructure.protocol.modbus.codec import (
     RegisterMap,
     RegisterMapping,
     decode_registers,
