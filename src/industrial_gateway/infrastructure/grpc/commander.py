@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 import grpc
 
 from core.infrastructure.rpc import commander_pb2 as pb
+from core.infrastructure.rpc.scalar_codec import encode_scalar
 from core.infrastructure.rpc import commander_pb2_grpc
 from industrial_gateway.application.command_service import (
     CommanderUnavailableError,
@@ -14,7 +15,6 @@ from industrial_gateway.application.command_service import (
     CommandRequest,
     CommandResult,
 )
-from industrial_gateway.domain import Scalar
 
 if TYPE_CHECKING:
     from core.infrastructure.rpc.commander_pb2_grpc import CommanderServiceAsyncStub
@@ -31,7 +31,7 @@ class GrpcCommanderWriter:
             command_id=request.command_id,
             device_id=request.device_id,
             point_id=request.point_id,
-            value=_encode(request.value),
+            value=encode_scalar(request.value),
             timeout=request.timeout,
         )
         try:
@@ -43,13 +43,3 @@ class GrpcCommanderWriter:
             pb.COMMAND_OUTCOME_CONFIRMED_FAILURE: CommandOutcome.CONFIRMED_FAILURE,
         }
         return CommandResult(outcomes.get(result.outcome, CommandOutcome.UNKNOWN), result.error)
-
-
-def _encode(value: Scalar) -> pb.ScalarValue:
-    if isinstance(value, bool):
-        return pb.ScalarValue(bool_value=value)
-    if isinstance(value, int):
-        if value < 0:
-            return pb.ScalarValue(sint64_value=value)
-        return pb.ScalarValue(uint64_value=value)
-    return pb.ScalarValue(double_value=value)
