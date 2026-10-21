@@ -14,11 +14,7 @@ from pymodbus.simulator import DataType, SimAction, SimData, SimDevice
 from pymodbus.simulator.simutils import SimUtils
 
 from industrial_gateway.application.point_store import PointStore
-from industrial_gateway.application.write_service import (
-    ResolvedWrite,
-    WriteService,
-    WriterRole,
-)
+from industrial_gateway.application.write_service import ResolvedWrite, WriteService, WriterRole
 from industrial_gateway.domain import PointSnapshot
 from industrial_gateway.infrastructure.protocol.modbus.access import GatewayTcpServer, request_ip
 from industrial_gateway.infrastructure.protocol.modbus.codec import (
@@ -73,10 +69,10 @@ class PymodbusGatewayServer:
                     readonly=mapping.area in {"input", "discrete_input"},
                 )
                 blocks[_AREAS[mapping.area]].append(block)
-            for index, block in enumerate(blocks):
-                if not block:
+            for index, area_blocks in enumerate(blocks):
+                if not area_blocks:
                     bit_block = index < 2
-                    block.append(
+                    area_blocks.append(
                         SimData(
                             address=0,
                             datatype=DataType.BITS if bit_block else DataType.INVALID,
@@ -87,7 +83,9 @@ class PymodbusGatewayServer:
                 SimDevice(
                     id=unit_id,
                     simdata=blocks,
-                    action=self._action(mappings, store, writes, data_writers, command_writers),
+                    action=self._action(
+                        mappings, store, writes, data_writers, command_writers
+                    ),
                 )
             )
         self._devices = devices
@@ -118,13 +116,16 @@ class PymodbusGatewayServer:
             }[function_code]
             write_request = function_code in _WRITE_CODES and set_values is not None
             bit_area = area in {"coil", "discrete_input"}
-            span = len(set_values) if write_request and bit_area and set_values is not None else count
+            span = (
+                len(set_values) if write_request and bit_area and set_values is not None else count
+            )
             bit_start = address // 16 * 16 if bit_area and not write_request else address
             bit_end = (
                 bit_start + count * 16 if bit_area and not write_request else address + span
             )
             relevant = [
-                mapping for mapping in mappings
+                mapping
+                for mapping in mappings
                 if mapping.area == area
                 and mapping.address < bit_end
                 and mapping.address + mapping.count > bit_start

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from contextvars import ContextVar
 from ipaddress import ip_address
+from typing import Any, cast
 
 from pymodbus.constants import ExcCodes
 from pymodbus.exceptions import NoSuchIdException
 from pymodbus.pdu import ExceptionResponse, ModbusPDU
-
 from pymodbus.server import ModbusTcpServer
 from pymodbus.server.requesthandler import ServerRequestHandler
 
@@ -24,13 +25,22 @@ def request_ip() -> str | None:
 class _GatewayRequestHandler(ServerRequestHandler):
     """TCP 分帧后逐请求串行分发，避免库丢弃同段后续事务。"""
 
-    def __init__(self, owner, trace_packet, trace_pdu, trace_connect) -> None:
-        super().__init__(owner, trace_packet, trace_pdu, trace_connect)
+    def __init__(
+        self,
+        owner: ModbusTcpServer,
+        trace_packet: Callable[[bool, bytes], bytes] | None,
+        trace_pdu: Callable[[bool, ModbusPDU], ModbusPDU] | None,
+        trace_connect: Callable[[bool], None] | None,
+    ) -> None:
+        super_init = cast(Callable[..., None], super().__init__)
+        super_init(owner, trace_packet, trace_pdu, trace_connect)
         self._tcp_pending = bytearray()
-        self._request_queue: asyncio.Queue[tuple[ModbusPDU, tuple | None]] = asyncio.Queue(maxsize=64)
+        self._request_queue: asyncio.Queue[tuple[ModbusPDU, tuple[Any, ...] | None]] = (
+            asyncio.Queue(maxsize=64)
+        )
         self._worker: asyncio.Task[None] | None = None
 
-    def datagram_received(self, data: bytes, addr: tuple | None) -> None:
+    def datagram_received(self, data: bytes, addr: tuple[Any, ...] | None) -> None:
         self._tcp_pending.extend(data)
         if len(self._tcp_pending) > 65536:
             self._tcp_pending.clear()
@@ -57,6 +67,7 @@ class _GatewayRequestHandler(ServerRequestHandler):
             try:
                 self._request_queue.put_nowait((self.last_pdu, self.last_addr))
             except asyncio.QueueFull:
+                # 已入队请求可能执行完成；仅拒绝继续接收新请求。
                 if self.transport:
                     self.transport.close()
                 return cut
@@ -88,7 +99,8 @@ class _GatewayRequestHandler(ServerRequestHandler):
                 response = ExceptionResponse(pdu.function_code, ExcCodes.DEVICE_FAILURE)
             response.transaction_id = pdu.transaction_id
             response.dev_id = pdu.dev_id
-            self.server_send(response, addr)
+            send_response = cast(Callable[[ModbusPDU, tuple[Any, ...] | None], None], self.server_send)
+        send_response(response, addr)
         finally:
             _request_ip.reset(token)
 

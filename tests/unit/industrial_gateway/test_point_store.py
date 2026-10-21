@@ -2,8 +2,8 @@
 
 import pytest
 
-from industrial_gateway.domain import PointDefinition, PointRole, PointWrite
 from industrial_gateway.application.point_store import PointStore
+from industrial_gateway.domain import PointDefinition, PointRole, PointWrite
 
 
 async def test_repeated_command_write_produces_two_events() -> None:

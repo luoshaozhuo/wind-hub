@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
-from industrial_gateway.domain import PointRole, PointWrite, Scalar
 from industrial_gateway.application.point_store import PointStore
+from industrial_gateway.domain import PointRole, PointWrite, Scalar
 
 PointKey = tuple[str, str]
 

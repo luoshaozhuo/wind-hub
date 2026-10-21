@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-
 import pytest
 
 from core.infrastructure.rpc import commander_pb2 as pb
-from industrial_gateway.application.command_service import CommandState, CommandTarget, CommanderProxy
+from industrial_gateway.application.command_service import (
+    CommandState,
+    CommandTarget,
+    CommanderProxy,
+)
 from industrial_gateway.domain import PointWrite
 
 
@@ -15,14 +18,18 @@ class FakeCommander:
         self.outcome = outcome
         self.requests: list[pb.WritePointRequest] = []
 
-    async def WritePoint(self, request: pb.WritePointRequest, *, timeout: float) -> pb.CommandResultMessage:
+    async def WritePoint(  # noqa: N802
+        self, request: pb.WritePointRequest, *, timeout: float
+    ) -> pb.CommandResultMessage:
         self.requests.append(request)
         return pb.CommandResultMessage(command_id=request.command_id, outcome=self.outcome)
 
 
 async def test_confirmed_success_allows_repeated_same_value() -> None:
     fake = FakeCommander(pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS)
-    proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})
+    proxy = CommanderProxy(
+        fake, {("t1", "command"): CommandTarget("physical", "setpoint")}
+    )
     command = PointWrite("t1", "command", 42, "dc-ems")
     await proxy(command)
     await proxy(command)
@@ -34,7 +41,7 @@ async def test_confirmed_success_allows_repeated_same_value() -> None:
 
 async def test_unknown_blocks_subsequent_writes() -> None:
     fake = FakeCommander(pb.COMMAND_OUTCOME_UNKNOWN)
-    proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})  # type: ignore[arg-type]
+    proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})
     command = PointWrite("t1", "command", 42, "collector")
     with pytest.raises(RuntimeError, match="unknown"):
         await proxy(command)

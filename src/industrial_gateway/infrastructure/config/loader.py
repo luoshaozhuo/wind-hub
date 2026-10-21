@@ -129,7 +129,10 @@ class GatewayConfig(_Strict):
                 raise ValueError("duplicate listen endpoint")
             endpoints.add(key)
         for device_id, device in self.devices.items():
-            if device.endpoint_id not in self.endpoints or device.point_table_id not in self.point_tables:
+            if (
+                device.endpoint_id not in self.endpoints
+                or device.point_table_id not in self.point_tables
+            ):
                 raise ValueError(f"undefined endpoint or point table for {device_id}")
             endpoint = self.endpoints[device.endpoint_id]
             table = self.point_tables[device.point_table_id]

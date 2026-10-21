@@ -88,7 +88,7 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
                 target.device_id,
                 target.point_id,
                 commander_config.command_timeout,
-                commander_config.rpc_timeout
+                commander_config.rpc_timeout,
             )
             for device_id, device in config.devices.items()
             for point_id, target in device.commands.items()
@@ -112,9 +112,11 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
             data_writers=frozenset(
                 str(ip_address(ip)) for ip in config.control.access.data_writers
             ),
-            command_writers=frozenset(
-                str(ip_address(ip)) for ip in config.control.access.command_writers
-            ) if config.control.enabled else frozenset(),
+            command_writers=(
+                frozenset(str(ip_address(ip)) for ip in config.control.access.command_writers)
+                if config.control.enabled
+                else frozenset()
+            ),
         )
         for endpoint_id, endpoint in config.endpoints.items()
     ]

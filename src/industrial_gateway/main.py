@@ -40,7 +40,7 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO)
     config = load_config(args.config)
     if args.check:
-        logger.info("configuration valid: %d endpoints", len(config.devices))
+        logger.info("configuration valid: %d endpoints", len(config.endpoints))
         return 0
     asyncio.run(run(args.config))
     return 0
