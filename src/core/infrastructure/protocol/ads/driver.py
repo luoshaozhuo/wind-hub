@@ -43,6 +43,7 @@ from .codec import (
     _is_point_level_error,
     _plc_datatype,
     compile_decoder,
+    encode_sum_write,
 )
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point, symbol_index_address
@@ -55,6 +56,17 @@ from .route import (
 )
 from .session import ADSCommandNotSentError, _AdsSession
 from .subscription import ADSSubscription
+
+
+class _SumReadItem(Structure):
+    """pyads Sum Read 请求头部，类型只创建一次。"""
+
+    _fields_ = [
+        ("iGroup", c_uint32),
+        ("iOffset", c_uint32),
+        ("size", c_uint32),
+    ]
+
 
 logger = logging.getLogger(__name__)
 _REMOTE_ROUTE_LOCK = threading.Lock()
@@ -501,10 +513,8 @@ class ADSDriver:
         else:
             settled.add_done_callback(lambda _future: _finish())
 
-    async def _shutdown_session(self, session: _AdsSession | None) -> None:
+    async def _shutdown_session(self, session: _AdsSession) -> None:
         """有界关闭会话：拒绝新命令、等待旧命令线程结束后关闭端口。"""
-        if session is None:
-            return
         session.route_key = self._route_key
         grace = max(self._config.timeout, 5.0) + 1.0
         # aclose 自身完成有界等待与放弃计数；放弃时端口保持打开并已记录，
@@ -606,7 +616,7 @@ class ADSDriver:
             if not self._connected or session is None:
                 raise ProtocolError("ADS subscribe requires an active connection")
             mapped = (
-                tuple(self._mapped_point(point_id) for point_id in point_ids)
+                tuple(self._resolve_point(point_id) for point_id in point_ids)
                 if point_ids
                 else tuple(self._points.values())
             )
@@ -773,7 +783,7 @@ class ADSDriver:
             try:
                 compiled = (
                     self._build_sum_requests(mapped),
-                    self._build_sum_decoders(mapped),
+                    tuple(compile_decoder(point) for point in mapped),
                 )
             except ProtocolError:
                 raise
@@ -843,7 +853,7 @@ class ADSDriver:
 
         for start in range(0, len(prepared), chunk_size):
             chunk = prepared[start : start + chunk_size]
-            request = self._encode_sum_write(chunk)
+            request = encode_sum_write(chunk)
             try:
                 raw = await session.execute(
                     "read_write",
@@ -893,15 +903,6 @@ class ADSDriver:
         if any(result is None for result in results):
             raise RuntimeError("ADS sum write did not produce a result for every point")
         return tuple(result for result in results if result is not None)
-
-    @staticmethod
-    def _encode_sum_write(chunk: Sequence[tuple[int, ADSPoint, bytes]]) -> bytearray:
-        """构造 Sum Write 请求载荷（逐点头部拼接 + 逐点数据拼接）。"""
-        headers = b"".join(
-            struct.pack("<III", point.group, point.offset, len(payload))
-            for _, point, payload in chunk
-        )
-        return bytearray(headers + b"".join(payload for _, _, payload in chunk))
 
     async def _write_single_point(
         self,
@@ -994,13 +995,6 @@ class ADSDriver:
     def _build_sum_requests(self, points: tuple[ADSPoint, ...]) -> tuple[Any, ...]:
         """编译可直接交给 pyads.read_write 的分批 Sum Read 请求。"""
 
-        class _SumReadItem(Structure):
-            _fields_ = [
-                ("iGroup", c_uint32),
-                ("iOffset", c_uint32),
-                ("size", c_uint32),
-            ]
-
         limit = self._config.max_subs_per_sum
         return tuple(
             (_SumReadItem * len(chunk))(
@@ -1009,12 +1003,6 @@ class ADSDriver:
             for start in range(0, len(points), limit)
             if (chunk := points[start : start + limit])
         )
-
-    def _build_sum_decoders(
-        self, points: tuple[ADSPoint, ...]
-    ) -> tuple[Callable[[bytes | memoryview, int], PointScalar], ...]:
-        """编译逐点解码器，与请求地址保持相同顺序。"""
-        return tuple(compile_decoder(point) for point in points)
 
     def _store_sum_read_cache_locked(
         self,
@@ -1084,24 +1072,6 @@ class ADSDriver:
                     results.append((None, Quality.BAD))
         return tuple(results)
 
-    async def resolve_symbol(self, symbol: str) -> tuple[int, int]:
-        """按需查询 PLC 符号地址；同一 ADS session 内复用解析结果。"""
-        async with self._lock:
-            session = self._require_session_locked("resolve_symbol")
-            cached = self._symbol_cache.get(symbol)
-        if cached is not None:
-            return cached[0], cached[1]
-        info = await session.execute("get_symbol", symbol)
-        group, offset = symbol_index_address(symbol, info)
-        raw_size = getattr(info, "size", None)
-        size = raw_size if type(raw_size) is int and raw_size > 0 else None
-        resolved = (group, offset, size)
-        async with self._lock:
-            # 并发解析同符号时不覆盖；会话已切换则结果属于旧会话，不入缓存。
-            if self._session is session and self._connected:
-                self._symbol_cache.setdefault(symbol, resolved)
-        return group, offset
-
     async def _resolve_symbol_locked(self, symbol: str) -> tuple[int, int, int | None]:
         """connect 建链流程内使用：调用方持 Driver 状态锁且会话不会切换。"""
         cached = self._symbol_cache.get(symbol)
@@ -1141,19 +1111,16 @@ class ADSDriver:
         self._symbol_cache.clear()
         self._points = {point_id: point.unresolved() for point_id, point in self._points.items()}
 
-    def _mapped_point(self, point_id: str) -> ADSPoint:
+    def _resolve_point(self, point_id: str) -> ADSPoint:
+        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
+        if not isinstance(point_id, str):
+            raise ConfigError("protocol point must be a configured point key")
         mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
                 f"point '{point_id}' is not part of connection " f"'{self._point_table_id}'"
             )
         return mapped
-
-    def _resolve_point(self, point: str) -> ADSPoint:
-        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
-        if not isinstance(point, str):
-            raise ConfigError("protocol point must be a configured point key")
-        return self._mapped_point(point)
 
     def _detach_runtime(
         self,

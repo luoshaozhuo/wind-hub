@@ -354,7 +354,7 @@ class ModbusDriver:
             if not self.is_open():
                 raise ProtocolConnectionError("Modbus read requires an active connection")
 
-            plan = self._read_plan(points)
+            plan = self._read_plan(points, mapped_points)
             values: dict[ModbusPoint, object] = {}
             for group in plan:
                 values.update(await self._transact("read", self._read_group(group)))
@@ -403,7 +403,10 @@ class ModbusDriver:
         del common_address, qoi
         raise ProtocolCapabilityError("modbus does not support interrogation")
 
-    def _mapped_point(self, point_id: str) -> ModbusPoint:
+    def _resolve_point(self, point_id: str) -> ModbusPoint:
+        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
+        if not isinstance(point_id, str):
+            raise ConfigError("protocol point must be a configured point key")
         mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
@@ -411,21 +414,16 @@ class ModbusDriver:
             )
         return mapped
 
-    def _resolve_point(self, point: str) -> ModbusPoint:
-        """仅允许按当前 PointTable 已配置的 Key 寻址。"""
-        if not isinstance(point, str):
-            raise ConfigError("protocol point must be a configured point key")
-        return self._mapped_point(point)
-
-    def _read_plan(self, points: Sequence[str]) -> tuple[_ReadGroupPlan, ...]:
+    def _read_plan(
+        self, points: Sequence[str], mapped_points: tuple[ModbusPoint, ...]
+    ) -> tuple[_ReadGroupPlan, ...]:
         """按点位有序序列缓存寄存器分组；命中时跳过映射及分组合并。"""
         key = tuple(points)
         cached = self._read_plan_cache.get(key)
         if cached is not None:
             return cached
-        mapped = [self._resolve_point(point) for point in key]
         plans: list[_ReadGroupPlan] = []
-        for group in group_consecutive_reads(mapped):
+        for group in group_consecutive_reads(mapped_points):
             start = min(point.address for point in group)
             end = max(point.address + point.count for point in group)
             plans.append(

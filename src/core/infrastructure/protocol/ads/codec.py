@@ -32,6 +32,14 @@ _FORMATS = {
 }
 
 
+def encode_sum_write(chunk: Sequence[tuple[int, ADSPoint, bytes]]) -> bytearray:
+    """构造 ADS Sum Write 载荷：逐点地址头部和数据区。"""
+    headers = b"".join(
+        struct.pack("<III", point.group, point.offset, len(payload)) for _, point, payload in chunk
+    )
+    return bytearray(headers + b"".join(payload for _, _, payload in chunk))
+
+
 def compile_decoder(point: ADSPoint) -> Callable[[bytes | memoryview, int], PointScalar]:
     """一次编译标量解码器，运行时不重复查找类型或建立 ctypes 对象。"""
     if point.data_type == "STRING":

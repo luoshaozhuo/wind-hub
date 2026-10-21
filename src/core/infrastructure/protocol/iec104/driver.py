@@ -435,7 +435,7 @@ class IEC104Driver:
         不使用任何缓存；自发/总召数据不能完成本 Future。同地址并发读取
         串行化；超时、否定响应、断线都显式失败。
         """
-        mapped = self._require_point(point_id)
+        mapped = self._resolve_point(point_id)
         if mapped.type_id is not None and not mapped.type_id.startswith("M_"):
             raise ProtocolError(
                 f"IEC104 point '{point_id}' is a command point ({mapped.type_id}), "
@@ -496,7 +496,7 @@ class IEC104Driver:
         - 肯定 ACT_CON 后肯定 ACT_TERM → CONFIRMED_SUCCESS（协议流程完成）；
         - 超时、断线等丢失确认 → UNKNOWN（可能已送达，禁止自动重传）。
         """
-        mapped = self._require_point(write.point)
+        mapped = self._resolve_point(write.point)
         try:
             validate_iec104_write_type(mapped)
             command = build_command(mapped, write.value)
@@ -704,7 +704,7 @@ class IEC104Driver:
         self._require_session()
         if point_ids:
             for point_id in point_ids:
-                self._require_point(point_id)
+                self._resolve_point(point_id)
             filter_ids = tuple(dict.fromkeys(point_ids))
         else:
             filter_ids = tuple(self._points_by_id)
@@ -1036,7 +1036,7 @@ class IEC104Driver:
                 f"'{self._point_table_id}'"
             )
 
-    def _require_point(self, point_id: str) -> IEC104Point:
+    def _resolve_point(self, point_id: str) -> IEC104Point:
         if not isinstance(point_id, str):
             raise ConfigError("protocol point must be a configured point key")
         mapped = self._points_by_id.get(point_id)

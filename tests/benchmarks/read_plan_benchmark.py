@@ -48,6 +48,11 @@ def _driver(point_count: int = 256) -> ModbusDriver:
     )
 
 
+def _plan(driver: ModbusDriver, points: tuple[str, ...] | list[str]):
+    """以已解析测点构造读取计划，和 Driver 生产调用保持一致。"""
+    return driver._read_plan(points, tuple(driver._resolve_point(point) for point in points))
+
+
 def _measure(fn: Callable[[], None], iterations: int = 5000) -> tuple[float, int]:
     """返回每次读取计划准备耗时（微秒）和峰值分配（字节）。"""
     for _ in range(200):
@@ -69,29 +74,29 @@ def main() -> None:
     dynamic = [tuple(f"p{(i * 17 + j) % 256}" for j in range(32)) for i in range(64)]
 
     def fixed_cached() -> None:
-        driver._read_plan(fixed)
+        _plan(driver, fixed)
 
     def fixed_uncached() -> None:
         driver._read_plan_cache.clear()
-        driver._read_plan(fixed)
+        _plan(driver, fixed)
 
     dynamic_hot = dynamic[:16]
     index = 0
 
     def dynamic_cached() -> None:
         nonlocal index
-        driver._read_plan(dynamic[index % len(dynamic)])
+        _plan(driver, dynamic[index % len(dynamic)])
         index += 1
 
     def dynamic_hot_cached() -> None:
         nonlocal index
-        driver._read_plan(dynamic_hot[index % len(dynamic_hot)])
+        _plan(driver, dynamic_hot[index % len(dynamic_hot)])
         index += 1
 
     def dynamic_uncached() -> None:
         nonlocal index
         driver._read_plan_cache.clear()
-        driver._read_plan(dynamic[index % len(dynamic)])
+        _plan(driver, dynamic[index % len(dynamic)])
         index += 1
 
     cases = (

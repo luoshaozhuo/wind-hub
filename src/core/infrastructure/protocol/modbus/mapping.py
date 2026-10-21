@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from core.application.errors import ConfigError
@@ -185,7 +186,7 @@ def modbus_point(
 
 
 def group_consecutive_reads(
-    points: list[ModbusPoint],
+    points: Sequence[ModbusPoint],
     *,
     max_gap: int = 8,
     max_registers_per_request: int = _MAX_REGISTER_READ,
