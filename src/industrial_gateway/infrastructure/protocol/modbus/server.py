@@ -194,8 +194,6 @@ class PymodbusGatewayServer:
             for mapping in relevant:
                 snapshot: PointSnapshot = store.read(mapping.device_id, mapping.point_id)
                 if snapshot.value is None:
-                    if bits is not None and mapping.address != address:
-                        continue
                     return ExcCodes.DEVICE_FAILURE
                 try:
                     encoded = encode_registers(mapping, snapshot.value)
