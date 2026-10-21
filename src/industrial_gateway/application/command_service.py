@@ -14,8 +14,8 @@ import grpc
 
 from core.infrastructure.rpc import commander_pb2 as pb
 
-from industrial_gateway.infrastructure.commander.journal import CommandJournal
 from industrial_gateway.domain import PointWrite, Scalar
+from industrial_gateway.infrastructure.commander.journal import CommandJournal
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class CommandState(StrEnum):
 
 
 class CommanderWriter(Protocol):
-    async def WritePoint(
+    async def WritePoint(  # noqa: N802
         self, request: pb.WritePointRequest, *, timeout: float
     ) -> pb.CommandResultMessage: ...
 
@@ -80,7 +80,10 @@ class CommanderProxy:
             raise PermissionError("command point has no Commander target")
         async with self._locks[key]:
             journal_key = json.dumps(key, separators=(",", ":"), ensure_ascii=False)
-            if (self._journal is not None and self._journal.blocked(journal_key)) or self._states[key] is CommandState.UNKNOWN:
+            if (
+                (self._journal is not None and self._journal.blocked(journal_key))
+                or self._states[key] is CommandState.UNKNOWN
+            ):
                 raise RuntimeError("command point locked after unknown outcome")
             encoded = self._encode(request.value)
             command_id = uuid4().hex
@@ -101,7 +104,10 @@ class CommanderProxy:
             except grpc.RpcError as exc:
                 # RPC 断开/超时可能发生在现场已经执行之后。
                 self._states[key] = CommandState.UNKNOWN
-                logger.error("Gateway command UNKNOWN id=%s target=%s error=%s", command_id, key, exc)
+                logger.error(
+                    "Gateway command UNKNOWN id=%s target=%s error=%s",
+                    command_id, key, exc,
+                )
                 raise RuntimeError("Commander result unknown; control locked") from exc
             except BaseException:
                 # 包含取消：如果请求已发出，必须按未知执行状态闭锁。
