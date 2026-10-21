@@ -194,6 +194,9 @@ async function saveModel() {
     ElMessage.error('Point table must exist and match model protocol')
     return
   }
+  const existing = editingId.value
+    ? configStore.deviceModels.find((x) => x.id === editingId.value)
+    : undefined
   const payload: DeviceModelDef = {
     id,
     device_type: form.device_type,
@@ -201,18 +204,14 @@ async function saveModel() {
     model: form.model.trim(),
     protocol: form.protocol,
     point_table: form.point_table,
-    properties: editingId.value
-      ? { ...(configStore.deviceModels.find((x) => x.id === editingId.value)?.properties || {}) }
-      : {},
-    protocol_options: editingId.value
-      ? { ...(configStore.deviceModels.find((x) => x.id === editingId.value)?.protocol === form.protocol
-          ? configStore.deviceModels.find((x) => x.id === editingId.value)?.protocol_options || {}
-          : {}) }
+    properties: existing ? { ...existing.properties } : {},
+    protocol_options: existing?.protocol === form.protocol
+      ? { ...existing.protocol_options }
       : {},
     connection_defaults: connectionDefaults(),
   }
   if (editingId.value) {
-    const target = configStore.deviceModels.find((x) => x.id === editingId.value)
+    const target = existing
     if (!target) return
 
     const devices = configStore.devices.filter((d) => d.model === target.id)
