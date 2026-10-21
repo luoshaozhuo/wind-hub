@@ -15,7 +15,7 @@ import {
 import { resetDeviceConnectionOverrides } from '../domain/devices'
 import { devicesForTask, refreshTaskValidity } from '../domain/tasks'
 import { useConfigStore } from '../stores/config'
-import { ADS_READ_MODES, PROTOCOLS } from '../domain/types'
+import { PROTOCOLS } from '../domain/types'
 import type { DeviceModelDef, Protocol } from '../domain/types'
 import { useViewport } from '../composables/useViewport'
 
@@ -37,7 +37,6 @@ const form = reactive({
   model: '',
   protocol: 'modbus' as Protocol,
   point_table: '',
-  read_mode: 'sum',
   connection: defaultConnectionForm('modbus'),
 })
 
@@ -95,7 +94,6 @@ function resetForm() {
   form.model = ''
   form.protocol = 'modbus'
   form.point_table = configStore.pointTables.find((t) => t.protocol === 'modbus')?.id || ''
-  form.read_mode = 'sum'
   form.connection = defaultConnectionForm('modbus')
 }
 
@@ -136,7 +134,6 @@ function openEditModel(row: DeviceModelDef) {
   form.model = row.model || ''
   form.protocol = row.protocol
   form.point_table = row.point_table
-  form.read_mode = row.read_mode || 'sum'
   form.connection = formFromModelDefaults(row)
   metadataSnapshot.value = JSON.stringify(form)
 }
@@ -204,7 +201,6 @@ async function saveModel() {
     model: form.model.trim(),
     protocol: form.protocol,
     point_table: form.point_table,
-    read_mode: form.protocol === 'ads' ? form.read_mode : '',
     properties: editingId.value
       ? { ...(configStore.deviceModels.find((x) => x.id === editingId.value)?.properties || {}) }
       : {},
@@ -230,7 +226,7 @@ async function saveModel() {
     const connectionChanged =
       JSON.stringify(target.connection_defaults) !== JSON.stringify(payload.connection_defaults)
     const runtimeImpact =
-      protocolChanged || tableChanged || connectionChanged || target.read_mode !== payload.read_mode
+      protocolChanged || tableChanged || connectionChanged
 
     if (runtimeImpact && devices.length) {
       try {
@@ -662,14 +658,6 @@ async function deleteGroup(row: { id: string }) {
                     :key="t.id"
                     :label="t.id"
                     :value="t.id" /></el-select
-              ></el-form-item>
-              <el-form-item v-if="form.protocol === 'ads'" label="Read Mode"
-                ><el-select v-model="form.read_mode"
-                  ><el-option
-                    v-for="r in ADS_READ_MODES"
-                    :key="r"
-                    :label="r"
-                    :value="r" /></el-select
               ></el-form-item>
             </div>
             <el-divider content-position="left">Connection Defaults</el-divider>
