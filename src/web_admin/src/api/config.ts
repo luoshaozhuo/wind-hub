@@ -127,7 +127,13 @@ export function buildDefinitionsPayload(
         protocol: item.protocol,
         point_table_id: item.point_table,
         properties: { ...item.properties },
-        endpoint_defaults: { ...item.connection_defaults },
+        endpoint_defaults: { port: item.connection_defaults.port },
+        protocol_options: {
+          ...item.protocol_options,
+          ...Object.fromEntries(
+            Object.entries(item.connection_defaults).filter(([key]) => key !== 'port'),
+          ),
+        },
       }
       return [item.id, value]
     }),
@@ -152,7 +158,7 @@ export function buildDefinitionsPayload(
                   data_type: point.data_type,
                   scale: point.scale,
                   offset: point.offset,
-                  unit_id: point.unit,
+                  unit: point.unit,
                   description: point.description || undefined,
                 },
               ]),
