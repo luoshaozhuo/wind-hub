@@ -11,6 +11,7 @@ packages = [
     { include = "commander", from = "src" },
     { include = "cli", from = "src" },
     { include = "web_server", from = "src" },
+    { include = "industrial_gateway", from = "src" },
 ]
 
 [tool.poetry.dependencies]
@@ -64,6 +65,7 @@ wind-hub-collector = "collector.main:main"
 wind-hub = "cli.main:main"
 wind-hub-commander = "commander.main:main"
 wind-hub-server = "web_server.main:main"
+wind-hub-gateway = "industrial_gateway.main:main"
 
 [tool.ruff]
 line-length = 100

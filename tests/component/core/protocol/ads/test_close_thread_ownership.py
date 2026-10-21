@@ -43,6 +43,48 @@ _FAST_GRACE = 0.02
 _PIPELINE_BUDGET = _FAST_GRACE + 2.0
 
 
+def _wait_until_set(event: threading.Event, timeout: float) -> bool:
+    """按单调时钟守住硬期限，避免底层定时等待提前返回造成假超时。"""
+    deadline = time.monotonic() + timeout
+    while not event.is_set():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        event.wait(remaining)
+    return True
+
+
+def test_close_gate_tolerates_early_wait_return(monkeypatch: pytest.MonkeyPatch) -> None:
+    event = threading.Event()
+    calls = 0
+
+    def early_wait(timeout: float | None = None) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            event.set()
+        return event.is_set()
+
+    monkeypatch.setattr(event, "wait", early_wait)
+    assert _wait_until_set(event, 0.1)
+    assert calls == 2
+
+
+def test_close_gate_keeps_deadline_after_early_wait_return(monkeypatch: pytest.MonkeyPatch) -> None:
+    event = threading.Event()
+    ticks = iter([0.0, 0.0, 0.04, 0.1])
+    waits: list[float | None] = []
+
+    def early_wait(timeout: float | None = None) -> bool:
+        waits.append(timeout)
+        return False
+
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(event, "wait", early_wait)
+    assert not _wait_until_set(event, 0.1)
+    assert waits == pytest.approx([0.1, 0.06])
+
+
 class CloseBlockingConnection:
     """close() 可被线程级 Event 阻塞的 pyads 连接 fake，记录真实起止时刻。"""
 
@@ -85,7 +127,7 @@ class CloseBlockingConnection:
             self.close_begin = time.monotonic()
         self._log("close-start")
         self.close_started.set()
-        if not self.close_gate.wait(timeout=5.0):
+        if not _wait_until_set(self.close_gate, timeout=5.0):
             raise AssertionError(f"{self.name}.close() was never released")
         with self._lock:
             self.close_end = time.monotonic()
