@@ -10,6 +10,7 @@ from collections.abc import Mapping
 
 from pymodbus.constants import ExcCodes
 from pymodbus.simulator import DataType, SimData, SimDevice
+from pymodbus.simulator.simutils import SimUtils
 
 from industrial_gateway.application.write_service import (
     ResolvedWrite,
@@ -151,25 +152,40 @@ class PymodbusGatewayServer:
                     logger.exception("Gateway feedback batch rejected")
                     return ExcCodes.DEVICE_FAILURE
                 return None
-            # 拒绝未映射地址及跨越逻辑点边界的读取。
-            cursor = address
-            for mapping in sorted(relevant, key=lambda item: item.address):
-                if mapping.address != cursor:
+            # bit 访问的 count 是底层 16-bit 寄存器数，而非请求 bit 数。
+            is_bit = area in {"coil", "discrete_input"}
+            if not is_bit:
+                cursor = address
+                for mapping in sorted(relevant, key=lambda item: item.address):
+                    if mapping.address != cursor:
+                        return ExcCodes.ILLEGAL_ADDRESS
+                    cursor += mapping.count
+                if cursor != address + count:
                     return ExcCodes.ILLEGAL_ADDRESS
-                cursor += mapping.count
-            if cursor != address + count:
+            elif not relevant:
                 return ExcCodes.ILLEGAL_ADDRESS
-            # 每次读前从业务 PointStore 投影到 pymodbus 寄存器内存。
+
+            updated_words = list(current_registers)
+            bits = SimUtils.registersToBits(updated_words) if is_bit else None
             for mapping in relevant:
                 snapshot: PointSnapshot = store.read(mapping.device_id, mapping.point_id)
                 if snapshot.value is None:
                     return ExcCodes.DEVICE_FAILURE
                 try:
                     encoded = encode_registers(mapping, snapshot.value)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     return ExcCodes.DEVICE_FAILURE
-                index = mapping.address - start_address
-                current_registers[index : index + mapping.count] = list(encoded)
+                if bits is not None:
+                    offset = mapping.address - start_address * 16
+                    if not 0 <= offset < len(bits):
+                        return ExcCodes.ILLEGAL_ADDRESS
+                    bits[offset] = bool(encoded[0])
+                else:
+                    offset = mapping.address - start_address
+                    updated_words[offset : offset + mapping.count] = encoded
+            if bits is not None:
+                updated_words = SimUtils.bitsToRegisters(bits)
+            current_registers[:] = updated_words
             return None
 
         return on_access
