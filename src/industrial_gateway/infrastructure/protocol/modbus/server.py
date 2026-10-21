@@ -74,7 +74,7 @@ class PymodbusGatewayServer:
                 blocks[_AREAS[mapping.area]].append(block)
             for block in blocks:
                 if not block:
-                    block.append(SimData(address=0, datatype=DataType.INVALID))
+                    block.append(SimData(address=0, datatype=DataType.BITS if block in blocks[:2] else DataType.INVALID, values=False if block in blocks[:2] else 0))
             devices.append(
                 SimDevice(
                     id=unit_id,
@@ -108,13 +108,15 @@ class PymodbusGatewayServer:
                 1: "coil", 2: "discrete_input", 3: "holding", 4: "input",
                 5: "coil", 6: "holding", 15: "coil", 16: "holding",
             }[function_code]
+            write_request = function_code in _WRITE_CODES and set_values is not None
+            span = len(set_values) if write_request and area in {"coil", "discrete_input"} else count
             relevant = [
                 mapping for mapping in mappings
                 if mapping.area == area
-                and mapping.address < address + count
+                and mapping.address < address + span
                 and mapping.address + mapping.count > address
             ]
-            if function_code in _WRITE_CODES:
+            if write_request:
                 peer = request_ip()
                 if peer is None or set_values is None:
                     return ExcCodes.ILLEGAL_ADDRESS
@@ -199,7 +201,6 @@ class PymodbusGatewayServer:
             broadcast_enable=False,
             ignore_missing_devices=False,
         )
-        server.allow_multiple_devices = True
         await server.serve_forever(background=True)
         self._server = server
 
