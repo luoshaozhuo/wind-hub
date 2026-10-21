@@ -14,7 +14,7 @@ export interface ConnectionFormState {
   timeout: number
   target_net_id: string
   twincat_version: string
-  unit_id: number
+  slave_id: number
   mode: string
   word_order: string
   common_addresses: string
@@ -41,7 +41,7 @@ export const PROTOCOL_DEFAULT_PORTS: Record<Protocol, number> = {
  */
 export const PROTOCOL_OVERRIDE_KEYS: Record<Protocol, readonly string[]> = {
   ads: ['twincat_version', 'timeout'],
-  modbus: ['unit_id', 'mode', 'timeout', 'word_order'],
+  modbus: ['slave_id', 'mode', 'timeout', 'word_order'],
   iec104: ['common_addresses', 'k', 'w', 't0', 't1', 't2', 't3'],
 }
 
@@ -51,7 +51,7 @@ export const PROTOCOL_DEFAULT_KEYS: Record<Protocol, readonly string[]> = {
   modbus: [
     'port',
     'timeout',
-    'unit_id',
+    'slave_id',
     'mode',
     'word_order',
     'reconnect_max_retries',
@@ -82,7 +82,7 @@ export function defaultConnectionForm(protocol: Protocol): ConnectionFormState {
     timeout: 3,
     target_net_id: '',
     twincat_version: '2',
-    unit_id: 1,
+    slave_id: 1,
     mode: 'tcp',
     word_order: 'little_endian',
     common_addresses: '1',
@@ -111,7 +111,7 @@ export function formFromConnection(
     timeout: num(connection.timeout, base.timeout),
     target_net_id: str(connection.target_net_id, ''),
     twincat_version: str(connection.twincat_version, base.twincat_version),
-    unit_id: num(connection.slave_id ?? connection.unit_id, base.unit_id),
+    slave_id: num(connection.slave_id, base.slave_id),
     mode: str(connection.mode, base.mode),
     word_order: str(connection.word_order, base.word_order),
     common_addresses: caString(connection.common_addresses),
@@ -154,7 +154,7 @@ export function applyModelDefaults(
     form.timeout = fresh.timeout
     if (!form.target_net_id && host.trim()) form.target_net_id = amsNetIdFromHost(host)
   } else if (model.protocol === 'modbus') {
-    form.unit_id = fresh.unit_id
+    form.slave_id = fresh.slave_id
     form.mode = fresh.mode
     form.timeout = fresh.timeout
     form.word_order = fresh.word_order
@@ -203,9 +203,9 @@ export function connectionOverridesFromForm(
   const protocolDefaults = defaultConnectionForm(model.protocol)
   for (const key of PROTOCOL_OVERRIDE_KEYS[model.protocol]) {
     const configured = form[key as keyof ConnectionFormState]
-    const inherited = defaults[key === 'unit_id' ? 'slave_id' : key] ?? protocolDefaults[key as keyof ConnectionFormState]
+    const inherited = defaults[key] ?? protocolDefaults[key as keyof ConnectionFormState]
     if (inherited !== configured) {
-      extensions[key === 'unit_id' ? 'slave_id' : key] = configured
+      extensions[key === 'slave_id' ? 'slave_id' : key] = configured
     }
   }
   if (model.protocol === 'ads') extensions.target_net_id = form.target_net_id.trim()
@@ -221,7 +221,7 @@ export function connectionDefaultsFromForm(
   const result: Record<string, unknown> = { port: form.port }
   for (const key of PROTOCOL_DEFAULT_KEYS[protocol]) {
     if (key === 'port' || key.startsWith('reconnect_')) continue
-    result[key === 'unit_id' ? 'slave_id' : key] = form[key as keyof ConnectionFormState]
+    result[key] = form[key as keyof ConnectionFormState]
   }
   return result
 }
