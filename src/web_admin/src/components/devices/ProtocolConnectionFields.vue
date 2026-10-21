@@ -73,7 +73,7 @@ const MODE_LABELS: Record<string, string> = { tcp: 'TCP', rtu: 'RTU' }
   <template v-else-if="protocol === 'modbus'">
     <el-form-item label="Unit ID"
       ><el-input-number
-        v-model="connection.unit_id"
+        v-model="connection.slave_id"
         :min="0"
         :max="255"
         :controls="controls"
