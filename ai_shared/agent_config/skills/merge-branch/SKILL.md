@@ -22,6 +22,14 @@ python <skill-dir>/scripts/merge.py merge
 
 用户触发合并时，`merge.py` 在确认远端分支与当前 HEAD 一致后，调用 `scripts/ci_gate.py merge`。验证范围由任务分支与 `origin/main` 的完整差异决定；开发、Commit、Push 和创建 PR 不强制运行完整产品测试。任何验证失败都阻止合并，代码或 main 变化后重新验收。GitHub Fast/PR 工作流仅运行轻量治理检查，不重复产品测试。
 
+启动 `merge` 即允许脚本在 Gate 通过后立即合并，不是仅启动测试。先完成变更范围检查和已决定执行的补充验证，再调用脚本；不得与可能影响合并决定的检查并行运行，也不得把必要验证留到合并之后。
+
+测试路径选择以 `scripts/ci_gate.py` 为唯一实现：父目录覆盖的子路径需归并，同名测试模块使用独立导入模式。发现实际收集范围与选择范围不符时，先定位并修复选择器；不得用减少后的测试数量或单项复跑通过替代完整受影响范围验收。治理或工具变更只验证自身，不因此扩大到产品全量测试。
+
+Gate 失败后先定位原因；有证据支持时做定向复跑，修复后提交、推送，再执行完整受影响范围验收。不得无依据反复重跑直到偶然通过，也不得通过删测试、扩大 skip 或放宽断言解除阻断。
+
+验收结束后脚本重新检查工作区、分支、PR、CI 和审查，并核对验证时的 HEAD 与 main；合并请求使用 `--match-head-commit` 绑定已验证 HEAD。检查期间发生变化则停止，重新验收后才能合并。GitHub 分支保护仍是服务端最终门禁。
+
 ## 门禁
 
 - 仅允许**当前任务分支 → main**，采用 **Squash Merge**；不得直接在本地 `main` 上操作。
@@ -45,6 +53,6 @@ python <skill-dir>/scripts/merge.py merge
 
 ## 输出
 
-报告 PR 链接、CI 状态、Squash Commit SHA、远程 `main` 验证结果和 MERGED / BLOCKED / UNKNOWN 状态。
+报告 PR 链接、本地验收结果、CI 状态、已验证的 HEAD / main SHA、Squash Commit SHA、远程 `main` 验证结果和 MERGED / BLOCKED / UNKNOWN 状态。复核已经合并的 PR 时没有新的本地验收证据，不得补报 PASS。
 
 合并成功后由 `merge.py` **自动**执行本地收尾：`fetch origin main`、验证快进条件、`git switch main`、`git merge --ff-only origin/main`、核对本地 main 与 origin/main 一致、删除已验证的本地任务分支。仅在合并事实已核验、工作区干净且无其他 worktree 占用时允许 `git branch -D`。输出 `MERGED_AND_CLEANED`；若远程已合并但本地收尾失败，则输出 `MERGED_LOCAL_CLEANUP_BLOCKED` 和原因，不将远程合并误报为失败。

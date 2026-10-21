@@ -306,19 +306,25 @@ def main() -> int:
     if command("git", "rev-parse", "origin/main") != base_sha:
         raise BlockedError("main 在验证过程中更新，需重新验证")
     validation_elapsed = round(time.perf_counter() - started, 3)
-    # GitHub enforces branch protection for the ordinary squash merge.
-    # Recheck HEAD before merging; never use --admin.
-    current = gh_json(
-        "pr", "view", str(args.pr), "--json", "headRefOid,baseRefName,state"
-    )
+    # 本地验收期间 CI、审查和分支都可能改变；重新执行完整远端门禁。
+    current_info = inspect(args.pr)
+    current = current_info["pr"]
     if (
-        current["headRefOid"] != pr["headRefOid"]
+        current_info["state"] != "READY"
+        or current["headRefName"] != pr["headRefName"]
+        or current["headRefOid"] != pr["headRefOid"]
         or current["baseRefName"] != "main"
         or current["state"] != "OPEN"
     ):
         raise BlockedError("PR 已发生变化，重新检查后再合并")
+    if command("git", "rev-parse", "origin/main") != base_sha:
+        raise BlockedError("main 在最终检查期间更新，需重新验证")
     try:
-        command("gh", "pr", "merge", str(args.pr), "--squash")
+        # GitHub 原子校验 HEAD，封住最终查询与合并请求之间的提交变化窗口。
+        command(
+            "gh", "pr", "merge", str(args.pr), "--squash",
+            "--match-head-commit", pr["headRefOid"],
+        )
     except BlockedError:
         # A timeout or transport error does not imply the merge failed.
         # Verify remote state before deciding whether to report failure.
@@ -326,7 +332,9 @@ def main() -> int:
         if result.get("state") != "MERGED":
             raise
     merged = verify_merged(args.pr)
-    merged["ci"] = info["ci"]
+    merged["ci"] = current_info["ci"]
+    merged["validated_head_sha"] = pr["headRefOid"]
+    merged["validated_base_sha"] = base_sha
     merged["local_validation_seconds"] = validation_elapsed
     try:
         merged.update(finalize_local(pr, merged["squash_sha"]))

@@ -73,6 +73,9 @@ class FakeHarness:
         merge_error: bool = False,
         state_after_merge_error: str = "MERGED",
         pr_overrides: dict[str, Any] | None = None,
+        pr_after_gate: dict[str, Any] | None = None,
+        branch_after_gate: str = "feature/x",
+        main_moves_on_recheck: bool = False,
         actions_enabled: bool | None = True,
         actions_error: bool = False,
         classic_checks: dict[str, Any] | None = None,
@@ -86,6 +89,10 @@ class FakeHarness:
         self.merge_error = merge_error
         self.state_after_merge_error = state_after_merge_error
         self.pr_overrides = pr_overrides or {}
+        self.pr_after_gate = pr_after_gate or {}
+        self.branch_after_gate = branch_after_gate
+        self.main_moves_on_recheck = main_moves_on_recheck
+        self.fetches_after_gate = 0
         # bool => actions/permissions.enabled; None => missing/unknown field.
         self.actions_enabled = actions_enabled
         self.actions_error = actions_error
@@ -107,10 +114,12 @@ class FakeHarness:
     def command(self, *args: str, allow_failure: bool = False) -> str:
         a = list(args)
         if a[:2] == ["git", "branch"]:
-            return "feature/x"
+            return self.branch_after_gate if self.gate_done else "feature/x"
         if a[:2] == ["git", "status"]:
             return " M dirty" if self.gate_done and self.dirty_after else ""
         if a[:2] == ["git", "fetch"]:
+            if self.gate_done:
+                self.fetches_after_gate += 1
             return ""
         if a[:2] == ["git", "rev-parse"]:
             target = a[2]
@@ -119,7 +128,11 @@ class FakeHarness:
             if target == "origin/feature/x":
                 return "h1"
             if target == "origin/main":
-                return "m2" if self.gate_done and self.main_moves else "m1"
+                moved = self.gate_done and (
+                    self.main_moves
+                    or (self.main_moves_on_recheck and self.fetches_after_gate >= 2)
+                )
+                return "m2" if moved else "m1"
         if a[:2] == ["git", "diff"]:
             return "src/core/infrastructure/sink/file.py"
         if a[:3] == ["gh", "pr", "merge"]:
@@ -137,11 +150,10 @@ class FakeHarness:
             return {"number": 7}
         fields = a[a.index("--json") + 1] if "--json" in a else ""
         if "statusCheckRollup" in fields:
-            return _pr_view(**self.pr_overrides)
-        if fields == "headRefOid,baseRefName,state":
-            if self.head_moves:
-                return {"headRefOid": "h2", "baseRefName": "main", "state": "OPEN"}
-            return {"headRefOid": "h1", "baseRefName": "main", "state": "OPEN"}
+            overrides = dict(self.pr_overrides)
+            if self.gate_done:
+                overrides.update(self.pr_after_gate)
+            return _pr_view(**overrides)
         if fields == "state":
             return {"state": self.state_after_merge_error}
         if "mergedAt" in fields:
@@ -186,10 +198,14 @@ def test_happy_path_merges_once_and_reports(
     rc = _run(module, monkeypatch, "merge")
     assert rc == 0
     assert harness.gate_calls == 1
-    assert harness.merge_calls == [["gh", "pr", "merge", "7", "--squash"]]
+    assert harness.merge_calls == [[
+        "gh", "pr", "merge", "7", "--squash", "--match-head-commit", "h1"
+    ]]
     report = json.loads(capsys.readouterr().out)
     assert report["state"] == "MERGED_AND_CLEANED"
     assert report["squash_sha"] == "s1"
+    assert report["validated_head_sha"] == "h1"
+    assert report["validated_base_sha"] == "m1"
     assert isinstance(report["local_validation_seconds"], int | float)
 
 
@@ -391,7 +407,9 @@ def test_actions_disabled_no_required_runs_gate_and_reports(
     rc = _run(module, monkeypatch, "merge")
     assert rc == 0
     assert harness.gate_calls == 1
-    assert harness.merge_calls == [["gh", "pr", "merge", "7", "--squash"]]
+    assert harness.merge_calls == [[
+        "gh", "pr", "merge", "7", "--squash", "--match-head-commit", "h1"
+    ]]
     report = json.loads(capsys.readouterr().out)
     assert report["state"] == "MERGED_AND_CLEANED"
     assert report["ci"] == "NOT_RUN_ACTIONS_DISABLED"
@@ -551,3 +569,61 @@ def test_actions_disabled_merge_error_then_merged_no_retry(
     report = json.loads(capsys.readouterr().out)
     assert report["state"] == "MERGED_AND_CLEANED"
     assert report["ci"] == "NOT_RUN_ACTIONS_DISABLED"
+
+
+@pytest.mark.parametrize("changed", [
+    {"statusCheckRollup": [{"name": "ci", "conclusion": "FAILURE"}]},
+    {"statusCheckRollup": [{"name": "ci", "conclusion": None}]},
+    {"reviewDecision": "CHANGES_REQUESTED"},
+    {"isDraft": True},
+    {"headRefOid": "h2"},
+    {"baseRefName": "release"},
+    {"state": "CLOSED"},
+])
+def test_gate_success_does_not_override_changed_pr_conditions(
+    monkeypatch: pytest.MonkeyPatch, changed: dict[str, Any]
+) -> None:
+    module = _load()
+    harness = FakeHarness(module, monkeypatch, pr_after_gate=changed)
+    with pytest.raises(module.BlockedError):
+        _run(module, monkeypatch, "merge")
+    assert harness.gate_calls == 1
+    assert harness.merge_calls == []
+
+
+def test_switching_to_main_during_gate_blocks_merge(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    harness = FakeHarness(module, monkeypatch, branch_after_gate="main")
+    with pytest.raises(module.BlockedError, match="任务分支"):
+        _run(module, monkeypatch, "merge")
+    assert harness.merge_calls == []
+
+
+def test_main_changes_during_final_inspect_blocks_merge(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    harness = FakeHarness(module, monkeypatch, main_moves_on_recheck=True)
+    with pytest.raises(module.BlockedError, match="最终检查"):
+        _run(module, monkeypatch, "merge")
+    assert harness.merge_calls == []
+
+
+@pytest.mark.parametrize("permissions", [{}, {"enabled": True}])
+def test_actions_state_rechecked_after_gate(
+    monkeypatch: pytest.MonkeyPatch, permissions: dict[str, Any]
+) -> None:
+    module = _load()
+    harness = FakeHarness(
+        module, monkeypatch, actions_enabled=False,
+        pr_overrides={"statusCheckRollup": []},
+    )
+
+    def api(path: str) -> Any:
+        if harness.gate_done and path.endswith("/actions/permissions"):
+            return permissions
+        return harness.gh_api(path)
+
+    monkeypatch.setattr(module, "gh_api", api)
+    with pytest.raises(module.BlockedError):
+        _run(module, monkeypatch, "merge")
+    assert harness.gate_calls == 1
+    assert harness.merge_calls == []
