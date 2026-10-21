@@ -672,7 +672,6 @@ async function deleteGroup(row: { id: string }) {
               <ProtocolConnectionFields
                 v-model="form.connection"
                 :protocol="form.protocol"
-                show-reconnect
                 :controls="false"
               />
             </div>
