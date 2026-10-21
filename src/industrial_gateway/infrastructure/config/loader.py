@@ -44,7 +44,7 @@ class Point(_Strict):
             "validation_device", "validation_point", self.address.register_type,
             self.address.address, self.data_type, self.address.word_order,
         )
-        if self.role in {"feedback", "parameter", "command"} and mapping.area not in {"coil", "holding"}:
+        if mapping.area not in {"coil", "holding"}:
             raise ValueError("writable points must use coil or holding registers")
         if self.role == "command" and self.max_age_seconds is not None:
             raise ValueError("command points cannot have feedback expiry")
@@ -129,10 +129,10 @@ class GatewayConfig(_Strict):
                 raise ValueError("duplicate listen endpoint")
             endpoints.add(key)
         for device_id, device in self.devices.items():
-            endpoint = self.endpoints.get(device.endpoint_id)
-            table = self.point_tables.get(device.point_table_id)
-            if endpoint is None or table is None:
+            if device.endpoint_id not in self.endpoints or device.point_table_id not in self.point_tables:
                 raise ValueError(f"undefined endpoint or point table for {device_id}")
+            endpoint = self.endpoints[device.endpoint_id]
+            table = self.point_tables[device.point_table_id]
             if endpoint.protocol != table.protocol:
                 raise ValueError(f"protocol mismatch for {device_id}")
             unit = (device.endpoint_id, device.protocol_address.unit_id)
