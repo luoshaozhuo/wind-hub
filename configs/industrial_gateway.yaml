@@ -1,0 +1,63 @@
+# Industrial Gateway：Collector 写反馈，DC-EMS 读反馈并写命令。
+# 当前仅实现 Modbus TCP；一个 Endpoint 可包含多个 Unit ID。
+# 注意：control.enabled 默认 false，不要直接用示例启用现场控制。
+endpoints:
+  modbus_main:
+    protocol: modbus
+    host: 127.0.0.1
+    port: 15020
+    protocol_options:
+      mode: tcp
+
+point_tables:
+  turbine_modbus:
+    protocol: modbus
+    points:
+      active_power:
+        role: feedback
+        data_type: float32
+        address:
+          register_type: holding
+          address: 100
+          word_order: big_endian
+        max_age_seconds: 3.0
+      power_setpoint:
+        role: command
+        data_type: float32
+        address:
+          register_type: holding
+          address: 200
+          word_order: big_endian
+
+devices:
+  turbine_001:
+    endpoint_id: modbus_main
+    point_table_id: turbine_modbus
+    protocol_address:
+      unit_id: 1
+    commands:
+      power_setpoint:
+        device_id: turbine_001
+        point_id: power_setpoint
+
+  turbine_002:
+    endpoint_id: modbus_main
+    point_table_id: turbine_modbus
+    protocol_address:
+      unit_id: 2
+    commands:
+      power_setpoint:
+        device_id: turbine_002
+        point_id: power_setpoint
+
+control:
+  enabled: false
+  commander:
+    endpoint: 127.0.0.1:50052
+    command_timeout: 3.0
+    rpc_timeout: 4.0
+  journal_path: /var/lib/wind-hub/gateway/commands.json
+  access:
+    data_writers:
+      - 127.0.0.1
+    command_writers: []
