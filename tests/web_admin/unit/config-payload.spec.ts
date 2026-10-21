@@ -7,7 +7,8 @@ const state = {
   deviceModels: [{
     id: 'm', device_type: 'turbine', manufacturer: 'Vendor', model: 'M',
     protocol: 'modbus', point_table: 'p', read_mode: '',
-    properties: {}, connection_defaults: { port: 502 },
+    properties: { location: 'site-a' }, connection_defaults: { port: 502, timeout: 4, unit_id: 2 },
+    protocol_options: { custom_flag: true },
   }],
   pointTables: [{
     id: 'p', protocol: 'modbus', extends: '', remove_points: [], system: false,
@@ -26,13 +27,15 @@ describe('Core definitions payload', () => {
       device_type_id: 'turbine',
       point_table_id: 'p',
       endpoint_defaults: { port: 502 },
+      protocol_options: { custom_flag: true, timeout: 4, unit_id: 2 },
+      properties: { location: 'site-a' },
     })
     expect(result.point_tables.p).toMatchObject({
       protocol: 'modbus',
       points: {
         P: {
           business_point_id: 'power',
-          unit_id: 'kW',
+          unit: 'kW',
           point_groups: ['all'],
         },
       },
