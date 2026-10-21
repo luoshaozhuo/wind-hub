@@ -9,6 +9,7 @@ from time import monotonic
 
 from industrial_gateway.domain import (
     PointDefinition,
+    PointKey,
     PointRole,
     PointSnapshot,
     PointWrite,
@@ -16,7 +17,6 @@ from industrial_gateway.domain import (
 )
 
 CommandHandler = Callable[[PointWrite], Awaitable[None]]
-PointKey = tuple[str, str]
 
 
 class PointStore:
