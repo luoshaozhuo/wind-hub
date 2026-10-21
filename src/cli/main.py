@@ -120,6 +120,10 @@ def _build_commander_parser(sub: argparse._SubParsersAction[argparse.ArgumentPar
         required=True,
     )
     write_many.add_argument("--io-timeout", type=float, default=1.0)
+    write_many.add_argument(
+        "--command-id", default=None,
+        help="Batch idempotency key; item IDs are derived deterministically",
+    )
 
     verify_device = commands.add_parser("verify-device")
     verify_device.add_argument("device_id")
@@ -179,15 +183,16 @@ def _commander_kwargs(args: argparse.Namespace) -> dict[str, Any]:
             "io_timeout": args.io_timeout,
         }
     if args.operation == "write-many":
+        batch_id = args.command_id or uuid4().hex
         items = [
             {
                 "device_id": device_id,
                 "point_id": point_id,
                 "value": _parse_scalar(value),
-                "command_id": uuid4().hex,
+                "command_id": f"{batch_id}:{index}",
                 "timeout": args.io_timeout,
             }
-            for device_id, point_id, value in args.item
+            for index, (device_id, point_id, value) in enumerate(args.item)
         ]
         return {"items": items}
 
