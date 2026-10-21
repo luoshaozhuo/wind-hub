@@ -38,6 +38,18 @@ class Point(_Strict):
     address: Address
     max_age_seconds: float | None = Field(default=None, gt=0)
 
+    @model_validator(mode="after")
+    def validate_modbus_point(self) -> Point:
+        mapping = RegisterMapping(
+            "validation_device", "validation_point", self.address.register_type,
+            self.address.address, self.data_type, self.address.word_order,
+        )
+        if self.role in {"feedback", "parameter", "command"} and mapping.area not in {"coil", "holding"}:
+            raise ValueError("writable points must use coil or holding registers")
+        if self.role == "command" and self.max_age_seconds is not None:
+            raise ValueError("command points cannot have feedback expiry")
+        return self
+
 
 class PointTable(_Strict):
     protocol: Literal["modbus"]
@@ -151,6 +163,6 @@ class GatewayConfig(_Strict):
         return self
 
 
-def load_config(path: Path) -> GatewayConfig:
+def load_config(path: str | Path) -> GatewayConfig:
     """从 configs 目录加载，不接受未知的旧 Redis 配置字段。"""
-    return GatewayConfig.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+    return GatewayConfig.model_validate(yaml.safe_load(Path(path).read_text(encoding="utf-8")))
