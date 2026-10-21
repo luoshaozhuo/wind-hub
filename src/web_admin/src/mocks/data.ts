@@ -114,7 +114,7 @@ export const deviceModelsSeed: Record<string, MockDeviceModel> = {
     point_table: 'modbus_wtg_v1',
     connection_defaults: {
       port: 502,
-      unit_id: 1,
+      slave_id: 1,
       mode: 'tcp',
       timeout: 3.0,
       word_order: 'little_endian',
@@ -134,7 +134,7 @@ export const deviceModelsSeed: Record<string, MockDeviceModel> = {
     model: 'PCS Modbus A',
     protocol: 'modbus',
     point_table: 'pcs_modbus_v1',
-    connection_defaults: { port: 502, unit_id: 1, mode: 'tcp', timeout: 3.0 },
+    connection_defaults: { port: 502, slave_id: 1, mode: 'tcp', timeout: 3.0 },
   },
 }
 
