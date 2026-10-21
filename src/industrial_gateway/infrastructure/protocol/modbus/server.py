@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from typing import cast
 
 from pymodbus.constants import ExcCodes
-from pymodbus.simulator import DataType, SimData, SimDevice
+from pymodbus.simulator import DataType, SimAction, SimData, SimDevice
 from pymodbus.simulator.simutils import SimUtils
 
+from industrial_gateway.application.point_store import PointStore
 from industrial_gateway.application.write_service import (
     ResolvedWrite,
     WriteService,
@@ -25,7 +27,6 @@ from industrial_gateway.infrastructure.protocol.modbus.codec import (
     decode_registers,
     encode_registers,
 )
-from industrial_gateway.application.point_store import PointStore
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ class PymodbusGatewayServer:
         writes: WriteService,
         data_writers: frozenset[str],
         command_writers: frozenset[str],
-    ):
+    ) -> SimAction:
         """工厂绑定 Unit 的映射，回调不读取全局可变请求上下文。"""
 
         async def on_access(
@@ -117,9 +118,11 @@ class PymodbusGatewayServer:
             }[function_code]
             write_request = function_code in _WRITE_CODES and set_values is not None
             bit_area = area in {"coil", "discrete_input"}
-            span = len(set_values) if write_request and bit_area else count
+            span = len(set_values) if write_request and bit_area and set_values is not None else count
             bit_start = address // 16 * 16 if bit_area and not write_request else address
-            bit_end = bit_start + count * 16 if bit_area and not write_request else address + span
+            bit_end = (
+                bit_start + count * 16 if bit_area and not write_request else address + span
+            )
             relevant = [
                 mapping for mapping in mappings
                 if mapping.area == area
@@ -219,4 +222,5 @@ class PymodbusGatewayServer:
     async def stop(self) -> None:
         server, self._server = self._server, None
         if server is not None:
-            await server.shutdown()
+            shutdown = cast(Callable[[], Awaitable[None]], server.shutdown)
+            await shutdown()
