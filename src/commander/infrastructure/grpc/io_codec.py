@@ -46,6 +46,8 @@ def command_to_proto(command: Command) -> pb.WritePointRequest:
 
 def command_from_proto(message: pb.WritePointRequest) -> Command:
     """wire request → 领域 Command。"""
+    if message.value.WhichOneof("kind") is None:
+        raise ValueError("command value must not be empty")
     return Command(
         command_id=message.command_id,
         device_id=message.device_id,
