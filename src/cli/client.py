@@ -286,7 +286,7 @@ class CommanderClient:
                     value=encode_scalar(kwargs["value"]),
                     timeout=kwargs["io_timeout"],
                 ),
-                timeout=timeout,
+                timeout=max(timeout, float(kwargs["io_timeout"]) + 1.0),
             )
         elif operation == "write-many":
             commands = [
@@ -301,7 +301,7 @@ class CommanderClient:
             ]
             response = await stub.WritePoints(
                 commander_pb.WritePointsRequest(commands=commands),
-                timeout=timeout,
+                timeout=max(timeout, max(float(item["timeout"]) for item in kwargs["items"]) + 1.0),
             )
         elif operation == "verify-device":
             response = await stub.VerifyDevice(
