@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
+
+from industrial_gateway.modbus_codec import RegisterMap, RegisterMapping
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -108,6 +111,8 @@ class GatewayConfig(_Strict):
         units: set[tuple[str, int]] = set()
         physical_targets: set[tuple[str, str]] = set()
         for endpoint in self.endpoints.values():
+            if endpoint.protocol_options not in ({}, {"mode": "tcp"}):
+                raise ValueError("unsupported Modbus endpoint options")
             key = (endpoint.host, endpoint.port)
             if key in endpoints:
                 raise ValueError("duplicate listen endpoint")
@@ -123,6 +128,15 @@ class GatewayConfig(_Strict):
             if unit in units:
                 raise ValueError(f"duplicate unit ID under endpoint: {unit}")
             units.add(unit)
+            mappings: list[RegisterMapping] = []
+            for point_id, point in table.points.items():
+                mappings.append(
+                    RegisterMapping(
+                        device_id, point_id, point.address.register_type,
+                        point.address.address, point.data_type, point.address.word_order,
+                    )
+                )
+            RegisterMap(mappings)
             for point_id, point in table.points.items():
                 if point.role == "command" and point_id not in device.commands:
                     raise ValueError(f"missing command target: {device_id}.{point_id}")
