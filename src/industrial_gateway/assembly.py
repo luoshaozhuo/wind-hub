@@ -13,17 +13,14 @@ from ipaddress import ip_address
 import grpc
 
 from core.infrastructure.rpc import commander_pb2_grpc
-
-from industrial_gateway.application.write_service import WriteService
-from industrial_gateway.infrastructure.commander.journal import CommandJournal
 from industrial_gateway.application.command_service import CommandTarget, CommanderProxy
-from industrial_gateway.domain import PointDefinition, PointRole
-from industrial_gateway.infrastructure.config.loader import GatewayConfig
-from industrial_gateway.infrastructure.protocol.modbus.server import PymodbusGatewayServer
-from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMapping
-from ipaddress import ip_address
 from industrial_gateway.application.point_store import PointStore
-
+from industrial_gateway.application.write_service import WriteService
+from industrial_gateway.domain import PointDefinition, PointRole
+from industrial_gateway.infrastructure.commander.journal import CommandJournal
+from industrial_gateway.infrastructure.config.loader import GatewayConfig
+from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMapping
+from industrial_gateway.infrastructure.protocol.modbus.server import PymodbusGatewayServer
 
 @dataclass(slots=True)
 class GatewayApplication:
@@ -62,7 +59,7 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
             definitions.append(
                 PointDefinition(
                     device_id, point_id, role,
-                    writable=role in {PointRole.FEEDBACK, PointRole.PARAMETER, PointRole.COMMAND},
+                    writable=True,
                 )
             )
             roles[(device_id, point_id)] = role
@@ -112,7 +109,9 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
             units=by_endpoint[endpoint_id],
             store=store,
             writes=writer,
-            data_writers=frozenset(str(ip_address(ip)) for ip in config.control.access.data_writers),
+            data_writers=frozenset(
+                str(ip_address(ip)) for ip in config.control.access.data_writers
+            ),
             command_writers=frozenset(
                 str(ip_address(ip)) for ip in config.control.access.command_writers
             ) if config.control.enabled else frozenset(),
