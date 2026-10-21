@@ -9,10 +9,10 @@ import logging
 from collections.abc import Mapping
 
 from pymodbus.constants import ExcCodes
-from pymodbus.server import ModbusTcpServer
 from pymodbus.simulator import SimData, SimDevice
 from pymodbus.simulator import DataType
 
+from industrial_gateway.infrastructure.protocol.modbus.access import GatewayTcpServer, request_ip
 from industrial_gateway.application.write_service import (
     ResolvedWrite,
     WriteService,
@@ -46,11 +46,12 @@ class PymodbusGatewayServer:
         units: Mapping[int, list[RegisterMapping]],
         store: PointStore,
         writes: WriteService,
-        writer_role: WriterRole | None = None,
+        data_writers: frozenset[str] = frozenset(),
+        command_writers: frozenset[str] = frozenset(),
     ) -> None:
         self._host = host
         self._port = port
-        self._server: ModbusTcpServer | None = None
+        self._server: GatewayTcpServer | None = None
         devices: list[SimDevice] = []
         for unit_id, mappings in units.items():
             if not 1 <= unit_id <= 247:
@@ -69,11 +70,14 @@ class PymodbusGatewayServer:
                     readonly=mapping.area in {"input", "discrete_input"},
                 )
                 blocks[_AREAS[mapping.area]].append(block)
+            for block in blocks:
+                if not block:
+                    block.append(SimData(address=0, datatype=DataType.INVALID))
             devices.append(
                 SimDevice(
                     id=unit_id,
                     simdata=blocks,
-                    action=self._action(mappings, store, writes, writer_role),
+                    action=self._action(mappings, store, writes, data_writers, command_writers),
                 )
             )
         self._devices = devices
@@ -83,7 +87,8 @@ class PymodbusGatewayServer:
         mappings: list[RegisterMapping],
         store: PointStore,
         writes: WriteService,
-        writer_role: WriterRole | None,
+        data_writers: frozenset[str],
+        command_writers: frozenset[str],
     ):
         """工厂绑定 Unit 的映射，回调不读取全局可变请求上下文。"""
 
@@ -108,7 +113,14 @@ class PymodbusGatewayServer:
                 and mapping.address + mapping.count > address
             ]
             if function_code in _WRITE_CODES:
-                if writer_role is not WriterRole.DATA or set_values is None:
+                peer = request_ip()
+                if peer is None or set_values is None:
+                    return ExcCodes.ILLEGAL_ADDRESS
+                writer_role = (
+                    WriterRole.DATA if peer in data_writers else
+                    WriterRole.COMMAND if peer in command_writers else None
+                )
+                if writer_role is None:
                     return ExcCodes.ILLEGAL_ADDRESS
                 # 一次请求可完整覆盖多个相邻的反馈点，不支持跨越空洞/半点。
                 decoded: dict[PointKey, bool | int | float] = {}
@@ -131,13 +143,15 @@ class PymodbusGatewayServer:
                 if expected != address + len(set_values):
                     return ExcCodes.ILLEGAL_ADDRESS
                 try:
-                    await writes.write(ResolvedWrite(decoded, WriterRole.DATA))
+                    await writes.write(ResolvedWrite(decoded, writer_role))
                 except (ValueError, PermissionError, KeyError):
                     return ExcCodes.ILLEGAL_ADDRESS
                 except Exception:
                     logger.exception("Gateway feedback batch rejected")
                     return ExcCodes.DEVICE_FAILURE
                 return None
+            if sum(mapping.count for mapping in relevant) != count:
+                return ExcCodes.ILLEGAL_ADDRESS
             # 每次读前从业务 PointStore 投影到 pymodbus 寄存器内存。
             for mapping in relevant:
                 snapshot: PointSnapshot = store.read(mapping.device_id, mapping.point_id)
@@ -156,7 +170,7 @@ class PymodbusGatewayServer:
     async def start(self) -> None:
         if self._server is not None:
             raise RuntimeError("server already started")
-        server = ModbusTcpServer(
+        server = GatewayTcpServer(
             self._devices,
             address=(self._host, self._port),
             broadcast_enable=False,
