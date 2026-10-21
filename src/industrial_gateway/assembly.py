@@ -12,13 +12,13 @@ from ipaddress import ip_address
 
 import grpc
 
-from core.infrastructure.rpc import commander_pb2_grpc
 from industrial_gateway.application.command_service import CommanderProxy, CommandTarget
 from industrial_gateway.application.point_store import PointStore
 from industrial_gateway.application.write_service import WriteService
 from industrial_gateway.domain import PointDefinition, PointRole
 from industrial_gateway.infrastructure.commander.journal import CommandJournal
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
+from industrial_gateway.infrastructure.grpc.commander import GrpcCommanderWriter
 from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMapping
 from industrial_gateway.infrastructure.protocol.modbus.server import PymodbusGatewayServer
 
@@ -85,7 +85,7 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
     if config.control.enabled:
         commander_config = config.control.commander
         commander_channel = grpc.aio.insecure_channel(commander_config.endpoint)
-        stub = commander_pb2_grpc.CommanderServiceStub(commander_channel)
+        stub = GrpcCommanderWriter(commander_channel)
         targets = {
             (device_id, point_id): CommandTarget(
                 target.device_id,

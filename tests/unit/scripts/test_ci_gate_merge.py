@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -273,3 +275,25 @@ def test_missing_candidate_path_fails_closed(
     assert not module.merge_gate(["src/core/domain/point.py"])
     err = capsys.readouterr().err
     assert "selected test paths do not exist" in err
+
+
+def test_overlapping_paths_collect_siblings_and_duplicate_module_names(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module, captured = _load_gate(monkeypatch)
+    monkeypatch.setattr(module, "REPO_ROOT", tmp_path)
+    for package in ("first", "second"):
+        directory = tmp_path / "tests" / "unit" / package
+        directory.mkdir(parents=True)
+        (directory / "test_same.py").write_text("def test_ok(): pass\n")
+    # 保守选择还要求 component/contract 存在；这里只构造收集用的空目录。
+    for name in ("component", "contract"):
+        (tmp_path / "tests" / name).mkdir()
+    assert module.merge_gate(["pyproject.toml", "tests/unit/first/test_same.py"])
+    command = next(command for label, command in captured if label == "affected-tests")
+    result = subprocess.run(
+        [sys.executable, *command[1:], "--collect-only"],
+        cwd=tmp_path, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "2 tests collected" in result.stdout
