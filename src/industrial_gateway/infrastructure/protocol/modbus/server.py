@@ -5,14 +5,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Mapping
 
 from pymodbus.constants import ExcCodes
 from pymodbus.server import ModbusTcpServer
 from pymodbus.simulator import SimData, SimDevice
-from pymodbus.simulator.simutils import DataType
+from pymodbus.simulator import DataType
 
 from industrial_gateway.application.write_service import (
     ResolvedWrite,
@@ -49,8 +48,6 @@ class PymodbusGatewayServer:
         writes: WriteService,
         writer_role: WriterRole | None = None,
     ) -> None:
-        if len(units) != len(set(units)):
-            raise ValueError("duplicate Unit ID")
         self._host = host
         self._port = port
         self._server: ModbusTcpServer | None = None
@@ -165,6 +162,7 @@ class PymodbusGatewayServer:
             broadcast_enable=False,
             ignore_missing_devices=False,
         )
+        server.allow_multiple_devices = True
         await server.serve_forever(background=True)
         self._server = server
 
