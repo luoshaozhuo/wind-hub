@@ -6,9 +6,9 @@ import pytest
 
 from core.infrastructure.rpc import commander_pb2 as pb
 from industrial_gateway.application.command_service import (
+    CommanderProxy,
     CommandState,
     CommandTarget,
-    CommanderProxy,
 )
 from industrial_gateway.domain import PointWrite
 
@@ -27,9 +27,7 @@ class FakeCommander:
 
 async def test_confirmed_success_allows_repeated_same_value() -> None:
     fake = FakeCommander(pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS)
-    proxy = CommanderProxy(
-        fake, {("t1", "command"): CommandTarget("physical", "setpoint")}
-    )
+    proxy = CommanderProxy(fake, {("t1", "command"): CommandTarget("physical", "setpoint")})
     command = PointWrite("t1", "command", 42, "dc-ems")
     await proxy(command)
     await proxy(command)

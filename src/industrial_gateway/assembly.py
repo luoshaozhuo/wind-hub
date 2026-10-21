@@ -13,7 +13,7 @@ from ipaddress import ip_address
 import grpc
 
 from core.infrastructure.rpc import commander_pb2_grpc
-from industrial_gateway.application.command_service import CommandTarget, CommanderProxy
+from industrial_gateway.application.command_service import CommanderProxy, CommandTarget
 from industrial_gateway.application.point_store import PointStore
 from industrial_gateway.application.write_service import WriteService
 from industrial_gateway.domain import PointDefinition, PointRole
@@ -21,6 +21,7 @@ from industrial_gateway.infrastructure.commander.journal import CommandJournal
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
 from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMapping
 from industrial_gateway.infrastructure.protocol.modbus.server import PymodbusGatewayServer
+
 
 @dataclass(slots=True)
 class GatewayApplication:
@@ -58,7 +59,9 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
             role = PointRole(point.role)
             definitions.append(
                 PointDefinition(
-                    device_id, point_id, role,
+                    device_id,
+                    point_id,
+                    role,
                     writable=True,
                 )
             )
@@ -93,9 +96,7 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
             for device_id, device in config.devices.items()
             for point_id, target in device.commands.items()
         }
-        command_handler = CommanderProxy(
-            stub, targets, CommandJournal(config.control.journal_path)
-        )
+        command_handler = CommanderProxy(stub, targets, CommandJournal(config.control.journal_path))
     store = PointStore(
         definitions,
         command_handler=command_handler,
@@ -120,6 +121,4 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
         )
         for endpoint_id, endpoint in config.endpoints.items()
     ]
-    return GatewayApplication(
-        store=store, servers=servers, commander_channel=commander_channel
-    )
+    return GatewayApplication(store=store, servers=servers, commander_channel=commander_channel)

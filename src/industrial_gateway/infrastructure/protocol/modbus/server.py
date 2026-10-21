@@ -14,7 +14,7 @@ from pymodbus.simulator import DataType, SimAction, SimData, SimDevice
 from pymodbus.simulator.simutils import SimUtils
 
 from industrial_gateway.application.point_store import PointStore
-from industrial_gateway.application.write_service import ResolvedWrite, WriteService, WriterRole
+from industrial_gateway.application.write_service import ResolvedWrite, WriterRole, WriteService
 from industrial_gateway.domain import PointSnapshot
 from industrial_gateway.infrastructure.protocol.modbus.access import GatewayTcpServer, request_ip
 from industrial_gateway.infrastructure.protocol.modbus.codec import (
@@ -57,7 +57,10 @@ class PymodbusGatewayServer:
                 raise ValueError("unit ID out of range")
             RegisterMap(mappings)
             blocks: tuple[list[SimData], list[SimData], list[SimData], list[SimData]] = (
-                [], [], [], []
+                [],
+                [],
+                [],
+                [],
             )
             for mapping in mappings:
                 is_bit = mapping.area in {"coil", "discrete_input"}
@@ -83,9 +86,7 @@ class PymodbusGatewayServer:
                 SimDevice(
                     id=unit_id,
                     simdata=blocks,
-                    action=self._action(
-                        mappings, store, writes, data_writers, command_writers
-                    ),
+                    action=self._action(mappings, store, writes, data_writers, command_writers),
                 )
             )
         self._devices = devices
@@ -111,8 +112,14 @@ class PymodbusGatewayServer:
             if function_code not in _READ_CODES | _WRITE_CODES:
                 return ExcCodes.ILLEGAL_FUNCTION
             area = {
-                1: "coil", 2: "discrete_input", 3: "holding", 4: "input",
-                5: "coil", 6: "holding", 15: "coil", 16: "holding",
+                1: "coil",
+                2: "discrete_input",
+                3: "holding",
+                4: "input",
+                5: "coil",
+                6: "holding",
+                15: "coil",
+                16: "holding",
             }[function_code]
             write_request = function_code in _WRITE_CODES and set_values is not None
             bit_area = area in {"coil", "discrete_input"}
@@ -120,9 +127,7 @@ class PymodbusGatewayServer:
                 len(set_values) if write_request and bit_area and set_values is not None else count
             )
             bit_start = address // 16 * 16 if bit_area and not write_request else address
-            bit_end = (
-                bit_start + count * 16 if bit_area and not write_request else address + span
-            )
+            bit_end = bit_start + count * 16 if bit_area and not write_request else address + span
             relevant = [
                 mapping
                 for mapping in mappings
@@ -135,8 +140,11 @@ class PymodbusGatewayServer:
                 if peer is None or set_values is None:
                     return ExcCodes.ILLEGAL_ADDRESS
                 writer_role = (
-                    WriterRole.DATA if peer in data_writers else
-                    WriterRole.COMMAND if peer in command_writers else None
+                    WriterRole.DATA
+                    if peer in data_writers
+                    else WriterRole.COMMAND
+                    if peer in command_writers
+                    else None
                 )
                 if writer_role is None:
                     return ExcCodes.ILLEGAL_ADDRESS

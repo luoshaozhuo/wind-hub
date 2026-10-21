@@ -32,8 +32,7 @@ class Address(_Strict):
 class Point(_Strict):
     role: Literal["feedback", "parameter", "command"]
     data_type: Literal[
-        "bool", "int16", "uint16", "int32", "uint32",
-        "int64", "uint64", "float32", "float64"
+        "bool", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float32", "float64"
     ]
     address: Address
     max_age_seconds: float | None = Field(default=None, gt=0)
@@ -41,8 +40,12 @@ class Point(_Strict):
     @model_validator(mode="after")
     def validate_modbus_point(self) -> Point:
         mapping = RegisterMapping(
-            "validation_device", "validation_point", self.address.register_type,
-            self.address.address, self.data_type, self.address.word_order,
+            "validation_device",
+            "validation_point",
+            self.address.register_type,
+            self.address.address,
+            self.data_type,
+            self.address.word_order,
         )
         if mapping.area not in {"coil", "holding"}:
             raise ValueError("writable points must use coil or holding registers")
@@ -146,8 +149,12 @@ class GatewayConfig(_Strict):
             for point_id, point in table.points.items():
                 mappings.append(
                     RegisterMapping(
-                        device_id, point_id, point.address.register_type,
-                        point.address.address, point.data_type, point.address.word_order,
+                        device_id,
+                        point_id,
+                        point.address.register_type,
+                        point.address.address,
+                        point.data_type,
+                        point.address.word_order,
                     )
                 )
             RegisterMap(mappings)

@@ -61,7 +61,7 @@ class _GatewayRequestHandler(ServerRequestHandler):
             del self._tcp_pending[:frame_size]
             super().datagram_received(frame, addr)
 
-    def callback_data(self, data: bytes, addr: tuple | None = None) -> int:
+    def callback_data(self, data: bytes, addr: tuple[Any, ...] | None = None) -> int:
         cut = super().callback_data(data, addr)
         if self.last_pdu is not None:
             try:
@@ -84,7 +84,7 @@ class _GatewayRequestHandler(ServerRequestHandler):
             pdu, addr = self._request_queue.get_nowait()
             await self._handle_one(pdu, addr)
 
-    async def _handle_one(self, pdu: ModbusPDU, addr: tuple | None) -> None:
+    async def _handle_one(self, pdu: ModbusPDU, addr: tuple[Any, ...] | None) -> None:
         # 来源身份绑定本次请求，PDU 与事务 ID 都是局部变量。
         transport = self.transport
         peer = transport.get_extra_info("peername") if transport else None
@@ -99,8 +99,10 @@ class _GatewayRequestHandler(ServerRequestHandler):
                 response = ExceptionResponse(pdu.function_code, ExcCodes.DEVICE_FAILURE)
             response.transaction_id = pdu.transaction_id
             response.dev_id = pdu.dev_id
-            send_response = cast(Callable[[ModbusPDU, tuple[Any, ...] | None], None], self.server_send)
-        send_response(response, addr)
+            send_response = cast(
+                Callable[[ModbusPDU, tuple[Any, ...] | None], None], self.server_send
+            )
+            send_response(response, addr)
         finally:
             _request_ip.reset(token)
 
@@ -110,9 +112,6 @@ class _GatewayRequestHandler(ServerRequestHandler):
         super().callback_disconnected(exc)
 
 
-
 class GatewayTcpServer(ModbusTcpServer):
     def callback_new_connection(self) -> ServerRequestHandler:
-        return _GatewayRequestHandler(
-            self, self.trace_packet, self.trace_pdu, self.trace_connect
-        )
+        return _GatewayRequestHandler(self, self.trace_packet, self.trace_pdu, self.trace_connect)

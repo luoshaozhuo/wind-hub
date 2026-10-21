@@ -75,9 +75,7 @@ class PointStore:
                 await self._command_handler(request)
             return self._replace(key, request.value)
 
-    async def update_feedback(
-        self, device_id: str, point_id: str, value: Scalar
-    ) -> PointSnapshot:
+    async def update_feedback(self, device_id: str, point_id: str, value: Scalar) -> PointSnapshot:
         """内部反馈刷新不产生命令事件，也不得覆盖命令/参数点。"""
         key = (device_id, point_id)
         if self._definition(key).role is not PointRole.FEEDBACK:
@@ -86,9 +84,7 @@ class PointStore:
         async with self._locks[key]:
             return self._replace(key, value)
 
-    async def update_batch(
-        self, values: Mapping[PointKey, Scalar], *, source: str
-    ) -> None:
+    async def update_batch(self, values: Mapping[PointKey, Scalar], *, source: str) -> None:
         """Collector 数据批次：整体校验后一次提交，不产生控制事件。"""
         if not source:
             raise ValueError("source must not be empty")
