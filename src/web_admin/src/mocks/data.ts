@@ -92,7 +92,6 @@ export interface MockDeviceModel {
   model: string
   protocol: 'ads' | 'modbus' | 'iec104'
   point_table: string
-  read_mode?: string
   connection_defaults: Record<string, unknown>
 }
 
@@ -103,7 +102,6 @@ export const deviceModelsSeed: Record<string, MockDeviceModel> = {
     model: 'TwinCAT 2 WTG',
     protocol: 'ads',
     point_table: 'beckhoff_wtg_v1',
-    read_mode: 'sum',
     connection_defaults: { port: 48898, twincat_version: '2', timeout: 3.0, target_port: 801 },
   },
   modbus_wtg: {
