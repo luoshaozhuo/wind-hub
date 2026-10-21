@@ -22,7 +22,7 @@ const messageMock = vi.mocked(ElMessage)
 // 与 domain/deviceConnection 的 modbus 表单默认一致：新建无覆盖落地。
 const MODBUS_DEFAULTS = {
   port: 502,
-  unit_id: 1,
+  slave_id: 1,
   mode: 'tcp',
   timeout: 3,
   word_order: 'little_endian',
