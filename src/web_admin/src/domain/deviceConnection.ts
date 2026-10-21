@@ -111,7 +111,7 @@ export function formFromConnection(
     timeout: num(connection.timeout, base.timeout),
     target_net_id: str(connection.target_net_id, ''),
     twincat_version: str(connection.twincat_version, base.twincat_version),
-    unit_id: num(connection.unit_id, base.unit_id),
+    unit_id: num(connection.slave_id ?? connection.unit_id, base.unit_id),
     mode: str(connection.mode, base.mode),
     word_order: str(connection.word_order, base.word_order),
     common_addresses: caString(connection.common_addresses),
@@ -200,9 +200,12 @@ export function connectionOverridesFromForm(
 ): ConnectionOverrides {
   const defaults = model.connection_defaults || {}
   const extensions: Record<string, unknown> = {}
+  const protocolDefaults = defaultConnectionForm(model.protocol)
   for (const key of PROTOCOL_OVERRIDE_KEYS[model.protocol]) {
-    if (defaults[key] !== form[key as keyof ConnectionFormState]) {
-      extensions[key] = form[key as keyof ConnectionFormState]
+    const configured = form[key as keyof ConnectionFormState]
+    const inherited = defaults[key] ?? protocolDefaults[key as keyof ConnectionFormState]
+    if (inherited !== configured) {
+      extensions[key === 'unit_id' ? 'slave_id' : key] = configured
     }
   }
   if (model.protocol === 'ads') extensions.target_net_id = form.target_net_id.trim()
@@ -215,9 +218,10 @@ export function connectionDefaultsFromForm(
   form: ConnectionFormState,
   protocol: Protocol,
 ): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
+  const result: Record<string, unknown> = { port: form.port }
   for (const key of PROTOCOL_DEFAULT_KEYS[protocol]) {
-    result[key] = form[key as keyof ConnectionFormState]
+    if (key === 'port' || key.startsWith('reconnect_')) continue
+    result[key === 'unit_id' ? 'slave_id' : key] = form[key as keyof ConnectionFormState]
   }
   return result
 }
