@@ -1,15 +1,10 @@
-"""industrial_gateway 真实链路测试支撑。
+"""industrial_gateway 真实链路测试支撑（无测试期垫片）。
 
-- 真实 ``PymodbusGatewayServer``（pymodbus 3.15 simulator 协议栈，不解析协议）；
+- 真实 ``PymodbusGatewayServer``（pymodbus 3.15 simulator 协议栈，完整生产代码
+  路径，不 monkeypatch 任何生产对象）；
 - 真实 pymodbus ``AsyncModbusTcpClient``，通过 ``source_address`` 模拟
   Collector(127.0.0.2) / DC-EMS(127.0.0.3) / 未授权方(127.0.0.1) 三种身份；
 - 真实 grpc.aio Commander 服务端，可逐点配置三态、延迟与并发观测。
-
-唯一的测试期垫片见 ``install_server_shims``：生产代码
-``server.PymodbusGatewayServer`` 对空 coil/discrete 块填入
-``DataType.INVALID`` 占位，pymodbus 3.15.0 对 bit 块强制要求
-``DataType.BITS``，导致任何合法配置都无法构造 SimDevice（出厂配置同样无法
-启动）。垫片仅把该非法占位替换为等价的 BITS 占位，不改变任何业务路径。
 """
 
 from __future__ import annotations
@@ -22,29 +17,30 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import grpc
-import pytest
 from pymodbus.client import AsyncModbusTcpClient
-from pymodbus.simulator import DataType, SimData, SimDevice
 
 from core.infrastructure.rpc import commander_pb2 as pb
 from core.infrastructure.rpc import commander_pb2_grpc
-from industrial_gateway.assembly import assemble_gateway
+from industrial_gateway.assembly import GatewayApplication, assemble_gateway
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
-from industrial_gateway.infrastructure.protocol.modbus import server as gw_server
 
 COLLECTOR_IP = "127.0.0.2"
 COMMANDER_IP = "127.0.0.3"
 UNAUTHORIZED_IP = "127.0.0.1"
-SHIM_BIT_ADDRESS = 0xFFF0  # 测试不访问的高位 bit 地址（bit 编号）
 
 FEEDBACK_FLOAT = 100
 FEEDBACK_PAIR = 102
 FEEDBACK_UINT = 110
+FEEDBACK_COIL_15 = 15
+FEEDBACK_COIL_16 = 16
+FEEDBACK_COIL_17 = 17
+FEEDBACK_COIL_0 = 0
+FEEDBACK_COIL_1 = 1
 COMMAND_FLOAT = 200
+COMMAND_UINT2 = 202
 COMMAND_UINT = 210
-COIL_FB_0 = 0
-COIL_FB_1 = 1
-COIL_CMD = 16
+COMMAND_COIL = 32
+COMMAND_COIL_B = 33
 
 
 def reserve_port() -> int:
@@ -54,54 +50,6 @@ def reserve_port() -> int:
     port = sock.getsockname()[1]
     sock.close()
     return port
-
-
-def install_server_shims(monkeypatch: pytest.MonkeyPatch, *, multidrop: bool = True) -> None:
-    """安装测试期垫片，分别对应生产缺陷，均不改变业务路径。
-
-    缺陷 A（启动即崩）：生产代码对空 coil/discrete 块填入
-    ``DataType.INVALID`` 占位，pymodbus 3.15.0 对 bit 块强制要求
-    ``DataType.BITS``，任何配置（含出厂配置）都无法构造 SimDevice。
-    垫片把该非法占位替换为等价的高位 BITS 占位。
-
-    缺陷 B（所有 TCP 连接被 reset）：生产代码无条件置
-    ``server.allow_multiple_devices = True``，而 pymodbus 3.15.0 的
-    ``ServerRequestHandler.__init__`` 随后调用 socket framer 不存在的
-    ``setMultidrop``（仅 RTU framer 实现），连接工厂抛 AttributeError，
-    客户端收不到任何 Modbus 响应。垫片给 socket framer 补 no-op
-    setMultidrop（TCP 的 MBAP 头已显式携带 Unit ID，SimCore 按 dev_id
-    路由，本就不需要 RTU 式线路过滤）。``multidrop=False`` 时不安装该
-    垫片，用于缺陷 B 的复现测试。
-    """
-    from pymodbus.framer.socket import FramerSocket
-
-    if multidrop and not hasattr(FramerSocket, "setMultidrop"):
-        monkeypatch.setattr(
-            FramerSocket,
-            "setMultidrop",
-            lambda self, device_ids: None,
-            raising=False,
-        )
-
-    class ShimSimDevice(SimDevice):
-        def __init__(self, *, id: int, simdata: object, action: object = None) -> None:
-            if isinstance(simdata, tuple):
-                blocks: list[list[SimData]] = []
-                for index, block in enumerate(simdata):
-                    block = list(block)
-                    if index < 2 and len(block) == 1 and block[0].datatype == DataType.INVALID:
-                        block = [
-                            SimData(
-                                address=SHIM_BIT_ADDRESS,
-                                values=False,
-                                datatype=DataType.BITS,
-                            )
-                        ]
-                    blocks.append(block)
-                simdata = tuple(blocks)
-            super().__init__(id=id, simdata=simdata, action=action)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(gw_server, "SimDevice", ShimSimDevice)
 
 
 def float_words(value: float) -> list[int]:
@@ -201,7 +149,9 @@ def build_config(
             "commands": {
                 "cmd_float": {"device_id": f"phys{unit}", "point_id": "sp"},
                 "cmd_uint": {"device_id": f"phys{unit}", "point_id": "spu"},
+                "cmd_uint2": {"device_id": f"phys{unit}", "point_id": "spu2"},
                 "cmd_coil": {"device_id": f"phys{unit}", "point_id": "spb"},
+                "cmd_coil_b": {"device_id": f"phys{unit}", "point_id": "spb2"},
             },
         }
         for unit in unit_ids
@@ -248,12 +198,27 @@ def build_config(
                     "fb_coil_0": {
                         "role": "feedback",
                         "data_type": "bool",
-                        "address": {"register_type": "coil", "address": COIL_FB_0},
+                        "address": {"register_type": "coil", "address": FEEDBACK_COIL_0},
                     },
                     "fb_coil_1": {
                         "role": "feedback",
                         "data_type": "bool",
-                        "address": {"register_type": "coil", "address": COIL_FB_1},
+                        "address": {"register_type": "coil", "address": FEEDBACK_COIL_1},
+                    },
+                    "fb_coil_15": {
+                        "role": "feedback",
+                        "data_type": "bool",
+                        "address": {"register_type": "coil", "address": FEEDBACK_COIL_15},
+                    },
+                    "fb_coil_16": {
+                        "role": "feedback",
+                        "data_type": "bool",
+                        "address": {"register_type": "coil", "address": FEEDBACK_COIL_16},
+                    },
+                    "fb_coil_17": {
+                        "role": "feedback",
+                        "data_type": "bool",
+                        "address": {"register_type": "coil", "address": FEEDBACK_COIL_17},
                     },
                     "cmd_float": {
                         "role": "command",
@@ -262,6 +227,14 @@ def build_config(
                             "register_type": "holding",
                             "address": COMMAND_FLOAT,
                             "word_order": "big_endian",
+                        },
+                    },
+                    "cmd_uint2": {
+                        "role": "command",
+                        "data_type": "uint16",
+                        "address": {
+                            "register_type": "holding",
+                            "address": COMMAND_UINT2,
                         },
                     },
                     "cmd_uint": {
@@ -275,7 +248,12 @@ def build_config(
                     "cmd_coil": {
                         "role": "command",
                         "data_type": "bool",
-                        "address": {"register_type": "coil", "address": COIL_CMD},
+                        "address": {"register_type": "coil", "address": COMMAND_COIL},
+                    },
+                    "cmd_coil_b": {
+                        "role": "command",
+                        "data_type": "bool",
+                        "address": {"register_type": "coil", "address": COMMAND_COIL_B},
                     },
                 },
             }
@@ -291,7 +269,7 @@ def build_config(
             "journal_path": str(journal_path),
             "access": {
                 "data_writers": list(data_writers),
-                "command_writers": list(command_writers),
+                "command_writers": list(command_writers) if control_enabled else [],
             },
         },
     }
@@ -304,7 +282,7 @@ class GatewayHarness:
     commander_port: int
     commander: FakeCommanderService
     grpc_server: grpc.aio.Server
-    application: object
+    application: GatewayApplication
     journal_path: Path
 
     async def client(self, source_ip: str) -> AsyncModbusTcpClient:
@@ -319,13 +297,17 @@ class GatewayHarness:
         return client
 
     async def stop(self) -> None:
-        await self.application.stop()  # type: ignore[attr-defined]
+        await self.application.stop()
         await self.grpc_server.stop(grace=0)
 
 
-async def start_gateway(config: GatewayConfig, commander: FakeCommanderService) -> GatewayHarness:
+async def start_gateway(
+    config: GatewayConfig, commander: FakeCommanderService | None = None
+) -> GatewayHarness:
     commander_port = int(config.control.commander.endpoint.rsplit(":", 1)[1])
     grpc_server = grpc.aio.server()
+    if commander is None:
+        commander = FakeCommanderService()
     commander_pb2_grpc.add_CommanderServiceServicer_to_server(commander, grpc_server)
     grpc_server.add_insecure_port(f"127.0.0.1:{commander_port}")
     await grpc_server.start()
