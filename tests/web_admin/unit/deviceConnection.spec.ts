@@ -22,7 +22,7 @@ function model(protocol: DeviceModelDef['protocol'], defaults: Record<string, un
     manufacturer: 'generic',
     protocol,
     point_table: 't1',
-    read_mode: '',
+
     properties: {},
     connection_defaults: defaults,
   } satisfies DeviceModelDef
