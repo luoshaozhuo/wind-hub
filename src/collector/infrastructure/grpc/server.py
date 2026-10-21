@@ -417,7 +417,7 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
         request: pb.SinkRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb.SinkOperationResponse:
-        """向当前运行 Sink 写入一条明确标记的诊断 PointValue。"""
+        """只读检查当前运行 Sink 的连接与诊断状态。"""
         try:
             result = await self._sinks.write_test_sink(_required(request.name, "name"))
         except ValueError as exc:
@@ -429,6 +429,7 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
         return pb.SinkOperationResponse(
             success=result.success,
             message=result.message,
+            queue_depth=self._app.runtime.sink_queue_depths().get(request.name, 0),
         )
 
 
