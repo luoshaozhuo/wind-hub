@@ -175,14 +175,14 @@ describe('connectionOverridesFromForm', () => {
     form.port = 1502
     form.word_order = 'big_endian'
     const { extensions, port } = connectionOverridesFromForm(form, m)
-    expect(extensions).toEqual({ unit_id: 5, word_order: 'big_endian' })
+    expect(extensions).toEqual({ slave_id: 5, word_order: 'big_endian' })
     expect(port).toBe(1502)
   })
 
-  it('defaults 缺失的键与表单值不同即视为覆盖（与原始逐键比较语义一致）', () => {
+  it('协议默认值不应生成冗余设备覆盖', () => {
     const m = model('modbus', { port: 502 })
     const { extensions } = connectionOverridesFromForm(defaultConnectionForm('modbus'), m)
-    expect(extensions).toEqual({ unit_id: 1, mode: 'tcp', timeout: 3, word_order: 'little_endian' })
+    expect(extensions).toEqual({})
   })
 
   it('ADS target_net_id 作为身份键始终写入，其余按键集序列化', () => {
@@ -219,16 +219,21 @@ describe('connectionOverridesFromForm', () => {
 })
 
 describe('connectionDefaultsFromForm', () => {
-  it('ADS 序列化键集（含重连参数，不含 modbus/iec104 键）', () => {
+  it('ADS 型号序列化只包含 Core 接受的协议参数', () => {
     const form = defaultConnectionForm('ads')
     const defaults = connectionDefaultsFromForm(form, 'ads')
     expect(defaults).toEqual({
       port: 801,
       timeout: 3,
       twincat_version: '2',
-      reconnect_max_retries: 5,
-      reconnect_backoff_max: 30,
     })
+  })
+
+  it('Modbus 将表单 unit_id 映射为 Core slave_id', () => {
+    const defaults = connectionDefaultsFromForm(defaultConnectionForm('modbus'), 'modbus')
+    expect(defaults).toMatchObject({ port: 502, slave_id: 1 })
+    expect(defaults).not.toHaveProperty('unit_id')
+    expect(defaults).not.toHaveProperty('reconnect_max_retries')
   })
 
   it('IEC104 序列化键集（不含 timeout / word_order）', () => {
