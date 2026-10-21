@@ -15,7 +15,7 @@ from pymodbus.simulator.simutils import SimUtils
 
 from industrial_gateway.application.point_store import PointStore
 from industrial_gateway.application.write_service import ResolvedWrite, WriterRole, WriteService
-from industrial_gateway.domain import PointSnapshot
+from industrial_gateway.domain import PointKey, PointSnapshot
 from industrial_gateway.infrastructure.protocol.modbus.access import GatewayTcpServer, request_ip
 from industrial_gateway.infrastructure.protocol.modbus.codec import (
     RegisterMap,
@@ -25,8 +25,6 @@ from industrial_gateway.infrastructure.protocol.modbus.codec import (
 )
 
 logger = logging.getLogger(__name__)
-
-PointKey = tuple[str, str]
 _AREAS = {"coil": 0, "discrete_input": 1, "holding": 2, "input": 3}
 _READ_CODES = {1, 2, 3, 4}
 _WRITE_CODES = {5, 6, 15, 16}
