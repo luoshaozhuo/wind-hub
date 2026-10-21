@@ -10,11 +10,9 @@ from enum import StrEnum
 from typing import Protocol
 from uuid import uuid4
 
-from industrial_gateway.domain import PointWrite, Scalar
+from industrial_gateway.domain import PointKey, PointWrite, Scalar
 
 logger = logging.getLogger(__name__)
-
-PointKey = tuple[str, str]
 
 
 @dataclass(frozen=True, slots=True)
