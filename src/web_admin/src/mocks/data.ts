@@ -290,7 +290,7 @@ export function buildDefinitions(): DefinitionsDto {
           data_type: point.data_type,
           scale: point.scale,
           offset: point.offset,
-          unit_id: point.unit,
+          unit: point.unit,
           description: point.description,
         },
       ]),
