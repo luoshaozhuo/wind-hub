@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from seahorse.application.runtime import SeahorseRuntime
+from seahorse.ports.publisher import PublisherPort
 from seahorse.application.wind_farm_service import WindFarmService
 from seahorse.infrastructure.config import PointRange, SeahorseConfig
 from seahorse.infrastructure.models.dispatch_station.random import RandomDispatchStation
@@ -32,7 +33,9 @@ def _ranges(points: dict[str, PointRange]) -> dict[str, tuple[float, float]]:
     return {name: (value.minimum, value.maximum) for name, value in points.items()}
 
 
-def create_runtime(config: SeahorseConfig) -> SeahorseRuntime:
+def create_runtime(
+    config: SeahorseConfig, publisher: PublisherPort | None = None
+) -> SeahorseRuntime:
     seed = config.seed
     wind_field: WindFieldPort
     if config.wind_field.model == "simple":
@@ -104,6 +107,6 @@ def create_runtime(config: SeahorseConfig) -> SeahorseRuntime:
             if config.inertia_station.model == "simple"
             else RandomInertiaStation(seed + 5, _ranges(config.inertia_points))
         ),
-        publisher=MemoryPublisher(),
+        publisher=publisher if publisher is not None else MemoryPublisher(),
     )
     return SeahorseRuntime(service, config.step_seconds)
