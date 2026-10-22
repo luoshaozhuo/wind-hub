@@ -62,7 +62,6 @@ def _to_dict(value: message.Message) -> dict[str, Any]:
     return result
 
 
-
 class CollectorClient:
     """Collector gRPC 直接客户端。"""
 
