@@ -101,7 +101,13 @@ class _GatewayRequestHandler(ServerRequestHandler):
         bit_span = None
         if pdu.function_code in {1, 2, 5, 15}:
             bit_address = getattr(pdu, "address", None)
-            bit_count = 1 if pdu.function_code == 5 else getattr(pdu, "count", None)
+            if pdu.function_code == 5:
+                bit_count = 1
+            elif pdu.function_code == 15:
+                values = getattr(pdu, "bits", None)
+                bit_count = len(values) if values is not None else getattr(pdu, "count", None)
+            else:
+                bit_count = getattr(pdu, "count", None)
             if isinstance(bit_address, int) and isinstance(bit_count, int) and bit_count > 0:
                 bit_span = (bit_address, bit_count)
         bit_token = _request_bit_span.set(bit_span)
