@@ -280,7 +280,10 @@ class CommanderClient:
             ]
             response = await stub.WritePoints(
                 commander_pb.WritePointsRequest(commands=commands),
-                timeout=max(timeout, max(float(item["timeout"]) for item in kwargs["items"]) + 1.0),
+                timeout=max(
+                    timeout,
+                    max(float(item["timeout"]) for item in kwargs["items"]) + 1.0,
+                ),
             )
         elif operation == "verify-device":
             response = await stub.VerifyDevice(
