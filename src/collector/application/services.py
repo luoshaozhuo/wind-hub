@@ -326,14 +326,14 @@ class SinkInfo:
 
 @dataclass(frozen=True, slots=True)
 class SinkWriteResult:
-    """诊断测试写结果。"""
+    """只读 Sink 连接诊断结果。"""
 
     success: bool
     message: str = ""
 
 
 class CollectorSinkService:
-    """Collector 运行 Sink 的检查与诊断写入口。"""
+    """Collector 运行 Sink 的检查与只读诊断入口。"""
 
     def __init__(self, runtime: CollectorRuntime) -> None:
         self._runtime = runtime
