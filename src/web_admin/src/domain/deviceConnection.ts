@@ -75,7 +75,7 @@ function caString(value: unknown): string {
 export function defaultConnectionForm(protocol: Protocol): ConnectionFormState {
   return {
     port: PROTOCOL_DEFAULT_PORTS[protocol],
-    timeout: 3,
+    timeout: 5,
     target_net_id: '',
     twincat_version: '2',
     slave_id: 1,
