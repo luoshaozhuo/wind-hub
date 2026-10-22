@@ -288,7 +288,7 @@ class CommanderClient:
                     device_id=kwargs["device_id"],
                     timeout=kwargs["io_timeout"],
                 ),
-                timeout=timeout,
+                timeout=max(timeout, float(kwargs["io_timeout"]) + 1.0),
             )
         elif operation == "resolve-point":
             response = await stub.ResolvePoint(
