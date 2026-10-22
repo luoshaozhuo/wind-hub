@@ -93,7 +93,7 @@ async def test_read_point_offline_device_maps_status(running):
     _, stub = running
     with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await stub.ReadPoint(pb.ReadPointRequest(device_id="dev1", point_id="p1"))
-    assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND
+    assert excinfo.value.code() == grpc.StatusCode.FAILED_PRECONDITION
 
     with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await stub.ReadPoint(pb.ReadPointRequest(device_id="ghost", point_id="p1"))
