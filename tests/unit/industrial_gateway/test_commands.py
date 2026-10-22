@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from industrial_gateway.application.command_service import (
@@ -13,6 +15,7 @@ from industrial_gateway.application.command_service import (
     CommandTarget,
 )
 from industrial_gateway.domain import PointWrite
+from industrial_gateway.infrastructure.commander.journal import CommandJournal
 
 
 class FakeCommander:
@@ -67,3 +70,34 @@ async def test_invalid_scalar_does_not_enter_executing_state(value: int) -> None
         await proxy(PointWrite("t1", "command", value, "dc-ems"))
     assert fake.requests == []
     assert proxy.state("t1", "command") is CommandState.READY
+
+
+def test_journal_failed_begin_latches_all_controls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    journal = CommandJournal(tmp_path / "journal.json")
+
+    def fail_save() -> None:
+        raise OSError("fsync failed")
+
+    monkeypatch.setattr(journal, "_save", fail_save)
+    with pytest.raises(OSError, match="fsync failed"):
+        journal.begin("point-a", "cmd-1")
+    assert journal.blocked("point-a")
+    assert journal.blocked("point-b")
+    with pytest.raises(RuntimeError, match="locked"):
+        journal.confirmed("point-a")
+
+
+def test_journal_failed_confirmation_remains_locked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal = CommandJournal(tmp_path / "journal.json")
+    journal.begin("point-a", "cmd-1")
+
+    def fail_save() -> None:
+        raise OSError("directory fsync failed")
+
+    monkeypatch.setattr(journal, "_save", fail_save)
+    with pytest.raises(OSError, match="fsync failed"):
+        journal.confirmed("point-a")
+    assert journal.blocked("point-a")
+    assert journal.blocked("point-b")
