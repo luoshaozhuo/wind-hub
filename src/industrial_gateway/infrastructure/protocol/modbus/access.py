@@ -107,8 +107,14 @@ class _GatewayRequestHandler(ServerRequestHandler):
             _request_ip.reset(token)
 
     def callback_disconnected(self, exc: Exception | None) -> None:
-        if self._worker is not None and self._worker.done():
+        # 不再处理断开连接的排队请求；在途控制被取消时由 CommanderProxy
+        # 将结果标记 UNKNOWN 并持久闭锁，不能静默继续执行队列。
+        if self._worker is not None:
+            self._worker.cancel()
             self._worker = None
+        while not self._request_queue.empty():
+            self._request_queue.get_nowait()
+        self._tcp_pending.clear()
         super().callback_disconnected(exc)
 
 
