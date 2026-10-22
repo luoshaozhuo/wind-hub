@@ -123,13 +123,13 @@ function protocolDescription(d: DeviceInst) {
           <ProtocolConnectionFields
             v-model="editForm.connection"
             :protocol="editForm.protocol"
-                  />
+          />
         </div>
 
         <el-alert
           type="info"
           :closable="false"
-          title="Protocol, Point Table, Read Mode, manufacturer and hardware model are Model properties. Change them in Manage Metadata."
+          title="Protocol, Point Table, manufacturer and hardware model are Model properties. Change them in Manage Metadata."
         />
       </el-form>
 
