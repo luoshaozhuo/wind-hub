@@ -121,7 +121,8 @@ def _build_commander_parser(sub: argparse._SubParsersAction[argparse.ArgumentPar
     )
     write_many.add_argument("--io-timeout", type=float, default=1.0)
     write_many.add_argument(
-        "--command-id", default=None,
+        "--command-id",
+        default=None,
         help="Batch idempotency key; item IDs are derived deterministically",
     )
 
