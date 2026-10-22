@@ -23,7 +23,7 @@ class GatewayDataService:
             await self._store.update_batch(values, source="grpc")
         except (KeyError, TypeError, ValueError, PermissionError) as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise RuntimeError("gRPC abort unexpectedly returned")
+            raise RuntimeError("gRPC abort unexpectedly returned") from exc
         result = struct_pb2.Struct()
         result.update({"updated": len(values)})
         return result

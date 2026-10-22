@@ -8,7 +8,12 @@ from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
-from core.application.sink_contract import ModbusSinkAddress, ResolvedSink, ResolvedSinkPoint
+from core.application.sink_contract import (
+    GrpcSinkAddress,
+    ModbusSinkAddress,
+    ResolvedSink,
+    ResolvedSinkPoint,
+)
 from core.domain import Device, DeviceId, Sink, Task
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.sink_schema import (
@@ -97,6 +102,8 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
         task_points = [raw for _, output in task_outputs for raw in output.points]
         refs: set[str] = set()
         addresses: dict[tuple[int, str], list[tuple[int, int]]] = {}
+        grpc_destinations: set[tuple[str, str]] = set()
+        grpc_sources: set[tuple[str, str]] = set()
         for raw in task_points:
             source = raw["source"]
             device_id = DeviceId(source["device_id"])
@@ -144,6 +151,15 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                     f"Sink '{sink_id}' point '{resolved.ref}': "
                     "scale/offset require numeric source and datatype"
                 )
+            if isinstance(resolved.address, GrpcSinkAddress):
+                destination = (resolved.address.device_id, resolved.address.point_id)
+                source_key = (resolved.source.device_id, resolved.source.point_id)
+                if destination in grpc_destinations or source_key in grpc_sources:
+                    raise ConfigError(
+                        f"Sink '{sink_id}' duplicate gRPC source or destination: {resolved.ref}"
+                    )
+                grpc_destinations.add(destination)
+                grpc_sources.add(source_key)
             if isinstance(resolved.address, ModbusSinkAddress):
                 address = resolved.address
                 is_bit = address.register_type in {"coil", "discrete"}

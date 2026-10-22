@@ -9,8 +9,8 @@ import random
 
 from seahorse.domain.commands import EquipmentCommand
 from seahorse.domain.models import DeviceSnapshot, GridSample, Scalar, SimulationTime, WindSample
-from seahorse.infrastructure.models.wind_turbine.history import TimeWindow
 from seahorse.infrastructure.models.wind_turbine.contract import validate_turbine_points
+from seahorse.infrastructure.models.wind_turbine.history import TimeWindow
 
 
 def _clip(value: float, lower: float, upper: float) -> float:

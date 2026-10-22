@@ -7,8 +7,8 @@ import grpc
 from google.protobuf import struct_pb2
 
 from core.application import ConnectionHealth
-from core.application.sink_export import SinkReferenceExporter
 from core.application.sink_contract import GrpcSinkAddress, ResolvedSink, ResolvedSinkPoint
+from core.application.sink_export import SinkReferenceExporter
 from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.domain.sample_value import Quality
@@ -20,7 +20,9 @@ class GrpcSink:
     def __init__(self, config: Sink) -> None:
         self._settings = GrpcSinkConnection.model_validate(dict(config.connection))
         self._channel: grpc.aio.Channel | None = None
-        self._write_many: grpc.aio.UnaryUnaryMultiCallable[struct_pb2.Struct, struct_pb2.Struct] | None = None
+        self._write_many: (
+            grpc.aio.UnaryUnaryMultiCallable[struct_pb2.Struct, struct_pb2.Struct] | None
+        ) = None
         if not isinstance(config, ResolvedSink):
             raise ValueError("GrpcSink requires resolved Collector mappings")
         points = [ResolvedSinkPoint.model_validate(dict(item)) for item in config.points]
@@ -33,9 +35,7 @@ class GrpcSink:
             if key in self._routes:
                 raise ValueError("duplicate gRPC source mapping")
             self._routes[key] = (point.address.device_id, point.address.point_id)
-        self._task_sources = (
-            config.task_sources if isinstance(config, ResolvedSink) else None
-        ) or {}
+        self._task_sources = config.task_sources or {}
 
     async def open(self) -> None:
         if self._channel is not None:

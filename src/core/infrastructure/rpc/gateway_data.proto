@@ -1,9 +1,0 @@
-syntax = "proto3";
-package wind_hub.gateway.v1;
-import "google/protobuf/struct.proto";
-
-// Struct payload: {"points":[{"device_id":"...","point_id":"...","value":12.3}]}.
-// Only boolean and finite numeric feedback scalars are accepted.
-service GatewayDataService {
-  rpc WriteMany(google.protobuf.Struct) returns (google.protobuf.Struct);
-}

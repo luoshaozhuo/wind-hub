@@ -37,7 +37,8 @@ def test_configuration_validation() -> None:
     with pytest.raises(ValidationError):
         SeahorseConfig.model_validate(config)
     config["turbines"][1]["device_id"] = "d10002"
-    config["turbines"][0]["points"]["emsPowAct"]["minimum"] = 3000
+    config["turbines"][0]["model"] = "random"
+    config["turbines"][0]["points"] = {}
     with pytest.raises(ValidationError):
         SeahorseConfig.model_validate(config)
 

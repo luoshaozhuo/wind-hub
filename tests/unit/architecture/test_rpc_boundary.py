@@ -21,6 +21,8 @@ SRC_ROOT = REPO_ROOT / "src"
 # cli / web_server 两个出站 RPC client 边界。
 _ALLOWED_PB2_PREFIXES = (
     "core/infrastructure/rpc/",
+    "core/infrastructure/sink/grpc_sink.py",
+    "seahorse/infrastructure/grpc_",
     "cli/",
     "web_server/",
     "collector/infrastructure/grpc/",

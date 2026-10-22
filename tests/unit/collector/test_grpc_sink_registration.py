@@ -1,8 +1,8 @@
 """GrpcSink 是注册的通用输出类型，不改变 ModbusSink Server 语义。"""
 from __future__ import annotations
 
-from core.infrastructure.config.sink_schema import parse_sink_definitions
 from collector.infrastructure.sink_registry import build_sink_registry
+from core.infrastructure.config.sink_schema import parse_sink_definitions
 
 
 def test_grpc_sink_schema_and_registration() -> None:

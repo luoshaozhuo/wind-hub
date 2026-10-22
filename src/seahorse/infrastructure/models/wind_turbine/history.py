@@ -26,7 +26,7 @@ class TimeWindow:
         now = self._samples[-1][0]
         left = max(self._samples[0][0], now - self._seconds)
         area = 0.0
-        for (start, value), (stop, _) in zip(self._samples, list(self._samples)[1:]):
+        for (start, value), (stop, _) in zip(self._samples, list(self._samples)[1:], strict=False):
             area += value * max(0.0, stop - max(start, left))
         duration = now - left
         return area / duration if duration > 0 else self._samples[-1][1]

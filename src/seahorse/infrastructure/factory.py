@@ -1,9 +1,8 @@
 """按设备分别选择随机或简化物理模型，无模型算法顶层分组。"""
 from __future__ import annotations
 
-from seahorse.application.runtime import SeahorseRuntime
 from seahorse.application.command_queue import CommandQueue
-from seahorse.ports.publisher import PublisherPort
+from seahorse.application.runtime import SeahorseRuntime
 from seahorse.application.wind_farm_service import WindFarmService
 from seahorse.infrastructure.config import PointRange, SeahorseConfig
 from seahorse.infrastructure.models.dispatch_station.random import RandomDispatchStation
@@ -12,9 +11,11 @@ from seahorse.infrastructure.models.grid.random import RandomGrid
 from seahorse.infrastructure.models.grid.simple import SimpleGrid
 from seahorse.infrastructure.models.inertia_station.random import RandomInertiaStation
 from seahorse.infrastructure.models.inertia_station.simple import SimpleInertiaStation
-from seahorse.infrastructure.models.primary_control_station.simple import SimplePrimaryControlStation
 from seahorse.infrastructure.models.primary_control_station.random import (
     RandomPrimaryControlStation,
+)
+from seahorse.infrastructure.models.primary_control_station.simple import (
+    SimplePrimaryControlStation,
 )
 from seahorse.infrastructure.models.substation.random import RandomSubstation
 from seahorse.infrastructure.models.substation.simple import SimpleSubstation
@@ -22,8 +23,8 @@ from seahorse.infrastructure.models.wind_field.random import RandomWindField
 from seahorse.infrastructure.models.wind_field.simple import SimpleWindField
 from seahorse.infrastructure.models.wind_turbine.random import RandomTurbine
 from seahorse.infrastructure.models.wind_turbine.simple import SimpleWindTurbine
-
 from seahorse.infrastructure.publisher import MemoryPublisher
+from seahorse.ports.publisher import PublisherPort
 from seahorse.ports.grid import GridPort
 from seahorse.ports.substation import SubstationPort
 from seahorse.ports.wind_field import WindFieldPort

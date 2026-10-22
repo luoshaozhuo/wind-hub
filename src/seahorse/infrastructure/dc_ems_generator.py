@@ -8,7 +8,11 @@ from typing import Any
 
 import yaml
 
-from seahorse.infrastructure.dc_ems_contract import OriginalAddress, validate_original_addresses
+from seahorse.infrastructure.dc_ems_contract import (
+    OriginalAddress,
+    RegisterArea,
+    validate_original_addresses,
+)
 
 
 def generate_profile(
@@ -31,7 +35,13 @@ def generate_profile(
     addresses: dict[str, OriginalAddress] = {}
     for point in entries:
         slave, register, offset = map(int, point["address"].split("."))
-        area = {0: "coil", 1: "discrete_input", 3: "input", 4: "holding"}.get(register)
+        areas: dict[int, RegisterArea] = {
+            0: "coil",
+            1: "discrete_input",
+            3: "input",
+            4: "holding",
+        }
+        area = areas.get(register)
         if area is None or point["high_bit"] != 1 or slave != 1:
             raise ValueError(f"unsupported DC-EMS address/encoding: {point['name']}")
         addresses[point["name"]] = OriginalAddress(slave, area, offset, point["kind"])

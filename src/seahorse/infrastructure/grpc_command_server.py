@@ -12,7 +12,6 @@ from typing import Any
 import grpc
 
 from core.infrastructure.rpc import commander_pb2 as pb
-from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
 from seahorse.application.command_queue import CommandQueue
 from seahorse.domain.commands import EquipmentCommand
 from seahorse.domain.models import Scalar
@@ -35,14 +34,14 @@ def _decode(value: pb.ScalarValue) -> Scalar:
     raise ValueError("unsupported command scalar")
 
 
-class SeahorseCommanderService(pb_grpc.CommanderServiceServicer):
+class SeahorseCommanderService:
     """本入口只开放单点控制 RPC，不声明自己是完整 Commander。"""
 
     def __init__(self, queue: CommandQueue, turbine_ids: frozenset[str]) -> None:
         self._queue = queue
         self._turbine_ids = turbine_ids
 
-    async def WritePoint(
+    async def write_point(
         self, request: pb.WritePointRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.CommandResultMessage:
         if (
@@ -59,7 +58,7 @@ class SeahorseCommanderService(pb_grpc.CommanderServiceServicer):
         except (TypeError, ValueError) as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         except RuntimeError as exc:
-            await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, str(exc))
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
         timeout = min(request.timeout if request.timeout > 0 else 3.0, 30.0)
         try:
             await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(outcome)), timeout)
@@ -94,9 +93,16 @@ async def start_command_server(
     if not (bind.startswith("127.0.0.1:") or bind.startswith("[::1]:")):
         raise ValueError("command RPC must bind loopback")
     server = grpc.aio.server()
-    pb_grpc.add_CommanderServiceServicer_to_server(
-        SeahorseCommanderService(queue, turbine_ids), server
+    handler = grpc.unary_unary_rpc_method_handler(
+        SeahorseCommanderService(queue, turbine_ids).write_point,
+        request_deserializer=pb.WritePointRequest.FromString,
+        response_serializer=pb.CommandResultMessage.SerializeToString,
     )
+    server.add_generic_rpc_handlers((
+        grpc.method_handlers_generic_handler(
+            "windhub.commander.v1.CommanderService", {"WritePoint": handler}
+        ),
+    ))
     if server.add_insecure_port(bind) == 0:
         raise RuntimeError("cannot bind command endpoint")
     await server.start()
