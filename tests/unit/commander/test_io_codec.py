@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import grpc
 import pytest
-from unittest.mock import AsyncMock
 
-from commander.application.session import PointReading
 from commander.application.errors import CommandError, CommandUncertainError
-from commander.infrastructure.grpc.server import _abort
+from commander.application.session import PointReading
 from commander.infrastructure.grpc.io_codec import (
     command_from_proto,
     command_result_to_proto,
@@ -19,6 +18,7 @@ from commander.infrastructure.grpc.io_codec import (
     encode_scalar,
     point_value_to_proto,
 )
+from commander.infrastructure.grpc.server import _abort
 from core.application import Quality
 from core.application.command import Command, CommandResult
 from core.application.protocol_contract import WriteOutcome
