@@ -169,7 +169,11 @@ class SinkRuntime:
             if queue is None:
                 self._points_dropped += len(batch)
                 self._drops_by_sink[sink_name] = self._drops_by_sink.get(sink_name, 0) + len(batch)
-                logger.warning("Sink '%s' has no active queue — dropping %d points", sink_name, len(batch))
+                logger.warning(
+                    "Sink '%s' has no active queue — dropping %d points",
+                    sink_name,
+                    len(batch),
+                )
                 continue
             if sink_name in self._unhealthy:
                 self._points_dropped += len(batch)
