@@ -201,7 +201,9 @@ export function connectionOverridesFromForm(
     }
   }
   if (model.protocol === 'ads') extensions.target_net_id = form.target_net_id.trim()
-  const port = num(defaults.port, 0) !== num(form.port, 0) ? form.port || undefined : undefined
+  const port = num(defaults.port, PROTOCOL_DEFAULT_PORTS[model.protocol]) !== form.port
+    ? form.port || undefined
+    : undefined
   return { extensions, port }
 }
 
