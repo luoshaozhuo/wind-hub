@@ -33,7 +33,7 @@ describe('defaultConnectionForm', () => {
     const form = defaultConnectionForm('ads')
     expect(form.port).toBe(801)
     expect(form.twincat_version).toBe('2')
-    expect(form.timeout).toBe(3)
+    expect(form.timeout).toBe(5)
   })
 
   it('Modbus 默认：port 502 / unit 1 / tcp / little_endian', () => {
@@ -71,7 +71,7 @@ describe('formFromConnection', () => {
     expect(form.port).toBe(502)
     expect(form.slave_id).toBe(1)
     expect(form.mode).toBe('tcp')
-    expect(form.timeout).toBe(3)
+    expect(form.timeout).toBe(5)
   })
 
   it('多 CA 逗号串原样保留；数字输入规范化为字符串', () => {
@@ -92,9 +92,9 @@ describe('formFromConnection', () => {
 
 describe('formFromModelDefaults / applyModelDefaults', () => {
   it('从 model connection_defaults 填充表单', () => {
-    const m = model('modbus', { port: 1502, slave_id: 9, mode: 'rtu' })
+    const m = model('modbus', { port: 1502, slave_id: 9, mode: 'tcp' })
     const form = formFromModelDefaults(m)
-    expect(form).toMatchObject({ port: 1502, slave_id: 9, mode: 'rtu', word_order: 'little_endian' })
+    expect(form).toMatchObject({ port: 1502, slave_id: 9, mode: 'tcp', word_order: 'little_endian' })
   })
 
   it('model 切换时应用 defaults；ADS 按 host 推导空缺的 target_net_id', () => {
@@ -144,7 +144,7 @@ const MODBUS_FULL_DEFAULTS = {
   port: 502,
   slave_id: 1,
   mode: 'tcp',
-  timeout: 3,
+  timeout: 5,
   word_order: 'little_endian',
 }
 
@@ -186,7 +186,7 @@ describe('connectionOverridesFromForm', () => {
   })
 
   it('ADS target_net_id 作为身份键始终写入，其余按键集序列化', () => {
-    const m = model('ads', { port: 801, timeout: 3, twincat_version: '2' })
+    const m = model('ads', { port: 801, timeout: 5, twincat_version: '2' })
     const form = defaultConnectionForm('ads')
     form.target_net_id = ' 10.0.0.1.1.1 '
     form.twincat_version = '3'
@@ -224,7 +224,7 @@ describe('connectionDefaultsFromForm', () => {
     const defaults = connectionDefaultsFromForm(form, 'ads')
     expect(defaults).toEqual({
       port: 801,
-      timeout: 3,
+      timeout: 5,
       twincat_version: '2',
     })
   })
