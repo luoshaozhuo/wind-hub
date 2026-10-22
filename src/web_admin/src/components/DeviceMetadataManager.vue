@@ -223,7 +223,8 @@ async function saveModel() {
     const protocolChanged = target.protocol !== payload.protocol
     const tableChanged = target.point_table !== payload.point_table
     const connectionChanged =
-      JSON.stringify(target.connection_defaults) !== JSON.stringify(payload.connection_defaults)
+      JSON.stringify(target.connection_defaults) !== JSON.stringify(payload.connection_defaults) ||
+      JSON.stringify(target.protocol_options || {}) !== JSON.stringify(payload.protocol_options || {})
     const runtimeImpact =
       protocolChanged || tableChanged || connectionChanged
 
