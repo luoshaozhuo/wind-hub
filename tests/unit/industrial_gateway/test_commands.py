@@ -72,7 +72,9 @@ async def test_invalid_scalar_does_not_enter_executing_state(value: int) -> None
     assert proxy.state("t1", "command") is CommandState.READY
 
 
-def test_journal_failed_begin_latches_all_controls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_journal_failed_begin_latches_all_controls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     journal = CommandJournal(tmp_path / "journal.json")
 
     def fail_save() -> None:
