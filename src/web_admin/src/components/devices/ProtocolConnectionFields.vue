@@ -20,7 +20,6 @@ withDefaults(
     controls: true,
   },
 )
-
 </script>
 
 <template>
