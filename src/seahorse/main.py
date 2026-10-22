@@ -7,6 +7,7 @@ from pathlib import Path
 
 from seahorse.application.command_queue import CommandQueue
 from seahorse.infrastructure.grpc_command_server import start_command_server
+from seahorse.infrastructure.embedded_gateway import run_embedded
 from seahorse.infrastructure.config import load_config
 from seahorse.infrastructure.factory import create_runtime
 from seahorse.infrastructure.gateway_mapping import validate_gateway_mapping
@@ -39,8 +40,22 @@ def main() -> int:
     parser.add_argument("--gateway-config", type=Path)
     parser.add_argument("--gateway-auto-map", action="store_true")
     parser.add_argument("--command-bind", type=str)
+    parser.add_argument("--embedded-gateway-config", type=Path)
     args = parser.parse_args()
     config = load_config(args.config)
+    if args.embedded_gateway_config is not None:
+        if args.gateway_map is not None or args.gateway_auto_map or args.gateway_config is not None:
+            parser.error("embedded gateway cannot be combined with remote gateway options")
+        if not args.check:
+            asyncio.run(
+                run_embedded(
+                    config,
+                    args.embedded_gateway_config,
+                    command_bind=args.command_bind,
+                    steps=args.steps,
+                )
+            )
+        return 0
     if args.gateway_auto_map and (args.gateway_config is None or args.gateway_map is not None):
         parser.error("--gateway-auto-map requires --gateway-config and no --gateway-map")
     if args.gateway_config is not None and args.gateway_map is None and not args.gateway_auto_map:
