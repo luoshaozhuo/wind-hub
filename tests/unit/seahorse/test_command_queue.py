@@ -1,4 +1,4 @@
-"""命令排队的去重、容量及顺序语义。"""
+"""命令队列的串行处理、确认、失败与关闭语义。"""
 import pytest
 
 from seahorse.application.command_queue import CommandQueue
@@ -9,15 +9,26 @@ def test_queue_order_and_replay_rejection() -> None:
     queue = CommandQueue(max_pending=2)
     first = EquipmentCommand("a", "d10001", "ctrlStop", True)
     second = EquipmentCommand("b", "d10001", "ctrlStart", True)
-    queue.enqueue(first)
-    queue.enqueue(second)
-    assert queue.drain() == (first, second)
+    accepted_a = queue.enqueue(first)
+    accepted_b = queue.enqueue(second)
+    items = queue.drain()
+    assert tuple(item.command for item in items) == (first, second)
+    items[0].outcome.set_result(None)
+    items[1].outcome.set_exception(ValueError("rejected"))
+    assert accepted_a.result() is None
+    with pytest.raises(ValueError, match="rejected"):
+        accepted_b.result()
     with pytest.raises(ValueError, match="duplicate"):
         queue.enqueue(first)
 
 
-def test_queue_capacity() -> None:
+def test_queue_capacity_and_close() -> None:
     queue = CommandQueue(max_pending=1)
-    queue.enqueue(EquipmentCommand("a", "d10001", "ctrlStop", True))
+    outcome = queue.enqueue(EquipmentCommand("a", "d10001", "ctrlStop", True))
     with pytest.raises(RuntimeError, match="full"):
         queue.enqueue(EquipmentCommand("b", "d10001", "ctrlStop", True))
+    queue.close()
+    with pytest.raises(RuntimeError, match="stopped"):
+        outcome.result()
+    with pytest.raises(RuntimeError, match="closed"):
+        queue.enqueue(EquipmentCommand("c", "d10001", "ctrlStop", True))

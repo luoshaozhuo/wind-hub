@@ -1,10 +1,11 @@
-"""Seahorse 虚拟设备命令 RPC 入口，仅绑定受信任的本机地址。
+"""仅回环监听的虚拟 Commander RPC。
 
-复用 Commander WritePoint wire contract，不复制真实 Commander 的控制逻辑。
-CONFIRMED_SUCCESS 只意味着入队接收，不代表物理执行完成。
+CONFIRMED_SUCCESS 表示模型已接受控制状态更改，不表示机组物理动作已完成。
+超时或断线返回 UNKNOWN；不得对同一个 command_id 自动重试。
 """
 from __future__ import annotations
 
+import asyncio
 import math
 from typing import Any
 
@@ -35,7 +36,7 @@ def _decode(value: pb.ScalarValue) -> Scalar:
 
 
 class SeahorseCommanderService(pb_grpc.CommanderServiceServicer):
-    """仅实现虚拟设备的 WritePoint；其他 RPC 保持未实现。"""
+    """本入口只开放单点控制 RPC，不声明自己是完整 Commander。"""
 
     def __init__(self, queue: CommandQueue, turbine_ids: frozenset[str]) -> None:
         self._queue = queue
@@ -52,28 +53,44 @@ class SeahorseCommanderService(pb_grpc.CommanderServiceServicer):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unmapped command")
         try:
             value = _decode(request.value)
-            self._queue.enqueue(
-                EquipmentCommand(
-                    request.command_id, request.device_id, request.point_id, value
-                )
+            outcome = self._queue.enqueue(
+                EquipmentCommand(request.command_id, request.device_id, request.point_id, value)
             )
         except (TypeError, ValueError) as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         except RuntimeError as exc:
             await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, str(exc))
-        # 现有协议没有 ACCEPTED 状态；不能冒充实际执行成功。
-        # UNKNOWN 强制 Gateway 不盲目重试，最终执行靠回读确认。
+        timeout = min(request.timeout if request.timeout > 0 else 3.0, 30.0)
+        try:
+            await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(outcome)), timeout)
+        except TimeoutError:
+            return pb.CommandResultMessage(
+                command_id=request.command_id,
+                outcome=pb.COMMAND_OUTCOME_UNKNOWN,
+                error="execution timed out; do not retry without reconciliation",
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            return pb.CommandResultMessage(
+                command_id=request.command_id,
+                outcome=pb.COMMAND_OUTCOME_CONFIRMED_FAILURE,
+                error=str(exc),
+            )
+        except RuntimeError as exc:
+            return pb.CommandResultMessage(
+                command_id=request.command_id,
+                outcome=pb.COMMAND_OUTCOME_UNKNOWN,
+                error=str(exc),
+            )
         return pb.CommandResultMessage(
             command_id=request.command_id,
-            outcome=pb.COMMAND_OUTCOME_UNKNOWN,
-            error="accepted into simulation queue; execution not yet confirmed",
+            outcome=pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS,
         )
 
 
 async def start_command_server(
     queue: CommandQueue, turbine_ids: frozenset[str], bind: str
 ) -> grpc.aio.Server:
-    """仅监听 loopback；跨主机部署需要单独增加身份认证，不默认开放。"""
+    """仅 loopback；外网部署必须先增加身份认证。"""
     if not (bind.startswith("127.0.0.1:") or bind.startswith("[::1]:")):
         raise ValueError("command RPC must bind loopback")
     server = grpc.aio.server()

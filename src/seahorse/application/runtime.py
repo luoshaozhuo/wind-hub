@@ -1,4 +1,4 @@
-"""统一仿真时钟；命令仅在固定仿真步入口提交。"""
+"""固定步仿真；每条命令独立完成或失败，不中断后续命令。"""
 from __future__ import annotations
 
 import time
@@ -22,8 +22,13 @@ class SeahorseRuntime:
 
     def step(self) -> FarmSnapshot:
         if self._commands is not None:
-            for command in self._commands.drain():
-                self._service.command(command)
+            for item in self._commands.drain():
+                try:
+                    self._service.command(item.command)
+                except (ValueError, TypeError, KeyError) as exc:
+                    item.outcome.set_exception(exc)
+                else:
+                    item.outcome.set_result(None)
         next_index = self._index + 1
         snapshot = self._service.step(
             SimulationTime(next_index, next_index * self._step_seconds, self._step_seconds)
@@ -48,6 +53,8 @@ class SeahorseRuntime:
                     time.sleep(remaining)
         finally:
             self._running = False
+            if self._commands is not None:
+                self._commands.close()
 
     def stop(self) -> None:
         self._running = False
