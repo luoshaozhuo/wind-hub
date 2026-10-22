@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from seahorse.application.runtime import SeahorseRuntime
+from seahorse.application.command_queue import CommandQueue
 from seahorse.ports.publisher import PublisherPort
 from seahorse.application.wind_farm_service import WindFarmService
 from seahorse.infrastructure.config import PointRange, SeahorseConfig
@@ -34,7 +35,8 @@ def _ranges(points: dict[str, PointRange]) -> dict[str, tuple[float, float]]:
 
 
 def create_runtime(
-    config: SeahorseConfig, publisher: PublisherPort | None = None
+    config: SeahorseConfig, publisher: PublisherPort | None = None,
+    commands: CommandQueue | None = None
 ) -> SeahorseRuntime:
     seed = config.seed
     wind_field: WindFieldPort
@@ -109,4 +111,4 @@ def create_runtime(
         ),
         publisher=publisher if publisher is not None else MemoryPublisher(),
     )
-    return SeahorseRuntime(service, config.step_seconds)
+    return SeahorseRuntime(service, config.step_seconds, commands)
