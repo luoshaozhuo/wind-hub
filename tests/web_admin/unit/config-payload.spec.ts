@@ -67,6 +67,28 @@ describe('Core definitions payload', () => {
     }
   })
 
+  it('保留型号高级协议参数，并以编辑后的表单参数为准', () => {
+    const model = {
+      ...state.deviceModels[0],
+      protocol_options: { health_point_id: 'HEALTH', timeout: 20, slave_id: 7 },
+      connection_defaults: { port: 1502, timeout: 4, slave_id: 2 },
+    }
+    const snapshot = { ...state, deviceModels: [model] } as unknown as DefinitionsEditState
+    const saved = buildDefinitionsPayload(snapshot, {}, '')
+    expect(saved.device_models.m.endpoint_defaults).toEqual({ port: 1502 })
+    expect(saved.device_models.m.protocol_options).toEqual({
+      health_point_id: 'HEALTH', timeout: 4, slave_id: 2,
+    })
+    expect(saved.device_models.m.properties).toEqual({ location: 'site-a' })
+  })
+
+  it('点表编辑后使用 Core 的 unit 字段，不能生成 unit_id', () => {
+    const saved = buildDefinitionsPayload(state, {}, '')
+    const point = saved.point_tables.p.points.P
+    expect(point).toHaveProperty('unit', 'kW')
+    expect(point).not.toHaveProperty('unit_id')
+  })
+
   it('preserves the server point table document on an unchanged projection', () => {
     const raw = { p: { protocol: 'modbus', points: { P: { business_point_id: 'power' } } } }
     const result = buildDefinitionsPayload(state, raw, pointProjection(state))
