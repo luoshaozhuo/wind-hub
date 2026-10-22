@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import signal
 from pathlib import Path
 
 from industrial_gateway.infrastructure.config.loader import load_config as load_gateway
@@ -26,14 +27,29 @@ async def _run(
             commands, frozenset(item.device_id for item in config.turbines), command_bind
         )
     runtime = create_runtime(config, publisher=publisher, commands=commands)
+    shutdown = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(signum, shutdown.set)
+        except NotImplementedError:
+            pass
     try:
         worker = asyncio.create_task(asyncio.to_thread(runtime.run, steps))
+        stopper = asyncio.create_task(shutdown.wait())
         try:
-            await asyncio.shield(worker)
+            done, _ = await asyncio.wait(
+                (worker, stopper), return_when=asyncio.FIRST_COMPLETED
+            )
+            if stopper in done:
+                runtime.stop()
+            await worker
         except asyncio.CancelledError:
             runtime.stop()
             await worker
             raise
+        finally:
+            stopper.cancel()
     finally:
         runtime.stop()
         if commands is not None:

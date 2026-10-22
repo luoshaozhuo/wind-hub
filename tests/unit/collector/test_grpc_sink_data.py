@@ -34,7 +34,7 @@ async def test_grpc_sink_sends_mapped_good_samples() -> None:
     )
     sink = GrpcSink(config)
     outgoing = AsyncMock()
-    object.__setattr__(sink, "_write_many", outgoing)
+    sink._write_many = outgoing  # type: ignore[assignment]
     timestamp = datetime.now(UTC)
     await sink.write([
         PointValue("collector_wt", "power", 150.0, timestamp=timestamp),

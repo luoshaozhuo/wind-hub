@@ -19,7 +19,7 @@ def generate_profile(
     source_path: Path,
     output_directory: Path,
     *,
-    start_port: int = 15020,
+    start_port: int = 15120,
     enable_control: bool = False,
     command_bind: str = "127.0.0.1:50072",
 ) -> None:
@@ -113,7 +113,7 @@ def generate_profile(
             "commander": {
                 "endpoint": command_bind, "command_timeout": 3.0, "rpc_timeout": 4.0
             },
-            "journal_path": "/tmp/seahorse_virtual_commands.json",
+            "journal_path": str(output_directory / "commands.json"),
             "access": {
                 "data_writers": [],
                 "command_writers": ["127.0.0.1"] if enable_control else [],
@@ -157,7 +157,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="seahorse-dc-ems-profile")
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--start-port", type=int, default=15020)
+    parser.add_argument("--start-port", type=int, default=15120)
     parser.add_argument("--enable-virtual-control", action="store_true")
     args = parser.parse_args()
     generate_profile(

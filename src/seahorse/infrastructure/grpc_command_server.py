@@ -58,7 +58,12 @@ class SeahorseCommanderService:
         except (TypeError, ValueError) as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         except RuntimeError as exc:
-            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            status = (
+                grpc.StatusCode.RESOURCE_EXHAUSTED
+                if "queue full" in str(exc)
+                else grpc.StatusCode.FAILED_PRECONDITION
+            )
+            await context.abort(status, str(exc))
         timeout = min(request.timeout if request.timeout > 0 else 3.0, 30.0)
         try:
             await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(outcome)), timeout)

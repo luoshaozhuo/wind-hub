@@ -40,7 +40,7 @@ class SeahorseRuntime:
                 SimulationTime(next_index, next_index * self._step_seconds, self._step_seconds)
             )
         except Exception:
-            # 模型和 Modbus 发布不可回滚，拒绝重复推进同一时间步。
+            # 模型和 gRPC 发布不可回滚，拒绝重复推进同一时间步。
             self._failed = True
             if self._commands is not None:
                 self._commands.close()

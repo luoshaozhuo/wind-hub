@@ -105,12 +105,12 @@ class SeahorseConfig(BaseModel):
             and any(t.model != "simple" for t in self.turbines)
         ):
             raise ValueError("simple substation requires all turbine models to report physical power")
-        if (
-            self.primary_station.enabled
-            and self.inertia_station.enabled
-            and self.primary_station.period_seconds == self.inertia_station.period_seconds
-        ):
-            raise ValueError("primary/inertia events require non-overlapping schedules")
+        if self.primary_station.enabled and self.inertia_station.enabled:
+            if (
+                self.primary_station.period_seconds
+                == self.inertia_station.period_seconds
+            ):
+                raise ValueError("primary/inertia events require non-overlapping schedules")
         return self
 
 

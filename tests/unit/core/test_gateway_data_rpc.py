@@ -1,8 +1,8 @@
 """Gateway gRPC Struct 反馈契约。"""
 from __future__ import annotations
 
-from google.protobuf import struct_pb2
 import pytest
+from google.protobuf import struct_pb2
 
 from core.infrastructure.rpc.gateway_data import decode_feedback, encode_feedback
 
@@ -30,6 +30,6 @@ def test_duplicate_rejected() -> None:
 
 def test_text_scalar_and_unsafe_integer_rejected() -> None:
     with pytest.raises(ValueError):
-        encode_feedback({("wt1", "text"): "running"})
+        encode_feedback({("wt1", "text"): "running"})  # type: ignore[dict-item]
     with pytest.raises(ValueError):
         encode_feedback({("wt1", "large"): 1 << 54})
