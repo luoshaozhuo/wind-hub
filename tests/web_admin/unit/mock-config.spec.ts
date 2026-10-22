@@ -48,9 +48,9 @@ describe('Mock configuration follows Core canonical schema', () => {
   it('keeps boolean point measurements dimensionless', () => {
     const documents = seedYamlFiles(settingsSeed, devicesSeed, tasksSeed)
     const points = JSON.parse(documents['points.yaml']).point_tables
-    for (const table of Object.values(points) as Array<{ points: Record<string, { data_type: string; unit_id: string }> }>) {
+    for (const table of Object.values(points) as Array<{ points: Record<string, { data_type: string; unit: string }> }>) {
       for (const point of Object.values(table.points)) {
-        if (point.data_type === 'bool') expect(point.unit_id).toBe('none')
+        if (point.data_type === 'bool') expect(point.unit).toBe('none')
       }
     }
   })
