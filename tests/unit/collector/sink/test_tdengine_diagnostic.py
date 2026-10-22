@@ -4,7 +4,7 @@
 - TDengineSink.diagnostic 只执行 SELECT，成功/失败语义正确；
 - 连续诊断不产生 INSERT/CREATE，不创建历史子表、不增加点值；
 - CollectorSinkService.write_test_sink 对 TDengine 走只读诊断并明确文案，
-  对没有 diagnostic 接口的 Sink（Redis/Modbus）保留真实 probe 写入契约。
+  对没有 diagnostic 接口的 Sink（Redis/Modbus）仅检查 health，不写入数据。
 
 无真实 taosAdapter：SQL 经替换 ``_execute`` 捕获；失败路径用抛错桩模拟。
 """
@@ -20,7 +20,6 @@ import pytest
 from collector.application.services import CollectorSinkService
 from core.application.sink_contract import ResolvedSink
 from core.application.sink_error import SinkError
-from core.domain.point_value import PointValue
 from core.infrastructure.sink.tdengine import TDengineSink
 
 CONNECTION = {
@@ -133,38 +132,33 @@ async def test_service_unknown_sink_raises_keyerror() -> None:
         await _service(sink).write_test_sink("missing")
 
 
-class _RecordingLegacySink:
-    """没有 diagnostic 接口的 Sink（Redis/Modbus 形态）：保留 probe 真实写入。"""
+class _HealthOnlySink:
+    """无专用 diagnostic 的 Sink 仅进行健康检查。"""
 
-    def __init__(self) -> None:
-        self.written: list[PointValue] = []
-        self.flushed = 0
+    def __init__(self, *, healthy: bool = True) -> None:
+        self.healthy = healthy
+        self.written = False
 
-    async def write(self, batch: list[PointValue]) -> None:
-        self.written.extend(batch)
+    async def health(self):
+        from core.application.port.protocol import ConnectionHealth
 
-    async def flush(self) -> None:
-        self.flushed += 1
+        return ConnectionHealth(healthy=self.healthy, message="" if self.healthy else "offline")
+
+    async def write(self, batch: list[object]) -> None:
+        self.written = True
 
 
-async def test_service_legacy_sink_still_gets_real_probe() -> None:
-    legacy = _RecordingLegacySink()
-    result = await _service(legacy).write_test_sink("target")
+async def test_service_without_diagnostic_checks_health_without_writing() -> None:
+    sink = _HealthOnlySink()
+    result = await _service(sink).write_test_sink("target")
     assert result.success is True
-    assert result.message == ""  # 真实写入路径不使用"未写入"文案
-    assert len(legacy.written) == 1
-    assert (legacy.written[0].device_id, legacy.written[0].point_id) == (
-        "_diagnostic",
-        "_write_test",
-    )
-    assert legacy.flushed == 1
+    assert "未写入" in result.message
+    assert not sink.written
 
 
-async def test_service_legacy_sink_probe_failure_reported() -> None:
-    class FailingSink(_RecordingLegacySink):
-        async def write(self, batch: list[PointValue]) -> None:
-            raise OSError("connection refused")
-
-    result = await _service(FailingSink()).write_test_sink("target")
+async def test_service_without_diagnostic_reports_unhealthy() -> None:
+    sink = _HealthOnlySink(healthy=False)
+    result = await _service(sink).write_test_sink("target")
     assert result.success is False
-    assert "connection refused" in result.message
+    assert "offline" in result.message
+    assert not sink.written
