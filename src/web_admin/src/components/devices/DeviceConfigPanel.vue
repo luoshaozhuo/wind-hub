@@ -123,8 +123,7 @@ function protocolDescription(d: DeviceInst) {
           <ProtocolConnectionFields
             v-model="editForm.connection"
             :protocol="editForm.protocol"
-            :modbus-modes="['tcp', 'rtu']"
-          />
+                  />
         </div>
 
         <el-alert
