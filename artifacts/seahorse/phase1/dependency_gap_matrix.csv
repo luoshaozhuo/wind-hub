@@ -13,7 +13,7 @@ pfr_device,CONFIRMED,YctpDevice.initEvents,Frequency mode propagates to FactoryP
 gateway_modbus,CONFIRMED,industrial_gateway.infrastructure.config.loader,Gateway only Modbus endpoint in current schema,Assess 104 external substitution separately
 gateway_permissions,CONFIRMED,Access.check_addresses,Data and command writer IPs disjoint,Design explicit network identities
 gateway_command_rpc,CONFIRMED,GrpcCommanderWriter.write_point,WritePoint and outcomes confirmed success failure or unknown,Map acceptance not final physical execution
-database_initialization,UNAVAILABLE,deploy/database/init/README.md,Trusted complete data.json initialization baseline not supplied,Request sanitized actual deployment mapping
-required_external_variables,INCOMPLETE,Actual SyncData and EdgeAddrSet rows absent,Full coverage cannot be asserted,Reconcile rows with consumers and producers
+database_initialization,CONFIRMED,deploy/database/init/data.json,13 collections and 50 turbine devices and 49 point definitions and 11 sync records inspected; README is inconsistent,Validate whether snapshot matches active deployment
+required_external_variables,PARTIAL,Actual snapshot inspected; SyncData all 11 rows are outputs and EdgeAddrSet 49 rows use a single setId,Full operational input coverage cannot be asserted,Reconcile algorithm references with EMSPoint and TurbPoint and live deployment
 random_source,NOT_STARTED,Phase2,Do not implement in Phase1,After approval
 wind_farm_source,NOT_STARTED,Phase3,Fixed fields blocked by contract coverage,After review
