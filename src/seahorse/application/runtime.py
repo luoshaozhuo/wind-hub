@@ -19,8 +19,11 @@ class SeahorseRuntime:
         self._commands = commands
         self._index = 0
         self._running = False
+        self._failed = False
 
     def step(self) -> FarmSnapshot:
+        if self._failed:
+            raise RuntimeError("simulation stopped after a failed step")
         if self._commands is not None:
             for item in self._commands.drain():
                 try:
@@ -30,9 +33,16 @@ class SeahorseRuntime:
                 else:
                     item.outcome.set_result(None)
         next_index = self._index + 1
-        snapshot = self._service.step(
-            SimulationTime(next_index, next_index * self._step_seconds, self._step_seconds)
-        )
+        try:
+            snapshot = self._service.step(
+                SimulationTime(next_index, next_index * self._step_seconds, self._step_seconds)
+            )
+        except Exception:
+            # 模型和 Modbus 发布不可回滚，拒绝重复推进同一时间步。
+            self._failed = True
+            if self._commands is not None:
+                self._commands.close()
+            raise
         self._index = next_index
         return snapshot
 

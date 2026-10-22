@@ -85,6 +85,6 @@ class WindFarmService:
                 self._inertia.snapshot(),
             ),
         )
-        self._publisher.publish(result)
         self._last_step_index = time.step_index
+        self._publisher.publish(result)
         return result
