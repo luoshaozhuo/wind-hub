@@ -45,7 +45,7 @@ async def test_fc06_success_echo_and_exactly_one_commander_call(harness) -> None
         assert len(commander.calls) == 1
         call = commander.calls[0]
         assert (call.device_id, call.point_id) == ("phys1", "spu")
-        assert call.kind == "uint64_value"
+        assert call.kind == "sint64_value"
         assert call.value == 1234
         assert call.command_id
 
