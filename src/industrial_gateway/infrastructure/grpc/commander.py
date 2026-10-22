@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, cast
 import grpc
 
 from core.infrastructure.rpc import commander_pb2 as pb
-from core.infrastructure.rpc.scalar_codec import encode_scalar
 from core.infrastructure.rpc import commander_pb2_grpc
+from core.infrastructure.rpc.scalar_codec import encode_scalar
 from industrial_gateway.application.command_service import (
     CommanderUnavailableError,
     CommandOutcome,
