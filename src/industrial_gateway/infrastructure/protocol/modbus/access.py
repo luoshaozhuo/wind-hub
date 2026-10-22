@@ -98,7 +98,8 @@ class _GatewayRequestHandler(ServerRequestHandler):
         peer = transport.get_extra_info("peername") if transport else None
         remote = str(ip_address(peer[0])) if isinstance(peer, tuple) and peer else None
         token = _request_ip.set(remote)
-        bit_span = None
+        bit_span: tuple[int, int] | None = None
+        bit_count: int | None = None
         if pdu.function_code in {1, 2, 5, 15}:
             bit_address = getattr(pdu, "address", None)
             if pdu.function_code == 5:
