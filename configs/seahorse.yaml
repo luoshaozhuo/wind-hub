@@ -1,0 +1,22 @@
+# 一期仅随机采样；不表示任何物理耦合或已完成 DC-EMS 全点表支持。
+step_seconds: 0.5
+seed: 42
+turbines:
+  - device_id: d10001
+    points:
+      emsWinSpd: {minimum: 5, maximum: 12}
+      emsPowAct: {minimum: 0, maximum: 2000}
+      ctrlActPow: {minimum: 0, maximum: 2000}
+  - device_id: d10002
+    points:
+      emsWinSpd: {minimum: 5, maximum: 12}
+      emsPowAct: {minimum: 0, maximum: 2000}
+      ctrlActPow: {minimum: 0, maximum: 2000}
+dispatch_points:
+  emsGridDispatchAct: {minimum: 0, maximum: 4000}
+  emsGridDispatchReact: {minimum: -500, maximum: 500}
+primary_points:
+  emsFreDst: {minimum: 0, maximum: 4000}
+  emsDeltapValue: {minimum: -100, maximum: 100}
+inertia_points:
+  actInertiaDst: {minimum: 0, maximum: 100}
