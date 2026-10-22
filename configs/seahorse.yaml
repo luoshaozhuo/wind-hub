@@ -1,17 +1,29 @@
-# 一期仅随机采样；不表示任何物理耦合或已完成 DC-EMS 全点表支持。
+# 物理模型示例：风机独立状态，统一环境；场级信号仍为随机占位。
 step_seconds: 0.5
 seed: 42
+wind_field:
+  model: simple
+  mean_speed_mps: 8.0
+  amplitude_mps: 2.0
+  period_seconds: 300.0
+  turbulence_std_mps: 0.5
+  correlation_seconds: 10.0
+  direction_deg: 270.0
+grid:
+  model: simple
+  frequency_hz: 50.0
+  voltage_v: 35000.0
+substation:
+  model: simple
+  active_loss_ratio: 0.02
+  reactive_loss_ratio: 0.02
 turbines:
   - device_id: d10001
-    points:
-      emsWinSpd: {minimum: 5, maximum: 12}
-      emsPowAct: {minimum: 0, maximum: 2000}
-      ctrlActPow: {minimum: 0, maximum: 2000}
+    model: simple
+    rated_power_kw: 2000
   - device_id: d10002
-    points:
-      emsWinSpd: {minimum: 5, maximum: 12}
-      emsPowAct: {minimum: 0, maximum: 2000}
-      ctrlActPow: {minimum: 0, maximum: 2000}
+    model: simple
+    rated_power_kw: 2000
 dispatch_points:
   emsGridDispatchAct: {minimum: 0, maximum: 4000}
   emsGridDispatchReact: {minimum: -500, maximum: 500}
