@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { buildDefinitionsPayload, pointProjection, type DefinitionsEditState } from '../../../src/web_admin/src/api/config'
+import { connectionDefaultsFromForm, defaultConnectionForm } from '../../../src/web_admin/src/domain/deviceConnection'
 
 const state = {
   units: { kW: { symbol: 'kW', name: 'Power' } },
   deviceTypes: [{ id: 'turbine', name: 'Turbine' }],
   deviceModels: [{
     id: 'm', device_type: 'turbine', manufacturer: 'Vendor', model: 'M',
-    protocol: 'modbus', point_table: 'p', read_mode: '',
-    properties: {}, connection_defaults: { port: 502 },
+    protocol: 'modbus', point_table: 'p',
+    properties: { location: 'site-a' }, connection_defaults: { port: 502, timeout: 4, slave_id: 2 },
+    protocol_options: { health_point_id: 'ALIVE' },
   }],
   pointTables: [{
     id: 'p', protocol: 'modbus', extends: '', remove_points: [], system: false,
@@ -26,18 +28,65 @@ describe('Core definitions payload', () => {
       device_type_id: 'turbine',
       point_table_id: 'p',
       endpoint_defaults: { port: 502 },
+      protocol_options: { health_point_id: 'ALIVE', timeout: 4, slave_id: 2 },
+      properties: { location: 'site-a' },
     })
     expect(result.point_tables.p).toMatchObject({
       protocol: 'modbus',
       points: {
         P: {
           business_point_id: 'power',
-          unit_id: 'kW',
+          unit: 'kW',
           point_groups: ['all'],
         },
       },
     })
     expect(result.point_tables.p).not.toHaveProperty('extends')
+  })
+
+  it('三协议型号参数与 Core endpoint_defaults 契约一致', () => {
+    for (const protocol of ['ads', 'modbus', 'iec104'] as const) {
+      const snapshot = {
+        ...state,
+        deviceModels: [{
+          ...state.deviceModels[0],
+          protocol,
+          connection_defaults: connectionDefaultsFromForm(defaultConnectionForm(protocol), protocol),
+          protocol_options: {},
+        }],
+      } as unknown as DefinitionsEditState
+      const serialized = buildDefinitionsPayload(snapshot, {}, '')
+      const model = serialized.device_models.m
+      expect(model.endpoint_defaults).toEqual({ port: defaultConnectionForm(protocol).port })
+      expect(model.protocol_options).not.toHaveProperty('port')
+      expect(model.protocol_options).not.toHaveProperty('reconnect_max_retries')
+      if (protocol === 'modbus') {
+        expect(model.protocol_options).toHaveProperty('slave_id', 1)
+        expect(model.protocol_options).not.toHaveProperty('unit_id')
+      }
+    }
+  })
+
+  it('保留型号高级协议参数，并以编辑后的表单参数为准', () => {
+    const model = {
+      ...state.deviceModels[0],
+      protocol_options: { health_point_id: 'HEALTH', timeout: 20, slave_id: 7 },
+      connection_defaults: { port: 1502, timeout: 4, slave_id: 2 },
+    }
+    const snapshot = { ...state, deviceModels: [model] } as unknown as DefinitionsEditState
+    const saved = buildDefinitionsPayload(snapshot, {}, '')
+    expect(saved.device_models.m.endpoint_defaults).toEqual({ port: 1502 })
+    expect(saved.device_models.m.protocol_options).toEqual({
+      health_point_id: 'HEALTH', timeout: 4, slave_id: 2,
+    })
+    expect(saved.device_models.m.properties).toEqual({ location: 'site-a' })
+  })
+
+  it('点表编辑后使用 Core 的 unit 字段，不能生成 unit_id', () => {
+    const saved = buildDefinitionsPayload(state, {}, '')
+    const point = saved.point_tables.p.points.P
+    expect(point).toHaveProperty('unit', 'kW')
+    expect(point).not.toHaveProperty('unit_id')
   })
 
   it('preserves the server point table document on an unchanged projection', () => {

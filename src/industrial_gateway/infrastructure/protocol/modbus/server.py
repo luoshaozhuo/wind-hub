@@ -15,8 +15,12 @@ from pymodbus.simulator.simutils import SimUtils
 
 from industrial_gateway.application.point_store import PointStore
 from industrial_gateway.application.write_service import ResolvedWrite, WriterRole, WriteService
-from industrial_gateway.domain import PointSnapshot
-from industrial_gateway.infrastructure.protocol.modbus.access import GatewayTcpServer, request_ip
+from industrial_gateway.domain import PointKey, PointSnapshot
+from industrial_gateway.infrastructure.protocol.modbus.access import (
+    GatewayTcpServer,
+    request_bit_span,
+    request_ip,
+)
 from industrial_gateway.infrastructure.protocol.modbus.codec import (
     RegisterMap,
     RegisterMapping,
@@ -25,8 +29,6 @@ from industrial_gateway.infrastructure.protocol.modbus.codec import (
 )
 
 logger = logging.getLogger(__name__)
-
-PointKey = tuple[str, str]
 _AREAS = {"coil": 0, "discrete_input": 1, "holding": 2, "input": 3}
 _READ_CODES = {1, 2, 3, 4}
 _WRITE_CODES = {5, 6, 15, 16}
@@ -128,6 +130,11 @@ class PymodbusGatewayServer:
             )
             bit_start = address // 16 * 16 if bit_area and not write_request else address
             bit_end = bit_start + count * 16 if bit_area and not write_request else address + span
+            if bit_area and not write_request:
+                requested = request_bit_span()
+                if requested is not None:
+                    bit_start, requested_count = requested
+                    bit_end = bit_start + requested_count
             relevant = [
                 mapping
                 for mapping in mappings
@@ -194,8 +201,6 @@ class PymodbusGatewayServer:
             for mapping in relevant:
                 snapshot: PointSnapshot = store.read(mapping.device_id, mapping.point_id)
                 if snapshot.value is None:
-                    if bits is not None and mapping.address != address:
-                        continue
                     return ExcCodes.DEVICE_FAILURE
                 try:
                     encoded = encode_registers(mapping, snapshot.value)

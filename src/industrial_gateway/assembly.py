@@ -62,7 +62,7 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
                     device_id,
                     point_id,
                     role,
-                    writable=True,
+                    writable=point.address.register_type in {"coil", "holding"},
                 )
             )
             roles[(device_id, point_id)] = role

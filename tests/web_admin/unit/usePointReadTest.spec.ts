@@ -48,7 +48,7 @@ function seedStore(withDevice = true) {
       manufacturer: 'generic',
       protocol: 'ads',
       point_table: 't1',
-      read_mode: '',
+
       properties: {},
       connection_defaults: {},
     },

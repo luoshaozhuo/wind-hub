@@ -59,9 +59,7 @@ class RedisSink:
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
-        self._healthy = False
         self._message: str | None = "not opened"
-        self._closed = False
 
     async def _response(self) -> str:
         assert self._reader is not None
@@ -117,7 +115,6 @@ class RedisSink:
             writer.close()
             with suppress(ConnectionError, OSError, TimeoutError):
                 await asyncio.wait_for(writer.wait_closed(), timeout=self._config.timeout)
-        self._healthy = False
 
     async def _connect(self) -> None:
         """建立连接并完成握手；调用方必须持有 ``self._lock``。"""
@@ -137,7 +134,7 @@ class RedisSink:
             if self._config.database != 0:
                 await self._request("SELECT", str(self._config.database))
             await self._request("PING")
-            self._healthy, self._message = True, None
+            self._message = None
         except Exception as exc:
             await self._disconnect()
             self._message = str(exc)
@@ -147,7 +144,6 @@ class RedisSink:
         async with self._lock:
             if self._writer is not None:
                 return
-            self._closed = False
             await self._connect()
 
     async def write(self, batch: list[PointValue]) -> None:
@@ -164,7 +160,6 @@ class RedisSink:
             return
         async with self._lock:
             if self._writer is None:
-                self._healthy = False
                 raise SinkError("Redis sink is not connected")
             assert self._writer is not None
             try:
@@ -188,7 +183,7 @@ class RedisSink:
                         raise SinkError(f"Redis CAS EVAL returned unexpected result: {result}")
                     if result == 0:
                         logger.debug("stale sample rejected for key %s", record.key)
-                self._healthy, self._message = True, None
+                self._message = None
             except Exception as exc:
                 await self._disconnect()
                 self._message = str(exc)
@@ -199,7 +194,6 @@ class RedisSink:
 
     async def close(self) -> None:
         async with self._lock:
-            self._closed = True
             await self._disconnect()
             self._message = "closed"
 
@@ -218,5 +212,5 @@ class RedisSink:
                 await self._disconnect()
                 self._message = str(exc)
                 return ConnectionHealth(healthy=False, message=self._message)
-            self._healthy, self._message = True, None
+            self._message = None
             return ConnectionHealth(healthy=True)

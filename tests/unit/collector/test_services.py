@@ -199,11 +199,8 @@ async def test_sink_service_list_verify_and_write_test():
 
     result = await service.write_test_sink("s1")
     assert result.success is True
-    assert sink.batches, "诊断写应到达 Sink"
-    written = sink.batches[-1][0]
-    assert written.device_id == "_diagnostic"
-    assert written.point_id == "_write_test"
-    assert sink.flush_calls >= 1
+    assert not sink.batches, "连接诊断不得写入业务 Sink"
+    assert sink.flush_calls == 0
 
     with pytest.raises(KeyError):
         await service.verify_sink("ghost")

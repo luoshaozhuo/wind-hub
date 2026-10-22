@@ -17,21 +17,6 @@ import pyads  # type: ignore[import-untyped]
 from core.domain import ConnectionEndpoint, Point, ProtocolOptions
 from core.domain.diagnostic import ResolvedAddress
 
-_TYPE_MAP = {
-    "bool": "BOOL",
-    "int8": "SINT",
-    "uint8": "USINT",
-    "int16": "INT",
-    "uint16": "UINT",
-    "int32": "DINT",
-    "uint32": "UDINT",
-    "int64": "LINT",
-    "uint64": "ULINT",
-    "float32": "REAL",
-    "float64": "LREAL",
-    "str": "STRING",
-}
-
 
 class AdsDiagnosticProbe:
     """短生命周期 ADS symbol 地址解析/验证会话（诊断专用）。
@@ -119,14 +104,6 @@ class AdsDiagnosticProbe:
 
         self._resolved[point.point_id] = resolved
         return resolved
-
-
-def _plc_type(data_type: str) -> Any:
-    """把基础类型映射为 pyads PLCTYPE。"""
-    ads_name = _TYPE_MAP.get(data_type.lower())
-    if ads_name is None:
-        raise ValueError(f"unsupported ADS data_type: {data_type}")
-    return getattr(pyads, f"PLCTYPE_{ads_name}")
 
 
 __all__ = [

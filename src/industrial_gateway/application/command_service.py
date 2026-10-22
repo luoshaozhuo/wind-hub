@@ -10,12 +10,9 @@ from enum import StrEnum
 from typing import Protocol
 from uuid import uuid4
 
-from industrial_gateway.domain import PointWrite, Scalar
-from industrial_gateway.infrastructure.commander.journal import CommandJournal
+from industrial_gateway.domain import PointKey, PointWrite, Scalar
 
 logger = logging.getLogger(__name__)
-
-PointKey = tuple[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +69,16 @@ class CommanderWriter(Protocol):
     ) -> CommandResult: ...
 
 
+class CommandJournalPort(Protocol):
+    """控制日志持久化能力；不泄露基础设施实现。"""
+
+    def blocked(self, key: str) -> bool: ...
+
+    def begin(self, key: str, command_id: str) -> None: ...
+
+    def confirmed(self, key: str) -> None: ...
+
+
 class CommanderProxy:
     """请求期等待真实结果；不将网络超时误判为确定失败。
 
@@ -83,7 +90,7 @@ class CommanderProxy:
         self,
         stub: CommanderWriter,
         targets: dict[PointKey, CommandTarget],
-        journal: CommandJournal | None = None,
+        journal: CommandJournalPort | None = None,
     ) -> None:
         self._stub = stub
         self._journal = journal

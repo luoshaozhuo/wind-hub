@@ -125,7 +125,7 @@ function normalizePoint(raw: Record<string, unknown>): PointDef {
     data_type: asString(raw.data_type, 'float32'),
     scale: asNumber(raw.scale, 1),
     offset: asNumber(raw.offset, 0),
-    unit: asString(raw.unit_id, 'none'),
+    unit: asString(raw.unit, 'none'),
     description: asString(raw.description),
   }
 }
@@ -251,9 +251,12 @@ export const useConfigStore = defineStore('config', {
         model: asString(value.model) || undefined,
         protocol: asString(value.protocol) as DeviceModelDef['protocol'],
         point_table: asString(value.point_table_id),
-        read_mode: asString(value.read_mode),
         properties: { ...asObject(value.properties) },
-        connection_defaults: { ...asObject(value.endpoint_defaults) },
+        connection_defaults: {
+          ...asObject(value.endpoint_defaults),
+          ...asObject(value.protocol_options),
+        },
+        protocol_options: { ...asObject(value.protocol_options) },
       }))
       // markRaw：raw 透传基线只参与序列化（structuredClone），不能成为
       // 响应式代理（Proxy 不可克隆，会导致保存路径抛 DataCloneError）。

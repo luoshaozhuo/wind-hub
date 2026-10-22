@@ -15,11 +15,19 @@ from pymodbus.server import ModbusTcpServer
 from pymodbus.server.requesthandler import ServerRequestHandler
 
 _request_ip: ContextVar[str | None] = ContextVar("gateway_request_ip", default=None)
+_request_bit_span: ContextVar[tuple[int, int] | None] = ContextVar(
+    "gateway_request_bit_span", default=None
+)
 
 
 def request_ip() -> str | None:
     """只允许协议请求执行期间访问，不把来源身份保存在全局对象上。"""
     return _request_ip.get()
+
+
+def request_bit_span() -> tuple[int, int] | None:
+    """返回请求的真实 bit 区间，防止字对齐扩大失效检查范围。"""
+    return _request_bit_span.get()
 
 
 class _GatewayRequestHandler(ServerRequestHandler):
@@ -90,6 +98,20 @@ class _GatewayRequestHandler(ServerRequestHandler):
         peer = transport.get_extra_info("peername") if transport else None
         remote = str(ip_address(peer[0])) if isinstance(peer, tuple) and peer else None
         token = _request_ip.set(remote)
+        bit_span: tuple[int, int] | None = None
+        bit_count: int | None = None
+        if pdu.function_code in {1, 2, 5, 15}:
+            bit_address = getattr(pdu, "address", None)
+            if pdu.function_code == 5:
+                bit_count = 1
+            elif pdu.function_code == 15:
+                values = getattr(pdu, "bits", None)
+                bit_count = len(values) if values is not None else getattr(pdu, "count", None)
+            else:
+                bit_count = getattr(pdu, "count", None)
+            if isinstance(bit_address, int) and isinstance(bit_count, int) and bit_count > 0:
+                bit_span = (bit_address, bit_count)
+        bit_token = _request_bit_span.set(bit_span)
         try:
             try:
                 response = await pdu.datastore_update(self.server.context, pdu.dev_id)
@@ -104,11 +126,18 @@ class _GatewayRequestHandler(ServerRequestHandler):
             )
             send_response(response, addr)
         finally:
+            _request_bit_span.reset(bit_token)
             _request_ip.reset(token)
 
     def callback_disconnected(self, exc: Exception | None) -> None:
-        if self._worker is not None and self._worker.done():
+        # 不再处理断开连接的排队请求；在途控制被取消时由 CommanderProxy
+        # 将结果标记 UNKNOWN 并持久闭锁，不能静默继续执行队列。
+        if self._worker is not None:
+            self._worker.cancel()
             self._worker = None
+        while not self._request_queue.empty():
+            self._request_queue.get_nowait()
+        self._tcp_pending.clear()
         super().callback_disconnected(exc)
 
 

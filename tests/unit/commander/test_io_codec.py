@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
+import grpc
 import pytest
 
+from commander.application.errors import CommandError, CommandUncertainError
 from commander.application.session import PointReading
 from commander.infrastructure.grpc.io_codec import (
     command_from_proto,
@@ -15,6 +18,7 @@ from commander.infrastructure.grpc.io_codec import (
     encode_scalar,
     point_value_to_proto,
 )
+from commander.infrastructure.grpc.server import _abort
 from core.application import Quality
 from core.application.command import Command, CommandResult
 from core.application.protocol_contract import WriteOutcome
@@ -115,7 +119,30 @@ def test_command_roundtrip_and_result():
     assert message.outcome == pb.COMMAND_OUTCOME_UNKNOWN
 
 
+def test_command_rejects_unset_scalar_value():
+    request = pb.WritePointRequest(command_id="empty", device_id="dev1", point_id="p1")
+    with pytest.raises(ValueError, match="must not be empty"):
+        command_from_proto(request)
+
+
 def test_pb_module_is_shared_core_contract():
     """pb2 模块必须来自 Core 共享 RPC 契约（不依赖任何旧 wind_hub_* 包）。"""
     assert pb.__name__.startswith("core.infrastructure.rpc")
     assert "wind_hub" not in str(pb.__file__)
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (KeyError("missing point"), grpc.StatusCode.NOT_FOUND),
+        (ValueError("invalid scalar"), grpc.StatusCode.INVALID_ARGUMENT),
+        (CommandError("device unavailable"), grpc.StatusCode.FAILED_PRECONDITION),
+        (CommandUncertainError("execution unknown"), grpc.StatusCode.FAILED_PRECONDITION),
+    ],
+)
+async def test_command_rpc_error_mapping(error: Exception, status: grpc.StatusCode) -> None:
+    context = AsyncMock()
+    context.abort.side_effect = RuntimeError("aborted")
+    with pytest.raises(RuntimeError, match="aborted"):
+        await _abort(context, error)
+    context.abort.assert_awaited_once_with(status, str(error))

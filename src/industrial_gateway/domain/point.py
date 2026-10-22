@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import TypeAlias
 
 Scalar: TypeAlias = bool | int | float
+PointKey: TypeAlias = tuple[str, str]
 
 
 class PointRole(StrEnum):

@@ -172,6 +172,7 @@ root_packages = [
     "commander",
     "cli",
     "web_server",
+    "industrial_gateway",
 ]
 
 
@@ -244,6 +245,23 @@ forbidden_modules = [
     "collector",
     "commander",
 ]
+
+# ---- Industrial Gateway boundary ----
+
+[[tool.importlinter.contracts]]
+name = "industrial gateway 三层依赖方向"
+type = "layers"
+layers = [
+    "industrial_gateway.infrastructure",
+    "industrial_gateway.application",
+    "industrial_gateway.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "industrial gateway 不得依赖其他进程包"
+type = "forbidden"
+source_modules = ["industrial_gateway"]
+forbidden_modules = ["collector", "commander", "cli", "web_server"]
 
 # ---- generated protobuf 边界 ----
 # pb2/grpc stub 只允许出现在 grpc inbound/outbound adapter、core rpc codec

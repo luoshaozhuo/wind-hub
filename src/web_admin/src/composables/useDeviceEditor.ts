@@ -27,7 +27,6 @@ export function useDeviceEditor(
     hardware_model: '',
     protocol: 'modbus' as Protocol,
     point_table: '',
-    read_mode: '',
     device_group: '',
     host: '',
     connection: defaultConnectionForm('modbus'),
@@ -53,7 +52,6 @@ export function useDeviceEditor(
       hardware_model: model?.model || '',
       protocol,
       point_table: model?.point_table || '',
-      read_mode: model?.read_mode || '',
       device_group: device.value.device_group,
       host: device.value.host,
       connection: formFromConnection(protocol, effectiveConnection(configStore, device.value)),
@@ -70,7 +68,6 @@ export function useDeviceEditor(
     editForm.value.hardware_model = model.model || ''
     editForm.value.protocol = model.protocol
     editForm.value.point_table = model.point_table
-    editForm.value.read_mode = model.read_mode || ''
 
     const validGroup = configStore.deviceGroups.some(
       (g) => g.id === editForm.value.device_group && g.device_type === model.device_type,

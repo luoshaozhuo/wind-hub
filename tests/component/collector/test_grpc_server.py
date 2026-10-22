@@ -17,7 +17,7 @@ from core.infrastructure.rpc import collector_pb2 as pb
 from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
 from tests.support.new_collector import write_collector_config_tree
 from tests.support.redis_client import RedisTestClient, parse_address, point_key
-from tests.support.wait import wait_redis_value, wait_until
+from tests.support.wait import wait_until
 
 
 @pytest.fixture
@@ -188,15 +188,12 @@ async def test_sink_check_and_write_test(running_redis):
     result = await runtime_stub.WriteTestSink(pb.SinkRequest(name="s1"))
     assert result.success is True, result.message
 
-    # 诊断点（device=_diagnostic, point=_write_test）经独立连接从真实 Redis 读回，
-    # 证明 write-test 真正落库，而非仅看 RPC 返回成功。
-    key = point_key("_diagnostic", "_write_test")
-    stored = await wait_redis_value(redis_address, key, timeout=5.0)
-    assert stored["value"] == 1
+    # 诊断仅检查连接，不能产生业务点写入。
+    assert result.queue_depth >= 0
     client = RedisTestClient(redis_address)
     try:
         await client.connect()
-        await client._request("DEL", key)
+        assert await client._request("GET", point_key("_diagnostic", "_write_test")) is None
     finally:
         await client.close()
 

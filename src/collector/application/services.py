@@ -6,7 +6,7 @@
 - Task：Task Definition 与展开实例的查询、显式 start/stop——只翻转实例
   生命周期状态（RUNNING / STOPPED），不增删实例（实例的创建/删除只发生
   在启动装配与配置热重载）；
-- Sink：运行 Sink 健康/队列深度查询与显式诊断写——不持有任何 Sink 状态。
+- Sink：运行 Sink 健康/队列深度查询与只读连接诊断——不持有任何 Sink 状态。
 
 所有读取都穿透 CollectorRuntime 当前状态，热重载后立即可见。
 """
@@ -14,8 +14,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
-from core.domain.point_value import PointValue
 
 from .config import CollectionTask
 from .runtime import CollectorRuntime
@@ -328,14 +326,14 @@ class SinkInfo:
 
 @dataclass(frozen=True, slots=True)
 class SinkWriteResult:
-    """诊断测试写结果。"""
+    """只读 Sink 连接诊断结果。"""
 
     success: bool
     message: str = ""
 
 
 class CollectorSinkService:
-    """Collector 运行 Sink 的检查与诊断写入口。"""
+    """Collector 运行 Sink 的检查与只读诊断入口。"""
 
     def __init__(self, runtime: CollectorRuntime) -> None:
         self._runtime = runtime
@@ -392,9 +390,9 @@ class CollectorSinkService:
             if diagnostic is not None:
                 await diagnostic()
             else:
-                probe = [PointValue(device_id="_diagnostic", point_id="_write_test", value=1)]
-                await sink.write(probe)
-                await sink.flush()
+                health = await sink.health()
+                if not health.healthy:
+                    raise RuntimeError(health.message or "Sink health check failed")
         except Exception as exc:
             return SinkWriteResult(
                 success=False,
@@ -402,5 +400,5 @@ class CollectorSinkService:
             )
         return SinkWriteResult(
             success=True,
-            message="只读连接诊断通过，未写入历史数据" if diagnostic is not None else "",
+            message="只读连接诊断通过，未写入历史数据",
         )

@@ -20,7 +20,6 @@ export const DATA_TYPES = [
 ]
 
 export const MODBUS_REGISTER_TYPES = ['holding', 'input', 'coil', 'discrete_input']
-export const ADS_READ_MODES = ['sum']
 
 export interface UnitDef {
   symbol: string
@@ -44,9 +43,9 @@ export interface DeviceModelDef {
   model?: string
   protocol: Protocol
   point_table: string
-  read_mode: string
   properties: Record<string, unknown>
   connection_defaults: Record<string, unknown>
+  protocol_options?: Record<string, unknown>
 }
 
 export interface PointTableDef {

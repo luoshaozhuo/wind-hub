@@ -14,6 +14,7 @@ from core.infrastructure.rpc import collector_pb2 as collector_pb
 from core.infrastructure.rpc import collector_pb2_grpc as collector_grpc
 from core.infrastructure.rpc import commander_pb2 as commander_pb
 from core.infrastructure.rpc import commander_pb2_grpc as commander_grpc
+from core.infrastructure.rpc.scalar_codec import encode_scalar
 
 
 def _field_value(value: object) -> object:
@@ -58,29 +59,6 @@ def _to_dict(value: message.Message) -> dict[str, Any]:
             continue
 
         result[field.name] = _field_value(field_value)
-    return result
-
-
-def encode_scalar(value: object) -> commander_pb.ScalarValue:
-    """把 CLI 标量编码为 Commander ScalarValue。"""
-    result = commander_pb.ScalarValue()
-    if isinstance(value, bool):
-        result.bool_value = value
-    elif isinstance(value, int):
-        if -(2**63) <= value <= 2**63 - 1:
-            result.sint64_value = value
-        elif 0 <= value <= 2**64 - 1:
-            result.uint64_value = value
-        else:
-            raise ValueError("integer is outside protobuf 64-bit range")
-    elif isinstance(value, float):
-        result.double_value = value
-    elif isinstance(value, str):
-        result.string_value = value
-    elif isinstance(value, bytes):
-        result.bytes_value = value
-    else:
-        raise ValueError(f"unsupported scalar type: {type(value).__name__}")
     return result
 
 
@@ -286,7 +264,7 @@ class CommanderClient:
                     value=encode_scalar(kwargs["value"]),
                     timeout=kwargs["io_timeout"],
                 ),
-                timeout=timeout,
+                timeout=max(timeout, float(kwargs["io_timeout"]) + 1.0),
             )
         elif operation == "write-many":
             commands = [
@@ -301,7 +279,10 @@ class CommanderClient:
             ]
             response = await stub.WritePoints(
                 commander_pb.WritePointsRequest(commands=commands),
-                timeout=timeout,
+                timeout=max(
+                    timeout,
+                    max(float(item["timeout"]) for item in kwargs["items"]) + 1.0,
+                ),
             )
         elif operation == "verify-device":
             response = await stub.VerifyDevice(
@@ -309,7 +290,7 @@ class CommanderClient:
                     device_id=kwargs["device_id"],
                     timeout=kwargs["io_timeout"],
                 ),
-                timeout=timeout,
+                timeout=max(timeout, float(kwargs["io_timeout"]) + 1.0),
             )
         elif operation == "resolve-point":
             response = await stub.ResolvePoint(
