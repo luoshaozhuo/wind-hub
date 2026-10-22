@@ -12,19 +12,15 @@ withDefaults(
     protocol: Protocol
     /** 渲染 ADS Target AMS Net ID（仅新建设备表单把身份键放在协议区）。 */
     showTargetNetId?: boolean
-    /** Modbus Mode 可选值：编辑设备允许 tcp/rtu，其余仅 tcp。 */
-    modbusModes?: string[]
     /** el-input-number 是否显示步进按钮（Manage Metadata 为紧凑无按钮形态）。 */
     controls?: boolean
   }>(),
   {
     showTargetNetId: false,
-    modbusModes: () => ['tcp'],
     controls: true,
   },
 )
 
-const MODE_LABELS: Record<string, string> = { tcp: 'TCP', rtu: 'RTU' }
 </script>
 
 <template>
@@ -63,10 +59,8 @@ const MODE_LABELS: Record<string, string> = { tcp: 'TCP', rtu: 'RTU' }
     <el-form-item label="Mode"
       ><el-select v-model="connection.mode" class="app-full-width"
         ><el-option
-          v-for="m in modbusModes"
-          :key="m"
-          :label="MODE_LABELS[m] || m.toUpperCase()"
-          :value="m" /></el-select
+          label="TCP"
+          value="tcp" /></el-select
     ></el-form-item>
     <el-form-item label="Timeout (s)"
       ><el-input-number
