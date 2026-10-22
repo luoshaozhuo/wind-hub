@@ -1,7 +1,6 @@
-"""通过 Gateway 授权的数据写入口发布遥测；禁止发送命令点。
+"""经 Gateway 白名单地址发布测量反馈，失败即中断当前步。
 
-仅支持明确配置的 feedback 点；地址使用 Gateway 原始零基偏移。
-TCP 会话异常向上抛出，不将失败伪装为成功。
+仅允许显式映射的反馈点，不提供命令写入或绕过 ACL 的通路。
 """
 from __future__ import annotations
 
@@ -36,7 +35,7 @@ class PublishPoint(_Strict):
     @model_validator(mode="after")
     def validate_mapping(self) -> PublishPoint:
         if (self.area == "coil") != (self.data_type == "bool"):
-            raise ValueError("coil requires bool and bool requires coil")
+            raise ValueError("coil requires bool, registers require numeric")
         if self.area == "holding" and self.address == 65535:
             raise ValueError("two-register point exceeds address space")
         return self
@@ -48,14 +47,20 @@ class PublishConfig(_Strict):
     @model_validator(mode="after")
     def validate_points(self) -> PublishConfig:
         logical: set[tuple[str, str]] = set()
-        physical: set[tuple[str, int, int, str, int]] = set()
+        addresses: set[tuple[str, int, int, str, int]] = set()
         for point in self.points:
             key = (point.device_id, point.point_id)
-            address = (point.host, point.port, point.unit_id, point.area, point.address)
-            if key in logical or address in physical:
-                raise ValueError("duplicate publish mapping")
+            if key in logical:
+                raise ValueError(f"duplicate publish mapping: {key}")
             logical.add(key)
-            physical.add(address)
+            count = 1 if point.area == "coil" else 2
+            for offset in range(count):
+                address = (
+                    point.host, point.port, point.unit_id, point.area, point.address + offset
+                )
+                if address in addresses:
+                    raise ValueError(f"overlapping publish registers: {address}")
+                addresses.add(address)
         return self
 
 
@@ -106,7 +111,7 @@ def _client(host: str, port: int) -> _ModbusClient:
 
 
 class GatewayModbusPublisher:
-    """同步发布指定反馈点。独立进程通过 Gateway ACL 进行来源认证。"""
+    """每个仿真步按点发布；任意写入失败会向上抛异常。"""
 
     def __init__(
         self, config: PublishConfig, client_factory: ClientFactory = _client
@@ -117,7 +122,6 @@ class GatewayModbusPublisher:
     def publish(self, snapshot: FarmSnapshot) -> None:
         devices = {device.device_id: device.points for device in snapshot.devices}
         prepared: list[tuple[PublishPoint, tuple[int, ...]]] = []
-        # 先验证完整快照，禁止缺点时只写入一部分。
         for point in self._config.points:
             if point.device_id not in devices:
                 raise KeyError(f"unknown device: {point.device_id}")
@@ -139,6 +143,8 @@ class GatewayModbusPublisher:
                         point.address, list(registers), device_id=point.unit_id
                     )
                 if response.isError():
-                    raise RuntimeError(f"gateway rejected feedback: {point.device_id}.{point.point_id}")
+                    raise RuntimeError(
+                        f"gateway rejected feedback: {point.device_id}.{point.point_id}"
+                    )
             finally:
                 client.close()
