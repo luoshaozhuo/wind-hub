@@ -188,19 +188,7 @@ async def test_sink_check_and_write_test(running_redis):
     result = await runtime_stub.WriteTestSink(pb.SinkRequest(name="s1"))
     assert result.success is True, result.message
 
-    # 诊断点（device=_diagnostic, point=_write_test）经独立连接从真实 Redis 读回，
-    # 证明 write-test 真正落库，而非仅看 RPC 返回成功。
-    key = point_key("_diagnostic", "_write_test")
-    stored = await wait_redis_value(redis_address, key, timeout=5.0)
-    assert stored["value"] == 1
-    client = RedisTestClient(redis_address)
-    try:
-        await client.connect()
-        await client._request("DEL", key)
-    finally:
-        await client.close()
-
-    with pytest.raises(grpc.aio.AioRpcError) as excinfo:
+    # 诊断仅验证连接，不能写入独立的测试点或污染 Redis。\n    assert result.queue_depth >= 0\n    client = RedisTestClient(redis_address)\n    try:\n        await client.connect()\n        assert await client._request("GET", point_key("_diagnostic", "_write_test")) is None\n    finally:\n        await client.close()\n\n    with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await runtime_stub.VerifySink(pb.SinkRequest(name="ghost"))
     assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND
 
