@@ -102,7 +102,7 @@ export const deviceModelsSeed: Record<string, MockDeviceModel> = {
     model: 'TwinCAT 2 WTG',
     protocol: 'ads',
     point_table: 'beckhoff_wtg_v1',
-    connection_defaults: { port: 48898, twincat_version: '2', timeout: 3.0, target_port: 801 },
+    connection_defaults: { port: 801, twincat_version: '2', timeout: 5.0 },
   },
   modbus_wtg: {
     device_type: 'turbine',
@@ -114,7 +114,7 @@ export const deviceModelsSeed: Record<string, MockDeviceModel> = {
       port: 502,
       slave_id: 1,
       mode: 'tcp',
-      timeout: 3.0,
+      timeout: 5.0,
       word_order: 'little_endian',
     },
   },
@@ -124,7 +124,7 @@ export const deviceModelsSeed: Record<string, MockDeviceModel> = {
     model: 'IEC 60870-5-104 WTG',
     protocol: 'iec104',
     point_table: 'iec104_wtg_v1',
-    connection_defaults: { port: 2404, timeout: 5.0 },
+    connection_defaults: { port: 2404, common_addresses: '1', k: 12, w: 8, t0: 30, t1: 15, t2: 10, t3: 20 },
   },
   pcs_modbus_a: {
     device_type: 'pcs',
@@ -132,7 +132,7 @@ export const deviceModelsSeed: Record<string, MockDeviceModel> = {
     model: 'PCS Modbus A',
     protocol: 'modbus',
     point_table: 'pcs_modbus_v1',
-    connection_defaults: { port: 502, slave_id: 1, mode: 'tcp', timeout: 3.0 },
+    connection_defaults: { port: 502, slave_id: 1, mode: 'tcp', timeout: 5.0 },
   },
 }
 
@@ -312,7 +312,9 @@ export function buildDefinitions(): DefinitionsDto {
       point_table_id: model.point_table,
       properties: {},
       endpoint_defaults: { port: model.connection_defaults.port },
-      protocol_options: {},
+      protocol_options: Object.fromEntries(
+        Object.entries(model.connection_defaults).filter(([key]) => key !== 'port'),
+      ),
     }
   }
   return {
