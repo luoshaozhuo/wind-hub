@@ -17,6 +17,7 @@ class CommandJournal:
     def __init__(self, path: Path) -> None:
         self._path = path
         self._pending: dict[str, str] = {}
+        self._failed = False
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(data, dict) or any(
@@ -27,18 +28,28 @@ class CommandJournal:
             self._pending = data
 
     def blocked(self, key: str) -> bool:
-        return key in self._pending
+        return self._failed or key in self._pending
 
     def begin(self, key: str, command_id: str) -> None:
         if self.blocked(key):
             raise RuntimeError(f"control remains locked: {key}")
         self._pending[key] = command_id
-        self._save()
+        try:
+            self._save()
+        except BaseException:
+            self._failed = True
+            raise
 
     def confirmed(self, key: str) -> None:
+        if self._failed:
+            raise RuntimeError("command journal persistence failed; control locked")
         if key in self._pending:
             del self._pending[key]
-            self._save()
+            try:
+                self._save()
+            except BaseException:
+                self._failed = True
+                raise
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
