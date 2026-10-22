@@ -27,7 +27,8 @@ class CommanderReadService:
         """读取单点并返回工程值（独立单点路径，不经过批量读取）。
 
         Raises:
-            CommandError: 设备未知、点位未知或设备未连接。
+            KeyError: 设备未知。
+            CommandError: 点位未知或设备未连接。
         """
         async with self._runtime.operation():
             device = await self._connected_device(device_id)
@@ -44,7 +45,8 @@ class CommanderReadService:
         缺失/乱序/错配显式失败）。
 
         Raises:
-            CommandError: 设备未知、点位为空/未知或设备未连接。
+            KeyError: 设备未知。
+            CommandError: 点位为空/未知或设备未连接。
         """
         async with self._runtime.operation():
             if not point_ids:
@@ -57,7 +59,7 @@ class CommanderReadService:
         try:
             device = self._runtime.device(device_id)
         except KeyError as exc:
-            raise CommandError(f"unknown device '{device_id}'") from exc
+            raise KeyError(f"unknown device '{device_id}'") from exc
         if not await self._runtime.ensure_connected(device_id):
             raise CommandError(f"device '{device_id}' is not connected")
         return device
