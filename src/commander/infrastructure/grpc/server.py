@@ -18,7 +18,7 @@ from core.infrastructure.rpc import commander_pb2 as pb
 from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
 from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
 
-from ...application.errors import CommandError
+from ...application.errors import CommandError, CommandUncertainError
 from ...assembly import CommanderApp
 from .io_codec import (
     command_from_proto,
@@ -30,8 +30,12 @@ from .io_codec import (
 
 async def _abort(context: grpc.aio.ServicerContext, exc: Exception) -> None:
     """把应用异常映射为稳定 gRPC status。"""
-    if isinstance(exc, CommandError | KeyError):
+    if isinstance(exc, CommandUncertainError):
+        await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+    if isinstance(exc, KeyError):
         await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+    if isinstance(exc, CommandError):
+        await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
     if isinstance(exc, ValueError):
         await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
     await context.abort(grpc.StatusCode.INTERNAL, str(exc) or type(exc).__name__)
