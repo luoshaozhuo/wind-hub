@@ -26,7 +26,13 @@ async def _run_command_service(config: object, args: argparse.Namespace) -> None
     )
     try:
         runtime = create_runtime(config, publisher=args.publisher, commands=commands)
-        await asyncio.to_thread(runtime.run, args.steps)
+        worker = asyncio.create_task(asyncio.to_thread(runtime.run, args.steps))
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            runtime.stop()
+            await worker
+            raise
     finally:
         await server.stop(grace=0)
 

@@ -67,7 +67,13 @@ async def run_embedded(
             )
         await gateway.start()
         runtime = create_runtime(config, publisher=publisher, commands=commands)
-        await asyncio.to_thread(runtime.run, steps)
+        worker = asyncio.create_task(asyncio.to_thread(runtime.run, steps))
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            runtime.stop()
+            await worker
+            raise
     finally:
         if commands is not None:
             commands.close()

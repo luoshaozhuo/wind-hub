@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from threading import Event
 
 from seahorse.application.command_queue import CommandQueue
 from seahorse.application.wind_farm_service import WindFarmService
@@ -20,6 +21,7 @@ class SeahorseRuntime:
         self._index = 0
         self._running = False
         self._failed = False
+        self._stop_signal = Event()
 
     def step(self) -> FarmSnapshot:
         if self._failed:
@@ -51,20 +53,22 @@ class SeahorseRuntime:
             raise ValueError("steps cannot be negative")
         if self._running:
             raise RuntimeError("runtime is already running")
+        if self._stop_signal.is_set():
+            raise RuntimeError("runtime has been stopped")
         self._running = True
         count = 0
         try:
-            while self._running and (steps is None or count < steps):
+            while not self._stop_signal.is_set() and (steps is None or count < steps):
                 start = time.monotonic()
                 self.step()
                 count += 1
                 remaining = self._step_seconds - (time.monotonic() - start)
                 if remaining > 0 and (steps is None or count < steps):
-                    time.sleep(remaining)
+                    self._stop_signal.wait(remaining)
         finally:
             self._running = False
             if self._commands is not None:
                 self._commands.close()
 
     def stop(self) -> None:
-        self._running = False
+        self._stop_signal.set()
