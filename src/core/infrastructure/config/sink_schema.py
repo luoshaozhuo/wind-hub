@@ -26,13 +26,14 @@ from pydantic import (
 from core.application.errors import ConfigError
 from core.application.sink_contract import (
     SINK_DATA_TYPES,
+    GrpcSinkAddress,
     ModbusSinkAddress,
     SinkAddress,
     SinkSource,
     StreamSinkAddress,
 )
 
-SINK_TYPES = frozenset({"modbus", "redis", "tdengine"})
+SINK_TYPES = frozenset({"modbus", "redis", "tdengine", "grpc"})
 
 SINK_NUMERIC_DATA_TYPES = frozenset(
     {
@@ -152,19 +153,38 @@ class ModbusSinkConnection(BaseModel):
     port: int = Field(default=502, ge=1, le=65535)
 
 
-SinkConnection = ModbusSinkConnection | RedisSinkConnection | TDengineSinkConnection
+class GrpcSinkConnection(BaseModel):
+    """仅允许同机访问的 Gateway 数据通道。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    endpoint: str = "127.0.0.1:50073"
+    timeout: float = Field(default=3.0, gt=0, allow_inf_nan=False)
+
+    @field_validator("endpoint")
+    @classmethod
+    def _loopback_only(cls, value: str) -> str:
+        if not (value.startswith("127.0.0.1:") or value.startswith("[::1]:")):
+            raise ValueError("gRPC endpoint must be loopback")
+        return value
+
+
+SinkConnection = (
+    ModbusSinkConnection | RedisSinkConnection | TDengineSinkConnection | GrpcSinkConnection
+)
 
 
 _CONNECTION_TYPES: dict[str, type[BaseModel]] = {
     "modbus": ModbusSinkConnection,
     "redis": RedisSinkConnection,
     "tdengine": TDengineSinkConnection,
+    "grpc": GrpcSinkConnection,
 }
 
 _ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
     "modbus": (ModbusSinkAddress,),
     "redis": (StreamSinkAddress,),
     "tdengine": (StreamSinkAddress,),
+    "grpc": (GrpcSinkAddress,),
 }
 
 
@@ -298,6 +318,8 @@ def parse_sink_definitions(raw: Mapping[str, Any]) -> dict[str, _SinkSchema]:
 def _address_key(address: SinkAddress) -> tuple[object, ...]:
     if isinstance(address, StreamSinkAddress):
         return ("stream", address.field)
+    if isinstance(address, GrpcSinkAddress):
+        return ("grpc", address.device_id, address.point_id)
     return ("modbus", address.slave_id, address.register_type, address.address)
 
 
@@ -308,6 +330,7 @@ __all__ = [
     "ModbusSinkConnection",
     "RedisSinkConnection",
     "TDengineSinkConnection",
+    "GrpcSinkConnection",
     "SinkPoint",
 ]
 

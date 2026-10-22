@@ -114,6 +114,17 @@ class Control(_Strict):
 
 
 class GatewayConfig(_Strict):
+    data_grpc_bind: str | None = None
+
+    @model_validator(mode="after")
+    def validate_grpc_bind(self) -> GatewayConfig:
+        if self.data_grpc_bind is not None and not (
+            self.data_grpc_bind.startswith("127.0.0.1:")
+            or self.data_grpc_bind.startswith("[::1]:")
+        ):
+            raise ValueError("data gRPC endpoint must bind loopback")
+        return self
+
     endpoints: dict[str, Endpoint] = Field(min_length=1)
     point_tables: dict[str, PointTable] = Field(min_length=1)
     devices: dict[str, Device] = Field(min_length=1)

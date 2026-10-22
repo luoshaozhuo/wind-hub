@@ -1,32 +1,33 @@
-"""Seahorse 独立命令行入口。"""
+"""Seahorse 统一 gRPC 遥测发布和虚拟设备命令入口。"""
 from __future__ import annotations
 
 import argparse
 import asyncio
 from pathlib import Path
 
+from industrial_gateway.infrastructure.config.loader import load_config as load_gateway
 from seahorse.application.command_queue import CommandQueue
-from seahorse.infrastructure.grpc_command_server import start_command_server
-from seahorse.infrastructure.embedded_gateway import run_embedded
-from seahorse.infrastructure.config import load_config
+from seahorse.infrastructure.config import SeahorseConfig, load_config
 from seahorse.infrastructure.factory import create_runtime
-from seahorse.infrastructure.gateway_mapping import validate_gateway_mapping
-from seahorse.infrastructure.gateway_profile import build_publish_config_from_file
-from seahorse.infrastructure.modbus_publisher import GatewayModbusPublisher, load_publish_config
+from seahorse.infrastructure.grpc_command_server import start_command_server
+from seahorse.infrastructure.grpc_publisher import GrpcSnapshotPublisher
 
 
-async def _run_command_service(config: object, args: argparse.Namespace) -> None:
-    from seahorse.infrastructure.config import SeahorseConfig
-
-    if not isinstance(config, SeahorseConfig):
-        raise TypeError("invalid configuration")
-    commands = CommandQueue()
-    server = await start_command_server(
-        commands, frozenset(item.device_id for item in config.turbines), args.command_bind
-    )
+async def _run(
+    config: SeahorseConfig,
+    publisher: GrpcSnapshotPublisher | None,
+    command_bind: str | None,
+    steps: int | None,
+) -> None:
+    commands = CommandQueue() if command_bind else None
+    server = None
+    if commands is not None and command_bind is not None:
+        server = await start_command_server(
+            commands, frozenset(item.device_id for item in config.turbines), command_bind
+        )
+    runtime = create_runtime(config, publisher=publisher, commands=commands)
     try:
-        runtime = create_runtime(config, publisher=args.publisher, commands=commands)
-        worker = asyncio.create_task(asyncio.to_thread(runtime.run, args.steps))
+        worker = asyncio.create_task(asyncio.to_thread(runtime.run, steps))
         try:
             await asyncio.shield(worker)
         except asyncio.CancelledError:
@@ -34,7 +35,13 @@ async def _run_command_service(config: object, args: argparse.Namespace) -> None
             await worker
             raise
     finally:
-        await server.stop(grace=0)
+        runtime.stop()
+        if commands is not None:
+            commands.close()
+        if server is not None:
+            await server.stop(grace=0)
+        if publisher is not None:
+            publisher.close()
 
 
 def main() -> int:
@@ -42,52 +49,31 @@ def main() -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--steps", type=int)
-    parser.add_argument("--gateway-map", type=Path)
+    parser.add_argument("--gateway-grpc-endpoint", type=str)
     parser.add_argument("--gateway-config", type=Path)
-    parser.add_argument("--gateway-auto-map", action="store_true")
     parser.add_argument("--command-bind", type=str)
-    parser.add_argument("--embedded-gateway-config", type=Path)
     args = parser.parse_args()
     config = load_config(args.config)
-    if args.embedded_gateway_config is not None:
-        if args.gateway_map is not None or args.gateway_auto_map or args.gateway_config is not None:
-            parser.error("embedded gateway cannot be combined with remote gateway options")
-        if not args.check:
-            asyncio.run(
-                run_embedded(
-                    config,
-                    args.embedded_gateway_config,
-                    command_bind=args.command_bind,
-                    steps=args.steps,
-                )
-            )
-        return 0
-    if args.gateway_auto_map and (args.gateway_config is None or args.gateway_map is not None):
-        parser.error("--gateway-auto-map requires --gateway-config and no --gateway-map")
-    if args.gateway_config is not None and args.gateway_map is None and not args.gateway_auto_map:
-        parser.error("--gateway-config requires --gateway-map or --gateway-auto-map")
+    if bool(args.gateway_grpc_endpoint) != bool(args.gateway_config):
+        parser.error("--gateway-grpc-endpoint and --gateway-config must be specified together")
     publisher = None
-    if args.gateway_auto_map:
-        # 从实际的一步模型输出确定可发布的字段，避免静态臆造。
-        probe = create_runtime(config).step()
-        available = {
-            device.device_id: frozenset(device.points) for device in probe.devices
+    if args.gateway_config is not None:
+        gateway = load_gateway(args.gateway_config)
+        if gateway.data_grpc_bind != args.gateway_grpc_endpoint:
+            parser.error("Gateway data gRPC bind and Seahorse endpoint must match")
+        feedback = {
+            device_id: frozenset(
+                name
+                for name, point in gateway.point_tables[device.point_table_id].points.items()
+                if point.role == "feedback"
+            )
+            for device_id, device in gateway.devices.items()
         }
-        mapping = build_publish_config_from_file(
-            args.gateway_config, device_ids=frozenset(available), available_points=available
-        )
-        publisher = GatewayModbusPublisher(mapping)
-    elif args.gateway_map is not None:
-        mapping = load_publish_config(args.gateway_map)
-        if args.gateway_config is not None:
-            validate_gateway_mapping(mapping, args.gateway_config)
-        publisher = GatewayModbusPublisher(mapping)
+        publisher = GrpcSnapshotPublisher(args.gateway_grpc_endpoint, feedback)
     if not args.check:
-        if args.command_bind:
-            args.publisher = publisher
-            asyncio.run(_run_command_service(config, args))
-        else:
-            create_runtime(config, publisher=publisher).run(steps=args.steps)
+        asyncio.run(_run(config, publisher, args.command_bind, args.steps))
+    elif publisher is not None:
+        publisher.close()
     return 0
 
 

@@ -94,6 +94,7 @@ def generate_profile(
         raise ValueError("duplicate turbine device ID")
 
     gateway = {
+        "data_grpc_bind": "127.0.0.1:50073",
         "endpoints": endpoints,
         "point_tables": {"dc_ems_turbine": {"protocol": "modbus", "points": points}},
         "devices": gateway_devices,

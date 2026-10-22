@@ -1,9 +1,9 @@
 # ---------------------------------------------------------------------------
-# wind-hub 配置模板 — Sink 输出（支持 TDengine 历史存储、Modbus TCP Server、Redis）
+# wind-hub 配置模板 — Sink 输出（支持 TDengine、Modbus TCP Server、Redis、gRPC）
 # ---------------------------------------------------------------------------
 #
 # sinks: Mapping，Key 即 Sink ID（Task 经 outputs[].sink_id 引用）。字段：
-#   type:       modbus / redis / tdengine（必填）。
+#   type:       modbus / redis / tdengine / grpc（必填）。
 #   enabled:    bool，默认 true；enabled Task 不允许引用 disabled Sink；
 #               同一 host:port 不允许两个 enabled 的 Modbus Sink。
 #   connection: Mapping（必填）—— 按 type 不同（见下）。
@@ -23,6 +23,10 @@
 #     host: str，默认 0.0.0.0 —— 监听地址。
 #     port: int 1..65535，默认 502。
 #
+# - grpc（向 Industrial Gateway 发布遥测反馈）：
+#     endpoint: str，默认 127.0.0.1:50073，仅支持本机回环地址。
+#     timeout: float > 0，默认 3 秒。
+#
 # Task outputs[].points 条目字段（仅在 tasks.yaml 声明）：
 #   source:    必填 —— 内部点引用：{device_id, point_id}，必须存在于
 #              该设备绑定点表（继承展开后）。
@@ -32,6 +36,7 @@
 #   unit:      可选 —— 对外单位标识，缺省与源点一致。
 #   scale / offset: float，默认 1.0 / 0.0 —— 仅数值类型允许换算。
 #   address:   必填 —— 按 Sink 类型：
+#       grpc: {device_id: <Gateway设备ID>, point_id: <Gateway测点ID>}
 #       redis: {field: <对外字段名>}，Sink 内不允许重复。
 #       modbus: {slave_id: 0..255,
 #                register_type: holding / input / coil / discrete,
@@ -75,3 +80,11 @@ sinks:
     connection:
       host: "0.0.0.0"
       port: 1502
+
+  # Collector -> Gateway 批量遥测 gRPC（按需启用）
+  gateway_feedback:
+    type: grpc
+    enabled: false
+    connection:
+      endpoint: "127.0.0.1:50073"
+      timeout: 3.0

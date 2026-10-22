@@ -174,7 +174,7 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                 occupied.append((address.address, end))
             points.append(resolved.model_dump(mode="json"))
         task_sources = None
-        if sink.kind in {"modbus", "redis", "tdengine"}:
+        if sink.kind in {"modbus", "redis", "tdengine", "grpc"}:
             # 显式 points 是选择性输出；空 points 对 Redis/TDengine 表示任务组全量
             # （Modbus 已在解析层强制显式点表，空列表不会走到这里）。
             task_sources = {
