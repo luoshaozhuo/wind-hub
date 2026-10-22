@@ -10,6 +10,7 @@ import random
 from seahorse.domain.commands import EquipmentCommand
 from seahorse.domain.models import DeviceSnapshot, GridSample, Scalar, SimulationTime, WindSample
 from seahorse.infrastructure.models.wind_turbine.history import TimeWindow
+from seahorse.infrastructure.models.wind_turbine.contract import validate_turbine_points
 
 
 def _clip(value: float, lower: float, upper: float) -> float:
@@ -203,4 +204,6 @@ class SimpleWindTurbine:
         )
 
     def snapshot(self) -> DeviceSnapshot:
+        if self._state.points:
+            validate_turbine_points(set(self._state.points))
         return self._state
