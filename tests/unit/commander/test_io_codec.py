@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import grpc
 import pytest
+from unittest.mock import AsyncMock
 
 from commander.application.session import PointReading
+from commander.application.errors import CommandError, CommandUncertainError
+from commander.infrastructure.grpc.server import _abort
 from commander.infrastructure.grpc.io_codec import (
     command_from_proto,
     command_result_to_proto,
@@ -125,3 +129,20 @@ def test_pb_module_is_shared_core_contract():
     """pb2 模块必须来自 Core 共享 RPC 契约（不依赖任何旧 wind_hub_* 包）。"""
     assert pb.__name__.startswith("core.infrastructure.rpc")
     assert "wind_hub" not in str(pb.__file__)
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (KeyError("missing point"), grpc.StatusCode.NOT_FOUND),
+        (ValueError("invalid scalar"), grpc.StatusCode.INVALID_ARGUMENT),
+        (CommandError("device unavailable"), grpc.StatusCode.FAILED_PRECONDITION),
+        (CommandUncertainError("execution unknown"), grpc.StatusCode.FAILED_PRECONDITION),
+    ],
+)
+async def test_command_rpc_error_mapping(error: Exception, status: grpc.StatusCode) -> None:
+    context = AsyncMock()
+    context.abort.side_effect = RuntimeError("aborted")
+    with pytest.raises(RuntimeError, match="aborted"):
+        await _abort(context, error)
+    context.abort.assert_awaited_once_with(status, str(error))
