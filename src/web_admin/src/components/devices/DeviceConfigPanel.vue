@@ -120,10 +120,7 @@ function protocolDescription(d: DeviceInst) {
               :max="65535"
               class="app-full-width"
           /></el-form-item>
-          <ProtocolConnectionFields
-            v-model="editForm.connection"
-            :protocol="editForm.protocol"
-          />
+          <ProtocolConnectionFields v-model="editForm.connection" :protocol="editForm.protocol" />
         </div>
 
         <el-alert

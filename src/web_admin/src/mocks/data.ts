@@ -124,7 +124,16 @@ export const deviceModelsSeed: Record<string, MockDeviceModel> = {
     model: 'IEC 60870-5-104 WTG',
     protocol: 'iec104',
     point_table: 'iec104_wtg_v1',
-    connection_defaults: { port: 2404, common_addresses: '1', k: 12, w: 8, t0: 30, t1: 15, t2: 10, t3: 20 },
+    connection_defaults: {
+      port: 2404,
+      common_addresses: '1',
+      k: 12,
+      w: 8,
+      t0: 30,
+      t1: 15,
+      t2: 10,
+      t3: 20,
+    },
   },
   pcs_modbus_a: {
     device_type: 'pcs',

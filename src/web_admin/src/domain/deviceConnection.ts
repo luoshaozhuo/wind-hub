@@ -46,13 +46,7 @@ export const PROTOCOL_OVERRIDE_KEYS: Record<Protocol, readonly string[]> = {
 /** 各协议序列化为 model connection_defaults 的键。 */
 export const PROTOCOL_DEFAULT_KEYS: Record<Protocol, readonly string[]> = {
   ads: ['port', 'timeout', 'twincat_version'],
-  modbus: [
-    'port',
-    'timeout',
-    'slave_id',
-    'mode',
-    'word_order',
-  ],
+  modbus: ['port', 'timeout', 'slave_id', 'mode', 'word_order'],
   iec104: ['port', 'common_addresses', 'k', 'w', 't0', 't1', 't2', 't3'],
 }
 
@@ -201,9 +195,10 @@ export function connectionOverridesFromForm(
     }
   }
   if (model.protocol === 'ads') extensions.target_net_id = form.target_net_id.trim()
-  const port = num(defaults.port, PROTOCOL_DEFAULT_PORTS[model.protocol]) !== form.port
-    ? form.port || undefined
-    : undefined
+  const port =
+    num(defaults.port, PROTOCOL_DEFAULT_PORTS[model.protocol]) !== form.port
+      ? form.port || undefined
+      : undefined
   return { extensions, port }
 }
 

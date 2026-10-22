@@ -57,9 +57,7 @@ withDefaults(
     /></el-form-item>
     <el-form-item label="Mode"
       ><el-select v-model="connection.mode" class="app-full-width"
-        ><el-option
-          label="TCP"
-          value="tcp" /></el-select
+        ><el-option label="TCP" value="tcp" /></el-select
     ></el-form-item>
     <el-form-item label="Timeout (s)"
       ><el-input-number

@@ -205,9 +205,7 @@ async function saveModel() {
     protocol: form.protocol,
     point_table: form.point_table,
     properties: existing ? { ...existing.properties } : {},
-    protocol_options: existing?.protocol === form.protocol
-      ? { ...existing.protocol_options }
-      : {},
+    protocol_options: existing?.protocol === form.protocol ? { ...existing.protocol_options } : {},
     connection_defaults: connectionDefaults(),
   }
   if (editingId.value) {
@@ -224,9 +222,9 @@ async function saveModel() {
     const tableChanged = target.point_table !== payload.point_table
     const connectionChanged =
       JSON.stringify(target.connection_defaults) !== JSON.stringify(payload.connection_defaults) ||
-      JSON.stringify(target.protocol_options || {}) !== JSON.stringify(payload.protocol_options || {})
-    const runtimeImpact =
-      protocolChanged || tableChanged || connectionChanged
+      JSON.stringify(target.protocol_options || {}) !==
+        JSON.stringify(payload.protocol_options || {})
+    const runtimeImpact = protocolChanged || tableChanged || connectionChanged
 
     if (runtimeImpact && devices.length) {
       try {
