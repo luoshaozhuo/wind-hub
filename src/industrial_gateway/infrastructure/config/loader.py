@@ -47,8 +47,8 @@ class Point(_Strict):
             self.data_type,
             self.address.word_order,
         )
-        if mapping.area not in {"coil", "holding"}:
-            raise ValueError("writable points must use coil or holding registers")
+        if self.role == "command" and mapping.area not in {"coil", "holding"}:
+            raise ValueError("command points must use coil or holding registers")
         if self.role == "command" and self.max_age_seconds is not None:
             raise ValueError("command points cannot have feedback expiry")
         return self
