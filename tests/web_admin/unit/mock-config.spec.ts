@@ -36,6 +36,21 @@ describe('Mock configuration follows Core canonical schema', () => {
     expect(table.points).toHaveProperty('wtg_mb_001')
   })
 
+  it('serializes seed model protocol options without hiding driver defaults', () => {
+    const definitions = buildDefinitions()
+    const modbus = definitions.device_models.modbus_wtg
+    expect(modbus.endpoint_defaults).toEqual({ port: 502 })
+    expect(modbus.protocol_options).toMatchObject({
+      slave_id: 1,
+      mode: 'tcp',
+      timeout: 5,
+      word_order: 'little_endian',
+    })
+    expect(modbus.protocol_options).not.toHaveProperty('unit_id')
+    expect(definitions.device_models.iec104_wtg.protocol_options).not.toHaveProperty('timeout')
+    expect(definitions.device_models.beckhoff_wtg.protocol_options).not.toHaveProperty('target_port')
+  })
+
   it('excludes removed sink backends in both runtime seed and YAML', () => {
     const config = JSON.parse(seedYamlFiles(settingsSeed, devicesSeed, tasksSeed)['sinks.yaml'])
     const names = Object.keys(config.sinks)
