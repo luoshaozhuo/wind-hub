@@ -31,6 +31,29 @@ async def run_embedded(
         if gateway_config.control.commander.endpoint != command_bind:
             raise ValueError("Gateway Commander endpoint must equal Seahorse command bind")
     gateway = assemble_gateway(gateway_config)
+    # 仅虚拟场站内存镜像，不构成现场控制命令。
+    turbine_ratings = {
+        turbine.device_id: turbine.rated_power_kw for turbine in config.turbines
+    }
+    initial: dict[tuple[str, str], bool | int | float] = {}
+    for device_id, device in gateway_config.devices.items():
+        table = gateway_config.point_tables[device.point_table_id]
+        for point_id, point in table.points.items():
+            if point.role != "command":
+                continue
+            value: bool | int | float
+            if point.data_type == "bool":
+                value = False
+            elif point_id == "ctrlActPow":
+                value = turbine_ratings[device_id]
+            elif point_id == "emsActPowerChangeRate":
+                value = 200.0
+            elif point.data_type.startswith(("int", "uint")):
+                value = 0
+            else:
+                value = 0.0
+            initial[(device_id, point_id)] = value
+    gateway.store.seed_virtual_command_mirrors(initial)
     loop = asyncio.get_running_loop()
     publisher = GatewayStorePublisher(gateway.store, gateway_config, loop)
     commands = CommandQueue() if command_bind is not None else None

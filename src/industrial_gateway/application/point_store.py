@@ -75,6 +75,20 @@ class PointStore:
                 await self._command_handler(request)
             return self._replace(key, request.value)
 
+    def seed_virtual_command_mirrors(self, values: Mapping[PointKey, Scalar]) -> None:
+        """仅供隔离虚拟场站在服务启动前初始化命令寄存器的可读镜像。
+
+        不调用命令 Handler、不发控制事件；已存在数值一律拒绝覆盖。
+        """
+        for key, value in values.items():
+            if self._definition(key).role is not PointRole.COMMAND:
+                raise PermissionError(f"not a command point: {key}")
+            if key in self._values:
+                raise RuntimeError(f"command mirror already initialized: {key}")
+            self._validate_scalar(value)
+        for key, value in values.items():
+            self._replace(key, value)
+
     async def update_feedback(self, device_id: str, point_id: str, value: Scalar) -> PointSnapshot:
         """内部反馈刷新不产生命令事件，也不得覆盖命令/参数点。"""
         key = (device_id, point_id)

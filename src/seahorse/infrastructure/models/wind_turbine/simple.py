@@ -186,7 +186,7 @@ class SimpleWindTurbine:
                 "emsLimitStop": False,
                 "emsLocalActPowerEnableState": True,
                 "emsReactCanCtrl": not self._fault,
-                "emsAutoLimitSetFeedback": self._limit < self._rated,
+                "emsAutoLimitSetFeedback": self._limit,
                 "emsActPowerMaxSetFeedback": self._limit,
                 "emsReactPowerMaxSetFeedback": self._q_target,
                 "emsReactPowerSet": self._q_target,

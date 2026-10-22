@@ -10,7 +10,7 @@ from typing import Literal
 
 from seahorse.infrastructure.models.wind_turbine.contract import COMMAND_POINTS, READ_POINTS
 
-RegisterArea = Literal["coil", "holding"]
+RegisterArea = Literal["coil", "discrete_input", "input", "holding"]
 
 
 @dataclass(frozen=True, slots=True)

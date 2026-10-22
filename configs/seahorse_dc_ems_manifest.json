@@ -1,0 +1,702 @@
+{
+  "source_repo": "luoshaozhuo/dc-ems",
+  "source_path": "deploy/database/init/data.json",
+  "source_blob_sha": "db44bc0d5c9f334ffbf7268e09f1e09de4d98604",
+  "points": [
+    {
+      "name": "emsWorkMode",
+      "address": "1.4.41501",
+      "kind": "I",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsWinSpd",
+      "address": "1.4.41503",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsWinSpdAvg10Sec",
+      "address": "1.4.41505",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsWinSpdAvg60Sec",
+      "address": "1.4.41507",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsPowAct",
+      "address": "1.4.41509",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsPowActCvt",
+      "address": "1.4.41511",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsPowActAvg10Sec",
+      "address": "1.4.41513",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsPowActAvg60Sec",
+      "address": "1.4.41515",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsPowReactCvt",
+      "address": "1.4.41517",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsPowReact",
+      "address": "1.4.41519",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsPowReact10",
+      "address": "1.4.41521",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsPowReact60",
+      "address": "1.4.41523",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsBladeAngle1",
+      "address": "1.4.41525",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsBladeAngle2",
+      "address": "1.4.41527",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsBladeAngle3",
+      "address": "1.4.41529",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsGenRotateSpd",
+      "address": "1.4.41531",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsGenTorque",
+      "address": "1.4.41533",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsMinBladeAngle",
+      "address": "1.4.41535",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsOilTemp",
+      "address": "1.4.41537",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsTotalEnergy",
+      "address": "1.4.41539",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsAutoLimitSetFeedback",
+      "address": "1.4.41541",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsActPowerMaxSetFeedback",
+      "address": "1.4.41543",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsReactPowerMaxSetFeedback",
+      "address": "1.4.41545",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsGridPhaseCurrentA",
+      "address": "1.4.41547",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsConvertVol",
+      "address": "1.4.41549",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsCabinTemp",
+      "address": "1.4.41551",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsEnvTemp",
+      "address": "1.4.41553",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsReactPowerSet",
+      "address": "1.4.41555",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "ctrlReActPow",
+      "address": "1.4.41555",
+      "kind": "F",
+      "high_bit": 1,
+      "command": true
+    },
+    {
+      "name": "emsActPowerSet",
+      "address": "1.4.41557",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "ctrlActPow",
+      "address": "1.4.41557",
+      "kind": "F",
+      "high_bit": 1,
+      "command": true
+    },
+    {
+      "name": "emsActPowerRead",
+      "address": "1.4.41557",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsActPowerSetInertia",
+      "address": "1.4.41559",
+      "kind": "F",
+      "high_bit": 1,
+      "command": true
+    },
+    {
+      "name": "emsReactPowerSetStatus",
+      "address": "1.4.41561",
+      "kind": "I",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsReactPowerSetStatusWrite",
+      "address": "1.4.41561",
+      "kind": "I",
+      "high_bit": 1,
+      "command": true
+    },
+    {
+      "name": "emsActPowerChangeRate",
+      "address": "1.4.41563",
+      "kind": "F",
+      "high_bit": 1,
+      "command": true
+    },
+    {
+      "name": "emsActCtrlMode",
+      "address": "1.4.41565",
+      "kind": "I",
+      "high_bit": 1,
+      "command": true
+    },
+    {
+      "name": "inertiaLimitValue",
+      "address": "1.4.41567",
+      "kind": "F",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsFaultState",
+      "address": "1.1.12800",
+      "kind": "B",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsLocalOnOff",
+      "address": "1.1.12801",
+      "kind": "B",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsAutoLimitState",
+      "address": "1.1.12802",
+      "kind": "B",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsLocalLimitState",
+      "address": "1.1.12803",
+      "kind": "B",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsRemoteLimitState",
+      "address": "1.1.12804",
+      "kind": "B",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsLimitStop",
+      "address": "1.1.12805",
+      "kind": "B",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsLocalActPowerEnableState",
+      "address": "1.1.12806",
+      "kind": "B",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "emsReactCanCtrl",
+      "address": "1.1.12807",
+      "kind": "B",
+      "high_bit": 1,
+      "command": false
+    },
+    {
+      "name": "ctrlStart",
+      "address": "1.0.12808",
+      "kind": "B",
+      "high_bit": 1,
+      "command": true
+    },
+    {
+      "name": "ctrlStop",
+      "address": "1.0.12809",
+      "kind": "B",
+      "high_bit": 1,
+      "command": true
+    },
+    {
+      "name": "ctrlReset",
+      "address": "1.0.12810",
+      "kind": "B",
+      "high_bit": 1,
+      "command": true
+    }
+  ],
+  "devices": [
+    {
+      "id": "d10001",
+      "server_id": 1,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.51",
+      "port": 502
+    },
+    {
+      "id": "d10002",
+      "server_id": 2,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.52",
+      "port": 502
+    },
+    {
+      "id": "d10003",
+      "server_id": 3,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.53",
+      "port": 502
+    },
+    {
+      "id": "d10004",
+      "server_id": 4,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.54",
+      "port": 502
+    },
+    {
+      "id": "d10005",
+      "server_id": 5,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.55",
+      "port": 502
+    },
+    {
+      "id": "d10006",
+      "server_id": 6,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.56",
+      "port": 502
+    },
+    {
+      "id": "d10007",
+      "server_id": 7,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.57",
+      "port": 502
+    },
+    {
+      "id": "d10008",
+      "server_id": 8,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.58",
+      "port": 502
+    },
+    {
+      "id": "d10009",
+      "server_id": 9,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.59",
+      "port": 502
+    },
+    {
+      "id": "d10010",
+      "server_id": 10,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.60",
+      "port": 502
+    },
+    {
+      "id": "d10011",
+      "server_id": 11,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.61",
+      "port": 502
+    },
+    {
+      "id": "d10012",
+      "server_id": 12,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.62",
+      "port": 502
+    },
+    {
+      "id": "d10013",
+      "server_id": 13,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.63",
+      "port": 502
+    },
+    {
+      "id": "d10014",
+      "server_id": 14,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.64",
+      "port": 502
+    },
+    {
+      "id": "d10015",
+      "server_id": 15,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.65",
+      "port": 502
+    },
+    {
+      "id": "d10016",
+      "server_id": 16,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.66",
+      "port": 502
+    },
+    {
+      "id": "d10017",
+      "server_id": 17,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.67",
+      "port": 502
+    },
+    {
+      "id": "d10018",
+      "server_id": 18,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.68",
+      "port": 502
+    },
+    {
+      "id": "d10019",
+      "server_id": 19,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.69",
+      "port": 502
+    },
+    {
+      "id": "d10020",
+      "server_id": 20,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.70",
+      "port": 502
+    },
+    {
+      "id": "d10021",
+      "server_id": 21,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.71",
+      "port": 502
+    },
+    {
+      "id": "d10022",
+      "server_id": 22,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.72",
+      "port": 502
+    },
+    {
+      "id": "d10023",
+      "server_id": 23,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.73",
+      "port": 502
+    },
+    {
+      "id": "d10024",
+      "server_id": 24,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.74",
+      "port": 502
+    },
+    {
+      "id": "d10025",
+      "server_id": 25,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.75",
+      "port": 502
+    },
+    {
+      "id": "d10026",
+      "server_id": 26,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.76",
+      "port": 502
+    },
+    {
+      "id": "d10027",
+      "server_id": 27,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.77",
+      "port": 502
+    },
+    {
+      "id": "d10028",
+      "server_id": 28,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.78",
+      "port": 502
+    },
+    {
+      "id": "d10029",
+      "server_id": 29,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.79",
+      "port": 502
+    },
+    {
+      "id": "d10030",
+      "server_id": 30,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.80",
+      "port": 502
+    },
+    {
+      "id": "d10031",
+      "server_id": 31,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.81",
+      "port": 502
+    },
+    {
+      "id": "d10032",
+      "server_id": 32,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.82",
+      "port": 502
+    },
+    {
+      "id": "d10033",
+      "server_id": 33,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.83",
+      "port": 502
+    },
+    {
+      "id": "d10034",
+      "server_id": 34,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.84",
+      "port": 502
+    },
+    {
+      "id": "d10035",
+      "server_id": 35,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.85",
+      "port": 502
+    },
+    {
+      "id": "d10036",
+      "server_id": 36,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.86",
+      "port": 502
+    },
+    {
+      "id": "d10037",
+      "server_id": 37,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.87",
+      "port": 502
+    },
+    {
+      "id": "d10038",
+      "server_id": 38,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.88",
+      "port": 502
+    },
+    {
+      "id": "d10039",
+      "server_id": 39,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.89",
+      "port": 502
+    },
+    {
+      "id": "d10040",
+      "server_id": 40,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.90",
+      "port": 502
+    },
+    {
+      "id": "d10041",
+      "server_id": 41,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.91",
+      "port": 502
+    },
+    {
+      "id": "d10042",
+      "server_id": 42,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.92",
+      "port": 502
+    },
+    {
+      "id": "d10043",
+      "server_id": 43,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.93",
+      "port": 502
+    },
+    {
+      "id": "d10044",
+      "server_id": 44,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.94",
+      "port": 502
+    },
+    {
+      "id": "d10045",
+      "server_id": 45,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.95",
+      "port": 502
+    },
+    {
+      "id": "d10046",
+      "server_id": 46,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.96",
+      "port": 502
+    },
+    {
+      "id": "d10047",
+      "server_id": 47,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.97",
+      "port": 502
+    },
+    {
+      "id": "d10048",
+      "server_id": 48,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.98",
+      "port": 502
+    },
+    {
+      "id": "d10049",
+      "server_id": 49,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.99",
+      "port": 502
+    },
+    {
+      "id": "d10050",
+      "server_id": 50,
+      "capacity_kw": 2000,
+      "ip": "192.168.1.100",
+      "port": 502
+    }
+  ]
+}
