@@ -24,7 +24,7 @@ const MODBUS_DEFAULTS = {
   port: 502,
   slave_id: 1,
   mode: 'tcp',
-  timeout: 3,
+  timeout: 5,
   word_order: 'little_endian',
 }
 
