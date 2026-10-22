@@ -17,7 +17,7 @@ from core.infrastructure.rpc import collector_pb2 as pb
 from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
 from tests.support.new_collector import write_collector_config_tree
 from tests.support.redis_client import RedisTestClient, parse_address, point_key
-from tests.support.wait import wait_redis_value, wait_until
+from tests.support.wait import wait_until
 
 
 @pytest.fixture
