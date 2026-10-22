@@ -1,0 +1,19 @@
+item,status,evidence,impact,next_action
+wind_hub_main,CONFIRMED,f3e1a4337898607de8a948e00b802afd3297c25f,Phase1 baseline pinned,Recheck before Phase2
+dc_ems_main,CONFIRMED,4c45932d40828fcef09bb92d2ccf3ce53f6d31be,Read-only baseline,Recheck before Phase2
+scada_redis_input,CONFIRMED,SyncManager.readDatas and ConfigLoader.loadSyncPoints,Inbound via SyncData I and G.flusher.updateData,Extract deployed syncdata rows
+scada_redis_output,CONFIRMED,SyncManager.writeDatas and ConfigLoader.loadSyncPoints,Outbound via SyncData O and G.getter.refresh,Determine external feedback consumers
+scada_redis_heartbeat,CONFIRMED,SyncManager.writeHeart and EmsApp,Separate heart connection and runtime lifecycle,Test startup with missing sync connection
+modbus_input,CONFIRMED,DataGetterModbusImpl.initReadbatch and run,Read points from EdgeAddrSet with EdgeServer.interval,Extract deployed edgeaddrset and device rows
+modbus_output,CONFIRMED,DataGetterModbusImpl.control,Control requires mapped isCtrl locator and comOk,Verify target map values
+iec104_input,CONFIRMED,DataGetterIec104Impl.newASdu,External inputs can use IEC104,Determine deployed protocol coverage
+iec104_output,CONFIRMED,DataGetterIec104Impl.control,Currently returns false; no actual IEC104 control,Do not claim control support
+substation,CONFIRMED,SyzDevice.initEvents,Substation readings propagate to FactoryPoints,Determine upstream origin mapping
+pfr_device,CONFIRMED,YctpDevice.initEvents,Frequency mode propagates to FactoryPoints,Determine upstream source and controls
+gateway_modbus,CONFIRMED,industrial_gateway.infrastructure.config.loader,Gateway only Modbus endpoint in current schema,Assess 104 external substitution separately
+gateway_permissions,CONFIRMED,Access.check_addresses,Data and command writer IPs disjoint,Design explicit network identities
+gateway_command_rpc,CONFIRMED,GrpcCommanderWriter.write_point,WritePoint and outcomes confirmed success failure or unknown,Map acceptance not final physical execution
+database_initialization,UNAVAILABLE,deploy/database/init/README.md,Trusted complete data.json initialization baseline not supplied,Request sanitized actual deployment mapping
+required_external_variables,INCOMPLETE,Actual SyncData and EdgeAddrSet rows absent,Full coverage cannot be asserted,Reconcile rows with consumers and producers
+random_source,NOT_STARTED,Phase2,Do not implement in Phase1,After approval
+wind_farm_source,NOT_STARTED,Phase3,Fixed fields blocked by contract coverage,After review
