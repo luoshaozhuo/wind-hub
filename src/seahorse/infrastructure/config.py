@@ -62,6 +62,23 @@ class SubstationConfig(BaseModel):
     reactive_loss_ratio: float = Field(default=0.02, ge=0, lt=1, allow_inf_nan=False)
 
 
+class StationConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model: Literal["random", "simple"] = "random"
+    enabled: bool = False
+    secondary_enabled: bool = False
+    period_seconds: float = Field(default=120.0, gt=0, allow_inf_nan=False)
+    duration_seconds: float = Field(default=8.0, gt=0, allow_inf_nan=False)
+    target_kw: float = Field(default=0.0, allow_inf_nan=False)
+    delta_kw: float = Field(default=2000.0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> StationConfig:
+        if self.duration_seconds >= self.period_seconds:
+            raise ValueError("event duration must be less than period")
+        return self
+
+
 class SeahorseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     step_seconds: float = Field(gt=0, le=60, allow_inf_nan=False)
@@ -70,6 +87,9 @@ class SeahorseConfig(BaseModel):
     grid: GridConfig = Field(default_factory=GridConfig)
     substation: SubstationConfig = Field(default_factory=SubstationConfig)
     turbines: list[TurbineConfig] = Field(min_length=1)
+    dispatch_station: StationConfig = Field(default_factory=StationConfig)
+    primary_station: StationConfig = Field(default_factory=StationConfig)
+    inertia_station: StationConfig = Field(default_factory=StationConfig)
     dispatch_points: dict[str, PointRange]
     primary_points: dict[str, PointRange]
     inertia_points: dict[str, PointRange]
@@ -82,6 +102,9 @@ class SeahorseConfig(BaseModel):
             raise ValueError("duplicate or reserved device ID")
         if self.substation.model == "simple" and any(t.model != "simple" for t in self.turbines):
             raise ValueError("simple substation requires all turbine models to report physical power")
+        if self.primary_station.enabled and self.inertia_station.enabled:
+            if self.primary_station.period_seconds == self.inertia_station.period_seconds:
+                raise ValueError("primary/inertia events require non-overlapping schedules")
         return self
 
 

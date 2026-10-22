@@ -5,9 +5,12 @@ from seahorse.application.runtime import SeahorseRuntime
 from seahorse.application.wind_farm_service import WindFarmService
 from seahorse.infrastructure.config import PointRange, SeahorseConfig
 from seahorse.infrastructure.models.dispatch_station.random import RandomDispatchStation
+from seahorse.infrastructure.models.dispatch_station.simple import SimpleDispatchStation
 from seahorse.infrastructure.models.grid.random import RandomGrid
 from seahorse.infrastructure.models.grid.simple import SimpleGrid
 from seahorse.infrastructure.models.inertia_station.random import RandomInertiaStation
+from seahorse.infrastructure.models.inertia_station.simple import SimpleInertiaStation
+from seahorse.infrastructure.models.primary_control_station.simple import SimplePrimaryControlStation
 from seahorse.infrastructure.models.primary_control_station.random import (
     RandomPrimaryControlStation,
 )
@@ -74,9 +77,33 @@ def create_runtime(config: SeahorseConfig) -> SeahorseRuntime:
         turbines=tuple(turbines),
         grid=grid,
         substation=substation,
-        dispatch=RandomDispatchStation(seed + 3, _ranges(config.dispatch_points)),
-        primary=RandomPrimaryControlStation(seed + 4, _ranges(config.primary_points)),
-        inertia=RandomInertiaStation(seed + 5, _ranges(config.inertia_points)),
+        dispatch=(
+            SimpleDispatchStation(farm_rated_kw=sum(t.rated_power_kw for t in config.turbines))
+            if config.dispatch_station.model == "simple"
+            else RandomDispatchStation(seed + 3, _ranges(config.dispatch_points))
+        ),
+        primary=(
+            SimplePrimaryControlStation(
+                frequency_enabled=config.primary_station.enabled,
+                voltage_enabled=config.primary_station.secondary_enabled,
+                event_period_seconds=config.primary_station.period_seconds,
+                frequency_event_seconds=config.primary_station.duration_seconds,
+                active_target_kw=config.primary_station.target_kw,
+                active_delta_kw=config.primary_station.delta_kw,
+            )
+            if config.primary_station.model == "simple"
+            else RandomPrimaryControlStation(seed + 4, _ranges(config.primary_points))
+        ),
+        inertia=(
+            SimpleInertiaStation(
+                enabled=config.inertia_station.enabled,
+                period_seconds=config.inertia_station.period_seconds,
+                duration_seconds=config.inertia_station.duration_seconds,
+                target_kw=config.inertia_station.target_kw,
+            )
+            if config.inertia_station.model == "simple"
+            else RandomInertiaStation(seed + 5, _ranges(config.inertia_points))
+        ),
         publisher=MemoryPublisher(),
     )
     return SeahorseRuntime(service, config.step_seconds)

@@ -67,6 +67,10 @@ class WindFarmService:
         self._dispatch.step(time)
         self._primary.step(time, grid)
         self._inertia.step(time, grid)
+        primary_active = bool(self._primary.snapshot().points.get("emsIsFreMod", False))
+        inertia_active = bool(self._inertia.snapshot().points.get("actInertiaMode", False))
+        if primary_active and inertia_active:
+            raise ValueError("primary frequency and inertia modes overlap")
         for turbine in self._turbines.values():
             turbine.step(time, self._wind_field.sample(turbine.device_id), grid)
         snapshots = tuple(turbine.snapshot() for turbine in self._turbines.values())
