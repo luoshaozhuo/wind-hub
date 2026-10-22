@@ -28,6 +28,7 @@ from web_server.application.config.admin_state import (
     AdminTaskItem,
 )
 from web_server.application.config.files import ConfigApplyResult
+from web_server.application.config.settings import SettingsUpdate, SettingsValidationError
 from web_server.infra.audit import audit
 
 router = APIRouter()
@@ -144,8 +145,6 @@ async def update_settings(
     request: SettingsRequest,
     ctx: AppContext = Depends(get_ctx),
 ) -> ConfigApplyResponse:
-    from web_server.application.config.settings import SettingsUpdate, SettingsValidationError
-
     try:
         result = await common.settings(ctx).update(SettingsUpdate(**request.model_dump()))
     except SettingsValidationError as exc:
