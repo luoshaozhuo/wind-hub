@@ -111,7 +111,7 @@ def _client(host: str, port: int) -> _ModbusClient:
 
 
 class GatewayModbusPublisher:
-    """每个仿真步按点发布；任意写入失败会向上抛异常。"""
+    """按 Endpoint/Unit 复用连接，保持 FC16 写入长度上限。"""
 
     def __init__(
         self, config: PublishConfig, client_factory: ClientFactory = _client
@@ -121,30 +121,45 @@ class GatewayModbusPublisher:
 
     def publish(self, snapshot: FarmSnapshot) -> None:
         devices = {device.device_id: device.points for device in snapshot.devices}
-        prepared: list[tuple[PublishPoint, tuple[int, ...]]] = []
+        groups: dict[tuple[str, int, int, str], list[tuple[int, tuple[int, ...]]]] = {}
         for point in self._config.points:
-            if point.device_id not in devices:
+            values = devices.get(point.device_id)
+            if values is None:
                 raise KeyError(f"unknown device: {point.device_id}")
-            points = devices[point.device_id]
-            if point.point_id not in points:
+            if point.point_id not in values:
                 raise KeyError(f"missing feedback: {point.device_id}.{point.point_id}")
-            prepared.append((point, _encode(point, points[point.point_id])))
-        for point, registers in prepared:
-            client = self._client_factory(point.host, point.port)
+            encoded = _encode(point, values[point.point_id])
+            key = (point.host, point.port, point.unit_id, point.area)
+            groups.setdefault(key, []).append((point.address, encoded))
+
+        for (host, port, unit_id, area), values in sorted(groups.items()):
+            spans: list[tuple[int, list[int]]] = []
+            for address, encoded in sorted(values):
+                if (
+                    area == "holding"
+                    and spans
+                    and address == spans[-1][0] + len(spans[-1][1])
+                    and len(spans[-1][1]) + len(encoded) <= 120
+                ):
+                    spans[-1][1].extend(encoded)
+                else:
+                    spans.append((address, list(encoded)))
+            client = self._client_factory(host, port)
             try:
                 if not client.connect():
-                    raise ConnectionError(f"gateway unavailable: {point.host}:{point.port}")
-                if point.area == "coil":
-                    response = client.write_coil(
-                        point.address, bool(registers[0]), device_id=point.unit_id
-                    )
-                else:
-                    response = client.write_registers(
-                        point.address, list(registers), device_id=point.unit_id
-                    )
-                if response.isError():
-                    raise RuntimeError(
-                        f"gateway rejected feedback: {point.device_id}.{point.point_id}"
-                    )
+                    raise ConnectionError(f"gateway unavailable: {host}:{port}")
+                for address, registers in spans:
+                    if area == "coil":
+                        response = client.write_coil(
+                            address, bool(registers[0]), device_id=unit_id
+                        )
+                    else:
+                        response = client.write_registers(
+                            address, registers, device_id=unit_id
+                        )
+                    if response.isError():
+                        raise RuntimeError(
+                            f"gateway rejected feedback batch: {unit_id}:{area}:{address}"
+                        )
             finally:
                 client.close()
