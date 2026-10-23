@@ -33,6 +33,12 @@ class SeahorseRuntime:
                     self._service.command(item.command)
                 except (ValueError, TypeError, KeyError) as exc:
                     item.outcome.set_exception(exc)
+                except Exception as exc:
+                    # 未知设备故障可能已产生副作用，必须返回 UNKNOWN 并闭锁后续控制。
+                    item.outcome.set_exception(RuntimeError("command execution outcome unknown"))
+                    self._failed = True
+                    self._commands.close()
+                    raise RuntimeError("unrecoverable command execution failure") from exc
                 else:
                     item.outcome.set_result(None)
         next_index = self._index + 1
