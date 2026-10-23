@@ -50,6 +50,8 @@ class RandomPoint(BaseModel):
                 raise ValueError("bool bounds must be 0 and 1")
         elif self.data_type in limits:
             low, high = limits[self.data_type]
+            low = max(low, -(1 << 53))
+            high = min(high, 1 << 53)
             if (
                 type(self.minimum) is not int
                 or type(self.maximum) is not int
