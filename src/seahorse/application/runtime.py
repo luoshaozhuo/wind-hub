@@ -28,7 +28,8 @@ class SeahorseRuntime:
         if self._failed:
             raise RuntimeError("simulation stopped after a failed step")
         if self._commands is not None:
-            for item in self._commands.drain():
+            batch = self._commands.drain()
+            for index, item in enumerate(batch):
                 try:
                     self._service.command(item.command)
                 except (ValueError, TypeError, KeyError) as exc:
@@ -36,6 +37,10 @@ class SeahorseRuntime:
                 except Exception as exc:
                     # 未知设备故障可能已产生副作用，必须返回 UNKNOWN 并闭锁后续控制。
                     item.outcome.set_exception(RuntimeError("command execution outcome unknown"))
+                    for pending in batch[index + 1 :]:
+                        pending.outcome.set_exception(
+                            RuntimeError("command abandoned after unknown execution outcome")
+                        )
                     self._failed = True
                     self._commands.close()
                     raise RuntimeError("unrecoverable command execution failure") from exc
