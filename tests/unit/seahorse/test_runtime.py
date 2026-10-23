@@ -99,3 +99,13 @@ def test_random_point_rejects_incorrect_type_bounds() -> None:
         RandomPoint(data_type="uint64", minimum=-1, maximum=1)
     with pytest.raises(ValidationError):
         RandomPoint(data_type="float32", minimum=0, maximum=1e100)
+
+
+def test_dispatch_parameters_reach_simple_model() -> None:
+    config = load_config(CONFIG).model_dump()
+    config["dispatch_station"]["target_kw"] = 1200.0
+    config["dispatch_station"]["reactive_target_kvar"] = 300.0
+    runtime = create_runtime(SeahorseConfig.model_validate(config))
+    snapshot = runtime.step().by_id("dispatch").points
+    assert snapshot["emsGridDispatchAct"] == 1200.0
+    assert snapshot["emsGridDispatchReact"] == 300.0
