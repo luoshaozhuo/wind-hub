@@ -116,6 +116,8 @@ def generate_profile(
         model_id = external["model_id"]
         if model_id not in {"substation", "dispatch", "primary", "inertia"}:
             raise ValueError(f"unsupported simulated device: {model_id}")
+        if device_id != model_id or model_id in gateway_devices:
+            raise ValueError(f"external device must use unique model ID: {model_id}")
         point_items = external["points"]
         if not point_items:
             raise ValueError(f"external device lacks point mapping: {device_id}")
