@@ -32,7 +32,7 @@ class SeahorseRuntime:
             for index, item in enumerate(batch):
                 try:
                     self._service.command(item.command)
-                except (ValueError, TypeError, KeyError) as exc:
+                except (ValueError, KeyError) as exc:
                     item.outcome.set_exception(exc)
                 except Exception as exc:
                     # 未知设备故障可能已产生副作用，必须返回 UNKNOWN 并闭锁后续控制。
