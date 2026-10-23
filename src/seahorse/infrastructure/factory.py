@@ -86,7 +86,15 @@ def create_runtime(
         grid=grid,
         substation=substation,
         dispatch=(
-            SimpleDispatchStation(farm_rated_kw=sum(t.rated_power_kw for t in config.turbines))
+            SimpleDispatchStation(
+                active_mean_kw=config.dispatch_station.target_kw,
+                active_amplitude_kw=config.dispatch_station.active_amplitude_kw,
+                reactive_mean_kvar=config.dispatch_station.reactive_target_kvar,
+                reactive_amplitude_kvar=config.dispatch_station.reactive_amplitude_kvar,
+                active_period_seconds=config.dispatch_station.period_seconds,
+                reactive_period_seconds=config.dispatch_station.reactive_period_seconds,
+                farm_rated_kw=sum(t.rated_power_kw for t in config.turbines),
+            )
             if config.dispatch_station.model == "simple"
             else RandomDispatchStation(seed + 3, _ranges(config.dispatch_points))
         ),
@@ -98,6 +106,7 @@ def create_runtime(
                 frequency_event_seconds=config.primary_station.duration_seconds,
                 active_target_kw=config.primary_station.target_kw,
                 active_delta_kw=config.primary_station.delta_kw,
+                reactive_target_kvar=config.primary_station.reactive_target_kvar,
             )
             if config.primary_station.model == "simple"
             else RandomPrimaryControlStation(seed + 4, _ranges(config.primary_points))
