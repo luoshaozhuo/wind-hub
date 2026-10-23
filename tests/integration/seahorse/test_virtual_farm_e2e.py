@@ -15,7 +15,10 @@ import pytest
 from pymodbus.client import ModbusTcpClient
 
 from industrial_gateway.infrastructure.config.loader import load_config
-from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMapping, decode_registers
+from industrial_gateway.infrastructure.protocol.modbus.codec import (
+    RegisterMapping,
+    decode_registers,
+)
 from seahorse.infrastructure.dc_ems_generator import generate_profile
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -105,10 +108,14 @@ def test_50_turbine_real_process_bidirectional(tmp_path: Path) -> None:
             _ready(gateway_proc, endpoint.port)
         with _process(
             "seahorse.main",
-            "--config", str(seahorse_path),
-            "--gateway-config", str(gateway_path),
-            "--gateway-grpc-endpoint", "127.0.0.1:50073",
-            "--command-bind", "127.0.0.1:50072",
+            "--config",
+            str(seahorse_path),
+            "--gateway-config",
+            str(gateway_path),
+            "--gateway-grpc-endpoint",
+            "127.0.0.1:50073",
+            "--command-bind",
+            "127.0.0.1:50072",
         ) as seahorse:
             _ready(seahorse, 50072)
             for device_id, device in gateway.devices.items():
