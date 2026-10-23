@@ -51,7 +51,8 @@ class RandomTurbine:
             elif point.data_type.startswith(("int", "uint")):
                 values[point_id] = self._rng.randint(int(point.minimum), int(point.maximum))
             else:
-                value = self._rng.uniform(point.minimum, point.maximum)
+                weight = self._rng.random()
+                value = float(point.minimum) * (1.0 - weight) + float(point.maximum) * weight
                 if point.data_type == "float32":
                     value = struct.unpack(">f", struct.pack(">f", value))[0]
                 values[point_id] = value
