@@ -1,4 +1,5 @@
 """命令队列的串行处理、确认、失败与关闭语义。"""
+
 import pytest
 
 from seahorse.application.command_queue import CommandQueue

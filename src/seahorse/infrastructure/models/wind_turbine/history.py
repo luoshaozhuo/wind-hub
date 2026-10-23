@@ -1,4 +1,5 @@
 """按真实时间窗口计算左保持采样的时间加权平均。"""
+
 from __future__ import annotations
 
 from collections import deque

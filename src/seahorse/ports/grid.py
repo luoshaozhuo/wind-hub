@@ -1,4 +1,5 @@
 """电网边界条件模型端口。"""
+
 from typing import Protocol
 
 from seahorse.domain.models import GridSample, SimulationTime

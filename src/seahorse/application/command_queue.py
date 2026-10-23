@@ -1,4 +1,5 @@
 """跨 RPC 与仿真线程的命令接收及执行结果回传。"""
+
 from __future__ import annotations
 
 from collections import deque

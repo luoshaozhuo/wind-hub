@@ -1,4 +1,5 @@
 """Gateway gRPC Struct 反馈契约。"""
+
 from __future__ import annotations
 
 import pytest
@@ -18,12 +19,14 @@ def test_feedback_round_trip_preserves_bool_int_float() -> None:
 
 def test_duplicate_rejected() -> None:
     request = struct_pb2.Struct()
-    request.update({
-        "points": [
-            {"device_id": "wt1", "point_id": "p", "value": {"int_value": "1"}},
-            {"device_id": "wt1", "point_id": "p", "value": {"int_value": "2"}},
-        ]
-    })
+    request.update(
+        {
+            "points": [
+                {"device_id": "wt1", "point_id": "p", "value": {"int_value": "1"}},
+                {"device_id": "wt1", "point_id": "p", "value": {"int_value": "2"}},
+            ]
+        }
+    )
     with pytest.raises(ValueError, match="duplicate"):
         decode_feedback(request)
 

@@ -1,4 +1,5 @@
 """可复现的电网边界条件；无潮流求解。"""
+
 from __future__ import annotations
 
 import math
@@ -7,9 +8,7 @@ from seahorse.domain.models import GridSample, SimulationTime
 
 
 class SimpleGrid:
-    def __init__(
-        self, frequency_hz: float = 50.0, voltage_v: float = 35000.0
-    ) -> None:
+    def __init__(self, frequency_hz: float = 50.0, voltage_v: float = 35000.0) -> None:
         self._frequency = frequency_hz
         self._voltage = voltage_v
         self._sample = GridSample(frequency_hz, voltage_v, 0.0)

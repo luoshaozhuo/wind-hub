@@ -3,6 +3,7 @@
 来自设计书追溯的 setId=1、slave.reg.address；不擅自做 40001 偏移变换。
 高低字节编码仍须用 DC-EMS highBit=1 实际向量验收。
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

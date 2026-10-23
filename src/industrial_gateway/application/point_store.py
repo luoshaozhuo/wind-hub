@@ -69,10 +69,7 @@ class PointStore:
     def is_uninitialized_feedback(self, device_id: str, point_id: str) -> bool:
         """仅首次收到遥测前允许冷启动读镜像；过期和失效不能伪造正常值。"""
         key = (device_id, point_id)
-        return (
-            self._definition(key).role is PointRole.FEEDBACK
-            and key not in self._seen_feedback
-        )
+        return self._definition(key).role is PointRole.FEEDBACK and key not in self._seen_feedback
 
     def note_rejected_commands(self, keys: Iterable[PointKey]) -> None:
         """拒绝的批量控制不产生回声；保留旧测试的失败读取语义。"""

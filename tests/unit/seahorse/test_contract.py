@@ -1,4 +1,5 @@
 """Seahorse 设备数据契约回归，统一交 Claude 执行。"""
+
 from seahorse.domain.models import GridSample, SimulationTime, WindSample
 from seahorse.infrastructure.models.wind_turbine.contract import (
     COMMAND_POINTS,

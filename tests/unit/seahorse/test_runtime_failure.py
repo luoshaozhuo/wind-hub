@@ -1,4 +1,5 @@
 """发布失败必须锁死运行时，避免已变化模型重复推进同一时间步。"""
+
 import pytest
 
 from seahorse.domain.models import FarmSnapshot

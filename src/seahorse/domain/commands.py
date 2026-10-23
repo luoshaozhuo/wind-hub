@@ -1,4 +1,5 @@
 """独立于工业协议的设备控制命令。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,4 +1,5 @@
 """inertia 随机指令信号适配器；不负责 EMS 控制律。"""
+
 from __future__ import annotations
 
 import random

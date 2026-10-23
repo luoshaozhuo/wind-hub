@@ -1,4 +1,5 @@
 """按配置点生成随机风机数据，命令回读不等于实际功率。"""
+
 from __future__ import annotations
 
 import random

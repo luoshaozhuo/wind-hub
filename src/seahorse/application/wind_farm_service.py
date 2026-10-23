@@ -1,4 +1,5 @@
 """单一服务编排所有虚拟设备，统一推进和发布。"""
+
 from __future__ import annotations
 
 import math

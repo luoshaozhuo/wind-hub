@@ -1,4 +1,5 @@
 """一次调频/调压事件信号，目标与使能分开发布。"""
+
 from __future__ import annotations
 
 from seahorse.domain.models import DeviceSnapshot, GridSample, SimulationTime
@@ -27,8 +28,10 @@ class SimplePrimaryControlStation:
     def step(self, time: SimulationTime, grid: GridSample) -> None:
         # 先提供参考目标，投入模式由下一个离散步触发。
         phase = time.seconds % self._period
-        active = self._frequency_enabled and time.seconds > self._period and (
-            time.dt_seconds <= phase < self._duration
+        active = (
+            self._frequency_enabled
+            and time.seconds > self._period
+            and (time.dt_seconds <= phase < self._duration)
         )
         self._snapshot = DeviceSnapshot(
             "primary",

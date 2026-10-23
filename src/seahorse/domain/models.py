@@ -1,4 +1,5 @@
 """仿真时钟和设备快照的共享契约。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,4 +1,5 @@
 """受限周期 AGC/AVC 目标生成器，不实现 EMS 分配。"""
+
 from __future__ import annotations
 
 import math
@@ -20,8 +21,12 @@ class SimpleDispatchStation:
         if active_period_seconds <= 0 or reactive_period_seconds <= 0 or farm_rated_kw <= 0:
             raise ValueError("period and farm rating must be positive")
         self._params = (
-            active_mean_kw, active_amplitude_kw, reactive_mean_kvar,
-            reactive_amplitude_kvar, active_period_seconds, reactive_period_seconds,
+            active_mean_kw,
+            active_amplitude_kw,
+            reactive_mean_kvar,
+            reactive_amplitude_kvar,
+            active_period_seconds,
+            reactive_period_seconds,
         )
         self._rated = farm_rated_kw
         self._snapshot = DeviceSnapshot("dispatch", {})

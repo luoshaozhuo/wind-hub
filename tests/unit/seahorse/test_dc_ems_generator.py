@@ -1,4 +1,5 @@
 """原始 49 项逻辑映射编译为 45 个非重叠物理地址。"""
+
 from __future__ import annotations
 
 import json

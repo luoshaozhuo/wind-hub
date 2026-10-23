@@ -1,4 +1,5 @@
 """通用 gRPC 遥测 Sink；仅发送有效工程测量值。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -71,9 +72,7 @@ class GrpcSink:
 
     async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
         allowed = set(self._task_sources.get(task_id, ()))
-        await self.write([
-            point for point in batch if (point.device_id, point.point_id) in allowed
-        ])
+        await self.write([point for point in batch if (point.device_id, point.point_id) in allowed])
 
     async def flush(self) -> None:
         return None
@@ -82,9 +81,7 @@ class GrpcSink:
         if self._channel is None:
             return ConnectionHealth(healthy=False, message="gRPC channel closed")
         try:
-            await asyncio.wait_for(
-                self._channel.channel_ready(), timeout=self._settings.timeout
-            )
+            await asyncio.wait_for(self._channel.channel_ready(), timeout=self._settings.timeout)
         except (TimeoutError, grpc.RpcError) as exc:
             return ConnectionHealth(healthy=False, message=str(exc))
         return ConnectionHealth(healthy=True)

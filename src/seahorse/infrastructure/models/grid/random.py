@@ -1,4 +1,5 @@
 """随机电网边界条件；不执行潮流计算。"""
+
 import random
 
 from seahorse.domain.models import GridSample, SimulationTime

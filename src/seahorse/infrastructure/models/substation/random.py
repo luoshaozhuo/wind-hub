@@ -1,4 +1,5 @@
 """随机升压站测量适配器，不声称功率守恒。"""
+
 import random
 
 from seahorse.domain.models import DeviceSnapshot, GridSample, SimulationTime

@@ -1,4 +1,5 @@
 """按仿真步更新、同一时刻读取不重复采样的风环境。"""
+
 import random
 
 from seahorse.domain.models import SimulationTime, WindSample

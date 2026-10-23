@@ -1,4 +1,5 @@
 """风机动态与控制行为回归用例，供最终统一验收执行。"""
+
 import math
 
 import pytest

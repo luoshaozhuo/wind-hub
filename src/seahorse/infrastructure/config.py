@@ -1,4 +1,5 @@
 """模型选择、随机范围及仿真步长的严格配置。"""
+
 from __future__ import annotations
 
 import math

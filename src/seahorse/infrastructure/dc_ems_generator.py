@@ -1,4 +1,5 @@
 """基于 dc-ems 原始 49 点和 50 台风机生成隔离虚拟部署配置。"""
+
 from __future__ import annotations
 
 import argparse
@@ -80,26 +81,27 @@ def generate_profile(
         device_id = device["id"]
         endpoint_id = f"turbine_{index + 1:03d}"
         port = start_port + index
-        endpoints[endpoint_id] = {
-            "protocol": "modbus", "host": "127.0.0.1", "port": port
-        }
+        endpoints[endpoint_id] = {"protocol": "modbus", "host": "127.0.0.1", "port": port}
         gateway_devices[device_id] = {
             "endpoint_id": endpoint_id,
             "point_table_id": "dc_ems_turbine",
             "protocol_address": {"unit_id": 1},
             "commands": {
                 name: {"device_id": device_id, "point_id": name}
-                for name, point in points.items() if point["role"] == "command"
+                for name, point in points.items()
+                if point["role"] == "command"
             },
         }
-        overrides.append({
-            "server_id": device["server_id"],
-            "device_id": device_id,
-            "original_host": device["ip"],
-            "original_port": device["port"],
-            "virtual_host": "127.0.0.1",
-            "virtual_port": port,
-        })
+        overrides.append(
+            {
+                "server_id": device["server_id"],
+                "device_id": device_id,
+                "original_host": device["ip"],
+                "original_port": device["port"],
+                "virtual_host": "127.0.0.1",
+                "virtual_port": port,
+            }
+        )
     if len(set(gateway_devices)) != 50:
         raise ValueError("duplicate turbine device ID")
 
@@ -110,9 +112,7 @@ def generate_profile(
         "devices": gateway_devices,
         "control": {
             "enabled": enable_control,
-            "commander": {
-                "endpoint": command_bind, "command_timeout": 3.0, "rpc_timeout": 4.0
-            },
+            "commander": {"endpoint": command_bind, "command_timeout": 3.0, "rpc_timeout": 4.0},
             "journal_path": str(output_directory / "commands.json"),
             "access": {
                 "data_writers": [],

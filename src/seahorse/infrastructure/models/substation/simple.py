@@ -1,4 +1,5 @@
 """汇总已测风机功率并施加简化站内损耗。"""
+
 from __future__ import annotations
 
 import math

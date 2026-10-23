@@ -1,4 +1,5 @@
 """原始地址和同址别名规则用例，后续由 Claude 统一执行。"""
+
 import pytest
 
 from seahorse.infrastructure.dc_ems_contract import (
@@ -9,9 +10,7 @@ from seahorse.infrastructure.dc_ems_contract import (
 
 
 def test_control_offsets_are_original_modbus_locators() -> None:
-    assert CONTROL_ADDRESSES["ctrlActPow"] == OriginalAddress(
-        1, "holding", 41557, "F"
-    )
+    assert CONTROL_ADDRESSES["ctrlActPow"] == OriginalAddress(1, "holding", 41557, "F")
     assert CONTROL_ADDRESSES["ctrlStop"] == OriginalAddress(1, "coil", 12809, "B")
 
 

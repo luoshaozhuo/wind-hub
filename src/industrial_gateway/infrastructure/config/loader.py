@@ -119,8 +119,7 @@ class GatewayConfig(_Strict):
     @model_validator(mode="after")
     def validate_grpc_bind(self) -> GatewayConfig:
         if self.data_grpc_bind is not None and not (
-            self.data_grpc_bind.startswith("127.0.0.1:")
-            or self.data_grpc_bind.startswith("[::1]:")
+            self.data_grpc_bind.startswith("127.0.0.1:") or self.data_grpc_bind.startswith("[::1]:")
         ):
             raise ValueError("data gRPC endpoint must bind loopback")
         return self

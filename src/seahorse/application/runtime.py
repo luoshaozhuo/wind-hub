@@ -1,4 +1,5 @@
 """固定步仿真；每条命令独立完成或失败，不中断后续命令。"""
+
 from __future__ import annotations
 
 import time

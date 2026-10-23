@@ -1,4 +1,5 @@
 """按设备分别选择随机或简化物理模型，无模型算法顶层分组。"""
+
 from __future__ import annotations
 
 from seahorse.application.command_queue import CommandQueue
@@ -36,8 +37,9 @@ def _ranges(points: dict[str, PointRange]) -> dict[str, tuple[float, float]]:
 
 
 def create_runtime(
-    config: SeahorseConfig, publisher: PublisherPort | None = None,
-    commands: CommandQueue | None = None
+    config: SeahorseConfig,
+    publisher: PublisherPort | None = None,
+    commands: CommandQueue | None = None,
 ) -> SeahorseRuntime:
     seed = config.seed
     wind_field: WindFieldPort

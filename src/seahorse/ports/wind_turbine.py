@@ -1,4 +1,5 @@
 """风机运行和控制端口。"""
+
 from typing import Protocol
 
 from seahorse.domain.commands import EquipmentCommand

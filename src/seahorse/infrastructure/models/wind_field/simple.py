@@ -1,4 +1,5 @@
 """周期平均风、相关湍流和缓慢变化风向。"""
+
 from __future__ import annotations
 
 import math
@@ -32,9 +33,9 @@ class SimpleWindField:
 
     def step(self, time: SimulationTime) -> None:
         a = math.exp(-time.dt_seconds / self._correlation)
-        self._turbulence = (
-            a * self._turbulence + self._std * math.sqrt(1 - a * a) * self._rng.gauss(0, 1)
-        )
+        self._turbulence = a * self._turbulence + self._std * math.sqrt(
+            1 - a * a
+        ) * self._rng.gauss(0, 1)
         self._direction = (
             self._direction
             + self._direction_noise * math.sqrt(time.dt_seconds) * self._rng.gauss(0, 1)

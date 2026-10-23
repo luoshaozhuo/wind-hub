@@ -1,4 +1,5 @@
 """Seahorse 统一 gRPC 遥测发布和虚拟设备命令入口。"""
+
 from __future__ import annotations
 
 import argparse
@@ -37,9 +38,7 @@ async def _run(
         worker = asyncio.create_task(asyncio.to_thread(runtime.run, steps))
         stopper = asyncio.create_task(shutdown.wait())
         try:
-            done, _ = await asyncio.wait(
-                (worker, stopper), return_when=asyncio.FIRST_COMPLETED
-            )
+            done, _ = await asyncio.wait((worker, stopper), return_when=asyncio.FIRST_COMPLETED)
             if stopper in done:
                 runtime.stop()
             await worker

@@ -2,6 +2,7 @@
 
 功率单位 kW，扭矩 N·m，转速 rpm。非厂家标定模型。
 """
+
 from __future__ import annotations
 
 import math
@@ -44,8 +45,7 @@ class SimpleWindTurbine:
         self._reactive_status = 0
         self._controls: dict[str, Scalar] = {}
         self._history = {
-            name: (TimeWindow(10), TimeWindow(60))
-            for name in ("wind", "active", "reactive")
+            name: (TimeWindow(10), TimeWindow(60)) for name in ("wind", "active", "reactive")
         }
         self._temperatures = {"emsEnvTemp": 20.0, "emsCabinTemp": 30.0, "emsOilTemp": 45.0}
         self._state = DeviceSnapshot(device_id, {})
@@ -74,7 +74,10 @@ class SimpleWindTurbine:
             else:
                 self._reactive_status = value
         elif point in {
-            "ctrlActPow", "ctrlReActPow", "emsActPowerChangeRate", "emsActPowerSetInertia"
+            "ctrlActPow",
+            "ctrlReActPow",
+            "emsActPowerChangeRate",
+            "emsActPowerSetInertia",
         }:
             if isinstance(value, bool) or not isinstance(value, int | float):
                 raise TypeError("setpoint must be numeric")
@@ -131,7 +134,8 @@ class SimpleWindTurbine:
         torque = 1000 * self._power / max(generator_omega, 1.0)
 
         for name, value in (
-            ("wind", wind.speed_mps), ("active", self._power),
+            ("wind", wind.speed_mps),
+            ("active", self._power),
             ("reactive", self._reactive),
         ):
             for window in self._history[name]:
@@ -143,16 +147,14 @@ class SimpleWindTurbine:
         ):
             a = math.exp(-dt / 30)
             self._temperatures[point] = (
-                mean + a * (self._temperatures[point] - mean)
+                mean
+                + a * (self._temperatures[point] - mean)
                 + std * math.sqrt(1 - a * a) * self._rng.gauss(0, 1)
             )
         wa, wb = self._history["wind"]
         pa, pb = self._history["active"]
         qa, qb = self._history["reactive"]
-        current = (
-            1000 * math.hypot(self._power, self._reactive)
-            / (math.sqrt(3) * 690)
-        )
+        current = 1000 * math.hypot(self._power, self._reactive) / (math.sqrt(3) * 690)
         self._state = DeviceSnapshot(
             self._id,
             {

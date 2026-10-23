@@ -3,6 +3,7 @@
 CONFIRMED_SUCCESS 表示模型已接受控制状态更改，不表示机组物理动作已完成。
 超时或断线返回 UNKNOWN；不得对同一个 command_id 自动重试。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -104,11 +105,13 @@ async def start_command_server(
         request_deserializer=pb.WritePointRequest.FromString,
         response_serializer=pb.CommandResultMessage.SerializeToString,
     )
-    server.add_generic_rpc_handlers((
-        grpc.method_handlers_generic_handler(
-            "windhub.commander.v1.CommanderService", {"WritePoint": handler}
-        ),
-    ))
+    server.add_generic_rpc_handlers(
+        (
+            grpc.method_handlers_generic_handler(
+                "windhub.commander.v1.CommanderService", {"WritePoint": handler}
+            ),
+        )
+    )
     if server.add_insecure_port(bind) == 0:
         raise RuntimeError("cannot bind command endpoint")
     await server.start()

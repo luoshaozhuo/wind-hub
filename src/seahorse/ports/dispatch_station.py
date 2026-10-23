@@ -1,4 +1,5 @@
 """AGC/AVC 子站指令模型端口。"""
+
 from typing import Protocol
 
 from seahorse.domain.models import DeviceSnapshot, SimulationTime

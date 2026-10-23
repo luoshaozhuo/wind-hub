@@ -1,4 +1,5 @@
 """一期内存快照输出，不接工业网关。"""
+
 from seahorse.domain.models import FarmSnapshot
 
 

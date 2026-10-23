@@ -1,4 +1,5 @@
 """Gateway 批量反馈 gRPC 服务；不允许写入控制点。"""
+
 from __future__ import annotations
 
 import grpc
@@ -39,9 +40,9 @@ def create_grpc_server(store: PointStore, bind: str) -> grpc.aio.Server:
         request_deserializer=struct_pb2.Struct.FromString,
         response_serializer=struct_pb2.Struct.SerializeToString,
     )
-    server.add_generic_rpc_handlers((grpc.method_handlers_generic_handler(
-        SERVICE, {METHOD: handler}
-    ),))
+    server.add_generic_rpc_handlers(
+        (grpc.method_handlers_generic_handler(SERVICE, {METHOD: handler}),)
+    )
     if server.add_insecure_port(bind) == 0:
         raise RuntimeError("unable to bind Gateway data gRPC")
     return server

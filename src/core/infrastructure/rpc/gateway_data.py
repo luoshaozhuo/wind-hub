@@ -2,6 +2,7 @@
 
 Struct 中的 JSON Number 必须是 IEEE754 精确可表示范围内的整数或有限浮点。
 """
+
 from __future__ import annotations
 
 import math
@@ -36,8 +37,10 @@ def encode_feedback(values: Mapping[PointKey, Scalar]) -> struct_pb2.Struct:
             raise ValueError("feedback point requires device_id and point_id")
         scalar = _scalar(value)
         tagged = (
-            {"bool_value": scalar} if type(scalar) is bool
-            else {"int_value": str(scalar)} if type(scalar) is int
+            {"bool_value": scalar}
+            if type(scalar) is bool
+            else {"int_value": str(scalar)}
+            if type(scalar) is int
             else {"double_value": scalar}
         )
         points.append({"device_id": device_id, "point_id": point_id, "value": tagged})

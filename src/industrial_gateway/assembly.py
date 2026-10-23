@@ -133,6 +133,8 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
         for endpoint_id, endpoint in config.endpoints.items()
     ]
     return GatewayApplication(
-        store=store, servers=servers, commander_channel=commander_channel,
+        store=store,
+        servers=servers,
+        commander_channel=commander_channel,
         data_grpc_bind=config.data_grpc_bind,
     )

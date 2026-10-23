@@ -1,4 +1,5 @@
 """Seahorse 数据批量发布；严格使用 Gateway 反馈点映射。"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
