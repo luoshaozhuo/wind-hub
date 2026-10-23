@@ -28,7 +28,8 @@ def generate_profile(
     entries: list[dict[str, Any]] = source["points"]
     devices: list[dict[str, Any]] = source["devices"]
     if len(entries) != 49 or len(devices) != 50:
-        raise ValueError("expected exactly 49 points and 50 devices")
+        raise ValueError("expected exactly 49 turbine points and 50 turbine devices")
+    external_devices: list[dict[str, Any]] = source.get("external_devices", [])
     if not 1024 <= start_port <= 65535 - len(devices) + 1:
         raise ValueError("virtual port range invalid")
     if not command_bind.startswith("127.0.0.1:"):
@@ -105,10 +106,70 @@ def generate_profile(
     if len(set(gateway_devices)) != 50:
         raise ValueError("duplicate turbine device ID")
 
+    # 非风机设备必须使用来自 DC-EMS 的实际设备、地址与测点清单。
+    # 没有依据时不创建虚构寄存器；缺失字段在启动前显式失败。
+    external_tables: dict[str, Any] = {}
+    for external in external_devices:
+        device_id = external["id"]
+        if device_id in gateway_devices:
+            raise ValueError(f"duplicate external device ID: {device_id}")
+        model_id = external["model_id"]
+        if model_id not in {"substation", "dispatch", "primary", "inertia"}:
+            raise ValueError(f"unsupported simulated device: {model_id}")
+        point_items = external["points"]
+        if not point_items:
+            raise ValueError(f"external device lacks point mapping: {device_id}")
+        table_id = f"external_{device_id}"
+        external_points: dict[str, Any] = {}
+        for item in point_items:
+            name = item["name"]
+            if name in external_points:
+                raise ValueError(f"duplicate external point: {device_id}.{name}")
+            if item["role"] != "feedback":
+                raise ValueError("non-turbine control mappings are not implemented")
+            external_points[name] = {
+                "role": "feedback",
+                "data_type": item["data_type"],
+                "address": {
+                    "register_type": item["register_type"],
+                    "address": item["address"],
+                    "word_order": item["word_order"],
+                },
+                "max_age_seconds": 3.0,
+            }
+        external_tables[table_id] = {"protocol": "modbus", "points": external_points}
+        endpoint_id = f"external_{device_id}"
+        if endpoint_id in endpoints:
+            raise ValueError(f"duplicate endpoint: {endpoint_id}")
+        endpoints[endpoint_id] = {
+            "protocol": "modbus",
+            "host": "127.0.0.1",
+            "port": external["port"],
+        }
+        gateway_devices[model_id] = {
+            "endpoint_id": endpoint_id,
+            "point_table_id": table_id,
+            "protocol_address": {"unit_id": external["unit_id"]},
+            "commands": {},
+        }
+        overrides.append(
+            {
+                "server_id": external["server_id"],
+                "device_id": device_id,
+                "original_host": external["ip"],
+                "original_port": external["original_port"],
+                "virtual_host": "127.0.0.1",
+                "virtual_port": external["port"],
+            }
+        )
+
     gateway = {
         "data_grpc_bind": "127.0.0.1:50073",
         "endpoints": endpoints,
-        "point_tables": {"dc_ems_turbine": {"protocol": "modbus", "points": points}},
+        "point_tables": {
+            "dc_ems_turbine": {"protocol": "modbus", "points": points},
+            **external_tables,
+        },
         "devices": gateway_devices,
         "control": {
             "enabled": enable_control,
