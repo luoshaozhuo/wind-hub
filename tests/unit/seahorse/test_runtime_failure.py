@@ -35,8 +35,8 @@ def test_unexpected_command_exception_fails_closed(monkeypatch: pytest.MonkeyPat
     runtime = create_runtime(config, commands=commands)
     first = runtime._service._turbines["d10001"]
 
-    def crash(_command: EquipmentCommand) -> None:
-        raise OSError("unrecoverable device error")
+    def crash(_self: object, _command: EquipmentCommand) -> None:
+        raise TypeError("unexpected model bug")
 
     monkeypatch.setattr(type(first), "apply", crash)
     outcome = commands.enqueue(EquipmentCommand("unknown-1", "d10001", "ctrlStop", True))
