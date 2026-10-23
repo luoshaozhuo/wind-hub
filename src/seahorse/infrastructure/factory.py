@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from seahorse.application.command_queue import CommandQueue
-from seahorse.application.wind_farm_service import WindFarmService
 from seahorse.application.runtime import SeahorseRuntime
+from seahorse.application.wind_farm_service import WindFarmService
 from seahorse.infrastructure.config import PointRange, SeahorseConfig
 from seahorse.infrastructure.models.dispatch_station.random import RandomDispatchStation
 from seahorse.infrastructure.models.dispatch_station.simple import SimpleDispatchStation

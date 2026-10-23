@@ -37,6 +37,8 @@ class PointStore:
             self._definitions[key] = definition
         self._values: dict[PointKey, PointSnapshot] = {}
         self._updated_at: dict[PointKey, float] = {}
+        self._attempted_commands: set[PointKey] = set()
+        self._seen_feedback: set[PointKey] = set()
         self._max_age_seconds = dict(max_age_seconds or {})
         for key, seconds in self._max_age_seconds.items():
             if key not in self._definitions or not math.isfinite(seconds) or seconds <= 0:
@@ -58,7 +60,19 @@ class PointStore:
     def is_uninitialized_command(self, device_id: str, point_id: str) -> bool:
         """命令点未收到真实下发时，仅供 Modbus 读取层选择初始镜像。"""
         key = (device_id, point_id)
-        return self._definition(key).role is PointRole.COMMAND and key not in self._values
+        return (
+            self._definition(key).role is PointRole.COMMAND
+            and key not in self._values
+            and key not in self._attempted_commands
+        )
+
+    def is_uninitialized_feedback(self, device_id: str, point_id: str) -> bool:
+        """仅首次收到遥测前允许冷启动读镜像；过期和失效不能伪造正常值。"""
+        key = (device_id, point_id)
+        return (
+            self._definition(key).role is PointRole.FEEDBACK
+            and key not in self._seen_feedback
+        )
 
     async def write(self, request: PointWrite) -> PointSnapshot:
         """校验并提交逻辑点位；命令须由执行端接受后才提交内存镜像。
@@ -76,6 +90,7 @@ class PointStore:
             raise ValueError("write source must not be empty")
         async with self._locks[key]:
             if definition.role is PointRole.COMMAND:
+                self._attempted_commands.add(key)
                 if self._command_handler is None:
                     raise RuntimeError("command handler is not configured")
                 await self._command_handler(request)
@@ -121,6 +136,8 @@ class PointStore:
         result = PointSnapshot(key[0], key[1], value, version)
         self._values[key] = result
         self._updated_at[key] = monotonic()
+        if self._definitions[key].role is PointRole.FEEDBACK:
+            self._seen_feedback.add(key)
         return result
 
     def _definition(self, key: PointKey) -> PointDefinition:
@@ -146,11 +163,11 @@ class PointStore:
                 raise TypeError("bool point requires bool value")
             return
         integers = {
-            "int16": (-2**15, 2**15 - 1),
+            "int16": (-(2**15), 2**15 - 1),
             "uint16": (0, 2**16 - 1),
-            "int32": (-2**31, 2**31 - 1),
+            "int32": (-(2**31), 2**31 - 1),
             "uint32": (0, 2**32 - 1),
-            "int64": (-2**63, 2**63 - 1),
+            "int64": (-(2**63), 2**63 - 1),
             "uint64": (0, 2**64 - 1),
         }
         if data_type in integers:
