@@ -116,6 +116,10 @@ class StationConfig(BaseModel):
     duration_seconds: float = Field(default=8.0, gt=0, allow_inf_nan=False)
     target_kw: float = Field(default=0.0, allow_inf_nan=False)
     delta_kw: float = Field(default=2000.0, allow_inf_nan=False)
+    active_amplitude_kw: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    reactive_target_kvar: float = Field(default=0.0, allow_inf_nan=False)
+    reactive_amplitude_kvar: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    reactive_period_seconds: float = Field(default=180.0, gt=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def validate_window(self) -> StationConfig:
