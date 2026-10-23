@@ -75,7 +75,7 @@ def test_random_turbine_respects_scalar_types() -> None:
         {
             "flag": RandomPoint(data_type="bool", minimum=0, maximum=1),
             "count": RandomPoint(data_type="int32", minimum=-2, maximum=2),
-            "energy": RandomPoint(data_type="uint64", minimum=2**53, maximum=2**53 + 10),
+            "energy": RandomPoint(data_type="uint64", minimum=2**53, maximum=2**53),
             "power": RandomPoint(data_type="float32", minimum=-4, maximum=4),
         },
     )
@@ -99,6 +99,8 @@ def test_random_point_rejects_incorrect_type_bounds() -> None:
         RandomPoint(data_type="uint64", minimum=-1, maximum=1)
     with pytest.raises(ValidationError):
         RandomPoint(data_type="float32", minimum=0, maximum=1e100)
+    with pytest.raises(ValidationError):
+        RandomPoint(data_type="uint64", minimum=0, maximum=2**53 + 1)
 
 
 def test_dispatch_parameters_reach_simple_model() -> None:
