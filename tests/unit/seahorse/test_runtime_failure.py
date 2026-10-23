@@ -40,11 +40,14 @@ def test_unexpected_command_exception_fails_closed(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(type(first), "apply", crash)
     outcome = commands.enqueue(EquipmentCommand("unknown-1", "d10001", "ctrlStop", True))
+    abandoned = commands.enqueue(EquipmentCommand("unknown-2", "d10001", "ctrlStart", True))
     with pytest.raises(RuntimeError, match="unrecoverable command"):
         runtime.step()
     with pytest.raises(RuntimeError, match="outcome unknown"):
         outcome.result()
+    with pytest.raises(RuntimeError, match="command abandoned"):
+        abandoned.result()
     with pytest.raises(RuntimeError, match="stopped after a failed step"):
         runtime.step()
     with pytest.raises(RuntimeError, match="closed"):
-        commands.enqueue(EquipmentCommand("unknown-2", "d10001", "ctrlStop", True))
+        commands.enqueue(EquipmentCommand("unknown-3", "d10001", "ctrlStop", True))
