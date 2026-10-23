@@ -63,3 +63,11 @@ def test_stop_reduces_power_and_no_new_energy_at_zero() -> None:
     old = float(turbine.snapshot().points["emsPowAct"])
     turbine.step(SimulationTime(61, 30.5, 0.5), WIND, GRID)
     assert float(turbine.snapshot().points["emsPowAct"]) <= old
+
+
+def test_active_ramp_command_uses_kw_per_minute() -> None:
+    turbine = SimpleWindTurbine("wt1", 17)
+    turbine.apply(EquipmentCommand("ramp", "wt1", "emsActPowerChangeRate", 600.0))
+    turbine.step(SimulationTime(1, 0.5, 0.5), WIND, GRID)
+    assert 0 <= float(turbine.snapshot().points["emsPowAct"]) <= 5.0
+    assert turbine.snapshot().points["emsActPowerChangeRate"] == 600.0
