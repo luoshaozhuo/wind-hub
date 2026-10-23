@@ -33,3 +33,29 @@ async def test_expired_or_invalidated_feedback_cannot_use_cold_start_mirror() ->
     await store.invalidate_feedback("wt", "power")
     assert store.read("wt", "power").value is None
     assert not store.is_uninitialized_feedback("wt", "power")
+
+
+@pytest.mark.asyncio
+async def test_rejected_command_batch_disables_cold_mirror() -> None:
+    from industrial_gateway.application.write_service import (
+        ResolvedWrite,
+        WriteService,
+        WriterRole,
+    )
+
+    store = PointStore([
+        PointDefinition("wt", "start", PointRole.COMMAND, writable=True),
+        PointDefinition("wt", "stop", PointRole.COMMAND, writable=True),
+    ])
+    service = WriteService(store, {
+        ("wt", "start"): PointRole.COMMAND,
+        ("wt", "stop"): PointRole.COMMAND,
+    })
+    with pytest.raises(PermissionError, match="exactly one"):
+        await service.write(ResolvedWrite(
+            {("wt", "start"): True, ("wt", "stop"): True},
+            WriterRole.COMMAND,
+        ))
+    assert not store.is_uninitialized_command("wt", "start")
+    assert not store.is_uninitialized_command("wt", "stop")
+    assert store.read("wt", "start").value is None

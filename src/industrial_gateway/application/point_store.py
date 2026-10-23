@@ -74,6 +74,12 @@ class PointStore:
             and key not in self._seen_feedback
         )
 
+    def note_rejected_commands(self, keys: Iterable[PointKey]) -> None:
+        """拒绝的批量控制不产生回声；保留旧测试的失败读取语义。"""
+        for key in keys:
+            if self._definition(key).role is PointRole.COMMAND:
+                self._attempted_commands.add(key)
+
     async def write(self, request: PointWrite) -> PointSnapshot:
         """校验并提交逻辑点位；命令须由执行端接受后才提交内存镜像。
 
