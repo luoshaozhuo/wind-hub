@@ -100,17 +100,18 @@ class SeahorseConfig(BaseModel):
         reserved = {"substation", "dispatch", "primary", "inertia"}
         if len(set(ids)) != len(ids) or any(device_id in reserved for device_id in ids):
             raise ValueError("duplicate or reserved device ID")
-        if (
-            self.substation.model == "simple"
-            and any(t.model != "simple" for t in self.turbines)
+        if self.substation.model == "simple" and any(
+            turbine.model != "simple" for turbine in self.turbines
         ):
-            raise ValueError("simple substation requires all turbine models to report physical power")
-        if self.primary_station.enabled and self.inertia_station.enabled:
-            if (
-                self.primary_station.period_seconds
-                == self.inertia_station.period_seconds
-            ):
-                raise ValueError("primary/inertia events require non-overlapping schedules")
+            raise ValueError(
+                "simple substation requires all turbine models to report physical power"
+            )
+        if (
+            self.primary_station.enabled
+            and self.inertia_station.enabled
+            and self.primary_station.period_seconds == self.inertia_station.period_seconds
+        ):
+            raise ValueError("primary/inertia events require non-overlapping schedules")
         return self
 
 

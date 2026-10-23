@@ -15,6 +15,14 @@ class PendingCommand:
     outcome: Future[None]
 
 
+class CommandQueueFullError(RuntimeError):
+    """命令队列背压拒绝。"""
+
+
+class CommandQueueClosedError(RuntimeError):
+    """命令队列已经关闭。"""
+
+
 class CommandQueue:
     """去重记录贯穿进程生命期；超时命令不自动再次执行。"""
 
@@ -32,11 +40,11 @@ class CommandQueue:
             raise ValueError("command_id required")
         with self._lock:
             if self._closed:
-                raise RuntimeError("command queue closed")
+                raise CommandQueueClosedError("command queue closed")
             if command.command_id in self._ids:
                 raise ValueError("duplicate command_id")
             if len(self._pending) >= self._max:
-                raise RuntimeError("command queue full")
+                raise CommandQueueFullError("command queue full")
             result: Future[None] = Future()
             self._pending.append(PendingCommand(command, result))
             self._ids.add(command.command_id)

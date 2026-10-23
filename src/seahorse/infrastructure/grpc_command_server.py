@@ -12,7 +12,11 @@ from typing import Any
 import grpc
 
 from core.infrastructure.rpc import commander_pb2 as pb
-from seahorse.application.command_queue import CommandQueue
+from seahorse.application.command_queue import (
+    CommandQueue,
+    CommandQueueClosedError,
+    CommandQueueFullError,
+)
 from seahorse.domain.commands import EquipmentCommand
 from seahorse.domain.models import Scalar
 from seahorse.infrastructure.models.wind_turbine.contract import COMMAND_POINTS
@@ -57,13 +61,10 @@ class SeahorseCommanderService:
             )
         except (TypeError, ValueError) as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-        except RuntimeError as exc:
-            status = (
-                grpc.StatusCode.RESOURCE_EXHAUSTED
-                if "queue full" in str(exc)
-                else grpc.StatusCode.FAILED_PRECONDITION
-            )
-            await context.abort(status, str(exc))
+        except CommandQueueFullError as exc:
+            await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, str(exc))
+        except CommandQueueClosedError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
         timeout = min(request.timeout if request.timeout > 0 else 3.0, 30.0)
         try:
             await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(outcome)), timeout)

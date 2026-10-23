@@ -55,6 +55,11 @@ class PointStore:
             return PointSnapshot(device_id, point_id, None, snapshot.version)
         return snapshot
 
+    def is_uninitialized_command(self, device_id: str, point_id: str) -> bool:
+        """命令点未收到真实下发时，仅供 Modbus 读取层选择初始镜像。"""
+        key = (device_id, point_id)
+        return self._definition(key).role is PointRole.COMMAND and key not in self._values
+
     async def write(self, request: PointWrite) -> PointSnapshot:
         """校验并提交逻辑点位；命令须由执行端接受后才提交内存镜像。
 
@@ -66,6 +71,7 @@ class PointStore:
         if not definition.writable:
             raise PermissionError(f"point is not writable: {key}")
         self._validate_scalar(request.value)
+        self._validate_data_type(definition.data_type, request.value)
         if not request.source:
             raise ValueError("write source must not be empty")
         async with self._locks[key]:
@@ -78,9 +84,11 @@ class PointStore:
     async def update_feedback(self, device_id: str, point_id: str, value: Scalar) -> PointSnapshot:
         """内部反馈刷新不产生命令事件，也不得覆盖命令/参数点。"""
         key = (device_id, point_id)
-        if self._definition(key).role is not PointRole.FEEDBACK:
+        definition = self._definition(key)
+        if definition.role is not PointRole.FEEDBACK:
             raise PermissionError(f"not a feedback point: {key}")
         self._validate_scalar(value)
+        self._validate_data_type(definition.data_type, value)
         async with self._locks[key]:
             return self._replace(key, value)
 
@@ -89,9 +97,11 @@ class PointStore:
         if not source:
             raise ValueError("source must not be empty")
         for key, value in values.items():
-            if self._definition(key).role is not PointRole.FEEDBACK:
+            definition = self._definition(key)
+            if definition.role is not PointRole.FEEDBACK:
                 raise PermissionError(f"not a feedback point: {key}")
             self._validate_scalar(value)
+            self._validate_data_type(definition.data_type, value)
         # 本方法不包含 await；同一事件循环内的读操作不会看见半个批次。
         for key, value in values.items():
             self._replace(key, value)
@@ -125,3 +135,30 @@ class PointStore:
             raise TypeError("point value must be bool, int or float")
         if isinstance(value, float) and not math.isfinite(value):
             raise ValueError("non-finite point value")
+
+    @staticmethod
+    def _validate_data_type(data_type: str | None, value: Scalar) -> None:
+        """入库前按 Modbus 声明类型校验，杜绝成功写入后无法编码。"""
+        if data_type is None:
+            return
+        if data_type == "bool":
+            if type(value) is not bool:
+                raise TypeError("bool point requires bool value")
+            return
+        integers = {
+            "int16": (-2**15, 2**15 - 1),
+            "uint16": (0, 2**16 - 1),
+            "int32": (-2**31, 2**31 - 1),
+            "uint32": (0, 2**32 - 1),
+            "int64": (-2**63, 2**63 - 1),
+            "uint64": (0, 2**64 - 1),
+        }
+        if data_type in integers:
+            lower, upper = integers[data_type]
+            if type(value) is not int or not lower <= value <= upper:
+                raise ValueError(f"{data_type} point requires in-range integer")
+        elif data_type in {"float32", "float64"}:
+            if type(value) not in {int, float}:
+                raise TypeError("float point requires numeric value")
+            if data_type == "float32" and abs(value) > 3.4028234663852886e38:
+                raise ValueError("float32 overflow")

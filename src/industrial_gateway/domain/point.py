@@ -22,6 +22,7 @@ class PointDefinition:
     point_id: str
     role: PointRole
     writable: bool = False
+    data_type: str | None = None
 
     def __post_init__(self) -> None:
         if not self.device_id or not self.point_id:
