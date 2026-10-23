@@ -119,7 +119,8 @@ class SimpleWindTurbine:
         available = min(self._rated, 0.93 * aero_kw) if operational else 0.0
         target = min(available, self._limit)
         slope = (1 - math.exp(-dt / 5)) * (target - old_power)
-        self._power = max(0.0, old_power + _clip(slope, -self._ramp * dt, self._ramp * dt))
+        ramp_step_kw = self._ramp * dt / 60.0
+        self._power = max(0.0, old_power + _clip(slope, -ramp_step_kw, ramp_step_kw))
         if operational:
             self._power = min(self._power, available)
         pitch_target = 20.0 if operational and self._limit < available else 0.0
