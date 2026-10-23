@@ -46,7 +46,9 @@ class CommandQueue:
             if command.command_id in self._ids:
                 raise ValueError("duplicate command_id")
             if len(self._ids) >= self._max_command_ids:
-                raise CommandQueueFullError("command identity capacity exhausted; restart requires reconciliation")
+                raise CommandQueueFullError(
+                    "command identity capacity exhausted; restart requires reconciliation"
+                )
             if len(self._pending) >= self._max:
                 raise CommandQueueFullError("command queue full")
             result: Future[None] = Future()
