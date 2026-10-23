@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from industrial_gateway.infrastructure.config.loader import GatewayConfig
+from seahorse.infrastructure.config import SeahorseConfig
 from seahorse.infrastructure.dc_ems_contract import (
     OriginalAddress,
     RegisterArea,
@@ -204,6 +206,8 @@ def generate_profile(
         "primary_points": {},
         "inertia_points": {},
     }
+    GatewayConfig.model_validate(gateway)
+    SeahorseConfig.model_validate(seahorse)
     output_directory.mkdir(parents=True, exist_ok=True)
     for name, config in (("gateway.yaml", gateway), ("seahorse.yaml", seahorse)):
         (output_directory / name).write_text(
