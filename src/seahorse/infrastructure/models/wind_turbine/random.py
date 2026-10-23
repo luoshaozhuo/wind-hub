@@ -35,7 +35,7 @@ class RandomTurbine:
         elif point.data_type.startswith(("int", "uint")):
             valid = type(value) is int and point.minimum <= value <= point.maximum
         else:
-            valid = type(value) in (int, float) and point.minimum <= value <= point.maximum
+            valid = type(value) is float and point.minimum <= value <= point.maximum
         if not valid:
             raise ValueError("command value violates type or range")
         self._controls[command.point_id] = value
