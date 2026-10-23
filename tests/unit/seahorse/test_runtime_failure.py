@@ -1,9 +1,9 @@
 """发布失败必须锁死运行时，避免已变化模型重复推进同一时间步。"""
 import pytest
 
+from seahorse.domain.models import FarmSnapshot
 from seahorse.infrastructure.config import SeahorseConfig, load_config
 from seahorse.infrastructure.factory import create_runtime
-from seahorse.domain.models import FarmSnapshot
 
 
 class FailingPublisher:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import signal
+from contextlib import suppress
 from pathlib import Path
 
 from industrial_gateway.infrastructure.config.loader import load_config as load_gateway
@@ -30,10 +31,8 @@ async def _run(
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
-        try:
+        with suppress(NotImplementedError):
             loop.add_signal_handler(signum, shutdown.set)
-        except NotImplementedError:
-            pass
     try:
         worker = asyncio.create_task(asyncio.to_thread(runtime.run, steps))
         stopper = asyncio.create_task(shutdown.wait())

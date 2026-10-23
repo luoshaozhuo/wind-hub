@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from seahorse.application.command_queue import CommandQueue
-from seahorse.application.runtime import SeahorseRuntime
 from seahorse.application.wind_farm_service import WindFarmService
+from seahorse.application.runtime import SeahorseRuntime
 from seahorse.infrastructure.config import PointRange, SeahorseConfig
 from seahorse.infrastructure.models.dispatch_station.random import RandomDispatchStation
 from seahorse.infrastructure.models.dispatch_station.simple import SimpleDispatchStation
@@ -24,8 +24,8 @@ from seahorse.infrastructure.models.wind_field.simple import SimpleWindField
 from seahorse.infrastructure.models.wind_turbine.random import RandomTurbine
 from seahorse.infrastructure.models.wind_turbine.simple import SimpleWindTurbine
 from seahorse.infrastructure.publisher import MemoryPublisher
-from seahorse.ports.publisher import PublisherPort
 from seahorse.ports.grid import GridPort
+from seahorse.ports.publisher import PublisherPort
 from seahorse.ports.substation import SubstationPort
 from seahorse.ports.wind_field import WindFieldPort
 from seahorse.ports.wind_turbine import WindTurbinePort
