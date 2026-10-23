@@ -24,12 +24,56 @@ class PointRange(BaseModel):
         return self
 
 
+class RandomPoint(BaseModel):
+    """随机风机测点的类型与生成范围。"""
+
+    model_config = ConfigDict(extra="forbid")
+    data_type: Literal[
+        "bool", "int16", "uint16", "int32", "uint32", "int64", "uint64",
+        "float32", "float64",
+    ]
+    minimum: int | float
+    maximum: int | float
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> RandomPoint:
+        limits = {
+            "int16": (-2**15, 2**15 - 1),
+            "uint16": (0, 2**16 - 1),
+            "int32": (-2**31, 2**31 - 1),
+            "uint32": (0, 2**32 - 1),
+            "int64": (-2**63, 2**63 - 1),
+            "uint64": (0, 2**64 - 1),
+        }
+        if self.data_type == "bool":
+            if self.minimum != 0 or self.maximum != 1:
+                raise ValueError("bool bounds must be 0 and 1")
+        elif self.data_type in limits:
+            low, high = limits[self.data_type]
+            if (
+                type(self.minimum) is not int
+                or type(self.maximum) is not int
+                or not low <= self.minimum <= self.maximum <= high
+            ):
+                raise ValueError("integer bounds out of range")
+        else:
+            if not math.isfinite(self.minimum) or not math.isfinite(self.maximum):
+                raise ValueError("non-finite range")
+            if self.minimum > self.maximum:
+                raise ValueError("minimum exceeds maximum")
+            if self.data_type == "float32" and max(
+                abs(self.minimum), abs(self.maximum)
+            ) > 3.4028234663852886e38:
+                raise ValueError("float32 range out of bounds")
+        return self
+
+
 class TurbineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     device_id: str = Field(min_length=1)
     model: Literal["random", "simple"] = "random"
     rated_power_kw: float = Field(default=2000, gt=0, allow_inf_nan=False)
-    points: dict[str, PointRange] = Field(default_factory=dict)
+    points: dict[str, RandomPoint] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_points(self) -> TurbineConfig:
