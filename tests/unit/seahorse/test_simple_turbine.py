@@ -77,7 +77,6 @@ def test_inertia_mode_switches_active_power_target() -> None:
     assert turbine.snapshot().points["emsActCtrlMode"] == 0
 
 
-
 def test_inertia_target_changes_actual_power_trajectory() -> None:
     normal = SimpleWindTurbine("normal", 17)
     inertia = SimpleWindTurbine("inertia", 17)
