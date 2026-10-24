@@ -67,6 +67,7 @@ _REMOTE_ROUTE_LOCK = threading.Lock()
 _LOCAL_AMS_LOCK = threading.Lock()
 _LOCAL_LIFECYCLE = asyncio.Lock()
 _LOCAL_CLOSED = False
+_LOCAL_OPERATIONS = 0
 _ACTIVE_DRIVERS: weakref.WeakSet[ADSDriver] = weakref.WeakSet()
 _LOCAL_AMS: ADSLocalConfig | None = None
 _LOCAL_PORT_OPEN = False
@@ -207,7 +208,7 @@ class ADSDriver:
         """Close local AMS only after all driver sessions have safely stopped."""
         global _LOCAL_CLOSED
         async with _LOCAL_LIFECYCLE:
-            if any(
+            if _LOCAL_OPERATIONS or any(
                 driver._session is not None
                 or driver._unsafe_close
                 or (driver._pending_close is not None and not driver._pending_close.done())
@@ -237,6 +238,7 @@ class ADSDriver:
 
     async def connect(self) -> None:
         """Connect only after the preceding physical close has settled."""
+        global _LOCAL_OPERATIONS
         async with self._lifecycle:
             if _LOCAL_CLOSED:
                 raise ProtocolError("ADS local AMS port has been closed; initialize_local required")
@@ -246,7 +248,11 @@ class ADSDriver:
             if pending is not None and (pending.cancelled() or pending.exception() or not pending.result()):
                 self._unsafe_close = True
                 raise ProtocolError("ADS previous physical close failed")
-            await self._connect_locked()
+            _LOCAL_OPERATIONS += 1
+            try:
+                await self._connect_locked()
+            finally:
+                _LOCAL_OPERATIONS -= 1
 
     async def _connect_locked(self) -> None:
         async with self._lock:
@@ -342,6 +348,8 @@ class ADSDriver:
 
     async def _close_all(self) -> None:
         """Detach the current session and drain its work before releasing lifecycle."""
+        global _LOCAL_OPERATIONS
+        _LOCAL_OPERATIONS += 1
         try:
             async with self._lock:
                 session, subscriptions = self._detach_runtime()
@@ -380,6 +388,7 @@ class ADSDriver:
                     "ADS subscription worker cancellation not confirmed"
                 ) from worker_error
         finally:
+            _LOCAL_OPERATIONS -= 1
             self._lifecycle.release()
 
     async def _shutdown_session(self, session: _AdsSession) -> None:
