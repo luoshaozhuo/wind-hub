@@ -54,7 +54,10 @@ def _ready(process: subprocess.Popen[str], port: int, timeout: float = 45) -> No
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise AssertionError(f"process exited early: {process.returncode}")
+            _, stderr = process.communicate()
+            raise AssertionError(
+                f"process exited early: {process.returncode}; stderr: {stderr[-4000:]}"
+            )
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.25):
                 return
