@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from threading import Event
 
-from seahorse.application.command_queue import CommandQueue
+from seahorse.application.command_queue import CommandQueue, PendingCommand
 from seahorse.application.wind_farm_service import WindFarmService
 from seahorse.domain.models import FarmSnapshot, SimulationTime
 
@@ -27,7 +27,7 @@ class SeahorseRuntime:
     def step(self) -> FarmSnapshot:
         if self._failed:
             raise RuntimeError("simulation stopped after a failed step")
-        confirmed = []
+        confirmed: list[PendingCommand] = []
         if self._commands is not None:
             batch = self._commands.drain()
             for index, item in enumerate(batch):
