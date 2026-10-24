@@ -72,7 +72,6 @@ class SimpleWindTurbine:
             if not 0 < value <= self._rated:
                 raise ValueError("inertia target out of range")
             self._inertia_limit = float(value)
-            self._controls[point] = value
         elif point in {"ctrlStart", "ctrlStop", "ctrlReset"}:
             if not isinstance(value, bool):
                 raise ValueError("start/stop/reset require bool")
