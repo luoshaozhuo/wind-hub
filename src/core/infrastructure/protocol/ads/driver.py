@@ -210,11 +210,15 @@ class ADSDriver:
         """Close local AMS only after all driver sessions have safely stopped."""
         global _LOCAL_CLOSED
         async with _LOCAL_LIFECYCLE:
-            if _LOCAL_OPERATIONS or _UNSAFE_TARGETS or any(
-                driver._session is not None
-                or driver._unsafe_close
-                or (driver._pending_close is not None and not driver._pending_close.done())
-                for driver in _ACTIVE_DRIVERS
+            if (
+                _LOCAL_OPERATIONS
+                or _UNSAFE_TARGETS
+                or any(
+                    driver._session is not None
+                    or driver._unsafe_close
+                    or (driver._pending_close is not None and not driver._pending_close.done())
+                    for driver in _ACTIVE_DRIVERS
+                )
             ):
                 raise ProtocolError("ADS local port cannot close while sessions are active")
             _LOCAL_CLOSED = True
@@ -314,6 +318,7 @@ class ADSDriver:
                     if identity is None:
                         raise ConfigError("ADS local AMS identity is not initialized")
                     try:
+
                         def add_route(identity: ADSLocalConfig) -> bool:
                             with _REMOTE_ROUTE_LOCK:
                                 return bool(
@@ -413,9 +418,7 @@ class ADSDriver:
             _UNSAFE_TARGETS.add(self._route_key)
         self._log_session_closed(session)
         if not closed:
-            raise ProtocolError(
-                f"ADS physical close not confirmed for route {self._route_key!r}"
-            )
+            raise ProtocolError(f"ADS physical close not confirmed for route {self._route_key!r}")
 
     async def _shutdown_session_inline(self, session: _AdsSession) -> None:
         """Close an unpublished session before attempting a new connection."""
