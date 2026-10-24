@@ -1,13 +1,11 @@
-"""connection.close() 超过异步预算后的线程所有权与 Session 代际隔离测试。
+"""connection.close() 超过异步预算后的 Session 线程所有权测试。
 
 这里阻塞的不是在途业务命令，而是
 ``connection.close()`` 本身——它已经在工作线程内持有 ``_cmd_lock`` 执行，
 asyncio 等待预算却先耗尽。用 threading.Event 精确控制底层 close 的起止，
-验证任务书 T1–T4：
+验证 T1、T3、T4：
 
 - T1 异步等待超时后底层 close 线程仍被可靠追踪，迟到完成被观察且只关一次；
-- T2 旧 Session 底层 close 未收敛时，新 Session（含同 Net ID 的其他 Driver）
-  不得建立；收敛后新连接不受迟到结果污染；
 - T3 等待关闭的调用方被取消，底层关闭的生命周期所有权不丢失；
 - T4 并发/重复关闭收敛到同一条底层 close，所有调用方得到一致结果。
 
@@ -23,11 +21,9 @@ import time
 import pytest
 
 from core.infrastructure.protocol.ads.session import _AdsSession
-from tests.support.units import NONE_UNIT
 
 pytestmark = [pytest.mark.ads]
 
-_GROUP = 0x4020
 # aclose 管线总预算 = grace + 2s；小 grace 用例需承受约 2s 的确定性等待。
 _FAST_GRACE = 0.02
 _PIPELINE_BUDGET = _FAST_GRACE + 2.0
