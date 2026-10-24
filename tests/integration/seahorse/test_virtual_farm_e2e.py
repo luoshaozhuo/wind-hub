@@ -162,3 +162,42 @@ def test_50_turbine_real_process_bidirectional(tmp_path: Path) -> None:
                     raise AssertionError("stop command did not reach turbine state")
                 assert seahorse.poll() is None
                 assert gateway_proc.poll() is None
+
+            # 每台风机具有独立命令路由及模型状态；首台停机不得影响第二台。
+            second_id = next(device_id for device_id in gateway.devices if device_id != first_id)
+            second_endpoint = gateway.endpoints[gateway.devices[second_id].endpoint_id]
+            with ModbusTcpClient(
+                second_endpoint.host, port=second_endpoint.port, timeout=2
+            ) as second_client:
+                assert second_client.connected
+                assert _read(second_client, mapping(second_id, "emsWorkMode")) == 1
+                response = second_client.write_coil(
+                    mapping(second_id, "ctrlStop").address, True, device_id=1
+                )
+                assert not response.isError(), response
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline:
+                    if _read(second_client, mapping(second_id, "emsWorkMode")) == 0:
+                        break
+                    time.sleep(0.2)
+                else:
+                    raise AssertionError("second turbine did not execute its stop command")
+            with ModbusTcpClient(endpoint.host, port=endpoint.port, timeout=2) as first_client:
+                assert first_client.connected
+                assert _read(first_client, mapping(first_id, "emsWorkMode")) == 0
+                response = first_client.write_coil(
+                    mapping(first_id, "ctrlStart").address, True, device_id=1
+                )
+                assert not response.isError(), response
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline:
+                    if _read(first_client, mapping(first_id, "emsWorkMode")) == 1:
+                        break
+                    time.sleep(0.2)
+                else:
+                    raise AssertionError("first turbine did not restart independently")
+            with ModbusTcpClient(
+                second_endpoint.host, port=second_endpoint.port, timeout=2
+            ) as second_client:
+                assert second_client.connected
+                assert _read(second_client, mapping(second_id, "emsWorkMode")) == 0
