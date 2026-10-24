@@ -56,6 +56,12 @@ class SimpleWindTurbine:
 
     def apply(self, command: EquipmentCommand) -> None:
         point, value = command.point_id, command.value
+        if point in {
+            "emsActPowerSetInertia",
+            "emsActCtrlMode",
+            "emsReactPowerSetStatusWrite",
+        }:
+            raise ValueError(f"control semantics not implemented: {point}")
         if point in {"ctrlStart", "ctrlStop", "ctrlReset"}:
             if not isinstance(value, bool):
                 raise ValueError("start/stop/reset require bool")
