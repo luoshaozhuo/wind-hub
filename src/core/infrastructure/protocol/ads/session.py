@@ -506,7 +506,7 @@ class _AdsSession:
                 # 可能已在工作线程内执行（Linux 上先 adsDelRoute 再关私有端口），
                 # 线程不可杀、close 不可重发。标记放弃并由 owner 继续收敛；
                 # Driver 的路由变更锁由 _shutdown_settled 收敛回调释放，
-                # 同路由新连接在此之前无法建立。
+                # 同一 Driver 在关闭未确认时拒绝重新建立连接。
                 self._shutdown_abandoned = True
                 self._stats.shutdown_abandoned += 1
                 logger.error(
