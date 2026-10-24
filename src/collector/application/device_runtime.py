@@ -59,7 +59,6 @@ def _check_ads_identity(
             )
 
 
-
 def is_connection_level(exc: BaseException) -> bool:
     """判定异常是否属于「连接级」故障（对端不可达的日常表现）。
 
