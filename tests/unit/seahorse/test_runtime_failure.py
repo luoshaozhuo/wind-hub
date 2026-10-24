@@ -51,3 +51,18 @@ def test_unexpected_command_exception_fails_closed(monkeypatch: pytest.MonkeyPat
         runtime.step()
     with pytest.raises(RuntimeError, match="closed"):
         commands.enqueue(EquipmentCommand("unknown-3", "d10001", "ctrlStop", True))
+
+
+def test_command_is_unknown_if_snapshot_publication_fails() -> None:
+    from pathlib import Path
+
+    config = load_config(Path(__file__).resolve().parents[3] / "configs" / "seahorse.yaml")
+    commands = CommandQueue()
+    runtime = create_runtime(config, publisher=FailingPublisher(), commands=commands)
+    outcome = commands.enqueue(EquipmentCommand("cmd-publish", "d10001", "ctrlStop", True))
+    with pytest.raises(ConnectionError, match="disconnected"):
+        runtime.step()
+    with pytest.raises(RuntimeError, match="outcome unknown"):
+        outcome.result()
+    with pytest.raises(RuntimeError, match="stopped after a failed step"):
+        runtime.step()
