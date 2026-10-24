@@ -23,6 +23,7 @@ def _reset_ads_driver_globals() -> None:
     driver_module._LOCAL_AMS = None
     driver_module._LOCAL_PORT_OPEN = False
     driver_module._ACTIVE_DRIVERS.clear()
+    driver_module._UNSAFE_TARGETS.clear()
     # 模块级 asyncio.Lock 可能已被前一用例的事件循环绑定，逐用例重建。
     driver_module._LOCAL_LIFECYCLE = asyncio.Lock()
     yield
@@ -31,4 +32,5 @@ def _reset_ads_driver_globals() -> None:
     driver_module._LOCAL_AMS = None
     driver_module._LOCAL_PORT_OPEN = False
     driver_module._ACTIVE_DRIVERS.clear()
+    driver_module._UNSAFE_TARGETS.clear()
     driver_module._LOCAL_LIFECYCLE = asyncio.Lock()
