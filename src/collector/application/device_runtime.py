@@ -335,13 +335,19 @@ class DeviceRuntime:
 
     async def remove_device(self, device_id: str) -> None:
         """运行时移除设备——关闭连接并同步移除设备及状态。"""
-        watchdog = self._watchdogs.pop(device_id, None)
+        watchdog = self._watchdogs.get(device_id)
         if watchdog is not None:
             await watchdog.stop()
         device = self._devices.get(device_id)
-        if device is not None:
-            await device.close()
-            self._devices.pop(device_id)
+        try:
+            if device is not None:
+                await device.close()
+        except BaseException:
+            if watchdog is not None and self._watchdogs_running:
+                await watchdog.start()
+            raise
+        self._watchdogs.pop(device_id, None)
+        self._devices.pop(device_id, None)
 
         self._device_states.pop(device_id, None)
         self._connect_locks.pop(device_id, None)
@@ -358,13 +364,19 @@ class DeviceRuntime:
         调用方负责先停止使用旧会话的采集句柄，再在返回后恢复实例。
         """
         _check_ads_identity(self._devices, device_id, session)
-        old_watchdog = self._watchdogs.pop(device_id, None)
+        old_watchdog = self._watchdogs.get(device_id)
         if old_watchdog is not None:
             await old_watchdog.stop()
         old_device = self._devices.get(device_id)
-        if old_device is not None:
-            await old_device.close()
-            self._devices.pop(device_id)
+        try:
+            if old_device is not None:
+                await old_device.close()
+        except BaseException:
+            if old_watchdog is not None and self._watchdogs_running:
+                await old_watchdog.start()
+            raise
+        self._watchdogs.pop(device_id, None)
+        self._devices.pop(device_id, None)
 
         self._register_device(device_id, session)
         # 驱动实例已更换——运行状态随之重置（新驱动的首次 connect 结果
