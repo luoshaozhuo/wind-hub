@@ -71,6 +71,14 @@ class StreamSinkAddress(BaseModel):
     field: str
 
 
+class GrpcSinkAddress(BaseModel):
+    """数据目的标识，不包含工业协议地址。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    device_id: str
+    point_id: str
+
+
 class ModbusSinkAddress(BaseModel):
     """Modbus Sink 对外寄存器地址契约。"""
 
@@ -83,7 +91,7 @@ class ModbusSinkAddress(BaseModel):
     word_order: Literal["big", "little"] = "big"
 
 
-SinkAddress = StreamSinkAddress | ModbusSinkAddress
+SinkAddress = StreamSinkAddress | ModbusSinkAddress | GrpcSinkAddress
 
 
 class ResolvedSinkPoint(BaseModel):
@@ -122,6 +130,7 @@ __all__ = [
     "SinkSource",
     "StreamSinkAddress",
     "ModbusSinkAddress",
+    "GrpcSinkAddress",
     "SinkAddress",
     "ResolvedSinkPoint",
 ]

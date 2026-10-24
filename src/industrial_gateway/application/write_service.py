@@ -47,6 +47,8 @@ class WriteService:
             await self._store.update_batch(request.values, source="collector")
             return
         if roles != {PointRole.COMMAND} or len(request.values) != 1:
+            if request.writer_role is WriterRole.COMMAND:
+                self._store.note_rejected_commands(request.values)
             raise PermissionError("command request must contain exactly one command point")
         (device_id, point_id), value = next(iter(request.values.items()))
         await self._store.write(PointWrite(device_id, point_id, value, "dc-ems"))

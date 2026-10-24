@@ -200,10 +200,18 @@ class PymodbusGatewayServer:
             bits = SimUtils.registersToBits(updated_words) if is_bit else None
             for mapping in relevant:
                 snapshot: PointSnapshot = store.read(mapping.device_id, mapping.point_id)
-                if snapshot.value is None:
-                    return ExcCodes.DEVICE_FAILURE
+                mirrored = snapshot.value
+                if mirrored is None:
+                    if store.is_uninitialized_command(mapping.device_id, mapping.point_id):
+                        # 只生成读取镜像，不提交 PointStore，更不触发 Commander。
+                        mirrored = False if mapping.area == "coil" else 0
+                    elif store.is_uninitialized_feedback(mapping.device_id, mapping.point_id):
+                        # 冷启动测点尚无样本时仅返回零镜像；数据失效后不适用。
+                        mirrored = False if mapping.area in {"coil", "discrete_input"} else 0
+                    else:
+                        return ExcCodes.DEVICE_FAILURE
                 try:
-                    encoded = encode_registers(mapping, snapshot.value)
+                    encoded = encode_registers(mapping, mirrored)
                 except (TypeError, ValueError, OverflowError):
                     return ExcCodes.DEVICE_FAILURE
                 if bits is not None:

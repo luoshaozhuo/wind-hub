@@ -19,6 +19,7 @@ from industrial_gateway.domain import PointDefinition, PointRole
 from industrial_gateway.infrastructure.commander.journal import CommandJournal
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
 from industrial_gateway.infrastructure.grpc.commander import GrpcCommanderWriter
+from industrial_gateway.infrastructure.grpc.data_server import create_grpc_server
 from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMapping
 from industrial_gateway.infrastructure.protocol.modbus.server import PymodbusGatewayServer
 
@@ -28,19 +29,28 @@ class GatewayApplication:
     store: PointStore
     servers: list[PymodbusGatewayServer]
     commander_channel: grpc.aio.Channel | None = None
+    data_server: grpc.aio.Server | None = None
+    data_grpc_bind: str | None = None
 
     async def start(self) -> None:
         started: list[PymodbusGatewayServer] = []
         try:
+            if self.data_grpc_bind is not None:
+                self.data_server = create_grpc_server(self.store, self.data_grpc_bind)
+                await self.data_server.start()
             for server in self.servers:
                 await server.start()
                 started.append(server)
         except BaseException:
             for server in reversed(started):
                 await server.stop()
+            if self.data_server is not None:
+                await self.data_server.stop(grace=0)
             raise
 
     async def stop(self) -> None:
+        if self.data_server is not None:
+            await self.data_server.stop(grace=0)
         for server in reversed(self.servers):
             await server.stop()
         if self.commander_channel is not None:
@@ -63,6 +73,7 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
                     point_id,
                     role,
                     writable=point.address.register_type in {"coil", "holding"},
+                    data_type=point.data_type,
                 )
             )
             roles[(device_id, point_id)] = role
@@ -121,4 +132,9 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
         )
         for endpoint_id, endpoint in config.endpoints.items()
     ]
-    return GatewayApplication(store=store, servers=servers, commander_channel=commander_channel)
+    return GatewayApplication(
+        store=store,
+        servers=servers,
+        commander_channel=commander_channel,
+        data_grpc_bind=config.data_grpc_bind,
+    )

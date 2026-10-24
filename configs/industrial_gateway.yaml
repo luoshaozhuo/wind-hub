@@ -1,6 +1,9 @@
 # Industrial Gateway：Collector 写反馈，DC-EMS 读反馈并写命令。
-# 当前仅实现 Modbus TCP；一个 Endpoint 可包含多个 Unit ID。
+# 对 DC-EMS 使用 Modbus TCP；对 Collector/Seahorse 使用本机 gRPC WriteMany。
 # 注意：control.enabled 默认 false，不要直接用示例启用现场控制。
+# 独立 gRPC 数据入口（仅回环地址），不提供任何控制写接口。
+data_grpc_bind: "127.0.0.1:50073"
+
 endpoints:
   modbus_main:
     protocol: modbus

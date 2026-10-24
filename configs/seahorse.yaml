@@ -1,0 +1,42 @@
+# 物理模型示例：风机独立状态，统一环境；场级信号仍为随机占位。
+step_seconds: 0.5
+seed: 42
+wind_field:
+  model: simple
+  mean_speed_mps: 8.0
+  amplitude_mps: 2.0
+  period_seconds: 300.0
+  turbulence_std_mps: 0.5
+  correlation_seconds: 10.0
+  direction_deg: 270.0
+grid:
+  model: simple
+  frequency_hz: 50.0
+  voltage_v: 35000.0
+substation:
+  model: simple
+  active_loss_ratio: 0.02
+  reactive_loss_ratio: 0.02
+turbines:
+  - device_id: d10001
+    model: simple
+    rated_power_kw: 2000
+  - device_id: d10002
+    model: simple
+    rated_power_kw: 2000
+dispatch_station:
+  model: simple
+primary_station:
+  model: simple
+  enabled: false
+inertia_station:
+  model: simple
+  enabled: false
+dispatch_points:
+  emsGridDispatchAct: {minimum: 0, maximum: 4000}
+  emsGridDispatchReact: {minimum: -500, maximum: 500}
+primary_points:
+  emsFreDst: {minimum: 0, maximum: 4000}
+  emsDeltapValue: {minimum: -100, maximum: 100}
+inertia_points:
+  actInertiaDst: {minimum: 0, maximum: 100}
