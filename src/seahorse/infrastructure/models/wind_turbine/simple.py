@@ -72,18 +72,10 @@ class SimpleWindTurbine:
                     self._fault = False
                 elif not self._fault:
                     self._running = True
-        elif point in {"emsActCtrlMode", "emsReactPowerSetStatusWrite"}:
-            if type(value) is not int or not 0 <= value <= 2:
-                raise ValueError("invalid control mode")
-            if point == "emsActCtrlMode":
-                self._mode = value
-            else:
-                self._reactive_status = value
         elif point in {
             "ctrlActPow",
             "ctrlReActPow",
             "emsActPowerChangeRate",
-            "emsActPowerSetInertia",
         }:
             if isinstance(value, bool) or not isinstance(value, int | float):
                 raise TypeError("setpoint must be numeric")
@@ -102,10 +94,6 @@ class SimpleWindTurbine:
                 if number <= 0:
                     raise ValueError("ramp rate must be positive")
                 self._ramp = number
-            else:
-                if not 0 <= number <= self._rated:
-                    raise ValueError("inertia value out of range")
-                self._inertia_limit = number
         else:
             raise ValueError(f"unsupported control: {point}")
         self._controls[point] = value
