@@ -128,9 +128,7 @@ class CollectorConfig:
                 continue
             target = device.protocol_options.get("target_net_id")
             if not isinstance(target, str) or not target:
-                raise ConfigError(
-                    f"ADS device '{device_id}' requires an explicit target_net_id"
-                )
+                raise ConfigError(f"ADS device '{device_id}' requires an explicit target_net_id")
             previous = ads_targets.get(target)
             if previous is not None:
                 raise ConfigError(
