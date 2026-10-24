@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -201,3 +202,99 @@ def test_50_turbine_real_process_bidirectional(tmp_path: Path) -> None:
             ) as second_client:
                 assert second_client.connected
                 assert _read(second_client, mapping(second_id, "emsWorkMode")) == 0
+
+
+@pytest.mark.integration
+@pytest.mark.modbus
+@pytest.mark.real_service
+@pytest.mark.network
+def test_external_device_telemetry_over_real_gateway(tmp_path: Path) -> None:
+    """测试专用地址证明非风机模型能真实发布；不代表 DC-EMS 现场地址。"""
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest["external_devices"] = [
+        {
+            "id": "substation",
+            "model_id": "substation",
+            "server_id": 51,
+            "ip": "127.0.0.1",
+            "original_port": 502,
+            "port": 15170,
+            "unit_id": 1,
+            "points": [
+                {
+                    "name": "poi_voltage",
+                    "role": "feedback",
+                    "data_type": "float32",
+                    "register_type": "holding",
+                    "address": 10,
+                    "word_order": "little_endian",
+                }
+            ],
+        },
+        {
+            "id": "dispatch",
+            "model_id": "dispatch",
+            "server_id": 52,
+            "ip": "127.0.0.1",
+            "original_port": 502,
+            "port": 15171,
+            "unit_id": 1,
+            "points": [
+                {
+                    "name": "emsGridDispatchAct",
+                    "role": "feedback",
+                    "data_type": "float32",
+                    "register_type": "holding",
+                    "address": 20,
+                    "word_order": "little_endian",
+                }
+            ],
+        },
+    ]
+    source = tmp_path / "manifest.json"
+    source.write_text(json.dumps(manifest), encoding="utf-8")
+    generate_profile(source, tmp_path)
+    gateway_path = tmp_path / "gateway.yaml"
+    seahorse_path = tmp_path / "seahorse.yaml"
+    gateway = load_config(gateway_path)
+    assert len(gateway.devices) == 52
+
+    with _process("industrial_gateway.main", "--config", str(gateway_path)) as gateway_proc:
+        _ready(gateway_proc, 50073)
+        _ready(gateway_proc, 15170)
+        _ready(gateway_proc, 15171)
+        with _process(
+            "seahorse.main",
+            "--config",
+            str(seahorse_path),
+            "--gateway-config",
+            str(gateway_path),
+            "--gateway-grpc-endpoint",
+            "127.0.0.1:50073",
+        ) as seahorse:
+            for device_id, name, expected in (
+                ("substation", "poi_voltage", 35000.0),
+                ("dispatch", "emsGridDispatchAct", 0.0),
+            ):
+                device = gateway.devices[device_id]
+                endpoint = gateway.endpoints[device.endpoint_id]
+                point = gateway.point_tables[device.point_table_id].points[name]
+                mapping = RegisterMapping(
+                    device_id,
+                    name,
+                    point.address.register_type,
+                    point.address.address,
+                    point.data_type,
+                    point.address.word_order,
+                )
+                with ModbusTcpClient(endpoint.host, port=endpoint.port, timeout=2) as client:
+                    assert client.connected
+                    deadline = time.monotonic() + 8
+                    while time.monotonic() < deadline:
+                        assert seahorse.poll() is None
+                        if _read(client, mapping) == expected:
+                            break
+                        time.sleep(0.1)
+                    else:
+                        raise AssertionError(f"external feedback unavailable: {device_id}.{name}")
+            assert gateway_proc.poll() is None
