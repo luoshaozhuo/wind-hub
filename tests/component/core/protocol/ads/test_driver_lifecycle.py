@@ -71,3 +71,28 @@ async def test_local_close_rejects_uncertain_driver() -> None:
     driver._unsafe_close = True
     with pytest.raises(ProtocolError, match="sessions are active"):
         await ADSDriver.close_local()
+
+
+async def test_failed_close_blocks_replacement_driver_with_same_target() -> None:
+    """An abandoned close must block a new Driver even after old Driver removal."""
+    import core.infrastructure.protocol.ads.driver as driver_module
+
+    old = _driver()
+    replacement = _driver()
+    old._unsafe_close = True
+    driver_module._UNSAFE_TARGETS.add(old._route_key)
+
+    connection = MagicMock()
+    replacement._new_connection = lambda: connection  # type: ignore[method-assign]
+    with pytest.raises(ProtocolError, match="unconfirmed prior close"):
+        await replacement.connect()
+    connection.open.assert_not_called()
+
+
+async def test_failed_close_blocks_local_port_teardown() -> None:
+    """The unsafe target registry outlives individual Driver objects."""
+    import core.infrastructure.protocol.ads.driver as driver_module
+
+    driver_module._UNSAFE_TARGETS.add("192.0.2.10.1.1")
+    with pytest.raises(ProtocolError, match="sessions are active"):
+        await ADSDriver.close_local()
