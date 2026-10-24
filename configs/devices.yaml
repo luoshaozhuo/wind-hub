@@ -44,6 +44,9 @@
 #
 # ADS（protocol_options）：
 #   target_net_id:   目标 AMS Net ID（6 段点分），通常为 PLC IP + ".1.1"。
+#                    ADS 设备必须显式指定；同一 Collector 中所有启用 ADS
+#                    设备的目标 Net ID 不得重复，冷启动/热重载在连接前拒绝冲突。
+#                    不同 Collector 进程允许连接相同目标，源 AMS 身份须各自配置。
 #                    属于设备实例差异，不在型号中固定。
 #   twincat_version: "2" / "3"，默认 "2" —— 决定 AMS Runtime Port 默认值：
 #                    TwinCAT 2 第一 PLC Runtime 801，TwinCAT 3 第一 PLC
