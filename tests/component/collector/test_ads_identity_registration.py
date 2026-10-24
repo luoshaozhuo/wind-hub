@@ -3,6 +3,9 @@
 from dataclasses import replace
 
 import pytest
+from unittest.mock import AsyncMock
+
+from core.application.errors import ProtocolError
 
 from collector.application.config import CollectorConfig
 from core.application import ConfigError
@@ -81,3 +84,36 @@ async def test_rebuild_rejects_target_conflict_with_other_device() -> None:
         await runtime.rebuild_device("dev1", conflicting, table)
     assert runtime.devices["dev1"] is original_session
     assert set(runtime.devices) == {"dev1", "dev2"}
+
+
+async def test_rebuild_aborts_when_old_close_unconfirmed() -> None:
+    config = make_collector_config(protocol="ads", tasks={})
+    runtime, _ = make_runtime(config)
+    original = runtime.devices["dev1"]
+    original.close = AsyncMock(
+        side_effect=ProtocolError("physical close not confirmed")
+    )
+    replacement = _second_device(config, target="127.0.0.2.1.1")
+    # Use the same device ID to request a rebuild with changed ADS target.
+    replacement = replace(replacement, device_id=DeviceId("dev1"))
+
+    with pytest.raises(ProtocolError, match="physical close not confirmed"):
+        await runtime.rebuild_device(
+            "dev1", replacement, config.point_table_for_device(DeviceId("dev1"))
+        )
+
+    assert runtime.devices["dev1"] is original
+
+
+async def test_remove_keeps_device_on_unconfirmed_close() -> None:
+    config = make_collector_config(protocol="ads", tasks={})
+    runtime, _ = make_runtime(config)
+    original = runtime.devices["dev1"]
+    original.close = AsyncMock(
+        side_effect=ProtocolError("physical close not confirmed")
+    )
+
+    with pytest.raises(ProtocolError, match="physical close not confirmed"):
+        await runtime.remove_device("dev1")
+
+    assert runtime.devices["dev1"] is original
