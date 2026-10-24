@@ -34,6 +34,9 @@ def test_implemented_command_points_are_accepted() -> None:
     turbine = SimpleWindTurbine("wt1", 17)
     commands = {
         "ctrlReActPow": 50.0,
+        "emsActPowerSetInertia": 50.0,
+        "emsActCtrlMode": 1,
+        "emsReactPowerSetStatusWrite": 0,
         "ctrlActPow": 100.0,
         "emsActPowerChangeRate": 10.0,
         "ctrlStart": True,
@@ -47,15 +50,38 @@ def test_implemented_command_points_are_accepted() -> None:
 @pytest.mark.parametrize(
     ("point", "value"),
     [
-        ("emsActPowerSetInertia", 50.0),
+        ("emsActCtrlMode", 2),
         ("emsReactPowerSetStatusWrite", 1),
-        ("emsActCtrlMode", 1),
+        ("emsActPowerSetInertia", -1.0),
     ],
 )
-def test_control_without_physical_contract_is_rejected(point: str, value: float | int) -> None:
+def test_unconfirmed_control_values_are_rejected(point: str, value: float | int) -> None:
     turbine = SimpleWindTurbine("wt1", 17)
-    with pytest.raises(ValueError, match="control semantics not implemented"):
+    with pytest.raises(ValueError):
         turbine.apply(EquipmentCommand("unsupported", "wt1", point, value))
+
+
+def test_inertia_mode_switches_active_power_target() -> None:
+    turbine = SimpleWindTurbine("wt1", 17)
+    with pytest.raises(ValueError, match="inertia target"):
+        turbine.apply(EquipmentCommand("early", "wt1", "emsActCtrlMode", 1))
+    turbine.apply(EquipmentCommand("normal", "wt1", "ctrlActPow", 100.0))
+    turbine.apply(EquipmentCommand("inertia", "wt1", "emsActPowerSetInertia", 500.0))
+    turbine.apply(EquipmentCommand("mode1", "wt1", "emsActCtrlMode", 1))
+    turbine.step(SimulationTime(1, 0.5, 0.5), WIND, GRID)
+    assert turbine.snapshot().points["emsActCtrlMode"] == 1
+    assert turbine.snapshot().points["emsActPowerSetInertia"] == 500.0
+    assert turbine.snapshot().points["emsActPowerSet"] == 100.0
+    turbine.apply(EquipmentCommand("mode0", "wt1", "emsActCtrlMode", 0))
+    turbine.step(SimulationTime(2, 1.0, 0.5), WIND, GRID)
+    assert turbine.snapshot().points["emsActCtrlMode"] == 0
+
+
+def test_reactive_status_reset_is_reflected_in_readback() -> None:
+    turbine = SimpleWindTurbine("wt1", 17)
+    turbine.apply(EquipmentCommand("reset", "wt1", "emsReactPowerSetStatusWrite", 0))
+    turbine.step(SimulationTime(1, 0.5, 0.5), WIND, GRID)
+    assert turbine.snapshot().points["emsReactPowerSetStatus"] == 0
 
 
 def test_invalid_control_is_rejected() -> None:
