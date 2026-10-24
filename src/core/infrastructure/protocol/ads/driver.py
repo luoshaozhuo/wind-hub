@@ -215,8 +215,12 @@ class ADSDriver:
                 for driver in _ACTIVE_DRIVERS
             ):
                 raise ProtocolError("ADS local port cannot close while sessions are active")
-            await asyncio.to_thread(cls._close_local_sync)
             _LOCAL_CLOSED = True
+            try:
+                await asyncio.to_thread(cls._close_local_sync)
+            except BaseException:
+                _LOCAL_CLOSED = False
+                raise
 
     @staticmethod
     def _close_local_sync() -> None:
