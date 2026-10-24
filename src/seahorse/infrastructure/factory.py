@@ -94,6 +94,8 @@ def create_runtime(
                 active_period_seconds=config.dispatch_station.period_seconds,
                 reactive_period_seconds=config.dispatch_station.reactive_period_seconds,
                 farm_rated_kw=sum(t.rated_power_kw for t in config.turbines),
+                enabled=config.dispatch_station.enabled,
+                secondary_enabled=config.dispatch_station.secondary_enabled,
             )
             if config.dispatch_station.model == "simple"
             else RandomDispatchStation(seed + 3, _ranges(config.dispatch_points))
