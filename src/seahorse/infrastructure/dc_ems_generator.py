@@ -215,23 +215,23 @@ def generate_profile(
     model_config = SeahorseConfig.model_validate(seahorse)
     snapshot = create_runtime(model_config).step()
     samples = {device.device_id: device.points for device in snapshot.devices}
-    for device_id, device in gateway_config.devices.items():
+    for device_id, gateway_device in gateway_config.devices.items():
         actual = samples.get(device_id)
         if actual is None:
             raise ValueError(f"missing simulated device: {device_id}")
-        table = gateway_config.point_tables[device.point_table_id]
-        for name, point in table.points.items():
-            if point.role != "feedback":
+        table = gateway_config.point_tables[gateway_device.point_table_id]
+        for name, gateway_point in table.points.items():
+            if gateway_point.role != "feedback":
                 continue
             if name not in actual:
                 raise ValueError(f"missing simulated feedback: {device_id}.{name}")
-            address = point.address
+            address = gateway_point.address
             mapping = RegisterMapping(
                 device_id,
                 name,
                 address.register_type,
                 address.address,
-                point.data_type,
+                gateway_point.data_type,
                 address.word_order,
             )
             try:
