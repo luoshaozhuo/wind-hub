@@ -56,13 +56,24 @@ class SimpleWindTurbine:
 
     def apply(self, command: EquipmentCommand) -> None:
         point, value = command.point_id, command.value
-        if point in {
-            "emsActPowerSetInertia",
-            "emsActCtrlMode",
-            "emsReactPowerSetStatusWrite",
-        }:
-            raise ValueError(f"control semantics not implemented: {point}")
-        if point in {"ctrlStart", "ctrlStop", "ctrlReset"}:
+        if point == "emsActCtrlMode":
+            if type(value) is not int or value not in (0, 1):
+                raise ValueError("active mode must be 0 (normal) or 1 (inertia)")
+            if value == 1 and self._inertia_limit <= 0:
+                raise ValueError("inertia target must be set before enabling inertia mode")
+            self._mode = value
+        elif point == "emsReactPowerSetStatusWrite":
+            if type(value) is not int or value != 0:
+                raise ValueError("only reactive status reset (0) is defined")
+            self._reactive_status = 0
+        elif point == "emsActPowerSetInertia":
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError("inertia target must be finite numeric")
+            if not 0 < value <= self._rated:
+                raise ValueError("inertia target out of range")
+            self._inertia_limit = float(value)
+            self._controls[point] = value
+        elif point in {"ctrlStart", "ctrlStop", "ctrlReset"}:
             if not isinstance(value, bool):
                 raise ValueError("start/stop/reset require bool")
             if value:
@@ -111,7 +122,8 @@ class SimpleWindTurbine:
         cp = 0.45 * math.exp(-0.03 * (tip_ratio - 7.5) ** 2 - 0.04 * self._pitch)
         aero_kw = 0.5 * 1.225 * math.pi * 43.5**2 * effective_wind**3 * cp / 1000
         available = min(self._rated, 0.93 * aero_kw) if operational else 0.0
-        target = min(available, self._limit)
+        active_limit = self._inertia_limit if self._mode == 1 else self._limit
+        target = min(available, active_limit)
         slope = (1 - math.exp(-dt / 5)) * (target - old_power)
         ramp_step_kw = self._ramp * dt / 60.0
         self._power = max(0.0, old_power + _clip(slope, -ramp_step_kw, ramp_step_kw))
