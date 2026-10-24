@@ -77,6 +77,24 @@ def test_inertia_mode_switches_active_power_target() -> None:
     assert turbine.snapshot().points["emsActCtrlMode"] == 0
 
 
+
+def test_inertia_target_changes_actual_power_trajectory() -> None:
+    normal = SimpleWindTurbine("normal", 17)
+    inertia = SimpleWindTurbine("inertia", 17)
+    for turbine in (normal, inertia):
+        turbine.apply(EquipmentCommand("ramp", turbine.device_id, "emsActPowerChangeRate", 60000.0))
+        turbine.apply(EquipmentCommand("limit", turbine.device_id, "ctrlActPow", 100.0))
+    inertia.apply(EquipmentCommand("target", "inertia", "emsActPowerSetInertia", 500.0))
+    inertia.apply(EquipmentCommand("mode", "inertia", "emsActCtrlMode", 1))
+    for index in range(1, 101):
+        clock = SimulationTime(index, index * 0.5, 0.5)
+        normal.step(clock, WIND, GRID)
+        inertia.step(clock, WIND, GRID)
+    assert float(normal.snapshot().points["emsPowAct"]) <= 100.0
+    assert float(inertia.snapshot().points["emsPowAct"]) > 100.0
+    assert float(inertia.snapshot().points["emsPowAct"]) <= 500.0
+
+
 def test_reactive_status_reset_is_reflected_in_readback() -> None:
     turbine = SimpleWindTurbine("wt1", 17)
     turbine.apply(EquipmentCommand("reset", "wt1", "emsReactPowerSetStatusWrite", 0))
