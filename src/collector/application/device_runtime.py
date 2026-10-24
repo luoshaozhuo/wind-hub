@@ -338,16 +338,10 @@ class DeviceRuntime:
         watchdog = self._watchdogs.pop(device_id, None)
         if watchdog is not None:
             await watchdog.stop()
-        device = self._devices.pop(device_id, None)
+        device = self._devices.get(device_id)
         if device is not None:
-            try:
-                await device.close()
-            except Exception:
-                logger.warning(
-                    "Hot-reload: device '%s' close failed",
-                    device_id,
-                    exc_info=True,
-                )
+            await device.close()
+            self._devices.pop(device_id)
 
         self._device_states.pop(device_id, None)
         self._connect_locks.pop(device_id, None)
@@ -367,16 +361,10 @@ class DeviceRuntime:
         old_watchdog = self._watchdogs.pop(device_id, None)
         if old_watchdog is not None:
             await old_watchdog.stop()
-        old_device = self._devices.pop(device_id, None)
+        old_device = self._devices.get(device_id)
         if old_device is not None:
-            try:
-                await old_device.close()
-            except Exception:
-                logger.warning(
-                    "Hot-reload: old protocol close failed for '%s'",
-                    device_id,
-                    exc_info=True,
-                )
+            await old_device.close()
+            self._devices.pop(device_id)
 
         self._register_device(device_id, session)
         # 驱动实例已更换——运行状态随之重置（新驱动的首次 connect 结果
