@@ -278,7 +278,10 @@ async def test_diagnostic_probe_for_ads_device_added_by_reload():
         device_id="dev2",
         protocol="ads",
         address=_ADS_ADDRESS,
-        protocol_options_by_device={"ams_net_id": "5.6.7.8.1.1"},
+        protocol_options_by_device={
+            "ams_net_id": "5.6.7.8.1.1",
+            "target_net_id": "5.6.7.8.1.1",
+        },
     )
     await runtime.prepare_config("r2", candidate, "hash-b")
     await runtime.activate_config("r2")
@@ -287,7 +290,7 @@ async def test_diagnostic_probe_for_ads_device_added_by_reload():
     # 不读取 boot config（否则 point_table_for_device('dev2') 已 KeyError）；
     # options 来自新 generation。
     assert result.error is None
-    assert calls == [("dev2", {"ams_net_id": "5.6.7.8.1.1"})]
+    assert calls == [("dev2", {"ams_net_id": "5.6.7.8.1.1", "target_net_id": "5.6.7.8.1.1"})]
     await runtime.stop()
 
 
@@ -298,7 +301,10 @@ async def test_diagnostic_uses_new_generation_after_protocol_switch_to_ads():
     candidate = make_commander_config(
         protocol="ads",
         address=_ADS_ADDRESS,
-        protocol_options_by_device={"ams_net_id": "5.6.7.8.1.1"},
+        protocol_options_by_device={
+            "ams_net_id": "5.6.7.8.1.1",
+            "target_net_id": "5.6.7.8.1.1",
+        },
     )
     await runtime.prepare_config("r2", candidate, "hash-b")
     await runtime.activate_config("r2")
@@ -306,7 +312,7 @@ async def test_diagnostic_uses_new_generation_after_protocol_switch_to_ads():
     result = await service.resolve_point("dev1", "p1")
     assert result.protocol == "ads"
     assert result.error is None
-    assert calls == [("dev1", {"ams_net_id": "5.6.7.8.1.1"})]
+    assert calls == [("dev1", {"ams_net_id": "5.6.7.8.1.1", "target_net_id": "5.6.7.8.1.1"})]
     await runtime.stop()
 
 
@@ -316,7 +322,7 @@ async def test_inflight_diagnostic_uses_pinned_generation_options():
         make_commander_config(
             protocol="ads",
             address=_ADS_ADDRESS,
-            protocol_options_by_device={"ams_net_id": "old"},
+            protocol_options_by_device={"ams_net_id": "old", "target_net_id": "5.6.7.8.1.1"},
         ),
         registry,
     )
@@ -327,16 +333,19 @@ async def test_inflight_diagnostic_uses_pinned_generation_options():
         candidate = make_commander_config(
             protocol="ads",
             address=_ADS_ADDRESS,
-            protocol_options_by_device={"ams_net_id": "new"},
+            protocol_options_by_device={"ams_net_id": "new", "target_net_id": "5.6.7.8.1.1"},
         )
         await runtime.prepare_config("r2", candidate, "hash-b")
         await runtime.activate_config("r2")
         result = await service.resolve_point("dev1", "p1")
         assert result.error is None
-        assert calls == [("dev1", {"ams_net_id": "old"})]
+        assert calls == [("dev1", {"ams_net_id": "old", "target_net_id": "5.6.7.8.1.1"})]
 
     # pin 结束后使用新 generation options。
     result = await service.resolve_point("dev1", "p1")
     assert result.error is None
-    assert calls[-1] == ("dev1", {"ams_net_id": "new"})
+    assert calls[-1] == (
+        "dev1",
+        {"ams_net_id": "new", "target_net_id": "5.6.7.8.1.1"},
+    )
     await runtime.stop()

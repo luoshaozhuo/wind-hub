@@ -483,6 +483,13 @@ def test_commander_rejects_duplicate_ads_targets(tmp_path) -> None:
         tmp_path,
         protocol="ads",
         protocol_options={"target_net_id": "192.0.2.10.1.1"},
+        points={
+            "p1": {
+                "point_groups": ["g"],
+                "address": {"symbol": "MAIN.x", "data_type": "REAL"},
+                "data_type": "REAL",
+            }
+        },
     )
     config = load_commander_config(YamlConfigAdapter(config_dir))
     original = config.devices[DeviceId("dev1")]
