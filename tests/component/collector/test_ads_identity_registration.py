@@ -1,15 +1,13 @@
 """ADS target AMS Net ID uniqueness at cold-start and hot-add boundaries."""
 
 from dataclasses import replace
-
 from unittest.mock import AsyncMock
 
 import pytest
 
-from core.application.errors import ProtocolError
-
 from collector.application.config import CollectorConfig
 from core.application import ConfigError
+from core.application.errors import ProtocolError
 from core.domain import Device, DeviceId
 from tests.support.new_collector import make_collector_config, make_runtime
 
@@ -91,6 +89,12 @@ async def test_rebuild_aborts_when_old_close_unconfirmed(monkeypatch: pytest.Mon
     config = make_collector_config(protocol="ads", tasks={})
     runtime, _ = make_runtime(config)
     original = runtime.devices["dev1"]
+    watchdog = runtime.device_runtime._watchdogs["dev1"]
+    runtime.device_runtime._watchdogs_running = True
+    stop = AsyncMock()
+    start = AsyncMock()
+    monkeypatch.setattr(watchdog, "stop", stop)
+    monkeypatch.setattr(watchdog, "start", start)
     monkeypatch.setattr(
         original, "close", AsyncMock(side_effect=ProtocolError("physical close not confirmed"))
     )
@@ -104,17 +108,29 @@ async def test_rebuild_aborts_when_old_close_unconfirmed(monkeypatch: pytest.Mon
         )
 
     assert runtime.devices["dev1"] is original
+    assert runtime.device_runtime._watchdogs["dev1"] is watchdog
+    stop.assert_awaited_once()
+    start.assert_awaited_once()
 
 
 async def test_remove_keeps_device_on_unconfirmed_close(monkeypatch: pytest.MonkeyPatch) -> None:
     config = make_collector_config(protocol="ads", tasks={})
     runtime, _ = make_runtime(config)
     original = runtime.devices["dev1"]
-    original.close = AsyncMock(
-        side_effect=ProtocolError("physical close not confirmed")
+    watchdog = runtime.device_runtime._watchdogs["dev1"]
+    runtime.device_runtime._watchdogs_running = True
+    stop = AsyncMock()
+    start = AsyncMock()
+    monkeypatch.setattr(watchdog, "stop", stop)
+    monkeypatch.setattr(watchdog, "start", start)
+    monkeypatch.setattr(
+        original, "close", AsyncMock(side_effect=ProtocolError("physical close not confirmed"))
     )
 
     with pytest.raises(ProtocolError, match="physical close not confirmed"):
         await runtime.remove_device("dev1")
 
     assert runtime.devices["dev1"] is original
+    assert runtime.device_runtime._watchdogs["dev1"] is watchdog
+    stop.assert_awaited_once()
+    start.assert_awaited_once()
