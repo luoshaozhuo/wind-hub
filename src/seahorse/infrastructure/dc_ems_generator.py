@@ -10,14 +10,17 @@ from typing import Any
 import yaml
 
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
-from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMapping, encode_registers
+from industrial_gateway.infrastructure.protocol.modbus.codec import (
+    RegisterMapping,
+    encode_registers,
+)
 from seahorse.infrastructure.config import SeahorseConfig
-from seahorse.infrastructure.factory import create_runtime
 from seahorse.infrastructure.dc_ems_contract import (
     OriginalAddress,
     RegisterArea,
     validate_original_addresses,
 )
+from seahorse.infrastructure.factory import create_runtime
 
 
 def generate_profile(
@@ -224,15 +227,17 @@ def generate_profile(
                 raise ValueError(f"missing simulated feedback: {device_id}.{name}")
             address = point.address
             mapping = RegisterMapping(
-                device_id, name, address.register_type, address.address,
-                point.data_type, address.word_order,
+                device_id,
+                name,
+                address.register_type,
+                address.address,
+                point.data_type,
+                address.word_order,
             )
             try:
                 encode_registers(mapping, actual[name])
             except (TypeError, ValueError, OverflowError) as exc:
-                raise ValueError(
-                    f"invalid simulated feedback: {device_id}.{name}"
-                ) from exc
+                raise ValueError(f"invalid simulated feedback: {device_id}.{name}") from exc
     output_directory.mkdir(parents=True, exist_ok=True)
     for name, config in (("gateway.yaml", gateway), ("seahorse.yaml", seahorse)):
         (output_directory / name).write_text(
