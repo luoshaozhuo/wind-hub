@@ -36,9 +36,7 @@ def _ads_identity(session: CollectorDeviceSession) -> str | None:
         return None
     target = session.device.protocol_options.get("target_net_id")
     if not isinstance(target, str) or not target:
-        raise ConfigError(
-            f"ADS device '{session.device_id}' requires an explicit target_net_id"
-        )
+        raise ConfigError(f"ADS device '{session.device_id}' requires an explicit target_net_id")
     return target
 
 
