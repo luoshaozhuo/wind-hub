@@ -44,7 +44,6 @@ def test_implemented_command_points_are_accepted() -> None:
         turbine.apply(EquipmentCommand(str(index), "wt1", point, value))
 
 
-
 @pytest.mark.parametrize(
     ("point", "value"),
     [
