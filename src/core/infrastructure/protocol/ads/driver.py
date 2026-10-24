@@ -66,6 +66,7 @@ logger = logging.getLogger(__name__)
 _REMOTE_ROUTE_LOCK = threading.Lock()
 _LOCAL_AMS_LOCK = threading.Lock()
 _LOCAL_LIFECYCLE = asyncio.Lock()
+_LOCAL_CLOSED = False
 _ACTIVE_DRIVERS: weakref.WeakSet[ADSDriver] = weakref.WeakSet()
 _LOCAL_AMS: ADSLocalConfig | None = None
 _LOCAL_PORT_OPEN = False
@@ -196,20 +197,25 @@ class ADSDriver:
     @classmethod
     async def initialize_local(cls, config: ADSLocalConfig) -> None:
         """Initialize process-local AMS identity outside the event loop."""
+        global _LOCAL_CLOSED
         async with _LOCAL_LIFECYCLE:
             await asyncio.to_thread(cls._initialize_local_sync, config)
+            _LOCAL_CLOSED = False
 
     @classmethod
     async def close_local(cls) -> None:
         """Close local AMS only after all driver sessions have safely stopped."""
+        global _LOCAL_CLOSED
         async with _LOCAL_LIFECYCLE:
             if any(
                 driver._session is not None
+                or driver._unsafe_close
                 or (driver._pending_close is not None and not driver._pending_close.done())
                 for driver in _ACTIVE_DRIVERS
             ):
                 raise ProtocolError("ADS local port cannot close while sessions are active")
             await asyncio.to_thread(cls._close_local_sync)
+            _LOCAL_CLOSED = True
 
     @staticmethod
     def _close_local_sync() -> None:
@@ -232,6 +238,8 @@ class ADSDriver:
     async def connect(self) -> None:
         """Connect only after the preceding physical close has settled."""
         async with self._lifecycle:
+            if _LOCAL_CLOSED:
+                raise ProtocolError("ADS local AMS port has been closed; initialize_local required")
             pending = self._pending_close
             if self._unsafe_close or (pending is not None and not pending.done()):
                 raise ProtocolError("ADS previous physical close is not confirmed")
