@@ -473,3 +473,27 @@ def test_watchdog_timing_defaults_and_validation(tmp_path):
     bad_dir = write_minimal_config_tree(tmp_path / "bad", runtime={"health_timeout": 0})
     with pytest.raises(ConfigError):
         load_commander_config(YamlConfigAdapter(bad_dir))
+
+
+def test_commander_rejects_duplicate_ads_targets(tmp_path) -> None:
+    """Commander must enforce the same target Net ID constraint as Collector."""
+    from dataclasses import replace
+
+    config_dir = write_minimal_config_tree(
+        tmp_path,
+        protocol="ads",
+        protocol_options={"target_net_id": "192.0.2.10.1.1"},
+        points={
+            "p1": {
+                "point_groups": ["g"],
+                "address": {"symbol": "MAIN.x", "data_type": "REAL"},
+                "data_type": "REAL",
+            }
+        },
+    )
+    config = load_commander_config(YamlConfigAdapter(config_dir))
+    original = config.devices[DeviceId("dev1")]
+    duplicate = replace(original, device_id=DeviceId("dev2"))
+
+    with pytest.raises(ConfigError, match="shared by devices"):
+        replace(config, devices={**config.devices, DeviceId("dev2"): duplicate})

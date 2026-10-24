@@ -215,6 +215,7 @@ def make_collector_config(
             endpoint=ConnectionEndpoint(host="127.0.0.1", port=502),
             device_group_ids=group_ids,
             subscribe_enabled=ads_subscribe,
+            protocol_options={"target_net_id": "127.0.0.1.1.1"} if protocol == "ads" else {},
         )
     }
     point_tables = {PointTableId("tab"): table}

@@ -119,6 +119,23 @@ class CollectorConfig:
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
         object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))
+        # 在任何连接建立或热重载副作用前拒绝目标 AMS 身份冲突。
+        ads_targets: dict[str, str] = {}
+        for device_id, device in self.devices.items():
+            model = self.device_models[device.device_model_id]
+            table = self.point_tables[model.point_table_id]
+            if table.protocol.name != "ads":
+                continue
+            target = device.protocol_options.get("target_net_id")
+            if not isinstance(target, str) or not target:
+                raise ConfigError(f"ADS device '{device_id}' requires an explicit target_net_id")
+            previous = ads_targets.get(target)
+            if previous is not None:
+                raise ConfigError(
+                    f"ADS target_net_id '{target}' is shared by devices "
+                    f"'{previous}' and '{device_id}'"
+                )
+            ads_targets[target] = str(device_id)
 
     def point_table_for_device(self, device_id: DeviceId) -> PointTable:
         """解析 Device -> DeviceModel -> PointTable。"""

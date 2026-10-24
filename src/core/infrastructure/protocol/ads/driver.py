@@ -11,6 +11,7 @@ import logging
 import struct
 import sys
 import threading
+import weakref
 from collections.abc import Awaitable, Callable, Sequence
 from ctypes import Structure, c_uint32
 from datetime import UTC, datetime
@@ -47,13 +48,6 @@ from .codec import (
 )
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point, symbol_index_address
-from .route import (
-    _ams_barrier,
-    _ams_barrier_closing,
-    _registry,
-    _route_state,
-    _RouteState,
-)
 from .session import ADSCommandNotSentError, _AdsSession
 from .subscription import ADSSubscription
 
@@ -70,7 +64,13 @@ class _SumReadItem(Structure):
 
 logger = logging.getLogger(__name__)
 _REMOTE_ROUTE_LOCK = threading.Lock()
-_LOCAL_AMS_LOCK = threading.RLock()
+_LOCAL_AMS_LOCK = threading.Lock()
+_LOCAL_LIFECYCLE = asyncio.Lock()
+_LOCAL_CLOSED = False
+_LOCAL_OPERATIONS = 0
+# Failed physical close may outlive its Driver; keep route identity fail-closed.
+_UNSAFE_TARGETS: set[str] = set()
+_ACTIVE_DRIVERS: weakref.WeakSet[ADSDriver] = weakref.WeakSet()
 _LOCAL_AMS: ADSLocalConfig | None = None
 _LOCAL_PORT_OPEN = False
 
@@ -116,6 +116,9 @@ class ADSDriver:
         # 迟到 close 会删掉同目标新连接的路由。未配置 Net ID 时用主机地址
         # （此时旧 close 的 adsDelRoute 针对自动探测的同主机 Net ID）。
         self._route_key = self._config.target_net_id or self._config.host
+        self._unsafe_close = False
+        self._pending_close: asyncio.Future[bool] | None = None
+        _ACTIVE_DRIVERS.add(self)
 
         self._lock = asyncio.Lock()
         # connect 与 close 互斥：旧会话的路由/端口关闭必须完整结束后，
@@ -196,43 +199,43 @@ class ADSDriver:
 
     @classmethod
     async def initialize_local(cls, config: ADSLocalConfig) -> None:
-        # 与 close_local() 互斥：复位闩锁与打开进程端口在同一闸内完成，
-        # 不会与拆除或建链登记交错。
-        registry = _registry()
-        async with registry.barrier:
+        """Initialize process-local AMS identity outside the event loop."""
+        global _LOCAL_CLOSED
+        async with _LOCAL_LIFECYCLE:
             await asyncio.to_thread(cls._initialize_local_sync, config)
-            registry.local_closed = False
+            _LOCAL_CLOSED = False
 
     @classmethod
     async def close_local(cls) -> None:
-        """释放进程级本地 AMS 端口；不得在其他 ADS Driver 工作期间调用。
-
-        上层生命周期契约（collector/commander assembly）：``runtime.stop()``
-        等全部 Driver close 收敛后才调用本方法。直接调用时这里提供可验证的
-        安全边界：在进程级闸门内原子地「检查 + 拆除」，任一路由仍存在活动
-        Driver、建链中登记或物理 close 未收敛的 Session 时显式拒绝，绝不边
-        拆边让新的路由操作进入。不代为无限等待。
-        """
-        global _LOCAL_AMS, _LOCAL_PORT_OPEN
-        registry = _registry()
-        async with registry.barrier:
-            occupied = sorted(
-                key
-                for key, state in registry.routes.items()
-                if state.active or state.closing or state.unsafe_reason is not None
-            )
-            if occupied:
-                raise ProtocolError(
-                    "ADS local port cannot be closed while ADS sessions are "
-                    f"active or physical close threads are converging: routes={occupied}"
+        """Close local AMS only after all driver sessions have safely stopped."""
+        global _LOCAL_CLOSED
+        async with _LOCAL_LIFECYCLE:
+            if (
+                _LOCAL_OPERATIONS
+                or _UNSAFE_TARGETS
+                or any(
+                    driver._session is not None
+                    or driver._unsafe_close
+                    or (driver._pending_close is not None and not driver._pending_close.done())
+                    for driver in _ACTIVE_DRIVERS
                 )
-            with _LOCAL_AMS_LOCK:
-                if _LOCAL_PORT_OPEN:
-                    await asyncio.to_thread(pyads.close_port)
-                _LOCAL_PORT_OPEN = False
-                _LOCAL_AMS = None
-            # 闩锁留在真位：此后建链快速失败，直到再次 initialize_local。
-            registry.local_closed = True
+            ):
+                raise ProtocolError("ADS local port cannot close while sessions are active")
+            _LOCAL_CLOSED = True
+            try:
+                await asyncio.to_thread(cls._close_local_sync)
+            except BaseException:
+                _LOCAL_CLOSED = False
+                raise
+
+    @staticmethod
+    def _close_local_sync() -> None:
+        global _LOCAL_AMS, _LOCAL_PORT_OPEN
+        with _LOCAL_AMS_LOCK:
+            if _LOCAL_PORT_OPEN:
+                pyads.close_port()
+            _LOCAL_PORT_OPEN = False
+            _LOCAL_AMS = None
 
     def _new_connection(self) -> Any:
         """创建配置一致、尚未 open 的 pyads Connection。"""
@@ -244,144 +247,102 @@ class ADSDriver:
         return connection
 
     async def connect(self) -> None:
-        """连接并检查 PLC RUN 状态；失败时可添加一次反向路由再重连。
-
-        与 :meth:`close` 经 ``_lifecycle`` 互斥，并在路由级变更锁
-        （:class:`_RouteState`）保护下完成：旧会话的 adsDelRoute 物理收敛
-        前不会执行新会话的 adsAddRoute，同 Net ID 的其他活动 Driver 被显式
-        拒绝（AdsLib 路由不按连接引用计数，不支持多活动 Session）。
-        """
+        """Connect only after the preceding physical close has settled."""
+        global _LOCAL_OPERATIONS
         async with self._lifecycle:
-            await self._connect_locked()
-
-    def _reject_duplicate_route_user(self, route: _RouteState) -> None:
-        """同一路由只允许一个活动 Driver：第二个显式拒绝而非依赖时序侥幸。"""
-        others = [driver for driver in route.active if driver is not self]
-        if others:
-            labels = ", ".join(sorted({driver._label for driver in others}))
-            raise ConfigError(
-                f"ADS route {self._route_key!r} is already in use by another active "
-                f"device session ({labels}); a target AMS Net ID route is process-global "
-                "and cannot be shared by concurrent connections"
-            )
+            if _LOCAL_CLOSED:
+                raise ProtocolError("ADS local AMS port has been closed; initialize_local required")
+            if self._route_key in _UNSAFE_TARGETS:
+                raise ProtocolError("ADS target route has an unconfirmed prior close")
+            pending = self._pending_close
+            if self._unsafe_close or (pending is not None and not pending.done()):
+                raise ProtocolError("ADS previous physical close is not confirmed")
+            if pending is not None and (
+                pending.cancelled() or pending.exception() or not pending.result()
+            ):
+                self._unsafe_close = True
+                _UNSAFE_TARGETS.add(self._route_key)
+                raise ProtocolError("ADS previous physical close failed")
+            _LOCAL_OPERATIONS += 1
+            try:
+                await self._connect_locked()
+            finally:
+                _LOCAL_OPERATIONS -= 1
 
     async def _connect_locked(self) -> None:
-        # 锁序恒为「路由变更锁 → Driver 状态锁 → Session 门」，close 路径
-        # 同序（_close_all 先取路由锁再摘会话），不存在反向获取。建链是生命
-        # 周期操作（罕见且需要与 close/IO 明确互斥）：全程持 Driver 状态锁，
-        # 阻止 IO 路径快照到半建立的会话。
-        route = _route_state(self._route_key)
-        route_timeout = max(self._config.timeout, 5.0) + 1.0
-        try:
-            # 取得路由锁即完成"准入"：锁未释放期间，任何物理 close 的
-            # adsDelRoute 都无法启动；持锁者若在等待，只可能是同路由旧物理
-            # close 尚未收敛（有界等待，超时明确报告恢复受阻，不强行建链）。
-            await asyncio.wait_for(route.op_lock.acquire(), timeout=route_timeout)
-        except TimeoutError:
-            raise ProtocolError(
-                f"ADS connect to route {self._route_key} blocked: a previous session "
-                f"physical close has not converged within {route_timeout:.3f}s; "
-                "route state unsafe for new connections"
-            ) from None
-        try:
-            async with self._lock:
-                if self._connected and self._session is not None:
-                    return
-                if self._session is not None:
-                    # 上一轮建链失败残留、从未发布的会话：持锁当场清理，
-                    # 其物理关闭（adsDelRoute）必须先于本轮 adsAddRoute。
-                    stale = self._session
-                    self._session = None
-                    await self._shutdown_session_inline(stale, route)
-                last_health: ConnectionHealth | None = None
-
-                # 准入检查：持路由锁期间其他 Driver 的物理关闭无法启动
-                # （它们先要取得同一把锁），因此"检查 → open"之间占用状态
-                # 不可能变化，不存在 TOCTOU 窗口。ConfigError 必须在建链
-                # 重试循环之外直接抛出。
-                async with _ams_barrier():
-                    self._reject_duplicate_route_user(route)
-                    if route.unsafe_reason is not None:
-                        raise ProtocolError(
-                            f"ADS route {route.key!r} quarantined: {route.unsafe_reason}"
-                        )
-
-                for attempt in range(2 if self._config.route_auto_add else 1):
-                    session = _AdsSession(
-                        self._new_connection(),
-                        self._label,
-                        max_notifications=self._config.max_notifications_per_connection,
+        async with self._lock:
+            if self._connected and self._session is not None:
+                return
+            if self._session is not None:
+                stale = self._session
+                self._session = None
+                await self._shutdown_session_inline(stale)
+            last_health: ConnectionHealth | None = None
+            for attempt in range(2 if self._config.route_auto_add else 1):
+                session = _AdsSession(
+                    self._new_connection(),
+                    self._label,
+                    max_notifications=self._config.max_notifications_per_connection,
+                )
+                connection = session.connection
+                self._session = session
+                try:
+                    await asyncio.to_thread(connection.open)
+                    if not connection.is_open:
+                        raise ConnectionError("ADS session did not open")
+                    await asyncio.to_thread(
+                        connection.set_timeout, int(self._config.timeout * 1000)
                     )
-                    session.route_key = self._route_key
-                    connection = session.connection
-                    self._session = session
-                    try:
-                        # open() 内含进程级 adsAddRoute：闩锁检查、活动登记
-                        # 与底层 open 在同一进程闸门内完成，close_local 的
-                        # 「检查+拆除」无法插入这个窗口。
-                        async with _ams_barrier():
-                            await asyncio.to_thread(connection.open)
-                            if not connection.is_open:
-                                raise ConnectionError("ADS session did not open")
-                            # 成功 open 即占用路由，直到物理关闭收敛才释放，
-                            # 覆盖「摘除后、adsDelRoute 前」窗口。
-                            route.active.add(self)
-                        await asyncio.to_thread(
-                            connection.set_timeout, int(self._config.timeout * 1000)
-                        )
-                        last_health = await self._read_health(session)
-                        if last_health.healthy:
-                            self._invalidate_symbol_addresses()
-                            await self._resolve_configured_points()
-                            self._connected = True
-                            return
-                    except ProtocolError:
-                        # 进程闸门闩锁（close_local 后）等显式失败不重试。
+                    last_health = await self._read_health(session)
+                    if last_health.healthy:
+                        self._invalidate_symbol_addresses()
+                        await self._resolve_configured_points()
+                        self._connected = True
+                        return
+                except ProtocolError:
+                    self._session = None
+                    await self._shutdown_session_inline(session)
+                    raise
+                except Exception:
+                    last_health = ConnectionHealth(
+                        healthy=False,
+                        message=f"ADS connection failed for {self._config.host}",
+                    )
+                finally:
+                    if not self._connected and self._session is session:
                         self._session = None
-                        await self._shutdown_session_inline(session, route)
-                        raise
-                    except Exception:
-                        last_health = ConnectionHealth(
-                            healthy=False,
-                            message=f"ADS connection failed for {self._config.host}",
-                        )
-                    finally:
-                        if not self._connected and self._session is session:
-                            self._session = None
-                            await self._shutdown_session_inline(session, route)
+                        await self._shutdown_session_inline(session)
 
-                    if attempt == 0 and self._config.route_auto_add:
-                        identity = _LOCAL_AMS
-                        if identity is None:
-                            raise ConfigError("ADS local AMS identity is not initialized")
-                        try:
-                            # 路由是 PLC 持久资源；pyads.delete_route() 只删本地路由。
-                            def add_route(identity: ADSLocalConfig) -> bool:
-                                with _REMOTE_ROUTE_LOCK:
-                                    return bool(
-                                        pyads.add_route_to_plc(
-                                            identity.local_ams_net_id,
-                                            identity.local_ip,
-                                            self._config.host,
-                                            self._config.username,
-                                            self._config.password,
-                                        )
+                if attempt == 0 and self._config.route_auto_add:
+                    identity = _LOCAL_AMS
+                    if identity is None:
+                        raise ConfigError("ADS local AMS identity is not initialized")
+                    try:
+
+                        def add_route(identity: ADSLocalConfig) -> bool:
+                            with _REMOTE_ROUTE_LOCK:
+                                return bool(
+                                    pyads.add_route_to_plc(
+                                        identity.local_ams_net_id,
+                                        identity.local_ip,
+                                        self._config.host,
+                                        self._config.username,
+                                        self._config.password,
                                     )
+                                )
 
-                            added = await asyncio.to_thread(add_route, identity)
-                            if not added:
-                                raise RuntimeError("remote route registration refused")
-                        except Exception:
-                            raise ProtocolError(
-                                f"ADS remote route registration failed for {self._config.host}"
-                            ) from None
+                        added = await asyncio.to_thread(add_route, identity)
+                        if not added:
+                            raise RuntimeError("remote route registration refused")
+                    except Exception:
+                        raise ProtocolError(
+                            f"ADS remote route registration failed for {self._config.host}"
+                        ) from None
 
             raise ProtocolError(
                 f"ADS connect failed for {self._config.host}: "
                 f"{last_health.message if last_health else 'unknown failure'}"
             )
-        finally:
-            route.op_lock.release()
 
     async def close(self) -> None:
         """关闭当前 ADS session；重复/并发调用安全且有界。
@@ -402,150 +363,76 @@ class ADSDriver:
         await asyncio.shield(task)
 
     async def _close_all(self) -> None:
-        # 生命周期锁由 close() 在入队前取得，这里负责释放（asyncio 锁不绑定任务）。
-        route = _route_state(self._route_key)
-        session: _AdsSession | None = None
-        # 路由变更锁从摘除会话之前持有，直到物理 close 线程真实收敛：
-        # 「摘除 → adsDelRoute」整段期间同路由新连接（含其他 Driver）都无法
-        # 取得准入，active/closing 登记覆盖整个窗口（I1/I2）。
+        """Detach the current session and drain its work before releasing lifecycle."""
+        global _LOCAL_OPERATIONS
+        _LOCAL_OPERATIONS += 1
         try:
-            route_timeout = max(self._config.timeout, 5.0) + 1.0
-            try:
-                await asyncio.wait_for(route.op_lock.acquire(), timeout=route_timeout)
-            except TimeoutError:
-                # 防御路径：同路由只允许一个活动 Driver，持锁者只能是本 Driver
-                # 之前尚未收敛的物理关闭。绝不无锁下发 adsDelRoute。
+            async with self._lock:
+                session, subscriptions = self._detach_runtime()
+            for subscription in subscriptions:
+                subscription.deactivate()
+            worker_error: BaseException | None = None
+            for result in await asyncio.gather(
+                *(subscription.stop_worker() for subscription in subscriptions),
+                return_exceptions=True,
+            ):
+                if isinstance(result, BaseException):
+                    if worker_error is None:
+                        worker_error = result
+                    logger.error(
+                        "%sADS subscription worker stop failed: %r",
+                        self._label, result, exc_info=result,
+                    )
+            deregister_error: Exception | None = None
+            for subscription in subscriptions:
+                try:
+                    await subscription.deregister()
+                except Exception as exc:
+                    if deregister_error is None:
+                        deregister_error = exc
+                    logger.warning(
+                        "%sADS subscription deregistration failed",
+                        self._label,
+                        exc_info=True,
+                    )
+            if session is not None:
+                await self._shutdown_session(session)
+            if deregister_error is not None and session is None:
+                raise deregister_error
+            if worker_error is not None:
                 raise ProtocolError(
-                    f"ADS close blocked for route {self._route_key!r}: route lock "
-                    f"not acquired within {route_timeout:.3f}s; "
-                    "physical close not attempted"
-                ) from None
-            try:
-                # Driver 锁只在摘除注册表/会话的瞬间持有：注销命令经 Session
-                # 命令门在锁外执行，避免 DEL_DEVICE_NOTIFICATION 的网络往返
-                # 长时间挡住注册表操作。旧 Session 已摘除，新连接无法建立
-                # （_lifecycle + 路由锁仍持有），因此注销不会跨 Session。
-                async with self._lock:
-                    session, subscriptions = self._detach_runtime()
-                if session is not None:
-                    # 登记先于底层 close 启动（I2）：close_local 与同路由建链
-                    # 从此刻起即可观察到「物理关闭在途」，不存在先 close 后
-                    # 登记的窗口。注意 active 仍保留本 Driver，直到物理收敛。
-                    async with _ams_barrier_closing():
-                        route.closing.add(session)
-                for subscription in subscriptions:
-                    subscription.deactivate()
-                # Worker 取消不持任何 IO 锁：用户回调内可能再做驱动 IO（经
-                # detach 后的快速失败返回）。
-                worker_error: BaseException | None = None
-                for result in await asyncio.gather(
-                    *(subscription.stop_worker() for subscription in subscriptions),
-                    return_exceptions=True,
-                ):
-                    if isinstance(result, BaseException):
-                        if worker_error is None:
-                            worker_error = result
-                        logger.error(
-                            "%sADS subscription worker stop failed: %r",
-                            self._label, result, exc_info=result,
-                        )
-                deregister_error: Exception | None = None
-                for subscription in subscriptions:
-                    try:
-                        await subscription.deregister()
-                    except Exception as exc:
-                        # 一个 Handle 注销失败，不得跳过其他 Handle 的清理。
-                        if deregister_error is None:
-                            deregister_error = exc
-                        logger.warning(
-                            "%sADS subscription deregistration failed",
-                            self._label,
-                            exc_info=True,
-                        )
-                # 物理关闭与注销分别收敛，禁止将注销失败误当作已安全关端口。
-                if session is not None:
-                    await self._shutdown_session(session)
-                # 单个 DEL 未确认不阻断已确认的物理 Session 关闭。
-                # 原生连接关闭才是最终的通知资源释放边界；诊断已记录。
-                if deregister_error is not None and session is None:
-                    raise deregister_error
-                if worker_error is not None:
-                    raise ProtocolError(
-                        "ADS subscription worker cancellation not confirmed"
-                    ) from worker_error
-            finally:
-                self._release_route_after_settle(route, session)
+                    "ADS subscription worker cancellation not confirmed"
+                ) from worker_error
         finally:
+            _LOCAL_OPERATIONS -= 1
             self._lifecycle.release()
-
-    def _release_route_after_settle(self, route: _RouteState, session: _AdsSession | None) -> None:
-        """物理关闭已收敛则立即释放路由锁；否则在收敛回调中释放。
-
-        active/closing 摘除与锁释放在同一个 loop 回调内完成，状态对
-        close_local 与等待建链者始终一致（Q5）。
-        """
-        if session is None:
-            route.op_lock.release()
-            return
-        settled = session.shutdown_settled_future
-
-        def _finish() -> None:
-            confirmed = (
-                settled is not None
-                and settled.done()
-                and not settled.cancelled()
-                and settled.exception() is None
-                and bool(settled.result())
-            )
-            if not confirmed:
-                route.unsafe_reason = "physical ADS close not confirmed"
-                logger.error(
-                    "%sADS route %s quarantined: close unconfirmed",
-                    self._label,
-                    route.key,
-                )
-            route.active.discard(self)
-            route.closing.discard(session)
-            route.op_lock.release()
-
-        if settled is None or settled.done():
-            _finish()
-        else:
-            settled.add_done_callback(lambda _future: _finish())
 
     async def _shutdown_session(self, session: _AdsSession) -> None:
         """有界关闭会话：拒绝新命令、等待旧命令线程结束后关闭端口。"""
         session.route_key = self._route_key
         grace = max(self._config.timeout, 5.0) + 1.0
-        # aclose 自身完成有界等待与放弃计数；放弃时端口保持打开并已记录，
-        # 路由锁由收敛回调持有到物理线程真正结束。
         closed = await session.aclose(grace)
+        self._pending_close = session.shutdown_settled_future
+        if not closed:
+            self._unsafe_close = True
+            _UNSAFE_TARGETS.add(self._route_key)
         self._log_session_closed(session)
         if not closed:
-            raise ProtocolError(
-                f"ADS physical close not confirmed for route {self._route_key!r}"
-            )
+            raise ProtocolError(f"ADS physical close not confirmed for route {self._route_key!r}")
 
-    async def _shutdown_session_inline(self, session: _AdsSession, route: _RouteState) -> None:
-        """建链流程内当场关闭全新会话（调用方已持路由变更锁）。"""
-        session.route_key = self._route_key
+    async def _shutdown_session_inline(self, session: _AdsSession) -> None:
+        """Close an unpublished session before attempting a new connection."""
         grace = max(self._config.timeout, 5.0) + 1.0
-        async with _ams_barrier_closing():
-            route.closing.add(session)
         try:
-            closed = await session.shutdown_inline(grace)
-            if not closed:
-                route.unsafe_reason = "inline physical ADS close not confirmed"
-                raise ProtocolError(
-                    f"ADS route {route.key!r} cannot retry: physical close unconfirmed"
-                )
+            closed = await asyncio.shield(session.shutdown_inline(grace))
         except BaseException:
-            # shutdown_inline 抛错或遭取消时，不能假设底层线程已安全退出。
-            route.unsafe_reason = "inline physical ADS close interrupted"
+            self._unsafe_close = True
+            _UNSAFE_TARGETS.add(self._route_key)
             raise
-        finally:
-            route.active.discard(self)
-            route.closing.discard(session)
+        if not closed:
+            self._unsafe_close = True
+            _UNSAFE_TARGETS.add(self._route_key)
+            raise ProtocolError("ADS inline physical close not confirmed")
         self._log_session_closed(session)
 
     def _log_session_closed(self, session: _AdsSession) -> None:

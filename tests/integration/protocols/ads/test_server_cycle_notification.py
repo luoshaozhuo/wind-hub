@@ -67,7 +67,7 @@ def _driver(
         {
             # AdsLib 目标路由按 Net ID 进程级共享且无引用计数：同 Net ID 的
             # 并发连接会在任一连接关闭时被连带 adsDelRoute，因此并发连接必须
-            # 使用不同 Net ID（见 driver._RouteState）。
+            # 使用不同 Net ID；生产环境由设备注册阶段保证唯一性。
             "target_net_id": net_id,
             "timeout": 3.0,
             "twincat_version": "3",

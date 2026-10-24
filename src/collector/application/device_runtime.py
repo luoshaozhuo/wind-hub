@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from core.application import ConnectionHealth, WatchdogUseCase
+from core.application import ConfigError, ConnectionHealth, WatchdogUseCase
 from core.domain import Device, PointTable
 
 from .config import RuntimeParams
@@ -28,6 +28,33 @@ if TYPE_CHECKING:
     from .runtime import RuntimeMetricsPort
 
 logger = logging.getLogger(__name__)
+
+
+def _ads_identity(session: CollectorDeviceSession) -> str | None:
+    """Return the explicit ADS target identity, or None for non-ADS devices."""
+    if session.protocol_name != "ads":
+        return None
+    target = session.device.protocol_options.get("target_net_id")
+    if not isinstance(target, str) or not target:
+        raise ConfigError(f"ADS device '{session.device_id}' requires an explicit target_net_id")
+    return target
+
+
+def _check_ads_identity(
+    devices: Mapping[str, CollectorDeviceSession],
+    device_id: str,
+    session: CollectorDeviceSession,
+) -> None:
+    """Reject target conflicts before mutating the device registry."""
+    target = _ads_identity(session)
+    if target is None:
+        return
+    for existing_id, existing in devices.items():
+        if existing_id != device_id and _ads_identity(existing) == target:
+            raise ConfigError(
+                f"ADS target_net_id '{target}' is already registered by "
+                f"device '{existing_id}'; cannot register '{device_id}'"
+            )
 
 
 def is_connection_level(exc: BaseException) -> bool:
@@ -62,7 +89,9 @@ class DeviceRuntime:
         clock: Callable[[], float] = time.monotonic,
         metrics_hook: RuntimeMetricsPort | None = None,
     ) -> None:
-        self._devices = devices
+        self._devices: dict[str, CollectorDeviceSession] = {}
+        for device_id, session in devices.items():
+            self._register_device(device_id, session)
         self._device_states = {device_id: DeviceRuntimeState() for device_id in devices}
         self._params = params
         self._clock = clock
@@ -75,6 +104,11 @@ class DeviceRuntime:
         self._connect_locks: dict[str, asyncio.Lock] = {}
         for device_id, device in devices.items():
             self._watchdogs[device_id] = self._make_watchdog(device_id, device)
+
+    def _register_device(self, device_id: str, session: CollectorDeviceSession) -> None:
+        """Common cold-start and hot-add registration with ADS validation."""
+        _check_ads_identity(self._devices, device_id, session)
+        self._devices[device_id] = session
 
     @property
     def devices(self) -> Mapping[str, CollectorDeviceSession]:
@@ -289,7 +323,7 @@ class DeviceRuntime:
         调用方负责重复热增的收敛判定（``requires_rebuild``）与 Task 实例
         的 suspend/resume 协调。
         """
-        self._devices[device_id] = session
+        self._register_device(device_id, session)
         self._device_states[device_id] = DeviceRuntimeState()
         watchdog = self._make_watchdog(device_id, session)
         self._watchdogs[device_id] = watchdog
@@ -299,19 +333,19 @@ class DeviceRuntime:
 
     async def remove_device(self, device_id: str) -> None:
         """运行时移除设备——关闭连接并同步移除设备及状态。"""
-        watchdog = self._watchdogs.pop(device_id, None)
+        watchdog = self._watchdogs.get(device_id)
         if watchdog is not None:
             await watchdog.stop()
-        device = self._devices.pop(device_id, None)
-        if device is not None:
-            try:
+        device = self._devices.get(device_id)
+        try:
+            if device is not None:
                 await device.close()
-            except Exception:
-                logger.warning(
-                    "Hot-reload: device '%s' close failed",
-                    device_id,
-                    exc_info=True,
-                )
+        except BaseException:
+            if watchdog is not None and self._watchdogs_running:
+                await watchdog.start()
+            raise
+        self._watchdogs.pop(device_id, None)
+        self._devices.pop(device_id, None)
 
         self._device_states.pop(device_id, None)
         self._connect_locks.pop(device_id, None)
@@ -327,21 +361,22 @@ class DeviceRuntime:
 
         调用方负责先停止使用旧会话的采集句柄，再在返回后恢复实例。
         """
-        old_watchdog = self._watchdogs.pop(device_id, None)
+        _check_ads_identity(self._devices, device_id, session)
+        old_watchdog = self._watchdogs.get(device_id)
         if old_watchdog is not None:
             await old_watchdog.stop()
-        old_device = self._devices.pop(device_id, None)
-        if old_device is not None:
-            try:
+        old_device = self._devices.get(device_id)
+        try:
+            if old_device is not None:
                 await old_device.close()
-            except Exception:
-                logger.warning(
-                    "Hot-reload: old protocol close failed for '%s'",
-                    device_id,
-                    exc_info=True,
-                )
+        except BaseException:
+            if old_watchdog is not None and self._watchdogs_running:
+                await old_watchdog.start()
+            raise
+        self._watchdogs.pop(device_id, None)
+        self._devices.pop(device_id, None)
 
-        self._devices[device_id] = session
+        self._register_device(device_id, session)
         # 驱动实例已更换——运行状态随之重置（新驱动的首次 connect 结果
         # 立即写入全新状态）。
         self._device_states[device_id] = DeviceRuntimeState()

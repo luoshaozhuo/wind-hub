@@ -167,10 +167,9 @@ class _AdsSession:
     内开始执行，就不能被 Python 安全取消：管线超时只结束 asyncio 侧等待，
     物理 close 线程由独立的、永不取消的 owner task 继续追踪，结果/异常
     收敛到 ``_shutdown_settled`` future。物理 close 在途期间
-    :attr:`physical_close_pending` 为真；Driver 的路由级协调器
-    （:class:`_RouteState`）从摘除会话前就持有路由变更锁，直到该 future
-    收敛才释放，因此同路由新连接不可能与迟到的 adsDelRoute 交错。迟到结束
-    时记录成功/失败结局，绝不补第二次 close。
+    :attr:`physical_close_pending` 为真；Driver 将物理关闭未确认
+    视为不可安全重连，避免迟到的 adsDelRoute 影响新连接。底层线程
+    收敛后仍保留明确的失败诊断，绝不补发第二次 close。
     """
 
     def __init__(self, connection: Any, label: str = "", *, max_notifications: int = 550) -> None:
@@ -199,8 +198,7 @@ class _AdsSession:
         # 异步管线已超时放弃、但物理 close 线程仍在途。
         self._shutdown_abandoned = False
         self._shutdown_started = 0.0
-        # AdsLib 路由键（目标 Net ID，缺省主机地址）；由 Driver 在创建时
-        # 设置；未挂载到 Driver 的测试替身为空串，不参与跨 Driver 隔离。
+        # 仅用于关闭诊断的目标 Net ID 标签；由 Driver 填充。
         self.route_key = ""
 
     @property
@@ -508,7 +506,7 @@ class _AdsSession:
                 # 可能已在工作线程内执行（Linux 上先 adsDelRoute 再关私有端口），
                 # 线程不可杀、close 不可重发。标记放弃并由 owner 继续收敛；
                 # Driver 的路由变更锁由 _shutdown_settled 收敛回调释放，
-                # 同路由新连接在此之前无法建立。
+                # 同一 Driver 在关闭未确认时拒绝重新建立连接。
                 self._shutdown_abandoned = True
                 self._stats.shutdown_abandoned += 1
                 logger.error(

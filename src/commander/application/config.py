@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
+from core.application import ConfigError
 from core.application.settings import ADSLocalConfig
 from core.domain import (
     BusinessPoint,
@@ -85,6 +86,22 @@ class CommanderConfig:
             "business_points",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
+        ads_targets: dict[str, str] = {}
+        for device_id, device in self.devices.items():
+            model = self.device_models[device.device_model_id]
+            table = self.point_tables[model.point_table_id]
+            if table.protocol.name != "ads":
+                continue
+            target = device.protocol_options.get("target_net_id")
+            if not isinstance(target, str) or not target:
+                raise ConfigError(f"ADS device '{device_id}' requires an explicit target_net_id")
+            previous = ads_targets.get(target)
+            if previous is not None:
+                raise ConfigError(
+                    f"ADS target_net_id '{target}' is shared by devices "
+                    f"'{previous}' and '{device_id}'"
+                )
+            ads_targets[target] = str(device_id)
 
     def point_table_for_device(self, device_id: DeviceId) -> PointTable:
         """解析 Device -> DeviceModel -> PointTable。"""

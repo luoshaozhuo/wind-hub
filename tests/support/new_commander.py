@@ -341,6 +341,11 @@ def make_commander_config(
         protocol=Protocol(protocol),
         points={"p1": point},
     )
+    # Commander 配置边界要求每个启用 ADS 设备显式提供 target_net_id；
+    # 仅关心诊断/选项透传的用例无需逐个显式声明。
+    options = dict(protocol_options_by_device or {})
+    if protocol == "ads" and "target_net_id" not in options:
+        options["target_net_id"] = "192.0.2.10.1.1"
     return CommanderConfig(
         units=minimal_unit_catalog(),
         device_models={
@@ -356,7 +361,7 @@ def make_commander_config(
                 device_model_id=DeviceModelId("mod"),
                 endpoint=ConnectionEndpoint(host="127.0.0.1", port=502),
                 device_group_ids=(DeviceGroupId("grp"),),
-                protocol_options=protocol_options_by_device or {},
+                protocol_options=options,
             )
         },
         business_points={bp.business_point_id: bp},
