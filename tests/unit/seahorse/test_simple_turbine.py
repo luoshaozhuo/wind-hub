@@ -132,10 +132,10 @@ def test_inertia_mode_releases_normal_pitch_curtailment() -> None:
     reference = SimpleWindTurbine("reference", 17)
     wind = WindSample(7.0, 270.0)
     for turbine in (limited, reference):
+        turbine.apply(EquipmentCommand("ramp", turbine.device_id, "emsActPowerChangeRate", 60000.0))
         turbine.apply(
-            EquipmentCommand("ramp", turbine.device_id, "emsActPowerChangeRate", 60000.0)
+            EquipmentCommand("inertia", turbine.device_id, "emsActPowerSetInertia", 500.0)
         )
-        turbine.apply(EquipmentCommand("inertia", turbine.device_id, "emsActPowerSetInertia", 500.0))
         turbine.apply(EquipmentCommand("mode", turbine.device_id, "emsActCtrlMode", 1))
     limited.apply(EquipmentCommand("normal-limit", "limited", "ctrlActPow", 100.0))
     for index in range(1, 401):
@@ -145,4 +145,6 @@ def test_inertia_mode_releases_normal_pitch_curtailment() -> None:
     actual = limited.snapshot().points
     expected = reference.snapshot().points
     assert math.isclose(float(actual["emsPowAct"]), float(expected["emsPowAct"]), abs_tol=1)
-    assert math.isclose(float(actual["emsBladeAngle1"]), float(expected["emsBladeAngle1"]), abs_tol=1)
+    assert math.isclose(
+        float(actual["emsBladeAngle1"]), float(expected["emsBladeAngle1"]), abs_tol=1
+    )
