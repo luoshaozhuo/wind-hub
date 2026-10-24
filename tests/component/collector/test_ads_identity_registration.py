@@ -4,8 +4,8 @@ from dataclasses import replace
 
 import pytest
 
-from core.application import ConfigError
 from collector.application.config import CollectorConfig
+from core.application import ConfigError
 from core.domain import Device, DeviceId
 from tests.support.new_collector import make_collector_config, make_runtime
 
@@ -39,9 +39,7 @@ async def test_hot_add_rejects_duplicate_without_mutation() -> None:
     second = _second_device(config, target="127.0.0.1.1.1")
 
     with pytest.raises(ConfigError, match="already registered"):
-        await runtime.add_device(
-            "dev2", second, config.point_table_for_device(DeviceId("dev1"))
-        )
+        await runtime.add_device("dev2", second, config.point_table_for_device(DeviceId("dev1")))
 
     assert set(runtime.devices) == {"dev1"}
 
@@ -50,7 +48,36 @@ async def test_hot_add_accepts_distinct_ads_target() -> None:
     config = make_collector_config(protocol="ads", tasks={})
     runtime, _ = make_runtime(config)
     second = _second_device(config, target="127.0.0.2.1.1")
-    await runtime.add_device(
-        "dev2", second, config.point_table_for_device(DeviceId("dev1"))
+    await runtime.add_device("dev2", second, config.point_table_for_device(DeviceId("dev1")))
+    assert set(runtime.devices) == {"dev1", "dev2"}
+
+
+async def test_remove_frees_target_for_re_registration() -> None:
+    # A4：删除设备后，相同目标 Net ID 必须允许重新注册。
+    config = make_collector_config(protocol="ads", tasks={})
+    runtime, _ = make_runtime(config)
+    second = _second_device(config, target="127.0.0.2.1.1")
+    table = config.point_table_for_device(DeviceId("dev1"))
+    await runtime.add_device("dev2", second, table)
+    await runtime.remove_device("dev2")
+    await runtime.add_device("dev2", second, table)
+    assert set(runtime.devices) == {"dev1", "dev2"}
+
+
+async def test_rebuild_rejects_target_conflict_with_other_device() -> None:
+    # A5：重建设备前检查与*其他*设备的身份冲突；冲突时旧会话保持不变。
+    config = make_collector_config(protocol="ads", tasks={})
+    runtime, _ = make_runtime(config)
+    second = _second_device(config, target="127.0.0.2.1.1")
+    table = config.point_table_for_device(DeviceId("dev1"))
+    await runtime.add_device("dev2", second, table)
+
+    original_session = runtime.devices["dev1"]
+    conflicting = replace(
+        config.devices[DeviceId("dev1")],
+        protocol_options={"target_net_id": "127.0.0.2.1.1"},
     )
+    with pytest.raises(ConfigError, match="already registered"):
+        await runtime.rebuild_device("dev1", conflicting, table)
+    assert runtime.devices["dev1"] is original_session
     assert set(runtime.devices) == {"dev1", "dev2"}
