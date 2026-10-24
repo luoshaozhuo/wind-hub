@@ -30,21 +30,33 @@ def test_control_readback_distinct_from_actual_power() -> None:
     assert float(points["emsPowAct"]) <= 100.0
 
 
-def test_nine_command_points_are_accepted() -> None:
+def test_implemented_command_points_are_accepted() -> None:
     turbine = SimpleWindTurbine("wt1", 17)
     commands = {
         "ctrlReActPow": 50.0,
         "ctrlActPow": 100.0,
-        "emsActPowerSetInertia": 50.0,
-        "emsReactPowerSetStatusWrite": 1,
         "emsActPowerChangeRate": 10.0,
-        "emsActCtrlMode": 1,
         "ctrlStart": True,
         "ctrlStop": True,
         "ctrlReset": True,
     }
     for index, (point, value) in enumerate(commands.items()):
         turbine.apply(EquipmentCommand(str(index), "wt1", point, value))
+
+
+
+@pytest.mark.parametrize(
+    ("point", "value"),
+    [
+        ("emsActPowerSetInertia", 50.0),
+        ("emsReactPowerSetStatusWrite", 1),
+        ("emsActCtrlMode", 1),
+    ],
+)
+def test_control_without_physical_contract_is_rejected(point: str, value: float | int) -> None:
+    turbine = SimpleWindTurbine("wt1", 17)
+    with pytest.raises(ValueError, match="control semantics not implemented"):
+        turbine.apply(EquipmentCommand("unsupported", "wt1", point, value))
 
 
 def test_invalid_control_is_rejected() -> None:
