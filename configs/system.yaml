@@ -42,6 +42,15 @@
 #   device_models.yaml / devices.yaml 的 protocol_options 中。
 #   local_ams_net_id: 本机 AMS Net ID（6 段点分，如 192.168.1.10.1.2）。
 #   local_ip:         本机 IP。
+#   多 Collector 部署约束（由上层部署/配置管理保证）：
+#   - 每个独立 Collector 进程应配置不同的 local_ams_net_id，即使部署在同一
+#     台主机、共用同一个 local_ip，也不要复用相同的源 AMS 身份。
+#   - 不同 Collector 可以连接同一台 PLC，因而目标 PLC 的 AMS Net ID 和 IP
+#     可以相同；两者分别维护本进程的 Linux AdsLib 本地路由配置。
+#   - PLC 侧须为各 Collector 的源 AMS Net ID 配置正确的反向路由，
+#     同一主机上的多个 Collector 可以映射到同一个本机 IP。
+#   - 当前配置校验不负责跨进程检测源 AMS Net ID 重复；部署时必须保证唯一。
+#   - 同源 AMS Net ID 的跨进程并发通信未作为可靠部署方式验证，勿依赖。
 #   Linux / WSL mirrored / 容器下本机作为 AMS 路由器，进程启动时
 #   open_port + set_local_address 一次；不使用 ADS 设备时整段删除。
 #   下例 127.0.0.1.1.1 / 127.0.0.1 是本机模拟的取值；真实部署或
