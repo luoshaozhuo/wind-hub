@@ -106,7 +106,8 @@ class SimpleWindTurbine:
                 self._ramp = number
         else:
             raise ValueError(f"unsupported control: {point}")
-        self._controls[point] = value
+        if point in {"ctrlStart", "ctrlStop", "ctrlReset"}:
+            self._controls[point] = value
 
     def step(self, time: SimulationTime, wind: WindSample, grid: GridSample) -> None:
         dt = time.dt_seconds
@@ -128,7 +129,7 @@ class SimpleWindTurbine:
         self._power = max(0.0, old_power + _clip(slope, -ramp_step_kw, ramp_step_kw))
         if operational:
             self._power = min(self._power, available)
-        pitch_target = 20.0 if operational and self._limit < available else 0.0
+        pitch_target = 20.0 if operational and active_limit < available else 0.0
         self._pitch += _clip(pitch_target - self._pitch, -5 * dt, 5 * dt)
         q_max = math.sqrt(max(0.0, (1.1 * self._rated) ** 2 - self._power**2))
         q_target = _clip(self._q_target, -q_max, q_max)
