@@ -68,6 +68,8 @@ _LOCAL_AMS_LOCK = threading.Lock()
 _LOCAL_LIFECYCLE = asyncio.Lock()
 _LOCAL_CLOSED = False
 _LOCAL_OPERATIONS = 0
+# Failed physical close may outlive its Driver; keep route identity fail-closed.
+_UNSAFE_TARGETS: set[str] = set()
 _ACTIVE_DRIVERS: weakref.WeakSet[ADSDriver] = weakref.WeakSet()
 _LOCAL_AMS: ADSLocalConfig | None = None
 _LOCAL_PORT_OPEN = False
@@ -208,7 +210,7 @@ class ADSDriver:
         """Close local AMS only after all driver sessions have safely stopped."""
         global _LOCAL_CLOSED
         async with _LOCAL_LIFECYCLE:
-            if _LOCAL_OPERATIONS or any(
+            if _LOCAL_OPERATIONS or _UNSAFE_TARGETS or any(
                 driver._session is not None
                 or driver._unsafe_close
                 or (driver._pending_close is not None and not driver._pending_close.done())
@@ -246,11 +248,16 @@ class ADSDriver:
         async with self._lifecycle:
             if _LOCAL_CLOSED:
                 raise ProtocolError("ADS local AMS port has been closed; initialize_local required")
+            if self._route_key in _UNSAFE_TARGETS:
+                raise ProtocolError("ADS target route has an unconfirmed prior close")
             pending = self._pending_close
             if self._unsafe_close or (pending is not None and not pending.done()):
                 raise ProtocolError("ADS previous physical close is not confirmed")
-            if pending is not None and (pending.cancelled() or pending.exception() or not pending.result()):
+            if pending is not None and (
+                pending.cancelled() or pending.exception() or not pending.result()
+            ):
                 self._unsafe_close = True
+                _UNSAFE_TARGETS.add(self._route_key)
                 raise ProtocolError("ADS previous physical close failed")
             _LOCAL_OPERATIONS += 1
             try:
@@ -403,6 +410,7 @@ class ADSDriver:
         self._pending_close = session.shutdown_settled_future
         if not closed:
             self._unsafe_close = True
+            _UNSAFE_TARGETS.add(self._route_key)
         self._log_session_closed(session)
         if not closed:
             raise ProtocolError(
@@ -416,9 +424,11 @@ class ADSDriver:
             closed = await asyncio.shield(session.shutdown_inline(grace))
         except BaseException:
             self._unsafe_close = True
+            _UNSAFE_TARGETS.add(self._route_key)
             raise
         if not closed:
             self._unsafe_close = True
+            _UNSAFE_TARGETS.add(self._route_key)
             raise ProtocolError("ADS inline physical close not confirmed")
         self._log_session_closed(session)
 
