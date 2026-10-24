@@ -87,3 +87,66 @@ def test_external_mapping_rejects_invalid_addresses(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="duplicate listen endpoint"):
         generate_profile(source_file, tmp_path / "generated")
     assert not (tmp_path / "generated" / "gateway.yaml").exists()
+
+
+def test_profile_rejects_nonexistent_external_feedback_before_writing(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[3] / "configs" / "seahorse_dc_ems_manifest.json"
+    manifest = json.loads(source.read_text(encoding="utf-8"))
+    manifest["external_devices"] = [
+        {
+            "id": "substation",
+            "model_id": "substation",
+            "server_id": 51,
+            "ip": "127.0.0.1",
+            "original_port": 502,
+            "port": 15170,
+            "unit_id": 1,
+            "points": [
+                {
+                    "name": "nonexistent_feedback",
+                    "role": "feedback",
+                    "data_type": "float32",
+                    "register_type": "holding",
+                    "address": 100,
+                    "word_order": "little_endian",
+                }
+            ],
+        }
+    ]
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    output = tmp_path / "generated"
+    with pytest.raises(ValueError, match="missing simulated feedback"):
+        generate_profile(manifest_path, output)
+    assert not (output / "gateway.yaml").exists()
+    assert not (output / "seahorse.yaml").exists()
+
+
+def test_profile_rejects_external_scalar_type_mismatch(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[3] / "configs" / "seahorse_dc_ems_manifest.json"
+    manifest = json.loads(source.read_text(encoding="utf-8"))
+    manifest["external_devices"] = [
+        {
+            "id": "substation",
+            "model_id": "substation",
+            "server_id": 51,
+            "ip": "127.0.0.1",
+            "original_port": 502,
+            "port": 15170,
+            "unit_id": 1,
+            "points": [
+                {
+                    "name": "poi_voltage",
+                    "role": "feedback",
+                    "data_type": "bool",
+                    "register_type": "coil",
+                    "address": 100,
+                    "word_order": "little_endian",
+                }
+            ],
+        }
+    ]
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid simulated feedback"):
+        generate_profile(manifest_path, tmp_path / "generated")
