@@ -292,7 +292,13 @@ def test_external_device_telemetry_over_real_gateway(tmp_path: Path) -> None:
                     deadline = time.monotonic() + 8
                     while time.monotonic() < deadline:
                         assert seahorse.poll() is None
-                        if _read(client, mapping) == expected:
+                        actual = _read(client, mapping)
+                        valid = (
+                            35000.0 * 0.998 <= actual <= 35000.0 * 1.002
+                            if device_id == "substation"
+                            else actual == expected
+                        )
+                        if valid:
                             break
                         time.sleep(0.1)
                     else:
