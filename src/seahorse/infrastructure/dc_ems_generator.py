@@ -10,7 +10,9 @@ from typing import Any
 import yaml
 
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
+from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMapping, encode_registers
 from seahorse.infrastructure.config import SeahorseConfig
+from seahorse.infrastructure.factory import create_runtime
 from seahorse.infrastructure.dc_ems_contract import (
     OriginalAddress,
     RegisterArea,
@@ -206,8 +208,31 @@ def generate_profile(
         "primary_points": {},
         "inertia_points": {},
     }
-    GatewayConfig.model_validate(gateway)
-    SeahorseConfig.model_validate(seahorse)
+    gateway_config = GatewayConfig.model_validate(gateway)
+    model_config = SeahorseConfig.model_validate(seahorse)
+    snapshot = create_runtime(model_config).step()
+    samples = {device.device_id: device.points for device in snapshot.devices}
+    for device_id, device in gateway_config.devices.items():
+        actual = samples.get(device_id)
+        if actual is None:
+            raise ValueError(f"missing simulated device: {device_id}")
+        table = gateway_config.point_tables[device.point_table_id]
+        for name, point in table.points.items():
+            if point.role != "feedback":
+                continue
+            if name not in actual:
+                raise ValueError(f"missing simulated feedback: {device_id}.{name}")
+            address = point.address
+            mapping = RegisterMapping(
+                device_id, name, address.register_type, address.address,
+                point.data_type, address.word_order,
+            )
+            try:
+                encode_registers(mapping, actual[name])
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    f"invalid simulated feedback: {device_id}.{name}"
+                ) from exc
     output_directory.mkdir(parents=True, exist_ok=True)
     for name, config in (("gateway.yaml", gateway), ("seahorse.yaml", seahorse)):
         (output_directory / name).write_text(
