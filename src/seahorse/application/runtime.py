@@ -27,6 +27,7 @@ class SeahorseRuntime:
     def step(self) -> FarmSnapshot:
         if self._failed:
             raise RuntimeError("simulation stopped after a failed step")
+        confirmed = []
         if self._commands is not None:
             batch = self._commands.drain()
             for index, item in enumerate(batch):
@@ -35,29 +36,38 @@ class SeahorseRuntime:
                 except (ValueError, KeyError) as exc:
                     item.outcome.set_exception(exc)
                 except Exception as exc:
-                    # 未知设备故障可能已产生副作用，必须返回 UNKNOWN 并闭锁后续控制。
                     item.outcome.set_exception(RuntimeError("command execution outcome unknown"))
                     for pending in batch[index + 1 :]:
                         pending.outcome.set_exception(
                             RuntimeError("command abandoned after unknown execution outcome")
                         )
+                    for accepted in confirmed:
+                        accepted.outcome.set_exception(
+                            RuntimeError("command outcome unknown after later fatal execution")
+                        )
                     self._failed = True
                     self._commands.close()
                     raise RuntimeError("unrecoverable command execution failure") from exc
                 else:
-                    item.outcome.set_result(None)
+                    confirmed.append(item)
         next_index = self._index + 1
         try:
             snapshot = self._service.step(
                 SimulationTime(next_index, next_index * self._step_seconds, self._step_seconds)
             )
         except Exception:
-            # 模型和 gRPC 发布不可回滚，拒绝重复推进同一时间步。
+            # 模型可能已改变；发布失败后不能宣称控制成功或重演本步。
             self._failed = True
+            for accepted in confirmed:
+                accepted.outcome.set_exception(
+                    RuntimeError("command outcome unknown after simulation step failure")
+                )
             if self._commands is not None:
                 self._commands.close()
             raise
         self._index = next_index
+        for accepted in confirmed:
+            accepted.outcome.set_result(None)
         return snapshot
 
     def run(self, steps: int | None = None) -> None:
