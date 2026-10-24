@@ -9,7 +9,10 @@ from contextlib import suppress
 from pathlib import Path
 
 from industrial_gateway.infrastructure.config.loader import load_config as load_gateway
-from industrial_gateway.infrastructure.protocol.modbus.codec import RegisterMapping, encode_registers
+from industrial_gateway.infrastructure.protocol.modbus.codec import (
+    RegisterMapping,
+    encode_registers,
+)
 from seahorse.application.command_queue import CommandQueue
 from seahorse.infrastructure.config import SeahorseConfig, load_config
 from seahorse.infrastructure.factory import create_runtime
@@ -99,8 +102,12 @@ def main() -> int:
                 point = gateway.point_tables[device.point_table_id].points[name]
                 address = point.address
                 mapping = RegisterMapping(
-                    device_id, name, address.register_type, address.address,
-                    point.data_type, address.word_order,
+                    device_id,
+                    name,
+                    address.register_type,
+                    address.address,
+                    point.data_type,
+                    address.word_order,
                 )
                 try:
                     encode_registers(mapping, actual[name])

@@ -141,13 +141,11 @@ def test_50_turbine_real_process_bidirectional(tmp_path: Path) -> None:
                 previous_limit = _read(client, mapping(first_id, "emsActPowerMaxSetFeedback"))
                 invalid_limit = mapping(first_id, "ctrlActPow")
                 words = encode_registers(invalid_limit, 9000.0)
-                rejected = client.write_registers(
-                    invalid_limit.address, list(words), device_id=1
-                )
+                rejected = client.write_registers(invalid_limit.address, list(words), device_id=1)
                 assert rejected.isError(), rejected
-                assert _read(
-                    client, mapping(first_id, "emsActPowerMaxSetFeedback")
-                ) == previous_limit
+                assert (
+                    _read(client, mapping(first_id, "emsActPowerMaxSetFeedback")) == previous_limit
+                )
                 assert seahorse.poll() is None
                 stop = mapping(first_id, "ctrlStop")
                 response = client.write_coil(stop.address, True, device_id=1)

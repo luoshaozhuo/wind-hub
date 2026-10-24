@@ -77,9 +77,7 @@ def create_runtime(
                 SimpleWindTurbine(turbine.device_id, seed + 100 + index, turbine.rated_power_kw)
             )
         else:
-            turbines.append(
-                RandomTurbine(turbine.device_id, seed + 100 + index, turbine.points)
-            )
+            turbines.append(RandomTurbine(turbine.device_id, seed + 100 + index, turbine.points))
     service = WindFarmService(
         wind_field=wind_field,
         turbines=tuple(turbines),

@@ -12,9 +12,7 @@ from seahorse.infrastructure.config import RandomPoint
 
 
 class RandomTurbine:
-    def __init__(
-        self, device_id: str, seed: int, points: Mapping[str, RandomPoint]
-    ) -> None:
+    def __init__(self, device_id: str, seed: int, points: Mapping[str, RandomPoint]) -> None:
         self._id = device_id
         self._rng = random.Random(seed)
         self._points = dict(points)

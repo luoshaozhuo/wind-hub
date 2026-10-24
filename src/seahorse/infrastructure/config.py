@@ -29,8 +29,15 @@ class RandomPoint(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     data_type: Literal[
-        "bool", "int16", "uint16", "int32", "uint32", "int64", "uint64",
-        "float32", "float64",
+        "bool",
+        "int16",
+        "uint16",
+        "int32",
+        "uint32",
+        "int64",
+        "uint64",
+        "float32",
+        "float64",
     ]
     minimum: int | float
     maximum: int | float
@@ -38,11 +45,11 @@ class RandomPoint(BaseModel):
     @model_validator(mode="after")
     def validate_bounds(self) -> RandomPoint:
         limits = {
-            "int16": (-2**15, 2**15 - 1),
+            "int16": (-(2**15), 2**15 - 1),
             "uint16": (0, 2**16 - 1),
-            "int32": (-2**31, 2**31 - 1),
+            "int32": (-(2**31), 2**31 - 1),
             "uint32": (0, 2**32 - 1),
-            "int64": (-2**63, 2**63 - 1),
+            "int64": (-(2**63), 2**63 - 1),
             "uint64": (0, 2**64 - 1),
         }
         if self.data_type == "bool":
@@ -63,9 +70,10 @@ class RandomPoint(BaseModel):
                 raise ValueError("non-finite range")
             if self.minimum > self.maximum:
                 raise ValueError("minimum exceeds maximum")
-            if self.data_type == "float32" and max(
-                abs(self.minimum), abs(self.maximum)
-            ) > 3.4028234663852886e38:
+            if (
+                self.data_type == "float32"
+                and max(abs(self.minimum), abs(self.maximum)) > 3.4028234663852886e38
+            ):
                 raise ValueError("float32 range out of bounds")
         return self
 

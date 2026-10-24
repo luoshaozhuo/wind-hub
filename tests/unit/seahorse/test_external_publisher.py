@@ -48,9 +48,7 @@ def test_external_snapshots_are_published_by_device_identity() -> None:
 
 
 def test_missing_external_snapshot_fails_before_grpc_write() -> None:
-    publisher = GrpcSnapshotPublisher(
-        "127.0.0.1:50073", {"substation": frozenset({"emsSyzAct"})}
-    )
+    publisher = GrpcSnapshotPublisher("127.0.0.1:50073", {"substation": frozenset({"emsSyzAct"})})
     send = Mock()
     publisher._write_many = send
     try:
