@@ -105,9 +105,19 @@ def test_random_point_rejects_incorrect_type_bounds() -> None:
 
 def test_dispatch_parameters_reach_simple_model() -> None:
     config = load_config(CONFIG).model_dump()
+    config["dispatch_station"]["enabled"] = True
+    config["dispatch_station"]["secondary_enabled"] = True
     config["dispatch_station"]["target_kw"] = 1200.0
     config["dispatch_station"]["reactive_target_kvar"] = 300.0
     runtime = create_runtime(SeahorseConfig.model_validate(config))
     snapshot = runtime.step().by_id("dispatch").points
     assert snapshot["emsGridDispatchAct"] == 1200.0
     assert snapshot["emsGridDispatchReact"] == 300.0
+
+
+def test_dispatch_disabled_returns_zero_references() -> None:
+    config = load_config(CONFIG).model_dump()
+    config["dispatch_station"]["target_kw"] = 1500.0
+    config["dispatch_station"]["reactive_target_kvar"] = 200.0
+    points = create_runtime(SeahorseConfig.model_validate(config)).step().by_id("dispatch").points
+    assert points == {"emsGridDispatchAct": 0.0, "emsGridDispatchReact": 0.0}
