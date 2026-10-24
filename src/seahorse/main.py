@@ -83,6 +83,16 @@ def main() -> int:
             )
             for device_id, device in gateway.devices.items()
         }
+        # 使用独立模型实例预演首步，在开放控制入口之前验证所有反馈点。
+        snapshot = create_runtime(config).step()
+        by_device = {device.device_id: device.points for device in snapshot.devices}
+        for device_id, names in feedback.items():
+            actual = by_device.get(device_id)
+            if actual is None:
+                parser.error(f"Gateway device is missing from Seahorse: {device_id}")
+            missing = names - actual.keys()
+            if missing:
+                parser.error(f"Gateway feedback is missing: {device_id}.{sorted(missing)}")
         publisher = GrpcSnapshotPublisher(args.gateway_grpc_endpoint, feedback)
     if not args.check:
         asyncio.run(_run(config, publisher, args.command_bind, args.steps))
