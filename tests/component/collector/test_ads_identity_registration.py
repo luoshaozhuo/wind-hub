@@ -5,11 +5,12 @@ from dataclasses import replace
 import pytest
 
 from core.application import ConfigError
-from core.domain import DeviceId
+from collector.application.config import CollectorConfig
+from core.domain import Device, DeviceId
 from tests.support.new_collector import make_collector_config, make_runtime
 
 
-def _second_device(config, *, target: str):
+def _second_device(config: CollectorConfig, *, target: str) -> Device:
     original = config.devices[DeviceId("dev1")]
     return replace(
         original,
