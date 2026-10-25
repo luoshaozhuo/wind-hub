@@ -168,10 +168,21 @@ def write_minimal_config_tree(
 
 
 class FakeSubscriptionHandle:
-    """记录式订阅句柄。"""
+    """记录式句柄：同时满足 SubscriptionHandle(start/stop) 与 ListenHandle(close)。"""
 
     def __init__(self) -> None:
         self.closed = False
+        self.started = False
+        self.start_calls = 0
+        self.stop_calls = 0
+
+    async def start(self) -> None:
+        self.start_calls += 1
+        self.started = True
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+        self.closed = True
 
     async def close(self) -> None:
         self.closed = True
@@ -254,7 +265,7 @@ class FakeProtocol:
     def update_point_table(self, point_table: PointTable) -> None:
         self.point_table_updates.append(point_table)
 
-    async def subscribe(
+    def subscribe(
         self,
         point_ids: Sequence[str],
         callback: Any,

@@ -44,7 +44,7 @@ async def test_batch_and_subscribe_rejected_without_network_io() -> None:
         async def _cb(_sample: object) -> None:
             return None
 
-        await driver.subscribe(("p",), _cb)
+        driver.subscribe(("p",), _cb)
 
 
 async def test_listen_requires_established_connection() -> None:

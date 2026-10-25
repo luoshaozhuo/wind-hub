@@ -140,6 +140,7 @@ class ADSSubscription:
             except RuntimeError:
                 # 事件循环结束时的迟到原生回调：不可跨线程再次提交。
                 return
+
         return receive
 
     def _enqueue(self, samples: tuple[ProtocolSample, ...]) -> None:

@@ -39,16 +39,29 @@ def _wait_tcp_port(host: str, port: int, timeout: float = 5.0) -> None:
     raise RuntimeError(f"ADS testserver did not open {host}:{port} within {timeout}s")
 
 
+_ADS_SERVICE_CACHE: dict[str, object] | None = None
+
+
 @pytest.fixture(scope="session")
-def ads_service() -> Iterator[dict[str, str | int | None]]:
+def ads_service() -> Iterator[dict[str, object]]:
     """ADS 服务端配置（真实 PLC 环境变量优先，否则进程内 AdsTestServer）。
 
     返回字典键与 :func:`ads_config_from_env` 一致，另加 ``backend``
     （``"hardware"`` / ``"testserver"``）标明当前服务端真实性。
+
+    本 fixture 会被 reliability 层 conftest 以 import 方式复用；pytest 对跨
+    conftest 导入的同名 fixture 各自实例化一次，因此这里用模块级缓存保证
+    全进程只有一个 AdsTestServer，避免第二次 bind 48898 冲突。
     """
+    global _ADS_SERVICE_CACHE
+    if _ADS_SERVICE_CACHE is not None:
+        yield _ADS_SERVICE_CACHE
+        return
+
     external = ads_config_from_env()
     if external is not None:
         external["backend"] = "hardware"
+        _ADS_SERVICE_CACHE = external
         yield external
         return
 
@@ -67,22 +80,20 @@ def ads_service() -> Iterator[dict[str, str | int | None]]:
         )
 
     handler = AdvancedHandler()
-    handler.add_variable(
-        PLCVariable(
-            _TESTSERVER_READ_SYMBOL,
-            21.5,
-            ads_type=ADST_REAL32,
-            symbol_type="REAL",
-        )
+    read_variable = PLCVariable(
+        _TESTSERVER_READ_SYMBOL,
+        21.5,
+        ads_type=ADST_REAL32,
+        symbol_type="REAL",
     )
-    handler.add_variable(
-        PLCVariable(
-            _TESTSERVER_WRITE_SYMBOL,
-            0.0,
-            ads_type=ADST_REAL32,
-            symbol_type="REAL",
-        )
+    write_variable = PLCVariable(
+        _TESTSERVER_WRITE_SYMBOL,
+        0.0,
+        ads_type=ADST_REAL32,
+        symbol_type="REAL",
     )
+    handler.add_variable(read_variable)
+    handler.add_variable(write_variable)
     server = AdsTestServer(
         handler=handler,
         ip_address="127.0.0.1",
@@ -90,17 +101,29 @@ def ads_service() -> Iterator[dict[str, str | int | None]]:
         logging=False,
     )
     server.start()
+    _wait_tcp_port("127.0.0.1", _ADS_TCP_PORT)
+    _ADS_SERVICE_CACHE = {
+        "host": "127.0.0.1",
+        "net_id": _TESTSERVER_NET_ID,
+        "port": _ADS_TCP_PORT,
+        "read_symbol": _TESTSERVER_READ_SYMBOL,
+        "write_symbol": _TESTSERVER_WRITE_SYMBOL,
+        "local_net_id": _TESTSERVER_LOCAL_NET_ID,
+        "local_ip": "127.0.0.1",
+        "backend": "testserver",
+        "server": server,
+        "handler": handler,
+        "variables": {
+            _TESTSERVER_READ_SYMBOL: read_variable,
+            _TESTSERVER_WRITE_SYMBOL: write_variable,
+        },
+    }
     try:
-        _wait_tcp_port("127.0.0.1", _ADS_TCP_PORT)
-        yield {
-            "host": "127.0.0.1",
-            "net_id": _TESTSERVER_NET_ID,
-            "port": _ADS_TCP_PORT,
-            "read_symbol": _TESTSERVER_READ_SYMBOL,
-            "write_symbol": _TESTSERVER_WRITE_SYMBOL,
-            "local_net_id": _TESTSERVER_LOCAL_NET_ID,
-            "local_ip": "127.0.0.1",
-            "backend": "testserver",
-        }
+        yield _ADS_SERVICE_CACHE
     finally:
-        server.stop()
+        # 多个 fixture 实例共享缓存；只停一次（可靠性测试重建过的 server 也在缓存里）。
+        if _ADS_SERVICE_CACHE is not None:
+            try:
+                _ADS_SERVICE_CACHE["server"].stop()
+            finally:
+                _ADS_SERVICE_CACHE = None

@@ -180,17 +180,27 @@ def test_ads_int64_mapping_is_supported() -> None:
     assert mapped.size == 8
 
 
-def test_ads_driver_precompiles_point_table_without_network_io() -> None:
+def test_ads_driver_binds_points_without_network_io() -> None:
+    """构造只做内存映射：symbol 地址保持未解析，不产生任何网络 IO。"""
     point = _point("speed", ext=_point_ext(symbol="MAIN.speed"))
     table = PointTable(PointTableId("ads_pt"), Protocol("ads"), {"speed": point})
 
     driver = ADSDriver(
         _endpoint(),
         table,
-        {},
+        {"target_net_id": "192.0.2.20.1.1"},
     )
 
     assert driver.is_open() is False
+    mapped = driver._points["speed"]
+    assert mapped.symbol == "MAIN.speed"
+    assert mapped.address_resolved is False
+
+
+def test_ads_driver_requires_target_net_id() -> None:
+    table = PointTable(PointTableId("ads_pt"), Protocol("ads"), {})
+    with pytest.raises(ConfigError, match="target_net_id is required"):
+        ADSDriver(_endpoint(), table, {})
 
 
 def test_ads_symbol_index_address_rejects_invalid_values() -> None:

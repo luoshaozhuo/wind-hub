@@ -194,7 +194,7 @@ class TestConnectAndActiveRead:
             return None
 
         with pytest.raises(ProtocolCapabilityError, match="subscription"):
-            await driver.subscribe(["meas.power"], _cb)
+            driver.subscribe(["meas.power"], _cb)
 
     async def test_read_unknown_point_raises(self, driver: IEC104Driver) -> None:
         await driver.connect()
