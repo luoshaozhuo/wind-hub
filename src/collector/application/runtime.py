@@ -130,7 +130,9 @@ class CollectorRuntime:
             # 冷启动未完成或 Collector 停机后不允许恢复任务。
             if not self._started or not self._running:
                 return
-            await self._task_runtime.start_device_tasks(device_id)
+            await self._task_runtime.start_device_tasks(
+                device_id, can_restore=lambda: self._started and self._running
+            )
 
         self._device_runtime.set_reconnect_callback(restore_device_tasks)
         self._sink_runtime = SinkRuntime(sinks, params, sink_factory)
