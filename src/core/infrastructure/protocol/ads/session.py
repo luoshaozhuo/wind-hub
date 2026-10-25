@@ -36,6 +36,7 @@ class _AdsSession:
         self._closing = False
         self._closed = False
         self._uncertain = False
+        self._open_failed = False
 
     @property
     def is_open(self) -> bool:
@@ -95,9 +96,12 @@ class _AdsSession:
                 dispatched = True
                 try:
                     await asyncio.to_thread(self._connection.open)
+                except Exception:
+                    # pyads 3.6.0: 同步 open() 失败时内部会回滚本地端口；
+                    # 该结果明确，不等同于等待取消后的未知结果。
+                    self._open_failed = True
+                    raise
                 except BaseException:
-                    # pyads.open() 可能已分配本地端口；公共 close() 可能
-                    # 因 _open=False 早退，因此不能假设部分打开已回滚。
                     self._uncertain = True
                     raise
                 self._opened = True
@@ -138,7 +142,7 @@ class _AdsSession:
     async def _close_once(self) -> None:
         async with self._gate:
             # gate 等待全部已提交物理 open/execute 真实退出。
-            if self._open_started:
+            if self._opened:
                 try:
                     await asyncio.to_thread(self._connection.close)
                 except BaseException:
