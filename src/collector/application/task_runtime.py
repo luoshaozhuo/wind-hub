@@ -73,6 +73,8 @@ class TaskRuntime:
         # 热重载过程中需要恢复 RUNNING、但上一次重建失败的实例。
         # 下一次 reload 会继续重试，直到成功或实例被显式停止/删除。
         self._restart_pending: set[str] = set()
+        self._recovery_stopped: set[str] = set()
+        self._restoring_devices: set[str] = set()
 
         # 每个采集实例的业务执行状态——与设备连接状态、实例启停状态分维度。
         # 实例注册时建立、注销时删除；引擎 collect 经 AcquisitionStatePort
@@ -148,6 +150,7 @@ class TaskRuntime:
         # 会在锁后看到 RUNNING 并关闭句柄，而不是看到 STOPPED 提前返回）。
         async with self._instance_guard(instance_id):
             await self._start_locked(instance_id)
+            self._recovery_stopped.discard(instance_id)
 
     async def _start_locked(self, instance_id: str) -> None:
         """调用方必须已持有该实例的 :meth:`_instance_guard`。"""
@@ -214,6 +217,14 @@ class TaskRuntime:
         async with self._instance_guard(instance_id):
             if instance_id not in self._task_instances:
                 raise KeyError(instance_id)
+            instance = self._task_instances[instance_id]
+            device_state = self._devices.device_state(instance.device_id)
+            if (
+                instance.device_id in self._restoring_devices
+                or device_state is None
+                or not device_state.connected
+            ):
+                self._recovery_stopped.add(instance_id)
             if self._instance_states[instance_id] is TaskInstanceState.STOPPED:
                 self._restart_pending.discard(instance_id)
                 return
@@ -235,21 +246,33 @@ class TaskRuntime:
             iid for iid, instance in self._task_instances.items()
             if instance.device_id == device_id
         )
-        for iid in instance_ids:
-            if not can_restore():
-                return
-            async with self._instance_guard(iid):
+        self._restoring_devices.add(device_id)
+        completed = False
+        try:
+            for iid in instance_ids:
                 if not can_restore():
                     return
-                instance = self._task_instances.get(iid)
-                if instance is None or instance.device_id != device_id:
-                    continue
-                if self._instance_states[iid] is TaskInstanceState.RUNNING:
-                    self._instance_states[iid] = TaskInstanceState.STOPPED
-                    await self._close_acquisition_handle(iid)
-                if not can_restore():
-                    return
-                await self._start_locked(iid)
+                async with self._instance_guard(iid):
+                    if not can_restore():
+                        return
+                    instance = self._task_instances.get(iid)
+                    if (
+                        instance is None
+                        or instance.device_id != device_id
+                        or iid in self._recovery_stopped
+                    ):
+                        continue
+                    if self._instance_states[iid] is TaskInstanceState.RUNNING:
+                        self._instance_states[iid] = TaskInstanceState.STOPPED
+                        await self._close_acquisition_handle(iid)
+                    if not can_restore() or iid in self._recovery_stopped:
+                        return
+                    await self._start_locked(iid)
+            completed = True
+        finally:
+            self._restoring_devices.discard(device_id)
+            if completed:
+                self._recovery_stopped.difference_update(instance_ids)
 
     async def stop_all(self) -> None:
         """停机路径：关闭全部实例采集句柄——polling 协程取消、订阅注销，
@@ -262,6 +285,7 @@ class TaskRuntime:
         """
         for instance_id in list(self._task_instances):
             await self.stop_instance(instance_id)
+        self._recovery_stopped.clear()
 
     # ------------------------------------------------------------------
     # 设备变更协调（CollectorRuntime 在 session 变更前后调用）
@@ -343,6 +367,7 @@ class TaskRuntime:
                 self._instance_states.pop(iid, None)
                 self._acquisition_states.pop(iid, None)
                 self._restart_pending.discard(iid)
+                self._recovery_stopped.discard(iid)
             logger.info("Task instance '%s' unregistered", iid)
 
         for iid, instance in desired.items():
