@@ -70,14 +70,15 @@ class ADSSubscription:
                     cycle_time=self._interval * 1000,
                     max_delay=self._max_delay * 1000,
                 )
-                callback = self._notification_callback(block)
+                callback = self._session.notification(c_ubyte * block.size)(
+                    self._notification_callback(block)
+                )
                 self._callbacks.append(callback)
                 token = await self._session.execute(
                     "add_device_notification",
                     (block.group, block.offset),
                     attribute,
                     callback,
-                    None,
                 )
                 self._handles.append(token)
             if not self._stopping:
