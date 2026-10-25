@@ -32,8 +32,6 @@ from .codec import (
     _coerce_write_value,
     _decode_sum_write_errors,
     _encode_value,
-    _is_point_level_error,
-    _plc_datatype,
     compile_decoder,
     encode_sum_write,
 )
@@ -146,7 +144,6 @@ class ADSDriver:
                 self._config.target_port,
                 self._config.host,
             )
-            connection.set_timeout(int(self._config.timeout * 1000))
             return connection
 
         return _AdsSession(factory)
@@ -165,6 +162,9 @@ class ADSDriver:
         except TimeoutError:
             self._connect_expired = True
             raise ProtocolError("ADS connection deadline exceeded; cleanup is pending") from None
+        except asyncio.CancelledError:
+            self._connect_expired = True
+            raise
 
     async def _connect_once(self) -> None:
         async with self._lifecycle:
@@ -183,6 +183,7 @@ class ADSDriver:
                     self._session = session
                     try:
                         await session.open()
+                        await session.execute("set_timeout", int(self._config.timeout * 1000))
                         if self._connect_expired:
                             raise ProtocolError("ADS connection deadline expired")
                         result = await session.execute("read_state")
@@ -394,7 +395,7 @@ class ADSDriver:
         session = self._require_session()
         mapped = self._mapped(point_ids or tuple(self._points))
         subscription = ADSSubscription(
-            session, mapped, callback, interval=interval or 0.1,
+            session, mapped, callback, interval=0.1 if interval is None else interval,
             max_block_bytes=self._config.max_block_bytes,
             max_delay=self._config.max_delay,
         )
