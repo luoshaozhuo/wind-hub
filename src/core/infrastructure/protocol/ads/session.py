@@ -49,6 +49,11 @@ class _AdsSession:
         return self._closed and not self._uncertain
 
     @property
+    def open_failed(self) -> bool:
+        """物理 open 返回了明确异常且内部已回滚。"""
+        return self._open_failed
+
+    @property
     def is_uncertain(self) -> bool:
         return self._uncertain
 
