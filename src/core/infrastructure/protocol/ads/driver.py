@@ -155,16 +155,32 @@ class ADSDriver:
             if self._state is ADSState.FAULTED:
                 raise ProtocolError("ADS target is faulted; physical cleanup unconfirmed")
             self._connect_expired = False
+            if self._state is ADSState.DISCONNECTED:
+                self._close_task = None
             task = asyncio.create_task(self._connect_once())
             self._connect_task = task
         try:
             await asyncio.wait_for(asyncio.shield(self._connect_task), timeout=3.0)
         except TimeoutError:
             self._connect_expired = True
+            self._schedule_late_connect_cleanup()
             raise ProtocolError("ADS connection deadline exceeded; cleanup is pending") from None
         except asyncio.CancelledError:
             self._connect_expired = True
+            self._schedule_late_connect_cleanup()
             raise
+
+    def _schedule_late_connect_cleanup(self) -> None:
+        """超时的建链任务结束后，仍须关闭它可能建立的连接。"""
+        task = self._connect_task
+        if task is None:
+            return
+
+        def cleanup(_: asyncio.Task[None]) -> None:
+            if self._state is ADSState.CONNECTED:
+                asyncio.create_task(self.close())
+
+        task.add_done_callback(cleanup)
 
     async def _connect_once(self) -> None:
         async with self._lifecycle:
