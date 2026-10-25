@@ -221,7 +221,9 @@ class TaskRuntime:
             self._restart_pending.discard(instance_id)
             await self._close_acquisition_handle(instance_id)
 
-    async def start_device_tasks(self, device_id: str) -> None:
+    async def start_device_tasks(
+        self, device_id: str, *, can_restore: Callable[[], bool]
+    ) -> None:
         """Watchdog 重连成功：恢复该设备全部已启用采集实例。
 
         Collector 冷启动不调用此入口。实例注册表已经排除禁用任务与
@@ -234,13 +236,19 @@ class TaskRuntime:
             if instance.device_id == device_id
         )
         for iid in instance_ids:
+            if not can_restore():
+                return
             async with self._instance_guard(iid):
+                if not can_restore():
+                    return
                 instance = self._task_instances.get(iid)
                 if instance is None or instance.device_id != device_id:
                     continue
                 if self._instance_states[iid] is TaskInstanceState.RUNNING:
                     self._instance_states[iid] = TaskInstanceState.STOPPED
                     await self._close_acquisition_handle(iid)
+                if not can_restore():
+                    return
                 await self._start_locked(iid)
 
     async def stop_all(self) -> None:
