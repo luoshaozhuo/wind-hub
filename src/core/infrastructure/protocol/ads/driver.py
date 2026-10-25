@@ -152,6 +152,8 @@ class ADSDriver:
     async def connect(self) -> None:
         if self._state is ADSState.CONNECTED:
             return
+        if self._state in {ADSState.FAULTED, ADSState.CLOSING}:
+            raise ProtocolError("ADS connection is not safely available")
         if self._connect_task is None or self._connect_task.done():
             if self._state is ADSState.FAULTED:
                 raise ProtocolError("ADS target is faulted; physical cleanup unconfirmed")
@@ -252,6 +254,8 @@ class ADSDriver:
 
     async def close(self) -> None:
         if self._close_task is None:
+            if self._state is ADSState.CONNECTED:
+                self._state = ADSState.CLOSING
             self._close_task = asyncio.create_task(self._close_once())
         try:
             await asyncio.wait_for(asyncio.shield(self._close_task), timeout=3.0)
