@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import struct
 from collections.abc import Callable, Sequence
 from ctypes import c_ubyte
@@ -16,7 +17,9 @@ from core.application.protocol_contract import ProtocolSample, Quality
 
 from .codec import NotificationBlock, compile_notification_blocks
 from .mapping import ADSPoint
-from .session import _AdsSession
+from .session import ADSCommandNotSentError, _AdsSession
+
+logger = logging.getLogger(__name__)
 
 
 class ADSSubscription:
@@ -47,6 +50,7 @@ class ADSSubscription:
         self._stop_task: asyncio.Task[None] | None = None
         self._worker: asyncio.Task[None] | None = None
         self._stopping = False
+        self._registration_uncertain = False
 
     async def start(self) -> None:
         if self._stopping or self._start_task is not None:
@@ -74,12 +78,18 @@ class ADSSubscription:
                     self._notification_callback(block)
                 )
                 self._callbacks.append(callback)
-                token = await self._session.execute(
-                    "add_device_notification",
-                    (block.group, block.offset),
-                    attribute,
-                    callback,
-                )
+                try:
+                    token = await self._session.execute(
+                        "add_device_notification",
+                        (block.group, block.offset),
+                        attribute,
+                        callback,
+                    )
+                except ADSCommandNotSentError:
+                    raise
+                except BaseException:
+                    self._registration_uncertain = True
+                    raise
                 self._handles.append(token)
             if not self._stopping:
                 self._worker = asyncio.create_task(self._consume())
@@ -138,8 +148,7 @@ class ADSSubscription:
             try:
                 await self._callback(batch)
             except Exception:
-                # 业务回调失败不终止原生订阅，由调用方记录后续数据。
-                pass
+                logger.exception("ADS notification delivery callback failed")
 
     def _begin_stop(self) -> asyncio.Task[None]:
         if self._stop_task is None:
@@ -169,5 +178,7 @@ class ADSSubscription:
                 await self._worker
             except asyncio.CancelledError:
                 pass
+        if self._registration_uncertain:
+            errors.append(RuntimeError("ADS notification registration result unconfirmed"))
         if errors:
             raise ExceptionGroup("ADS notification cleanup failed", errors)
