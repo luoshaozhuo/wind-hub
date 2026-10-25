@@ -5,17 +5,14 @@ from __future__ import annotations
 import struct
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any, cast
 
 import pyads  # type: ignore[import-untyped]
 
 from core.application.errors import ConfigError, ProtocolError
-from core.application.protocol_contract import PointScalar, ProtocolSample, Quality
+from core.application.protocol_contract import PointScalar
 
 from .mapping import ADSPoint
-
-_ADSERR_SYMBOL_NOT_FOUND = 1808
 
 _FORMATS = {
     "BOOL": "?",
@@ -146,33 +143,6 @@ def _encode_value(value: float | int | bool | str, point: ADSPoint) -> bytes:
     if len(raw) != point.size:
         raise ValueError(f"ADS point '{point.point_id}' data width mismatch")
     return raw
-
-
-def _as_point_scalar(
-    value: object,
-) -> float | int | bool | str | None:
-    if value is None or isinstance(value, str | int | float | bool):
-        return value
-    raise TypeError(f"unsupported ADS value type '{type(value).__name__}'")
-
-
-def _bad_sample(point_id: str) -> ProtocolSample:
-    return ProtocolSample(
-        point_id=point_id,
-        value=None,
-        timestamp=(received_at := datetime.now(UTC)),
-        receive_time=received_at,
-        quality=Quality.BAD,
-    )
-
-
-def _is_point_level_error(exc: BaseException) -> bool:
-    ads_error = getattr(pyads, "ADSError", None)
-    return (
-        ads_error is not None
-        and isinstance(exc, ads_error)
-        and getattr(exc, "err_code", None) == _ADSERR_SYMBOL_NOT_FOUND
-    )
 
 
 _ADS_INTEGER_RANGES: dict[str, tuple[int, int]] = {
