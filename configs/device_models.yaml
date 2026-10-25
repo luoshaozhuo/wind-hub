@@ -60,7 +60,6 @@
 #   max_subs_per_sum:                int > 0，默认 500。
 #   max_block_bytes:                 int > 0，默认 1024 —— 单次 ADS 区块通知最大字节数。
 #   max_delay:                       float >= 0（秒），默认 0.06。
-#   max_notifications_per_connection: int > 0，默认 550。
 #   route_auto_add:  bool，默认 false —— 首次连接失败时是否尝试向远程
 #                    PLC 注册 AMS 反向路由。
 #   username:        str，默认 Administrator —— 远程 PLC 路由注册用户名。
@@ -119,7 +118,6 @@ device_models:
       max_subs_per_sum: 500
       max_block_bytes: 1024
       max_delay: 0.06
-      max_notifications_per_connection: 550
       route_auto_add: false
       username: Administrator  # 远程 PLC 路由注册凭据（wind-hub 应用层默认值）
       password: ""             # 空密码表示未提供有效密码，不保证 PLC 接受
