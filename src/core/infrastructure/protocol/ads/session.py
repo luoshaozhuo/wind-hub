@@ -76,6 +76,10 @@ class _AdsSession:
                 task.cancel()
             raise
 
+    def notification(self, datatype: object) -> Callable[..., Callable[..., None]]:
+        """按 pyads 公共 API 为原生通知生成回调包装器。"""
+        return self._connection.notification(datatype)
+
     async def open(self) -> None:
         """打开一次；调用方取消不使运行中的物理打开失去所有权。"""
         if self._open_started or self._closing:
