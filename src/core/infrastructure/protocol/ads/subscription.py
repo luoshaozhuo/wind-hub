@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import struct
 from collections.abc import Callable, Sequence
 from ctypes import c_ubyte
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import pyads  # type: ignore[import-untyped]
 
@@ -104,7 +105,9 @@ class ADSSubscription:
             if self._stopping:
                 return
             received_at = datetime.now(UTC)
-            source = "device" if isinstance(timestamp, datetime) else "local"
+            source: Literal["device", "local"] = (
+                "device" if isinstance(timestamp, datetime) else "local"
+            )
             stamp = timestamp if isinstance(timestamp, datetime) else received_at
             if stamp.tzinfo is None:
                 stamp = stamp.replace(tzinfo=UTC)
@@ -163,10 +166,8 @@ class ADSSubscription:
 
     async def _stop_once(self) -> None:
         if self._start_task is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await asyncio.shield(self._start_task)
-            except Exception:
-                pass
         errors: list[Exception] = []
         remaining: list[tuple[Any, Any]] = []
         for token in reversed(self._handles):
@@ -178,10 +179,8 @@ class ADSSubscription:
         self._handles = list(reversed(remaining))
         if self._worker is not None:
             self._worker.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._worker
-            except asyncio.CancelledError:
-                pass
         if self._registration_uncertain:
             errors.append(RuntimeError("ADS notification registration result unconfirmed"))
         if errors:
