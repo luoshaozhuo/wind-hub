@@ -83,6 +83,7 @@ class ADSDriver:
         self._subscriptions: set[ADSSubscription] = set()
         self._connect_task: asyncio.Task[None] | None = None
         self._close_task: asyncio.Task[None] | None = None
+        self._connect_expired = False
         self._points: dict[str, ADSPoint] = {}
         self.update_point_table(point_table)
 
@@ -156,9 +157,14 @@ class ADSDriver:
         if self._connect_task is None or self._connect_task.done():
             if self._state is ADSState.FAULTED:
                 raise ProtocolError("ADS target is faulted; physical cleanup unconfirmed")
+            self._connect_expired = False
             task = asyncio.create_task(self._connect_once())
             self._connect_task = task
-        await asyncio.shield(self._connect_task)
+        try:
+            await asyncio.wait_for(asyncio.shield(self._connect_task), timeout=3.0)
+        except TimeoutError:
+            self._connect_expired = True
+            raise ProtocolError("ADS connection deadline exceeded; cleanup is pending") from None
 
     async def _connect_once(self) -> None:
         async with self._lifecycle:
@@ -177,8 +183,10 @@ class ADSDriver:
                     self._session = session
                     try:
                         await session.open()
+                        if self._connect_expired:
+                            raise ProtocolError("ADS connection deadline expired")
                         result = await session.execute("read_state")
-                        if not result or result[0] != pyads.ADSSTATE_RUN:
+                        if self._connect_expired or not result or result[0] != pyads.ADSSTATE_RUN:
                             raise ProtocolError("ADS PLC is not in RUN state")
                         resolved = dict(self._points)
                         for point_id, point in resolved.items():
@@ -188,6 +196,8 @@ class ADSDriver:
                                 resolved[point_id] = point.resolved(
                                     index_group=group, index_offset=offset
                                 )
+                        if self._connect_expired:
+                            raise ProtocolError("ADS connection deadline expired")
                         self._points = resolved
                         self._state = ADSState.CONNECTED
                         return
@@ -198,7 +208,7 @@ class ADSDriver:
                             self._state = ADSState.FAULTED
                             raise
                         self._session = None
-                        if attempt == 0 and self._config.route_auto_add:
+                        if attempt == 0 and self._config.route_auto_add and not self._connect_expired:
                             if _LOCAL_IDENTITY is None:
                                 raise ConfigError("ADS local AMS identity is not initialized")
                             success = await asyncio.to_thread(
@@ -209,7 +219,7 @@ class ADSDriver:
                                 self._config.username,
                                 self._config.password,
                             )
-                            if success:
+                            if success and not self._connect_expired:
                                 continue
                         raise
             except BaseException:
@@ -222,10 +232,12 @@ class ADSDriver:
                 raise
 
     async def close(self) -> None:
-        if self._close_task is None or self._close_task.done() and self._state is not ADSState.DISCONNECTED:
+        if self._close_task is None:
             self._close_task = asyncio.create_task(self._close_once())
-        if self._close_task is not None:
-            await asyncio.shield(self._close_task)
+        try:
+            await asyncio.wait_for(asyncio.shield(self._close_task), timeout=3.0)
+        except TimeoutError:
+            raise ProtocolError("ADS close deadline exceeded; physical cleanup continues") from None
 
     async def _close_once(self) -> None:
         async with self._lifecycle:
@@ -233,13 +245,20 @@ class ADSDriver:
                 return
             self._state = ADSState.CLOSING
             try:
+                subscription_errors: list[Exception] = []
                 for sub in tuple(self._subscriptions):
-                    await sub.stop()
+                    try:
+                        await sub.stop()
+                    except Exception as exc:
+                        subscription_errors.append(exc)
                 if self._session is not None:
                     await self._session.close()
                     if not self._session.is_settled:
                         raise ProtocolError("ADS session close is not settled")
                 self._session = None
+                if subscription_errors:
+                    raise ExceptionGroup("ADS subscriptions not fully released", subscription_errors)
+                self._subscriptions.clear()
                 self._state = ADSState.DISCONNECTED
                 _TARGET_OWNERS.pop(self._identity, None)
             except BaseException:
