@@ -57,6 +57,7 @@ _LOCAL_IDENTITY: ADSLocalConfig | None = None
 _LOCAL_PORT_OPEN = False
 _LOCAL_CLOSED = False
 _LOCAL_LOCK = asyncio.Lock()
+_REMOTE_ROUTE_LOCK = asyncio.Lock()
 _TARGET_OWNERS: dict[str, ADSDriver] = {}
 
 
@@ -228,14 +229,15 @@ class ADSDriver:
                         if attempt == 0 and self._config.route_auto_add and not self._connect_expired:
                             if _LOCAL_IDENTITY is None:
                                 raise ConfigError("ADS local AMS identity is not initialized")
-                            success = await asyncio.to_thread(
-                                pyads.add_route_to_plc,
-                                _LOCAL_IDENTITY.local_ams_net_id,
-                                _LOCAL_IDENTITY.local_ip,
-                                self._config.host,
-                                self._config.username,
-                                self._config.password,
-                            )
+                            async with _REMOTE_ROUTE_LOCK:
+                                success = await asyncio.to_thread(
+                                    pyads.add_route_to_plc,
+                                    _LOCAL_IDENTITY.local_ams_net_id,
+                                    _LOCAL_IDENTITY.local_ip,
+                                    self._config.host,
+                                    self._config.username,
+                                    self._config.password,
+                                )
                             if success and not self._connect_expired:
                                 continue
                         raise
@@ -254,6 +256,8 @@ class ADSDriver:
         try:
             await asyncio.wait_for(asyncio.shield(self._close_task), timeout=3.0)
         except TimeoutError:
+            if self._state is not ADSState.DISCONNECTED:
+                self._state = ADSState.FAULTED
             raise ProtocolError("ADS close deadline exceeded; physical cleanup continues") from None
 
     async def _close_once(self) -> None:
