@@ -183,9 +183,7 @@ class TaskRuntime:
             current = self._task_instances.get(instance_id)
             if current is None:
                 return
-            await self._engine.process(
-                values, list(current.targets), task_id=current.task_id
-            )
+            await self._engine.process(values, list(current.targets), task_id=current.task_id)
 
         try:
             handle = await device.start_acquisition(
@@ -233,9 +231,7 @@ class TaskRuntime:
             self._restart_pending.discard(instance_id)
             await self._close_acquisition_handle(instance_id)
 
-    async def start_device_tasks(
-        self, device_id: str, *, can_restore: Callable[[], bool]
-    ) -> None:
+    async def start_device_tasks(self, device_id: str, *, can_restore: Callable[[], bool]) -> None:
         """Watchdog 重连成功：恢复该设备全部已启用采集实例。
 
         Collector 冷启动不调用此入口。实例注册表已经排除禁用任务与
@@ -244,8 +240,7 @@ class TaskRuntime:
         if device_id not in self._devices.devices:
             return
         instance_ids = tuple(
-            iid for iid, instance in self._task_instances.items()
-            if instance.device_id == device_id
+            iid for iid, instance in self._task_instances.items() if instance.device_id == device_id
         )
         self._restoring_devices.add(device_id)
         try:

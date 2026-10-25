@@ -427,9 +427,7 @@ class DeviceRuntime:
                     and watchdog is not None
                     and watchdog.enabled
                 ):
-                    self._note_connect_failure(
-                        device_id, TimeoutError("connect timeout")
-                    )
+                    self._note_connect_failure(device_id, TimeoutError("connect timeout"))
                     logger.warning(
                         "connect timeout: device=%s stage=watchdog_connect "
                         "timeout=%.1fs — reconnect attempt cancelled by deadline",
