@@ -6,8 +6,8 @@ capabilities() 声明**真实具备**的能力；调用未支持能力时由 Ada
 
 两类推送语义严格区分：
 
-- ``subscribe``：协议**原生远程订阅**（如 ADS AddDeviceNotification），
-  调用会在对端设备注册通知；
+- ``subscribe``：同步创建协议**原生远程订阅**对象；``start()``
+  才会在对端设备注册通知，``stop()`` 释放资源；
 - ``listen``：**本地监听**设备主动上送（如 IEC104 自发上送/总召数据），
   只做本地注册与分发，不向对端注册、不轮询、不隐式总召。
 """
@@ -33,9 +33,11 @@ if TYPE_CHECKING:
 
 
 class SubscriptionHandle(Protocol):
-    """一次协议原生远程订阅的生命周期句柄。"""
+    """一次性协议原生远程订阅，创建不触发远程注册。"""
 
-    async def close(self) -> None: ...
+    async def start(self) -> None: ...
+
+    async def stop(self) -> None: ...
 
 
 class ListenHandle(Protocol):
@@ -99,17 +101,17 @@ class ProtocolPort(Protocol[TPoint]):
         """
         ...
 
-    async def subscribe(
+    def subscribe(
         self,
         point_ids: Sequence[str],
         callback: ProtocolSampleCallback,
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
-        """注册协议**原生远程订阅**（对端设备真实支持通知机制时）。
+        """同步创建原生远程订阅对象，不发送网络命令。
 
-        空 ``point_ids`` 表示订阅点表全部点。实现必须返回句柄；注销统一
-        通过 ``handle.close()``（幂等）完成，注销后不得继续投递新数据。
+        空 ``point_ids`` 表示订阅点表全部点。调用方执行 ``start()``
+        后才注册远程通知，``stop()`` 幂等释放资源；对象停止后不得重启。
         """
         ...
 
