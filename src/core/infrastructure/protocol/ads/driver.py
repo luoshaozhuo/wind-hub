@@ -234,7 +234,12 @@ class ADSDriver:
                             self._state = ADSState.FAULTED
                             raise
                         self._session = None
-                        if attempt == 0 and self._config.route_auto_add and not self._connect_expired:
+                        if (
+                            attempt == 0
+                            and session.open_failed
+                            and self._config.route_auto_add
+                            and not self._connect_expired
+                        ):
                             if _LOCAL_IDENTITY is None:
                                 raise ConfigError("ADS local AMS identity is not initialized")
                             async with _REMOTE_ROUTE_LOCK:
