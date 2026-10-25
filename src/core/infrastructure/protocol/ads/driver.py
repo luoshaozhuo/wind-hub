@@ -162,8 +162,9 @@ class ADSDriver:
                 self._close_task = None
             task = asyncio.create_task(self._connect_once())
             self._connect_task = task
+        budget_ms = _LOCAL_IDENTITY.connect_timeout_ms if _LOCAL_IDENTITY else 3000
         try:
-            await asyncio.wait_for(asyncio.shield(self._connect_task), timeout=3.0)
+            await asyncio.wait_for(asyncio.shield(self._connect_task), timeout=budget_ms / 1000)
         except TimeoutError:
             self._connect_expired = True
             self._schedule_late_connect_cleanup()
@@ -202,7 +203,12 @@ class ADSDriver:
                     self._session = session
                     try:
                         await session.open()
-                        await session.execute("set_timeout", int(self._config.timeout * 1000))
+                        request_ms = (
+                            _LOCAL_IDENTITY.request_timeout_ms
+                            if _LOCAL_IDENTITY is not None
+                            else int(self._config.timeout * 1000)
+                        )
+                        await session.execute("set_timeout", request_ms)
                         if self._connect_expired:
                             raise ProtocolError("ADS connection deadline expired")
                         result = await session.execute("read_state")
@@ -257,8 +263,9 @@ class ADSDriver:
             if self._state is ADSState.CONNECTED:
                 self._state = ADSState.CLOSING
             self._close_task = asyncio.create_task(self._close_once())
+        budget_ms = _LOCAL_IDENTITY.close_timeout_ms if _LOCAL_IDENTITY else 3000
         try:
-            await asyncio.wait_for(asyncio.shield(self._close_task), timeout=3.0)
+            await asyncio.wait_for(asyncio.shield(self._close_task), timeout=budget_ms / 1000)
         except TimeoutError:
             if self._state is not ADSState.DISCONNECTED:
                 self._state = ADSState.FAULTED
