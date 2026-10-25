@@ -675,7 +675,7 @@ class IEC104Driver:
     # 推送：只有本地监听，没有远程订阅
     # ------------------------------------------------------------------
 
-    async def subscribe(
+    def subscribe(
         self,
         point_ids: Sequence[str],
         callback: ProtocolSampleCallback,
