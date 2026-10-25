@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import pyads  # type: ignore[import-untyped]
 
@@ -84,7 +84,7 @@ class _AdsSession:
 
     def notification(self, datatype: object) -> Callable[..., Callable[..., None]]:
         """按 pyads 公共 API 为原生通知生成回调包装器。"""
-        return self._connection.notification(datatype)
+        return cast("Callable[..., Callable[..., None]]", self._connection.notification(datatype))
 
     async def open(self) -> None:
         """打开一次；调用方取消不使运行中的物理打开失去所有权。"""
