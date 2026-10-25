@@ -434,6 +434,7 @@ class ADSDriver:
             session, mapped, callback, interval=0.1 if interval is None else interval,
             max_block_bytes=self._config.max_block_bytes,
             max_delay=self._config.max_delay,
+            on_stopped=self._subscriptions.discard,
         )
         self._subscriptions.add(subscription)
         return subscription
