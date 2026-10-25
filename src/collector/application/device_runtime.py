@@ -303,6 +303,11 @@ class DeviceRuntime:
             self._clock(), error, connection_level=connection_level
         )
 
+    def is_device_open(self, device_id: str) -> bool:
+        """实时协议连接状态；不依赖滞后的运行状态簿记。"""
+        session = self._devices.get(device_id)
+        return session is not None and _transport_open(session)
+
     def device_state(self, device_id: str) -> DeviceRuntimeState | None:
         """返回设备当前运行状态（查询服务聚合 status 用）。"""
         return self._device_states.get(device_id)
