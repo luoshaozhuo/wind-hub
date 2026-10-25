@@ -247,7 +247,6 @@ class TaskRuntime:
             if instance.device_id == device_id
         )
         self._restoring_devices.add(device_id)
-        completed = False
         try:
             for iid in instance_ids:
                 if not can_restore():
@@ -268,11 +267,8 @@ class TaskRuntime:
                     if not can_restore() or iid in self._recovery_stopped:
                         return
                     await self._start_locked(iid)
-            completed = True
         finally:
             self._restoring_devices.discard(device_id)
-            if completed:
-                self._recovery_stopped.difference_update(instance_ids)
 
     async def stop_all(self) -> None:
         """停机路径：关闭全部实例采集句柄——polling 协程取消、订阅注销，
