@@ -28,10 +28,17 @@ class ADSLocalConfig:
 
     local_ams_net_id: str
     local_ip: str
+    request_timeout_ms: int = 1000
+    connect_timeout_ms: int = 3000
+    close_timeout_ms: int = 3000
 
     def __post_init__(self) -> None:
         _require_non_empty(self.local_ams_net_id, "ads.local_ams_net_id")
         _require_non_empty(self.local_ip, "ads.local_ip")
+        for name in ("request_timeout_ms", "connect_timeout_ms", "close_timeout_ms"):
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"ads.{name} must be a positive integer")
 
 
 # 进程级同步命令线程池上限：默认 32；ADS 无锁实验证明不能假设 AdsLib

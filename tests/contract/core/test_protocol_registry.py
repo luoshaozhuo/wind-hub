@@ -84,7 +84,7 @@ class _Protocol:
         del writes
         return ()
 
-    async def subscribe(
+    def subscribe(
         self,
         point_ids: Sequence[str],
         callback: ProtocolSampleCallback,
@@ -200,7 +200,7 @@ def test_protocol_drivers_declare_supported_capabilities() -> None:
     ads = ADSDriver(
         ConnectionEndpoint("127.0.0.1", 801),
         PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
-        {},
+        {"target_net_id": "127.0.0.1.1.1"},
     )
     iec104 = IEC104Driver(
         ConnectionEndpoint("127.0.0.1", 2404),
@@ -244,7 +244,7 @@ async def test_modbus_rejects_unsupported_protocol_capabilities() -> None:
         return None
 
     with pytest.raises(ProtocolCapabilityError, match="subscription"):
-        await driver.subscribe((), callback)
+        driver.subscribe((), callback)
 
     with pytest.raises(ProtocolCapabilityError, match="interrogation"):
         await driver.interrogate()
@@ -262,7 +262,7 @@ async def test_iec104_rejects_unsupported_protocol_capabilities() -> None:
         return None
 
     with pytest.raises(ProtocolCapabilityError, match="subscription"):
-        await driver.subscribe((), callback)
+        driver.subscribe((), callback)
     with pytest.raises(ProtocolCapabilityError, match="batch read"):
         await driver.read_many(("p1",))
     with pytest.raises(ProtocolCapabilityError, match="batch write"):
@@ -274,7 +274,7 @@ async def test_ads_rejects_unsupported_interrogation() -> None:
     driver = ADSDriver(
         ConnectionEndpoint("127.0.0.1", 801),
         PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
-        {},
+        {"target_net_id": "127.0.0.1.1.1"},
     )
 
     with pytest.raises(ProtocolCapabilityError, match="interrogation"):

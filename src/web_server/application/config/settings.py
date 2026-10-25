@@ -84,10 +84,13 @@ class SettingsService:
             if bool(request.ads_local_ip) != bool(request.ads_local_ams_net_id):
                 raise SettingsValidationError("ADS local identity requires both IP and AMS Net ID")
             if request.ads_local_ip and request.ads_local_ams_net_id:
-                raw["ads"] = {
-                    "local_ip": request.ads_local_ip,
-                    "local_ams_net_id": request.ads_local_ams_net_id,
-                }
+                ads_settings = raw.get("ads")
+                existing = dict(ads_settings) if isinstance(ads_settings, dict) else {}
+                existing.update(
+                    local_ip=request.ads_local_ip,
+                    local_ams_net_id=request.ads_local_ams_net_id,
+                )
+                raw["ads"] = existing
             else:
                 raw.pop("ads", None)
 

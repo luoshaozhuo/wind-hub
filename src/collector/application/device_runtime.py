@@ -303,6 +303,11 @@ class DeviceRuntime:
             self._clock(), error, connection_level=connection_level
         )
 
+    def is_device_open(self, device_id: str) -> bool:
+        """实时协议连接状态；不依赖滞后的运行状态簿记。"""
+        session = self._devices.get(device_id)
+        return session is not None and _transport_open(session)
+
     def device_state(self, device_id: str) -> DeviceRuntimeState | None:
         """返回设备当前运行状态（查询服务聚合 status 用）。"""
         return self._device_states.get(device_id)
@@ -422,9 +427,7 @@ class DeviceRuntime:
                     and watchdog is not None
                     and watchdog.enabled
                 ):
-                    self._note_connect_failure(
-                        device_id, TimeoutError("connect timeout")
-                    )
+                    self._note_connect_failure(device_id, TimeoutError("connect timeout"))
                     logger.warning(
                         "connect timeout: device=%s stage=watchdog_connect "
                         "timeout=%.1fs — reconnect attempt cancelled by deadline",

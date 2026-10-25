@@ -57,7 +57,6 @@
 #   max_block_bytes:                 int > 0，默认 1024 —— 单次 ADS 区块通知最大字节数。
 #   max_delay:                       float >= 0（秒），默认 0.06 —— 通知
 #                                    最大延迟。
-#   max_notifications_per_connection: int > 0，默认 550 —— 单连接最大通知数。
 #   route_auto_add:                  bool，默认 false —— 自动添加 AMS 路由。
 #   username:        str，默认 Administrator —— 远程 PLC 路由注册用户名
 #                    （wind-hub 应用层默认值，非 pyads 默认值）。

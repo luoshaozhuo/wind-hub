@@ -1,302 +1,210 @@
-"""ADS 区块通知订阅生命周期测试（Component，fake pyads）。
-
-当前架构：所有订阅复用 Driver 的单条 pyads 连接，一个订阅按区块注册
-若干 Device Notification，一个有界队列 + 一个 Worker 顺序投递。
-本模块覆盖真实 TwinCAT 不可用时仍可确定性验证的行为：
-
-- 同一连接上多个订阅相互独立，关闭一个不影响另一个；
-- 用户回调异常不终止 Worker；
-- 关闭订阅注销其全部 notification handle，但不关闭共享连接；
-- start 第二区块注册失败时清理已注册 handle，Driver 不跟踪失败订阅；
-- 注销命令抛错只记录日志，不挂住关闭流程；
-- 旧一代原生回调在订阅关闭/重建后静默丢弃。
-
-内部 watchdog、每订阅独立连接等旧架构行为已删除，不再测试。
-"""
+"""Subscription start/stop/driver.close 竞态与 Handle 归属（P0-4）。"""
 
 from __future__ import annotations
 
 import asyncio
-import struct
-from collections.abc import Callable
-from typing import Any
+from dataclasses import replace
 
 import pytest
 
-import core.infrastructure.protocol.ads.subscription as subscription_module
-from core.application import ProtocolSample
-from core.application.errors import ProtocolError
-from core.domain import (
-    BusinessPointId,
-    ConnectionEndpoint,
-    Point,
-    PointAccess,
-    PointTable,
-    PointTableId,
-    Protocol,
-)
-from core.infrastructure.protocol.ads import ADSDriver
-from tests.support.units import NONE_UNIT
+import core.infrastructure.protocol.ads.driver as driver_module
+from core.application.protocol_contract import ProtocolSample
+from core.application.settings import ADSLocalConfig
+from tests.support.ads_fake import FakePyadsConnection, Gate, make_driver, make_point, patch_session
 
 
-def _point(point_id: str, *, offset: int) -> Point:
-    return Point(
-        point_id=point_id,
-        business_point_id=BusinessPointId(point_id),
-        source_unit=NONE_UNIT,
-        access=PointAccess.READ_WRITE,
-        ext={"data_type": "REAL", "index_group": 0x4020, "index_offset": offset},
-    )
-
-
-def _driver(*points: Point) -> ADSDriver:
-    table = PointTable(PointTableId("ads_pt"), Protocol("ads"), {p.point_id: p for p in points})
-    driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
-    driver._connected = True
+def _connected_driver(connection: FakePyadsConnection, points: dict | None = None) -> object:
+    points = points or {
+        "a": make_point("a", data_type="INT", index_group=0x4020, index_offset=0),
+        "b": make_point("b", data_type="INT", index_group=0x4020, index_offset=2),
+    }
+    driver = make_driver(points)
+    patch_session(driver, connection)
     return driver
 
 
-def _wrap(driver: ADSDriver, connection: _Connection) -> None:
-    from core.infrastructure.protocol.ads.session import _AdsSession
-
-    driver._session = _AdsSession(connection)
+async def _noop(batch: tuple[ProtocolSample, ...]) -> None:
+    return None
 
 
-class _Attrib:
-    def __init__(
-        self, length: int, *, trans_mode: int, cycle_time: float, max_delay: float = 0.0
-    ) -> None:
-        self.length = length
-        self.trans_mode = trans_mode
-        self.cycle_time = cycle_time
-        self.max_delay = max_delay
-
-
-class _Connection:
-    """记录 notification 注册/注销的单连接 fake（共享连接模型）。"""
-
-    def __init__(self) -> None:
-        self.is_open = True
-        self.closed = False
-        self.callbacks: dict[int, Callable[..., None]] = {}
-        self.deleted: list[object] = []
-        self._next_handle = 1
-        self.fail_registration_after: int | None = None
-
-    def notification(self, datatype: object) -> Callable[..., Callable[..., None]]:
-        del datatype
-
-        def decorator(callback: Callable[..., None]) -> Callable[..., None]:
-            return callback
-
-        return decorator
-
-    def add_device_notification(
-        self,
-        address: tuple[int, int],
-        attr: object,
-        callback: Callable[..., None],
-    ) -> tuple[object, object]:
-        del address, attr
-        if (
-            self.fail_registration_after is not None
-            and len(self.callbacks) >= self.fail_registration_after
-        ):
-            raise ConnectionError("registration rejected")
-        handle = self._next_handle
-        self._next_handle += 1
-        self.callbacks[handle] = callback
-        return (handle, None)
-
-    def del_device_notification(self, handle: object, user_handle: object) -> None:
-        del user_handle
-        if not isinstance(handle, int):
-            raise AssertionError("notification handle must be registered int")
-        self.callbacks.pop(handle, None)
-        self.deleted.append(handle)
-
-    def fire(self, handle: int, value: float, *, timestamp: Any = None) -> None:
-        callback = self.callbacks[handle]
-        callback(handle, (0x4020, 0), timestamp, ctypes_ubyte_4(value))
-
-
-class _FakePyads:
-    ADSTRANS_SERVERCYCLE = 3
-    Connection = object
-    NotificationAttrib = _Attrib
-
-
-def ctypes_ubyte_4(value: float) -> object:
-    from ctypes import c_ubyte
-
-    return (c_ubyte * 4)(*struct.pack("<f", value))
-
-
-@pytest.fixture
-def fake_pyads(monkeypatch: pytest.MonkeyPatch) -> _Connection:
-    connection = _Connection()
-    fake = _FakePyads()
-    monkeypatch.setattr(subscription_module, "pyads", fake)
-    return connection
-
-
-@pytest.mark.asyncio
-async def test_multiple_subscriptions_share_one_connection_and_are_independent(
-    fake_pyads: _Connection,
+async def test_start_registers_and_stop_deletes_once_idempotent(
+    ads_identity: ADSLocalConfig,
 ) -> None:
-    driver = _driver(_point("speed", offset=10))
-    _wrap(driver, fake_pyads)
-    first_samples: list[ProtocolSample] = []
-    second_samples: list[ProtocolSample] = []
-    second_received = asyncio.Event()
-
-    async def first_cb(samples: tuple[ProtocolSample, ...]) -> None:
-        for sample in samples:
-            first_samples.append(sample)
-
-    async def second_cb(samples: tuple[ProtocolSample, ...]) -> None:
-        for sample in samples:
-            second_samples.append(sample)
-            second_received.set()
-
-    first = await driver.subscribe(("speed",), first_cb, interval=0.25)
-    second = await driver.subscribe(("speed",), second_cb, interval=0.25)
-    # 同一物理通知由两个逻辑订阅共享；一个退出不能提前 DEL。
-    assert driver._session is not None
-    assert set(fake_pyads.callbacks) == {1}
-
-    await first.close()
-    assert first._closed
-    assert set(fake_pyads.callbacks) == {1}
-    fake_pyads.fire(1, 3.0)
-    await asyncio.wait_for(second_received.wait(), timeout=1.0)
-    assert [sample.value for sample in second_samples] == [3.0]
-    assert first_samples == []
-    await second.close()
-    assert not fake_pyads.callbacks
-    # 订阅关闭不关闭共享业务连接。
-    assert fake_pyads.is_open
+    connection = FakePyadsConnection()
+    driver = _connected_driver(connection)
+    await driver.connect()
+    sub = driver.subscribe(("a", "b"), _noop, interval=0.05)
+    await sub.start()
+    assert len(connection.notifications) == 1
+    await sub.stop()
+    adds = [name for name, _ in connection.calls if name == "add_device_notification"]
+    dels = [args for name, args in connection.calls if name == "del_device_notification"]
+    assert adds == ["add_device_notification"]
+    assert len(dels) == 1
+    assert connection.notifications == {}
+    # 重复 stop 不重复删除。
+    await sub.stop()
+    assert [name for name, _ in connection.calls if name == "del_device_notification"] == [
+        "del_device_notification"
+    ]
+    await driver.close()
 
 
-@pytest.mark.asyncio
-async def test_callback_exception_does_not_stop_subscription(
-    fake_pyads: _Connection,
+async def test_start_is_single_shot(ads_identity: ADSLocalConfig) -> None:
+    connection = FakePyadsConnection()
+    driver = _connected_driver(connection)
+    await driver.connect()
+    sub = driver.subscribe(("a",), _noop)
+    await sub.start()
+    with pytest.raises(RuntimeError, match="start once"):
+        await sub.start()
+    await sub.stop()
+    await driver.close()
+
+
+async def test_cancelled_start_with_late_success_still_deletes_handle(
+    ads_identity: ADSLocalConfig,
 ) -> None:
-    driver = _driver(_point("speed", offset=10))
-    _wrap(driver, fake_pyads)
-    received: list[float] = []
-    delivered = asyncio.Event()
-    calls = 0
-
-    async def flaky(samples: tuple[ProtocolSample, ...]) -> None:
-        for sample in samples:
-            nonlocal calls
-            calls += 1
-            if calls == 1:
-                raise RuntimeError("subscriber bug")
-            assert sample.value is not None
-            received.append(float(sample.value))
-            delivered.set()
-
-    handle = await driver.subscribe(("speed",), flaky, interval=0.25)
-    try:
-        fake_pyads.fire(1, 1.0)
-        # 两次 fire 必须跨越合批窗口，才能验证不同批次间的异常隔离。
-        await asyncio.sleep(0.03)
-        fake_pyads.fire(1, 2.0)
-        await asyncio.wait_for(delivered.wait(), timeout=1.0)
-        assert received == [2.0]
-    finally:
-        await handle.close()
+    connection = FakePyadsConnection()
+    gate = Gate()
+    connection.block_before["add_device_notification"] = gate
+    driver = _connected_driver(connection)
+    await driver.connect()
+    sub = driver.subscribe(("a",), _noop)
+    start = asyncio.create_task(sub.start())
+    await asyncio.sleep(0.05)
+    start.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await start
+    assert gate.waiters == 1
+    gate.open()
+    # 迟到的注册可能成功：stop 必须收敛并删除该 Handle。
+    await sub.stop()
+    assert connection.notifications == {}
+    assert len([n for n, _ in connection.calls if n == "del_device_notification"]) == 1
+    await driver.close()
 
 
-@pytest.mark.asyncio
-async def test_close_deregisters_all_handles_and_is_idempotent(
-    fake_pyads: _Connection,
+async def test_unconfirmed_registration_reports_uncertain(ads_identity: ADSLocalConfig) -> None:
+    connection = FakePyadsConnection()
+    connection.fail["add_device_notification"] = RuntimeError("ams router ambiguity")
+    driver = _connected_driver(connection)
+    await driver.connect()
+    sub = driver.subscribe(("a",), _noop)
+    with pytest.raises(RuntimeError, match="ams router ambiguity"):
+        await sub.start()
+    with pytest.raises(ExceptionGroup, match="cleanup failed") as exc_info:
+        await sub.stop()
+    assert any("unconfirmed" in str(exc) for exc in exc_info.value.exceptions)
+    # 不确定状态不能被 driver.close 吞掉：FAULTED 保留 Net ID 占用。
+    with pytest.raises(ExceptionGroup):
+        await driver.close()
+    assert driver.state.value == "faulted"
+
+
+async def test_failed_delete_retains_handle_and_stays_fail_closed(
+    ads_identity: ADSLocalConfig,
 ) -> None:
-    driver = _driver(_point("speed", offset=10), _point("torque", offset=1100))
-    _wrap(driver, fake_pyads)
-    handle = await driver.subscribe((), _noop, interval=0.25)
-    assert len(fake_pyads.callbacks) == 2
+    # D4：注销失败时原生 Handle 不得从簿记中丢失：token 保留、订阅不脱离
+    # driver 注册表、后续 stop/driver.close 持续显式上报并 FAULTED
+    # （物理路由最终随 session close 拆除，但本地绝不谎报已收敛）。
+    connection = FakePyadsConnection()
+    connection.fail["del_device_notification"] = OSError("router gone")
+    driver = _connected_driver(connection)
+    await driver.connect()
+    sub = driver.subscribe(("a",), _noop)
+    await sub.start()
+    token = sub._handles[0]
+    with pytest.raises(ExceptionGroup):
+        await sub.stop()
+    assert sub._handles == [token]  # Handle 未被丢弃
+    assert connection.notifications != {}
+    assert sub in driver._subscriptions
+    with pytest.raises(ExceptionGroup):
+        await sub.stop()  # 不允许静默成功
+    with pytest.raises(ExceptionGroup):
+        await driver.close()
+    assert driver.state.value == "faulted"
 
-    await handle.close()
-    assert fake_pyads.deleted == [1, 2]
-    assert fake_pyads.callbacks == {}
-    assert fake_pyads.is_open  # 共享连接保持打开
-    await handle.close()
-    assert fake_pyads.deleted == [1, 2]
 
-
-async def _noop(samples: tuple[ProtocolSample, ...]) -> None:
-    for sample in samples:
-        del sample
-
-
-@pytest.mark.asyncio
-async def test_start_failure_deregisters_partial_blocks_and_is_not_tracked(
-    fake_pyads: _Connection,
+async def test_successful_stop_unregisters_subscription_no_churn_accumulation(
+    ads_identity: ADSLocalConfig,
 ) -> None:
-    """第二个区块注册失败：已注册 handle 被清理，异常上抛，Driver 不跟踪。"""
-    driver = _driver(_point("speed", offset=10), _point("torque", offset=1100))
-    _wrap(driver, fake_pyads)
-    fake_pyads.fail_registration_after = 1
-
-    # 传输级注册失败与读写路径同口径归一化为 ProtocolError，原始异常保留为 __cause__。
-    with pytest.raises(ProtocolError, match="ADS subscribe failed") as exc_info:
-        await driver.subscribe(("speed", "torque"), _noop, interval=0.25)
-    assert isinstance(exc_info.value.__cause__, ConnectionError)
-
-    assert fake_pyads.deleted == [1]
+    # D5：stop 成功后订阅必须从 driver 注册表解除；高频 start/stop churn
+    # 不累积 Subscription 对象，原生 add/del 始终配对。
+    connection = FakePyadsConnection()
+    driver = _connected_driver(connection)
+    await driver.connect()
+    for _ in range(50):
+        sub = driver.subscribe(("a",), _noop, interval=0.05)
+        await sub.start()
+        await sub.stop()
     assert driver._subscriptions == set()
-    assert driver.is_open()
+    adds = [n for n, _ in connection.calls if n == "add_device_notification"]
+    dels = [n for n, _ in connection.calls if n == "del_device_notification"]
+    assert len(adds) == 50
+    assert len(dels) == 50
+    assert connection.notifications == {}
+    await driver.close()
 
 
-@pytest.mark.asyncio
-async def test_deregistration_failure_does_not_block_close(
-    fake_pyads: _Connection,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
+async def test_delete_failure_makes_driver_close_faulted(ads_identity: ADSLocalConfig) -> None:
+    connection = FakePyadsConnection()
+    connection.fail["del_device_notification"] = OSError("router gone")
+    driver = _connected_driver(connection)
+    await driver.connect()
+    sub = driver.subscribe(("a",), _noop)
+    await sub.start()
+    with pytest.raises(ExceptionGroup):
+        await sub.stop()
+    with pytest.raises(ExceptionGroup):
+        await driver.close()
+    assert driver.state.value == "faulted"
+    assert driver_module._TARGET_OWNERS["192.0.2.10.1.1"] is driver
+
+
+async def test_driver_close_stops_active_subscription_and_settles(
+    ads_identity: ADSLocalConfig,
 ) -> None:
-    driver = _driver(_point("speed", offset=10))
-    _wrap(driver, fake_pyads)
-
-    def raise_on_delete(handle: object, user_handle: object) -> None:
-        raise ConnectionError("deregistration lost")
-
-    monkeypatch.setattr(fake_pyads, "del_device_notification", raise_on_delete)
-    handle = await driver.subscribe(("speed",), _noop, interval=0.25)
-
-    await asyncio.wait_for(handle.close(), timeout=1.0)
-    assert handle._closed
-    assert "deregistration failed" in caplog.text
+    connection = FakePyadsConnection()
+    driver = _connected_driver(connection)
+    await driver.connect()
+    sub = driver.subscribe(("a",), _noop)
+    await sub.start()
+    await driver.close()
+    assert driver.state.value == "disconnected"
+    assert len([n for n, _ in connection.calls if n == "del_device_notification"]) == 1
+    assert connection.closed_calls == 1
 
 
-@pytest.mark.asyncio
-async def test_old_generation_native_callback_is_silently_dropped(
-    fake_pyads: _Connection,
+async def test_close_budget_expires_when_worker_callback_still_alive(
+    ads_identity: ADSLocalConfig,
 ) -> None:
-    """订阅关闭后再订阅：旧订阅残留的原生回调不得再投递样本。"""
-    driver = _driver(_point("speed", offset=10))
-    _wrap(driver, fake_pyads)
-    received: list[float] = []
+    driver_module._LOCAL_IDENTITY = replace(ads_identity, close_timeout_ms=200)
+    connection = FakePyadsConnection()
+    driver = _connected_driver(connection)
+    await driver.connect()
+    release = asyncio.Event()
 
-    async def collect(samples: tuple[ProtocolSample, ...]) -> None:
-        for sample in samples:
-            received.append(float(sample.value))  # type: ignore[arg-type]
+    async def stuck(batch: tuple[ProtocolSample, ...]) -> None:
+        # 模拟拒绝在清理窗口内结束的回调（吞掉取消、持续存活）。
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            while not release.is_set():
+                await asyncio.sleep(0.01)
+            raise
 
-    first = await driver.subscribe(("speed",), collect, interval=0.25)
-    old_callback = fake_pyads.callbacks[1]
-    await first.close()
-
-    second = await driver.subscribe(("speed",), collect, interval=0.25)
-    try:
-        # 旧一代回调（携带旧 generation 闭包）：静默丢弃。
-        old_callback(1, (0x4020, 10), None, ctypes_ubyte_4(1.0))
-        await asyncio.sleep(0.05)
-        assert received == []
-        # 新一代回调正常投递。
-        fake_pyads.fire(2, 2.0)
-        await asyncio.sleep(0.05)
-        assert received == [2.0]
-    finally:
-        await second.close()
+    sub = driver.subscribe(("a",), stuck)
+    await sub.start()
+    connection.fire_notification((0x4020, 0), b"\x2a\x00")
+    await asyncio.sleep(0.05)  # worker 已进入不可及时取消的回调
+    with pytest.raises(Exception, match="close deadline exceeded"):
+        await driver.close()
+    assert driver.state.value == "faulted"
+    release.set()
+    # 后台清理在回调结束后收敛。
+    deadline = asyncio.get_running_loop().time() + 3
+    while driver.state is not driver_module.ADSState.DISCONNECTED:
+        assert asyncio.get_running_loop().time() < deadline
+        await asyncio.sleep(0.02)

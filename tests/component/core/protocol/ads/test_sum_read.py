@@ -1,250 +1,110 @@
-"""ADS Index Sum Read 的请求顺序、逐点错误及传输失败测试。"""
+"""Sum Read：请求顺序、逐点质量、分块与短应答校验。"""
 
 from __future__ import annotations
 
 import struct
-from typing import Any
 
 import pytest
 
-import core.infrastructure.protocol.ads.driver as driver_module
 from core.application.errors import ProtocolError
 from core.application.protocol_contract import Quality
-from core.domain import (
-    BusinessPointId,
-    ConnectionEndpoint,
-    Point,
-    PointAccess,
-    PointTable,
-    PointTableId,
-    Protocol,
-)
-from core.infrastructure.protocol.ads import ADSDriver
-from tests.support.units import NONE_UNIT
+from tests.support.ads_fake import FakePyadsConnection, make_driver, make_point, patch_session
 
 
-def _point(point_id: str, offset: int) -> Point:
-    return Point(
-        point_id=point_id,
-        business_point_id=BusinessPointId(point_id),
-        source_unit=NONE_UNIT,
-        access=PointAccess.READ_WRITE,
-        ext={"index_group": 0x4020, "index_offset": offset, "data_type": "DINT"},
-    )
+def _driver_with(points: dict, *, max_subs_per_sum: int = 500):
+    driver = make_driver(points, options={"max_subs_per_sum": max_subs_per_sum})
+    connection = patch_session(driver, FakePyadsConnection())
+    return driver, connection
 
 
-def _driver(connection: object) -> ADSDriver:
-    driver = ADSDriver(
-        ConnectionEndpoint("192.0.2.20", 801),
-        PointTable(
-            PointTableId("ads"),
-            Protocol("ads"),
-            {
-                "a": _point("a", 12),
-                "b": _point("b", 16),
-            },
-        ),
-        {},
-    )
-    driver._session = driver_module._AdsSession(connection)
-    driver._connected = True
-    return driver
+async def test_empty_read_returns_empty_without_network() -> None:
+    driver, _ = _driver_with({"p": make_point("p", index_group=0x4020, index_offset=0)})
+    assert await driver.read_many(()) == ()
 
 
-@pytest.mark.asyncio
-async def test_sum_read_preserves_duplicates_and_individual_errors() -> None:
-    class Connection:
-        def read_write(
-            self,
-            group: int,
-            count: int,
-            _rd: object,
-            request: Any,
-            _wd: object,
-            *,
-            check_length: bool,
-        ) -> bytes:
-            del group, _rd, _wd, check_length
-            assert count == 3
-            assert [(x.iOffset, x.size) for x in request] == [
-                (16, 4),
-                (12, 4),
-                (12, 4),
-            ]
-            return struct.pack("<IIIiii", 0, 1808, 0, 2, 1, 3)
-
-    samples = await _driver(Connection()).read_many(("b", "a", "a"))
-    assert [(s.value, s.quality) for s in samples] == [
-        (2, Quality.GOOD),
-        (None, Quality.BAD),
-        (3, Quality.GOOD),
-    ]
+async def test_sum_read_preserves_order_and_decodes_values() -> None:
+    points = {
+        "a": make_point("a", data_type="INT", index_group=0x4020, index_offset=0),
+        "b": make_point("b", data_type="INT", index_group=0x4020, index_offset=2),
+        "c": make_point("c", data_type="INT", index_group=0x4020, index_offset=4),
+    }
+    driver, connection = _driver_with(points)
+    connection.sum_read_store = {
+        (0x4020, 0): struct.pack("<h", 11),
+        (0x4020, 2): struct.pack("<h", -22),
+        (0x4020, 4): struct.pack("<h", 33),
+    }
+    await driver.connect()
+    samples = await driver.read_many(("c", "a", "b"))
+    assert [sample.point_id for sample in samples] == ["c", "a", "b"]
+    assert [sample.value for sample in samples] == [33, 11, -22]
+    assert all(sample.quality is Quality.GOOD for sample in samples)
+    # wire 请求按调用顺序携带三元组。
+    items = [args for name, args in connection.calls if name == "read_write_sumread"][0]
+    assert items == ((0x4020, 4, 2), (0x4020, 0, 2), (0x4020, 2, 2))
+    await driver.close()
 
 
-@pytest.mark.asyncio
-async def test_sum_read_transport_failure_never_falls_back_to_sequential() -> None:
-    class Connection:
-        def read_write(self, *_args: object, **_kwargs: object) -> bytes:
-            raise ConnectionError("ADS communication lost")
+async def test_sum_read_per_point_device_error_is_bad_quality_not_failure() -> None:
+    points = {
+        "a": make_point("a", data_type="DINT", index_group=0x4020, index_offset=0),
+        "b": make_point("b", data_type="DINT", index_group=0x4020, index_offset=4),
+    }
+    driver, connection = _driver_with(points)
 
-        def close(self) -> None:
-            pass
+    def override(items):
+        errors = struct.pack("<II", 0, 1794)
+        data = b"\x01\x00\x00\x00" + b"\x00" * 4
+        return errors + data
 
-    driver = _driver(Connection())
-    with pytest.raises(ProtocolError, match="ADS read failed"):
-        await driver.read_many(("a", "b"))
-    assert driver.is_open()  # 一次通信失败不自动销毁会话，由 Watchdog 判定恢复
-
-
-@pytest.mark.asyncio
-async def test_index_sum_read_uses_public_read_write(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import ctypes
-    import struct
-
-    from pyads.constants import (  # type: ignore[import-untyped]  # pyads 无 py.typed，与 src 处理方式一致
-        ADSIGRP_SUMUP_READ,
-    )
-
-    class _ConnectionWithSum:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def read_write(
-            self,
-            group: int,
-            count: int,
-            plc_read_datatype: object,
-            request: Any,
-            plc_write_datatype: object,
-            *,
-            check_length: bool,
-        ) -> bytes:
-            self.calls += 1
-            assert group == ADSIGRP_SUMUP_READ
-            assert count == 2
-            assert plc_read_datatype is None
-            assert plc_write_datatype is None
-            assert check_length is False
-            assert ctypes.sizeof(request) == 24
-            assert [(item.iGroup, item.iOffset, item.size) for item in request] == [
-                (0x4020, 12, 4),
-                (0x4020, 16, 4),
-            ]
-            return struct.pack("<IIII", 0, 0, 123, 456)
-
-    class _FakePyads:
-        PLCTYPE_DINT = ctypes.c_int32
-
-    import core.infrastructure.protocol.ads.driver as driver_module
-
-    monkeypatch.setattr(driver_module, "pyads", _FakePyads)
-    points = {}
-    for name, offset in (("a", 12), ("b", 16)):
-        points[name] = Point(
-            point_id=name,
-            business_point_id=BusinessPointId(name),
-            source_unit=NONE_UNIT,
-            access=PointAccess.READ_WRITE,
-            ext={"index_group": 0x4020, "index_offset": offset, "data_type": "DINT"},
-        )
-    driver = ADSDriver(
-        ConnectionEndpoint("192.0.2.20", 801),
-        PointTable(PointTableId("ads"), Protocol("ads"), points),
-        {},
-    )
-    connection = _ConnectionWithSum()
-    driver._session = driver_module._AdsSession(connection)
-    driver._connected = True
+    connection.sum_read_override = override
+    await driver.connect()
     samples = await driver.read_many(("a", "b"))
-    assert [(sample.value, sample.quality) for sample in samples] == [
-        (123, Quality.GOOD),
-        (456, Quality.GOOD),
-    ]
-    assert connection.calls == 1
+    assert samples[0].quality is Quality.GOOD and samples[0].value == 1
+    assert samples[1].quality is Quality.BAD and samples[1].value is None
+    await driver.close()
 
 
-def _symbol_point(point_id: str, symbol: str, data_type: str, size: int | None = None) -> Point:
-    ext: dict[str, str | int] = {"symbol": symbol, "data_type": data_type}
-    if size is not None:
-        ext["size"] = size
-    return Point(
-        point_id=point_id,
-        business_point_id=BusinessPointId(point_id),
-        source_unit=NONE_UNIT,
-        access=PointAccess.READ_WRITE,
-        ext=ext,
-    )
+async def test_sum_read_decode_failure_marks_bad_quality() -> None:
+    # 非法 UTF-8 字节使 STRING 解码失败：逐点降级为 BAD，不拖垮整批。
+    points = {"a": make_point("a", data_type="STRING", size=4, index_group=0x4020, index_offset=0)}
+    driver, connection = _driver_with(points)
+    connection.sum_read_store[(0x4020, 0)] = b"\xff\xff\xff\xff"
+    await driver.connect()
+    samples = await driver.read_many(("a",))
+    assert samples[0].quality is Quality.BAD
+    await driver.close()
 
 
-@pytest.mark.asyncio
-async def test_symbol_cache_shared_by_multiple_configured_points() -> None:
-    """同一符号被多个配置点引用时，一个 session 内只查询一次符号。"""
-    from types import SimpleNamespace
-
-    class Connection:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def get_symbol(self, symbol: str) -> object:
-            assert symbol == "MAIN.power"
-            self.calls += 1
-            return SimpleNamespace(index_group=0x4020, index_offset=120, size=4)
-
-    table = PointTable(
-        PointTableId("ads"),
-        Protocol("ads"),
-        {
-            "a": _symbol_point("a", "MAIN.power", "DINT"),
-            "b": _symbol_point("b", "MAIN.power", "DINT"),
-        },
-    )
-    driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
-    connection = Connection()
-    driver._session = driver_module._AdsSession(connection)
-
-    await driver._resolve_configured_points()
-
-    assert connection.calls == 1
-    assert driver._points["a"].address_resolved
-    assert (driver._points["a"].group, driver._points["a"].offset) == (0x4020, 120)
-    assert (driver._points["b"].group, driver._points["b"].offset) == (0x4020, 120)
+async def test_sum_read_short_reply_is_protocol_error() -> None:
+    points = {"a": make_point("a", data_type="INT", index_group=0x4020, index_offset=0)}
+    driver, connection = _driver_with(points)
+    connection.sum_read_override = lambda items: b"\x00" * 5  # 缺 1 字节
+    await driver.connect()
+    with pytest.raises(ProtocolError, match="shorter than expected"):
+        await driver.read_many(("a",))
+    await driver.close()
 
 
-@pytest.mark.asyncio
-async def test_symbol_size_rules_and_point_resolution_failure() -> None:
-    """STRING 保持配置长度；定长标量与 PLC 符号宽度不符时拒绝建链。"""
-    from types import SimpleNamespace
+async def test_sum_read_chunks_at_limit_and_preserves_global_order() -> None:
+    points = {
+        f"p{i}": make_point(f"p{i}", data_type="INT", index_group=0x4020, index_offset=2 * i)
+        for i in range(5)
+    }
+    driver, connection = _driver_with(points, max_subs_per_sum=2)
+    connection.sum_read_override = lambda items: b"\x00" * (6 * len(items))
+    await driver.connect()
+    samples = await driver.read_many(tuple(f"p{i}" for i in range(5)))
+    assert [sample.point_id for sample in samples] == [f"p{i}" for i in range(5)]
+    requests = [args for name, args in connection.calls if name == "read_write_sumread"]
+    assert [len(request) for request in requests] == [2, 2, 1]
+    await driver.close()
 
-    from core.application.errors import ConfigError
 
-    class Connection:
-        def get_symbol(self, symbol: str) -> object:
-            offset = 12 if symbol == "MAIN.name" else 20
-            return SimpleNamespace(index_group=0x4020, index_offset=offset, size=8)
-
-    table = PointTable(
-        PointTableId("ads"),
-        Protocol("ads"),
-        {
-            "name": _symbol_point("name", "MAIN.name", "STRING", 81),
-            "power": _symbol_point("power", "MAIN.power", "DINT"),
-        },
-    )
-    driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
-    driver._session = driver_module._AdsSession(Connection())
-
-    with pytest.raises(ConfigError, match="PLC size"):
-        await driver._resolve_configured_points()
-
-    # 仅 STRING 点时宽度不参与校验，保持配置长度。
-    string_table = PointTable(
-        PointTableId("ads2"),
-        Protocol("ads"),
-        {"name": _symbol_point("name", "MAIN.name", "STRING", 81)},
-    )
-    string_driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), string_table, {})
-    string_driver._session = driver_module._AdsSession(Connection())
-    await string_driver._resolve_configured_points()
-    assert string_driver._points["name"].size == 81
+async def test_sum_read_communication_failure_propagates() -> None:
+    driver, connection = _driver_with({"a": make_point("a", index_group=0x4020, index_offset=0)})
+    connection.fail["read_write"] = OSError("ams tcp reset")
+    await driver.connect()
+    with pytest.raises(OSError, match="ams tcp reset"):
+        await driver.read_many(("a",))
+    await driver.close()

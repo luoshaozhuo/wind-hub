@@ -13,7 +13,9 @@ Modbus write_many 明确不支持，IEC104 read_many/write_many 明确不支持�
 from __future__ import annotations
 
 import asyncio
+import struct
 from collections.abc import Sequence
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -28,7 +30,7 @@ from core.application.protocol_contract import (
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint
-from core.infrastructure.protocol.ads.driver import ADSDriver, _AdsSession
+from core.infrastructure.protocol.ads.driver import ADSDriver, ADSState
 from core.infrastructure.protocol.ads.mapping import ADSPoint
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
@@ -183,24 +185,41 @@ async def test_modbus_single_operations_succeed_without_many_on_connected_path()
     assert client.write_calls == [("register", 100, 42)]
 
 
-# ---------------------------------------------------------------------------
-# ADS：fake pyads connection 的成功路径
-# ---------------------------------------------------------------------------
+# -
+# ADS：单点即单元素 Sum Read/Write（原生批量原语）
+# -
 
 
 class _ADSConnection:
-    """记录真实 wire 调用的最小 pyads Connection 替身（同步 API）。"""
+    """记录 Sum Read/Write wire 调用的最小 pyads Connection 替身。"""
 
     def __init__(self) -> None:
-        self.read_calls: list[tuple[int, int, Any]] = []
-        self.write_calls: list[tuple[int, int, object, Any]] = []
+        self.sum_read_calls: list[list[tuple[int, int, int]]] = []
+        self.sum_write_payloads: list[bytes] = []
 
-    def read(self, index_group: int, index_offset: int, datatype: Any) -> object:
-        self.read_calls.append((index_group, index_offset, datatype))
-        return 123
+    def read_write(
+        self,
+        index_group: int,
+        index_offset: int,
+        plc_read_datatype: object,
+        value: object,
+        plc_write_datatype: object,
+        return_ctypes: bool = False,
+        check_length: bool = True,
+    ) -> bytes:
+        import struct
 
-    def write(self, index_group: int, index_offset: int, value: object, datatype: Any) -> None:
-        self.write_calls.append((index_group, index_offset, value, datatype))
+        from pyads.constants import ADSIGRP_SUMUP_READ, ADSIGRP_SUMUP_WRITE
+
+        if index_group == ADSIGRP_SUMUP_READ:
+            items = [(item.iGroup, item.iOffset, item.size) for item in value]
+            self.sum_read_calls.append(items)
+            assert items == [(0xF003, 0x1000, 2)]
+            return struct.pack("<Ih", 0, 123)
+        assert index_group == ADSIGRP_SUMUP_WRITE
+        raw = bytes(value)
+        self.sum_write_payloads.append(raw)
+        return b"\x00" * (4 * index_offset)
 
 
 def _ads_point(point_id: str) -> ADSPoint:
@@ -215,52 +234,55 @@ def _ads_point(point_id: str) -> ADSPoint:
 
 
 def _connected_ads_driver(connection: _ADSConnection) -> ADSDriver:
+    from core.infrastructure.protocol.ads.session import _AdsSession
+
     driver = object.__new__(ADSDriver)
-    driver._lock = asyncio.Lock()
     driver._points = {"p1": _ads_point("p1")}
-    driver._session = _AdsSession(connection)
-    driver._connected = True
+    driver._session = _AdsSession(lambda: connection)
+    driver._session._opened = True
+    driver._state = ADSState.CONNECTED
+    driver._config = SimpleNamespace(max_subs_per_sum=500)
     return driver
 
 
 def _bare_ads_driver() -> ADSDriver:
-    driver = _connected_ads_driver(_ADSConnection())
-    driver._connected = False
+    driver = object.__new__(ADSDriver)
+    driver._points = {"p1": _ads_point("p1")}
     driver._session = None
+    driver._state = ADSState.DISCONNECTED
+    driver._config = SimpleNamespace(max_subs_per_sum=500)
     return driver
 
 
 @pytest.mark.asyncio
-async def test_ads_single_operations_do_not_delegate_to_many() -> None:
-    """ADS read_one/write_one 独立实现，不经过 read_many/write_many。"""
+async def test_ads_single_operations_fail_fast_without_active_connection() -> None:
+    """未连接时单点读写在提交任何 wire 请求前失败。"""
     driver = _bare_ads_driver()
-    _fail_many(driver)
 
-    with pytest.raises(ProtocolError, match="active connection"):
+    with pytest.raises(ProtocolError, match="not connected"):
         await driver.read_one("p1")
-    with pytest.raises(ProtocolError, match="active connection"):
+    with pytest.raises(ProtocolError, match="not connected"):
         await driver.write_one(ProtocolWrite("p1", 1))
 
 
 @pytest.mark.asyncio
-async def test_ads_single_operations_succeed_without_many_on_connected_path() -> None:
-    """连接成功路径：read_one/write_one 各完成一次真实 ADS 请求。"""
+async def test_ads_single_operations_use_one_element_sum_requests() -> None:
+    """连接路径：单点读=单元素 Sum Read，单点写=单元素 Sum Write。"""
     connection = _ADSConnection()
     driver = _connected_ads_driver(connection)
-    _fail_many(driver)
 
     sample = await driver.read_one("p1")
-    assert len(connection.read_calls) == 1
-    index_group, index_offset, _ = connection.read_calls[0]
-    assert (index_group, index_offset) == (0xF003, 0x1000)
+    assert len(connection.sum_read_calls) == 1
     assert sample.value == 123
     assert sample.quality == Quality.GOOD
 
     result = await driver.write_one(ProtocolWrite("p1", 5))
     assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-    assert len(connection.write_calls) == 1
-    _, _, value, _ = connection.write_calls[0]
-    assert value == 5
+    assert len(connection.sum_write_payloads) == 1
+    # 请求头携带 p1 的 index 地址和 2 字节数据长度。
+    assert connection.sum_write_payloads[0].startswith(
+        struct.pack("<III", 0xF003, 0x1000, 2)
+    )
 
 
 # ---------------------------------------------------------------------------

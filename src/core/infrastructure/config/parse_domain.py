@@ -212,6 +212,9 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
         ads = ADSLocalConfig(
             local_ams_net_id=net_id,
             local_ip=_name(values.get("local_ip"), "ads.local_ip"),
+            request_timeout_ms=values.get("request_timeout_ms", 1000),
+            connect_timeout_ms=values.get("connect_timeout_ms", 3000),
+            close_timeout_ms=values.get("close_timeout_ms", 3000),
         )
     # system.yaml 顶层允许透传非托管段（如 interfaces）：域模型不解析，
     # 保存时由 YamlConfigAdapter 原样合并写回。已知段在上方各自严格校验。

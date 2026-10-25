@@ -44,7 +44,7 @@ def _drivers() -> dict[str, object]:
         "ads": ADSDriver(
             ConnectionEndpoint("192.0.2.20", 801),
             PointTable(PointTableId("pt"), Protocol("ads"), {}),
-            {},
+            {"target_net_id": "192.0.2.20.1.1"},
         ),
         "iec104": IEC104Driver(
             ConnectionEndpoint("192.0.2.30", 2404),
@@ -94,7 +94,7 @@ class TestCapabilityDeclaration:
 
         if ProtocolCapability.SUBSCRIBE not in capabilities:
             with pytest.raises(ProtocolCapabilityError):
-                await driver.subscribe(("p",), callback)  # type: ignore[attr-defined]
+                driver.subscribe(("p",), callback)  # type: ignore[attr-defined]
         if ProtocolCapability.INTERROGATE not in capabilities:
             with pytest.raises(ProtocolCapabilityError):
                 await driver.interrogate()  # type: ignore[attr-defined]

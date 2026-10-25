@@ -126,7 +126,16 @@ class CollectorRuntime:
         self._task_runtime = TaskRuntime(
             tasks or {}, self._device_runtime, engine, clock, metrics_hook
         )
-        self._device_runtime.set_reconnect_callback(self._task_runtime.restore_subscriptions)
+
+        async def restore_device_tasks(device_id: str) -> None:
+            # 冷启动未完成或 Collector 停机后不允许恢复任务。
+            if not self._started or not self._running:
+                return
+            await self._task_runtime.start_device_tasks(
+                device_id, can_restore=lambda: self._started and self._running
+            )
+
+        self._device_runtime.set_reconnect_callback(restore_device_tasks)
         self._sink_runtime = SinkRuntime(sinks, params, sink_factory)
         self._session_factory = session_factory
         self._engine = engine

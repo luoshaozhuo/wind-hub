@@ -62,7 +62,7 @@ class CollectorFakeProtocol(FakeProtocol):
             raise self.read_error
         return await super().read_many(point_ids)
 
-    async def subscribe(
+    def subscribe(
         self,
         point_ids: Sequence[str],
         callback: Any,

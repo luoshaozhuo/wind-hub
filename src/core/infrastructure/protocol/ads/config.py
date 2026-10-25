@@ -14,10 +14,7 @@ _ALLOWED_OPTIONS = frozenset(
         "twincat_version",
         "max_subs_per_sum",
         "max_block_bytes",
-        "push_batch_size",
-        "push_batch_wait",
         "max_delay",
-        "max_notifications_per_connection",
         "route_auto_add",
         "username",
         "password",
@@ -36,10 +33,7 @@ class ADSConfig:
     twincat_version: str = "2"
     max_subs_per_sum: int = 500
     max_block_bytes: int = 1024
-    push_batch_size: int = 256
-    push_batch_wait: float = 0.01
     max_delay: float = 0.06
-    max_notifications_per_connection: int = 550
     route_auto_add: bool = False
     # 远程 PLC 路由注册凭据：wind-hub 应用层默认值，非 pyads 函数默认值。
     # 空密码只表示未提供有效密码，不保证远程 PLC 接受；
@@ -90,13 +84,6 @@ def parse_ads_config(
     if max_block_bytes <= 0:
         raise ConfigError("ADS max_block_bytes must be > 0")
 
-    push_batch_size = _int_option(options.get("push_batch_size"), "push_batch_size", default=256)
-    if push_batch_size <= 0:
-        raise ConfigError("ADS push_batch_size must be > 0")
-    push_batch_wait = _float_option(options.get("push_batch_wait"), "push_batch_wait", default=0.01)
-    if push_batch_wait < 0:
-        raise ConfigError("ADS push_batch_wait must be >= 0")
-
     max_delay = _float_option(
         options.get("max_delay"),
         "max_delay",
@@ -104,16 +91,6 @@ def parse_ads_config(
     )
     if max_delay < 0:
         raise ConfigError(f"connection '{endpoint}': max_delay must be >= 0")
-
-    max_notifications = _int_option(
-        options.get("max_notifications_per_connection"),
-        "max_notifications_per_connection",
-        default=550,
-    )
-    if max_notifications <= 0:
-        raise ConfigError(
-            f"connection '{endpoint}': " "max_notifications_per_connection must be > 0"
-        )
 
     route_auto_add = options.get("route_auto_add", False)
     if type(route_auto_add) is not bool:
@@ -140,10 +117,7 @@ def parse_ads_config(
         twincat_version=twincat_version,
         max_subs_per_sum=max_subs,
         max_block_bytes=max_block_bytes,
-        push_batch_size=push_batch_size,
-        push_batch_wait=push_batch_wait,
         max_delay=max_delay,
-        max_notifications_per_connection=max_notifications,
         route_auto_add=route_auto_add,
         username=username,
         password=password,

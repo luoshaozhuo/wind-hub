@@ -374,7 +374,7 @@ class ModbusDriver:
         del writes
         raise ProtocolCapabilityError("modbus does not support write_many")
 
-    async def subscribe(
+    def subscribe(
         self,
         point_ids: Sequence[str],
         callback: ProtocolSampleCallback,

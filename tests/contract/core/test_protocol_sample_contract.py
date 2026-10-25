@@ -9,7 +9,6 @@ from hat.drivers.iec101 import common as iec101
 
 from core.application import Quality
 from core.application.protocol_contract import ProtocolSample
-from core.infrastructure.protocol.ads.subscription import _normalize_timestamp
 from core.infrastructure.protocol.iec104.codec import decode_sample
 
 
@@ -94,18 +93,3 @@ class TestIEC104NativeTimestamp:
 
         assert before <= sample.timestamp <= after
         assert sample.timestamp_source == "local"
-
-
-class TestADSNotificationTimestamp:
-    def test_missing_timestamp_falls_back_to_local(self) -> None:
-        ts, source = _normalize_timestamp(None)
-
-        assert ts.tzinfo is not None
-        assert source == "local"
-
-    def test_native_timestamp_marked_as_device(self) -> None:
-        native = datetime(2026, 1, 1, tzinfo=UTC)
-        ts, source = _normalize_timestamp(native)
-
-        assert ts == native
-        assert source == "device"

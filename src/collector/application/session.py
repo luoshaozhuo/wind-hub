@@ -28,6 +28,7 @@ from core.application import (
     ProtocolCapability,
     ProtocolPort,
     ProtocolSample,
+    SubscriptionHandle,
     validate_read_many_results,
 )
 from core.domain import Device, DeviceId, Point, PointTable, engineering_value
@@ -59,6 +60,16 @@ class AcquisitionHandle(Protocol):
     async def close(self) -> None:
         """停止采集并释放资源（必须幂等）。"""
         ...
+
+
+class NativeSubscriptionAcquisitionHandle:
+    """Collector 采集句柄：把原生订阅 stop 映射到采集 close。"""
+
+    def __init__(self, subscription: SubscriptionHandle) -> None:
+        self._subscription = subscription
+
+    async def close(self) -> None:
+        await self._subscription.stop()
 
 
 class PollingAcquisitionHandle:
@@ -395,7 +406,15 @@ class CollectorDeviceSession:
                 raise
             return push_handle
 
-        push_handle = await self._protocol.subscribe(
-            point_ids, _forward, interval=interval
-        )
-        return push_handle
+        subscription = self._protocol.subscribe(point_ids, _forward, interval=interval)
+        try:
+            await subscription.start()
+        except BaseException:
+            cleanup = asyncio.create_task(subscription.stop())
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                await cleanup
+                raise
+            raise
+        return NativeSubscriptionAcquisitionHandle(subscription)
