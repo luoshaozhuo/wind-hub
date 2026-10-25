@@ -223,6 +223,7 @@ class TaskRuntime:
                 instance.device_id in self._restoring_devices
                 or device_state is None
                 or not device_state.connected
+                or not self._devices.is_device_open(instance.device_id)
             ):
                 self._recovery_stopped.add(instance_id)
             if self._instance_states[instance_id] is TaskInstanceState.STOPPED:
