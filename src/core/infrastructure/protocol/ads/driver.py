@@ -91,7 +91,7 @@ class ADSDriver:
         global _LOCAL_IDENTITY, _LOCAL_PORT_OPEN, _LOCAL_CLOSED
         async with _LOCAL_LOCK:
             if _LOCAL_IDENTITY is not None:
-                if _LOCAL_IDENTITY != config:
+                if config != _LOCAL_IDENTITY:
                     raise ConfigError("ADS local AMS identity mismatch")
                 return
             if sys.platform.startswith("linux"):
@@ -155,8 +155,6 @@ class ADSDriver:
         if self._state in {ADSState.FAULTED, ADSState.CLOSING}:
             raise ProtocolError("ADS connection is not safely available")
         if self._connect_task is None or self._connect_task.done():
-            if self._state is ADSState.FAULTED:
-                raise ProtocolError("ADS target is faulted; physical cleanup unconfirmed")
             self._connect_expired = False
             if self._state is ADSState.DISCONNECTED:
                 self._close_task = None
@@ -241,7 +239,9 @@ class ADSDriver:
                             and not self._connect_expired
                         ):
                             if _LOCAL_IDENTITY is None:
-                                raise ConfigError("ADS local AMS identity is not initialized")
+                                raise ConfigError(
+                                    "ADS local AMS identity is not initialized"
+                                ) from None
                             async with _REMOTE_ROUTE_LOCK:
                                 success = await asyncio.to_thread(
                                     pyads.add_route_to_plc,
@@ -274,7 +274,9 @@ class ADSDriver:
         except TimeoutError:
             if self._state is not ADSState.DISCONNECTED:
                 self._state = ADSState.FAULTED
-            raise ProtocolError("ADS close deadline exceeded; physical cleanup continues") from None
+            raise ProtocolError(
+                "ADS close deadline exceeded; physical cleanup continues"
+            ) from None
 
     async def _close_once(self) -> None:
         async with self._lifecycle:
@@ -294,7 +296,9 @@ class ADSDriver:
                         raise ProtocolError("ADS session close is not settled")
                 self._session = None
                 if subscription_errors:
-                    raise ExceptionGroup("ADS subscriptions not fully released", subscription_errors)
+                    raise ExceptionGroup(
+                        "ADS subscriptions not fully released", subscription_errors
+                    )
                 self._subscriptions.clear()
                 self._state = ADSState.DISCONNECTED
                 _TARGET_OWNERS.pop(self._identity, None)
@@ -303,7 +307,11 @@ class ADSDriver:
                 raise
 
     def is_open(self) -> bool:
-        return self._state is ADSState.CONNECTED and self._session is not None and self._session.is_open
+        return (
+            self._state is ADSState.CONNECTED
+            and self._session is not None
+            and self._session.is_open
+        )
 
     async def health(self) -> ConnectionHealth:
         if not self.is_open():
@@ -414,7 +422,11 @@ class ADSDriver:
             for (index, point, _), error in zip(chunk, errors, strict=True):
                 results[index] = ProtocolWriteResult(
                     point.point_id,
-                    WriteOutcome.CONFIRMED_SUCCESS if error == 0 else WriteOutcome.CONFIRMED_FAILURE,
+                    (
+                        WriteOutcome.CONFIRMED_SUCCESS
+                        if error == 0
+                        else WriteOutcome.CONFIRMED_FAILURE
+                    ),
                     None if error == 0 else f"ADS error {error}",
                 )
         if any(result is None for result in results):
