@@ -34,10 +34,12 @@ class ADSSubscription:
         interval: float,
         max_block_bytes: int,
         max_delay: float,
+        on_stopped: Callable[[ADSSubscription], None] | None = None,
     ) -> None:
         if interval <= 0:
             raise ValueError("ADS notification interval must be positive")
         self._session = session
+        self._on_stopped = on_stopped
         self._blocks = compile_notification_blocks(points, max_bytes=max_block_bytes)
         self._callback = callback
         self._interval = interval
@@ -166,12 +168,14 @@ class ADSSubscription:
             except Exception:
                 pass
         errors: list[Exception] = []
+        remaining: list[tuple[Any, Any]] = []
         for token in reversed(self._handles):
             try:
                 await self._session.execute("del_device_notification", *token)
             except Exception as exc:
                 errors.append(exc)
-        self._handles.clear()
+                remaining.append(token)
+        self._handles = list(reversed(remaining))
         if self._worker is not None:
             self._worker.cancel()
             try:
@@ -182,3 +186,5 @@ class ADSSubscription:
             errors.append(RuntimeError("ADS notification registration result unconfirmed"))
         if errors:
             raise ExceptionGroup("ADS notification cleanup failed", errors)
+        if self._on_stopped is not None:
+            self._on_stopped(self)
