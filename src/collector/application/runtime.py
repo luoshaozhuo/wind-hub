@@ -126,6 +126,7 @@ class CollectorRuntime:
         self._task_runtime = TaskRuntime(
             tasks or {}, self._device_runtime, engine, clock, metrics_hook
         )
+
         async def restore_device_tasks(device_id: str) -> None:
             # 冷启动未完成或 Collector 停机后不允许恢复任务。
             if not self._started or not self._running:
