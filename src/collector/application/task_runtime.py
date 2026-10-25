@@ -22,7 +22,7 @@ from ..domain.acquisition import AcquisitionEngine
 from .acquisition_state import AcquisitionRuntimeState
 from .config import CollectionTask
 from .device_runtime import DeviceRuntime
-from .session import AcquisitionHandle, AcquisitionMode
+from .session import AcquisitionHandle
 from .task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
@@ -221,29 +221,26 @@ class TaskRuntime:
             self._restart_pending.discard(instance_id)
             await self._close_acquisition_handle(instance_id)
 
-    async def restore_subscriptions(self, device_id: str) -> None:
-        """重连成功后重建该设备当前 RUNNING 的推送型采集句柄。
+    async def start_device_tasks(self, device_id: str) -> None:
+        """Watchdog 重连成功：恢复该设备全部已启用采集实例。
 
-        覆盖 ADS 原生订阅（SUBSCRIBE）与 IEC104 本地监听（LISTEN，含
-        重建后由 start_acquisition 显式触发的首次总召）。Watchdog 只调用
-        本业务回调，不感知 notification、监听注册或总召细节。
+        Collector 冷启动不调用此入口。实例注册表已经排除禁用任务与
+        禁用设备；逐实例锁保证不与手工启停交错创建重复句柄。
         """
-        device = self._devices.devices.get(device_id)
-        if device is None or device.acquisition_mode is AcquisitionMode.POLL:
+        if device_id not in self._devices.devices:
             return
-
-        running = [
-            iid
-            for iid, instance in self._task_instances.items()
+        instance_ids = tuple(
+            iid for iid, instance in self._task_instances.items()
             if instance.device_id == device_id
-            and self._instance_states.get(iid) is TaskInstanceState.RUNNING
-        ]
-        for iid in running:
-            # 关旧句柄与建新句柄必须在同一把实例锁内原子完成，避免显式
-            # stop/start 或热更新在两步之间交错。
+        )
+        for iid in instance_ids:
             async with self._instance_guard(iid):
-                self._instance_states[iid] = TaskInstanceState.STOPPED
-                await self._close_acquisition_handle(iid)
+                instance = self._task_instances.get(iid)
+                if instance is None or instance.device_id != device_id:
+                    continue
+                if self._instance_states[iid] is TaskInstanceState.RUNNING:
+                    self._instance_states[iid] = TaskInstanceState.STOPPED
+                    await self._close_acquisition_handle(iid)
                 await self._start_locked(iid)
 
     async def stop_all(self) -> None:
