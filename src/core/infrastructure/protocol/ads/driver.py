@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from core.application.errors import ProtocolCapabilityError
+from core.application.port.protocol import ListenHandle, ProtocolSampleCallback
 from core.application.protocol_contract import (
     ConnectionHealth,
     ProtocolCapability,
@@ -85,8 +87,24 @@ class ADSDriver:
     def subscribe(
         self,
         point_ids: Sequence[str],
-        callback: Any,
+        callback: ProtocolSampleCallback,
         *,
         interval: float | None = None,
     ) -> ADSSubscription:
         raise NotImplementedError("ADS subscribe is scheduled for round three")
+
+    async def listen(
+        self,
+        point_ids: Sequence[str],
+        callback: ProtocolSampleCallback,
+        *,
+        interval: float | None = None,
+    ) -> ListenHandle:
+        del point_ids, callback, interval
+        raise ProtocolCapabilityError("ADS does not support local listen")
+
+    async def interrogate(
+        self, common_address: int | None = None, *, qoi: int = 20
+    ) -> tuple[ProtocolSample, ...]:
+        del common_address, qoi
+        raise ProtocolCapabilityError("ADS does not support IEC104 interrogation")
