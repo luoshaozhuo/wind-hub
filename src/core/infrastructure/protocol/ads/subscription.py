@@ -125,14 +125,16 @@ class ADSSubscription:
                     quality = Quality.GOOD if valid else Quality.BAD
                 except (TypeError, ValueError, struct.error, UnicodeDecodeError):
                     scalar, quality = None, Quality.BAD
-                samples.append(ProtocolSample(
-                    point_id=point.point_id,
-                    value=scalar,
-                    quality=quality,
-                    timestamp=stamp,
-                    timestamp_source=source,
-                    receive_time=received_at,
-                ))
+                samples.append(
+                    ProtocolSample(
+                        point_id=point.point_id,
+                        value=scalar,
+                        quality=quality,
+                        timestamp=stamp,
+                        timestamp_source=source,
+                        receive_time=received_at,
+                    )
+                )
             try:
                 self._loop.call_soon_threadsafe(self._enqueue, tuple(samples))
             except RuntimeError:
