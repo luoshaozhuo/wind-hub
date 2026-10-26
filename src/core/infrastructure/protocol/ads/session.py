@@ -25,8 +25,8 @@ class ADSResourceUncertainError(ProtocolError):
 class _AdsSession:
     """One-use connection. A cancelled waiter never abandons native I/O."""
 
-    def __init__(self, connection_factory: Callable[[], pyads.Connection]) -> None:
-        self._connection = connection_factory()
+    def __init__(self, target_net_id: str, target_port: int, host: str) -> None:
+        self._connection = pyads.Connection(target_net_id, target_port, host)
         self._gate = asyncio.Lock()
         self._pending: set[asyncio.Task[Any]] = set()
         self._close_task: asyncio.Task[None] | None = None
