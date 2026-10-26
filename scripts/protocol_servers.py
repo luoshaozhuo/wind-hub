@@ -343,16 +343,17 @@ class _IEC104VirtualServer:
 
     async def start(self) -> None:
         server = c104.Server(ip=self.plan.host, port=self.plan.port)
-        ca_option = self.plan.options.get(
-            "common_addresses", self.plan.options.get("common_addr", 1)
-        )
-        common_address = int(str(ca_option).split(",")[0])
-        station = server.add_station(common_address=common_address)
-        if station is None:
-            raise RuntimeError("cannot create IEC104 station")
+        stations: dict[int, Any] = {}
         for point in self.plan.points:
+            ca = int(point.ext["ca"])
+            station = stations.get(ca)
+            if station is None:
+                station = server.add_station(common_address=ca)
+                if station is None:
+                    raise RuntimeError(f"cannot create IEC104 station CA={ca}")
+                stations[ca] = station
             kind = self.plan.data_types[point.point_id]
-            type_name = str(point.ext.get("type", "M_ME_NC_1"))
+            type_name = str(point.ext.get("type_id", point.ext.get("type", "M_ME_NC_1")))
             if not hasattr(c104.Type, type_name):
                 raise ValueError(
                     f"{self.plan.device_id}.{point.point_id}: unknown IEC104 type {type_name}"
