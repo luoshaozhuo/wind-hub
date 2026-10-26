@@ -18,6 +18,7 @@ import pytest
 
 from core.application import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
+    InterrogationRequest,
     ProtocolSample,
     ProtocolWrite,
     Quality,
@@ -40,13 +41,26 @@ from tests.support.wait import wait_until
 pytestmark = pytest.mark.real_service
 
 
-def _command_point(point_id: str, ioa: int, type_id: str) -> Point:
+def _command_point(
+    point_id: str,
+    ioa: int,
+    type_id: str,
+    *,
+    command_mode: str = "direct",
+    confirmation: str = "act_term",
+) -> Point:
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
         source_unit=NONE_UNIT,
         access=PointAccess.WRITE,
-        ext={"ioa": ioa, "ca": 1, "type_id": type_id},
+        ext={
+            "ioa": ioa,
+            "ca": 1,
+            "type_id": type_id,
+            "command_mode": command_mode,
+            "confirmation": confirmation,
+        },
     )
 
 
@@ -88,10 +102,19 @@ async def control_server() -> AsyncIterator[IEC104ControlServer]:
 
 
 @pytest.fixture
+async def sbo_server() -> AsyncIterator[IEC104ControlServer]:
+    # IOA 1001 在从站侧注册为 SELECT_AND_EXECUTE 模式。
+    server = IEC104ControlServer(common_addr=1, data_points={100: 1500.5}, sbo_ioas={1001})
+    await server.start()
+    try:
+        yield server
+    finally:
+        await server.stop()
+
+
+@pytest.fixture
 async def rejecting_server() -> AsyncIterator[IEC104ControlServer]:
-    server = IEC104ControlServer(
-        common_addr=1, data_points={100: 1500.5}, reject_ioas={1001}
-    )
+    server = IEC104ControlServer(common_addr=1, data_points={100: 1500.5}, reject_ioas={1001})
     await server.start()
     try:
         yield server
@@ -150,9 +173,7 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(
-                ProtocolWrite(point="setpoint.val", value=42.5)
-            )
+            result = await driver.write_one(ProtocolWrite(point="setpoint.val", value=42.5))
         finally:
             await driver.close()
 
@@ -175,9 +196,7 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(
-                ProtocolWrite(point="switch.on", value=True)
-            )
+            result = await driver.write_one(ProtocolWrite(point="switch.on", value=True))
         finally:
             await driver.close()
 
@@ -251,7 +270,7 @@ class TestRemoteControlIntegration:
         from tests.support.process import free_port
 
         driver = _driver(free_port(), [_command_point("p1", 1001, "C_SC_NA_1")])
-        with pytest.raises(ProtocolError, match="OPEN"):
+        with pytest.raises(ProtocolError, match="session unavailable"):
             await driver.write_one(ProtocolWrite(point="p1", value=True))
         await driver.close()
 
@@ -275,6 +294,71 @@ class TestRemoteControlIntegration:
             await driver.close()
 
         assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
+
+    async def test_sbo_select_rejected_by_direct_mode_slave_is_confirmed_failure(
+        self,
+        control_server: IEC104ControlServer,
+    ) -> None:
+        """主站按 SBO 发 SELECT，而从站点位是直控模式：c104 内部拒绝选择。
+
+        结果必须是确定的 CONFIRMED_FAILURE（SELECT rejected），且选择阶段
+        被拒后不得再发 EXECUTE——从站 on_receive 不应被调用。
+        """
+        driver = _driver(
+            control_server.port,
+            [_command_point("switch.on", 1001, "C_SC_NA_1", command_mode="select_execute")],
+        )
+        await driver.connect()
+        try:
+            result = await driver.write_one(ProtocolWrite(point="switch.on", value=True))
+        finally:
+            await driver.close()
+
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
+        assert "SELECT rejected" in (result.message or "")
+        assert control_server.last_control == {}
+
+    async def test_sbo_select_execute_full_chain_succeeds(
+        self,
+        sbo_server: IEC104ControlServer,
+    ) -> None:
+        """SBO 从站：SELECT 肯定 ACT_CON → EXECUTE ACT_CON → ACT_TERM 全链成功。"""
+        driver = _driver(
+            sbo_server.port,
+            [_command_point("switch.on", 1001, "C_SC_NA_1", command_mode="select_execute")],
+        )
+        await driver.connect()
+        try:
+            result = await driver.write_one(ProtocolWrite(point="switch.on", value=True))
+        finally:
+            await driver.close()
+
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS, result.message
+        assert sbo_server.last_control.get("C_SC_NA_1") == 1001
+
+    async def test_act_con_confirmation_completes_without_act_term(
+        self,
+        control_server: IEC104ControlServer,
+    ) -> None:
+        """confirmation=act_conf：拿到肯定 ACT_CON 即成功，不等待 ACT_TERM。
+
+        从站会在 50ms 后补发 ACT_TERM，但 driver 分类不依赖它；
+        ACT_CON 窗口 t1×2 内完成即 CONFIRMED_SUCCESS。
+        """
+        driver = _driver(
+            control_server.port,
+            [_command_point("switch.fast", 1001, "C_SC_NA_1", confirmation="act_con")],
+        )
+        await driver.connect()
+        try:
+            result = await asyncio.wait_for(
+                driver.write_one(ProtocolWrite(point="switch.fast", value=True)),
+                timeout=5.0,
+            )
+        finally:
+            await driver.close()
+
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS, result.message
 
     async def test_command_timeout_with_transport_acks_only_is_unknown(self) -> None:
         """黑洞只回 S 帧传输确认、无 ACT_CON：t1×2 后归 UNKNOWN（可能已执行）。
@@ -326,7 +410,7 @@ class TestInterrogationDispatch:
         await driver.connect()
         await driver.listen((), cb)
         try:
-            await driver.interrogate()
+            await driver.interrogate(InterrogationRequest())
             await wait_until(
                 lambda: received or None,
                 timeout=10.0,
