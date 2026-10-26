@@ -17,11 +17,7 @@ from core.application.errors import (
     ProtocolConnectionError,
     ProtocolError,
 )
-from core.application.port.protocol import (
-    ListenHandle,
-    ProtocolSampleCallback,
-    SubscriptionHandle,
-)
+from core.application.port.protocol import ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
@@ -36,6 +32,7 @@ from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
 from .codec import build_command, decode_sample, matches_monitoring_type
 from .config import parse_iec104_config
+from .listener import _Listener
 from .mapping import IEC104Point, build_iec104_index, validate_iec104_write_type
 from .session import _IEC104Session
 
@@ -66,59 +63,6 @@ class _Interrogation:
     by_address: dict[Address, IEC104Point]
     accepted: bool = False
     samples: dict[Address, ProtocolSample] = field(default_factory=dict)
-
-
-class _Listener(ListenHandle):
-    def __init__(
-        self,
-        owner: IEC104Driver,
-        point_ids: frozenset[str],
-        callback: ProtocolSampleCallback,
-    ):
-        self.owner = owner
-        self.point_ids = point_ids
-        self.callback = callback
-        self.queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=256)
-        self.task = asyncio.create_task(self._run(), name="iec104-listener")
-        self.failed = False
-
-    def offer(self, samples: tuple[ProtocolSample, ...]) -> None:
-        if self.failed or self.task.done():
-            return
-        filtered = tuple(x for x in samples if x.point_id in self.point_ids)
-        if not filtered:
-            return
-        try:
-            self.queue.put_nowait(filtered)
-        except asyncio.QueueFull:
-            self.failed = True
-            self.task.cancel()
-            logger.error("IEC104 listener overflow: invalidated to avoid silent data loss")
-
-    async def _run(self) -> None:
-        while True:
-            try:
-                await self.callback(await self.queue.get())
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                self.failed = True
-                logger.exception("IEC104 listener callback failed; listener invalidated")
-                return
-
-    async def close(self) -> None:
-        self.failed = True
-        if not self.task.done():
-            self.task.cancel()
-            try:
-                await asyncio.wait_for(asyncio.shield(self.task), timeout=5.0)
-            except asyncio.CancelledError:
-                current_task = asyncio.current_task()
-                if current_task is not None and current_task.cancelling():
-                    raise
-            except TimeoutError:
-                raise TimeoutError("IEC104 listener callback failed to stop") from None
-        self.owner._listeners.discard(self)
 
 
 class IEC104InterrogationIncompleteError(ProtocolError):
