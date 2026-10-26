@@ -48,21 +48,14 @@ class IEC104Point:
     confirmation: Literal["act_con", "act_term"] = "act_term"
 
 
-def parse_iec104_point(point: Point, *, default_ca: int) -> IEC104Point:
-    """把领域 Point 解析为 IEC104 地址定义；未指定 ``ca`` 时归缺省 CA。"""
+def parse_iec104_point(point: Point) -> IEC104Point:
+    """把领域 Point 解析为 IEC104 地址定义；CA 必须显式指定。"""
     options = point.ext
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(f"IEC104 point '{point.point_id}' has unknown options: {sorted(unknown)}")
 
-    raw_ca = options.get("ca")
-    if raw_ca is None:
-        ca = default_ca
-    else:
-        if isinstance(raw_ca, bool) or not isinstance(raw_ca, int):
-            raise ConfigError(f"IEC104 point '{point.point_id}': ca must be an integer")
-        ca = raw_ca
-    ca = _validate_ca(ca, point.point_id)
+    ca = _validate_ca(options.get("ca"), point.point_id)
 
     raw_ioa = options.get("ioa")
     if isinstance(raw_ioa, bool) or not isinstance(raw_ioa, int):
@@ -94,26 +87,12 @@ def parse_iec104_point(point: Point, *, default_ca: int) -> IEC104Point:
 
 def build_iec104_index(
     points: list[Point],
-    *,
-    common_addresses: tuple[int, ...],
-    default_ca: int,
 ) -> tuple[dict[str, IEC104Point], dict[tuple[int, int], IEC104Point]]:
-    """构建 point_id → 点、``(ca, ioa)`` → 点双向索引。
-
-    校验：点 CA 必须在连接配置的 CA 集合内；同 CA 下 IOA 不得重复；
-    遥测点（M_*）与控制点（C_*）的 type_id 必须与访问方向一致。
-    """
-    if default_ca not in common_addresses:
-        raise ConfigError(f"IEC104 default CA {default_ca} is not in {list(common_addresses)}")
+    """构建 point_id 与 (CA, IOA) 双向索引，校验地址唯一及读写类型。"""
     by_id: dict[str, IEC104Point] = {}
     by_address: dict[tuple[int, int], IEC104Point] = {}
     for point in points:
-        mapped = parse_iec104_point(point, default_ca=default_ca)
-        if mapped.common_address not in common_addresses:
-            raise ConfigError(
-                f"IEC104 point '{mapped.point_id}' uses ca={mapped.common_address} "
-                f"which is not configured in common_addresses={list(common_addresses)}"
-            )
+        mapped = parse_iec104_point(point)
         existing = by_address.get((mapped.common_address, mapped.ioa))
         if existing is not None:
             raise ConfigError(
