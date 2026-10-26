@@ -126,7 +126,6 @@ export const deviceModelsSeed: Record<string, MockDeviceModel> = {
     point_table: 'iec104_wtg_v1',
     connection_defaults: {
       port: 2404,
-      common_addresses: '1',
       k: 12,
       w: 8,
       t0: 30,
@@ -213,7 +212,7 @@ function iec104Points(prefix: string, count: number): MockPointDef[] {
         ...(i % 7 === 0 ? ['all'] : []),
         ...(i % 11 === 0 ? ['control'] : []),
       ],
-      address: { ioa: 1001 + i, type: i % 5 === 4 ? 'M_SP_NA_1' : 'M_ME_NC_1' },
+      address: { ca: 1, ioa: 1001 + i, type_id: i % 5 === 4 ? 'M_SP_NA_1' : 'M_ME_NC_1' },
       data_type: ['float32', 'float32', 'int32', 'uint16', 'bool'][i % 5],
       scale: i % 5 === 4 ? 1 : i % 6 === 0 ? 0.1 : 1,
       offset: 0,
