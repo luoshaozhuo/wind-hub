@@ -166,10 +166,7 @@ class IEC104Driver:
                 if self._session is not session or not session.is_open:
                     raise ProtocolConnectionError("IEC104 session lost during STARTDT")
             except BaseException as exc:
-                try:
-                    await self._close_locked()
-                except BaseException:
-                    raise
+                await self._close_locked()
                 if isinstance(exc, OSError | TimeoutError):
                     raise ProtocolConnectionError(
                         f"IEC104 connection failed: {exc or type(exc).__name__}"
