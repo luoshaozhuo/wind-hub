@@ -8,11 +8,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal, cast
 
 from core.application.errors import ConfigError
 from core.domain import Point, PointAccess
 
-_ALLOWED_OPTIONS = frozenset({"ca", "ioa", "type", "type_id", "data_type"})
+_ALLOWED_OPTIONS = frozenset(
+    {"ca", "ioa", "type", "type_id", "data_type", "command_mode", "confirmation"}
+)
 _MAX_IOA = 0xFFFFFF
 _MAX_CA = 65535
 _COMMAND_TYPE_IDS = frozenset(
@@ -35,25 +38,8 @@ class IEC104Point:
     common_address: int
     ioa: int
     type_id: str | None
-
-
-def iec104_point(
-    point_id: str,
-    *,
-    ioa: int,
-    common_address: int = 1,
-    type_id: str | None = None,
-) -> IEC104Point:
-    """构造并校验一个 IEC104Point（测试/装配显式构造用）。"""
-    ca = _validate_ca(common_address, point_id)
-    ioa_value = _validate_ioa(ioa, point_id)
-    normalized_type = _validate_type_id(type_id, point_id)
-    return IEC104Point(
-        point_id=point_id,
-        common_address=ca,
-        ioa=ioa_value,
-        type_id=normalized_type,
-    )
+    command_mode: Literal["direct", "select_execute"] = "direct"
+    confirmation: Literal["act_con", "act_term"] = "act_term"
 
 
 def parse_iec104_point(point: Point, *, default_ca: int) -> IEC104Point:
@@ -61,9 +47,7 @@ def parse_iec104_point(point: Point, *, default_ca: int) -> IEC104Point:
     options = point.ext
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
-        raise ConfigError(
-            f"IEC104 point '{point.point_id}' has unknown options: {sorted(unknown)}"
-        )
+        raise ConfigError(f"IEC104 point '{point.point_id}' has unknown options: {sorted(unknown)}")
 
     raw_ca = options.get("ca")
     if raw_ca is None:
@@ -83,13 +67,20 @@ def parse_iec104_point(point: Point, *, default_ca: int) -> IEC104Point:
         options.get("type_id", options.get("type")),
         point.point_id,
     )
+    command_mode = options.get("command_mode", "direct")
+    confirmation = options.get("confirmation", "act_term")
+    if command_mode not in ("direct", "select_execute"):
+        raise ConfigError(f"IEC104 point '{point.point_id}': invalid command_mode")
+    if confirmation not in ("act_con", "act_term"):
+        raise ConfigError(f"IEC104 point '{point.point_id}': invalid confirmation")
     return IEC104Point(
         point_id=point.point_id,
         common_address=ca,
         ioa=ioa,
         type_id=type_id,
+        command_mode=cast(Literal["direct", "select_execute"], command_mode),
+        confirmation=cast(Literal["act_con", "act_term"], confirmation),
     )
-
 
 
 def build_iec104_index(
@@ -155,8 +146,7 @@ def _validate_access_type(point: Point, mapped: IEC104Point) -> None:
         )
     if point.access is PointAccess.READ and not is_monitoring:
         raise ConfigError(
-            f"IEC104 read-only point '{mapped.point_id}' must use an M_* type, "
-            f"got '{type_id}'"
+            f"IEC104 read-only point '{mapped.point_id}' must use an M_* type, " f"got '{type_id}'"
         )
 
 
@@ -168,9 +158,7 @@ def _validate_ca(ca: object, point_id: str) -> int:
 
 def _validate_ioa(ioa: object, point_id: str) -> int:
     if isinstance(ioa, bool) or not isinstance(ioa, int) or not 0 <= ioa <= _MAX_IOA:
-        raise ConfigError(
-            f"IEC104 point '{point_id}': ioa must be an integer in 0..{_MAX_IOA}"
-        )
+        raise ConfigError(f"IEC104 point '{point_id}': ioa must be an integer in 0..{_MAX_IOA}")
     return ioa
 
 
@@ -178,7 +166,5 @@ def _validate_type_id(type_id: object, point_id: str) -> str | None:
     if type_id is None:
         return None
     if not isinstance(type_id, str) or not type_id.strip():
-        raise ConfigError(
-            f"IEC104 point '{point_id}': type/type_id must be a non-empty string"
-        )
+        raise ConfigError(f"IEC104 point '{point_id}': type/type_id must be a non-empty string")
     return type_id.strip().upper()

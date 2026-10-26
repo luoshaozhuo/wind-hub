@@ -1817,7 +1817,7 @@ export interface components {
          * WriteOutcome
          * @description 一次写入的现场执行结果分类。
          *
-         *     - ``CONFIRMED_SUCCESS``：协议证据确认设备已接受并执行；
+         *     - ``CONFIRMED_SUCCESS``：满足该点配置的协议确认条件，不等于物理到位；
          *     - ``CONFIRMED_FAILURE``：请求未发送（本地校验失败）或设备明确
          *       拒绝（异常响应/否定确认）——可以确证未执行；
          *     - ``UNKNOWN``：命令可能已送达或已执行，但没有足够证据确认最终

@@ -38,12 +38,15 @@ class IEC104ControlServer:
         data_points: dict[int, float] | None = None,
         command_points: dict[int, c104.Type] | None = None,
         reject_ioas: set[int] | None = None,
+        sbo_ioas: set[int] | None = None,
     ) -> None:
         self._port = free_port()
         self._common_addr = common_addr
         self._data_points = dict(data_points or {100: 1500.5})
         self._command_points = dict(command_points or DEFAULT_COMMAND_POINTS)
         self._reject_ioas = set(reject_ioas or set())
+        # 这些控制 IOA 在从站侧以「选择并执行」模式注册，其余为直控。
+        self._sbo_ioas = set(sbo_ioas or set())
         self._loop: asyncio.AbstractEventLoop | None = None
         self._termination_tasks: set[asyncio.Task[None]] = set()
         self._server: c104.Server | None = None
@@ -72,7 +75,12 @@ class IEC104ControlServer:
             assert point is not None
             point.value = float(value)
         for ioa, point_type in self._command_points.items():
-            point = station.add_point(io_address=ioa, type=point_type)
+            command_mode = (
+                c104.CommandMode.SELECT_AND_EXECUTE
+                if ioa in self._sbo_ioas
+                else c104.CommandMode.DIRECT
+            )
+            point = station.add_point(io_address=ioa, type=point_type, command_mode=command_mode)
             assert point is not None
             point.on_receive(callable=self._on_command)
         await asyncio.get_running_loop().run_in_executor(None, server.start)

@@ -99,6 +99,7 @@ class DeviceRuntime:
         self._watchdogs: dict[str, WatchdogUseCase] = {}
         self._watchdogs_running = False
         self._reconnect_callback: Callable[[str], Awaitable[None]] | None = None
+        self._reconnect_prepare: Callable[[str], Awaitable[None]] | None = None
         # 同一设备的显式 connect 与 Watchdog close/connect 共用锁，
         # 避免热更新期间并发连接和重复指标记账。
         self._connect_locks: dict[str, asyncio.Lock] = {}
@@ -132,9 +133,12 @@ class DeviceRuntime:
     def set_reconnect_callback(
         self,
         callback: Callable[[str], Awaitable[None]] | None,
+        *,
+        on_connected: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
-        """设置通用重连成功后的应用回调。"""
+        """设置重连成功后的采集句柄清理和恢复回调。"""
         self._reconnect_callback = callback
+        self._reconnect_prepare = on_connected
 
     async def health(self) -> dict[str, ConnectionHealth]:
         """并发执行全部设备的协议级健康检查。"""
@@ -303,11 +307,6 @@ class DeviceRuntime:
             self._clock(), error, connection_level=connection_level
         )
 
-    def is_device_open(self, device_id: str) -> bool:
-        """实时协议连接状态；不依赖滞后的运行状态簿记。"""
-        session = self._devices.get(device_id)
-        return session is not None and _transport_open(session)
-
     def device_state(self, device_id: str) -> DeviceRuntimeState | None:
         """返回设备当前运行状态（查询服务聚合 status 用）。"""
         return self._device_states.get(device_id)
@@ -412,9 +411,13 @@ class DeviceRuntime:
         device_id: str,
         session: CollectorDeviceSession,
     ) -> WatchdogUseCase:
+        prepared_generation = False
+
         async def _connect() -> None:
+            nonlocal prepared_generation
             try:
                 await session.connect()
+                prepared_generation = False
             except asyncio.CancelledError:
                 # 到达这里的取消有两个来源：watchdog 的 asyncio.timeout
                 # 到期（内部超时，本质是一次真实的 connect 失败尝试）与
@@ -454,8 +457,14 @@ class DeviceRuntime:
                 self._metrics.device_reconnected(device_id, session.protocol_name)
 
         async def _restore_push() -> None:
+            nonlocal prepared_generation
             if self._devices.get(device_id) is not session:
                 return
+            if not prepared_generation:
+                prepare = self._reconnect_prepare
+                if prepare is not None:
+                    await prepare(device_id)
+                prepared_generation = True
             callback = self._reconnect_callback
             if callback is not None:
                 await callback(device_id)

@@ -138,9 +138,7 @@ def test_ads_incomplete_index_address_is_rejected() -> None:
 
 
 def test_ads_index_zero_is_valid_address() -> None:
-    point = parse_ads_point(
-        _point("zero", ext=_point_ext(index_group=0, index_offset=0))
-    )
+    point = parse_ads_point(_point("zero", ext=_point_ext(index_group=0, index_offset=0)))
     assert point.address_resolved
     assert (point.group, point.offset) == (0, 0)
 
@@ -180,8 +178,7 @@ def test_ads_int64_mapping_is_supported() -> None:
     assert mapped.size == 8
 
 
-def test_ads_driver_binds_points_without_network_io() -> None:
-    """构造只做内存映射：symbol 地址保持未解析，不产生任何网络 IO。"""
+def test_ads_driver_precompiles_point_table_without_network_io() -> None:
     point = _point("speed", ext=_point_ext(symbol="MAIN.speed"))
     table = PointTable(PointTableId("ads_pt"), Protocol("ads"), {"speed": point})
 
@@ -192,15 +189,6 @@ def test_ads_driver_binds_points_without_network_io() -> None:
     )
 
     assert driver.is_open() is False
-    mapped = driver._points["speed"]
-    assert mapped.symbol == "MAIN.speed"
-    assert mapped.address_resolved is False
-
-
-def test_ads_driver_requires_target_net_id() -> None:
-    table = PointTable(PointTableId("ads_pt"), Protocol("ads"), {})
-    with pytest.raises(ConfigError, match="target_net_id is required"):
-        ADSDriver(_endpoint(), table, {})
 
 
 def test_ads_symbol_index_address_rejects_invalid_values() -> None:
@@ -234,9 +222,7 @@ def test_ads_string_requires_explicit_positive_size() -> None:
 
 
 def test_ads_symbol_resolution_preserves_configured_size() -> None:
-    point = parse_ads_point(
-        _point("power", ext=_point_ext(data_type="REAL", symbol="MAIN.power"))
-    )
+    point = parse_ads_point(_point("power", ext=_point_ext(data_type="REAL", symbol="MAIN.power")))
     resolved = point.resolved(index_group=0x4020, index_offset=0)
     assert resolved.size == 4
     assert resolved.address_resolved

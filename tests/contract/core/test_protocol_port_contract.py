@@ -19,6 +19,7 @@ import pytest
 
 from core.application import (
     ConnectionHealth,
+    InterrogationRequest,
     ProtocolCapability,
     ProtocolCapabilityError,
     ProtocolError,
@@ -94,10 +95,10 @@ class TestCapabilityDeclaration:
 
         if ProtocolCapability.SUBSCRIBE not in capabilities:
             with pytest.raises(ProtocolCapabilityError):
-                driver.subscribe(("p",), callback)  # type: ignore[attr-defined]
+                await driver.subscribe(("p",), callback)  # type: ignore[attr-defined]
         if ProtocolCapability.INTERROGATE not in capabilities:
             with pytest.raises(ProtocolCapabilityError):
-                await driver.interrogate()  # type: ignore[attr-defined]
+                await driver.interrogate(InterrogationRequest())  # type: ignore[attr-defined]
         if ProtocolCapability.WRITE_MANY not in capabilities:
             with pytest.raises((ProtocolCapabilityError, NotImplementedError)):
                 await driver.write_many(())  # type: ignore[attr-defined]

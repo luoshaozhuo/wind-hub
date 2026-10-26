@@ -1,38 +1,16 @@
-"""基于 hat.drivers.iec104（纯 asyncio IEC 60870-5-104）的 ProtocolPort Adapter。
-
-能力边界（只暴露真实协议能力）：
-
-- 支持单点主动读取（C_RD_NA_1）、单点遥控/设点、按 CA 总召、被动监听；
-- 不支持任意 IOA 集合批量读、不支持原子批量写、不支持「订阅」——IEC104
-  没有远程订阅原语，主动上送只能本地 ``listen``。
-
-架构要点：
-
-- 一条 TCP 连接（一个 hat APCI 会话）承载多个 Common Address，完整
-  协议地址 ``(ca, ioa)`` 键控全部索引与请求关联；
-- 无跨线程回调、无本地 Point 注册：hat 直接解码 ASDU，请求-响应在
-  单一 asyncio 事件循环内用 Future 关联；
-- 每次 ``connect`` 产生全新的会话对象，旧会话终止时只能结束自己的
-  Future，结构上不存在旧回调污染新会话；
-- Driver 不自动重连、不做第二只看门狗：链路终止后由上层 Watchdog
-  重新 connect/restore，Driver 只提供真实的健康证据。
-"""
+"""IEC104 协议适配器：业务关联与状态所有者，所有网络报文由 Session 接收。"""
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 
-from hat.drivers import net
-from hat.drivers.iec101 import common as iec101
-from hat.drivers.iec104 import common as iec104common
-from hat.drivers.iec104 import encoder as iec104_encoder
-from hat.drivers.iec60870 import apci
+from hat.drivers import iec104
 
 from core.application.errors import (
     ConfigError,
@@ -40,196 +18,154 @@ from core.application.errors import (
     ProtocolConnectionError,
     ProtocolError,
 )
-from core.application.port.protocol import ListenHandle, ProtocolSampleCallback, SubscriptionHandle
+from core.application.port.protocol import (
+    ListenHandle,
+    ProtocolEventCallback,
+    ProtocolEventHandle,
+    ProtocolSampleCallback,
+    SubscriptionHandle,
+)
 from core.application.protocol_contract import (
     ConnectionHealth,
+    InterrogationRequest,
     ProtocolCapability,
+    ProtocolLifecycleState,
+    ProtocolOperation,
+    ProtocolOperationState,
+    ProtocolRuntimeState,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
+from core.infrastructure.protocol.events import ProtocolEventStream
 
-from .codec import (
-    build_command,
-    decode_sample,
-    negative_read_message,
-)
-from .config import IEC104Config, parse_iec104_config
-from .listener import ListenerRegistry, ProtocolListenerCallback
-from .mapping import (
-    IEC104Point,
-    build_iec104_index,
-    validate_iec104_write_type,
-)
+from .codec import build_command, decode_sample, matches_monitoring_type
+from .config import parse_iec104_config
+from .mapping import IEC104Point, build_iec104_index, validate_iec104_write_type
+from .session import _IEC104Session
 
 logger = logging.getLogger(__name__)
-
 Address = tuple[int, int]
-_PROBE_UNSUPPORTED_CAUSES = frozenset(
-    {
-        iec101.ReadResCause.UNKNOWN_TYPE,
-        iec101.ReadResCause.UNKNOWN_CAUSE,
-        iec101.ReadResCause.UNKNOWN_ASDU_ADDRESS,
-        iec101.ReadResCause.UNKNOWN_IO_ADDRESS,
-    }
-)
 
 
-class _InterruptedInterrogationError(ProtocolConnectionError):
-    """失效会话的总召异常携带结果快照，允许立即清空会话缓存。"""
+@dataclass
+class _Read:
+    point: IEC104Point
+    result: asyncio.Future[ProtocolSample]
 
-    def __init__(self, message: str, samples: tuple[ProtocolSample, ...]) -> None:
-        super().__init__(message)
-        self.samples = samples
+
+@dataclass
+class _Control:
+    result: asyncio.Future[iec104.CommandMsg]
+    phase: str
+    select: bool
+    expected_command: object
+    accepted: bool = False
+
+
+@dataclass
+class _Interrogation:
+    result: asyncio.Future[None]
+    kind: str
+    group: int | None
+    by_address: dict[Address, IEC104Point]
+    accepted: bool = False
+    samples: dict[Address, ProtocolSample] = field(default_factory=dict)
+
+
+class _Listener(ListenHandle):
+    def __init__(
+        self,
+        owner: IEC104Driver,
+        point_ids: frozenset[str],
+        callback: ProtocolSampleCallback,
+    ):
+        self.owner = owner
+        self.point_ids = point_ids
+        self.callback = callback
+        self.queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=256)
+        self.task = asyncio.create_task(self._run(), name="iec104-listener")
+        self.failed = False
+
+    def offer(self, samples: tuple[ProtocolSample, ...]) -> None:
+        if self.failed or self.task.done():
+            return
+        filtered = tuple(x for x in samples if x.point_id in self.point_ids)
+        if not filtered:
+            return
+        try:
+            self.queue.put_nowait(filtered)
+        except asyncio.QueueFull:
+            self.failed = True
+            self.task.cancel()
+            logger.error("IEC104 listener overflow: invalidated to avoid silent data loss")
+
+    async def _run(self) -> None:
+        while True:
+            try:
+                await self.callback(await self.queue.get())
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.failed = True
+                logger.exception("IEC104 listener callback failed; listener invalidated")
+                return
+
+    async def close(self) -> None:
+        self.failed = True
+        if not self.task.done():
+            self.task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(self.task), timeout=5.0)
+            except asyncio.CancelledError:
+                current_task = asyncio.current_task()
+                if current_task is not None and current_task.cancelling():
+                    raise
+            except TimeoutError:
+                raise TimeoutError("IEC104 listener callback failed to stop") from None
+        self.owner._listeners.discard(self)
 
 
 class IEC104InterrogationIncompleteError(ProtocolError):
-    """总召未得到终结证据；samples 为终止前收到的部分有效结果。"""
-
-    def __init__(self, ca: int, qoi: int, samples: tuple[ProtocolSample, ...], reason: str):
-        super().__init__(
-            f"IEC104 interrogation incomplete for ca={ca}, qoi={qoi}: {reason}; "
-            f"partial_samples={len(samples)}"
-        )
+    def __init__(self, ca: int, samples: tuple[ProtocolSample, ...], reason: str):
+        super().__init__(f"IEC104 interrogation ca={ca} incomplete: {reason}")
         self.common_address = ca
-        self.qoi = qoi
         self.samples = samples
         self.reason = reason
         self.completed = False
 
 
-class IEC104ActiveReadRejectedError(ProtocolError):
-    """从站对 C_RD_NA_1 给出否定响应（应用层拒绝，非链路故障）。"""
-
-    def __init__(self, cause: object) -> None:
-        super().__init__(negative_read_message(cause))
-        self.cause = cause
-
-
-def _set_result(future: asyncio.Future[Any], value: Any) -> None:
-    """完成 Future 的幂等辅助（重复报文/会话结束竞态下不抛 InvalidStateError）。"""
-    if not future.done():
-        future.set_result(value)
-
-
-def _set_exception(future: asyncio.Future[Any], exc: BaseException) -> None:
-    if not future.done():
-        future.set_exception(exc)
-
-
-@dataclass(slots=True)
-class _ReadRequest:
-    future: asyncio.Future[ProtocolSample]
-    point_id: str
-
-
-@dataclass(slots=True)
-class _Session:
-    """一次 TCP/STARTDT 会话的全部可变状态；断连即整体丢弃。"""
-
-    conn: Any
-    task: asyncio.Task[None] | None
-    enabled: bool = True
-    failed: bool = False
-    next_originator: int = 0
-    reads: dict[Address, _ReadRequest] = field(default_factory=dict)
-    commands: dict[Address, asyncio.Future[bool]] = field(default_factory=dict)
-    command_accepted: set[Address] = field(default_factory=set)
-    interrogations: dict[int, asyncio.Future[None]] = field(default_factory=dict)
-    interrogation_samples: dict[int, list[ProtocolSample]] = field(default_factory=dict)
-    interrogation_qoi: dict[int, int] = field(default_factory=dict)
-    interrogation_accepted: set[int] = field(default_factory=set)
-
-    def originator(self) -> int:
-        """分配 1..255 的始发地址（诊断用；响应关联以完整地址+串行锁为准）。"""
-        self.next_originator = self.next_originator % 255 + 1
-        return self.next_originator
-
-
-class _KeyLocks:
-    """按完整地址引用计数的串行锁集合（计数与字典维护在同一同步段，零泄漏）。"""
-
-    def __init__(self) -> None:
-        self._locks: dict[object, asyncio.Lock] = {}
-        self._refs: dict[object, int] = {}
-
-    @contextlib.asynccontextmanager
-    async def locked(self, key: object) -> AsyncIterator[None]:
-        lock = self._locks.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._locks[key] = lock
-            self._refs[key] = 0
-        self._refs[key] += 1
-        try:
-            async with lock:
-                yield
-        finally:
-            self._refs[key] -= 1
-            if self._refs[key] == 0:
-                self._locks.pop(key, None)
-                self._refs.pop(key, None)
-
-
-class _ListenHandleImpl(ListenHandle):
-    """``listen`` 返回的句柄；重复 close 安全。"""
-
-    def __init__(self, owner: IEC104Driver, listener_id: int) -> None:
-        self._owner = owner
-        self._id = listener_id
-        self._closed = False
-
-    async def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        await self._owner._remove_listener(self._id)
-
-
 class IEC104Driver:
-    """单个 Endpoint、多 CA 的 IEC104 主站 Driver。
-
-    Driver 不缓存业务点值；重连退避与业务恢复由上层负责。
-    """
+    """IEC104 主站。单 Session，按完整地址和站召区域关联响应。"""
 
     def __init__(
         self,
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
         protocol_options: ProtocolOptions,
-    ) -> None:
+    ):
         if point_table.protocol.name != "iec104":
-            raise ConfigError(
-                f"point table '{point_table.point_table_id}' protocol is "
-                f"'{point_table.protocol.name}', expected 'iec104'"
-            )
-
-        self._point_table_id = point_table.point_table_id
-        self._config: IEC104Config = parse_iec104_config(endpoint, protocol_options)
-        self._points_by_id: dict[str, IEC104Point]
-        self._points_by_address: dict[Address, IEC104Point]
-        self._points_by_id, self._points_by_address = self._build_index(point_table)
-        self._validate_health_point()
-
+            raise ConfigError("IEC104 requires IEC104 point table")
+        self._config = parse_iec104_config(endpoint, protocol_options)
+        self._device_tz = ZoneInfo(self._config.timezone) if self._config.timezone else None
+        self._by_id: dict[str, IEC104Point] = {}
+        self._by_address: dict[Address, IEC104Point] = {}
+        self.update_point_table(point_table)
         self._lifecycle = asyncio.Lock()
-        self._session: _Session | None = None
-        self._read_locks = _KeyLocks()
-        self._command_locks = _KeyLocks()
-        self._gi_locks = _KeyLocks()
-        self._listeners = ListenerRegistry()
-        # close 时存在未收敛回调、未能一次性关闭成功的旧注册表：继续持有，
-        # 后续 close() 重新等待其任务结束，不丢失对遗留任务的追踪。
-        self._closing_listeners: list[ListenerRegistry] = []
-        self._encoder = iec104_encoder.Encoder()
-
-    # ------------------------------------------------------------------
-    # 契约
-    # ------------------------------------------------------------------
+        self._session: _IEC104Session | None = None
+        self._closing: _IEC104Session | None = None
+        self._read: dict[Address, _Read] = {}
+        self._control: dict[Address, _Control] = {}
+        self._unsettled_controls: dict[Address, object] = {}
+        self._interrogation: dict[int, _Interrogation] = {}
+        self._locks: dict[Address, asyncio.Lock] = {}
+        self._station_locks: dict[int, asyncio.Lock] = {}
+        self._listeners: set[_Listener] = set()
+        self._events = ProtocolEventStream()
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
-        """IEC104 真实能力：单点读、单点写、总召、被动监听。"""
         return frozenset(
             {
                 ProtocolCapability.READ,
@@ -239,441 +175,494 @@ class IEC104Driver:
             }
         )
 
+    def runtime_state(self) -> ProtocolRuntimeState:
+        return self._events.snapshot()
+
+    def observe_events(self, callback: ProtocolEventCallback) -> ProtocolEventHandle:
+        return self._events.observe(callback)
+
     def update_point_table(self, point_table: PointTable) -> None:
-        """热重载点表：重建 ``(ca, ioa)`` 寻址索引（不断开连接）。
-
-        采用新表前拒绝全部在途请求，避免旧表语义的响应污染新状态。
-        """
-        next_by_id, next_by_address = self._build_index(point_table)
-        self._point_table_id = point_table.point_table_id
-        self._points_by_id = next_by_id
-        self._points_by_address = next_by_address
-        session = self._session
-        if session is not None:
-            # 只拒绝旧表在途请求；会话本身仍然有效，不标记 failed。
-            self._reject_pending(
-                session, ProtocolError("IEC104 point table changed; request aborted")
-            )
-        self._validate_health_point()
-
-    # ------------------------------------------------------------------
-    # 连接生命周期
-    # ------------------------------------------------------------------
-
-    async def connect(self) -> None:
-        """建立一条 TCP + STARTDT 会话；已连接时幂等返回。"""
-        async with self._lifecycle:
-            if self._session is not None:
-                return
-            try:
-                raw_conn = await asyncio.wait_for(self._dial(), timeout=self._config.t0)
-            except TimeoutError as exc:
-                raise ProtocolError(
-                    f"IEC104 connect to {self._config.host}:{self._config.port} "
-                    f"timed out after {self._config.t0}s"
-                ) from exc
-            except (ProtocolError, RuntimeError):
-                raise
-            except Exception as exc:
-                raise ProtocolError(
-                    f"IEC104 connect failed for {self._config.host}:"
-                    f"{self._config.port}: {exc}"
-                ) from exc
-
-            session = _Session(conn=raw_conn, task=None)
-            raw_conn.register_enabled_cb(
-                lambda enabled, s=session: self._on_enabled(s, enabled)
-            )
-            session.enabled = bool(raw_conn.is_enabled)
-            session.task = asyncio.create_task(
-                self._receive_loop(session), name="iec104-receive"
-            )
-            self._session = session
-            logger.info(
-                "IEC104 connected to %s:%s, CAs=%s",
-                self._config.host,
-                self._config.port,
-                list(self._config.common_addresses),
-            )
-
-    async def _dial(self) -> Any:
-        """建立 hat APCI 连接（含 STARTDT 握手等待）。测试 seam。"""
-        return await apci.connect(
-            addr=net.TcpAddress(self._config.host, self._config.port),
-            response_timeout=self._config.t1,
-            supervisory_timeout=self._config.t2,
-            test_timeout=self._config.t3,
-            send_window_size=self._config.k,
-            receive_window_size=self._config.w,
+        if point_table.protocol.name != "iec104":
+            raise ConfigError("IEC104 point table protocol mismatch")
+        by_id, by_address = build_iec104_index(
+            list(point_table.points.values()),
+            common_addresses=self._config.common_addresses,
+            default_ca=self._config.default_ca,
         )
-
-    async def close(self) -> None:
-        """关闭当前会话与监听分发表；幂等，可随后再次 connect。
-
-        会话释放先于监听收敛且其失败不阻断连接关闭；监听回调在取消后仍
-        未结束时，旧注册表被保留到 ``_closing_listeners``，本方法抛出
-        ``TimeoutError``，再次调用 ``close()`` 会继续等待遗留任务收敛。
-        全流程持生命周期锁，并发关闭串行执行。
-        """
-        async with self._lifecycle:
-            session = self._session
-            self._session = None
-            if session is not None:
-                self._fail_session(
-                    session,
-                    ProtocolConnectionError("IEC104 connection closed"),
-                )
-                if session.task is not None:
-                    session.task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError, Exception):
-                        await session.task
-                with contextlib.suppress(Exception):
-                    await session.conn.async_close()
-            # 全部监听随会话结束；重连后由上层 restore 重新注册。换新注册表。
-            # 上次 close 超时的旧注册表仍在 _closing_listeners 中，一并重新
-            # 等待；仍有未结束回调时保留引用并在最后显式抛出 TimeoutError。
-            old_registry, self._listeners = self._listeners, ListenerRegistry()
-            registries = [*self._closing_listeners, old_registry]
-            pending: list[ListenerRegistry] = []
-            for registry in registries:
-                try:
-                    await registry.close()
-                except TimeoutError:
-                    pending.append(registry)
-            self._closing_listeners = pending
-            if pending:
-                raise TimeoutError(
-                    f"IEC104 close: {len(pending)} listener registry(ies) still "
-                    f"have callback task(s) running after cancellation"
-                )
+        if self._config.health_point is not None and self._config.health_point not in by_id:
+            raise ConfigError(
+                f"IEC104 health point '{self._config.health_point}' is not configured"
+            )
+        # 在途操作保存提交时的不可变测点映射；新请求只使用新的完整快照。
+        self._by_id, self._by_address = by_id, by_address
 
     def is_open(self) -> bool:
-        """STARTDT 数据传输已使能且会话存在（纯本地查询）。"""
-        session = self._session
-        return session is not None and session.enabled
+        return self._session is not None and self._session.is_open
 
-    # ------------------------------------------------------------------
-    # 健康
-    # ------------------------------------------------------------------
+    async def connect(self) -> None:
+        operation_id = uuid4().hex
+        operation = ProtocolOperation.CONNECT
+        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING)
+        try:
+            await self._connect_impl()
+        except BaseException as exc:
+            state = (
+                ProtocolOperationState.CANCELLED
+                if isinstance(exc, asyncio.CancelledError)
+                else ProtocolOperationState.FAILED
+            )
+            self._events.emit(operation_id, operation, state, message=str(exc))
+            raise
+        self._events.emit(operation_id, operation, ProtocolOperationState.SUCCEEDED)
+
+    async def _connect_impl(self) -> None:
+        async with self._lifecycle:
+            if self.is_open():
+                return
+            if self._session is not None or self._closing is not None:
+                raise ProtocolConnectionError("IEC104 previous session must close first")
+            self._events.transition(ProtocolLifecycleState.CONNECTING)
+            c = self._config
+            session: _IEC104Session | None = None
+            try:
+                session = _IEC104Session(
+                    c.host,
+                    c.port,
+                    t1=c.t1,
+                    t2=c.t2,
+                    t3=c.t3,
+                    k=c.k,
+                    w=c.w,
+                    on_message=lambda msg: self._dispatch(session, msg),
+                    on_disconnect=lambda exc: self._disconnect(session, exc),
+                )
+                self._session = session
+                await asyncio.wait_for(session.open(), timeout=c.t0)
+                if self._session is not session or not session.is_open:
+                    raise ProtocolConnectionError("IEC104 session lost during STARTDT")
+            except BaseException as exc:
+                if session is not None:
+                    if self._session is session:
+                        self._session = None
+                    self._closing = session
+                    try:
+                        await asyncio.shield(session.close())
+                    except BaseException:
+                        self._events.transition(ProtocolLifecycleState.FAULTED)
+                        raise
+                    finally:
+                        if self._closing is session and session.is_settled:
+                            self._closing = None
+                self._events.transition(ProtocolLifecycleState.DISCONNECTED)
+                if isinstance(exc, OSError | TimeoutError):
+                    raise ProtocolConnectionError(
+                        f"IEC104 connection failed: {exc or type(exc).__name__}"
+                    ) from exc
+                raise
+            self._events.transition(ProtocolLifecycleState.CONNECTED)
+
+    async def close(self) -> None:
+        operation_id = uuid4().hex
+        operation = ProtocolOperation.CLOSE
+        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING)
+        try:
+            await self._close_impl()
+        except BaseException as exc:
+            state = (
+                ProtocolOperationState.CANCELLED
+                if isinstance(exc, asyncio.CancelledError)
+                else ProtocolOperationState.FAILED
+            )
+            self._events.emit(operation_id, operation, state, message=str(exc))
+            raise
+        self._events.emit(operation_id, operation, ProtocolOperationState.SUCCEEDED)
+
+    async def _close_impl(self) -> None:
+        async with self._lifecycle:
+            self._events.transition(ProtocolLifecycleState.CLOSING)
+            session = self._session
+            self._session = None
+            self._fail_all(ProtocolConnectionError("IEC104 session closed"))
+            if session is not None:
+                self._closing = session
+            try:
+                if self._closing is not None:
+                    await self._closing.close()
+                for listener in tuple(self._listeners):
+                    await listener.close()
+            except BaseException:
+                self._events.transition(ProtocolLifecycleState.FAULTED)
+                raise
+            self._closing = None
+            self._events.transition(ProtocolLifecycleState.DISCONNECTED)
+
+    def _disconnect(self, session: _IEC104Session | None, exc: BaseException) -> None:
+        if session is not self._session:
+            return
+        self._fail_all(ProtocolConnectionError(f"IEC104 connection lost: {exc}"))
+        self._events.transition(ProtocolLifecycleState.CLOSING)
+        self._closing = session
+        self._session = None
+
+    def _fail_all(self, exc: Exception) -> None:
+        futures = (
+            [x.result for x in self._read.values()]
+            + [x.result for x in self._control.values()]
+            + [x.result for x in self._interrogation.values()]
+        )
+        for future in futures:
+            if not future.done():
+                future.set_exception(exc)
+        self._read.clear()
+        self._control.clear()
+        self._unsettled_controls.clear()
+        self._interrogation.clear()
+
+    async def _send(self, session: _IEC104Session, message: object) -> None:
+        if session is not self._session:
+            raise ProtocolConnectionError("IEC104 session changed")
+        await session.send([message])
+
+    async def _isolate(self, session: _IEC104Session) -> None:
+        if self._session is session:
+            self._session = None
+            self._closing = session
+            self._fail_all(ProtocolConnectionError("IEC104 uncertain response; session isolated"))
+            self._events.transition(ProtocolLifecycleState.CLOSING)
+        try:
+            await asyncio.shield(session.close())
+        except BaseException:
+            if self._closing is session:
+                self._events.transition(ProtocolLifecycleState.FAULTED)
+            raise
+        if self._closing is session:
+            self._closing = None
+            self._events.transition(ProtocolLifecycleState.DISCONNECTED)
+
+    def _point(self, key: str) -> IEC104Point:
+        try:
+            return self._by_id[key]
+        except KeyError as exc:
+            raise ConfigError(f"IEC104 point not configured: {key}") from exc
 
     async def health(self) -> ConnectionHealth:
-        """链路健康（APCI/STARTDT）+ 可选应用层探测（真实单点读取证据）。
-
-        未配置 ``health_point`` 时只报告链路状态；配置后主动读一次该点，
-        必须拿到本次响应才算应用层健康。从站以 UNKNOWN_* 否定 C_RD 时，
-        明确表达「不支持应用层探测」，不误报链路故障。
-        """
-        session = self._session
-        if session is None:
-            return ConnectionHealth(healthy=False, message="not connected")
-        if not session.enabled:
-            return ConnectionHealth(
-                healthy=False, message="IEC104 data transfer stopped (STARTDT disabled)"
-            )
-        link_message = (
-            f"IEC104 link OPEN {self._config.host}:{self._config.port}"
-            f" (CAs={list(self._config.common_addresses)}, t3={self._config.t3}s)"
-        )
-        health_point = self._config.health_point
-        if health_point is None:
-            # 只有链路/APCI 证据，文案必须显式说明未做应用层探测。
-            return ConnectionHealth(
-                healthy=True,
-                message=f"{link_message}; link/APCI evidence only, no application probe",
-            )
-
-        mapped = self._points_by_id.get(health_point)
-        if mapped is None:
-            return ConnectionHealth(
-                healthy=False,
-                message=f"health point '{health_point}' missing from point table",
-            )
-        probe_location = f"ca={mapped.common_address}, ioa={mapped.ioa}"
-        try:
-            await self.read_one(health_point)
-        except IEC104ActiveReadRejectedError as exc:
-            if exc.cause in _PROBE_UNSUPPORTED_CAUSES:
-                # 显式 C_RD 拒绝（UNKNOWN_*）：链路仍然健康，只是该点
-                # 不支持主动读探测；不断开连接、不触发任何恢复动作。
-                return ConnectionHealth(
-                    healthy=True,
-                    message=(
-                        f"{link_message}; application probe unsupported at {probe_location}"
-                        f" (station rejected C_RD: {exc.cause}); link stays OPEN"
-                    ),
-                )
-            return ConnectionHealth(
-                healthy=False,
-                message=f"application probe rejected at {probe_location}: {exc}",
-            )
-        except ProtocolConnectionError as exc:
-            return ConnectionHealth(
-                healthy=False,
-                message=f"link failed during application probe at {probe_location}: {exc}",
-            )
-        except ProtocolError as exc:
-            # 读取超时/解码失败等：区分超时与其他读取失败，底层原因保留。
-            kind = "timed out" if "timed out" in str(exc) else "failed"
-            return ConnectionHealth(
-                healthy=False,
-                message=f"application probe {kind} at {probe_location}: {exc}",
-            )
-        # 拿到本次新鲜响应即应用层健康——即使样本品质位 BAD（坏品质是
-        # 合法的通信证据，不代表链路不健康）。
-        return ConnectionHealth(
-            healthy=True,
-            message=f"{link_message}; application probe ok at {probe_location}",
-        )
-
-    # ------------------------------------------------------------------
-    # 读取
-    # ------------------------------------------------------------------
+        if not self.is_open():
+            return ConnectionHealth(False, "IEC104 session unavailable")
+        if any(listener.failed or listener.task.done() for listener in self._listeners):
+            return ConnectionHealth(False, "IEC104 listener stopped; acquisition recovery required")
+        point_id = self._config.health_point
+        if point_id is not None:
+            try:
+                await self.read_one(point_id)
+            except Exception as exc:
+                return ConnectionHealth(False, str(exc))
+        return ConnectionHealth(True)
 
     async def read_one(self, point_id: str) -> ProtocolSample:
-        """发送 C_RD_NA_1 并等待本次请求的响应（按 (ca,ioa) 精确关联）。
-
-        不使用任何缓存；自发/总召数据不能完成本 Future。同地址并发读取
-        串行化；超时、否定响应、断线都显式失败。
-        """
-        mapped = self._resolve_point(point_id)
-        if mapped.type_id is not None and not mapped.type_id.startswith("M_"):
-            raise ProtocolError(
-                f"IEC104 point '{point_id}' is a command point ({mapped.type_id}), "
-                "active read requires a monitoring (M_*) point"
+        operation_id = uuid4().hex
+        operation = ProtocolOperation.READ
+        self._events.emit(
+            operation_id, operation, ProtocolOperationState.RUNNING, point_id=point_id
+        )
+        try:
+            result = await self._read_one_impl(point_id)
+        except BaseException as exc:
+            state = (
+                ProtocolOperationState.UNKNOWN
+                if operation is ProtocolOperation.WRITE
+                else ProtocolOperationState.CANCELLED
+                if isinstance(exc, asyncio.CancelledError)
+                else ProtocolOperationState.FAILED
             )
+            self._events.emit(operation_id, operation, state, message=str(exc))
+            raise
+        state = ProtocolOperationState.SUCCEEDED
+        if isinstance(result, ProtocolWriteResult):
+            if result.outcome is WriteOutcome.UNKNOWN:
+                state = ProtocolOperationState.UNKNOWN
+            elif result.outcome is WriteOutcome.CONFIRMED_FAILURE:
+                state = ProtocolOperationState.FAILED
+        self._events.emit(operation_id, operation, state)
+        return result
+
+    async def _read_one_impl(self, point_id: str) -> ProtocolSample:
+        point = self._point(point_id)
+        if point.type_id is None or not point.type_id.startswith("M_"):
+            raise ConfigError("active read requires an explicit monitoring M_* Type ID")
         session = self._require_session()
-        key = (mapped.common_address, mapped.ioa)
-        async with self._read_locks.locked(key):
-            if self._session is not session:
-                raise ProtocolConnectionError("IEC104 session changed while waiting to read")
+        key = (point.common_address, point.ioa)
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            if session is not self._session:
+                raise ProtocolConnectionError("IEC104 session changed")
             future: asyncio.Future[ProtocolSample] = asyncio.get_running_loop().create_future()
-            request = _ReadRequest(future=future, point_id=mapped.point_id)
-            session.reads[key] = request
+            self._read[key] = _Read(point, future)
+            sent = False
             try:
+                sent = True
                 await self._send(
                     session,
-                    [
-                        iec101.ReadMsg(
-                            is_test=False,
-                            originator_address=session.originator(),
-                            asdu_address=mapped.common_address,
-                            io_address=mapped.ioa,
-                            cause=iec101.ReadReqCause.REQUEST,
-                        )
-                    ],
+                    iec104.ReadMsg(
+                        is_test=False,
+                        originator_address=0,
+                        asdu_address=point.common_address,
+                        io_address=point.ioa,
+                        cause=iec104.ReadReqCause.REQUEST,
+                    ),
                 )
-                try:
-                    return await asyncio.wait_for(future, timeout=self._config.t1)
-                except TimeoutError as exc:
-                    self._invalidate_session(session, "active read timed out")
-                    raise ProtocolError(
-                        f"IEC104 active read timed out for '{point_id}'"
-                    ) from exc
-            except asyncio.CancelledError:
-                # 请求可能已发送；隔离迟到响应，禁止复用旧会话。
-                self._invalidate_session(session, "active read cancelled")
+                return await asyncio.wait_for(future, timeout=self._config.t1)
+            except (TimeoutError, ProtocolConnectionError, ProtocolError, asyncio.CancelledError):
+                if sent:
+                    await asyncio.shield(self._isolate(session))
                 raise
             finally:
-                if session.reads.get(key) is request:
-                    session.reads.pop(key, None)
+                self._read.pop(key, None)
 
-    async def read_many(
-        self,
-        point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]:
-        """IEC104 无任意 IOA 集合的原生批量读取，禁止循环单点伪装。"""
+    async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
         del point_ids
-        raise ProtocolCapabilityError("iec104 does not support native batch read_many")
+        raise ProtocolCapabilityError("IEC104 does not support native batch reads")
 
-    # ------------------------------------------------------------------
-    # 写入
-    # ------------------------------------------------------------------
+    def _require_session(self) -> _IEC104Session:
+        if not self.is_open():
+            raise ProtocolConnectionError("IEC104 session unavailable")
+        assert self._session is not None
+        return self._session
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
-        """执行单点遥控/设点，严格按应用层确认证据三分类。
-
-        - 本地校验失败 / 从站否定确认（含 UNKNOWN_* COT）→ CONFIRMED_FAILURE；
-        - 肯定 ACT_CON 后肯定 ACT_TERM → CONFIRMED_SUCCESS（协议流程完成）；
-        - 超时、断线等丢失确认 → UNKNOWN（可能已送达，禁止自动重传）。
-        """
-        mapped = self._resolve_point(write.point)
+        operation_id = uuid4().hex
+        operation = ProtocolOperation.WRITE
+        self._events.emit(
+            operation_id, operation, ProtocolOperationState.RUNNING, point_id=write.point
+        )
         try:
-            validate_iec104_write_type(mapped)
-            command = build_command(mapped, write.value)
-        except (ConfigError, ProtocolError, TypeError, ValueError) as exc:
-            return ProtocolWriteResult(
-                point_id=mapped.point_id,
-                outcome=WriteOutcome.CONFIRMED_FAILURE,
-                message=str(exc),
+            result = await self._write_one_impl(write)
+        except BaseException as exc:
+            state = (
+                ProtocolOperationState.UNKNOWN
+                if isinstance(exc, asyncio.CancelledError)
+                else ProtocolOperationState.FAILED
             )
+            self._events.emit(operation_id, operation, state, message=str(exc))
+            raise
+        state = ProtocolOperationState.SUCCEEDED
+        if isinstance(result, ProtocolWriteResult):
+            if result.outcome is WriteOutcome.UNKNOWN:
+                state = ProtocolOperationState.UNKNOWN
+            elif result.outcome is WriteOutcome.CONFIRMED_FAILURE:
+                state = ProtocolOperationState.FAILED
+        self._events.emit(operation_id, operation, state)
+        return result
 
+    async def _write_one_impl(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        point = self._point(write.point)
+        try:
+            validate_iec104_write_type(point)
+            command = build_command(point, write.value)
+        except (TypeError, ValueError, ConfigError) as exc:
+            return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc))
         session = self._require_session()
-        key = (mapped.common_address, mapped.ioa)
-        async with self._command_locks.locked(key):
-            if self._session is not session:
+        key = (point.common_address, point.ioa)
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        station_lock = self._station_locks.setdefault(point.common_address, asyncio.Lock())
+        async with station_lock, lock:
+            if key in self._unsettled_controls:
                 return ProtocolWriteResult(
-                    point_id=mapped.point_id,
-                    outcome=WriteOutcome.UNKNOWN,
-                    message="IEC104 session changed during command",
+                    write.point,
+                    WriteOutcome.CONFIRMED_FAILURE,
+                    "previous ACT_CON confirmed, ACT_TERM still pending; command not sent",
                 )
-            future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
-            session.commands[key] = future
-            session.command_accepted.discard(key)
             try:
-                try:
-                    await self._send(
-                        session,
-                        [
-                            # 注意：iec104 的 CommandMsg 是带 time 的独立
-                            # NamedTuple（其余 Msg 才是 iec101 类型别名）。
-                            iec104common.CommandMsg(
-                                is_test=False,
-                                originator_address=session.originator(),
-                                asdu_address=mapped.common_address,
-                                io_address=mapped.ioa,
-                                command=command,
-                                is_negative_confirm=False,
-                                time=None,
-                                cause=iec101.CommandReqCause.ACTIVATION,
-                            )
-                        ],
+                selected: object | None = None
+                if point.command_mode == "select_execute":
+                    selected = command._replace(select=True)
+                    accepted = await self._control_phase(
+                        session, point, selected, "select", "act_con"
                     )
-                except ProtocolConnectionError as exc:
-                    return ProtocolWriteResult(
-                        point_id=mapped.point_id,
-                        outcome=WriteOutcome.UNKNOWN,
-                        message=f"command delivery failed: {exc}",
-                    )
-                try:
-                    accepted = await asyncio.wait_for(future, timeout=self._config.t1 * 2)
-                except TimeoutError:
-                    self._invalidate_session(session, "command confirmation timed out")
-                    return ProtocolWriteResult(
-                        point_id=mapped.point_id,
-                        outcome=WriteOutcome.UNKNOWN,
-                        message=(
-                            "command termination timed out — command may have executed"
-                        ),
-                    )
-                except ProtocolConnectionError as exc:
-                    return ProtocolWriteResult(
-                        point_id=mapped.point_id,
-                        outcome=WriteOutcome.UNKNOWN,
-                        message=f"connection lost after command send: {exc}",
-                    )
-            except asyncio.CancelledError:
-                # 请求可能已上线；取消后不能让迟到确认为下一条同地址控制背书。
-                self._invalidate_session(session, "command cancelled with uncertain delivery")
-                raise
-            finally:
-                session.commands.pop(key, None)
-                session.command_accepted.discard(key)
-            if accepted:
-                return ProtocolWriteResult(
-                    point_id=mapped.point_id,
-                    outcome=WriteOutcome.CONFIRMED_SUCCESS,
-                )
-            return ProtocolWriteResult(
-                point_id=mapped.point_id,
-                outcome=WriteOutcome.CONFIRMED_FAILURE,
-                message="station returned negative command confirmation",
-            )
-
-    async def write_many(
-        self,
-        writes: Sequence[ProtocolWrite],
-    ) -> tuple[ProtocolWriteResult, ...]:
-        """IEC104 无原子批量遥控，明确拒绝。"""
-        del writes
-        raise ProtocolCapabilityError("iec104 does not support atomic batch write_many")
-
-    # ------------------------------------------------------------------
-    # 总召
-    # ------------------------------------------------------------------
-
-    async def interrogate(
-        self, common_address: int | None = None, *, qoi: int = 20
-    ) -> tuple[ProtocolSample, ...]:
-        """对指定 CA（缺省：全部已配置 CA 逐个）发送 C_IC_NA_1（QOI=20 站总召，21..36 组召）。
-
-        以每个 CA 和当前 QOI 对应的 ACT_TERM（或否定确认）为完成依据；请求发送成功
-        不代表总召完成。ACT_TERM 只表示协议总召流程结束，业务测点完整性
-        由 Collector 判断。
-        """
-        if not isinstance(qoi, int) or isinstance(qoi, bool) or not 20 <= qoi <= 36:
-            raise ConfigError("IEC104 interrogation QOI must be an integer in 20..36")
-        if common_address is None:
-            batches: list[ProtocolSample] = []
-            for ca in self._config.common_addresses:
-                try:
-                    batches.extend(await self._interrogate_one(ca, qoi=qoi))
-                except IEC104InterrogationIncompleteError as exc:
-                    raise IEC104InterrogationIncompleteError(
-                        ca, qoi, (*batches, *exc.samples), exc.reason
-                    ) from exc
-            return tuple(batches)
-        if common_address not in self._config.common_addresses:
-            raise ConfigError(
-                f"IEC104 common address {common_address} is not configured "
-                f"(configured: {list(self._config.common_addresses)})"
-            )
-        return await self._interrogate_one(common_address, qoi=qoi)
-
-    async def _interrogate_one(self, ca: int, *, qoi: int) -> tuple[ProtocolSample, ...]:
-        session = self._require_session()
-        async with self._gi_locks.locked(ca):
-            if self._session is not session:
-                raise ProtocolConnectionError("IEC104 session changed during interrogation")
-            future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-            session.interrogations[ca] = future
-            session.interrogation_qoi[ca] = qoi
-            session.interrogation_accepted.discard(ca)
-            session.interrogation_samples[ca] = []
-            try:
-                await self._send(
-                    session,
-                    [
-                        iec101.InterrogationMsg(
-                            is_test=False,
-                            originator_address=session.originator(),
-                            asdu_address=ca,
-                            request=qoi,
-                            is_negative_confirm=False,
-                            cause=iec101.CommandReqCause.ACTIVATION,
+                    if not accepted:
+                        return ProtocolWriteResult(
+                            write.point, WriteOutcome.CONFIRMED_FAILURE, "SELECT rejected"
                         )
-                    ],
+                accepted = await self._control_phase(
+                    session, point, command, "execute", point.confirmation
                 )
-                try:
-                    await asyncio.wait_for(future, timeout=self._config.t1 * 2)
-                    return tuple(session.interrogation_samples[ca])
-                except TimeoutError as exc:
-                    partial = tuple(session.interrogation_samples[ca])
-                    self._invalidate_session(session, "interrogation timed out")
-                    raise IEC104InterrogationIncompleteError(
-                        ca, qoi, partial, "ACT_TERM timed out"
-                    ) from exc
-                except ProtocolConnectionError as exc:
-                    partial = (
-                        exc.samples
-                        if isinstance(exc, _InterruptedInterrogationError)
-                        else tuple(session.interrogation_samples.get(ca, ()))
-                    )
-                    raise IEC104InterrogationIncompleteError(
-                        ca, qoi, partial, str(exc)
-                    ) from exc
-            except asyncio.CancelledError:
-                # 总召取消后可能仍有分批响应在途，隔离旧会话。
-                self._invalidate_session(session, "interrogation cancelled")
-                raise
-            finally:
-                session.interrogations.pop(ca, None)
-                session.interrogation_qoi.pop(ca, None)
-                session.interrogation_accepted.discard(ca)
-                session.interrogation_samples.pop(ca, None)
+                if not accepted and selected is not None:
+                    try:
+                        await self._deactivate(session, point, selected)
+                    except (TimeoutError, ProtocolError) as exc:
+                        await asyncio.shield(self._isolate(session))
+                        return ProtocolWriteResult(
+                            write.point,
+                            WriteOutcome.UNKNOWN,
+                            f"execute rejected; SBO deactivation unconfirmed: {exc}",
+                        )
+                return ProtocolWriteResult(
+                    write.point,
+                    WriteOutcome.CONFIRMED_SUCCESS if accepted else WriteOutcome.CONFIRMED_FAILURE,
+                )
+            except (TimeoutError, ProtocolError, asyncio.CancelledError) as exc:
+                await asyncio.shield(self._isolate(session))
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                reason = exc or type(exc).__name__
+                return ProtocolWriteResult(
+                    write.point,
+                    WriteOutcome.UNKNOWN,
+                    f"IEC104 write outcome unknown; command may have executed: {reason}",
+                )
 
-    # ------------------------------------------------------------------
-    # 推送：只有本地监听，没有远程订阅
-    # ------------------------------------------------------------------
+    async def _control_phase(
+        self,
+        session: _IEC104Session,
+        point: IEC104Point,
+        command: object,
+        phase: str,
+        confirmation: str,
+    ) -> bool:
+        key = (point.common_address, point.ioa)
+        future: asyncio.Future[iec104.CommandMsg] = asyncio.get_running_loop().create_future()
+        self._control[key] = _Control(
+            future, confirmation, bool(getattr(command, "select", False)), command
+        )
+        if phase == "execute" and confirmation == "act_con":
+            self._unsettled_controls[key] = command
+        try:
+            await self._send(
+                session,
+                iec104.CommandMsg(
+                    is_test=False,
+                    originator_address=0,
+                    asdu_address=point.common_address,
+                    io_address=point.ioa,
+                    command=command,
+                    is_negative_confirm=False,
+                    time=None,
+                    cause=iec104.CommandReqCause.ACTIVATION,
+                ),
+            )
+            response = await asyncio.wait_for(future, timeout=self._config.t1 * 2)
+            rejected = response.is_negative_confirm or response.cause in (
+                iec104.CommandResCause.UNKNOWN_TYPE,
+                iec104.CommandResCause.UNKNOWN_CAUSE,
+                iec104.CommandResCause.UNKNOWN_ASDU_ADDRESS,
+                iec104.CommandResCause.UNKNOWN_IO_ADDRESS,
+            )
+            if rejected:
+                self._unsettled_controls.pop(key, None)
+            return not rejected
+        finally:
+            self._control.pop(key, None)
+
+    async def _deactivate(
+        self, session: _IEC104Session, point: IEC104Point, selected: object
+    ) -> None:
+        key = (point.common_address, point.ioa)
+        future: asyncio.Future[iec104.CommandMsg] = asyncio.get_running_loop().create_future()
+        self._control[key] = _Control(future, "deact_con", True, selected)
+        try:
+            await self._send(
+                session,
+                iec104.CommandMsg(
+                    is_test=False,
+                    originator_address=0,
+                    asdu_address=point.common_address,
+                    io_address=point.ioa,
+                    command=selected,
+                    is_negative_confirm=False,
+                    time=None,
+                    cause=iec104.CommandReqCause.DEACTIVATION,
+                ),
+            )
+            reply = await asyncio.wait_for(future, timeout=self._config.t1)
+            if reply.is_negative_confirm or reply.cause in (
+                iec104.CommandResCause.UNKNOWN_TYPE,
+                iec104.CommandResCause.UNKNOWN_CAUSE,
+                iec104.CommandResCause.UNKNOWN_ASDU_ADDRESS,
+                iec104.CommandResCause.UNKNOWN_IO_ADDRESS,
+            ):
+                raise ProtocolError("IEC104 SBO deactivation rejected")
+        finally:
+            self._control.pop(key, None)
+
+    async def write_many(self, writes: Sequence[ProtocolWrite]) -> tuple[ProtocolWriteResult, ...]:
+        del writes
+        raise ProtocolCapabilityError("IEC104 has no native atomic batch write")
+
+    async def interrogate(self, request: InterrogationRequest) -> tuple[ProtocolSample, ...]:
+        operation_id = uuid4().hex
+        operation = ProtocolOperation.INTERROGATE
+        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING)
+        try:
+            result = await self._interrogate_impl(request)
+        except BaseException as exc:
+            state = (
+                ProtocolOperationState.UNKNOWN
+                if operation is ProtocolOperation.WRITE
+                else ProtocolOperationState.CANCELLED
+                if isinstance(exc, asyncio.CancelledError)
+                else ProtocolOperationState.FAILED
+            )
+            self._events.emit(operation_id, operation, state, message=str(exc))
+            raise
+        state = ProtocolOperationState.SUCCEEDED
+        if isinstance(result, ProtocolWriteResult):
+            if result.outcome is WriteOutcome.UNKNOWN:
+                state = ProtocolOperationState.UNKNOWN
+            elif result.outcome is WriteOutcome.CONFIRMED_FAILURE:
+                state = ProtocolOperationState.FAILED
+        self._events.emit(operation_id, operation, state)
+        return result
+
+    async def _interrogate_impl(self, request: InterrogationRequest) -> tuple[ProtocolSample, ...]:
+        addresses = (
+            (request.common_address,)
+            if request.common_address is not None
+            else self._config.common_addresses
+        )
+        results: list[ProtocolSample] = []
+        for ca in addresses:
+            if ca not in self._config.common_addresses:
+                raise ConfigError(f"IEC104 CA not configured: {ca}")
+            session = self._require_session()
+            lock = self._station_locks.setdefault(ca, asyncio.Lock())
+            async with lock:
+                future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+                pending = _Interrogation(
+                    future, request.kind, request.group, dict(self._by_address)
+                )
+                self._interrogation[ca] = pending
+                try:
+                    if request.kind == "station":
+                        message = iec104.InterrogationMsg(
+                            is_test=False,
+                            originator_address=0,
+                            asdu_address=ca,
+                            request=20 if request.group is None else 20 + request.group,
+                            is_negative_confirm=False,
+                            cause=iec104.CommandReqCause.ACTIVATION,
+                        )
+                    else:
+                        message = iec104.CounterInterrogationMsg(
+                            is_test=False,
+                            originator_address=0,
+                            asdu_address=ca,
+                            request=5 if request.group is None else request.group,
+                            freeze=iec104.FreezeCode.READ,
+                            is_negative_confirm=False,
+                            cause=iec104.CommandReqCause.ACTIVATION,
+                        )
+                    await self._send(session, message)
+                    await asyncio.wait_for(future, timeout=self._config.t1 * 2)
+                    results.extend(pending.samples.values())
+                except (TimeoutError, ProtocolError, asyncio.CancelledError) as exc:
+                    await asyncio.shield(self._isolate(session))
+                    if isinstance(exc, asyncio.CancelledError):
+                        raise
+                    raise IEC104InterrogationIncompleteError(
+                        ca, (*results, *pending.samples.values()), str(exc)
+                    ) from exc
+                finally:
+                    self._interrogation.pop(ca, None)
+        return tuple(results)
 
     def subscribe(
         self,
@@ -682,372 +671,204 @@ class IEC104Driver:
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
-        """IEC104 无远程订阅原语；主动上送使用 listen。"""
         del point_ids, callback, interval
-        raise ProtocolCapabilityError(
-            "iec104 does not support remote subscription — use listen for spontaneous data"
-        )
+        raise ProtocolCapabilityError("IEC104 does not support remote subscriptions")
 
     async def listen(
         self,
         point_ids: Sequence[str],
-        callback: ProtocolListenerCallback,
+        callback: ProtocolSampleCallback,
         *,
         interval: float | None = None,
     ) -> ListenHandle:
-        """注册本地监听（按配置 point_id 过滤）；不向从站注册、不触发总召。
-
-        空 ``point_ids`` 监听全部已配置点。未配置 (ca,ioa) 的上送不投递，
-        只记 debug 日志，避免污染业务点表。
-        """
         del interval
         self._require_session()
-        if point_ids:
-            for point_id in point_ids:
-                self._resolve_point(point_id)
-            filter_ids = tuple(dict.fromkeys(point_ids))
-        else:
-            filter_ids = tuple(self._points_by_id)
-        listener_id = self._listeners.add(filter_ids, callback)
-        return _ListenHandleImpl(self, listener_id)
+        selected = frozenset(point_ids or self._by_id)
+        for point_id in selected:
+            self._point(point_id)
+        listener = _Listener(self, selected, callback)
+        self._listeners.add(listener)
+        return listener
 
-    async def _remove_listener(self, listener_id: int) -> None:
-        await self._listeners.remove(listener_id)
-
-    # ------------------------------------------------------------------
-    # 接收管线
-    # ------------------------------------------------------------------
-
-    async def _receive_loop(self, session: _Session) -> None:
-        """单接收任务：APCI APDU → ASDU 解码 → 会话内分发。
-
-        未知 ASDU/IO 类型只记录日志并跳过，不允许杀死接收管线。
-        """
-        try:
-            while True:
-                data = await session.conn.receive()
-                received_at = datetime.now(UTC)
-                self._decode_and_dispatch(session, data, receive_time=received_at)
-        except asyncio.CancelledError:
-            raise
-        except ConnectionError:
-            pass
-        except Exception:
-            logger.exception("IEC104 receive loop terminated unexpectedly")
-        finally:
-            await self._on_session_end(session)
-
-    def _decode_and_dispatch(
-        self, session: _Session, data: bytes, *, receive_time: datetime | None = None
-    ) -> None:
-        # hat Encoder.decode 是生成器（单 ASDU 多 IO 元素展开为多条 Msg），
-        # 异常可能在任何一次 next() 抛出——本协议栈在进入生成器时急切解码
-        # 整个 ASDU，截断/非法类型通常在第一次 next() 即失败。解码与逐条
-        # 分发严格隔离：当前 APDU 不可解码的剩余部分只丢这一帧并记日志，
-        # 绝不杀死接收任务，后续 APDU 正常处理。出错后不重新迭代同一生成器。
-        messages = self._encoder.decode(data)
-        batch: list[ProtocolSample] = []
-        while True:
+    def _dispatch(self, session: _IEC104Session | None, messages: object) -> None:
+        if session is not self._session or session is None:
+            return
+        if not isinstance(messages, tuple | list):
+            raise ProtocolError("IEC104 receive callback must deliver a message batch")
+        samples: list[ProtocolSample] = []
+        received_at = datetime.now(UTC)
+        for msg in messages:
             try:
-                message = next(messages)
-            except StopIteration:
-                break
-            except iec101.AsduTypeError as exc:
-                logger.warning(
-                    "IEC104 unsupported ASDU type (%s); APDU remainder dropped: %s",
-                    exc,
-                    data.hex(),
-                )
-                break
+                if isinstance(msg, iec104.DataMsg):
+                    sample = self._data(msg, received_at)
+                    if sample is not None:
+                        samples.append(sample)
+                elif isinstance(msg, iec104.CommandMsg):
+                    self._command(msg)
+                elif isinstance(msg, iec104.InterrogationMsg | iec104.CounterInterrogationMsg):
+                    self._interrogation_reply(msg)
+                elif isinstance(msg, iec104.ReadMsg):
+                    key = (msg.asdu_address, msg.io_address)
+                    req = self._read.get(key)
+                    if (
+                        req is not None
+                        and not req.result.done()
+                        and not msg.is_test
+                        and getattr(msg.cause, "value", msg.cause) in (44, 45, 46, 47)
+                    ):
+                        req.result.set_exception(
+                            ProtocolError(f"IEC104 read rejected: {msg.cause}")
+                        )
             except Exception:
-                logger.exception(
-                    "IEC104 ASDU decode failed (malformed/truncated APDU); "
-                    "remainder of this APDU dropped: %s",
-                    data.hex(),
-                )
-                break
-            try:
-                self._dispatch(session, message, receive_time=receive_time, batch=batch)
-            except Exception:
-                logger.exception(
-                    "IEC104 dispatch failed for %s ca=%s ioa=%s; "
-                    "subsequent messages are unaffected",
-                    type(message).__name__,
-                    getattr(message, "asdu_address", "?"),
-                    getattr(message, "io_address", "?"),
-                )
-        if batch:
-            self._listeners.offer(tuple(batch))
+                logger.exception("IEC104 invalid incoming message dropped")
+        if samples:
+            batch = tuple(samples)
+            for listener in tuple(self._listeners):
+                listener.offer(batch)
 
-    def _dispatch(
-        self, session: _Session, message: iec101.Msg, *,
-        receive_time: datetime | None = None,
-        batch: list[ProtocolSample] | None = None,
-    ) -> None:
-        if isinstance(message, iec101.DataMsg):
-            self._dispatch_data(session, message, receive_time=receive_time, batch=batch)
-        elif isinstance(message, iec101.ReadMsg):
-            self._dispatch_read_negative(session, message)
-        elif isinstance(message, iec104common.CommandMsg):
-            self._dispatch_command(session, message)
-        elif isinstance(message, iec101.InterrogationMsg):
-            self._dispatch_interrogation(session, message)
-        # 时钟同步、初始化、参数等报文当前无业务语义，忽略。
+    def _data(self, msg: iec104.DataMsg, received_at: datetime) -> ProtocolSample | None:
+        if msg.is_test:
+            return None
+        key = (msg.asdu_address, msg.io_address)
+        cause = msg.cause
+        read = self._read.get(key)
+        if read is not None and cause == iec104.DataResCause.REQUEST:
+            if not matches_monitoring_type(read.point.type_id, msg):
+                if not read.result.done():
+                    read.result.set_exception(ProtocolError("IEC104 active read Type ID mismatch"))
+            else:
+                try:
+                    received = decode_sample(
+                        read.point.point_id,
+                        msg,
+                        receive_time=received_at,
+                        device_tz=self._device_tz,
+                    )
+                except (ValueError, TypeError) as exc:
+                    if not read.result.done():
+                        read.result.set_exception(
+                            ProtocolError(f"IEC104 read decode failed: {exc}")
+                        )
+                else:
+                    if not read.result.done():
+                        read.result.set_result(received)
 
-    def _dispatch_data(
-        self, session: _Session, message: iec101.DataMsg, *,
-        receive_time: datetime | None = None,
-        batch: list[ProtocolSample] | None = None,
-    ) -> None:
-        key: Address = (message.asdu_address, message.io_address)
-        data_type = type(message.data).__name__
-        if message.cause is iec101.DataResCause.REQUEST:
-            request = session.reads.get(key)
-            if request is None or request.future.done():
-                return
-            # 主动读响应畸形/类型不受支持：请求必须显式失败，绝不以
-            # 伪造的坏样本完成（合法数据 + Invalid 品质位仍正常解出
-            # quality=BAD 的真实样本，走 decode_sample 成功路径）。
-            try:
-                sample = decode_sample(request.point_id, message, receive_time=receive_time)
-            except (ValueError, TypeError) as exc:
-                logger.error(
-                    "IEC104 malformed read response for '%s' ca=%s ioa=%s "
-                    "data_type=%s: %s: %s",
-                    request.point_id,
-                    key[0],
-                    key[1],
-                    data_type,
-                    type(exc).__name__,
-                    exc,
-                )
-                _set_exception(
-                    request.future,
-                    ProtocolError(
-                        f"IEC104 malformed read response for '{request.point_id}' "
-                        f"(ca={key[0]}, ioa={key[1]}, data_type={data_type}): {exc}"
-                    ),
-                )
-                return
-            _set_result(request.future, sample)
-            return
+        gi = self._interrogation.get(msg.asdu_address)
+        gi_point: IEC104Point | None = None
+        if gi is not None and gi.accepted and self._matches_cause(gi, cause):
+            gi_point = gi.by_address.get(key)
+            if gi_point is not None and matches_monitoring_type(gi_point.type_id, msg):
+                try:
+                    gi.samples[key] = decode_sample(
+                        gi_point.point_id, msg, receive_time=received_at, device_tz=self._device_tz
+                    )
+                except (ValueError, TypeError):
+                    logger.warning("IEC104 interrogation sample decode failed: %s", key)
 
-        mapped = self._points_by_address.get(key)
-        if mapped is None:
-            logger.debug(
-                "IEC104 drop update for unconfigured address ca=%s ioa=%s", key[0], key[1]
-            )
-            return
-        # 自发/总召数据畸形：记错误日志并丢弃，绝不伪造值或 BAD 样本。
-        try:
-            sample = decode_sample(mapped.point_id, message, receive_time=receive_time)
-        except (ValueError, TypeError) as exc:
-            logger.error(
-                "IEC104 malformed monitoring data for '%s' ca=%s ioa=%s "
-                "data_type=%s — dropped: %s: %s",
-                mapped.point_id,
-                key[0],
-                key[1],
-                data_type,
-                type(exc).__name__,
-                exc,
-            )
-            return
-        qoi = session.interrogation_qoi.get(message.asdu_address)
+        point = self._by_address.get(key)
+        if point is None:
+            return None
         if (
-            qoi is not None
-            and message.cause.value == qoi
-            and message.asdu_address in session.interrogation_samples
+            read is not None
+            and cause == iec104.DataResCause.REQUEST
+            and point.point_id != read.point.point_id
         ):
-            session.interrogation_samples[message.asdu_address].append(sample)
-        if batch is None:
-            self._listeners.offer((sample,))
-        else:
-            batch.append(sample)
-
-    def _dispatch_read_negative(self, session: _Session, message: iec101.ReadMsg) -> None:
-        # 主站发出的请求回响不会回到本侧；这里只处理从站否定（COT 44..47）。
-        if not isinstance(message.cause, iec101.ReadResCause):
-            return
-        request = session.reads.get((message.asdu_address, message.io_address))
-        if request is not None:
-            _set_exception(request.future, IEC104ActiveReadRejectedError(message.cause))
-
-    def _dispatch_command(
-        self,
-        session: _Session,
-        message: iec104common.CommandMsg,
-    ) -> None:
-        waiter = session.commands.get((message.asdu_address, message.io_address))
-        if waiter is None or waiter.done():
-            return
-        cause = message.cause
-        key = (message.asdu_address, message.io_address)
-        if cause is iec101.CommandResCause.ACTIVATION_CONFIRMATION:
-            if message.is_negative_confirm:
-                _set_result(waiter, False)
-            else:
-                # 肯定 ACT_CON 只表示设备受理，尚不是执行完成证据。
-                session.command_accepted.add(key)
-            return
-        if cause is iec101.CommandResCause.ACTIVATION_TERMINATION:
-            if message.is_negative_confirm:
-                _set_result(waiter, False)
-            elif key in session.command_accepted:
-                _set_result(waiter, True)
-            return
-        if message.is_negative_confirm or getattr(cause, "value", None) in {44, 45, 46, 47}:
-            _set_result(waiter, False)
-
-    def _dispatch_interrogation(
-        self,
-        session: _Session,
-        message: iec101.InterrogationMsg,
-    ) -> None:
-        if message.request != session.interrogation_qoi.get(message.asdu_address):
-            return
-        waiter = session.interrogations.get(message.asdu_address)
-        if waiter is None or waiter.done():
-            return
-        cause = message.cause
-        if cause is iec101.CommandResCause.ACTIVATION_CONFIRMATION:
-            if message.is_negative_confirm:
-                _set_exception(
-                    waiter,
-                    ProtocolError(
-                        f"IEC104 station rejected interrogation for "
-                        f"ca={message.asdu_address}"
-                    ),
-                )
-            else:
-                session.interrogation_accepted.add(message.asdu_address)
-            return
-        if cause is iec101.CommandResCause.ACTIVATION_TERMINATION:
-            if message.is_negative_confirm:
-                _set_exception(
-                    waiter,
-                    ProtocolError(
-                        f"IEC104 interrogation negative ACT_TERM for "
-                        f"ca={message.asdu_address}"
-                    ),
-                )
-            elif message.asdu_address in session.interrogation_accepted:
-                _set_result(waiter, None)
-            return
-        # UNKNOWN_TYPE/CAUSE/ASDU/IO 等否定 COT：明确失败。
-        if message.is_negative_confirm or getattr(cause, "value", None) in {44, 45, 46, 47}:
-            _set_exception(
-                waiter,
-                ProtocolError(
-                    f"IEC104 interrogation rejected ({cause}) for "
-                    f"ca={message.asdu_address}"
-                ),
-            )
-
-    async def _send(self, session: _Session, messages: list[iec101.Msg]) -> None:
-        """经 hat 编码器发送 ASDU；传输失败归一为 ProtocolConnectionError。"""
-        if self._session is not session:
-            raise ProtocolConnectionError("IEC104 session is no longer current")
+            return None
+        if gi_point is not None and point.point_id != gi_point.point_id:
+            return None
         try:
-            for chunk in self._encoder.encode(messages):
-                await session.conn.send(chunk, False)
-        except ConnectionError as exc:
-            raise ProtocolConnectionError(f"IEC104 send failed: {exc}") from exc
-
-    def _on_enabled(self, session: _Session, enabled: bool) -> None:
-        if self._session is not session:
-            return
-        session.enabled = enabled
-        if not enabled:
-            # STOPDT 后不得复用 failed 会话；由上层重新建链及恢复监听。
-            self._invalidate_session(session, "IEC104 data transfer disabled by peer")
-
-    async def _on_session_end(self, session: _Session) -> None:
-        if self._session is session:
-            self._session = None
-        self._fail_session(
-            session,
-            ProtocolConnectionError("IEC104 connection lost"),
-        )
-        with contextlib.suppress(Exception):
-            await session.conn.async_close()
-
-    def _invalidate_session(self, session: _Session, reason: str) -> None:
-        """请求超时后禁止复用会话，隔离无法关联的旧响应。"""
-        if self._session is not session:
-            return
-        self._session = None
-        session.enabled = False
-        self._fail_session(session, ProtocolConnectionError(reason))
-        if session.task is not None:
-            session.task.cancel()
-
-    @classmethod
-    def _fail_session(cls, session: _Session, exc: Exception) -> None:
-        """结束会话内全部在途 Future（幂等）。命令路径把链路类异常映射为 UNKNOWN。"""
-        if session.failed:
-            return
-        session.failed = True
-        cls._reject_pending(session, exc)
+            return decode_sample(
+                point.point_id,
+                msg,
+                receive_time=received_at,
+                device_tz=self._device_tz,
+            )
+        except (ValueError, TypeError):
+            logger.warning("IEC104 unsupported point data: %s", key)
+            return None
 
     @staticmethod
-    def _reject_pending(session: _Session, exc: Exception) -> None:
-        """结束当前在途 Future 并清空等待表（不改变会话 failed 标记）。"""
-        for request in session.reads.values():
-            _set_exception(request.future, exc)
-        for command_future in session.commands.values():
-            _set_exception(command_future, exc)
-        for ca, interrogation_future in session.interrogations.items():
-            partial = tuple(session.interrogation_samples.get(ca, ()))
-            if partial and isinstance(exc, ProtocolConnectionError):
-                _set_exception(
-                    interrogation_future,
-                    _InterruptedInterrogationError(str(exc), partial),
-                )
-            else:
-                _set_exception(interrogation_future, exc)
-        session.reads.clear()
-        session.commands.clear()
-        session.command_accepted.clear()
-        session.interrogations.clear()
-        session.interrogation_qoi.clear()
-        session.interrogation_accepted.clear()
-        session.interrogation_samples.clear()
+    def _matches_cause(pending: _Interrogation, cause: object) -> bool:
+        if pending.kind == "station":
+            expected = 20 if pending.group is None else 20 + pending.group
+            return getattr(cause, "value", cause) == expected
+        expected = 37 if pending.group is None else 37 + pending.group
+        return getattr(cause, "value", cause) == expected
 
-    # ------------------------------------------------------------------
-    # 索引与校验
-    # ------------------------------------------------------------------
-
-    def _build_index(
-        self,
-        point_table: PointTable,
-    ) -> tuple[dict[str, IEC104Point], dict[Address, IEC104Point]]:
-        return build_iec104_index(
-            list(point_table.points.values()),
-            common_addresses=self._config.common_addresses,
-            default_ca=self._config.default_ca,
+    def _command(self, msg: iec104.CommandMsg) -> None:
+        key = (msg.asdu_address, msg.io_address)
+        if not msg.is_test and msg.cause == iec104.CommandResCause.ACTIVATION_TERMINATION:
+            previous = self._unsettled_controls.get(key)
+            if previous is not None and previous == msg.command:
+                self._unsettled_controls.pop(key, None)
+        pending = self._control.get(key)
+        if pending is None or pending.result.done() or msg.is_test:
+            return
+        if bool(getattr(msg.command, "select", False)) != pending.select:
+            return
+        if msg.command != pending.expected_command:
+            return
+        unknown_cause = msg.cause in (
+            iec104.CommandResCause.UNKNOWN_TYPE,
+            iec104.CommandResCause.UNKNOWN_CAUSE,
+            iec104.CommandResCause.UNKNOWN_ASDU_ADDRESS,
+            iec104.CommandResCause.UNKNOWN_IO_ADDRESS,
         )
+        deact_conf = (
+            pending.phase == "deact_con"
+            and msg.cause == iec104.CommandResCause.DEACTIVATION_CONFIRMATION
+        )
+        if unknown_cause or deact_conf:
+            pending.result.set_result(msg)
+        elif msg.cause == iec104.CommandResCause.ACTIVATION_CONFIRMATION:
+            if msg.is_negative_confirm or pending.phase == "act_con":
+                pending.result.set_result(msg)
+            else:
+                pending.accepted = True
+        elif (
+            msg.cause == iec104.CommandResCause.ACTIVATION_TERMINATION
+            and pending.phase == "act_term"
+            and pending.accepted
+        ):
+            pending.result.set_result(msg)
 
-    def _validate_health_point(self) -> None:
-        health_point = self._config.health_point
-        if health_point is not None and health_point not in self._points_by_id:
-            raise ConfigError(
-                f"IEC104 health_point '{health_point}' is not present in point table "
-                f"'{self._point_table_id}'"
-            )
-
-    def _resolve_point(self, point_id: str) -> IEC104Point:
-        if not isinstance(point_id, str):
-            raise ConfigError("protocol point must be a configured point key")
-        mapped = self._points_by_id.get(point_id)
-        if mapped is None:
-            raise ConfigError(
-                f"point '{point_id}' is not part of connection '{self._point_table_id}'"
-            )
-        return mapped
-
-    def _require_session(self) -> _Session:
-        session = self._session
-        if session is None or not session.enabled:
-            raise ProtocolError("IEC104 operation requires an OPEN, enabled connection")
-        return session
+    def _interrogation_reply(
+        self, msg: iec104.InterrogationMsg | iec104.CounterInterrogationMsg
+    ) -> None:
+        ca = msg.asdu_address
+        pending = self._interrogation.get(ca)
+        if pending is None or msg.is_test:
+            return
+        if isinstance(msg, iec104.InterrogationMsg) != (pending.kind == "station"):
+            return
+        expected_request = (
+            (20 if pending.group is None else 20 + pending.group)
+            if pending.kind == "station"
+            else (5 if pending.group is None else pending.group)
+        )
+        if msg.request != expected_request:
+            return
+        if isinstance(msg, iec104.CounterInterrogationMsg) and msg.freeze != iec104.FreezeCode.READ:
+            return
+        if msg.cause in (
+            iec104.CommandResCause.UNKNOWN_TYPE,
+            iec104.CommandResCause.UNKNOWN_CAUSE,
+            iec104.CommandResCause.UNKNOWN_ASDU_ADDRESS,
+            iec104.CommandResCause.UNKNOWN_IO_ADDRESS,
+        ):
+            if not pending.result.done():
+                pending.result.set_exception(
+                    ProtocolError(f"IEC104 interrogation rejected: {msg.cause}")
+                )
+        elif msg.cause == iec104.CommandResCause.ACTIVATION_CONFIRMATION:
+            if msg.is_negative_confirm and not pending.result.done():
+                pending.result.set_exception(ProtocolError("IEC104 interrogation rejected"))
+            else:
+                pending.accepted = True
+        elif msg.cause == iec104.CommandResCause.ACTIVATION_TERMINATION and pending.accepted:
+            if not pending.result.done() and msg.is_negative_confirm:
+                pending.result.set_exception(
+                    ProtocolError("IEC104 interrogation negatively terminated")
+                )
+            elif not pending.result.done():
+                pending.result.set_result(None)

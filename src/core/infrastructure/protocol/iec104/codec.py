@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from hat.drivers.iec101 import common as iec101
 
@@ -23,8 +24,44 @@ from core.domain.sample_value import PointScalar
 from .mapping import IEC104Point
 
 
+def matches_monitoring_type(type_id: str | None, msg: iec101.DataMsg) -> bool:
+    """读取确认必须与点配置的监测 Type ID 一致，禁止用其它类型误完成请求。"""
+    if type_id is None:
+        return True
+    data = msg.data
+    timed = msg.time is not None
+    names: tuple[str, str] | None = None
+    if isinstance(data, iec101.SingleData):
+        names = ("M_SP_NA_1", "M_SP_TB_1")
+    elif isinstance(data, iec101.DoubleData):
+        names = ("M_DP_NA_1", "M_DP_TB_1")
+    elif isinstance(data, iec101.StepPositionData):
+        names = ("M_ST_NA_1", "M_ST_TB_1")
+    elif isinstance(data, iec101.BitstringData):
+        names = ("M_BO_NA_1", "M_BO_TB_1")
+    elif isinstance(data, iec101.NormalizedData):
+        if not timed and type_id == "M_ME_ND_1":
+            return True
+        names = ("M_ME_NA_1", "M_ME_TD_1")
+    elif isinstance(data, iec101.ScaledData):
+        names = ("M_ME_NB_1", "M_ME_TE_1")
+    elif isinstance(data, iec101.FloatingData):
+        names = ("M_ME_NC_1", "M_ME_TF_1")
+    elif isinstance(data, iec101.BinaryCounterData):
+        names = ("M_IT_NA_1", "M_IT_TB_1")
+    elif isinstance(data, iec101.StatusData):
+        return type_id == "M_PS_NA_1" and not timed
+    if names is None:
+        return False
+    return type_id == names[int(timed)]
+
+
 def decode_sample(
-    point_id: str, msg: iec101.DataMsg, *, receive_time: datetime | None = None
+    point_id: str,
+    msg: iec101.DataMsg,
+    *,
+    receive_time: datetime | None = None,
+    device_tz: ZoneInfo | None = None,
 ) -> ProtocolSample:
     """把一条监测 ASDU（一个 IO 元素）解码为 ProtocolSample。
 
@@ -38,7 +75,7 @@ def decode_sample(
     """
     if receive_time is None:
         receive_time = datetime.now(UTC)
-    timestamp, source = decode_timestamp(msg)
+    timestamp, source = decode_timestamp(msg, receive_time=receive_time, device_tz=device_tz)
     value, quality = decode_data(cast(iec101.Data, msg.data))
     return ProtocolSample(
         point_id=point_id,
@@ -56,14 +93,60 @@ def decode_sample(
     )
 
 
-def decode_timestamp(msg: iec101.DataMsg) -> tuple[datetime, TimestampSource]:
-    """CP56Time2a → UTC datetime；无时标或时标无效时本地接收时刻兜底。"""
-    time = getattr(msg, "time", None)
-    if time is not None and not getattr(time, "invalid", False):
-        # CP56Time2a 按设备本地时间编码（不含时区），hat 依主机本地时区
-        # 归一到 UTC，是协议可提供的最佳设备时间证据。
-        return iec101.time_to_datetime(time), "device"
-    return datetime.now(UTC), "local"
+def decode_timestamp(
+    msg: iec101.DataMsg,
+    *,
+    receive_time: datetime,
+    device_tz: ZoneInfo | None,
+) -> tuple[datetime, TimestampSource]:
+    """仅对有效 CP56Time2a 按设备配置时区解释；绝不依赖服务器本地时区。"""
+    time = msg.time
+    if (
+        time is None
+        or time.invalid
+        or time.size != iec101.TimeSize.SEVEN
+        or device_tz is None
+        or time.summer_time is None
+    ):
+        return receive_time, "local"
+    year = time.years
+    month = time.months
+    day = time.day_of_month
+    hour = time.hours
+    minute = time.minutes
+    if any(value is None for value in (year, month, day, hour, minute)):
+        return receive_time, "local"
+    assert year is not None
+    assert month is not None
+    assert day is not None
+    assert hour is not None
+    assert minute is not None
+    try:
+        naive = datetime(
+            year=2000 + year if year < 70 else 1900 + year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            second=time.milliseconds // 1000,
+            microsecond=(time.milliseconds % 1000) * 1000,
+        )
+        # 使用两种 fold 验证设备夏令时标志与真实 UTC 偏移，拒绝歧义时间。
+        candidates = []
+        for fold in (0, 1):
+            local = naive.replace(tzinfo=device_tz, fold=fold)
+            utc_time = local.astimezone(UTC)
+            if utc_time.astimezone(device_tz).replace(tzinfo=None) != naive:
+                continue
+            if bool(local.dst()) != bool(time.summer_time):
+                continue
+            if utc_time not in candidates:
+                candidates.append(utc_time)
+        if len(candidates) != 1:
+            return receive_time, "local"
+    except (TypeError, ValueError, OverflowError):
+        return receive_time, "local"
+    return candidates[0], "device"
 
 
 def decode_data(data: iec101.Data) -> tuple[PointScalar, Quality]:
@@ -80,7 +163,7 @@ def decode_data(data: iec101.Data) -> tuple[PointScalar, Quality]:
             quality = Quality.UNCERTAIN
         return int(data.value.value), quality
     if isinstance(data, iec101.BitstringData):
-        return int(data.value.value), quality
+        return int.from_bytes(data.value.value, "little"), quality
     if isinstance(data, iec101.NormalizedData):
         return float(data.value.value), quality
     if isinstance(data, iec101.ScaledData):
@@ -160,9 +243,7 @@ def build_command(mapped: IEC104Point, value: object) -> iec101.Command:
         number = _numeric(value, type_id)
         if not -1.0 <= number <= 1.0:
             raise ValueError("C_SE_NA_1 normalized value must be in -1..1")
-        return iec101.NormalizedCommand(
-            value=iec101.NormalizedValue(number), select=False
-        )
+        return iec101.NormalizedCommand(value=iec101.NormalizedValue(number), select=False)
 
     if type_id == "C_SE_NB_1":
         integer = _integer(value, type_id)
@@ -175,15 +256,7 @@ def build_command(mapped: IEC104Point, value: object) -> iec101.Command:
             value=iec101.FloatingValue(_numeric(value, type_id)), select=False
         )
 
-    raise ConfigError(
-        f"IEC104 point '{mapped.point_id}' uses unsupported command type '{type_id}'"
-    )
-
-
-def negative_read_message(cause: object) -> str:
-    """把 hat 的否定读取 COT 转为可读失败原因。"""
-    name = getattr(cause, "name", str(cause))
-    return f"IEC104 station rejected active read ({name})"
+    raise ConfigError(f"IEC104 point '{mapped.point_id}' uses unsupported command type '{type_id}'")
 
 
 def _numeric(value: object, type_id: str) -> float:

@@ -25,6 +25,7 @@ from typing import Protocol
 from core.application import (
     ConfigError,
     ConnectionHealth,
+    InterrogationRequest,
     ProtocolCapability,
     ProtocolPort,
     ProtocolSample,
@@ -225,9 +226,8 @@ class CollectorDeviceSession:
         - 其余 → POLL（Modbus、ADS Sum read）。
         """
         capabilities = self._protocol.capabilities()
-        if (
-            ProtocolCapability.SUBSCRIBE in capabilities
-            and (self.protocol_name != "ads" or self._subscribe_enabled)
+        if ProtocolCapability.SUBSCRIBE in capabilities and (
+            self.protocol_name != "ads" or self._subscribe_enabled
         ):
             return AcquisitionMode.SUBSCRIBE
         if ProtocolCapability.LISTEN in capabilities:
@@ -394,7 +394,7 @@ class CollectorDeviceSession:
             push_handle = await self._protocol.listen(point_ids, _forward, interval=interval)
             # 先建立监听、再发总召——总召响应经监听链路上报。
             try:
-                await self._protocol.interrogate()
+                await self._protocol.interrogate(InterrogationRequest())
             except BaseException:
                 # 启动失败不得遗失已创建的监听句柄，取消时同样需要收敛。
                 cleanup = asyncio.create_task(push_handle.close())

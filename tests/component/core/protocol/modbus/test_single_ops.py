@@ -25,6 +25,7 @@ from core.domain import (
     PointTableId,
     Protocol,
 )
+from core.infrastructure.protocol.events import ProtocolEventStream
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 from core.infrastructure.protocol.modbus.mapping import ModbusPoint
@@ -167,6 +168,7 @@ def _driver(
     driver._client = client
     client.connected = connected
     driver._lock = asyncio.Lock()
+    driver._events = ProtocolEventStream()
     return driver
 
 

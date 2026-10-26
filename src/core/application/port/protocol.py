@@ -21,8 +21,11 @@ from typing_extensions import TypeVar
 
 from ..protocol_contract import (
     ConnectionHealth,
+    InterrogationRequest,
     ProtocolCapability,
+    ProtocolOperationEvent,
     ProtocolPoint,
+    ProtocolRuntimeState,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -53,10 +56,21 @@ ProtocolSampleCallback = Callable[[tuple[ProtocolSample, ...]], Awaitable[None]]
 TPoint = TypeVar("TPoint", bound=ProtocolPoint, contravariant=True, default=Never)
 
 
+ProtocolEventCallback = Callable[[ProtocolOperationEvent], Awaitable[None]]
+
+
+class ProtocolEventHandle(Protocol):
+    async def close(self) -> None: ...
+
+
 class ProtocolPort(Protocol[TPoint]):
     """统一设备协议运行时能力边界。"""
 
     def capabilities(self) -> frozenset[ProtocolCapability]: ...
+
+    def runtime_state(self) -> ProtocolRuntimeState: ...
+
+    def observe_events(self, callback: ProtocolEventCallback) -> ProtocolEventHandle: ...
 
     async def connect(self) -> None: ...
 
@@ -131,12 +145,6 @@ class ProtocolPort(Protocol[TPoint]):
         """
         ...
 
-    async def interrogate(
-        self, common_address: int | None = None, *, qoi: int = 20
-    ) -> tuple[ProtocolSample, ...]:
-        """执行一次总召/组召，返回本次召唤的数据集合。
-
-        ``common_address=None`` 表示全部已配置站址；QOI 20 为站总召，
-        21..36 为组召。以 ACT_TERM 为完成依据；Listener 仍持续接收。
-        """
+    async def interrogate(self, request: InterrogationRequest) -> tuple[ProtocolSample, ...]:
+        """执行显式种类的站/组/计数器召唤。不支持时明确拒绝。"""
         ...
