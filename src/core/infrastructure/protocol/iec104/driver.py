@@ -7,7 +7,6 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from hat.drivers import iec104
@@ -20,8 +19,6 @@ from core.application.errors import (
 )
 from core.application.port.protocol import (
     ListenHandle,
-    ProtocolEventCallback,
-    ProtocolEventHandle,
     ProtocolSampleCallback,
     SubscriptionHandle,
 )
@@ -30,16 +27,12 @@ from core.application.protocol_contract import (
     InterrogationRequest,
     ProtocolCapability,
     ProtocolLifecycleState,
-    ProtocolOperation,
-    ProtocolOperationState,
-    ProtocolRuntimeState,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
-from core.infrastructure.protocol.events import ProtocolEventStream
 
 from .codec import build_command, decode_sample, matches_monitoring_type
 from .config import parse_iec104_config
@@ -163,7 +156,11 @@ class IEC104Driver:
         self._locks: dict[Address, asyncio.Lock] = {}
         self._station_locks: dict[int, asyncio.Lock] = {}
         self._listeners: set[_Listener] = set()
-        self._events = ProtocolEventStream()
+        self._state = ProtocolLifecycleState.DISCONNECTED
+
+    @property
+    def state(self) -> ProtocolLifecycleState:
+        return self._state
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         return frozenset(
@@ -174,12 +171,6 @@ class IEC104Driver:
                 ProtocolCapability.LISTEN,
             }
         )
-
-    def runtime_state(self) -> ProtocolRuntimeState:
-        return self._events.snapshot()
-
-    def observe_events(self, callback: ProtocolEventCallback) -> ProtocolEventHandle:
-        return self._events.observe(callback)
 
     def update_point_table(self, point_table: PointTable) -> None:
         if point_table.protocol.name != "iec104":
@@ -200,28 +191,12 @@ class IEC104Driver:
         return self._session is not None and self._session.is_open
 
     async def connect(self) -> None:
-        operation_id = uuid4().hex
-        operation = ProtocolOperation.CONNECT
-        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING)
-        try:
-            await self._connect_impl()
-        except BaseException as exc:
-            state = (
-                ProtocolOperationState.CANCELLED
-                if isinstance(exc, asyncio.CancelledError)
-                else ProtocolOperationState.FAILED
-            )
-            self._events.emit(operation_id, operation, state, message=str(exc))
-            raise
-        self._events.emit(operation_id, operation, ProtocolOperationState.SUCCEEDED)
-
-    async def _connect_impl(self) -> None:
         async with self._lifecycle:
             if self.is_open():
                 return
             if self._session is not None or self._closing is not None:
                 raise ProtocolConnectionError("IEC104 previous session must close first")
-            self._events.transition(ProtocolLifecycleState.CONNECTING)
+            self._state = ProtocolLifecycleState.CONNECTING
             c = self._config
             session: _IEC104Session | None = None
             try:
@@ -248,38 +223,22 @@ class IEC104Driver:
                     try:
                         await asyncio.shield(session.close())
                     except BaseException:
-                        self._events.transition(ProtocolLifecycleState.FAULTED)
+                        self._state = ProtocolLifecycleState.FAULTED
                         raise
                     finally:
                         if self._closing is session and session.is_settled:
                             self._closing = None
-                self._events.transition(ProtocolLifecycleState.DISCONNECTED)
+                self._state = ProtocolLifecycleState.DISCONNECTED
                 if isinstance(exc, OSError | TimeoutError):
                     raise ProtocolConnectionError(
                         f"IEC104 connection failed: {exc or type(exc).__name__}"
                     ) from exc
                 raise
-            self._events.transition(ProtocolLifecycleState.CONNECTED)
+            self._state = ProtocolLifecycleState.CONNECTED
 
     async def close(self) -> None:
-        operation_id = uuid4().hex
-        operation = ProtocolOperation.CLOSE
-        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING)
-        try:
-            await self._close_impl()
-        except BaseException as exc:
-            state = (
-                ProtocolOperationState.CANCELLED
-                if isinstance(exc, asyncio.CancelledError)
-                else ProtocolOperationState.FAILED
-            )
-            self._events.emit(operation_id, operation, state, message=str(exc))
-            raise
-        self._events.emit(operation_id, operation, ProtocolOperationState.SUCCEEDED)
-
-    async def _close_impl(self) -> None:
         async with self._lifecycle:
-            self._events.transition(ProtocolLifecycleState.CLOSING)
+            self._state = ProtocolLifecycleState.CLOSING
             session = self._session
             self._session = None
             self._fail_all(ProtocolConnectionError("IEC104 session closed"))
@@ -291,16 +250,16 @@ class IEC104Driver:
                 for listener in tuple(self._listeners):
                     await listener.close()
             except BaseException:
-                self._events.transition(ProtocolLifecycleState.FAULTED)
+                self._state = ProtocolLifecycleState.FAULTED
                 raise
             self._closing = None
-            self._events.transition(ProtocolLifecycleState.DISCONNECTED)
+            self._state = ProtocolLifecycleState.DISCONNECTED
 
     def _disconnect(self, session: _IEC104Session | None, exc: BaseException) -> None:
         if session is not self._session:
             return
         self._fail_all(ProtocolConnectionError(f"IEC104 connection lost: {exc}"))
-        self._events.transition(ProtocolLifecycleState.CLOSING)
+        self._state = ProtocolLifecycleState.CLOSING
         self._closing = session
         self._session = None
 
@@ -328,16 +287,16 @@ class IEC104Driver:
             self._session = None
             self._closing = session
             self._fail_all(ProtocolConnectionError("IEC104 uncertain response; session isolated"))
-            self._events.transition(ProtocolLifecycleState.CLOSING)
+            self._state = ProtocolLifecycleState.CLOSING
         try:
             await asyncio.shield(session.close())
         except BaseException:
             if self._closing is session:
-                self._events.transition(ProtocolLifecycleState.FAULTED)
+                self._state = ProtocolLifecycleState.FAULTED
             raise
         if self._closing is session:
             self._closing = None
-            self._events.transition(ProtocolLifecycleState.DISCONNECTED)
+            self._state = ProtocolLifecycleState.DISCONNECTED
 
     def _point(self, key: str) -> IEC104Point:
         try:
@@ -359,33 +318,6 @@ class IEC104Driver:
         return ConnectionHealth(True)
 
     async def read_one(self, point_id: str) -> ProtocolSample:
-        operation_id = uuid4().hex
-        operation = ProtocolOperation.READ
-        self._events.emit(
-            operation_id, operation, ProtocolOperationState.RUNNING, point_id=point_id
-        )
-        try:
-            result = await self._read_one_impl(point_id)
-        except BaseException as exc:
-            state = (
-                ProtocolOperationState.UNKNOWN
-                if operation is ProtocolOperation.WRITE
-                else ProtocolOperationState.CANCELLED
-                if isinstance(exc, asyncio.CancelledError)
-                else ProtocolOperationState.FAILED
-            )
-            self._events.emit(operation_id, operation, state, message=str(exc))
-            raise
-        state = ProtocolOperationState.SUCCEEDED
-        if isinstance(result, ProtocolWriteResult):
-            if result.outcome is WriteOutcome.UNKNOWN:
-                state = ProtocolOperationState.UNKNOWN
-            elif result.outcome is WriteOutcome.CONFIRMED_FAILURE:
-                state = ProtocolOperationState.FAILED
-        self._events.emit(operation_id, operation, state)
-        return result
-
-    async def _read_one_impl(self, point_id: str) -> ProtocolSample:
         point = self._point(point_id)
         if point.type_id is None or not point.type_id.startswith("M_"):
             raise ConfigError("active read requires an explicit monitoring M_* Type ID")
@@ -429,31 +361,6 @@ class IEC104Driver:
         return self._session
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
-        operation_id = uuid4().hex
-        operation = ProtocolOperation.WRITE
-        self._events.emit(
-            operation_id, operation, ProtocolOperationState.RUNNING, point_id=write.point
-        )
-        try:
-            result = await self._write_one_impl(write)
-        except BaseException as exc:
-            state = (
-                ProtocolOperationState.UNKNOWN
-                if isinstance(exc, asyncio.CancelledError)
-                else ProtocolOperationState.FAILED
-            )
-            self._events.emit(operation_id, operation, state, message=str(exc))
-            raise
-        state = ProtocolOperationState.SUCCEEDED
-        if isinstance(result, ProtocolWriteResult):
-            if result.outcome is WriteOutcome.UNKNOWN:
-                state = ProtocolOperationState.UNKNOWN
-            elif result.outcome is WriteOutcome.CONFIRMED_FAILURE:
-                state = ProtocolOperationState.FAILED
-        self._events.emit(operation_id, operation, state)
-        return result
-
-    async def _write_one_impl(self, write: ProtocolWrite) -> ProtocolWriteResult:
         point = self._point(write.point)
         try:
             validate_iec104_write_type(point)
@@ -588,31 +495,6 @@ class IEC104Driver:
         raise ProtocolCapabilityError("IEC104 has no native atomic batch write")
 
     async def interrogate(self, request: InterrogationRequest) -> tuple[ProtocolSample, ...]:
-        operation_id = uuid4().hex
-        operation = ProtocolOperation.INTERROGATE
-        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING)
-        try:
-            result = await self._interrogate_impl(request)
-        except BaseException as exc:
-            state = (
-                ProtocolOperationState.UNKNOWN
-                if operation is ProtocolOperation.WRITE
-                else ProtocolOperationState.CANCELLED
-                if isinstance(exc, asyncio.CancelledError)
-                else ProtocolOperationState.FAILED
-            )
-            self._events.emit(operation_id, operation, state, message=str(exc))
-            raise
-        state = ProtocolOperationState.SUCCEEDED
-        if isinstance(result, ProtocolWriteResult):
-            if result.outcome is WriteOutcome.UNKNOWN:
-                state = ProtocolOperationState.UNKNOWN
-            elif result.outcome is WriteOutcome.CONFIRMED_FAILURE:
-                state = ProtocolOperationState.FAILED
-        self._events.emit(operation_id, operation, state)
-        return result
-
-    async def _interrogate_impl(self, request: InterrogationRequest) -> tuple[ProtocolSample, ...]:
         addresses = (
             (request.common_address,)
             if request.common_address is not None
