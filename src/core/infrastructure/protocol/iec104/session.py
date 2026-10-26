@@ -136,12 +136,14 @@ class _IEC104Session:
 
     async def _close_once(self) -> None:
         conn = self._connection
-        if conn is not None:
-            await conn.async_close()
-        task = self._receiver
-        if task is not None and task is not asyncio.current_task():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-        self._receiver = None
+        try:
+            if conn is not None:
+                await conn.async_close()
+        finally:
+            task = self._receiver
+            if task is not None and task is not asyncio.current_task():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            self._receiver = None
         self._connection = None
