@@ -401,37 +401,6 @@ class IEC104Driver:
         finally:
             self._control.pop(key, None)
 
-    async def _deactivate(
-        self, session: _IEC104Session, point: IEC104Point, selected: object
-    ) -> None:
-        key = (point.common_address, point.ioa)
-        future: asyncio.Future[iec104.CommandMsg] = asyncio.get_running_loop().create_future()
-        self._control[key] = _Control(future, "deact_con", True, selected)
-        try:
-            await self._send(
-                session,
-                iec104.CommandMsg(
-                    is_test=False,
-                    originator_address=0,
-                    asdu_address=point.common_address,
-                    io_address=point.ioa,
-                    command=selected,
-                    is_negative_confirm=False,
-                    time=None,
-                    cause=iec104.CommandReqCause.DEACTIVATION,
-                ),
-            )
-            reply = await asyncio.wait_for(future, timeout=self._config.t1)
-            if reply.is_negative_confirm or reply.cause in (
-                iec104.CommandResCause.UNKNOWN_TYPE,
-                iec104.CommandResCause.UNKNOWN_CAUSE,
-                iec104.CommandResCause.UNKNOWN_ASDU_ADDRESS,
-                iec104.CommandResCause.UNKNOWN_IO_ADDRESS,
-            ):
-                raise ProtocolError("IEC104 SBO deactivation rejected")
-        finally:
-            self._control.pop(key, None)
-
     async def write_many(self, writes: Sequence[ProtocolWrite]) -> tuple[ProtocolWriteResult, ...]:
         del writes
         raise ProtocolCapabilityError("IEC104 has no native atomic batch write")
@@ -638,11 +607,7 @@ class IEC104Driver:
             iec104.CommandResCause.UNKNOWN_ASDU_ADDRESS,
             iec104.CommandResCause.UNKNOWN_IO_ADDRESS,
         )
-        deact_conf = (
-            pending.phase == "deact_con"
-            and msg.cause == iec104.CommandResCause.DEACTIVATION_CONFIRMATION
-        )
-        if unknown_cause or deact_conf:
+        if unknown_cause:
             pending.result.set_result(msg)
         elif msg.cause == iec104.CommandResCause.ACTIVATION_CONFIRMATION:
             if msg.is_negative_confirm or pending.phase == "act_con":
