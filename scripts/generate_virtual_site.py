@@ -101,7 +101,7 @@ def generate_site(
                 "e2e_float": {
                     **float_point,
                     "data_type": "float32",
-                    "address": {"ioa": 100, "type": "M_ME_NC_1"},
+                    "address": {"ca": 1, "ioa": 100, "type_id": "M_ME_NC_1"},
                 }
             },
         }
@@ -120,7 +120,6 @@ def generate_site(
             "point_table_id": "e2e_iec104",
             "protocol": "iec104",
             "endpoint_defaults": {"port": 2404},
-            "protocol_options": {"common_addresses": "1"},
         }
         _write(output, "device_models.yaml", models)
 
