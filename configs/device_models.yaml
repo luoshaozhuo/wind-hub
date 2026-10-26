@@ -124,7 +124,7 @@ device_models:
       username: Administrator  # 远程 PLC 路由注册凭据（wind-hub 应用层默认值）
       password: ""             # 空密码表示未提供有效密码，不保证 PLC 接受
 
-  # IEC104 风机控制器（公共参数：common_addresses/health_point/k/w/t0..t3）
+  # IEC104 风机控制器（CA 在 points.yaml 中逐点配置）
   iec104_wtg:
     device_type_id: turbine
     protocol: iec104
@@ -132,7 +132,6 @@ device_models:
     endpoint_defaults:
       port: 12404              # 本机模拟非特权 TCP 端口
     protocol_options:
-      common_addresses: "1"
       k: 12
       w: 8
       t0: 30.0
