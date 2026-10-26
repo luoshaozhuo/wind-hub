@@ -82,11 +82,14 @@ class ADSSubscription:
                 )
                 self._callbacks.append(callback)
                 try:
+                    # data: 通知块的 Index Group/Offset；attr: 长度与采样周期；
+                    # callback: pyads 原生通知回调；user_handle: 不额外申请 Symbol 句柄。
                     token = await self._session.execute(
                         "add_device_notification",
-                        (block.group, block.offset),
-                        attribute,
-                        callback,
+                        data=(block.group, block.offset),
+                        attr=attribute,
+                        callback=callback,
+                        user_handle=None,
                     )
                 except ADSCommandNotSentError:
                     raise
@@ -175,7 +178,12 @@ class ADSSubscription:
         remaining: list[tuple[Any, Any]] = []
         for token in reversed(self._handles):
             try:
-                await self._session.execute("del_device_notification", *token)
+                # notification_handle/user_handle: 注册时返回的通知与用户句柄。
+                await self._session.execute(
+                    "del_device_notification",
+                    notification_handle=token[0],
+                    user_handle=token[1],
+                )
             except Exception as exc:
                 errors.append(exc)
                 remaining.append(token)
