@@ -62,7 +62,7 @@ _LOCAL_PORT_OPEN = False
 _LOCAL_CLOSED = False
 _LOCAL_LOCK = asyncio.Lock()
 _REMOTE_ROUTE_LOCK = asyncio.Lock()
-_TARGET_OWNERS: dict[str, ADSDriver] = {}
+_TARGET_OWNERS: dict[tuple[str, str], ADSDriver] = {}
 
 
 class ADSDriver:
@@ -79,7 +79,7 @@ class ADSDriver:
             raise ConfigError("ADS driver requires an ADS point table")
         if not self._config.target_net_id:
             raise ConfigError("ADS target_net_id is required")
-        self._identity = self._config.target_net_id
+        self._identity = (self._config.target_net_id, self._config.host)
         self._state = ADSState.DISCONNECTED
         self._lifecycle = asyncio.Lock()
         self._session: _AdsSession | None = None
@@ -174,8 +174,7 @@ class ADSDriver:
             self._schedule_late_connect_cleanup()
             raise ProtocolError("ADS connection deadline exceeded; cleanup is pending") from None
         except asyncio.CancelledError:
-            self._connect_expired = True
-            self._schedule_late_connect_cleanup()
+            # A cancelled waiter must not poison a shared connection attempt.
             raise
 
     def _schedule_late_connect_cleanup(self) -> None:
@@ -278,8 +277,7 @@ class ADSDriver:
         try:
             await asyncio.wait_for(asyncio.shield(self._close_task), timeout=budget_ms / 1000)
         except TimeoutError:
-            if self._state is not ADSState.DISCONNECTED:
-                self._state = ADSState.FAULTED
+            # _close_once alone owns final lifecycle transitions.
             raise ProtocolError("ADS close deadline exceeded; physical cleanup continues") from None
 
     async def _close_once(self) -> None:
