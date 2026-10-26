@@ -62,6 +62,7 @@ _LOCAL_PORT_OPEN = False
 _LOCAL_CLOSED = False
 _LOCAL_LOCK = asyncio.Lock()
 _REMOTE_ROUTE_LOCK = asyncio.Lock()
+_ROUTE_TASKS: set[asyncio.Task[bool]] = set()
 _TARGET_OWNERS: dict[tuple[str, str], ADSDriver] = {}
 
 
@@ -114,8 +115,8 @@ class ADSDriver:
     async def close_local(cls) -> None:
         global _LOCAL_IDENTITY, _LOCAL_PORT_OPEN, _LOCAL_CLOSED
         async with _LOCAL_LOCK:
-            if _TARGET_OWNERS:
-                raise ProtocolError("ADS sessions still own target routes")
+            if _TARGET_OWNERS or _ROUTE_TASKS:
+                raise ProtocolError("ADS sessions or route operations still own AMS resources")
             if _LOCAL_PORT_OPEN:
                 await asyncio.to_thread(pyads.close_port)
                 _LOCAL_PORT_OPEN = False
@@ -183,7 +184,9 @@ class ADSDriver:
         if task is None:
             return
 
-        def cleanup(_: asyncio.Task[None]) -> None:
+        def cleanup(completed: asyncio.Task[None]) -> None:
+            if not completed.cancelled():
+                completed.exception()  # consume a late failed connection attempt
             if self._state is ADSState.CONNECTED:
                 asyncio.create_task(self.close())
 
@@ -248,14 +251,19 @@ class ADSDriver:
                                     "ADS local AMS identity is not initialized"
                                 ) from None
                             async with _REMOTE_ROUTE_LOCK:
-                                success = await asyncio.to_thread(
-                                    pyads.add_route_to_plc,
-                                    _LOCAL_IDENTITY.local_ams_net_id,
-                                    _LOCAL_IDENTITY.local_ip,
-                                    self._config.host,
-                                    self._config.username,
-                                    self._config.password,
+                                route_task = asyncio.create_task(
+                                    asyncio.to_thread(
+                                        pyads.add_route_to_plc,
+                                        _LOCAL_IDENTITY.local_ams_net_id,
+                                        _LOCAL_IDENTITY.local_ip,
+                                        self._config.host,
+                                        self._config.username,
+                                        self._config.password,
+                                    )
                                 )
+                                _ROUTE_TASKS.add(route_task)
+                                route_task.add_done_callback(_ROUTE_TASKS.discard)
+                                success = await asyncio.shield(route_task)
                             if success and not self._connect_expired:
                                 continue
                         raise
