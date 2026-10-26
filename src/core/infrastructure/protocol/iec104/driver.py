@@ -130,7 +130,9 @@ class IEC104Driver:
             )
         if self._read or self._control or self._interrogation or self._unsettled_controls:
             raise ProtocolError("IEC104 point table cannot change while requests are pending")
-        if self._listeners and self._by_address and by_address != self._by_address:
+        if self._listeners and (
+            by_address != self._by_address or by_id != self._by_id
+        ):
             raise ProtocolError("IEC104 point table cannot change with active listeners")
         self._by_id, self._by_address = by_id, by_address
 
