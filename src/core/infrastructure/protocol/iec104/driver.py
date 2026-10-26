@@ -92,7 +92,6 @@ class IEC104Driver:
         self.update_point_table(point_table)
         self._lifecycle = asyncio.Lock()
         self._session: _IEC104Session | None = None
-        self._closing: _IEC104Session | None = None
         self._read: dict[Address, _Read] = {}
         self._control: dict[Address, _Control] = {}
         self._unsettled_controls: dict[Address, object] = {}
@@ -145,7 +144,7 @@ class IEC104Driver:
                 return
             if self._state is ProtocolLifecycleState.FAULTED:
                 raise ProtocolConnectionError("IEC104 driver requires successful cleanup")
-            if self._session is not None or self._closing is not None:
+            if self._session is not None:
                 raise ProtocolConnectionError("IEC104 previous session must close first")
             self._state = ProtocolLifecycleState.CONNECTING
             c = self._config
@@ -167,19 +166,10 @@ class IEC104Driver:
                 if self._session is not session or not session.is_open:
                     raise ProtocolConnectionError("IEC104 session lost during STARTDT")
             except BaseException as exc:
-                if session is not None:
-                    if self._session is session:
-                        self._session = None
-                    self._closing = session
-                    try:
-                        await session.close()
-                    except BaseException:
-                        self._state = ProtocolLifecycleState.FAULTED
-                        raise
-                    finally:
-                        if self._closing is session and session.is_settled:
-                            self._closing = None
-                self._state = ProtocolLifecycleState.DISCONNECTED
+                try:
+                    await self._close_locked()
+                except BaseException:
+                    raise
                 if isinstance(exc, OSError | TimeoutError):
                     raise ProtocolConnectionError(
                         f"IEC104 connection failed: {exc or type(exc).__name__}"
@@ -189,34 +179,28 @@ class IEC104Driver:
 
     async def close(self) -> None:
         async with self._lifecycle:
-            self._state = ProtocolLifecycleState.CLOSING
-            session = self._session
-            self._session = None
-            self._fail_all(ProtocolConnectionError("IEC104 session closed"))
-            if session is not None:
-                self._closing = session
-            try:
-                if self._closing is not None:
-                    await self._closing.close()
-            except BaseException:
-                self._state = ProtocolLifecycleState.FAULTED
-                raise
-            self._closing = None
-            try:
-                for listener in tuple(self._listeners):
-                    await listener.close()
-            except BaseException:
-                self._state = ProtocolLifecycleState.FAULTED
-                raise
-            self._state = ProtocolLifecycleState.DISCONNECTED
+            await self._close_locked()
+
+    async def _close_locked(self) -> None:
+        """Release the owned session; caller holds the lifecycle lock."""
+        self._state = ProtocolLifecycleState.CLOSING
+        self._fail_all(ProtocolConnectionError("IEC104 session closed"))
+        try:
+            if self._session is not None:
+                await self._session.close()
+                self._session = None
+            for listener in tuple(self._listeners):
+                await listener.close()
+        except BaseException:
+            self._state = ProtocolLifecycleState.FAULTED
+            raise
+        self._state = ProtocolLifecycleState.DISCONNECTED
 
     def _disconnect(self, session: _IEC104Session | None, exc: BaseException) -> None:
         if session is not self._session:
             return
         self._fail_all(ProtocolConnectionError(f"IEC104 connection lost: {exc}"))
         self._state = ProtocolLifecycleState.CLOSING
-        self._closing = session
-        self._session = None
 
     def _fail_all(self, exc: Exception) -> None:
         futures = (
@@ -238,20 +222,11 @@ class IEC104Driver:
         await session.send([message])
 
     async def _isolate(self, session: _IEC104Session) -> None:
-        if self._session is session:
-            self._session = None
-            self._closing = session
-            self._fail_all(ProtocolConnectionError("IEC104 uncertain response; session isolated"))
-            self._state = ProtocolLifecycleState.CLOSING
-        try:
-            await asyncio.shield(session.close())
-        except BaseException:
-            if self._closing is session:
-                self._state = ProtocolLifecycleState.FAULTED
-            raise
-        if self._closing is session:
-            self._closing = None
-            self._state = ProtocolLifecycleState.DISCONNECTED
+        if session is not self._session:
+            return
+        async with self._lifecycle:
+            if session is self._session:
+                await self._close_locked()
 
     def _point(self, key: str) -> IEC104Point:
         try:
