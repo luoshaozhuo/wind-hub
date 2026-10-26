@@ -213,17 +213,7 @@ class ADSDriver:
                         result = await session.execute("read_state")
                         if self._connect_expired or not result or result[0] != pyads.ADSSTATE_RUN:
                             raise ProtocolError("ADS PLC is not in RUN state")
-                        resolved = dict(self._points)
-                        for point_id, point in resolved.items():
-                            if point.symbol is not None:
-                                info = await session.execute("get_symbol", point.symbol)
-                                group, offset = symbol_index_address(point.symbol, info)
-                                resolved[point_id] = point.resolved(
-                                    index_group=group, index_offset=offset
-                                )
-                        if self._connect_expired:
-                            raise ProtocolError("ADS connection deadline expired")
-                        self._points = resolved
+                        self._points = await self._resolve_points(session)
                         self._state = ProtocolLifecycleState.CONNECTED
                         return
                     except Exception:
@@ -273,6 +263,29 @@ class ADSDriver:
                         self._state = ProtocolLifecycleState.DISCONNECTED
                         _TARGET_OWNERS.pop(self._identity, None)
                 raise
+
+    async def _resolve_points(self, session: _AdsSession) -> dict[str, ADSPoint]:
+        """Resolve and validate every configured symbol against this PLC session."""
+        resolved: dict[str, ADSPoint] = {}
+        for point_id, point in self._points.items():
+            try:
+                info = await session.execute("get_symbol", point.symbol)
+                group, offset = symbol_index_address(point.symbol, info)
+            except Exception as exc:
+                raise ConfigError(
+                    f"ADS point '{point_id}': cannot resolve symbol '{point.symbol}': {exc}"
+                ) from exc
+
+            if point.address_resolved and (point.group, point.offset) != (group, offset):
+                raise ConfigError(
+                    f"ADS point '{point_id}': configured group/offset "
+                    f"({point.group}, {point.offset}) does not match symbol "
+                    f"'{point.symbol}' ({group}, {offset})"
+                )
+            if self._connect_expired:
+                raise ProtocolError("ADS connection deadline expired")
+            resolved[point_id] = point.resolved(index_group=group, index_offset=offset)
+        return resolved
 
     async def close(self) -> None:
         if self._close_task is None:
