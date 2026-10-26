@@ -36,7 +36,6 @@ from .codec import (
     _coerce_write_value,
     _decode_sum_write_errors,
     _encode_value,
-    compile_decoder,
     encode_sum_write,
 )
 from .config import ADSConfig, parse_ads_config
@@ -319,7 +318,7 @@ class ADSDriver:
         )
         received_at = datetime.now(UTC)
         try:
-            value = compile_decoder(point)(bytes(raw), 0)
+            value = point.decoder(bytes(raw), 0)
             quality = Quality.GOOD
         except (ValueError, TypeError, UnicodeDecodeError, struct.error):
             value = None
@@ -346,21 +345,19 @@ class ADSDriver:
             )
             # index_group: Sum Read 命令；index_offset: 子请求数。
             # plc_read_datatype: 错误码与数据的响应缓冲区；value/plc_write_datatype: 各点地址描述符。
+            expected = 4 * len(chunk) + sum(point.size for point in chunk)
             reply = await session.execute(operation="read_write",
                 index_group=ADSIGRP_SUMUP_READ,
                 index_offset=len(chunk),
-                plc_read_datatype=pyads.PLCTYPE_BYTE * (
-                    4 * len(chunk) + sum(point.size for point in chunk)
-                ),
+                plc_read_datatype=pyads.PLCTYPE_BYTE * expected,
                 value=request,
                 plc_write_datatype=_SumReadItem * len(chunk),
                 return_ctypes=False,
                 check_length=True,
             )
             raw = bytes(reply)
-            expected = 4 * len(chunk) + sum(p.size for p in chunk)
-            if len(raw) < expected:
-                raise ProtocolError("ADS Sum Read reply is shorter than expected")
+            if len(raw) != expected:
+                raise ProtocolError("ADS Sum Read response length mismatch")
             errors = struct.unpack_from(f"<{len(chunk)}I", raw)
             offset = 4 * len(chunk)
             for point, error in zip(chunk, errors, strict=True):
@@ -368,7 +365,7 @@ class ADSDriver:
                     values.append((None, Quality.BAD))
                 else:
                     try:
-                        values.append((compile_decoder(point)(raw, offset), Quality.GOOD))
+                        values.append((point.decoder(raw, offset), Quality.GOOD))
                     except (ValueError, TypeError, UnicodeDecodeError, struct.error):
                         values.append((None, Quality.BAD))
                 offset += point.size
