@@ -138,6 +138,8 @@ class IEC104Driver:
         async with self._lifecycle:
             if self.is_open():
                 return
+            if self._state is ProtocolLifecycleState.FAULTED:
+                raise ProtocolConnectionError("IEC104 driver requires successful cleanup")
             if self._session is not None or self._closing is not None:
                 raise ProtocolConnectionError("IEC104 previous session must close first")
             self._state = ProtocolLifecycleState.CONNECTING
@@ -165,7 +167,7 @@ class IEC104Driver:
                         self._session = None
                     self._closing = session
                     try:
-                        await asyncio.shield(session.close())
+                        await session.close()
                     except BaseException:
                         self._state = ProtocolLifecycleState.FAULTED
                         raise
@@ -182,6 +184,8 @@ class IEC104Driver:
 
     async def close(self) -> None:
         async with self._lifecycle:
+            if self._state is ProtocolLifecycleState.DISCONNECTED:
+                return
             self._state = ProtocolLifecycleState.CLOSING
             session = self._session
             self._session = None
@@ -273,9 +277,7 @@ class IEC104Driver:
                 raise ProtocolConnectionError("IEC104 session changed")
             future: asyncio.Future[ProtocolSample] = asyncio.get_running_loop().create_future()
             self._read[key] = _Read(point, future)
-            sent = False
             try:
-                sent = True
                 await self._send(
                     session,
                     iec104.ReadMsg(
@@ -288,8 +290,7 @@ class IEC104Driver:
                 )
                 return await asyncio.wait_for(future, timeout=self._config.t1)
             except (TimeoutError, ProtocolConnectionError, ProtocolError, asyncio.CancelledError):
-                if sent:
-                    await asyncio.shield(self._isolate(session))
+                await asyncio.shield(self._isolate(session))
                 raise
             finally:
                 self._read.pop(key, None)
