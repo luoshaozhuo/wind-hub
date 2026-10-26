@@ -27,8 +27,7 @@ def test_ads_credentials_defaults() -> None:
 
 def test_ads_local_config_has_no_remote_credentials() -> None:
     names = {field.name for field in fields(ADSLocalConfig)}
-    # ADSLocalConfig 只保存本机 AMS 身份与应用层超时；远程 PLC 路由
-    # 凭据属于 connection protocol_options，不进入本机配置。
+    # 本机身份/超时参数之外，不得混入远程路由注册凭据。
     assert names == {
         "local_ams_net_id",
         "local_ip",
@@ -36,6 +35,7 @@ def test_ads_local_config_has_no_remote_credentials() -> None:
         "connect_timeout_ms",
         "close_timeout_ms",
     }
+    assert not (names & {"username", "password"})
 
 
 def _effective_ads_options(snapshot: ConfigSnapshot, device_id: str) -> ProtocolOptions:
