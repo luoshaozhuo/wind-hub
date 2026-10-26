@@ -73,8 +73,8 @@ class TaskRuntime:
         # 热重载过程中需要恢复 RUNNING、但上一次重建失败的实例。
         # 下一次 reload 会继续重试，直到成功或实例被显式停止/删除。
         self._restart_pending: set[str] = set()
-        self._recovery_stopped: set[str] = set()
-        self._restoring_devices: set[str] = set()
+        # 用户的运行意图独立于句柄是否仍然有效；冷启动默认为空。
+        self._desired_running: set[str] = set()
 
         # 每个采集实例的业务执行状态——与设备连接状态、实例启停状态分维度。
         # 实例注册时建立、注销时删除；引擎 collect 经 AcquisitionStatePort
@@ -149,8 +149,10 @@ class TaskRuntime:
         # 消除 check-then-await-act 竞态（stop 在 start 建句柄期间到达时
         # 会在锁后看到 RUNNING 并关闭句柄，而不是看到 STOPPED 提前返回）。
         async with self._instance_guard(instance_id):
+            if instance_id not in self._task_instances:
+                raise KeyError(instance_id)
+            self._desired_running.add(instance_id)
             await self._start_locked(instance_id)
-            self._recovery_stopped.discard(instance_id)
 
     async def _start_locked(self, instance_id: str) -> None:
         """调用方必须已持有该实例的 :meth:`_instance_guard`。"""
@@ -159,6 +161,8 @@ class TaskRuntime:
             raise KeyError(instance_id)
         if self._instance_states[instance_id] is TaskInstanceState.RUNNING:
             return
+        if instance_id in self._acquisition_handles:
+            raise RuntimeError(f"task '{instance_id}' has an unsettled previous acquisition handle")
         device = self._devices.devices.get(instance.device_id)
         if device is None:
             raise KeyError(f"device '{instance.device_id}' for instance '{instance_id}'")
@@ -183,7 +187,18 @@ class TaskRuntime:
             current = self._task_instances.get(instance_id)
             if current is None:
                 return
-            await self._engine.process(values, list(current.targets), task_id=current.task_id)
+            self.report_collect_started(instance_id, current.device_id, current.point_group)
+            try:
+                await self._engine.process(values, list(current.targets), task_id=current.task_id)
+            except Exception as exc:
+                self.report_collect_failure(
+                    instance_id, current.device_id, current.point_group, str(exc)
+                )
+                raise
+            else:
+                self.report_collect_success(
+                    instance_id, current.device_id, current.point_group, partial=False
+                )
 
         try:
             handle = await device.start_acquisition(
@@ -215,56 +230,79 @@ class TaskRuntime:
         async with self._instance_guard(instance_id):
             if instance_id not in self._task_instances:
                 raise KeyError(instance_id)
-            instance = self._task_instances[instance_id]
-            device_state = self._devices.device_state(instance.device_id)
+            self._desired_running.discard(instance_id)
             if (
-                instance.device_id in self._restoring_devices
-                or device_state is None
-                or not device_state.connected
-                or not self._devices.is_device_open(instance.device_id)
+                self._instance_states[instance_id] is TaskInstanceState.STOPPED
+                and instance_id not in self._acquisition_handles
             ):
-                self._recovery_stopped.add(instance_id)
-            if self._instance_states[instance_id] is TaskInstanceState.STOPPED:
                 self._restart_pending.discard(instance_id)
                 return
             self._instance_states[instance_id] = TaskInstanceState.STOPPED
             self._restart_pending.discard(instance_id)
             await self._close_acquisition_handle(instance_id)
 
-    async def start_device_tasks(self, device_id: str, *, can_restore: Callable[[], bool]) -> None:
-        """Watchdog 重连成功：恢复该设备全部已启用采集实例。
-
-        Collector 冷启动不调用此入口。实例注册表已经排除禁用任务与
-        禁用设备；逐实例锁保证不与手工启停交错创建重复句柄。
-        """
-        if device_id not in self._devices.devices:
-            return
-        instance_ids = tuple(
+    async def prepare_device_restore(self, device_id: str) -> None:
+        """新物理连接建立后废弃旧采集句柄；保持用户的运行意图。"""
+        ids = tuple(
             iid for iid, instance in self._task_instances.items() if instance.device_id == device_id
         )
-        self._restoring_devices.add(device_id)
-        try:
-            for iid in instance_ids:
+        for iid in ids:
+            async with self._instance_guard(iid):
+                instance = self._task_instances.get(iid)
+                if instance is None or instance.device_id != device_id:
+                    continue
+                if iid in self._desired_running:
+                    self._restart_pending.add(iid)
+                if self._instance_states[iid] is TaskInstanceState.RUNNING:
+                    self._instance_states[iid] = TaskInstanceState.STOPPED
+                await self._close_acquisition_handle(iid)
+
+    async def start_device_tasks(self, device_id: str, *, can_restore: Callable[[], bool]) -> None:
+        """Watchdog 只恢复用户期望运行的失败项；已成功实例不重复启动。"""
+        if device_id not in self._devices.devices:
+            return
+        ids = tuple(
+            iid
+            for iid, instance in self._task_instances.items()
+            if instance.device_id == device_id and iid in self._desired_running
+        )
+        for iid in ids:
+            if not can_restore():
+                return
+            async with self._instance_guard(iid):
                 if not can_restore():
                     return
-                async with self._instance_guard(iid):
-                    if not can_restore():
-                        return
-                    instance = self._task_instances.get(iid)
-                    if (
-                        instance is None
-                        or instance.device_id != device_id
-                        or iid in self._recovery_stopped
-                    ):
-                        continue
-                    if self._instance_states[iid] is TaskInstanceState.RUNNING:
-                        self._instance_states[iid] = TaskInstanceState.STOPPED
-                        await self._close_acquisition_handle(iid)
-                    if not can_restore() or iid in self._recovery_stopped:
-                        return
+                current = self._task_instances.get(iid)
+                if (
+                    current is None
+                    or current.device_id != device_id
+                    or iid not in self._desired_running
+                ):
+                    continue
+                if self._instance_states[iid] is TaskInstanceState.RUNNING:
+                    continue
+                self._restart_pending.add(iid)
+                try:
+                    await self._close_acquisition_handle(iid)
                     await self._start_locked(iid)
-        finally:
-            self._restoring_devices.discard(device_id)
+                except Exception:
+                    # 单实例恢复失败不影响同设备其他实例；保留 pending，
+                    # 下一个健康检查周期会独立重试失败实例。
+                    logger.warning(
+                        "Watchdog: task instance '%s' failed to restore",
+                        iid,
+                        exc_info=True,
+                    )
+        if any(iid in self._restart_pending for iid in ids if iid in self._desired_running):
+            raise RuntimeError(f"device '{device_id}' has pending acquisition restores")
+
+    async def stop_device_tasks(self, device_id: str) -> None:
+        """彻底停止指定设备全部采集实例，确保旧句柄关闭后方可移除设备。"""
+        ids = tuple(
+            iid for iid, instance in self._task_instances.items() if instance.device_id == device_id
+        )
+        for iid in ids:
+            await self.stop_instance(iid)
 
     async def stop_all(self) -> None:
         """停机路径：关闭全部实例采集句柄——polling 协程取消、订阅注销，
@@ -277,38 +315,37 @@ class TaskRuntime:
         """
         for instance_id in list(self._task_instances):
             await self.stop_instance(instance_id)
-        self._recovery_stopped.clear()
 
     # ------------------------------------------------------------------
     # 设备变更协调（CollectorRuntime 在 session 变更前后调用）
     # ------------------------------------------------------------------
 
     async def suspend_for_device_change(self, device_id: str) -> list[str]:
-        """设备 session 变更前：停止该设备全部 RUNNING 实例并关闭其句柄。
-
-        Returns:
-            原本 RUNNING 的实例 ID 列表，供变更完成后恢复其运行状态。
-        """
-        was_running = [
-            iid
-            for iid, inst in self._task_instances.items()
-            if inst.device_id == device_id
-            and self._instance_states.get(iid) is TaskInstanceState.RUNNING
-        ]
-        for iid in was_running:
+        """会话重建前清退该设备所有旧句柄，仅记录仍期望运行的实例。"""
+        was_running: list[str] = []
+        ids = tuple(
+            iid for iid, instance in self._task_instances.items() if instance.device_id == device_id
+        )
+        for iid in ids:
             async with self._instance_guard(iid):
-                self._instance_states[iid] = TaskInstanceState.STOPPED
+                instance = self._task_instances.get(iid)
+                if instance is None or instance.device_id != device_id:
+                    continue
+                if iid in self._desired_running:
+                    was_running.append(iid)
+                    self._restart_pending.add(iid)
+                if self._instance_states[iid] is TaskInstanceState.RUNNING:
+                    self._instance_states[iid] = TaskInstanceState.STOPPED
                 await self._close_acquisition_handle(iid)
         return was_running
 
     async def resume_after_device_change(self, instance_ids: Iterable[str]) -> None:
         """设备 session 变更后：恢复仍在展开结果中的原 RUNNING 实例。
 
-        恢复失败只记录日志——实例保持 STOPPED，由后续 reload 或显式控制
-        再次尝试（与原 rebuild 恢复语义一致，不进入 restart_pending）。
+        恢复失败保留 restart_pending，供后续 reload 或显式操作重试。
         """
         for iid in instance_ids:
-            if iid not in self._task_instances:
+            if iid not in self._task_instances or iid not in self._desired_running:
                 continue
             try:
                 await self.start_instance(iid)
@@ -359,7 +396,7 @@ class TaskRuntime:
                 self._instance_states.pop(iid, None)
                 self._acquisition_states.pop(iid, None)
                 self._restart_pending.discard(iid)
-                self._recovery_stopped.discard(iid)
+                self._desired_running.discard(iid)
             logger.info("Task instance '%s' unregistered", iid)
 
         for iid, instance in desired.items():
@@ -370,7 +407,7 @@ class TaskRuntime:
                 logger.info("Task instance '%s' registered (stopped)", iid)
             else:
                 was_running = self._instance_states[iid] is TaskInstanceState.RUNNING
-                needs_restart = iid in self._restart_pending or (
+                needs_restart = (iid in self._restart_pending and iid in self._desired_running) or (
                     was_running
                     and (
                         old.interval != instance.interval
@@ -506,15 +543,10 @@ class TaskRuntime:
         return _report
 
     async def _close_acquisition_handle(self, instance_id: str) -> None:
-        """关闭并摘除实例的采集句柄（幂等）；关闭失败只记录不阻断。"""
-        handle = self._acquisition_handles.pop(instance_id, None)
+        """只有采集句柄确认关闭后才能摘除；失败保留所有权以便重试。"""
+        handle = self._acquisition_handles.get(instance_id)
         if handle is None:
             return
-        try:
-            await handle.close()
-        except Exception:
-            logger.warning(
-                "Task instance '%s' acquisition handle close failed",
-                instance_id,
-                exc_info=True,
-            )
+        await handle.close()
+        if self._acquisition_handles.get(instance_id) is handle:
+            self._acquisition_handles.pop(instance_id, None)
