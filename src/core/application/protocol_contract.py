@@ -51,7 +51,7 @@ class ProtocolWrite(Generic[TPoint]):
 class WriteOutcome(StrEnum):
     """一次写入的现场执行结果分类。
 
-    - ``CONFIRMED_SUCCESS``：协议证据确认设备已接受并执行；
+    - ``CONFIRMED_SUCCESS``：满足该点配置的协议确认条件，不等于物理到位；
     - ``CONFIRMED_FAILURE``：请求未发送（本地校验失败）或设备明确
       拒绝（异常响应/否定确认）——可以确证未执行；
     - ``UNKNOWN``：命令可能已送达或已执行，但没有足够证据确认最终
@@ -77,6 +77,75 @@ class ProtocolWriteResult:
         if not point_id:
             raise ValueError("point_id must not be empty")
         object.__setattr__(self, "point_id", point_id)
+
+
+@dataclass(frozen=True, slots=True)
+class InterrogationRequest:
+    """IEC104 站/组召唤或计数器只读召唤。"""
+
+    kind: Literal["station", "counter"] = "station"
+    common_address: int | None = None
+    group: int | None = None
+
+    def __post_init__(self) -> None:
+        max_group = 16 if self.kind == "station" else 4
+        if self.kind not in ("station", "counter"):
+            raise ValueError("unknown interrogation kind")
+        if self.group is not None and (
+            isinstance(self.group, bool) or not 1 <= self.group <= max_group
+        ):
+            raise ValueError(f"interrogation group must be in 1..{max_group}")
+        if self.common_address is not None and (
+            isinstance(self.common_address, bool) or not 0 <= self.common_address <= 65535
+        ):
+            raise ValueError("common address must be in 0..65535")
+
+
+class ProtocolLifecycleState(StrEnum):
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    CLOSING = "closing"
+    FAULTED = "faulted"
+
+
+class ProtocolOperation(StrEnum):
+    CONNECT = "connect"
+    CLOSE = "close"
+    READ = "read"
+    WRITE = "write"
+    INTERROGATE = "interrogate"
+
+
+class ProtocolOperationState(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+    CANCELLED = "cancelled"
+
+
+@dataclass(frozen=True, slots=True)
+class ProtocolOperationEvent:
+    driver_id: str
+    sequence: int
+    operation_id: str
+    operation: ProtocolOperation
+    state: ProtocolOperationState
+    timestamp: datetime
+    phase: str | None = None
+    point_id: str | None = None
+    message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProtocolRuntimeState:
+    driver_id: str
+    lifecycle: ProtocolLifecycleState
+    active_operations: tuple[ProtocolOperationEvent, ...]
+    dropped_events: int = 0
+    message: str | None = None
 
 
 class ProtocolCapability(StrEnum):
@@ -172,5 +241,11 @@ __all__ = [
     "ProtocolWriteResult",
     "ProtocolCapability",
     "ProtocolSample",
+    "InterrogationRequest",
+    "ProtocolLifecycleState",
+    "ProtocolOperation",
+    "ProtocolOperationState",
+    "ProtocolOperationEvent",
+    "ProtocolRuntimeState",
     "validate_read_many_results",
 ]
