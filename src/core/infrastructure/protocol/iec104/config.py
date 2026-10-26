@@ -8,12 +8,13 @@ CA，缺省归属配置中的第一个 CA。
 from __future__ import annotations
 
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from core.application.errors import ConfigError
 from core.domain import ConnectionEndpoint, ProtocolOptions
 
 _ALLOWED_OPTIONS = frozenset(
-    {"common_addresses", "health_point", "k", "w", "t0", "t1", "t2", "t3"}
+    {"common_addresses", "health_point", "timezone", "k", "w", "t0", "t1", "t2", "t3"}
 )
 _MAX_CA = 65535
 
@@ -36,6 +37,7 @@ class IEC104Config:
     port: int
     common_addresses: tuple[int, ...] = (1,)
     health_point: str | None = None
+    timezone: str | None = None
     k: int = 12
     w: int = 8
     t0: float = 30.0
@@ -69,6 +71,12 @@ def parse_iec104_config(
 
     common_addresses = _parse_cas(options.get("common_addresses"), endpoint)
     health_point = _optional_str(options.get("health_point"), "health_point")
+    timezone = _optional_str(options.get("timezone"), "timezone")
+    if timezone is not None:
+        try:
+            ZoneInfo(timezone)
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            raise ConfigError(f"IEC104 invalid timezone: {timezone}") from exc
 
     k = _positive_int(options.get("k"), "k", default=12)
     w = _positive_int(options.get("w"), "w", default=8)
@@ -87,6 +95,7 @@ def parse_iec104_config(
         port=endpoint.port or 2404,
         common_addresses=common_addresses,
         health_point=health_point,
+        timezone=timezone,
         k=k,
         w=w,
         t0=t0,
