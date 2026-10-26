@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
 from typing import Any, NoReturn, TypeVar
+from uuid import uuid4
 
 import pymodbus.client
 import pymodbus.exceptions
@@ -21,10 +22,16 @@ from core.application.errors import (
     ProtocolError,
 )
 from core.application.port import ListenHandle, ProtocolSampleCallback, SubscriptionHandle
+from core.application.port.protocol import ProtocolEventCallback, ProtocolEventHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
+    InterrogationRequest,
     PointScalar,
     ProtocolCapability,
+    ProtocolLifecycleState,
+    ProtocolOperation,
+    ProtocolOperationState,
+    ProtocolRuntimeState,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -32,6 +39,7 @@ from core.application.protocol_contract import (
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
+from core.infrastructure.protocol.events import ProtocolEventStream
 
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
@@ -99,7 +107,17 @@ class ModbusDriver:
         self._health_point_id: str | None = None
         self.update_point_table(point_table)
         self._lock = asyncio.Lock()
+        self._events = ProtocolEventStream()
         self._client: Any = None
+
+    def runtime_state(self) -> ProtocolRuntimeState:
+        lifecycle = self._events.snapshot().lifecycle
+        if lifecycle is ProtocolLifecycleState.CONNECTED and not self.is_open():
+            lifecycle = ProtocolLifecycleState.DISCONNECTED
+        return self._events.snapshot(lifecycle)
+
+    def observe_events(self, callback: ProtocolEventCallback) -> ProtocolEventHandle:
+        return self._events.observe(callback)
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 Modbus Driver 实际支持的协议能力。"""
@@ -132,6 +150,33 @@ class ModbusDriver:
         self._read_plan_cache.clear()
 
     async def connect(self) -> None:
+        operation_id = uuid4().hex
+        operation = ProtocolOperation.CONNECT
+        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING)
+        self._events.transition(ProtocolLifecycleState.CONNECTING)
+        try:
+            await self._connect_impl()
+        except BaseException as exc:
+            self._events.transition(
+                ProtocolLifecycleState.CONNECTED
+                if self.is_open()
+                else ProtocolLifecycleState.DISCONNECTED
+            )
+            state = (
+                ProtocolOperationState.CANCELLED
+                if isinstance(exc, asyncio.CancelledError)
+                else ProtocolOperationState.FAILED
+            )
+            self._events.emit(operation_id, operation, state, message=str(exc))
+            raise
+        self._events.transition(ProtocolLifecycleState.CONNECTED)
+        self._events.emit(
+            operation_id,
+            operation,
+            ProtocolOperationState.SUCCEEDED,
+        )
+
+    async def _connect_impl(self) -> None:
         """建立一次 Modbus TCP 连接；不在 Driver 内部重试。
 
         以 pymodbus 实际 transport 状态判定复用：现有连接仍打开时直接
@@ -175,6 +220,29 @@ class ModbusDriver:
             self._client = client
 
     async def close(self) -> None:
+        operation_id = uuid4().hex
+        operation = ProtocolOperation.CLOSE
+        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING)
+        self._events.transition(ProtocolLifecycleState.CLOSING)
+        try:
+            await self._close_impl()
+        except BaseException as exc:
+            self._events.transition(ProtocolLifecycleState.FAULTED)
+            state = (
+                ProtocolOperationState.CANCELLED
+                if isinstance(exc, asyncio.CancelledError)
+                else ProtocolOperationState.FAILED
+            )
+            self._events.emit(operation_id, operation, state, message=str(exc))
+            raise
+        self._events.transition(ProtocolLifecycleState.DISCONNECTED)
+        self._events.emit(
+            operation_id,
+            operation,
+            ProtocolOperationState.SUCCEEDED,
+        )
+
+    async def _close_impl(self) -> None:
         """关闭 Modbus client；重复调用安全。"""
         async with self._lock:
             self._close_client()
@@ -218,6 +286,27 @@ class ModbusDriver:
         )
 
     async def read_one(self, point: str) -> ProtocolSample:
+        operation_id = uuid4().hex
+        operation = ProtocolOperation.READ
+        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING, point_id=point)
+        try:
+            result = await self._read_one_impl(point)
+        except BaseException as exc:
+            state = (
+                ProtocolOperationState.CANCELLED
+                if isinstance(exc, asyncio.CancelledError)
+                else ProtocolOperationState.FAILED
+            )
+            self._events.emit(operation_id, operation, state, message=str(exc))
+            raise
+        self._events.emit(
+            operation_id,
+            operation,
+            ProtocolOperationState.SUCCEEDED,
+        )
+        return result
+
+    async def _read_one_impl(self, point: str) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走批量分组规划或缓存。
 
         只接受当前 PointTable 中已配置点的 point_id（str），不接受动态
@@ -266,7 +355,36 @@ class ModbusDriver:
                 quality=Quality.GOOD,
             )
 
-    async def write_one(
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        operation_id = uuid4().hex
+        operation = ProtocolOperation.WRITE
+        self._events.emit(
+            operation_id, operation, ProtocolOperationState.RUNNING, point_id=write.point
+        )
+        try:
+            result = await self._write_one_impl(write)
+        except BaseException as exc:
+            state = (
+                ProtocolOperationState.UNKNOWN
+                if isinstance(exc, asyncio.CancelledError | TimeoutError)
+                else ProtocolOperationState.FAILED
+            )
+            self._events.emit(operation_id, operation, state, message=str(exc))
+            raise
+        self._events.emit(
+            operation_id,
+            operation,
+            (
+                ProtocolOperationState.UNKNOWN
+                if result.outcome.value == "unknown"
+                else ProtocolOperationState.SUCCEEDED
+                if result.outcome.value == "confirmed_success"
+                else ProtocolOperationState.FAILED
+            ),
+        )
+        return result
+
+    async def _write_one_impl(
         self,
         write: ProtocolWrite,
     ) -> ProtocolWriteResult:
@@ -396,11 +514,9 @@ class ModbusDriver:
         del point_ids, callback, interval
         raise ProtocolCapabilityError("modbus does not support listen")
 
-    async def interrogate(
-        self, common_address: int | None = None, *, qoi: int = 20
-    ) -> tuple[ProtocolSample, ...]:
+    async def interrogate(self, request: InterrogationRequest) -> tuple[ProtocolSample, ...]:
         """Modbus TCP 不支持 IEC104 式总召能力。"""
-        del common_address, qoi
+        del request
         raise ProtocolCapabilityError("modbus does not support interrogation")
 
     def _resolve_point(self, point_id: str) -> ModbusPoint:
