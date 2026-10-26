@@ -45,7 +45,6 @@ from .session import ADSCommandNotSentError, _AdsSession
 from .subscription import ADSSubscription
 
 
-
 class _SumReadItem(Structure):
     _fields_ = [("iGroup", c_uint32), ("iOffset", c_uint32), ("size", c_uint32)]
 
