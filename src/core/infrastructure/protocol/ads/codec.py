@@ -135,12 +135,13 @@ def _decode_sum_write_errors(raw: object, count: int) -> tuple[int, ...]:
 def _encode_value(value: float | int | bool | str, point: ADSPoint) -> bytes:
     """把单个 ADS 标量序列化为寻址宽度恰好一致的字节串。"""
     if point.data_type == "STRING":
-        encoded = value.encode("utf-8") if isinstance(value, str) else b""
+        if not isinstance(value, str):
+            raise TypeError("ADS STRING requires str value")
+        encoded = value.encode("utf-8")
         if point.size <= 0 or len(encoded) >= point.size:
             raise ValueError(f"ADS STRING '{point.point_id}' exceeds configured size")
         return encoded.ljust(point.size, b"\x00")
-    datatype = _plc_datatype(point.data_type)
-    raw = bytes(datatype(value))
+    raw = struct.pack("<" + _FORMATS[point.data_type], value)
     if len(raw) != point.size:
         raise ValueError(f"ADS point '{point.point_id}' data width mismatch")
     return raw
