@@ -389,6 +389,12 @@ class IEC104Driver:
                 ),
             )
             response = await asyncio.wait_for(future, timeout=self._config.t1 * 2)
+            if (
+                phase == "execute"
+                and response.cause == iec104.CommandResCause.ACTIVATION_TERMINATION
+                and response.is_negative_confirm
+            ):
+                raise ProtocolError("IEC104 execute terminated negatively; outcome unknown")
             rejected = response.is_negative_confirm or response.cause in (
                 iec104.CommandResCause.UNKNOWN_TYPE,
                 iec104.CommandResCause.UNKNOWN_CAUSE,
