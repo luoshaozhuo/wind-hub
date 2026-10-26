@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from hat.drivers.iec101 import common as iec101
@@ -10,6 +11,30 @@ from hat.drivers.iec101 import common as iec101
 from core.application import Quality
 from core.application.protocol_contract import ProtocolSample
 from core.infrastructure.protocol.iec104.codec import decode_sample
+
+
+def _cp56(
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    *,
+    summer: bool | None = False,
+) -> iec101.Time:
+    return iec101.Time(
+        size=iec101.TimeSize.SEVEN,
+        milliseconds=0,
+        invalid=False,
+        substituted=None,
+        minutes=minute,
+        summer_time=summer,
+        hours=hour,
+        day_of_week=None,
+        day_of_month=day,
+        months=month,
+        years=year,
+    )
 
 
 def _floating_msg(time: object | None = None) -> iec101.DataMsg:
@@ -55,23 +80,28 @@ class TestProtocolSampleValidation:
 
 class TestIEC104NativeTimestamp:
     def test_native_cp56_timestamp_marked_as_device(self) -> None:
+        # CP56 年仅两位：26 必须按世纪翻转解释为 2026，而非 1926。
+        cp56 = _cp56(26, 1, 1, 12, 0)
         device_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
-        cp56 = iec101.time_from_datetime(device_time)
 
-        sample = decode_sample("p", _floating_msg(cp56))
+        sample = decode_sample("p", _floating_msg(cp56), device_tz=ZoneInfo("UTC"))
 
         assert sample.timestamp == device_time
         assert sample.timestamp.tzinfo is not None
         assert sample.timestamp_source == "device"
 
-    def test_naive_device_wall_clock_is_local_wall_time(self) -> None:
-        """CP56Time2a 不带时区：设备本地墙钟时刻由 hat 按主机本地时区归一。"""
-        wall_clock = datetime(2026, 1, 1, 12, 0, 0)  # 设备本地墙钟，无时区
-        cp56 = iec101.time_from_datetime(wall_clock)
+    def test_naive_device_wall_clock_uses_configured_device_timezone(self) -> None:
+        """CP56Time2a 不带时区：墙钟时刻按显式设备时区解释，不依赖主机时区。"""
+        # 设备本地墙钟 2026-01-01 12:00（上海冬令时）= 04:00 UTC。
+        cp56 = _cp56(26, 1, 1, 12, 0)
 
-        sample = decode_sample("p", _floating_msg(cp56))
+        sample = decode_sample(
+            "p",
+            _floating_msg(cp56),
+            device_tz=ZoneInfo("Asia/Shanghai"),
+        )
 
-        assert sample.timestamp == iec101.time_to_datetime(cp56)
+        assert sample.timestamp == datetime(2026, 1, 1, 4, 0, 0, tzinfo=UTC)
         assert sample.timestamp.tzinfo is not None
         assert sample.timestamp_source == "device"
 
