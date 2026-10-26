@@ -24,6 +24,7 @@ import pytest
 
 from core.application import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
+    InterrogationRequest,
     ProtocolSample,
     Quality,
 )
@@ -102,7 +103,10 @@ def _driver(
 
 
 def _default_points() -> list[Point]:
-    return [_point("meas.power", 100), _point("meas.freq", 200)]
+    return [
+        _point("meas.power", 100, type_id="M_ME_NC_1"),
+        _point("meas.freq", 200, type_id="M_ME_NC_1"),
+    ]
 
 
 @pytest.fixture
@@ -194,7 +198,7 @@ class TestConnectAndActiveRead:
             return None
 
         with pytest.raises(ProtocolCapabilityError, match="subscription"):
-            driver.subscribe(["meas.power"], _cb)
+            await driver.subscribe(["meas.power"], _cb)
 
     async def test_read_unknown_point_raises(self, driver: IEC104Driver) -> None:
         await driver.connect()
@@ -202,11 +206,11 @@ class TestConnectAndActiveRead:
             await driver.read_one("ghost.point")
 
     async def test_read_without_connect_raises(self, driver: IEC104Driver) -> None:
-        with pytest.raises(ProtocolError, match="OPEN"):
+        with pytest.raises(ProtocolError, match="session unavailable"):
             await driver.read_one("meas.power")
 
     async def test_listen_without_connect_raises(self, driver: IEC104Driver) -> None:
-        with pytest.raises(ProtocolError, match="OPEN, enabled connection"):
+        with pytest.raises(ProtocolError, match="session unavailable"):
 
             async def _cb(_samples: tuple[ProtocolSample, ...]) -> None:
                 return None
@@ -220,16 +224,12 @@ class TestConnectAndActiveRead:
 
 
 class TestInterrogateAndListen:
-    async def test_interrogate_delivers_both_points_to_listener(
-        self, driver: IEC104Driver
-    ) -> None:
+    async def test_interrogate_delivers_both_points_to_listener(self, driver: IEC104Driver) -> None:
         await driver.connect()
         collected = _Collector()
         await driver.listen((), collected)
-        await driver.interrogate()  # 显式总召，阻塞到 ACT_TERM
-        await asyncio.wait_for(
-            collected.wait_for("meas.freq"), timeout=5.0
-        )
+        await driver.interrogate(InterrogationRequest())  # 显式总召，阻塞到 ACT_TERM
+        await asyncio.wait_for(collected.wait_for("meas.freq"), timeout=5.0)
         values = {s.point_id: s.value for s in collected.samples}
         assert values["meas.power"] == pytest.approx(1500.5, abs=1e-4)
         assert values["meas.freq"] == pytest.approx(50.0, abs=1e-4)
@@ -238,7 +238,7 @@ class TestInterrogateAndListen:
         await driver.connect()
         collected = _Collector()
         await driver.listen(("meas.power",), collected)
-        await driver.interrogate()
+        await driver.interrogate(InterrogationRequest())
         await asyncio.sleep(0.5)
         assert {s.point_id for s in collected.samples} == {"meas.power"}
 
@@ -250,9 +250,7 @@ class TestInterrogateAndListen:
         await driver.listen(("meas.power",), collected)
         await server.set_value(100, 999.0, spontaneous=True)
         sample = await asyncio.wait_for(
-            collected.wait_for(
-                "meas.power", lambda s: s.value == pytest.approx(999.0, abs=1e-4)
-            ),
+            collected.wait_for("meas.power", lambda s: s.value == pytest.approx(999.0, abs=1e-4)),
             timeout=5.0,
         )
         assert sample.quality is Quality.GOOD
@@ -286,9 +284,10 @@ class TestInterrogateAndListen:
         await driver.connect()
         collected = _Collector()
         handle = await driver.listen(("meas.power",), collected)
-        await driver.interrogate()
+        await driver.interrogate(InterrogationRequest())
         await asyncio.wait_for(collected.wait_for("meas.power"), timeout=5.0)
         await handle.close()
+
         await handle.close()  # 幂等
 
         count_after_close = len(collected.samples)
@@ -326,7 +325,10 @@ class TestMultipleCommonAddresses:
             stations={1: {100: 11.1}, 2: {100: 22.2}},
         )
         await srv.start()
-        points = [_point("ca1.power", 100, ca=1), _point("ca2.power", 100, ca=2)]
+        points = [
+            _point("ca1.power", 100, ca=1, type_id="M_ME_NC_1"),
+            _point("ca2.power", 100, ca=2, type_id="M_ME_NC_1"),
+        ]
         drv = _driver(srv.port, points, options=_options(common_addresses="1,2"))
         try:
             await drv.connect()
@@ -338,7 +340,7 @@ class TestMultipleCommonAddresses:
             # 默认总召逐 CA 执行；两个 CA 的数据都投递给监听者。
             collected = _Collector()
             await drv.listen((), collected)
-            await drv.interrogate()
+            await drv.interrogate(InterrogationRequest())
             await asyncio.sleep(0.5)
             by_ca = {s.point_id for s in collected.samples}
             assert by_ca == {"ca1.power", "ca2.power"}
@@ -357,7 +359,7 @@ class TestMultipleCommonAddresses:
         try:
             await drv.connect()
             with pytest.raises(ConfigError, match="not configured"):
-                await drv.interrogate(3)
+                await drv.interrogate(InterrogationRequest(common_address=3))
         finally:
             await drv.close()
             await srv.stop()
@@ -382,12 +384,14 @@ class TestServerRestart:
             timeout=10.0,
             description="driver detected disconnect",
         )
-        with pytest.raises(ProtocolError, match="OPEN"):
+        with pytest.raises(ProtocolError, match="session unavailable|connection lost"):
             await driver.read_one("meas.power")
 
         await server.start()
         with pytest.raises(ProtocolError):
             await driver.read_one("meas.power")  # 旧会话不会自愈
+        # 显式重建会话必须先收敛旧连接（与 Watchdog close()→connect() 契约一致）。
+        await driver.close()
         await driver.connect()
         assert driver.is_open()
         sample = await driver.read_one("meas.power")
@@ -397,7 +401,7 @@ class TestServerRestart:
         port = free_port()
         drv = _driver(port, _default_points(), options=_options(t0=2.0))
         try:
-            with pytest.raises(ProtocolError, match="timed out|connect failed"):
+            with pytest.raises(ProtocolError, match=r"(?i)connect.*failed|timed out"):
                 await drv.connect()
 
             srv = IEC104MockServer(port=port)
@@ -430,8 +434,7 @@ class TestValueSemantics:
         sample = await asyncio.wait_for(
             collected.wait_for(
                 "meas.power",
-                lambda s: s.quality is Quality.BAD
-                and s.value == pytest.approx(1.0, abs=1e-4),
+                lambda s: s.quality is Quality.BAD and s.value == pytest.approx(1.0, abs=1e-4),
             ),
             timeout=5.0,
         )
@@ -441,7 +444,7 @@ class TestValueSemantics:
         """M_ME_NC_1 不携带时标 → 接收时刻本地生成（timestamp_source=local）。"""
         srv = IEC104MockServer(port=free_port(), data_points={300: 42.0})
         await srv.start()
-        drv = _driver(srv.port, [_point("meas.value", 300)])
+        drv = _driver(srv.port, [_point("meas.value", 300, type_id="M_ME_NC_1")])
         try:
             await drv.connect()
             before = datetime.now(UTC)
@@ -459,7 +462,7 @@ class TestValueSemantics:
         sample = await driver.read_one("meas.power")
         assert sample.value == pytest.approx(1500.5, abs=1e-4)
 
-        driver.update_point_table(_table([_point("meas.only_freq", 200)]))
+        driver.update_point_table(_table([_point("meas.only_freq", 200, type_id="M_ME_NC_1")]))
         with pytest.raises(ConfigError, match="meas.power"):
             await driver.read_one("meas.power")
         sample = await driver.read_one("meas.only_freq")
@@ -476,7 +479,7 @@ class TestLifecycle:
         await driver.connect()
         await driver.close()
         assert driver.is_open() is False
-        with pytest.raises(ProtocolError, match="OPEN"):
+        with pytest.raises(ProtocolError, match="session unavailable"):
             await driver.read_one("meas.power")
 
     async def test_close_idempotent(self, driver: IEC104Driver) -> None:
@@ -510,4 +513,3 @@ class TestLifecycle:
         finally:
             await drv.close()
             await blackhole.stop()
-
