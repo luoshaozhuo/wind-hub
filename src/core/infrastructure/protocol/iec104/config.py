@@ -58,16 +58,7 @@ def parse_iec104_config(
     """从 ConnectionEndpoint 与协议选项解析 IEC104 连接参数。"""
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
-        hint = ""
-        if "common_addr" in unknown:
-            hint = (
-                " (legacy 'common_addr' was replaced by 'common_addresses': "
-                "int or comma-separated string)"
-            )
-        raise ConfigError(
-            f"connection '{endpoint}' has unknown IEC104 options: "
-            f"{sorted(unknown)}{hint}"
-        )
+        raise ConfigError(f"connection '{endpoint}' has unknown IEC104 options: {sorted(unknown)}")
 
     common_addresses = _parse_cas(options.get("common_addresses"), endpoint)
     health_point = _optional_str(options.get("health_point"), "health_point")
