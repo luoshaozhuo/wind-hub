@@ -170,7 +170,7 @@ class IEC104Driver:
                 )
                 self._session = session
                 await asyncio.wait_for(session.open(), timeout=c.t0)
-                if self._session is not session or not session.is_open:
+                if not session.is_open:
                     raise ProtocolConnectionError("IEC104 session lost during STARTDT")
             except BaseException as exc:
                 await self._close_locked()
