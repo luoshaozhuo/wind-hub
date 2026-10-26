@@ -91,6 +91,9 @@
 #     ioa: int 0..16777215 —— 信息对象地址。
 #     ca:  int 0..65535，可选 —— 信息对象所属公共地址；缺省取连接
 #           common_addresses 的首项。不同 CA 下允许相同 ioa。
+#     command_mode: direct（默认）/ select_execute（SBO）。
+#     confirmation: act_term（默认）/ act_con；ACT_CON 不代表执行终结。
+#           common_addresses 的首项。不同 CA 下允许相同 ioa。
 
 point_tables:
 
