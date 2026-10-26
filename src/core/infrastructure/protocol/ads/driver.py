@@ -136,17 +136,6 @@ class ADSDriver:
         self._configured_points = mapped
         self._points = mapped
 
-    def _new_session(self) -> _AdsSession:
-        def factory() -> pyads.Connection:
-            connection = pyads.Connection(
-                self._config.target_net_id,
-                self._config.target_port,
-                self._config.host,
-            )
-            return connection
-
-        return _AdsSession(factory)
-
     async def connect(self) -> None:
         """Open the PLC and verify every configured point before becoming ready."""
         async with self._lifecycle:
@@ -158,39 +147,29 @@ class ADSDriver:
             self._state = ProtocolLifecycleState.CONNECTING
             try:
                 for attempt in range(2 if self._config.route_auto_add else 1):
-                    session = self._new_session()
+                    session = _AdsSession(
+                        self._config.target_net_id,
+                        self._config.target_port,
+                        self._config.host,
+                    )
                     self._session = session
                     _ACTIVE_SESSIONS.add(session)
                     try:
-                        await session.open()
-                        timeout_ms = (
-                            _LOCAL_IDENTITY.request_timeout_ms
-                            if _LOCAL_IDENTITY is not None
-                            else int(self._config.timeout * 1000)
-                        )
-                        await session.execute("set_timeout", timeout_ms)
-                        plc_state, _ = await session.execute("read_state")
-                        if plc_state != pyads.ADSSTATE_RUN:
-                            raise ProtocolError("ADS PLC is not in RUN state")
-                        points = await self._resolve_points(session)
-                    except BaseException as exc:
                         try:
-                            # Session owns any native I/O still running after cancellation.
+                            await session.open()
+                        except Exception:
+                            # Only an open failure may trigger route registration.
+                            if attempt != 0 or not self._config.route_auto_add:
+                                raise
                             await session.close()
-                        except BaseException:
-                            self._state = ProtocolLifecycleState.FAULTED
-                            raise
-                        _ACTIVE_SESSIONS.discard(session)
-                        self._session = None
-                        if (
-                            attempt == 0
-                            and session.open_failed
-                            and self._config.route_auto_add
-                            and isinstance(exc, Exception)
-                        ):
+                            _ACTIVE_SESSIONS.discard(session)
+                            self._session = None
                             if _LOCAL_IDENTITY is None:
                                 raise ConfigError("ADS local AMS identity is not initialized")
                             async with _REMOTE_ROUTE_LOCK:
+                                # shield keeps native route registration alive if the caller
+                                # is cancelled. _ROUTE_TASKS then prevents close_local()
+                                # from closing AMS resources before that thread finishes.
                                 route_task = asyncio.create_task(
                                     asyncio.to_thread(
                                         pyads.add_route_to_plc,
@@ -212,6 +191,27 @@ class ADSDriver:
                                 if not await asyncio.shield(route_task):
                                     raise ProtocolError("ADS automatic route registration failed")
                             continue
+
+                        timeout_ms = (
+                            _LOCAL_IDENTITY.request_timeout_ms
+                            if _LOCAL_IDENTITY is not None
+                            else int(self._config.timeout * 1000)
+                        )
+                        await session.execute("set_timeout", timeout_ms)
+                        plc_state, _ = await session.execute("read_state")
+                        if plc_state != pyads.ADSSTATE_RUN:
+                            raise ProtocolError("ADS PLC is not in RUN state")
+                        points = await self._resolve_points(session)
+                    except BaseException:
+                        if self._session is session:
+                            try:
+                                # Session serializes close after any pending native I/O.
+                                await session.close()
+                            except BaseException:
+                                self._state = ProtocolLifecycleState.FAULTED
+                                raise
+                            _ACTIVE_SESSIONS.discard(session)
+                            self._session = None
                         raise
                     self._points = points
                     self._state = ProtocolLifecycleState.CONNECTED
