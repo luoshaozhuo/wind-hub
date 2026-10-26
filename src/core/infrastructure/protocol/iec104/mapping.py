@@ -27,7 +27,13 @@ _COMMAND_TYPE_IDS = frozenset(
         "C_SE_NC_1",
     }
 )
-_SUPPORTED_MONITORING_PREFIX = "M_"
+_MONITORING_TYPE_IDS = frozenset({
+    "M_SP_NA_1", "M_SP_TB_1", "M_DP_NA_1", "M_DP_TB_1",
+    "M_ST_NA_1", "M_ST_TB_1", "M_BO_NA_1", "M_BO_TB_1",
+    "M_ME_NA_1", "M_ME_ND_1", "M_ME_TD_1", "M_ME_NB_1",
+    "M_ME_TE_1", "M_ME_NC_1", "M_ME_TF_1", "M_IT_NA_1",
+    "M_IT_TB_1", "M_PS_NA_1",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +73,9 @@ def parse_iec104_point(point: Point, *, default_ca: int) -> IEC104Point:
         options.get("type_id", options.get("type")),
         point.point_id,
     )
+    if type_id is not None and type_id in _MONITORING_TYPE_IDS:
+        if "command_mode" in options or "confirmation" in options:
+            raise ConfigError(f"IEC104 monitoring point '{point.point_id}' has command options")
     command_mode = options.get("command_mode", "direct")
     confirmation = options.get("confirmation", "act_term")
     if command_mode not in ("direct", "select_execute"):
@@ -138,7 +147,7 @@ def _validate_access_type(point: Point, mapped: IEC104Point) -> None:
             validate_iec104_write_type(mapped)
         return
     is_command = type_id in _COMMAND_TYPE_IDS
-    is_monitoring = type_id.startswith(_SUPPORTED_MONITORING_PREFIX)
+    is_monitoring = type_id in _MONITORING_TYPE_IDS
     if writable and not is_command:
         raise ConfigError(
             f"IEC104 writable point '{mapped.point_id}' must use a C_* command type, "
