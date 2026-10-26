@@ -161,7 +161,9 @@ class ADSSubscription:
                 logger.exception("ADS notification delivery callback failed")
 
     def _begin_stop(self) -> asyncio.Task[None]:
-        if self._stop_task is None:
+        if self._stop_task is None or (
+            self._stop_task.done() and self._stop_task.exception() is not None
+        ):
             self._stopping = True
             self._stop_task = asyncio.create_task(self._stop_once())
         return self._stop_task
