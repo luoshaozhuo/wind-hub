@@ -10,7 +10,6 @@ from ctypes import Structure, c_uint32
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
-from uuid import uuid4
 
 import pyads  # type: ignore[import-untyped]
 from pyads.constants import ADSIGRP_SUMUP_READ, ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
@@ -18,18 +17,12 @@ from pyads.constants import ADSIGRP_SUMUP_READ, ADSIGRP_SUMUP_WRITE  # type: ign
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.port.protocol import (
     ListenHandle,
-    ProtocolEventCallback,
-    ProtocolEventHandle,
     ProtocolSampleCallback,
 )
 from core.application.protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
     ProtocolCapability,
-    ProtocolLifecycleState,
-    ProtocolOperation,
-    ProtocolOperationState,
-    ProtocolRuntimeState,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -38,7 +31,6 @@ from core.application.protocol_contract import (
 )
 from core.application.settings import ADSLocalConfig
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
-from core.infrastructure.protocol.events import ProtocolEventStream
 
 from .codec import (
     _coerce_write_value,
@@ -89,7 +81,6 @@ class ADSDriver:
             raise ConfigError("ADS target_net_id is required")
         self._identity = self._config.target_net_id
         self._state = ADSState.DISCONNECTED
-        self._events = ProtocolEventStream()
         self._lifecycle = asyncio.Lock()
         self._session: _AdsSession | None = None
         self._subscriptions: set[ADSSubscription] = set()
@@ -135,13 +126,6 @@ class ADSDriver:
     def state(self) -> ADSState:
         return self._state
 
-    def runtime_state(self) -> ProtocolRuntimeState:
-        lifecycle = ProtocolLifecycleState(self._state.value)
-        return self._events.snapshot(lifecycle)
-
-    def observe_events(self, callback: ProtocolEventCallback) -> ProtocolEventHandle:
-        return self._events.observe(callback)
-
     def capabilities(self) -> frozenset[ProtocolCapability]:
         return frozenset(
             {
@@ -172,29 +156,6 @@ class ADSDriver:
         return _AdsSession(factory)
 
     async def connect(self) -> None:
-        operation_id = uuid4().hex
-        operation = ProtocolOperation.CONNECT
-        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING)
-        self._events.transition(ProtocolLifecycleState.CONNECTING)
-        try:
-            await self._connect_impl()
-        except BaseException as exc:
-            self._events.transition(ProtocolLifecycleState(self._state.value))
-            state = (
-                ProtocolOperationState.CANCELLED
-                if isinstance(exc, asyncio.CancelledError)
-                else ProtocolOperationState.FAILED
-            )
-            self._events.emit(operation_id, operation, state, message=str(exc))
-            raise
-        self._events.transition(ProtocolLifecycleState.CONNECTED)
-        self._events.emit(
-            operation_id,
-            operation,
-            ProtocolOperationState.SUCCEEDED,
-        )
-
-    async def _connect_impl(self) -> None:
         if self._state is ADSState.CONNECTED:
             return
         if self._state in {ADSState.FAULTED, ADSState.CLOSING}:
@@ -309,29 +270,6 @@ class ADSDriver:
                 raise
 
     async def close(self) -> None:
-        operation_id = uuid4().hex
-        operation = ProtocolOperation.CLOSE
-        self._events.emit(operation_id, operation, ProtocolOperationState.RUNNING)
-        self._events.transition(ProtocolLifecycleState.CLOSING)
-        try:
-            await self._close_impl()
-        except BaseException as exc:
-            self._events.transition(ProtocolLifecycleState(self._state.value))
-            state = (
-                ProtocolOperationState.CANCELLED
-                if isinstance(exc, asyncio.CancelledError)
-                else ProtocolOperationState.FAILED
-            )
-            self._events.emit(operation_id, operation, state, message=str(exc))
-            raise
-        self._events.transition(ProtocolLifecycleState.DISCONNECTED)
-        self._events.emit(
-            operation_id,
-            operation,
-            ProtocolOperationState.SUCCEEDED,
-        )
-
-    async def _close_impl(self) -> None:
         if self._close_task is None:
             if self._state is ADSState.CONNECTED:
                 self._state = ADSState.CLOSING
@@ -401,30 +339,28 @@ class ADSDriver:
             raise ProtocolError(f"Unknown ADS point: {exc}") from exc
 
     async def read_one(self, point_id: str) -> ProtocolSample:
-        operation_id = uuid4().hex
-        operation = ProtocolOperation.READ
-        self._events.emit(
-            operation_id, operation, ProtocolOperationState.RUNNING, point_id=point_id
+        session = self._require_session()
+        point = self._mapped((point_id,))[0]
+        raw = await session.execute(
+            "read",
+            point.group,
+            point.offset,
+            pyads.PLCTYPE_BYTE * point.size,
         )
+        received_at = datetime.now(UTC)
         try:
-            result = await self._read_one_impl(point_id)
-        except BaseException as exc:
-            state = (
-                ProtocolOperationState.CANCELLED
-                if isinstance(exc, asyncio.CancelledError)
-                else ProtocolOperationState.FAILED
-            )
-            self._events.emit(operation_id, operation, state, message=str(exc))
-            raise
-        self._events.emit(
-            operation_id,
-            operation,
-            ProtocolOperationState.SUCCEEDED,
+            value = compile_decoder(point)(bytes(raw), 0)
+            quality = Quality.GOOD
+        except (ValueError, TypeError, UnicodeDecodeError, struct.error):
+            value = None
+            quality = Quality.BAD
+        return ProtocolSample(
+            point_id=point_id,
+            value=value,
+            quality=quality,
+            timestamp=received_at,
+            receive_time=received_at,
         )
-        return result
-
-    async def _read_one_impl(self, point_id: str) -> ProtocolSample:
-        return (await self.read_many((point_id,)))[0]
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
         if not point_ids:
@@ -475,36 +411,30 @@ class ADSDriver:
         )
 
     async def write_one(self, write: ProtocolWrite[Any]) -> ProtocolWriteResult:
-        operation_id = uuid4().hex
-        operation = ProtocolOperation.WRITE
-        self._events.emit(
-            operation_id, operation, ProtocolOperationState.RUNNING, point_id=write.point
-        )
+        session = self._require_session()
+        point = self._mapped((write.point,))[0]
         try:
-            result = await self._write_one_impl(write)
-        except BaseException as exc:
-            state = (
-                ProtocolOperationState.UNKNOWN
-                if isinstance(exc, asyncio.CancelledError | TimeoutError)
-                else ProtocolOperationState.FAILED
+            value = _coerce_write_value(write.value, point.data_type)
+            raw = _encode_value(value, point)
+        except (TypeError, ValueError, ConfigError, OverflowError) as exc:
+            return ProtocolWriteResult(
+                write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc)
             )
-            self._events.emit(operation_id, operation, state, message=str(exc))
-            raise
-        self._events.emit(
-            operation_id,
-            operation,
-            (
-                ProtocolOperationState.UNKNOWN
-                if result.outcome.value == "unknown"
-                else ProtocolOperationState.SUCCEEDED
-                if result.outcome.value == "confirmed_success"
-                else ProtocolOperationState.FAILED
-            ),
-        )
-        return result
-
-    async def _write_one_impl(self, write: ProtocolWrite[Any]) -> ProtocolWriteResult:
-        return (await self.write_many((write,)))[0]
+        try:
+            await session.execute(
+                "write",
+                point.group,
+                point.offset,
+                (pyads.PLCTYPE_BYTE * len(raw)).from_buffer_copy(raw),
+                pyads.PLCTYPE_BYTE * len(raw),
+            )
+        except ADSCommandNotSentError as exc:
+            return ProtocolWriteResult(
+                write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc)
+            )
+        except Exception as exc:
+            return ProtocolWriteResult(write.point, WriteOutcome.UNKNOWN, str(exc))
+        return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_SUCCESS)
 
     async def write_many(
         self, writes: Sequence[ProtocolWrite[Any]]

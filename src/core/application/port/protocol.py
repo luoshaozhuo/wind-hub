@@ -23,9 +23,7 @@ from ..protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
     ProtocolCapability,
-    ProtocolOperationEvent,
     ProtocolPoint,
-    ProtocolRuntimeState,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -56,21 +54,10 @@ ProtocolSampleCallback = Callable[[tuple[ProtocolSample, ...]], Awaitable[None]]
 TPoint = TypeVar("TPoint", bound=ProtocolPoint, contravariant=True, default=Never)
 
 
-ProtocolEventCallback = Callable[[ProtocolOperationEvent], Awaitable[None]]
-
-
-class ProtocolEventHandle(Protocol):
-    async def close(self) -> None: ...
-
-
 class ProtocolPort(Protocol[TPoint]):
     """统一设备协议运行时能力边界。"""
 
     def capabilities(self) -> frozenset[ProtocolCapability]: ...
-
-    def runtime_state(self) -> ProtocolRuntimeState: ...
-
-    def observe_events(self, callback: ProtocolEventCallback) -> ProtocolEventHandle: ...
 
     async def connect(self) -> None: ...
 
