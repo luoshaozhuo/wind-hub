@@ -5,14 +5,15 @@ from __future__ import annotations
 import struct
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pyads  # type: ignore[import-untyped]
 
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import PointScalar
 
-from .mapping import ADSPoint
+if TYPE_CHECKING:
+    from .mapping import ADSPoint
 
 _FORMATS = {
     "BOOL": "?",
@@ -78,7 +79,7 @@ def compile_notification_blocks(
         last = current[-1]
         end = last.offset + last.size
         fields = tuple(
-            (point, point.offset - first.offset, compile_decoder(point)) for point in current
+            (point, point.offset - first.offset, point.decoder) for point in current
         )
         blocks.append(NotificationBlock(first.group, first.offset, end - first.offset, fields))
 
