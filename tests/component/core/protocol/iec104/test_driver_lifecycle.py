@@ -1,300 +1,185 @@
-"""IEC104 Driver 生命周期、能力边界与会话健康的组件测试。"""
+"""IEC104 驱动生命周期：状态机、连接竞争、物理关闭失败 FAULTED、幂等与泄漏。"""
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 
 import pytest
 
-from core.application.errors import ProtocolCapabilityError, ProtocolError
-from core.application.protocol_contract import ProtocolCapability, ProtocolWrite
-from core.infrastructure.protocol.iec104.listener import ListenerRegistry
-from tests.support.iec104_hat_fake import (
-    FakeApciConnection,
-    connected_driver,
-    floating_data_msg,
+from core.application.errors import ProtocolConnectionError
+from core.application.protocol_contract import ProtocolLifecycleState
+from core.infrastructure.protocol.iec104.session import _IEC104Session
+from tests.support.iec104_fake import (
+    FakeConnection,
     make_driver,
     make_point,
-    patch_dial,
 )
 
-
-async def test_capabilities_are_read_write_listen_interrogate_only() -> None:
-    driver, _conn = make_driver([make_point("p", 100)])
-    assert driver.capabilities() == frozenset(
-        {
-            ProtocolCapability.READ,
-            ProtocolCapability.WRITE,
-            ProtocolCapability.LISTEN,
-            ProtocolCapability.INTERROGATE,
-        }
-    )
+pytestmark = pytest.mark.asyncio
 
 
-async def test_batch_and_subscribe_rejected_without_network_io() -> None:
-    driver, _conn = make_driver([make_point("p", 100)])
+def set_connect(monkeypatch, conn: FakeConnection) -> None:
+    async def _connect(addr, **kwargs):
+        del addr, kwargs
+        return conn
 
-    with pytest.raises(ProtocolCapabilityError, match="batch read"):
-        await driver.read_many(("p",))
-    with pytest.raises(ProtocolCapabilityError, match="batch write"):
-        await driver.write_many((ProtocolWrite(point="p", value=1.0),))
-    with pytest.raises(ProtocolCapabilityError, match="subscription"):
-
-        async def _cb(_sample: object) -> None:
-            return None
-
-        driver.subscribe(("p",), _cb)
+    monkeypatch.setattr("core.infrastructure.protocol.iec104.session.iec104.connect", _connect)
 
 
-async def test_listen_requires_established_connection() -> None:
-    driver, _conn = make_driver([make_point("p", 100)])
+def failing_connect(monkeypatch, exc: Exception) -> None:
+    async def _connect(addr, **kwargs):
+        del addr, kwargs
+        raise exc
 
-    async def _cb(_sample: object) -> None:
-        return None
-
-    with pytest.raises(ProtocolError, match="OPEN, enabled connection"):
-        await driver.listen(("p",), _cb)
+    monkeypatch.setattr("core.infrastructure.protocol.iec104.session.iec104.connect", _connect)
 
 
-async def test_connect_is_idempotent_and_close_is_idempotent() -> None:
-    driver, conn = make_driver([make_point("p", 100)])
+def state(driver) -> ProtocolLifecycleState:
+    return driver.runtime_state().lifecycle
+
+
+async def test_connect_close_states_and_idempotent(monkeypatch):
+    driver = make_driver([make_point("wind", 100)])
+    conn = FakeConnection()
+    set_connect(monkeypatch, conn)
+
+    assert state(driver) is ProtocolLifecycleState.DISCONNECTED
+    await driver.connect()
+    assert state(driver) is ProtocolLifecycleState.CONNECTED
+    assert driver.is_open()
+
+    await driver.close()
+    assert state(driver) is ProtocolLifecycleState.DISCONNECTED
+    assert not driver.is_open()
+
+    # 重复 close 幂等，不报错。
+    await driver.close()
+    assert state(driver) is ProtocolLifecycleState.DISCONNECTED
+
+
+async def test_connect_already_open_is_noop(monkeypatch):
+    driver = make_driver([make_point("wind", 100)])
+    set_connect(monkeypatch, FakeConnection())
     await driver.connect()
     await driver.connect()
     assert driver.is_open()
     await driver.close()
-    await driver.close()
-    assert driver.is_open() is False
-    assert conn._closed is True
 
 
-async def test_listener_close_timeout_does_not_leak_connection_and_retries() -> None:
-    """测试 F：监听回调拒绝结束时连接仍释放；再次 close 收敛遗留任务。"""
-    driver, conn = await connected_driver([make_point("p", 100)])
-    # 缩短回调收敛时限，让 close 的取消等待确定性地快速超时。
-    driver._listeners = ListenerRegistry(callback_timeout=0.05)
+async def test_connect_failure_returns_to_disconnected_and_allows_retry(monkeypatch):
+    driver = make_driver([make_point("wind", 100)])
+    failing_connect(monkeypatch, ConnectionError("dial refused"))
 
-    entered = asyncio.Event()
-    release = asyncio.Event()
+    # P1-b：底层连接错误必须在协议边界包装为 ProtocolConnectionError，不泄漏内置异常。
+    with pytest.raises(ProtocolConnectionError) as exc_info:
+        await driver.connect()
+    assert isinstance(exc_info.value.__cause__, ConnectionError)
+    assert state(driver) is ProtocolLifecycleState.DISCONNECTED
+    assert not driver.is_open()
 
-    async def stubborn(_sample: object) -> None:
-        entered.set()
-        while not release.is_set():
-            with contextlib.suppress(asyncio.CancelledError):
-                await release.wait()
-
-    await driver.listen((), stubborn)
-    conn.deliver([floating_data_msg(1, 100, 1.0)])
-    await entered.wait()
-
-    with pytest.raises(TimeoutError):
-        await asyncio.wait_for(driver.close(), timeout=2.0)
-
-    # Listener 失败没有跳过连接释放，会话与接收任务已清理。
-    assert conn._closed is True
-    assert driver.is_open() is False
-    assert driver._session is None
-    assert len(driver._closing_listeners) == 1
-    assert not [
-        task
-        for task in asyncio.all_tasks()
-        if not task.done() and task.get_name() == "iec104-receive"
-    ]
-
-    # 回调放行后，再次 close 能确认遗留任务结束；第三次幂等。
-    release.set()
-    await asyncio.wait_for(driver.close(), timeout=2.0)
-    assert driver._closing_listeners == []
-    await driver.close()
-    assert not [
-        task
-        for task in asyncio.all_tasks()
-        if not task.done() and "iec104-listen" in (task.get_name() or "")
-    ]
-
-
-async def test_reconnect_creates_independent_session() -> None:
-    driver, conn1 = make_driver([make_point("p", 100)])
-    await driver.connect()
-    await driver.close()
-    conn2 = FakeApciConnection()
-    patch_dial(driver, conn2)
+    good = FakeConnection()
+    set_connect(monkeypatch, good)
     await driver.connect()
     assert driver.is_open()
     await driver.close()
-    assert conn1._closed is True and conn2._closed is True
 
 
-async def test_link_health_reflects_enabled_state() -> None:
-    driver, conn = await connected_driver([make_point("p", 100)])
-    health = await driver.health()
-    assert health.healthy
-    assert "link OPEN" in (health.message or "")
+async def test_startdt_never_arrives_times_out_and_allows_reconnect(monkeypatch):
+    class NeverEnabled(FakeConnection):
+        def register_enabled_cb(self, callback):
+            self.enabled_cbs.append(callback)
+            return object()  # 不触发 STARTDT 确认
 
+    driver = make_driver([make_point("wind", 100)], options={"t0": 0.2})
+    set_connect(monkeypatch, NeverEnabled())
+    with pytest.raises(ProtocolConnectionError):
+        await driver.connect()
+    assert not driver.is_open()
+
+    set_connect(monkeypatch, FakeConnection())
+    await driver.connect()
+    assert driver.is_open()
+    await driver.close()
+
+
+async def test_physical_close_failure_enters_faulted_and_blocks_reconnect(monkeypatch):
+    conn = FakeConnection()
+    conn.close_error = RuntimeError("physical close failed")
+    driver = make_driver([make_point("wind", 100)])
+    set_connect(monkeypatch, conn)
+    await driver.connect()
+
+    with pytest.raises(RuntimeError):
+        await driver.close()
+    assert state(driver) is ProtocolLifecycleState.FAULTED
+
+    # 旧 session 未收敛：禁止建立新连接。
+    with pytest.raises(ProtocolConnectionError):
+        await driver.connect()
+
+
+async def test_concurrent_connect_serialized_single_session(monkeypatch):
+    driver = make_driver([make_point("wind", 100)])
+    set_connect(monkeypatch, FakeConnection())
+    await asyncio.gather(driver.connect(), driver.connect())
+    assert driver.is_open()
+    session = driver._session
+    assert isinstance(session, _IEC104Session)
+    await driver.close()
+
+
+async def test_connect_close_race_closes_cleanly(monkeypatch):
+    conn = FakeConnection()
+    driver = make_driver([make_point("wind", 100)])
+    set_connect(monkeypatch, conn)
+
+    connect_task = asyncio.create_task(driver.connect())
+    # 与 connect 并发 close；生命周期锁串行化，最终必须断开、无残留连接。
+    await asyncio.sleep(0)
+    close_task = asyncio.create_task(driver.close())
+    await asyncio.gather(connect_task, close_task, return_exceptions=True)
+    assert not driver.is_open()
+    assert conn.closed
+
+
+async def test_remote_stopdt_disconnects_open_session(monkeypatch):
+    conn = FakeConnection()
+    driver = make_driver([make_point("wind", 100)])
+    set_connect(monkeypatch, conn)
+    await driver.connect()
     conn.notify_enabled(False)
-    health = await driver.health()
-    assert not health.healthy
-    assert "not connected" in (health.message or "")
-    await driver.close()
-
-
-async def test_unconfigured_ca_interrogation_rejected() -> None:
-    driver, _conn = await connected_driver(
-        [make_point("p", 100)], common_addresses="1,2"
-    )
-    with pytest.raises(Exception, match="not configured"):
-        await driver.interrogate(9)
-    await driver.close()
-
-
-async def test_explicit_ca_interrogation_returns_samples() -> None:
-    driver, _conn = make_driver([make_point("p", 100)])
-    expected = ("sample-marker",)
-    calls: list[tuple[int, int]] = []
-
-    async def interrogate_one(ca: int, *, qoi: int):
-        calls.append((ca, qoi))
-        return expected
-
-    driver._interrogate_one = interrogate_one  # type: ignore[method-assign]
-    result = await driver.interrogate(common_address=1, qoi=20)
-    assert result == expected
-    assert calls == [(1, 20)]
-
-
-async def test_cancelled_control_invalidates_session_before_next_command() -> None:
-    """取消已经发出的控制，不能复用旧 Session 接收迟到的确认。"""
-    from core.application.protocol_contract import ProtocolWrite
-    from core.domain import PointAccess
-
-    driver, conn = await connected_driver(
-        [make_point("command", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)]
-    )
-    task = asyncio.create_task(driver.write_one(ProtocolWrite(point="command", value=True)))
-    for _ in range(100):
-        if conn.sent_messages:
-            break
-        await asyncio.sleep(0.001)
-    assert conn.sent_messages, "control request was not sent"
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    # 等待接收循环观察 STOPDT。
+    await asyncio.sleep(0.05)
     assert not driver.is_open()
-    assert driver._session is None
-    assert len(conn.sent_messages) == 1
+
+
+async def test_no_receiver_or_listener_task_leftover_after_close(monkeypatch):
+    conn = FakeConnection()
+    driver = make_driver([make_point("wind", 100)])
+    set_connect(monkeypatch, conn)
+    await driver.connect()
+    receiver = driver._session._receiver
+    assert receiver is not None and not receiver.done()
+
+    got = []
+    handle = await driver.listen(["wind"], got.append)
+    await driver.close()
+    # listener 回调任务在 close 时被取消，close() 已等待其收敛。
+    assert receiver.cancelled() or receiver.done()
+    assert handle.task.done()
+
+
+async def test_reconnect_after_clean_close_uses_fresh_session(monkeypatch):
+    driver = make_driver([make_point("wind", 100)])
+    first = FakeConnection()
+    set_connect(monkeypatch, first)
+    await driver.connect()
+    first_session = driver._session
     await driver.close()
 
-
-@pytest.mark.parametrize("operation", ["read", "interrogate"])
-async def test_cancelled_iec104_request_invalidates_session(operation: str) -> None:
-    """主动读取/总召取消后，迟到报文不得进入后续新会话。"""
-    driver, conn = await connected_driver([make_point("p", 100)])
-    if operation == "read":
-        task = asyncio.create_task(driver.read_one("p"))
-    else:
-        task = asyncio.create_task(driver.interrogate(common_address=1))
-    for _ in range(100):
-        if conn.sent_messages:
-            break
-        await asyncio.sleep(0.001)
-    assert conn.sent_messages
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert driver._session is None
-    assert not driver.is_open()
-    await driver.close()
-
-
-async def test_control_requires_act_term_after_positive_act_con() -> None:
-    """ACT_CON 表示受理，不得提前返回成功；ACT_TERM 才完成本次流程。"""
-    from hat.drivers.iec101 import common as iec101
-    from hat.drivers.iec104 import common as iec104common
-
-    from core.application.protocol_contract import WriteOutcome
-    from core.domain import PointAccess
-
-    driver, conn = await connected_driver(
-        [make_point("cmd", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)]
-    )
-    task = asyncio.create_task(driver.write_one(ProtocolWrite(point="cmd", value=True)))
-    for _ in range(100):
-        if conn.sent_messages:
-            break
-        await asyncio.sleep(0.001)
-    assert conn.sent_messages
-    request = conn.sent_messages[-1]
-    assert isinstance(request, iec104common.CommandMsg)
-
-    def response(cause: iec101.CommandResCause) -> iec104common.CommandMsg:
-        return request._replace(cause=cause, is_negative_confirm=False)
-
-    conn.deliver([response(iec101.CommandResCause.ACTIVATION_CONFIRMATION)])
-    await asyncio.sleep(0.01)
-    assert not task.done()
-    conn.deliver([response(iec101.CommandResCause.ACTIVATION_TERMINATION)])
-    result = await asyncio.wait_for(task, timeout=1.0)
-    assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
-    await driver.close()
-
-
-async def test_control_act_con_only_times_out_unknown() -> None:
-    """只收到肯定 ACT_CON 而无 ACT_TERM，必须保持 UNKNOWN。"""
-    from hat.drivers.iec101 import common as iec101
-    from hat.drivers.iec104 import common as iec104common
-
-    from core.application.protocol_contract import WriteOutcome
-    from core.domain import PointAccess
-
-    driver, conn = await connected_driver(
-        [make_point("cmd", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)],
-        options={"t1": 0.5, "t2": 0.2},
-    )
-    task = asyncio.create_task(driver.write_one(ProtocolWrite(point="cmd", value=True)))
-    for _ in range(100):
-        if conn.sent_messages:
-            break
-        await asyncio.sleep(0.001)
-    assert conn.sent_messages
-    request = conn.sent_messages[-1]
-    assert isinstance(request, iec104common.CommandMsg)
-    conn.deliver([
-        request._replace(
-            cause=iec101.CommandResCause.ACTIVATION_CONFIRMATION,
-            is_negative_confirm=False,
-        )
-    ])
-    result = await asyncio.wait_for(task, timeout=2.0)
-    assert result.outcome is WriteOutcome.UNKNOWN
-    assert len(conn.sent_messages) == 1
-    await driver.close()
-
-
-async def test_control_negative_act_con_is_confirmed_failure_without_retry() -> None:
-    from hat.drivers.iec101 import common as iec101
-    from hat.drivers.iec104 import common as iec104common
-
-    from core.application.protocol_contract import WriteOutcome
-    from core.domain import PointAccess
-
-    driver, conn = await connected_driver(
-        [make_point("cmd", 201, type_id="C_SC_NA_1", access=PointAccess.WRITE)]
-    )
-    task = asyncio.create_task(driver.write_one(ProtocolWrite(point="cmd", value=True)))
-    for _ in range(100):
-        if conn.sent_messages:
-            break
-        await asyncio.sleep(0.001)
-    assert conn.sent_messages
-    request = conn.sent_messages[-1]
-    assert isinstance(request, iec104common.CommandMsg)
-    conn.deliver([
-        request._replace(
-            cause=iec101.CommandResCause.ACTIVATION_CONFIRMATION,
-            is_negative_confirm=True,
-        )
-    ])
-    result = await asyncio.wait_for(task, timeout=1.0)
-    assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
-    assert len(conn.sent_messages) == 1
+    second = FakeConnection()
+    set_connect(monkeypatch, second)
+    await driver.connect()
+    assert driver._session is not first_session
+    assert driver.is_open()
     await driver.close()
