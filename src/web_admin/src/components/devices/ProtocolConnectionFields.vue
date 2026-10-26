@@ -76,13 +76,6 @@ withDefaults(
   </template>
 
   <template v-else-if="protocol === 'iec104'">
-    <el-form-item label="Common Addresses">
-      <el-input
-        v-model="connection.common_addresses"
-        placeholder="1 或多 CA：1,2,3"
-        class="app-full-width"
-      />
-    </el-form-item>
     <el-form-item label="K Window"
       ><el-input-number v-model="connection.k" :min="1" :controls="controls" class="app-full-width"
     /></el-form-item>
