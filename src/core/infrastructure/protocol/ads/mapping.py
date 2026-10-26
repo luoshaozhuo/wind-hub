@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+
+from core.application.protocol_contract import PointScalar
 
 from core.application.errors import ConfigError
 from core.domain import Point
+
+from .codec import compile_decoder
 
 _ALLOWED_OPTIONS = frozenset(
     {
@@ -62,6 +67,9 @@ class ADSPoint:
     data_type: str
     size: int
     symbol: str
+    decoder: Callable[[bytes | memoryview, int], PointScalar] = field(
+        init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         has_group = self.index_group is not None
@@ -70,6 +78,7 @@ class ADSPoint:
             raise ConfigError(f"ADS point '{self.point_id}' requires a complete index address")
         if not self.symbol.strip():
             raise ConfigError(f"ADS point '{self.point_id}' requires a non-empty symbol")
+        object.__setattr__(self, "decoder", compile_decoder(self))
 
     @property
     def address_resolved(self) -> bool:
