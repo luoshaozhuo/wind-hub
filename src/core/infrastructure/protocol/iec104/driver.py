@@ -184,8 +184,6 @@ class IEC104Driver:
 
     async def close(self) -> None:
         async with self._lifecycle:
-            if self._state is ProtocolLifecycleState.DISCONNECTED:
-                return
             self._state = ProtocolLifecycleState.CLOSING
             session = self._session
             self._session = None
