@@ -121,11 +121,7 @@ class IEC104Driver:
             raise ProtocolError("IEC104 point table update requires a closed connection")
         if point_table.protocol.name != "iec104":
             raise ConfigError("IEC104 point table protocol mismatch")
-        by_id, by_address = build_iec104_index(
-            list(point_table.points.values()),
-            common_addresses=self._config.common_addresses,
-            default_ca=self._config.default_ca,
-        )
+        by_id, by_address = build_iec104_index(list(point_table.points.values()))
         readable = (
             point.point_id
             for point in by_id.values()
@@ -398,12 +394,10 @@ class IEC104Driver:
         addresses = (
             (request.common_address,)
             if request.common_address is not None
-            else self._config.common_addresses
+            else tuple(sorted({point.common_address for point in self._by_id.values()}))
         )
         results: list[ProtocolSample] = []
         for ca in addresses:
-            if ca not in self._config.common_addresses:
-                raise ConfigError(f"IEC104 CA not configured: {ca}")
             session = self._require_session()
             lock = self._station_locks.setdefault(ca, asyncio.Lock())
             async with lock:
