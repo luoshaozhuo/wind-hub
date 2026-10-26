@@ -5,9 +5,7 @@ from __future__ import annotations
 import struct
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
-
-import pyads  # type: ignore[import-untyped]
+from typing import TYPE_CHECKING, cast
 
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import PointScalar
@@ -104,13 +102,6 @@ def compile_notification_blocks(
     if current:
         append_block()
     return tuple(blocks)
-
-
-def _plc_datatype(ads_name: str) -> Any:
-    datatype = getattr(pyads, f"PLCTYPE_{ads_name}", None)
-    if datatype is None:
-        raise ConfigError(f"pyads does not expose PLCTYPE_{ads_name}")
-    return datatype
 
 
 def _decode_sum_write_errors(raw: object, count: int) -> tuple[int, ...]:
