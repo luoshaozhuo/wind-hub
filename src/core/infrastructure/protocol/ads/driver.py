@@ -197,7 +197,9 @@ class ADSDriver:
                             if _LOCAL_IDENTITY is not None
                             else int(self._config.timeout * 1000)
                         )
-                        await session.execute("set_timeout", timeout_ms)
+                        # ms: 当前 ADS 请求的原生超时（毫秒），不限定整个 connect()。
+                        await session.execute("set_timeout", ms=timeout_ms)
+                        # read_state 无参数：读取 PLC 的 ADS 状态与设备状态。
                         plc_state, _ = await session.execute("read_state")
                         if plc_state != pyads.ADSSTATE_RUN:
                             raise ProtocolError("ADS PLC is not in RUN state")
@@ -230,7 +232,8 @@ class ADSDriver:
         resolved: dict[str, ADSPoint] = {}
         for point_id, point in self._configured_points.items():
             try:
-                info = await session.execute("get_symbol", point.symbol)
+                # name: PLC Symbol 全名，用于查询实际 Index Group/Offset。
+                info = await session.execute("get_symbol", name=point.symbol)
                 group, offset = symbol_index_address(point.symbol, info)
             except Exception as exc:
                 raise ConfigError(
@@ -286,6 +289,7 @@ class ADSDriver:
             return ConnectionHealth(False, self._state.value)
         try:
             session = self._require_session()
+            # read_state 无参数：健康检查读取 PLC 状态。
             plc, _ = await session.execute("read_state")
             return ConnectionHealth(plc == pyads.ADSSTATE_RUN, str(plc))
         except Exception as exc:
@@ -305,11 +309,14 @@ class ADSDriver:
     async def read_one(self, point_id: str) -> ProtocolSample:
         session = self._require_session()
         point = self._mapped((point_id,))[0]
+        # index_group/index_offset: PLC 点地址；plc_datatype: 读取字节数。
         raw = await session.execute(
             "read",
-            point.group,
-            point.offset,
-            pyads.PLCTYPE_BYTE * point.size,
+            index_group=point.group,
+            index_offset=point.offset,
+            plc_datatype=pyads.PLCTYPE_BYTE * point.size,
+            return_ctypes=False,
+            check_length=True,
         )
         received_at = datetime.now(UTC)
         try:
@@ -338,6 +345,8 @@ class ADSDriver:
             request = (_SumReadItem * len(chunk))(
                 *(_SumReadItem(p.group, p.offset, p.size) for p in chunk)
             )
+            # index_group: Sum Read 命令；index_offset: 子请求数。
+            # plc_read_datatype: 错误码与数据的响应缓冲区；value/plc_write_datatype: 各点地址描述符。
             reply = await session.execute(
                 "read_write",
                 index_group=ADSIGRP_SUMUP_READ,
@@ -388,12 +397,13 @@ class ADSDriver:
                 write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc)
             )
         try:
+            # index_group/index_offset: PLC 点地址；value/plc_datatype: 写入字节及类型。
             await session.execute(
                 "write",
-                point.group,
-                point.offset,
-                (pyads.PLCTYPE_BYTE * len(raw)).from_buffer_copy(raw),
-                pyads.PLCTYPE_BYTE * len(raw),
+                index_group=point.group,
+                index_offset=point.offset,
+                value=(pyads.PLCTYPE_BYTE * len(raw)).from_buffer_copy(raw),
+                plc_datatype=pyads.PLCTYPE_BYTE * len(raw),
             )
         except ADSCommandNotSentError as exc:
             return ProtocolWriteResult(
@@ -426,6 +436,8 @@ class ADSDriver:
             try:
                 payload = encode_sum_write(chunk)
                 request_type = pyads.PLCTYPE_BYTE * len(payload)
+                # index_group: Sum Write 命令；index_offset: 子请求数。
+                # plc_read_datatype: 每点错误码；value/plc_write_datatype: 地址头和写入数据。
                 reply = await session.execute(
                     "read_write",
                     index_group=ADSIGRP_SUMUP_WRITE,
