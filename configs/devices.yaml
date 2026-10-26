@@ -55,7 +55,7 @@
 #   max_subs_per_sum:                int > 0，默认 500 —— 单次 Sum Read
 #                                    最大订阅数。
 #   max_block_bytes:                 int > 0，默认 1024 —— 单次 ADS 区块通知最大字节数。
-#   max_delay:                       float >= 0（秒），默认 0.06 —— 通知
+#   max_delay:                       float >= 0（秒），默认 0 —— 通知
 #                                    最大延迟。
 #   route_auto_add:                  bool，默认 false —— 自动添加 AMS 路由。
 #   username:        str，默认 Administrator —— 远程 PLC 路由注册用户名
