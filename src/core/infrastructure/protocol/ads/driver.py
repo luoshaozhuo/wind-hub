@@ -191,15 +191,26 @@ class ADSDriver:
                             if _LOCAL_IDENTITY is None:
                                 raise ConfigError("ADS local AMS identity is not initialized")
                             async with _REMOTE_ROUTE_LOCK:
-                                # No implicit timeout: wait for route modification to finish.
-                                await asyncio.to_thread(
-                                    pyads.add_route_to_plc,
-                                    _LOCAL_IDENTITY.local_ams_net_id,
-                                    _LOCAL_IDENTITY.local_ip,
-                                    self._config.host,
-                                    self._config.username,
-                                    self._config.password,
+                                route_task = asyncio.create_task(
+                                    asyncio.to_thread(
+                                        pyads.add_route_to_plc,
+                                        _LOCAL_IDENTITY.local_ams_net_id,
+                                        _LOCAL_IDENTITY.local_ip,
+                                        self._config.host,
+                                        self._config.username,
+                                        self._config.password,
+                                    )
                                 )
+                                _ROUTE_TASKS.add(route_task)
+
+                                def release_route(done: asyncio.Task[bool]) -> None:
+                                    _ROUTE_TASKS.discard(done)
+                                    if not done.cancelled():
+                                        done.exception()
+
+                                route_task.add_done_callback(release_route)
+                                if not await asyncio.shield(route_task):
+                                    raise ProtocolError("ADS automatic route registration failed")
                             continue
                         raise
                     self._points = points
