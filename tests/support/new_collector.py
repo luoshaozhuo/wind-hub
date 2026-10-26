@@ -40,7 +40,12 @@ from core.domain import (
     PointTableId,
     Protocol,
 )
-from tests.support.new_commander import FakeProtocol, FakeRegistry, FakeSubscriptionHandle
+from tests.support.new_commander import (
+    FakeListenHandle,
+    FakeProtocol,
+    FakeRegistry,
+    FakeSubscriptionHandle,
+)
 from tests.support.units import NONE_UNIT, minimal_unit_catalog
 
 # ---------------------------------------------------------------------------
@@ -69,6 +74,7 @@ class CollectorFakeProtocol(FakeProtocol):
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
+        # 同步创建订阅对象（不触发远程注册）；start() 由会话层显式执行。
         self.subscriptions.append((tuple(point_ids), callback, interval))
         return FakeSubscriptionHandle()
 
@@ -80,10 +86,7 @@ class CollectorFakeProtocol(FakeProtocol):
         interval: float | None = None,
     ) -> ListenHandle:
         self.listeners.append((tuple(point_ids), callback, interval))
-        return FakeSubscriptionHandle()
-
-    async def interrogate(self, common_address: int | None = None) -> None:
-        self.interrogate_calls.append(common_address)
+        return FakeListenHandle()
 
     async def emit(self, index: int, point_id: str, value: Any, quality: Quality = Quality.GOOD):
         """向第 index 个订阅回调推送一条样本（模拟协议原生订阅上送）。"""
