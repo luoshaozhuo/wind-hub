@@ -9,7 +9,12 @@ from typing import Any
 import pytest
 
 from collector.application.session import AcquisitionMode, PollingAcquisitionHandle
-from core.application import ConfigError, ProtocolCapability, Quality
+from core.application import (
+    ConfigError,
+    InterrogationRequest,
+    ProtocolCapability,
+    Quality,
+)
 from core.domain.identities import DeviceId
 from tests.support.new_collector import (
     CollectorFakeProtocol,
@@ -135,9 +140,7 @@ async def test_poll_handle_runs_acquire_and_closes():
 async def test_subscribe_requires_on_data():
     proto = CollectorFakeProtocol()
     proto.capabilities_value = _caps(ProtocolCapability.SUBSCRIBE)
-    session = make_session(
-        make_collector_config(protocol="ads", ads_subscribe=True), proto
-    )
+    session = make_session(make_collector_config(protocol="ads", ads_subscribe=True), proto)
     with pytest.raises(ConfigError, match="on_data"):
         await session.start_acquisition(point_group="g", interval=None)
 
@@ -145,9 +148,7 @@ async def test_subscribe_requires_on_data():
 async def test_subscribe_registers_native_subscription_without_interrogate():
     proto = CollectorFakeProtocol()
     proto.capabilities_value = _caps(ProtocolCapability.SUBSCRIBE)
-    session = make_session(
-        make_collector_config(protocol="ads", ads_subscribe=True), proto
-    )
+    session = make_session(make_collector_config(protocol="ads", ads_subscribe=True), proto)
     received: list[tuple[Any, ...]] = []
 
     async def on_data(batch):
@@ -181,9 +182,7 @@ async def test_listen_requires_on_data():
 
 async def test_listen_registers_points_and_interrogates_after_listen():
     proto = CollectorFakeProtocol()
-    proto.capabilities_value = _caps(
-        ProtocolCapability.LISTEN, ProtocolCapability.INTERROGATE
-    )
+    proto.capabilities_value = _caps(ProtocolCapability.LISTEN, ProtocolCapability.INTERROGATE)
     session = make_session(make_collector_config(protocol="iec104"), proto)
     received: list[tuple[Any, ...]] = []
 
@@ -193,7 +192,8 @@ async def test_listen_registers_points_and_interrogates_after_listen():
     handle = await session.start_acquisition(point_group="g", interval=None, on_data=on_data)
     assert proto.listeners[0][0] == ("p1",)
     assert proto.subscriptions == []  # 严禁把 listen 伪装成 subscribe
-    assert proto.interrogate_calls == [None]  # 监听建立后 Collector 显式全 CA 总召
+    # 监听建立后 Collector 显式全 CA 总召（默认 station 请求，不限定 CA/组）
+    assert proto.interrogate_calls == [InterrogationRequest()]
 
     await proto.emit_listener(0, "p1", 5.0)
     assert len(received) == 1
@@ -385,9 +385,7 @@ async def test_set_points_updates_driver_before_session_state():
 
 async def test_listen_interrogation_failure_closes_registered_handle() -> None:
     proto = CollectorFakeProtocol()
-    proto.capabilities_value = _caps(
-        ProtocolCapability.LISTEN, ProtocolCapability.INTERROGATE
-    )
+    proto.capabilities_value = _caps(ProtocolCapability.LISTEN, ProtocolCapability.INTERROGATE)
     session = make_session(make_collector_config(protocol="iec104"), proto)
     closed = 0
 
@@ -399,7 +397,7 @@ async def test_listen_interrogation_failure_closes_registered_handle() -> None:
     async def listen(_points, _callback, *, interval=None):
         return TrackedHandle()
 
-    async def failed_interrogation(_common_address=None):
+    async def failed_interrogation(_request=None):
         raise RuntimeError("injected interrogation failure")
 
     proto.listen = listen  # type: ignore[method-assign]
@@ -418,9 +416,7 @@ async def test_listen_preserves_protocol_batch_to_collector() -> None:
     from core.application.protocol_contract import ProtocolSample
 
     proto = CollectorFakeProtocol()
-    proto.capabilities_value = _caps(
-        ProtocolCapability.LISTEN, ProtocolCapability.INTERROGATE
-    )
+    proto.capabilities_value = _caps(ProtocolCapability.LISTEN, ProtocolCapability.INTERROGATE)
     session = make_session(make_collector_config(protocol="iec104", scale=2.0), proto)
     batches: list[list[Any]] = []
 
