@@ -7,6 +7,7 @@ import pytest
 from core.application import (
     ConfigError,
     ConnectionHealth,
+    InterrogationRequest,
     ListenHandle,
     ProtocolCapability,
     ProtocolCapabilityError,
@@ -84,7 +85,7 @@ class _Protocol:
         del writes
         return ()
 
-    def subscribe(
+    async def subscribe(
         self,
         point_ids: Sequence[str],
         callback: ProtocolSampleCallback,
@@ -104,8 +105,10 @@ class _Protocol:
         del point_ids, callback, interval
         raise ProtocolCapabilityError("not supported")
 
-    async def interrogate(self, common_address: int | None = None) -> None:
-        del common_address
+    async def interrogate(
+        self, request: InterrogationRequest | None = None
+    ) -> tuple[ProtocolSample, ...]:
+        del request
         raise ProtocolCapabilityError("not supported")
 
     def update_point_table(self, point_table: PointTable) -> None:
@@ -244,10 +247,10 @@ async def test_modbus_rejects_unsupported_protocol_capabilities() -> None:
         return None
 
     with pytest.raises(ProtocolCapabilityError, match="subscription"):
-        driver.subscribe((), callback)
+        await driver.subscribe((), callback)
 
     with pytest.raises(ProtocolCapabilityError, match="interrogation"):
-        await driver.interrogate()
+        await driver.interrogate(InterrogationRequest())
 
 
 @pytest.mark.asyncio
@@ -262,7 +265,7 @@ async def test_iec104_rejects_unsupported_protocol_capabilities() -> None:
         return None
 
     with pytest.raises(ProtocolCapabilityError, match="subscription"):
-        driver.subscribe((), callback)
+        await driver.subscribe((), callback)
     with pytest.raises(ProtocolCapabilityError, match="batch read"):
         await driver.read_many(("p1",))
     with pytest.raises(ProtocolCapabilityError, match="batch write"):
@@ -278,7 +281,7 @@ async def test_ads_rejects_unsupported_interrogation() -> None:
     )
 
     with pytest.raises(ProtocolCapabilityError, match="interrogation"):
-        await driver.interrogate()
+        await driver.interrogate(InterrogationRequest())
 
 
 def test_protocol_registry_is_explicitly_assembled_by_caller() -> None:
