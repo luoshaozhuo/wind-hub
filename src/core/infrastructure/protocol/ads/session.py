@@ -35,7 +35,6 @@ class _AdsSession:
         self._closing = False
         self._closed = False
         self._uncertain = False
-        self._open_failed = False
 
     @property
     def is_open(self) -> bool:
@@ -44,10 +43,6 @@ class _AdsSession:
     @property
     def is_settled(self) -> bool:
         return self._closed and not self._uncertain
-
-    @property
-    def open_failed(self) -> bool:
-        return self._open_failed
 
     @property
     def is_uncertain(self) -> bool:
@@ -94,9 +89,6 @@ class _AdsSession:
                 started = True
                 try:
                     await asyncio.to_thread(self._connection.open)
-                except Exception:
-                    self._open_failed = True
-                    raise
                 except BaseException:
                     self._uncertain = True
                     raise
