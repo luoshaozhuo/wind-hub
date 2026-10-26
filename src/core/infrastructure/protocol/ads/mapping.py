@@ -116,4 +116,108 @@ class ADSPoint:
         return replace(self, index_group=None, index_offset=None)
 
 
-undefined
+
+def parse_ads_point(
+    point: Point,
+) -> ADSPoint:
+    """把 Point 解析为纯内存 ADSPoint。"""
+    options = point.ext
+    unknown = set(options) - _ALLOWED_OPTIONS
+    if unknown:
+        raise ConfigError(f"ADS point '{point.point_id}' has unknown options: {sorted(unknown)}")
+
+    symbol = _optional_string(options.get("symbol"), "symbol", point.point_id)
+    raw_group = options.get("index_group")
+    raw_offset = options.get("index_offset")
+    has_group = raw_group is not None
+    has_offset = raw_offset is not None
+    if has_group != has_offset:
+        raise ConfigError(
+            f"ADS point '{point.point_id}': index_group and index_offset "
+            "must be configured together"
+        )
+    if symbol is None:
+        raise ConfigError(f"ADS point '{point.point_id}' requires symbol")
+
+    index_group = (
+        None if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
+    )
+    index_offset = (
+        None
+        if raw_offset is None
+        else _non_negative_int(raw_offset, "index_offset", point.point_id)
+    )
+
+    # Retain configured addresses for validation against PLC on connect.
+    explicit_type = options.get("data_type", options.get("type"))
+    if explicit_type is None:
+        raise ConfigError(f"ADS point '{point.point_id}' requires data_type")
+    ads_type = _normalize_ads_type(
+        explicit_type,
+        point_id=point.point_id,
+    )
+
+    size = _ADS_TYPE_SIZES[ads_type]
+    explicit_size = options.get("size")
+    if explicit_size is not None:
+        size = _non_negative_int(explicit_size, "size", point.point_id)
+
+    if ads_type != "STRING" and size != _ADS_TYPE_SIZES[ads_type]:
+        raise ConfigError(
+            f"ADS point '{point.point_id}': size {size} does not match "
+            f"{ads_type} width {_ADS_TYPE_SIZES[ads_type]}"
+        )
+    if ads_type == "STRING" and size <= 0:
+        raise ConfigError(f"ADS point '{point.point_id}': STRING requires positive size")
+
+    return ADSPoint(
+        point_id=point.point_id,
+        index_group=index_group,
+        index_offset=index_offset,
+        data_type=ads_type,
+        size=size,
+        symbol=symbol,
+    )
+
+
+def _normalize_ads_type(value: object, *, point_id: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"ADS point '{point_id}': data_type must be a non-empty string")
+    normalized = value.strip().upper()
+    normalized = _RAW_TO_ADS.get(normalized.lower(), normalized)
+    if normalized not in _ADS_TYPE_SIZES:
+        raise ConfigError(f"ADS point '{point_id}': unsupported ADS type '{value}'")
+    return normalized
+
+
+def _optional_string(
+    value: object,
+    name: str,
+    point_id: str,
+) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"ADS point '{point_id}': {name} must be a non-empty string")
+    return value.strip()
+
+
+def _non_negative_int(
+    value: object,
+    name: str,
+    point_id: str,
+) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"ADS point '{point_id}': {name} must be an integer")
+    if value < 0:
+        raise ConfigError(f"ADS point '{point_id}': {name} must be >= 0")
+    return value
+
+
+def symbol_index_address(symbol: str, info: object) -> tuple[int, int]:
+    """校验 pyads.get_symbol() 返回的 index group/offset 地址。"""
+    group = getattr(info, "index_group", None)
+    offset = getattr(info, "index_offset", None)
+    if type(group) is not int or type(offset) is not int or group < 0 or offset < 0:
+        raise ConfigError(f"ADS symbol '{symbol}' returned an invalid index address")
+    return group, offset
