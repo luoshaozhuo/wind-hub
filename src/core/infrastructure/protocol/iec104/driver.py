@@ -193,12 +193,16 @@ class IEC104Driver:
             try:
                 if self._closing is not None:
                     await self._closing.close()
+            except BaseException:
+                self._state = ProtocolLifecycleState.FAULTED
+                raise
+            self._closing = None
+            try:
                 for listener in tuple(self._listeners):
                     await listener.close()
             except BaseException:
                 self._state = ProtocolLifecycleState.FAULTED
                 raise
-            self._closing = None
             self._state = ProtocolLifecycleState.DISCONNECTED
 
     def _disconnect(self, session: _IEC104Session | None, exc: BaseException) -> None:
