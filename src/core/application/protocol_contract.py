@@ -152,6 +152,7 @@ class ProtocolCapability(StrEnum):
     """统一协议 Port 可声明的运行时能力。"""
 
     READ = "read"
+    READ_MANY = "read_many"
     WRITE = "write"
     # 多逻辑点批量写；未声明时 write_many 必须在连接恢复前明确拒绝。
     WRITE_MANY = "write_many"
