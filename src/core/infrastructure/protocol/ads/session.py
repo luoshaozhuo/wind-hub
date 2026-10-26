@@ -29,7 +29,6 @@ class _AdsSession:
         self._connection = connection_factory()
         self._gate = asyncio.Lock()
         self._owners: set[asyncio.Task[Any]] = set()
-        self._open_task: asyncio.Task[None] | None = None
         self._close_task: asyncio.Task[None] | None = None
         self._open_started = False
         self._opened = False
@@ -112,7 +111,6 @@ class _AdsSession:
                 self._opened = True
 
         task = asyncio.create_task(_run())
-        self._open_task = task
         self._track(task)
         await self._await_owner(task, lambda: dispatched)
 
