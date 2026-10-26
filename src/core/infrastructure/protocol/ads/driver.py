@@ -340,12 +340,15 @@ class ADSDriver:
             )
             reply = await session.execute(
                 "read_write",
-                ADSIGRP_SUMUP_READ,
-                len(chunk),
-                None,
-                request,
-                None,
-                check_length=False,
+                index_group=ADSIGRP_SUMUP_READ,
+                index_offset=len(chunk),
+                plc_read_datatype=pyads.PLCTYPE_BYTE * (
+                    4 * len(chunk) + sum(point.size for point in chunk)
+                ),
+                value=request,
+                plc_write_datatype=_SumReadItem * len(chunk),
+                return_ctypes=False,
+                check_length=True,
             )
             raw = bytes(reply)
             expected = 4 * len(chunk) + sum(p.size for p in chunk)
@@ -421,14 +424,17 @@ class ADSDriver:
         for start in range(0, len(prepared), limit):
             chunk = prepared[start : start + limit]
             try:
+                payload = encode_sum_write(chunk)
+                request_type = pyads.PLCTYPE_BYTE * len(payload)
                 reply = await session.execute(
                     "read_write",
-                    ADSIGRP_SUMUP_WRITE,
-                    len(chunk),
-                    None,
-                    encode_sum_write(chunk),
-                    None,
-                    check_length=False,
+                    index_group=ADSIGRP_SUMUP_WRITE,
+                    index_offset=len(chunk),
+                    plc_read_datatype=pyads.PLCTYPE_BYTE * (4 * len(chunk)),
+                    value=request_type.from_buffer_copy(payload),
+                    plc_write_datatype=request_type,
+                    return_ctypes=False,
+                    check_length=True,
                 )
                 errors = _decode_sum_write_errors(reply, len(chunk))
             except Exception as exc:
