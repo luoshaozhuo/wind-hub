@@ -90,7 +90,8 @@ class _AdsSession:
                 try:
                     await asyncio.to_thread(self._connection.open)
                 except BaseException:
-                    self._uncertain = True
+                    # pyads may have opened its local port before reporting failure.
+                    self._opened = self._connection.is_open
                     raise
                 self._opened = True
 
@@ -130,8 +131,10 @@ class _AdsSession:
                 try:
                     await asyncio.to_thread(self._connection.close)
                 except BaseException:
-                    self._uncertain = True
-                    raise
+                    # Only a confirmed closed pyads connection is safe to release.
+                    self._uncertain = self._connection.is_open
+                    if self._uncertain:
+                        raise
             if self._uncertain:
                 raise ADSResourceUncertainError("ADS connection cleanup is unconfirmed")
             self._opened = False
