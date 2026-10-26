@@ -262,7 +262,12 @@ class ADSDriver:
                                     )
                                 )
                                 _ROUTE_TASKS.add(route_task)
-                                route_task.add_done_callback(_ROUTE_TASKS.discard)
+                                def release_route(done: asyncio.Task[bool]) -> None:
+                                    _ROUTE_TASKS.discard(done)
+                                    if not done.cancelled():
+                                        done.exception()
+
+                                route_task.add_done_callback(release_route)
                                 success = await asyncio.shield(route_task)
                             if success and not self._connect_expired:
                                 continue
