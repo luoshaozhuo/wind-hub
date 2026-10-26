@@ -135,7 +135,14 @@ class CollectorRuntime:
                 device_id, can_restore=lambda: self._started and self._running
             )
 
-        self._device_runtime.set_reconnect_callback(restore_device_tasks)
+        async def prepare_device_tasks(device_id: str) -> None:
+            if not self._started or not self._running:
+                return
+            await self._task_runtime.prepare_device_restore(device_id)
+
+        self._device_runtime.set_reconnect_callback(
+            restore_device_tasks, on_connected=prepare_device_tasks
+        )
         self._sink_runtime = SinkRuntime(sinks, params, sink_factory)
         self._session_factory = session_factory
         self._engine = engine
@@ -402,7 +409,8 @@ class CollectorRuntime:
         await self._task_runtime.sync_instances()
 
     async def remove_device(self, device_id: str) -> None:
-        """运行时移除设备——停止并注销其全部采集实例并关闭连接。"""
+        """先收敛该设备所有采集句柄，再关闭协议连接并注销实例。"""
+        await self._task_runtime.stop_device_tasks(device_id)
         await self._device_runtime.remove_device(device_id)
         await self._task_runtime.sync_instances()
         logger.info("Hot-reload: device '%s' removed", device_id)
