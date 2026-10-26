@@ -128,7 +128,10 @@ class IEC104Driver:
             raise ConfigError(
                 f"IEC104 health point '{self._config.health_point}' is not configured"
             )
-        # 在途操作保存提交时的不可变测点映射；新请求只使用新的完整快照。
+        if self._read or self._control or self._interrogation or self._unsettled_controls:
+            raise ProtocolError("IEC104 point table cannot change while requests are pending")
+        if self._listeners and self._by_address and by_address != self._by_address:
+            raise ProtocolError("IEC104 point table cannot change with active listeners")
         self._by_id, self._by_address = by_id, by_address
 
     def is_open(self) -> bool:
@@ -339,16 +342,6 @@ class IEC104Driver:
                 accepted = await self._control_phase(
                     session, point, command, "execute", point.confirmation
                 )
-                if not accepted and selected is not None:
-                    try:
-                        await self._deactivate(session, point, selected)
-                    except (TimeoutError, ProtocolError) as exc:
-                        await asyncio.shield(self._isolate(session))
-                        return ProtocolWriteResult(
-                            write.point,
-                            WriteOutcome.UNKNOWN,
-                            f"execute rejected; SBO deactivation unconfirmed: {exc}",
-                        )
                 return ProtocolWriteResult(
                     write.point,
                     WriteOutcome.CONFIRMED_SUCCESS if accepted else WriteOutcome.CONFIRMED_FAILURE,
@@ -595,7 +588,7 @@ class IEC104Driver:
                     logger.warning("IEC104 interrogation sample decode failed: %s", key)
 
         point = self._by_address.get(key)
-        if point is None:
+        if point is None or not matches_monitoring_type(point.type_id, msg):
             return None
         if (
             read is not None
