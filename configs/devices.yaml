@@ -69,10 +69,9 @@
 #                    协议参数。
 #
 # IEC104（protocol_options）：
-#   common_addresses: int 或逗号分隔整数串，默认 1 —— 一条 TCP 连接承载
-#                    的全部 ASDU 公共地址（多 CA）；首项为点缺省 CA。
+#   CA 在 points.yaml 的每个 IEC104 测点 address.ca 中必填。
 #   timezone:       IANA 时区名，可选；未配置时 CP56Time2a 不视为可信设备时间。
-#   health_point:   str，可选 —— 应用层健康探测点；缺省只判断链路健康。
+#   health_point:   str，可选 —— 应用层健康探测点；缺省使用第一个可读监视点。
 #   k:           int >= 1，默认 12 —— 发送窗口（未确认 I 帧上限）。
 #   w:           int >= 1 且 <= k，默认 8 —— 接收确认窗口。
 #   t0:          float > 0（秒），默认 30 —— 连接建立超时。
