@@ -16,6 +16,7 @@ import yaml
 from commander.application.config import CommanderConfig
 from core.application import (
     ConnectionHealth,
+    InterrogationRequest,
     ProtocolCapability,
     ProtocolPort,
     ProtocolSample,
@@ -53,10 +54,18 @@ from tests.support.units import MINIMAL_UNITS_DOCUMENT, NONE_UNIT, minimal_unit_
 # ---------------------------------------------------------------------------
 
 _ADS_LOGICAL_TYPES = {
-    "BOOL": "bool", "SINT": "int8", "USINT": "uint8",
-    "INT": "int16", "UINT": "uint16", "DINT": "int32",
-    "UDINT": "uint32", "LINT": "int64", "ULINT": "uint64",
-    "REAL": "float32", "LREAL": "float64", "STRING": "str",
+    "BOOL": "bool",
+    "SINT": "int8",
+    "USINT": "uint8",
+    "INT": "int16",
+    "UINT": "uint16",
+    "DINT": "int32",
+    "UDINT": "uint32",
+    "LINT": "int64",
+    "ULINT": "uint64",
+    "REAL": "float32",
+    "LREAL": "float64",
+    "STRING": "str",
 }
 
 
@@ -168,21 +177,27 @@ def write_minimal_config_tree(
 
 
 class FakeSubscriptionHandle:
-    """记录式句柄：同时满足 SubscriptionHandle(start/stop) 与 ListenHandle(close)。"""
+    """记录式原生订阅句柄：start() 注册、stop() 幂等释放，停止后不可重启。"""
 
     def __init__(self) -> None:
-        self.closed = False
         self.started = False
-        self.start_calls = 0
-        self.stop_calls = 0
+        self.stopped = False
 
     async def start(self) -> None:
-        self.start_calls += 1
+        if self.stopped:
+            raise RuntimeError("subscription already stopped")
         self.started = True
 
     async def stop(self) -> None:
-        self.stop_calls += 1
-        self.closed = True
+        self.started = False
+        self.stopped = True
+
+
+class FakeListenHandle:
+    """记录式本地监听句柄：close() 幂等关闭。"""
+
+    def __init__(self) -> None:
+        self.closed = False
 
     async def close(self) -> None:
         self.closed = True
@@ -199,7 +214,7 @@ class FakeProtocol:
         self.read_values: dict[str, Any] = {}
         self.writes: list[ProtocolWrite] = []
         self.point_table_updates: list[PointTable] = []
-        self.interrogate_calls: list[int | None] = []
+        self.interrogate_calls: list[InterrogationRequest | None] = []
         self.write_success = True
         self.capabilities_value: frozenset[ProtocolCapability] = frozenset(
             {ProtocolCapability.READ, ProtocolCapability.WRITE}
@@ -273,6 +288,7 @@ class FakeProtocol:
         interval: float | None = None,
     ) -> SubscriptionHandle:
         # 默认 Fake 只具备 READ/WRITE：与 Modbus 行为一致，明确拒绝。
+        del point_ids, callback, interval
         raise ProtocolCapabilityError("fake protocol does not support subscribe")
 
     async def listen(
@@ -282,14 +298,15 @@ class FakeProtocol:
         *,
         interval: float | None = None,
     ) -> ListenHandle:
+        del point_ids, callback, interval
         raise ProtocolCapabilityError("fake protocol does not support listen")
 
-    async def interrogate(self, common_address: int | None = None) -> None:
-        self.interrogate_calls.append(common_address)
+    async def interrogate(self, request: InterrogationRequest | None = None) -> None:
+        self.interrogate_calls.append(request)
 
     @property
-    def interrogate_last(self) -> int | None:
-        """最近一次总召目标 CA（None 表示全部站址）。"""
+    def interrogate_last(self) -> InterrogationRequest | None:
+        """最近一次总召请求（None 表示调用方未传请求）。"""
         return self.interrogate_calls[-1] if self.interrogate_calls else None
 
 
