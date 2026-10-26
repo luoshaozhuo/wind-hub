@@ -17,7 +17,7 @@ from core.application.errors import (
     ProtocolConnectionError,
     ProtocolError,
 )
-from core.application.port.protocol import ProtocolSampleCallback, SubscriptionHandle
+from core.application.port.protocol import ListenHandle, ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
