@@ -8,7 +8,6 @@ import sys
 from collections.abc import Sequence
 from ctypes import Structure, c_uint32
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Any
 
 import pyads  # type: ignore[import-untyped]
@@ -23,6 +22,7 @@ from core.application.protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
     ProtocolCapability,
+    ProtocolLifecycleState,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -44,13 +44,6 @@ from .mapping import ADSPoint, parse_ads_point, symbol_index_address
 from .session import ADSCommandNotSentError, _AdsSession
 from .subscription import ADSSubscription
 
-
-class ADSState(StrEnum):
-    DISCONNECTED = "disconnected"
-    CONNECTING = "connecting"
-    CONNECTED = "connected"
-    CLOSING = "closing"
-    FAULTED = "faulted"
 
 
 class _SumReadItem(Structure):
@@ -81,7 +74,7 @@ class ADSDriver:
         if not self._config.target_net_id:
             raise ConfigError("ADS target_net_id is required")
         self._identity = (self._config.target_net_id, self._config.host)
-        self._state = ADSState.DISCONNECTED
+        self._state = ProtocolLifecycleState.DISCONNECTED
         self._lifecycle = asyncio.Lock()
         self._session: _AdsSession | None = None
         self._subscriptions: set[ADSSubscription] = set()
@@ -124,13 +117,14 @@ class ADSDriver:
             _LOCAL_CLOSED = True
 
     @property
-    def state(self) -> ADSState:
+    def state(self) -> ProtocolLifecycleState:
         return self._state
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         return frozenset(
             {
                 ProtocolCapability.READ,
+                ProtocolCapability.READ_MANY,
                 ProtocolCapability.WRITE,
                 ProtocolCapability.WRITE_MANY,
                 ProtocolCapability.SUBSCRIBE,
@@ -157,13 +151,13 @@ class ADSDriver:
         return _AdsSession(factory)
 
     async def connect(self) -> None:
-        if self._state is ADSState.CONNECTED:
+        if self._state is ProtocolLifecycleState.CONNECTED:
             return
-        if self._state in {ADSState.FAULTED, ADSState.CLOSING}:
+        if self._state in {ProtocolLifecycleState.FAULTED, ProtocolLifecycleState.CLOSING}:
             raise ProtocolError("ADS connection is not safely available")
         if self._connect_task is None or self._connect_task.done():
             self._connect_expired = False
-            if self._state is ADSState.DISCONNECTED:
+            if self._state is ProtocolLifecycleState.DISCONNECTED:
                 self._close_task = None
             task = asyncio.create_task(self._connect_once())
             self._connect_task = task
@@ -187,22 +181,22 @@ class ADSDriver:
         def cleanup(completed: asyncio.Task[None]) -> None:
             if not completed.cancelled():
                 completed.exception()  # consume a late failed connection attempt
-            if self._state is ADSState.CONNECTED:
+            if self._state is ProtocolLifecycleState.CONNECTED:
                 asyncio.create_task(self.close())
 
         task.add_done_callback(cleanup)
 
     async def _connect_once(self) -> None:
         async with self._lifecycle:
-            if self._state is ADSState.CONNECTED:
+            if self._state is ProtocolLifecycleState.CONNECTED:
                 return
-            if self._state is not ADSState.DISCONNECTED or _LOCAL_CLOSED:
+            if self._state is not ProtocolLifecycleState.DISCONNECTED or _LOCAL_CLOSED:
                 raise ProtocolError("ADS driver is not available for connect")
             owner = _TARGET_OWNERS.get(self._identity)
             if owner is not None and owner is not self:
                 raise ProtocolError("ADS target AMS identity is already in use")
             _TARGET_OWNERS[self._identity] = self
-            self._state = ADSState.CONNECTING
+            self._state = ProtocolLifecycleState.CONNECTING
             try:
                 for attempt in range(2 if self._config.route_auto_add else 1):
                     session = self._new_session()
@@ -231,13 +225,13 @@ class ADSDriver:
                         if self._connect_expired:
                             raise ProtocolError("ADS connection deadline expired")
                         self._points = resolved
-                        self._state = ADSState.CONNECTED
+                        self._state = ProtocolLifecycleState.CONNECTED
                         return
                     except Exception:
                         try:
                             await session.close()
                         except Exception:
-                            self._state = ADSState.FAULTED
+                            self._state = ProtocolLifecycleState.FAULTED
                             raise
                         self._session = None
                         if (
@@ -273,18 +267,18 @@ class ADSDriver:
                                 continue
                         raise
             except BaseException:
-                if self._state is not ADSState.FAULTED:
+                if self._state is not ProtocolLifecycleState.FAULTED:
                     if self._session is not None:
-                        self._state = ADSState.FAULTED
+                        self._state = ProtocolLifecycleState.FAULTED
                     else:
-                        self._state = ADSState.DISCONNECTED
+                        self._state = ProtocolLifecycleState.DISCONNECTED
                         _TARGET_OWNERS.pop(self._identity, None)
                 raise
 
     async def close(self) -> None:
         if self._close_task is None:
-            if self._state is ADSState.CONNECTED:
-                self._state = ADSState.CLOSING
+            if self._state is ProtocolLifecycleState.CONNECTED:
+                self._state = ProtocolLifecycleState.CLOSING
             self._close_task = asyncio.create_task(self._close_once())
         budget_ms = _LOCAL_IDENTITY.close_timeout_ms if _LOCAL_IDENTITY else 3000
         try:
@@ -295,9 +289,9 @@ class ADSDriver:
 
     async def _close_once(self) -> None:
         async with self._lifecycle:
-            if self._state is ADSState.DISCONNECTED:
+            if self._state is ProtocolLifecycleState.DISCONNECTED:
                 return
-            self._state = ADSState.CLOSING
+            self._state = ProtocolLifecycleState.CLOSING
             try:
                 subscription_errors: list[Exception] = []
                 for sub in tuple(self._subscriptions):
@@ -315,15 +309,15 @@ class ADSDriver:
                         "ADS subscriptions not fully released", subscription_errors
                     )
                 self._subscriptions.clear()
-                self._state = ADSState.DISCONNECTED
+                self._state = ProtocolLifecycleState.DISCONNECTED
                 _TARGET_OWNERS.pop(self._identity, None)
             except BaseException:
-                self._state = ADSState.FAULTED
+                self._state = ProtocolLifecycleState.FAULTED
                 raise
 
     def is_open(self) -> bool:
         return (
-            self._state is ADSState.CONNECTED
+            self._state is ProtocolLifecycleState.CONNECTED
             and self._session is not None
             and self._session.is_open
         )
