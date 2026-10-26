@@ -18,7 +18,7 @@ import c104
 import pytest
 
 from core.application import ProtocolRegistry, ProtocolSample, ProtocolWrite, Quality
-from core.application.protocol_contract import WriteOutcome
+from core.application.protocol_contract import InterrogationRequest, WriteOutcome
 from core.domain import ConnectionEndpoint
 from core.infrastructure.config import YamlConfigAdapter
 from core.infrastructure.protocol.iec104 import IEC104Driver
@@ -83,7 +83,7 @@ class TestIEC104ConfigToWire:
 
             # 本地监听：不向从站注册；随后显式总召，两个监测点经监听回调到达。
             handle = await driver.listen((), on_sample)
-            await driver.interrogate()
+            await driver.interrogate(InterrogationRequest())
 
             def _both_interrogated() -> dict[str, ProtocolSample] | None:
                 by_point = {s.point_id: s for s in samples}
