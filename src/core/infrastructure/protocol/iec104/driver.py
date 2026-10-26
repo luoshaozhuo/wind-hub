@@ -133,7 +133,12 @@ class IEC104Driver:
         )
         configured = self._config.health_point
         if configured is not None:
-            if configured not in by_id or by_id[configured].type_id is None or not by_id[configured].type_id.startswith("M_"):
+            configured_point = by_id.get(configured)
+            if (
+                configured_point is None
+                or configured_point.type_id is None
+                or not configured_point.type_id.startswith("M_")
+            ):
                 raise ConfigError(f"IEC104 health point '{configured}' is not readable")
             health_point_id = configured
         else:
