@@ -89,6 +89,8 @@ class IEC104Driver:
         self._device_tz = ZoneInfo(self._config.timezone) if self._config.timezone else None
         self._by_id: dict[str, IEC104Point] = {}
         self._by_address: dict[Address, IEC104Point] = {}
+        self._health_point_id: str | None = None
+        self._state = ProtocolLifecycleState.DISCONNECTED
         self.update_point_table(point_table)
         self._lifecycle = asyncio.Lock()
         self._session: _IEC104Session | None = None
@@ -99,7 +101,6 @@ class IEC104Driver:
         self._locks: dict[Address, asyncio.Lock] = {}
         self._station_locks: dict[int, asyncio.Lock] = {}
         self._listeners: set[_Listener] = set()
-        self._state = ProtocolLifecycleState.DISCONNECTED
 
     @property
     def state(self) -> ProtocolLifecycleState:
@@ -116,6 +117,8 @@ class IEC104Driver:
         )
 
     def update_point_table(self, point_table: PointTable) -> None:
+        if self._state is not ProtocolLifecycleState.DISCONNECTED:
+            raise ProtocolError("IEC104 point table update requires a closed connection")
         if point_table.protocol.name != "iec104":
             raise ConfigError("IEC104 point table protocol mismatch")
         by_id, by_address = build_iec104_index(
@@ -123,17 +126,20 @@ class IEC104Driver:
             common_addresses=self._config.common_addresses,
             default_ca=self._config.default_ca,
         )
-        if self._config.health_point is not None and self._config.health_point not in by_id:
-            raise ConfigError(
-                f"IEC104 health point '{self._config.health_point}' is not configured"
-            )
-        if self._read or self._control or self._interrogation or self._unsettled_controls:
-            raise ProtocolError("IEC104 point table cannot change while requests are pending")
-        if self._listeners and (
-            by_address != self._by_address or by_id != self._by_id
-        ):
-            raise ProtocolError("IEC104 point table cannot change with active listeners")
+        readable = (
+            point.point_id
+            for point in by_id.values()
+            if point.type_id is not None and point.type_id.startswith("M_")
+        )
+        configured = self._config.health_point
+        if configured is not None:
+            if configured not in by_id or by_id[configured].type_id is None or not by_id[configured].type_id.startswith("M_"):
+                raise ConfigError(f"IEC104 health point '{configured}' is not readable")
+            health_point_id = configured
+        else:
+            health_point_id = next(readable, None)
         self._by_id, self._by_address = by_id, by_address
+        self._health_point_id = health_point_id
 
     def is_open(self) -> bool:
         return self._session is not None and self._session.is_open
@@ -236,12 +242,12 @@ class IEC104Driver:
             return ConnectionHealth(False, "IEC104 session unavailable")
         if any(listener.failed or listener.task.done() for listener in self._listeners):
             return ConnectionHealth(False, "IEC104 listener stopped; acquisition recovery required")
-        point_id = self._config.health_point
-        if point_id is not None:
-            try:
-                await self.read_one(point_id)
-            except Exception as exc:
-                return ConnectionHealth(False, str(exc))
+        if self._health_point_id is None:
+            return ConnectionHealth(False, "no readable IEC104 point available for health check")
+        try:
+            await self.read_one(self._health_point_id)
+        except Exception as exc:
+            return ConnectionHealth(False, str(exc))
         return ConnectionHealth(True)
 
     async def read_one(self, point_id: str) -> ProtocolSample:
