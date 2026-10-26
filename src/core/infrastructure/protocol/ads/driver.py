@@ -80,6 +80,7 @@ class ADSDriver:
         self._connect_task: asyncio.Task[None] | None = None
         self._close_task: asyncio.Task[None] | None = None
         self._connect_expired = False
+        self._configured_points: dict[str, ADSPoint] = {}
         self._points: dict[str, ADSPoint] = {}
         self.update_point_table(point_table)
 
@@ -136,6 +137,7 @@ class ADSDriver:
         mapped = {point.point_id: parse_ads_point(point) for point in point_table.points.values()}
         if self.is_open() and any(item.symbol for item in mapped.values()):
             raise ConfigError("symbol mapping changes require reconnect")
+        self._configured_points = mapped
         self._points = mapped
 
     def _new_session(self) -> _AdsSession:
@@ -267,7 +269,7 @@ class ADSDriver:
     async def _resolve_points(self, session: _AdsSession) -> dict[str, ADSPoint]:
         """Resolve and validate every configured symbol against this PLC session."""
         resolved: dict[str, ADSPoint] = {}
-        for point_id, point in self._points.items():
+        for point_id, point in self._configured_points.items():
             try:
                 info = await session.execute("get_symbol", point.symbol)
                 group, offset = symbol_index_address(point.symbol, info)
