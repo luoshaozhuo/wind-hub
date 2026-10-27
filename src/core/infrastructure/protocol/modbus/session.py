@@ -49,7 +49,10 @@ class _ModbusSession:
         if not self.connected:
             raise ProtocolConnectionError("Modbus session is not connected")
         # Task 保存底层事务所有权；取消调用方不会误认为网络请求已停止。
-        task = asyncio.create_task(request(self._client))
+        async def invoke() -> _T:
+            return await request(self._client)
+
+        task = asyncio.create_task(invoke())
         self._active.add(task)
         task.add_done_callback(self._active.discard)
         try:
