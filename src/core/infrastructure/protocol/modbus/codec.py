@@ -21,47 +21,43 @@ _INTEGER_RANGES: dict[str, tuple[int, int]] = {
 }
 
 
-def _decode_point(
-    point: ModbusPoint,
-    segment: Sequence[object],
-) -> object:
-    if not segment:
-        raise ValueError("empty Modbus response segment")
+def decode(point: ModbusPoint, values: Sequence[object]) -> bool | int | float:
+    """统一解码一个配置测点。
+
+    Coil/Discrete Input 解码为 bool；Holding/Input Register 按 data_type
+    解码为数值。此处验证原始值类型及数量，避免截断报文被当作有效测点。
+    """
+    if len(values) != point.count:
+        raise ValueError("Modbus point payload length mismatch")
 
     if point.register_type in _BIT_TYPES:
-        bit = segment[0]
+        bit = values[0]
         if type(bit) not in (bool, int) or bit not in (0, 1):
             raise ValueError("invalid Modbus bit value")
         return bool(bit)
 
-    registers = [_strict_register(value) for value in segment]
-    return _decode_registers(registers, point.data_type, point.word_order)
-
-
-def _decode_registers(
-    registers: list[int],
-    data_type: str,
-    word_order: str,
-) -> object:
-    first = registers[0]
-    if data_type == "int16":
+    registers = [_strict_register(value) for value in values]
+    if point.data_type == "int16":
+        first = registers[0]
         return first if first < 0x8000 else first - 0x10000
-    if data_type == "uint16":
-        return first
+    if point.data_type == "uint16":
+        return registers[0]
+    if point.data_type not in _MULTI_REGISTER_TYPES:
+        raise ValueError(f"unsupported Modbus data type '{point.data_type}'")
 
-    if data_type not in _MULTI_REGISTER_TYPES:
-        raise ValueError(f"unsupported Modbus data type '{data_type}'")
-
-    # 通用 32/64 位编解码交由 PyModbus，避免自行拼接二进制字节流。
-    tcp_client = pymodbus.client.ModbusTcpClient
-    datatype = getattr(tcp_client.DATATYPE, data_type.upper(), None)
+    datatype = getattr(
+        pymodbus.client.ModbusTcpClient.DATATYPE, point.data_type.upper(), None
+    )
     if datatype is None:
-        raise ValueError(f"unsupported PyModbus data type '{data_type}'")
-    return tcp_client.convert_from_registers(
+        raise ValueError(f"unsupported PyModbus data type '{point.data_type}'")
+    value = pymodbus.client.ModbusTcpClient.convert_from_registers(
         registers,
         datatype,
-        word_order="little" if word_order == "little_endian" else "big",
+        word_order="little" if point.word_order == "little_endian" else "big",
     )
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise TypeError("unexpected Modbus numeric decode result")
+    return value
 
 
 def _encode_registers(
@@ -128,9 +124,3 @@ def _strict_register(value: object) -> int:
     if not 0 <= value <= 0xFFFF:
         raise ValueError("Modbus register outside 0..65535")
     return value
-
-
-def _as_point_scalar(value: object) -> float | int | bool | str | None:
-    if value is None or isinstance(value, str | int | float | bool):
-        return value
-    raise TypeError(f"unsupported Modbus point value type '{type(value).__name__}'")
