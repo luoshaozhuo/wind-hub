@@ -563,9 +563,7 @@ class IEC104Driver:
         """按命令类型和控制位匹配回显，容忍 IEC104 有损线路数值量化。"""
         if type(expected) is not type(received):
             return False
-        if bool(getattr(expected, "select", False)) != bool(
-            getattr(received, "select", False)
-        ):
+        if bool(getattr(expected, "select", False)) != bool(getattr(received, "select", False)):
             return False
         if isinstance(expected, iec101.NormalizedCommand):
             return abs(expected.value.value - received.value.value) <= 1 / 32767
