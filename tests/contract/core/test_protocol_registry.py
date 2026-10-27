@@ -214,6 +214,7 @@ def test_protocol_drivers_declare_supported_capabilities() -> None:
     assert modbus.capabilities() == frozenset(
         {
             ProtocolCapability.READ,
+            ProtocolCapability.READ_MANY,
             ProtocolCapability.WRITE,
         }
     )

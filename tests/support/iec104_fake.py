@@ -144,11 +144,9 @@ def make_table(points: list[Point]) -> PointTable:
 def make_driver(
     points: list[Point],
     *,
-    common_addresses: str = "1",
     options: dict[str, Any] | None = None,
 ) -> IEC104Driver:
     merged: dict[str, Any] = {
-        "common_addresses": common_addresses,
         "t1": 1.0,
         "t2": 0.5,
         "t3": 30.0,

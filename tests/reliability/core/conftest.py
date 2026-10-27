@@ -1,3 +1,1 @@
-"""core 可靠性层 fixture：复用 integration 层的真实 AdsTestServer fixture。"""
-
-from tests.integration.protocols.ads.conftest import ads_service  # noqa: F401
+"""Core 可靠性测试共享根目录 Fixture，不依赖已删除的协议测试模块。"""

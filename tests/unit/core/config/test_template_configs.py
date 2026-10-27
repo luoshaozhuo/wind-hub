@@ -117,8 +117,8 @@ def test_template_defaults_match_protocol_code_defaults() -> None:
     ads3 = parse_ads_config(endpoint, {"twincat_version": "3"})
     assert ads3.target_port == 851
     iec = parse_iec104_config(endpoint, {})
-    assert (iec.port, iec.default_ca, iec.k, iec.w) == (2404, 1, 12, 8)
-    assert (iec.t0, iec.t1, iec.t2, iec.t3) == (30.0, 15.0, 10.0, 20.0)
+    assert (iec.port, iec.k, iec.w) == (2404, 12, 8)
+    assert (iec.t0, iec.t1, iec.t2, iec.t3) == (5.0, 5.0, 1.0, 10.0)
 
 
 def test_template_save_load_round_trip(tmp_path: Path) -> None:
