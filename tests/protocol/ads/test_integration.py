@@ -64,6 +64,7 @@ async def test_real_ads_server_single_read_write_and_batch() -> None:
 async def test_real_ads_notification_registration() -> None:
     """真实 pyads 通知注册、回调分发与 handle 注销。"""
     import asyncio
+    import random
 
     point = make_point("power", access=PointAccess.READ, symbol="MAIN.power", data_type="REAL")
     plan = EndpointPlan(
@@ -96,10 +97,16 @@ async def test_real_ads_notification_registration() -> None:
             subscription = driver.subscribe(["power"], callback, interval=0.05)
             await subscription.start()
             try:
+                server.update(random.Random(927))
                 await asyncio.wait_for(received.wait(), timeout=3.0)
-                assert any(getattr(sample, "point_id", None) == "power" for sample in values)
+                assert any(
+                    getattr(sample, "point_id", None) == "power"
+                    and getattr(sample, "quality", None).value == "good"
+                    for sample in values
+                )
             finally:
                 await subscription.stop()
+            assert subscription._handles == []
         finally:
             await driver.close()
             await ADSDriver.close_local()

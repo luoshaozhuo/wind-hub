@@ -18,7 +18,7 @@ import logging
 import random
 import signal
 import struct
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -419,6 +419,9 @@ class _ADSVirtualServer:
             port=_ADS_TCP_PORT,
             logging=False,
         )
+        # pyads testserver 无界保存每个 AMS 请求，长稳测试会耗尽内存。
+        # 只保留最近的诊断记录，不改变请求处理与响应行为。
+        server.request_history = deque(maxlen=1024)
         self.server = server
         server.start()
 

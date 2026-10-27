@@ -124,11 +124,21 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         labels = ("unit", "fast") if suffix == "config_contract" else _TEST_MARKERS.get(suffix, ())
         for label in labels:
             item.add_marker(getattr(pytest.mark, label))
-        if suffix == "stability" and item.path.parent.name in {"iec104", "modbus"}:
+        if suffix == "stability" and (
+            item.path.parent.name in {"iec104", "modbus"}
+            or item.name.startswith("test_real_ads_session_soak")
+        ):
             item.add_marker(pytest.mark.real_service)
         if suffix == "fault_injection" and item.path.parent.name in {"iec104", "modbus"}:
-            item.add_marker(pytest.mark.real_service)
+            if item.name.startswith(("test_server_", "test_restart_", "test_write_ack_", "test_modbus_failed_", "test_iec104_disconnect_")):
+                item.add_marker(pytest.mark.real_service)
+            else:
+                item.add_marker(pytest.mark.mock_service)
         if suffix == "concurrency" and item.path.parent.name in {"iec104", "modbus"}:
-            item.add_marker(pytest.mark.real_service)
+            item.add_marker(
+                pytest.mark.mock_service
+                if item.name.startswith("test_cancelled_modbus_caller")
+                else pytest.mark.real_service
+            )
         if item.path.parent.name == "ads" and suffix in {"fault_injection", "concurrency"}:
             item.add_marker(pytest.mark.mock_service)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import struct
 from itertools import pairwise
+from collections import OrderedDict
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
@@ -50,6 +51,7 @@ class ModbusDriver:
         self._readable: frozenset[str] = frozenset()
         self._writable: frozenset[str] = frozenset()
         self._health_point_id: str | None = None
+        self._read_plan_cache: OrderedDict[tuple[str, ...], tuple[tuple[ModbusPoint, ...], ...]] = OrderedDict()
         self._session: _ModbusSession | None = None
         self._lifecycle = asyncio.Lock()
         self.update_point_table(point_table)
@@ -109,6 +111,7 @@ class ModbusDriver:
         self._writable = writable
         self._point_table_id = point_table.point_table_id
         self._health_point_id = configured or first_readable
+        self._read_plan_cache.clear()
 
     async def connect(self) -> None:
         async with self._lifecycle:
@@ -177,8 +180,17 @@ class ModbusDriver:
         if any(point.point_id not in self._readable for point in points):
             raise ConfigError("Modbus read_many contains a write-only point")
         session = self._require_session()
+        key = tuple(point_ids)
+        groups = self._read_plan_cache.get(key)
+        if groups is None:
+            groups = tuple(tuple(group) for group in group_consecutive_reads(points))
+            self._read_plan_cache[key] = groups
+            if len(self._read_plan_cache) > 32:
+                self._read_plan_cache.popitem(last=False)
+        else:
+            self._read_plan_cache.move_to_end(key)
         samples: dict[ModbusPoint, ProtocolSample] = {}
-        for group in group_consecutive_reads(points):
+        for group in groups:
             first = group[0]
             start = min(p.address for p in group)
             count = max(p.address + p.count for p in group) - start
