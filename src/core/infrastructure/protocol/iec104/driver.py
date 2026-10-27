@@ -297,8 +297,7 @@ class IEC104Driver:
         session = self._require_session()
         key = (point.common_address, point.ioa)
         lock = self._locks[key]
-        station_lock = self._station_locks[point.common_address]
-        async with station_lock, lock:
+        async with lock:
             if not session.is_open:
                 raise ProtocolConnectionError("IEC104 session is closing")
             if key in self._unsettled_controls:
