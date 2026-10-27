@@ -209,7 +209,9 @@ class ModbusDriver:
             raise ConfigError(f"Modbus point '{point_id}' is not readable")
         session = self._connected_session()
         response = await session.execute(
-            lambda client: _read(client, point.register_type, point.address, point.count, point.slave_id)
+            lambda client: _read(
+                client, point.register_type, point.address, point.count, point.slave_id
+            )
         )
         raw = _read_payload(response, point.register_type, point.count)
         return _sample(point, raw)
@@ -259,7 +261,10 @@ class ModbusDriver:
         try:
             if any(write.point not in self._writable for write in writes):
                 raise ConfigError("Modbus write_many contains a read-only point")
-            items = tuple(_make_item(i, self._point(w.point), w.value) for i, w in enumerate(writes))
+            items = tuple(
+                _make_item(i, self._point(w.point), w.value)
+                for i, w in enumerate(writes)
+            )
             blocks = _plan_writes(items)
         except (ConfigError, TypeError, ValueError, struct.error) as exc:
             return tuple(_result(w.point, WriteOutcome.CONFIRMED_FAILURE, str(exc)) for w in writes)
@@ -458,5 +463,7 @@ async def _execute_write(
     return _result(point_id, WriteOutcome.CONFIRMED_SUCCESS)
 
 
-def _result(point_id: str, outcome: WriteOutcome, message: str | None = None) -> ProtocolWriteResult:
+def _result(
+    point_id: str, outcome: WriteOutcome, message: str | None = None
+) -> ProtocolWriteResult:
     return ProtocolWriteResult(point_id=point_id, outcome=outcome, message=message)
