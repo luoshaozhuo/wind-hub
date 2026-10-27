@@ -125,7 +125,12 @@ class _ModbusSession:
         if not isinstance(raw, list | tuple) or len(raw) < count:
             self.invalidate()
             raise ProtocolConnectionError("Modbus read response incomplete")
-        return raw[:count]
+        if register_type in ("coil", "discrete_input"):
+            return raw[:count]
+        if len(raw) != count:
+            self.invalidate()
+            raise ProtocolConnectionError("Modbus register response length mismatch")
+        return raw
 
     async def write(
         self,
