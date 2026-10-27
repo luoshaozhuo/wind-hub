@@ -122,6 +122,8 @@ class ModbusDriver:
             point.point_id for point in point_table.points.values()
             if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE)
         )
+        if configured is not None and configured not in self._readable:
+            raise ConfigError(f"Modbus health point '{configured}' is not readable")
         self._points = points
         self._point_table_id = point_table.point_table_id
         self._health_point_id = configured or next(iter(self._readable), None)
@@ -262,7 +264,7 @@ class ModbusDriver:
             _result(w.point, WriteOutcome.CONFIRMED_FAILURE, "not submitted")
             for w in writes
         ]
-        deadline = asyncio.get_running_loop().time() + self._config.timeout * max(1, len(blocks))
+        deadline = asyncio.get_running_loop().time() + self._config.timeout
         for block in blocks:
             if asyncio.get_running_loop().time() >= deadline:
                 break
