@@ -65,17 +65,20 @@ async def test_real_ads_notification_registration() -> None:
     """真实 pyads 通知注册、回调分发与 handle 注销。"""
     import asyncio
 
-    point = make_point(
-        "power", access=PointAccess.READ, symbol="MAIN.power", data_type="REAL"
-    )
+    point = make_point("power", access=PointAccess.READ, symbol="MAIN.power", data_type="REAL")
     plan = EndpointPlan(
-        device_id="ads-notification-test", protocol="ads",
-        host="127.0.0.38", port=48898, options={}, points=(point,),
+        device_id="ads-notification-test",
+        protocol="ads",
+        host="127.0.0.38",
+        port=48898,
+        options={},
+        points=(point,),
         data_types={"power": DataType.FLOAT32},
     )
     server = _ADSVirtualServer(plan)
     driver = ADSDriver(
-        ConnectionEndpoint(plan.host, 851), make_table("ads", point),
+        ConnectionEndpoint(plan.host, 851),
+        make_table("ads", point),
         {"target_net_id": "127.0.0.38.1.1"},
     )
     received = asyncio.Event()

@@ -27,13 +27,28 @@ _COMMAND_TYPE_IDS = frozenset(
         "C_SE_NC_1",
     }
 )
-_MONITORING_TYPE_IDS = frozenset({
-    "M_SP_NA_1", "M_SP_TB_1", "M_DP_NA_1", "M_DP_TB_1",
-    "M_ST_NA_1", "M_ST_TB_1", "M_BO_NA_1", "M_BO_TB_1",
-    "M_ME_NA_1", "M_ME_ND_1", "M_ME_TD_1", "M_ME_NB_1",
-    "M_ME_TE_1", "M_ME_NC_1", "M_ME_TF_1", "M_IT_NA_1",
-    "M_IT_TB_1", "M_PS_NA_1",
-})
+_MONITORING_TYPE_IDS = frozenset(
+    {
+        "M_SP_NA_1",
+        "M_SP_TB_1",
+        "M_DP_NA_1",
+        "M_DP_TB_1",
+        "M_ST_NA_1",
+        "M_ST_TB_1",
+        "M_BO_NA_1",
+        "M_BO_TB_1",
+        "M_ME_NA_1",
+        "M_ME_ND_1",
+        "M_ME_TD_1",
+        "M_ME_NB_1",
+        "M_ME_TE_1",
+        "M_ME_NC_1",
+        "M_ME_TF_1",
+        "M_IT_NA_1",
+        "M_IT_TB_1",
+        "M_PS_NA_1",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)

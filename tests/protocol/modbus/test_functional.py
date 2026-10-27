@@ -58,8 +58,13 @@ def test_float_register_roundtrip(kind: str, order: str) -> None:
     words = _encode_registers(12.5, kind, order)
     point = _mapped(_point("p", data_type=kind))
     point = type(point)(
-        point.point_id, point.register_type, point.address, point.count,
-        point.data_type, order, point.slave_id
+        point.point_id,
+        point.register_type,
+        point.address,
+        point.count,
+        point.data_type,
+        order,
+        point.slave_id,
     )
     assert math.isclose(decode(point, words), 12.5)
 
@@ -94,7 +99,10 @@ def test_read_planner_never_merges_distinct_areas_or_devices() -> None:
     groups = group_consecutive_reads(points)
     assert sorted(len(group) for group in groups) == [1, 1, 2]
     assert {point.point_id for group in groups for point in group} == {
-        "h1", "h2", "coil", "other_unit",
+        "h1",
+        "h2",
+        "coil",
+        "other_unit",
     }
 
 
@@ -105,9 +113,7 @@ def test_read_planner_respects_span_and_gap() -> None:
         _mapped(_point("c", address=126)),
     ]
     groups = group_consecutive_reads(points, max_gap=200)
-    assert [[point.point_id for point in group] for group in groups] == [
-        ["a", "b"], ["c"]
-    ]
+    assert [[point.point_id for point in group] for group in groups] == [["a", "b"], ["c"]]
 
 
 @pytest.mark.parametrize(

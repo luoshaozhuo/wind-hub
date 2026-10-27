@@ -76,9 +76,7 @@ def compile_notification_blocks(
         first = current[0]
         last = current[-1]
         end = last.offset + last.size
-        fields = tuple(
-            (point, point.offset - first.offset, point.decoder) for point in current
-        )
+        fields = tuple((point, point.offset - first.offset, point.decoder) for point in current)
         blocks.append(NotificationBlock(first.group, first.offset, end - first.offset, fields))
 
     previous: ADSPoint | None = None

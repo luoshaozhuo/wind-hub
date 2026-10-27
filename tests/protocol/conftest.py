@@ -42,19 +42,42 @@ def make_table(protocol: str, *points: Point) -> PointTable:
 def modbus_driver(port: int, *, timeout: float = 5.0) -> ModbusDriver:
     table = make_table(
         "modbus",
-        make_point("speed", access=PointAccess.READ, register_type="holding", address=100, data_type="float32"),
-        make_point("power", access=PointAccess.READ, register_type="holding", address=102, data_type="float32"),
+        make_point(
+            "speed",
+            access=PointAccess.READ,
+            register_type="holding",
+            address=100,
+            data_type="float32",
+        ),
+        make_point(
+            "power",
+            access=PointAccess.READ,
+            register_type="holding",
+            address=102,
+            data_type="float32",
+        ),
         make_point("command", register_type="holding", address=200, data_type="float32"),
         make_point("temperature", register_type="holding", address=104, data_type="int16"),
     )
-    return ModbusDriver(ConnectionEndpoint("127.0.0.1", port), table, {"word_order": "big_endian", "timeout": timeout})
+    return ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", port),
+        table,
+        {"word_order": "big_endian", "timeout": timeout},
+    )
 
 
 def iec104_driver(port: int) -> IEC104Driver:
     table = make_table(
         "iec104",
         make_point("power", access=PointAccess.READ, ca=1, ioa=100, type_id="M_ME_NC_1"),
-        make_point("switch", access=PointAccess.WRITE, ca=1, ioa=1001, type_id="C_SC_NA_1", confirmation="act_con"),
+        make_point(
+            "switch",
+            access=PointAccess.WRITE,
+            ca=1,
+            ioa=1001,
+            type_id="C_SC_NA_1",
+            confirmation="act_con",
+        ),
     )
     return IEC104Driver(ConnectionEndpoint("127.0.0.1", port), table, {})
 

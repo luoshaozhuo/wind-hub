@@ -132,7 +132,6 @@ def parse_modbus_point(
     )
 
 
-
 def group_consecutive_reads(
     points: Sequence[ModbusPoint],
     *,

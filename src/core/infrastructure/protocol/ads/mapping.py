@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from core.application.protocol_contract import PointScalar
-
 from core.application.errors import ConfigError
+from core.application.protocol_contract import PointScalar
 from core.domain import Point
 
 from .codec import compile_decoder
@@ -114,7 +113,6 @@ class ADSPoint:
     def unresolved(self) -> ADSPoint:
         """使 symbol 派生地址失效。"""
         return replace(self, index_group=None, index_offset=None)
-
 
 
 def parse_ads_point(

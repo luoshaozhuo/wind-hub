@@ -85,7 +85,8 @@ class ADSSubscription:
                 try:
                     # data: 通知块的 Index Group/Offset；attr: 长度与采样周期；
                     # callback: pyads 原生通知回调；user_handle: 不额外申请 Symbol 句柄。
-                    token = await self._session.execute(operation="add_device_notification",
+                    token = await self._session.execute(
+                        operation="add_device_notification",
                         data=(block.group, block.offset),
                         attr=attribute,
                         callback=callback,
@@ -184,7 +185,8 @@ class ADSSubscription:
         for token in reversed(self._handles):
             try:
                 # notification_handle/user_handle: 注册时返回的通知与用户句柄。
-                await self._session.execute(operation="del_device_notification",
+                await self._session.execute(
+                    operation="del_device_notification",
                     notification_handle=token[0],
                     user_handle=token[1],
                 )

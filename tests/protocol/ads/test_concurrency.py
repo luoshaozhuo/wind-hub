@@ -63,9 +63,7 @@ async def test_cancelled_ads_waiter_does_not_release_native_gate(
             calls.append("close")
             self.is_open = False
 
-    monkeypatch.setattr(
-        "core.infrastructure.protocol.ads.session.pyads.Connection", FakeConnection
-    )
+    monkeypatch.setattr("core.infrastructure.protocol.ads.session.pyads.Connection", FakeConnection)
     session = _AdsSession("1.2.3.4.5.6", 851, "127.0.0.1")
     await session.open()
 

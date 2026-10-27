@@ -152,7 +152,9 @@ class ModbusMockServer:
         unit1_hr = self._holding if self._holding is not None else _holding_registers(1200.5, 800.0)
         unit1 = ModbusDeviceContext(
             co=ModbusSequentialDataBlock(1, self._coils) if self._coils is not None else None,
-            di=ModbusSequentialDataBlock(1, self._discretes) if self._discretes is not None else None,
+            di=ModbusSequentialDataBlock(1, self._discretes)
+            if self._discretes is not None
+            else None,
             hr=ModbusSequentialDataBlock(1, unit1_hr),
             ir=ModbusSequentialDataBlock(1, self._inputs) if self._inputs is not None else None,
         )

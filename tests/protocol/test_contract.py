@@ -27,7 +27,9 @@ from tests.protocol.conftest import make_table
 def driver(request: pytest.FixtureRequest):
     family = request.param
     table: PointTable = make_table(family)
-    endpoint = ConnectionEndpoint("192.0.2.20", 801 if family == "ads" else 2404 if family == "iec104" else 502)
+    endpoint = ConnectionEndpoint(
+        "192.0.2.20", 801 if family == "ads" else 2404 if family == "iec104" else 502
+    )
     if family == "ads":
         return ADSDriver(endpoint, table, {"target_net_id": "192.0.2.20.1.1"})
     if family == "iec104":

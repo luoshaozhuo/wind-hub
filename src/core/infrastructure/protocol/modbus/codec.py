@@ -45,9 +45,7 @@ def decode(point: ModbusPoint, values: Sequence[object]) -> bool | int | float:
     if point.data_type not in _MULTI_REGISTER_TYPES:
         raise ValueError(f"unsupported Modbus data type '{point.data_type}'")
 
-    datatype = getattr(
-        pymodbus.client.ModbusTcpClient.DATATYPE, point.data_type.upper(), None
-    )
+    datatype = getattr(pymodbus.client.ModbusTcpClient.DATATYPE, point.data_type.upper(), None)
     if datatype is None:
         raise ValueError(f"unsupported PyModbus data type '{point.data_type}'")
     value = pymodbus.client.ModbusTcpClient.convert_from_registers(

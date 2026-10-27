@@ -260,15 +260,17 @@ class IEC104Driver:
             pending = _Read(point, future)
             self._read[key] = pending
             try:
-                await session.send([
-                    iec104.ReadMsg(
-                        is_test=False,
-                        originator_address=0,
-                        asdu_address=point.common_address,
-                        io_address=point.ioa,
-                        cause=iec104.ReadReqCause.REQUEST,
-                    ),
-                ])
+                await session.send(
+                    [
+                        iec104.ReadMsg(
+                            is_test=False,
+                            originator_address=0,
+                            asdu_address=point.common_address,
+                            io_address=point.ioa,
+                            cause=iec104.ReadReqCause.REQUEST,
+                        ),
+                    ]
+                )
                 return await asyncio.wait_for(future, timeout=self._config.read_timeout)
             except (TimeoutError, ProtocolConnectionError, ProtocolError, asyncio.CancelledError):
                 await asyncio.shield(self._isolate(session))
@@ -345,25 +347,25 @@ class IEC104Driver:
     ) -> bool:
         key = (point.common_address, point.ioa)
         future: asyncio.Future[iec104.CommandMsg] = asyncio.get_running_loop().create_future()
-        pending = _Control(
-            future, confirmation, bool(getattr(command, "select", False)), command
-        )
+        pending = _Control(future, confirmation, bool(getattr(command, "select", False)), command)
         self._control[key] = pending
         if phase == "execute" and confirmation == "act_con":
             self._unsettled_controls[key] = command
         try:
-            await session.send([
-                iec104.CommandMsg(
-                    is_test=False,
-                    originator_address=0,
-                    asdu_address=point.common_address,
-                    io_address=point.ioa,
-                    command=command,
-                    is_negative_confirm=False,
-                    time=None,
-                    cause=iec104.CommandReqCause.ACTIVATION,
-                ),
-            ])
+            await session.send(
+                [
+                    iec104.CommandMsg(
+                        is_test=False,
+                        originator_address=0,
+                        asdu_address=point.common_address,
+                        io_address=point.ioa,
+                        command=command,
+                        is_negative_confirm=False,
+                        time=None,
+                        cause=iec104.CommandReqCause.ACTIVATION,
+                    ),
+                ]
+            )
             response = await asyncio.wait_for(future, timeout=self._config.command_timeout)
             if (
                 phase == "execute"
@@ -504,9 +506,7 @@ class IEC104Driver:
             for listener in tuple(self._listeners):
                 listener.offer(batch)
 
-    def _handle_read(
-        self, msg: iec104.DataMsg | iec104.ReadMsg, received_at: datetime
-    ) -> None:
+    def _handle_read(self, msg: iec104.DataMsg | iec104.ReadMsg, received_at: datetime) -> None:
         if msg.is_test:
             return
         key = (msg.asdu_address, msg.io_address)
@@ -532,9 +532,7 @@ class IEC104Driver:
         else:
             pending.result.set_result(sample)
 
-    def _handle_listen(
-        self, msg: iec104.DataMsg, received_at: datetime
-    ) -> ProtocolSample | None:
+    def _handle_listen(self, msg: iec104.DataMsg, received_at: datetime) -> ProtocolSample | None:
         if msg.is_test:
             return None
         key = (msg.asdu_address, msg.io_address)

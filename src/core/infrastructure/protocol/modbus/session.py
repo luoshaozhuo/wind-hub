@@ -63,6 +63,7 @@ class _ModbusSession:
 
     async def _execute(self, request: Callable[[AsyncModbusTcpClient], Awaitable[_T]]) -> _T:
         """跟踪协议事务，取消调用方时继续收敛底层请求。"""
+
         # Task 保存底层事务所有权；取消调用方不会误认为网络请求已停止。
         async def invoke() -> _T:
             # 任务排队期间发生 close/cancel 时，不允许迟到提交请求。
@@ -94,21 +95,16 @@ class _ModbusSession:
         self, register_type: str, address: int, count: int, slave_id: int
     ) -> Sequence[object]:
         """执行一次 FC01～FC04，并校验响应结构。"""
+
         async def request(client: AsyncModbusTcpClient) -> Any:
             if register_type == "coil":
                 return await client.read_coils(address, count=count, device_id=slave_id)
             if register_type == "discrete_input":
-                return await client.read_discrete_inputs(
-                    address, count=count, device_id=slave_id
-                )
+                return await client.read_discrete_inputs(address, count=count, device_id=slave_id)
             if register_type == "holding":
-                return await client.read_holding_registers(
-                    address, count=count, device_id=slave_id
-                )
+                return await client.read_holding_registers(address, count=count, device_id=slave_id)
             if register_type == "input":
-                return await client.read_input_registers(
-                    address, count=count, device_id=slave_id
-                )
+                return await client.read_input_registers(address, count=count, device_id=slave_id)
             raise ValueError(f"unsupported Modbus read area: {register_type}")
 
         response = await self._execute(request)
@@ -137,9 +133,12 @@ class _ModbusSession:
         if not count or register_type not in ("coil", "holding"):
             raise ValueError("invalid Modbus write request")
         expected = (
-            5 if register_type == "coil" and count == 1
-            else 15 if register_type == "coil"
-            else 6 if count == 1
+            5
+            if register_type == "coil" and count == 1
+            else 15
+            if register_type == "coil"
+            else 6
+            if count == 1
             else 16
         )
 
@@ -165,10 +164,7 @@ class _ModbusSession:
 
         if response.isError():
             code = getattr(response, "exception_code", None)
-            outcome = (
-                WriteOutcome.CONFIRMED_FAILURE if code in (1, 2, 3)
-                else WriteOutcome.UNKNOWN
-            )
+            outcome = WriteOutcome.CONFIRMED_FAILURE if code in (1, 2, 3) else WriteOutcome.UNKNOWN
             return outcome, f"Modbus exception code: {code}"
         if (
             getattr(response, "function_code", None) != expected

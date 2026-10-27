@@ -6,7 +6,12 @@ import asyncio
 
 import pytest
 
-from core.application.protocol_contract import InterrogationRequest, ProtocolWrite, Quality, WriteOutcome
+from core.application.protocol_contract import (
+    InterrogationRequest,
+    ProtocolWrite,
+    Quality,
+    WriteOutcome,
+)
 from tests.protocol.conftest import iec104_driver
 
 
@@ -45,7 +50,9 @@ async def test_iec104_spontaneous_listen(iec104_server) -> None:
 
     async def callback(batch) -> None:
         samples.extend(batch)
-        if any(sample.point_id == "power" and sample.value == pytest.approx(1700.0) for sample in batch):
+        if any(
+            sample.point_id == "power" and sample.value == pytest.approx(1700.0) for sample in batch
+        ):
             received.set()
 
     await driver.connect()
@@ -53,7 +60,10 @@ async def test_iec104_spontaneous_listen(iec104_server) -> None:
     try:
         await iec104_server.set_value(100, 1700.0, spontaneous=True)
         await asyncio.wait_for(received.wait(), timeout=5.0)
-        assert any(sample.point_id == "power" and sample.value == pytest.approx(1700.0) for sample in samples)
+        assert any(
+            sample.point_id == "power" and sample.value == pytest.approx(1700.0)
+            for sample in samples
+        )
     finally:
         await listener.close()
         await driver.close()

@@ -26,7 +26,9 @@ class FakeAdsSession:
         self.allow_notification_finish = asyncio.Event()
         self.token: tuple[int, int] = (17, 0)
 
-    def notification(self, datatype: object) -> Callable[[Callable[..., None]], Callable[..., None]]:
+    def notification(
+        self, datatype: object
+    ) -> Callable[[Callable[..., None]], Callable[..., None]]:
         assert datatype == c_ubyte * 2
 
         def decorate(callback: Callable[..., None]) -> Callable[..., None]:

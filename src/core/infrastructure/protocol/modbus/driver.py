@@ -32,6 +32,8 @@ from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
 from .session import _ModbusSession
 
 _READ_ONLY = frozenset({"discrete_input", "input"})
+
+
 class ModbusDriver:
     """一个 endpoint 对应一个当前 Session；不持有第三方请求锁。"""
 
@@ -52,11 +54,13 @@ class ModbusDriver:
         self.update_point_table(point_table)
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
-        return frozenset({
-            ProtocolCapability.READ,
-            ProtocolCapability.READ_MANY,
-            ProtocolCapability.WRITE,
-        })
+        return frozenset(
+            {
+                ProtocolCapability.READ,
+                ProtocolCapability.READ_MANY,
+                ProtocolCapability.WRITE,
+            }
+        )
 
     def update_point_table(self, point_table: PointTable) -> None:
         if point_table.protocol.name != "modbus":
@@ -73,11 +77,13 @@ class ModbusDriver:
         if configured is not None and configured not in points:
             raise ConfigError(f"unknown Modbus health point: {configured}")
         readable = frozenset(
-            point.point_id for point in point_table.points.values()
+            point.point_id
+            for point in point_table.points.values()
             if point.access in (PointAccess.READ, PointAccess.READ_WRITE)
         )
         writable = frozenset(
-            point.point_id for point in point_table.points.values()
+            point.point_id
+            for point in point_table.points.values()
             if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE)
         )
         writable_points = sorted(
@@ -136,9 +142,7 @@ class ModbusDriver:
     def _point(self, point_id: str) -> ModbusPoint:
         point = self._points.get(point_id)
         if point is None:
-            raise ConfigError(
-                f"point '{point_id}' not in Modbus table '{self._point_table_id}'"
-            )
+            raise ConfigError(f"point '{point_id}' not in Modbus table '{self._point_table_id}'")
         return point
 
     async def health(self) -> ConnectionHealth:
@@ -162,9 +166,7 @@ class ModbusDriver:
         if point_id not in self._readable:
             raise ConfigError(f"Modbus point '{point_id}' is not readable")
         session = self._require_session()
-        raw = await session.read(
-            point.register_type, point.address, point.count, point.slave_id
-        )
+        raw = await session.read(point.register_type, point.address, point.count, point.slave_id)
         return _sample(point, raw)
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
@@ -179,13 +181,11 @@ class ModbusDriver:
             first = group[0]
             start = min(p.address for p in group)
             count = max(p.address + p.count for p in group) - start
-            raw = await session.read(
-                first.register_type, start, count, first.slave_id
-            )
+            raw = await session.read(first.register_type, start, count, first.slave_id)
             received_at = datetime.now(UTC)
             for point in group:
                 offset = point.address - start
-                samples[point] = _sample(point, raw[offset:offset + point.count], received_at)
+                samples[point] = _sample(point, raw[offset : offset + point.count], received_at)
         return tuple(samples[point] for point in points)
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
@@ -197,13 +197,9 @@ class ModbusDriver:
             if point.register_type in _READ_ONLY:
                 raise ValueError(f"{point.register_type} is read-only")
             if point.register_type == "coil":
-                values: tuple[int | bool, ...] = (
-                    _encode_coil(write.value, point.data_type),
-                )
+                values: tuple[int | bool, ...] = (_encode_coil(write.value, point.data_type),)
             else:
-                values = tuple(
-                    _encode_registers(write.value, point.data_type, point.word_order)
-                )
+                values = tuple(_encode_registers(write.value, point.data_type, point.word_order))
             if len(values) != point.count:
                 raise ValueError("write encoder length does not match point span")
         except (TypeError, ValueError, struct.error) as exc:
@@ -214,9 +210,7 @@ class ModbusDriver:
         )
         return _result(point.point_id, outcome, message)
 
-    async def write_many(
-        self, writes: Sequence[ProtocolWrite]
-    ) -> tuple[ProtocolWriteResult, ...]:
+    async def write_many(self, writes: Sequence[ProtocolWrite]) -> tuple[ProtocolWriteResult, ...]:
         """不支持多逻辑测点批量写入；单测点可使用 FC16。"""
         raise ProtocolCapabilityError("Modbus adapter does not support write_many")
 

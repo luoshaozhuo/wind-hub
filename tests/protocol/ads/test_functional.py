@@ -73,9 +73,7 @@ def test_symbol_address_is_unresolved_until_bound() -> None:
 def test_sum_write_payload_contains_address_headers_then_values() -> None:
     first = _ads("a", 10)
     second = _ads("b", 20)
-    body = encode_sum_write(
-        [(0, first, b"\x01\x00"), (1, second, b"\x02\x00")]
-    )
+    body = encode_sum_write([(0, first, b"\x01\x00"), (1, second, b"\x02\x00")])
     assert bytes(body) == (
         struct.pack("<III", 0x4020, 10, 2)
         + struct.pack("<III", 0x4020, 20, 2)
@@ -84,9 +82,7 @@ def test_sum_write_payload_contains_address_headers_then_values() -> None:
 
 
 def test_notification_blocks_use_relative_offsets_and_split_by_capacity() -> None:
-    blocks = compile_notification_blocks(
-        [_ads("c", 30), _ads("a", 10), _ads("b", 12)], max_bytes=8
-    )
+    blocks = compile_notification_blocks([_ads("c", 30), _ads("a", 10), _ads("b", 12)], max_bytes=8)
     assert [(block.offset, block.size) for block in blocks] == [(10, 4), (30, 2)]
     assert [(point.point_id, offset) for point, offset, _ in blocks[0].fields] == [
         ("a", 0),

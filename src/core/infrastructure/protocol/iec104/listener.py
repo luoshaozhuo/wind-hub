@@ -66,5 +66,3 @@ class _Listener(ListenHandle):
             except TimeoutError:
                 raise TimeoutError("IEC104 listener callback failed to stop") from None
         self.owner._listeners.discard(self)
-
-

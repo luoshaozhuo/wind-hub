@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 from core.application.errors import ProtocolCapabilityError
-from core.application.protocol_contract import InterrogationRequest, ProtocolCapability, ProtocolWrite
+from core.application.protocol_contract import (
+    InterrogationRequest,
+    ProtocolCapability,
+    ProtocolWrite,
+)
 from tests.protocol.conftest import modbus_driver
 
 
@@ -16,9 +20,9 @@ async def _callback(samples: object) -> None:
 @pytest.mark.asyncio
 async def test_modbus_capabilities_and_unavailable_operations() -> None:
     driver = modbus_driver(15020)
-    assert driver.capabilities() == frozenset({
-        ProtocolCapability.READ, ProtocolCapability.READ_MANY, ProtocolCapability.WRITE
-    })
+    assert driver.capabilities() == frozenset(
+        {ProtocolCapability.READ, ProtocolCapability.READ_MANY, ProtocolCapability.WRITE}
+    )
     assert await driver.read_many([]) == ()
     with pytest.raises(ProtocolCapabilityError):
         await driver.write_many([ProtocolWrite("command", 3.0)])

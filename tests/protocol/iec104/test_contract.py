@@ -11,10 +11,14 @@ from tests.protocol.conftest import iec104_driver
 
 def test_iec104_capability_declarations() -> None:
     driver = iec104_driver(12404)
-    assert driver.capabilities() == frozenset({
-        ProtocolCapability.READ, ProtocolCapability.WRITE,
-        ProtocolCapability.INTERROGATE, ProtocolCapability.LISTEN,
-    })
+    assert driver.capabilities() == frozenset(
+        {
+            ProtocolCapability.READ,
+            ProtocolCapability.WRITE,
+            ProtocolCapability.INTERROGATE,
+            ProtocolCapability.LISTEN,
+        }
+    )
 
 
 @pytest.mark.asyncio

@@ -34,8 +34,12 @@ def test_ads_notification_planner_soak() -> None:
 
     points = tuple(
         ADSPoint(
-            point_id=f"p{i}", index_group=0x4020, index_offset=4 * i,
-            data_type="DINT", size=4, symbol=f"MAIN.p{i}"
+            point_id=f"p{i}",
+            index_group=0x4020,
+            index_offset=4 * i,
+            data_type="DINT",
+            size=4,
+            symbol=f"MAIN.p{i}",
         )
         for i in range(80)
     )
@@ -64,17 +68,20 @@ async def test_real_ads_session_soak() -> None:
     from scripts.protocol_servers import EndpointPlan, _ADSVirtualServer
     from tests.protocol.conftest import make_point, make_table
 
-    point = make_point(
-        "power", access=PointAccess.READ, symbol="MAIN.power", data_type="REAL"
-    )
+    point = make_point("power", access=PointAccess.READ, symbol="MAIN.power", data_type="REAL")
     plan = EndpointPlan(
         device_id="ads-soak",
-        protocol="ads", host="127.0.0.39", port=48898,
-        options={}, points=(point,), data_types={"power": DataType.FLOAT32},
+        protocol="ads",
+        host="127.0.0.39",
+        port=48898,
+        options={},
+        points=(point,),
+        data_types={"power": DataType.FLOAT32},
     )
     server = _ADSVirtualServer(plan)
     driver = ADSDriver(
-        ConnectionEndpoint(plan.host, 851), make_table("ads", point),
+        ConnectionEndpoint(plan.host, 851),
+        make_table("ads", point),
         {"target_net_id": "127.0.0.39.1.1"},
     )
     duration = float(os.environ.get("PROTOCOL_STABILITY_SECONDS", "5"))

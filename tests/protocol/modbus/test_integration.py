@@ -57,8 +57,11 @@ async def test_modbus_fc04_reads_input_registers() -> None:
         make_table(
             "modbus",
             make_point(
-                "input", access=PointAccess.READ, register_type="input",
-                address=40, data_type="uint16",
+                "input",
+                access=PointAccess.READ,
+                register_type="input",
+                address=40,
+                data_type="uint16",
             ),
         ),
         {},
@@ -100,19 +103,18 @@ async def test_modbus_fc01_fc02_and_fc05_on_real_server() -> None:
     discretes = [False] * 256
     coils[40] = True
     discretes[41] = True
-    server = ModbusMockServer(
-        port=free_port(), coils=coils, discretes=discretes
-    )
+    server = ModbusMockServer(port=free_port(), coils=coils, discretes=discretes)
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", server.port),
         make_table(
             "modbus",
+            make_point("coil", register_type="coil", address=40, data_type="bool"),
             make_point(
-                "coil", register_type="coil", address=40, data_type="bool"
-            ),
-            make_point(
-                "discrete", access=PointAccess.READ,
-                register_type="discrete_input", address=41, data_type="bool"
+                "discrete",
+                access=PointAccess.READ,
+                register_type="discrete_input",
+                address=41,
+                data_type="bool",
             ),
         ),
         {},

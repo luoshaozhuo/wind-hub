@@ -40,9 +40,7 @@ async def test_cancelled_modbus_caller_does_not_orphan_native_transaction() -> N
             self.release = asyncio.Event()
             self.closed = False
 
-        async def read_holding_registers(
-            self, address: int, *, count: int, device_id: int
-        ) -> Any:
+        async def read_holding_registers(self, address: int, *, count: int, device_id: int) -> Any:
             assert (address, count, device_id) == (100, 1, 1)
             self.entered.set()
             await self.release.wait()
