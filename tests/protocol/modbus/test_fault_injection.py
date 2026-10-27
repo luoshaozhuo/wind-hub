@@ -56,3 +56,52 @@ async def test_write_ack_lost_returns_unknown_without_replay(modbus_server) -> N
     finally:
         await driver.close()
         await proxy.close()
+
+
+@pytest.mark.asyncio
+async def test_malformed_modbus_read_response_invalidates_session() -> None:
+    """功能码错配不是业务点 BAD 值；必须关闭不可信会话。"""
+    from typing import Any
+
+    from core.infrastructure.protocol.modbus.config import ModbusConfig
+    from core.infrastructure.protocol.modbus.session import _ModbusSession
+
+    class FakeResponse:
+        function_code = 4
+        registers = [101]
+
+        def isError(self) -> bool:  # noqa: N802
+            return False
+
+    class FakeClient:
+        connected = True
+
+        async def read_holding_registers(self, address: int, *, count: int, device_id: int) -> Any:
+            del address, count, device_id
+            return FakeResponse()
+
+        def close(self) -> None:
+            self.connected = False
+
+    session = _ModbusSession(ModbusConfig(host="127.0.0.1"))
+    session._client = FakeClient()  # type: ignore[assignment]
+    try:
+        with pytest.raises(ProtocolConnectionError, match="function code mismatch"):
+            await session.read("holding", 100, 1, 1)
+        assert not session.is_open()
+    finally:
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_modbus_failed_local_encoding_never_sends_to_plc(modbus_server) -> None:
+    """无效写值不会产生 FC06/FC16 的任何网络请求。"""
+    driver = modbus_driver(modbus_server.port)
+    await driver.connect()
+    try:
+        before = modbus_server.write_count
+        result = await driver.write_one(ProtocolWrite("command", float("inf")))
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
+        assert modbus_server.write_count == before
+    finally:
+        await driver.close()
