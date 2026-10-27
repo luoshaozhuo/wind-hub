@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from hat.drivers.iec101 import common as iec101
-from types import SimpleNamespace
 
 from core.application.errors import ConfigError
 from core.application.protocol_contract import Quality
-from core.infrastructure.protocol.iec104.codec import build_command, decode_quality
 from core.domain import Point, PointAccess
 from core.domain.identities import BusinessPointId
+from core.infrastructure.protocol.iec104.codec import build_command, decode_quality
 from core.infrastructure.protocol.iec104.mapping import (
     IEC104Point,
     build_iec104_index,
