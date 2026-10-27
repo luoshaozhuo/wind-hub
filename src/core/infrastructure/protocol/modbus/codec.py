@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from math import isfinite
-import struct
 
 import pymodbus.client
 
@@ -13,8 +12,6 @@ from .mapping import ModbusPoint
 _BIT_TYPES = frozenset({"coil", "discrete_input"})
 _MULTI_REGISTER_TYPES = frozenset({"int32", "uint32", "float32", "int64", "uint64", "float64"})
 _INTEGER_RANGES: dict[str, tuple[int, int]] = {
-    "int8": (-128, 127),
-    "uint8": (0, 255),
     "int16": (-32768, 32767),
     "uint16": (0, 65535),
     "int32": (-2147483648, 2147483647),
@@ -31,14 +28,7 @@ def _decode_point(
         raise ValueError("empty Modbus response segment")
 
     if point.register_type in _BIT_TYPES:
-        raw = segment[0]
-        if point.data_type == "bool":
-            return bool(raw)
-        if isinstance(raw, bool):
-            return int(raw)
-        if isinstance(raw, int):
-            return raw
-        raise TypeError("Modbus bit response is not boolean/integer")
+        return bool(segment[0])
 
     registers = [_strict_register(value) for value in segment]
     return _decode_registers(registers, point.data_type, point.word_order)
@@ -50,13 +40,6 @@ def _decode_registers(
     word_order: str,
 ) -> object:
     first = registers[0]
-    if data_type == "bool":
-        return bool(first & 0x01)
-    if data_type == "int8":
-        value = first & 0xFF
-        return value if value < 0x80 else value - 0x100
-    if data_type == "uint8":
-        return first & 0xFF
     if data_type == "int16":
         return first if first < 0x8000 else first - 0x10000
     if data_type == "uint16":
@@ -82,15 +65,10 @@ def _encode_registers(
     data_type: str,
     word_order: str,
 ) -> list[int]:
-    if data_type == "bool":
-        if type(value) is not bool:
-            raise TypeError("boolean Modbus point requires bool value")
-        return [1 if value else 0]
-
     integer_range = _INTEGER_RANGES.get(data_type)
     if integer_range is not None:
         number: int | float = _strict_integer_value(value, data_type, integer_range)
-        if data_type in {"int8", "uint8", "int16", "uint16"}:
+        if data_type in {"int16", "uint16"}:
             return [int(number) & 0xFFFF]
     elif data_type in {"float32", "float64"}:
         number = _strict_float_value(value, data_type)
@@ -110,16 +88,9 @@ def _encode_registers(
 
 
 def _encode_coil(value: object, data_type: str) -> bool:
-    if data_type == "bool":
-        if type(value) is not bool:
-            raise TypeError("boolean coil requires bool value")
-        return value
-
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise TypeError("numeric coil requires 0 or 1")
-    if value not in (0, 1):
-        raise ValueError("numeric coil requires 0 or 1")
-    return bool(value)
+    if data_type != "bool" or type(value) is not bool:
+        raise TypeError("Modbus Coil requires bool value")
+    return value
 
 
 def _strict_integer_value(
