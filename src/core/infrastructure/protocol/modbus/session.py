@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, TypeVar
 
 from pymodbus.client import AsyncModbusTcpClient
 
-from core.application.errors import ProtocolConnectionError
+from core.application.errors import ProtocolConnectionError, ProtocolError
+from core.application.protocol_contract import WriteOutcome
 
 from .config import ModbusConfig
 
@@ -19,7 +20,6 @@ class _ModbusSession:
     """独占一个客户端；不对正常读写增加外部串行锁。"""
 
     def __init__(self, config: ModbusConfig) -> None:
-        self._config = config
         self._client = AsyncModbusTcpClient(
             config.host,
             port=config.port,
@@ -91,6 +91,103 @@ class _ModbusSession:
             # 业务异常响应以响应对象返回；没有收到可信响应属于连接错误。
             self.invalidate()
             raise ProtocolConnectionError(f"Modbus transaction failed: {exc}") from exc
+
+    async def read(
+        self, register_type: str, address: int, count: int, slave_id: int
+    ) -> Sequence[object]:
+        """执行一次 FC01～FC04，并校验响应结构。"""
+        async def request(client: AsyncModbusTcpClient) -> Any:
+            if register_type == "coil":
+                return await client.read_coils(address, count=count, device_id=slave_id)
+            if register_type == "discrete_input":
+                return await client.read_discrete_inputs(
+                    address, count=count, device_id=slave_id
+                )
+            if register_type == "holding":
+                return await client.read_holding_registers(
+                    address, count=count, device_id=slave_id
+                )
+            if register_type == "input":
+                return await client.read_input_registers(
+                    address, count=count, device_id=slave_id
+                )
+            raise ValueError(f"unsupported Modbus read area: {register_type}")
+
+        response = await self.execute(request)
+        expected = {"coil": 1, "discrete_input": 2, "holding": 3, "input": 4}[register_type]
+        if response.isError():
+            raise ProtocolError(f"Modbus {register_type} read exception response")
+        if getattr(response, "function_code", None) != expected:
+            self.invalidate()
+            raise ProtocolConnectionError("Modbus read function code mismatch")
+        field = "bits" if register_type in ("coil", "discrete_input") else "registers"
+        raw = getattr(response, field, None)
+        if not isinstance(raw, (list, tuple)) or len(raw) < count:
+            self.invalidate()
+            raise ProtocolConnectionError("Modbus read response incomplete")
+        return raw
+
+    async def write(
+        self,
+        register_type: str,
+        address: int,
+        values: Sequence[int | bool],
+        slave_id: int,
+    ) -> tuple[WriteOutcome, str | None]:
+        """执行单个 FC05/06/15/16 事务；未知结果不得自动重发。"""
+        count = len(values)
+        if not count or register_type not in ("coil", "holding"):
+            raise ValueError("invalid Modbus write request")
+        expected = (
+            5 if register_type == "coil" and count == 1
+            else 15 if register_type == "coil"
+            else 6 if count == 1
+            else 16
+        )
+
+        async def request(client: AsyncModbusTcpClient) -> Any:
+            if expected == 5:
+                return await client.write_coil(address, bool(values[0]), device_id=slave_id)
+            if expected == 15:
+                return await client.write_coils(
+                    address, [bool(value) for value in values], device_id=slave_id
+                )
+            if expected == 6:
+                return await client.write_register(address, int(values[0]), device_id=slave_id)
+            return await client.write_registers(
+                address, [int(value) for value in values], device_id=slave_id
+            )
+
+        try:
+            response = await self.execute(request)
+        except asyncio.CancelledError:
+            raise
+        except ProtocolConnectionError as exc:
+            return WriteOutcome.UNKNOWN, str(exc)
+
+        if response.isError():
+            code = getattr(response, "exception_code", None)
+            outcome = (
+                WriteOutcome.CONFIRMED_FAILURE if code in (1, 2, 3)
+                else WriteOutcome.UNKNOWN
+            )
+            return outcome, f"Modbus exception code: {code}"
+        if (
+            getattr(response, "function_code", None) != expected
+            or getattr(response, "address", None) != address
+        ):
+            self.invalidate()
+            return WriteOutcome.UNKNOWN, "Modbus write response mismatch"
+        if expected in (15, 16):
+            valid = getattr(response, "count", None) == count
+        elif expected == 5:
+            valid = getattr(response, "bits", None) == [bool(values[0])]
+        else:
+            valid = getattr(response, "registers", None) == [int(values[0])]
+        if not valid:
+            self.invalidate()
+            return WriteOutcome.UNKNOWN, "Modbus write echo mismatch"
+        return WriteOutcome.CONFIRMED_SUCCESS, None
 
     def invalidate(self) -> None:
         self._closing = True
