@@ -85,3 +85,47 @@ async def test_modbus_confirmed_failure_does_not_transmit(modbus_server) -> None
         assert modbus_server.write_count == before
     finally:
         await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_modbus_fc01_fc02_and_fc05_on_real_server() -> None:
+    """Coil/DiscreteInput/CoilWrite 均通过实际 Modbus TCP 请求验证。"""
+    from core.domain import ConnectionEndpoint, PointAccess
+    from core.infrastructure.protocol.modbus import ModbusDriver
+    from tests.fixtures.servers.modbus_server import ModbusMockServer
+    from tests.protocol.conftest import make_point, make_table
+    from tests.support.process import free_port
+
+    coils = [False] * 256
+    discretes = [False] * 256
+    coils[40] = True
+    discretes[41] = True
+    server = ModbusMockServer(
+        port=free_port(), coils=coils, discretes=discretes
+    )
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", server.port),
+        make_table(
+            "modbus",
+            make_point(
+                "coil", register_type="coil", address=40, data_type="bool"
+            ),
+            make_point(
+                "discrete", access=PointAccess.READ,
+                register_type="discrete_input", address=41, data_type="bool"
+            ),
+        ),
+        {},
+    )
+    await server.start()
+    try:
+        await driver.connect()
+        assert (await driver.read_one("coil")).value is True
+        assert (await driver.read_one("discrete")).value is True
+        outcome = await driver.write_one(ProtocolWrite("coil", False))
+        assert outcome.outcome is WriteOutcome.CONFIRMED_SUCCESS
+        assert server.write_count == 1
+        assert (await driver.read_one("coil")).value is False
+    finally:
+        await driver.close()
+        await server.stop()
