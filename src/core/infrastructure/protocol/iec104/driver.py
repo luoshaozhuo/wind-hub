@@ -431,7 +431,7 @@ class IEC104Driver:
                             cause=iec104.CommandReqCause.ACTIVATION,
                         )
                     await self._send(session, message)
-                    await asyncio.wait_for(future, timeout=self._config.t1 * 2)
+                    await asyncio.wait_for(future, timeout=self._config.interrogation_timeout)
                     results.extend(pending.samples.values())
                 except (TimeoutError, ProtocolError, asyncio.CancelledError) as exc:
                     await asyncio.shield(self._isolate(session))
