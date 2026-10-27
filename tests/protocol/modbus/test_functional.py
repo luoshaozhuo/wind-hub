@@ -144,10 +144,7 @@ async def test_modbus_read_plan_cache_reuse_eviction_and_reload(
     from core.domain.identities import PointTableId
     from core.infrastructure.protocol.modbus.driver import ModbusDriver
 
-    points = {
-        f"p{i}": _point(f"p{i}", address=i)
-        for i in range(40)
-    }
+    points = {f"p{i}": _point(f"p{i}", address=i) for i in range(40)}
     table = PointTable(PointTableId("cache"), Protocol("modbus"), points)
     driver = ModbusDriver(ConnectionEndpoint("127.0.0.1", 502), table, {})
 

@@ -51,7 +51,9 @@ class ModbusDriver:
         self._readable: frozenset[str] = frozenset()
         self._writable: frozenset[str] = frozenset()
         self._health_point_id: str | None = None
-        self._read_plan_cache: OrderedDict[tuple[str, ...], tuple[tuple[ModbusPoint, ...], ...]] = OrderedDict()
+        self._read_plan_cache: OrderedDict[tuple[str, ...], tuple[tuple[ModbusPoint, ...], ...]] = (
+            OrderedDict()
+        )
         self._session: _ModbusSession | None = None
         self._lifecycle = asyncio.Lock()
         self.update_point_table(point_table)

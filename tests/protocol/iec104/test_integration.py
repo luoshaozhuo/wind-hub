@@ -139,9 +139,7 @@ async def test_iec104_general_interrogation_samples_reach_existing_listener(
     await driver.connect()
     listener = await driver.listen(["power"], callback)
     try:
-        result = await driver.interrogate(
-            InterrogationRequest(kind="station", common_address=1)
-        )
+        result = await driver.interrogate(InterrogationRequest(kind="station", common_address=1))
         assert any(sample.point_id == "power" for sample in result)
         await asyncio.wait_for(received.wait(), timeout=5.0)
         assert any(sample.value == pytest.approx(1500.5) for sample in samples)
@@ -173,9 +171,7 @@ async def test_iec104_all_five_command_types_with_act_term(
     from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
     from tests.protocol.conftest import make_point, make_table
 
-    server = IEC104ControlServer(
-        command_points={1001: getattr(c104.Type, command_type)}
-    )
+    server = IEC104ControlServer(command_points={1001: getattr(c104.Type, command_type)})
     driver = IEC104Driver(
         ConnectionEndpoint("127.0.0.1", server.port),
         make_table(

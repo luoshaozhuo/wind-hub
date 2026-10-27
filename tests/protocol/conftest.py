@@ -130,7 +130,15 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         ):
             item.add_marker(pytest.mark.real_service)
         if suffix == "fault_injection" and item.path.parent.name in {"iec104", "modbus"}:
-            if item.name.startswith(("test_server_", "test_restart_", "test_write_ack_", "test_modbus_failed_", "test_iec104_disconnect_")):
+            if item.name.startswith(
+                (
+                    "test_server_",
+                    "test_restart_",
+                    "test_write_ack_",
+                    "test_modbus_failed_",
+                    "test_iec104_disconnect_",
+                )
+            ):
                 item.add_marker(pytest.mark.real_service)
             else:
                 item.add_marker(pytest.mark.mock_service)

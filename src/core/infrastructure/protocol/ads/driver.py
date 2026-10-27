@@ -164,7 +164,9 @@ class ADSDriver:
                             _ACTIVE_SESSIONS.discard(session)
                             self._session = None
                             if _LOCAL_IDENTITY is None:
-                                raise ConfigError("ADS local AMS identity is not initialized") from exc
+                                raise ConfigError(
+                                    "ADS local AMS identity is not initialized"
+                                ) from exc
                             async with _REMOTE_ROUTE_LOCK:
                                 # shield keeps native route registration alive if the caller
                                 # is cancelled. _ROUTE_TASKS then prevents close_local()
@@ -188,7 +190,9 @@ class ADSDriver:
 
                                 route_task.add_done_callback(release_route)
                                 if not await asyncio.shield(route_task):
-                                    raise ProtocolError("ADS automatic route registration failed") from exc
+                                    raise ProtocolError(
+                                        "ADS automatic route registration failed"
+                                    ) from exc
                             continue
 
                         timeout_ms = (

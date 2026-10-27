@@ -145,12 +145,20 @@ async def test_modbus_slave_identity_isolation(modbus_server) -> None:
         make_table(
             "modbus",
             make_point(
-                "unit1", access=PointAccess.READ, register_type="holding",
-                address=100, data_type="float32", slave_id=1,
+                "unit1",
+                access=PointAccess.READ,
+                register_type="holding",
+                address=100,
+                data_type="float32",
+                slave_id=1,
             ),
             make_point(
-                "unit2", access=PointAccess.READ, register_type="holding",
-                address=100, data_type="float32", slave_id=2,
+                "unit2",
+                access=PointAccess.READ,
+                register_type="holding",
+                address=100,
+                data_type="float32",
+                slave_id=2,
             ),
         ),
         {"word_order": "big_endian"},
@@ -158,9 +166,7 @@ async def test_modbus_slave_identity_isolation(modbus_server) -> None:
     await driver.connect()
     try:
         result = await driver.read_many(["unit2", "unit1", "unit2"])
-        assert [sample.value for sample in result] == pytest.approx(
-            [900.5, 1200.5, 900.5]
-        )
+        assert [sample.value for sample in result] == pytest.approx([900.5, 1200.5, 900.5])
     finally:
         await driver.close()
 
@@ -185,8 +191,11 @@ async def test_modbus_little_endian_word_order_over_real_tcp() -> None:
         make_table(
             "modbus",
             make_point(
-                "value", access=PointAccess.READ, register_type="holding",
-                address=100, data_type="float32",
+                "value",
+                access=PointAccess.READ,
+                register_type="holding",
+                address=100,
+                data_type="float32",
             ),
         ),
         {"word_order": "little_endian"},
