@@ -675,7 +675,7 @@ Watchdog 保留现有 `on_success`，TaskRuntime 负责按设备恢复期望 RUN
 | 业务 | 关联域 | Driver 私有请求数据 | 串行规则 |
 |---|---|---|---|
 | Read | `(CA, IOA)` | 点映射快照、Future、预期监视类型、发送状态 | 同键排队 |
-| Direct/SBO | `(CA, IOA)` + Type ID/阶段校验 | 值、限定词、阶段、确认记录、Future | 同点禁止重叠；同 CA SBO 默认串行 |
+| Direct/SBO | `(CA, IOA)` + Type ID/阶段校验 | 值、限定词、阶段、确认记录、Future | 同点禁止重叠；不同 IOA 的控制允许并发 |
 | 召唤 | `CA` | kind、QOI/QCC、阶段、归集样本、Future | 同 CA 普通/电度量召唤串行 |
 
 并发资格由一次性请求登记及按键异步锁协调。不要自制无限队列；同一关联域的锁只覆盖操作生命周期，传输收发仍由 Session 完成。读与写只在响应类型/COT 确保不会歧义时交叠；不能假设所有从站能正确回显 OA/限定词。
@@ -785,6 +785,107 @@ sequenceDiagram
 
 # 8. 业务交互与确认状态机
 
+## 8.0 统一接收及读写业务时序
+
+```mermaid
+%%{init: {"sequence": {"useMaxWidth": true}}}%%
+sequenceDiagram
+    autonumber
+    participant Caller as 调用方
+    participant Driver as IEC104Driver
+    participant Session as IEC104Session
+    participant Device as IEC104从站
+    participant Dispatch as _dispatch
+    participant Listener as Listener
+
+    alt read_one 主动读取
+        Caller->>Driver: read_one(point_id)
+        Driver->>Driver: 测点锁、登记 Read Future
+        Driver->>Session: send(C_RD_NA_1)
+        Session->>Device: C_RD_NA_1
+        Device-->>Session: DataMsg, COT=5
+        Session->>Dispatch: on_message(DataMsg)
+        Dispatch->>Driver: 按CA/IOA/Type ID匹配Read
+        Driver->>Driver: Read Future.set_result(sample)
+        Driver-->>Caller: ProtocolSample
+    else write_one Direct
+        Caller->>Driver: write_one(write)
+        Driver->>Driver: 测点锁、登记Control Future
+        Driver->>Session: send(CommandMsg EXECUTE)
+        Session->>Device: C_SC/C_DC/C_SE
+        Device-->>Session: CommandMsg ACT_CON
+        Session->>Dispatch: on_message(CommandMsg)
+        Dispatch->>Driver: 命令、CA/IOA、阶段确认
+        opt confirmation=act_term
+            Device-->>Session: CommandMsg ACT_TERM
+            Session->>Dispatch: on_message(CommandMsg)
+            Dispatch->>Driver: 终态确认
+        end
+        Driver->>Driver: Control Future.set_result(response)
+        Driver-->>Caller: ProtocolWriteResult
+    else write_one Select-Execute
+        Caller->>Driver: write_one(write)
+        Driver->>Driver: 测点锁、登记SELECT Future
+        Driver->>Session: send(CommandMsg SELECT)
+        Session->>Device: SELECT
+        Device-->>Session: CommandMsg ACT_CON
+        Session->>Dispatch: on_message(CommandMsg)
+        Dispatch->>Driver: SELECT Future完成
+        opt SELECT肯定确认
+            Driver->>Driver: 登记EXECUTE Future
+            Driver->>Session: send(CommandMsg EXECUTE)
+            Session->>Device: EXECUTE
+            Device-->>Session: CommandMsg ACT_CON/ACT_TERM
+            Session->>Dispatch: on_message(CommandMsg)
+            Dispatch->>Driver: EXECUTE Future完成
+        end
+        Driver-->>Caller: ProtocolWriteResult
+    else interrogate 总召
+        Caller->>Driver: interrogate(request)
+        Driver->>Driver: CA锁、登记Interrogation Future
+        Driver->>Session: send(C_IC_NA_1/C_CI_NA_1)
+        Session->>Device: 召唤请求
+        Device-->>Session: ACT_CON
+        Session->>Dispatch: on_message(InterrogationMsg)
+        Dispatch->>Driver: 标记召唤已接受
+        loop 召唤样本
+            Device-->>Session: DataMsg COT=20..41
+            Session->>Dispatch: on_message(DataMsg)
+            Dispatch->>Driver: 按CA、COT归集样本
+        end
+        Device-->>Session: ACT_TERM
+        Session->>Dispatch: on_message(InterrogationMsg)
+        Dispatch->>Driver: Interrogation Future完成
+        Driver-->>Caller: ProtocolSample集合
+    else listen 主动上送
+        Caller->>Driver: listen(point_ids, callback)
+        Driver->>Listener: 注册本地过滤器
+        Driver-->>Caller: ListenHandle
+        Device-->>Session: DataMsg COT=1/2/3
+        Session->>Dispatch: on_message(DataMsg)
+        Dispatch->>Listener: offer(samples)
+        Listener-->>Caller: callback(samples)
+    end
+```
+<p class="figure-caption">图 8-0 IEC104 统一接收及读、写、总召和监听时序</p>
+
+所有 IEC104 应用层报文由 Session 的唯一接收任务送至 `_dispatch`。`_dispatch` 依据**消息类型 + COT + Session 来源 + CA/IOA + 控制阶段**路由；不直接完成业务调用。读取结果仅完成 Read Future，控制确认仅完成 Control Future，召唤响应仅进入归集与 Interrogation Future。只有允许的监视上送 COT 能交付 Listener。控制确认不可由监视解码处理，也不投递到 Listener。
+
+### COT 路由契约
+
+| 报文与 COT | 接收目标 | 不允许的目标 |
+|---|---|---|
+| `DataMsg`，1/2/3 | Listener | Read Future、Control Future、Interrogation 归集 |
+| `DataMsg`，5 | 匹配的 Read Future | Listener、Control Future |
+| `DataMsg`，20～36 | 已接受的普通召唤归集 | Listener、Read Future |
+| `DataMsg`，37～41 | 已接受的电度量召唤归集 | Listener、Read Future |
+| `CommandMsg`，ACT_CON/ACT_TERM/错误原因 | 匹配的 Control Future 及必要的控制清理状态 | Read Future、Listener |
+| `InterrogationMsg/CounterInterrogationMsg`，确认/终止/拒绝 | 匹配的 Interrogation Future | Read Future、Control Future、Listener |
+| `ReadMsg`，显式拒绝 | 匹配的 Read Future 异常 | Control Future、Listener |
+| 其他、不匹配或迟到的消息 | 诊断或丢弃；如有歧义则隔离旧 Session | 不得错误完成任何新 Future |
+
+接收端函数命名为 `_dispatch_monitoring()`（处理 `DataMsg`）、`_dispatch_command_response()`（处理 `CommandMsg`）、`_dispatch_interrogation_response()`（处理召唤确认）和 `_dispatch_read_rejection()`。删除语义不明的 `_data()`。上述名称代表后续生产代码整改目标，不能以更新设计文档替代代码实现。
+
 ## 8.1 主动读取
 
 ```mermaid
@@ -881,7 +982,7 @@ sequenceDiagram
   S-->>D: 请求接受
   loop 数据报文
     P-->>S: COT=20..36 或 37..41
-    S-->>D: 样本归集 + listen 投递
+    S-->>D: 仅召唤样本归集，不向 Listener 投递
   end
   P-->>S: ACT_TERM
   S-->>D: 对应召唤完成
