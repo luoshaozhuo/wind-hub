@@ -17,6 +17,7 @@ import asyncio
 import contextlib
 import logging
 import math
+from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -251,6 +252,7 @@ async def start_ads_server(
             )
         )
     server = AdsTestServer(handler=handler, ip_address=host, port=port, logging=False)
+    server.request_history = deque(maxlen=1024)
     server.start()
     logger.info("perf ADS testserver listening on %s:%d (%d vars)", host, port, num_vars)
     try:

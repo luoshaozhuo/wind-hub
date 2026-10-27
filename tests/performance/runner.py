@@ -91,7 +91,7 @@ def get_device_config(protocol: str, host: str, port: int) -> dict[str, dict[str
     if protocol == "modbus":
         protocol_options: dict[str, object] = {"slave_id": 1}
     elif protocol == "iec104":
-        protocol_options = {"common_addresses": "1"}
+        protocol_options = {}
     else:  # ads
         # max_subs_per_sum=256：单条 Sum 请求 ~330+ 子命令会撑爆 pyads
         # testserver 的 4096 接收缓冲（截断后永不应答），256 留足余量
@@ -126,7 +126,7 @@ def get_point_configs(protocol: str, num_points: int) -> dict[str, dict[str, obj
             data_type = "int16"
             point_id = f"r.{i:04d}"
         elif protocol == "iec104":
-            address = {"ioa": 1001 + i}
+            address = {"ca": 1, "ioa": 1001 + i, "type_id": "M_ME_NC_1"}
             data_type = "float32"
             point_id = f"mv.{i:04d}"
         else:  # ads（Sum 批量读要求符号寻址）

@@ -65,7 +65,6 @@ def _iec104_config(base: Path, port: int, redis_address: str) -> Path:
                     "port": port,
                 },
                 "protocol_options": {
-                    "common_addresses": "1",
                     # 缩短协议定时器；断连后由 Watchdog 显式重连并恢复
                     # LISTEN + 总召（恢复阶段不依赖人工干预）。
                     "t0": 5.0,

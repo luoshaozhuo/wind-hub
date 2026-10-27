@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from hat.drivers import iec104
+from hat.drivers.iec101 import common as iec101
 
 from core.application.errors import (
     ConfigError,
@@ -566,9 +567,9 @@ class IEC104Driver:
             getattr(received, "select", False)
         ):
             return False
-        if isinstance(expected, iec104.NormalizedCommand):
+        if isinstance(expected, iec101.NormalizedCommand):
             return abs(expected.value.value - received.value.value) <= 1 / 32767
-        if isinstance(expected, iec104.FloatingCommand):
+        if isinstance(expected, iec101.FloatingCommand):
             import math
 
             return math.isclose(
