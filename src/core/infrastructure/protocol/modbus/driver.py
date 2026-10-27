@@ -114,16 +114,16 @@ class ModbusDriver:
         configured = self._config.health_point_id
         if configured is not None and configured not in points:
             raise ConfigError(f"unknown Modbus health point: {configured}")
-        self._readable = frozenset(
+        readable = frozenset(
             point.point_id for point in point_table.points.values()
             if point.access in (PointAccess.READ, PointAccess.READ_WRITE)
         )
-        self._writable = frozenset(
+        writable = frozenset(
             point.point_id for point in point_table.points.values()
             if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE)
         )
         writable_points = sorted(
-            (points[point_id] for point_id in self._writable),
+            (points[point_id] for point_id in writable),
             key=lambda item: (item.slave_id, item.register_type, item.address),
         )
         for previous, current in zip(writable_points, writable_points[1:]):
@@ -136,13 +136,13 @@ class ModbusDriver:
                     f"overlapping Modbus writable points: "
                     f"{previous.point_id} and {current.point_id}"
                 )
-        if configured is not None and configured not in self._readable:
+        if configured is not None and configured not in readable:
             raise ConfigError(f"Modbus health point '{configured}' is not readable")
+        first_readable = next((key for key in points if key in readable), None)
         self._points = points
+        self._readable = readable
+        self._writable = writable
         self._point_table_id = point_table.point_table_id
-        first_readable = next(
-            (point_id for point_id in points if point_id in self._readable), None
-        )
         self._health_point_id = configured or first_readable
 
     async def connect(self) -> None:
