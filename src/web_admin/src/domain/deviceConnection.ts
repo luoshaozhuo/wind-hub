@@ -68,12 +68,12 @@ export function defaultConnectionForm(protocol: Protocol): ConnectionFormState {
     slave_id: 1,
     mode: 'tcp',
     word_order: 'little_endian',
-      k: 12,
+    k: 12,
     w: 8,
-    t0: 30,
-    t1: 15,
-    t2: 10,
-    t3: 20,
+    t0: 5,
+    t1: 5,
+    t2: 1,
+    t3: 10,
   }
 }
 
