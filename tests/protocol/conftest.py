@@ -39,7 +39,7 @@ def make_table(protocol: str, *points: Point) -> PointTable:
     )
 
 
-def modbus_driver(port: int) -> ModbusDriver:
+def modbus_driver(port: int, *, timeout: float = 5.0) -> ModbusDriver:
     table = make_table(
         "modbus",
         make_point("speed", access=PointAccess.READ, register_type="holding", address=100, data_type="float32"),
@@ -47,7 +47,7 @@ def modbus_driver(port: int) -> ModbusDriver:
         make_point("command", register_type="holding", address=200, data_type="float32"),
         make_point("temperature", register_type="holding", address=104, data_type="int16"),
     )
-    return ModbusDriver(ConnectionEndpoint("127.0.0.1", port), table, {"word_order": "big_endian"})
+    return ModbusDriver(ConnectionEndpoint("127.0.0.1", port), table, {"word_order": "big_endian", "timeout": timeout})
 
 
 def iec104_driver(port: int) -> IEC104Driver:
