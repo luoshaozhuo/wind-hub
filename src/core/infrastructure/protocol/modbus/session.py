@@ -58,10 +58,10 @@ class _ModbusSession:
             # 请求可能已提交：旧会话不可复用，禁止自动重试。
             self.invalidate()
             raise
-        except Exception:
-            # 协议异常响应由 Driver 判定；库异常可能意味着响应未到达。
+        except Exception as exc:
+            # 业务异常响应以响应对象返回；没有收到可信响应属于连接错误。
             self.invalidate()
-            raise
+            raise ProtocolConnectionError(f"Modbus transaction failed: {exc}") from exc
 
     def invalidate(self) -> None:
         self._closing = True
