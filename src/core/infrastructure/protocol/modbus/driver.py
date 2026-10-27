@@ -1,11 +1,10 @@
-"""Modbus TCP ProtocolPort；业务读写直达 PyModbus 原生事务。"""
+"""Modbus TCP ProtocolPort；组织测点读写，协议事务交由 Session。"""
 
 from __future__ import annotations
 
 import asyncio
 import struct
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from core.application.errors import (
@@ -33,28 +32,6 @@ from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
 from .session import _ModbusSession
 
 _READ_ONLY = frozenset({"discrete_input", "input"})
-_MAX_WRITE_BITS = 1968
-_MAX_WRITE_WORDS = 123
-
-
-@dataclass(frozen=True, slots=True)
-class _WriteItem:
-    index: int
-    point: ModbusPoint
-    values: tuple[int | bool, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class _WriteBlock:
-    items: tuple[_WriteItem, ...]
-    start: int
-    values: tuple[int | bool, ...]
-
-    @property
-    def point(self) -> ModbusPoint:
-        return self.items[0].point
-
-
 class ModbusDriver:
     """一个 endpoint 对应一个当前 Session；不持有第三方请求锁。"""
 
@@ -79,7 +56,6 @@ class ModbusDriver:
             ProtocolCapability.READ,
             ProtocolCapability.READ_MANY,
             ProtocolCapability.WRITE,
-            ProtocolCapability.WRITE_MANY,
         })
 
     def update_point_table(self, point_table: PointTable) -> None:
@@ -213,50 +189,36 @@ class ModbusDriver:
         return tuple(samples[point] for point in points)
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        """编码单个测点并执行一次 Modbus 写事务。"""
         point = self._point(write.point)
         if point.point_id not in self._writable:
             return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, "point not writable")
         try:
-            item = _make_item(0, point, write.value)
+            if point.register_type in _READ_ONLY:
+                raise ValueError(f"{point.register_type} is read-only")
+            if point.register_type == "coil":
+                values: tuple[int | bool, ...] = (
+                    _encode_coil(write.value, point.data_type),
+                )
+            else:
+                values = tuple(
+                    _encode_registers(write.value, point.data_type, point.word_order)
+                )
+            if len(values) != point.count:
+                raise ValueError("write encoder length does not match point span")
         except (TypeError, ValueError, struct.error) as exc:
             return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, str(exc))
-        session = self._require_session()
-        block = _make_block((item,))
-        return await _execute_write(session, block, point.point_id)
+
+        outcome, message = await self._require_session().write(
+            point.register_type, point.address, values, point.slave_id
+        )
+        return _result(point.point_id, outcome, message)
 
     async def write_many(
         self, writes: Sequence[ProtocolWrite]
     ) -> tuple[ProtocolWriteResult, ...]:
-        if not writes:
-            return ()
-        # 完整预检后才允许任何物理写入，禁止同一请求内重叠地址。
-        try:
-            if any(write.point not in self._writable for write in writes):
-                raise ConfigError("Modbus write_many contains a read-only point")
-            items = tuple(
-                _make_item(i, self._point(w.point), w.value)
-                for i, w in enumerate(writes)
-            )
-            blocks = _plan_writes(items)
-        except (ConfigError, TypeError, ValueError, struct.error) as exc:
-            return tuple(_result(w.point, WriteOutcome.CONFIRMED_FAILURE, str(exc)) for w in writes)
-        session = self._require_session()
-        results: list[ProtocolWriteResult] = [
-            _result(w.point, WriteOutcome.CONFIRMED_FAILURE, "not submitted")
-            for w in writes
-        ]
-        deadline = asyncio.get_running_loop().time() + self._config.timeout
-        for block in blocks:
-            if asyncio.get_running_loop().time() >= deadline:
-                break
-            response_result = await _execute_write(session, block, block.point.point_id)
-            for item in block.items:
-                results[item.index] = _result(
-                    item.point.point_id, response_result.outcome, response_result.message
-                )
-            if response_result.outcome is not WriteOutcome.CONFIRMED_SUCCESS:
-                break
-        return tuple(results)
+        """不支持多逻辑测点批量写入；单测点可使用 FC16。"""
+        raise ProtocolCapabilityError("Modbus adapter does not support write_many")
 
     def subscribe(
         self,
@@ -298,71 +260,6 @@ def _sample(
         timestamp=now,
         receive_time=now,
     )
-
-
-def _make_item(index: int, point: ModbusPoint, value: object) -> _WriteItem:
-    if point.register_type in _READ_ONLY:
-        raise ValueError(f"{point.register_type} is read-only")
-    if point.register_type == "coil":
-        encoded: tuple[int | bool, ...] = (_encode_coil(value, point.data_type),)
-    else:
-        encoded = tuple(_encode_registers(value, point.data_type, point.word_order))
-    if len(encoded) != point.count:
-        raise ValueError("write encoder length does not match point span")
-    return _WriteItem(index, point, encoded)
-
-
-def _make_block(items: tuple[_WriteItem, ...]) -> _WriteBlock:
-    return _WriteBlock(
-        items=items,
-        start=items[0].point.address,
-        values=tuple(word for item in items for word in item.values),
-    )
-
-
-def _plan_writes(items: tuple[_WriteItem, ...]) -> tuple[_WriteBlock, ...]:
-    ordered = sorted(
-        items, key=lambda item: (item.point.slave_id, item.point.register_type, item.point.address)
-    )
-    result: list[_WriteBlock] = []
-    current: list[_WriteItem] = []
-    end = 0
-    for item in ordered:
-        limit = _MAX_WRITE_BITS if item.point.register_type == "coil" else _MAX_WRITE_WORDS
-        if len(item.values) > limit:
-            raise ValueError("single Modbus point exceeds FC15/FC16 limit")
-        if current:
-            prev = current[0].point
-            same_area = (
-                prev.slave_id == item.point.slave_id
-                and prev.register_type == item.point.register_type
-            )
-            if same_area and item.point.address < end:
-                raise ValueError(f"overlapping Modbus write at {item.point.address}")
-            if (
-                not same_area
-                or item.point.address != end
-                or item.point.address + item.point.count - current[0].point.address > limit
-            ):
-                result.append(_make_block(tuple(current)))
-                current = []
-        current.append(item)
-        end = item.point.address + item.point.count
-    if current:
-        result.append(_make_block(tuple(current)))
-    return tuple(result)
-
-
-async def _execute_write(
-    session: _ModbusSession, block: _WriteBlock, point_id: str
-) -> ProtocolWriteResult:
-    outcome, message = await session.write(
-        block.point.register_type,
-        block.start,
-        block.values,
-        block.point.slave_id,
-    )
-    return _result(point_id, outcome, message)
 
 
 def _result(
