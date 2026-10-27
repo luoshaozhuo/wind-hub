@@ -163,7 +163,11 @@ class ModbusDriver:
             try:
                 await session.open()
             except BaseException:
-                self._events.transition(ProtocolLifecycleState.DISCONNECTED)
+                self._events.transition(
+                    ProtocolLifecycleState.DISCONNECTED
+                    if session.closed
+                    else ProtocolLifecycleState.FAULTED
+                )
                 raise
             self._events.transition(ProtocolLifecycleState.CONNECTED)
 
