@@ -32,8 +32,7 @@ class _ModbusSession:
         self._active: set[asyncio.Task[Any]] = set()
         self._close_task: asyncio.Task[None] | None = None
 
-    @property
-    def connected(self) -> bool:
+    def is_open(self) -> bool:
         return not self._closing and self._client.connected
 
     @property
@@ -63,12 +62,12 @@ class _ModbusSession:
             raise
 
     async def _execute(self, request: Callable[[AsyncModbusTcpClient], Awaitable[_T]]) -> _T:
-        if not self.connected:
+        if not self.is_open():
             raise ProtocolConnectionError("Modbus session is not connected")
         # Task 保存底层事务所有权；取消调用方不会误认为网络请求已停止。
         async def invoke() -> _T:
             # 任务排队期间发生 close/cancel 时，不允许迟到提交请求。
-            if not self.connected:
+            if not self.is_open():
                 raise ProtocolConnectionError("Modbus session closed before submission")
             return await request(self._client)
 
@@ -159,7 +158,7 @@ class _ModbusSession:
             )
 
         try:
-            response = await self.execute(request)
+            response = await self._execute(request)
         except asyncio.CancelledError:
             raise
         except ProtocolConnectionError as exc:
