@@ -27,7 +27,7 @@ from core.application.protocol_contract import (
 )
 from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolOptions
 
-from .codec import _as_point_scalar, _decode_point, _encode_coil, _encode_registers
+from .codec import _encode_coil, _encode_registers, decode
 from .config import parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
 from .session import _ModbusSession
@@ -283,9 +283,10 @@ class ModbusDriver:
 def _sample(
     point: ModbusPoint, raw: Sequence[object], received_at: datetime | None = None
 ) -> ProtocolSample:
+    """统一将单个测点原始数据解码为带质量和本地时标的协议样本。"""
     now = received_at or datetime.now(UTC)
     try:
-        value = _as_point_scalar(_decode_point(point, raw))
+        value = decode(point, raw)
         quality = Quality.GOOD
     except (IndexError, TypeError, ValueError, struct.error):
         value = None
