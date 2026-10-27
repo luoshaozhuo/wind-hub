@@ -22,3 +22,26 @@ async def test_iec104_repeated_reads_keep_correlated_values(iec104_server) -> No
             assert driver.is_open()
     finally:
         await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_iec104_long_soak_with_session_replacement(iec104_server) -> None:
+    """循环关闭和重连，验证没有旧 Session 对新事务的污染。"""
+    import asyncio
+    import time
+
+    duration = float(os.environ.get("PROTOCOL_STABILITY_SECONDS", "5"))
+    assert duration > 0
+    deadline = time.monotonic() + duration
+    cycles = 0
+    while time.monotonic() < deadline:
+        driver = iec104_driver(iec104_server.port)
+        await driver.connect()
+        try:
+            samples = await asyncio.gather(*(driver.read_one("power") for _ in range(4)))
+            assert all(sample.value == pytest.approx(1500.5) for sample in samples)
+        finally:
+            await driver.close()
+        assert not driver.is_open()
+        cycles += 1
+    assert cycles > 0
