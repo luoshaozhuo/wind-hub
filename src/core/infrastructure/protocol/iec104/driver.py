@@ -235,16 +235,11 @@ class IEC104Driver:
             raise ConfigError(f"IEC104 point not configured: {key}") from exc
 
     async def health(self) -> ConnectionHealth:
+        """被动探测连接与 Listener，不能由 Watchdog 健康检查发 C_RD。"""
         if not self.is_open():
             return ConnectionHealth(False, "IEC104 session unavailable")
         if any(listener.failed or listener.task.done() for listener in self._listeners):
             return ConnectionHealth(False, "IEC104 listener stopped; acquisition recovery required")
-        if self._health_point_id is None:
-            return ConnectionHealth(False, "no readable IEC104 point available for health check")
-        try:
-            await self.read_one(self._health_point_id)
-        except Exception as exc:
-            return ConnectionHealth(False, str(exc))
         return ConnectionHealth(True)
 
     async def read_one(self, point_id: str) -> ProtocolSample:
@@ -562,18 +557,37 @@ class IEC104Driver:
         expected = 37 if pending.group is None else 37 + pending.group
         return getattr(cause, "value", cause) == expected
 
+    @staticmethod
+    def _same_command(expected: object, received: object) -> bool:
+        """按命令类型和控制位匹配回显，容忍 IEC104 有损线路数值量化。"""
+        if type(expected) is not type(received):
+            return False
+        if bool(getattr(expected, "select", False)) != bool(
+            getattr(received, "select", False)
+        ):
+            return False
+        if isinstance(expected, iec104.NormalizedCommand):
+            return abs(expected.value.value - received.value.value) <= 1 / 32767
+        if isinstance(expected, iec104.FloatingCommand):
+            import math
+
+            return math.isclose(
+                expected.value.value, received.value.value, rel_tol=1e-6, abs_tol=1e-7
+            )
+        return expected == received
+
     def _handle_write(self, msg: iec104.CommandMsg) -> None:
         key = (msg.asdu_address, msg.io_address)
         if not msg.is_test and msg.cause == iec104.CommandResCause.ACTIVATION_TERMINATION:
             previous = self._unsettled_controls.get(key)
-            if previous is not None and previous == msg.command:
+            if previous is not None and self._same_command(previous, msg.command):
                 self._unsettled_controls.pop(key, None)
         pending = self._control.get(key)
         if pending is None or pending.result.done() or msg.is_test:
             return
         if bool(getattr(msg.command, "select", False)) != pending.select:
             return
-        if msg.command != pending.expected_command:
+        if not self._same_command(pending.expected_command, msg.command):
             return
         unknown_cause = msg.cause in (
             iec104.CommandResCause.UNKNOWN_TYPE,
