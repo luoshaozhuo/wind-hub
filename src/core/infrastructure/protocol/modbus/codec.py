@@ -65,6 +65,7 @@ def _encode_registers(
     data_type: str,
     word_order: str,
 ) -> list[int]:
+    """按配置的数据类型及寄存器字序编码单个数值写入。"""
     integer_range = _INTEGER_RANGES.get(data_type)
     if integer_range is not None:
         number: int | float = _strict_integer_value(value, data_type, integer_range)
@@ -88,6 +89,7 @@ def _encode_registers(
 
 
 def _encode_coil(value: object, data_type: str) -> bool:
+    """严格校验单线圈写入必须使用布尔值。"""
     if data_type != "bool" or type(value) is not bool:
         raise TypeError("Modbus Coil requires bool value")
     return value
@@ -98,6 +100,7 @@ def _strict_integer_value(
     data_type: str,
     value_range: tuple[int, int],
 ) -> int:
+    """校验整数写值及目标类型范围，拒绝非整数浮点数。"""
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError(f"{data_type} requires a numeric integer value")
     if isinstance(value, float) and (not isfinite(value) or not value.is_integer()):
@@ -110,6 +113,7 @@ def _strict_integer_value(
 
 
 def _strict_float_value(value: object, data_type: str) -> float:
+    """校验浮点写值并拒绝 NaN、无穷大。"""
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError(f"{data_type} requires numeric value")
     number = float(value)
@@ -119,6 +123,7 @@ def _strict_float_value(value: object, data_type: str) -> float:
 
 
 def _strict_register(value: object) -> int:
+    """校验返回的寄存器是 0～65535 范围内的整数。"""
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError("Modbus register response must be integer")
     if not 0 <= value <= 0xFFFF:
