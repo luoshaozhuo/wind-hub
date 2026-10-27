@@ -75,14 +75,18 @@
 #                    的全部 ASDU 公共地址（多 CA）；首项为点缺省 CA。
 #   timezone:       IANA 时区名（如 Asia/Shanghai），可选；未设置则
 #                    时间戳采用接收时刻，不使用主机时区猜测设备时间。
-#   health_point:   str，可选 —— 应用层健康探测点 point_id；不配置时只
-#                    判断链路健康（TCP/STARTDT/APCI）。
+#   health_point:   str，可选 —— 应用层健康探测点 point_id；不配置时自动选
+#                    第一个可读监视点。
 #   k:           int >= 1，默认 12 —— 发送窗口（未确认 I 帧上限）。
 #   w:           int >= 1 且 <= k，默认 8 —— 接收确认窗口。
-#   t0:          float > 0（秒），默认 30 —— 连接建立超时。
-#   t1:          float > 0（秒），默认 15 —— 发送/测试帧确认超时。
-#   t2:          float > 0 且 <= t1（秒），默认 10 —— 无数据时确认等待。
-#   t3:          float > 0（秒），默认 20 —— 空闲时测试帧周期。
+#   t0:          float > 0（秒），默认 5 —— TCP 建连及 STARTDT 等待超时。
+#   t1:          float > 0（秒），默认 5 —— I 帧传输层确认超时（不是业务确认）。
+#   t2:          float > 0 且 <= t1（秒），默认 1 —— 收到 I 帧后延迟确认上限。
+#   t3:          float > 0（秒），默认 10 —— 空闲链路 TESTFR 检测周期。
+#   read_timeout:          float > 0（秒），默认 2 —— 主动读取 C_RD 响应超时。
+#   command_timeout:       float > 0（秒），默认 3 —— 每个 Direct/SBO 控制阶段的业务确认超时。
+#   interrogation_timeout: float > 0（秒），默认 5 —— 每个 CA 的总召/组召完成超时；大点表可调大。
+#   以上三个业务超时独立于 t1；异步等待不会阻塞事件循环。
 
 device_types:
 
@@ -134,7 +138,10 @@ device_models:
     protocol_options:
       k: 12
       w: 8
-      t0: 30.0
-      t1: 15.0
-      t2: 10.0
-      t3: 20.0
+      t0: 5.0
+      t1: 5.0
+      t2: 1.0
+      t3: 10.0
+      read_timeout: 2.0
+      command_timeout: 3.0
+      interrogation_timeout: 5.0
