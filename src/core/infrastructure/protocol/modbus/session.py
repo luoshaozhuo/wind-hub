@@ -62,8 +62,7 @@ class _ModbusSession:
             raise
 
     async def _execute(self, request: Callable[[AsyncModbusTcpClient], Awaitable[_T]]) -> _T:
-        if not self.is_open():
-            raise ProtocolConnectionError("Modbus session is not connected")
+        """跟踪协议事务，取消调用方时继续收敛底层请求。"""
         # Task 保存底层事务所有权；取消调用方不会误认为网络请求已停止。
         async def invoke() -> _T:
             # 任务排队期间发生 close/cancel 时，不允许迟到提交请求。
