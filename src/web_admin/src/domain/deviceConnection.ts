@@ -23,6 +23,9 @@ export interface ConnectionFormState {
   t1: number
   t2: number
   t3: number
+  read_timeout: number
+  command_timeout: number
+  interrogation_timeout: number
 }
 
 /** 各协议默认端口（TwinCAT 2 ADS / Modbus TCP / IEC 60870-5-104）。 */
@@ -39,14 +42,14 @@ export const PROTOCOL_DEFAULT_PORTS: Record<Protocol, number> = {
 export const PROTOCOL_OVERRIDE_KEYS: Record<Protocol, readonly string[]> = {
   ads: ['twincat_version', 'timeout'],
   modbus: ['slave_id', 'mode', 'timeout', 'word_order'],
-  iec104: ['k', 'w', 't0', 't1', 't2', 't3'],
+  iec104: ['k', 'w', 't0', 't1', 't2', 't3', 'read_timeout', 'command_timeout', 'interrogation_timeout'],
 }
 
 /** 各协议序列化为 model connection_defaults 的键。 */
 export const PROTOCOL_DEFAULT_KEYS: Record<Protocol, readonly string[]> = {
   ads: ['port', 'timeout', 'twincat_version'],
   modbus: ['port', 'timeout', 'slave_id', 'mode', 'word_order'],
-  iec104: ['port', 'k', 'w', 't0', 't1', 't2', 't3'],
+  iec104: ['port', 'k', 'w', 't0', 't1', 't2', 't3', 'read_timeout', 'command_timeout', 'interrogation_timeout'],
 }
 
 function num(value: unknown, fallback: number): number {
@@ -74,6 +77,9 @@ export function defaultConnectionForm(protocol: Protocol): ConnectionFormState {
     t1: 5,
     t2: 1,
     t3: 10,
+    read_timeout: 2,
+    command_timeout: 3,
+    interrogation_timeout: 5,
   }
 }
 
@@ -100,6 +106,9 @@ export function formFromConnection(
     t1: num(connection.t1, base.t1),
     t2: num(connection.t2, base.t2),
     t3: num(connection.t3, base.t3),
+    read_timeout: num(connection.read_timeout, base.read_timeout),
+    command_timeout: num(connection.command_timeout, base.command_timeout),
+    interrogation_timeout: num(connection.interrogation_timeout, base.interrogation_timeout),
   }
 }
 
@@ -142,6 +151,9 @@ export function applyModelDefaults(
     form.t1 = fresh.t1
     form.t2 = fresh.t2
     form.t3 = fresh.t3
+    form.read_timeout = fresh.read_timeout
+    form.command_timeout = fresh.command_timeout
+    form.interrogation_timeout = fresh.interrogation_timeout
   }
 }
 
