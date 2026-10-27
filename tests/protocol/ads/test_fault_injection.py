@@ -105,3 +105,34 @@ def test_invalid_ads_point_is_rejected_without_network() -> None:
             ),
             {"target_net_id": "1.2.3.4.5.6"},
         )
+
+
+@pytest.mark.asyncio
+async def test_ads_failed_physical_close_remains_uncertain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """物理资源关闭未确认时不得把 Session 标记为可重新使用。"""
+    from core.infrastructure.protocol.ads.session import _AdsSession
+
+    class FaultyConnection:
+        is_open = False
+
+        def __init__(self, target: str, port: int, host: str) -> None:
+            del target, port, host
+
+        def open(self) -> None:
+            self.is_open = True
+
+        def close(self) -> None:
+            raise OSError("PLC close did not settle")
+
+    monkeypatch.setattr(
+        "core.infrastructure.protocol.ads.session.pyads.Connection", FaultyConnection
+    )
+    session = _AdsSession("1.2.3.4.5.6", 851, "127.0.0.1")
+    await session.open()
+    with pytest.raises(OSError, match="close did not settle"):
+        await session.close()
+    assert session.is_uncertain
+    assert not session.is_settled
+    assert not session.is_open
