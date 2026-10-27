@@ -110,5 +110,14 @@ withDefaults(
         :controls="controls"
         class="app-full-width"
     /></el-form-item>
+    <el-form-item label="Read Timeout (s)"
+      ><el-input-number v-model="connection.read_timeout" :min="0.1" :controls="controls" class="app-full-width"
+    /></el-form-item>
+    <el-form-item label="Command Timeout (s)"
+      ><el-input-number v-model="connection.command_timeout" :min="0.1" :controls="controls" class="app-full-width"
+    /></el-form-item>
+    <el-form-item label="Interrogation Timeout (s)"
+      ><el-input-number v-model="connection.interrogation_timeout" :min="0.1" :controls="controls" class="app-full-width"
+    /></el-form-item>
   </template>
 </template>
