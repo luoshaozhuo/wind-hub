@@ -426,11 +426,12 @@ async def _execute_write(
     if expected_function in (15, 16) and response.count != len(block.values):
         session.invalidate()
         return _result(point_id, WriteOutcome.UNKNOWN, "Modbus write count mismatch")
-    if expected_function in (5, 6):
-        expected_value = (0xFF00 if block.values[0] else 0) if expected_function == 5 else int(block.values[0])
-        if response.value != expected_value:
-            session.invalidate()
-            return _result(point_id, WriteOutcome.UNKNOWN, "Modbus write value mismatch")
+    if expected_function == 5 and response.bits != [bool(block.values[0])]:
+        session.invalidate()
+        return _result(point_id, WriteOutcome.UNKNOWN, "Modbus coil echo mismatch")
+    if expected_function == 6 and response.registers != [int(block.values[0])]:
+        session.invalidate()
+        return _result(point_id, WriteOutcome.UNKNOWN, "Modbus register echo mismatch")
     return _result(point_id, WriteOutcome.CONFIRMED_SUCCESS)
 
 
