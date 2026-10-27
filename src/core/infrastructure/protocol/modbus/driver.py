@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
+from itertools import pairwise
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
@@ -90,7 +91,7 @@ class ModbusDriver:
             (points[point_id] for point_id in writable),
             key=lambda item: (item.slave_id, item.register_type, item.address),
         )
-        for previous, current in zip(writable_points, writable_points[1:]):
+        for previous, current in pairwise(writable_points):
             if (
                 previous.slave_id == current.slave_id
                 and previous.register_type == current.register_type

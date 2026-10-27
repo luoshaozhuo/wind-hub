@@ -121,10 +121,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         if not item.path.is_relative_to(suite):
             continue
         suffix = item.path.stem.removeprefix("test_")
-        if suffix == "config_contract":
-            labels = ("unit", "fast")
-        else:
-            labels = _TEST_MARKERS.get(suffix, ())
+        labels = ("unit", "fast") if suffix == "config_contract" else _TEST_MARKERS.get(suffix, ())
         for label in labels:
             item.add_marker(getattr(pytest.mark, label))
         if suffix == "stability" and item.path.parent.name in {"iec104", "modbus"}:

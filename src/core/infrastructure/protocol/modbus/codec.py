@@ -53,7 +53,7 @@ def decode(point: ModbusPoint, values: Sequence[object]) -> bool | int | float:
         datatype,
         word_order="little" if point.word_order == "little_endian" else "big",
     )
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
+    if not isinstance(value, int | float) or isinstance(value, bool):
         raise TypeError("unexpected Modbus numeric decode result")
     return value
 

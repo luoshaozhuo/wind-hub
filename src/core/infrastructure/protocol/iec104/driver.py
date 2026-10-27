@@ -126,6 +126,7 @@ class IEC104Driver:
             if point.type_id is not None and point.type_id.startswith("M_")
         )
         configured = self._config.health_point
+        health_point_id: str | None
         if configured is not None:
             configured_point = by_id.get(configured)
             if (
@@ -487,6 +488,9 @@ class IEC104Driver:
                         self._handle_read(msg, received_at)
                     elif 20 <= cot <= 41:
                         self._handle_interrogation(msg, received_at)
+                        sample = self._handle_listen(msg, received_at)
+                        if sample is not None:
+                            samples.append(sample)
                     elif cot in (1, 2, 3):
                         sample = self._handle_listen(msg, received_at)
                         if sample is not None:

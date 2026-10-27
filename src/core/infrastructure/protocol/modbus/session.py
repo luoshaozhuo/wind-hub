@@ -116,10 +116,10 @@ class _ModbusSession:
             raise ProtocolConnectionError("Modbus read function code mismatch")
         field = "bits" if register_type in ("coil", "discrete_input") else "registers"
         raw = getattr(response, field, None)
-        if not isinstance(raw, (list, tuple)) or len(raw) < count:
+        if not isinstance(raw, list | tuple) or len(raw) < count:
             self.invalidate()
             raise ProtocolConnectionError("Modbus read response incomplete")
-        return raw
+        return raw[:count]
 
     async def write(
         self,
@@ -128,27 +128,17 @@ class _ModbusSession:
         values: Sequence[int | bool],
         slave_id: int,
     ) -> tuple[WriteOutcome, str | None]:
-        """执行单个 FC05/06/15/16 事务；未知结果不得自动重发。"""
+        """执行单个 FC05/06/16 事务；未知结果不得自动重发。"""
         count = len(values)
         if not count or register_type not in ("coil", "holding"):
             raise ValueError("invalid Modbus write request")
-        expected = (
-            5
-            if register_type == "coil" and count == 1
-            else 15
-            if register_type == "coil"
-            else 6
-            if count == 1
-            else 16
-        )
+        expected = 5 if register_type == "coil" else 6 if count == 1 else 16
+        if register_type == "coil" and count != 1:
+            raise ValueError("multi-coil write is unsupported")
 
         async def request(client: AsyncModbusTcpClient) -> Any:
             if expected == 5:
                 return await client.write_coil(address, bool(values[0]), device_id=slave_id)
-            if expected == 15:
-                return await client.write_coils(
-                    address, [bool(value) for value in values], device_id=slave_id
-                )
             if expected == 6:
                 return await client.write_register(address, int(values[0]), device_id=slave_id)
             return await client.write_registers(
@@ -172,7 +162,7 @@ class _ModbusSession:
         ):
             self.invalidate()
             return WriteOutcome.UNKNOWN, "Modbus write response mismatch"
-        if expected in (15, 16):
+        if expected == 16:
             valid = getattr(response, "count", None) == count
         elif expected == 5:
             valid = getattr(response, "bits", None) == [bool(values[0])]

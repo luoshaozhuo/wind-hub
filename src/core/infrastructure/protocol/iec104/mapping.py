@@ -81,9 +81,10 @@ def parse_iec104_point(point: Point) -> IEC104Point:
         options.get("type_id", options.get("type")),
         point.point_id,
     )
-    if type_id is not None and type_id in _MONITORING_TYPE_IDS:
-        if "command_mode" in options or "confirmation" in options:
-            raise ConfigError(f"IEC104 monitoring point '{point.point_id}' has command options")
+    if type_id in _MONITORING_TYPE_IDS and (
+        "command_mode" in options or "confirmation" in options
+    ):
+        raise ConfigError(f"IEC104 monitoring point '{point.point_id}' has command options")
     command_mode = options.get("command_mode", "direct")
     confirmation = options.get("confirmation", "act_term")
     if command_mode not in ("direct", "select_execute"):
