@@ -49,6 +49,10 @@ async def test_real_ads_server_single_read_write_and_batch() -> None:
             assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
             updated = await driver.read_one("power")
             assert updated.value == pytest.approx(15.0)
+            batch = await driver.write_many([ProtocolWrite("power", 17.5)])
+            assert len(batch) == 1
+            assert batch[0].outcome is WriteOutcome.CONFIRMED_SUCCESS
+            assert (await driver.read_one("power")).value == pytest.approx(17.5)
         finally:
             await driver.close()
             await ADSDriver.close_local()
