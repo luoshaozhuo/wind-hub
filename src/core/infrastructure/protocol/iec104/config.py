@@ -12,7 +12,7 @@ from core.application.errors import ConfigError
 from core.domain import ConnectionEndpoint, ProtocolOptions
 
 _ALLOWED_OPTIONS = frozenset(
-    {"health_point", "timezone", "k", "w", "t0", "t1", "t2", "t3"}
+    {"health_point", "timezone", "k", "w", "t0", "t1", "t2", "t3", "read_timeout", "command_timeout", "interrogation_timeout"}
 )
 
 
@@ -23,10 +23,13 @@ class IEC104Config:
     Attributes:
         health_point: 应用层健康检查点的 point_id；None 表示自动选择可读测点。
         t0: TCP 建连超时（s）。
-        t1: 应用层响应/命令确认超时（s，hat response_timeout）。
+        t1: IEC104 传输层 I 帧确认超时（s，hat response_timeout）。
         t2: 监控帧确认超时（s，hat supervisory_timeout）。
         t3: TESTFR keep-alive 间隔（s，hat test_timeout）。
         k/w: IEC104 发送/接收窗口。
+        read_timeout: C_RD_NA_1 业务响应超时（s）。
+        command_timeout: 每个控制阶段的业务确认超时（s）。
+        interrogation_timeout: 每个 CA 召唤的业务完成超时（s）。
     """
 
     host: str
@@ -35,10 +38,13 @@ class IEC104Config:
     timezone: str | None = None
     k: int = 12
     w: int = 8
-    t0: float = 30.0
-    t1: float = 15.0
-    t2: float = 10.0
-    t3: float = 20.0
+    t0: float = 5.0
+    t1: float = 5.0
+    t2: float = 1.0
+    t3: float = 10.0
+    read_timeout: float = 2.0
+    command_timeout: float = 3.0
+    interrogation_timeout: float = 5.0
 
 
 def parse_iec104_config(
@@ -63,10 +69,15 @@ def parse_iec104_config(
     if w > k:
         raise ConfigError(f"connection '{endpoint}': IEC104 w ({w}) must not exceed k ({k})")
 
-    t0 = _positive_float(options.get("t0"), "t0", default=30.0)
-    t1 = _positive_float(options.get("t1"), "t1", default=15.0)
-    t2 = _positive_float(options.get("t2"), "t2", default=10.0)
-    t3 = _positive_float(options.get("t3"), "t3", default=20.0)
+    t0 = _positive_float(options.get("t0"), "t0", default=5.0)
+    t1 = _positive_float(options.get("t1"), "t1", default=5.0)
+    t2 = _positive_float(options.get("t2"), "t2", default=1.0)
+    t3 = _positive_float(options.get("t3"), "t3", default=10.0)
+    read_timeout = _positive_float(options.get("read_timeout"), "read_timeout", default=2.0)
+    command_timeout = _positive_float(options.get("command_timeout"), "command_timeout", default=3.0)
+    interrogation_timeout = _positive_float(
+        options.get("interrogation_timeout"), "interrogation_timeout", default=5.0
+    )
     if t2 > t1:
         raise ConfigError(f"connection '{endpoint}': IEC104 t2 ({t2}) must not exceed t1 ({t1})")
 
@@ -81,6 +92,9 @@ def parse_iec104_config(
         t1=t1,
         t2=t2,
         t3=t3,
+        read_timeout=read_timeout,
+        command_timeout=command_timeout,
+        interrogation_timeout=interrogation_timeout,
     )
 
 
