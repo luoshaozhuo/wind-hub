@@ -480,15 +480,23 @@ class IEC104Driver:
         for msg in messages:
             try:
                 if isinstance(msg, iec104.DataMsg):
-                    sample = self._dispatch_monitoring(msg, received_at)
-                    if sample is not None:
-                        samples.append(sample)
+                    cot = getattr(msg.cause, "value", msg.cause)
+                    if cot == 5:
+                        self._handle_read(msg, received_at)
+                    elif 20 <= cot <= 41:
+                        self._handle_interrogation(msg, received_at)
+                    elif cot in (1, 2, 3):
+                        sample = self._handle_listen(msg, received_at)
+                        if sample is not None:
+                            samples.append(sample)
+                    else:
+                        logger.debug("IEC104 monitoring COT not routed: %s", cot)
                 elif isinstance(msg, iec104.CommandMsg):
-                    self._dispatch_command_response(msg)
+                    self._handle_write(msg)
                 elif isinstance(msg, iec104.InterrogationMsg | iec104.CounterInterrogationMsg):
-                    self._dispatch_interrogation_response(msg)
+                    self._handle_interrogation(msg, received_at)
                 elif isinstance(msg, iec104.ReadMsg):
-                    self._dispatch_read_rejection(msg)
+                    self._handle_read(msg, received_at)
             except Exception:
                 logger.exception("IEC104 invalid incoming message dropped")
         if samples:
@@ -496,63 +504,40 @@ class IEC104Driver:
             for listener in tuple(self._listeners):
                 listener.offer(batch)
 
-    def _dispatch_monitoring(
+    def _handle_read(
+        self, msg: iec104.DataMsg | iec104.ReadMsg, received_at: datetime
+    ) -> None:
+        if msg.is_test:
+            return
+        key = (msg.asdu_address, msg.io_address)
+        pending = self._read.get(key)
+        if pending is None or pending.result.done():
+            return
+        if isinstance(msg, iec104.ReadMsg):
+            if getattr(msg.cause, "value", msg.cause) in (44, 45, 46, 47):
+                pending.result.set_exception(ProtocolError(f"IEC104 read rejected: {msg.cause}"))
+            return
+        if not matches_monitoring_type(pending.point.type_id, msg):
+            pending.result.set_exception(ProtocolError("IEC104 active read Type ID mismatch"))
+            return
+        try:
+            sample = decode_sample(
+                pending.point.point_id,
+                msg,
+                receive_time=received_at,
+                device_tz=self._device_tz,
+            )
+        except (ValueError, TypeError) as exc:
+            pending.result.set_exception(ProtocolError(f"IEC104 read decode failed: {exc}"))
+        else:
+            pending.result.set_result(sample)
+
+    def _handle_listen(
         self, msg: iec104.DataMsg, received_at: datetime
     ) -> ProtocolSample | None:
-        """Route monitoring messages by COT; only unsolicited data reaches listeners."""
         if msg.is_test:
             return None
         key = (msg.asdu_address, msg.io_address)
-        cause = getattr(msg.cause, "value", msg.cause)
-
-        if cause == 5:
-            pending = self._read.get(key)
-            if pending is None or pending.result.done():
-                return None
-            if not matches_monitoring_type(pending.point.type_id, msg):
-                pending.result.set_exception(ProtocolError("IEC104 active read Type ID mismatch"))
-                return None
-            try:
-                sample = decode_sample(
-                    pending.point.point_id,
-                    msg,
-                    receive_time=received_at,
-                    device_tz=self._device_tz,
-                )
-            except (ValueError, TypeError) as exc:
-                pending.result.set_exception(
-                    ProtocolError(f"IEC104 read decode failed: {exc}")
-                )
-            else:
-                pending.result.set_result(sample)
-            return None
-
-        if 20 <= cause <= 41:
-            pending_gi = self._interrogation.get(msg.asdu_address)
-            if (
-                pending_gi is None
-                or not pending_gi.accepted
-                or not self._matches_cause(pending_gi, msg.cause)
-            ):
-                return None
-            point = pending_gi.by_address.get(key)
-            if point is None or not matches_monitoring_type(point.type_id, msg):
-                return None
-            try:
-                pending_gi.samples[key] = decode_sample(
-                    point.point_id,
-                    msg,
-                    receive_time=received_at,
-                    device_tz=self._device_tz,
-                )
-            except (ValueError, TypeError):
-                logger.warning("IEC104 interrogation sample decode failed: %s", key)
-            return None
-
-        if cause not in (1, 2, 3):
-            logger.debug("IEC104 monitoring COT not routed: %s", cause)
-            return None
-
         point = self._by_address.get(key)
         if point is None or not matches_monitoring_type(point.type_id, msg):
             return None
@@ -567,13 +552,6 @@ class IEC104Driver:
             logger.warning("IEC104 unsupported point data: %s", key)
             return None
 
-    def _dispatch_read_rejection(self, msg: iec104.ReadMsg) -> None:
-        if msg.is_test or getattr(msg.cause, "value", msg.cause) not in (44, 45, 46, 47):
-            return
-        pending = self._read.get((msg.asdu_address, msg.io_address))
-        if pending is not None and not pending.result.done():
-            pending.result.set_exception(ProtocolError(f"IEC104 read rejected: {msg.cause}"))
-
     @staticmethod
     def _matches_cause(pending: _Interrogation, cause: object) -> bool:
         if pending.kind == "station":
@@ -582,7 +560,7 @@ class IEC104Driver:
         expected = 37 if pending.group is None else 37 + pending.group
         return getattr(cause, "value", cause) == expected
 
-    def _dispatch_command_response(self, msg: iec104.CommandMsg) -> None:
+    def _handle_write(self, msg: iec104.CommandMsg) -> None:
         key = (msg.asdu_address, msg.io_address)
         if not msg.is_test and msg.cause == iec104.CommandResCause.ACTIVATION_TERMINATION:
             previous = self._unsettled_controls.get(key)
@@ -615,13 +593,35 @@ class IEC104Driver:
         ):
             pending.result.set_result(msg)
 
-    def _dispatch_interrogation_response(
-        self, msg: iec104.InterrogationMsg | iec104.CounterInterrogationMsg
+    def _handle_interrogation(
+        self,
+        msg: iec104.DataMsg | iec104.InterrogationMsg | iec104.CounterInterrogationMsg,
+        received_at: datetime,
     ) -> None:
+        if msg.is_test:
+            return
         ca = msg.asdu_address
         pending = self._interrogation.get(ca)
-        if pending is None or msg.is_test:
+        if pending is None:
             return
+        if isinstance(msg, iec104.DataMsg):
+            if not pending.accepted or not self._matches_cause(pending, msg.cause):
+                return
+            key = (ca, msg.io_address)
+            point = pending.by_address.get(key)
+            if point is None or not matches_monitoring_type(point.type_id, msg):
+                return
+            try:
+                pending.samples[key] = decode_sample(
+                    point.point_id,
+                    msg,
+                    receive_time=received_at,
+                    device_tz=self._device_tz,
+                )
+            except (ValueError, TypeError):
+                logger.warning("IEC104 interrogation sample decode failed: %s", key)
+            return
+
         if isinstance(msg, iec104.InterrogationMsg) != (pending.kind == "station"):
             return
         expected_request = (
