@@ -62,7 +62,7 @@ class _ModbusSession:
             await asyncio.shield(self._start_close())
             raise
 
-    async def execute(self, request: Callable[[AsyncModbusTcpClient], Awaitable[_T]]) -> _T:
+    async def _execute(self, request: Callable[[AsyncModbusTcpClient], Awaitable[_T]]) -> _T:
         if not self.connected:
             raise ProtocolConnectionError("Modbus session is not connected")
         # Task 保存底层事务所有权；取消调用方不会误认为网络请求已停止。
@@ -113,7 +113,7 @@ class _ModbusSession:
                 )
             raise ValueError(f"unsupported Modbus read area: {register_type}")
 
-        response = await self.execute(request)
+        response = await self._execute(request)
         expected = {"coil": 1, "discrete_input": 2, "holding": 3, "input": 4}[register_type]
         if response.isError():
             raise ProtocolError(f"Modbus {register_type} read exception response")
