@@ -102,7 +102,7 @@ def test_read_planner_respects_span_and_gap() -> None:
     points = [
         _mapped(_point("a", address=1)),
         _mapped(_point("b", address=120)),
-        _mapped(_point("c", address=125)),
+        _mapped(_point("c", address=126)),
     ]
     groups = group_consecutive_reads(points, max_gap=200)
     assert [[point.point_id for point in group] for group in groups] == [
