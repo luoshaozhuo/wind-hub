@@ -28,8 +28,6 @@ _MAX_BIT_READ = 2000
 
 _REGISTER_COUNTS: dict[str, int] = {
     "bool": 1,
-    "int8": 1,
-    "uint8": 1,
     "int16": 1,
     "uint16": 1,
     "int32": 2,
@@ -255,7 +253,11 @@ def _normalize_register_type(value: object) -> str:
 
 def _count_for_data_type(register_type: str, data_type: str) -> int:
     if register_type in {"coil", "discrete_input"}:
+        if data_type != "bool":
+            raise ConfigError("Modbus bit points require bool data_type")
         return 1
+    if data_type == "bool":
+        raise ConfigError("Modbus register points require an explicit numeric data_type")
     count = _REGISTER_COUNTS.get(data_type)
     if count is None:
         raise ConfigError(f"Modbus data type '{data_type}' is unsupported for register access")
