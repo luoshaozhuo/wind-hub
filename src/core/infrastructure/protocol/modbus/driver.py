@@ -7,9 +7,6 @@ import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
-
-from pymodbus.client import AsyncModbusTcpClient
 
 from core.application.errors import (
     ConfigError,
@@ -35,7 +32,6 @@ from .config import parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
 from .session import _ModbusSession
 
-_BITS = frozenset({"coil", "discrete_input"})
 _READ_ONLY = frozenset({"discrete_input", "input"})
 _MAX_WRITE_BITS = 1968
 _MAX_WRITE_WORDS = 123
@@ -190,12 +186,9 @@ class ModbusDriver:
         if point_id not in self._readable:
             raise ConfigError(f"Modbus point '{point_id}' is not readable")
         session = self._connected_session()
-        response = await session.execute(
-            lambda client: _read(
-                client, point.register_type, point.address, point.count, point.slave_id
-            )
+        raw = await session.read(
+            point.register_type, point.address, point.count, point.slave_id
         )
-        raw = _read_payload(session, response, point.register_type, point.count)
         return _sample(point, raw)
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
@@ -210,12 +203,9 @@ class ModbusDriver:
             first = group[0]
             start = min(p.address for p in group)
             count = max(p.address + p.count for p in group) - start
-            response = await session.execute(
-                lambda client, f=first, a=start, n=count: _read(
-                    client, f.register_type, a, n, f.slave_id
-                )
+            raw = await session.read(
+                first.register_type, start, count, first.slave_id
             )
-            raw = _read_payload(session, response, first.register_type, count)
             received_at = datetime.now(UTC)
             for point in group:
                 offset = point.address - start
@@ -290,38 +280,6 @@ class ModbusDriver:
         raise ProtocolCapabilityError("Modbus TCP has no interrogation")
 
 
-async def _read(
-    client: AsyncModbusTcpClient,
-    register_type: str,
-    address: int,
-    count: int,
-    slave_id: int,
-) -> Any:
-    if register_type == "coil":
-        return await client.read_coils(address, count=count, device_id=slave_id)
-    if register_type == "discrete_input":
-        return await client.read_discrete_inputs(address, count=count, device_id=slave_id)
-    if register_type == "holding":
-        return await client.read_holding_registers(address, count=count, device_id=slave_id)
-    return await client.read_input_registers(address, count=count, device_id=slave_id)
-
-
-def _read_payload(
-    session: _ModbusSession, response: Any, register_type: str, count: int
-) -> Sequence[object]:
-    expected = {"coil": 1, "discrete_input": 2, "holding": 3, "input": 4}[register_type]
-    if response.isError():
-        raise ProtocolError(f"Modbus {register_type} read returned exception response")
-    if getattr(response, "function_code", None) != expected:
-        session.invalidate()
-        raise ProtocolConnectionError("Modbus read response function code mismatch")
-    raw = getattr(response, "bits" if register_type in _BITS else "registers", None)
-    if not isinstance(raw, (list, tuple)) or len(raw) < count:
-        session.invalidate()
-        raise ProtocolConnectionError("Modbus read response payload is incomplete")
-    return raw
-
-
 def _sample(
     point: ModbusPoint, raw: Sequence[object], received_at: datetime | None = None
 ) -> ProtocolSample:
@@ -394,67 +352,16 @@ def _plan_writes(items: tuple[_WriteItem, ...]) -> tuple[_WriteBlock, ...]:
     return tuple(result)
 
 
-async def _send_write(client: AsyncModbusTcpClient, block: _WriteBlock) -> Any:
-    point = block.point
-    if point.register_type == "coil":
-        if len(block.values) == 1:
-            return await client.write_coil(
-                block.start, bool(block.values[0]), device_id=point.slave_id
-            )
-        return await client.write_coils(
-            block.start, [bool(value) for value in block.values], device_id=point.slave_id
-        )
-    if len(block.values) == 1:
-        return await client.write_register(
-            block.start, int(block.values[0]), device_id=point.slave_id
-        )
-    return await client.write_registers(
-        block.start, [int(value) for value in block.values], device_id=point.slave_id
-    )
-
-
 async def _execute_write(
     session: _ModbusSession, block: _WriteBlock, point_id: str
 ) -> ProtocolWriteResult:
-    try:
-        response = await session.execute(lambda client: _send_write(client, block))
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        return _result(point_id, WriteOutcome.UNKNOWN, str(exc))
-    if response.isError():
-        # 异常码 4 表示服务器内部故障，无法确认写入是否发生。
-        code = getattr(response, "exception_code", None)
-        outcome = (
-            WriteOutcome.CONFIRMED_FAILURE
-            if code in (1, 2, 3)
-            else WriteOutcome.UNKNOWN
-        )
-        return _result(point_id, outcome, f"Modbus exception code: {code}")
-    expected_function = (
-        5 if block.point.register_type == "coil" and len(block.values) == 1
-        else 15 if block.point.register_type == "coil"
-        else 6 if len(block.values) == 1
-        else 16
+    outcome, message = await session.write(
+        block.point.register_type,
+        block.start,
+        block.values,
+        block.point.slave_id,
     )
-    if (
-        getattr(response, "function_code", None) != expected_function
-        or getattr(response, "address", None) != block.start
-    ):
-        session.invalidate()
-        return _result(point_id, WriteOutcome.UNKNOWN, "Modbus response mismatch")
-    if expected_function in (15, 16):
-        if getattr(response, "count", None) != len(block.values):
-            session.invalidate()
-            return _result(point_id, WriteOutcome.UNKNOWN, "Modbus write count mismatch")
-    elif expected_function == 5:
-        if getattr(response, "bits", None) != [bool(block.values[0])]:
-            session.invalidate()
-            return _result(point_id, WriteOutcome.UNKNOWN, "Modbus coil echo mismatch")
-    elif getattr(response, "registers", None) != [int(block.values[0])]:
-        session.invalidate()
-        return _result(point_id, WriteOutcome.UNKNOWN, "Modbus register echo mismatch")
-    return _result(point_id, WriteOutcome.CONFIRMED_SUCCESS)
+    return _result(point_id, outcome, message)
 
 
 def _result(
