@@ -8,7 +8,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
 
 from pymodbus.client import AsyncModbusTcpClient
 
@@ -25,8 +24,6 @@ from core.application.protocol_contract import (
     InterrogationRequest,
     ProtocolCapability,
     ProtocolLifecycleState,
-    ProtocolOperation,
-    ProtocolOperationState,
     ProtocolRuntimeState,
     ProtocolSample,
     ProtocolWrite,
