@@ -31,7 +31,7 @@ from core.application.protocol_contract import (
     Quality,
     WriteOutcome,
 )
-from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
+from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolOptions
 from core.infrastructure.protocol.events import ProtocolEventStream
 
 from .codec import _as_point_scalar, _decode_point, _encode_coil, _encode_registers
@@ -75,6 +75,8 @@ class ModbusDriver:
         self._config = parse_modbus_config(endpoint, protocol_options)
         self._points: dict[str, ModbusPoint] = {}
         self._point_table_id = ""
+        self._readable: frozenset[str] = frozenset()
+        self._writable: frozenset[str] = frozenset()
         self._health_point_id: str | None = None
         self._session: _ModbusSession | None = None
         self._lifecycle = asyncio.Lock()
@@ -112,10 +114,17 @@ class ModbusDriver:
         configured = self._config.health_point_id
         if configured is not None and configured not in points:
             raise ConfigError(f"unknown Modbus health point: {configured}")
+        self._readable = frozenset(
+            point.point_id for point in point_table.points.values()
+            if point.access in (PointAccess.READ, PointAccess.READ_WRITE)
+        )
+        self._writable = frozenset(
+            point.point_id for point in point_table.points.values()
+            if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE)
+        )
         self._points = points
         self._point_table_id = point_table.point_table_id
-        readable = (p.point_id for p in points.values())
-        self._health_point_id = configured or next(readable, None)
+        self._health_point_id = configured or next(iter(self._readable), None)
 
     async def connect(self) -> None:
         async with self._lifecycle:
@@ -190,6 +199,8 @@ class ModbusDriver:
 
     async def read_one(self, point_id: str) -> ProtocolSample:
         point = self._point(point_id)
+        if point_id not in self._readable:
+            raise ConfigError(f"Modbus point '{point_id}' is not readable")
         session = self._connected_session()
         response = await session.execute(
             lambda client: _read(client, point.register_type, point.address, point.count, point.slave_id)
@@ -201,6 +212,8 @@ class ModbusDriver:
         if not point_ids:
             return ()
         points = tuple(self._point(point_id) for point_id in point_ids)
+        if any(point.point_id not in self._readable for point in points):
+            raise ConfigError("Modbus read_many contains a write-only point")
         session = self._connected_session()
         samples: dict[ModbusPoint, ProtocolSample] = {}
         for group in group_consecutive_reads(points):
@@ -221,6 +234,8 @@ class ModbusDriver:
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
         point = self._point(write.point)
+        if point.point_id not in self._writable:
+            return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, "point not writable")
         try:
             item = _make_item(0, point, write.value)
         except (TypeError, ValueError, struct.error) as exc:
@@ -236,6 +251,8 @@ class ModbusDriver:
             return ()
         # 完整预检后才允许任何物理写入，禁止同一请求内重叠地址。
         try:
+            if any(write.point not in self._writable for write in writes):
+                raise ConfigError("Modbus write_many contains a read-only point")
             items = tuple(_make_item(i, self._point(w.point), w.value) for i, w in enumerate(writes))
             blocks = _plan_writes(items)
         except (ConfigError, TypeError, ValueError, struct.error) as exc:
