@@ -171,7 +171,11 @@ class ModbusDriver:
 
     def _connected_session(self) -> _ModbusSession:
         session = self._session
-        if session is None or not session.connected:
+        if (
+            self._events.snapshot().lifecycle is not ProtocolLifecycleState.CONNECTED
+            or session is None
+            or not session.connected
+        ):
             raise ProtocolConnectionError("Modbus TCP connection is not available")
         return session
 
