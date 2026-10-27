@@ -105,3 +105,18 @@ async def test_modbus_failed_local_encoding_never_sends_to_plc(modbus_server) ->
         assert modbus_server.write_count == before
     finally:
         await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_modbus_queued_write_not_submitted_is_confirmed_failure() -> None:
+    """Session 已被禁止提交时，写请求没有进入原生事务。"""
+    from core.application.protocol_contract import WriteOutcome
+    from core.infrastructure.protocol.modbus.config import ModbusConfig
+    from core.infrastructure.protocol.modbus.session import _ModbusSession
+
+    session = _ModbusSession(ModbusConfig(host="127.0.0.1"))
+    try:
+        outcome, _ = await session.write("holding", 200, [1], 1)
+        assert outcome is WriteOutcome.CONFIRMED_FAILURE
+    finally:
+        await session.close()

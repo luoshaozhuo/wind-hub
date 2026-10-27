@@ -120,3 +120,31 @@ async def test_iec104_negative_control_confirmation_is_definite_failure() -> Non
     finally:
         await driver.close()
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_iec104_general_interrogation_samples_reach_existing_listener(
+    iec104_server,
+) -> None:
+    """Collector 先 LISTEN 再 GI，必须收到 GI 初始化点值。"""
+    driver = iec104_driver(iec104_server.port)
+    received = asyncio.Event()
+    samples = []
+
+    async def callback(batch) -> None:
+        samples.extend(batch)
+        if any(sample.point_id == "power" for sample in batch):
+            received.set()
+
+    await driver.connect()
+    listener = await driver.listen(["power"], callback)
+    try:
+        result = await driver.interrogate(
+            InterrogationRequest(kind="station", common_address=1)
+        )
+        assert any(sample.point_id == "power" for sample in result)
+        await asyncio.wait_for(received.wait(), timeout=5.0)
+        assert any(sample.value == pytest.approx(1500.5) for sample in samples)
+    finally:
+        await listener.close()
+        await driver.close()
