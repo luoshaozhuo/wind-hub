@@ -148,3 +148,55 @@ async def test_iec104_general_interrogation_samples_reach_existing_listener(
     finally:
         await listener.close()
         await driver.close()
+
+
+@pytest.mark.parametrize(
+    ("command_type", "value"),
+    [
+        ("C_SC_NA_1", True),
+        ("C_DC_NA_1", 2),
+        ("C_SE_NA_1", 0.5),
+        ("C_SE_NB_1", 123),
+        ("C_SE_NC_1", 12.5),
+    ],
+)
+@pytest.mark.asyncio
+async def test_iec104_all_five_command_types_with_act_term(
+    command_type: str,
+    value: bool | int | float,
+) -> None:
+    """真实控制确认以 ACT_TERM 为成功完成条件。"""
+    import c104
+
+    from core.domain import ConnectionEndpoint, PointAccess
+    from core.infrastructure.protocol.iec104 import IEC104Driver
+    from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
+    from tests.protocol.conftest import make_point, make_table
+
+    server = IEC104ControlServer(
+        command_points={1001: getattr(c104.Type, command_type)}
+    )
+    driver = IEC104Driver(
+        ConnectionEndpoint("127.0.0.1", server.port),
+        make_table(
+            "iec104",
+            make_point(
+                "command",
+                access=PointAccess.WRITE,
+                ca=1,
+                ioa=1001,
+                type_id=command_type,
+                confirmation="act_term",
+            ),
+        ),
+        {},
+    )
+    await server.start()
+    try:
+        await driver.connect()
+        result = await driver.write_one(ProtocolWrite("command", value))
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
+        assert server.last_control.get(command_type) == 1001
+    finally:
+        await driver.close()
+        await server.stop()

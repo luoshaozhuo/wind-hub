@@ -131,3 +131,70 @@ async def test_modbus_fc01_fc02_and_fc05_on_real_server() -> None:
     finally:
         await driver.close()
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_modbus_slave_identity_isolation(modbus_server) -> None:
+    """同一 TCP 服务端两套 Unit ID 的相同寄存器地址必须互不串值。"""
+    from core.domain import ConnectionEndpoint, PointAccess
+    from core.infrastructure.protocol.modbus import ModbusDriver
+    from tests.protocol.conftest import make_point, make_table
+
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", modbus_server.port),
+        make_table(
+            "modbus",
+            make_point(
+                "unit1", access=PointAccess.READ, register_type="holding",
+                address=100, data_type="float32", slave_id=1,
+            ),
+            make_point(
+                "unit2", access=PointAccess.READ, register_type="holding",
+                address=100, data_type="float32", slave_id=2,
+            ),
+        ),
+        {"word_order": "big_endian"},
+    )
+    await driver.connect()
+    try:
+        result = await driver.read_many(["unit2", "unit1", "unit2"])
+        assert [sample.value for sample in result] == pytest.approx(
+            [900.5, 1200.5, 900.5]
+        )
+    finally:
+        await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_modbus_little_endian_word_order_over_real_tcp() -> None:
+    """用真实保持寄存器响应验证 32 位跨寄存器字序转换。"""
+    import struct
+
+    from core.domain import ConnectionEndpoint, PointAccess
+    from core.infrastructure.protocol.modbus import ModbusDriver
+    from tests.fixtures.servers.modbus_server import ModbusMockServer
+    from tests.protocol.conftest import make_point, make_table
+    from tests.support.process import free_port
+
+    first, second = struct.unpack(">HH", struct.pack(">f", 42.25))
+    holding = [0] * 256
+    holding[100:102] = [second, first]
+    server = ModbusMockServer(port=free_port(), holding=holding)
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", server.port),
+        make_table(
+            "modbus",
+            make_point(
+                "value", access=PointAccess.READ, register_type="holding",
+                address=100, data_type="float32",
+            ),
+        ),
+        {"word_order": "little_endian"},
+    )
+    await server.start()
+    try:
+        await driver.connect()
+        assert (await driver.read_one("value")).value == pytest.approx(42.25)
+    finally:
+        await driver.close()
+        await server.stop()
