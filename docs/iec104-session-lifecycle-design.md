@@ -290,8 +290,6 @@ $$
 
 Driver 独占一个 `_IEC104Session`；Session 独占底层 `hat.drivers.iec104.Connection`、唯一接收协程及发送/关闭任务。Driver 的生命周期锁仅串行 `connect/close/isolate`，不长期锁住业务等待。每次操作在开始时绑定 Session 实例；同一 Session 不复用，旧 Session 成功关闭前禁止创建新 Session。
 
-<p class="figure-caption">图 3-1 会话与业务操作关系</p>
-
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TB
@@ -306,14 +304,13 @@ flowchart TB
   I --> J["物理关闭确认"]
   J --> K["允许 Session B"]
 ```
+<p class="figure-caption">图 3-1 会话与业务操作关系</p>
 
 `Session.send()` 在发送门禁内检查自身 `closing/is_enabled`，无需由 Driver._send 重复检查 `self._session` 身份。发送锁只串行发送与物理关闭，不持锁等待业务响应。等待同点锁后，业务在登记请求前检查所绑定 Session 仍可用；旧实例不可被替换为新实例。接收回调应检查来源 Session，防止旧实例上送污染当前请求表。
 
 # 4. 请求关联与并发
 
 每次 `read_one()` 为 `(CA, IOA)` 建立 Future，先登记再发送 `ReadMsg`，唯一接收循环经 `_dispatch()/_data()` 按源 Session、`(CA, IOA)`、COT、Type ID 关联，调用 `Future.set_result(ProtocolSample)`。控制确认与召唤按各自的关联域与状态机匹配。不同点可并发，单点冲突以按键锁串行；总召按 CA 串行。
-
-<p class="figure-caption">图 4-1 主动读取的响应匹配</p>
 
 ```mermaid
 %%{init: {"sequence": {"useMaxWidth": true}}}%%
@@ -332,14 +329,13 @@ sequenceDiagram
   D-->>A: Future.set_result(sample)
   A->>D: 仅撤销本次请求登记
 ```
+<p class="figure-caption">图 4-1 主动读取的响应匹配</p>
 
 在途表清理必须比较对象身份：旧操作的 `finally` 只能移除其自身登记，不得误删重连后同键的新请求。发送完成不等于业务操作完成；Future 直到响应、拒绝、超时或关闭通知才终结。
 
 # 5. 关闭、超时与恢复
 
 关闭首先停止接受旧 Session 的新发送，对当前请求表的 Future 返回连接终止错误（控制结果未知时不得报告成功），再等待 Session 物理关闭与唯一接收协程收敛。连接清理失败进入 `FAULTED`，不得建立替代 Session。旧 Session 接收回调必须被当前 Session 身份门禁拒绝。
-
-<p class="figure-caption">图 5-1 关闭与重连时序</p>
 
 ```mermaid
 %%{init: {"sequence": {"useMaxWidth": true}}}%%
@@ -360,6 +356,7 @@ sequenceDiagram
   W->>D: connect
   D->>D: 创建 Session B
 ```
+<p class="figure-caption">图 5-1 关闭与重连时序</p>
 
 `read_timeout=2s`、`command_timeout=3s`（每阶段）、`interrogation_timeout=5s`（每 CA）与传输参数 `t1=5s` 分离；超时或取消且响应可能迟到时隔离本代 Session，避免后续同键读取错误关联。设备明确拒绝等可证明终态的错误无需无条件重连，此项仍须通过独立验收确认。Session 失效后的 Collector 业务任务恢复由 Watchdog/TaskRuntime 负责，不重发未确认控制命令。
 
