@@ -44,12 +44,7 @@ async def test_restart_requires_explicit_reconnect(modbus_server) -> None:
 async def test_write_ack_lost_returns_unknown_without_replay(modbus_server) -> None:
     proxy = WriteResponseDropProxy("127.0.0.1", modbus_server.port, free_port())
     await proxy.start()
-    driver = modbus_driver(proxy.port)
-    driver._config = type(driver._config)(
-        host=driver._config.host, port=driver._config.port,
-        slave_id=driver._config.slave_id, timeout=0.3,
-        word_order=driver._config.word_order,
-    )
+    driver = modbus_driver(proxy.port, timeout=0.3)
     try:
         await driver.connect()
         proxy.drop_write_responses = True
