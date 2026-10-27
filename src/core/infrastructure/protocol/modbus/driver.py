@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import struct
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -92,10 +92,10 @@ class ModbusDriver:
         })
 
     def runtime_state(self) -> ProtocolRuntimeState:
-        state = self._events.snapshot().lifecycle
-        if state is ProtocolLifecycleState.CONNECTED and not self.is_open():
-            state = ProtocolLifecycleState.DISCONNECTED
-        return self._events.snapshot(state)
+        snapshot = self._events.snapshot()
+        if snapshot.lifecycle is ProtocolLifecycleState.CONNECTED and not self.is_open():
+            return replace(snapshot, lifecycle=ProtocolLifecycleState.DISCONNECTED)
+        return snapshot
 
     def observe_events(self, callback: ProtocolEventCallback) -> ProtocolEventHandle:
         return self._events.observe(callback)
