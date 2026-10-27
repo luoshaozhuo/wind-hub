@@ -274,7 +274,7 @@ class IEC104Driver:
                         cause=iec104.ReadReqCause.REQUEST,
                     ),
                 )
-                return await asyncio.wait_for(future, timeout=self._config.t1)
+                return await asyncio.wait_for(future, timeout=self._config.read_timeout)
             except (TimeoutError, ProtocolConnectionError, ProtocolError, asyncio.CancelledError):
                 await asyncio.shield(self._isolate(session))
                 raise
@@ -367,7 +367,7 @@ class IEC104Driver:
                     cause=iec104.CommandReqCause.ACTIVATION,
                 ),
             )
-            response = await asyncio.wait_for(future, timeout=self._config.t1 * 2)
+            response = await asyncio.wait_for(future, timeout=self._config.command_timeout)
             if (
                 phase == "execute"
                 and response.cause == iec104.CommandResCause.ACTIVATION_TERMINATION
