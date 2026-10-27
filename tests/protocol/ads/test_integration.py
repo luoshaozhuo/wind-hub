@@ -54,3 +54,47 @@ async def test_real_ads_server_single_read_write_and_batch() -> None:
             await ADSDriver.close_local()
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_real_ads_notification_registration() -> None:
+    """真实 pyads 通知注册、回调分发与 handle 注销。"""
+    import asyncio
+
+    point = make_point(
+        "power", access=PointAccess.READ, symbol="MAIN.power", data_type="REAL"
+    )
+    plan = EndpointPlan(
+        device_id="ads-notification-test", protocol="ads",
+        host="127.0.0.38", port=48898, options={}, points=(point,),
+        data_types={"power": DataType.FLOAT32},
+    )
+    server = _ADSVirtualServer(plan)
+    driver = ADSDriver(
+        ConnectionEndpoint(plan.host, 851), make_table("ads", point),
+        {"target_net_id": "127.0.0.38.1.1"},
+    )
+    received = asyncio.Event()
+    values: list[object] = []
+
+    async def callback(batch: tuple) -> None:
+        values.extend(batch)
+        received.set()
+
+    await server.start()
+    try:
+        await ADSDriver.initialize_local(ADSLocalConfig("127.0.0.1.1.1", "127.0.0.1"))
+        try:
+            await driver.connect()
+            subscription = driver.subscribe(["power"], callback, interval=0.05)
+            await subscription.start()
+            try:
+                await asyncio.wait_for(received.wait(), timeout=3.0)
+                assert any(getattr(sample, "point_id", None) == "power" for sample in values)
+            finally:
+                await subscription.stop()
+        finally:
+            await driver.close()
+            await ADSDriver.close_local()
+    finally:
+        await server.stop()
