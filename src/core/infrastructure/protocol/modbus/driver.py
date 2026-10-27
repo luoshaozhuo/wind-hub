@@ -234,7 +234,7 @@ class ModbusDriver:
                 client, point.register_type, point.address, point.count, point.slave_id
             )
         )
-        raw = _read_payload(response, point.register_type, point.count)
+        raw = _read_payload(session, response, point.register_type, point.count)
         return _sample(point, raw)
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
@@ -254,7 +254,7 @@ class ModbusDriver:
                     client, f.register_type, a, n, f.slave_id
                 )
             )
-            raw = _read_payload(response, first.register_type, count)
+            raw = _read_payload(session, response, first.register_type, count)
             received_at = datetime.now(UTC)
             for point in group:
                 offset = point.address - start
@@ -345,12 +345,19 @@ async def _read(
     return await client.read_input_registers(address, count=count, device_id=slave_id)
 
 
-def _read_payload(response: Any, register_type: str, count: int) -> Sequence[object]:
+def _read_payload(
+    session: _ModbusSession, response: Any, register_type: str, count: int
+) -> Sequence[object]:
+    expected = {"coil": 1, "discrete_input": 2, "holding": 3, "input": 4}[register_type]
     if response.isError():
         raise ProtocolError(f"Modbus {register_type} read returned exception response")
-    raw: Sequence[object] = response.bits if register_type in _BITS else response.registers
-    if len(raw) < count:
-        raise ProtocolError(f"short Modbus response: expected {count}, got {len(raw)}")
+    if getattr(response, "function_code", None) != expected:
+        session.invalidate()
+        raise ProtocolConnectionError("Modbus read response function code mismatch")
+    raw = getattr(response, "bits" if register_type in _BITS else "registers", None)
+    if not isinstance(raw, (list, tuple)) or len(raw) < count:
+        session.invalidate()
+        raise ProtocolConnectionError("Modbus read response payload is incomplete")
     return raw
 
 
