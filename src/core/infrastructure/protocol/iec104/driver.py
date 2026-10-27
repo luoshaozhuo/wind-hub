@@ -220,9 +220,6 @@ class IEC104Driver:
         self._unsettled_controls.clear()
         self._interrogation.clear()
 
-    async def _send(self, session: _IEC104Session, message: object) -> None:
-        await session.send([message])
-
     async def _isolate(self, session: _IEC104Session) -> None:
         async with self._lifecycle:
             if session is self._session:
@@ -261,8 +258,7 @@ class IEC104Driver:
             pending = _Read(point, future)
             self._read[key] = pending
             try:
-                await self._send(
-                    session,
+                await session.send([
                     iec104.ReadMsg(
                         is_test=False,
                         originator_address=0,
@@ -270,7 +266,7 @@ class IEC104Driver:
                         io_address=point.ioa,
                         cause=iec104.ReadReqCause.REQUEST,
                     ),
-                )
+                ])
                 return await asyncio.wait_for(future, timeout=self._config.read_timeout)
             except (TimeoutError, ProtocolConnectionError, ProtocolError, asyncio.CancelledError):
                 await asyncio.shield(self._isolate(session))
@@ -355,8 +351,7 @@ class IEC104Driver:
         if phase == "execute" and confirmation == "act_con":
             self._unsettled_controls[key] = command
         try:
-            await self._send(
-                session,
+            await session.send([
                 iec104.CommandMsg(
                     is_test=False,
                     originator_address=0,
@@ -367,7 +362,7 @@ class IEC104Driver:
                     time=None,
                     cause=iec104.CommandReqCause.ACTIVATION,
                 ),
-            )
+            ])
             response = await asyncio.wait_for(future, timeout=self._config.command_timeout)
             if (
                 phase == "execute"
@@ -430,7 +425,7 @@ class IEC104Driver:
                             is_negative_confirm=False,
                             cause=iec104.CommandReqCause.ACTIVATION,
                         )
-                    await self._send(session, message)
+                    await session.send([message])
                     await asyncio.wait_for(future, timeout=self._config.interrogation_timeout)
                     results.extend(pending.samples.values())
                 except (TimeoutError, ProtocolError, asyncio.CancelledError) as exc:
