@@ -154,8 +154,10 @@ async def test_iec104_general_interrogation_samples_reach_existing_listener(
         ("C_SC_NA_1", True),
         ("C_DC_NA_1", 2),
         ("C_SE_NA_1", 0.5),
+        ("C_SE_NA_1", -0.5),
         ("C_SE_NB_1", 123),
         ("C_SE_NC_1", 12.5),
+        ("C_SE_NC_1", 0.1),
     ],
 )
 @pytest.mark.asyncio
