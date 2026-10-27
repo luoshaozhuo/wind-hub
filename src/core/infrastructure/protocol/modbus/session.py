@@ -58,6 +58,9 @@ class _ModbusSession:
             raise ProtocolConnectionError("Modbus session is not connected")
         # Task 保存底层事务所有权；取消调用方不会误认为网络请求已停止。
         async def invoke() -> _T:
+            # 任务排队期间发生 close/cancel 时，不允许迟到提交请求。
+            if not self.connected:
+                raise ProtocolConnectionError("Modbus session closed before submission")
             return await request(self._client)
 
         task = asyncio.create_task(invoke())
