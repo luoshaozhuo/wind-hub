@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import pytest
+from hat.drivers.iec101 import common as iec101
+from types import SimpleNamespace
 
 from core.application.errors import ConfigError
+from core.application.protocol_contract import Quality
+from core.infrastructure.protocol.iec104.codec import build_command, decode_quality
 from core.domain import Point, PointAccess
 from core.domain.identities import BusinessPointId
 from core.infrastructure.protocol.iec104.mapping import (
+    IEC104Point,
     build_iec104_index,
     parse_iec104_point,
     validate_iec104_write_type,
@@ -100,19 +105,6 @@ def test_read_only_point_cannot_use_control_type() -> None:
 def test_unknown_point_options_are_rejected() -> None:
     with pytest.raises(ConfigError, match="unknown options"):
         parse_iec104_point(_point("p", ca=1, ioa=1, register_type="holding"))
-
-
-
-
-from types import SimpleNamespace
-
-from hat.drivers.iec101 import common as iec101
-
-from core.application.protocol_contract import Quality
-from core.infrastructure.protocol.iec104.codec import (
-    build_command,
-    decode_quality,
-)
 
 
 def _mapped(type_id: str) -> IEC104Point:
