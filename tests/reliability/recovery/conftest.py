@@ -11,7 +11,6 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.support.process import free_port
 

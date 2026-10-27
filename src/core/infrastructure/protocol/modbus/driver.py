@@ -218,7 +218,11 @@ class ModbusDriver:
         except (TypeError, ValueError, struct.error) as exc:
             return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, str(exc))
 
-        outcome, message = await self._require_session().write(
+        try:
+            session = self._require_session()
+        except ProtocolConnectionError as exc:
+            return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, str(exc))
+        outcome, message = await session.write(
             point.register_type, point.address, values, point.slave_id
         )
         return _result(point.point_id, outcome, message)

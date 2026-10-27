@@ -16,6 +16,10 @@ from .config import ModbusConfig
 _T = TypeVar("_T")
 
 
+class _ModbusCommandNotSentError(ProtocolConnectionError):
+    """请求未进入 PyModbus 原生事务，确认没有发送。"""
+
+
 class _ModbusSession:
     """独占一个客户端；不对正常读写增加外部串行锁。"""
 
@@ -68,7 +72,7 @@ class _ModbusSession:
         async def invoke() -> _T:
             # 任务排队期间发生 close/cancel 时，不允许迟到提交请求。
             if not self.is_open():
-                raise ProtocolConnectionError("Modbus session closed before submission")
+                raise _ModbusCommandNotSentError("Modbus session closed before submission")
             return await request(self._client)
 
         task = asyncio.create_task(invoke())
@@ -85,6 +89,8 @@ class _ModbusSession:
         except asyncio.CancelledError:
             # 请求可能已提交：旧会话不可复用，禁止自动重试。
             self.invalidate()
+            raise
+        except _ModbusCommandNotSentError:
             raise
         except Exception as exc:
             # 业务异常响应以响应对象返回；没有收到可信响应属于连接错误。
@@ -149,6 +155,8 @@ class _ModbusSession:
             response = await self._execute(request)
         except asyncio.CancelledError:
             raise
+        except _ModbusCommandNotSentError as exc:
+            return WriteOutcome.CONFIRMED_FAILURE, str(exc)
         except ProtocolConnectionError as exc:
             return WriteOutcome.UNKNOWN, str(exc)
 
