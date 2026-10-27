@@ -45,7 +45,8 @@ async def test_iec104_spontaneous_listen(iec104_server) -> None:
 
     async def callback(batch) -> None:
         samples.extend(batch)
-        received.set()
+        if any(sample.point_id == "power" and sample.value == pytest.approx(1700.0) for sample in batch):
+            received.set()
 
     await driver.connect()
     listener = await driver.listen(["power"], callback)
