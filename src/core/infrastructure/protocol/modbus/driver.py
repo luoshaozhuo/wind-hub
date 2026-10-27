@@ -149,11 +149,11 @@ class ModbusDriver:
 
     def is_open(self) -> bool:
         session = self._session
-        return session is not None and session.connected
+        return session is not None and session.is_open()
 
-    def _connected_session(self) -> _ModbusSession:
+    def _require_session(self) -> _ModbusSession:
         session = self._session
-        if session is None or not session.connected:
+        if session is None or not session.is_open():
             raise ProtocolConnectionError("Modbus TCP connection is not available")
         return session
 
@@ -185,7 +185,7 @@ class ModbusDriver:
         point = self._point(point_id)
         if point_id not in self._readable:
             raise ConfigError(f"Modbus point '{point_id}' is not readable")
-        session = self._connected_session()
+        session = self._require_session()
         raw = await session.read(
             point.register_type, point.address, point.count, point.slave_id
         )
@@ -197,7 +197,7 @@ class ModbusDriver:
         points = tuple(self._point(point_id) for point_id in point_ids)
         if any(point.point_id not in self._readable for point in points):
             raise ConfigError("Modbus read_many contains a write-only point")
-        session = self._connected_session()
+        session = self._require_session()
         samples: dict[ModbusPoint, ProtocolSample] = {}
         for group in group_consecutive_reads(points):
             first = group[0]
@@ -220,7 +220,7 @@ class ModbusDriver:
             item = _make_item(0, point, write.value)
         except (TypeError, ValueError, struct.error) as exc:
             return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, str(exc))
-        session = self._connected_session()
+        session = self._require_session()
         block = _make_block((item,))
         return await _execute_write(session, block, point.point_id)
 
@@ -240,7 +240,7 @@ class ModbusDriver:
             blocks = _plan_writes(items)
         except (ConfigError, TypeError, ValueError, struct.error) as exc:
             return tuple(_result(w.point, WriteOutcome.CONFIRMED_FAILURE, str(exc)) for w in writes)
-        session = self._connected_session()
+        session = self._require_session()
         results: list[ProtocolWriteResult] = [
             _result(w.point, WriteOutcome.CONFIRMED_FAILURE, "not submitted")
             for w in writes
