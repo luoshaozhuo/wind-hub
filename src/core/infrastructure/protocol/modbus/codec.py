@@ -20,6 +20,7 @@ _INTEGER_RANGES: dict[str, tuple[int, int]] = {
     "uint64": (0, 18446744073709551615),
 }
 
+
 def _decode_point(
     point: ModbusPoint,
     segment: Sequence[object],
@@ -28,7 +29,10 @@ def _decode_point(
         raise ValueError("empty Modbus response segment")
 
     if point.register_type in _BIT_TYPES:
-        return bool(segment[0])
+        bit = segment[0]
+        if type(bit) not in (bool, int) or bit not in (0, 1):
+            raise ValueError("invalid Modbus bit value")
+        return bool(bit)
 
     registers = [_strict_register(value) for value in segment]
     return _decode_registers(registers, point.data_type, point.word_order)
@@ -100,9 +104,9 @@ def _strict_integer_value(
 ) -> int:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError(f"{data_type} requires a numeric integer value")
-    integer = int(value)
-    if float(value) != float(integer):
+    if isinstance(value, float) and (not isfinite(value) or not value.is_integer()):
         raise ValueError(f"{data_type} requires an integer value")
+    integer = int(value)
     lower, upper = value_range
     if not lower <= integer <= upper:
         raise ValueError(f"{data_type} value {integer} outside range {lower}..{upper}")
