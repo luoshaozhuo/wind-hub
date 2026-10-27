@@ -54,7 +54,13 @@ class _ModbusSession:
 
         task = asyncio.create_task(invoke())
         self._active.add(task)
-        task.add_done_callback(self._active.discard)
+
+        def settle(_: asyncio.Future[_T]) -> None:
+            self._active.discard(task)
+            if not task.cancelled():
+                task.exception()
+
+        task.add_done_callback(settle)
         try:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
