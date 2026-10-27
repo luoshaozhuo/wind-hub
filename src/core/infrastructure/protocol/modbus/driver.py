@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import struct
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -18,13 +18,10 @@ from core.application.errors import (
     ProtocolError,
 )
 from core.application.port import ListenHandle, ProtocolSampleCallback, SubscriptionHandle
-from core.application.port.protocol import ProtocolEventCallback, ProtocolEventHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
     ProtocolCapability,
-    ProtocolLifecycleState,
-    ProtocolRuntimeState,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -32,7 +29,6 @@ from core.application.protocol_contract import (
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolOptions
-from core.infrastructure.protocol.events import ProtocolEventStream
 
 from .codec import _as_point_scalar, _decode_point, _encode_coil, _encode_registers
 from .config import parse_modbus_config
@@ -80,7 +76,6 @@ class ModbusDriver:
         self._health_point_id: str | None = None
         self._session: _ModbusSession | None = None
         self._lifecycle = asyncio.Lock()
-        self._events = ProtocolEventStream()
         self.update_point_table(point_table)
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
@@ -90,15 +85,6 @@ class ModbusDriver:
             ProtocolCapability.WRITE,
             ProtocolCapability.WRITE_MANY,
         })
-
-    def runtime_state(self) -> ProtocolRuntimeState:
-        snapshot = self._events.snapshot()
-        if snapshot.lifecycle is ProtocolLifecycleState.CONNECTED and not self.is_open():
-            return replace(snapshot, lifecycle=ProtocolLifecycleState.DISCONNECTED)
-        return snapshot
-
-    def observe_events(self, callback: ProtocolEventCallback) -> ProtocolEventHandle:
-        return self._events.observe(callback)
 
     def update_point_table(self, point_table: PointTable) -> None:
         if point_table.protocol.name != "modbus":
@@ -149,42 +135,21 @@ class ModbusDriver:
         async with self._lifecycle:
             if self.is_open():
                 return
-            self._events.transition(ProtocolLifecycleState.CONNECTING)
             previous = self._session
             if previous is not None:
-                try:
-                    await previous.close()
-                except BaseException:
-                    self._events.transition(ProtocolLifecycleState.FAULTED)
-                    raise
+                await previous.close()
                 self._session = None
             session = _ModbusSession(self._config)
             self._session = session
-            try:
-                await session.open()
-            except BaseException:
-                self._events.transition(
-                    ProtocolLifecycleState.DISCONNECTED
-                    if session.closed
-                    else ProtocolLifecycleState.FAULTED
-                )
-                raise
-            self._events.transition(ProtocolLifecycleState.CONNECTED)
+            await session.open()
 
     async def close(self) -> None:
         async with self._lifecycle:
             session = self._session
             if session is None:
-                self._events.transition(ProtocolLifecycleState.DISCONNECTED)
                 return
-            self._events.transition(ProtocolLifecycleState.CLOSING)
-            try:
-                await session.close()
-            except BaseException:
-                self._events.transition(ProtocolLifecycleState.FAULTED)
-                raise
+            await session.close()
             self._session = None
-            self._events.transition(ProtocolLifecycleState.DISCONNECTED)
 
     def is_open(self) -> bool:
         session = self._session
@@ -192,11 +157,7 @@ class ModbusDriver:
 
     def _connected_session(self) -> _ModbusSession:
         session = self._session
-        if (
-            self._events.snapshot().lifecycle is not ProtocolLifecycleState.CONNECTED
-            or session is None
-            or not session.connected
-        ):
+        if session is None or not session.connected:
             raise ProtocolConnectionError("Modbus TCP connection is not available")
         return session
 
