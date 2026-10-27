@@ -41,16 +41,19 @@ class _ModbusSession:
         return self._closed
 
     async def open(self) -> None:
-        try:
+        async def connect_client() -> None:
             if not await self._client.connect():
                 raise ProtocolConnectionError("Modbus TCP connection refused")
+
+        task = asyncio.create_task(connect_client())
+        self._active.add(task)
+        task.add_done_callback(self._active.discard)
+        try:
+            await asyncio.shield(task)
         except BaseException:
-            try:
-                self._client.close()
-            except BaseException:
-                self._closing = True
-                raise
-            self._closed = True
+            # 建链被取消后仍由 Session 追踪真实结果，随后再关闭资源。
+            self.invalidate()
+            await asyncio.shield(self._start_close())
             raise
 
     async def execute(self, request: Callable[[AsyncModbusTcpClient], Awaitable[_T]]) -> _T:
