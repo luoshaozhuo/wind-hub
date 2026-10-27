@@ -89,7 +89,14 @@ class _ModbusSession:
 
     def _start_close(self) -> asyncio.Task[None]:
         if self._close_task is None:
-            self._close_task = asyncio.create_task(self._close())
+            task = asyncio.create_task(self._close())
+
+            def settle(done: asyncio.Task[None]) -> None:
+                if not done.cancelled():
+                    done.exception()
+
+            task.add_done_callback(settle)
+            self._close_task = task
         return self._close_task
 
     async def close(self) -> None:
