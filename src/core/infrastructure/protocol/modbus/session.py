@@ -36,12 +36,20 @@ class _ModbusSession:
     def connected(self) -> bool:
         return not self._closing and self._client.connected
 
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
     async def open(self) -> None:
         try:
             if not await self._client.connect():
                 raise ProtocolConnectionError("Modbus TCP connection refused")
         except BaseException:
-            self._client.close()
+            try:
+                self._client.close()
+            except BaseException:
+                self._closing = True
+                raise
             self._closed = True
             raise
 
