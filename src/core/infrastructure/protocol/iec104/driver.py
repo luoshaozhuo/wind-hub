@@ -98,8 +98,6 @@ class IEC104Driver:
         self._control: dict[Address, _Control] = {}
         self._unsettled_controls: dict[Address, object] = {}
         self._interrogation: dict[int, _Interrogation] = {}
-        self._locks: dict[Address, asyncio.Lock] = {}
-        self._station_locks: dict[int, asyncio.Lock] = {}
         self._listeners: set[_Listener] = set()
 
     @property
@@ -139,6 +137,10 @@ class IEC104Driver:
             health_point_id = configured
         else:
             health_point_id = next(readable, None)
+        self._locks = {address: asyncio.Lock() for address in by_address}
+        self._station_locks = {
+            ca: asyncio.Lock() for ca in {point.common_address for point in by_id.values()}
+        }
         self._by_id, self._by_address = by_id, by_address
         self._health_point_id = health_point_id
 
@@ -250,7 +252,7 @@ class IEC104Driver:
             raise ConfigError("active read requires an explicit monitoring M_* Type ID")
         session = self._require_session()
         key = (point.common_address, point.ioa)
-        lock = self._locks.setdefault(key, asyncio.Lock())
+        lock = self._locks[key]
         async with lock:
             if not session.is_open:
                 raise ProtocolConnectionError("IEC104 session is closing")
@@ -294,8 +296,8 @@ class IEC104Driver:
             return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc))
         session = self._require_session()
         key = (point.common_address, point.ioa)
-        lock = self._locks.setdefault(key, asyncio.Lock())
-        station_lock = self._station_locks.setdefault(point.common_address, asyncio.Lock())
+        lock = self._locks[key]
+        station_lock = self._station_locks[point.common_address]
         async with station_lock, lock:
             if not session.is_open:
                 raise ProtocolConnectionError("IEC104 session is closing")
@@ -393,10 +395,13 @@ class IEC104Driver:
             if request.common_address is not None
             else tuple(sorted({point.common_address for point in self._by_id.values()}))
         )
+        unknown = set(addresses) - self._station_locks.keys()
+        if unknown:
+            raise ConfigError(f"IEC104 CA not configured in point table: {sorted(unknown)}")
         results: list[ProtocolSample] = []
         for ca in addresses:
             session = self._require_session()
-            lock = self._station_locks.setdefault(ca, asyncio.Lock())
+            lock = self._station_locks[ca]
             async with lock:
                 if not session.is_open:
                     raise ProtocolConnectionError("IEC104 session is closing")
