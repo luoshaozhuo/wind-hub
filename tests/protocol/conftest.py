@@ -77,3 +77,38 @@ async def iec104_server() -> AsyncIterator[IEC104ControlServer]:
         yield server
     finally:
         await server.stop()
+
+
+_TEST_MARKERS: dict[str, tuple[str, ...]] = {
+    "functional": ("unit", "fast"),
+    "contract": ("contract", "fast"),
+    "integration": ("integration", "real_service"),
+    "fault_injection": ("reliability",),
+    "concurrency": ("reliability",),
+    "stability": ("reliability", "soak", "slow"),
+}
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """为 tests/protocol 的六类文件显式标注验收类型。"""
+    from pathlib import Path
+
+    suite = Path(__file__).resolve().parent
+    for item in items:
+        if not item.path.is_relative_to(suite):
+            continue
+        suffix = item.path.stem.removeprefix("test_")
+        if suffix == "config_contract":
+            labels = ("unit", "fast")
+        else:
+            labels = _TEST_MARKERS.get(suffix, ())
+        for label in labels:
+            item.add_marker(getattr(pytest.mark, label))
+        if suffix == "stability" and item.path.parent.name in {"iec104", "modbus"}:
+            item.add_marker(pytest.mark.real_service)
+        if suffix == "fault_injection" and item.path.parent.name in {"iec104", "modbus"}:
+            item.add_marker(pytest.mark.real_service)
+        if suffix == "concurrency" and item.path.parent.name in {"iec104", "modbus"}:
+            item.add_marker(pytest.mark.real_service)
+        if item.path.parent.name == "ads" and suffix in {"fault_injection", "concurrency"}:
+            item.add_marker(pytest.mark.mock_service)
