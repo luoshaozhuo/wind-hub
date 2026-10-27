@@ -1,6 +1,8 @@
-"""IEC104 断线后清理旧会话并显式重建。"""
+"""IEC104 故障注入：断线及旧 Session 应答隔离。"""
 
 from __future__ import annotations
+
+import asyncio
 
 import pytest
 
@@ -23,3 +25,16 @@ async def test_iec104_disconnect_and_session_recovery(iec104_server) -> None:
         assert (await driver.read_one("power")).value == pytest.approx(1500.5)
     finally:
         await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_close_idempotent_and_old_receive_noop(iec104_server) -> None:
+    driver = iec104_driver(iec104_server.port)
+    await driver.connect()
+    old_session = driver._session
+    assert old_session is not None
+    await driver.close()
+    await driver.close()
+    assert not driver.is_open()
+    driver._dispatch(old_session, [])
+    assert not driver.is_open()
