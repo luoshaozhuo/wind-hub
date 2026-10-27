@@ -221,13 +221,9 @@ class IEC104Driver:
         self._interrogation.clear()
 
     async def _send(self, session: _IEC104Session, message: object) -> None:
-        if session is not self._session:
-            raise ProtocolConnectionError("IEC104 session changed")
         await session.send([message])
 
     async def _isolate(self, session: _IEC104Session) -> None:
-        if session is not self._session:
-            return
         async with self._lifecycle:
             if session is self._session:
                 await self._close_locked()
@@ -259,10 +255,11 @@ class IEC104Driver:
         key = (point.common_address, point.ioa)
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
-            if session is not self._session:
-                raise ProtocolConnectionError("IEC104 session changed")
+            if not session.is_open:
+                raise ProtocolConnectionError("IEC104 session is closing")
             future: asyncio.Future[ProtocolSample] = asyncio.get_running_loop().create_future()
-            self._read[key] = _Read(point, future)
+            pending = _Read(point, future)
+            self._read[key] = pending
             try:
                 await self._send(
                     session,
@@ -279,7 +276,8 @@ class IEC104Driver:
                 await asyncio.shield(self._isolate(session))
                 raise
             finally:
-                self._read.pop(key, None)
+                if self._read.get(key) is pending:
+                    self._read.pop(key, None)
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
         del point_ids
@@ -303,6 +301,8 @@ class IEC104Driver:
         lock = self._locks.setdefault(key, asyncio.Lock())
         station_lock = self._station_locks.setdefault(point.common_address, asyncio.Lock())
         async with station_lock, lock:
+            if not session.is_open:
+                raise ProtocolConnectionError("IEC104 session is closing")
             if key in self._unsettled_controls:
                 return ProtocolWriteResult(
                     write.point,
@@ -348,9 +348,10 @@ class IEC104Driver:
     ) -> bool:
         key = (point.common_address, point.ioa)
         future: asyncio.Future[iec104.CommandMsg] = asyncio.get_running_loop().create_future()
-        self._control[key] = _Control(
+        pending = _Control(
             future, confirmation, bool(getattr(command, "select", False)), command
         )
+        self._control[key] = pending
         if phase == "execute" and confirmation == "act_con":
             self._unsettled_controls[key] = command
         try:
@@ -384,7 +385,8 @@ class IEC104Driver:
                 self._unsettled_controls.pop(key, None)
             return not rejected
         finally:
-            self._control.pop(key, None)
+            if self._control.get(key) is pending:
+                self._control.pop(key, None)
 
     async def write_many(self, writes: Sequence[ProtocolWrite]) -> tuple[ProtocolWriteResult, ...]:
         del writes
@@ -401,6 +403,8 @@ class IEC104Driver:
             session = self._require_session()
             lock = self._station_locks.setdefault(ca, asyncio.Lock())
             async with lock:
+                if not session.is_open:
+                    raise ProtocolConnectionError("IEC104 session is closing")
                 future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
                 pending = _Interrogation(
                     future, request.kind, request.group, dict(self._by_address)
@@ -437,7 +441,8 @@ class IEC104Driver:
                         ca, (*results, *pending.samples.values()), str(exc)
                     ) from exc
                 finally:
-                    self._interrogation.pop(ca, None)
+                    if self._interrogation.get(ca) is pending:
+                        self._interrogation.pop(ca, None)
         return tuple(results)
 
     def subscribe(
