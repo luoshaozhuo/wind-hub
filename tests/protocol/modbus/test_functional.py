@@ -133,3 +133,42 @@ def test_input_registers_are_never_writable() -> None:
 def test_decoding_requires_exact_register_count() -> None:
     with pytest.raises(ValueError, match="length"):
         decode(_mapped(_point("p", data_type="float32")), [0x3F80])
+
+
+@pytest.mark.asyncio
+async def test_modbus_read_plan_cache_reuse_eviction_and_reload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """同样测点 ID 序列复用分组，缓存有界且点表更新清空。"""
+    from core.domain import ConnectionEndpoint, PointTable, Protocol
+    from core.domain.identities import PointTableId
+    from core.infrastructure.protocol.modbus.driver import ModbusDriver
+
+    points = {
+        f"p{i}": _point(f"p{i}", address=i)
+        for i in range(40)
+    }
+    table = PointTable(PointTableId("cache"), Protocol("modbus"), points)
+    driver = ModbusDriver(ConnectionEndpoint("127.0.0.1", 502), table, {})
+
+    class ReadSession:
+        async def read(
+            self, register_type: str, address: int, count: int, slave_id: int
+        ) -> list[int]:
+            assert register_type == "holding"
+            assert slave_id == 1
+            return [address + i for i in range(count)]
+
+    monkeypatch.setattr(driver, "_require_session", lambda: ReadSession())
+    assert [v.value for v in await driver.read_many(["p1", "p2"])] == [1, 2]
+    key = ("p1", "p2")
+    cached = driver._read_plan_cache[key]
+    await driver.read_many(list(key))
+    assert driver._read_plan_cache[key] is cached
+
+    for i in range(40):
+        await driver.read_many([f"p{i}"])
+    assert len(driver._read_plan_cache) <= 32
+
+    driver.update_point_table(table)
+    assert driver._read_plan_cache == {}
