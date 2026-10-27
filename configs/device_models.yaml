@@ -71,8 +71,7 @@
 #                    固定（见 devices.yaml）。
 #
 # IEC104（iec104_wtg.protocol_options）：
-#   common_addresses: int 或逗号分隔整数串，默认 1 —— 一条 TCP 连接承载
-#                    的全部 ASDU 公共地址（多 CA）；首项为点缺省 CA。
+#   CA 在 points.yaml 的 IEC104 测点 address.ca 中逐点指定，不在连接配置中指定。
 #   timezone:       IANA 时区名（如 Asia/Shanghai），可选；未设置则
 #                    时间戳采用接收时刻，不使用主机时区猜测设备时间。
 #   health_point:   str，可选 —— 应用层健康探测点 point_id；不配置时自动选
