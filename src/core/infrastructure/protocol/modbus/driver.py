@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import struct
-from itertools import pairwise
 from collections import OrderedDict
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from itertools import pairwise
 
 from core.application.errors import (
     ConfigError,
