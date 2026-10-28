@@ -30,11 +30,7 @@ class KafkaSink:
         self._error: str | None = "not opened"
         self._task_sources = (
             {task: set(sources) for task, sources in (config.task_sources or {}).items()}
-            if isinstance(config, ResolvedSink)
-            else {}
         )
-        if not isinstance(config, ResolvedSink):
-            raise ValueError("Kafka Sink requires resolved output mappings")
         points = [ResolvedSinkPoint.model_validate(dict(raw)) for raw in config.points]
         for point in points:
             if not isinstance(point.address, StreamSinkAddress):
