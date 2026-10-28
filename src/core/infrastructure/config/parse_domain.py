@@ -29,6 +29,7 @@ from core.application.settings import (
     LogSettings,
     RuntimeSettings,
     SystemSettings,
+    MessagingSettings,
     ThreadPoolSettings,
 )
 from core.domain import (
@@ -221,7 +222,21 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
     logs_raw = _map(raw.get("logs", {}), "system.logs")
     _keys(logs_raw, set(LogSettings.__dataclass_fields__), "system.logs")
     logs = LogSettings(**logs_raw)
-    return site_id, name, SystemSettings(runtime=runtime, ads=ads, logs=logs)
+    messaging = None
+    if "messaging" in raw:
+        messaging_raw = _map(raw["messaging"], "system.messaging")
+        _keys(messaging_raw, {"backend", "servers", "delivery", "max_staleness_ms"}, "system.messaging")
+        if messaging_raw.get("backend") != "nats":
+            raise ConfigError("messaging.backend must be nats")
+        try:
+            messaging = MessagingSettings(
+                servers=tuple(messaging_raw["servers"]),
+                delivery=messaging_raw["delivery"],
+                max_staleness_ms=messaging_raw.get("max_staleness_ms"),
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ConfigError(f"invalid messaging configuration: {exc}") from exc
+    return site_id, name, SystemSettings(runtime=runtime, messaging=messaging, ads=ads, logs=logs)
 
 
 _ADS_LOGICAL_TYPES: dict[str, str] = {
