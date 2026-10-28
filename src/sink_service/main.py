@@ -90,11 +90,15 @@ async def run_sink_service(
             except TimeoutError:
                 pass
             for sink_id, sink in sinks.items():
-                if sink.desired_running and sink.state is SinkState.FAILED:
-                    try:
+                if not sink.desired_running:
+                    continue
+                try:
+                    if sink.state is SinkState.FAILED:
                         await sink.start()
-                    except Exception:
-                        logger.exception("Sink %s recovery failed", sink_id)
+                    elif sink.state is SinkState.RUNNING and not sink.nats_connected:
+                        await sink.repair_subscription()
+                except Exception:
+                    logger.exception("Sink %s recovery failed", sink_id)
 
     supervisor = asyncio.create_task(restore_failed())
     await stopping.wait()
