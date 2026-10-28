@@ -50,9 +50,9 @@ class TDengineSink:
 
     def __init__(self, config: ResolvedSink) -> None:
         self._config = TDengineSinkConnection.model_validate(dict(config.connection))
-        self._task_sources = (
-            {task_id: set(sources) for task_id, sources in (config.task_sources or {}).items()}
-        )
+        self._task_sources = {
+            task_id: set(sources) for task_id, sources in (config.task_sources or {}).items()
+        }
         self._url = (
             f"{'https' if self._config.tls else 'http'}://"
             f"{self._config.host}:{self._config.port}/rest/sql/{self._config.database}"
