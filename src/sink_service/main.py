@@ -32,7 +32,7 @@ async def run_sink_service(
 ) -> None:
     """Start each Sink independently and shut down on a process signal."""
     state_name = sha256(wind_farm_id.encode()).hexdigest()[:32]
-    store = SinkIntentStore(state_dir / f"{state_name}.json")
+    store = SinkIntentStore(state_dir / state_name)
     if delivery == "both":
         if not realtime_sinks or not reliable_sinks:
             raise ValueError("both mode requires explicit realtime and reliable sink lists")
