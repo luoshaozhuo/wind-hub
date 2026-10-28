@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable, Sequence
 
 import nats
 from nats.aio.client import Client
+from nats.aio.msg import Msg
 from nats.aio.subscription import Subscription
 
 from contracts.sample_message import SampleMessage
@@ -74,14 +75,14 @@ class NatsSinkConsumer:
         self._client = client
         self._subscription = subscription
 
-    async def _on_realtime(self, msg: nats.aio.msg.Msg) -> None:
+    async def _on_realtime(self, msg: Msg) -> None:
         try:
             sample = SampleMessage.decode(msg.data, "realtime")
             await self._handler(sample)
         except Exception:
             logger.exception("Realtime message rejected or write failed")
 
-    async def _on_reliable(self, msg: nats.aio.msg.Msg) -> None:
+    async def _on_reliable(self, msg: Msg) -> None:
         try:
             sample = SampleMessage.decode(msg.data, "reliable")
             await self._handler(sample)
