@@ -28,6 +28,7 @@ protobuf = "^6.32"
 pymodbus = "^3.6"
 hat-drivers = "^0.10.10"
 pyads = "^3.4"
+nats-py = "^2.10"
 aiokafka = { version = "^0.14", optional = true }
 asyncpg = { version = "^0.31", optional = true }
 influxdb-client = { version = "^1.48", optional = true }
