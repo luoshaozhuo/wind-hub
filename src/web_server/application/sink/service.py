@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from pydantic import BaseModel, Field
-from web_server.adapter.outbound.grpc.sink import SinkGrpcDirectory
+from web_server.application.port.sink import SinkDirectoryPort
 
 from core.domain.sink import Sink
 from core.infrastructure.config.yaml import yaml_plain
@@ -43,10 +43,12 @@ class SinkService:
     def __init__(
         self,
         monitoring: MonitoringSnapshotPort,
+        sink_directory: SinkDirectoryPort,
         config: ConfigService,
         admin: ConfigFileService,
     ) -> None:
         self._monitoring = monitoring
+        self._sink_directory = sink_directory
         self._config = config
         self._admin = admin
 
@@ -89,7 +91,7 @@ class SinkService:
         self._config_for(name)
         started = time.monotonic()
         try:
-            row = await self._sink_client().call("GetSinkStatus", name)
+            row = await self._sink_directory.call("GetSinkStatus", name)
             healthy = row.get("state") == "running" and row.get("failure") is None
             return SinkTestResult(
                 success=healthy,
@@ -113,11 +115,6 @@ class SinkService:
             "clear": "ClearSink",
         }
         return await self._sink_client().call(methods[operation], name)
-
-    @staticmethod
-    def _sink_client() -> SinkGrpcDirectory:
-        """Resolve independent Sink Service endpoints."""
-        return SinkGrpcDirectory()
 
     async def upsert(self, name: str, payload: dict[str, Any]) -> ConfigApplyResult:
         """新增或更新 Sink；通过 sinks.yaml 配置事务生效。"""
