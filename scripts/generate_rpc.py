@@ -12,6 +12,7 @@ SRC_ROOT = ROOT / "src"
 PROTO_FILES = (
     "contracts/common.proto",
     "contracts/collector.proto",
+    "contracts/sink.proto",
     "contracts/commander.proto",
     "contracts/gateway.proto",
 )
