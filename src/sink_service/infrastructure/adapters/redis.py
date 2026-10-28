@@ -32,7 +32,7 @@ def _command(*arguments: str) -> bytes:
 #: 可直接字典序比较。返回 1=已写入，0=因过期被拒。
 _CAS_SCRIPT = (
     "local current=redis.call('GET',KEYS[1]) "
-    "if not current then redis.call('SET',KEYS[1],ARGV[1]); return 1 end "
+    "if not current then redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[2]); return 1 end "
     "local ct=cjson.decode(current)['timestamp'] "
     "local nt=cjson.decode(ARGV[1])['timestamp'] "
     "if (nt or '')>=(ct or '') then redis.call('SET',KEYS[1],ARGV[1]); return 1 end "
@@ -151,6 +151,8 @@ class RedisSink:
             allowed = self._task_sources.get(task_id, set())
             batch = [item for item in batch if (item.device_id, item.point_id) in allowed]
         batch = self._dropped_non_finite(batch)
+        if any(point.max_staleness_ms is None for point in batch):
+            raise SinkError("Redis realtime write requires max_staleness_ms")
         if not batch:
             return
         async with self._lock:
@@ -167,8 +169,11 @@ class RedisSink:
                     for point in batch
                 ]
                 commands = [
-                    _command("EVAL", _CAS_SCRIPT, "1", record.key, record.payload)
-                    for record in records
+                    _command(
+                        "EVAL", _CAS_SCRIPT, "1", record.key, record.payload,
+                        str(int(point.timestamp.timestamp() * 1000) + point.max_staleness_ms),
+                    )
+                    for point, record in zip(batch, records, strict=True)
                 ]
                 self._writer.write(b"".join(commands))
                 await asyncio.wait_for(self._writer.drain(), timeout=self._config.timeout)
