@@ -162,3 +162,46 @@ def test_monitoring_quality_precedence() -> None:
     assert decode_quality(SimpleNamespace(invalid=False, blocked=False)) is Quality.GOOD
     assert decode_quality(SimpleNamespace(invalid=False, blocked=True)) is Quality.UNCERTAIN
     assert decode_quality(SimpleNamespace(invalid=True, blocked=True)) is Quality.BAD
+
+
+def test_connected_point_table_update_reuses_locks_and_changes_mapping() -> None:
+    """点表热更新不拆会话，同地址保留锁，新地址获得独立锁。"""
+    from core.domain import ConnectionEndpoint
+    from core.infrastructure.protocol.iec104 import IEC104Driver
+    from tests.protocol.conftest import make_table
+
+    old = _point("a", ca=1, ioa=100, type_id="M_ME_NC_1")
+    new = _point("b", ca=1, ioa=200, type_id="M_ME_NC_1")
+    driver = IEC104Driver(
+        ConnectionEndpoint("127.0.0.1", 2404),
+        make_table("iec104", old),
+        {},
+    )
+    locked = driver._locks[(1, 100)]
+    station_lock = driver._station_locks[1]
+    driver._state = driver._state.__class__.CONNECTED
+    driver.update_point_table(make_table("iec104", old, new))
+    assert driver._locks[(1, 100)] is locked
+    assert driver._station_locks[1] is station_lock
+    assert (1, 200) in driver._locks
+    assert driver._by_address[(1, 200)].point_id == "b"
+    assert driver._state.name == "CONNECTED"
+
+
+def test_invalid_connected_table_update_keeps_original_snapshot() -> None:
+    from core.domain import ConnectionEndpoint
+    from core.infrastructure.protocol.iec104 import IEC104Driver
+    from tests.protocol.conftest import make_table
+
+    old = _point("a", ca=1, ioa=100, type_id="M_ME_NC_1")
+    duplicate = _point("b", ca=1, ioa=100, type_id="M_ME_NC_1")
+    driver = IEC104Driver(
+        ConnectionEndpoint("127.0.0.1", 2404),
+        make_table("iec104", old),
+        {},
+    )
+    driver._state = driver._state.__class__.CONNECTED
+    original = driver._by_address
+    with pytest.raises(ConfigError, match="duplicate address"):
+        driver.update_point_table(make_table("iec104", old, duplicate))
+    assert driver._by_address is original

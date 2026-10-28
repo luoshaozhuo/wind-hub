@@ -178,7 +178,7 @@ class TestSubscriptionRestartPending:
         def _add_point(data: dict[str, Any]) -> None:
             data["point_tables"]["iec104"]["points"]["meas.reactive_power"] = {
                 "point_groups": ["telemetry"],
-                "address": {"ioa": 300, "type": "M_ME_NC_1"},
+                "address": {"ca": 1, "ioa": 300, "type_id": "M_ME_NC_1"},
                 "data_type": "float32",
                 "unit": "none",
             }

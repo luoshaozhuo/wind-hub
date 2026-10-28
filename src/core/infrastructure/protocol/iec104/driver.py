@@ -117,8 +117,6 @@ class IEC104Driver:
         )
 
     def update_point_table(self, point_table: PointTable) -> None:
-        if self._state is not ProtocolLifecycleState.DISCONNECTED:
-            raise ProtocolError("IEC104 point table update requires a closed connection")
         if point_table.protocol.name != "iec104":
             raise ConfigError("IEC104 point table protocol mismatch")
         by_id, by_address = build_iec104_index(list(point_table.points.values()))
@@ -140,9 +138,16 @@ class IEC104Driver:
             health_point_id = configured
         else:
             health_point_id = next(readable, None)
-        self._locks = {address: asyncio.Lock() for address in by_address}
+        # 同步更新，不发生 await；在途请求持有旧 point/index 快照。
+        # 复用相同地址的锁，避免旧请求与热更新后新请求并发占用同一 IOA。
+        old_locks = getattr(self, "_locks", {})
+        old_station_locks = getattr(self, "_station_locks", {})
+        self._locks = {
+            address: old_locks.get(address) or asyncio.Lock() for address in by_address
+        }
         self._station_locks = {
-            ca: asyncio.Lock() for ca in {point.common_address for point in by_id.values()}
+            ca: old_station_locks.get(ca) or asyncio.Lock()
+            for ca in {point.common_address for point in by_id.values()}
         }
         self._by_id, self._by_address = by_id, by_address
         self._health_point_id = health_point_id
