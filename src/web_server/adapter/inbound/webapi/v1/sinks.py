@@ -67,19 +67,6 @@ async def verify_sink(name: str, ctx: AppContext = Depends(get_ctx)) -> SinkTest
     return SinkTestResponse(**result.model_dump())
 
 
-@router.post(
-    "/sinks/{name}/write-test",
-    response_model=SinkTestResponse,
-    tags=["v1-sinks"],
-)
-async def sink_write_test(name: str, ctx: AppContext = Depends(get_ctx)) -> SinkTestResponse:
-    try:
-        result = await common.sinks(ctx).write_test(name)
-    except KeyError:
-        raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
-    audit("sink.write_test", sink=name, success=result.success)
-    return SinkTestResponse(**result.model_dump())
-
 @router.post("/sinks/{name}/{operation}", tags=["v1-sinks"])
 async def manage_sink(
     name: str,
