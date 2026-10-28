@@ -171,7 +171,7 @@ class RedisSink:
                 commands = [
                     _command(
                         "EVAL", _CAS_SCRIPT, "1", record.key, record.payload,
-                        str(int(point.timestamp.timestamp() * 1000) + point.max_staleness_ms),
+                        str(int(point.timestamp.timestamp() * 1000) + (point.max_staleness_ms or 0)),
                     )
                     for point, record in zip(batch, records, strict=True)
                 ]
