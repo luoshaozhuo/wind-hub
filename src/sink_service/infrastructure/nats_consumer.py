@@ -129,6 +129,13 @@ class NatsSinkConsumer:
         finally:
             await client.close()
 
+    async def pending(self) -> int | None:
+        """Return own durable backlog when JetStream is reachable."""
+        if self._durable is None or self._client is None or not self._client.is_connected:
+            return None
+        info = await self._client.jetstream().consumer_info(self._stream, self._durable)
+        return info.num_pending + info.num_ack_pending
+
     @property
     def connected(self) -> bool:
         """Whether the existing subscription's NATS transport is connected."""
