@@ -1,7 +1,7 @@
 """Collector gRPC 控制面。
 
 本适配器实现 collector.proto 生成的 Runtime/Control Servicer。正常采集数据
-不经过该服务；这里只承载低频状态查询、Task 控制、Sink 检查与配置事务。
+不经过该服务；这里只承载低频状态查询、Task 控制与配置事务。
 """
 
 from __future__ import annotations
