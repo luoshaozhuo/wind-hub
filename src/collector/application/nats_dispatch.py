@@ -83,9 +83,14 @@ class SamplePublisher:
                     publish_time=datetime.now(UTC),
                     max_staleness_ms=self._max_staleness_ms,
                 )
+            except Exception:
+                logger.exception("Invalid sample task=%s point=%s", task_id, value.point_id)
+                self._points_dropped += 1
+                continue
+            try:
                 success = await self._publisher.publish(message)
             except Exception:
-                logger.exception("Invalid/unpublished sample task=%s point=%s", task_id, value.point_id)
+                logger.exception("NATS publisher failed unexpectedly")
                 success = False
             if success:
                 self._points_published += 1
