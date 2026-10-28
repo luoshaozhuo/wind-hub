@@ -21,7 +21,6 @@ import type { DeviceDto } from '../api/devices'
 import type { TaskDto } from '../api/tasks'
 import {
   verifySink as apiVerifySink,
-  writeTestSink as apiWriteTestSink,
   type SinkDto,
   type SinkTestResult,
 } from '../api/sinks'
@@ -602,24 +601,5 @@ export const useConfigStore = defineStore('config', {
       s.runtime_state = !s.enabled ? 'disabled' : row.success ? 'healthy' : 'failed'
     },
 
-    async writeTestSink(s: SinkDef) {
-      const row = await apiWriteTestSink(s.name)
-      if (row.success) {
-        s.last_write_at = formatNow()
-        s.writes_total++
-      } else {
-        s.failures_total++
-      }
-      s.latency_ms = Math.round(row.latency_ms)
-      s.error = row.message || ''
-      s.runtime_state = row.success ? 'healthy' : 'failed'
-      await queryClient.invalidateQueries({ queryKey: ['logs'] })
-      return {
-        ok: row.success,
-        title: row.success ? 'Write test passed' : 'Write test failed',
-        detail: row.message || 'Backend test completed',
-        latency: s.latency_ms,
-      }
-    },
   },
 })
