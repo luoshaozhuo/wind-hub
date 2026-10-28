@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from contracts.sample_message import SampleMessage
+from core.domain.point_value import PointValue
 
 
 class SinkPort(Protocol):
@@ -13,7 +13,7 @@ class SinkPort(Protocol):
         """Open the target connection."""
         ...
 
-    async def write(self, batch: list[SampleMessage]) -> None:
+    async def write(self, batch: list[PointValue]) -> None:
         """Return only after all writes are confirmed, or raise."""
         ...
 
