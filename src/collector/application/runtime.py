@@ -28,12 +28,12 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from core.application import ConnectionHealth
-from core.application.port import SinkPort
 from core.domain import Device, DeviceId, PointTable
 
 from ..domain.acquisition import AcquisitionEngine
 from .acquisition_state import AcquisitionRuntimeState
 from .config import CollectionTask, CollectorConfig, RuntimeParams
+from .nats_dispatch import SamplePublisher as NatsPublisher
 from .device_runtime import DeviceRuntime
 from .device_state import DeviceRuntimeState
 from .reload import (
@@ -44,8 +44,6 @@ from .reload import (
     TaskDiff,
 )
 from .session import AcquisitionMode, CollectorDeviceSession
-from .sink_registry import SinkFactory
-from .sink_runtime import SinkRuntime
 from .task_instance import CollectionTaskInstance, TaskInstanceState
 from .task_runtime import TaskRuntime
 
@@ -113,12 +111,11 @@ class CollectorRuntime:
     def __init__(
         self,
         devices: dict[str, CollectorDeviceSession],
-        sinks: dict[str, SinkPort],
+        publisher: NatsPublisher,
         engine: AcquisitionEngine,
         params: RuntimeParams,
         tasks: dict[str, CollectionTask] | None = None,
         session_factory: SessionFactory | None = None,
-        sink_factory: SinkFactory | None = None,
         clock: Callable[[], float] = time.monotonic,
         metrics_hook: RuntimeMetricsPort | None = None,
     ) -> None:
@@ -143,7 +140,7 @@ class CollectorRuntime:
         self._device_runtime.set_reconnect_callback(
             restore_device_tasks, on_connected=prepare_device_tasks
         )
-        self._sink_runtime = SinkRuntime(sinks, params, sink_factory)
+        self._publisher = publisher
         self._session_factory = session_factory
         self._engine = engine
         self._params = params
@@ -155,7 +152,7 @@ class CollectorRuntime:
         # （TaskRuntime 实现 AcquisitionStatePort）。
         self._engine.attach_acquisition_state(self._task_runtime)
         # Sink 派发的落点：引擎采集结果进入 SinkRuntime 的队列/背压/消费者机制。
-        self._engine.attach_sink_dispatch(self._sink_runtime)
+        self._engine.attach_sink_dispatch(self._publisher)
 
         # 生命周期串行化：start / stop 不能重叠，保证启动中状态不会被停机
         # 直接覆写；``running`` 依然只在 ``_started`` 真正完成后才返回 True。
@@ -228,7 +225,7 @@ class CollectorRuntime:
 
             try:
                 await self._device_runtime.connect_all()
-                await self._sink_runtime.start()
+                await self._publisher.open()
                 # 实例默认 STOPPED，采集由控制面显式启动。
                 await self._task_runtime.sync_instances()
             except BaseException:
@@ -262,7 +259,7 @@ class CollectorRuntime:
         first_error: BaseException | None = None
         for name, cleanup in (
             ("tasks", self._task_runtime.stop_all),
-            ("sinks", self._sink_runtime.stop),
+            ("publisher", self._publisher.close),
             ("devices", self._device_runtime.close_all),
         ):
             try:
@@ -281,13 +278,7 @@ class CollectorRuntime:
 
     async def health(self) -> dict[str, ConnectionHealth]:
         """主动检查设备并合并当前 Sink 健康状态。"""
-        device_health, sink_health = await asyncio.gather(
-            self._device_runtime.health(),
-            self._sink_runtime.health(),
-        )
-        result = dict(device_health)
-        result.update(sink_health)
-        return result
+        return await self._device_runtime.health()
 
     @property
     def running(self) -> bool:
@@ -318,12 +309,12 @@ class CollectorRuntime:
     @property
     def points_routed(self) -> int:
         """累计派发点数——成功进入 sink 队列的点值总数（SinkRuntime 口径）。"""
-        return self._sink_runtime.points_routed
+        return self._publisher.points_published
 
     @property
     def points_dropped(self) -> int:
         """累计丢弃点数——背压策略丢弃的点值总数（SinkRuntime 口径）。"""
-        return self._sink_runtime.points_dropped
+        return self._publisher.points_dropped
 
     def sink_queue_depths(self) -> dict[str, int]:
         """各 sink 队列当前深度（只读透传 SinkRuntime）。"""
@@ -508,12 +499,6 @@ class CollectorRuntime:
             logger.error("Device diff apply failed: %s", exc, exc_info=True)
             errors.append(f"device: {exc}")
 
-        try:
-            await self._sink_runtime.apply_diff(diff.sinks, new_config.sinks)
-        except Exception as exc:
-            logger.error("Sink diff apply failed: %s", exc, exc_info=True)
-            errors.append(f"sink: {exc}")
-
         # 点表内容变化：对绑定受影响表、且未在设备 diff 中增删重建的设备，
         # 仅重注入点映射——不重建 Protocol 连接。
         if diff.point_tables_changed:
@@ -574,7 +559,6 @@ class CollectorRuntime:
         """
         self._params = params
         self._device_runtime.update_params(params)
-        self._sink_runtime.update_params(params)
 
     def _reinject_changed_tables(self, new_config: CollectorConfig, diff: ConfigDiff) -> None:
         """点表内容变化时，对绑定受影响表的既有设备重注入点映射。
