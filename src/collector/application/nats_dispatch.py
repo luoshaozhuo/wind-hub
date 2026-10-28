@@ -4,13 +4,21 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal, Protocol, cast
 
-from core.domain.point_value import PointValue
 from contracts.sample_message import DeliveryMode, SampleMessage
+from core.domain.point_value import PointValue
 
 from .identity import CollectorIdentity
 
 class PublisherPort(Protocol):
     """Minimal publishing dependency supplied by infrastructure."""
+
+    async def open(self) -> None:
+        """Initialize the NATS connection."""
+        ...
+
+    async def close(self) -> None:
+        """Release NATS resources."""
+        ...
 
     async def publish(self, message: SampleMessage) -> bool:
         """Return whether publication was accepted."""
@@ -39,6 +47,14 @@ class SamplePublisher:
         self._sequence = 0
         self._points_published = 0
         self._points_dropped = 0
+
+    async def open(self) -> None:
+        """Open the NATS publisher."""
+        await self._publisher.open()
+
+    async def close(self) -> None:
+        """Close the NATS publisher."""
+        await self._publisher.close()
 
     async def dispatch(self, task_id: str, values: list[PointValue]) -> None:
         """Publish each sample once, regardless of the number of downstream Sinks."""
