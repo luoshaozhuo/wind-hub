@@ -2,6 +2,11 @@
 # docker compose --profile single up --build
 # docker compose --profile split up --build
 # Run only ONE profile. Each Sink ID must be owned by one service process.
+# Set WIND_HUB_SINK_GRPC_TARGETS=127.0.0.1:50074 for single,
+# or 127.0.0.1:50074,127.0.0.1:50075 for split in Web Server.
+# Sink targets configured as 127.0.0.1 are container-local; configure their
+# real service hostname (or host.docker.internal) in the mounted sinks.yaml.
+# Changes to mounted YAML require restarting the Sink Service process.
 services:
   nats:
     image: nats:2.11-alpine
@@ -56,6 +61,8 @@ services:
     depends_on:
       nats-init:
         condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   sink-realtime:
