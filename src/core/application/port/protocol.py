@@ -23,7 +23,6 @@ from ..protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
     ProtocolCapability,
-    ProtocolOperationEvent,
     ProtocolPoint,
     ProtocolSample,
     ProtocolWrite,
@@ -53,13 +52,6 @@ class ListenHandle(Protocol):
 ProtocolSampleCallback = Callable[[tuple[ProtocolSample, ...]], Awaitable[None]]
 
 TPoint = TypeVar("TPoint", bound=ProtocolPoint, contravariant=True, default=Never)
-
-
-ProtocolEventCallback = Callable[[ProtocolOperationEvent], Awaitable[None]]
-
-
-class ProtocolEventHandle(Protocol):
-    async def close(self) -> None: ...
 
 
 class ProtocolPort(Protocol[TPoint]):
