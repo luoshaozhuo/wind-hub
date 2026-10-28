@@ -88,8 +88,6 @@ def assemble_collector(
     Args:
         config_dir: 现场配置目录。
         collector_id: 显式 Collector 稳定标识；为空时读取环境变量或主机名。
-        sink_factories: 按类型覆盖内置 Sink factory（性能/soak 等资格工具
-            注入 NullSink 或计量包装的 seam）；键必须是已注册的 Sink 类型。
 
     Raises:
         ValueError: 装配期间配置目录发生变化（TOCTOU）。
