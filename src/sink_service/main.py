@@ -31,7 +31,7 @@ async def run_sink_service(
     state_dir: Path = Path('/var/tmp/wind-hub/sink-state'),
 ) -> None:
     """Start each Sink independently and shut down on a process signal."""
-    state_name = sha256(f"{wind_farm_id}:{delivery}".encode()).hexdigest()[:32]
+    state_name = sha256(wind_farm_id.encode()).hexdigest()[:32]
     store = SinkIntentStore(state_dir / f"{state_name}.json")
     if delivery == "both":
         if not realtime_sinks or not reliable_sinks:
