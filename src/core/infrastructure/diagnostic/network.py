@@ -24,9 +24,13 @@ async def _command(*argv: str, timeout: float = 3.0) -> tuple[int, str, str]:
         return 127, "", f"{type(exc).__name__}: {exc}"
     try:
         out, err = await asyncio.wait_for(process.communicate(), timeout)
-    except TimeoutError:
-        process.kill()
+    except (TimeoutError, asyncio.CancelledError) as exc:
+        if process.returncode is None:
+            process.kill()
+        # Even when the caller is cancelled, reap the child before releasing ownership.
         await process.communicate()
+        if isinstance(exc, asyncio.CancelledError):
+            raise
         return 124, "", "command timed out"
     return process.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace")
 
