@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
-
 import pytest
 
 from collector.infrastructure.sink_registry import build_sink_registry
