@@ -5,7 +5,7 @@
 - 具有稳定唯一 ID 的实体集合一律使用 Mapping，Mapping Key 即实体 ID，
   实体内部不重复声明自身 ID；
 - 跨实体引用字段统一命名：``model_id`` / ``device_type_id`` /
-  ``point_table_id`` / ``device_group_id(s)`` / ``sink_ids`` /
+  ``point_table_id`` / ``device_group_id(s)`` /
   ``business_point_id`` / ``parent_id``；
 - ``endpoint`` 只表达 host/port；协议参数一律放在设备或型号的
   ``protocol_options``；型号连接默认值拆分为 ``endpoint_defaults``
@@ -656,7 +656,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
                         "must declare explicit points with register addresses"
                     )
                 if output.points:
-                    # TaskOutput.points 在领域模型内被递归冻结（MappingProxy/tuple），
+                    # SinkOutput.points 在领域模型内被递归冻结（MappingProxy/tuple），
                     # 校验与 Sink 类型规则一律使用还原后的普通 dict/list 视图。
                     plain_points = [_yaml_plain(point) for point in output.points]
                     for mapping in plain_points:
@@ -691,7 +691,6 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
             business_points=business_points,
             point_tables=point_tables,
             tasks=tasks,
-            sink_ids=set(sinks),
             sinks=sinks,
         )
         site = Site(site_id=site_id, name=site_name, devices=devices)
