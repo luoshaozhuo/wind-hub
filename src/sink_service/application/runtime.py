@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
@@ -10,7 +9,6 @@ from contracts.sample_message import SampleMessage
 from sink_service.application.port import SinkPort
 from sink_service.infrastructure.nats_consumer import NatsSinkConsumer
 
-logger = logging.getLogger(__name__)
 PointKey = tuple[str, str, str]
 
 
@@ -65,10 +63,12 @@ class SinkRuntime:
                 return
             try:
                 await self._sink.open()
+                self._state = SinkState.RUNNING
                 await self._consumer.open()
             except Exception as exc:
                 self._failure = str(exc)
                 self._state = SinkState.FAILED
+                await self._consumer.close()
                 await self._sink.close()
                 raise
             self._failure = None
@@ -78,6 +78,7 @@ class SinkRuntime:
         """Prevent new messages, finish active writes and close the target."""
         async with self._lock:
             self._desired_running = False
+            self._state = SinkState.STOPPED
             await self._consumer.close()
             async with self._write_lock:
                 await self._sink.close()
