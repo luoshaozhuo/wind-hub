@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 import time
 from collections.abc import Sequence
 
@@ -72,12 +73,19 @@ async def ping_probe(host: str, *, count: int = 4, timeout: float = 1.0) -> Diag
     )
     if code == 127:
         return _result(host, DiagnosticStatus.UNKNOWN, "PING_UNAVAILABLE", err)
+    match = re.search(r"(?:rtt|round-trip) min/avg/max/(?:mdev|stddev) = ([\\d.]+)/([\\d.]+)/([\\d.]+)/([\\d.]+) ms", out)
+    timings = (
+        {"rtt_min_ms": float(match[1]), "rtt_avg_ms": float(match[2]),
+         "rtt_max_ms": float(match[3]), "rtt_deviation_ms": float(match[4])}
+        if match else {}
+    )
     return _result(
         host,
         DiagnosticStatus.PASS if code == 0 else DiagnosticStatus.FAIL,
         "PING_OK" if code == 0 else "PING_FAILED",
         "ICMP probe completed" if code == 0 else "ICMP probe failed; TCP may still work",
         evidence={"output": out[-4000:], "error": err[-500:]},
+        measurements=timings,
     )
 
 
