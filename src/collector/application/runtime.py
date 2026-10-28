@@ -40,7 +40,6 @@ from .reload import (
     HOT_RELOADABLE_RUNTIME_FIELDS,
     ConfigDiff,
     DeviceDiff,
-    SinkDiff,
     TaskDiff,
 )
 from .session import AcquisitionMode, CollectorDeviceSession
@@ -175,19 +174,9 @@ class CollectorRuntime:
         return self._task_runtime
 
     @property
-    def sink_runtime(self) -> SinkRuntime:
-        """Sink 子系统；Sink 注册表、队列、消费者与派发端口的唯一入口。"""
-        return self._sink_runtime
-
-    @property
     def devices(self) -> Mapping[str, CollectorDeviceSession]:
         """当前设备注册表的只读视图（所有权与变更均在 DeviceRuntime）。"""
         return self._device_runtime.devices
-
-    @property
-    def sinks(self) -> Mapping[str, SinkPort]:
-        """当前 Sink 注册表的只读视图（所有权与变更均在 SinkRuntime）。"""
-        return self._sink_runtime.sinks
 
     def device_state(self, device_id: str) -> DeviceRuntimeState | None:
         """单台设备的连接/重连簿记状态（委托 DeviceRuntime）。"""
@@ -196,10 +185,6 @@ class CollectorRuntime:
     async def device_health(self) -> dict[str, ConnectionHealth]:
         """主动检查全部设备健康状态（委托 DeviceRuntime）。"""
         return await self._device_runtime.health()
-
-    async def sink_health(self) -> dict[str, ConnectionHealth]:
-        """主动检查全部 Sink 健康状态（委托 SinkRuntime）。"""
-        return await self._sink_runtime.health()
 
     @property
     def engine(self) -> AcquisitionEngine:
@@ -297,11 +282,6 @@ class CollectorRuntime:
         return len(self._device_runtime.devices)
 
     @property
-    def sink_count(self) -> int:
-        """返回当前 CollectorRuntime 注册的 Sink 数量。"""
-        return len(self._sink_runtime.sinks)
-
-    @property
     def points_collected(self) -> int:
         """累计采集点数（引擎侧口径）。"""
         return self._engine.points_collected
@@ -315,18 +295,6 @@ class CollectorRuntime:
     def points_dropped(self) -> int:
         """累计丢弃点数——背压策略丢弃的点值总数（SinkRuntime 口径）。"""
         return self._publisher.points_dropped
-
-    def sink_queue_depths(self) -> dict[str, int]:
-        """各 sink 队列当前深度（只读透传 SinkRuntime）。"""
-        return self._sink_runtime.queue_depths()
-
-    def sink_write_failures(self) -> dict[str, int]:
-        """各 sink 运行期写失败次数（只读透传 SinkRuntime）。"""
-        return self._sink_runtime.write_failures()
-
-    def sink_drops(self) -> dict[str, int]:
-        """各 sink 运行期丢弃点数（只读透传 SinkRuntime）。"""
-        return self._sink_runtime.drops_by_sink()
 
     # ------------------------------------------------------------------
     # 采集 Task——查询与实例生命周期委托（实现与簿记在 TaskRuntime）
@@ -445,15 +413,6 @@ class CollectorRuntime:
             updated=sorted(target_device_ids & actual_device_ids),
         )
 
-        target_sinks = {name: sink for name, sink in target.sinks.items() if sink.enabled}
-        actual_sink_ids = set(self._sink_runtime.sinks)
-        target_sink_ids = set(target_sinks)
-        sinks = SinkDiff(
-            added=sorted(target_sink_ids - actual_sink_ids),
-            removed=sorted(actual_sink_ids - target_sink_ids),
-            updated=sorted(target_sink_ids & actual_sink_ids),
-        )
-
         target_task_ids = set(target.tasks)
         actual_task_ids = set(self._task_runtime.task_definitions())
         tasks = TaskDiff(
@@ -465,7 +424,6 @@ class CollectorRuntime:
         changed_tables = sorted(str(t) for t in target.point_tables)
         return ConfigDiff(
             devices=devices,
-            sinks=sinks,
             tasks=tasks,
             points_changed=bool(changed_tables),
             point_tables_changed=changed_tables,
