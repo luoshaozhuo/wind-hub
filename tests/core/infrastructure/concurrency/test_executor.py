@@ -9,8 +9,8 @@ import threading
 import pytest
 
 from core.application.errors import ConfigError
-from core.infrastructure.runtime import executor as executor_module
-from core.infrastructure.runtime.executor import configure_default_thread_pool
+from core.infrastructure.concurrency import executor as executor_module
+from core.infrastructure.concurrency.executor import configure_default_thread_pool
 
 
 @pytest.fixture(autouse=True)

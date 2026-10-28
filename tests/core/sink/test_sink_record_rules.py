@@ -3,7 +3,7 @@
 import json
 from datetime import UTC, datetime
 
-from core.application.redis_sink_record import encode_redis_record
+from core.infrastructure.sink.redis_record import encode_redis_record
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import RedisSinkConnection
 

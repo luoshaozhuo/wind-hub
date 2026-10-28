@@ -8,7 +8,7 @@ import math
 from contextlib import suppress
 
 from core.application.protocol_contract import ConnectionHealth
-from core.application.redis_sink_record import encode_redis_record
+from core.infrastructure.sink.redis_record import encode_redis_record
 from core.application.sink_contract import ResolvedSink
 from core.application.sink_error import SinkError
 from core.domain import Sink
