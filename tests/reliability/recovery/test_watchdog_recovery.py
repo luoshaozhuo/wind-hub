@@ -117,6 +117,7 @@ class TestWatchdogRecovery:
             await wait_status(
                 proc, lambda p: p["devices_connected"] == 1, description="reconnected"
             )
+
             async def reconnect_recorded() -> bool | None:
                 snap = await metrics_snapshot(proc.grpc_target)
                 return True if snap["device_reconnects"].get(DEVICE_ID, 0) >= 1 else None

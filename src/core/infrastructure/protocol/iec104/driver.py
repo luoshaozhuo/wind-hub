@@ -573,9 +573,9 @@ class IEC104Driver:
         if isinstance(expected, iec101.FloatingCommand) and isinstance(
             received, iec101.FloatingCommand
         ):
-            return bool(math.isclose(
-                expected.value.value, received.value.value, rel_tol=1e-6, abs_tol=1e-7
-            ))
+            return bool(
+                math.isclose(expected.value.value, received.value.value, rel_tol=1e-6, abs_tol=1e-7)
+            )
         return expected == received
 
     def _handle_write(self, msg: iec104.CommandMsg) -> None:
