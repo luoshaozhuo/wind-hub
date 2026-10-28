@@ -101,53 +101,6 @@ class InterrogationRequest:
             raise ValueError("common address must be in 0..65535")
 
 
-class ProtocolLifecycleState(StrEnum):
-    DISCONNECTED = "disconnected"
-    CONNECTING = "connecting"
-    CONNECTED = "connected"
-    CLOSING = "closing"
-    FAULTED = "faulted"
-
-
-class ProtocolOperation(StrEnum):
-    CONNECT = "connect"
-    CLOSE = "close"
-    READ = "read"
-    WRITE = "write"
-    INTERROGATE = "interrogate"
-
-
-class ProtocolOperationState(StrEnum):
-    QUEUED = "queued"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    UNKNOWN = "unknown"
-    CANCELLED = "cancelled"
-
-
-@dataclass(frozen=True, slots=True)
-class ProtocolOperationEvent:
-    driver_id: str
-    sequence: int
-    operation_id: str
-    operation: ProtocolOperation
-    state: ProtocolOperationState
-    timestamp: datetime
-    phase: str | None = None
-    point_id: str | None = None
-    message: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ProtocolRuntimeState:
-    driver_id: str
-    lifecycle: ProtocolLifecycleState
-    active_operations: tuple[ProtocolOperationEvent, ...]
-    dropped_events: int = 0
-    message: str | None = None
-
-
 class ProtocolCapability(StrEnum):
     """统一协议 Port 可声明的运行时能力。"""
 
