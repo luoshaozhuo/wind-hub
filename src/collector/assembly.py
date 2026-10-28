@@ -8,12 +8,10 @@ ADS 本机身份、按 enabled 实例化 Sink。
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from core.application import ProtocolRegistry
-from core.application.port import SinkPort
 from core.application.settings import ADSLocalConfig, LogSettings
 from core.domain import Device, PointTable
 from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
@@ -26,10 +24,10 @@ from .application.latest_values import LatestValues
 from .application.metrics_state import CollectorMetricsState
 from .application.runtime import CollectorRuntime
 from .application.session import CollectorDeviceSession
-from .application.sink_registry import SinkFactory
 from .domain.acquisition import AcquisitionEngine
 from .infrastructure.config.loader import collector_config_from_snapshot, load_collector_config
-from .infrastructure.sink_registry import build_sink_registry
+from .infrastructure.nats_publisher import NatsPublisher
+from .application.nats_dispatch import SamplePublisher
 
 
 def build_protocol_registry() -> ProtocolRegistry:
@@ -84,7 +82,6 @@ def assemble_collector(
     config_dir: str | Path,
     *,
     collector_id: str | None = None,
-    sink_factories: Mapping[str, SinkFactory] | None = None,
 ) -> CollectorApp:
     """从现场配置目录装配 Collector，不执行网络 I/O。
 
@@ -131,15 +128,15 @@ def assemble_collector(
         for device_id, device in config.devices.items()
     }
 
-    sink_registry = build_sink_registry()
-    for type_name, factory in (sink_factories or {}).items():
-        sink_registry.override(type_name, factory)
-    sinks: dict[str, SinkPort] = {
-        name: sink_registry.create(resolved)
-        for name, resolved in config.sinks.items()
-        if resolved.enabled
-    }
-
+    transport = NatsPublisher(config.messaging.servers, config.messaging.delivery)
+    identity = build_collector_identity(config_hash, collector_id=collector_id)
+    publisher = SamplePublisher(
+        transport,
+        wind_farm_id=snapshot.site.site_id,
+        identity=identity,
+        delivery=config.messaging.delivery,
+        max_staleness_ms=config.messaging.max_staleness_ms,
+    )
     metrics = CollectorMetricsState()
     latest_values = LatestValues()
     engine = AcquisitionEngine(
@@ -150,12 +147,11 @@ def assemble_collector(
     engine.add_observer(latest_values.update)
     runtime = CollectorRuntime(
         devices,
-        sinks,
+        publisher,
         engine,
         config.runtime,
         tasks=dict(config.tasks),
         session_factory=session_factory,
-        sink_factory=sink_registry.create,
         metrics_hook=metrics,
     )
 
@@ -174,7 +170,7 @@ def assemble_collector(
         config_hash=config_hash,
         metrics=metrics,
         latest_values=latest_values,
-        identity=build_collector_identity(config_hash, collector_id=collector_id),
+        identity=identity,
         ads_local=config.ads_local,
         log_settings=snapshot.system.logs,
     )
