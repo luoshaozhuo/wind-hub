@@ -15,21 +15,26 @@ DEV_TOOL = REPO_ROOT / "scripts" / "dev.py"
 FRONTEND_DIR = REPO_ROOT / "src" / "web_admin"
 
 PR_TARGETS: dict[str, tuple[str, ...]] = {
-    "integration-protocol": ("tests/integration/protocols",),
-    "integration-rpc": ("tests/contract/rpc",),
-    "integration-sinks": ("tests/integration/sinks",),
+    "integration-protocol": (
+        "tests/core/protocol",
+        "tests/industrial_gateway",
+    ),
+    "integration-rpc": ("tests/system/rpc",),
+    "integration-sinks": ("tests/core/sink", "tests/collector/sink"),
     "system-acquisition": ("tests/system/acquisition",),
     "system-command": ("tests/system/command",),
     "system-e2e": ("tests/system/e2e",),
 }
 
 BACKEND_PREFIXES = (
+    "src/contracts/",
     "src/core/",
     "src/collector/",
     "src/commander/",
     "src/cli/",
     "src/web_server/",
     "src/industrial_gateway/",
+    "src/seahorse/",
 )
 BACKEND_GLOBAL_FILES = {"pyproject.toml", "poetry.lock"}
 FRONTEND_E2E_FILES = {
@@ -95,26 +100,6 @@ def _run_many(commands: Sequence[tuple[str, Sequence[str]]]) -> bool:
     return passed
 
 
-def _isolated_tests(root_name: str) -> bool:
-    """逐子包执行单元与组件测试，便于按模块定位失败。"""
-    root = REPO_ROOT / "tests" / root_name
-    children = sorted(
-        path
-        for path in root.iterdir()
-        if (path.is_dir() and path.name != "__pycache__")
-        or (path.suffix == ".py" and path.name != "__init__.py")
-    )
-    return _run_many(
-        [
-            (
-                f"{root_name}/{path.name}",
-                _python_module("pytest", str(path.relative_to(REPO_ROOT)), "-q"),
-            )
-            for path in children
-        ]
-    )
-
-
 def fast_gate(part: str, targets: str) -> bool:
     """执行 Fast Gate。"""
     if part == "backend-static":
@@ -136,20 +121,15 @@ def fast_gate(part: str, targets: str) -> bool:
         if not selected:
             print("GATE RESULT: NOT_APPLICABLE")
             return True
-        # unit/component 逐子包运行，contract 统一运行。
+        # 测试按业务归属组织，层级由 marker 表达：按 marker 跨业务包选择。
         checks = [
-            (target, _python_module("pytest", f"tests/{target}", "-q"))
-            for target in selected
-            if target not in {"unit", "component"}
-        ]
-        other_passed = _run_many(checks)
-        unit_passed = _isolated_tests("unit") if "unit" in selected else True
-        component_passed = _isolated_tests("component") if "component" in selected else True
-        core_checks = [
-            (f"core/{target}", _python_module("pytest", "tests/core", "-q", "-m", target))
+            (
+                target,
+                _python_module("pytest", "tests", "-q", "-m", target),
+            )
             for target in selected
         ]
-        return other_passed and unit_passed and component_passed and _run_many(core_checks)
+        return _run_many(checks)
 
     if part == "frontend":
         return _run_many(
@@ -229,7 +209,7 @@ def hardware_gate() -> bool:
         "ads-hardware",
         _python_module(
             "pytest",
-            "tests/integration/protocols/ads",
+            "tests/core/protocol/ads",
             "-q",
             "-m",
             "hardware",
@@ -255,13 +235,12 @@ def soak_gate() -> bool:
         "soak",
         _python_module(
             "pytest",
-            "tests/reliability/soak",
+            "tests/system/soak",
             "-q",
             "-m",
             "soak and not performance",
         ),
     )
-
 
 
 def _frontend_fast_required(path: str) -> bool:
@@ -270,10 +249,12 @@ def _frontend_fast_required(path: str) -> bool:
         return True
     if not path.startswith("src/web_admin/"):
         return False
-    return not path.startswith((
-        "src/web_admin/playwright.config.ts",
-        "src/web_admin/playwright.mock.config.ts",
-    ))
+    return not path.startswith(
+        (
+            "src/web_admin/playwright.config.ts",
+            "src/web_admin/playwright.mock.config.ts",
+        )
+    )
 
 
 def _resolve_test_paths(patterns: list[str]) -> tuple[list[str], list[str]]:
@@ -302,8 +283,7 @@ def _resolve_test_paths(patterns: list[str]) -> tuple[list[str], list[str]]:
     unique = list(dict.fromkeys(resolved))
     # pytest 同时收到目录与其子路径时可能只收集子路径，必须移除被覆盖项。
     roots = [
-        path for path in unique
-        if not any(Path(parent) in Path(path).parents for parent in unique)
+        path for path in unique if not any(Path(parent) in Path(path).parents for parent in unique)
     ]
     return roots, missing
 
@@ -312,111 +292,119 @@ def merge_gate(paths: list[str]) -> bool:
     """合并前验证受影响范围；未知生产路径保守回退。"""
     changed = sorted({p.strip() for p in paths if p.strip()})
     commands: list[tuple[str, list[str]]] = []
-    python_files = [
-        p for p in changed if p.endswith(".py") and (REPO_ROOT / p).is_file()
-    ]
+    python_files = [p for p in changed if p.endswith(".py") and (REPO_ROOT / p).is_file()]
     if python_files:
         commands.append(("ruff", _python_module("ruff", "check", *python_files)))
 
-    backend = any(
-        p.startswith(BACKEND_PREFIXES) or p in BACKEND_GLOBAL_FILES for p in changed
-    )
+    backend = any(p.startswith(BACKEND_PREFIXES) or p in BACKEND_GLOBAL_FILES for p in changed)
     frontend_fast = any(_frontend_fast_required(p) for p in changed)
     frontend_e2e = any(
-        p in FRONTEND_E2E_FILES or p.startswith("tests/web_admin/e2e/")
-        for p in changed
+        p in FRONTEND_E2E_FILES or p.startswith("tests/web_admin/e2e/") for p in changed
     )
     tooling = any(p.startswith(("scripts/", "ai_shared/agent_config/")) for p in changed)
 
     if backend:
-        commands.extend([
-            ("mypy", _python_module("mypy", "src")),
-            ("import-linter", _tool("lint-imports")),
-        ])
+        commands.extend(
+            [
+                ("mypy", _python_module("mypy", "src")),
+                ("import-linter", _tool("lint-imports")),
+            ]
+        )
     if frontend_fast:
-        commands.extend([
-            ("frontend-build", _npm("--prefix", str(FRONTEND_DIR), "run", "build")),
-            ("frontend-unit", _npm("--prefix", str(FRONTEND_DIR), "test")),
-        ])
+        commands.extend(
+            [
+                ("frontend-build", _npm("--prefix", str(FRONTEND_DIR), "run", "build")),
+                ("frontend-unit", _npm("--prefix", str(FRONTEND_DIR), "test")),
+            ]
+        )
     if frontend_e2e:
-        commands.append(("frontend-e2e", _npm(
-            "--prefix", str(FRONTEND_DIR), "run", "test:e2e"
-        )))
+        commands.append(("frontend-e2e", _npm("--prefix", str(FRONTEND_DIR), "run", "test:e2e")))
     if tooling:
-        commands.append(("tooling-syntax", _python_module(
-            "compileall", "-q", "scripts", "ai_shared/agent_config/hooks",
-            "ai_shared/agent_config/skills/merge-branch/scripts"
-        )))
+        commands.append(
+            (
+                "tooling-syntax",
+                _python_module(
+                    "compileall",
+                    "-q",
+                    "scripts",
+                    "ai_shared/agent_config/hooks",
+                    "ai_shared/agent_config/skills/merge-branch/scripts",
+                ),
+            )
+        )
 
+    # 未知后端生产路径的保守回退：全部业务包 + system + tooling。
+    broad_tests = [
+        "tests/core",
+        "tests/collector",
+        "tests/commander",
+        "tests/industrial_gateway",
+        "tests/seahorse",
+        "tests/web_server",
+        "tests/cli",
+        "tests/tooling",
+        "tests/system",
+    ]
     candidates: list[str] = []
     for p in changed:
         if p.startswith("src/core/infrastructure/protocol/"):
             parts = Path(p).parts
             protocol = parts[4] if len(parts) > 4 else ""
             if protocol in {"ads", "modbus", "iec104"}:
-                candidates.extend([
-                    f"tests/core/protocol/{protocol}",
-                ])
+                candidates.append(f"tests/core/protocol/{protocol}")
                 if protocol == "ads":
-                    candidates.append("tests/reliability/recovery")
+                    candidates.append("tests/system/recovery")
             else:
-                candidates.extend([
-                    "tests/core/protocol",
-                ])
+                candidates.append("tests/core/protocol")
         elif p.startswith("src/core/infrastructure/sink/"):
-            # sink 单测分散在 core 根目录散文件与 collector/sink 子包。
-            candidates.extend([
-                "tests/core/sink",
-                "tests/unit/collector/sink",
-                "tests/component/collector/test_*sink*.py",
-                "tests/integration/sinks",
-            ])
+            # sink 测试位于 core/sink 与 collector/sink。
+            candidates.extend(["tests/core/sink", "tests/collector/sink"])
         elif p.startswith("src/core/infrastructure/rpc/") or "/grpc/" in p:
-            candidates.extend(["tests/contract/rpc", "tests/component/collector"])
-            # /grpc/ 也存在于 collector/commander/web_server 子树，
+            # 契约单测归属业务包 rpc/ 子目录；真实跨进程 RPC 在 system/rpc。
+            candidates.extend(["tests/system/rpc"])
+            # /grpc/ 也存在于 collector/commander/web_server/gateway 子树，
             # 不能让 RPC 规则遮蔽各子系统自己的测试。
             if p.startswith("src/collector/"):
-                candidates.append("tests/unit/collector")
+                candidates.append("tests/collector")
             elif p.startswith("src/commander/"):
-                candidates.extend(["tests/unit/commander", "tests/component/commander"])
+                candidates.append("tests/commander")
             elif p.startswith("src/web_server/"):
-                candidates.append("tests/unit/web_server")
+                candidates.append("tests/web_server")
             elif p.startswith("src/industrial_gateway/"):
-                candidates.extend([
-                    "tests/unit", "tests/component",
-                    "tests/integration/protocols/test_gateway*.py",
-                ])
+                candidates.append("tests/industrial_gateway")
+            elif p.startswith("src/seahorse/"):
+                candidates.append("tests/seahorse")
         elif p.startswith("src/collector/"):
-            candidates.extend(["tests/unit/collector", "tests/component/collector"])
+            candidates.append("tests/collector")
             if p.startswith("src/collector/application/") or p in {
                 "src/collector/assembly.py",
                 "src/collector/main.py",
             }:
                 candidates.append("tests/system/acquisition")
         elif p.startswith("src/commander/"):
-            candidates.extend(["tests/unit/commander", "tests/component/commander"])
+            candidates.append("tests/commander")
             if p.startswith("src/commander/application/"):
                 candidates.append("tests/system/command")
-        elif (
-            p.startswith("src/core/infrastructure/config/")
-            or p.startswith("src/core/domain/config/")
+        elif p.startswith("src/core/infrastructure/config/") or p.startswith(
+            "src/core/domain/config/"
         ):
-            candidates.extend(["tests/core/config", "tests/contract"])
+            candidates.append("tests/core/config")
         elif p.startswith("src/web_server/"):
-            candidates.append("tests/unit/web_server")
+            candidates.append("tests/web_server")
         elif p.startswith("src/cli/"):
-            candidates.extend(["tests/unit/cli", "tests/component/cli"])
+            candidates.append("tests/cli")
         elif p.startswith("src/core/"):
-            candidates.extend(["tests/core"])
+            candidates.append("tests/core")
         elif p.startswith("src/industrial_gateway/"):
-            candidates.extend([
-                "tests/unit", "tests/component",
-                "tests/integration/protocols/test_gateway*.py",
-            ])
+            candidates.append("tests/industrial_gateway")
+        elif p.startswith("src/seahorse/"):
+            candidates.append("tests/seahorse")
+        elif p.startswith("src/contracts/"):
+            candidates.extend(["tests/core/rpc", "tests/collector", "tests/commander"])
         elif p.startswith("src/"):
-            candidates.extend(["tests/unit", "tests/component"])
+            candidates.extend(broad_tests)
         elif p.startswith("configs/"):
-            candidates.append("tests/contract")
+            candidates.append("tests/core/config")
         elif p.startswith("tests/") and p.endswith(".py"):
             if (REPO_ROOT / p).is_file():
                 candidates.append(p)
@@ -433,10 +421,10 @@ def merge_gate(paths: list[str]) -> bool:
         ):
             # 依赖文件影响全局；后端 tests 下的非 py 资源（fixture 等）保守回退；
             # tests/web_admin 由前端 build/unit/e2e 标志覆盖。
-            candidates.extend(["tests/unit", "tests/component", "tests/contract"])
+            candidates.extend(broad_tests)
 
     if backend and not candidates:
-        candidates.extend(["tests/unit", "tests/component", "tests/contract"])
+        candidates.extend(broad_tests)
     # 对未知生产目录不可静默判定为不需要测试。
     available, missing = _resolve_test_paths(candidates)
     if missing:
@@ -449,12 +437,29 @@ def merge_gate(paths: list[str]) -> bool:
         print("[FAIL] no test paths resolved for backend changes", file=sys.stderr)
         return False
     if available:
-        commands.append(("affected-tests", _python_module(
-            "pytest", *available, "--import-mode=importlib", "-q", "-m",
-            "not hardware and not performance and not soak"
-        )))
-    print(json.dumps({"changed_files": changed, "selected_tests": available,
-                      "checks": [label for label, _ in commands]}, ensure_ascii=False))
+        commands.append(
+            (
+                "affected-tests",
+                _python_module(
+                    "pytest",
+                    *available,
+                    "--import-mode=importlib",
+                    "-q",
+                    "-m",
+                    "not hardware and not performance and not soak",
+                ),
+            )
+        )
+    print(
+        json.dumps(
+            {
+                "changed_files": changed,
+                "selected_tests": available,
+                "checks": [label for label, _ in commands],
+            },
+            ensure_ascii=False,
+        )
+    )
     return _run_many(commands)
 
 

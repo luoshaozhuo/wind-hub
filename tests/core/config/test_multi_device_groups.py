@@ -8,14 +8,14 @@ from core.application.config_diff import diff_config_snapshots
 from core.domain.identities import DeviceGroupId
 from core.infrastructure.config.adapter import YamlConfigAdapter
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_device_multi_groups_survive_save_and_reload(tmp_path: Path) -> None:
     source = ROOT / "tests" / "fixtures" / "configs" / "example_modbus"
     for filename in (
         "system.yaml",
-    "units.yaml",
+        "units.yaml",
         "device_models.yaml",
         "devices.yaml",
         "points.yaml",

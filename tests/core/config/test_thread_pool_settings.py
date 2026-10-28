@@ -11,7 +11,7 @@ from core.application.errors import ConfigError
 from core.application.settings import RuntimeSettings, ThreadPoolSettings
 from core.infrastructure.config import YamlConfigAdapter
 
-_FIXTURE = Path(__file__).resolve().parents[3] / "fixtures" / "configs" / "example_ads"
+_FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "configs" / "example_ads"
 
 
 def test_default_thread_pool_is_32() -> None:

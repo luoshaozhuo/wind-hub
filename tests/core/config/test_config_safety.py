@@ -11,7 +11,7 @@ from core.domain.identities import DeviceModelId
 from core.infrastructure.config.adapter import YamlConfigAdapter
 from core.infrastructure.config.digest import config_dir_digest
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 FILES = (
     "system.yaml",
     "units.yaml",

@@ -17,9 +17,7 @@ pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
 
 class TestConfigApplyViaRest:
-    async def test_apply_modified_task_converges_all_workers(
-        self, full_stack: FullStack
-    ) -> None:
+    async def test_apply_modified_task_converges_all_workers(self, full_stack: FullStack) -> None:
         # ---- 读取现役配置文件，修改节拍 ----
         current = await full_stack.http.get("/api/v1/config/files/tasks.yaml")
         assert current.status_code == 200, current.text
@@ -84,9 +82,7 @@ class TestConfigApplyViaRest:
         assert task.status_code == 200
         assert task.json()["interval"] == pytest.approx(0.2)
 
-    async def test_validate_endpoint_checks_without_applying(
-        self, full_stack: FullStack
-    ) -> None:
+    async def test_validate_endpoint_checks_without_applying(self, full_stack: FullStack) -> None:
         current = await full_stack.http.get("/api/v1/config/files/tasks.yaml")
         data = yaml.safe_load(current.json()["content"])
         data["tasks"][SYSTEM_TASK_ID]["interval"] = 3.3

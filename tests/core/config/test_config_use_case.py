@@ -5,7 +5,7 @@ from pathlib import Path
 from core.application.config_use_case import ConfigUseCase
 from core.infrastructure.config.adapter import YamlConfigAdapter
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_config_use_case_load_and_diff() -> None:

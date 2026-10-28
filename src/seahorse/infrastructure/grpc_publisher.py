@@ -40,7 +40,8 @@ class GrpcSnapshotPublisher:
                     raise KeyError(f"missing Gateway feedback: {device_id}.{point_id}")
                 points.append(
                     pb.FeedbackPoint(
-                        device_id=device_id, point_id=point_id,
+                        device_id=device_id,
+                        point_id=point_id,
                         value=encode_scalar(device[point_id]),
                     )
                 )

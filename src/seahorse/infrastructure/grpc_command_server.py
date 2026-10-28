@@ -12,9 +12,8 @@ from typing import Any
 
 import grpc
 
-from contracts import common_pb2 as common_pb
-
 from contracts import commander_pb2 as pb
+from contracts import common_pb2 as common_pb
 from seahorse.application.command_queue import (
     CommandQueue,
     CommandQueueClosedError,

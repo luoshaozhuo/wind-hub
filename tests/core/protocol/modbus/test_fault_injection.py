@@ -6,8 +6,8 @@ import pytest
 
 from core.application.errors import ProtocolConnectionError
 from core.application.protocol_contract import ProtocolWrite, WriteOutcome
+from tests.core.protocol.conftest import modbus_driver
 from tests.fixtures.servers.modbus_proxy import WriteResponseDropProxy
-from tests.protocol.conftest import modbus_driver
 from tests.support.process import free_port
 
 

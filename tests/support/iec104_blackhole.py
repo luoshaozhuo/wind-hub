@@ -28,9 +28,7 @@ class StartdtBlackhole:
     async def start(self) -> None:
         self._server = await asyncio.start_server(self._handle, "127.0.0.1", self._port)
 
-    async def _handle(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._writers.add(writer)
         buffer = bytearray()
         recv_seq = 0

@@ -10,7 +10,7 @@ from core.application.protocol_contract import (
     ProtocolCapability,
     ProtocolWrite,
 )
-from tests.protocol.conftest import modbus_driver
+from tests.core.protocol.conftest import modbus_driver
 
 
 async def _callback(samples: object) -> None:

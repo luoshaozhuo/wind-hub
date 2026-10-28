@@ -19,7 +19,7 @@ import pytest_asyncio
 
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.performance.servers import start_ads_server
+from tests.support.perf_servers import start_ads_server
 from tests.support.process import free_port
 
 pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.system]
@@ -46,9 +46,7 @@ async def _can_connect(host: str, port: int) -> bool:
     try:
         # c104 串行 accept（实测 ~0.25s/连接）：并发压测时队尾连接需等待
         # 前置连接完成握手，1s 会误杀正常排队；5s 仍远小于“不接受连接”的故障语义。
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=5.0
-        )
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=5.0)
     except (OSError, TimeoutError):
         return False
     writer.close()
@@ -75,6 +73,7 @@ async def protocol_fleet() -> AsyncIterator[ProtocolFleet]:
     iec104: list[IEC104MockServer] = []
     ads_hosts: list[str] = []
     async with AsyncExitStack() as stack:
+
         async def start_modbus() -> ModbusMockServer:
             server = ModbusMockServer(port=free_port(), holding=[0] * 2048, inputs=[0] * 2048)
             await server.start()
@@ -96,9 +95,7 @@ async def protocol_fleet() -> AsyncIterator[ProtocolFleet]:
         for index in range(_COUNT):
             ads_host = f"127.0.1.{11 + index}"
             port = 48898
-            await stack.enter_async_context(
-                start_ads_server(ads_host, port, num_vars=16)
-            )
+            await stack.enter_async_context(start_ads_server(ads_host, port, num_vars=16))
             ads_hosts.append(ads_host)
             await _await_listening(ads_host, port)
         yield ProtocolFleet(modbus, iec104, ads_hosts)
@@ -118,7 +115,8 @@ async def test_all_30_real_protocol_servers_are_listening(
 
 @pytest.mark.parametrize("family", ["modbus", "iec104", "ads"])
 async def test_each_protocol_accepts_concurrent_connections(
-    protocol_fleet: ProtocolFleet, family: str,
+    protocol_fleet: ProtocolFleet,
+    family: str,
 ) -> None:
     endpoints = protocol_fleet.endpoints()[family]
     for _ in range(3):
@@ -130,14 +128,13 @@ async def test_each_protocol_accepts_concurrent_connections(
 
 @pytest.mark.parametrize("family", ["modbus", "iec104", "ads"])
 async def test_short_invalid_protocol_payloads_do_not_kill_server(
-    protocol_fleet: ProtocolFleet, family: str,
+    protocol_fleet: ProtocolFleet,
+    family: str,
 ) -> None:
     for host, port in protocol_fleet.endpoints()[family]:
         writer: asyncio.StreamWriter | None = None
         try:
-            _, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port), timeout=2
-            )
+            _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=2)
             writer.write(b"\\x00\\xffbad-protocol\\x00")
             await asyncio.wait_for(writer.drain(), timeout=2)
         except (BrokenPipeError, ConnectionResetError, OSError):
@@ -148,15 +145,14 @@ async def test_short_invalid_protocol_payloads_do_not_kill_server(
                 with contextlib.suppress(OSError, TimeoutError):
                     await asyncio.wait_for(writer.wait_closed(), timeout=2)
     assert all(
-        await asyncio.gather(
-            *(_can_connect(*peer) for peer in protocol_fleet.endpoints()[family])
-        )
+        await asyncio.gather(*(_can_connect(*peer) for peer in protocol_fleet.endpoints()[family]))
     )
 
 
 @pytest.mark.parametrize("index", [0, 3, 9])
 async def test_modbus_fault_injection_and_recovery(
-    protocol_fleet: ProtocolFleet, index: int,
+    protocol_fleet: ProtocolFleet,
+    index: int,
 ) -> None:
     server = protocol_fleet.modbus[index]
     await server.stop()
@@ -168,7 +164,8 @@ async def test_modbus_fault_injection_and_recovery(
 
 @pytest.mark.parametrize("index", [0, 4, 9])
 async def test_iec104_fault_injection_and_recovery(
-    protocol_fleet: ProtocolFleet, index: int,
+    protocol_fleet: ProtocolFleet,
+    index: int,
 ) -> None:
     server = protocol_fleet.iec104[index]
     await server.stop()
@@ -186,9 +183,7 @@ async def test_malformed_frame_flood_does_not_affect_other_peers(
     async def malformed() -> None:
         writer: asyncio.StreamWriter | None = None
         try:
-            _, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port), timeout=2
-            )
+            _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=2)
             writer.write(b"\\xff" * 16)
             await asyncio.wait_for(writer.drain(), timeout=2)
         except (BrokenPipeError, ConnectionResetError, OSError):
@@ -199,9 +194,7 @@ async def test_malformed_frame_flood_does_not_affect_other_peers(
                 with contextlib.suppress(OSError, TimeoutError):
                     await asyncio.wait_for(writer.wait_closed(), timeout=2)
 
-    await asyncio.wait_for(
-        asyncio.gather(*(malformed() for _ in range(40))), timeout=20
-    )
+    await asyncio.wait_for(asyncio.gather(*(malformed() for _ in range(40))), timeout=20)
     healthy_peers = [
         *protocol_fleet.endpoints()["modbus"][1:],
         *protocol_fleet.endpoints()["iec104"],

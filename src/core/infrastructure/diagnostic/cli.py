@@ -9,8 +9,8 @@ from pathlib import Path
 import typer
 
 from core.application.diagnostic import DiagnosticResult, DiagnosticStatus
-from core.infrastructure.diagnostic.config import check_config, compare_config
 from core.infrastructure.diagnostic import firewall, network, protocol, sink
+from core.infrastructure.diagnostic.config import check_config, compare_config
 
 app = typer.Typer(help="wind-hub Core diagnostic tools", no_args_is_help=True)
 config_app = typer.Typer(help="Validate and compare configuration", no_args_is_help=True)
@@ -62,7 +62,6 @@ def diff(
     _output(compare_config(previous, current), json_output)
 
 
-
 @network_app.command("interfaces")
 def network_interfaces(json_output: bool = typer.Option(False, "--json")) -> None:
     _output(asyncio.run(network.interfaces()), json_output)
@@ -80,9 +79,16 @@ def network_ports(
     port: int | None = typer.Option(None, "--port", min=1, max=65535),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    _output(asyncio.run(network.ports(
-        listening=listening, established=established, port=port,
-    )), json_output)
+    _output(
+        asyncio.run(
+            network.ports(
+                listening=listening,
+                established=established,
+                port=port,
+            )
+        ),
+        json_output,
+    )
 
 
 @network_app.command("port")
@@ -127,10 +133,17 @@ def network_scan(
             raise ValueError("ports must contain 1..128 valid TCP ports")
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="--ports") from exc
-    _output(asyncio.run(network.scan_ports(
-        host, numbers, timeout=timeout, concurrency=concurrency,
-    )), json_output)
-
+    _output(
+        asyncio.run(
+            network.scan_ports(
+                host,
+                numbers,
+                timeout=timeout,
+                concurrency=concurrency,
+            )
+        ),
+        json_output,
+    )
 
 
 @network_app.command("bandwidth")
@@ -163,10 +176,16 @@ def firewall_check(
 ) -> None:
     if direction not in {"inbound", "outbound"} or protocol not in {"tcp", "udp"}:
         raise typer.BadParameter("direction must be inbound/outbound; protocol tcp/udp")
-    _output(asyncio.run(firewall.firewall_check(
-        port, direction=direction, protocol=protocol,
-    )), json_output)
-
+    _output(
+        asyncio.run(
+            firewall.firewall_check(
+                port,
+                direction=direction,
+                protocol=protocol,
+            )
+        ),
+        json_output,
+    )
 
 
 @protocol_app.command("check")
@@ -176,9 +195,16 @@ def protocol_check(
     timeout: float = typer.Option(5.0, min=0.1, max=30),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    _output(asyncio.run(protocol.check_protocol(
-        config, device, timeout=timeout,
-    )), json_output)
+    _output(
+        asyncio.run(
+            protocol.check_protocol(
+                config,
+                device,
+                timeout=timeout,
+            )
+        ),
+        json_output,
+    )
 
 
 @protocol_app.command("point")
@@ -189,9 +215,17 @@ def protocol_point(
     timeout: float = typer.Option(5.0, min=0.1, max=30),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    _output(asyncio.run(protocol.check_protocol(
-        config, device, point_id=point, timeout=timeout,
-    )), json_output)
+    _output(
+        asyncio.run(
+            protocol.check_protocol(
+                config,
+                device,
+                point_id=point,
+                timeout=timeout,
+            )
+        ),
+        json_output,
+    )
 
 
 @protocol_app.command("benchmark")
@@ -207,9 +241,19 @@ def protocol_benchmark(
     ids = [item.strip() for item in points.split(",")]
     if not 1 <= len(ids) <= 200 or any(not item for item in ids) or len(set(ids)) != len(ids):
         raise typer.BadParameter("provide 1..200 unique point IDs", param_hint="--points")
-    _output(asyncio.run(protocol.benchmark_protocol(
-        config, device, ids, samples=samples, interval=interval, timeout=timeout,
-    )), json_output)
+    _output(
+        asyncio.run(
+            protocol.benchmark_protocol(
+                config,
+                device,
+                ids,
+                samples=samples,
+                interval=interval,
+                timeout=timeout,
+            )
+        ),
+        json_output,
+    )
 
 
 @sink_app.command("check")
@@ -231,9 +275,18 @@ def sink_benchmark(
     timeout: float = typer.Option(5.0, min=0.1, max=30),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    _output(asyncio.run(sink.benchmark_sink(
-        config, sink_id, samples=samples, interval=interval, timeout=timeout,
-    )), json_output)
+    _output(
+        asyncio.run(
+            sink.benchmark_sink(
+                config,
+                sink_id,
+                samples=samples,
+                interval=interval,
+                timeout=timeout,
+            )
+        ),
+        json_output,
+    )
 
 
 if __name__ == "__main__":

@@ -194,9 +194,7 @@ class AdminStateService:
         }
 
     @staticmethod
-    def _tasks_document(
-        items: list[AdminTaskItem], previous: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _tasks_document(items: list[AdminTaskItem], previous: dict[str, Any]) -> dict[str, Any]:
         tasks: dict[str, Any] = {}
         for item in items:
             if not item.device_group or item.device:
@@ -218,8 +216,7 @@ class AdminStateService:
                 "point_group": item.point_group,
                 "interval": item.interval,
                 "outputs": [
-                    dict(mapped.get(sink_id, {"sink_id": sink_id}))
-                    for sink_id in item.sinks
+                    dict(mapped.get(sink_id, {"sink_id": sink_id})) for sink_id in item.sinks
                 ],
                 "enabled": item.enabled,
             }

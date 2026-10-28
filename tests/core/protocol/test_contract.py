@@ -20,7 +20,7 @@ from core.domain import ConnectionEndpoint, PointTable
 from core.infrastructure.protocol.ads import ADSDriver
 from core.infrastructure.protocol.iec104 import IEC104Driver
 from core.infrastructure.protocol.modbus import ModbusDriver
-from tests.protocol.conftest import make_table
+from tests.core.protocol.conftest import make_table
 
 
 @pytest.fixture(params=["ads", "iec104", "modbus"])

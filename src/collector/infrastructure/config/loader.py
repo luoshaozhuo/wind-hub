@@ -121,9 +121,7 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
             # point.ext["data_type"] 是协议原生表示（如 ADS 的 REAL），
             # 仅供 Driver 编解码，不能传给 Sink Schema。领域加载已保证
             # Point 必然引用存在的业务点，且两者逻辑类型一致。
-            source_data_type = snapshot.business_points[
-                point.business_point_id
-            ].data_type.value
+            source_data_type = snapshot.business_points[point.business_point_id].data_type.value
             source_unit = point.source_unit.unit_id
             unit = raw.get("unit") or source_unit
             try:
@@ -247,9 +245,7 @@ def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
         watchdog_interval=settings.watchdog_interval,
         health_timeout=settings.health_timeout,
         thread_pool_max_workers=(
-            settings.thread_pool.max_workers
-            if settings.thread_pool is not None
-            else 32
+            settings.thread_pool.max_workers if settings.thread_pool is not None else 32
         ),
     )
 

@@ -10,7 +10,7 @@ from core.application.config_diff import diff_config_snapshots
 from core.infrastructure.config.adapter import YamlConfigAdapter
 from core.infrastructure.config.digest import config_dir_digest
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 FILES = (
     "system.yaml",
     "units.yaml",
@@ -61,6 +61,7 @@ def test_ads_subscription_option_round_trip(tmp_path: Path) -> None:
     assert any(device.subscribe_enabled for device in before.site.devices.values())
     adapter.save(before)
     after = adapter.load()
+
     def _subscribed(snapshot: object) -> set:
         return {
             key

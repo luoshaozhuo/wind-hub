@@ -95,9 +95,10 @@ async def test_later_insert_failure_does_not_replay_accepted_chunk(
 
     def execute(sql: str) -> None:
         calls.append(sql)
-        if sql.startswith("INSERT INTO ") and sum(
-            item.startswith("INSERT INTO ") for item in calls
-        ) == 2:
+        if (
+            sql.startswith("INSERT INTO ")
+            and sum(item.startswith("INSERT INTO ") for item in calls) == 2
+        ):
             raise OSError("second chunk failed")
 
     monkeypatch.setattr(sink, "_execute", execute)

@@ -31,10 +31,6 @@ def test_local_timestamp_has_no_device_time() -> None:
 def test_rejects_naive_receive_or_device_time() -> None:
     now = datetime.now(UTC)
     with pytest.raises(ValueError, match="receive_time"):
-        ProtocolSample(
-            point_id="p", value=1, timestamp=now, receive_time=datetime(2026, 1, 1)
-        )
+        ProtocolSample(point_id="p", value=1, timestamp=now, receive_time=datetime(2026, 1, 1))
     with pytest.raises(ValueError, match="device_time"):
-        ProtocolSample(
-            point_id="p", value=1, timestamp=now, device_time=datetime(2026, 1, 1)
-        )
+        ProtocolSample(point_id="p", value=1, timestamp=now, device_time=datetime(2026, 1, 1))

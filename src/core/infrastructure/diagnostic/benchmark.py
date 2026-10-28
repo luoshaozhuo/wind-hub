@@ -66,16 +66,22 @@ async def benchmark(
             }
         )
     status = (
-        DiagnosticStatus.FAIL if not ordered
-        else DiagnosticStatus.WARNING if failures else DiagnosticStatus.PASS
+        DiagnosticStatus.FAIL
+        if not ordered
+        else DiagnosticStatus.WARNING
+        if failures
+        else DiagnosticStatus.PASS
     )
     return DiagnosticResult(
         category="benchmark",
         target=target,
         status=status,
-        findings=(DiagnosticFinding(
-            code="BENCHMARK_COMPLETE", status=status,
-            message="Read-only sequential benchmark; no write operations performed",
-        ),),
+        findings=(
+            DiagnosticFinding(
+                code="BENCHMARK_COMPLETE",
+                status=status,
+                message="Read-only sequential benchmark; no write operations performed",
+            ),
+        ),
         measurements=measurements,
     )

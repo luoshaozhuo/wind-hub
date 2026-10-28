@@ -168,7 +168,7 @@ def test_connected_point_table_update_reuses_locks_and_changes_mapping() -> None
     """点表热更新不拆会话，同地址保留锁，新地址获得独立锁。"""
     from core.domain import ConnectionEndpoint
     from core.infrastructure.protocol.iec104 import IEC104Driver
-    from tests.protocol.conftest import make_table
+    from tests.core.protocol.conftest import make_table
 
     old = _point("a", ca=1, ioa=100, type_id="M_ME_NC_1")
     new = _point("b", ca=1, ioa=200, type_id="M_ME_NC_1")
@@ -191,7 +191,7 @@ def test_connected_point_table_update_reuses_locks_and_changes_mapping() -> None
 def test_invalid_connected_table_update_keeps_original_snapshot() -> None:
     from core.domain import ConnectionEndpoint
     from core.infrastructure.protocol.iec104 import IEC104Driver
-    from tests.protocol.conftest import make_table
+    from tests.core.protocol.conftest import make_table
 
     old = _point("a", ca=1, ioa=100, type_id="M_ME_NC_1")
     duplicate = _point("b", ca=1, ioa=100, type_id="M_ME_NC_1")

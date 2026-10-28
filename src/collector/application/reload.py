@@ -171,11 +171,9 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
     for device_id in common:
         previous = old_devices[device_id]
         current = new_devices[device_id]
-        if (
-            old.device_models.get(previous.device_model_id)
-            != new.device_models.get(current.device_model_id)
-            or old.point_table_for_device(device_id) != new.point_table_for_device(device_id)
-        ):
+        if old.device_models.get(previous.device_model_id) != new.device_models.get(
+            current.device_model_id
+        ) or old.point_table_for_device(device_id) != new.point_table_for_device(device_id):
             updated.add(str(device_id))
     devices = DeviceDiff(
         added=added,

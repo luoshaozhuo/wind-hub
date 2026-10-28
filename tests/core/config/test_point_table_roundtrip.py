@@ -7,7 +7,7 @@ from shutil import copyfile
 from core.domain import PointTableId
 from core.infrastructure.config.adapter import YamlConfigAdapter
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:

@@ -13,10 +13,10 @@ from uuid import uuid4
 import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
-from core.domain.diagnostic import DeviceVerifyResult, PointVerifyResult
-from contracts import common_pb2 as common_pb
 from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc as pb_grpc
+from contracts import common_pb2 as common_pb
+from core.domain.diagnostic import DeviceVerifyResult, PointVerifyResult
 from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
 
 from ...application.errors import CommandError, CommandUncertainError
@@ -54,7 +54,8 @@ def _address_fields(data: dict[str, object] | None) -> list[common_pb.AddressFie
     if not data:
         return []
     return [
-        common_pb.AddressField(key=key, value=encode_scalar(value)) for key, value in sorted(data.items())
+        common_pb.AddressField(key=key, value=encode_scalar(value))
+        for key, value in sorted(data.items())
     ]
 
 

@@ -111,12 +111,8 @@ class DeviceModel:
                 f"endpoint_defaults only supports 'port', got {sorted(unknown_endpoint_keys)}"
             )
         object.__setattr__(self, "properties", _freeze_model_mapping(self.properties))
-        object.__setattr__(
-            self, "endpoint_defaults", _freeze_model_mapping(self.endpoint_defaults)
-        )
-        object.__setattr__(
-            self, "protocol_options", freeze_protocol_options(self.protocol_options)
-        )
+        object.__setattr__(self, "endpoint_defaults", _freeze_model_mapping(self.endpoint_defaults))
+        object.__setattr__(self, "protocol_options", freeze_protocol_options(self.protocol_options))
 
 
 @dataclass(frozen=True, slots=True)

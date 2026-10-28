@@ -7,8 +7,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from core.application.diagnostic import DiagnosticFinding, DiagnosticResult, DiagnosticStatus
-from core.application.protocol_contract import ProtocolCapability
 from core.application.port.protocol import ProtocolPort
+from core.application.protocol_contract import ProtocolCapability
 from core.infrastructure.config.adapter import YamlConfigAdapter
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.diagnostic.benchmark import benchmark
@@ -39,11 +39,16 @@ def _driver(config: str | Path, device_id: str) -> ProtocolPort:
 
 def _failure(target: str, exc: Exception) -> DiagnosticResult:
     return DiagnosticResult(
-        category="protocol", target=target, status=DiagnosticStatus.FAIL,
-        findings=(DiagnosticFinding(
-            code="PROTOCOL_DIAGNOSTIC_FAILED", status=DiagnosticStatus.FAIL,
-            message=f"{type(exc).__name__}: {exc}",
-        ),),
+        category="protocol",
+        target=target,
+        status=DiagnosticStatus.FAIL,
+        findings=(
+            DiagnosticFinding(
+                code="PROTOCOL_DIAGNOSTIC_FAILED",
+                status=DiagnosticStatus.FAIL,
+                message=f"{type(exc).__name__}: {exc}",
+            ),
+        ),
     )
 
 
@@ -75,11 +80,17 @@ async def check_protocol(
                     "timestamp": sample.timestamp.isoformat(),
                 }
         return DiagnosticResult(
-            category="protocol", target=device_id, status=DiagnosticStatus.PASS,
-            findings=(DiagnosticFinding(
-                code="PROTOCOL_OK", status=DiagnosticStatus.PASS,
-                message="Protocol handshake and health verified",
-            ),), evidence=evidence,
+            category="protocol",
+            target=device_id,
+            status=DiagnosticStatus.PASS,
+            findings=(
+                DiagnosticFinding(
+                    code="PROTOCOL_OK",
+                    status=DiagnosticStatus.PASS,
+                    message="Protocol handshake and health verified",
+                ),
+            ),
+            evidence=evidence,
         )
     except Exception as exc:
         return _failure(device_id, exc)

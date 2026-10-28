@@ -60,9 +60,7 @@ async def test_generates_id_when_absent() -> None:
 
 async def test_none_handler_passes_through() -> None:
     continuation = await _continuation_factory(None)
-    wrapped = await RequestIdServerInterceptor().intercept_service(
-        continuation, _details(())
-    )
+    wrapped = await RequestIdServerInterceptor().intercept_service(continuation, _details(()))
     assert wrapped is None
 
 

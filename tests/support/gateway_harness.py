@@ -19,8 +19,8 @@ from pathlib import Path
 import grpc
 from pymodbus.client import AsyncModbusTcpClient
 
-from core.infrastructure.rpc import commander_pb2 as pb
-from core.infrastructure.rpc import commander_pb2_grpc
+from contracts import commander_pb2 as pb
+from contracts import commander_pb2_grpc
 from industrial_gateway.assembly import GatewayApplication, assemble_gateway
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
 

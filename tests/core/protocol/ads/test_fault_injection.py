@@ -14,7 +14,7 @@ from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.ads import ADSDriver
 from core.infrastructure.protocol.ads.mapping import ADSPoint
 from core.infrastructure.protocol.ads.subscription import ADSSubscription
-from tests.protocol.conftest import make_point, make_table
+from tests.core.protocol.conftest import make_point, make_table
 
 
 class FakeAdsSession:

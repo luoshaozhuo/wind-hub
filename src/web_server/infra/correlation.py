@@ -52,9 +52,7 @@ class RequestIdMiddleware:
             return
 
         raw_headers = scope.get("headers", [])
-        headers = {
-            k.decode().lower(): v.decode(errors="replace") for k, v in raw_headers
-        }
+        headers = {k.decode().lower(): v.decode(errors="replace") for k, v in raw_headers}
         request_id = normalize_request_id(headers.get(REQUEST_ID_HEADER)) or uuid.uuid4().hex
         token = request_id_var.set(request_id)
         try:

@@ -6,6 +6,8 @@ import asyncio
 
 import grpc
 
+from contracts import gateway_pb2 as pb
+from contracts import gateway_pb2_grpc as rpc
 from core.application import ConnectionHealth
 from core.application.sink_contract import GrpcSinkAddress, ResolvedSink, ResolvedSinkPoint
 from core.application.sink_export import SinkReferenceExporter
@@ -13,8 +15,6 @@ from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.domain.sample_value import Quality
 from core.infrastructure.config.sink_schema import GrpcSinkConnection
-from contracts import gateway_pb2 as pb
-from contracts import gateway_pb2_grpc as rpc
 from core.infrastructure.rpc.scalar_codec import encode_scalar
 
 
@@ -22,9 +22,7 @@ class GrpcSink:
     def __init__(self, config: Sink) -> None:
         self._settings = GrpcSinkConnection.model_validate(dict(config.connection))
         self._channel: grpc.aio.Channel | None = None
-        self._write_many: (
-            rpc.GatewayDataServiceStub | None
-        ) = None
+        self._write_many: rpc.GatewayDataServiceStub | None = None
         if not isinstance(config, ResolvedSink):
             raise ValueError("GrpcSink requires resolved Collector mappings")
         points = [ResolvedSinkPoint.model_validate(dict(item)) for item in config.points]
@@ -70,10 +68,14 @@ class GrpcSink:
         if self._write_many is None:
             raise RuntimeError("GrpcSink is closed")
         await self._write_many.WriteMany(
-            pb.WriteManyRequest(points=[
-                pb.FeedbackPoint(device_id=device_id, point_id=point_id, value=encode_scalar(value))
-                for (device_id, point_id), value in values.items()
-            ]),
+            pb.WriteManyRequest(
+                points=[
+                    pb.FeedbackPoint(
+                        device_id=device_id, point_id=point_id, value=encode_scalar(value)
+                    )
+                    for (device_id, point_id), value in values.items()
+                ]
+            ),
             timeout=self._settings.timeout,
         )
 

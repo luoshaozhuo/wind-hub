@@ -85,8 +85,16 @@ def compare_config(previous: str | Path, current: str | Path) -> DiagnosticResul
     previous_result = check_config(previous)
     current_result = check_config(current)
     errors = (
-        *(finding for finding in previous_result.findings if finding.status is DiagnosticStatus.FAIL),
-        *(finding for finding in current_result.findings if finding.status is DiagnosticStatus.FAIL),
+        *(
+            finding
+            for finding in previous_result.findings
+            if finding.status is DiagnosticStatus.FAIL
+        ),
+        *(
+            finding
+            for finding in current_result.findings
+            if finding.status is DiagnosticStatus.FAIL
+        ),
     )
     if errors:
         return DiagnosticResult(

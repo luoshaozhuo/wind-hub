@@ -7,13 +7,11 @@ import pytest
 from core.domain.identities import BusinessPointId, PointTableId
 from core.infrastructure.config.adapter import YamlConfigAdapter
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_load_example_modbus() -> None:
-    config = YamlConfigAdapter(
-        ROOT / "tests" / "fixtures" / "configs" / "example_modbus"
-    ).load()
+    config = YamlConfigAdapter(ROOT / "tests" / "fixtures" / "configs" / "example_modbus").load()
     assert type(config).__name__ == "ConfigSnapshot"
     active = config.business_points[BusinessPointId("active_power")]
     assert active.standard_unit.unit_id == "kilowatt"

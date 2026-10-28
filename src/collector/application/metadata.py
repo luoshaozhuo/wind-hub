@@ -43,9 +43,7 @@ class CollectorMetadataService:
     def __init__(self, config_service: CollectorConfigService) -> None:
         self._config_service = config_service
 
-    def get_points_metadata(
-        self, device_id: str, point_ids: list[str]
-    ) -> PointsMetadataResult:
+    def get_points_metadata(self, device_id: str, point_ids: list[str]) -> PointsMetadataResult:
         if not device_id:
             raise ValueError("device_id must not be empty")
         if not point_ids or any(not item for item in point_ids):
@@ -65,9 +63,7 @@ class CollectorMetadataService:
         tasks_by_group: dict[tuple[DeviceGroupId, str], list[Task]] = {}
         for task in config.tasks.values():
             if task.enabled:
-                tasks_by_group.setdefault((task.device_group_id, task.point_group), []).append(
-                    task
-                )
+                tasks_by_group.setdefault((task.device_group_id, task.point_group), []).append(task)
         rows: list[PointMetadataResult] = []
         for point_id in point_ids:
             point = point_table.points.get(point_id)

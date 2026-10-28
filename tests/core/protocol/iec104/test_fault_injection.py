@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from core.application.errors import ProtocolConnectionError
-from tests.protocol.conftest import iec104_driver
+from tests.core.protocol.conftest import iec104_driver
 
 
 @pytest.mark.asyncio

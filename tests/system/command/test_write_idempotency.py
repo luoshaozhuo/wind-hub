@@ -15,8 +15,9 @@ from pathlib import Path
 import grpc
 import pytest
 
-from core.infrastructure.rpc import commander_pb2 as pb
-from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
+from contracts import commander_pb2 as pb
+from contracts import commander_pb2_grpc as pb_grpc
+from contracts import common_pb2
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.config_helper import write_config_tree
 from tests.support.process import CollectorProcess
@@ -55,7 +56,7 @@ async def _write_point_rpc(
                 command_id=command_id,
                 device_id=device_id,
                 point_id=point_id,
-                value=pb.ScalarValue(double_value=value),
+                value=common_pb2.ScalarValue(double_value=value),
                 timeout=5.0,
             ),
             timeout=10.0,

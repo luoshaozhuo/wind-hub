@@ -54,13 +54,9 @@ async def _send_command(
 
 
 class TestCommandViaServer:
-    async def test_write_command_reaches_device_and_readback(
-        self, full_stack: FullStack
-    ) -> None:
+    async def test_write_command_reaches_device_and_readback(self, full_stack: FullStack) -> None:
         """REST 写命令必须真正改变从站寄存器，且响应携带一致回读。"""
-        result = await _send_command(
-            full_stack, value=66.6, command_id="cmd-e2e-write-1"
-        )
+        result = await _send_command(full_stack, value=66.6, command_id="cmd-e2e-write-1")
 
         assert result["success"] is True, result["error"]
         assert result["command_id"] == "cmd-e2e-write-1"
@@ -76,12 +72,8 @@ class TestCommandViaServer:
         """command_id 幂等：重复请求命中 Commander 结果缓存，设备只写一次。"""
         full_stack.modbus.reset_write_count()
 
-        first = await _send_command(
-            full_stack, value=77.7, command_id="cmd-e2e-idem-1"
-        )
-        repeat = await _send_command(
-            full_stack, value=77.7, command_id="cmd-e2e-idem-1"
-        )
+        first = await _send_command(full_stack, value=77.7, command_id="cmd-e2e-idem-1")
+        repeat = await _send_command(full_stack, value=77.7, command_id="cmd-e2e-idem-1")
 
         assert first["success"] is True
         assert repeat["success"] is True
@@ -95,9 +87,7 @@ class TestCommandViaServer:
         registers = await full_stack.modbus.read_holding(1, _COMMAND_ADDR, 2)
         assert _decode_float32(registers) == pytest.approx(88.8)
 
-    async def test_unknown_device_returns_failed_result(
-        self, full_stack: FullStack
-    ) -> None:
+    async def test_unknown_device_returns_failed_result(self, full_stack: FullStack) -> None:
         """Commander 可达但设备不存在：200 + success=false，且不产生设备写。"""
         full_stack.modbus.reset_write_count()
 

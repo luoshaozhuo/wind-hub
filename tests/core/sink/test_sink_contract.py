@@ -68,14 +68,13 @@ def test_naive_datetime_rejected() -> None:
     ],
 )
 def test_config_types(kind: str, connection: dict[str, Any]) -> None:
-    assert (
-        _SinkSchema.model_validate({"type": kind, "connection": connection}).type
-        == kind
-    )
+    assert _SinkSchema.model_validate({"type": kind, "connection": connection}).type == kind
 
 
 def test_old_type_rejected() -> None:
-    with pytest.raises(ValueError):
+    from core.application.errors import ConfigError
+
+    with pytest.raises(ConfigError):
         _SinkSchema.model_validate(
             {
                 "type": "unsupported_sink",

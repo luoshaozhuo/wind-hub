@@ -34,12 +34,8 @@ def dump_point_tables(
     result: dict[str, Any] = {}
     for table_id, table in tables.items():
         # 对未变化的点表保留原始配置；变化时仍保留原来显式声明的字段。
-        parent_unchanged = (
-            table.parent_id is None
-            or (
-                baseline is not None
-                and tables.get(table.parent_id) == baseline.get(table.parent_id)
-            )
+        parent_unchanged = table.parent_id is None or (
+            baseline is not None and tables.get(table.parent_id) == baseline.get(table.parent_id)
         )
         if (
             definitions is not None
@@ -66,15 +62,10 @@ def dump_point_tables(
             if parent is not None and point_id in parent.points:
                 previous = _point_dict(parent.points[point_id])
                 changes = {
-                    key: value
-                    for key, value in current.items()
-                    if value != previous.get(key)
+                    key: value for key, value in current.items() if value != previous.get(key)
                 }
                 original = (
-                    (definitions or {})
-                    .get(str(table_id), {})
-                    .get("points", {})
-                    .get(point_id, {})
+                    (definitions or {}).get(str(table_id), {}).get("points", {}).get(point_id, {})
                 )
                 for field in original:
                     if field in current:

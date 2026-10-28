@@ -16,7 +16,9 @@ _MAX_OUTPUT = 200_000
 async def _read(*argv: str) -> tuple[int, str, str]:
     try:
         proc = await asyncio.create_subprocess_exec(
-            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
     except OSError as exc:
         return 127, "", f"{type(exc).__name__}: {exc}"
@@ -30,7 +32,10 @@ async def _read(*argv: str) -> tuple[int, str, str]:
 
 
 def _result(
-    status: DiagnosticStatus, code: str, message: str, evidence: dict[str, object],
+    status: DiagnosticStatus,
+    code: str,
+    message: str,
+    evidence: dict[str, object],
 ) -> DiagnosticResult:
     return DiagnosticResult(
         category="firewall",
@@ -72,7 +77,10 @@ async def firewall_status() -> DiagnosticResult:
 
 
 async def firewall_check(
-    port: int, *, direction: str = "inbound", protocol: str = "tcp",
+    port: int,
+    *,
+    direction: str = "inbound",
+    protocol: str = "tcp",
 ) -> DiagnosticResult:
     """返回可核查的规则证据，不凭静态字符串匹配武断判断 ALLOW/DENY。"""
     if not 1 <= port <= 65535:
@@ -102,14 +110,17 @@ async def firewall_check(
                     continue
                 if (str(rule.get("family")), str(rule.get("table"))) not in matched_tables:
                     continue
-                if f'"dport"' not in json.dumps(rule.get("expr", [])):
+                if '"dport"' not in json.dumps(rule.get("expr", [])):
                     continue
                 expression = json.dumps(rule.get("expr", []))
                 if str(port) in expression and protocol in expression:
-                    candidate_rules.append({
-                        "chain": rule.get("chain"), "handle": rule.get("handle"),
-                        "expressions": rule.get("expr", []),
-                    })
+                    candidate_rules.append(
+                        {
+                            "chain": rule.get("chain"),
+                            "handle": rule.get("handle"),
+                            "expressions": rule.get("expr", []),
+                        }
+                    )
         except (ValueError, KeyError, TypeError):
             pass
     return _result(
@@ -126,7 +137,8 @@ async def firewall_check(
             "candidate_rules": candidate_rules,
             "candidate_warning": "Candidates are not a complete ordered firewall verdict",
             "sources_available": sorted(
-                key for key, value in snapshot.evidence.items()
+                key
+                for key, value in snapshot.evidence.items()
                 if isinstance(value, dict) and value.get("exit_code") == 0
             ),
         },

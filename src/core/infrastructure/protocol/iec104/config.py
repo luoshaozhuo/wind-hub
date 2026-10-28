@@ -13,8 +13,17 @@ from core.domain import ConnectionEndpoint, ProtocolOptions
 
 _ALLOWED_OPTIONS = frozenset(
     {
-        "health_point", "timezone", "k", "w", "t0", "t1", "t2", "t3",
-        "read_timeout", "command_timeout", "interrogation_timeout",
+        "health_point",
+        "timezone",
+        "k",
+        "w",
+        "t0",
+        "t1",
+        "t2",
+        "t3",
+        "read_timeout",
+        "command_timeout",
+        "interrogation_timeout",
     }
 )
 
@@ -76,9 +85,7 @@ def parse_iec104_config(
     t1 = _positive_float(options.get("t1"), "t1", default=5.0)
     t2 = _positive_float(options.get("t2"), "t2", default=1.0)
     t3 = _positive_float(options.get("t3"), "t3", default=10.0)
-    read_timeout = _positive_float(
-        options.get("read_timeout"), "read_timeout", default=2.0
-    )
+    read_timeout = _positive_float(options.get("read_timeout"), "read_timeout", default=2.0)
     command_timeout = _positive_float(
         options.get("command_timeout"), "command_timeout", default=3.0
     )

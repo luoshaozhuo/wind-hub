@@ -30,10 +30,18 @@ import yaml
 from tests.support.units import MINIMAL_UNITS_DOCUMENT
 
 _ADS_LOGICAL_TYPES = {
-    "BOOL": "bool", "SINT": "int8", "USINT": "uint8",
-    "INT": "int16", "UINT": "uint16", "DINT": "int32",
-    "UDINT": "uint32", "LINT": "int64", "ULINT": "uint64",
-    "REAL": "float32", "LREAL": "float64", "STRING": "str",
+    "BOOL": "bool",
+    "SINT": "int8",
+    "USINT": "uint8",
+    "INT": "int16",
+    "UINT": "uint16",
+    "DINT": "int32",
+    "UDINT": "uint32",
+    "LINT": "int64",
+    "ULINT": "uint64",
+    "REAL": "float32",
+    "LREAL": "float64",
+    "STRING": "str",
 }
 
 
@@ -162,9 +170,7 @@ def write_config_tree(
     declared = dict(device_groups or {})
     instances = {
         device_id: (
-            {**entry, "device_group_ids": [device_id]}
-            if "device_group_ids" not in entry
-            else entry
+            {**entry, "device_group_ids": [device_id]} if "device_group_ids" not in entry else entry
         )
         for device_id, entry in instances.items()
     }

@@ -53,7 +53,13 @@ def _result(
 async def ping_host(host: str, *, timeout: float = 1.0) -> bool:
     """基础 Ping；ICMP 禁用时失败不代表 TCP 不可用。"""
     code, _, _ = await _command(
-        "ping", "-n", "-c", "1", "-W", str(max(1, int(timeout))), host,
+        "ping",
+        "-n",
+        "-c",
+        "1",
+        "-W",
+        str(max(1, int(timeout))),
+        host,
         timeout=timeout + 1,
     )
     return code == 0
@@ -68,16 +74,31 @@ async def ping_probe(host: str, *, count: int = 4, timeout: float = 1.0) -> Diag
     if not 1 <= count <= 20 or not 0 < timeout <= 30:
         raise ValueError("count or timeout is out of range")
     code, out, err = await _command(
-        "ping", "-n", "-c", str(count), "-W", str(max(1, int(timeout))), host,
+        "ping",
+        "-n",
+        "-c",
+        str(count),
+        "-W",
+        str(max(1, int(timeout))),
+        host,
         timeout=count * (timeout + 1) + 2,
     )
     if code == 127:
         return _result(host, DiagnosticStatus.UNKNOWN, "PING_UNAVAILABLE", err)
-    match = re.search(r"(?:rtt|round-trip) min/avg/max/(?:mdev|stddev) = ([0-9.]+)/([0-9.]+)/([0-9.]+)/([0-9.]+) ms", out)
-    timings = (
-        {"rtt_min_ms": float(match[1]), "rtt_avg_ms": float(match[2]),
-         "rtt_max_ms": float(match[3]), "rtt_deviation_ms": float(match[4])}
-        if match else {}
+    rtt_pattern = (
+        r"(?:rtt|round-trip) min/avg/max/(?:mdev|stddev) = "
+        r"([0-9.]+)/([0-9.]+)/([0-9.]+)/([0-9.]+) ms"
+    )
+    match = re.search(rtt_pattern, out)
+    timings: dict[str, int | float | str] = (
+        {
+            "rtt_min_ms": float(match[1]),
+            "rtt_avg_ms": float(match[2]),
+            "rtt_max_ms": float(match[3]),
+            "rtt_deviation_ms": float(match[4]),
+        }
+        if match
+        else {}
     )
     return _result(
         host,
@@ -99,7 +120,9 @@ async def tcp_probe(host: str, port: int, *, timeout: float = 1.0) -> Diagnostic
     except (OSError, TimeoutError) as exc:
         elapsed = (time.perf_counter() - started) * 1000
         return _result(
-            f"{host}:{port}", DiagnosticStatus.FAIL, "TCP_CONNECT_FAILED",
+            f"{host}:{port}",
+            DiagnosticStatus.FAIL,
+            "TCP_CONNECT_FAILED",
             f"{type(exc).__name__}: {exc}",
             measurements={"connect_ms": round(elapsed, 3)},
         )
@@ -109,7 +132,9 @@ async def tcp_probe(host: str, port: int, *, timeout: float = 1.0) -> Diagnostic
             with contextlib.suppress(OSError, TimeoutError):
                 await asyncio.wait_for(writer.wait_closed(), timeout)
     return _result(
-        f"{host}:{port}", DiagnosticStatus.PASS, "TCP_CONNECT_OK",
+        f"{host}:{port}",
+        DiagnosticStatus.PASS,
+        "TCP_CONNECT_OK",
         "TCP connection established; application protocol not verified",
         measurements={"connect_ms": round((time.perf_counter() - started) * 1000, 3)},
     )
@@ -138,7 +163,9 @@ async def scan_ports(
     observations = await asyncio.gather(*(check(p) for p in unique))
     open_ports = sum(item["status"] == "PASS" for item in observations)
     return _result(
-        host, DiagnosticStatus.PASS, "PORT_SCAN_COMPLETE",
+        host,
+        DiagnosticStatus.PASS,
+        "PORT_SCAN_COMPLETE",
         "Port scan completed; filtered and closed causes are not distinguished",
         evidence={"ports": observations},
         measurements={"probed": len(unique), "reachable": open_ports},
@@ -155,7 +182,10 @@ async def _json_ip(*args: str) -> DiagnosticResult:
     except ValueError:
         return _result(target, DiagnosticStatus.UNKNOWN, "IP_INVALID_OUTPUT", "Invalid ip JSON")
     return _result(
-        target, DiagnosticStatus.PASS, "IP_QUERY_OK", "Local kernel network state",
+        target,
+        DiagnosticStatus.PASS,
+        "IP_QUERY_OK",
+        "Local kernel network state",
         evidence={"items": payload},
     )
 
@@ -194,21 +224,26 @@ async def ports(
             continue
         if port is not None and local.rsplit(":", 1)[-1] != str(port):
             continue
-        rows.append({
-            "protocol": protocol,
-            "state": state,
-            "local": local,
-            "peer": peer,
-            "recv_q": recv_q,
-            "send_q": send_q,
-            "process": columns[6] if len(columns) > 6 else "",
-        })
+        rows.append(
+            {
+                "protocol": protocol,
+                "state": state,
+                "local": local,
+                "peer": peer,
+                "recv_q": recv_q,
+                "send_q": send_q,
+                "process": columns[6] if len(columns) > 6 else "",
+            }
+        )
     return _result(
-        "localhost", DiagnosticStatus.PASS, "SOCKET_QUERY_OK",
+        "localhost",
+        DiagnosticStatus.PASS,
+        "SOCKET_QUERY_OK",
         "Socket snapshot; PID/process visibility depends on privileges",
         evidence={"sockets": rows},
         measurements={"count": len(rows)},
     )
+
 
 async def bandwidth(
     host: str,
@@ -220,12 +255,23 @@ async def bandwidth(
     if not 1 <= duration <= 10 or not 1 <= port <= 65535:
         raise ValueError("bandwidth duration must be 1..10 seconds")
     code, out, err = await _command(
-        "iperf3", "-c", host, "-p", str(port), "-t", str(duration),
-        "-b", "1M", "--json", timeout=duration + 10,
+        "iperf3",
+        "-c",
+        host,
+        "-p",
+        str(port),
+        "-t",
+        str(duration),
+        "-b",
+        "1M",
+        "--json",
+        timeout=duration + 10,
     )
     if code != 0:
         return _result(
-            host, DiagnosticStatus.UNKNOWN, "IPERF3_FAILED",
+            host,
+            DiagnosticStatus.UNKNOWN,
+            "IPERF3_FAILED",
             "iperf3 needs an accessible remote server; no bandwidth result",
             evidence={"error": err[-1000:]},
         )
@@ -234,11 +280,15 @@ async def bandwidth(
         bits_per_second = float(data["end"]["sum_sent"]["bits_per_second"])
     except (KeyError, TypeError, ValueError):
         return _result(
-            host, DiagnosticStatus.UNKNOWN, "IPERF3_INVALID_OUTPUT",
+            host,
+            DiagnosticStatus.UNKNOWN,
+            "IPERF3_INVALID_OUTPUT",
             "iperf3 did not report sender throughput",
         )
     return _result(
-        host, DiagnosticStatus.PASS, "IPERF3_COMPLETE",
+        host,
+        DiagnosticStatus.PASS,
+        "IPERF3_COMPLETE",
         "Bandwidth probe completed at a deliberately limited sender rate",
         measurements={"sent_mbps": round(bits_per_second / 1_000_000, 3)},
     )

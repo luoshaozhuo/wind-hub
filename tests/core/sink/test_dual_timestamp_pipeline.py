@@ -5,9 +5,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from core.infrastructure.sink.redis_record import encode_redis_record
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import RedisSinkConnection
+from core.infrastructure.sink.redis_record import encode_redis_record
 
 
 def test_device_time_survives_redis_serialization() -> None:

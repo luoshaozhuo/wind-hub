@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from tests.protocol.conftest import iec104_driver
+from tests.core.protocol.conftest import iec104_driver
 
 
 @pytest.mark.asyncio

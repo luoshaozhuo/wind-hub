@@ -6,7 +6,16 @@ import argparse
 from pathlib import Path
 
 FRONTEND_PREFIX = "src/web_admin/"
-BACKEND_PREFIXES = ("src/core/", "src/collector/", "src/commander/", "src/cli/", "src/web_server/")
+BACKEND_PREFIXES = (
+    "src/contracts/",
+    "src/core/",
+    "src/collector/",
+    "src/commander/",
+    "src/cli/",
+    "src/web_server/",
+    "src/industrial_gateway/",
+    "src/seahorse/",
+)
 
 TOOLING_PREFIXES = (
     "scripts/",
@@ -45,13 +54,19 @@ def _backend_pr_targets(path: str) -> set[str]:
     if _starts(
         path,
         "src/core/infrastructure/protocol/",
-        "tests/integration/protocols/",
         "tests/core/protocol/",
+        "tests/industrial_gateway/",
     ):
         targets.add("integration-protocol")
 
     if (
-        _starts(path, "src/core/infrastructure/rpc/", "tests/contract/rpc/")
+        _starts(
+            path,
+            "src/core/infrastructure/rpc/",
+            "tests/system/rpc/",
+            "tests/collector/rpc/",
+            "tests/commander/rpc/",
+        )
         or "/grpc/" in path
         or path
         in {
@@ -66,7 +81,8 @@ def _backend_pr_targets(path: str) -> set[str]:
         _starts(
             path,
             "src/core/infrastructure/sink/",
-            "tests/integration/sinks/",
+            "tests/core/sink/",
+            "tests/collector/sink/",
         )
         or path == "src/collector/application/sink_runtime.py"
     ):
@@ -117,8 +133,7 @@ def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
     targets: set[str] = set()
 
     for path in paths:
-        if path.startswith(("src/core/infrastructure/config/",
-                            "src/core/domain/config/")):
+        if path.startswith(("src/core/infrastructure/config/", "src/core/domain/config/")):
             static_required = True
             targets.update({"unit", "contract"})
             continue
@@ -138,30 +153,15 @@ def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
             targets.update({"unit", "component"})
             continue
 
-        if path.startswith("tests/core/"):
-            static_required = True
-            targets.update({"unit", "component", "contract"})
-            continue
-
-        if path.startswith("tests/unit/"):
-            static_required = True
-            targets.add("unit")
-            continue
-
-        if path.startswith("tests/component/"):
-            static_required = True
-            targets.add("component")
-            continue
-
-        if path.startswith("tests/contract/"):
-            static_required = True
-            targets.add("contract")
-            continue
-
         if path.startswith("tests/"):
-            # integration/system/reliability/performance 测试本身仍需 Ruff，
-            # 但不因此触发 unit/component/contract 全量运行。
+            # 测试按业务归属组织，层级只由 marker 表达，无法从变更路径推断
+            # 单一层级；保守回退到三层 Fast 集合。system/soak/performance
+            # 测试本身仍需 Ruff（static_required）。
             static_required = True
+            if path.endswith(".py") and not path.startswith(
+                ("tests/system/", "tests/web_admin/", "tests/fixtures/", "tests/support/")
+            ):
+                targets.update({"unit", "component", "contract"})
 
     return static_required, targets
 

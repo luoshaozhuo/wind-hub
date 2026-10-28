@@ -10,7 +10,7 @@ from core.domain import ConnectionEndpoint, PointAccess
 from core.domain.value_objects import DataType
 from core.infrastructure.protocol.ads import ADSDriver
 from scripts.protocol_servers import EndpointPlan, _ADSVirtualServer
-from tests.protocol.conftest import make_point, make_table
+from tests.core.protocol.conftest import make_point, make_table
 
 
 @pytest.mark.asyncio

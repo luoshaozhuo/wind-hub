@@ -15,9 +15,7 @@ from core.infrastructure.config.sink_schema import (
 
 
 def sink(kind: str, connection: dict[str, Any], enabled: bool = True) -> _SinkSchema:
-    return _SinkSchema.model_validate(
-        {"type": kind, "enabled": enabled, "connection": connection}
-    )
+    return _SinkSchema.model_validate({"type": kind, "enabled": enabled, "connection": connection})
 
 
 def test_valid_three_sinks() -> None:
@@ -90,6 +88,4 @@ def test_redis_empty_password_normalizes_to_none() -> None:
 def test_removed_file_sink_type_is_rejected() -> None:
     """历史文件输出不得重新进入公开配置类型。"""
     with pytest.raises((ValidationError, ConfigError)):
-        _SinkSchema.model_validate(
-            {"type": "file", "connection": {"path": "/tmp/archive"}}
-        )
+        _SinkSchema.model_validate({"type": "file", "connection": {"path": "/tmp/archive"}})

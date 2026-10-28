@@ -1,21 +1,19 @@
-"""跨组件共享测试基础 fixture 与 pytest marker 自动分类。
+"""跨组件共享测试基础 fixture 与 pytest marker 自动补标。
 
-marker 自动分类（``pytest_collection_modifyitems``）按目录/文件名约定打标，
-避免为既有测试机械逐文件加 ``pytestmark``：
+测试按业务归属组织（tests/core、tests/collector、tests/system 等）；
+层级（unit/component/contract/integration/system/reliability/performance）
+由文件内显式 ``pytestmark`` 或业务包 conftest 声明。本 conftest 只补充
+路径可推断的横切 marker：
 
-- 层级：第一层目录即层级（``unit`` / ``component`` / ``contract`` /
-  ``integration`` / ``system`` / ``reliability`` / ``performance``）；
-  ``reliability/soak`` 额外打 ``soak``；
+- tests/system 下未显式声明层级的文件补 ``system``；
 - 协议与外部服务：路径或文件名 token 命中 ``modbus`` / ``ads`` /
   ``iec104`` / ``redis`` / ``influxdb`` / ``file``；
-- 服务真实性（仅 integration/system/reliability 层级）：路径/文件名
-  token 含 ``mock`` 的打 ``mock_service``（monkeypatch / 内存 fake，
-  不计入 real-service 验收）；``real_service`` **不按目录默认赋值**——
-  真实服务测试必须在文件内显式标注（模块级 ``pytestmark``），避免
-  文件放错目录即被误认证为真实服务验收。
+- 服务真实性：路径/文件名 token 含 ``mock`` 且层级属于
+  integration/system/reliability 时补 ``mock_service``（monkeypatch /
+  内存 fake，不计入 real-service 验收）；``real_service`` 从不自动赋值。
 
-层级 marker 只靠第一层目录推断；更细的环境属性（hardware / docker /
-root / network / slow）必须在测试文件或 conftest 中显式标注。
+更细的环境属性（hardware / docker / root / network / slow / soak）
+必须在测试文件或 conftest 中显式标注。
 """
 
 from __future__ import annotations
@@ -45,23 +43,21 @@ _PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "redis", "influxdb", "file")
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """按目录/文件名约定为测试自动补充层级、协议与服务真实性 marker。"""
+    """为测试补充 system 层级、协议与 mock 真实性 marker。"""
     for item in items:
         try:
             parts = item.path.relative_to(_TESTS_ROOT).parts
         except ValueError:
             continue
         part_set = set(parts)
-        level = parts[0] if parts else ""
-        if level in _LEVEL_MARKERS:
-            item.add_marker(getattr(pytest.mark, level))
-        if level == "reliability" and "soak" in part_set:
-            item.add_marker(pytest.mark.soak)
+        existing = {marker.name for marker in item.iter_markers()}
+        if parts[0] == "system" and not (set(_LEVEL_MARKERS) & existing):
+            item.add_marker(pytest.mark.system)
         tokens = set(item.path.stem.split("_")) | part_set
         for protocol in _PROTOCOL_MARKERS:
             if protocol in tokens:
                 item.add_marker(getattr(pytest.mark, protocol))
-        if level in {"integration", "system", "reliability"} and "mock" in tokens:
+        if {"integration", "system", "reliability"} & existing and "mock" in tokens:
             item.add_marker(pytest.mark.mock_service)
 
 

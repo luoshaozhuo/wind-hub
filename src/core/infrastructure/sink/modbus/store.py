@@ -115,9 +115,7 @@ class ModbusSinkStore:
     ) -> None:
         for address in addresses:
             if address not in space:
-                raise KeyError(
-                    f"Undeclared Modbus address {slave_id}/{register_type}/{address}"
-                )
+                raise KeyError(f"Undeclared Modbus address {slave_id}/{register_type}/{address}")
 
     def _require_slave(self, slave_id: int) -> ModbusSlaveStore:
         try:

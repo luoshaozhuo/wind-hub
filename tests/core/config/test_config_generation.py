@@ -7,7 +7,7 @@ from shutil import copy2
 from core.application.config_use_case import ConfigUseCase
 from core.infrastructure.config.adapter import YamlConfigAdapter
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 FILES = (
     "system.yaml",
     "units.yaml",

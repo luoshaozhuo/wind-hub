@@ -16,8 +16,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from core.infrastructure.rpc import collector_pb2 as pb
-from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
+from contracts import collector_pb2 as pb
+from contracts import collector_pb2_grpc as pb_grpc
 from scripts.generate_virtual_site import generate_site
 from scripts.protocol_servers import run_fleet
 from tests.support.process import (
@@ -55,9 +55,7 @@ def _shutdown(proc: CollectorProcess) -> None:
 async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
     """同一个 config 下启动 30 个真实从站和三个真实应用进程。"""
     modbus_port = free_port_block(10)
-    iec104_port = free_port_block(
-        10, exclude=set(range(modbus_port, modbus_port + 10))
-    )
+    iec104_port = free_port_block(10, exclude=set(range(modbus_port, modbus_port + 10)))
     config = generate_site(
         tmp_path / "site",
         modbus_base_port=modbus_port,
@@ -66,9 +64,7 @@ async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
     processes: list[CollectorProcess] = []
     async with run_fleet(config, interval=0.25, seed=123):
         try:
-            collector = start_collector(
-                config, collector_id="collector", log_dir=tmp_path
-            )
+            collector = start_collector(config, collector_id="collector", log_dir=tmp_path)
             processes.append(collector)
             commander = start_commander(config, log_dir=tmp_path)
             processes.append(commander)
@@ -119,7 +115,8 @@ async def test_full_stack_lists_all_devices_and_workers(full_stack: LiveStack) -
 
 @pytest.mark.parametrize("family", ["modbus", "ads", "iec104"])
 async def test_real_task_start_and_stop_via_http(
-    full_stack: LiveStack, family: str,
+    full_stack: LiveStack,
+    family: str,
 ) -> None:
     task = f"virtual-{family}"
     async with httpx.AsyncClient(base_url=full_stack.url, timeout=15) as client:
@@ -148,14 +145,19 @@ async def test_direct_unfenced_collector_start_is_rejected(
         await channel.close()
 
 
-@pytest.mark.parametrize("method,path", [
-    ("GET", "/api/v1/devices/missing"),
-    ("GET", "/api/v1/config/files/missing.yaml"),
-    ("POST", "/api/v1/tasks/missing/start"),
-    ("POST", "/api/v1/sinks/missing/verify"),
-])
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("GET", "/api/v1/devices/missing"),
+        ("GET", "/api/v1/config/files/missing.yaml"),
+        ("POST", "/api/v1/tasks/missing/start"),
+        ("POST", "/api/v1/sinks/missing/verify"),
+    ],
+)
 async def test_unknown_resources_are_rejected_without_crashing(
-    full_stack: LiveStack, method: str, path: str,
+    full_stack: LiveStack,
+    method: str,
+    path: str,
 ) -> None:
     async with httpx.AsyncClient(base_url=full_stack.url, timeout=10) as client:
         response = await client.request(method, path)

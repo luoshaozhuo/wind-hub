@@ -10,7 +10,7 @@ import pytest
 from core.infrastructure.config import adapter as adapter_module
 from core.infrastructure.config.adapter import YamlConfigAdapter
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 FILES = (
     "system.yaml",
     "units.yaml",

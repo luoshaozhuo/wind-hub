@@ -38,7 +38,6 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-
 def free_port_block(
     count: int,
     *,
@@ -319,11 +318,16 @@ def start_web_server(
     if not collectors:
         raise ValueError("Web Server E2E requires at least one Collector")
     argv = [
-        "--config", str(config_dir),
-        "--host", "127.0.0.1",
-        "--port", str(http_port),
-        "--commander", commander,
-        "--worker-probe-interval", "60",
+        "--config",
+        str(config_dir),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(http_port),
+        "--commander",
+        commander,
+        "--worker-probe-interval",
+        "60",
     ]
     for collector in collectors:
         argv.extend(["--collector", collector])

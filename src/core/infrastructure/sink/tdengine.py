@@ -52,10 +52,7 @@ class TDengineSink:
     def __init__(self, config: Sink) -> None:
         self._config = TDengineSinkConnection.model_validate(dict(config.connection))
         self._task_sources = (
-            {
-                task_id: set(sources)
-                for task_id, sources in (config.task_sources or {}).items()
-            }
+            {task_id: set(sources) for task_id, sources in (config.task_sources or {}).items()}
             if isinstance(config, ResolvedSink)
             else {}
         )
@@ -143,11 +140,13 @@ class TDengineSink:
                     raise SinkError("TDengine device/point ID exceeds 192 characters")
                 receive = (
                     str(_timestamp_ms(point.receive_time))
-                    if point.receive_time is not None else "NULL"
+                    if point.receive_time is not None
+                    else "NULL"
                 )
                 device = (
                     str(_timestamp_ms(point.device_time))
-                    if point.device_time is not None else "NULL"
+                    if point.device_time is not None
+                    else "NULL"
                 )
                 statements.append(
                     f"{self._config.database}.{_table_name(point.device_id, point.point_id)} "
@@ -162,7 +161,9 @@ class TDengineSink:
             # 控制 HTTP 请求大小；每个分片独立确认，无自动重传。
             try:
                 for offset in range(0, len(statements), 200):
-                    await self._blocking("INSERT INTO " + " ".join(statements[offset:offset + 200]))
+                    await self._blocking(
+                        "INSERT INTO " + " ".join(statements[offset : offset + 200])
+                    )
             except Exception as exc:
                 self._error = str(exc)
                 raise SinkError(f"TDengine write failed: {exc}") from exc

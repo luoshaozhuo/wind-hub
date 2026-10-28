@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from tests.protocol.conftest import modbus_driver
+from tests.core.protocol.conftest import modbus_driver
 
 
 @pytest.mark.asyncio

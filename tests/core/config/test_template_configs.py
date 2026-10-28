@@ -16,7 +16,7 @@ from core.infrastructure.protocol.ads.config import parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
-TEMPLATE_DIR = Path(__file__).resolve().parents[4] / "configs"
+TEMPLATE_DIR = Path(__file__).resolve().parents[3] / "configs"
 
 _OPTION_PARSERS = {
     "ads": parse_ads_config,
@@ -59,8 +59,7 @@ def test_template_device_overrides_merge_with_model_defaults() -> None:
     """设备显式值按同名 Key 覆盖型号默认值，未覆盖字段继续继承。"""
     snapshot = YamlConfigAdapter(TEMPLATE_DIR).load()
     options = {
-        device_id: device.protocol_options
-        for device_id, device in snapshot.site.devices.items()
+        device_id: device.protocol_options for device_id, device in snapshot.site.devices.items()
     }
     models = snapshot.device_models
 
@@ -130,15 +129,11 @@ def test_template_save_load_round_trip(tmp_path: Path) -> None:
     second = adapter.load()
     assert not diff_config_snapshots(first, second).has_changes
     # 再次保存必须与首次输出字节一致：不允许逐次保存产生配置漂移。
-    first_dump = {
-        path.name: path.read_text(encoding="utf-8") for path in tmp_path.glob("*.yaml")
-    }
+    first_dump = {path.name: path.read_text(encoding="utf-8") for path in tmp_path.glob("*.yaml")}
     adapter.save(second)
     third = adapter.load()
     assert not diff_config_snapshots(second, third).has_changes
-    second_dump = {
-        path.name: path.read_text(encoding="utf-8") for path in tmp_path.glob("*.yaml")
-    }
+    second_dump = {path.name: path.read_text(encoding="utf-8") for path in tmp_path.glob("*.yaml")}
     assert first_dump == second_dump
 
 
@@ -158,9 +153,18 @@ def test_ads_point_types_use_plc_native_names() -> None:
             continue
         for point in table.points.values():
             assert point.ext["data_type"] in {
-                "BOOL", "SINT", "USINT", "INT", "UINT",
-                "DINT", "UDINT", "LINT", "ULINT",
-                "REAL", "LREAL", "STRING",
+                "BOOL",
+                "SINT",
+                "USINT",
+                "INT",
+                "UINT",
+                "DINT",
+                "UDINT",
+                "LINT",
+                "ULINT",
+                "REAL",
+                "LREAL",
+                "STRING",
             }
 
 

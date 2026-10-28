@@ -101,6 +101,16 @@ class InterrogationRequest:
             raise ValueError("common address must be in 0..65535")
 
 
+class ProtocolLifecycleState(StrEnum):
+    """协议 Adapter 连接生命周期状态。"""
+
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    CLOSING = "closing"
+    FAULTED = "faulted"
+
+
 class ProtocolCapability(StrEnum):
     """统一协议 Port 可声明的运行时能力。"""
 
@@ -197,9 +207,5 @@ __all__ = [
     "ProtocolSample",
     "InterrogationRequest",
     "ProtocolLifecycleState",
-    "ProtocolOperation",
-    "ProtocolOperationState",
-    "ProtocolOperationEvent",
-    "ProtocolRuntimeState",
     "validate_read_many_results",
 ]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from core.application.protocol_contract import ProtocolWrite, Quality, WriteOutcome
-from tests.protocol.conftest import modbus_driver
+from tests.core.protocol.conftest import modbus_driver
 
 
 @pytest.mark.asyncio
@@ -45,8 +45,8 @@ async def test_modbus_fc04_reads_input_registers() -> None:
     """FC04 与 FC03 数据区隔离；输入寄存器使用独立的点表。"""
     from core.domain import ConnectionEndpoint, PointAccess
     from core.infrastructure.protocol.modbus import ModbusDriver
+    from tests.core.protocol.conftest import make_point, make_table
     from tests.fixtures.servers.modbus_server import ModbusMockServer
-    from tests.protocol.conftest import make_point, make_table
     from tests.support.process import free_port
 
     inputs = [0] * 256
@@ -95,8 +95,8 @@ async def test_modbus_fc01_fc02_and_fc05_on_real_server() -> None:
     """Coil/DiscreteInput/CoilWrite 均通过实际 Modbus TCP 请求验证。"""
     from core.domain import ConnectionEndpoint, PointAccess
     from core.infrastructure.protocol.modbus import ModbusDriver
+    from tests.core.protocol.conftest import make_point, make_table
     from tests.fixtures.servers.modbus_server import ModbusMockServer
-    from tests.protocol.conftest import make_point, make_table
     from tests.support.process import free_port
 
     coils = [False] * 256
@@ -138,7 +138,7 @@ async def test_modbus_slave_identity_isolation(modbus_server) -> None:
     """同一 TCP 服务端两套 Unit ID 的相同寄存器地址必须互不串值。"""
     from core.domain import ConnectionEndpoint, PointAccess
     from core.infrastructure.protocol.modbus import ModbusDriver
-    from tests.protocol.conftest import make_point, make_table
+    from tests.core.protocol.conftest import make_point, make_table
 
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", modbus_server.port),
@@ -178,8 +178,8 @@ async def test_modbus_little_endian_word_order_over_real_tcp() -> None:
 
     from core.domain import ConnectionEndpoint, PointAccess
     from core.infrastructure.protocol.modbus import ModbusDriver
+    from tests.core.protocol.conftest import make_point, make_table
     from tests.fixtures.servers.modbus_server import ModbusMockServer
-    from tests.protocol.conftest import make_point, make_table
     from tests.support.process import free_port
 
     first, second = struct.unpack(">HH", struct.pack(">f", 42.25))

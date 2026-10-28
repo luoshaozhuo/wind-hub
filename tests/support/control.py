@@ -13,9 +13,9 @@ from typing import Any
 import grpc
 from google.protobuf import empty_pb2
 
+from contracts import collector_pb2 as pb
+from contracts import collector_pb2_grpc as pb_grpc
 from core.infrastructure.config import config_dir_digest
-from core.infrastructure.rpc import collector_pb2 as pb
-from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
 
 
 def _metrics_snapshot_to_dict(response: pb.MetricsSnapshotResponse) -> dict[str, Any]:

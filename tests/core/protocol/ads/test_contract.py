@@ -5,7 +5,7 @@ from __future__ import annotations
 from core.application.protocol_contract import ProtocolCapability
 from core.domain import ConnectionEndpoint, PointAccess
 from core.infrastructure.protocol.ads import ADSDriver
-from tests.protocol.conftest import make_point, make_table
+from tests.core.protocol.conftest import make_point, make_table
 
 
 def test_ads_capabilities() -> None:

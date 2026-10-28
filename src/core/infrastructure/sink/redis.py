@@ -8,12 +8,12 @@ import math
 from contextlib import suppress
 
 from core.application.protocol_contract import ConnectionHealth
-from core.infrastructure.sink.redis_record import encode_redis_record
 from core.application.sink_contract import ResolvedSink
 from core.application.sink_error import SinkError
 from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import RedisSinkConnection
+from core.infrastructure.sink.redis_record import encode_redis_record
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,8 @@ class RedisSink:
                 task_id: {(device, point) for device, point in sources}
                 for task_id, sources in (routes.task_sources or {}).items()
             }
-            if routes else {}
+            if routes
+            else {}
         )
         self._config = RedisSinkConnection.model_validate(connection)
         self._reader: asyncio.StreamReader | None = None

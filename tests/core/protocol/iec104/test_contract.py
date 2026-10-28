@@ -6,7 +6,7 @@ import pytest
 
 from core.application.errors import ProtocolCapabilityError
 from core.application.protocol_contract import ProtocolCapability, ProtocolWrite
-from tests.protocol.conftest import iec104_driver
+from tests.core.protocol.conftest import iec104_driver
 
 
 def test_iec104_capability_declarations() -> None:

@@ -7,11 +7,9 @@ import base64
 import json
 import urllib.request
 from pathlib import Path
-from urllib.error import HTTPError, URLError
 
 from core.application.diagnostic import DiagnosticFinding, DiagnosticResult, DiagnosticStatus
 from core.infrastructure.config.adapter import YamlConfigAdapter
-from core.infrastructure.diagnostic.network import tcp_probe
 from core.infrastructure.sink.redis import RedisSink
 
 
@@ -41,13 +39,16 @@ async def check_sink(
                 await adapter.open()
                 health = await adapter.health()
             return _result(
-                target, DiagnosticStatus.PASS if health.healthy else DiagnosticStatus.FAIL,
+                target,
+                DiagnosticStatus.PASS if health.healthy else DiagnosticStatus.FAIL,
                 "SINK_HEALTH_OK" if health.healthy else "SINK_HEALTH_FAILED",
                 health.message or "Sink application-level health checked",
             )
         except Exception as exc:
             return _result(
-                target, DiagnosticStatus.FAIL, "SINK_CONNECT_FAILED",
+                target,
+                DiagnosticStatus.FAIL,
+                "SINK_CONNECT_FAILED",
                 f"{type(exc).__name__}: {exc}",
             )
         finally:
@@ -61,7 +62,9 @@ async def check_sink(
         host = str(connection.get("host", "0.0.0.0"))
         port = int(connection.get("port", 502))
         return _result(
-            target, DiagnosticStatus.UNKNOWN, "SINK_SERVER_CONTEXT_REQUIRED",
+            target,
+            DiagnosticStatus.UNKNOWN,
+            "SINK_SERVER_CONTEXT_REQUIRED",
             f"Modbus Sink is server-side ({host}:{port}); check running listener and remote read",
         )
     if sink.kind == "grpc":
@@ -73,18 +76,22 @@ async def check_sink(
             await asyncio.wait_for(channel.channel_ready(), timeout)
         except (grpc.RpcError, TimeoutError, OSError):
             return _result(
-                target, DiagnosticStatus.FAIL, "GRPC_CHANNEL_UNAVAILABLE",
+                target,
+                DiagnosticStatus.FAIL,
+                "GRPC_CHANNEL_UNAVAILABLE",
                 "gRPC channel not ready",
             )
         finally:
             await channel.close()
         return _result(
-            target, DiagnosticStatus.UNKNOWN, "GRPC_SERVICE_UNVERIFIED",
+            target,
+            DiagnosticStatus.UNKNOWN,
+            "GRPC_SERVICE_UNVERIFIED",
             "gRPC channel ready; destination application method not verified",
         )
     if sink.kind == "kafka":
         try:
-            from aiokafka import AIOKafkaConsumer
+            from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
 
             topic = str(connection.get("topic", ""))
             consumer = AIOKafkaConsumer(
@@ -98,35 +105,52 @@ async def check_sink(
                 await consumer.stop()
         except Exception as exc:
             return _result(
-                target, DiagnosticStatus.FAIL, "KAFKA_METADATA_FAILED",
+                target,
+                DiagnosticStatus.FAIL,
+                "KAFKA_METADATA_FAILED",
                 f"Kafka metadata request failed ({type(exc).__name__})",
             )
         if topic not in topics:
             return _result(
-                target, DiagnosticStatus.FAIL, "KAFKA_TOPIC_NOT_FOUND",
+                target,
+                DiagnosticStatus.FAIL,
+                "KAFKA_TOPIC_NOT_FOUND",
                 "Configured topic is absent from broker metadata",
             )
         return _result(
-            target, DiagnosticStatus.UNKNOWN, "KAFKA_WRITE_UNVERIFIED",
+            target,
+            DiagnosticStatus.UNKNOWN,
+            "KAFKA_WRITE_UNVERIFIED",
             "Kafka metadata and topic visible; produce ACL and delivery not verified",
         )
     return _result(
-        target, DiagnosticStatus.UNKNOWN, "SINK_PROTOCOL_NOT_VERIFIED",
+        target,
+        DiagnosticStatus.UNKNOWN,
+        "SINK_PROTOCOL_NOT_VERIFIED",
         "No safe application-level diagnostic available without a resolved runtime instance",
     )
 
 
 def _result(
-    target: str, status: DiagnosticStatus, code: str, message: str,
+    target: str,
+    status: DiagnosticStatus,
+    code: str,
+    message: str,
 ) -> DiagnosticResult:
     return DiagnosticResult(
-        category="sink", target=target, status=status,
+        category="sink",
+        target=target,
+        status=status,
         findings=(DiagnosticFinding(code=code, status=status, message=message),),
     )
 
 
 async def benchmark_sink(
-    config: str | Path, sink_id: str, *, samples: int = 10, interval: float = 0.2,
+    config: str | Path,
+    sink_id: str,
+    *,
+    samples: int = 10,
+    interval: float = 0.2,
     timeout: float = 5.0,
 ) -> DiagnosticResult:
     """只对已支持的无副作用应用层健康检查测速，绝不发送业务测试数据。"""
@@ -144,7 +168,9 @@ async def benchmark_sink(
 
     measured = await benchmark(sink_id, probe, samples=samples, interval=interval)
     return DiagnosticResult(
-        category="sink", target=measured.target, status=measured.status,
+        category="sink",
+        target=measured.target,
+        status=measured.status,
         findings=measured.findings,
         measurements={**measured.measurements, "measurement": "health_probe_latency_only"},
         evidence=measured.evidence,
@@ -152,7 +178,9 @@ async def benchmark_sink(
 
 
 async def _tdengine_readonly(
-    target: str, connection: object, timeout: float,
+    target: str,
+    connection: object,
+    timeout: float,
 ) -> DiagnosticResult:
     """只读查询 TDengine 版本，不创建表、不插入诊断点。"""
     from collections.abc import Mapping
@@ -166,7 +194,9 @@ async def _tdengine_readonly(
     username = str(connection.get("username", "root"))
     secret = connection.get("password")
     if secret is None:
-        return _result(target, DiagnosticStatus.FAIL, "SINK_CREDENTIALS_MISSING", "Password missing")
+        return _result(
+            target, DiagnosticStatus.FAIL, "SINK_CREDENTIALS_MISSING", "Password missing"
+        )
     password = secret.get_secret_value() if hasattr(secret, "get_secret_value") else str(secret)
     token = base64.b64encode(f"{username}:{password}".encode()).decode()
     url = f"{scheme}://{host}:{port}/rest/sql/{database}"
@@ -186,11 +216,14 @@ async def _tdengine_readonly(
         ok = await asyncio.wait_for(asyncio.to_thread(query), timeout=timeout + 1)
     except Exception as exc:
         return _result(
-            target, DiagnosticStatus.FAIL, "TDENGINE_QUERY_FAILED",
+            target,
+            DiagnosticStatus.FAIL,
+            "TDENGINE_QUERY_FAILED",
             f"Read-only query failed ({type(exc).__name__})",
         )
     return _result(
-        target, DiagnosticStatus.PASS if ok else DiagnosticStatus.FAIL,
+        target,
+        DiagnosticStatus.PASS if ok else DiagnosticStatus.FAIL,
         "TDENGINE_QUERY_OK" if ok else "TDENGINE_QUERY_REJECTED",
         "Read-only TDengine SQL query confirmed" if ok else "TDengine rejected query",
     )

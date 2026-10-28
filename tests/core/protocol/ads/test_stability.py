@@ -66,7 +66,7 @@ async def test_real_ads_session_soak() -> None:
     from core.domain.value_objects import DataType
     from core.infrastructure.protocol.ads import ADSDriver
     from scripts.protocol_servers import EndpointPlan, _ADSVirtualServer
-    from tests.protocol.conftest import make_point, make_table
+    from tests.core.protocol.conftest import make_point, make_table
 
     point = make_point("power", access=PointAccess.READ, symbol="MAIN.power", data_type="REAL")
     plan = EndpointPlan(

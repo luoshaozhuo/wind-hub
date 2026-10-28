@@ -12,7 +12,7 @@ from core.application.protocol_contract import (
     Quality,
     WriteOutcome,
 )
-from tests.protocol.conftest import iec104_driver
+from tests.core.protocol.conftest import iec104_driver
 
 
 @pytest.mark.asyncio
@@ -74,8 +74,8 @@ async def test_iec104_select_before_execute() -> None:
     """必须完成 SELECT 确认后才允许 EXECUTE。"""
     from core.domain import ConnectionEndpoint, PointAccess
     from core.infrastructure.protocol.iec104 import IEC104Driver
+    from tests.core.protocol.conftest import make_point, make_table
     from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
-    from tests.protocol.conftest import make_point, make_table
 
     server = IEC104ControlServer(sbo_ioas={1001})
     driver = IEC104Driver(
@@ -170,8 +170,8 @@ async def test_iec104_all_five_command_types_with_act_term(
 
     from core.domain import ConnectionEndpoint, PointAccess
     from core.infrastructure.protocol.iec104 import IEC104Driver
+    from tests.core.protocol.conftest import make_point, make_table
     from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
-    from tests.protocol.conftest import make_point, make_table
 
     server = IEC104ControlServer(command_points={1001: getattr(c104.Type, command_type)})
     driver = IEC104Driver(

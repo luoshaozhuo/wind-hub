@@ -70,7 +70,7 @@ async def wait_grpc_ready(target: str, *, timeout: float = 30.0) -> str:
         import grpc
         from google.protobuf import empty_pb2, json_format
 
-        from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
+        from contracts import collector_pb2_grpc as pb_grpc
 
         channel = grpc.aio.insecure_channel(target)
         try:
@@ -95,7 +95,7 @@ async def wait_commander_ready(target: str, *, timeout: float = 30.0) -> str:
         import grpc
         from google.protobuf import empty_pb2, json_format
 
-        from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
+        from contracts import commander_pb2_grpc as pb_grpc
 
         channel = grpc.aio.insecure_channel(target)
         try:

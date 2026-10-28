@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import grpc
 
 from contracts import gateway_pb2 as pb
@@ -22,13 +24,15 @@ class GatewayDataService(rpc.GatewayDataServiceServicer):
                 raise ValueError("feedback batch must contain 1..5000 points")
             values: dict[tuple[str, str], bool | int | float] = {}
             for point in request.points:
-                if not point.device_id or not point.point_id:
+                if not point.device_id.strip() or not point.point_id.strip():
                     raise ValueError("feedback point requires device_id and point_id")
                 if not point.HasField("value"):
                     raise ValueError("feedback point requires value")
                 value = decode_scalar(point.value)
                 if type(value) not in (bool, int, float):
                     raise ValueError("feedback must be numeric or bool")
+                if isinstance(value, float) and not math.isfinite(value):
+                    raise ValueError("feedback float must be finite")
                 key = (point.device_id, point.point_id)
                 if key in values:
                     raise ValueError("duplicate feedback point")
