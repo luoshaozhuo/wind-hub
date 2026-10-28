@@ -79,3 +79,19 @@ async def sink_write_test(name: str, ctx: AppContext = Depends(get_ctx)) -> Sink
         raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
     audit("sink.write_test", sink=name, success=result.success)
     return SinkTestResponse(**result.model_dump())
+
+@router.post("/sinks/{name}/{operation}", tags=["v1-sinks"])
+async def manage_sink(
+    name: str,
+    operation: str,
+    ctx: AppContext = Depends(get_ctx),
+) -> dict[str, object]:
+    """Forward lifecycle changes only to independent Sink Service."""
+    if operation not in {"start", "stop", "restart", "clear"}:
+        raise APIError("NOT_FOUND", f"unknown operation '{operation}'", 404)
+    try:
+        result = await common.sinks(ctx).manage(name, operation)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
+    audit(f"sink.{operation}", sink=name, success=True)
+    return result
