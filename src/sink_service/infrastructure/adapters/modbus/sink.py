@@ -25,14 +25,12 @@ class ModbusSink(LegacyPointSinkPort):
 
     def __init__(self, config: ResolvedSink) -> None:
         connection_values = dict(config.connection)
-        raw_sources = config.task_sources if isinstance(config, ResolvedSink) else None
+        raw_sources = config.task_sources
         self._task_sources = {
             task_id: {(device, point) for device, point in sources}
             for task_id, sources in (raw_sources or {}).items()
         }
         connection = ModbusSinkConnection.model_validate(connection_values)
-        if not isinstance(config, ResolvedSink):
-            raise ConfigError("Modbus Sink requires resolved Task output mapping")
         points = [ResolvedSinkPoint.model_validate(dict(p)) for p in config.points]
         for point in points:
             if not isinstance(point.address, ModbusSinkAddress):
