@@ -26,6 +26,15 @@ class ConsumerPort(Protocol):
         """Stop consuming without deleting durable progress."""
         ...
 
+    async def clear(self) -> int:
+        """Skip own durable backlog while stopped."""
+        ...
+
+    @property
+    def connected(self) -> bool:
+        """Return NATS transport connection state."""
+        ...
+
 
 class SinkState(StrEnum):
     """Sink runtime lifecycle states."""
@@ -170,6 +179,20 @@ class SinkRuntime:
             and sample is not None
             and self._is_fresh(sample)
         )
+
+    async def clear(self) -> int:
+        """Clear realtime state or the stopped durable consumer backlog."""
+        if self._state is not SinkState.STOPPED:
+            raise RuntimeError("Sink must be stopped before ClearSink")
+        if self._realtime:
+            self.clear_realtime()
+            return 0
+        return await self._consumer.clear()
+
+    @property
+    def nats_connected(self) -> bool:
+        """Return current NATS connection state."""
+        return self._consumer.connected
 
     def clear_realtime(self) -> None:
         """Invalidate latest-value cache; never delete output target data."""
