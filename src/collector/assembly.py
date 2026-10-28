@@ -1,9 +1,9 @@
 """Collector 组合根。
 
-只装配采集链路：设备会话（Core 协议 Driver）、采集引擎、Sink 注册表与
+只装配采集链路：设备会话（Core 协议 Driver）、采集引擎、NATS Publisher 与
 热重载编排；不包含命令分发、诊断或 Web API。组合根是唯一允许跨层引用
 Infrastructure 具体实现的地方：它显式注册 Core 协议 Driver、持有进程级
-ADS 本机身份、按 enabled 实例化 Sink。
+ADS 本机身份。
 """
 
 from __future__ import annotations
@@ -22,12 +22,12 @@ from .application.config_service import CollectorConfigService
 from .application.identity import CollectorIdentity, build_collector_identity
 from .application.latest_values import LatestValues
 from .application.metrics_state import CollectorMetricsState
+from .application.nats_dispatch import SamplePublisher
 from .application.runtime import CollectorRuntime
 from .application.session import CollectorDeviceSession
 from .domain.acquisition import AcquisitionEngine
 from .infrastructure.config.loader import collector_config_from_snapshot, load_collector_config
 from .infrastructure.nats_publisher import NatsPublisher
-from .application.nats_dispatch import SamplePublisher
 
 
 def build_protocol_registry() -> ProtocolRegistry:
@@ -45,7 +45,7 @@ class CollectorApp:
 
     Attributes:
         boot_config: 进程启动时加载的配置快照；仅表示启动基线。
-        runtime: Collector 运行时（Device/Task/Sink 编排）。
+        runtime: Collector 运行时（Device/Task/Publisher 编排）。
         config: 配置热重载编排服务。
         config_dir: 现场配置目录。
         config_hash: 启动配置集摘要。
