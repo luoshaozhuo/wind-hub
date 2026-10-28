@@ -201,3 +201,36 @@ async def ports(
         evidence={"sockets": rows},
         measurements={"count": len(rows)},
     )
+
+async def bandwidth(
+    host: str,
+    *,
+    duration: int = 5,
+    port: int = 5201,
+) -> DiagnosticResult:
+    """调用已部署的 iperf3 Server；仅显式启动，限制时长和带宽。"""
+    if not 1 <= duration <= 10 or not 1 <= port <= 65535:
+        raise ValueError("bandwidth duration must be 1..10 seconds")
+    code, out, err = await _command(
+        "iperf3", "-c", host, "-p", str(port), "-t", str(duration),
+        "-b", "1M", "--json", timeout=duration + 10,
+    )
+    if code != 0:
+        return _result(
+            host, DiagnosticStatus.UNKNOWN, "IPERF3_FAILED",
+            "iperf3 needs an accessible remote server; no bandwidth result",
+            evidence={"error": err[-1000:]},
+        )
+    try:
+        data = json.loads(out)
+        bits_per_second = float(data["end"]["sum_sent"]["bits_per_second"])
+    except (KeyError, TypeError, ValueError):
+        return _result(
+            host, DiagnosticStatus.UNKNOWN, "IPERF3_INVALID_OUTPUT",
+            "iperf3 did not report sender throughput",
+        )
+    return _result(
+        host, DiagnosticStatus.PASS, "IPERF3_COMPLETE",
+        "Bandwidth probe completed at a deliberately limited sender rate",
+        measurements={"sent_mbps": round(bits_per_second / 1_000_000, 3)},
+    )
