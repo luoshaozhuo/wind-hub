@@ -17,6 +17,10 @@ class LegacyPointSinkPort(Protocol):
         """Write PointValue records."""
         ...
 
+    async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
+        """Write only point values routed for an acquisition task."""
+        ...
+
     async def close(self) -> None:
         """Close the target."""
         ...
