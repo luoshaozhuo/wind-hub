@@ -4,12 +4,24 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Protocol
 
 from contracts.sample_message import SampleMessage
 from sink_service.application.port import SinkPort
-from sink_service.infrastructure.nats_consumer import NatsSinkConsumer
 
 PointKey = tuple[str, str, str]
+
+
+class ConsumerPort(Protocol):
+    """Consumer lifecycle contract."""
+
+    async def open(self) -> None:
+        """Begin consuming."""
+        ...
+
+    async def close(self) -> None:
+        """Stop consuming without deleting durable progress."""
+        ...
 
 
 class SinkState(StrEnum):
@@ -23,7 +35,7 @@ class SinkState(StrEnum):
 class SinkRuntime:
     """Own one Sink's connection, subscription and realtime ordering state."""
 
-    def __init__(self, sink: SinkPort, consumer: NatsSinkConsumer, *, realtime: bool) -> None:
+    def __init__(self, sink: SinkPort, consumer: ConsumerPort, *, realtime: bool) -> None:
         self._sink = sink
         self._consumer = consumer
         self._realtime = realtime
