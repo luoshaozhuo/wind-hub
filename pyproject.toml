@@ -66,6 +66,7 @@ c104 = "^2.2"
 
 [tool.poetry.scripts]
 wind-hub-sink-service = "sink_service.main:main"
+wind-hub-sink-diagnostic = "sink_service.diagnostic_cli:main"
 wind-hub-collector = "collector.main:main"
 wind-hub = "cli.main:main"
 wind-hub-commander = "commander.main:main"
