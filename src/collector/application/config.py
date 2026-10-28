@@ -14,7 +14,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
 
 from core.application import ConfigError
 from core.application.settings import ADSLocalConfig, MessagingSettings
@@ -29,9 +28,6 @@ from core.domain import (
 )
 from core.domain.unit import UnitCatalog
 
-BackpressurePolicy = Literal["drop_old", "drop_new", "block"]
-
-
 @dataclass(frozen=True, slots=True)
 class RuntimeParams:
     """采集运行时参数（system.yaml ``runtime`` 段的 Collector 子集）。
@@ -45,8 +41,6 @@ class RuntimeParams:
         thread_pool_max_workers: 进程级协议命令线程池大小（restart-required）。
     """
 
-    queue_maxsize: int = 1000
-    backpressure_policy: BackpressurePolicy = "drop_old"
     shutdown_timeout: float = 10.0
     connect_timeout: float = 1.0
     read_timeout: float | None = 1.0
@@ -56,13 +50,6 @@ class RuntimeParams:
     thread_pool_max_workers: int = 32
 
     def __post_init__(self) -> None:
-        if self.queue_maxsize <= 0:
-            raise ConfigError("queue_maxsize must be > 0")
-        if self.backpressure_policy not in ("drop_old", "drop_new", "block"):
-            raise ConfigError(
-                f"backpressure_policy must be one of drop_old/drop_new/block, "
-                f"got '{self.backpressure_policy}'"
-            )
         for name in (
             "shutdown_timeout",
             "connect_timeout",
