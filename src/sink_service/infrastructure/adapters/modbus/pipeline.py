@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from core.application import Quality
 from core.application.sink_contract import ResolvedSinkPoint
-from core.application.sink_export import ExportedSinkPointValue, SinkReferenceExporter
+from sink_service.application.export import ExportedSinkPointValue, SinkReferenceExporter
 from core.domain.point_value import PointValue
 from sink_service.infrastructure.adapters.modbus.codec import encode_modbus_value
 from sink_service.infrastructure.adapters.modbus.store import ModbusSinkStore
