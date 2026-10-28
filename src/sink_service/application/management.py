@@ -34,7 +34,7 @@ class SinkManager:
             "running": sum(s.state.value == "running" for s in self._sinks.values()),
             "failed": sum(s.state.value == "failed" for s in self._sinks.values()),
             "config_pending_restart": self.config_pending_restart(),
-            "nats_connected": bool(self._sinks) and all(
+            "nats_connected": any(s.desired_running for s in self._sinks.values()) and all(
                 s.nats_connected for s in self._sinks.values() if s.desired_running
             ),
         }
