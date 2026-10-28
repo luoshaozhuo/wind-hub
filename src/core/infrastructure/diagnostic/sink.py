@@ -7,6 +7,7 @@ import base64
 import json
 import urllib.request
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 from core.application.diagnostic import DiagnosticFinding, DiagnosticResult, DiagnosticStatus
 from core.infrastructure.config.adapter import YamlConfigAdapter
@@ -64,24 +65,51 @@ async def check_sink(
             f"Modbus Sink is server-side ({host}:{port}); check running listener and remote read",
         )
     if sink.kind == "grpc":
+        import grpc
+
         endpoint = str(connection.get("endpoint", "127.0.0.1:50073"))
-        host, separator, port = endpoint.rpartition(":")
-        if separator and host and port.isdecimal():
-            probe = await tcp_probe(host.strip("[]"), int(port), timeout=timeout)
+        channel = grpc.aio.insecure_channel(endpoint)
+        try:
+            await asyncio.wait_for(channel.channel_ready(), timeout)
+        except (grpc.RpcError, TimeoutError, OSError):
             return _result(
-                target, DiagnosticStatus.UNKNOWN, "SINK_GRPC_UNVERIFIED",
-                f"TCP connectivity: {probe.status.value}; gRPC service contract not verified",
+                target, DiagnosticStatus.FAIL, "GRPC_CHANNEL_UNAVAILABLE",
+                "gRPC channel not ready",
             )
+        finally:
+            await channel.close()
+        return _result(
+            target, DiagnosticStatus.UNKNOWN, "GRPC_SERVICE_UNVERIFIED",
+            "gRPC channel ready; destination application method not verified",
+        )
     if sink.kind == "kafka":
-        servers = str(connection.get("bootstrap_servers", ""))
-        first = servers.split(",")[0].strip()
-        host, separator, port = first.rpartition(":")
-        if separator and host and port.isdecimal():
-            probe = await tcp_probe(host, int(port), timeout=timeout)
-            return _result(
-                target, DiagnosticStatus.UNKNOWN, "SINK_KAFKA_UNVERIFIED",
-                f"Broker TCP connectivity: {probe.status.value}; Topic/ACL not verified",
+        try:
+            from aiokafka import AIOKafkaConsumer
+
+            topic = str(connection.get("topic", ""))
+            consumer = AIOKafkaConsumer(
+                bootstrap_servers=str(connection.get("bootstrap_servers", "")),
+                request_timeout_ms=max(1000, int(timeout * 1000)),
             )
+            await asyncio.wait_for(consumer.start(), timeout)
+            try:
+                topics = await asyncio.wait_for(consumer.topics(), timeout)
+            finally:
+                await consumer.stop()
+        except Exception as exc:
+            return _result(
+                target, DiagnosticStatus.FAIL, "KAFKA_METADATA_FAILED",
+                f"Kafka metadata request failed ({type(exc).__name__})",
+            )
+        if topic not in topics:
+            return _result(
+                target, DiagnosticStatus.FAIL, "KAFKA_TOPIC_NOT_FOUND",
+                "Configured topic is absent from broker metadata",
+            )
+        return _result(
+            target, DiagnosticStatus.UNKNOWN, "KAFKA_WRITE_UNVERIFIED",
+            "Kafka metadata and topic visible; produce ACL and delivery not verified",
+        )
     return _result(
         target, DiagnosticStatus.UNKNOWN, "SINK_PROTOCOL_NOT_VERIFIED",
         "No safe application-level diagnostic available without a resolved runtime instance",
@@ -114,9 +142,13 @@ async def benchmark_sink(
             raise RuntimeError("sink health probe failed")
         return 0
 
-    result = await benchmark(sink_id, probe, samples=samples, interval=interval)
-    result.measurements["measurement"] = "health_probe_latency_only"
-    return result
+    measured = await benchmark(sink_id, probe, samples=samples, interval=interval)
+    return DiagnosticResult(
+        category="sink", target=measured.target, status=measured.status,
+        findings=measured.findings,
+        measurements={**measured.measurements, "measurement": "health_probe_latency_only"},
+        evidence=measured.evidence,
+    )
 
 
 async def _tdengine_readonly(
