@@ -133,7 +133,11 @@ class NatsSinkConsumer:
         """Return own durable backlog when JetStream is reachable."""
         if self._durable is None or self._client is None or not self._client.is_connected:
             return None
-        info = await self._client.jetstream().consumer_info(self._stream, self._durable)
+        try:
+            info = await self._client.jetstream().consumer_info(self._stream, self._durable)
+        except Exception:
+            logger.warning("JetStream backlog query failed", exc_info=True)
+            return None
         return info.num_pending + info.num_ack_pending
 
     @property
