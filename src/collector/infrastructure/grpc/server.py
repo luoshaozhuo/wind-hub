@@ -24,7 +24,6 @@ from ...application.metadata import CollectorMetadataService
 from ...application.reload import ConfigDiff
 from ...application.services import (
     CollectorQueryService,
-    CollectorSinkService,
     CollectorTaskService,
     TaskInstanceDetail,
     TaskSummary,
@@ -141,7 +140,6 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
         self._query = CollectorQueryService(app.runtime)
         self._metadata = CollectorMetadataService(app.config)
         self._tasks = CollectorTaskService(app.runtime)
-        self._sinks = CollectorSinkService(app.runtime)
 
     async def GetCollectorInfo(
         self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
@@ -371,67 +369,6 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
                 for item in devices
             ]
         )
-
-    async def ListSinks(
-        self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
-    ) -> pb.ListSinksResponse:
-        """列出当前 Runtime Sink 健康状态与队列深度。"""
-        del request, context
-        items = await self._sinks.list_sinks()
-        return pb.ListSinksResponse(
-            items=[
-                pb.SinkInfoMessage(
-                    name=item.name,
-                    healthy=item.healthy,
-                    message=item.message,
-                    queue_depth=item.queue_depth,
-                    write_failures=item.write_failures,
-                    points_dropped=item.points_dropped,
-                )
-                for item in items
-            ]
-        )
-
-    async def VerifySink(
-        self,
-        request: pb.SinkRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> pb.SinkOperationResponse:
-        """返回当前运行 Sink 的真实 health 与队列深度。"""
-        try:
-            item = await self._sinks.verify_sink(_required(request.name, "name"))
-        except ValueError as exc:
-            await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from None
-        except KeyError as exc:
-            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {exc.args[0]}")
-            raise AssertionError("context.abort must terminate the RPC") from None
-        return pb.SinkOperationResponse(
-            success=item.healthy,
-            message=item.message,
-            queue_depth=item.queue_depth,
-        )
-
-    async def WriteTestSink(
-        self,
-        request: pb.SinkRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> pb.SinkOperationResponse:
-        """只读检查当前运行 Sink 的连接与诊断状态。"""
-        try:
-            result = await self._sinks.write_test_sink(_required(request.name, "name"))
-        except ValueError as exc:
-            await _abort_invalid(context, str(exc))
-            raise AssertionError("context.abort must terminate the RPC") from None
-        except KeyError as exc:
-            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {exc.args[0]}")
-            raise AssertionError("context.abort must terminate the RPC") from None
-        return pb.SinkOperationResponse(
-            success=result.success,
-            message=result.message,
-            queue_depth=self._app.runtime.sink_queue_depths().get(request.name, 0),
-        )
-
 
 class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
     """Collector 低频运行控制。"""
