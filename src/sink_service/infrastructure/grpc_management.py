@@ -48,13 +48,13 @@ def build_management_server(manager: SinkManager, address: str) -> grpc.aio.Serv
             if service:
                 return manager.service_status()
             if listing:
-                return {"items": manager.list_sinks()}
+                return {"items": await manager.list_sinks()}
             name = request.get("name")
             if not isinstance(name, str) or not name:
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "name required")
                 raise AssertionError("abort did not terminate")
             if method is None:
-                return manager.get_sink_status(name)
+                return await manager.get_sink_status(name)
             return await method(name)
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "unknown sink")
