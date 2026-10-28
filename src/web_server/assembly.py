@@ -1,7 +1,7 @@
 """wind-hub-server composition root.
 
 Server 是独立管理/控制面：不装配、不启动 Collector Runtime。设备即时操作经
-Commander gRPC，采集 Task/运行态/Sink 状态经 Collector gRPC；Server 只持有
+Commander gRPC，采集 Task/运行态经 Collector gRPC，Sink 状态经独立 Sink Service gRPC；Server 只持有
 配置管理、读模型、监控历史与 Web/Admin 服务。
 """
 
@@ -97,7 +97,6 @@ def assemble_server(
                 WorkerCapability.CONFIG,
                 WorkerCapability.TASK_RUNTIME,
                 WorkerCapability.ACQUISITION_STATUS,
-                WorkerCapability.SINK,
                 WorkerCapability.METRICS,
             ],
         )
