@@ -163,6 +163,7 @@ class SinkRuntime:
                         source=sample.collector_id,
                         sample_id=sample.sample_id,
                         task_id=sample.task_id,
+                        max_staleness_ms=sample.max_staleness_ms,
                     )
                 ])
             except Exception as exc:
