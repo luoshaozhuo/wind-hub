@@ -266,31 +266,71 @@ async def test_grpc_unavailable_is_fail(snapshot_with, monkeypatch, mode: str) -
 
 
 class FakeKafkaConsumer:
+    """可编排生命周期的 AIOKafkaConsumer 替身。
+
+    scenario 键：
+    - start: ok | fail | slow | gate（gate 时等待 release_start）
+    - topics: ok | fail | slow | missing
+    - stop: ok | fail | hang
+    start/stop 协程是否被取消分别记录在 start_cancelled/stop_cancelled。
+    """
+
     instances: list[FakeKafkaConsumer] = []
-    mode = "ok"
+    scenario: dict[str, str] = {}
+    release_start: asyncio.Event | None = None
 
     def __init__(self, *args, **kwargs) -> None:
         self.calls: list[str] = []
+        self.start_cancelled = False
+        self.stop_cancelled = False
         FakeKafkaConsumer.instances.append(self)
 
     async def start(self) -> None:
         self.calls.append("start")
-        if FakeKafkaConsumer.mode == "start_fail":
+        behavior = FakeKafkaConsumer.scenario.get("start", "ok")
+        if behavior == "fail":
             raise ConnectionError("broker down")
+        if behavior == "slow":
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                self.start_cancelled = True
+                raise
+        elif behavior == "gate" and FakeKafkaConsumer.release_start is not None:
+            await FakeKafkaConsumer.release_start.wait()
 
     async def topics(self):
         self.calls.append("topics")
-        if FakeKafkaConsumer.mode == "topics_fail":
+        behavior = FakeKafkaConsumer.scenario.get("topics", "ok")
+        if behavior == "fail":
             raise TimeoutError
-        return {"other"} if FakeKafkaConsumer.mode == "missing_topic" else {"wind", "other"}
+        if behavior == "slow":
+            await asyncio.sleep(30)
+        return {"other"} if behavior == "missing" else {"wind", "other"}
 
     async def stop(self) -> None:
+        # 同步即记账：即使 wait_for 随后取消 stop 任务，也能观察到释放动作被发起。
         self.calls.append("stop")
+        behavior = FakeKafkaConsumer.scenario.get("stop", "ok")
+        if behavior == "fail":
+            raise RuntimeError("stop failed")
+        if behavior == "hang":
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                self.stop_cancelled = True
+                raise
 
 
-def _install_fake_kafka(monkeypatch: pytest.MonkeyPatch, mode: str = "ok") -> None:
+def _install_fake_kafka(
+    monkeypatch: pytest.MonkeyPatch,
+    scenario: dict[str, str] | None = None,
+    *,
+    release_start: asyncio.Event | None = None,
+) -> None:
     FakeKafkaConsumer.instances = []
-    FakeKafkaConsumer.mode = mode
+    FakeKafkaConsumer.scenario = scenario or {}
+    FakeKafkaConsumer.release_start = release_start
     aiokafka = types.ModuleType("aiokafka")
     aiokafka.AIOKafkaConsumer = FakeKafkaConsumer
     monkeypatch.setitem(sys.modules, "aiokafka", aiokafka)
@@ -310,32 +350,168 @@ async def test_kafka_topic_present_is_unknown_write_unverified(snapshot_with, mo
 
 async def test_kafka_topic_absent_is_fail_and_stopped(snapshot_with, monkeypatch) -> None:
     snapshot_with(make_sink(kind="kafka", bootstrap_servers="127.0.0.1:9092", topic="wind"))
-    _install_fake_kafka(monkeypatch, "missing_topic")
+    _install_fake_kafka(monkeypatch, {"topics": "missing"})
 
     result = await sink_diag.check_sink("ignored", "s1")
 
     assert result.status is DiagnosticStatus.FAIL
     assert result.findings[0].code == "KAFKA_TOPIC_NOT_FOUND"
-    assert "stop" in FakeKafkaConsumer.instances[0].calls
+    assert FakeKafkaConsumer.instances[0].calls == ["start", "topics", "stop"]
 
 
-@pytest.mark.parametrize("mode", ["start_fail", "topics_fail"])
-async def test_kafka_metadata_failures_are_fail(snapshot_with, monkeypatch, mode: str) -> None:
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        {"start": "fail"},
+        {"topics": "fail"},
+    ],
+)
+async def test_kafka_metadata_failures_are_fail_and_stopped(
+    snapshot_with, monkeypatch, scenario
+) -> None:
     snapshot_with(make_sink(kind="kafka", bootstrap_servers="x", topic="wind"))
-    _install_fake_kafka(monkeypatch, mode)
+    _install_fake_kafka(monkeypatch, scenario)
 
     result = await sink_diag.check_sink("ignored", "s1")
 
     assert result.status is DiagnosticStatus.FAIL
     assert result.findings[0].code == "KAFKA_METADATA_FAILED"
-    if mode == "start_fail":
-        # 现状（生产 src/core/infrastructure/diagnostic/sink.py:101-105）：
-        # consumer.start() 在 try/finally 之外，启动失败时不会 stop()。
-        # AIOKafkaConsumer 启动失败后仍可能持有连接资源——P2 缺陷证据，
-        # 交 ChatGPT 裁定（topics 路径在 finally 中正确 stop）。
-        assert FakeKafkaConsumer.instances[0].calls == ["start"]
-    else:
-        assert "stop" in FakeKafkaConsumer.instances[0].calls
+    consumer = FakeKafkaConsumer.instances[0]
+    # 989b413b 修复后：任何元数据阶段失败都必须完成 stop()，不残留 consumer。
+    assert consumer.calls[0] == "start"
+    assert consumer.calls[-1] == "stop"
+
+
+async def test_kafka_start_timeout_still_stops_consumer(snapshot_with, monkeypatch) -> None:
+    """start() 超时：wait_for 取消在途 start 后仍必须 stop()，总耗时有界。"""
+    snapshot_with(make_sink(kind="kafka", bootstrap_servers="x", topic="wind"))
+    _install_fake_kafka(monkeypatch, {"start": "slow"})
+
+    loop = asyncio.get_running_loop()
+    began = loop.time()
+    result = await sink_diag.check_sink("ignored", "s1", timeout=0.1)
+    elapsed = loop.time() - began
+
+    assert result.status is DiagnosticStatus.FAIL
+    assert result.findings[0].code == "KAFKA_METADATA_FAILED"
+    consumer = FakeKafkaConsumer.instances[0]
+    assert consumer.start_cancelled is True
+    assert consumer.calls == ["start", "stop"]
+    assert elapsed < 3.0  # 不允许跟随 30s 假协程悬挂
+
+
+async def test_kafka_topics_timeout_still_stops_consumer(snapshot_with, monkeypatch) -> None:
+    snapshot_with(make_sink(kind="kafka", bootstrap_servers="x", topic="wind"))
+    _install_fake_kafka(monkeypatch, {"topics": "slow"})
+
+    result = await sink_diag.check_sink("ignored", "s1", timeout=0.1)
+
+    assert result.status is DiagnosticStatus.FAIL
+    assert result.findings[0].code == "KAFKA_METADATA_FAILED"
+    assert FakeKafkaConsumer.instances[0].calls == ["start", "topics", "stop"]
+
+
+async def test_kafka_stop_failure_is_bounded_and_reported(snapshot_with, monkeypatch) -> None:
+    """stop() 自身抛错：不掩盖失败状态、不悬挂、不外泄异常。"""
+    snapshot_with(make_sink(kind="kafka", bootstrap_servers="127.0.0.1:9092", topic="wind"))
+    _install_fake_kafka(monkeypatch, {"stop": "fail"})
+
+    result = await sink_diag.check_sink("ignored", "s1")
+
+    assert result.status is DiagnosticStatus.FAIL
+    assert result.findings[0].code == "KAFKA_METADATA_FAILED"
+    assert "RuntimeError" in result.findings[0].message
+    assert FakeKafkaConsumer.instances[0].calls[-1] == "stop"
+
+
+async def test_kafka_hanging_stop_is_cut_off_by_timeout(snapshot_with, monkeypatch) -> None:
+    """stop() 挂死：wait_for(stop, timeout) 必须斩断等待，诊断总耗时有界。"""
+    snapshot_with(make_sink(kind="kafka", bootstrap_servers="127.0.0.1:9092", topic="wind"))
+    _install_fake_kafka(monkeypatch, {"stop": "hang"})
+
+    loop = asyncio.get_running_loop()
+    began = loop.time()
+    result = await sink_diag.check_sink("ignored", "s1", timeout=0.1)
+    elapsed = loop.time() - began
+
+    assert result.status is DiagnosticStatus.FAIL
+    consumer = FakeKafkaConsumer.instances[0]
+    assert consumer.stop_cancelled is True
+    assert consumer.calls == ["start", "topics", "stop"]
+    assert elapsed < 3.0
+
+
+@pytest.mark.parametrize("hang_phase", ["start", "topics"])
+async def test_kafka_external_cancellation_releases_consumer(
+    snapshot_with, monkeypatch, hang_phase: str
+) -> None:
+    """check_sink 被外部取消：取消必须传播，且 stop() 被发起/等待，不留悬挂 consumer。
+
+    分别在 start() 与 topics() 两个等待点取消。
+    """
+    snapshot_with(make_sink(kind="kafka", bootstrap_servers="x", topic="wind"))
+    entered = asyncio.Event()
+    gate = asyncio.Event()
+
+    class _GateConsumer(FakeKafkaConsumer):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            self.cancelled_phase: str | None = None
+
+        async def start(self) -> None:
+            self.calls.append("start")
+            if hang_phase == "start":
+                entered.set()
+                try:
+                    await gate.wait()
+                except asyncio.CancelledError:
+                    self.cancelled_phase = "start"
+                    raise
+
+        async def topics(self):
+            self.calls.append("topics")
+            if hang_phase == "topics":
+                entered.set()
+                try:
+                    await gate.wait()
+                except asyncio.CancelledError:
+                    self.cancelled_phase = "topics"
+                    raise
+            return {"wind"}
+
+    aiokafka = types.ModuleType("aiokafka")
+    aiokafka.AIOKafkaConsumer = _GateConsumer
+    # 清空类级场景：_GateConsumer 继承父类 stop()，前序 stop fail/hang
+    # 用例残留的 scenario 会让释放路径抛错或挂死，替换正在传播的 CancelledError。
+    FakeKafkaConsumer.instances = []
+    FakeKafkaConsumer.scenario = {}
+    FakeKafkaConsumer.release_start = None
+    monkeypatch.setitem(sys.modules, "aiokafka", aiokafka)
+
+    task = asyncio.create_task(sink_diag.check_sink("ignored", "s1", timeout=5))
+    await asyncio.wait_for(entered.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    consumer = FakeKafkaConsumer.instances[0]
+    assert consumer.calls[0] == "start"
+    assert consumer.calls[-1] == "stop"
+    # wait_for 必须真正取消在途协程，而不是放任其悬挂。
+    assert consumer.cancelled_phase == hang_phase
+
+
+async def test_kafka_diagnostic_never_writes(snapshot_with, monkeypatch) -> None:
+    """只读契约：整个诊断只触碰 start/topics/stop，不存在任何发送类方法调用。"""
+    snapshot_with(make_sink(kind="kafka", bootstrap_servers="127.0.0.1:9092", topic="wind"))
+    _install_fake_kafka(monkeypatch)
+
+    result = await sink_diag.check_sink("ignored", "s1")
+
+    assert result.status is DiagnosticStatus.UNKNOWN
+    consumer = FakeKafkaConsumer.instances[0]
+    assert set(consumer.calls) <= {"start", "topics", "stop"}
+    assert not any(name in consumer.calls for name in ("send", "send_and_wait", "produce"))
 
 
 # --------------------------------------------------------------------------
