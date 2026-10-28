@@ -35,6 +35,15 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
         runtime[name] = value
     if runtime:
         system["runtime"] = runtime
+    if snapshot.system.messaging is not None:
+        settings = snapshot.system.messaging
+        system["messaging"] = {
+            "backend": "nats",
+            "servers": list(settings.servers),
+            "delivery": settings.delivery,
+        }
+        if settings.max_staleness_ms is not None:
+            system["messaging"]["max_staleness_ms"] = settings.max_staleness_ms
     if snapshot.system.ads is not None:
         system["ads"] = {
             name: getattr(snapshot.system.ads, name)
