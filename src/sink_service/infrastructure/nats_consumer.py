@@ -1,11 +1,12 @@
 """Independent realtime and durable JetStream consumption."""
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 
 import nats
+from nats.aio.client import Client
+from nats.aio.subscription import Subscription
 
 from contracts.sample_message import SampleMessage
 
@@ -36,8 +37,8 @@ class NatsSinkConsumer:
         self._handler = handler
         self._ack_wait_seconds = ack_wait_seconds
         self._max_ack_pending = max_ack_pending
-        self._client: nats.NATS | None = None
-        self._subscription: object | None = None
+        self._client: Client | None = None
+        self._subscription: Subscription | None = None
 
     async def open(self) -> None:
         """Create a subscription with independent delivery progress."""
