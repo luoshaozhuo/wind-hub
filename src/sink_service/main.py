@@ -81,7 +81,8 @@ async def run_sink_service(
             await sink.start()
         except Exception:
             logger.exception("Sink %s failed to start", sink_id)
-\n    async def restore_failed() -> None:
+
+    async def restore_failed() -> None:
         while not stopping.is_set():
             try:
                 await asyncio.wait_for(stopping.wait(), timeout=5.0)
