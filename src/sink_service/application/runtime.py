@@ -128,6 +128,7 @@ class SinkRuntime:
                 await self._sink.write([sample])
             except Exception as exc:
                 self._failure = str(exc)
+                self._state = SinkState.FAILED
                 raise
             if self._realtime:
                 self._latest[self._key(sample)] = sample
