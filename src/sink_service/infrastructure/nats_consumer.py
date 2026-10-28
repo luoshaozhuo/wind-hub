@@ -27,6 +27,7 @@ class NatsSinkConsumer:
         handler: SampleHandler,
         ack_wait_seconds: float = 30.0,
         max_ack_pending: int = 128,
+        stream: str = 'WH_HISTORY',
     ) -> None:
         if not servers or not subject:
             raise ValueError("NATS servers and subject are required")
@@ -38,6 +39,7 @@ class NatsSinkConsumer:
         self._handler = handler
         self._ack_wait_seconds = ack_wait_seconds
         self._max_ack_pending = max_ack_pending
+        self._stream = stream
         self._client: Client | None = None
         self._subscription: Subscription | None = None
 
@@ -60,6 +62,7 @@ class NatsSinkConsumer:
                 subscription = await client.jetstream().subscribe(
                     self._subject,
                     durable=self._durable,
+                    stream=self._stream,
                     manual_ack=True,
                     config=ConsumerConfig(
                         durable_name=self._durable,
@@ -90,6 +93,41 @@ class NatsSinkConsumer:
         except Exception:
             logger.exception("Reliable target write failed; requesting redelivery")
             await msg.nak(delay=1.0)
+
+    async def clear(self) -> int:
+        """Skip only this Sink's durable backlog, without purging shared messages."""
+        if self._client is not None:
+            raise RuntimeError("stop Sink before clearing its durable consumer")
+        if self._durable is None:
+            raise RuntimeError("realtime subscribers do not have JetStream backlog")
+        from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
+
+        client = await nats.connect(servers=self._servers, connect_timeout=2.0)
+        try:
+            manager = client.jetstream()
+            info = await manager.consumer_info(self._stream, self._durable)
+            skipped = info.num_pending + info.num_ack_pending
+            if not await manager.delete_consumer(self._stream, self._durable):
+                raise RuntimeError("durable consumer deletion was rejected")
+            await manager.add_consumer(
+                self._stream,
+                config=ConsumerConfig(
+                    durable_name=self._durable,
+                    filter_subject=self._subject,
+                    deliver_policy=DeliverPolicy.NEW,
+                    ack_policy=AckPolicy.EXPLICIT,
+                    ack_wait=self._ack_wait_seconds,
+                    max_ack_pending=self._max_ack_pending,
+                ),
+            )
+            return skipped
+        finally:
+            await client.close()
+
+    @property
+    def connected(self) -> bool:
+        """Whether the existing subscription's NATS transport is connected."""
+        return self._client is not None and self._client.is_connected
 
     async def close(self) -> None:
         """Stop subscription before closing its NATS connection."""
