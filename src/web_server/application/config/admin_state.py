@@ -110,12 +110,7 @@ class AdminStateService:
                         "type": item.type,
                         "enabled": item.enabled,
                         "connection": item.connection,
-                        "outputs": {
-                            task.task_id: previous_sinks.get(item.name, {}).get(
-                                "outputs", {}
-                            ).get(task.task_id, {})
-                            for task in tasks if item.name in task.sinks
-                        },
+                        "outputs": previous_sinks.get(item.name, {}).get("outputs", {}),
                     }
                     for item in sinks
                 }
