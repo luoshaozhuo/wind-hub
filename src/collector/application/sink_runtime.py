@@ -609,8 +609,8 @@ class SinkRuntime:
                     # 写失败根因立即进入健康视图；watchdog 重连成功后清除。
                     self._write_failures[sink_name] = self._write_failures.get(sink_name, 0) + 1
                     self._points_dropped += len(batch)
-                    self._drops_by_sink[sink_name] = (
-                        self._drops_by_sink.get(sink_name, 0) + len(batch)
+                    self._drops_by_sink[sink_name] = self._drops_by_sink.get(sink_name, 0) + len(
+                        batch
                     )
                     self._mark_unhealthy(sink_name, f"write_failed: {exc}")
                     logger.warning(

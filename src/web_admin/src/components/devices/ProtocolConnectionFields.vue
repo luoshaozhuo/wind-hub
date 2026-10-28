@@ -76,13 +76,6 @@ withDefaults(
   </template>
 
   <template v-else-if="protocol === 'iec104'">
-    <el-form-item label="Common Addresses">
-      <el-input
-        v-model="connection.common_addresses"
-        placeholder="1 或多 CA：1,2,3"
-        class="app-full-width"
-      />
-    </el-form-item>
     <el-form-item label="K Window"
       ><el-input-number v-model="connection.k" :min="1" :controls="controls" class="app-full-width"
     /></el-form-item>
@@ -113,6 +106,27 @@ withDefaults(
     <el-form-item label="T3 (s)"
       ><el-input-number
         v-model="connection.t3"
+        :min="0.1"
+        :controls="controls"
+        class="app-full-width"
+    /></el-form-item>
+    <el-form-item label="Read Timeout (s)"
+      ><el-input-number
+        v-model="connection.read_timeout"
+        :min="0.1"
+        :controls="controls"
+        class="app-full-width"
+    /></el-form-item>
+    <el-form-item label="Command Timeout (s)"
+      ><el-input-number
+        v-model="connection.command_timeout"
+        :min="0.1"
+        :controls="controls"
+        class="app-full-width"
+    /></el-form-item>
+    <el-form-item label="Interrogation Timeout (s)"
+      ><el-input-number
+        v-model="connection.interrogation_timeout"
         :min="0.1"
         :controls="controls"
         class="app-full-width"

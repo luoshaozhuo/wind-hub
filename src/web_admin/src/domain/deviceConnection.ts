@@ -17,13 +17,15 @@ export interface ConnectionFormState {
   slave_id: number
   mode: string
   word_order: string
-  common_addresses: string
   k: number
   w: number
   t0: number
   t1: number
   t2: number
   t3: number
+  read_timeout: number
+  command_timeout: number
+  interrogation_timeout: number
 }
 
 /** 各协议默认端口（TwinCAT 2 ADS / Modbus TCP / IEC 60870-5-104）。 */
@@ -40,14 +42,35 @@ export const PROTOCOL_DEFAULT_PORTS: Record<Protocol, number> = {
 export const PROTOCOL_OVERRIDE_KEYS: Record<Protocol, readonly string[]> = {
   ads: ['twincat_version', 'timeout'],
   modbus: ['slave_id', 'mode', 'timeout', 'word_order'],
-  iec104: ['common_addresses', 'k', 'w', 't0', 't1', 't2', 't3'],
+  iec104: [
+    'k',
+    'w',
+    't0',
+    't1',
+    't2',
+    't3',
+    'read_timeout',
+    'command_timeout',
+    'interrogation_timeout',
+  ],
 }
 
 /** 各协议序列化为 model connection_defaults 的键。 */
 export const PROTOCOL_DEFAULT_KEYS: Record<Protocol, readonly string[]> = {
   ads: ['port', 'timeout', 'twincat_version'],
   modbus: ['port', 'timeout', 'slave_id', 'mode', 'word_order'],
-  iec104: ['port', 'common_addresses', 'k', 'w', 't0', 't1', 't2', 't3'],
+  iec104: [
+    'port',
+    'k',
+    'w',
+    't0',
+    't1',
+    't2',
+    't3',
+    'read_timeout',
+    'command_timeout',
+    'interrogation_timeout',
+  ],
 }
 
 function num(value: unknown, fallback: number): number {
@@ -57,12 +80,6 @@ function num(value: unknown, fallback: number): number {
 
 function str(value: unknown, fallback: string): string {
   return typeof value === 'string' && value !== '' ? value : fallback
-}
-
-/** 后端接受 int 或逗号分隔整数串；表单统一为字符串。 */
-function caString(value: unknown): string {
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-  return str(value, '1')
 }
 
 /** 协议无关的全量默认值（port 按协议）。 */
@@ -75,13 +92,15 @@ export function defaultConnectionForm(protocol: Protocol): ConnectionFormState {
     slave_id: 1,
     mode: 'tcp',
     word_order: 'little_endian',
-    common_addresses: '1',
     k: 12,
     w: 8,
-    t0: 30,
-    t1: 15,
-    t2: 10,
-    t3: 20,
+    t0: 5,
+    t1: 5,
+    t2: 1,
+    t3: 10,
+    read_timeout: 2,
+    command_timeout: 3,
+    interrogation_timeout: 5,
   }
 }
 
@@ -102,13 +121,15 @@ export function formFromConnection(
     slave_id: num(connection.slave_id, base.slave_id),
     mode: str(connection.mode, base.mode),
     word_order: str(connection.word_order, base.word_order),
-    common_addresses: caString(connection.common_addresses),
     k: num(connection.k, base.k),
     w: num(connection.w, base.w),
     t0: num(connection.t0, base.t0),
     t1: num(connection.t1, base.t1),
     t2: num(connection.t2, base.t2),
     t3: num(connection.t3, base.t3),
+    read_timeout: num(connection.read_timeout, base.read_timeout),
+    command_timeout: num(connection.command_timeout, base.command_timeout),
+    interrogation_timeout: num(connection.interrogation_timeout, base.interrogation_timeout),
   }
 }
 
@@ -145,13 +166,15 @@ export function applyModelDefaults(
     form.timeout = fresh.timeout
     form.word_order = fresh.word_order
   } else if (model.protocol === 'iec104') {
-    form.common_addresses = fresh.common_addresses
     form.k = fresh.k
     form.w = fresh.w
     form.t0 = fresh.t0
     form.t1 = fresh.t1
     form.t2 = fresh.t2
     form.t3 = fresh.t3
+    form.read_timeout = fresh.read_timeout
+    form.command_timeout = fresh.command_timeout
+    form.interrogation_timeout = fresh.interrogation_timeout
   }
 }
 

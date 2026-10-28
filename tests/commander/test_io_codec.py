@@ -1,0 +1,150 @@
+"""新 Commander gRPC I/O codec 单元测试。"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
+import grpc
+import pytest
+
+from commander.application.errors import CommandError, CommandUncertainError
+from commander.application.session import PointReading
+from commander.infrastructure.grpc.io_codec import (
+    command_from_proto,
+    command_result_to_proto,
+    command_to_proto,
+    decode_scalar,
+    encode_scalar,
+    point_value_to_proto,
+)
+from commander.infrastructure.grpc.server import _abort
+from contracts import commander_pb2 as pb
+from core.application import Quality
+from core.application.command import Command, CommandResult
+from core.application.protocol_contract import WriteOutcome
+
+pytestmark = pytest.mark.unit
+
+
+@pytest.mark.parametrize(
+    "value",
+    [True, 0, -1, 2**63 - 1, 2**63, 2**64 - 1, 1.5, "text", b"\x01\x02"],
+)
+def test_scalar_roundtrip(value):
+    assert decode_scalar(encode_scalar(value)) == value
+
+
+def test_scalar_none_is_unset():
+    message = encode_scalar(None)
+    assert message.WhichOneof("kind") is None
+    assert decode_scalar(message) is None
+
+
+def test_scalar_int_out_of_range_rejected():
+    with pytest.raises(ValueError, match="64-bit"):
+        encode_scalar(2**64)
+    with pytest.raises(ValueError, match="64-bit"):
+        encode_scalar(-(2**63) - 1)
+
+
+def test_scalar_unsupported_type_rejected():
+    with pytest.raises(ValueError, match="unsupported"):
+        encode_scalar(object())
+
+
+def test_point_value_to_proto_encodes_timestamp_and_source():
+    reading = PointReading(
+        device_id="dev1",
+        point_id="p1",
+        value=1.5,
+        quality=Quality.GOOD,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        timestamp_source="device",
+        source="iec104",
+    )
+    message = point_value_to_proto(reading)
+    assert message.device_id == "dev1"
+    assert message.value.double_value == 1.5
+    assert message.quality == "good"
+    assert message.HasField("timestamp")
+    assert message.timestamp.ToDatetime(tzinfo=UTC) == datetime(2026, 1, 1, tzinfo=UTC)
+    assert message.timestamp_source == "device"
+
+    bad = PointReading(
+        device_id="dev1",
+        point_id="p1",
+        value=None,
+        quality=Quality.BAD,
+        timestamp=datetime(2026, 1, 2, tzinfo=UTC),
+        timestamp_source="local",
+        source="modbus",
+    )
+    message = point_value_to_proto(bad)
+    assert message.value.WhichOneof("kind") is None
+    assert message.quality == "bad"
+    assert message.HasField("timestamp")
+    assert message.timestamp_source == "local"
+
+
+def test_command_roundtrip_and_result():
+    command = Command(
+        command_id="cmd-1",
+        device_id="dev1",
+        point_id="p1",
+        value=42,
+        timeout=2.5,
+    )
+    wire = command_to_proto(command)
+    restored = command_from_proto(wire)
+    # issued_at 由 Command 默认工厂生成，不进入 wire contract
+    assert restored.command_id == command.command_id
+    assert restored.device_id == command.device_id
+    assert restored.point_id == command.point_id
+    assert restored.value == command.value
+    assert restored.timeout == command.timeout
+
+    result = CommandResult(command_id="cmd-1", outcome=WriteOutcome.CONFIRMED_SUCCESS)
+    message = command_result_to_proto(result)
+    assert message.command_id == "cmd-1"
+    assert message.outcome == pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS
+    assert message.error == ""
+    assert message.HasField("finished_at")
+
+    failed = CommandResult(command_id="cmd-2", outcome=WriteOutcome.CONFIRMED_FAILURE, error="boom")
+    message = command_result_to_proto(failed)
+    assert message.outcome == pb.COMMAND_OUTCOME_CONFIRMED_FAILURE
+    assert message.error == "boom"
+
+    uncertain = CommandResult(command_id="cmd-3", outcome=WriteOutcome.UNKNOWN, error="t/o")
+    message = command_result_to_proto(uncertain)
+    assert message.outcome == pb.COMMAND_OUTCOME_UNKNOWN
+
+
+def test_command_rejects_unset_scalar_value():
+    request = pb.WritePointRequest(command_id="empty", device_id="dev1", point_id="p1")
+    with pytest.raises(ValueError, match="must not be empty"):
+        command_from_proto(request)
+
+
+def test_pb_module_is_shared_contract():
+    """pb2 模块必须来自独立 contracts 契约包（不依赖任何业务/wind_hub_* 包）。"""
+    assert pb.__name__ == "contracts.commander_pb2"
+    assert "wind_hub" not in str(pb.__file__)
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (KeyError("missing point"), grpc.StatusCode.NOT_FOUND),
+        (ValueError("invalid scalar"), grpc.StatusCode.INVALID_ARGUMENT),
+        (CommandError("device unavailable"), grpc.StatusCode.FAILED_PRECONDITION),
+        (CommandUncertainError("execution unknown"), grpc.StatusCode.FAILED_PRECONDITION),
+    ],
+)
+async def test_command_rpc_error_mapping(error: Exception, status: grpc.StatusCode) -> None:
+    context = AsyncMock()
+    context.abort.side_effect = RuntimeError("aborted")
+    with pytest.raises(RuntimeError, match="aborted"):
+        await _abort(context, error)
+    context.abort.assert_awaited_once_with(status, str(error))

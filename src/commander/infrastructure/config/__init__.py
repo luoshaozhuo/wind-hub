@@ -7,5 +7,6 @@
 from .loader import commander_config_from_snapshot, load_commander_config
 
 __all__ = [
-    "load_commander_config", "commander_config_from_snapshot",
+    "load_commander_config",
+    "commander_config_from_snapshot",
 ]

@@ -10,10 +10,10 @@ from google.protobuf.descriptor import FieldDescriptor
 from google.protobuf.timestamp_pb2 import Timestamp
 from google.protobuf.wrappers_pb2 import BoolValue, DoubleValue, StringValue
 
-from core.infrastructure.rpc import collector_pb2 as collector_pb
-from core.infrastructure.rpc import collector_pb2_grpc as collector_grpc
-from core.infrastructure.rpc import commander_pb2 as commander_pb
-from core.infrastructure.rpc import commander_pb2_grpc as commander_grpc
+from contracts import collector_pb2 as collector_pb
+from contracts import collector_pb2_grpc as collector_grpc
+from contracts import commander_pb2 as commander_pb
+from contracts import commander_pb2_grpc as commander_grpc
 from core.infrastructure.rpc.scalar_codec import encode_scalar
 
 

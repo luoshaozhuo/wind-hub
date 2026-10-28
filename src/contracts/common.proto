@@ -1,0 +1,18 @@
+syntax = "proto3";
+package windhub.common.v1;
+
+message ScalarValue {
+  oneof kind {
+    bool bool_value = 1;
+    sint64 sint64_value = 2;
+    uint64 uint64_value = 3;
+    double double_value = 4;
+    string string_value = 5;
+    bytes bytes_value = 6;
+  }
+}
+
+message AddressField {
+  string key = 1;
+  ScalarValue value = 2;
+}

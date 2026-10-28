@@ -64,9 +64,7 @@ class CommanderUnavailableError(RuntimeError):
 
 
 class CommanderWriter(Protocol):
-    async def write_point(
-        self, request: CommandRequest, *, timeout: float
-    ) -> CommandResult: ...
+    async def write_point(self, request: CommandRequest, *, timeout: float) -> CommandResult: ...
 
 
 class CommandJournalPort(Protocol):

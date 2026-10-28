@@ -33,7 +33,7 @@ from core.application.sink_contract import (
     StreamSinkAddress,
 )
 
-SINK_TYPES = frozenset({"modbus", "redis", "tdengine", "grpc"})
+SINK_TYPES = frozenset({"modbus", "redis", "tdengine", "grpc", "kafka"})
 
 SINK_NUMERIC_DATA_TYPES = frozenset(
     {
@@ -168,8 +168,30 @@ class GrpcSinkConnection(BaseModel):
         return value
 
 
+class KafkaSinkConnection(BaseModel):
+    """Kafka Producer 连接参数。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    bootstrap_servers: str = "127.0.0.1:9092"
+    topic: str
+    client_id: str = "wind-hub"
+    timeout: float = Field(default=10.0, gt=0, allow_inf_nan=False)
+
+    @field_validator("bootstrap_servers", "topic", "client_id")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Kafka connection field must not be empty")
+        return value
+
+
 SinkConnection = (
-    ModbusSinkConnection | RedisSinkConnection | TDengineSinkConnection | GrpcSinkConnection
+    ModbusSinkConnection
+    | RedisSinkConnection
+    | TDengineSinkConnection
+    | GrpcSinkConnection
+    | KafkaSinkConnection
 )
 
 
@@ -178,6 +200,7 @@ _CONNECTION_TYPES: dict[str, type[BaseModel]] = {
     "redis": RedisSinkConnection,
     "tdengine": TDengineSinkConnection,
     "grpc": GrpcSinkConnection,
+    "kafka": KafkaSinkConnection,
 }
 
 _ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
@@ -185,6 +208,7 @@ _ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
     "redis": (StreamSinkAddress,),
     "tdengine": (StreamSinkAddress,),
     "grpc": (GrpcSinkAddress,),
+    "kafka": (StreamSinkAddress,),
 }
 
 
@@ -255,15 +279,12 @@ class _SinkSchema(BaseModel):
     @model_validator(mode="after")
     def _validate_sink(self) -> _SinkSchema:
         if self.type not in SINK_TYPES:
-            raise ConfigError(
-                f"sink type '{self.type}' must be one of {sorted(SINK_TYPES)}"
-            )
+            raise ConfigError(f"sink type '{self.type}' must be one of {sorted(SINK_TYPES)}")
         expected_connection = _CONNECTION_TYPES[self.type]
         if not isinstance(self.connection, expected_connection):
             raise ConfigError(f"sink connection does not match type '{self.type}'")
 
         return self
-
 
 
 def validate_task_sink_points(kind: str, points: list[Mapping[str, Any]]) -> None:
@@ -331,6 +352,7 @@ __all__ = [
     "RedisSinkConnection",
     "TDengineSinkConnection",
     "GrpcSinkConnection",
+    "KafkaSinkConnection",
     "SinkPoint",
 ]
 

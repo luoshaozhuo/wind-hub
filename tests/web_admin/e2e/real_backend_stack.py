@@ -73,31 +73,44 @@ async def main() -> int:
         f"collector-{collector_port}",
         [
             "wind-hub-collector",
-            "--config", str(config_dir),
-            "--collector-id", "collector",
-            "--grpc-host", "127.0.0.1",
-            "--grpc-port", str(collector_port),
+            "--config",
+            str(config_dir),
+            "--collector-id",
+            "collector",
+            "--grpc-host",
+            "127.0.0.1",
+            "--grpc-port",
+            str(collector_port),
         ],
     )
     commander_p = _spawn(
         f"commander-{commander_port}",
         [
             "wind-hub-commander",
-            "--config", str(config_dir),
-            "--grpc-host", "127.0.0.1",
-            "--grpc-port", str(commander_port),
+            "--config",
+            str(config_dir),
+            "--grpc-host",
+            "127.0.0.1",
+            "--grpc-port",
+            str(commander_port),
         ],
     )
     server_p = _spawn(
         f"web-server-{HTTP_PORT}",
         [
             "wind-hub-server",
-            "--config", str(config_dir),
-            "--host", "127.0.0.1",
-            "--port", str(HTTP_PORT),
-            "--commander", f"127.0.0.1:{commander_port}",
-            "--worker-probe-interval", "60",
-            "--collector", f"collector=127.0.0.1:{collector_port}",
+            "--config",
+            str(config_dir),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(HTTP_PORT),
+            "--commander",
+            f"127.0.0.1:{commander_port}",
+            "--worker-probe-interval",
+            "60",
+            "--collector",
+            f"collector=127.0.0.1:{collector_port}",
         ],
     )
     procs = (server_p, commander_p, collector_p)
@@ -125,9 +138,7 @@ async def main() -> int:
         """wait_until 谓词：200 返回 True（就绪），其余/异常返回 None。"""
         try:
             async with httpx.AsyncClient(timeout=1.0) as client:
-                response = await client.get(
-                    f"http://127.0.0.1:{HTTP_PORT}/openapi.json"
-                )
+                response = await client.get(f"http://127.0.0.1:{HTTP_PORT}/openapi.json")
                 return response.status_code == 200 or None
         except httpx.HTTPError:
             return None

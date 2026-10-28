@@ -68,9 +68,7 @@ class ModbusSink(SinkPort):
         allowed = self._task_sources.get(task_id, set())
         if not allowed:
             return
-        filtered = [
-            value for value in batch if (value.device_id, value.point_id) in allowed
-        ]
+        filtered = [value for value in batch if (value.device_id, value.point_id) in allowed]
         if filtered:
             self._data_path.update_selected(filtered, self._task_points.get(task_id, []))
 

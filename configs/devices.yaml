@@ -55,7 +55,7 @@
 #   max_subs_per_sum:                int > 0，默认 500 —— 单次 Sum Read
 #                                    最大订阅数。
 #   max_block_bytes:                 int > 0，默认 1024 —— 单次 ADS 区块通知最大字节数。
-#   max_delay:                       float >= 0（秒），默认 0.06 —— 通知
+#   max_delay:                       float >= 0（秒），默认 0 —— 通知
 #                                    最大延迟。
 #   route_auto_add:                  bool，默认 false —— 自动添加 AMS 路由。
 #   username:        str，默认 Administrator —— 远程 PLC 路由注册用户名
@@ -69,16 +69,19 @@
 #                    协议参数。
 #
 # IEC104（protocol_options）：
-#   common_addresses: int 或逗号分隔整数串，默认 1 —— 一条 TCP 连接承载
-#                    的全部 ASDU 公共地址（多 CA）；首项为点缺省 CA。
+#   CA 在 points.yaml 的每个 IEC104 测点 address.ca 中必填。
 #   timezone:       IANA 时区名，可选；未配置时 CP56Time2a 不视为可信设备时间。
-#   health_point:   str，可选 —— 应用层健康探测点；缺省只判断链路健康。
+#   health_point:   str，可选 —— 应用层健康探测点；缺省使用第一个可读监视点。
 #   k:           int >= 1，默认 12 —— 发送窗口（未确认 I 帧上限）。
 #   w:           int >= 1 且 <= k，默认 8 —— 接收确认窗口。
-#   t0:          float > 0（秒），默认 30 —— 连接建立超时。
-#   t1:          float > 0（秒），默认 15 —— 发送/测试帧确认超时。
-#   t2:          float > 0 且 <= t1（秒），默认 10 —— 无数据时确认等待。
-#   t3:          float > 0（秒），默认 20 —— 空闲时测试帧周期。
+#   t0:          float > 0（秒），默认 5 —— TCP 建连及 STARTDT 等待超时。
+#   t1:          float > 0（秒），默认 5 —— I 帧传输层确认超时（不是业务确认）。
+#   t2:          float > 0 且 <= t1（秒），默认 1 —— 收到 I 帧后延迟确认上限。
+#   t3:          float > 0（秒），默认 10 —— 空闲链路 TESTFR 检测周期。
+#   read_timeout:          float > 0（秒），默认 2 —— 主动读取 C_RD 响应超时。
+#   command_timeout:       float > 0（秒），默认 3 —— 每个 Direct/SBO 控制阶段的业务确认超时。
+#   interrogation_timeout: float > 0（秒），默认 5 —— 每个 CA 的总召/组召完成超时；大点表可调大。
+#   以上三个业务超时独立于 t1；异步等待不会阻塞事件循环。
 #   IEC104 持续采集恒为本地监听（LISTEN）+ Collector 显式总召模式，
 #   无 subscribe_enabled；IEC104 没有远程订阅原语。
 #

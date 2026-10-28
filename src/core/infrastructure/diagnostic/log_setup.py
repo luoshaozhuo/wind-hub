@@ -69,9 +69,9 @@ class _DailySizeFileHandler(logging.Handler):
             assert self._stream is not None
             self._stream.write(message)
             self._stream.flush()
-            cutoff = (
-                timestamp.date() - timedelta(days=self._retention_days - 1)
-            ).strftime("%Y%m%d")
+            cutoff = (timestamp.date() - timedelta(days=self._retention_days - 1)).strftime(
+                "%Y%m%d"
+            )
             # 清理仅在日界发生时执行；活动文件不参与删除。
             if self._last_cleanup != day:
                 self._last_cleanup = day

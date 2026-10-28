@@ -93,8 +93,7 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
                     **({"points": _yaml_plain(output.points)} if output.points else {}),
                 }
                 for output in (
-                    task.outputs
-                    or tuple(TaskOutput(sink_id=sink) for sink in task.sink_ids)
+                    task.outputs or tuple(TaskOutput(sink_id=sink) for sink in task.sink_ids)
                 )
             ],
             "enabled": task.enabled,

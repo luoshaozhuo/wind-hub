@@ -13,7 +13,7 @@ from contextlib import suppress
 def point_key(device_id: str, point_id: str, *, prefix: str = "wind-hub") -> str:
     """按生产键规则计算一设备一点的 Redis key（长度前缀防冒号歧义）。
 
-    对应 ``core.application.redis_sink_record.encode_redis_record`` 的对外
+    对应 ``core.infrastructure.sink.redis_record.encode_redis_record`` 的对外
     键契约：``{key_prefix}:{len(device)}:{device}:{len(name)}:{name}``。
     """
     return f"{prefix}:{len(device_id)}:{device_id}:{len(point_id)}:{point_id}"

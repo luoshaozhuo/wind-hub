@@ -118,10 +118,7 @@ class TCPFaultProxy:
             payload = await src.readexactly(length)
             if client_to_up:
                 self._frames += 1
-                if (
-                    self._drop_after_frames is not None
-                    and self._frames >= self._drop_after_frames
-                ):
+                if self._drop_after_frames is not None and self._frames >= self._drop_after_frames:
                     channel.close()
                     return
             if self._delay:

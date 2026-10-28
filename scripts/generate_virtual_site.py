@@ -72,7 +72,8 @@ def generate_site(
 
         business = _read(output, "business_points.yaml")
         business["business_points"]["e2e_float"] = {
-            "data_type": "float32", "unit": "none",
+            "data_type": "float32",
+            "unit": "none",
         }
         _write(output, "business_points.yaml", business)
 
@@ -101,7 +102,7 @@ def generate_site(
                 "e2e_float": {
                     **float_point,
                     "data_type": "float32",
-                    "address": {"ioa": 100, "type": "M_ME_NC_1"},
+                    "address": {"ca": 1, "ioa": 100, "type_id": "M_ME_NC_1"},
                 }
             },
         }
@@ -120,12 +121,12 @@ def generate_site(
             "point_table_id": "e2e_iec104",
             "protocol": "iec104",
             "endpoint_defaults": {"port": 2404},
-            "protocol_options": {"common_addresses": "1"},
         }
         _write(output, "device_models.yaml", models)
 
-        groups = {f"virtual_{name}": {"name": f"virtual_{name}"}
-                  for name in ("modbus", "ads", "iec104")}
+        groups = {
+            f"virtual_{name}": {"name": f"virtual_{name}"} for name in ("modbus", "ads", "iec104")
+        }
         devices: dict[str, dict[str, object]] = {}
         for index in range(count):
             mb_id = f"modbus-{index:02d}"
@@ -162,10 +163,14 @@ def generate_site(
                 },
                 "enabled": True,
             }
-        _write(output, "devices.yaml", {
-            "devices": devices,
-            "device_groups": groups,
-        })
+        _write(
+            output,
+            "devices.yaml",
+            {
+                "devices": devices,
+                "device_groups": groups,
+            },
+        )
 
         tasks = {
             f"virtual-{family}": {

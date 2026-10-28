@@ -107,11 +107,15 @@ class ModbusMockServer:
         host: str = "127.0.0.1",
         holding: list[int] | None = None,
         inputs: list[int] | None = None,
+        coils: list[bool] | None = None,
+        discretes: list[bool] | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._holding = holding
         self._inputs = inputs
+        self._coils = coils
+        self._discretes = discretes
         self._server: _TrackedModbusTcpServer | None = None
         self._write_count = 0
 
@@ -147,6 +151,10 @@ class ModbusMockServer:
         """启动从站（后台 serve，非阻塞）。"""
         unit1_hr = self._holding if self._holding is not None else _holding_registers(1200.5, 800.0)
         unit1 = ModbusDeviceContext(
+            co=ModbusSequentialDataBlock(1, self._coils) if self._coils is not None else None,
+            di=ModbusSequentialDataBlock(1, self._discretes)
+            if self._discretes is not None
+            else None,
             hr=ModbusSequentialDataBlock(1, unit1_hr),
             ir=ModbusSequentialDataBlock(1, self._inputs) if self._inputs is not None else None,
         )

@@ -1,0 +1,295 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+import pytest
+
+from core.application import (
+    ConfigError,
+    ConnectionHealth,
+    InterrogationRequest,
+    ListenHandle,
+    ProtocolCapability,
+    ProtocolCapabilityError,
+    ProtocolRegistry,
+    ProtocolSample,
+    ProtocolSampleCallback,
+    ProtocolWrite,
+    ProtocolWriteResult,
+    SubscriptionHandle,
+)
+from core.domain import (
+    BusinessPoint,
+    BusinessPointId,
+    ConnectionEndpoint,
+    DataType,
+    Device,
+    DeviceGroupId,
+    DeviceId,
+    DeviceModel,
+    DeviceModelId,
+    DeviceType,
+    DeviceTypeId,
+    Point,
+    PointAccess,
+    PointTable,
+    PointTableId,
+    Protocol,
+)
+from core.infrastructure.protocol.ads import ADSDriver
+from core.infrastructure.protocol.iec104 import IEC104Driver
+from core.infrastructure.protocol.modbus import ModbusDriver
+from tests.support.units import KILOWATT_UNIT
+
+
+class _Protocol:
+    def capabilities(self) -> frozenset[ProtocolCapability]:
+        return frozenset(
+            {
+                ProtocolCapability.READ,
+                ProtocolCapability.WRITE,
+            }
+        )
+
+    async def connect(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    def is_open(self) -> bool:
+        return True
+
+    async def health(self) -> ConnectionHealth:
+        return ConnectionHealth(healthy=True)
+
+    async def read_one(self, point_id: str) -> ProtocolSample:
+        del point_id
+        raise ProtocolCapabilityError("not supported")
+
+    async def read_many(
+        self,
+        point_ids: Sequence[str],
+    ) -> tuple[ProtocolSample, ...]:
+        del point_ids
+        return ()
+
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        del write
+        raise ProtocolCapabilityError("not supported")
+
+    async def write_many(
+        self,
+        writes: Sequence[ProtocolWrite],
+    ) -> tuple[ProtocolWriteResult, ...]:
+        del writes
+        return ()
+
+    async def subscribe(
+        self,
+        point_ids: Sequence[str],
+        callback: ProtocolSampleCallback,
+        *,
+        interval: float | None = None,
+    ) -> SubscriptionHandle:
+        del point_ids, callback, interval
+        raise ProtocolCapabilityError("not supported")
+
+    async def listen(
+        self,
+        point_ids: Sequence[str],
+        callback: ProtocolSampleCallback,
+        *,
+        interval: float | None = None,
+    ) -> ListenHandle:
+        del point_ids, callback, interval
+        raise ProtocolCapabilityError("not supported")
+
+    async def interrogate(
+        self, request: InterrogationRequest | None = None
+    ) -> tuple[ProtocolSample, ...]:
+        del request
+        raise ProtocolCapabilityError("not supported")
+
+    def update_point_table(self, point_table: PointTable) -> None:
+        del point_table
+
+
+def test_protocol_write_normalizes_point_id() -> None:
+    write = ProtocolWrite(point=" power ", value=1.0)
+
+    assert write.point == "power"
+
+    with pytest.raises(ValueError, match="configured point key"):
+        ProtocolWrite(point=" ", value=1.0)
+
+
+@pytest.mark.asyncio
+async def test_protocol_registry_is_explicit_and_case_normalized() -> None:
+    registry = ProtocolRegistry()
+    registry.register(
+        "Modbus",
+        lambda _endpoint, _point_table, _device_options: _Protocol(),
+    )
+
+    endpoint = ConnectionEndpoint("127.0.0.1", 502)
+    point_table = PointTable(PointTableId("pt"), Protocol("MODBUS"), {})
+    protocol = registry.create(endpoint, point_table, {})
+
+    assert registry.registered_names() == ("modbus",)
+    assert (await protocol.health()).healthy is True
+
+
+def test_protocol_registry_accepts_builtin_driver_classes() -> None:
+    registry = ProtocolRegistry()
+    registry.register("modbus", ModbusDriver)
+    registry.register("ads", ADSDriver)
+    registry.register("iec104", IEC104Driver)
+
+    assert registry.registered_names() == ("ads", "iec104", "modbus")
+
+
+def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
+    registry = ProtocolRegistry()
+    registry.register("modbus", ModbusDriver)
+
+    device_type = DeviceType(DeviceTypeId("turbine"), "Turbine")
+    business_point = BusinessPoint(
+        BusinessPointId("power"),
+        DataType.FLOAT32,
+        KILOWATT_UNIT,
+    )
+    protocol_point = Point(
+        point_id="power",
+        business_point_id=business_point.business_point_id,
+        source_unit=KILOWATT_UNIT,
+        access=PointAccess.READ,
+        ext={
+            "register_type": "input",
+            "data_type": "float32",
+            # address intentionally missing
+        },
+    )
+    table = PointTable(
+        PointTableId("pt"),
+        Protocol("modbus"),
+        {"power": protocol_point},
+    )
+    model = DeviceModel(
+        DeviceModelId("m1"),
+        device_type.device_type_id,
+        table.point_table_id,
+    )
+    device = Device(
+        DeviceId("d1"),
+        model.device_model_id,
+        ConnectionEndpoint("127.0.0.1", 502),
+        device_group_ids=(DeviceGroupId("group"),),
+    )
+    with pytest.raises(ConfigError, match="address"):
+        registry.create(
+            device.endpoint,
+            table,
+            {},
+        )
+
+
+def test_protocol_drivers_declare_supported_capabilities() -> None:
+    modbus = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable(PointTableId("modbus_pt"), Protocol("modbus"), {}),
+        {},
+    )
+    ads = ADSDriver(
+        ConnectionEndpoint("127.0.0.1", 801),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {"target_net_id": "127.0.0.1.1.1"},
+    )
+    iec104 = IEC104Driver(
+        ConnectionEndpoint("127.0.0.1", 2404),
+        PointTable(PointTableId("iec104_pt"), Protocol("iec104"), {}),
+        {},
+    )
+
+    assert modbus.capabilities() == frozenset(
+        {
+            ProtocolCapability.READ,
+            ProtocolCapability.READ_MANY,
+            ProtocolCapability.WRITE,
+        }
+    )
+    assert ads.capabilities() == frozenset(
+        {
+            ProtocolCapability.READ,
+            ProtocolCapability.READ_MANY,
+            ProtocolCapability.WRITE,
+            ProtocolCapability.WRITE_MANY,
+            ProtocolCapability.SUBSCRIBE,
+        }
+    )
+    assert iec104.capabilities() == frozenset(
+        {
+            ProtocolCapability.READ,
+            ProtocolCapability.WRITE,
+            ProtocolCapability.LISTEN,
+            ProtocolCapability.INTERROGATE,
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_modbus_rejects_unsupported_protocol_capabilities() -> None:
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable(PointTableId("modbus_pt"), Protocol("modbus"), {}),
+        {},
+    )
+
+    async def callback(_samples: tuple[ProtocolSample, ...]) -> None:
+        return None
+
+    with pytest.raises(ProtocolCapabilityError, match="subscription"):
+        await driver.subscribe((), callback)
+
+    with pytest.raises(ProtocolCapabilityError, match="interrogation"):
+        await driver.interrogate(InterrogationRequest())
+
+
+@pytest.mark.asyncio
+async def test_iec104_rejects_unsupported_protocol_capabilities() -> None:
+    driver = IEC104Driver(
+        ConnectionEndpoint("127.0.0.1", 2404),
+        PointTable(PointTableId("iec104_pt"), Protocol("iec104"), {}),
+        {},
+    )
+
+    async def callback(_samples: tuple[ProtocolSample, ...]) -> None:
+        return None
+
+    with pytest.raises(ProtocolCapabilityError, match="subscription"):
+        await driver.subscribe((), callback)
+    with pytest.raises(ProtocolCapabilityError, match="batch read"):
+        await driver.read_many(("p1",))
+    with pytest.raises(ProtocolCapabilityError, match="batch write"):
+        await driver.write_many((ProtocolWrite(point="p1", value=True),))
+
+
+@pytest.mark.asyncio
+async def test_ads_rejects_unsupported_interrogation() -> None:
+    driver = ADSDriver(
+        ConnectionEndpoint("127.0.0.1", 801),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
+        {"target_net_id": "127.0.0.1.1.1"},
+    )
+
+    with pytest.raises(ProtocolCapabilityError, match="interrogation"):
+        await driver.interrogate(InterrogationRequest())
+
+
+def test_protocol_registry_is_explicitly_assembled_by_caller() -> None:
+    registry = ProtocolRegistry()
+    registry.register("ads", ADSDriver)
+    registry.register("iec104", IEC104Driver)
+    registry.register("modbus", ModbusDriver)
+
+    assert registry.registered_names() == ("ads", "iec104", "modbus")

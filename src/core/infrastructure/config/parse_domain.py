@@ -225,10 +225,18 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
 
 
 _ADS_LOGICAL_TYPES: dict[str, str] = {
-    "BOOL": "bool", "SINT": "int8", "USINT": "uint8",
-    "INT": "int16", "UINT": "uint16", "DINT": "int32",
-    "UDINT": "uint32", "LINT": "int64", "ULINT": "uint64",
-    "REAL": "float32", "LREAL": "float64", "STRING": "str",
+    "BOOL": "bool",
+    "SINT": "int8",
+    "USINT": "uint8",
+    "INT": "int16",
+    "UINT": "uint16",
+    "DINT": "int32",
+    "UDINT": "uint32",
+    "LINT": "int64",
+    "ULINT": "uint64",
+    "REAL": "float32",
+    "LREAL": "float64",
+    "STRING": "str",
 }
 
 
@@ -255,9 +263,7 @@ def _point(
     context = f"point '{point_id}'"
     _keys(entry, _POINT_FIELDS, context)
     raw_business_id = entry.get("business_point_id", point_id)
-    identity = BusinessPointId(
-        _name(raw_business_id, f"{context}.business_point_id")
-    )
+    identity = BusinessPointId(_name(raw_business_id, f"{context}.business_point_id"))
     business_point = business_points.get(identity)
     if business_point is None:
         raise ConfigError(f"{context} unknown business point '{identity}'")
@@ -350,9 +356,7 @@ def _point_tables(
             f"point table '{name}'",
         )
         parent_id = definition.get("parent_id")
-        parent = (
-            resolve(_name(parent_id, f"{name}.parent_id")) if parent_id is not None else None
-        )
+        parent = resolve(_name(parent_id, f"{name}.parent_id")) if parent_id is not None else None
         protocol = definition.get("protocol", parent.protocol.name if parent else None)
         if protocol not in _OPTION_PARSERS:
             raise ConfigError(f"point table '{name}' unsupported protocol '{protocol}'")
@@ -427,16 +431,12 @@ def _device_models(
         _keys(definition, _MODEL_FIELDS, f"device model '{key}'")
         identity = DeviceModelId(key)
         type_id = DeviceTypeId(_name(definition.get("device_type_id"), "model.device_type_id"))
-        table_id = PointTableId(
-            _name(definition.get("point_table_id"), "model.point_table_id")
-        )
+        table_id = PointTableId(_name(definition.get("point_table_id"), "model.point_table_id"))
         protocol = _name(definition.get("protocol"), "model.protocol")
         if type_id not in types:
             raise ConfigError(f"device model '{key}' references unknown device type '{type_id}'")
         if table_id not in tables:
-            raise ConfigError(
-                f"device model '{key}' references unknown point table '{table_id}'"
-            )
+            raise ConfigError(f"device model '{key}' references unknown point table '{table_id}'")
         if tables[table_id].protocol.name != protocol:
             raise ConfigError(f"device model '{key}' protocol does not match point table")
         if protocol not in _OPTION_PARSERS:
@@ -462,9 +462,7 @@ def _device_models(
         try:
             _OPTION_PARSERS[protocol](ConnectionEndpoint(host="localhost"), options)
         except Exception as exc:
-            raise ConfigError(
-                f"device model '{key}' invalid protocol options: {exc}"
-            ) from exc
+            raise ConfigError(f"device model '{key}' invalid protocol options: {exc}") from exc
         models[identity] = DeviceModel(
             device_model_id=identity,
             device_type_id=type_id,
@@ -513,9 +511,7 @@ def _devices(
 
         memberships = tuple(
             DeviceGroupId(_name(group, f"{context}.device_group_ids"))
-            for group in _list(
-                definition.get("device_group_ids"), f"{context}.device_group_ids"
-            )
+            for group in _list(definition.get("device_group_ids"), f"{context}.device_group_ids")
         )
         for group in memberships:
             if group not in groups:
@@ -527,9 +523,7 @@ def _devices(
         endpoint = ConnectionEndpoint(
             host=_name(raw_endpoint.get("host"), f"{context}.endpoint.host"),
             port=(
-                _port(port_value, f"{context}.endpoint.port")
-                if port_value is not None
-                else None
+                _port(port_value, f"{context}.endpoint.port") if port_value is not None else None
             ),
         )
 
@@ -583,7 +577,8 @@ def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
                     sink_id=_name(entry.get("sink_id"), f"{context}.outputs[{index}].sink_id"),
                     key_prefix=(
                         _name(entry["key_prefix"], f"{context}.outputs[{index}].key_prefix")
-                        if "key_prefix" in entry else None
+                        if "key_prefix" in entry
+                        else None
                     ),
                     points=tuple(
                         _map(point, f"{context}.outputs[{index}].points")
@@ -657,9 +652,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
                         f"Task '{task.task_id}' references unknown sink '{output.sink_id}'"
                     )
                 if output.key_prefix is not None and sink.kind != "redis":
-                    raise ConfigError(
-                        f"Task '{task.task_id}' key_prefix requires a Redis Sink"
-                    )
+                    raise ConfigError(f"Task '{task.task_id}' key_prefix requires a Redis Sink")
                 if not output.points and sink.kind == "modbus":
                     # Modbus 从站必须为每个点显式分配寄存器地址；空 points
                     # 无法安全展开为通配（redis/tdengine 可按任务组全量投递）。

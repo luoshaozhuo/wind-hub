@@ -12,11 +12,12 @@ from typing import Any
 
 from google.protobuf import empty_pb2
 
+from contracts import commander_pb2 as pb
+from contracts import commander_pb2_grpc as pb_grpc
+from contracts import common_pb2 as common_pb
 from core.application.command import Command, CommandResult
 from core.application.protocol_contract import WriteOutcome
 from core.domain.sample_value import Quality
-from core.infrastructure.rpc import commander_pb2 as pb
-from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
 from web_server.adapter.outbound.grpc.common import GrpcClientBase
 from web_server.application.device.sample import PointValue
 from web_server.application.port.worker import (
@@ -30,7 +31,7 @@ from web_server.application.port.worker import (
 )
 
 
-def _decode_scalar(value: pb.ScalarValue) -> Any:
+def _decode_scalar(value: common_pb.ScalarValue) -> Any:
     """解码 protobuf oneof 标量，避免经过 JSON 中间结构。"""
     kind = value.WhichOneof("kind")
     if kind is None:
@@ -40,9 +41,9 @@ def _decode_scalar(value: pb.ScalarValue) -> Any:
     return getattr(value, kind)
 
 
-def _encode_scalar(value: bool | int | float | str) -> pb.ScalarValue:
+def _encode_scalar(value: bool | int | float | str) -> common_pb.ScalarValue:
     """严格编码设备写入标量；不将 bool 误判为 int。"""
-    result = pb.ScalarValue()
+    result = common_pb.ScalarValue()
     if isinstance(value, bool):
         result.bool_value = value
     elif isinstance(value, int):
@@ -99,7 +100,7 @@ def _command_result(message: pb.CommandResultMessage) -> CommandResult:
     )
 
 
-def _address_dict(items: Iterable[pb.AddressField]) -> dict[str, Any]:
+def _address_dict(items: Iterable[common_pb.AddressField]) -> dict[str, Any]:
     """把 AddressField 列表恢复为普通地址字典。"""
     return {item.key: _decode_scalar(item.value) for item in items}
 

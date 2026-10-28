@@ -1,0 +1,22 @@
+syntax = "proto3";
+package windhub.gateway.v1;
+
+import "contracts/common.proto";
+
+message FeedbackPoint {
+  string device_id = 1;
+  string point_id = 2;
+  windhub.common.v1.ScalarValue value = 3;
+}
+
+message WriteManyRequest {
+  repeated FeedbackPoint points = 1;
+}
+
+message WriteManyResponse {
+  uint32 updated = 1;
+}
+
+service GatewayDataService {
+  rpc WriteMany(WriteManyRequest) returns (WriteManyResponse);
+}

@@ -5,7 +5,7 @@
     ip netns exec <ns> python -m tests.fixtures.servers.modbus_ns_main \
         --host 10.99.0.2 --port 15020
 
-仅供 ``tests/reliability/network`` 使用：网络降级注入要求采集流量真实
+仅供 ``tests/system/network`` 使用：网络降级注入要求采集流量真实
 穿越 veth pair（同命名空间的本机投递走 lo 回环、绕过 qdisc，netem 不
 生效），因此 server 必须活在 veth 对端的 namespace 里。就绪后在
 stdout 打印一行 ``READY <host>:<port>`` 供 fixture 等待。

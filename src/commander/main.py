@@ -13,7 +13,7 @@ import signal
 from pathlib import Path
 
 from core.infrastructure.diagnostic.log_setup import configure_logging, configure_process_logging
-from core.infrastructure.runtime import configure_default_thread_pool
+from core.infrastructure.executor import configure_default_thread_pool
 
 from .assembly import assemble_commander
 from .infrastructure.grpc import build_grpc_server

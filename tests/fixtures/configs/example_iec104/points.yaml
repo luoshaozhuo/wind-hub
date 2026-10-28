@@ -6,6 +6,7 @@ point_tables:
         point_groups:
         - all
         address:
+          ca: 1
           type: M_ME_NC_1
           ioa: 100
         data_type: float32
@@ -15,6 +16,7 @@ point_tables:
         point_groups:
         - all
         address:
+          ca: 1
           type: M_ME_NC_1
           ioa: 200
         data_type: float32
@@ -24,6 +26,7 @@ point_tables:
         point_groups:
         - all
         address:
+          ca: 1
           type: C_SC_NA_1
           ioa: 300
         data_type: bool

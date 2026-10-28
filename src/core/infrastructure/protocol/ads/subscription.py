@@ -54,6 +54,7 @@ class ADSSubscription:
         self._worker: asyncio.Task[None] | None = None
         self._stopping = False
         self._registration_uncertain = False
+        self._cleanup_retryable = False
 
     async def start(self) -> None:
         if self._stopping or self._start_task is not None:
@@ -82,11 +83,14 @@ class ADSSubscription:
                 )
                 self._callbacks.append(callback)
                 try:
+                    # data: 通知块的 Index Group/Offset；attr: 长度与采样周期；
+                    # callback: pyads 原生通知回调；user_handle: 不额外申请 Symbol 句柄。
                     token = await self._session.execute(
-                        "add_device_notification",
-                        (block.group, block.offset),
-                        attribute,
-                        callback,
+                        operation="add_device_notification",
+                        data=(block.group, block.offset),
+                        attr=attribute,
+                        callback=callback,
+                        user_handle=None,
                     )
                 except ADSCommandNotSentError:
                     raise
@@ -159,7 +163,11 @@ class ADSSubscription:
                 logger.exception("ADS notification delivery callback failed")
 
     def _begin_stop(self) -> asyncio.Task[None]:
-        if self._stop_task is None:
+        if self._stop_task is None or (
+            self._stop_task.done()
+            and self._stop_task.exception() is not None
+            and self._cleanup_retryable
+        ):
             self._stopping = True
             self._stop_task = asyncio.create_task(self._stop_once())
         return self._stop_task
@@ -172,11 +180,19 @@ class ADSSubscription:
             with contextlib.suppress(Exception):
                 await asyncio.shield(self._start_task)
         errors: list[Exception] = []
+        self._cleanup_retryable = True
         remaining: list[tuple[Any, Any]] = []
         for token in reversed(self._handles):
             try:
-                await self._session.execute("del_device_notification", *token)
+                # notification_handle/user_handle: 注册时返回的通知与用户句柄。
+                await self._session.execute(
+                    operation="del_device_notification",
+                    notification_handle=token[0],
+                    user_handle=token[1],
+                )
             except Exception as exc:
+                if not isinstance(exc, ADSCommandNotSentError):
+                    self._cleanup_retryable = False
                 errors.append(exc)
                 remaining.append(token)
         self._handles = list(reversed(remaining))
@@ -185,6 +201,7 @@ class ADSSubscription:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._worker
         if self._registration_uncertain:
+            self._cleanup_retryable = False
             errors.append(RuntimeError("ADS notification registration result unconfirmed"))
         if errors:
             raise ExceptionGroup("ADS notification cleanup failed", errors)

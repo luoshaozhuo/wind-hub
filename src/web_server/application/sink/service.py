@@ -69,9 +69,7 @@ class SinkService:
                     type=cfg.kind,
                     enabled=cfg.enabled,
                     connection={
-                        key: value
-                        for key, value in plain_connection.items()
-                        if key != "password"
+                        key: value for key, value in plain_connection.items() if key != "password"
                     },
                     has_password=bool(plain_connection.get("password")),
                     healthy=(current.healthy if current is not None and cfg.enabled else False),

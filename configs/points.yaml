@@ -65,7 +65,7 @@
 #   IEC104：
 #     type / type_id：ASDU Type ID（大写），如 M_ME_NC_1；
 #     ioa：int，0..16777215；C_* 命令类型可以写，M_* 监测类型只读；
-#     ca：可选 int 0..65535，多 CA 连接中逐点指定公共地址，缺省取首 CA。
+#     ca：必填 int 0..65535，每个点显式指定公共地址。
 #
 # 各协议的 address 字段：
 # - Modbus: `register_type`（或别名 `type`）+ `address`。
@@ -81,19 +81,17 @@
 #              PDU 起始地址；不要与 4xxxx/3xxxx 等 1-based 编号混用
 #              （如寄存器 40181 应写 180）。
 #     可选逐点覆盖：word_order（big_endian/little_endian）、count。
-# - ADS（Symbol 优先）：
-#     symbol: MAIN.rotorSpeed               # 推荐：仅 Symbol 寻址
-#     index_group: 0x4020                   # 兼容寻址：必须与 index_offset
-#     index_offset: 0x1234                  #   成对出现（只写一个是错误）
-# - IEC104: `type`（或 `type_id`）+ `ioa`，多 CA 连接可逐点指定 `ca`。
+# - ADS（Symbol 必填）：
+#     symbol: MAIN.rotorSpeed               # 必填；每次连接从 PLC 解析地址
+#     index_group: 0x4020                   # 可选；填写时必须与 index_offset 成对
+#     index_offset: 0x1234                  # 可选；连接时与 Symbol 查询结果校验
+# - IEC104: `type`（或 `type_id`）+ `ioa`，每个点必须指定 `ca`。
 #     type: ASDU Type ID 字符串（如 M_ME_NA_1 / C_SC_NA_1）；控制点必须
 #           为 C_* 类型，只读点必须为 M_* 类型。
 #     ioa: int 0..16777215 —— 信息对象地址。
-#     ca:  int 0..65535，可选 —— 信息对象所属公共地址；缺省取连接
-#           common_addresses 的首项。不同 CA 下允许相同 ioa。
+#     ca: int 0..65535，必填 —— 信息对象所属公共地址；不同 CA 下允许相同 ioa。
 #     command_mode: direct（默认）/ select_execute（SBO）。
 #     confirmation: act_term（默认）/ act_con；ACT_CON 不代表执行终结。
-#           common_addresses 的首项。不同 CA 下允许相同 ioa。
 
 point_tables:
 
@@ -171,7 +169,8 @@ point_tables:
       active_power_iec:
         point_groups: [all]
         address:
-          type: M_ME_NA_1
+          ca: 1
+          type_id: M_ME_NC_1
           ioa: 1001
         data_type: float32
         unit: kilowatt
@@ -180,7 +179,8 @@ point_tables:
       turbine_run:
         point_groups: [all]
         address:
-          type: M_SP_NA_1
+          ca: 1
+          type_id: M_SP_NA_1
           ioa: 2001
         data_type: bool
         unit: none

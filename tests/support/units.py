@@ -56,6 +56,7 @@ PERCENT_UNIT = Unit(
     scale_to_base=0.01,
 )
 
+
 class QuantityDefinition(TypedDict):
     base_unit: str
 

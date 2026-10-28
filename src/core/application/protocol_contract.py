@@ -102,6 +102,8 @@ class InterrogationRequest:
 
 
 class ProtocolLifecycleState(StrEnum):
+    """协议 Adapter 连接生命周期状态。"""
+
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -109,49 +111,11 @@ class ProtocolLifecycleState(StrEnum):
     FAULTED = "faulted"
 
 
-class ProtocolOperation(StrEnum):
-    CONNECT = "connect"
-    CLOSE = "close"
-    READ = "read"
-    WRITE = "write"
-    INTERROGATE = "interrogate"
-
-
-class ProtocolOperationState(StrEnum):
-    QUEUED = "queued"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    UNKNOWN = "unknown"
-    CANCELLED = "cancelled"
-
-
-@dataclass(frozen=True, slots=True)
-class ProtocolOperationEvent:
-    driver_id: str
-    sequence: int
-    operation_id: str
-    operation: ProtocolOperation
-    state: ProtocolOperationState
-    timestamp: datetime
-    phase: str | None = None
-    point_id: str | None = None
-    message: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ProtocolRuntimeState:
-    driver_id: str
-    lifecycle: ProtocolLifecycleState
-    active_operations: tuple[ProtocolOperationEvent, ...]
-    dropped_events: int = 0
-    message: str | None = None
-
-
 class ProtocolCapability(StrEnum):
     """统一协议 Port 可声明的运行时能力。"""
 
     READ = "read"
+    READ_MANY = "read_many"
     WRITE = "write"
     # 多逻辑点批量写；未声明时 write_many 必须在连接恢复前明确拒绝。
     WRITE_MANY = "write_many"
@@ -243,9 +207,5 @@ __all__ = [
     "ProtocolSample",
     "InterrogationRequest",
     "ProtocolLifecycleState",
-    "ProtocolOperation",
-    "ProtocolOperationState",
-    "ProtocolOperationEvent",
-    "ProtocolRuntimeState",
     "validate_read_many_results",
 ]

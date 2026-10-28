@@ -5,14 +5,13 @@ from __future__ import annotations
 import struct
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
-
-import pyads  # type: ignore[import-untyped]
+from typing import TYPE_CHECKING, cast
 
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import PointScalar
 
-from .mapping import ADSPoint
+if TYPE_CHECKING:
+    from .mapping import ADSPoint
 
 _FORMATS = {
     "BOOL": "?",
@@ -77,9 +76,7 @@ def compile_notification_blocks(
         first = current[0]
         last = current[-1]
         end = last.offset + last.size
-        fields = tuple(
-            (point, point.offset - first.offset, compile_decoder(point)) for point in current
-        )
+        fields = tuple((point, point.offset - first.offset, point.decoder) for point in current)
         blocks.append(NotificationBlock(first.group, first.offset, end - first.offset, fields))
 
     previous: ADSPoint | None = None
@@ -105,13 +102,6 @@ def compile_notification_blocks(
     return tuple(blocks)
 
 
-def _plc_datatype(ads_name: str) -> Any:
-    datatype = getattr(pyads, f"PLCTYPE_{ads_name}", None)
-    if datatype is None:
-        raise ConfigError(f"pyads does not expose PLCTYPE_{ads_name}")
-    return datatype
-
-
 def _decode_sum_write_errors(raw: object, count: int) -> tuple[int, ...]:
     """从 Sum Write 响应解出逐点 ADS 错误码。
 
@@ -134,12 +124,13 @@ def _decode_sum_write_errors(raw: object, count: int) -> tuple[int, ...]:
 def _encode_value(value: float | int | bool | str, point: ADSPoint) -> bytes:
     """把单个 ADS 标量序列化为寻址宽度恰好一致的字节串。"""
     if point.data_type == "STRING":
-        encoded = value.encode("utf-8") if isinstance(value, str) else b""
+        if not isinstance(value, str):
+            raise TypeError("ADS STRING requires str value")
+        encoded = value.encode("utf-8")
         if point.size <= 0 or len(encoded) >= point.size:
             raise ValueError(f"ADS STRING '{point.point_id}' exceeds configured size")
         return encoded.ljust(point.size, b"\x00")
-    datatype = _plc_datatype(point.data_type)
-    raw = bytes(datatype(value))
+    raw = struct.pack("<" + _FORMATS[point.data_type], value)
     if len(raw) != point.size:
         raise ValueError(f"ADS point '{point.point_id}' data width mismatch")
     return raw

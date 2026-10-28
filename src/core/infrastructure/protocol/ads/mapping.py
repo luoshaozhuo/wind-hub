@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 
 from core.application.errors import ConfigError
+from core.application.protocol_contract import PointScalar
 from core.domain import Point
+
+from .codec import compile_decoder
 
 _ALLOWED_OPTIONS = frozenset(
     {
@@ -61,15 +65,19 @@ class ADSPoint:
     index_offset: int | None
     data_type: str
     size: int
-    symbol: str | None = None
+    symbol: str
+    decoder: Callable[[bytes | memoryview, int], PointScalar] = field(
+        init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         has_group = self.index_group is not None
         has_offset = self.index_offset is not None
         if has_group != has_offset:
             raise ConfigError(f"ADS point '{self.point_id}' requires a complete index address")
-        if not has_group and self.symbol is None:
-            raise ConfigError(f"ADS point '{self.point_id}' requires symbol or index address")
+        if not self.symbol.strip():
+            raise ConfigError(f"ADS point '{self.point_id}' requires a non-empty symbol")
+        object.__setattr__(self, "decoder", compile_decoder(self))
 
     @property
     def address_resolved(self) -> bool:
@@ -104,49 +112,7 @@ class ADSPoint:
 
     def unresolved(self) -> ADSPoint:
         """使 symbol 派生地址失效。"""
-        if self.symbol is None:
-            return self
         return replace(self, index_group=None, index_offset=None)
-
-
-def ads_point(
-    point_id: str,
-    *,
-    index_group: int,
-    index_offset: int,
-    data_type: str,
-    size: int | None = None,
-) -> ADSPoint:
-    """构造并校验一个 ADSPoint（显式 index 地址定义）。
-
-    供点表解析与测试构造使用；运行时读写只接受 PointTable 已配置的
-    Point Key，不能以此对象直接寻址。
-
-    校验规则与 ``parse_ads_point`` 一致：index 地址为非负整数（拒绝布尔
-    冒充）、data_type 归一化、size 与类型宽度匹配（STRING 允许显式长度）。
-    显式 index 地址不携带 symbol，``address_resolved`` 恒为 True，不依赖
-    ADS session 的符号解析。
-    """
-    group = _non_negative_int(index_group, "index_group", point_id)
-    offset = _non_negative_int(index_offset, "index_offset", point_id)
-    ads_type = _normalize_ads_type(data_type, point_id=point_id)
-    resolved_size = (
-        _ADS_TYPE_SIZES[ads_type] if size is None else _non_negative_int(size, "size", point_id)
-    )
-    if ads_type != "STRING" and resolved_size != _ADS_TYPE_SIZES[ads_type]:
-        raise ConfigError(
-            f"ADS point '{point_id}': size {resolved_size} does not match "
-            f"{ads_type} width {_ADS_TYPE_SIZES[ads_type]}"
-        )
-    if ads_type == "STRING" and resolved_size <= 0:
-        raise ConfigError(f"ADS point '{point_id}': STRING requires positive size")
-    return ADSPoint(
-        point_id=point_id,
-        index_group=group,
-        index_offset=offset,
-        data_type=ads_type,
-        size=resolved_size,
-    )
 
 
 def parse_ads_point(
@@ -168,10 +134,8 @@ def parse_ads_point(
             f"ADS point '{point.point_id}': index_group and index_offset "
             "must be configured together"
         )
-    if symbol is None and not has_group:
-        raise ConfigError(
-            f"ADS point '{point.point_id}' requires symbol or " "index_group + index_offset"
-        )
+    if symbol is None:
+        raise ConfigError(f"ADS point '{point.point_id}' requires symbol")
 
     index_group = (
         None if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
@@ -182,12 +146,7 @@ def parse_ads_point(
         else _non_negative_int(raw_offset, "index_offset", point.point_id)
     )
 
-    # Symbol addresses are session-bound. Even an explicitly configured index
-    # pair must not be reused until resolved against the current PLC session.
-    if symbol is not None:
-        index_group = None
-        index_offset = None
-
+    # Retain configured addresses for validation against PLC on connect.
     explicit_type = options.get("data_type", options.get("type"))
     if explicit_type is None:
         raise ConfigError(f"ADS point '{point.point_id}' requires data_type")

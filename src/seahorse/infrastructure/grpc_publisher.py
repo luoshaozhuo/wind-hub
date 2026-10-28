@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import grpc
-from google.protobuf import struct_pb2
 
-from core.infrastructure.rpc.gateway_data import METHOD, encode_feedback
+from contracts import gateway_pb2 as pb
+from contracts import gateway_pb2_grpc as rpc
+from core.infrastructure.rpc.scalar_codec import encode_scalar
 from seahorse.domain.models import FarmSnapshot
 
 
@@ -23,26 +24,28 @@ class GrpcSnapshotPublisher:
         if timeout <= 0 or not feedback:
             raise ValueError("invalid Gateway feedback mapping")
         self._channel = grpc.insecure_channel(endpoint)
-        self._write_many = self._channel.unary_unary(
-            METHOD,
-            request_serializer=struct_pb2.Struct.SerializeToString,
-            response_deserializer=struct_pb2.Struct.FromString,
-        )
+        self._stub = rpc.GatewayDataServiceStub(self._channel)
         self._feedback = feedback
         self._timeout = timeout
 
     def publish(self, snapshot: FarmSnapshot) -> None:
         devices = {device.device_id: device.points for device in snapshot.devices}
-        values = {}
-        for device_id, points in self._feedback.items():
+        points: list[pb.FeedbackPoint] = []
+        for device_id, names in self._feedback.items():
             device = devices.get(device_id)
             if device is None:
                 raise KeyError(f"unknown Gateway device: {device_id}")
-            for point_id in points:
+            for point_id in names:
                 if point_id not in device:
                     raise KeyError(f"missing Gateway feedback: {device_id}.{point_id}")
-                values[(device_id, point_id)] = device[point_id]
-        self._write_many(encode_feedback(values), timeout=self._timeout)
+                points.append(
+                    pb.FeedbackPoint(
+                        device_id=device_id,
+                        point_id=point_id,
+                        value=encode_scalar(device[point_id]),
+                    )
+                )
+        self._stub.WriteMany(pb.WriteManyRequest(points=points), timeout=self._timeout)
 
     def close(self) -> None:
         self._channel.close()

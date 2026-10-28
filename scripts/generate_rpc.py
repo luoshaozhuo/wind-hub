@@ -1,4 +1,4 @@
-"""重新生成 shared core 的 Collector/Commander Protobuf/gRPC 代码。"""
+"""统一生成公开 RPC 契约（Python/gRPC 与 Mypy stub）。"""
 
 from __future__ import annotations
 
@@ -10,28 +10,27 @@ from grpc_tools import protoc
 ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = ROOT / "src"
 PROTO_FILES = (
-    SRC_ROOT / "core" / "infrastructure" / "rpc" / "collector.proto",
-    SRC_ROOT / "core" / "infrastructure" / "rpc" / "commander.proto",
+    "contracts/common.proto",
+    "contracts/collector.proto",
+    "contracts/commander.proto",
+    "contracts/gateway.proto",
 )
 
 
 def main() -> int:
-    """使用 shared core proto 生成 pb2、gRPC stub 及 mypy stub。"""
+    """单个 proto 出错时立即失败，避免生成文件悄然陈旧。"""
     include_dir = Path(grpc_tools.__file__).resolve().parent / "_proto"
-    for proto in PROTO_FILES:
-        result = protoc.main(
-            [
-                "grpc_tools.protoc",
-                f"-I{SRC_ROOT}",
-                f"-I{include_dir}",
-                f"--python_out={SRC_ROOT}",
-                f"--grpc_python_out={SRC_ROOT}",
-                f"--mypy_out={SRC_ROOT}",
-                f"--mypy_grpc_out={SRC_ROOT}",
-                str(proto),
-            ]
-        )
-        if result != 0:
+    for name in PROTO_FILES:
+        options = [
+            "grpc_tools.protoc",
+            f"-I{SRC_ROOT}",
+            f"-I{include_dir}",
+            f"--python_out={SRC_ROOT}",
+            f"--mypy_out={SRC_ROOT}",
+        ]
+        if name != "contracts/common.proto":
+            options.extend((f"--grpc_python_out={SRC_ROOT}", f"--mypy_grpc_out={SRC_ROOT}"))
+        if result := protoc.main([*options, str(SRC_ROOT / name)]):
             return result
     return 0
 

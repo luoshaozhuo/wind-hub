@@ -142,4 +142,3 @@ class CollectorConfig:
         device = self.devices[device_id]
         model = self.device_models[device.device_model_id]
         return self.point_tables[model.point_table_id]
-

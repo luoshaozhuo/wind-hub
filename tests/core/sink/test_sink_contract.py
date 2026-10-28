@@ -1,0 +1,87 @@
+"""共享 SinkPort 与统一配置入口测试。"""
+
+from dataclasses import FrozenInstanceError
+from datetime import UTC, datetime
+from typing import Any
+
+import pytest
+
+from core.application.port.sink import ExclusiveOpenSinkPort, SinkPort
+from core.application.protocol_contract import ConnectionHealth
+from core.domain.point_value import PointValue
+from core.infrastructure.config.sink_schema import _SinkSchema
+
+
+class MemorySink:
+    def __init__(self) -> None:
+        self.data: list[PointValue] = []
+
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    async def write(self, batch: list[PointValue]) -> None:
+        self.data.extend(batch)
+
+    async def flush(self) -> None:
+        return None
+
+    async def health(self) -> ConnectionHealth:
+        return ConnectionHealth(healthy=True)
+
+
+@pytest.mark.asyncio
+async def test_port_delivery() -> None:
+    port: SinkPort = MemorySink()
+    value = PointValue("WT001", "power", 10.5)
+    await port.open()
+    await port.write([value])
+    await port.flush()
+    assert isinstance(port, MemorySink)
+    assert port.data == [value]
+    await port.close()
+
+
+def test_utc_and_immutable() -> None:
+    value = PointValue("WT001", "power", 10, timestamp=datetime.now(UTC))
+    offset = value.timestamp.utcoffset()
+    assert offset is not None
+    assert offset.total_seconds() == 0
+    with pytest.raises(FrozenInstanceError):
+        value.value = 2  # type: ignore[misc]
+
+
+def test_naive_datetime_rejected() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        PointValue("WT001", "power", 10, timestamp=datetime(2026, 1, 1))
+
+
+@pytest.mark.parametrize(
+    "kind,connection",
+    [
+        ("tdengine", {"password": "local-test"}),
+        ("modbus", {"port": 1502}),
+        ("redis", {"database": 1}),
+        ("kafka", {"topic": "telemetry"}),
+    ],
+)
+def test_config_types(kind: str, connection: dict[str, Any]) -> None:
+    assert _SinkSchema.model_validate({"type": kind, "connection": connection}).type == kind
+
+
+def test_old_type_rejected() -> None:
+    from core.application.errors import ConfigError
+
+    with pytest.raises(ConfigError):
+        _SinkSchema.model_validate(
+            {
+                "type": "unsupported_sink",
+                "connection": {"bootstrap_servers": "localhost", "topic": "telemetry"},
+            }
+        )
+
+
+def test_exclusive_open_is_optional() -> None:
+    assert not isinstance(MemorySink(), ExclusiveOpenSinkPort)

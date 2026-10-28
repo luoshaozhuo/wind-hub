@@ -46,9 +46,7 @@ class TestServerStartup:
         assert [t["task_id"] for t in rows] == [SYSTEM_TASK_ID]
         assert rows[0]["assigned_worker_id"] == SYSTEM_COLLECTOR_ID
 
-        instances = await full_stack.http.get(
-            f"/api/v1/tasks/{SYSTEM_TASK_ID}/instances"
-        )
+        instances = await full_stack.http.get(f"/api/v1/tasks/{SYSTEM_TASK_ID}/instances")
         assert instances.status_code == 200
         assert len(instances.json()) == 1
 

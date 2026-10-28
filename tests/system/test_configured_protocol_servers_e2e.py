@@ -46,8 +46,9 @@ def test_script_follows_exact_core_snapshot_and_point_definitions(
     snapshot = ConfigService.load_directory(virtual_site)
     plans = plan_devices(snapshot)
     assert len(plans) == 30
-    assert {family: sum(p.protocol == family for p in plans)
-            for family in ("modbus", "ads", "iec104")} == {
+    assert {
+        family: sum(p.protocol == family for p in plans) for family in ("modbus", "ads", "iec104")
+    } == {
         "modbus": 10,
         "ads": 10,
         "iec104": 10,
@@ -91,9 +92,7 @@ async def test_modbus_values_change_over_real_protocol(
         try:
             readings: list[tuple[int, ...]] = []
             for _ in range(5):
-                response = await client.read_input_registers(
-                    178, count=2, device_id=1
-                )
+                response = await client.read_input_registers(178, count=2, device_id=1)
                 assert not response.isError(), response
                 readings.append(tuple(response.registers))
                 await asyncio.sleep(0.19)
@@ -122,9 +121,7 @@ def test_configured_bind_must_be_loopback_by_default(virtual_site: Path) -> None
     snapshot = ConfigService.load_directory(virtual_site)
     devices = snapshot.site.devices
     assert len(devices) == 30
-    assert all(
-        plan.host.startswith("127.") for plan in plan_devices(snapshot)
-    )
+    assert all(plan.host.startswith("127.") for plan in plan_devices(snapshot))
 
 
 async def test_port_collision_exits_without_hanging(virtual_site: Path) -> None:

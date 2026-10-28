@@ -48,6 +48,7 @@ class _IEC104Session:
         self._receiver: asyncio.Task[None] | None = None
         self._send_lock = asyncio.Lock()
         self._close_task: asyncio.Task[None] | None = None
+        self._close_error: BaseException | None = None
         self._closing = False
         self._enabled_once = False
         self._enabled_event = asyncio.Event()
@@ -125,8 +126,9 @@ class _IEC104Session:
                     self._request_close()
 
     def _request_close(self) -> None:
-        if self._close_task is None:
-            self._closing = True
+        self._closing = True
+        if self._close_task is None or (self._close_task.done() and self._close_error is not None):
+            self._close_error = None
             self._close_task = asyncio.create_task(self._close_once())
 
     async def close(self) -> None:
@@ -135,13 +137,18 @@ class _IEC104Session:
         await asyncio.shield(self._close_task)
 
     async def _close_once(self) -> None:
-        conn = self._connection
-        if conn is not None:
-            await conn.async_close()
-        task = self._receiver
-        if task is not None and task is not asyncio.current_task():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-        self._receiver = None
-        self._connection = None
+        try:
+            async with self._send_lock:
+                conn = self._connection
+                if conn is not None:
+                    await conn.async_close()
+            task = self._receiver
+            if task is not None and task is not asyncio.current_task():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            self._receiver = None
+            self._connection = None
+        except BaseException as exc:
+            self._close_error = exc
+            raise

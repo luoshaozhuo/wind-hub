@@ -1,6 +1,6 @@
 """Functional/system 测试共享的功能配置写出辅助（栈中立）。
 
-从原 ``tests/component/collector/conftest.py`` 迁出：仅包含自包含配置
+供 ``tests/collector`` 共享：仅包含自包含配置
 目录的写出与改写能力，不依赖任何协议栈实现（新旧 Collector/Commander
 进程均可消费写出的配置树）。
 

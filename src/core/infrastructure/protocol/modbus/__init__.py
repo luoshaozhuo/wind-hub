@@ -5,7 +5,6 @@ from .driver import ModbusDriver
 from .mapping import (
     ModbusPoint,
     group_consecutive_reads,
-    modbus_point,
     parse_modbus_point,
 )
 
@@ -14,7 +13,6 @@ __all__ = [
     "ModbusDriver",
     "ModbusPoint",
     "group_consecutive_reads",
-    "modbus_point",
     "parse_modbus_config",
     "parse_modbus_point",
 ]
