@@ -93,10 +93,6 @@ def _diff_to_proto(diff: ConfigDiff) -> pb.ConfigDiffMessage:
             updated=list(diff.devices.updated),
             unchanged=list(diff.devices.unchanged),
         ),
-            removed=list(diff.sinks.removed),
-            updated=list(diff.sinks.updated),
-            unchanged=list(diff.sinks.unchanged),
-        ),
         tasks=pb.TaskDiffMessage(
             added=list(diff.tasks.added),
             removed=list(diff.tasks.removed),
