@@ -22,7 +22,9 @@ async def run_sink_service(
     config_dir: Path,
     *,
     servers: tuple[str, ...],
-    delivery: DeliveryMode,
+    delivery: DeliveryMode | str,
+    realtime_sinks: frozenset[str] = frozenset(),
+    reliable_sinks: frozenset[str] = frozenset(),
     wind_farm_id: str,
     shutdown_timeout: float = 30.0,
     grpc_listen: str = '127.0.0.1:50074',
@@ -31,10 +33,29 @@ async def run_sink_service(
     """Start each Sink independently and shut down on a process signal."""
     state_name = sha256(f"{wind_farm_id}:{delivery}".encode()).hexdigest()[:32]
     store = SinkIntentStore(state_dir / f"{state_name}.json")
-    sinks = assemble_sinks(
-        config_dir, servers=servers, delivery=delivery, wind_farm_id=wind_farm_id,
-        intent_store=store,
-    )
+    if delivery == "both":
+        if not realtime_sinks or not reliable_sinks:
+            raise ValueError("both mode requires explicit realtime and reliable sink lists")
+        if realtime_sinks & reliable_sinks:
+            raise ValueError("one Sink cannot consume both delivery channels")
+        sinks = {
+            **assemble_sinks(
+                config_dir, servers=servers, delivery="realtime",
+                wind_farm_id=wind_farm_id, intent_store=store,
+                sink_ids=realtime_sinks,
+            ),
+            **assemble_sinks(
+                config_dir, servers=servers, delivery="reliable",
+                wind_farm_id=wind_farm_id, intent_store=store,
+                sink_ids=reliable_sinks,
+            ),
+        }
+    else:
+        sinks = assemble_sinks(
+            config_dir, servers=servers, delivery=delivery,
+            wind_farm_id=wind_farm_id, intent_store=store,
+            sink_ids=realtime_sinks or reliable_sinks or None,
+        )
     manager = SinkManager(sinks)
     grpc_server = build_management_server(manager, grpc_listen)
     await grpc_server.start()
@@ -88,7 +109,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="wind-hub-sink-service")
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--nats", action="append", required=True)
-    parser.add_argument("--delivery", choices=("realtime", "reliable"), required=True)
+    parser.add_argument("--delivery", choices=("realtime", "reliable", "both"), required=True)
+    parser.add_argument("--realtime-sink", action="append", default=[])
+    parser.add_argument("--reliable-sink", action="append", default=[])
     parser.add_argument("--wind-farm-id", required=True)
     parser.add_argument("--grpc-listen", default="127.0.0.1:50074")
     parser.add_argument("--state-dir", type=Path, default=Path("/var/tmp/wind-hub/sink-state"))
@@ -99,6 +122,8 @@ def main() -> None:
             args.config,
             servers=tuple(args.nats),
             delivery=args.delivery,
+            realtime_sinks=frozenset(args.realtime_sink),
+            reliable_sinks=frozenset(args.reliable_sink),
             wind_farm_id=args.wind_farm_id,
             state_dir=args.state_dir,
             grpc_listen=args.grpc_listen,
