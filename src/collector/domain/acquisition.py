@@ -154,7 +154,7 @@ class AcquisitionEngine:
     # ------------------------------------------------------------------
 
     def attach_sample_publisher(self, dispatch: SampleDispatchPort) -> None:
-        """绑定 Sink 派发端口——由 Runtime 在自身构造时调用一次。"""
+        """绑定 NATS 发布端口——由 Runtime 在自身构造时调用一次。"""
         self._sample_dispatch = dispatch
 
     def attach_device_state(self, device_state: DeviceStatePort) -> None:
@@ -186,7 +186,7 @@ class AcquisitionEngine:
         下个周期会自然重试。
 
         Raises:
-            RuntimeError: Sink 派发端口尚未绑定（装配未完成）。
+            RuntimeError: NATS 发布端口尚未绑定（装配未完成）。
         """
         device_id = device.device_id
         point_ids = device.point_ids(point_group)
@@ -283,7 +283,7 @@ class AcquisitionEngine:
     async def process(
         self, batch: list[PointValue], *, task_id: str = "manual"
     ) -> None:
-        """统计 → Observers → 按 targets 原样派发到 Sink。
+        """统计 → Observers → 将采样发布至 NATS。
 
         订阅数据已经到达，不得再绕回 :meth:`collect`。同一个点被多个不同
         Task 采集时，各 Task 的 targets 独立派发——不做按 point_id 全局去重。
