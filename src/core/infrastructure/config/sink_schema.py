@@ -187,7 +187,11 @@ class KafkaSinkConnection(BaseModel):
 
 
 SinkConnection = (
-    ModbusSinkConnection | RedisSinkConnection | TDengineSinkConnection | GrpcSinkConnection | KafkaSinkConnection
+    ModbusSinkConnection
+    | RedisSinkConnection
+    | TDengineSinkConnection
+    | GrpcSinkConnection
+    | KafkaSinkConnection
 )
 
 
@@ -275,15 +279,12 @@ class _SinkSchema(BaseModel):
     @model_validator(mode="after")
     def _validate_sink(self) -> _SinkSchema:
         if self.type not in SINK_TYPES:
-            raise ConfigError(
-                f"sink type '{self.type}' must be one of {sorted(SINK_TYPES)}"
-            )
+            raise ConfigError(f"sink type '{self.type}' must be one of {sorted(SINK_TYPES)}")
         expected_connection = _CONNECTION_TYPES[self.type]
         if not isinstance(self.connection, expected_connection):
             raise ConfigError(f"sink connection does not match type '{self.type}'")
 
         return self
-
 
 
 def validate_task_sink_points(kind: str, points: list[Mapping[str, Any]]) -> None:

@@ -10,8 +10,8 @@ from typing import Any
 
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
-from core.application.sink_export import SinkReferenceExporter
 from core.application.sink_error import SinkError
+from core.application.sink_export import SinkReferenceExporter
 from core.domain.point_value import PointValue
 from core.domain.sink import Sink
 from core.infrastructure.config.sink_schema import KafkaSinkConnection
@@ -87,18 +87,20 @@ class KafkaSink:
                     await self._producer.send_and_wait(
                         self._config.topic,
                         key=identity.encode("utf-8"),
-                        value=json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8"),
+                        value=json.dumps(payload, ensure_ascii=False, allow_nan=False).encode(
+                            "utf-8"
+                        ),
                     )
             except Exception as exc:
                 self._error = str(exc)
-                raise SinkError(f"Kafka write failed (some points may be delivered): {exc}") from exc
+                raise SinkError(
+                    f"Kafka write failed (some points may be delivered): {exc}"
+                ) from exc
             self._error = None
 
     async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
         allowed = self._task_sources.get(task_id, set())
-        await self.write(
-            [point for point in batch if (point.device_id, point.point_id) in allowed]
-        )
+        await self.write([point for point in batch if (point.device_id, point.point_id) in allowed])
 
     async def flush(self) -> None:
         async with self._lock:
