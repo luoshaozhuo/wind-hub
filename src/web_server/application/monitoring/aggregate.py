@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
+
+from web_server.adapter.outbound.grpc.sink import SinkGrpcClient
 
 from web_server.application.config.service import ConfigService
 from web_server.application.port.collector_directory import CollectorDirectory
@@ -21,7 +24,6 @@ from web_server.application.port.worker import (
     CollectorRuntimeStatus,
     CollectorTaskSummary,
     DeviceRuntimeInfo,
-    SinkRuntimeInfo,
 )
 from web_server.application.task.placement import TaskPlacementRegistry
 
@@ -34,13 +36,11 @@ class _WorkerFacts:
         runtime: CollectorRuntimeStatus,
         metrics: MetricsSnapshot,
         devices: list[DeviceRuntimeInfo],
-        sinks: list[SinkRuntimeInfo],
         tasks: list[CollectorTaskSummary],
     ) -> None:
         self.runtime = runtime
         self.metrics = metrics
         self.devices = devices
-        self.sinks = sinks
         self.tasks = tasks
 
 
@@ -74,7 +74,7 @@ class CollectorStatusAggregator:
             by_worker[worker_id] = result
 
         devices = self._aggregate_devices(by_worker)
-        sinks = self._aggregate_sinks(by_worker)
+        sinks = await self._aggregate_sinks()
         tasks = self._aggregate_tasks(by_worker)
         runtime = self._aggregate_runtime(by_worker, unavailable_workers, devices, sinks)
         metrics = self._aggregate_metrics(by_worker)
@@ -97,14 +97,13 @@ class CollectorStatusAggregator:
                 f"collector identity mismatch: expected={worker_id} "
                 f"reported={reported_id or '<empty>'}"
             )
-        runtime, metrics, devices, sinks, tasks = await asyncio.gather(
+        runtime, metrics, devices, tasks = await asyncio.gather(
             collector.runtime_status(),
             collector.metrics_snapshot(),
             collector.list_devices(),
-            collector.list_sinks(),
             collector.list_tasks(),
         )
-        return _WorkerFacts(runtime, metrics, devices, sinks, tasks)
+        return _WorkerFacts(runtime, metrics, devices, tasks)
 
     def _aggregate_runtime(
         self,
@@ -183,40 +182,39 @@ class CollectorStatusAggregator:
             )
         return rows
 
-    def _aggregate_sinks(
-        self,
-        by_worker: dict[str, _WorkerFacts],
-    ) -> list[SinkRuntimeSnapshot]:
-        worker_sinks = {
-            worker_id: {row.name: row for row in facts.sinks}
-            for worker_id, facts in by_worker.items()
-        }
+    async def _aggregate_sinks(self) -> list[SinkRuntimeSnapshot]:
+        """Get Sink status from the independent Sink Service, not Collectors."""
+        client = SinkGrpcClient(
+            os.environ.get("WIND_HUB_SINK_GRPC_TARGET", "127.0.0.1:50074")
+        )
+        try:
+            response = await client.call("ListSinks")
+            items = response.get("items", [])
+            statuses = {
+                item["name"]: item
+                for item in items
+                if isinstance(item, dict) and isinstance(item.get("name"), str)
+            }
+        except Exception:
+            statuses = {}
 
-        rows: list[SinkRuntimeSnapshot] = []
-        for cfg in self._config.current_config.sinks.values():
-            owners = self._placements.worker_ids_for_sink(cfg.sink_id)
-            states = [worker_sinks.get(worker_id, {}).get(cfg.sink_id) for worker_id in owners]
-            present = [row for row in states if row is not None]
-            rows.append(
-                SinkRuntimeSnapshot(
-                    name=cfg.sink_id,
-                    healthy=(
-                        bool(owners)
-                        and len(present) == len(owners)
-                        and all(row.healthy for row in present)
-                    ),
-                    message=(
-                        next(
-                            (row.message for row in present if row.message),
-                            None,
-                        )
-                        if len(present) == len(owners)
-                        else "collector unavailable"
-                    ),
-                    queue_depth=sum(row.queue_depth for row in present),
-                )
+        return [
+            SinkRuntimeSnapshot(
+                name=cfg.sink_id,
+                healthy=bool(
+                    cfg.enabled
+                    and statuses.get(cfg.sink_id, {}).get("state") == "running"
+                    and not statuses.get(cfg.sink_id, {}).get("failure")
+                ),
+                message=(
+                    str(statuses[cfg.sink_id].get("failure") or statuses[cfg.sink_id]["state"])
+                    if cfg.sink_id in statuses
+                    else "Sink Service unavailable"
+                ),
+                queue_depth=0,
             )
-        return rows
+            for cfg in self._config.current_config.sinks.values()
+        ]
 
     def _aggregate_tasks(
         self,
