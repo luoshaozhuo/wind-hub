@@ -176,7 +176,6 @@ class TaskRuntime:
             await self._engine.collect(
                 device,
                 current.point_group,
-                list(current.targets),
                 instance_id,
                 current.task_id,
             )
@@ -189,7 +188,7 @@ class TaskRuntime:
                 return
             self.report_collect_started(instance_id, current.device_id, current.point_group)
             try:
-                await self._engine.process(values, list(current.targets), task_id=current.task_id)
+                await self._engine.process(values, task_id=current.task_id)
             except Exception as exc:
                 self.report_collect_failure(
                     instance_id, current.device_id, current.point_group, str(exc)
@@ -474,7 +473,6 @@ class TaskRuntime:
                     device_id=device_id,
                     point_group=task.point_group,
                     interval=task.interval,
-                    targets=task.sink_ids,
                 )
         return desired
 
