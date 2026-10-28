@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import os
 
-from web_server.adapter.outbound.grpc.sink import SinkGrpcClient
+from web_server.adapter.outbound.grpc.sink import SinkGrpcDirectory
 
 from web_server.application.config.service import ConfigService
 from web_server.application.port.collector_directory import CollectorDirectory
@@ -184,17 +183,9 @@ class CollectorStatusAggregator:
 
     async def _aggregate_sinks(self) -> list[SinkRuntimeSnapshot]:
         """Get Sink status from the independent Sink Service, not Collectors."""
-        client = SinkGrpcClient(
-            os.environ.get("WIND_HUB_SINK_GRPC_TARGET", "127.0.0.1:50074")
-        )
         try:
-            response = await client.call("ListSinks")
-            items = response.get("items", [])
-            statuses = {
-                item["name"]: item
-                for item in items
-                if isinstance(item, dict) and isinstance(item.get("name"), str)
-            }
+            items = await SinkGrpcDirectory().list_sinks()
+            statuses = {item["name"]: item for item in items}
         except Exception:
             statuses = {}
 
