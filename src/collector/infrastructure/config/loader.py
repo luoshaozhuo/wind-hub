@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
-from core.application.port import ConfigPort
+from core.infrastructure.config.adapter import YamlConfigAdapter
 from core.application.settings import MessagingSettings, RuntimeSettings
 from core.domain import Device, DeviceId
 from core.infrastructure.config.effective import resolve_effective_device
@@ -13,9 +13,9 @@ from core.infrastructure.config.effective import resolve_effective_device
 from ...application.config import CollectorConfig, RuntimeParams
 
 
-def load_collector_config(source: ConfigPort) -> CollectorConfig:
+def load_collector_config(source: YamlConfigAdapter) -> CollectorConfig:
     """从注入的配置来源加载 Collector 配置；不在 Loader 内实例化 Adapter。"""
-    return collector_config_from_snapshot(source.load())
+    return collector_config_from_snapshot(source.load_collector())
 
 
 def collector_config_from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
