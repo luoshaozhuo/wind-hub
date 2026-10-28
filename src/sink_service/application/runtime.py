@@ -124,6 +124,23 @@ class SinkRuntime:
                 async with self._write_lock:
                     await self._sink.close()
 
+    async def repair_subscription(self) -> None:
+        """Restore a dead NATS connection without changing operator intent."""
+        async with self._lock:
+            if (
+                not self._desired_running
+                or self._state is not SinkState.RUNNING
+                or self._consumer.connected
+            ):
+                return
+            try:
+                await self._consumer.close()
+                await self._consumer.open()
+            except Exception as exc:
+                self._failure = str(exc)
+                self._state = SinkState.FAILED
+                raise
+
     async def restart(self) -> None:
         """Explicit operator restart."""
         await self.stop(explicit=False)
