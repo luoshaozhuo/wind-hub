@@ -153,6 +153,7 @@ class SinkService:
                 "type": cfg.kind,
                 "enabled": cfg.enabled,
                 "connection": connection,
+                "outputs": previous.get("outputs", {}),
             }
 
         return await self._admin.mutate_yaml_files(
