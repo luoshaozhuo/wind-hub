@@ -1,7 +1,6 @@
 """Compose NATS consumers and target adapters without importing Collector."""
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 
 from core.infrastructure.config import YamlConfigAdapter
@@ -38,42 +37,49 @@ def assemble_sinks(
         if not definition.enabled:
             continue
         if delivery == "reliable" and definition.kind != "tdengine":
-            raise ValueError(
-                f"Sink {sink_id}: reliable delivery requires a durable idempotent target"
-            )
-        target = _TARGETS[definition.kind](definition)
-        adapter = PointValueSinkAdapter(target)
-        allowed = {
-            (task_id, source_device, source_point)
-            for task_id, sources in (definition.task_sources or {}).items()
-            for source_device, source_point in sources
-        }
-        if not allowed:
-            allowed = {
-                (task_id, item["source"]["device_id"], item["source"]["point_id"])
-                for task_id, refs in (definition.task_refs or {}).items()
-                for item in definition.points
-                if (item.get("ref") or
-                    f"{item['source']['device_id']}.{item['source']['point_id']}") in refs
-            }
-        runtime: SinkRuntime
-        async def handle(
-            sample: SampleMessage,
-            *,
-            accepted: frozenset[tuple[str, str, str]] = frozenset(allowed),
-        ) -> None:
-            if (sample.task_id, sample.device_id, sample.point_id) not in accepted:
-                return
-            await runtime.write(sample)
-
-        subject = f"wh.{'rt' if delivery == 'realtime' else 'hist'}.{wind_farm_id}.>"
-        consumer = NatsSinkConsumer(
-            servers,
-            subject,
-            durable=(f"wh_{wind_farm_id}_{sink_id}" if delivery == "reliable" else None),
-            handler=handle,
-            max_ack_pending=1,
+            raise ValueError(f"reliable Sink {sink_id} has no durable idempotency contract")
+        allowed = frozenset(
+            (task.task_id, source["device_id"], source["point_id"])
+            for task in snapshot.tasks.values()
+            for output in task.outputs
+            if task.enabled and output.sink_id == sink_id
+            for mapping in output.points
+            for source in (mapping["source"],)
         )
-        runtime = SinkRuntime(adapter, consumer, realtime=delivery == "realtime")
-        result[sink_id] = runtime
+        if not allowed and definition.kind not in {"redis", "tdengine"}:
+            raise ValueError(f"Sink {sink_id} requires explicit source mappings")
+        target = _TARGETS[definition.kind](definition)
+        result[sink_id] = _build_runtime(
+            PointValueSinkAdapter(target),
+            servers=servers,
+            delivery=delivery,
+            subject=f"wh.{'rt' if delivery == 'realtime' else 'hist'}.{wind_farm_id}.>",
+            durable=f"wh_{wind_farm_id}_{sink_id}" if delivery == "reliable" else None,
+            allowed=allowed,
+        )
     return result
+
+
+def _build_runtime(
+    adapter: PointValueSinkAdapter,
+    *,
+    servers: tuple[str, ...],
+    delivery: DeliveryMode,
+    subject: str,
+    durable: str | None,
+    allowed: frozenset[tuple[str, str, str]],
+) -> SinkRuntime:
+    """Bind every handler to its own runtime, never a shared closure variable."""
+    holder: list[SinkRuntime] = []
+
+    async def handle(sample: SampleMessage) -> None:
+        if (sample.task_id, sample.device_id, sample.point_id) not in allowed:
+            return
+        await holder[0].write(sample)
+
+    consumer = NatsSinkConsumer(
+        servers, subject, durable=durable, handler=handle, max_ack_pending=1,
+    )
+    runtime = SinkRuntime(adapter, consumer, realtime=delivery == "realtime")
+    holder.append(runtime)
+    return runtime
