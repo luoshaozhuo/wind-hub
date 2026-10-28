@@ -42,8 +42,8 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, ResolvedSink]:
         task_outputs = [
             (task, output)
             for task in enabled_tasks
-            for output in task.outputs
-            if output.sink_id == sink_id
+            for output in (sink.outputs[task.task_id],)
+            if task.task_id in sink.outputs
         ]
         task_points = [raw for _, output in task_outputs for raw in output.points]
         refs: set[str] = set()
@@ -134,7 +134,7 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, ResolvedSink]:
                 occupied.append((address.address, end))
             points.append(resolved.model_dump(mode="json"))
         task_sources = None
-        if sink.kind in {"modbus", "redis", "tdengine", "grpc"}:
+        if sink.kind in {"modbus", "redis", "tdengine", "grpc", "kafka"}:
             # 显式 points 是选择性输出；空 points 对 Redis/TDengine 表示任务组全量
             # （Modbus 已在解析层强制显式点表，空列表不会走到这里）。
             task_sources = {
