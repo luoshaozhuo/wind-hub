@@ -52,7 +52,7 @@ class RuntimeMetricsPort(Protocol):
     """运行时指标端口——由组合根注入（接 Prometheus 计数器/直方图）。
 
     只承载「事件发生时累加」的计数与观测（connect 失败、重连成功、
-    collect 完成、poll 时序统计）；gauge 类状态（设备连通数、sink 队列
+    collect 完成、poll 时序统计）；gauge 类状态（设备连通数、发布状态
     深度）由指标拉取时从 CollectorRuntime 快照覆盖，不经本端口。
     application 层不直接依赖 infra 的 metrics 模块——保持与引擎回调
     一致的依赖倒置。
@@ -89,7 +89,7 @@ SessionFactory = Callable[[Device, PointTable], CollectorDeviceSession]
 
 
 class CollectorRuntime:
-    """Collector 整体生命周期协调器——Device/Task/Sink 三个子 Runtime 的装配与编排。
+    """Collector 整体生命周期协调器——Device/Task/Publisher 的装配与编排。
 
     注入依赖（构造期均为纯内存装配，无网络 I/O）：
 
@@ -100,7 +100,7 @@ class CollectorRuntime:
       子系统（设备 → DeviceRuntime，采集 → TaskRuntime，发布 → SamplePublisher）；
     - ``tasks`` — 采集 Task Definition 注册表，构造时把所有权交给 TaskRuntime；
     - ``params`` — 运行时参数（队列容量、背压策略、超时）；
-    - ``session_factory`` / ``sink_factory`` — 热重载重建组件用的工厂
+    - ``session_factory`` — 热重载重建设备会话所用的工厂
       （由组合根注入）。
     """
 
@@ -193,11 +193,11 @@ class CollectorRuntime:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """启动运行时——连接设备、打开 sink、注册采集 Task Instance（默认
+        """启动运行时——连接设备、启动消息发布、注册采集 Task Instance（默认
         STOPPED，显式 start 才启动 acquisition）。
 
-        子系统顺序：设备连接 → Sink 打开/消费者 → Task Instance 注册。
-        单设备/单 Sink 失败只记录状态并继续，避免一个现场端点阻断整进程。
+        子系统顺序：设备连接 → Publisher 启动 → Task Instance 注册。
+        NATS 故障不阻断设备采集；单设备故障不阻断其它设备。
         """
         async with self._lifecycle_lock:
             if self._running:
@@ -221,9 +221,9 @@ class CollectorRuntime:
 
     async def stop(self) -> None:
         """优雅停机——关闭全部 acquisition handle、排空队列、flush 并关闭
-        sink、关闭设备连接。
+        Publisher、关闭设备连接。
 
-        子系统按依赖逆序：先停采集（不再产生数据），再排空/关闭 Sink，
+        子系统按依赖逆序：先停采集（不再产生数据），再关闭 Publisher，
         最后关闭设备连接。单资源清理异常被记录但不阻断其他资源释放。
         """
         async with self._lifecycle_lock:
@@ -259,14 +259,14 @@ class CollectorRuntime:
     # ------------------------------------------------------------------
 
     async def health(self) -> dict[str, ConnectionHealth]:
-        """主动检查设备并合并当前 Sink 健康状态。"""
+        """查询当前设备连接健康状态。"""
         return await self._device_runtime.health()
 
     @property
     def running(self) -> bool:
         """运行时是否完整就绪。
 
-        ``True`` 仅在 :meth:`start` 完成全部步骤（设备连接尝试、sink
+        ``True`` 仅在 :meth:`start` 完成全部步骤（设备连接尝试、发布器
         打开、Task Instance 注册）之后、:meth:`stop` 开始之前。启动进行中
         （如不可达设备仍在 ``connect_timeout`` 内）为 ``False``，使
         健康检查能区分「启动中」与「已就绪」。
@@ -398,7 +398,7 @@ class CollectorRuntime:
         """基于真实 CollectorRuntime 注册表生成强制收敛 diff。
 
         用于失败回滚或 revision reconciliation。它不依赖 CollectorConfigService
-        的 current_config 基线，而是按当前实际设备/Sink/Task 注册表与目标配置
+        的 current_config 基线，而是按当前实际设备/Task 注册表与目标配置
         生成一个保守 diff，确保曾被部分 reconfigure 修改的运行态能够重新
         收敛到目标配置。
         """
@@ -431,7 +431,7 @@ class CollectorRuntime:
         )
 
     async def reconfigure(self, new_config: CollectorConfig, diff: ConfigDiff) -> list[str]:
-        """按 diff 重构运行时——设备/sink/task 增删重建与点表重注入。
+        """按 diff 重构运行时——设备/task 增删重建与点表重注入。
 
         各阶段相互隔离：单阶段失败记录到返回的错误列表，其余阶段继续执行。
         本方法不修改配置快照——``current_config`` 的提交时机由
