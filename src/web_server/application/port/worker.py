@@ -175,15 +175,6 @@ class DeviceRuntimeInfo:
 
 
 @dataclass(frozen=True)
-class SinkOperationResult:
-    """Sink Verify / Write Test 应答。"""
-
-    success: bool
-    message: str | None
-    queue_depth: int
-
-
-@dataclass(frozen=True)
 class CollectorTaskSummary:
     """Collector 上报的 Task Definition 聚合状态。"""
 
