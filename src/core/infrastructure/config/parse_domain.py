@@ -648,12 +648,15 @@ def load_domain(config_dir: Path, *, include_sinks: bool = True) -> ConfigSnapsh
                     )
                 if output.key_prefix is not None and sink.kind != "redis":
                     raise ConfigError(f"Task '{task.task_id}' key_prefix requires a Redis Sink")
-                if not output.points and sink.kind == "modbus":
-                    # Modbus 从站必须为每个点显式分配寄存器地址；空 points
-                    # 无法安全展开为通配（redis/tdengine 可按任务组全量投递）。
+                if task.enabled and not sink.enabled:
+                    raise ConfigError(
+                        f"enabled Task {task.task_id} targets disabled Sink {sink.sink_id}"
+                    )
+                if not output.points and sink.kind in {"modbus", "grpc", "kafka"}:
+                    # 仅 Redis/TDengine 可以根据 Task 的采集组自动展开空映射。
                     raise ConfigError(
                         f"Task '{task.task_id}' modbus output '{sink.sink_id}' "
-                        "must declare explicit points with register addresses"
+                        "must declare explicit point output mappings"
                     )
                 if output.points:
                     # SinkOutput.points 在领域模型内被递归冻结（MappingProxy/tuple），
