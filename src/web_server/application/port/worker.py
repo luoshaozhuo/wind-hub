@@ -175,16 +175,6 @@ class DeviceRuntimeInfo:
 
 
 @dataclass(frozen=True)
-class SinkRuntimeInfo:
-    """Collector 上报的单 Sink 运行状态。"""
-
-    name: str
-    healthy: bool
-    message: str | None
-    queue_depth: int
-
-
-@dataclass(frozen=True)
 class SinkOperationResult:
     """Sink Verify / Write Test 应答。"""
 
@@ -278,11 +268,8 @@ class CollectorPort(Protocol):
 
     async def list_devices(self) -> list[DeviceRuntimeInfo]: ...
 
-    async def list_sinks(self) -> list[SinkRuntimeInfo]: ...
 
-    async def verify_sink(self, name: str) -> SinkOperationResult: ...
 
-    async def write_test_sink(self, name: str) -> SinkOperationResult: ...
 
     async def list_tasks(self) -> list[CollectorTaskSummary]: ...
 
