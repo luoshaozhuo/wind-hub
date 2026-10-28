@@ -52,8 +52,6 @@ class TDengineSink:
         self._config = TDengineSinkConnection.model_validate(dict(config.connection))
         self._task_sources = (
             {task_id: set(sources) for task_id, sources in (config.task_sources or {}).items()}
-            if isinstance(config, ResolvedSink)
-            else {}
         )
         self._url = (
             f"{'https' if self._config.tls else 'http'}://"
