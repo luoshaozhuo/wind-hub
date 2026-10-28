@@ -52,8 +52,8 @@ class Task:
                 raise ValueError(f"{label} must be a non-empty string")
 
         sink_ids = tuple(self.sink_ids)
-        if not sink_ids or any(not isinstance(item, str) or not item.strip() for item in sink_ids):
-            raise ValueError("sink_ids must contain at least one non-empty sink ID")
+        if any(not isinstance(item, str) or not item.strip() for item in sink_ids):
+            raise ValueError("sink_ids must contain only non-empty sink IDs")
         if len(sink_ids) != len(set(sink_ids)):
             raise ValueError("sink_ids must not contain duplicates")
         if isinstance(self.interval, bool) or not isinstance(self.interval, int | float):
