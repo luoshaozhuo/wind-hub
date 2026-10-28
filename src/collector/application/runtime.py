@@ -1,22 +1,19 @@
-"""CollectorRuntime —— 采集系统三个子 Runtime 之间的整体协调器。
+"""CollectorRuntime —— 协调设备、任务与数据发布生命周期。
 
 架构位置：application 层。职责：
 
 - 设备子系统——委托 :class:`DeviceRuntime` 管理会话、连接状态与协议生命周期；
 - Task 子系统——委托 :class:`TaskRuntime` 管理 Task Definition 展开、实例
   启停、采集句柄与采集执行状态；
-- Sink 子系统——委托 :class:`SinkRuntime` 管理 Sink 生命周期、队列、
-  消费者、背压与派发；
-- 设备与 Sink 的增删 / 重建，配置热重载时的跨子系统顺序（:meth:`reconfigure`）；
+- 发布子系统——通过 NATS 将采样数据发送给独立 Sink Service；
+- 设备和采集任务的热更新；
 - CollectorRuntime 状态（running / 聚合 health / 组件计数 / 点位统计）；
 - 整体 ``start()`` / ``stop()`` 的子系统顺序。
 
 不负责：协议实现细节（ProtocolPort 适配器）、配置加载与 diff
-（CollectorConfigService）、采集时序（acquisition handle）、Sink 交付细节
-（SinkRuntime）。
+（CollectorConfigService）、采集时序（acquisition handle）和下游输出实现。
 
-失败语义：设备连接与 sink 打开均为 best-effort——单个失败记录日志并跳过，
-其余组件照常启动，失败组件经 :meth:`health` 暴露为不健康。
+失败语义：设备连接 best-effort；NATS 故障不阻断采集并持续报告。
 """
 
 from __future__ import annotations
