@@ -25,7 +25,6 @@ from core.domain import (
     DeviceModelId,
     PointTable,
     PointTableId,
-    Sink,
     Task,
 )
 from core.domain.unit import UnitCatalog
@@ -107,7 +106,6 @@ class CollectorConfig:
     messaging: MessagingSettings
     ads_local: ADSLocalConfig | None = None
     tasks: Mapping[str, CollectionTask] = field(default_factory=dict)
-    sinks: Mapping[str, Sink] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
@@ -116,7 +114,6 @@ class CollectorConfig:
             "device_models",
             "point_tables",
             "tasks",
-            "sinks",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
         object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))
