@@ -42,9 +42,7 @@ class SampleMessage(BaseModel):
     @classmethod
     def validate_token(cls, value: str) -> str:
         """Reject NATS special tokens and ambiguous identity components."""
-        if not value or any(character in value for character in ".*> \t\r\n"):
-            raise ValueError("identity must be a non-empty NATS-safe token")
-        return value
+        return validate_subject_token(value)
 
     @field_validator("sample_id")
     @classmethod
