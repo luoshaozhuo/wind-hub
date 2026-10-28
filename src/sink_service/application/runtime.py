@@ -49,7 +49,7 @@ class SinkRuntime:
         self._lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
         self._latest: dict[PointKey, SampleMessage] = {}
-        self._authorities: dict[PointKey, str] = {}
+        self._authorities: dict[PointKey, tuple[str, str]] = {}
         self._last_written: datetime | None = None
         self._failure: str | None = None
 
@@ -124,7 +124,7 @@ class SinkRuntime:
                     return
                 key = self._key(sample)
                 authority = self._authorities.get(key)
-                if authority is not None and authority != sample.collector_id:
+                if authority is not None and authority != (sample.collector_id, sample.task_id):
                     raise ValueError("multiple realtime publishers for one point")
                 previous = self._latest.get(key)
                 if previous is not None:
@@ -142,7 +142,7 @@ class SinkRuntime:
                 raise
             if self._realtime:
                 self._latest[self._key(sample)] = sample
-                self._authorities[self._key(sample)] = sample.collector_id
+                self._authorities[self._key(sample)] = (sample.collector_id, sample.task_id)
             self._last_written = datetime.now(UTC)
             self._failure = None
 
