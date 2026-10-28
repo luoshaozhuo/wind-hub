@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from contracts.sample_message import validate_subject_token
 from core.application import ProtocolRegistry
 from core.application.settings import ADSLocalConfig, LogSettings
 from core.domain import Device, PointTable
@@ -128,6 +129,16 @@ def assemble_collector(
 
     transport = NatsPublisher(config.messaging.servers, config.messaging.delivery)
     identity = build_collector_identity(config_hash, collector_id=collector_id)
+    validate_subject_token(snapshot.site.site_id)
+    validate_subject_token(identity.collector_id)
+    for task_id in config.tasks:
+        validate_subject_token(task_id)
+    for device_id in config.devices:
+        validate_subject_token(str(device_id))
+        table = config.point_table_for_device(device_id)
+        for point_id in table.points:
+            validate_subject_token(point_id)
+
     publisher = SamplePublisher(
         transport,
         wind_farm_id=snapshot.site.site_id,
