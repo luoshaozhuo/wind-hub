@@ -93,8 +93,6 @@ def _diff_to_proto(diff: ConfigDiff) -> pb.ConfigDiffMessage:
             updated=list(diff.devices.updated),
             unchanged=list(diff.devices.unchanged),
         ),
-        sinks=pb.SinkDiffMessage(
-            added=list(diff.sinks.added),
             removed=list(diff.sinks.removed),
             updated=list(diff.sinks.updated),
             unchanged=list(diff.sinks.unchanged),
