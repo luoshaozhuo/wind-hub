@@ -232,7 +232,7 @@ class CollectorTaskService:
             device_group=str(task.device_group_id),
             point_group=task.point_group,
             interval=task.interval,
-            targets=list(task.sink_ids),
+            targets=[],
             enabled=task.enabled,
             runtime_state=runtime_state,
             instance_count=len(instances),
@@ -305,7 +305,7 @@ class CollectorTaskService:
             device_id=inst.device_id,
             point_group=inst.point_group,
             interval=inst.interval,
-            targets=list(inst.targets),
+            targets=[],
             state=state,
         )
 
