@@ -35,7 +35,7 @@ _CAS_SCRIPT = (
     "if not current then redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[2]); return 1 end "
     "local ct=cjson.decode(current)['timestamp'] "
     "local nt=cjson.decode(ARGV[1])['timestamp'] "
-    "if (nt or '')>=(ct or '') then redis.call('SET',KEYS[1],ARGV[1]); return 1 end "
+    "if (nt or '')>=(ct or '') then redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[2]); return 1 end "
     "return 0"
 )
 
