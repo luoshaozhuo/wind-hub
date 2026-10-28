@@ -64,6 +64,16 @@ def assemble_sinks(
                         f"realtime Sink {sink_id} has two tasks for {device_id}.{point_id}: "
                         f"{other} and {task_id}"
                     )
+        if delivery == "realtime":
+            owner: dict[tuple[str, str], str] = {}
+            for task_id, device_id, point_id in sorted(allowed):
+                key = (device_id, point_id)
+                previous = owner.setdefault(key, task_id)
+                if previous != task_id:
+                    raise ValueError(
+                        f"Sink {sink_id}: ambiguous realtime authority for {key}: "
+                        f"{previous} and {task_id}"
+                    )
         if not allowed and definition.kind not in {"redis", "tdengine"}:
             raise ValueError(f"Sink {sink_id} requires explicit source mappings")
         target = _TARGETS[definition.kind](definition)
