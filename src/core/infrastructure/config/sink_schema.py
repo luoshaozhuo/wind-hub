@@ -241,6 +241,22 @@ class SinkPoint(BaseModel):
         return self
 
 
+class SinkOutputSchema(BaseModel):
+    """One Task's mapping owned by a Sink definition."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key_prefix: str | None = None
+    points: tuple[dict[str, Any], ...] = ()
+
+    @field_validator("key_prefix")
+    @classmethod
+    def _nonempty_prefix(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Sink key_prefix must not be empty")
+        return value
+
+
 class _SinkSchema(BaseModel):
     """sinks.yaml 中一个完整 Sink 的外部接口契约。
 
@@ -253,6 +269,7 @@ class _SinkSchema(BaseModel):
     type: str
     enabled: bool = True
     connection: SinkConnection
+    outputs: dict[str, SinkOutputSchema] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
