@@ -118,7 +118,7 @@ class SinkService:
             "restart": "RestartSink",
             "clear": "ClearSink",
         }
-        return await self._sink_client().call(methods[operation], name)
+        return await self._sink_directory.call(methods[operation], name)
 
     async def upsert(self, name: str, payload: dict[str, Any]) -> ConfigApplyResult:
         """新增或更新 Sink；通过 sinks.yaml 配置事务生效。"""
