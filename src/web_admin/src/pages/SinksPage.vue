@@ -250,7 +250,7 @@ async function controlSink(sink: SinkDef, operation: SinkOperation) {
   busy.value = true
   try {
     await manageSink(sink.name, operation)
-    await queryClient.invalidateQueries({ queryKey: qk.sinks() })
+    await queryClient.invalidateQueries({ queryKey: qk.sinks })
     ElMessage.success(`Sink ${sink.name}: ${operation} 已执行`)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : String(error))
