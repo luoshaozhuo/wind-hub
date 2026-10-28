@@ -655,7 +655,7 @@ def load_domain(config_dir: Path, *, include_sinks: bool = True) -> ConfigSnapsh
                 if not output.points and sink.kind in {"modbus", "grpc", "kafka"}:
                     # 仅 Redis/TDengine 可以根据 Task 的采集组自动展开空映射。
                     raise ConfigError(
-                        f"Task '{task.task_id}' modbus output '{sink.sink_id}' "
+                        f"Task '{task.task_id}' output '{sink.sink_id}' "
                         "must declare explicit point output mappings"
                     )
                 if output.points:
