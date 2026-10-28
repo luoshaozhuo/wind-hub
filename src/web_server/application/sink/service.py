@@ -13,9 +13,7 @@ from core.domain.sink import Sink
 from core.infrastructure.config.yaml import yaml_plain
 from web_server.application.config.files import ConfigApplyResult, ConfigFileService
 from web_server.application.config.service import ConfigService
-from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.monitoring import MonitoringSnapshotPort
-from web_server.application.task.placement import TaskPlacementRegistry
 
 
 class SinkSnapshot(BaseModel):
@@ -45,15 +43,11 @@ class SinkService:
 
     def __init__(
         self,
-        collectors: CollectorDirectory,
         monitoring: MonitoringSnapshotPort,
-        placements: TaskPlacementRegistry,
         config: ConfigService,
         admin: ConfigFileService,
     ) -> None:
-        self._collectors = collectors
         self._monitoring = monitoring
-        self._placements = placements
         self._config = config
         self._admin = admin
 
