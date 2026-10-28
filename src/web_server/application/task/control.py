@@ -68,9 +68,10 @@ class TaskControlService:
                             "point_group": cfg.point_group,
                             "interval": cfg.interval,
                             "targets": [
-                name for name, sink in self._config.current_config.sinks.items()
-                if cfg.task_id in sink.outputs
-            ],
+                                name
+                                for name, sink in self._config.current_config.sinks.items()
+                                if cfg.task_id in sink.outputs
+                            ],
                             "enabled": cfg.enabled,
                             "assigned_worker_id": current.assigned_worker_id or placement.worker_id,
                             "placement_state": placement.state,
@@ -229,7 +230,8 @@ class TaskControlService:
             point_group=cfg.point_group,
             interval=cfg.interval,
             targets=[
-                name for name, sink in self._config.current_config.sinks.items()
+                name
+                for name, sink in self._config.current_config.sinks.items()
                 if cfg.task_id in sink.outputs
             ],
             enabled=cfg.enabled,
