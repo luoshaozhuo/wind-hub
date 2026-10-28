@@ -1,6 +1,7 @@
 """NATS output for one Collector process."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 
@@ -21,49 +22,32 @@ class NatsPublisher:
         self._servers = list(servers)
         self._delivery = delivery
         self._client: Client | None = None
+        self._connect_task: asyncio.Task[None] | None = None
+        self._stopping = False
 
     async def open(self) -> None:
-        """Try connecting; a failed connection is reported but not fatal."""
-        if self._client is not None:
-            return
-        try:
-            self._client = await nats.connect(
-                servers=self._servers,
-                allow_reconnect=True,
-                max_reconnect_attempts=-1,
-                connect_timeout=0.5,
-                reconnect_time_wait=1,
-                pending_size=1024 * 1024,
-            )
-        except Exception:
-            logger.exception("NATS connection failed; collector will continue sampling")
+        """Start a reconnect supervisor without blocking collection."""
+        self._stopping = False
+        if self._connect_task is None:
+            self._connect_task = asyncio.create_task(self._connect_loop())
 
-    async def publish(self, message: SampleMessage) -> bool:
-        """Publish once, reporting failure rather than retaining an unbounded queue."""
-        client = self._client
-        if client is None:
-            await self.open()
-            client = self._client
-        if client is None or not client.is_connected:
-            logger.error("NATS unavailable; dropped sample_id=%s", message.sample_id)
-            return False
-        try:
-            if self._delivery == "reliable":
-                await client.jetstream().publish(
-                    message.subject(self._delivery),
-                    message.encode(),
-                    headers={"Nats-Msg-Id": message.sample_id},
-                    timeout=1.0,
+    async def _connect_loop(self) -> None:
+        """Retry connections independently of sampled values."""
+        while not self._stopping:
+            if self._client is not None and not self._client.is_closed:
+                await asyncio.sleep(1)
+                continue
+            try:
+                self._client = await nats.connect(
+                    servers=self._servers,
+                    allow_reconnect=True,
+                    max_reconnect_attempts=-1,
+                    connect_timeout=0.5,
+                    reconnect_time_wait=1,
+                    pending_size=1024 * 1024,
                 )
-            else:
-                await client.publish(message.subject(self._delivery), message.encode())
-        except Exception:
-            logger.exception("NATS publish failed: sample_id=%s", message.sample_id)
-            return False
-        return True
+            except Exception:
+                logger.exception("NATS connection failed; retrying")
+                await asyncio.sleep(1)
 
-    async def close(self) -> None:
-        """Close the client without retaining stale connection state."""
-        client, self._client = self._client, None
-        if client is not None:
-            await client.close()
+
