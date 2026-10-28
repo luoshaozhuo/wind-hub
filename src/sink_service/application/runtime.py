@@ -32,6 +32,7 @@ class SinkRuntime:
         self._lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
         self._latest: dict[PointKey, SampleMessage] = {}
+        self._authorities: dict[PointKey, str] = {}
         self._last_written: datetime | None = None
         self._failure: str | None = None
 
@@ -100,6 +101,9 @@ class SinkRuntime:
                 if not self._is_fresh(sample):
                     return
                 key = self._key(sample)
+                authority = self._authorities.get(key)
+                if authority is not None and authority != sample.collector_id:
+                    raise ValueError("multiple realtime publishers for one point")
                 previous = self._latest.get(key)
                 if previous is not None:
                     if sample.sample_time < previous.sample_time:
@@ -115,6 +119,7 @@ class SinkRuntime:
                 raise
             if self._realtime:
                 self._latest[self._key(sample)] = sample
+                self._authorities[self._key(sample)] = sample.collector_id
             self._last_written = datetime.now(UTC)
             self._failure = None
 
@@ -128,6 +133,7 @@ class SinkRuntime:
         if not self._realtime or self._state != SinkState.STOPPED:
             raise RuntimeError("realtime cache can only be cleared while stopped")
         self._latest.clear()
+        self._authorities.clear()
 
     @staticmethod
     def _key(sample: SampleMessage) -> PointKey:
