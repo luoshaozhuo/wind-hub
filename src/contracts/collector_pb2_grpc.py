@@ -75,25 +75,10 @@ class CollectorRuntimeServiceStub:
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
                 response_deserializer=contracts_dot_collector__pb2.ListDevicesResponse.FromString,
                 _registered_method=True)
-        self.ListSinks = channel.unary_unary(
-                '/windhub.collector.v1.CollectorRuntimeService/ListSinks',
-                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=contracts_dot_collector__pb2.ListSinksResponse.FromString,
-                _registered_method=True)
         self.QueryLatestValues = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/QueryLatestValues',
                 request_serializer=contracts_dot_collector__pb2.LatestValuesRequest.SerializeToString,
                 response_deserializer=contracts_dot_collector__pb2.LatestValuesResponse.FromString,
-                _registered_method=True)
-        self.VerifySink = channel.unary_unary(
-                '/windhub.collector.v1.CollectorRuntimeService/VerifySink',
-                request_serializer=contracts_dot_collector__pb2.SinkRequest.SerializeToString,
-                response_deserializer=contracts_dot_collector__pb2.SinkOperationResponse.FromString,
-                _registered_method=True)
-        self.WriteTestSink = channel.unary_unary(
-                '/windhub.collector.v1.CollectorRuntimeService/WriteTestSink',
-                request_serializer=contracts_dot_collector__pb2.SinkRequest.SerializeToString,
-                response_deserializer=contracts_dot_collector__pb2.SinkOperationResponse.FromString,
                 _registered_method=True)
         self.GetPointsMetadata = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/GetPointsMetadata',
@@ -153,25 +138,7 @@ class CollectorRuntimeServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def ListSinks(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def QueryLatestValues(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def VerifySink(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def WriteTestSink(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -226,25 +193,10 @@ def add_CollectorRuntimeServiceServicer_to_server(servicer, server):
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                     response_serializer=contracts_dot_collector__pb2.ListDevicesResponse.SerializeToString,
             ),
-            'ListSinks': grpc.unary_unary_rpc_method_handler(
-                    servicer.ListSinks,
-                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=contracts_dot_collector__pb2.ListSinksResponse.SerializeToString,
-            ),
             'QueryLatestValues': grpc.unary_unary_rpc_method_handler(
                     servicer.QueryLatestValues,
                     request_deserializer=contracts_dot_collector__pb2.LatestValuesRequest.FromString,
                     response_serializer=contracts_dot_collector__pb2.LatestValuesResponse.SerializeToString,
-            ),
-            'VerifySink': grpc.unary_unary_rpc_method_handler(
-                    servicer.VerifySink,
-                    request_deserializer=contracts_dot_collector__pb2.SinkRequest.FromString,
-                    response_serializer=contracts_dot_collector__pb2.SinkOperationResponse.SerializeToString,
-            ),
-            'WriteTestSink': grpc.unary_unary_rpc_method_handler(
-                    servicer.WriteTestSink,
-                    request_deserializer=contracts_dot_collector__pb2.SinkRequest.FromString,
-                    response_serializer=contracts_dot_collector__pb2.SinkOperationResponse.SerializeToString,
             ),
             'GetPointsMetadata': grpc.unary_unary_rpc_method_handler(
                     servicer.GetPointsMetadata,
@@ -479,33 +431,6 @@ class CollectorRuntimeService:
             _registered_method=True)
 
     @staticmethod
-    def ListSinks(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/windhub.collector.v1.CollectorRuntimeService/ListSinks',
-            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            contracts_dot_collector__pb2.ListSinksResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
     def QueryLatestValues(request,
             target,
             options=(),
@@ -522,60 +447,6 @@ class CollectorRuntimeService:
             '/windhub.collector.v1.CollectorRuntimeService/QueryLatestValues',
             contracts_dot_collector__pb2.LatestValuesRequest.SerializeToString,
             contracts_dot_collector__pb2.LatestValuesResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def VerifySink(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/windhub.collector.v1.CollectorRuntimeService/VerifySink',
-            contracts_dot_collector__pb2.SinkRequest.SerializeToString,
-            contracts_dot_collector__pb2.SinkOperationResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def WriteTestSink(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/windhub.collector.v1.CollectorRuntimeService/WriteTestSink',
-            contracts_dot_collector__pb2.SinkRequest.SerializeToString,
-            contracts_dot_collector__pb2.SinkOperationResponse.FromString,
             options,
             channel_credentials,
             insecure,

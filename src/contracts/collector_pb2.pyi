@@ -117,18 +117,14 @@ class RuntimeStatusResponse(_message.Message):
 
     RUNNING_FIELD_NUMBER: _builtins.int
     DEVICE_COUNT_FIELD_NUMBER: _builtins.int
-    SINK_COUNT_FIELD_NUMBER: _builtins.int
     DEVICES_CONNECTED_FIELD_NUMBER: _builtins.int
-    SINKS_HEALTHY_FIELD_NUMBER: _builtins.int
     POINTS_COLLECTED_FIELD_NUMBER: _builtins.int
     POINTS_ROUTED_FIELD_NUMBER: _builtins.int
     POINTS_DROPPED_FIELD_NUMBER: _builtins.int
     ACQUISITIONS_FIELD_NUMBER: _builtins.int
     running: _builtins.bool
     device_count: _builtins.int
-    sink_count: _builtins.int
     devices_connected: _builtins.int
-    sinks_healthy: _builtins.int
     points_collected: _builtins.int
     points_routed: _builtins.int
     points_dropped: _builtins.int
@@ -139,9 +135,7 @@ class RuntimeStatusResponse(_message.Message):
         *,
         running: _builtins.bool = ...,
         device_count: _builtins.int = ...,
-        sink_count: _builtins.int = ...,
         devices_connected: _builtins.int = ...,
-        sinks_healthy: _builtins.int = ...,
         points_collected: _builtins.int = ...,
         points_routed: _builtins.int = ...,
         points_dropped: _builtins.int = ...,
@@ -149,7 +143,7 @@ class RuntimeStatusResponse(_message.Message):
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["acquisitions", b"acquisitions", "device_count", b"device_count", "devices_connected", b"devices_connected", "points_collected", b"points_collected", "points_dropped", b"points_dropped", "points_routed", b"points_routed", "running", b"running", "sink_count", b"sink_count", "sinks_healthy", b"sinks_healthy"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["acquisitions", b"acquisitions", "device_count", b"device_count", "devices_connected", b"devices_connected", "points_collected", b"points_collected", "points_dropped", b"points_dropped", "points_routed", b"points_routed", "running", b"running"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -684,104 +678,6 @@ class ListDevicesResponse(_message.Message):
 Global___ListDevicesResponse: _TypeAlias = ListDevicesResponse  # noqa: Y015
 
 @_typing.final
-class SinkInfoMessage(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    NAME_FIELD_NUMBER: _builtins.int
-    HEALTHY_FIELD_NUMBER: _builtins.int
-    MESSAGE_FIELD_NUMBER: _builtins.int
-    QUEUE_DEPTH_FIELD_NUMBER: _builtins.int
-    WRITE_FAILURES_FIELD_NUMBER: _builtins.int
-    POINTS_DROPPED_FIELD_NUMBER: _builtins.int
-    name: _builtins.str
-    healthy: _builtins.bool
-    message: _builtins.str
-    queue_depth: _builtins.int
-    write_failures: _builtins.int
-    points_dropped: _builtins.int
-    def __init__(
-        self,
-        *,
-        name: _builtins.str = ...,
-        healthy: _builtins.bool = ...,
-        message: _builtins.str = ...,
-        queue_depth: _builtins.int = ...,
-        write_failures: _builtins.int = ...,
-        points_dropped: _builtins.int = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["healthy", b"healthy", "message", b"message", "name", b"name", "points_dropped", b"points_dropped", "queue_depth", b"queue_depth", "write_failures", b"write_failures"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___SinkInfoMessage: _TypeAlias = SinkInfoMessage  # noqa: Y015
-
-@_typing.final
-class ListSinksResponse(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    ITEMS_FIELD_NUMBER: _builtins.int
-    @_builtins.property
-    def items(self) -> _containers.RepeatedCompositeFieldContainer[Global___SinkInfoMessage]: ...
-    def __init__(
-        self,
-        *,
-        items: _abc.Iterable[Global___SinkInfoMessage] | None = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["items", b"items"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___ListSinksResponse: _TypeAlias = ListSinksResponse  # noqa: Y015
-
-@_typing.final
-class SinkRequest(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    NAME_FIELD_NUMBER: _builtins.int
-    name: _builtins.str
-    def __init__(
-        self,
-        *,
-        name: _builtins.str = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["name", b"name"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___SinkRequest: _TypeAlias = SinkRequest  # noqa: Y015
-
-@_typing.final
-class SinkOperationResponse(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    SUCCESS_FIELD_NUMBER: _builtins.int
-    MESSAGE_FIELD_NUMBER: _builtins.int
-    QUEUE_DEPTH_FIELD_NUMBER: _builtins.int
-    success: _builtins.bool
-    message: _builtins.str
-    queue_depth: _builtins.int
-    def __init__(
-        self,
-        *,
-        success: _builtins.bool = ...,
-        message: _builtins.str = ...,
-        queue_depth: _builtins.int = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["message", b"message", "queue_depth", b"queue_depth", "success", b"success"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___SinkOperationResponse: _TypeAlias = SinkOperationResponse  # noqa: Y015
-
-@_typing.final
 class DeviceDiffMessage(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
@@ -812,38 +708,6 @@ class DeviceDiffMessage(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___DeviceDiffMessage: _TypeAlias = DeviceDiffMessage  # noqa: Y015
-
-@_typing.final
-class SinkDiffMessage(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    ADDED_FIELD_NUMBER: _builtins.int
-    REMOVED_FIELD_NUMBER: _builtins.int
-    UPDATED_FIELD_NUMBER: _builtins.int
-    UNCHANGED_FIELD_NUMBER: _builtins.int
-    @_builtins.property
-    def added(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
-    @_builtins.property
-    def removed(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
-    @_builtins.property
-    def updated(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
-    @_builtins.property
-    def unchanged(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
-    def __init__(
-        self,
-        *,
-        added: _abc.Iterable[_builtins.str] | None = ...,
-        removed: _abc.Iterable[_builtins.str] | None = ...,
-        updated: _abc.Iterable[_builtins.str] | None = ...,
-        unchanged: _abc.Iterable[_builtins.str] | None = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["added", b"added", "removed", b"removed", "unchanged", b"unchanged", "updated", b"updated"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___SinkDiffMessage: _TypeAlias = SinkDiffMessage  # noqa: Y015
 
 @_typing.final
 class TaskDiffMessage(_message.Message):
@@ -882,7 +746,6 @@ class ConfigDiffMessage(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     DEVICES_FIELD_NUMBER: _builtins.int
-    SINKS_FIELD_NUMBER: _builtins.int
     TASKS_FIELD_NUMBER: _builtins.int
     POINTS_CHANGED_FIELD_NUMBER: _builtins.int
     POINT_TABLES_CHANGED_FIELD_NUMBER: _builtins.int
@@ -892,8 +755,6 @@ class ConfigDiffMessage(_message.Message):
     @_builtins.property
     def devices(self) -> Global___DeviceDiffMessage: ...
     @_builtins.property
-    def sinks(self) -> Global___SinkDiffMessage: ...
-    @_builtins.property
     def tasks(self) -> Global___TaskDiffMessage: ...
     @_builtins.property
     def point_tables_changed(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
@@ -901,15 +762,14 @@ class ConfigDiffMessage(_message.Message):
         self,
         *,
         devices: Global___DeviceDiffMessage | None = ...,
-        sinks: Global___SinkDiffMessage | None = ...,
         tasks: Global___TaskDiffMessage | None = ...,
         points_changed: _builtins.bool = ...,
         point_tables_changed: _abc.Iterable[_builtins.str] | None = ...,
         units_changed: _builtins.bool = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["devices", b"devices", "sinks", b"sinks", "tasks", b"tasks"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["devices", b"devices", "tasks", b"tasks"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["devices", b"devices", "point_tables_changed", b"point_tables_changed", "points_changed", b"points_changed", "sinks", b"sinks", "tasks", b"tasks", "units_changed", b"units_changed"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["devices", b"devices", "point_tables_changed", b"point_tables_changed", "points_changed", b"points_changed", "tasks", b"tasks", "units_changed", b"units_changed"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -1110,7 +970,6 @@ class PointMetadata(_message.Message):
     OFFSET_FIELD_NUMBER: _builtins.int
     CONFIGURED_ADDRESS_FIELD_NUMBER: _builtins.int
     TASK_IDS_FIELD_NUMBER: _builtins.int
-    SINK_IDS_FIELD_NUMBER: _builtins.int
     point_id: _builtins.str
     access: _builtins.str
     data_type: _builtins.str
@@ -1121,8 +980,6 @@ class PointMetadata(_message.Message):
     def configured_address(self) -> _containers.RepeatedCompositeFieldContainer[_common_pb2.AddressField]: ...
     @_builtins.property
     def task_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
-    @_builtins.property
-    def sink_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
     def __init__(
         self,
         *,
@@ -1134,11 +991,10 @@ class PointMetadata(_message.Message):
         offset: _builtins.float = ...,
         configured_address: _abc.Iterable[_common_pb2.AddressField] | None = ...,
         task_ids: _abc.Iterable[_builtins.str] | None = ...,
-        sink_ids: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["access", b"access", "configured_address", b"configured_address", "data_type", b"data_type", "offset", b"offset", "point_id", b"point_id", "scale", b"scale", "sink_ids", b"sink_ids", "task_ids", b"task_ids", "unit", b"unit"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["access", b"access", "configured_address", b"configured_address", "data_type", b"data_type", "offset", b"offset", "point_id", b"point_id", "scale", b"scale", "task_ids", b"task_ids", "unit", b"unit"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
