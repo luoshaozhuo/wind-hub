@@ -70,7 +70,7 @@ async def run_collector(
             "wind-hub-collector 已启动 devices=%d sinks=%d tasks=%d "
             "collector_id=%s boot_id=%s config_hash=%s grpc=%s",
             len(app.boot_config.devices),
-            len(app.boot_config.sinks),
+            0,
             len(app.boot_config.tasks),
             app.identity.collector_id,
             app.identity.boot_id,
@@ -133,7 +133,7 @@ def main() -> int:
             "配置校验通过 devices=%d disabled=%d sinks=%d tasks=%d config_hash=%s",
             len(app.boot_config.devices),
             len(app.boot_config.disabled_devices),
-            len(app.boot_config.sinks),
+            0,
             len(app.boot_config.tasks),
             app.config_hash[:12],
         )
