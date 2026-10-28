@@ -26,7 +26,7 @@ from tests.support.config_helper import write_config_tree
 from tests.support.control import metrics_snapshot, start_task_instance
 from tests.support.process import CollectorProcess, free_port
 from tests.support.redis_client import point_key
-from tests.support.wait import wait_redis_value
+from tests.support.wait import wait_redis_value, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
@@ -117,8 +117,15 @@ class TestWatchdogRecovery:
             await wait_status(
                 proc, lambda p: p["devices_connected"] == 1, description="reconnected"
             )
-            snap = await metrics_snapshot(proc.grpc_target)
-            assert snap["device_reconnects"].get(DEVICE_ID, 0) >= 1
+            async def reconnect_recorded() -> bool | None:
+                snap = await metrics_snapshot(proc.grpc_target)
+                return True if snap["device_reconnects"].get(DEVICE_ID, 0) >= 1 else None
+
+            await wait_until(
+                reconnect_recorded,
+                timeout=5.0,
+                description="watchdog reconnect metric published",
+            )
             value = await wait_redis_value(
                 redis_service, point_key(DEVICE_ID, "rotor.speed", prefix="wind-hub-watchdog")
             )

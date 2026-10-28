@@ -569,14 +569,13 @@ class IEC104Driver:
         if isinstance(expected, iec101.NormalizedCommand) and isinstance(
             received, iec101.NormalizedCommand
         ):
-            return abs(expected.value.value - received.value.value) <= 1 / 32767
+            return bool(abs(expected.value.value - received.value.value) <= 1 / 32767)
         if isinstance(expected, iec101.FloatingCommand) and isinstance(
             received, iec101.FloatingCommand
         ):
-
-            return math.isclose(
+            return bool(math.isclose(
                 expected.value.value, received.value.value, rel_tol=1e-6, abs_tol=1e-7
-            )
+            ))
         return expected == received
 
     def _handle_write(self, msg: iec104.CommandMsg) -> None:
