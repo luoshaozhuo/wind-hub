@@ -95,12 +95,17 @@ class SinkService:
             healthy = (
                 row.get("state") == "running"
                 and row.get("nats_connected") is True
+                and row.get("config_pending_restart") is not True
                 and row.get("failure") is None
             )
             return SinkTestResult(
                 success=healthy,
                 latency_ms=(time.monotonic() - started) * 1000,
-                message=str(row.get("failure") or row.get("state")),
+                message=(
+                    "Sink configuration changed; restart Sink Service process"
+                    if row.get("config_pending_restart") else
+                    str(row.get("failure") or row.get("state"))
+                ),
             )
         except Exception as exc:
             return SinkTestResult(
