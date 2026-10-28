@@ -85,11 +85,13 @@ class SinkRuntime:
                 await self._sink.open()
                 self._state = SinkState.RUNNING
                 await self._consumer.open()
-            except Exception as exc:
+            except BaseException as exc:
                 self._failure = str(exc)
                 self._state = SinkState.FAILED
-                await self._consumer.close()
-                await self._sink.close()
+                try:
+                    await self._consumer.close()
+                finally:
+                    await self._sink.close()
                 raise
             self._failure = None
             self._state = SinkState.RUNNING
