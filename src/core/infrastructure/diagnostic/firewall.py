@@ -82,9 +82,11 @@ async def firewall_check(
     snapshot = await firewall_status()
     nft = snapshot.evidence.get("nftables")
     chains: list[dict[str, object]] = []
+    candidate_rules: list[dict[str, object]] = []
     if isinstance(nft, dict) and nft.get("exit_code") == 0 and not nft.get("truncated"):
         try:
             document = json.loads(str(nft["stdout"]))
+            matched_tables: set[tuple[str, str]] = set()
             for element in document.get("nftables", []):
                 if not isinstance(element, dict):
                     continue
@@ -93,6 +95,21 @@ async def firewall_check(
                     "input" if direction == "inbound" else "output"
                 ):
                     chains.append(chain)
+                    matched_tables.add((str(chain.get("family")), str(chain.get("table"))))
+            for element in document.get("nftables", []):
+                rule = element.get("rule") if isinstance(element, dict) else None
+                if not isinstance(rule, dict):
+                    continue
+                if (str(rule.get("family")), str(rule.get("table"))) not in matched_tables:
+                    continue
+                if f'"dport"' not in json.dumps(rule.get("expr", [])):
+                    continue
+                expression = json.dumps(rule.get("expr", []))
+                if str(port) in expression and protocol in expression:
+                    candidate_rules.append({
+                        "chain": rule.get("chain"), "handle": rule.get("handle"),
+                        "expressions": rule.get("expr", []),
+                    })
         except (ValueError, KeyError, TypeError):
             pass
     return _result(
@@ -106,6 +123,8 @@ async def firewall_check(
             "protocol": protocol,
             "decision": "UNKNOWN",
             "base_chains": chains,
+            "candidate_rules": candidate_rules,
+            "candidate_warning": "Candidates are not a complete ordered firewall verdict",
             "sources_available": sorted(
                 key for key, value in snapshot.evidence.items()
                 if isinstance(value, dict) and value.get("exit_code") == 0
