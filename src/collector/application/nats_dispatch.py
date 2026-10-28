@@ -1,16 +1,20 @@
 """Collector-side sample serialization and dispatch, independent of output Sinks."""
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
-from uuid import uuid4
+from typing import Literal, Protocol, cast
 
 from core.domain.point_value import PointValue
 from contracts.sample_message import DeliveryMode, SampleMessage
 
 from .identity import CollectorIdentity
 
-logger = logging.getLogger(__name__)
+class PublisherPort(Protocol):
+    """Minimal publishing dependency supplied by infrastructure."""
+
+    async def publish(self, message: SampleMessage) -> bool:
+        """Return whether publication was accepted."""
+        ...
 
 
 class SamplePublisher:
@@ -18,7 +22,7 @@ class SamplePublisher:
 
     def __init__(
         self,
-        publisher: object,
+        publisher: PublisherPort,
         *,
         wind_farm_id: str,
         identity: CollectorIdentity,
@@ -48,7 +52,7 @@ class SamplePublisher:
                 point_id=value.point_id,
                 sample_id=f"{self._identity.collector_id}:{self._identity.boot_id}:{self._sequence}",
                 value=value.value,
-                quality=value.quality.value,
+                quality=cast("Literal[\"good\", \"bad\", \"uncertain\"]", value.quality.value),
                 sample_time=value.timestamp,
                 receive_time=value.receive_time,
                 publish_time=datetime.now(UTC),
