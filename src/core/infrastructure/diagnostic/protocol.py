@@ -89,7 +89,10 @@ async def check_protocol(
                 async with asyncio.timeout(timeout):
                     await driver.close()
             except Exception:
-                pass
+                # 关闭失败不覆盖原诊断结果；异常详情由独立日志记录。
+                import logging
+
+                logging.getLogger(__name__).exception("Diagnostic driver close failed")
 
 
 async def benchmark_protocol(
@@ -102,8 +105,8 @@ async def benchmark_protocol(
     timeout: float = 5.0,
 ) -> DiagnosticResult:
     """只读、串行、有上限的协议性能测试，拒绝空点列表。"""
-    if not point_ids or len(point_ids) > 200:
-        raise ValueError("benchmark requires 1..200 point IDs")
+    if not point_ids or len(point_ids) > 200 or len(set(point_ids)) != len(point_ids):
+        raise ValueError("benchmark requires 1..200 unique point IDs")
     driver = _driver(config, device_id)
     try:
         async with asyncio.timeout(timeout):
