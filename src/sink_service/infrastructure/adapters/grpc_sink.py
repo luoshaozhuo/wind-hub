@@ -22,8 +22,6 @@ class GrpcSink:
         self._settings = GrpcSinkConnection.model_validate(dict(config.connection))
         self._channel: grpc.aio.Channel | None = None
         self._write_many: rpc.GatewayDataServiceStub | None = None
-        if not isinstance(config, ResolvedSink):
-            raise ValueError("GrpcSink requires resolved Collector mappings")
         points = [ResolvedSinkPoint.model_validate(dict(item)) for item in config.points]
         self._routes: dict[tuple[str, str], tuple[str, str]] = {}
         self._exporter = SinkReferenceExporter(points)
