@@ -66,6 +66,7 @@ class NatsSinkConsumer:
                     manual_ack=True,
                     config=ConsumerConfig(
                         durable_name=self._durable,
+                        filter_subject=self._subject,
                         ack_policy=AckPolicy.EXPLICIT,
                         ack_wait=self._ack_wait_seconds,
                         max_ack_pending=self._max_ack_pending,
