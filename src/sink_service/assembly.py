@@ -54,12 +54,6 @@ def assemble_sinks(
             for task_id, sources in (definition.task_sources or {}).items()
             for device_id, point_id in sources
         )
-        explicit = frozenset(
-            (task_id, mapping["source"]["device_id"], mapping["source"]["point_id"])
-            for task_id, output in definition.outputs.items()
-            for mapping in output.points
-        )
-        allowed = allowed | explicit
         if not allowed and definition.kind not in {"redis", "tdengine"}:
             raise ValueError(f"Sink {sink_id} requires explicit source mappings")
         target = _TARGETS[definition.kind](definition)
