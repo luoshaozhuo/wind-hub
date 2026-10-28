@@ -10,7 +10,6 @@ from contextlib import suppress
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_contract import ResolvedSink
 from sink_service.application.error import SinkError
-from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import RedisSinkConnection
 from sink_service.infrastructure.adapters.redis_record import encode_redis_record
@@ -44,7 +43,7 @@ _CAS_SCRIPT = (
 class RedisSink:
     """通过 SET 原子覆盖各点最新值，单连接串行 Pipeline。"""
 
-    def __init__(self, config: Sink) -> None:
+    def __init__(self, config: ResolvedSink) -> None:
         connection = dict(config.connection)
         routes = config if isinstance(config, ResolvedSink) else None
         self._task_prefixes = dict(routes.task_key_prefixes or {}) if routes else {}
