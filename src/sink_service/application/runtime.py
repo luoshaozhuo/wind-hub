@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Protocol
@@ -35,8 +36,12 @@ class SinkState(StrEnum):
 class SinkRuntime:
     """Own one Sink's connection, subscription and realtime ordering state."""
 
-    def __init__(self, sink: SinkPort, consumer: ConsumerPort, *, realtime: bool) -> None:
+    def __init__(
+        self, sink: SinkPort, consumer: ConsumerPort, *, realtime: bool,
+        save_intent: Callable[[bool], None] | None = None,
+    ) -> None:
         self._sink = sink
+        self._save_intent = save_intent
         self._consumer = consumer
         self._realtime = realtime
         self._state = SinkState.STOPPED
@@ -68,9 +73,11 @@ class SinkRuntime:
         """Last observed startup or write failure."""
         return self._failure
 
-    async def start(self) -> None:
+    async def start(self, *, explicit: bool = False) -> None:
         """Open target before subscribing, without reviving a stopped Sink."""
         async with self._lock:
+            if explicit and self._save_intent is not None:
+                self._save_intent(True)
             self._desired_running = True
             if self._state == SinkState.RUNNING:
                 return
@@ -87,9 +94,11 @@ class SinkRuntime:
             self._failure = None
             self._state = SinkState.RUNNING
 
-    async def stop(self) -> None:
+    async def stop(self, *, explicit: bool = True) -> None:
         """Prevent new messages, finish active writes and close the target."""
         async with self._lock:
+            if explicit and self._save_intent is not None:
+                self._save_intent(False)
             self._desired_running = False
             self._state = SinkState.STOPPED
             await self._consumer.close()
@@ -99,8 +108,8 @@ class SinkRuntime:
 
     async def restart(self) -> None:
         """Explicit operator restart."""
-        await self.stop()
-        await self.start()
+        await self.stop(explicit=False)
+        await self.start(explicit=True)
 
     async def write(self, sample: SampleMessage) -> None:
         """Validate realtime order and expiry before confirmed target write."""
