@@ -58,7 +58,11 @@ class SamplePublisher:
 
     async def dispatch(self, task_id: str, values: list[PointValue]) -> None:
         """Publish each sample once, regardless of the number of downstream Sinks."""
+        rejected = False
         for value in values:
+            if rejected:
+                self._points_dropped += 1
+                continue
             self._sequence += 1
             message = SampleMessage(
                 wind_farm_id=self._wind_farm_id,
@@ -78,6 +82,7 @@ class SamplePublisher:
                 self._points_published += 1
             else:
                 self._points_dropped += 1
+                rejected = True
 
     @property
     def points_published(self) -> int:
