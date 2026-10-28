@@ -145,7 +145,9 @@ class NatsSinkConsumer:
         """Stop subscription before closing its NATS connection."""
         subscription, self._subscription = self._subscription, None
         client, self._client = self._client, None
-        if subscription is not None and self._durable is None:
-            await subscription.unsubscribe()
-        if client is not None:
-            await client.close()
+        try:
+            if subscription is not None and self._durable is None:
+                await subscription.unsubscribe()
+        finally:
+            if client is not None:
+                await client.close()
