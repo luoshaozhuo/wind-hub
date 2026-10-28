@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import grpc
+from google.protobuf import wrappers_pb2
 
 from sink_service.application.management import SinkManager
 
@@ -18,14 +19,17 @@ Method = Callable[[str], Awaitable[dict[str, object]]]
 
 
 def _decode(raw: bytes) -> dict[str, Any]:
-    payload = json.loads(raw)
+    wrapper = wrappers_pb2.BytesValue.FromString(raw)
+    payload = json.loads(wrapper.value)
     if not isinstance(payload, dict):
         raise ValueError("request must be a JSON object")
     return payload
 
 
 def _encode(payload: dict[str, object]) -> bytes:
-    return json.dumps(payload, allow_nan=False, ensure_ascii=False).encode("utf-8")
+    return wrappers_pb2.BytesValue(
+        value=json.dumps(payload, allow_nan=False, ensure_ascii=False).encode("utf-8")
+    ).SerializeToString()
 
 
 def build_management_server(manager: SinkManager, address: str) -> grpc.aio.Server:
