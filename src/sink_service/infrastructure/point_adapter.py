@@ -7,13 +7,13 @@ from __future__ import annotations
 from core.domain.point_value import PointValue
 from core.domain.sample_value import Quality
 from contracts.sample_message import SampleMessage
-from sink_service.application.port import SinkPort
+from sink_service.application.point_port import LegacyPointSinkPort
 
 
 class PointValueSinkAdapter:
     """Translate transport samples to the current target writer contract."""
 
-    def __init__(self, target: object) -> None:
+    def __init__(self, target: LegacyPointSinkPort) -> None:
         self._target = target
 
     async def open(self) -> None:
