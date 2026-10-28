@@ -73,7 +73,7 @@ async def ping_probe(host: str, *, count: int = 4, timeout: float = 1.0) -> Diag
     )
     if code == 127:
         return _result(host, DiagnosticStatus.UNKNOWN, "PING_UNAVAILABLE", err)
-    match = re.search(r"(?:rtt|round-trip) min/avg/max/(?:mdev|stddev) = ([\\d.]+)/([\\d.]+)/([\\d.]+)/([\\d.]+) ms", out)
+    match = re.search(r"(?:rtt|round-trip) min/avg/max/(?:mdev|stddev) = ([0-9.]+)/([0-9.]+)/([0-9.]+)/([0-9.]+) ms", out)
     timings = (
         {"rtt_min_ms": float(match[1]), "rtt_avg_ms": float(match[2]),
          "rtt_max_ms": float(match[3]), "rtt_deviation_ms": float(match[4])}
