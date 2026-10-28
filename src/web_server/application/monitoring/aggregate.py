@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from web_server.adapter.outbound.grpc.sink import SinkGrpcDirectory
+from web_server.application.port.sink import SinkDirectoryPort
 
 from web_server.application.config.service import ConfigService
 from web_server.application.port.collector_directory import CollectorDirectory
@@ -51,10 +51,12 @@ class CollectorStatusAggregator:
         collectors: CollectorDirectory,
         placements: TaskPlacementRegistry,
         config: ConfigService,
+        sink_directory: SinkDirectoryPort,
     ) -> None:
         self._collectors = collectors
         self._placements = placements
         self._config = config
+        self._sink_directory = sink_directory
 
     async def snapshot(self) -> CollectorSnapshot:
         """返回 MonitoringService 所需的完整 Collector 聚合快照。"""
@@ -184,7 +186,7 @@ class CollectorStatusAggregator:
     async def _aggregate_sinks(self) -> list[SinkRuntimeSnapshot]:
         """Get Sink status from the independent Sink Service, not Collectors."""
         try:
-            items = await SinkGrpcDirectory().list_sinks()
+            items = await self._sink_directory.list_sinks()
             statuses = {item["name"]: item for item in items}
         except Exception:
             statuses = {}
