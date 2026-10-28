@@ -59,6 +59,8 @@ class SinkManager:
 
     async def start_sink(self, name: str) -> dict[str, object]:
         """Persist and apply explicit start."""
+        if self.config_pending_restart():
+            raise RuntimeError("service process restart required for changed configuration")
         await self._sinks[name].start(explicit=True)
         return await self.get_sink_status(name)
 
@@ -69,6 +71,8 @@ class SinkManager:
 
     async def restart_sink(self, name: str) -> dict[str, object]:
         """Explicitly restart one Sink."""
+        if self.config_pending_restart():
+            raise RuntimeError("service process restart required for changed configuration")
         await self._sinks[name].restart()
         return await self.get_sink_status(name)
 
