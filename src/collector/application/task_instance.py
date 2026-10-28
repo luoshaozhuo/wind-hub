@@ -1,14 +1,14 @@
 """CollectionTaskInstance —— Runtime 针对具体设备展开的采集执行实例。
 
 配置层 :class:`CollectionTask`（Task Definition）描述「采哪个设备/设备组、
-哪个 point group、周期、输出到哪些 sink」；本模型是它在运行时的具体化
+哪个 point group、周期」；本模型是它在运行时的具体化
 （Task Instance）——
 
 - ``device`` Task：一个定义展开为一个实例；
 - ``device_group`` Task：每台命中的设备展开为一个实例。
 
 实例 ID 稳定且唯一：``{task_id}:{device_id}``。实例是**不可变快照**——
-热重载修改 interval / targets / point_group 时整体替换实例对象；运行中
+热重载修改 interval / point_group 时整体替换实例对象；运行中
 实例的采集回调每轮从 TaskRuntime 注册表读取最新实例，interval / point_group
 变化时由 TaskRuntime 重建对应的 acquisition handle。
 
