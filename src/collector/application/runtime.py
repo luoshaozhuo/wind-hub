@@ -148,7 +148,7 @@ class CollectorRuntime:
         # （TaskRuntime 实现 AcquisitionStatePort）。
         self._engine.attach_acquisition_state(self._task_runtime)
         # Sink 派发的落点：引擎采集结果进入 SinkRuntime 的队列/背压/消费者机制。
-        self._engine.attach_sink_dispatch(self._publisher)
+        self._engine.attach_sample_publisher(self._publisher)
 
         # 生命周期串行化：start / stop 不能重叠，保证启动中状态不会被停机
         # 直接覆写；``running`` 依然只在 ``_started`` 真正完成后才返回 True。
