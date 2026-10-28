@@ -1,4 +1,4 @@
-"""Sink 管理、Verify 与 Write Test 服务。"""
+"""Sink 管理与独立服务状态查询。"""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class SinkSnapshot(BaseModel):
 
 
 class SinkTestResult(BaseModel):
-    """Verify/Write Test 结果。"""
+    """Sink 状态验证结果。"""
 
     success: bool
     latency_ms: float
@@ -53,7 +53,7 @@ class SinkService:
         self._admin = admin
 
     def list_sinks(self) -> list[SinkSnapshot]:
-        """返回配置与最近一次 Collector Sink 运行态。"""
+        """返回配置与独立 Sink Service 的最近运行态。"""
         runtime = {row.name: row for row in self._monitoring.sinks_snapshot()}
         rows: list[SinkSnapshot] = []
         for cfg in self._config.current_config.sinks.values():
@@ -160,7 +160,7 @@ class SinkService:
         )
 
     async def delete(self, name: str) -> ConfigApplyResult:
-        """删除 Sink；若 Task 仍引用它，正式配置校验会拒绝 Apply。"""
+        """删除 Sink 定义及其所属 Task 输出映射。"""
         self._config_for(name)
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
