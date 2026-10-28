@@ -48,7 +48,11 @@ class NatsSinkConsumer:
         if self._client is not None:
             return
         client = await nats.connect(
-            servers=self._servers, allow_reconnect=True, max_reconnect_attempts=-1,
+            servers=self._servers,
+            allow_reconnect=True,
+            max_reconnect_attempts=3,
+            connect_timeout=0.5,
+            reconnect_time_wait=1,
         )
         try:
             if self._durable is None:
