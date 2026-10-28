@@ -163,9 +163,7 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
         response = pb.RuntimeStatusResponse(
             running=status.running,
             device_count=status.device_count,
-            sink_count=status.sink_count,
             devices_connected=status.devices_connected,
-            sinks_healthy=status.sinks_healthy,
             points_collected=status.points_collected,
             points_routed=status.points_routed,
             points_dropped=status.points_dropped,
@@ -318,7 +316,6 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
                         for key, value in sorted(point.configured_address.items())
                     ],
                     task_ids=point.task_ids,
-                    sink_ids=point.sink_ids,
                 ),
             )
         return response
