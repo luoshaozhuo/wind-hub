@@ -1,4 +1,4 @@
-// Sinks capability：Sink 查询与连通性/写入测试。
+// Sinks capability：Sink 查询、状态验证与生命周期管理。
 import { API_BASE, call, client, normalizeApiError } from './client'
 import type { components } from './generated/schema'
 
