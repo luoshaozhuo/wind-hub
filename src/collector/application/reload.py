@@ -64,16 +64,6 @@ class DeviceDiff:
 
 
 @dataclass(slots=True)
-class SinkDiff:
-    """新旧配置间的 Sink 差异。"""
-
-    added: list[str] = field(default_factory=list)
-    removed: list[str] = field(default_factory=list)
-    updated: list[str] = field(default_factory=list)
-    unchanged: list[str] = field(default_factory=list)
-
-
-@dataclass(slots=True)
 class TaskDiff:
     """新旧配置间的 Task Definition 差异。"""
 
@@ -88,7 +78,6 @@ class ConfigDiff:
     """compute_diff 生成的完整配置差异。"""
 
     devices: DeviceDiff = field(default_factory=DeviceDiff)
-    sinks: SinkDiff = field(default_factory=SinkDiff)
     tasks: TaskDiff = field(default_factory=TaskDiff)
 
     points_changed: bool = False
@@ -110,9 +99,6 @@ class ConfigDiff:
             self.devices.added
             or self.devices.removed
             or self.devices.updated
-            or self.sinks.added
-            or self.sinks.removed
-            or self.sinks.updated
             or self.tasks.added
             or self.tasks.removed
             or self.tasks.updated
@@ -184,14 +170,6 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
         for key in set(old.point_tables) | set(new.point_tables)
         if old.point_tables.get(key) != new.point_tables.get(key)
     )
-    added_sinks, removed_sinks, changed_sinks, unchanged_sinks = ([], [], [], [])
-    # 下游 Sink 引用可能因设备映射或点表变化而改变，直接比较解析后契约。
-    sinks = SinkDiff(
-        added=added_sinks,
-        removed=removed_sinks,
-        updated=changed_sinks,
-        unchanged=unchanged_sinks,
-    )
     added_tasks, removed_tasks, changed_tasks, unchanged_tasks = _differences(old.tasks, new.tasks)
     tasks = TaskDiff(
         added=added_tasks,
@@ -201,7 +179,6 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
     )
     return ConfigDiff(
         devices=devices,
-        sinks=sinks,
         tasks=tasks,
         points_changed=bool(changed_tables),
         point_tables_changed=changed_tables,
