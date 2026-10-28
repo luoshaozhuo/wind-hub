@@ -128,6 +128,18 @@ def network_scan(
     )), json_output)
 
 
+
+@network_app.command("bandwidth")
+def network_bandwidth(
+    host: str,
+    duration: int = typer.Option(5, min=1, max=10),
+    port: int = typer.Option(5201, min=1, max=65535),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """显式执行限速 iperf3 TCP 测速；要求目标端有 iperf3 Server。"""
+    _output(asyncio.run(network.bandwidth(host, duration=duration, port=port)), json_output)
+
+
 @firewall_app.command("status")
 def firewall_status(json_output: bool = typer.Option(False, "--json")) -> None:
     _output(asyncio.run(firewall.firewall_status()), json_output)
