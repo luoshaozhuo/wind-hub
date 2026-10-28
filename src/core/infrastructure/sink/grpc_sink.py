@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 
 import grpc
-from google.protobuf import struct_pb2
 
 from core.application import ConnectionHealth
 from core.application.sink_contract import GrpcSinkAddress, ResolvedSink, ResolvedSinkPoint
@@ -14,7 +13,9 @@ from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.domain.sample_value import Quality
 from core.infrastructure.config.sink_schema import GrpcSinkConnection
-from core.infrastructure.rpc.gateway_data import create_write_many, encode_feedback
+from contracts import gateway_pb2 as pb
+from contracts import gateway_pb2_grpc as rpc
+from core.infrastructure.rpc.scalar_codec import encode_scalar
 
 
 class GrpcSink:
@@ -22,7 +23,7 @@ class GrpcSink:
         self._settings = GrpcSinkConnection.model_validate(dict(config.connection))
         self._channel: grpc.aio.Channel | None = None
         self._write_many: (
-            grpc.aio.UnaryUnaryMultiCallable[struct_pb2.Struct, struct_pb2.Struct] | None
+            rpc.GatewayDataServiceStub | None
         ) = None
         if not isinstance(config, ResolvedSink):
             raise ValueError("GrpcSink requires resolved Collector mappings")
@@ -42,7 +43,7 @@ class GrpcSink:
         if self._channel is not None:
             return
         self._channel = grpc.aio.insecure_channel(self._settings.endpoint)
-        self._write_many = create_write_many(self._channel)
+        self._write_many = rpc.GatewayDataServiceStub(self._channel)
 
     async def close(self) -> None:
         if self._channel is not None:
@@ -68,7 +69,13 @@ class GrpcSink:
             return
         if self._write_many is None:
             raise RuntimeError("GrpcSink is closed")
-        await self._write_many(encode_feedback(values), timeout=self._settings.timeout)
+        await self._write_many.WriteMany(
+            pb.WriteManyRequest(points=[
+                pb.FeedbackPoint(device_id=device_id, point_id=point_id, value=encode_scalar(value))
+                for (device_id, point_id), value in values.items()
+            ]),
+            timeout=self._settings.timeout,
+        )
 
     async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
         allowed = set(self._task_sources.get(task_id, ()))
