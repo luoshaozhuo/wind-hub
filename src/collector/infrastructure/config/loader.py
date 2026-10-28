@@ -7,7 +7,7 @@ from typing import cast
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.port import ConfigPort
-from core.application.settings import RuntimeSettings
+from core.application.settings import MessagingSettings, RuntimeSettings
 from core.application.sink_contract import (
     GrpcSinkAddress,
     ModbusSinkAddress,
@@ -60,6 +60,7 @@ def collector_config_from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
         point_tables=snapshot.point_tables,
         runtime=_runtime_params(settings),
         ads_local=snapshot.system.ads,
+        messaging=_required_messaging(snapshot),
         tasks=snapshot.tasks,
         sinks=_resolve_sinks(snapshot),
         disabled_devices=frozenset(
@@ -230,6 +231,14 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
             ),
         )
     return result
+
+
+def _required_messaging(snapshot: ConfigSnapshot) -> MessagingSettings:
+    """Require explicit NATS configuration for a Collector."""
+    messaging = snapshot.system.messaging
+    if messaging is None:
+        raise ConfigError("system.messaging is required")
+    return messaging
 
 
 def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
