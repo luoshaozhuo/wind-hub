@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from hashlib import sha256
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from contracts.sample_message import DeliveryMode, SampleMessage, validate_subje
 from sink_service.application.point_port import LegacyPointSinkPort
 from sink_service.application.runtime import SinkRuntime
 from sink_service.infrastructure.config import _resolve_sinks
+from sink_service.infrastructure.intent import SinkIntentStore
 from sink_service.infrastructure.nats_consumer import NatsSinkConsumer
 from sink_service.infrastructure.point_adapter import PointValueSinkAdapter
 
@@ -30,6 +32,7 @@ def assemble_sinks(
     servers: tuple[str, ...],
     delivery: DeliveryMode,
     wind_farm_id: str,
+    intent_store: SinkIntentStore | None = None,
 ) -> dict[str, SinkRuntime]:
     """Build one consumer per enabled target with independent acknowledgments."""
     validate_subject_token(wind_farm_id)
@@ -70,6 +73,7 @@ def assemble_sinks(
                 if delivery == "reliable" else None
             ),
             allowed=allowed,
+            save_intent=(partial(intent_store.set_running, sink_id) if intent_store else None),
         )
     return result
 
@@ -82,6 +86,7 @@ def _build_runtime(
     subject: str,
     durable: str | None,
     allowed: frozenset[tuple[str, str, str]],
+    save_intent: Callable[[bool], None] | None,
 ) -> SinkRuntime:
     """Bind every handler to its own runtime, never a shared closure variable."""
     holder: list[SinkRuntime] = []
@@ -94,6 +99,8 @@ def _build_runtime(
     consumer = NatsSinkConsumer(
         servers, subject, durable=durable, handler=handle, max_ack_pending=1,
     )
-    runtime = SinkRuntime(adapter, consumer, realtime=delivery == "realtime")
+    runtime = SinkRuntime(
+        adapter, consumer, realtime=delivery == "realtime", save_intent=save_intent,
+    )
     holder.append(runtime)
     return runtime
