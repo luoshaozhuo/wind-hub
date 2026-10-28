@@ -50,9 +50,7 @@ class SystemStatus:
 
     running: bool
     device_count: int
-    sink_count: int
     devices_connected: int = 0
-    sinks_healthy: int = 0
     points_collected: int = 0
     points_routed: int = 0
     points_dropped: int = 0
@@ -77,9 +75,7 @@ class CollectorQueryService:
         return SystemStatus(
             running=self._runtime.running,
             device_count=self._runtime.device_count,
-            sink_count=0,
             devices_connected=devices_connected,
-            sinks_healthy=0,
             points_collected=self._runtime.points_collected,
             points_routed=self._runtime.points_routed,
             points_dropped=self._runtime.points_dropped,
