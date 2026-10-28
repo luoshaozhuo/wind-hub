@@ -6,7 +6,6 @@
 - Task：Task Definition 与展开实例的查询、显式 start/stop——只翻转实例
   生命周期状态（RUNNING / STOPPED），不增删实例（实例的创建/删除只发生
   在启动装配与配置热重载）；
-- Sink：运行 Sink 健康/队列深度查询与只读连接诊断——不持有任何 Sink 状态。
 
 所有读取都穿透 CollectorRuntime 当前状态，热重载后立即可见。
 """
