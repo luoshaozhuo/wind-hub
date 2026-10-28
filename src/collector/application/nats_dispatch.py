@@ -1,6 +1,7 @@
 """Collector-side sample serialization and dispatch, independent of output Sinks."""
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Literal, Protocol, cast
 
@@ -8,6 +9,9 @@ from contracts.sample_message import DeliveryMode, SampleMessage
 from core.domain.point_value import PointValue
 
 from .identity import CollectorIdentity
+
+logger = logging.getLogger(__name__)
+
 
 class PublisherPort(Protocol):
     """Minimal publishing dependency supplied by infrastructure."""
@@ -57,32 +61,37 @@ class SamplePublisher:
         await self._publisher.close()
 
     async def dispatch(self, task_id: str, values: list[PointValue]) -> None:
-        """Publish each sample once, regardless of the number of downstream Sinks."""
-        rejected = False
+        """Publish each sample independently; failures never abort acquisition."""
+        failed = False
         for value in values:
-            if rejected:
+            self._sequence += 1
+            if failed:
                 self._points_dropped += 1
                 continue
-            self._sequence += 1
-            message = SampleMessage(
-                wind_farm_id=self._wind_farm_id,
-                collector_id=self._identity.collector_id,
-                task_id=task_id,
-                device_id=value.device_id,
-                point_id=value.point_id,
-                sample_id=f"{self._identity.collector_id}:{self._identity.boot_id}:{self._sequence}",
-                value=value.value,
-                quality=cast("Literal[\"good\", \"bad\", \"uncertain\"]", value.quality.value),
-                sample_time=value.timestamp,
-                receive_time=value.receive_time,
-                publish_time=datetime.now(UTC),
-                max_staleness_ms=self._max_staleness_ms,
-            )
-            if await self._publisher.publish(message):
+            try:
+                message = SampleMessage(
+                    wind_farm_id=self._wind_farm_id,
+                    collector_id=self._identity.collector_id,
+                    task_id=task_id,
+                    device_id=value.device_id,
+                    point_id=value.point_id,
+                    sample_id=f"{self._identity.collector_id}:{self._identity.boot_id}:{self._sequence}",
+                    value=value.value,
+                    quality=cast(Literal["good", "bad", "uncertain"], value.quality.value),
+                    sample_time=value.timestamp,
+                    receive_time=value.receive_time,
+                    publish_time=datetime.now(UTC),
+                    max_staleness_ms=self._max_staleness_ms,
+                )
+                success = await self._publisher.publish(message)
+            except Exception:
+                logger.exception("Invalid/unpublished sample task=%s point=%s", task_id, value.point_id)
+                success = False
+            if success:
                 self._points_published += 1
             else:
                 self._points_dropped += 1
-                rejected = True
+                failed = True
 
     @property
     def points_published(self) -> int:
