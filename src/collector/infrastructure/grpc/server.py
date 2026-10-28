@@ -15,7 +15,7 @@ from google.protobuf import empty_pb2, wrappers_pb2
 
 from contracts import collector_pb2 as pb
 from contracts import collector_pb2_grpc as pb_grpc
-from contracts import commander_pb2 as commander_pb
+from contracts import common_pb2 as common_pb
 from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
 from core.infrastructure.rpc.scalar_codec import encode_scalar
 

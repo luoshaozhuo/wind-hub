@@ -14,6 +14,7 @@ import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
 from core.domain.diagnostic import DeviceVerifyResult, PointVerifyResult
+from contracts import common_pb2 as common_pb
 from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc as pb_grpc
 from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
@@ -48,12 +49,12 @@ def _required(value: str, field: str) -> str:
     return value
 
 
-def _address_fields(data: dict[str, object] | None) -> list[pb.AddressField]:
+def _address_fields(data: dict[str, object] | None) -> list[common_pb.AddressField]:
     """把协议地址字典转换为稳定有序的 AddressField 列表。"""
     if not data:
         return []
     return [
-        pb.AddressField(key=key, value=encode_scalar(value)) for key, value in sorted(data.items())
+        common_pb.AddressField(key=key, value=encode_scalar(value)) for key, value in sorted(data.items())
     ]
 
 
