@@ -2,8 +2,8 @@
 
 compute_diff 比较两个 :class:`CollectorConfig` 快照，产出结构化差异，
 驱动 CollectorRuntime.reconfigure 的最小化重构。
-直接比较领域对象与 Sink 契约，并转换为
-Collector 的运行时重构决策（设备/Sink/Task 增删改、点表重注入、
+直接比较采集设备、Task 与运行参数，转换为
+Collector 的运行时重构决策（设备/Task 增删改、点表重注入、
 运行参数应用），不触碰任何运行时组件。
 """
 
@@ -18,7 +18,6 @@ from .config import CollectorConfig, RuntimeParams
 
 #: 构造期固化、无安全在线迁移方案的 RuntimeParams 字段——变化必须重启进程。
 #:
-#: - ``queue_maxsize``：asyncio.Queue 按启动值创建，运行中改容量会丢队/溢队；
 #: - ``read_timeout``：AcquisitionEngine 构造期固定，引擎不提供更新接口；
 #: - ``thread_pool_max_workers``：默认 executor 在进程引导期安装一次，
 #:   不做运行时热替换。
@@ -28,8 +27,7 @@ RESTART_REQUIRED_RUNTIME_FIELDS: tuple[str, ...] = (
 )
 
 #: 可安全热更新的 RuntimeParams 字段——owner 在使用点动态读取当前值：
-#: ``backpressure_policy``（SinkRuntime 每次派发读取）、
-#: ``shutdown_timeout``（仅影响后续 stop/remove）、``connect_timeout``
+#: ``connect_timeout``
 #: 以及 Watchdog 时序参数均在运行时 owner 使用当前快照。activate 时整体
 #: 替换 params 即真实生效。
 HOT_RELOADABLE_RUNTIME_FIELDS: tuple[str, ...] = (
