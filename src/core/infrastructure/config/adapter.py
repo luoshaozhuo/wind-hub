@@ -25,6 +25,10 @@ class YamlConfigAdapter:
     def load(self) -> ConfigSnapshot:
         return load_domain(self._base)
 
+    def load_collector(self) -> ConfigSnapshot:
+        """Read acquisition configuration without Sink mappings or credentials."""
+        return load_domain(self._base, include_sinks=False)
+
     def save(self, snapshot: ConfigSnapshot) -> None:
         documents = dump_snapshot(snapshot)
         current_system = read_yaml_mapping(self._base / "system.yaml")
