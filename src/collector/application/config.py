@@ -86,11 +86,11 @@ class CollectorConfig:
     """
 
     units: UnitCatalog
+    messaging: MessagingSettings
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
     runtime: RuntimeParams = field(default_factory=RuntimeParams)
-    messaging: MessagingSettings
     ads_local: ADSLocalConfig | None = None
     tasks: Mapping[str, CollectionTask] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
