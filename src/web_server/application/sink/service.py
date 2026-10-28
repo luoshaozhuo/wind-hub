@@ -103,10 +103,6 @@ class SinkService:
                 message=f"Sink Service unavailable: {exc}",
             )
 
-    async def write_test(self, name: str) -> SinkTestResult:
-        """Do not inject fabricated measurements into the production data path."""
-        return await self.verify(name)
-
     async def manage(self, name: str, operation: str) -> dict[str, Any]:
         """Execute a Sink-specific management RPC."""
         self._config_for(name)
