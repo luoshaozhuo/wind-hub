@@ -101,10 +101,11 @@ class SinkRuntime:
                 self._save_intent(False)
             self._desired_running = False
             self._state = SinkState.STOPPED
-            await self._consumer.close()
-            async with self._write_lock:
-                await self._sink.close()
-            self._state = SinkState.STOPPED
+            try:
+                await self._consumer.close()
+            finally:
+                async with self._write_lock:
+                    await self._sink.close()
 
     async def restart(self) -> None:
         """Explicit operator restart."""
