@@ -95,9 +95,9 @@ class CollectorRuntime:
 
     - ``devices`` — 初始设备会话注册表，构造时把所有权交给
       DeviceRuntime；
-    - ``sinks`` — Sink 注册表，构造时把所有权交给 SinkRuntime；
+    - ``publisher`` — NATS 发布器，由 Collector 管理连接；
     - ``engine`` — 采集引擎；本类构造时把三个状态端口分别绑定到对应
-      子 Runtime（设备 → DeviceRuntime，采集 → TaskRuntime，派发 → SinkRuntime）；
+      子系统（设备 → DeviceRuntime，采集 → TaskRuntime，发布 → SamplePublisher）；
     - ``tasks`` — 采集 Task Definition 注册表，构造时把所有权交给 TaskRuntime；
     - ``params`` — 运行时参数（队列容量、背压策略、超时）；
     - ``session_factory`` / ``sink_factory`` — 热重载重建组件用的工厂
@@ -147,7 +147,7 @@ class CollectorRuntime:
         # 采集执行状态的落点：引擎上报每次 collect 的开始/成功/失败
         # （TaskRuntime 实现 AcquisitionStatePort）。
         self._engine.attach_acquisition_state(self._task_runtime)
-        # Sink 派发的落点：引擎采集结果进入 SinkRuntime 的队列/背压/消费者机制。
+        # 采集结果直接进入 NATS 发布端口。
         self._engine.attach_sample_publisher(self._publisher)
 
         # 生命周期串行化：start / stop 不能重叠，保证启动中状态不会被停机
@@ -285,12 +285,12 @@ class CollectorRuntime:
 
     @property
     def points_routed(self) -> int:
-        """累计派发点数——成功进入 sink 队列的点值总数（SinkRuntime 口径）。"""
+        """累计成功发布样本数。"""
         return self._publisher.points_published
 
     @property
     def points_dropped(self) -> int:
-        """累计丢弃点数——背压策略丢弃的点值总数（SinkRuntime 口径）。"""
+        """累计丢弃的样本数。"""
         return self._publisher.points_dropped
 
     # ------------------------------------------------------------------
