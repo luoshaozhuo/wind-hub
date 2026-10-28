@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.infrastructure.config import YamlConfigAdapter
-from core.infrastructure.sink import GrpcSink, KafkaSink, ModbusSink, RedisSink, TDengineSink
+from sink_service.infrastructure.adapters import GrpcSink, KafkaSink, ModbusSink, RedisSink, TDengineSink
 from contracts.sample_message import DeliveryMode, SampleMessage
 from sink_service.application.runtime import SinkRuntime
 from sink_service.infrastructure.config import _resolve_sinks
