@@ -67,7 +67,7 @@ class SinkDelivery:
 class SinkDispatchPort(Protocol):
     """Sink 派发端口——把按 sink 分组的批次交给 Sink 侧（队列/背压/消费者）。"""
 
-    async def dispatch(self, routed: dict[str, SinkDelivery]) -> None:
+    async def dispatch(self, task_id: str, values: list[PointValue]) -> None:
         """派发一批按 sink 名分组的点值；空批次由实现方忽略。"""
         ...
 
@@ -314,7 +314,7 @@ class AcquisitionEngine:
         if bad:
             self._on_points_bad(bad)
         self._notify_observers(batch)
-        await self._sink_dispatch.dispatch({sink: SinkDelivery(task_id, batch) for sink in targets})
+        await self._sink_dispatch.dispatch(task_id, batch)
 
     # ------------------------------------------------------------------
     # 状态
