@@ -7,8 +7,8 @@ import logging
 import signal
 from hashlib import sha256
 from pathlib import Path
+from typing import Literal
 
-from contracts.sample_message import DeliveryMode
 from core.infrastructure.config import config_dir_digest
 from sink_service.assembly import assemble_sinks
 from sink_service.application.runtime import SinkRuntime, SinkState
@@ -23,7 +23,7 @@ async def run_sink_service(
     config_dir: Path,
     *,
     servers: tuple[str, ...],
-    delivery: DeliveryMode | str,
+    delivery: Literal["realtime", "reliable", "both"],
     realtime_sinks: frozenset[str] = frozenset(),
     reliable_sinks: frozenset[str] = frozenset(),
     wind_farm_id: str,
