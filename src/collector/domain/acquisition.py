@@ -1,6 +1,6 @@
 """AcquisitionEngine——PointValue 数据流的统一处理入口（Domain）。
 
-把一次获得的 PointValue 批次经过 Observer 和 targets 投递到 Sink，并维护
+把一次获得的 PointValue 批次经过 Observer 发布到 NATS，并维护
 采集执行状态/统计。主动轮询（Modbus / ADS Sum）与订阅推送（ADS
 notification / IEC104 spontaneous）最终都进入 :meth:`process`：
 
@@ -12,7 +12,7 @@ notification / IEC104 spontaneous）最终都进入 :meth:`process`：
 - 「什么时候执行」——那是 Application Runtime 的 acquisition handle
   （fixed-rate polling / subscription）的职责；
 - Protocol / Device 的创建、连接与关闭——那是 DeviceRuntime 的生命周期职责；
-- Sink 队列、背压与消费者任务——经 :class:`SampleDispatchPort` 端口委托。
+- 数据消息发布——经 :class:`SampleDispatchPort` 端口委托。
 
 并发语义：不同 Task Instance 的 :meth:`collect` / :meth:`process` 可并发
 执行；同一实例由其 acquisition handle 串行驱动，天然不重入。引擎自身
@@ -53,10 +53,10 @@ class ReadableDevice(Protocol):
 
 
 class SampleDispatchPort(Protocol):
-    """Sink 派发端口——把按 sink 分组的批次交给 Sink 侧（队列/背压/消费者）。"""
+    """消息发布端口——携带 Task 来源发布采样批次。"""
 
     async def dispatch(self, task_id: str, values: list[PointValue]) -> None:
-        """派发一批按 sink 名分组的点值；空批次由实现方忽略。"""
+        """发布一次采样批次，具体消息拆分由实现方负责。"""
         ...
 
 
