@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import os
 import time
 from typing import Any
 
 from pydantic import BaseModel, Field
-from web_server.adapter.outbound.grpc.sink import SinkGrpcClient
+from web_server.adapter.outbound.grpc.sink import SinkGrpcDirectory
 
 from core.domain.sink import Sink
 from core.infrastructure.config.yaml import yaml_plain
@@ -120,9 +119,9 @@ class SinkService:
         return await self._sink_client().call(methods[operation], name)
 
     @staticmethod
-    def _sink_client() -> SinkGrpcClient:
-        """Configure the independent service endpoint."""
-        return SinkGrpcClient(os.environ.get("WIND_HUB_SINK_GRPC_TARGET", "127.0.0.1:50074"))
+    def _sink_client() -> SinkGrpcDirectory:
+        """Resolve independent Sink Service endpoints."""
+        return SinkGrpcDirectory()
 
     async def upsert(self, name: str, payload: dict[str, Any]) -> ConfigApplyResult:
         """新增或更新 Sink；通过 sinks.yaml 配置事务生效。"""
