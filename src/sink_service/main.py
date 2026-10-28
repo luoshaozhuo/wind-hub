@@ -9,7 +9,7 @@ from pathlib import Path
 
 from contracts.sample_message import DeliveryMode
 from sink_service.assembly import assemble_sinks
-from sink_service.application.runtime import SinkRuntime
+from sink_service.application.runtime import SinkRuntime, SinkState
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,28 @@ async def run_sink_service(
             await sink.start()
         except Exception:
             logger.exception("Sink %s failed to start", sink_id)
+    async def restore_failed() -> None:
+        while not stopping.is_set():
+            try:
+                await asyncio.wait_for(stopping.wait(), timeout=5.0)
+                return
+            except TimeoutError:
+                pass
+            for sink_id, sink in sinks.items():
+                if sink.desired_running and sink.state is SinkState.FAILED:
+                    try:
+                        await sink.start()
+                    except Exception:
+                        logger.exception("Sink %s recovery failed", sink_id)
+
+    supervisor = asyncio.create_task(restore_failed())
     await stopping.wait()
+    supervisor.cancel()
+    try:
+        await supervisor
+    except asyncio.CancelledError:
+        pass
+
     async def close(sink_id: str, sink: SinkRuntime) -> None:
         try:
             await asyncio.wait_for(sink.stop(), timeout=shutdown_timeout)
