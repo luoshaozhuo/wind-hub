@@ -202,11 +202,17 @@ class CollectorStatusAggregator:
                     and not statuses.get(cfg.sink_id, {}).get("failure")
                 ),
                 message=(
-                    str(statuses[cfg.sink_id].get("failure") or statuses[cfg.sink_id]["state"])
+                    "Sink Service configuration changed; process restart required"
+                    if statuses.get(cfg.sink_id, {}).get("config_pending_restart") is True
+                    else str(statuses[cfg.sink_id].get("failure") or statuses[cfg.sink_id]["state"])
                     if cfg.sink_id in statuses
                     else "Sink Service unavailable"
                 ),
-                queue_depth=0,
+                queue_depth=(
+                    int(statuses[cfg.sink_id]["pending"])
+                    if isinstance(statuses.get(cfg.sink_id, {}).get("pending"), int)
+                    else 0
+                ),
             )
             for cfg in self._config.current_config.sinks.values()
         ]
