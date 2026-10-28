@@ -11,6 +11,8 @@ from pathlib import Path
 from contracts.sample_message import DeliveryMode
 from sink_service.assembly import assemble_sinks
 from sink_service.application.runtime import SinkRuntime, SinkState
+from sink_service.application.management import SinkManager
+from sink_service.infrastructure.grpc_management import build_management_server
 from sink_service.infrastructure.intent import SinkIntentStore
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,7 @@ async def run_sink_service(
     delivery: DeliveryMode,
     wind_farm_id: str,
     shutdown_timeout: float = 30.0,
+    grpc_listen: str = '127.0.0.1:50074',
     state_dir: Path = Path('/var/tmp/wind-hub/sink-state'),
 ) -> None:
     """Start each Sink independently and shut down on a process signal."""
@@ -32,6 +35,9 @@ async def run_sink_service(
         config_dir, servers=servers, delivery=delivery, wind_farm_id=wind_farm_id,
         intent_store=store,
     )
+    manager = SinkManager(sinks)
+    grpc_server = build_management_server(manager, grpc_listen)
+    await grpc_server.start()
     stopping = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -62,6 +68,7 @@ async def run_sink_service(
 
     supervisor = asyncio.create_task(restore_failed())
     await stopping.wait()
+    await grpc_server.stop(grace=5.0)
     supervisor.cancel()
     try:
         await supervisor
@@ -83,6 +90,7 @@ def main() -> None:
     parser.add_argument("--nats", action="append", required=True)
     parser.add_argument("--delivery", choices=("realtime", "reliable"), required=True)
     parser.add_argument("--wind-farm-id", required=True)
+    parser.add_argument("--grpc-listen", default="127.0.0.1:50074")
     parser.add_argument("--state-dir", type=Path, default=Path("/var/tmp/wind-hub/sink-state"))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
@@ -93,6 +101,7 @@ def main() -> None:
             delivery=args.delivery,
             wind_farm_id=args.wind_farm_id,
             state_dir=args.state_dir,
+            grpc_listen=args.grpc_listen,
         )
     )
 
