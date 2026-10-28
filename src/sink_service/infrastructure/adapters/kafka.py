@@ -99,8 +99,7 @@ class KafkaSink:
             self._error = None
 
     async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
-        allowed = self._task_sources.get(task_id, set())
-        await self.write([point for point in batch if (point.device_id, point.point_id) in allowed])
+        await self.write(batch)
 
     async def flush(self) -> None:
         async with self._lock:
