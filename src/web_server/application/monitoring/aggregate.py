@@ -197,6 +197,7 @@ class CollectorStatusAggregator:
                 healthy=bool(
                     cfg.enabled
                     and statuses.get(cfg.sink_id, {}).get("state") == "running"
+                    and statuses.get(cfg.sink_id, {}).get("nats_connected") is True
                     and not statuses.get(cfg.sink_id, {}).get("failure")
                 ),
                 message=(
