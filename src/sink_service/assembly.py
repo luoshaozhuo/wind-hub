@@ -54,6 +54,16 @@ def assemble_sinks(
             for task_id, sources in (definition.task_sources or {}).items()
             for device_id, point_id in sources
         )
+        if delivery == "realtime":
+            owners: dict[tuple[str, str], str] = {}
+            for task_id, device_id, point_id in sorted(allowed):
+                key = (device_id, point_id)
+                other = owners.setdefault(key, task_id)
+                if other != task_id:
+                    raise ValueError(
+                        f"realtime Sink {sink_id} has two tasks for {device_id}.{point_id}: "
+                        f"{other} and {task_id}"
+                    )
         if not allowed and definition.kind not in {"redis", "tdengine"}:
             raise ValueError(f"Sink {sink_id} requires explicit source mappings")
         target = _TARGETS[definition.kind](definition)
