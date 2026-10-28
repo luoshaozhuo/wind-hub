@@ -182,12 +182,13 @@ class SinkRuntime:
 
     async def clear(self) -> int:
         """Clear realtime state or the stopped durable consumer backlog."""
-        if self._state is not SinkState.STOPPED:
-            raise RuntimeError("Sink must be stopped before ClearSink")
-        if self._realtime:
-            self.clear_realtime()
-            return 0
-        return await self._consumer.clear()
+        async with self._lock:
+            if self._state is not SinkState.STOPPED:
+                raise RuntimeError("Sink must be stopped before ClearSink")
+            if self._realtime:
+                self.clear_realtime()
+                return 0
+            return await self._consumer.clear()
 
     @property
     def nats_connected(self) -> bool:
