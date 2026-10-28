@@ -28,7 +28,7 @@ async def run_sink_service(
     wind_farm_id: str,
     shutdown_timeout: float = 30.0,
     grpc_listen: str = '127.0.0.1:50074',
-    state_dir: Path = Path('/var/tmp/wind-hub/sink-state'),
+    state_dir: Path = Path("/var/tmp/wind-hub/sink-state"),
 ) -> None:
     """Start each Sink independently and shut down on a process signal."""
     state_name = sha256(wind_farm_id.encode()).hexdigest()[:32]
