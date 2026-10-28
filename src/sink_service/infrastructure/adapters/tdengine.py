@@ -104,7 +104,8 @@ class TDengineSink:
             name = f"{self._config.database}.{self._config.stable}"
             ddl = (
                 f"CREATE STABLE IF NOT EXISTS {name} ("
-                "ts TIMESTAMP, value_json NCHAR(2048), quality NCHAR(32), "
+                "ts TIMESTAMP, sample_id VARCHAR(192) COMPOSITE KEY, "
+                "value_json NCHAR(2048), quality NCHAR(32), "
                 "receive_time TIMESTAMP, device_time TIMESTAMP, source NCHAR(64)) "
                 "TAGS (device_id NCHAR(192), point_id NCHAR(192))"
             )
@@ -138,6 +139,8 @@ class TDengineSink:
                     raise SinkError("TDengine point JSON value exceeds 2048 characters")
                 if len(point.device_id) > 192 or len(point.point_id) > 192:
                     raise SinkError("TDengine device/point ID exceeds 192 characters")
+                if not point.sample_id or len(point.sample_id.encode("utf-8")) > 192:
+                    raise SinkError("TDengine requires a sample_id of at most 192 UTF-8 bytes")
                 receive = (
                     str(_timestamp_ms(point.receive_time))
                     if point.receive_time is not None
@@ -152,7 +155,8 @@ class TDengineSink:
                     f"{self._config.database}.{_table_name(point.device_id, point.point_id)} "
                     f"USING {stable} TAGS ({_sql_text(point.device_id)}, "
                     f"{_sql_text(point.point_id)}) VALUES ("
-                    f"{_timestamp_ms(point.timestamp)}, {_sql_text(raw_value)}, "
+                    f"{_timestamp_ms(point.timestamp)}, {_sql_text(point.sample_id)}, "
+                    f"{_sql_text(raw_value)}, "
                     f"{_sql_text(point.quality.value)}, {receive}, {device}, "
                     f"{_sql_text(point.source or point.timestamp_source)})"
                 )
