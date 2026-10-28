@@ -23,6 +23,7 @@ class PointValue:
     receive_time: datetime | None = None
     device_time: datetime | None = None
     sample_id: str | None = None
+    task_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.device_id.strip():
