@@ -30,6 +30,10 @@ class ConsumerPort(Protocol):
         """Skip own durable backlog while stopped."""
         ...
 
+    async def pending(self) -> int | None:
+        """Query own durable backlog, when reachable."""
+        ...
+
     @property
     def connected(self) -> bool:
         """Return NATS transport connection state."""
@@ -189,6 +193,10 @@ class SinkRuntime:
                 self.clear_realtime()
                 return 0
             return await self._consumer.clear()
+
+    async def pending(self) -> int | None:
+        """Return an available JetStream per-Sink backlog count."""
+        return await self._consumer.pending()
 
     @property
     def nats_connected(self) -> bool:
