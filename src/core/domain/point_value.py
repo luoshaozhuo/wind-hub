@@ -20,6 +20,7 @@ class PointValue:
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     timestamp_source: Literal["device", "local"] = "local"
     source: str | None = None
+    sample_id: str | None = None
     receive_time: datetime | None = None
     device_time: datetime | None = None
 
