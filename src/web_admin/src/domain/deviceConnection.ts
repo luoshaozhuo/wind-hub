@@ -42,14 +42,35 @@ export const PROTOCOL_DEFAULT_PORTS: Record<Protocol, number> = {
 export const PROTOCOL_OVERRIDE_KEYS: Record<Protocol, readonly string[]> = {
   ads: ['twincat_version', 'timeout'],
   modbus: ['slave_id', 'mode', 'timeout', 'word_order'],
-  iec104: ['k', 'w', 't0', 't1', 't2', 't3', 'read_timeout', 'command_timeout', 'interrogation_timeout'],
+  iec104: [
+    'k',
+    'w',
+    't0',
+    't1',
+    't2',
+    't3',
+    'read_timeout',
+    'command_timeout',
+    'interrogation_timeout',
+  ],
 }
 
 /** 各协议序列化为 model connection_defaults 的键。 */
 export const PROTOCOL_DEFAULT_KEYS: Record<Protocol, readonly string[]> = {
   ads: ['port', 'timeout', 'twincat_version'],
   modbus: ['port', 'timeout', 'slave_id', 'mode', 'word_order'],
-  iec104: ['port', 'k', 'w', 't0', 't1', 't2', 't3', 'read_timeout', 'command_timeout', 'interrogation_timeout'],
+  iec104: [
+    'port',
+    'k',
+    'w',
+    't0',
+    't1',
+    't2',
+    't3',
+    'read_timeout',
+    'command_timeout',
+    'interrogation_timeout',
+  ],
 }
 
 function num(value: unknown, fallback: number): number {
