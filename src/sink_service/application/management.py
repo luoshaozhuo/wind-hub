@@ -32,6 +32,7 @@ class SinkManager:
             "state": sink.state.value,
             "desired_running": sink.desired_running,
             "failure": sink.failure,
+            "nats_connected": sink.nats_connected,
             "last_written": sink.last_written.isoformat() if sink.last_written else None,
         }
 
@@ -53,5 +54,5 @@ class SinkManager:
     async def clear_sink(self, name: str) -> dict[str, object]:
         """Clear stopped realtime cache only; never delete destination records."""
         sink = self._sinks[name]
-        sink.clear_realtime()
-        return self.get_sink_status(name)
+        skipped = await sink.clear()
+        return {**self.get_sink_status(name), "skipped": skipped}
