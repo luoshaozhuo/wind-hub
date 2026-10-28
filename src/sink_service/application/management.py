@@ -36,11 +36,11 @@ class SinkManager:
             "config_pending_restart": self.config_pending_restart(),
         }
 
-    def list_sinks(self) -> list[dict[str, object]]:
+    async def list_sinks(self) -> list[dict[str, object]]:
         """Return all Sink lifecycle snapshots."""
-        return [self.get_sink_status(name) for name in sorted(self._sinks)]
+        return [await self.get_sink_status(name) for name in sorted(self._sinks)]
 
-    def get_sink_status(self, name: str) -> dict[str, object]:
+    async def get_sink_status(self, name: str) -> dict[str, object]:
         """Read a Sink without opening its output connection."""
         sink = self._sinks[name]
         return {
@@ -49,6 +49,7 @@ class SinkManager:
             "desired_running": sink.desired_running,
             "failure": sink.failure,
             "nats_connected": sink.nats_connected,
+            "pending": await sink.pending(),
             "config_pending_restart": self.config_pending_restart(),
             "last_written": sink.last_written.isoformat() if sink.last_written else None,
         }
@@ -56,20 +57,20 @@ class SinkManager:
     async def start_sink(self, name: str) -> dict[str, object]:
         """Persist and apply explicit start."""
         await self._sinks[name].start(explicit=True)
-        return self.get_sink_status(name)
+        return await self.get_sink_status(name)
 
     async def stop_sink(self, name: str) -> dict[str, object]:
         """Persist and apply explicit stop."""
         await self._sinks[name].stop(explicit=True)
-        return self.get_sink_status(name)
+        return await self.get_sink_status(name)
 
     async def restart_sink(self, name: str) -> dict[str, object]:
         """Explicitly restart one Sink."""
         await self._sinks[name].restart()
-        return self.get_sink_status(name)
+        return await self.get_sink_status(name)
 
     async def clear_sink(self, name: str) -> dict[str, object]:
         """Clear stopped realtime cache only; never delete destination records."""
         sink = self._sinks[name]
         skipped = await sink.clear()
-        return {**self.get_sink_status(name), "skipped": skipped}
+        return {**await self.get_sink_status(name), "skipped": skipped}
