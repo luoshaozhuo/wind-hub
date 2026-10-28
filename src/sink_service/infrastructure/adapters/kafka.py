@@ -28,9 +28,9 @@ class KafkaSink:
         self._producer: Any = None
         self._lock = asyncio.Lock()
         self._error: str | None = "not opened"
-        self._task_sources = (
-            {task: set(sources) for task, sources in (config.task_sources or {}).items()}
-        )
+        self._task_sources = {
+            task: set(sources) for task, sources in (config.task_sources or {}).items()
+        }
         points = [ResolvedSinkPoint.model_validate(dict(raw)) for raw in config.points]
         for point in points:
             if not isinstance(point.address, StreamSinkAddress):
