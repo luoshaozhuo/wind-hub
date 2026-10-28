@@ -111,6 +111,7 @@ class TDengineSink:
             )
             try:
                 await self._blocking(ddl)
+                await self._blocking(f"SELECT sample_id FROM {name} LIMIT 0")
             except Exception as exc:
                 self._error = str(exc)
                 raise SinkError(f"TDengine open failed: {exc}") from exc
