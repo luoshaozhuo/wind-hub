@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from hashlib import sha256
 
 from core.infrastructure.config import YamlConfigAdapter
 from sink_service.infrastructure.adapters import GrpcSink, KafkaSink, ModbusSink, RedisSink, TDengineSink
-from contracts.sample_message import DeliveryMode, SampleMessage
+from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
 from sink_service.application.runtime import SinkRuntime
 from sink_service.infrastructure.config import _resolve_sinks
 from sink_service.infrastructure.nats_consumer import NatsSinkConsumer
@@ -28,6 +29,7 @@ def assemble_sinks(
     wind_farm_id: str,
 ) -> dict[str, SinkRuntime]:
     """Build one consumer per enabled target with independent acknowledgments."""
+    validate_subject_token(wind_farm_id)
     snapshot = YamlConfigAdapter(Path(config_dir)).load()
     if snapshot.site.site_id != wind_farm_id:
         raise ValueError("wind_farm_id differs from site configuration")
@@ -60,7 +62,10 @@ def assemble_sinks(
             servers=servers,
             delivery=delivery,
             subject=f"wh.{'rt' if delivery == 'realtime' else 'hist'}.{wind_farm_id}.>",
-            durable=f"wh_{wind_farm_id}_{sink_id}" if delivery == "reliable" else None,
+            durable=(
+                "sink_" + sha256(f"{wind_farm_id}:{sink_id}".encode()).hexdigest()[:32]
+                if delivery == "reliable" else None
+            ),
             allowed=allowed,
         )
     return result
