@@ -7,7 +7,6 @@ from .protocol import (
     ProtocolSampleCallback,
     SubscriptionHandle,
 )
-from .sink import ExclusiveOpenSinkPort, SinkPort
 
 __all__ = [
     "ConfigPort",
@@ -15,6 +14,4 @@ __all__ = [
     "ProtocolPort",
     "ProtocolSampleCallback",
     "SubscriptionHandle",
-    "SinkPort",
-    "ExclusiveOpenSinkPort",
 ]
