@@ -17,7 +17,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from core.application import ConfigError
-from core.application.settings import ADSLocalConfig
+from core.application.settings import ADSLocalConfig, MessagingSettings
 from core.domain import (
     Device,
     DeviceId,
@@ -104,6 +104,7 @@ class CollectorConfig:
     device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
     runtime: RuntimeParams = field(default_factory=RuntimeParams)
+    messaging: MessagingSettings
     ads_local: ADSLocalConfig | None = None
     tasks: Mapping[str, CollectionTask] = field(default_factory=dict)
     sinks: Mapping[str, Sink] = field(default_factory=dict)
