@@ -9,7 +9,6 @@ from __future__ import annotations
 from core.application import ConfigError, ConnectionHealth
 from sink_service.application.point_port import LegacyPointSinkPort
 from core.application.sink_contract import ModbusSinkAddress, ResolvedSink, ResolvedSinkPoint
-from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import ModbusSinkConnection
 from sink_service.infrastructure.adapters.modbus.pipeline import ModbusSinkDataPath
@@ -24,7 +23,7 @@ class ModbusSink(LegacyPointSinkPort):
         """监听端口独占，热重载采用 close-first。"""
         return True
 
-    def __init__(self, config: Sink) -> None:
+    def __init__(self, config: ResolvedSink) -> None:
         connection_values = dict(config.connection)
         raw_sources = config.task_sources if isinstance(config, ResolvedSink) else None
         self._task_sources = {
