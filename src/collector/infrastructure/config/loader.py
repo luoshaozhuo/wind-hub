@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import cast
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
@@ -11,7 +10,7 @@ from core.application.settings import MessagingSettings, RuntimeSettings
 from core.domain import Device, DeviceId
 from core.infrastructure.config.effective import resolve_effective_device
 
-from ...application.config import BackpressurePolicy, CollectorConfig, RuntimeParams
+from ...application.config import CollectorConfig, RuntimeParams
 
 
 def load_collector_config(source: ConfigPort) -> CollectorConfig:
@@ -59,8 +58,6 @@ def _required_messaging(snapshot: ConfigSnapshot) -> MessagingSettings:
 
 def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
     return RuntimeParams(
-        queue_maxsize=settings.queue_maxsize if settings.queue_maxsize is not None else 1000,
-        backpressure_policy=cast(BackpressurePolicy, settings.backpressure_policy or "drop_old"),
         shutdown_timeout=(
             settings.shutdown_timeout if settings.shutdown_timeout is not None else 10.0
         ),
