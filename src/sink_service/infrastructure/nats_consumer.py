@@ -84,13 +84,14 @@ class NatsSinkConsumer:
             await self._handler(sample)
             await msg.ack()
         except Exception:
-            logger.exception("Reliable message not ACKed; awaiting redelivery")
+            logger.exception("Reliable target write failed; requesting redelivery")
+            await msg.nak(delay=1.0)
 
     async def close(self) -> None:
         """Stop subscription before closing its NATS connection."""
         subscription, self._subscription = self._subscription, None
         client, self._client = self._client, None
-        if subscription is not None:
+        if subscription is not None and self._durable is None:
             await subscription.unsubscribe()
         if client is not None:
             await client.close()
