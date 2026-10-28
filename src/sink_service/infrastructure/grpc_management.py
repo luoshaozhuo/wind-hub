@@ -2,6 +2,7 @@
 
 Transport framing is gRPC unary/unary; method names match contracts/sink.proto.
 """
+
 from __future__ import annotations
 
 import json
@@ -58,10 +59,10 @@ def build_management_server(manager: SinkManager, address: str) -> grpc.aio.Serv
             return await method(name)
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "unknown sink")
-            raise AssertionError("abort did not terminate")
+            raise AssertionError("abort did not terminate") from None
         except (RuntimeError, ValueError) as exc:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
-            raise AssertionError("abort did not terminate")
+            raise AssertionError("abort did not terminate") from exc
 
     handlers: dict[str, grpc.RpcMethodHandler] = {}
     methods = {
@@ -74,6 +75,7 @@ def build_management_server(manager: SinkManager, address: str) -> grpc.aio.Serv
         "ClearSink": (manager.clear_sink, False, False),
     }
     for name, (action, service, listing) in methods.items():
+
         async def handle(
             request: dict[str, Any],
             context: grpc.aio.ServicerContext[Any, Any],
@@ -85,7 +87,9 @@ def build_management_server(manager: SinkManager, address: str) -> grpc.aio.Serv
             return await invoke(_action, request, context, service=_service, listing=_listing)
 
         handlers[name] = grpc.unary_unary_rpc_method_handler(
-            handle, request_deserializer=_decode, response_serializer=_encode,
+            handle,
+            request_deserializer=_decode,
+            response_serializer=_encode,
         )
     server.add_generic_rpc_handlers(
         [grpc.method_handlers_generic_handler("windhub.sink.v1.SinkService", handlers)]

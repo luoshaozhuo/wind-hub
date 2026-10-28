@@ -9,9 +9,9 @@ from contextlib import suppress
 
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
-from sink_service.application.error import SinkError
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import RedisSinkConnection
+from sink_service.application.error import SinkError
 from sink_service.infrastructure.adapters.redis_record import encode_redis_record
 
 logger = logging.getLogger(__name__)
@@ -47,8 +47,7 @@ class RedisSink:
         connection = dict(config.connection)
         self._task_prefixes = dict(config.task_key_prefixes or {})
         self._task_sources = {
-            task_id: set(sources)
-            for task_id, sources in (config.task_sources or {}).items()
+            task_id: set(sources) for task_id, sources in (config.task_sources or {}).items()
         }
         self._keys: dict[tuple[str, str], str] = {}
         for raw in config.points:
@@ -180,8 +179,14 @@ class RedisSink:
                 ]
                 commands = [
                     _command(
-                        "EVAL", _CAS_SCRIPT, "1", record.key, record.payload,
-                        str(int(point.timestamp.timestamp() * 1000) + (point.max_staleness_ms or 0)),
+                        "EVAL",
+                        _CAS_SCRIPT,
+                        "1",
+                        record.key,
+                        record.payload,
+                        str(
+                            int(point.timestamp.timestamp() * 1000) + (point.max_staleness_ms or 0)
+                        ),
                     )
                     for point, record in zip(batch, records, strict=True)
                 ]

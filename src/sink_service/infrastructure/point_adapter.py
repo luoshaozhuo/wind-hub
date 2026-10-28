@@ -1,4 +1,5 @@
 """Bridge the shared SinkPort to migrated task-aware target writers."""
+
 from __future__ import annotations
 
 from core.domain.point_value import PointValue

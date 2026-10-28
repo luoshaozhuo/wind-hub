@@ -10,10 +10,10 @@ from typing import Any
 
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
-from sink_service.application.error import SinkError
-from sink_service.application.export import SinkReferenceExporter
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import KafkaSinkConnection
+from sink_service.application.error import SinkError
+from sink_service.application.export import SinkReferenceExporter
 
 
 def _utc(value: datetime | None) -> str | None:

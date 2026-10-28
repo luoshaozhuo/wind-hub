@@ -27,9 +27,9 @@ from core.application.errors import ConfigError
 from core.application.settings import (
     ADSLocalConfig,
     LogSettings,
+    MessagingSettings,
     RuntimeSettings,
     SystemSettings,
-    MessagingSettings,
     ThreadPoolSettings,
 )
 from core.domain import (
@@ -225,7 +225,11 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
     messaging = None
     if "messaging" in raw:
         messaging_raw = _map(raw["messaging"], "system.messaging")
-        _keys(messaging_raw, {"backend", "servers", "delivery", "max_staleness_ms"}, "system.messaging")
+        _keys(
+            messaging_raw,
+            {"backend", "servers", "delivery", "max_staleness_ms"},
+            "system.messaging",
+        )
         if messaging_raw.get("backend") != "nats":
             raise ConfigError("messaging.backend must be nats")
         try:
@@ -643,9 +647,7 @@ def load_domain(config_dir: Path, *, include_sinks: bool = True) -> ConfigSnapsh
             for task_id, output in sink.outputs.items():
                 task = tasks.get(task_id)
                 if task is None:
-                    raise ConfigError(
-                        f"Sink '{sink.sink_id}' references unknown Task '{task_id}'"
-                    )
+                    raise ConfigError(f"Sink '{sink.sink_id}' references unknown Task '{task_id}'")
                 if output.key_prefix is not None and sink.kind != "redis":
                     raise ConfigError(f"Task '{task.task_id}' key_prefix requires a Redis Sink")
                 if task.enabled and not sink.enabled:

@@ -1,4 +1,5 @@
 """Internal PointValue writer interface for migrated output backends."""
+
 from __future__ import annotations
 
 from typing import Protocol

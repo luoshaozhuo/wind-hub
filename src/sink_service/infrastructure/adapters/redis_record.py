@@ -30,7 +30,9 @@ class RedisRecord:
 
 
 def encode_redis_record(
-    config: RedisKeyOptions, point: PointValue, *,
+    config: RedisKeyOptions,
+    point: PointValue,
+    *,
     key_prefix: str | None = None,
     key_override: str | None = None,
 ) -> RedisRecord:

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-from web_server.application.port.sink import SinkDirectoryPort
-
 from web_server.application.config.service import ConfigService
 from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.monitoring import (
@@ -19,6 +17,7 @@ from web_server.application.port.monitoring import (
     SinkRuntimeSnapshot,
     TaskRuntimeSnapshot,
 )
+from web_server.application.port.sink import SinkDirectoryPort
 from web_server.application.port.worker import (
     CollectorRuntimeStatus,
     CollectorTaskSummary,

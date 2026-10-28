@@ -1,4 +1,5 @@
 """Compose NATS consumers and target adapters without importing Collector."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -6,12 +7,18 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 
+from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
 from core.application.sink_contract import ResolvedSink
 from core.infrastructure.config import YamlConfigAdapter
-from sink_service.infrastructure.adapters import GrpcSink, KafkaSink, ModbusSink, RedisSink, TDengineSink
-from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
 from sink_service.application.point_port import LegacyPointSinkPort
 from sink_service.application.runtime import SinkRuntime
+from sink_service.infrastructure.adapters import (
+    GrpcSink,
+    KafkaSink,
+    ModbusSink,
+    RedisSink,
+    TDengineSink,
+)
 from sink_service.infrastructure.config import _resolve_sinks
 from sink_service.infrastructure.intent import SinkIntentStore
 from sink_service.infrastructure.nats_consumer import NatsSinkConsumer
@@ -84,7 +91,8 @@ def assemble_sinks(
             subject=f"wh.{'rt' if delivery == 'realtime' else 'hist'}.{wind_farm_id}.>",
             durable=(
                 "sink_" + sha256(f"{wind_farm_id}:{sink_id}".encode()).hexdigest()[:32]
-                if delivery == "reliable" else None
+                if delivery == "reliable"
+                else None
             ),
             allowed=allowed,
             save_intent=(partial(intent_store.set_running, sink_id) if intent_store else None),
@@ -111,10 +119,17 @@ def _build_runtime(
         await holder[0].write(sample)
 
     consumer = NatsSinkConsumer(
-        servers, subject, durable=durable, handler=handle, max_ack_pending=1,
+        servers,
+        subject,
+        durable=durable,
+        handler=handle,
+        max_ack_pending=1,
     )
     runtime = SinkRuntime(
-        adapter, consumer, realtime=delivery == "realtime", save_intent=save_intent,
+        adapter,
+        consumer,
+        realtime=delivery == "realtime",
+        save_intent=save_intent,
     )
     holder.append(runtime)
     return runtime

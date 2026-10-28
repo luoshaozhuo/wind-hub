@@ -1,4 +1,5 @@
 """Durable per-Sink operator stop intent for process-isolated deployments."""
+
 from __future__ import annotations
 
 import os

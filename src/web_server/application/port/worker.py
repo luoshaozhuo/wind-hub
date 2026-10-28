@@ -257,9 +257,6 @@ class CollectorPort(Protocol):
 
     async def list_devices(self) -> list[DeviceRuntimeInfo]: ...
 
-
-
-
     async def list_tasks(self) -> list[CollectorTaskSummary]: ...
 
     async def list_task_instances(self) -> list[CollectorTaskInstance]: ...

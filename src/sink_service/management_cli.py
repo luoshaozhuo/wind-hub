@@ -1,4 +1,5 @@
 """Standalone CLI for Sink Service management over gRPC."""
+
 from __future__ import annotations
 
 import argparse

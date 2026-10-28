@@ -1,4 +1,5 @@
 """Lifecycle and consumption coordination for one independent Sink."""
+
 from __future__ import annotations
 
 import asyncio
@@ -52,7 +53,11 @@ class SinkRuntime:
     """Own one Sink's connection, subscription and realtime ordering state."""
 
     def __init__(
-        self, sink: SinkPort, consumer: ConsumerPort, *, realtime: bool,
+        self,
+        sink: SinkPort,
+        consumer: ConsumerPort,
+        *,
+        realtime: bool,
         save_intent: Callable[[bool], None] | None = None,
     ) -> None:
         self._sink = sink
@@ -172,20 +177,22 @@ class SinkRuntime:
                             return
                         raise ValueError("ambiguous equal-time realtime samples")
             try:
-                await self._sink.write([
-                    PointValue(
-                        device_id=sample.device_id,
-                        point_id=sample.point_id,
-                        value=sample.value,
-                        quality=Quality(sample.quality),
-                        timestamp=sample.sample_time,
-                        receive_time=sample.receive_time,
-                        source=sample.collector_id,
-                        sample_id=sample.sample_id,
-                        task_id=sample.task_id,
-                        max_staleness_ms=sample.max_staleness_ms,
-                    )
-                ])
+                await self._sink.write(
+                    [
+                        PointValue(
+                            device_id=sample.device_id,
+                            point_id=sample.point_id,
+                            value=sample.value,
+                            quality=Quality(sample.quality),
+                            timestamp=sample.sample_time,
+                            receive_time=sample.receive_time,
+                            source=sample.collector_id,
+                            sample_id=sample.sample_id,
+                            task_id=sample.task_id,
+                            max_staleness_ms=sample.max_staleness_ms,
+                        )
+                    ]
+                )
             except Exception as exc:
                 self._failure = str(exc)
                 self._state = SinkState.FAILED
@@ -200,9 +207,7 @@ class SinkRuntime:
         """Return cached value and current validity, even without new messages."""
         sample = self._latest.get(key)
         return sample, (
-            self._state is SinkState.RUNNING
-            and sample is not None
-            and self._is_fresh(sample)
+            self._state is SinkState.RUNNING and sample is not None and self._is_fresh(sample)
         )
 
     async def clear(self) -> int:

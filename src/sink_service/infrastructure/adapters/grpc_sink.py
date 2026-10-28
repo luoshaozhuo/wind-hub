@@ -10,11 +10,11 @@ from contracts import gateway_pb2 as pb
 from contracts import gateway_pb2_grpc as rpc
 from core.application import ConnectionHealth
 from core.application.sink_contract import GrpcSinkAddress, ResolvedSink, ResolvedSinkPoint
-from sink_service.application.export import SinkReferenceExporter
 from core.domain.point_value import PointValue
 from core.domain.sample_value import Quality
 from core.infrastructure.config.sink_schema import GrpcSinkConnection
 from core.infrastructure.rpc.scalar_codec import encode_scalar
+from sink_service.application.export import SinkReferenceExporter
 
 
 class GrpcSink:

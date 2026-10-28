@@ -1,4 +1,5 @@
 """Web Server outbound client for independent Sink Service gRPC."""
+
 from __future__ import annotations
 
 import asyncio
@@ -19,7 +20,7 @@ class SinkGrpcClient:
 
     async def call(self, method: str, name: str | None = None) -> dict[str, Any]:
         """Use an independent channel, never a Collector worker RPC."""
-        payload = {"schema_version": 1}
+        payload: dict[str, Any] = {"schema_version": 1}
         if name is not None:
             payload["name"] = name
         async with grpc.aio.insecure_channel(self._endpoint) as channel:

@@ -1,8 +1,10 @@
 """Independent Sink Service process, without Collector imports."""
+
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import signal
 from hashlib import sha256
@@ -10,9 +12,9 @@ from pathlib import Path
 from typing import Literal
 
 from core.infrastructure.config import config_dir_digest
-from sink_service.assembly import assemble_sinks
-from sink_service.application.runtime import SinkRuntime, SinkState
 from sink_service.application.management import SinkManager
+from sink_service.application.runtime import SinkRuntime, SinkState
+from sink_service.assembly import assemble_sinks
 from sink_service.infrastructure.grpc_management import build_management_server
 from sink_service.infrastructure.intent import SinkIntentStore
 
@@ -42,20 +44,29 @@ async def run_sink_service(
             raise ValueError("one Sink cannot consume both delivery channels")
         sinks = {
             **assemble_sinks(
-                config_dir, servers=servers, delivery="realtime",
-                wind_farm_id=wind_farm_id, intent_store=store,
+                config_dir,
+                servers=servers,
+                delivery="realtime",
+                wind_farm_id=wind_farm_id,
+                intent_store=store,
                 sink_ids=realtime_sinks,
             ),
             **assemble_sinks(
-                config_dir, servers=servers, delivery="reliable",
-                wind_farm_id=wind_farm_id, intent_store=store,
+                config_dir,
+                servers=servers,
+                delivery="reliable",
+                wind_farm_id=wind_farm_id,
+                intent_store=store,
                 sink_ids=reliable_sinks,
             ),
         }
     else:
         sinks = assemble_sinks(
-            config_dir, servers=servers, delivery=delivery,
-            wind_farm_id=wind_farm_id, intent_store=store,
+            config_dir,
+            servers=servers,
+            delivery=delivery,
+            wind_farm_id=wind_farm_id,
+            intent_store=store,
             sink_ids=realtime_sinks or reliable_sinks or None,
         )
     if applied_digest != config_dir_digest(config_dir):
@@ -104,16 +115,15 @@ async def run_sink_service(
     await stopping.wait()
     await grpc_server.stop(grace=5.0)
     supervisor.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await supervisor
-    except asyncio.CancelledError:
-        pass
 
     async def close(sink_id: str, sink: SinkRuntime) -> None:
         try:
             await asyncio.wait_for(sink.stop(explicit=False), timeout=shutdown_timeout)
         except Exception:
             logger.exception("Sink %s shutdown failed", sink_id)
+
     await asyncio.gather(*(close(name, sink) for name, sink in sinks.items()))
 
 

@@ -1,4 +1,5 @@
 """Versioned, single-sample NATS transport contract."""
+
 from __future__ import annotations
 
 import json
@@ -16,7 +17,6 @@ def validate_subject_token(value: str) -> str:
     if not value or any(char in value for char in (".", "*", ">", " ", "\t", "\r", "\n")):
         raise ValueError("invalid NATS subject token")
     return value
-
 
 
 class SampleMessage(BaseModel):
@@ -73,14 +73,15 @@ class SampleMessage(BaseModel):
         """Return the protocol-defined subject for this sample."""
         prefix = "wh.rt" if mode == "realtime" else "wh.hist"
         return (
-            f"{prefix}.{self.wind_farm_id}.{self.collector_id}."
-            f"{self.device_id}.{self.point_id}"
+            f"{prefix}.{self.wind_farm_id}.{self.collector_id}." f"{self.device_id}.{self.point_id}"
         )
 
     def encode(self) -> bytes:
         """Encode strict UTF-8 JSON."""
         return json.dumps(
-            self.model_dump(mode="json"), ensure_ascii=False, allow_nan=False,
+            self.model_dump(mode="json"),
+            ensure_ascii=False,
+            allow_nan=False,
             separators=(",", ":"),
         ).encode("utf-8")
 

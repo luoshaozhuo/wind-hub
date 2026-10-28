@@ -152,7 +152,9 @@ class MessagingSettings:
     max_staleness_ms: int | None = None
 
     def __post_init__(self) -> None:
-        if not self.servers or any(not value.startswith(("nats://", "tls://")) for value in self.servers):
+        if not self.servers or any(
+            not value.startswith(("nats://", "tls://")) for value in self.servers
+        ):
             raise ValueError("messaging.servers requires NATS URLs")
         if self.delivery not in ("realtime", "reliable"):
             raise ValueError("messaging.delivery must be realtime or reliable")

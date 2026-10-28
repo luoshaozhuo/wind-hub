@@ -1,4 +1,5 @@
 """Application boundary for independently deployed Sink Service management."""
+
 from __future__ import annotations
 
 from typing import Any, Protocol

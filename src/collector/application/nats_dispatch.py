@@ -1,9 +1,10 @@
 """Collector-side sample serialization and dispatch, independent of output Sinks."""
+
 from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Literal, Protocol, cast
+from typing import Protocol
 
 from contracts.sample_message import DeliveryMode, SampleMessage
 from core.domain.point_value import PointValue
@@ -77,7 +78,7 @@ class SamplePublisher:
                     point_id=value.point_id,
                     sample_id=f"{self._identity.collector_id}:{self._identity.boot_id}:{self._sequence}",
                     value=value.value,
-                    quality=cast(Literal["good", "bad", "uncertain"], value.quality.value),
+                    quality=value.quality.value,
                     sample_time=value.timestamp,
                     receive_time=value.receive_time,
                     publish_time=datetime.now(UTC),

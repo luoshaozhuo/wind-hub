@@ -137,6 +137,8 @@ module = [
     "contracts.commander_pb2_grpc",
     "contracts.gateway_pb2",
     "contracts.gateway_pb2_grpc",
+    "contracts.sink_pb2",
+    "contracts.sink_pb2_grpc",
     "contracts.common_pb2",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]

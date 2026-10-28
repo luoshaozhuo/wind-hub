@@ -1,4 +1,5 @@
 """Resolve Sink-specific address mappings outside Collector."""
+
 from __future__ import annotations
 
 from core.application.config_snapshot import ConfigSnapshot
@@ -11,7 +12,6 @@ from core.application.sink_contract import (
 )
 from core.domain import DeviceId, Task
 from core.infrastructure.config.sink_schema import MODBUS_WORD_WIDTH, SINK_NUMERIC_DATA_TYPES
-
 
 
 def _task_group_sources(snapshot: ConfigSnapshot, task: Task) -> tuple[tuple[str, str], ...]:
@@ -176,5 +176,3 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, ResolvedSink]:
             ),
         )
     return result
-
-

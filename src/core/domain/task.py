@@ -1,4 +1,5 @@
 """采集任务领域模型，仅描述采集设备组、测点组与周期。"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping

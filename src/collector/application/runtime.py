@@ -30,9 +30,9 @@ from core.domain import Device, DeviceId, PointTable
 from ..domain.acquisition import AcquisitionEngine
 from .acquisition_state import AcquisitionRuntimeState
 from .config import CollectionTask, CollectorConfig, RuntimeParams
-from .nats_dispatch import SamplePublisher as NatsPublisher
 from .device_runtime import DeviceRuntime
 from .device_state import DeviceRuntimeState
+from .nats_dispatch import SamplePublisher as NatsPublisher
 from .reload import (
     HOT_RELOADABLE_RUNTIME_FIELDS,
     ConfigDiff,

@@ -303,5 +303,3 @@ class CollectorTaskService:
             targets=[],
             state=state,
         )
-
-

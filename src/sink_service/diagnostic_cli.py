@@ -1,4 +1,5 @@
 """Read-only CLI diagnostics for Sink Service targets."""
+
 from __future__ import annotations
 
 import asyncio
@@ -51,7 +52,11 @@ def benchmark(
     _display(
         asyncio.run(
             benchmark_sink(
-                config, sink_id, samples=samples, interval=interval, timeout=timeout,
+                config,
+                sink_id,
+                samples=samples,
+                interval=interval,
+                timeout=timeout,
             )
         ),
         json_output,

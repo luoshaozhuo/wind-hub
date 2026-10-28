@@ -61,7 +61,6 @@ class CollectionTaskInstance:
     纯 IEC104 订阅实例可为 ``None``（数据到达时机由远端决定）。"""
 
 
-
 def task_instance_id(task_id: str, device_id: str) -> str:
     """构造稳定 Task Instance 标识。
 

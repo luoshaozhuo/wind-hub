@@ -6,13 +6,13 @@ import time
 from typing import Any
 
 from pydantic import BaseModel, Field
-from web_server.application.port.sink import SinkDirectoryPort
 
 from core.domain.sink import Sink
 from core.infrastructure.config.yaml import yaml_plain
 from web_server.application.config.files import ConfigApplyResult, ConfigFileService
 from web_server.application.config.service import ConfigService
 from web_server.application.port.monitoring import MonitoringSnapshotPort
+from web_server.application.port.sink import SinkDirectoryPort
 
 
 class SinkSnapshot(BaseModel):
@@ -103,8 +103,8 @@ class SinkService:
                 latency_ms=(time.monotonic() - started) * 1000,
                 message=(
                     "Sink configuration changed; restart Sink Service process"
-                    if row.get("config_pending_restart") else
-                    str(row.get("failure") or row.get("state"))
+                    if row.get("config_pending_restart")
+                    else str(row.get("failure") or row.get("state"))
                 ),
             )
         except Exception as exc:

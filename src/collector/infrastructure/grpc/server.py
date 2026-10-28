@@ -361,6 +361,7 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             ]
         )
 
+
 class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
     """Collector 低频运行控制。"""
 

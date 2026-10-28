@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
-from core.infrastructure.config.adapter import YamlConfigAdapter
 from core.application.settings import MessagingSettings, RuntimeSettings
 from core.domain import Device, DeviceId
+from core.infrastructure.config.adapter import YamlConfigAdapter
 from core.infrastructure.config.effective import resolve_effective_device
 
 from ...application.config import CollectorConfig, RuntimeParams

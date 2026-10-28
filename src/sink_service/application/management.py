@@ -1,4 +1,5 @@
 """Sink management operations, independent from Collector."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
@@ -34,9 +35,8 @@ class SinkManager:
             "running": sum(s.state.value == "running" for s in self._sinks.values()),
             "failed": sum(s.state.value == "failed" for s in self._sinks.values()),
             "config_pending_restart": self.config_pending_restart(),
-            "nats_connected": any(s.desired_running for s in self._sinks.values()) and all(
-                s.nats_connected for s in self._sinks.values() if s.desired_running
-            ),
+            "nats_connected": any(s.desired_running for s in self._sinks.values())
+            and all(s.nats_connected for s in self._sinks.values() if s.desired_running),
         }
 
     async def list_sinks(self) -> list[dict[str, object]]:

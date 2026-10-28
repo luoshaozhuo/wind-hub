@@ -1,4 +1,5 @@
 """One-time JetStream provisioning, independent from Collector and Sink Service."""
+
 from __future__ import annotations
 
 import argparse
@@ -10,7 +11,10 @@ from nats.js.errors import NotFoundError
 
 
 async def ensure_history_stream(
-    servers: tuple[str, ...], *, stream: str = "WH_HISTORY", max_age_days: int = 7,
+    servers: tuple[str, ...],
+    *,
+    stream: str = "WH_HISTORY",
+    max_age_days: int = 7,
 ) -> None:
     """Provision the history-only Stream without touching realtime Subjects."""
     if max_age_days <= 0:
@@ -45,7 +49,9 @@ def main() -> None:
     args = parser.parse_args()
     asyncio.run(
         ensure_history_stream(
-            tuple(args.nats), stream=args.stream, max_age_days=args.max_age_days,
+            tuple(args.nats),
+            stream=args.stream,
+            max_age_days=args.max_age_days,
         )
     )
 

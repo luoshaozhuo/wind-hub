@@ -243,6 +243,7 @@ class TaskPlacementRegistry:
                 workers.add(placements[task.task_id])
         return sorted(workers)
 
+
 __all__ = [
     "TaskPlacement",
     "TaskPlacementRegistry",

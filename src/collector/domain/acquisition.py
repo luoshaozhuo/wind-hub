@@ -280,9 +280,7 @@ class AcquisitionEngine:
     # 统一数据处理入口（主动轮询与订阅推送在此汇合）
     # ------------------------------------------------------------------
 
-    async def process(
-        self, batch: list[PointValue], *, task_id: str = "manual"
-    ) -> None:
+    async def process(self, batch: list[PointValue], *, task_id: str = "manual") -> None:
         """统计 → Observers → 将采样发布至 NATS。
 
         订阅数据已经到达，不得再绕回 :meth:`collect`。同一个点被多个不同

@@ -1,4 +1,5 @@
 """Independent realtime and durable JetStream consumption."""
+
 from __future__ import annotations
 
 import logging
@@ -27,7 +28,7 @@ class NatsSinkConsumer:
         handler: SampleHandler,
         ack_wait_seconds: float = 30.0,
         max_ack_pending: int = 128,
-        stream: str = 'WH_HISTORY',
+        stream: str = "WH_HISTORY",
     ) -> None:
         if not servers or not subject:
             raise ValueError("NATS servers and subject are required")
@@ -57,8 +58,10 @@ class NatsSinkConsumer:
         try:
             if self._durable is None:
                 subscription = await client.subscribe(
-                    self._subject, cb=self._on_realtime,
-                    pending_msgs_limit=1024, pending_bytes_limit=4 * 1024 * 1024,
+                    self._subject,
+                    cb=self._on_realtime,
+                    pending_msgs_limit=1024,
+                    pending_bytes_limit=4 * 1024 * 1024,
                 )
             else:
                 from nats.js.api import AckPolicy, ConsumerConfig
@@ -111,7 +114,7 @@ class NatsSinkConsumer:
         try:
             manager = client.jetstream()
             info = await manager.consumer_info(self._stream, self._durable)
-            skipped = info.num_pending + info.num_ack_pending
+            skipped = int(info.num_pending + info.num_ack_pending)
             if not await manager.delete_consumer(self._stream, self._durable):
                 raise RuntimeError("durable consumer deletion was rejected")
             await manager.add_consumer(
@@ -138,7 +141,7 @@ class NatsSinkConsumer:
         except Exception:
             logger.warning("JetStream backlog query failed", exc_info=True)
             return None
-        return info.num_pending + info.num_ack_pending
+        return int(info.num_pending + info.num_ack_pending)
 
     @property
     def connected(self) -> bool:
