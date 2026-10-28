@@ -30,6 +30,7 @@ class PointValueSinkAdapter:
                 timestamp=sample.sample_time,
                 receive_time=sample.receive_time,
                 source=sample.collector_id,
+                sample_id=sample.sample_id,
             )
             for sample in batch
         ]
