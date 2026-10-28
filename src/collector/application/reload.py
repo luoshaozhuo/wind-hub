@@ -187,7 +187,7 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
         for key in set(old.point_tables) | set(new.point_tables)
         if old.point_tables.get(key) != new.point_tables.get(key)
     )
-    added_sinks, removed_sinks, changed_sinks, unchanged_sinks = _differences(old.sinks, new.sinks)
+    added_sinks, removed_sinks, changed_sinks, unchanged_sinks = ([], [], [], [])
     # 下游 Sink 引用可能因设备映射或点表变化而改变，直接比较解析后契约。
     sinks = SinkDiff(
         added=added_sinks,
