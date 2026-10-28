@@ -41,7 +41,7 @@ class NatsPublisher:
                 self._client = await nats.connect(
                     servers=self._servers,
                     allow_reconnect=True,
-                    max_reconnect_attempts=-1,
+                    max_reconnect_attempts=3,
                     connect_timeout=0.5,
                     reconnect_time_wait=1,
                     pending_size=1024 * 1024,
