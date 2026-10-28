@@ -224,16 +224,6 @@ async function verify(sink: SinkDef) {
   }
 }
 
-async function testWrite(sink: SinkDef) {
-  if (busy.value) return
-  busy.value = true
-  try {
-    await configStore.writeTestSink(sink)
-  } finally {
-    busy.value = false
-  }
-}
-
 async function controlSink(sink: SinkDef, operation: SinkOperation) {
   if (busy.value) return
   if (operation === 'clear') {
@@ -322,7 +312,6 @@ async function remove(sink: SinkDef) {
               <el-button link :disabled="busy" @click="controlSink(row, 'stop')">停止</el-button>
               <el-button link :disabled="busy" @click="controlSink(row, 'restart')">重启</el-button>
               <el-button link :disabled="busy" @click="controlSink(row, 'clear')">清空</el-button>
-              <el-button link :disabled="busy" @click="testWrite(row)">测试写入</el-button>
               <el-button link type="danger" :disabled="busy" @click="remove(row)">删除</el-button>
             </el-space>
           </template>
