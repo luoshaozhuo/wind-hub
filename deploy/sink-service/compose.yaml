@@ -1,0 +1,119 @@
+# Usage:
+# docker compose --profile single up --build
+# docker compose --profile split up --build
+# Run only ONE profile. Each Sink ID must be owned by one service process.
+services:
+  nats:
+    image: nats:2.11-alpine
+    command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]
+    volumes:
+      - nats-data:/data
+    ports:
+      - "127.0.0.1:4222:4222"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats-init:
+    build:
+      context: ../..
+      dockerfile: deploy/sink-service/Dockerfile
+    image: wind-hub-sink-service:dev
+    entrypoint: ["python", "-m", "sink_service.nats_init"]
+    command: ["--nats", "nats://nats:4222"]
+    depends_on:
+      nats:
+        condition: service_healthy
+    restart: "no"
+
+  sink-single:
+    image: wind-hub-sink-service:dev
+    profiles: ["single"]
+    command:
+      - --config
+      - /etc/wind-hub
+      - --nats
+      - nats://nats:4222
+      - --wind-farm-id
+      - ${WIND_HUB_SITE_ID:-my_site}
+      - --delivery
+      - both
+      - --realtime-sink
+      - redis_latest
+      - --reliable-sink
+      - tdengine_history
+      - --grpc-listen
+      - 0.0.0.0:50074
+      - --state-dir
+      - /var/lib/wind-hub
+    volumes:
+      - ${WIND_HUB_CONFIG_DIR:-../../configs}:/etc/wind-hub:ro
+      - sink-intent:/var/lib/wind-hub
+    ports:
+      - "127.0.0.1:50074:50074"
+    depends_on:
+      nats-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  sink-realtime:
+    image: wind-hub-sink-service:dev
+    profiles: ["split"]
+    command:
+      - --config
+      - /etc/wind-hub
+      - --nats
+      - nats://nats:4222
+      - --wind-farm-id
+      - ${WIND_HUB_SITE_ID:-my_site}
+      - --delivery
+      - realtime
+      - --realtime-sink
+      - redis_latest
+      - --grpc-listen
+      - 0.0.0.0:50074
+      - --state-dir
+      - /var/lib/wind-hub
+    volumes:
+      - ${WIND_HUB_CONFIG_DIR:-../../configs}:/etc/wind-hub:ro
+      - sink-intent:/var/lib/wind-hub
+    ports:
+      - "127.0.0.1:50074:50074"
+    depends_on:
+      nats-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  sink-reliable:
+    image: wind-hub-sink-service:dev
+    profiles: ["split"]
+    command:
+      - --config
+      - /etc/wind-hub
+      - --nats
+      - nats://nats:4222
+      - --wind-farm-id
+      - ${WIND_HUB_SITE_ID:-my_site}
+      - --delivery
+      - reliable
+      - --reliable-sink
+      - tdengine_history
+      - --grpc-listen
+      - 0.0.0.0:50075
+      - --state-dir
+      - /var/lib/wind-hub
+    volumes:
+      - ${WIND_HUB_CONFIG_DIR:-../../configs}:/etc/wind-hub:ro
+      - sink-intent:/var/lib/wind-hub
+    ports:
+      - "127.0.0.1:50075:50075"
+    depends_on:
+      nats-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  nats-data:
+  sink-intent:
