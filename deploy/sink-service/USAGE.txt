@@ -1,0 +1,45 @@
+wind-hub Sink Service deployment
+================================
+
+Prerequisites
+-------------
+1. Provision NATS and JetStream with nats-init. Stream WH_HISTORY
+   subscribes only to wh.hist.>; realtime stays on Core NATS.
+2. Configure one Collector instance per delivery in system.yaml:
+   delivery: realtime or delivery: reliable, never both in one Collector.
+3. Assign every enabled Sink to exactly one Sink Service process.
+4. Ensure the Sink Service container can reach Redis/TDengine/Gateway targets.
+   127.0.0.1 inside a container is the container itself. Override target host.
+5. For reliable TDengine output, deploy a compatible schema with a persisted
+   sample_id deduplication key before enabling writes.
+
+Single process
+--------------
+cd deploy/sink-service
+WIND_HUB_SITE_ID=my_site docker compose --profile single up --build
+Web Server: WIND_HUB_SINK_GRPC_TARGETS=127.0.0.1:50074
+
+Split processes
+---------------
+cd deploy/sink-service
+WIND_HUB_SITE_ID=my_site docker compose --profile split up --build
+Web Server: WIND_HUB_SINK_GRPC_TARGETS=127.0.0.1:50074,127.0.0.1:50075
+
+The profiles must not be launched concurrently. A Sink ID must not be assigned
+to both workers; duplicate Durable Consumers violate per-Sink ownership.
+NATS URLs and Site IDs in each deployment must match the Collector publishers.
+
+Configuration lifetime
+----------------------
+Sink output mappings are loaded on Sink Service process startup. The current
+service does not apply sinks.yaml changes live: restart the relevant Sink
+Service process after applying a new configuration. Collector must reload
+its own acquisition configuration separately.
+
+Stop and Clear
+--------------
+StopSink persists the stop request in the Sink Service state directory.
+Restarting the process does not silently reactivate that Sink.
+ClearSink requires a stopped Sink. Reliable Clear skips only that Sink's
+Durable Consumer backlog and does not purge the shared JetStream or target data.
+Realtime Clear invalidates the Sink-local cached latest values.
