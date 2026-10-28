@@ -24,7 +24,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Protocol
 
 from core.application import Quality
@@ -51,17 +50,6 @@ class ReadableDevice(Protocol):
     async def read(self, point_group: str) -> list[PointValue]:
         """批量读取该 point_group 的全部点位（工程值）。"""
         ...
-
-
-@dataclass(frozen=True, slots=True)
-class SinkDelivery:
-    """带 Task 来源的不可变批次元信息；不修改设备原始 PointValue。"""
-
-    task_id: str
-    values: list[PointValue]
-
-    def __len__(self) -> int:
-        return len(self.values)
 
 
 class SinkDispatchPort(Protocol):
@@ -189,7 +177,6 @@ class AcquisitionEngine:
         self,
         device: ReadableDevice,
         point_group: str,
-        targets: list[str],
         execution_id: str,
         task_id: str | None = None,
     ) -> None:
@@ -274,7 +261,7 @@ class AcquisitionEngine:
                     else:
                         partial = bad > 0
             if batch is not None:
-                await self.process(batch, targets, task_id=task_id or execution_id)
+                await self.process(batch, task_id=task_id or execution_id)
         except Exception as exc:
             # 派发阶段的意外异常：如实记为失败后原样上抛（由调用方——
             # polling handle——记录并继续下一周期），running 归位。
@@ -294,7 +281,7 @@ class AcquisitionEngine:
     # ------------------------------------------------------------------
 
     async def process(
-        self, batch: list[PointValue], targets: list[str], *, task_id: str = "manual"
+        self, batch: list[PointValue], *, task_id: str = "manual"
     ) -> None:
         """统计 → Observers → 按 targets 原样派发到 Sink。
 
@@ -344,5 +331,4 @@ __all__ = [
     "DeviceStatePort",
     "ReadableDevice",
     "SinkDispatchPort",
-    "SinkDelivery",
 ]
