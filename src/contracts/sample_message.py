@@ -11,6 +11,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 DeliveryMode = Literal["realtime", "reliable"]
 
 
+def validate_subject_token(value: str) -> str:
+    """Require one safe NATS subject component."""
+    if not value or any(char in value for char in (".", "*", ">", " ", "\t", "\r", "\n")):
+        raise ValueError("invalid NATS subject token")
+    return value
+
+
+
 class SampleMessage(BaseModel):
     """One measurement with immutable source and sample identity."""
 
