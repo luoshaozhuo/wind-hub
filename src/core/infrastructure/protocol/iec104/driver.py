@@ -142,9 +142,7 @@ class IEC104Driver:
         # 复用相同地址的锁，避免旧请求与热更新后新请求并发占用同一 IOA。
         old_locks = getattr(self, "_locks", {})
         old_station_locks = getattr(self, "_station_locks", {})
-        self._locks = {
-            address: old_locks.get(address) or asyncio.Lock() for address in by_address
-        }
+        self._locks = {address: old_locks.get(address) or asyncio.Lock() for address in by_address}
         self._station_locks = {
             ca: old_station_locks.get(ca) or asyncio.Lock()
             for ca in {point.common_address for point in by_id.values()}
