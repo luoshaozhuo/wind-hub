@@ -153,9 +153,7 @@ class CollectorRuntimeStatus:
 
     running: bool
     device_count: int
-    sink_count: int
     devices_connected: int
-    sinks_healthy: int
     points_collected: int
     points_routed: int
     points_dropped: int
