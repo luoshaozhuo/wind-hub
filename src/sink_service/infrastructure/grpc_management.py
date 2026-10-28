@@ -19,6 +19,8 @@ Method = Callable[[str], Awaitable[dict[str, object]]]
 def _decode(raw: bytes) -> dict[str, Any]:
     wrapper = wrappers_pb2.BytesValue.FromString(raw)
     payload = json.loads(wrapper.value)
+    if payload.get("schema_version") != 1:
+        raise ValueError("unsupported SinkService schema_version")
     if not isinstance(payload, dict):
         raise ValueError("request must be a JSON object")
     return payload
