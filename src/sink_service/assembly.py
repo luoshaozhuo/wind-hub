@@ -33,6 +33,7 @@ def assemble_sinks(
     delivery: DeliveryMode,
     wind_farm_id: str,
     intent_store: SinkIntentStore | None = None,
+    sink_ids: frozenset[str] | None = None,
 ) -> dict[str, SinkRuntime]:
     """Build one consumer per enabled target with independent acknowledgments."""
     validate_subject_token(wind_farm_id)
@@ -40,9 +41,11 @@ def assemble_sinks(
     if snapshot.site.site_id != wind_farm_id:
         raise ValueError("wind_farm_id differs from site configuration")
     configs = _resolve_sinks(snapshot)
+    if sink_ids is not None and not sink_ids.issubset(configs):
+        raise ValueError(f"unknown configured Sinks: {sorted(sink_ids - configs.keys())}")
     result: dict[str, SinkRuntime] = {}
     for sink_id, definition in configs.items():
-        if not definition.enabled:
+        if not definition.enabled or (sink_ids is not None and sink_id not in sink_ids):
             continue
         if delivery == "reliable" and definition.kind != "tdengine":
             raise ValueError(f"reliable Sink {sink_id} has no durable idempotency contract")
