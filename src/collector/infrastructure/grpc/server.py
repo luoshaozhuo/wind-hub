@@ -13,9 +13,9 @@ from datetime import datetime
 import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
-from core.infrastructure.rpc import collector_pb2 as pb
-from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
-from core.infrastructure.rpc import commander_pb2 as commander_pb
+from contracts import collector_pb2 as pb
+from contracts import collector_pb2_grpc as pb_grpc
+from contracts import commander_pb2 as commander_pb
 from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
 from core.infrastructure.rpc.scalar_codec import encode_scalar
 
@@ -322,7 +322,7 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
                     scale=point.scale,
                     offset=point.offset,
                     configured_address=[
-                        commander_pb.AddressField(key=key, value=encode_scalar(value))
+                        common_pb.AddressField(key=key, value=encode_scalar(value))
                         for key, value in sorted(point.configured_address.items())
                     ],
                     task_ids=point.task_ids,

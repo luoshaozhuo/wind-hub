@@ -12,7 +12,9 @@ from typing import Any
 
 import grpc
 
-from core.infrastructure.rpc import commander_pb2 as pb
+from contracts import common_pb2 as common_pb
+
+from contracts import commander_pb2 as pb
 from seahorse.application.command_queue import (
     CommandQueue,
     CommandQueueClosedError,
@@ -23,7 +25,7 @@ from seahorse.domain.models import Scalar
 from seahorse.infrastructure.models.wind_turbine.contract import COMMAND_POINTS
 
 
-def _decode(value: pb.ScalarValue) -> Scalar:
+def _decode(value: common_pb.ScalarValue) -> Scalar:
     kind = value.WhichOneof("kind")
     if kind == "bool_value":
         return bool(value.bool_value)

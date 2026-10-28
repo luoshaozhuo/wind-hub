@@ -1,6 +1,6 @@
 """共享 RPC 标量编解码。
 
-collector.proto 与 commander.proto 共用 ``windhub.commander.v1.ScalarValue``
+Collector、Commander、Gateway 共用 ``windhub.common.v1.ScalarValue``
 作为设备点值的 wire 表示；编解码逻辑因此归属 Core，供 Collector 与
 Commander 的 gRPC 适配器复用，避免进程间相互 import。
 """
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import commander_pb2 as pb
+from contracts import common_pb2 as pb
 
 
 def encode_scalar(value: Any) -> pb.ScalarValue:

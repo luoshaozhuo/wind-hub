@@ -11,8 +11,8 @@ from datetime import UTC
 import grpc
 from google.protobuf import empty_pb2
 
-from core.infrastructure.rpc import collector_pb2 as pb
-from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
+from contracts import collector_pb2 as pb
+from contracts import collector_pb2_grpc as pb_grpc
 from web_server.adapter.outbound.grpc.common import GrpcClientBase
 from web_server.application.port.monitoring import (
     AcquisitionStatus,

@@ -7,6 +7,7 @@ readme = "README.md"
 license = "MIT"
 packages = [
     { include = "core", from = "src" },
+    { include = "contracts", from = "src" },
     { include = "collector", from = "src" },
     { include = "commander", from = "src" },
     { include = "cli", from = "src" },
@@ -121,10 +122,13 @@ ignore_missing_imports = true
 # 形态；这些是生成物特征而非缺陷，不参与手写代码的严格规则。
 [[tool.mypy.overrides]]
 module = [
-    "core.infrastructure.rpc.collector_pb2",
-    "core.infrastructure.rpc.collector_pb2_grpc",
-    "core.infrastructure.rpc.commander_pb2",
-    "core.infrastructure.rpc.commander_pb2_grpc",
+    "contracts.collector_pb2",
+    "contracts.collector_pb2_grpc",
+    "contracts.commander_pb2",
+    "contracts.commander_pb2_grpc",
+    "contracts.gateway_pb2",
+    "contracts.gateway_pb2_grpc",
+    "contracts.common_pb2",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]
 
@@ -176,6 +180,7 @@ root_packages = [
     "web_server",
     "industrial_gateway",
     "seahorse",
+    "contracts",
 ]
 
 
@@ -280,10 +285,10 @@ source_modules = [
     "commander.domain",
 ]
 forbidden_modules = [
-    "core.infrastructure.rpc.collector_pb2",
-    "core.infrastructure.rpc.collector_pb2_grpc",
-    "core.infrastructure.rpc.commander_pb2",
-    "core.infrastructure.rpc.commander_pb2_grpc",
+    "contracts.collector_pb2",
+    "contracts.collector_pb2_grpc",
+    "contracts.commander_pb2",
+    "contracts.commander_pb2_grpc",
 ]
 
 [[tool.importlinter.contracts]]
