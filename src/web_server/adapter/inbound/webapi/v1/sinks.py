@@ -1,4 +1,4 @@
-"""Admin API v1 Sinks 路由：查询、配置写入、Verify 与 Write Test。"""
+"""Admin API v1 Sinks 路由：查询、配置写入、Verify 与生命周期控制。"""
 
 from __future__ import annotations
 
