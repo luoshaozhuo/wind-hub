@@ -56,6 +56,14 @@ site:
   site_id: my_site
   name: 我的风场
 
+# 每个 Collector 只使用一个 delivery；NATS 由独立部署系统启动。
+messaging:
+  backend: nats
+  servers:
+    - nats://127.0.0.1:4222
+  delivery: realtime
+  max_staleness_ms: 500
+
 runtime:
   queue_maxsize: 1000
   backpressure_policy: drop_old
