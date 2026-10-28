@@ -1,30 +1,16 @@
 syntax = "proto3";
-
 package windhub.sink.v1;
 
-// Management methods use JSON-encoded unary request and response bytes at runtime.
-// This schema defines the method and field contract for generated clients.
-message SinkRequest { string name = 1; }
-message Empty {}
-message SinkStatus {
-  string name = 1;
-  string state = 2;
-  bool desired_running = 3;
-  string failure = 4;
-  string last_written = 5;
-}
-message ListSinksResponse { repeated SinkStatus items = 1; }
-message ServiceStatus {
-  uint32 count = 1;
-  uint32 running = 2;
-  uint32 failed = 3;
-}
+import "google/protobuf/wrappers.proto";
+
+// This service uses a versioned JSON object inside BytesValue to avoid
+// hand-maintaining generated protobuf artifacts until the contracts build.
 service SinkService {
-  rpc GetServiceStatus(Empty) returns (ServiceStatus);
-  rpc ListSinks(Empty) returns (ListSinksResponse);
-  rpc GetSinkStatus(SinkRequest) returns (SinkStatus);
-  rpc StartSink(SinkRequest) returns (SinkStatus);
-  rpc StopSink(SinkRequest) returns (SinkStatus);
-  rpc RestartSink(SinkRequest) returns (SinkStatus);
-  rpc ClearSink(SinkRequest) returns (SinkStatus);
+  rpc GetServiceStatus(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc ListSinks(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc GetSinkStatus(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc StartSink(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc StopSink(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc RestartSink(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc ClearSink(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
 }
