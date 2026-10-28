@@ -151,7 +151,11 @@ class SinkRuntime:
     def latest(self, key: PointKey) -> tuple[SampleMessage | None, bool]:
         """Return cached value and current validity, even without new messages."""
         sample = self._latest.get(key)
-        return sample, sample is not None and self._is_fresh(sample)
+        return sample, (
+            self._state is SinkState.RUNNING
+            and sample is not None
+            and self._is_fresh(sample)
+        )
 
     def clear_realtime(self) -> None:
         """Invalidate latest-value cache; never delete output target data."""
