@@ -92,7 +92,11 @@ class SinkService:
         started = time.monotonic()
         try:
             row = await self._sink_directory.call("GetSinkStatus", name)
-            healthy = row.get("state") == "running" and row.get("failure") is None
+            healthy = (
+                row.get("state") == "running"
+                and row.get("nats_connected") is True
+                and row.get("failure") is None
+            )
             return SinkTestResult(
                 success=healthy,
                 latency_ms=(time.monotonic() - started) * 1000,
