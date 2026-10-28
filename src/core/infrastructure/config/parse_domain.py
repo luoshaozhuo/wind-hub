@@ -639,12 +639,12 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
         )
         tasks = _tasks(task_document)
         sinks = _sinks(sink_document)
-        for task in tasks.values():
-            for output in task.outputs:
-                sink = sinks.get(output.sink_id)
-                if sink is None:
+        for sink in sinks.values():
+            for task_id, output in sink.outputs.items():
+                task = tasks.get(task_id)
+                if task is None:
                     raise ConfigError(
-                        f"Task '{task.task_id}' references unknown sink '{output.sink_id}'"
+                        f"Sink '{sink.sink_id}' references unknown Task '{task_id}'"
                     )
                 if output.key_prefix is not None and sink.kind != "redis":
                     raise ConfigError(f"Task '{task.task_id}' key_prefix requires a Redis Sink")
@@ -652,7 +652,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
                     # Modbus 从站必须为每个点显式分配寄存器地址；空 points
                     # 无法安全展开为通配（redis/tdengine 可按任务组全量投递）。
                     raise ConfigError(
-                        f"Task '{task.task_id}' modbus output '{output.sink_id}' "
+                        f"Task '{task.task_id}' modbus output '{sink.sink_id}' "
                         "must declare explicit points with register addresses"
                     )
                 if output.points:
