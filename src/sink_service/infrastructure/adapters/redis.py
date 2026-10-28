@@ -46,12 +46,10 @@ class RedisSink:
     def __init__(self, config: ResolvedSink) -> None:
         connection = dict(config.connection)
         self._task_prefixes = dict(config.task_key_prefixes or {})
-        self._task_sources = (
-            {
-                task_id: {(device, point) for device, point in sources}
-                for task_id, sources in (config.task_sources or {}).items()
-            }
-        )
+        self._task_sources = {
+            task_id: set(sources)
+            for task_id, sources in (config.task_sources or {}).items()
+        }
         self._config = RedisSinkConnection.model_validate(connection)
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
