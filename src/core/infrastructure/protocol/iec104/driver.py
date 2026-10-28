@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -565,10 +566,13 @@ class IEC104Driver:
             return False
         if bool(getattr(expected, "select", False)) != bool(getattr(received, "select", False)):
             return False
-        if isinstance(expected, iec101.NormalizedCommand):
+        if isinstance(expected, iec101.NormalizedCommand) and isinstance(
+            received, iec101.NormalizedCommand
+        ):
             return abs(expected.value.value - received.value.value) <= 1 / 32767
-        if isinstance(expected, iec101.FloatingCommand):
-            import math
+        if isinstance(expected, iec101.FloatingCommand) and isinstance(
+            received, iec101.FloatingCommand
+        ):
 
             return math.isclose(
                 expected.value.value, received.value.value, rel_tol=1e-6, abs_tol=1e-7

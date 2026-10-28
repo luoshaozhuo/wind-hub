@@ -41,12 +41,12 @@ IEC104_INSTANCE_ID = "iec104-telemetry:iec104-1"
 IEC104_POINTS: dict[str, dict[str, Any]] = {
     "meas.active_power": {
         "point_groups": ["telemetry"],
-        "address": {"ioa": 100},
+        "address": {"ca": 1, "ioa": 100, "type_id": "M_ME_NC_1"},
         "data_type": "float32",
     },
     "meas.frequency": {
         "point_groups": ["telemetry"],
-        "address": {"ioa": 200},
+        "address": {"ca": 1, "ioa": 200, "type_id": "M_ME_NC_1"},
         "data_type": "float32",
     },
 }
