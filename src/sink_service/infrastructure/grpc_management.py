@@ -5,7 +5,6 @@ Transport framing is gRPC unary/unary; method names match contracts/sink.proto.
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -14,7 +13,6 @@ from google.protobuf import wrappers_pb2
 
 from sink_service.application.management import SinkManager
 
-logger = logging.getLogger(__name__)
 Method = Callable[[str], Awaitable[dict[str, object]]]
 
 
@@ -63,7 +61,7 @@ def build_management_server(manager: SinkManager, address: str) -> grpc.aio.Serv
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
             raise AssertionError("abort did not terminate")
 
-    handlers: dict[str, grpc.RpcMethodHandler[Any, Any]] = {}
+    handlers: dict[str, grpc.RpcMethodHandler] = {}
     methods = {
         "GetServiceStatus": (None, True, False),
         "ListSinks": (None, False, True),
