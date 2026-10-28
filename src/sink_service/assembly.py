@@ -39,13 +39,19 @@ def assemble_sinks(
         if delivery == "reliable" and definition.kind != "tdengine":
             raise ValueError(f"reliable Sink {sink_id} has no durable idempotency contract")
         allowed = frozenset(
-            (task.task_id, source["device_id"], source["point_id"])
-            for task in snapshot.tasks.values()
-            for output in task.outputs
-            if task.enabled and output.sink_id == sink_id
-            for mapping in output.points
-            for source in (mapping["source"],)
+            (task_id, device_id, point_id)
+            for task_id, sources in (definition.task_sources or {}).items()
+            for device_id, point_id in sources
         )
+        explicit = frozenset(
+            (task.task_id, mapping["source"]["device_id"], mapping["source"]["point_id"])
+            for task in snapshot.tasks.values()
+            if task.enabled
+            for output in task.outputs
+            if output.sink_id == sink_id
+            for mapping in output.points
+        )
+        allowed = allowed | explicit
         if not allowed and definition.kind not in {"redis", "tdengine"}:
             raise ValueError(f"Sink {sink_id} requires explicit source mappings")
         target = _TARGETS[definition.kind](definition)
