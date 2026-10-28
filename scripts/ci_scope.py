@@ -46,6 +46,7 @@ def _backend_pr_targets(path: str) -> set[str]:
         path,
         "src/core/infrastructure/protocol/",
         "tests/integration/protocols/",
+        "tests/core/protocol/",
     ):
         targets.add("integration-protocol")
 
@@ -135,6 +136,11 @@ def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
             # 未知后端产品子树不得静默判为非产品；保守回退到 unit/component。
             static_required = True
             targets.update({"unit", "component"})
+            continue
+
+        if path.startswith("tests/core/"):
+            static_required = True
+            targets.update({"unit", "component", "contract"})
             continue
 
         if path.startswith("tests/unit/"):

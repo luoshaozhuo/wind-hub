@@ -145,7 +145,11 @@ def fast_gate(part: str, targets: str) -> bool:
         other_passed = _run_many(checks)
         unit_passed = _isolated_tests("unit") if "unit" in selected else True
         component_passed = _isolated_tests("component") if "component" in selected else True
-        return other_passed and unit_passed and component_passed
+        core_checks = [
+            (f"core/{target}", _python_module("pytest", "tests/core", "-q", "-m", target))
+            for target in selected
+        ]
+        return other_passed and unit_passed and component_passed and _run_many(core_checks)
 
     if part == "frontend":
         return _run_many(
@@ -351,22 +355,18 @@ def merge_gate(paths: list[str]) -> bool:
             protocol = parts[4] if len(parts) > 4 else ""
             if protocol in {"ads", "modbus", "iec104"}:
                 candidates.extend([
-                    f"tests/unit/core/protocol/{protocol}",
-                    f"tests/component/core/protocol/{protocol}",
-                    f"tests/integration/protocols/{protocol}",
+                    f"tests/core/protocol/{protocol}",
                 ])
                 if protocol == "ads":
                     candidates.append("tests/reliability/recovery")
             else:
                 candidates.extend([
-                    "tests/unit/core/protocol",
-                    "tests/component/core/protocol",
-                    "tests/integration/protocols",
+                    "tests/core/protocol",
                 ])
         elif p.startswith("src/core/infrastructure/sink/"):
             # sink 单测分散在 core 根目录散文件与 collector/sink 子包。
             candidates.extend([
-                "tests/unit/core/test_*sink*.py",
+                "tests/core/sink",
                 "tests/unit/collector/sink",
                 "tests/component/collector/test_*sink*.py",
                 "tests/integration/sinks",
@@ -401,13 +401,13 @@ def merge_gate(paths: list[str]) -> bool:
             p.startswith("src/core/infrastructure/config/")
             or p.startswith("src/core/domain/config/")
         ):
-            candidates.extend(["tests/unit/core/config", "tests/contract"])
+            candidates.extend(["tests/core/config", "tests/contract"])
         elif p.startswith("src/web_server/"):
             candidates.append("tests/unit/web_server")
         elif p.startswith("src/cli/"):
             candidates.extend(["tests/unit/cli", "tests/component/cli"])
         elif p.startswith("src/core/"):
-            candidates.extend(["tests/unit/core", "tests/component/core"])
+            candidates.extend(["tests/core"])
         elif p.startswith("src/industrial_gateway/"):
             candidates.extend([
                 "tests/unit", "tests/component",
