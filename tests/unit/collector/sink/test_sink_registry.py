@@ -5,6 +5,7 @@ import pytest
 from collector.infrastructure.sink_registry import build_sink_registry
 from core.application.sink_contract import ResolvedSink
 from core.domain import Sink
+from core.infrastructure.sink.kafka import KafkaSink
 from core.infrastructure.sink.modbus import ModbusSink
 from core.infrastructure.sink.redis import RedisSink
 from core.infrastructure.sink.tdengine import TDengineSink
@@ -12,7 +13,7 @@ from core.infrastructure.sink.tdengine import TDengineSink
 
 def test_builtin_types() -> None:
     types = build_sink_registry().registered_types()
-    assert types == ("grpc", "modbus", "redis", "tdengine")
+    assert types == ("grpc", "kafka", "modbus", "redis", "tdengine")
     assert "file" not in types
 
 
@@ -20,6 +21,7 @@ def test_builtin_types() -> None:
     ("kind", "connection", "expected_type"),
     [
         ("modbus", {}, ModbusSink),
+        ("kafka", {"topic": "telemetry"}, KafkaSink),
         ("redis", {}, RedisSink),
         ("tdengine", {"password": "local-test"}, TDengineSink),
     ],
@@ -27,7 +29,7 @@ def test_builtin_types() -> None:
 def test_registered_factory(kind: str, connection: dict[str, str], expected_type: type) -> None:
     config = (
         ResolvedSink(sink_id=kind, kind=kind, enabled=True, connection=connection)
-        if kind == "modbus"
+        if kind in {"modbus", "kafka"}
         else Sink(sink_id=kind, kind=kind, enabled=True, connection=connection)
     )
     assert isinstance(build_sink_registry().create(config), expected_type)
@@ -35,4 +37,4 @@ def test_registered_factory(kind: str, connection: dict[str, str], expected_type
 
 def test_domain_rejects_unsupported_sink_type() -> None:
     with pytest.raises(ValueError, match="unsupported sink type"):
-        Sink(sink_id="x", kind="kafka", enabled=True, connection={})
+        Sink(sink_id="x", kind="unsupported_sink", enabled=True, connection={})

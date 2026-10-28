@@ -64,6 +64,7 @@ def test_naive_datetime_rejected() -> None:
         ("tdengine", {"password": "local-test"}),
         ("modbus", {"port": 1502}),
         ("redis", {"database": 1}),
+        ("kafka", {"topic": "telemetry"}),
     ],
 )
 def test_config_types(kind: str, connection: dict[str, Any]) -> None:
@@ -77,7 +78,7 @@ def test_old_type_rejected() -> None:
     with pytest.raises(ValueError):
         _SinkSchema.model_validate(
             {
-                "type": "kafka",
+                "type": "unsupported_sink",
                 "connection": {"bootstrap_servers": "localhost", "topic": "telemetry"},
             }
         )

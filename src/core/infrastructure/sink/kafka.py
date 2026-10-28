@@ -47,7 +47,7 @@ class KafkaSink:
             if self._producer is not None:
                 return
             try:
-                from aiokafka import AIOKafkaProducer
+                from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
 
                 producer = AIOKafkaProducer(
                     bootstrap_servers=self._config.bootstrap_servers,
