@@ -10,6 +10,7 @@ from typing import Any
 
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
+from core.application.sink_export import SinkReferenceExporter
 from core.application.sink_error import SinkError
 from core.domain.point_value import PointValue
 from core.domain.sink import Sink
@@ -33,13 +34,13 @@ class KafkaSink:
             if isinstance(config, ResolvedSink)
             else {}
         )
-        self._routes: dict[tuple[str, str], str] = {}
-        if isinstance(config, ResolvedSink):
-            for raw in config.points:
-                point = ResolvedSinkPoint.model_validate(dict(raw))
-                if not isinstance(point.address, StreamSinkAddress):
-                    raise ValueError("Kafka Sink point requires StreamSinkAddress")
-                self._routes[point.source.device_id, point.source.point_id] = point.address.field
+        if not isinstance(config, ResolvedSink):
+            raise ValueError("Kafka Sink requires resolved output mappings")
+        points = [ResolvedSinkPoint.model_validate(dict(raw)) for raw in config.points]
+        for point in points:
+            if not isinstance(point.address, StreamSinkAddress):
+                raise ValueError("Kafka Sink point requires StreamSinkAddress")
+        self._exporter = SinkReferenceExporter(points)
 
     async def open(self) -> None:
         async with self._lock:
@@ -69,23 +70,19 @@ class KafkaSink:
             if self._producer is None:
                 raise SinkError("Kafka Sink is not opened")
             try:
-                for point in batch:
-                    key = (point.device_id, point.point_id)
-                    if self._routes and key not in self._routes:
-                        continue
+                for point in self._exporter.export(batch):
                     if isinstance(point.value, float) and not math.isfinite(point.value):
-                        raise SinkError(f"non-finite Kafka value: {key}")
-                    identity = self._routes.get(key, f"{key[0]}.{key[1]}")
+                        raise SinkError(f"non-finite Kafka value: {point.ref}")
+                    address = point.definition.address
+                    assert isinstance(address, StreamSinkAddress)
+                    identity = address.field
                     payload = {
                         "device_id": point.device_id,
                         "point_id": point.point_id,
                         "value": point.value,
                         "quality": point.quality.value,
                         "timestamp": _utc(point.timestamp),
-                        "timestamp_source": point.timestamp_source,
-                        "receive_time": _utc(point.receive_time),
-                        "device_time": _utc(point.device_time),
-                        "source": point.source,
+                        "source": point.source_protocol,
                     }
                     await self._producer.send_and_wait(
                         self._config.topic,
