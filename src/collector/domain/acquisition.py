@@ -12,7 +12,7 @@ notification / IEC104 spontaneous）最终都进入 :meth:`process`：
 - 「什么时候执行」——那是 Application Runtime 的 acquisition handle
   （fixed-rate polling / subscription）的职责；
 - Protocol / Device 的创建、连接与关闭——那是 DeviceRuntime 的生命周期职责；
-- Sink 队列、背压与消费者任务——经 :class:`SinkDispatchPort` 端口委托。
+- Sink 队列、背压与消费者任务——经 :class:`SampleDispatchPort` 端口委托。
 
 并发语义：不同 Task Instance 的 :meth:`collect` / :meth:`process` 可并发
 执行；同一实例由其 acquisition handle 串行驱动，天然不重入。引擎自身
@@ -52,7 +52,7 @@ class ReadableDevice(Protocol):
         ...
 
 
-class SinkDispatchPort(Protocol):
+class SampleDispatchPort(Protocol):
     """Sink 派发端口——把按 sink 分组的批次交给 Sink 侧（队列/背压/消费者）。"""
 
     async def dispatch(self, task_id: str, values: list[PointValue]) -> None:
@@ -139,7 +139,7 @@ class AcquisitionEngine:
         # 各端口由 Runtime 在装配完成后注入（engine 先于 runtime 创建）；
         # 未绑定 sink 派发前调用 collect/process 抛 RuntimeError——组合根
         # 保证绑定发生在任何采集触发之前。
-        self._sink_dispatch: SinkDispatchPort | None = None
+        self._sample_dispatch: SampleDispatchPort | None = None
         self._device_state: DeviceStatePort | None = None
         self._acquisition_state: AcquisitionStatePort | None = None
 
@@ -153,9 +153,9 @@ class AcquisitionEngine:
     # 装配缝（组合根 / Runtime 专用）
     # ------------------------------------------------------------------
 
-    def attach_sink_dispatch(self, dispatch: SinkDispatchPort) -> None:
+    def attach_sample_publisher(self, dispatch: SampleDispatchPort) -> None:
         """绑定 Sink 派发端口——由 Runtime 在自身构造时调用一次。"""
-        self._sink_dispatch = dispatch
+        self._sample_dispatch = dispatch
 
     def attach_device_state(self, device_state: DeviceStatePort) -> None:
         """绑定设备连接状态端口——由 Runtime 在自身构造时调用一次。"""
@@ -293,7 +293,7 @@ class AcquisitionEngine:
         """
         if not batch:
             return
-        if self._sink_dispatch is None:
+        if self._sample_dispatch is None:
             raise RuntimeError("AcquisitionEngine 未绑定 Sink 派发端口——组合根未完成装配")
         self._points_collected += len(batch)
         self._on_points_collected(len(batch))
@@ -301,7 +301,7 @@ class AcquisitionEngine:
         if bad:
             self._on_points_bad(bad)
         self._notify_observers(batch)
-        await self._sink_dispatch.dispatch(task_id, batch)
+        await self._sample_dispatch.dispatch(task_id, batch)
 
     # ------------------------------------------------------------------
     # 状态
@@ -330,5 +330,5 @@ __all__ = [
     "AcquisitionStatePort",
     "DeviceStatePort",
     "ReadableDevice",
-    "SinkDispatchPort",
+    "SampleDispatchPort",
 ]
