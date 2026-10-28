@@ -1,4 +1,4 @@
-"""Diagnostic CLI：配置、网络及防火墙诊断。"""
+"""Diagnostic CLI：配置、网络、协议与 Sink。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import typer
 
 from core.application.diagnostic import DiagnosticResult, DiagnosticStatus
 from core.infrastructure.diagnostic.config import check_config, compare_config
-from core.infrastructure.diagnostic import firewall, network
+from core.infrastructure.diagnostic import firewall, network, protocol, sink
 
 app = typer.Typer(help="wind-hub Core diagnostic tools", no_args_is_help=True)
 config_app = typer.Typer(help="Validate and compare configuration", no_args_is_help=True)
@@ -19,6 +19,10 @@ network_app = typer.Typer(help="Inspect Linux networking", no_args_is_help=True)
 app.add_typer(network_app, name="network")
 firewall_app = typer.Typer(help="Inspect local firewall (read-only)", no_args_is_help=True)
 network_app.add_typer(firewall_app, name="firewall")
+protocol_app = typer.Typer(help="Read-only device protocol diagnostics", no_args_is_help=True)
+sink_app = typer.Typer(help="Downstream sink diagnostics", no_args_is_help=True)
+app.add_typer(protocol_app, name="protocol")
+app.add_typer(sink_app, name="sink")
 
 
 def _output(result: DiagnosticResult, json_output: bool) -> None:
@@ -161,6 +165,74 @@ def firewall_check(
         raise typer.BadParameter("direction must be inbound/outbound; protocol tcp/udp")
     _output(asyncio.run(firewall.firewall_check(
         port, direction=direction, protocol=protocol,
+    )), json_output)
+
+
+
+@protocol_app.command("check")
+def protocol_check(
+    device: str = typer.Option(..., "--device"),
+    config: Path = typer.Option(..., "--config"),
+    timeout: float = typer.Option(5.0, min=0.1, max=30),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    _output(asyncio.run(protocol.check_protocol(
+        config, device, timeout=timeout,
+    )), json_output)
+
+
+@protocol_app.command("point")
+def protocol_point(
+    device: str = typer.Option(..., "--device"),
+    point: str = typer.Option(..., "--point"),
+    config: Path = typer.Option(..., "--config"),
+    timeout: float = typer.Option(5.0, min=0.1, max=30),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    _output(asyncio.run(protocol.check_protocol(
+        config, device, point_id=point, timeout=timeout,
+    )), json_output)
+
+
+@protocol_app.command("benchmark")
+def protocol_benchmark(
+    device: str = typer.Option(..., "--device"),
+    points: str = typer.Option(..., "--points", help="Comma-separated point IDs"),
+    config: Path = typer.Option(..., "--config"),
+    samples: int = typer.Option(10, min=1, max=200),
+    interval: float = typer.Option(0.2, min=0, max=5),
+    timeout: float = typer.Option(5.0, min=0.1, max=30),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    ids = [item.strip() for item in points.split(",")]
+    if not 1 <= len(ids) <= 200 or any(not item for item in ids) or len(set(ids)) != len(ids):
+        raise typer.BadParameter("provide 1..200 unique point IDs", param_hint="--points")
+    _output(asyncio.run(protocol.benchmark_protocol(
+        config, device, ids, samples=samples, interval=interval, timeout=timeout,
+    )), json_output)
+
+
+@sink_app.command("check")
+def sink_check(
+    sink_id: str = typer.Option(..., "--sink"),
+    config: Path = typer.Option(..., "--config"),
+    timeout: float = typer.Option(5.0, min=0.1, max=30),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    _output(asyncio.run(sink.check_sink(config, sink_id, timeout=timeout)), json_output)
+
+
+@sink_app.command("benchmark")
+def sink_benchmark(
+    sink_id: str = typer.Option(..., "--sink"),
+    config: Path = typer.Option(..., "--config"),
+    samples: int = typer.Option(10, min=1, max=200),
+    interval: float = typer.Option(0.2, min=0, max=5),
+    timeout: float = typer.Option(5.0, min=0.1, max=30),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    _output(asyncio.run(sink.benchmark_sink(
+        config, sink_id, samples=samples, interval=interval, timeout=timeout,
     )), json_output)
 
 
