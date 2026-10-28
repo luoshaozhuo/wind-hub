@@ -19,16 +19,16 @@ class NatsPublisher:
             raise ValueError("NATS servers must not be empty")
         self._servers = list(servers)
         self._delivery = delivery
-        self._client: nats.NATS | None = None
+        self._client: nats.aio.client.Client | None = None
 
     async def open(self) -> None:
         """Start a reconnecting NATS client without a local disk queue."""
         if self._client is not None:
             return
-        self._client = await nats.connect(
+        try:\n            self._client = await nats.connect(
             servers=self._servers,
             allow_reconnect=True,
-            max_reconnect_attempts=-1,
+            max_reconnect_attempts=-1,\n            connect_timeout=0.5,
             reconnect_time_wait=1,
             pending_size=1024 * 1024,
         )
