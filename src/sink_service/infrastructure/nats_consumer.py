@@ -49,7 +49,10 @@ class NatsSinkConsumer:
         )
         try:
             if self._durable is None:
-                subscription = await client.subscribe(self._subject, cb=self._on_realtime)
+                subscription = await client.subscribe(
+                    self._subject, cb=self._on_realtime,
+                    pending_msgs_limit=1024, pending_bytes_limit=4 * 1024 * 1024,
+                )
             else:
                 from nats.js.api import AckPolicy, ConsumerConfig
 
