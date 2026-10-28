@@ -143,9 +143,29 @@ class LogSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class MessagingSettings:
+    """Collector NATS publication settings from system.yaml."""
+
+    servers: tuple[str, ...]
+    delivery: str
+    max_staleness_ms: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.servers or any(not value.startswith(("nats://", "tls://")) for value in self.servers):
+            raise ValueError("messaging.servers requires NATS URLs")
+        if self.delivery not in ("realtime", "reliable"):
+            raise ValueError("messaging.delivery must be realtime or reliable")
+        if self.delivery == "realtime" and (
+            self.max_staleness_ms is None or not 0 < self.max_staleness_ms <= 86_400_000
+        ):
+            raise ValueError("realtime messaging requires valid max_staleness_ms")
+
+
+@dataclass(frozen=True, slots=True)
 class SystemSettings:
     """无现场标识的进程配置；风场 ID、名称只保存在 Site。"""
 
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
+    messaging: MessagingSettings | None = None
     ads: ADSLocalConfig | None = None
     logs: LogSettings = field(default_factory=LogSettings)
