@@ -8,6 +8,8 @@ from enum import StrEnum
 from typing import Protocol
 
 from contracts.sample_message import SampleMessage
+from core.domain.point_value import PointValue
+from core.domain.sample_value import Quality
 from sink_service.application.port import SinkPort
 
 PointKey = tuple[str, str, str]
@@ -137,7 +139,19 @@ class SinkRuntime:
                             return
                         raise ValueError("ambiguous equal-time realtime samples")
             try:
-                await self._sink.write([sample])
+                await self._sink.write([
+                    PointValue(
+                        device_id=sample.device_id,
+                        point_id=sample.point_id,
+                        value=sample.value,
+                        quality=Quality(sample.quality),
+                        timestamp=sample.sample_time,
+                        receive_time=sample.receive_time,
+                        source=sample.collector_id,
+                        sample_id=sample.sample_id,
+                        task_id=sample.task_id,
+                    )
+                ])
             except Exception as exc:
                 self._failure = str(exc)
                 self._state = SinkState.FAILED
