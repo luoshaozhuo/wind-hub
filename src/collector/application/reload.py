@@ -23,7 +23,6 @@ from .config import CollectorConfig, RuntimeParams
 #: - ``thread_pool_max_workers``：默认 executor 在进程引导期安装一次，
 #:   不做运行时热替换。
 RESTART_REQUIRED_RUNTIME_FIELDS: tuple[str, ...] = (
-    "queue_maxsize",
     "read_timeout",
     "thread_pool_max_workers",
 )
@@ -34,8 +33,6 @@ RESTART_REQUIRED_RUNTIME_FIELDS: tuple[str, ...] = (
 #: 以及 Watchdog 时序参数均在运行时 owner 使用当前快照。activate 时整体
 #: 替换 params 即真实生效。
 HOT_RELOADABLE_RUNTIME_FIELDS: tuple[str, ...] = (
-    "backpressure_policy",
-    "shutdown_timeout",
     "connect_timeout",
     "watchdog_interval",
     "health_timeout",
