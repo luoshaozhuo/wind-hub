@@ -12,11 +12,9 @@ from .errors import (
 )
 from .port import (
     ConfigPort,
-    ExclusiveOpenSinkPort,
     ListenHandle,
     ProtocolPort,
     ProtocolSampleCallback,
-    SinkPort,
     SubscriptionHandle,
 )
 from .protocol_contract import (
@@ -49,8 +47,6 @@ __all__ = [
     "ProtocolError",
     "ProtocolFactory",
     "ProtocolPort",
-    "SinkPort",
-    "ExclusiveOpenSinkPort",
     "ProtocolRegistry",
     "ProtocolSample",
     "ProtocolSampleCallback",
