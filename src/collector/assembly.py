@@ -98,7 +98,7 @@ def assemble_collector(
     config_source = YamlConfigAdapter(config_path)
     before_hash = config_dir_digest(config_path)
     # 启动配置只完整解析一次：装配、日志初始化共用同一份快照。
-    snapshot = config_source.load()
+    snapshot = config_source.load_collector()
     config = collector_config_from_snapshot(snapshot)
     config_hash = config_dir_digest(config_path)
     if before_hash != config_hash:
