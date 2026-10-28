@@ -9,6 +9,7 @@ packages = [
     { include = "core", from = "src" },
     { include = "contracts", from = "src" },
     { include = "collector", from = "src" },
+    { include = "sink_service", from = "src" },
     { include = "commander", from = "src" },
     { include = "cli", from = "src" },
     { include = "web_server", from = "src" },
@@ -64,6 +65,7 @@ types-aiofiles = "^25.1.0.20260518"
 c104 = "^2.2"
 
 [tool.poetry.scripts]
+wind-hub-sink-service = "sink_service.main:main"
 wind-hub-collector = "collector.main:main"
 wind-hub = "cli.main:main"
 wind-hub-commander = "commander.main:main"
