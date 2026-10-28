@@ -18,7 +18,7 @@ async def benchmark(
     interval: float = 0.2,
 ) -> DiagnosticResult:
     """顺序执行有界操作，返回请求和测点吞吐；一次失败不自动重试。"""
-    if not 1 <= samples <= 200 or not 0 <= interval <= 5:
+    if not 1 <= samples <= 200 or not math.isfinite(interval) or not 0 <= interval <= 5:
         raise ValueError("samples must be 1..200 and interval 0..5")
     import asyncio
 
@@ -30,6 +30,8 @@ async def benchmark(
         begin = time.perf_counter()
         try:
             points = await operation()
+            if type(points) is not int or points < 0:
+                raise ValueError("benchmark operation must return a non-negative point count")
             success_points += points
             durations.append((time.perf_counter() - begin) * 1000)
         except Exception:
