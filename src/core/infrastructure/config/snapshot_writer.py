@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import Any
 
 from core.application.config_snapshot import ConfigSnapshot
-from core.domain.task import TaskOutput
 
 from .point_table_writer import dump_point_tables
 from .units import dump_unit_catalog
@@ -95,16 +94,6 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
             "device_group_id": str(task.device_group_id),
             "point_group": task.point_group,
             "interval": task.interval,
-            "outputs": [
-                {
-                    "sink_id": output.sink_id,
-                    **({"key_prefix": output.key_prefix} if output.key_prefix is not None else {}),
-                    **({"points": _yaml_plain(output.points)} if output.points else {}),
-                }
-                for output in (
-                    task.outputs or tuple(TaskOutput(sink_id=sink) for sink in task.sink_ids)
-                )
-            ],
             "enabled": task.enabled,
         }
         for task_id, task in snapshot.tasks.items()
@@ -150,6 +139,13 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
                     "type": sink.kind,
                     "enabled": sink.enabled,
                     "connection": _yaml_plain(sink.connection),
+                    "outputs": {
+                        task_id: {
+                            **({"key_prefix": output.key_prefix} if output.key_prefix else {}),
+                            "points": _yaml_plain(output.points),
+                        }
+                        for task_id, output in sink.outputs.items()
+                    },
                 }
                 for sink_id, sink in snapshot.sinks.items()
             },
