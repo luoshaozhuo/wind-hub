@@ -168,13 +168,7 @@ def assemble_server(
     admin_state = AdminStateService(config_admin)
     settings = SettingsService(config, config_admin, api_host=api_host, api_port=api_port)
     definitions = DefinitionQueryService(config, config_admin)
-    sink_ops = SinkService(
-        collector_directory,
-        monitoring,
-        task_placements,
-        config,
-        config_admin,
-    )
+    sink_ops = SinkService(monitoring, config, config_admin)
     diagnostics = DiagnosticService(
         commander_client,
         device_control,
