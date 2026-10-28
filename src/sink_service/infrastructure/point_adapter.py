@@ -33,7 +33,8 @@ class PointValueSinkAdapter:
             )
             for sample in batch
         ]
-        await self._target.write(values)
+        for sample, point in zip(batch, values, strict=True):
+            await self._target.write_task(sample.task_id, [point])
 
     async def close(self) -> None:
         await self._target.close()
