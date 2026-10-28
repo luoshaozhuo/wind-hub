@@ -2,7 +2,7 @@
 
 CollectorConfig 只承载 Collector 真正需要的内容：共享核心领域配置索引
 （devices / device_models / point_tables）、运行时参数
-（队列/背压/超时）、采集 Task 定义、Sink 契约、测点分组信息
+（采集超时及设备连接参数）、采集 Task 定义、测点分组信息
 （直接由 Core Point 提供）；订阅采集策略由 Device 保存，不透传给 Driver。
 
 本模块是 Application 层的纯配置模型，不感知 YAML/文件细节——解析由
@@ -28,13 +28,12 @@ from core.domain import (
 )
 from core.domain.unit import UnitCatalog
 
+
 @dataclass(frozen=True, slots=True)
 class RuntimeParams:
     """采集运行时参数（system.yaml ``runtime`` 段的 Collector 子集）。
 
     Attributes:
-        queue_maxsize: 每个 Sink 的有界队列容量（按批次计）。
-        backpressure_policy: 队列满时的背压策略。
         shutdown_timeout: 停机阶段等待消费者/资源释放的超时（秒）。
         connect_timeout: 单设备连接（含重连）超时（秒）。
         read_timeout: 应用层单次批量读外层兜底超时（秒）；``None`` 不加外层超时。
@@ -74,10 +73,8 @@ class CollectorConfig:
         devices: 启用设备索引（``enabled: false`` 的设备不进索引）。
         device_models: 设备型号索引（设备查找点表用）。
         point_tables: resolved 点表索引。
-        runtime: 运行时参数（队列/背压/超时）。
+        runtime: 运行时参数（采集/连接超时）。
         tasks: 采集 Task Definition 注册表（``{task_id: CollectionTask}``）。
-        sinks: Sink 注册表（``{name: Sink}``，
-            含 disabled——是否实例化由 Runtime 按 ``enabled`` 判定）。
         disabled_devices: 配置级停用设备集合（不进 core 快照，不参与采集）。
         ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
             restart-required——热重载 prepare 阶段拒绝其任何变化。
