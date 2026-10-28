@@ -13,6 +13,7 @@ from pathlib import Path
 from web_server.adapter.outbound.collector_directory import StaticCollectorDirectory
 from web_server.adapter.outbound.grpc.collector import CollectorGrpcClient
 from web_server.adapter.outbound.grpc.commander import CommanderGrpcClient
+from web_server.adapter.outbound.grpc.sink import SinkGrpcDirectory
 from web_server.application.app_context import AppContext
 from web_server.application.config.admin_state import AdminStateService
 from web_server.application.config.definitions import DefinitionQueryService
@@ -127,10 +128,12 @@ def assemble_server(
         definitions=[*collector_definitions, commander_definition],
     )
     task_placements = TaskPlacementRegistry(config, collector_directory)
+    sink_directory = SinkGrpcDirectory()
     collector_status = CollectorStatusAggregator(
         collector_directory,
         task_placements,
         config,
+        sink_directory,
     )
     monitoring = MonitoringService(
         collector_status,
@@ -168,7 +171,7 @@ def assemble_server(
     admin_state = AdminStateService(config_admin)
     settings = SettingsService(config, config_admin, api_host=api_host, api_port=api_port)
     definitions = DefinitionQueryService(config, config_admin)
-    sink_ops = SinkService(monitoring, config, config_admin)
+    sink_ops = SinkService(monitoring, sink_directory, config, config_admin)
     diagnostics = DiagnosticService(
         commander_client,
         device_control,
