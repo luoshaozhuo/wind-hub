@@ -42,8 +42,8 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, ResolvedSink]:
         task_outputs = [
             (task, output)
             for task in enabled_tasks
-            for output in (sink.outputs[task.task_id],)
             if task.task_id in sink.outputs
+            for output in (sink.outputs[task.task_id],)
         ]
         task_points = [raw for _, output in task_outputs for raw in output.points]
         refs: set[str] = set()
