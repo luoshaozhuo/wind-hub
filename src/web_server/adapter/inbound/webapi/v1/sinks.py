@@ -80,5 +80,7 @@ async def manage_sink(
         result = await common.sinks(ctx).manage(name, operation)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
+    except (RuntimeError, ValueError) as exc:
+        raise APIError("SINK_SERVICE_UNAVAILABLE", str(exc), 503) from exc
     audit(f"sink.{operation}", sink=name, success=True)
     return result
