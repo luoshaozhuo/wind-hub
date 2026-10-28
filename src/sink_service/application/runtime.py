@@ -97,6 +97,9 @@ class SinkRuntime:
             if self._state == SinkState.RUNNING:
                 return
             try:
+                if self._state is SinkState.FAILED:
+                    await self._consumer.close()
+                    await self._sink.close()
                 await self._sink.open()
                 self._state = SinkState.RUNNING
                 await self._consumer.open()
