@@ -14,7 +14,6 @@ from urllib.error import HTTPError, URLError
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_contract import ResolvedSink
 from sink_service.application.error import SinkError
-from core.domain import Sink
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import TDengineSinkConnection
 
@@ -49,7 +48,7 @@ def _table_name(device_id: str, point_id: str) -> str:
 class TDengineSink:
     """固定超级表 + 每设备测点子表；不在 Collector 中实现重试或文件缓冲。"""
 
-    def __init__(self, config: Sink) -> None:
+    def __init__(self, config: ResolvedSink) -> None:
         self._config = TDengineSinkConnection.model_validate(dict(config.connection))
         self._task_sources = (
             {task_id: set(sources) for task_id, sources in (config.task_sources or {}).items()}
