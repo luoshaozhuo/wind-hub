@@ -24,9 +24,12 @@ async def _read(*argv: str) -> tuple[int, str, str]:
         return 127, "", f"{type(exc).__name__}: {exc}"
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=5)
-    except TimeoutError:
-        proc.kill()
+    except (TimeoutError, asyncio.CancelledError) as exc:
+        if proc.returncode is None:
+            proc.kill()
         await proc.communicate()
+        if isinstance(exc, asyncio.CancelledError):
+            raise
         return 124, "", "timed out"
     return proc.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace")
 
