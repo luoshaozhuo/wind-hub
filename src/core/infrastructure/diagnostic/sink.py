@@ -98,11 +98,11 @@ async def check_sink(
                 bootstrap_servers=str(connection.get("bootstrap_servers", "")),
                 request_timeout_ms=max(1000, int(timeout * 1000)),
             )
-            await asyncio.wait_for(consumer.start(), timeout)
             try:
+                await asyncio.wait_for(consumer.start(), timeout)
                 topics = await asyncio.wait_for(consumer.topics(), timeout)
             finally:
-                await consumer.stop()
+                await asyncio.wait_for(consumer.stop(), timeout)
         except Exception as exc:
             return _result(
                 target,
