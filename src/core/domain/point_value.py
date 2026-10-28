@@ -24,6 +24,7 @@ class PointValue:
     device_time: datetime | None = None
     sample_id: str | None = None
     task_id: str | None = None
+    max_staleness_ms: int | None = None
 
     def __post_init__(self) -> None:
         if not self.device_id.strip():
