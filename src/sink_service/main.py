@@ -9,6 +9,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from contracts.sample_message import DeliveryMode
+from core.infrastructure.config import config_dir_digest
 from sink_service.assembly import assemble_sinks
 from sink_service.application.runtime import SinkRuntime, SinkState
 from sink_service.application.management import SinkManager
@@ -31,6 +32,7 @@ async def run_sink_service(
     state_dir: Path = Path("/var/tmp/wind-hub/sink-state"),
 ) -> None:
     """Start each Sink independently and shut down on a process signal."""
+    applied_digest = config_dir_digest(config_dir)
     state_name = sha256(wind_farm_id.encode()).hexdigest()[:32]
     store = SinkIntentStore(state_dir / state_name)
     if delivery == "both":
@@ -56,7 +58,13 @@ async def run_sink_service(
             wind_farm_id=wind_farm_id, intent_store=store,
             sink_ids=realtime_sinks or reliable_sinks or None,
         )
-    manager = SinkManager(sinks)
+    if applied_digest != config_dir_digest(config_dir):
+        raise RuntimeError("config changed during Sink Service assembly")
+    manager = SinkManager(
+        sinks,
+        config_digest=lambda: config_dir_digest(config_dir),
+        applied_digest=applied_digest,
+    )
     grpc_server = build_management_server(manager, grpc_listen)
     await grpc_server.start()
     stopping = asyncio.Event()
