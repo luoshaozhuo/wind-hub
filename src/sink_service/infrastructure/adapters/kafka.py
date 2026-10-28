@@ -13,7 +13,6 @@ from core.application.sink_contract import ResolvedSink, ResolvedSinkPoint, Stre
 from sink_service.application.error import SinkError
 from sink_service.application.export import SinkReferenceExporter
 from core.domain.point_value import PointValue
-from core.domain.sink import Sink
 from core.infrastructure.config.sink_schema import KafkaSinkConnection
 
 
@@ -24,7 +23,7 @@ def _utc(value: datetime | None) -> str | None:
 class KafkaSink:
     """无内部缓冲的 Kafka Producer；write 完成意味着 Broker 已确认。"""
 
-    def __init__(self, config: Sink) -> None:
+    def __init__(self, config: ResolvedSink) -> None:
         self._config = KafkaSinkConnection.model_validate(dict(config.connection))
         self._producer: Any = None
         self._lock = asyncio.Lock()
