@@ -198,6 +198,7 @@ class CollectorStatusAggregator:
                     cfg.enabled
                     and statuses.get(cfg.sink_id, {}).get("state") == "running"
                     and statuses.get(cfg.sink_id, {}).get("nats_connected") is True
+                    and statuses.get(cfg.sink_id, {}).get("config_pending_restart") is not True
                     and not statuses.get(cfg.sink_id, {}).get("failure")
                 ),
                 message=(
