@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import isfinite
+from typing import Literal
 
 _BACKPRESSURE_POLICIES = frozenset({"drop_old", "drop_new", "block"})
 
@@ -147,7 +148,7 @@ class MessagingSettings:
     """Collector NATS publication settings from system.yaml."""
 
     servers: tuple[str, ...]
-    delivery: str
+    delivery: Literal["realtime", "reliable"]
     max_staleness_ms: int | None = None
 
     def __post_init__(self) -> None:
