@@ -10,8 +10,8 @@ from typing import Any
 
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
-from core.application.sink_error import SinkError
-from core.application.sink_export import SinkReferenceExporter
+from sink_service.application.error import SinkError
+from sink_service.application.export import SinkReferenceExporter
 from core.domain.point_value import PointValue
 from core.domain.sink import Sink
 from core.infrastructure.config.sink_schema import KafkaSinkConnection
