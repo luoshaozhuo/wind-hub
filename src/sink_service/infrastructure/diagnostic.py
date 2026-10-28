@@ -11,6 +11,7 @@ from pathlib import Path
 from core.application.diagnostic import DiagnosticFinding, DiagnosticResult, DiagnosticStatus
 from core.infrastructure.config.adapter import YamlConfigAdapter
 from sink_service.infrastructure.adapters.redis import RedisSink
+from sink_service.infrastructure.config import _resolve_sinks
 
 
 async def check_sink(
@@ -33,7 +34,7 @@ async def check_sink(
         return await _tdengine_readonly(target, connection, timeout)
 
     if sink.kind == "redis":
-        adapter = RedisSink(sink)
+        adapter = RedisSink(_resolve_sinks(snapshot)[sink_id])
         try:
             async with asyncio.timeout(timeout):
                 await adapter.open()
