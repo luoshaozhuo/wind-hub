@@ -8,7 +8,7 @@ import math
 from contextlib import suppress
 
 from core.application.protocol_contract import ConnectionHealth
-from core.application.sink_contract import ResolvedSink
+from core.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
 from sink_service.application.error import SinkError
 from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import RedisSinkConnection
@@ -50,6 +50,15 @@ class RedisSink:
             task_id: set(sources)
             for task_id, sources in (config.task_sources or {}).items()
         }
+        self._keys: dict[tuple[str, str], str] = {}
+        for raw in config.points:
+            resolved = ResolvedSinkPoint.model_validate(dict(raw))
+            if not isinstance(resolved.address, StreamSinkAddress):
+                raise ValueError("Redis output requires StreamSinkAddress")
+            key = (resolved.source.device_id, resolved.source.point_id)
+            if key in self._keys:
+                raise ValueError(f"duplicate Redis source mapping: {key}")
+            self._keys[key] = resolved.address.field
         self._config = RedisSinkConnection.model_validate(connection)
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
@@ -165,6 +174,7 @@ class RedisSink:
                         self._config,
                         point,
                         key_prefix=self._task_prefixes.get(task_id, self._config.key_prefix),
+                        key_override=self._keys.get((point.device_id, point.point_id)),
                     )
                     for point in batch
                 ]
