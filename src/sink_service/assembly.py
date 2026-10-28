@@ -6,7 +6,7 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 
-from core.domain.sink import Sink
+from core.application.sink_contract import ResolvedSink
 from core.infrastructure.config import YamlConfigAdapter
 from sink_service.infrastructure.adapters import GrpcSink, KafkaSink, ModbusSink, RedisSink, TDengineSink
 from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
@@ -17,7 +17,7 @@ from sink_service.infrastructure.intent import SinkIntentStore
 from sink_service.infrastructure.nats_consumer import NatsSinkConsumer
 from sink_service.infrastructure.point_adapter import PointValueSinkAdapter
 
-_TARGETS: dict[str, Callable[[Sink], LegacyPointSinkPort]] = {
+_TARGETS: dict[str, Callable[[ResolvedSink], LegacyPointSinkPort]] = {
     "redis": RedisSink,
     "tdengine": TDengineSink,
     "modbus": ModbusSink,
