@@ -1,18 +1,21 @@
 """Compose NATS consumers and target adapters without importing Collector."""
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Callable
 from hashlib import sha256
+from pathlib import Path
 
+from core.domain.sink import Sink
 from core.infrastructure.config import YamlConfigAdapter
 from sink_service.infrastructure.adapters import GrpcSink, KafkaSink, ModbusSink, RedisSink, TDengineSink
 from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
+from sink_service.application.point_port import LegacyPointSinkPort
 from sink_service.application.runtime import SinkRuntime
 from sink_service.infrastructure.config import _resolve_sinks
 from sink_service.infrastructure.nats_consumer import NatsSinkConsumer
 from sink_service.infrastructure.point_adapter import PointValueSinkAdapter
 
-_TARGETS = {
+_TARGETS: dict[str, Callable[[Sink], LegacyPointSinkPort]] = {
     "redis": RedisSink,
     "tdengine": TDengineSink,
     "modbus": ModbusSink,
