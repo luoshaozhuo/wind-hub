@@ -9,8 +9,10 @@ from core.application.sink_contract import (
     ResolvedSink,
     ResolvedSinkPoint,
 )
-from core.domain import DeviceId, Sink, Task
+from core.domain import DeviceId, Task
 from core.infrastructure.config.sink_schema import MODBUS_WORD_WIDTH, SINK_NUMERIC_DATA_TYPES
+
+
 
 def _task_group_sources(snapshot: ConfigSnapshot, task: Task) -> tuple[tuple[str, str], ...]:
     """展开空 points 输出：任务设备组 × 测点组内的全部 (device, point)。"""
@@ -26,14 +28,14 @@ def _task_group_sources(snapshot: ConfigSnapshot, task: Task) -> tuple[tuple[str
     return tuple(sources)
 
 
-def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
+def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, ResolvedSink]:
     """解析外部 Sink 点引用，明确源类型与单位（单位由快照单位目录解析）。
 
     只聚合**启用 Task** 的 outputs：禁用 Task 不部署，其点不得占用 Modbus
     寄存器/白名单，其过期设备引用也不得阻断启动（结构正确性在解析层仍对
     全部 Task 校验，保证重新启用时配置可用）。
     """
-    result: dict[str, Sink] = {}
+    result: dict[str, ResolvedSink] = {}
     enabled_tasks = [task for task in snapshot.tasks.values() if task.enabled]
     for sink_id, sink in snapshot.sinks.items():
         points = []
