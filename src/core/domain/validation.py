@@ -49,7 +49,7 @@ def validate_core_config(
     if sinks is not None:
         _validate_sinks(sinks, devices, device_models, point_tables)
     if tasks is not None:
-        validate_task_references(tasks, device_groups, sink_ids)
+        validate_task_references(tasks, device_groups)
         _validate_task_point_groups(tasks, devices, device_models, point_tables)
 
 
