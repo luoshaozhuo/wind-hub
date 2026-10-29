@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from time import perf_counter
 from typing import Any
 
 from core.application.config_snapshot import ConfigSnapshot
-from core.application.protocol_contract import ProtocolCapability
+from core.application.protocol_contract import ProtocolCapability, ProtocolSample
 
 from .protocol_diagnostic import create_driver, prepare_ads, release_ads, sample_dict
 
@@ -18,18 +18,23 @@ async def listen(
     device_id: str,
     point_ids: Sequence[str],
     *,
-    duration: float,
+    duration: float | None = None,
     timeout: float = 5.0,
+    on_sample: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """限时原生监听；不以轮询模拟任何协议推送能力。"""
-    if duration <= 0 or timeout <= 0:
+    if (duration is not None and duration <= 0) or timeout <= 0:
         raise ValueError("duration and timeout must be positive")
     driver = create_driver(snapshot, device_id)
     samples: list[dict[str, Any]] = []
 
-    async def on_samples(batch: tuple[Any, ...]) -> None:
+    async def on_samples(batch: tuple[ProtocolSample, ...]) -> None:
         for sample in batch:
-            samples.append(sample_dict(sample))
+            record = sample_dict(sample)
+            if on_sample is not None:
+                on_sample(record)
+            elif len(samples) < 10000:
+                samples.append(record)
 
     handle: Any = None
     ads_prepared = False
@@ -47,7 +52,10 @@ async def listen(
                 handle = await driver.listen(point_ids, on_samples)
         else:
             raise ValueError("protocol does not support native subscribe or listen")
-        await asyncio.sleep(duration)
+        if duration is None:
+            await asyncio.Event().wait()
+        else:
+            await asyncio.sleep(duration)
         return samples
     finally:
         try:
