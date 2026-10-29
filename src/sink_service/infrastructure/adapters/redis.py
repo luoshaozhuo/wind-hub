@@ -32,11 +32,16 @@ def _command(*arguments: str) -> bytes:
 #: 可直接字典序比较。返回 1=已写入，0=因过期被拒。
 _CAS_SCRIPT = (
     "local current=redis.call('GET',KEYS[1]) "
+    "local next=cjson.decode(ARGV[1]) "
     "if not current then redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[2]); return 1 end "
-    "local ct=cjson.decode(current)['timestamp'] "
-    "local nt=cjson.decode(ARGV[1])['timestamp'] "
-    "if (nt or '')>=(ct or '') then redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[2]); return 1 end "
-    "return 0"
+    "local previous=cjson.decode(current) "
+    "local ct=previous['timestamp'] or '' "
+    "local nt=next['timestamp'] or '' "
+    "if nt<ct then return 0 end "
+    "if nt==ct then "
+    "if previous['sample_id']==next['sample_id'] then return 0 end "
+    "return -1 end "
+    "redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[2]); return 1"
 )
 
 
@@ -194,6 +199,8 @@ class RedisSink:
                 await asyncio.wait_for(self._writer.drain(), timeout=self._config.timeout)
                 for record in records:
                     result = await self._integer_response()
+                    if result == -1:
+                        raise SinkError("Redis equal-time samples have conflicting sample IDs")
                     if result not in {0, 1}:
                         raise SinkError(f"Redis CAS EVAL returned unexpected result: {result}")
                     if result == 0:
