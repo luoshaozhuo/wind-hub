@@ -561,28 +561,36 @@ def main() -> int:
     if arguments and arguments[0] == "--help":
         print(help_text([]))
         return 0
-    if len(arguments) >= 2 and arguments[0] == "--config":
-        try:
-            shell.config.read(arguments[1])
-        except (ConfigError, ValueError, OSError) as exc:
-            print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
+    global_options: dict[str, str] = {}
+    while arguments and arguments[0] in {"--config", "--format", "--timeout"}:
+        option = arguments[0]
+        if len(arguments) < 2 or arguments[1].startswith("--"):
+            print(f"FAIL {option} requires a value", file=sys.stderr)
             return 2
+        if option in global_options:
+            print(f"FAIL duplicate global option: {option}", file=sys.stderr)
+            return 2
+        global_options[option] = arguments[1]
         arguments = arguments[2:]
-    if len(arguments) >= 2 and arguments[0] == "--format":
-        shell._format = arguments[1]
+    if "--format" in global_options:
+        shell._format = global_options["--format"]
         if shell._format not in {"table", "json"}:
             print("FAIL --format must be table or json", file=sys.stderr)
             return 2
-        arguments = arguments[2:]
-    if len(arguments) >= 2 and arguments[0] == "--timeout":
+    if "--timeout" in global_options:
         try:
-            shell._timeout = float(arguments[1])
+            shell._timeout = float(global_options["--timeout"])
             if not math.isfinite(shell._timeout) or shell._timeout <= 0:
                 raise ValueError("timeout must be a positive finite number")
         except ValueError as exc:
             print(f"FAIL invalid --timeout: {exc}", file=sys.stderr)
             return 2
-        arguments = arguments[2:]
+    if "--config" in global_options:
+        try:
+            shell.config.read(global_options["--config"])
+        except (ConfigError, ValueError, OSError) as exc:
+            print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
     if arguments:
         timer = Timer()
         try:
