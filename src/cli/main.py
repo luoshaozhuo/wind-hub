@@ -38,11 +38,13 @@ def _value(raw: str) -> bool | int | float | str:
     raise ValueError("invalid write value")
 
 
-def _options(args: list[str]) -> tuple[argparse.Namespace, list[str]]:
+def _options(
+    args: list[str], default_timeout: float = 5.0
+) -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(prog="diagnose protocol", add_help=True)
     parser.add_argument("--interval", type=float)
     parser.add_argument("--count", type=int, default=None)
-    parser.add_argument("--timeout", type=float, default=5.0)
+    parser.add_argument("--timeout", type=float, default=default_timeout)
     parser.add_argument("--ca", type=int)
     parser.add_argument("--duration", type=float, default=None)
     parser.add_argument("--samples", type=int, default=10)
@@ -65,6 +67,7 @@ class WindHubShell(cmd.Cmd):
         self.config = ConfigSession()
         self._interactive = False
         self._format = "table"
+        self._timeout = 5.0
         self.last_results: list[dict[str, Any]] = []
         self._failed_device: str | None = None
         self._failed_fingerprint: str | None = None
@@ -317,7 +320,7 @@ class WindHubShell(cmd.Cmd):
             raise ValueError("usage: diagnose [--restart] | diagnose protocol OP DEVICE ...")
         operation = args[1]
         device_id = args[2]
-        opts, positional = _options(args[3:])
+        opts, positional = _options(args[3:], self._timeout)
         if operation in {"check", "gi"} and positional:
             raise ValueError(f"{operation} does not accept point IDs")
         if opts.ca is not None and operation != "gi":
@@ -489,6 +492,15 @@ def main() -> int:
         shell._format = arguments[1]
         if shell._format not in {"table", "json"}:
             print("FAIL --format must be table or json", file=sys.stderr)
+            return 2
+        arguments = arguments[2:]
+    if len(arguments) >= 2 and arguments[0] == "--timeout":
+        try:
+            shell._timeout = float(arguments[1])
+            if not math.isfinite(shell._timeout) or shell._timeout <= 0:
+                raise ValueError("timeout must be a positive finite number")
+        except ValueError as exc:
+            print(f"FAIL invalid --timeout: {exc}", file=sys.stderr)
             return 2
         arguments = arguments[2:]
     if arguments:
