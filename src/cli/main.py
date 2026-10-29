@@ -182,7 +182,9 @@ class WindHubShell(cmd.Cmd):
             return None
         if action == "config":
             if not rest:
-                raise ValueError("usage: config validate PATH | read PATH | reload | diff PATH | show")
+                raise ValueError(
+                    "usage: config validate PATH | read PATH | reload | diff PATH | show"
+                )
             operation, *args = rest
             if operation == "validate":
                 if len(args) == 3 and args[1:] == ["--scope", "all"]:
@@ -195,7 +197,11 @@ class WindHubShell(cmd.Cmd):
                 raise ValueError(f"usage: config {operation}")
             if operation == "read":
                 loaded = self.config.read(args[0])
-                return {"status": "PASS", "path": str(loaded.path), "fingerprint": loaded.fingerprint}
+                return {
+                    "status": "PASS",
+                    "path": str(loaded.path),
+                    "fingerprint": loaded.fingerprint,
+                }
             if operation == "validate":
                 from pathlib import Path
 
@@ -225,10 +231,18 @@ class WindHubShell(cmd.Cmd):
                         "path": str(base),
                         "message": f"Configuration validation failed ({type(exc).__name__})",
                     }
-                return {"status": "PASS", "path": str(loaded.path), "fingerprint": loaded.fingerprint}
+                return {
+                    "status": "PASS",
+                    "path": str(loaded.path),
+                    "fingerprint": loaded.fingerprint,
+                }
             if operation == "reload":
                 loaded = self.config.reload()
-                return {"status": "PASS", "path": str(loaded.path), "fingerprint": loaded.fingerprint}
+                return {
+                    "status": "PASS",
+                    "path": str(loaded.path),
+                    "fingerprint": loaded.fingerprint,
+                }
             if operation == "diff":
                 change = self.config.diff(args[0])
                 return {"has_changes": change.has_changes, "sections": {
@@ -239,7 +253,8 @@ class WindHubShell(cmd.Cmd):
             if operation == "show":
                 loaded = self.config.current
                 return {"path": str(loaded.path), "fingerprint": loaded.fingerprint,
-                        "devices": len(loaded.snapshot.site.devices), "sinks": len(loaded.snapshot.sinks),
+                        "devices": len(loaded.snapshot.site.devices),
+                        "sinks": len(loaded.snapshot.sinks),
                         "loaded_at": loaded.loaded_at.isoformat(),
                         "last_reload": "FAIL" if self.config.reload_failed else "PASS"}
             raise ValueError(f"unsupported config command: {operation}")
@@ -255,7 +270,12 @@ class WindHubShell(cmd.Cmd):
             return points(loaded.snapshot, rest[0], rest[1] if len(rest) == 2 else None)
         if action == "gateways":
             self.config.current
-            return {"status": "UNKNOWN", "code": "NOT_DEFINED", "message": "Gateway inventory is not defined by the current ConfigSnapshot", "items": []}
+            return {
+                "status": "UNKNOWN",
+                "code": "NOT_DEFINED",
+                "message": "Gateway inventory is not defined by the current ConfigSnapshot",
+                "items": [],
+            }
         if action == "clear":
             print(chr(27) + "[2J" + chr(27) + "[H", end="")
             return None
@@ -274,7 +294,8 @@ class WindHubShell(cmd.Cmd):
                 parser.add_argument("port", nargs="?", type=int)
             if operation == "ping":
                 parser.add_argument("--count", type=int, default=4)
-            parser.add_argument("--timeout", type=float, default=1.0 if operation == "ping" else 3.0)
+            default_timeout = 1.0 if operation == "ping" else 3.0
+            parser.add_argument("--timeout", type=float, default=default_timeout)
             parsed = parser.parse_args(args[1:])
             host = parsed.host
             port = getattr(parsed, "port", None)
