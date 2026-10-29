@@ -10,7 +10,10 @@ import {
   vi,
 } from "vitest";
 import { server } from "../../../src/web_admin/src/mocks/node";
-import { resetMockState, mockState } from "../../../src/web_admin/src/mocks/state";
+import {
+  resetMockState,
+  mockState,
+} from "../../../src/web_admin/src/mocks/state";
 import {
   fetchDevice,
   fetchDevices,
@@ -23,11 +26,7 @@ import {
   startTask,
   fetchTaskInstances,
 } from "../../../src/web_admin/src/api/tasks";
-import {
-  fetchSink,
-  verifySink,
-  writeTestSink,
-} from "../../../src/web_admin/src/api/sinks";
+import { fetchSink, verifySink } from "../../../src/web_admin/src/api/sinks";
 import {
   protocolRead,
   pointTableTest,
@@ -244,18 +243,16 @@ describe("高保真 Mock 能力矩阵", () => {
     expect(redis.message).toContain("SINK_REDIS_TIMEOUT");
   });
 
-  it("14. Sink write test 失败影响 Quality 与 Logs", async () => {
-    const before = await fetchQuality("1h");
-    const result = await writeTestSink("modbus_main");
+  it("14. Sink verify 失败写入 Logs 且 sink 标记不健康", async () => {
+    // 现行接口 POST /sinks/:name/verify（write-test 已删除）：固定故障
+    // 场景 modbus_main 在连接性步骤失败、阻断后续并留下错误日志。
+    const result = await verifySink("modbus_main");
     expect(result.success).toBe(false);
-    const after = await fetchQuality("1h");
-    const metricOf = (q: typeof before) =>
-      q.data_metrics.find((m) => m.key === "dropped_points")!.value;
-    expect(metricOf(after)).toBeGreaterThan(metricOf(before));
+    expect(result.message).toContain("SINK_CONNECTION_REFUSED");
     const logs = await fetchLogs({
       page: 1,
       pageSize: 10,
-      keyword: "write test failed",
+      keyword: "verification failed",
     });
     expect(logs.items.length).toBeGreaterThan(0);
     const sink = await fetchSink("modbus_main");

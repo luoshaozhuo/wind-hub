@@ -19,11 +19,7 @@ import {
 } from '../api/config'
 import type { DeviceDto } from '../api/devices'
 import type { TaskDto } from '../api/tasks'
-import {
-  verifySink as apiVerifySink,
-  type SinkDto,
-  type SinkTestResult,
-} from '../api/sinks'
+import { verifySink as apiVerifySink, type SinkDto, type SinkTestResult } from '../api/sinks'
 import type { OverviewDto } from '../api/monitoring'
 import { ping, pointTableTest, protocolCheck } from '../api/diagnostics'
 import { awaitOperation } from '../api/operations'
@@ -600,6 +596,5 @@ export const useConfigStore = defineStore('config', {
       }
       s.runtime_state = !s.enabled ? 'disabled' : row.success ? 'healthy' : 'failed'
     },
-
   },
 })

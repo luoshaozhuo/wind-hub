@@ -773,7 +773,6 @@ export async function verifySinkByName(
   }
 }
 
-/** Write Test：成功更新 last_write_at/writes_total/latency；失败更新 failures/dropped/error 并影响 Quality 与 Logs。 */
 // ---------------------------------------------------------------------------
 // Settings / Admin State
 // ---------------------------------------------------------------------------

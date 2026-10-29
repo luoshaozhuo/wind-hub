@@ -17,7 +17,6 @@ export function verifySink(name: string): Promise<SinkTestResult> {
   return call(client.POST('/api/v1/sinks/{name}/verify', { params: { path: { name } } }))
 }
 
-
 export type SinkOperation = 'start' | 'stop' | 'restart' | 'clear'
 
 export async function manageSink(name: string, operation: SinkOperation): Promise<void> {
