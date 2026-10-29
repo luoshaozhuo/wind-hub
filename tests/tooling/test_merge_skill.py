@@ -39,12 +39,18 @@ def test_direct_squash_without_pr_or_gate(monkeypatch: pytest.MonkeyPatch) -> No
         ("git", "rev-parse", "refs/heads/main"): "base",
     }
     fetched = False
+    switched = False
 
     def fake_run(*args: str) -> str:
-        nonlocal fetched
+        nonlocal fetched, switched
         commands.append(args)
         if args == ("git", "fetch", "origin", "main", "feat/example"):
             return ""
+        if args == ("git", "switch", "main"):
+            switched = True
+            return ""
+        if args == ("git", "rev-parse", "HEAD") and switched:
+            return "squash"
         if args == ("git", "fetch", "origin", "main"):
             fetched = True
             return ""
