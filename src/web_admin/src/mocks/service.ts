@@ -774,51 +774,6 @@ export async function verifySinkByName(
 }
 
 /** Write Test：成功更新 last_write_at/writes_total/latency；失败更新 failures/dropped/error 并影响 Quality 与 Logs。 */
-export async function writeTestSinkByName(
-  name: string,
-): Promise<SinkTestResult | { error: { code: string; message: string } }> {
-  const s = mockState.sinks.find((x) => x.name === name)
-  if (!s) return { error: { code: MOCK_ERROR_CODES.NOT_FOUND, message: `sink ${name} not found` } }
-  await sleep(LATENCY.command)
-  const runtime = sinkRuntimeOf(s.name)
-  if (!s.enabled) {
-    runtime.failures_total += 1
-    runtime.error = MOCK_ERROR_CODES.SINK_DISABLED
-    appendLog('ERROR', 'sink', s.name, 'write test failed: sink is disabled')
-    return {
-      success: false,
-      latency_ms: 4,
-      message: 'Sink is disabled; enable it before writing.',
-      steps: [],
-    }
-  }
-  const scenario = sinkScenarios[s.name]
-  if (scenario) {
-    runtime.failures_total += 1
-    runtime.dropped_points += 1
-    runtime.error = scenario.code
-    appendLog('ERROR', 'sink', s.name, `write test failed: ${scenario.message}`)
-    return {
-      success: false,
-      latency_ms: scenario.latencyMs,
-      message: `${scenario.code}: ${scenario.message}`,
-      steps: [],
-    }
-  }
-  runtime.last_write_at = nowIso()
-  runtime.writes_total += 1
-  runtime.latency_ms = 18
-  runtime.error = ''
-  runtime.queue_depth = 0
-  appendLog('INFO', 'sink', s.name, 'write test accepted (synthetic PointValue)')
-  return {
-    success: true,
-    latency_ms: 18,
-    message: 'Synthetic PointValue accepted by the sink.',
-    steps: [{ step: 'write', state: 'passed', latency_ms: 18 }],
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Settings / Admin State
 // ---------------------------------------------------------------------------
