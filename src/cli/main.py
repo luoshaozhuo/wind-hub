@@ -13,14 +13,12 @@ from typing import Any
 
 from core.application.errors import ConfigError
 
-from .config_session import ConfigSession, REQUIRED_FILES
+from .config_session import REQUIRED_FILES, ConfigSession
 from .help import completion_words, help_text
 from .inventory import devices, points, sinks
-from .protocol_diagnostic import execute
 from .presentation import Timer, emit, response
+from .protocol_diagnostic import execute
 from .results import ResultStore
-
-
 
 
 def _value(raw: str) -> bool | int | float | str:
@@ -39,9 +37,7 @@ def _value(raw: str) -> bool | int | float | str:
     raise ValueError("invalid write value")
 
 
-def _options(
-    args: list[str], default_timeout: float = 5.0
-) -> tuple[argparse.Namespace, list[str]]:
+def _options(args: list[str], default_timeout: float = 5.0) -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(prog="diagnose protocol", add_help=True)
     parser.add_argument("--interval", type=float)
     parser.add_argument("--count", type=int, default=None)
@@ -82,15 +78,24 @@ class WindHubShell(cmd.Cmd):
                 loaded = self.config._current
                 fingerprint = loaded.fingerprint if loaded is not None else None
                 emit(
-                    response(" ".join(tokens[:3]), result,
-                             fingerprint=fingerprint, duration_ms=timer.elapsed_ms()),
+                    response(
+                        " ".join(tokens[:3]),
+                        result,
+                        fingerprint=fingerprint,
+                        duration_ms=timer.elapsed_ms(),
+                    ),
                     format_name=self._format,
                 )
         except (ConfigError, ValueError, OSError, RuntimeError, KeyError) as exc:
-            error = {"status": "FAIL", "code": "CLI_ERROR",
-                     "message": f"{type(exc).__name__}: {exc}"}
-            emit(response("command", error, fingerprint=None, duration_ms=0),
-                 format_name=self._format)
+            error = {
+                "status": "FAIL",
+                "code": "CLI_ERROR",
+                "message": f"{type(exc).__name__}: {exc}",
+            }
+            emit(
+                response("command", error, fingerprint=None, duration_ms=0),
+                format_name=self._format,
+            )
         except KeyboardInterrupt:
             print("\nInterrupted.")
 
@@ -102,9 +107,7 @@ class WindHubShell(cmd.Cmd):
             words.extend(str(key) for key in snapshot.site.devices)
             words.extend(str(key) for key in snapshot.sinks)
             words.extend(
-                point_id
-                for table in snapshot.point_tables.values()
-                for point_id in table.points
+                point_id for table in snapshot.point_tables.values() for point_id in table.points
             )
         return sorted(set(words))
 
@@ -149,8 +152,8 @@ class WindHubShell(cmd.Cmd):
             pass
         super().postloop()
 
-    def emptyline(self) -> None:
-        return
+    def emptyline(self) -> bool:
+        return False
 
     def do_help(self, arg: str) -> None:
         """Show command syntax."""
@@ -167,7 +170,7 @@ class WindHubShell(cmd.Cmd):
         """Exit interactive CLI."""
         return True
 
-    def do_EOF(self, arg: str) -> bool:
+    def do_EOF(self, arg: str) -> bool:  # noqa: N802  # cmd.Cmd 按 EOF 名分发，无法改名
         print()
         return True
 
@@ -244,18 +247,27 @@ class WindHubShell(cmd.Cmd):
                 }
             if operation == "diff":
                 change = self.config.diff(args[0])
-                return {"has_changes": change.has_changes, "sections": {
-                    name: {"added": sorted(section.added), "removed": sorted(section.removed),
-                           "changed": sorted(section.changed)}
-                    for name, section in change.sections.items()
-                }}
+                return {
+                    "has_changes": change.has_changes,
+                    "sections": {
+                        name: {
+                            "added": sorted(section.added),
+                            "removed": sorted(section.removed),
+                            "changed": sorted(section.changed),
+                        }
+                        for name, section in change.sections.items()
+                    },
+                }
             if operation == "show":
                 loaded = self.config.current
-                return {"path": str(loaded.path), "fingerprint": loaded.fingerprint,
-                        "devices": len(loaded.snapshot.site.devices),
-                        "sinks": len(loaded.snapshot.sinks),
-                        "loaded_at": loaded.loaded_at.isoformat(),
-                        "last_reload": "FAIL" if self.config.reload_failed else "PASS"}
+                return {
+                    "path": str(loaded.path),
+                    "fingerprint": loaded.fingerprint,
+                    "devices": len(loaded.snapshot.site.devices),
+                    "sinks": len(loaded.snapshot.sinks),
+                    "loaded_at": loaded.loaded_at.isoformat(),
+                    "last_reload": "FAIL" if self.config.reload_failed else "PASS",
+                }
             raise ValueError(f"unsupported config command: {operation}")
         if action in {"devices", "points", "sinks"}:
             loaded = self.config.current
@@ -268,7 +280,8 @@ class WindHubShell(cmd.Cmd):
                 raise ValueError("usage: points DEVICE [POINT]")
             return points(loaded.snapshot, rest[0], rest[1] if len(rest) == 2 else None)
         if action == "gateways":
-            self.config.current
+            # 仅触发“必须已加载配置”门禁；当前 ConfigSnapshot 没有 Gateway 集合。
+            _ = self.config.current
             return {
                 "status": "UNKNOWN",
                 "code": "NOT_DEFINED",
@@ -371,8 +384,9 @@ class WindHubShell(cmd.Cmd):
             from .protocol_stream import benchmark, listen
 
             device_info = devices(loaded.snapshot, device_id)[0]
-            point_info = [points(loaded.snapshot, device_id, point_id)[0]
-                          for point_id in positional]
+            point_info = [
+                points(loaded.snapshot, device_id, point_id)[0] for point_id in positional
+            ]
             context = {
                 "device_id": device_id,
                 "protocol": device_info["protocol"],
@@ -386,36 +400,51 @@ class WindHubShell(cmd.Cmd):
                 on_sample = None
                 if opts.duration is None:
                     print(json.dumps(context, ensure_ascii=False, default=str))
-                    on_sample = lambda sample: print(
-                        json.dumps(sample, ensure_ascii=False, allow_nan=False)
-                    )
+
+                    def _emit_sample(sample: dict[str, Any]) -> None:
+                        print(json.dumps(sample, ensure_ascii=False, allow_nan=False))
+
+                    on_sample = _emit_sample
                 try:
                     payload = asyncio.run(
-                        listen(loaded.snapshot, device_id, positional,
-                               duration=opts.duration, timeout=opts.timeout,
-                               on_sample=on_sample)
+                        listen(
+                            loaded.snapshot,
+                            device_id,
+                            positional,
+                            duration=opts.duration,
+                            timeout=opts.timeout,
+                            on_sample=on_sample,
+                        )
                     )
                 except Exception as exc:
                     return {
-                        "status": "FAIL", "code": "PROTOCOL_LISTEN_FAILED",
-                        **context, "message": f"{type(exc).__name__}: {exc}",
+                        "status": "FAIL",
+                        "code": "PROTOCOL_LISTEN_FAILED",
+                        **context,
+                        "message": f"{type(exc).__name__}: {exc}",
                     }
                 return {"status": "PASS", **context, "data": payload}
             if not positional:
                 raise ValueError("benchmark requires at least one point ID")
             try:
-                payload = asyncio.run(
-                    benchmark(loaded.snapshot, device_id, positional,
-                              samples=opts.samples,
-                              interval=0.2 if opts.interval is None else opts.interval,
-                              timeout=opts.timeout)
+                benchmark_payload = asyncio.run(
+                    benchmark(
+                        loaded.snapshot,
+                        device_id,
+                        positional,
+                        samples=opts.samples,
+                        interval=0.2 if opts.interval is None else opts.interval,
+                        timeout=opts.timeout,
+                    )
                 )
             except Exception as exc:
                 return {
-                    "status": "FAIL", "code": "PROTOCOL_BENCHMARK_FAILED",
-                    **context, "message": f"{type(exc).__name__}: {exc}",
+                    "status": "FAIL",
+                    "code": "PROTOCOL_BENCHMARK_FAILED",
+                    **context,
+                    "message": f"{type(exc).__name__}: {exc}",
                 }
-            return {"status": "PASS", **context, "data": payload}
+            return {"status": "PASS", **context, "data": benchmark_payload}
         value = _value(positional[1]) if operation == "write" else None
         if operation == "write" and not opts.yes:
             if not getattr(self, "_interactive", False):
@@ -423,17 +452,21 @@ class WindHubShell(cmd.Cmd):
             target = devices(loaded.snapshot, device_id)[0]
             point = points(loaded.snapshot, device_id, positional[0])[0]
             print("WRITE WARNING: physical device may execute this command.")
-            print(json.dumps({"device": device_id, "endpoint": target,
-                              "point": point, "value": value},
-                             ensure_ascii=False, default=str))
+            print(
+                json.dumps(
+                    {"device": device_id, "endpoint": target, "point": point, "value": value},
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
             if input("Execute once? Type YES: ").strip() != "YES":
                 return {"status": "SKIPPED", "message": "write not confirmed"}
         point_ids = positional[:1] if operation == "write" else positional
         from .inventory import devices as inventory_devices
+
         device_info = inventory_devices(loaded.snapshot, device_id)[0]
         selected_points = [
-            points(loaded.snapshot, device_id, point_id)[0]
-            for point_id in point_ids
+            points(loaded.snapshot, device_id, point_id)[0] for point_id in point_ids
         ]
         if opts.count is not None and not 1 <= opts.count <= 100000:
             raise ValueError("--count must be in 1..100000")
@@ -445,8 +478,13 @@ class WindHubShell(cmd.Cmd):
         if streaming and self._format == "json":
             raise ValueError("continuous JSON output requires --count")
         if streaming:
-            print(json.dumps({"device_id": device_id, "endpoint": device_info,
-                              "points": selected_points}, ensure_ascii=False, default=str))
+            print(
+                json.dumps(
+                    {"device_id": device_id, "endpoint": device_info, "points": selected_points},
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
         on_sample = (
             (lambda sample: print(json.dumps(sample, ensure_ascii=False, allow_nan=False)))
             if streaming
@@ -482,15 +520,17 @@ class WindHubShell(cmd.Cmd):
         outcome = payload[0].get("outcome") if operation == "write" and payload else None
         quality_warning = any(
             str(item.get("quality", "good")).lower() != "good"
-            for item in payload if "quality" in item
+            for item in payload
+            if "quality" in item
         )
         status = (
-            "UNKNOWN" if outcome == "unknown" or (
-                operation == "gi" and bool(payload)
-                and payload[0].get("status") == "UNKNOWN"
-            )
-            else "FAIL" if outcome == "confirmed_failure"
-            else "WARNING" if quality_warning
+            "UNKNOWN"
+            if outcome == "unknown"
+            or (operation == "gi" and bool(payload) and payload[0].get("status") == "UNKNOWN")
+            else "FAIL"
+            if outcome == "confirmed_failure"
+            else "WARNING"
+            if quality_warning
             else "PASS"
         )
         return {
@@ -543,7 +583,8 @@ def main() -> int:
                 return 0
             loaded = shell.config._current
             result = response(
-                " ".join(arguments[:3]), payload,
+                " ".join(arguments[:3]),
+                payload,
                 fingerprint=loaded.fingerprint if loaded is not None else None,
                 duration_ms=timer.elapsed_ms(),
             )
@@ -558,8 +599,11 @@ def main() -> int:
                 emit(
                     response(
                         " ".join(arguments[:3]),
-                        {"status": "FAIL", "code": "CLI_ERROR",
-                         "message": f"{type(exc).__name__}: {exc}"},
+                        {
+                            "status": "FAIL",
+                            "code": "CLI_ERROR",
+                            "message": f"{type(exc).__name__}: {exc}",
+                        },
                         fingerprint=None,
                         duration_ms=timer.elapsed_ms(),
                     ),
@@ -574,3 +618,7 @@ def main() -> int:
     shell._interactive = True
     shell.cmdloop()
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

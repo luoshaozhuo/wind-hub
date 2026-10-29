@@ -7,13 +7,13 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from core.application.config_snapshot import ConfigSnapshot
+from core.application.port.protocol import ProtocolPort
 from core.application.protocol_contract import (
     InterrogationRequest,
     ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
 )
-from core.application.port.protocol import ProtocolPort
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.protocol.ads.driver import ADSDriver
 from core.infrastructure.protocol.iec104.driver import (
@@ -110,20 +110,24 @@ async def execute(
                 raise ValueError("write requires one configured point and a non-null value")
             try:
                 async with asyncio.timeout(timeout):
-                    outcome = await driver.write_one(
-                        ProtocolWrite(point=point_ids[0], value=value)
-                    )
+                    outcome = await driver.write_one(ProtocolWrite(point=point_ids[0], value=value))
             except TimeoutError:
-                return [{
-                    "point_id": point_ids[0],
-                    "outcome": "unknown",
-                    "message": "Write timed out; command may have executed. Do not retry blindly.",
-                }]
-            return [{
-                "point_id": outcome.point_id,
-                "outcome": outcome.outcome.value,
-                "message": outcome.message,
-            }]
+                return [
+                    {
+                        "point_id": point_ids[0],
+                        "outcome": "unknown",
+                        "message": (
+                            "Write timed out; command may have executed. " "Do not retry blindly."
+                        ),
+                    }
+                ]
+            return [
+                {
+                    "point_id": outcome.point_id,
+                    "outcome": outcome.outcome.value,
+                    "message": outcome.message,
+                }
+            ]
         if operation == "gi":
             if ProtocolCapability.INTERROGATE not in caps:
                 raise ValueError("protocol does not support interrogation")
@@ -133,12 +137,14 @@ async def execute(
                         InterrogationRequest(common_address=common_address)
                     )
             except IEC104InterrogationIncompleteError as exc:
-                return [{
-                    "status": "UNKNOWN",
-                    "common_address": exc.common_address,
-                    "message": exc.reason,
-                    "samples": [sample_dict(sample) for sample in exc.samples],
-                }]
+                return [
+                    {
+                        "status": "UNKNOWN",
+                        "common_address": exc.common_address,
+                        "message": exc.reason,
+                        "samples": [sample_dict(sample) for sample in exc.samples],
+                    }
+                ]
             return [sample_dict(sample) for sample in samples]
         if operation not in {"read", "read-many"}:
             raise ValueError(f"unsupported diagnostic operation: {operation}")

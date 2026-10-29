@@ -24,18 +24,22 @@ def plan(snapshot: ConfigSnapshot) -> list[dict[str, str]]:
         steps.append({"kind": "protocol_check", "target": device_id, "point": ""})
         for item in points(snapshot, device_id):
             if item["access"] in {"read", "read_write"}:
-                steps.append({
-                    "kind": "point_read",
-                    "target": device_id,
-                    "point": str(item["point_id"]),
-                })
+                steps.append(
+                    {
+                        "kind": "point_read",
+                        "target": device_id,
+                        "point": str(item["point_id"]),
+                    }
+                )
     for sink in sinks(snapshot):
         if sink["enabled"] and sink["kind"] in {"redis", "tdengine", "kafka", "grpc"}:
-            steps.append({
-                "kind": "sink_endpoint",
-                "target": str(sink["sink_id"]),
-                "point": "",
-            })
+            steps.append(
+                {
+                    "kind": "sink_endpoint",
+                    "target": str(sink["sink_id"]),
+                    "point": "",
+                }
+            )
     return steps
 
 
@@ -115,7 +119,9 @@ async def run(
             step = planned[index]
             target, kind = step["target"], step["kind"]
             entry: dict[str, Any] = {
-                **step, "index": index, "status": "PASS",
+                **step,
+                "index": index,
+                "status": "PASS",
                 "timestamp": datetime.now(UTC).isoformat(),
             }
             try:
@@ -123,7 +129,8 @@ async def run(
                     device = devices_by_id[target]
                     entry["protocol"] = device["protocol"]
                     entry["endpoint"] = {
-                        "host": device["host"], "port": device["port"],
+                        "host": device["host"],
+                        "port": device["port"],
                     }
                     entry["protocol_options"] = device["protocol_options"]
                     if current_target != target:
@@ -177,9 +184,12 @@ def _result(
     failed_index: int | None,
 ) -> dict[str, Any]:
     status = (
-        "FAIL" if failed_index is not None
-        else "UNKNOWN" if any(step["status"] == "UNKNOWN" for step in steps)
-        else "WARNING" if any(step["status"] == "WARNING" for step in steps)
+        "FAIL"
+        if failed_index is not None
+        else "UNKNOWN"
+        if any(step["status"] == "UNKNOWN" for step in steps)
+        else "WARNING"
+        if any(step["status"] == "WARNING" for step in steps)
         else "PASS"
     )
     return {

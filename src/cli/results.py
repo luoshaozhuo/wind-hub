@@ -46,8 +46,11 @@ class ResultStore:
             "diagnosis": self._last,
         }
         payload = json.dumps(
-            report, ensure_ascii=False, indent=2,
-            allow_nan=False, default=str,
+            report,
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+            default=str,
         ).encode("utf-8")
         temporary: Path | None = None
         try:

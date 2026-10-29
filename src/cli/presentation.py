@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from time import perf_counter
+from typing import Any
 
 
 def response(
@@ -61,10 +62,7 @@ def emit(result: dict[str, Any], *, format_name: str = "table") -> None:
     if format_name == "json":
         print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False, default=str))
         return
-    print(
-        f'{result["status"]} {result["command"]}'
-        f' ({result["duration_ms"]} ms)'
-    )
+    print(f'{result["status"]} {result["command"]}' f' ({result["duration_ms"]} ms)')
     payload = result["data"]
     if isinstance(payload, list):
         if not payload:
@@ -74,8 +72,7 @@ def emit(result: dict[str, Any], *, format_name: str = "table") -> None:
             keys = list(payload[0])
             # 大对象或变长字段不强行铺成极宽表格。
             flat = all(
-                all(not isinstance(value, dict | list) for value in row.values())
-                for row in payload
+                all(not isinstance(value, dict | list) for value in row.values()) for row in payload
             )
             if len(keys) <= 8 and flat:
                 widths = {
@@ -85,10 +82,9 @@ def emit(result: dict[str, Any], *, format_name: str = "table") -> None:
                 print("  ".join(key.ljust(widths[key]) for key in keys))
                 for row in payload:
                     cells = (
-                        str(row.get(key, ""))[:widths[key]].ljust(widths[key])
-                        for key in keys
+                        str(row.get(key, ""))[: widths[key]].ljust(widths[key]) for key in keys
                     )
-                    print("  ".join(cells)
+                    print("  ".join(cells))
                 return
     print(json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False, default=str))
 

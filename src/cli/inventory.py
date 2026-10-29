@@ -21,30 +21,31 @@ def devices(snapshot: ConfigSnapshot, device_id: str | None = None) -> list[dict
         table = snapshot.point_tables[model.point_table_id]
         resolved, options = resolve_effective_device(device, model, table.protocol.name)
         if table.protocol.name == "modbus":
-            cfg = parse_modbus_config(resolved.endpoint, options)
-            effective = {
-                "slave_id": cfg.slave_id,
-                "word_order": cfg.word_order,
-                "timeout": cfg.timeout,
+            modbus_cfg = parse_modbus_config(resolved.endpoint, options)
+            effective: dict[str, Any] = {
+                "slave_id": modbus_cfg.slave_id,
+                "word_order": modbus_cfg.word_order,
+                "timeout": modbus_cfg.timeout,
             }
         elif table.protocol.name == "ads":
-            cfg = parse_ads_config(resolved.endpoint, options)
+            ads_cfg = parse_ads_config(resolved.endpoint, options)
             effective = {
-                "target_net_id": cfg.target_net_id,
-                "target_port": cfg.target_port,
-                "timeout": cfg.timeout,
-                "route_auto_add": cfg.route_auto_add,
+                "target_net_id": ads_cfg.target_net_id,
+                "target_port": ads_cfg.target_port,
+                "timeout": ads_cfg.timeout,
+                "route_auto_add": ads_cfg.route_auto_add,
                 "local_ams_net_id": (
                     snapshot.system.ads.local_ams_net_id
-                    if snapshot.system.ads is not None else None
+                    if snapshot.system.ads is not None
+                    else None
                 ),
             }
         elif table.protocol.name == "iec104":
-            cfg = parse_iec104_config(resolved.endpoint, options)
+            iec_cfg = parse_iec104_config(resolved.endpoint, options)
             effective = {
-                "read_timeout": cfg.read_timeout,
-                "command_timeout": cfg.command_timeout,
-                "interrogation_timeout": cfg.interrogation_timeout,
+                "read_timeout": iec_cfg.read_timeout,
+                "command_timeout": iec_cfg.command_timeout,
+                "interrogation_timeout": iec_cfg.interrogation_timeout,
             }
         else:
             raise ValueError(f"unknown protocol: {table.protocol.name}")
@@ -112,15 +113,22 @@ def sinks(snapshot: ConfigSnapshot, sink_id: str | None = None) -> list[dict[str
                 "kind": sink.kind,
                 "enabled": sink.enabled,
                 "task_ids": sorted(
-                    task_id for task_id, task in snapshot.tasks.items()
-                    if identity in task.sink_ids
+                    task_id for task_id, task in snapshot.tasks.items() if identity in task.sink_ids
                 ),
                 "connection": {
                     key: value
                     for key, value in sink.connection.items()
-                    if key in {
-                        "host", "port", "database", "stable", "endpoint",
-                        "bootstrap_servers", "topic", "tls", "client_id",
+                    if key
+                    in {
+                        "host",
+                        "port",
+                        "database",
+                        "stable",
+                        "endpoint",
+                        "bootstrap_servers",
+                        "topic",
+                        "tls",
+                        "client_id",
                     }
                 },
             }
