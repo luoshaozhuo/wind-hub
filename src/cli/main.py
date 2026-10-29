@@ -16,6 +16,7 @@ from core.application.errors import ConfigError
 from .config_session import ConfigSession
 from .inventory import devices, points, sinks
 from .protocol_diagnostic import execute
+from .presentation import Timer, emit, response
 
 HELP = """Commands:
   config validate PATH | read PATH | reload | diff PATH | show
@@ -75,6 +76,7 @@ class WindHubShell(cmd.Cmd):
         super().__init__()
         self.config = ConfigSession()
         self._interactive = False
+        self._format = 'table'
         self.last_results: list[dict[str, Any]] = []
         self._failed_device: str | None = None
         self._failed_fingerprint: str | None = None
@@ -84,9 +86,16 @@ class WindHubShell(cmd.Cmd):
             tokens = shlex.split(line)
             if not tokens:
                 return
+            timer = Timer()
             result = self.dispatch(tokens)
             if result is not None:
-                print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+                loaded = self.config._current
+                fingerprint = loaded.fingerprint if loaded is not None else None
+                emit(
+                    response(" ".join(tokens[:3]), result,
+                             fingerprint=fingerprint, duration_ms=timer.elapsed_ms()),
+                    format_name=self._format,
+                )
         except (ConfigError, ValueError, OSError, RuntimeError, KeyError) as exc:
             print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
         except KeyboardInterrupt:
@@ -116,6 +125,9 @@ class WindHubShell(cmd.Cmd):
 
     def dispatch(self, tokens: list[str]) -> object:
         action, *rest = tokens
+        if action == "help" or "--help" in tokens:
+            print(HELP)
+            return None
         if action == "config":
             if not rest:
                 raise ValueError("usage: config validate PATH | read PATH | reload | diff PATH | show")
@@ -296,32 +308,79 @@ class WindHubShell(cmd.Cmd):
 
 def main() -> int:
     shell = WindHubShell()
-    if len(sys.argv) > 1:
+    arguments = sys.argv[1:]
+    if arguments and arguments[0] == "--help":
+        print(HELP)
+        return 0
+    if len(arguments) >= 2 and arguments[0] == "--config":
         try:
-            result = shell.dispatch(sys.argv[1:])
-            print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
-            return 0
-        except (ConfigError, ValueError, OSError, RuntimeError) as exc:
+            shell.config.read(arguments[1])
+        except (ConfigError, ValueError, OSError) as exc:
             print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
             return 2
+        arguments = arguments[2:]
+    if len(arguments) >= 2 and arguments[0] == "--format":
+        shell._format = arguments[1]
+        if shell._format not in {"table", "json"}:
+            print("FAIL --format must be table or json", file=sys.stderr)
+            return 2
+        arguments = arguments[2:]
+    if arguments:
+        timer = Timer()
+        try:
+            payload = shell.dispatch(arguments)
+            if payload is None:
+                return 0
+            loaded = shell.config._current
+            result = response(
+                " ".join(arguments[:3]), payload,
+                fingerprint=loaded.fingerprint if loaded is not None else None,
+                duration_ms=timer.elapsed_ms(),
+            )
+            emit(result, format_name=shell._format)
+            if result["status"] == "UNKNOWN":
+                return 3
+            return 1 if result["status"] == "FAIL" else 0
+        except (ConfigError, ValueError, OSError, RuntimeError, KeyError) as exc:
+            print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
+        except KeyboardInterrupt:
+            return 130
+
     try:
         from pathlib import Path
 
         from prompt_toolkit import PromptSession
-        from prompt_toolkit.completion import WordCompleter
+        from prompt_toolkit.completion import DynamicCompleter, WordCompleter
         from prompt_toolkit.history import FileHistory
 
-        completer = WordCompleter(
-            ["config", "validate", "read", "reload", "diff", "show",
-             "devices", "points", "sinks", "gateways", "diagnose",
-             "protocol", "check", "read-many", "write", "gi", "benchmark",
-             "listen", "tcp", "resolve", "help", "exit"],
-            ignore_case=True,
-            sentence=True,
-        )
+        class SafeHistory(FileHistory):
+            def append_string(self, string: str) -> None:
+                if " write " not in f" {string.lower()} ":
+                    super().append_string(string)
+
+        def completion() -> WordCompleter:
+            words = [
+                "config", "validate", "read", "reload", "diff", "show",
+                "devices", "points", "sinks", "gateways", "diagnose", "protocol",
+                "check", "read-many", "write", "gi", "benchmark", "listen",
+                "ping", "tcp", "route", "resolve", "help", "clear", "exit",
+            ]
+            loaded = shell.config._current
+            if loaded is not None:
+                snapshot = loaded.snapshot
+                words.extend(str(key) for key in snapshot.site.devices)
+                words.extend(str(key) for key in snapshot.sinks)
+                words.extend(
+                    str(point_id)
+                    for table in snapshot.point_tables.values()
+                    for point_id in table.points
+                )
+            return WordCompleter(words, ignore_case=True, sentence=True)
+
         session: PromptSession[str] = PromptSession(
-            history=FileHistory(str(Path.home() / ".wind_hub_history")),
-            completer=completer,
+            history=SafeHistory(str(Path.home() / ".wind_hub_history")),
+            completer=DynamicCompleter(completion),
             complete_while_typing=False,
         )
         shell._interactive = True
@@ -337,7 +396,3 @@ def main() -> int:
     except ImportError:
         shell.cmdloop()
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
