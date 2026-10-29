@@ -38,8 +38,8 @@ class TestReloadFailureResilience:
 
         update_yaml(
             config_dir,
-            "tasks.yaml",
-            lambda data: data["tasks"][TASK_ID].update({"outputs": [{"sink_id": "ghost_sink"}]}),
+            "sinks.yaml",
+            lambda data: data["sinks"]["redis_sink"]["outputs"].update({"ghost_task": {}}),
         )
         prepared = await prepare_config(
             proc.grpc_target, config_dir=config_dir, revision_id="rev-broken"
@@ -51,12 +51,14 @@ class TestReloadFailureResilience:
         continued = await wait_telemetry_value(redis_service, after=str(initial["timestamp"]))
 
         def _restore(data: dict[str, Any]) -> None:
-            data["tasks"][TASK_ID]["outputs"] = [
-                {"sink_id": "redis_sink", "key_prefix": "wind-hub-recovery"}
-            ]
             data["tasks"][TASK_ID]["interval"] = 0.5
 
         update_yaml(config_dir, "tasks.yaml", _restore)
+        update_yaml(
+            config_dir,
+            "sinks.yaml",
+            lambda data: data["sinks"]["redis_sink"]["outputs"].pop("ghost_task"),
+        )
         activated = await reload_config(
             proc.grpc_target, config_dir=config_dir, revision_id="rev-restored"
         )
