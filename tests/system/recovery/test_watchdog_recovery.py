@@ -44,7 +44,7 @@ SAMPLE_INTERVAL = 0.25
 def _write_fast_config(base: Path, port: int, redis_address: str) -> Path:
     from tests.support.functional_config import MODBUS_POINTS, modbus_device_dict
 
-    task = telemetry_task("redis_sink", key_prefix="wind-hub-watchdog")
+    task = telemetry_task()
     task[TASK_ID]["interval"] = FAST_INTERVAL
     return write_config_tree(
         base,
@@ -57,6 +57,7 @@ def _write_fast_config(base: Path, port: int, redis_address: str) -> Path:
                     "host": redis_address.rpartition(":")[0],
                     "port": int(redis_address.rpartition(":")[2]),
                 },
+                "outputs": {TASK_ID: {"key_prefix": "wind-hub-watchdog"}},
             }
         },
         tasks=task,
