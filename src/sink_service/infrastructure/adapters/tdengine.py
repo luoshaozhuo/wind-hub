@@ -113,7 +113,7 @@ class TDengineSink:
                 self._error = str(exc)
                 raise SinkError(
                     "TDengine open failed (requires a server supporting "
-                    f"VARCHAR COMPOSITE KEY, verified target >= 3.3.8.x): {exc}"
+                    f"VARCHAR COMPOSITE KEY; verify TDengine server compatibility): {exc}"
                 ) from exc
             self._opened = True
             self._error = None
