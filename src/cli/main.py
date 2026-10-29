@@ -14,8 +14,8 @@ from typing import Any
 from core.application.errors import ConfigError
 
 from .config_session import ConfigSession, REQUIRED_FILES
-from .inventory import devices, points, sinks
 from .help import completion_words, help_text
+from .inventory import devices, points, sinks
 from .protocol_diagnostic import execute
 from .presentation import Timer, emit, response
 
@@ -101,7 +101,7 @@ class WindHubShell(cmd.Cmd):
         return True
 
     def do_clear(self, arg: str) -> None:
-        print("\\033[2J\\033[H", end="")
+        print(chr(27) + "[2J" + chr(27) + "[H", end="")
 
     def do_quit(self, arg: str) -> bool:
         """Exit interactive CLI."""
@@ -184,8 +184,6 @@ class WindHubShell(cmd.Cmd):
             raise ValueError(f"unsupported config command: {operation}")
         if action in {"devices", "points", "sinks"}:
             loaded = self.config.current
-            verbose = "--verbose" in rest
-            del verbose
             rest = [token for token in rest if token != "--verbose"]
             if action == "devices":
                 return devices(loaded.snapshot, rest[0] if rest else None)
@@ -198,7 +196,7 @@ class WindHubShell(cmd.Cmd):
             self.config.current
             return {"status": "UNKNOWN", "code": "NOT_DEFINED", "message": "Gateway inventory is not defined by the current ConfigSnapshot", "items": []}
         if action == "clear":
-            print("\\033[2J\\033[H", end="")
+            print(chr(27) + "[2J" + chr(27) + "[H", end="")
             return None
         if action == "diagnose":
             return self._diagnose(rest)
