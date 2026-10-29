@@ -445,12 +445,17 @@ class WindHubShell(cmd.Cmd):
                 "data": [],
             }
         outcome = payload[0].get("outcome") if operation == "write" and payload else None
+        quality_warning = any(
+            str(item.get("quality", "good")).lower() != "good"
+            for item in payload if "quality" in item
+        )
         status = (
             "UNKNOWN" if outcome == "unknown" or (
                 operation == "gi" and bool(payload)
                 and payload[0].get("status") == "UNKNOWN"
             )
             else "FAIL" if outcome == "confirmed_failure"
+            else "WARNING" if quality_warning
             else "PASS"
         )
         return {
