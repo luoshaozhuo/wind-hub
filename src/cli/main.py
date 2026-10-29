@@ -68,9 +68,6 @@ class WindHubShell(cmd.Cmd):
         self._interactive = False
         self._format = "table"
         self._timeout = 5.0
-        self.last_results: list[dict[str, Any]] = []
-        self._failed_device: str | None = None
-        self._failed_fingerprint: str | None = None
 
     def default(self, line: str) -> None:
         try:
@@ -328,18 +325,14 @@ class WindHubShell(cmd.Cmd):
                 }
         loaded = self.config.require_diagnosable()
         if not args or args == ["--restart"]:
-            from .pipeline import run_pipeline
-
-            start = (
-                self._failed_device
-                if args != ["--restart"] and loaded.fingerprint == self._failed_fingerprint
-                else None
-            )
-            result = asyncio.run(run_pipeline(loaded.snapshot, start_device=start))
-            self._failed_device = result.get("failed_device")
-            self._failed_fingerprint = loaded.fingerprint
-            self.last_results = result["steps"]
-            return result
+            return {
+                "status": "UNKNOWN",
+                "code": "AUTO_DIAGNOSIS_PENDING",
+                "message": (
+                    "Full communication-chain diagnosis is phase 3; "
+                    "manual network and protocol tools are available."
+                ),
+            }
         if len(args) < 3 or args[0] != "protocol":
             raise ValueError("usage: diagnose [--restart] | diagnose protocol OP DEVICE ...")
         operation = args[1]
