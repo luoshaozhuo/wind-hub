@@ -111,7 +111,10 @@ class TDengineSink:
                 await self._blocking(f"SELECT sample_id FROM {name} LIMIT 0")
             except Exception as exc:
                 self._error = str(exc)
-                raise SinkError(f"TDengine open failed: {exc}") from exc
+                raise SinkError(
+                    "TDengine open failed (requires a server supporting "
+                    f"VARCHAR COMPOSITE KEY, verified target >= 3.3.8.x): {exc}"
+                ) from exc
             self._opened = True
             self._error = None
 
