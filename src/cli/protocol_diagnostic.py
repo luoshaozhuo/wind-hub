@@ -16,7 +16,10 @@ from core.application.protocol_contract import (
 from core.application.port.protocol import ProtocolPort
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.protocol.ads.driver import ADSDriver
-from core.infrastructure.protocol.iec104.driver import IEC104Driver, IEC104InterrogationIncompleteError
+from core.infrastructure.protocol.iec104.driver import (
+    IEC104Driver,
+    IEC104InterrogationIncompleteError,
+)
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 
 
