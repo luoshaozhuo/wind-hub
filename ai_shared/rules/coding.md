@@ -35,9 +35,7 @@ origin/main
 → modify
 → 按需进行直接相关的验证
 → commit(s) / push
-→ PR
-→ 用户调用 //merge-branch 执行受影响范围验证
-→ squash merge main
+→ 用户调用 //merge-branch 直接 squash merge main（无 PR、无合并门禁）
 ```
 
 要求：
@@ -47,11 +45,11 @@ origin/main
 3. commit/push 前确认当前分支与远端 HEAD；禁止 force push。
 4. 不使用 reset --hard、clean 或覆盖用户修改的操作。
 5. CI 证据绑定具体 SHA。
-6. main 只通过 PR merge 更新。
+6. main 通过 Squash Commit 快进更新，不创建 PR；不绕过 GitHub 服务端分支保护。
 
 ## 5. 验证边界
 
-1. **开发、Commit、Push 和创建 PR 均不强制运行完整产品 Gate；由 merge-branch 在合并前统一执行受影响范围验证。**
+1. **开发、Commit、Push、合并均不强制运行产品 Gate；merge-branch 不运行合并前自动门禁。**
 2. CI/Agent 工具修改只验证工具自身，除非同时修改产品代码。
 3. rules/skills 等非代码治理修改不运行产品 pytest、build、Playwright、integration/system。
 4. 混合变更按真实受影响范围执行对应 Gate。
