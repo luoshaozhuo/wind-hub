@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
 from core.application.config_snapshot import ConfigSnapshot
-from core.application.protocol_contract import ProtocolCapability
 
 from .inventory import devices, points, sinks
 from .network_diagnostic import tcp
