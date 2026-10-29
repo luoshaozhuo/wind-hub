@@ -49,6 +49,7 @@ async def run_sink_service(
                 servers=servers,
                 delivery="realtime",
                 wind_farm_id=wind_farm_id,
+                deployment_id=deployment_id,
                 intent_store=store,
                 sink_ids=realtime_sinks,
             ),
@@ -67,6 +68,7 @@ async def run_sink_service(
             servers=servers,
             delivery=delivery,
             wind_farm_id=wind_farm_id,
+            deployment_id=deployment_id,
             intent_store=store,
             sink_ids=realtime_sinks or reliable_sinks or None,
         )
