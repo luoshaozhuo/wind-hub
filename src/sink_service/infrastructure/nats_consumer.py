@@ -149,12 +149,14 @@ class NatsSinkConsumer:
         return self._client is not None and self._client.is_connected
 
     async def close(self) -> None:
-        """Stop subscription before closing its NATS connection."""
+        """Drain pending handlers before releasing the NATS subscription."""
         subscription, self._subscription = self._subscription, None
         client, self._client = self._client, None
+        if client is None:
+            return
         try:
             if subscription is not None and self._durable is None:
-                await subscription.unsubscribe()
+                await subscription.drain()
+            await client.drain()
         finally:
-            if client is not None:
-                await client.close()
+            await client.close()
