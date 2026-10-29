@@ -29,7 +29,8 @@ def _config(base: Path, port: int, redis_address: str) -> Path:
         sinks={
             "redis_sink": {
                 "type": "redis",
-                "connection": {"host": host, "port": int(redis_port)},
+                "connection": {"host": host, "port": int(redis_port), "key_prefix": KEY_PREFIX},
+                "outputs": {TASK_ID: {}},
             }
         },
         tasks={
@@ -37,7 +38,6 @@ def _config(base: Path, port: int, redis_address: str) -> Path:
                 "device_group_id": "modbus-1",
                 "point_group": "telemetry",
                 "interval": 0.2,
-                "outputs": [{"sink_id": "redis_sink", "key_prefix": KEY_PREFIX}],
             }
         },
     )
