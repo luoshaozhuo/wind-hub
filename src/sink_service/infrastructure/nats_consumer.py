@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from uuid import uuid4
 
 import nats
 from nats.aio.client import Client
@@ -136,6 +137,7 @@ class NatsSinkConsumer:
                     durable_name=self._durable,
                     filter_subject=self._subject,
                     deliver_policy=DeliverPolicy.NEW,
+                    deliver_subject=f"_INBOX.{uuid4().hex}",
                     ack_policy=AckPolicy.EXPLICIT,
                     ack_wait=self._ack_wait_seconds,
                     max_ack_pending=self._max_ack_pending,
