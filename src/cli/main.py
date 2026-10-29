@@ -281,15 +281,24 @@ class WindHubShell(cmd.Cmd):
                     host = str(info["host"])
                     if operation == "tcp" and port is None:
                         port = int(info["port"])
-            if operation == "tcp":
-                if port is None:
-                    raise ValueError("tcp requires PORT when host is not a configured device")
-                return asyncio.run(tcp(host, port, timeout=parsed.timeout))
-            if operation == "ping":
-                return asyncio.run(ping(host, count=parsed.count, timeout=parsed.timeout))
-            if operation == "route":
-                return asyncio.run(route(host, timeout=parsed.timeout))
-            return asyncio.run(resolve(host, timeout=parsed.timeout))
+            try:
+                if operation == "tcp":
+                    if port is None:
+                        raise ValueError("tcp requires PORT when host is not a configured device")
+                    return asyncio.run(tcp(host, port, timeout=parsed.timeout))
+                if operation == "ping":
+                    return asyncio.run(ping(host, count=parsed.count, timeout=parsed.timeout))
+                if operation == "route":
+                    return asyncio.run(route(host, timeout=parsed.timeout))
+                return asyncio.run(resolve(host, timeout=parsed.timeout))
+            except (OSError, TimeoutError) as exc:
+                return {
+                    "status": "FAIL",
+                    "code": "NETWORK_PROBE_FAILED",
+                    "host": host,
+                    "port": port,
+                    "message": f"{type(exc).__name__}: {exc}",
+                }
         loaded = self.config.require_diagnosable()
         if not args or args == ["--restart"]:
             from .pipeline import run_pipeline
@@ -345,19 +354,32 @@ class WindHubShell(cmd.Cmd):
                     on_sample = lambda sample: print(
                         json.dumps(sample, ensure_ascii=False, allow_nan=False)
                     )
-                payload = asyncio.run(
-                    listen(loaded.snapshot, device_id, positional,
-                           duration=opts.duration, timeout=opts.timeout,
-                           on_sample=on_sample)
-                )
+                try:
+                    payload = asyncio.run(
+                        listen(loaded.snapshot, device_id, positional,
+                               duration=opts.duration, timeout=opts.timeout,
+                               on_sample=on_sample)
+                    )
+                except Exception as exc:
+                    return {
+                        "status": "FAIL", "code": "PROTOCOL_LISTEN_FAILED",
+                        **context, "message": f"{type(exc).__name__}: {exc}",
+                    }
                 return {"status": "PASS", **context, "data": payload}
             if not positional:
                 raise ValueError("benchmark requires at least one point ID")
-            payload = asyncio.run(
-                benchmark(loaded.snapshot, device_id, positional,
-                          samples=opts.samples, interval=0.2 if opts.interval is None else opts.interval,
-                          timeout=opts.timeout)
-            )
+            try:
+                payload = asyncio.run(
+                    benchmark(loaded.snapshot, device_id, positional,
+                              samples=opts.samples,
+                              interval=0.2 if opts.interval is None else opts.interval,
+                              timeout=opts.timeout)
+                )
+            except Exception as exc:
+                return {
+                    "status": "FAIL", "code": "PROTOCOL_BENCHMARK_FAILED",
+                    **context, "message": f"{type(exc).__name__}: {exc}",
+                }
             return {"status": "PASS", **context, "data": payload}
         value = _value(positional[1]) if operation == "write" else None
         if operation == "write" and not opts.yes:
@@ -395,20 +417,33 @@ class WindHubShell(cmd.Cmd):
             if streaming
             else None
         )
-        payload = asyncio.run(
-            execute(
-                loaded.snapshot,
-                device_id,
-                operation,
-                point_ids=point_ids,
-                value=value,
-                interval=opts.interval,
-                count=0 if streaming else (opts.count or 1),
-                timeout=opts.timeout,
-                common_address=opts.ca,
-                on_sample=on_sample,
+        try:
+            payload = asyncio.run(
+                execute(
+                    loaded.snapshot,
+                    device_id,
+                    operation,
+                    point_ids=point_ids,
+                    value=value,
+                    interval=opts.interval,
+                    count=0 if streaming else (opts.count or 1),
+                    timeout=opts.timeout,
+                    common_address=opts.ca,
+                    on_sample=on_sample,
+                )
             )
-        )
+        except Exception as exc:
+            return {
+                "status": "FAIL",
+                "code": "PROTOCOL_DIAGNOSTIC_FAILED",
+                "device_id": device_id,
+                "endpoint": {"host": device_info["host"], "port": device_info["port"]},
+                "protocol": device_info["protocol"],
+                "protocol_options": device_info["protocol_options"],
+                "points": selected_points,
+                "message": f"{type(exc).__name__}: {exc}",
+                "data": [],
+            }
         outcome = payload[0].get("outcome") if operation == "write" and payload else None
         status = (
             "UNKNOWN" if outcome == "unknown" or (
