@@ -39,6 +39,7 @@ async def client(
             "redis_sink": {
                 "type": "redis",
                 "connection": {"host": "127.0.0.1"},
+                "outputs": {TASK_ID: {}},
             }
         },
         tasks={
@@ -46,7 +47,6 @@ async def client(
                 "device_group_id": "modbus-1",
                 "point_group": "telemetry",
                 "interval": 0.2,
-                "outputs": [{"sink_id": "redis_sink"}],
             }
         },
     )
