@@ -35,6 +35,14 @@ from tests.system.r5.r5_config import TASK_ID, write_r5_config
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker]
 
 POINT = "rotor_speed"
+
+
+def _rsample(*args: Any, **kwargs: Any):
+    """reliable 信封：生产契约要求省略 max_staleness_ms（真实 Collector 同此）。"""
+    kwargs.setdefault("max_staleness_ms", None)
+    return make_sample(*args, **kwargs)
+
+
 STABLE = "point_values"
 DB_A = TDENGINE_DATABASES[0]
 DB_B = TDENGINE_DATABASES[1]
@@ -154,9 +162,9 @@ async def test_reliable_writes_persist_with_sql_evidence(
 
     base = datetime.now(UTC) - timedelta(seconds=3)
     samples = [
-        make_sample(POINT, 1.5, sample_id="r5basic-1", sample_time=base),
-        make_sample(POINT, 2.5, sample_id="r5basic-2", sample_time=base + timedelta(seconds=1)),
-        make_sample(POINT, 3.5, sample_id="r5basic-3", sample_time=base + timedelta(seconds=2)),
+        _rsample(POINT, 1.5, sample_id="r5basic-1", sample_time=base),
+        _rsample(POINT, 2.5, sample_id="r5basic-2", sample_time=base + timedelta(seconds=1)),
+        _rsample(POINT, 3.5, sample_id="r5basic-3", sample_time=base + timedelta(seconds=2)),
     ]
     for sample in samples:
         await publish(r5_stack, sample, "reliable")
@@ -185,7 +193,7 @@ async def test_duplicate_redelivery_is_idempotent(
     sink = await _start_reliable(r5_sink_factory, config_dir, deployment_id="r5-dup")
     await wait_state(sink, "td_sink", "running")
 
-    sample = make_sample(POINT, 7.7, sample_id="r5dup-1")
+    sample = _rsample(POINT, 7.7, sample_id="r5dup-1")
     # 两次独立 JetStream 发布（不同 stream seq），同一 (ts, sample_id)。
     await publish(r5_stack, sample, "reliable")
     await publish(r5_stack, sample, "reliable")
@@ -210,7 +218,7 @@ async def test_tdengine_outage_nak_then_redelivered_after_recovery(
 
     r5_stack.stop_container("tdengine")
     try:
-        await publish(r5_stack, make_sample(POINT, 9.1, sample_id="r5out-1"), "reliable")
+        await publish(r5_stack, _rsample(POINT, 9.1, sample_id="r5out-1"), "reliable")
 
         async def _failed() -> dict[str, Any] | None:
             status = await mgmt(sink, "GetSinkStatus", "td_sink")
@@ -242,7 +250,7 @@ async def test_process_restart_same_durable_redelivers_unacked(
 
     r5_stack.stop_container("tdengine")
     try:
-        await publish(r5_stack, make_sample(POINT, 4.4, sample_id="r5kill-1"), "reliable")
+        await publish(r5_stack, _rsample(POINT, 4.4, sample_id="r5kill-1"), "reliable")
 
         async def _failed() -> bool | None:
             status = await mgmt(sink_a, "GetSinkStatus", "td_sink")
@@ -257,11 +265,10 @@ async def test_process_restart_same_durable_redelivers_unacked(
         await _wait_tdengine_ready(r5_stack)
 
     # 全新进程 + 相同 deployment_id → 绑定同名 durable，JetStream 重投未 ACK 消息。
+    # --reliable-sink 即启动意图：新进程（全新 state-dir）绑定同名 durable 后
+    # 直接进入 running；JetStream 向同 durable 重投未 ACK 的 r5kill-1。
     sink_b = await _start_reliable(r5_sink_factory, config_dir, deployment_id=deployment)
-    # 新 state-dir 没有启动意图，显式 StartSink 拉起。
-    await wait_state(sink_b, "td_sink", "stopped", timeout=15.0)
-    await mgmt(sink_b, "StartSink", "td_sink")
-    await wait_state(sink_b, "td_sink", "running")
+    await wait_state(sink_b, "td_sink", "running", timeout=30.0)
     await _wait_count(r5_stack, DB_A, "r5kill-1", 1, timeout=90.0)
     status = await mgmt(sink_b, "GetSinkStatus", "td_sink")
     assert status["pending"] == 0
@@ -279,7 +286,7 @@ async def test_backlog_while_stopped_delivered_on_start(
     for index in range(3):
         await publish(
             r5_stack,
-            make_sample(POINT, 10.0 + index, sample_id=f"r5gap-{index}"),
+            _rsample(POINT, 10.0 + index, sample_id=f"r5gap-{index}"),
             "reliable",
         )
     # 消费者已关闭，消息只进 JetStream；给服务端一点记账时间。
@@ -304,7 +311,7 @@ async def test_two_durables_isolated_and_clear_skips_own_backlog(
     await wait_state(sink_b, "td_sink", "running")
 
     # 两个 durable 各自独立收到全量 subject 并分别落不同库。
-    await publish(r5_stack, make_sample(POINT, 5.5, sample_id="r5live-1"), "reliable")
+    await publish(r5_stack, _rsample(POINT, 5.5, sample_id="r5live-1"), "reliable")
     await _wait_count(r5_stack, DB_A, "r5live-1", 1)
     await _wait_count(r5_stack, DB_B, "r5live-1", 1)
 
@@ -315,7 +322,7 @@ async def test_two_durables_isolated_and_clear_skips_own_backlog(
     for index in range(2):
         await publish(
             r5_stack,
-            make_sample(POINT, 20.0 + index, sample_id=f"r5clear-{index}"),
+            _rsample(POINT, 20.0 + index, sample_id=f"r5clear-{index}"),
             "reliable",
         )
     await asyncio.sleep(1.5)
