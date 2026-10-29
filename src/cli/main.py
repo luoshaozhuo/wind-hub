@@ -182,7 +182,7 @@ class WindHubShell(cmd.Cmd):
                 point_ids=point_ids,
                 value=value,
                 interval=opts.interval,
-                count=opts.count,
+                count=0 if opts.interval is not None and opts.count == 1 else opts.count,
                 timeout=opts.timeout,
                 common_address=opts.ca,
             )
