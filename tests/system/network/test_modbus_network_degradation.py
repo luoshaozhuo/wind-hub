@@ -67,9 +67,10 @@ def _write_config(base: Path, link: NetemLink, redis_address: str) -> Path:
                     "host": redis_address.rpartition(":")[0],
                     "port": int(redis_address.rpartition(":")[2]),
                 },
+                "outputs": {TASK_ID: {"key_prefix": "wind-hub-netem"}},
             }
         },
-        tasks=telemetry_task("redis_sink", key_prefix="wind-hub-netem"),
+        tasks=telemetry_task(),
         system={"runtime": {"connect_timeout": 1.0, "read_timeout": READ_TIMEOUT_S}},
     )
 
