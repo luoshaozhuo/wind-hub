@@ -29,6 +29,7 @@ class NatsSinkConsumer:
         ack_wait_seconds: float = 30.0,
         max_ack_pending: int = 128,
         stream: str = "WH_HISTORY",
+        on_delivery_error: Callable[[str, int], None] | None = None,
     ) -> None:
         if not servers or not subject:
             raise ValueError("NATS servers and subject are required")
@@ -41,6 +42,7 @@ class NatsSinkConsumer:
         self._ack_wait_seconds = ack_wait_seconds
         self._max_ack_pending = max_ack_pending
         self._stream = stream
+        self._on_delivery_error = on_delivery_error
         self._client: Client | None = None
         self._subscription: Subscription | None = None
 
@@ -90,17 +92,25 @@ class NatsSinkConsumer:
         try:
             sample = SampleMessage.decode(msg.data, "realtime")
             await self._handler(sample)
-        except Exception:
+        except Exception as exc:
             logger.exception("Realtime message rejected or write failed")
+            if self._on_delivery_error is not None:
+                self._on_delivery_error(str(exc), 1)
 
     async def _on_reliable(self, msg: Msg) -> None:
         try:
             sample = SampleMessage.decode(msg.data, "reliable")
             await self._handler(sample)
             await msg.ack()
-        except Exception:
-            logger.exception("Reliable target write failed; requesting redelivery")
-            await msg.nak(delay=1.0)
+        except Exception as exc:
+            attempts = msg.metadata.num_delivered if msg.metadata is not None else 1
+            delay = min(60.0, float(2 ** min(max(attempts - 1, 0), 6)))
+            if self._on_delivery_error is not None:
+                self._on_delivery_error(str(exc), attempts)
+            if attempts >= 10:
+                logger.error("JetStream poison message requires operator attention: attempt=%s", attempts)
+            logger.exception("Reliable target write failed; requesting redelivery in %ss", delay)
+            await msg.nak(delay=delay)
 
     async def clear(self) -> int:
         """Skip only this Sink's durable backlog, without purging shared messages."""
