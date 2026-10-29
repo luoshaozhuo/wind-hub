@@ -32,14 +32,19 @@ def plan(snapshot: ConfigSnapshot) -> list[dict[str, str]]:
                     }
                 )
     for sink in sinks(snapshot):
-        if sink["enabled"] and sink["kind"] in {"redis", "tdengine", "kafka", "grpc"}:
-            steps.append(
-                {
-                    "kind": "sink_endpoint",
-                    "target": str(sink["sink_id"]),
-                    "point": "",
-                }
-            )
+        if not sink["enabled"]:
+            continue
+        steps.append(
+            {
+                "kind": (
+                    "sink_endpoint"
+                    if sink["kind"] in {"redis", "tdengine", "kafka", "grpc"}
+                    else "sink_not_tested"
+                ),
+                "target": str(sink["sink_id"]),
+                "point": "",
+            }
+        )
     return steps
 
 
@@ -158,8 +163,15 @@ async def run(
                     await close_driver()
                     sink = sinks_by_id[target]
                     entry["sink_kind"] = sink["kind"]
-                    address = _sink_address(sink)
-                    if address is None:
+                    address = (
+                        _sink_address(sink) if kind == "sink_endpoint" else None
+                    )
+                    if kind == "sink_not_tested":
+                        entry["status"] = "UNKNOWN"
+                        entry["message"] = (
+                            f"Sink type {sink['kind']} is not covered by outbound TCP probes"
+                        )
+                    elif address is None:
                         entry["status"] = "UNKNOWN"
                         entry["message"] = "No unambiguous TCP endpoint in Sink configuration"
                     else:
