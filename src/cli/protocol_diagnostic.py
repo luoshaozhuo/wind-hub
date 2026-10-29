@@ -66,6 +66,10 @@ async def execute(
     """执行单个操作；连续操作复用连接，取消时必须释放资源。"""
     if timeout <= 0 or count < 0 or (interval is not None and interval <= 0):
         raise ValueError("timeout/count/interval must be positive")
+    if operation == "read" and len(point_ids) != 1:
+        raise ValueError("read requires exactly one point; use read-many for batches")
+    if operation == "read-many" and not point_ids:
+        raise ValueError("read-many requires at least one point")
     driver = create_driver(snapshot, device_id)
     results: list[dict[str, Any]] = []
     try:
@@ -100,14 +104,14 @@ async def execute(
             raise ValueError("read requires at least one point")
         if count == 0 and interval is None:
             raise ValueError("unbounded read requires --interval")
-        if len(point_ids) > 1 and ProtocolCapability.READ_MANY not in caps:
+        if operation == "read-many" and ProtocolCapability.READ_MANY not in caps:
             raise ValueError("protocol has no native read_many capability")
-        if len(point_ids) == 1 and ProtocolCapability.READ not in caps:
+        if operation == "read" and ProtocolCapability.READ not in caps:
             raise ValueError("protocol has no read capability")
         index = 0
         while count == 0 or index < count:
             async with asyncio.timeout(timeout):
-                if len(point_ids) == 1:
+                if operation == "read":
                     samples = (await driver.read_one(point_ids[0]),)
                 else:
                     samples = await driver.read_many(point_ids)
