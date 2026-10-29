@@ -87,11 +87,12 @@ def sinks(snapshot: ConfigSnapshot, sink_id: str | None = None) -> list[dict[str
                 "kind": sink.kind,
                 "enabled": sink.enabled,
                 "connection": {
-                    key: "***" if any(
-                        token in key.lower()
-                        for token in ("password", "token", "secret", "credential", "key")
-                    ) else value
+                    key: value
                     for key, value in sink.connection.items()
+                    if key in {
+                        "host", "port", "database", "stable", "endpoint",
+                        "bootstrap_servers", "topic", "tls", "client_id",
+                    }
                 },
             }
         )
