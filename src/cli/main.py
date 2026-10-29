@@ -20,7 +20,9 @@ HELP = """Commands:
   config validate PATH | read PATH | reload | diff PATH | show
   devices [DEVICE] | points DEVICE [POINT] | sinks [SINK] | gateways
   diagnose [--restart]          Run configured diagnostic pipeline
-  diagnose tcp HOST PORT [--timeout SECONDS]
+  diagnose ping HOST_OR_DEVICE [--count N] [--timeout SECONDS]
+  diagnose tcp HOST_OR_DEVICE [PORT] [--timeout SECONDS]
+  diagnose route HOST
   diagnose resolve HOST
   diagnose protocol check DEVICE
   diagnose protocol read DEVICE POINT [--interval SECONDS] [--count N] [--timeout SECONDS]
@@ -157,17 +159,38 @@ class WindHubShell(cmd.Cmd):
         raise ValueError(f"unknown command: {action}. Type help.")
 
     def _diagnose(self, args: list[str]) -> object:
-        if args and args[0] in {"tcp", "resolve"}:
-            from .network_diagnostic import resolve, tcp
+        if args and args[0] in {"tcp", "resolve", "ping", "route"}:
+            from .network_diagnostic import ping, resolve, route, tcp
 
-            if args[0] == "resolve" and len(args) == 2:
-                return asyncio.run(resolve(args[1]))
-            if args[0] == "tcp" and len(args) in {3, 5}:
-                if len(args) == 5 and args[3] != "--timeout":
-                    raise ValueError("expected --timeout SECONDS")
-                timeout = float(args[4]) if len(args) == 5 else 3.0
-                return asyncio.run(tcp(args[1], int(args[2]), timeout=timeout))
-            raise ValueError("usage: diagnose tcp HOST PORT [--timeout SECONDS] | diagnose resolve HOST")
+            operation = args[0]
+            parser = argparse.ArgumentParser(prog=f"diagnose {operation}")
+            parser.add_argument("host")
+            if operation == "tcp":
+                parser.add_argument("port", nargs="?", type=int)
+            if operation == "ping":
+                parser.add_argument("--count", type=int, default=4)
+            parser.add_argument("--timeout", type=float, default=1.0 if operation == "ping" else 3.0)
+            parsed = parser.parse_args(args[1:])
+            host = parsed.host
+            port = getattr(parsed, "port", None)
+            if self.config._current is not None:
+                from .inventory import devices
+
+                configured = self.config.current.snapshot.site.devices
+                if any(str(key) == host for key in configured):
+                    info = devices(self.config.current.snapshot, host)[0]
+                    host = str(info["host"])
+                    if operation == "tcp" and port is None:
+                        port = int(info["port"])
+            if operation == "tcp":
+                if port is None:
+                    raise ValueError("tcp requires PORT when host is not a configured device")
+                return asyncio.run(tcp(host, port, timeout=parsed.timeout))
+            if operation == "ping":
+                return asyncio.run(ping(host, count=parsed.count, timeout=parsed.timeout))
+            if operation == "route":
+                return asyncio.run(route(host, timeout=parsed.timeout))
+            return asyncio.run(resolve(host, timeout=parsed.timeout))
         loaded = self.config.require_diagnosable()
         if not args or args == ["--restart"]:
             from .pipeline import run_pipeline
