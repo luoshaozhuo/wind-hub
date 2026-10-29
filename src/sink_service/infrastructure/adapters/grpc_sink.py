@@ -64,7 +64,7 @@ class GrpcSink:
             return
         if self._write_many is None:
             raise RuntimeError("GrpcSink is closed")
-        await self._write_many.WriteMany(
+        reply = await self._write_many.WriteMany(
             pb.WriteManyRequest(
                 points=[
                     pb.FeedbackPoint(
@@ -75,6 +75,10 @@ class GrpcSink:
             ),
             timeout=self._settings.timeout,
         )
+        if reply.updated != len(values):
+            raise RuntimeError(
+                f"gRPC partial write: confirmed {reply.updated} of {len(values)} points"
+            )
 
     async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
         allowed = set(self._task_sources.get(task_id, ()))
