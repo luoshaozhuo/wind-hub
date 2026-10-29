@@ -73,11 +73,22 @@ def emit(result: dict[str, Any], *, format_name: str = "table") -> None:
         if all(isinstance(row, dict) for row in payload):
             keys = list(payload[0])
             # 大对象或变长字段不强行铺成极宽表格。
-            if len(keys) <= 8 and all(all(not isinstance(v, dict | list) for v in row.values()) for row in payload):
-                widths = {key: min(48, max(len(key), *(len(str(row.get(key, ""))) for row in payload))) for key in keys}
+            flat = all(
+                all(not isinstance(value, dict | list) for value in row.values())
+                for row in payload
+            )
+            if len(keys) <= 8 and flat:
+                widths = {
+                    key: min(48, max(len(key), *(len(str(row.get(key, ""))) for row in payload)))
+                    for key in keys
+                }
                 print("  ".join(key.ljust(widths[key]) for key in keys))
                 for row in payload:
-                    print("  ".join(str(row.get(key, ""))[:widths[key]].ljust(widths[key]) for key in keys))
+                    cells = (
+                        str(row.get(key, ""))[:widths[key]].ljust(widths[key])
+                        for key in keys
+                    )
+                    print("  ".join(cells)
                 return
     print(json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False, default=str))
 
