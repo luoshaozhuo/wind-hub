@@ -14,8 +14,8 @@ from typing import Any
 
 import pyads  # type: ignore[import-untyped]
 
-from core.domain import ConnectionEndpoint, Point, ProtocolOptions
 from commander.application.diagnostic_model import ResolvedAddress
+from core.domain import ConnectionEndpoint, Point, ProtocolOptions
 
 
 class AdsDiagnosticProbe:
