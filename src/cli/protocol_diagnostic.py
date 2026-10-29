@@ -40,6 +40,22 @@ def create_driver(snapshot: ConfigSnapshot, device_id: str) -> ProtocolPort[Any]
     raise ValueError(f"unsupported protocol: {table.protocol.name}")
 
 
+async def prepare_ads(snapshot: ConfigSnapshot, driver: ProtocolPort[Any]) -> bool:
+    """初始化该 CLI 进程独占的 AMS 本地身份（如有配置）。"""
+    if not isinstance(driver, ADSDriver):
+        return False
+    if snapshot.system.ads is None:
+        return False
+    await ADSDriver.initialize_local(snapshot.system.ads)
+    return True
+
+
+async def release_ads(prepared: bool) -> None:
+    """必须在关闭全部 ADS 会话后释放进程级本地资源。"""
+    if prepared:
+        await ADSDriver.close_local()
+
+
 def sample_dict(sample: ProtocolSample) -> dict[str, Any]:
     return {
         "point_id": sample.point_id,
@@ -72,7 +88,9 @@ async def execute(
         raise ValueError("read-many requires at least one point")
     driver = create_driver(snapshot, device_id)
     results: list[dict[str, Any]] = []
+    ads_prepared = False
     try:
+        ads_prepared = await prepare_ads(snapshot, driver)
         async with asyncio.timeout(timeout):
             await driver.connect()
         caps = driver.capabilities()
@@ -129,8 +147,5 @@ async def execute(
         try:
             async with asyncio.timeout(timeout):
                 await driver.close()
-        except Exception:
-            # 不应把清理失败误认为成功；对已经发生的协议结果保留原始异常。
-            import logging
-
-            logging.getLogger(__name__).exception("diagnostic driver cleanup failed")
+        finally:
+            await release_ads(ads_prepared)
