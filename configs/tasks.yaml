@@ -12,7 +12,9 @@
 #   enabled:         bool，默认 true；false 的 Task 不展开任何实例、
 #                    不可启动。
 #
-\n# 输出目标和 Source→Address 映射在 sinks.yaml 中声明。\n# 实例注册为 STOPPED，需经 CLI/Web API 显式 start 才开始采集。
+
+# 输出目标和 Source→Address 映射在 sinks.yaml 中声明。
+# 实例注册为 STOPPED，需经 CLI/Web API 显式 start 才开始采集。
 
 tasks:
 
