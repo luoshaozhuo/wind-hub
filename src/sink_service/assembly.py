@@ -124,6 +124,9 @@ def _build_runtime(
         durable=durable,
         handler=handle,
         max_ack_pending=1,
+        on_delivery_error=lambda reason, attempts: holder[0].record_delivery_failure(
+            reason, attempts
+        ),
     )
     runtime = SinkRuntime(
         adapter,
