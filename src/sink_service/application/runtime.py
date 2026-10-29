@@ -72,6 +72,7 @@ class SinkRuntime:
         self._authorities: dict[PointKey, tuple[str, str]] = {}
         self._last_written: datetime | None = None
         self._failure: str | None = None
+        self._delivery_failures = 0
 
     @property
     def state(self) -> SinkState:
@@ -92,6 +93,16 @@ class SinkRuntime:
     def failure(self) -> str | None:
         """Last observed startup or write failure."""
         return self._failure
+
+    def record_delivery_failure(self, reason: str, attempts: int) -> None:
+        """Expose invalid/redelivered messages to management without silently ACKing."""
+        self._delivery_failures += 1
+        self._failure = f"delivery rejected (attempt {attempts}): {reason}"
+
+    @property
+    def delivery_failures(self) -> int:
+        """Total reported delivery failures in this process."""
+        return self._delivery_failures
 
     async def start(self, *, explicit: bool = False) -> None:
         """Open target before subscribing, without reviving a stopped Sink."""
