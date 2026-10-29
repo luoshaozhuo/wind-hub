@@ -136,12 +136,14 @@ class SinkRuntime:
             if explicit and self._save_intent is not None:
                 self._save_intent(False)
             self._desired_running = False
-            self._state = SinkState.STOPPED
             try:
                 await self._consumer.close()
             finally:
                 async with self._write_lock:
-                    await self._sink.close()
+                    try:
+                        await self._sink.close()
+                    finally:
+                        self._state = SinkState.STOPPED
 
     async def repair_subscription(self) -> None:
         """Restore a dead NATS connection without changing operator intent."""
