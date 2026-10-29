@@ -63,7 +63,7 @@ async def execute(
     common_address: int | None = None,
 ) -> list[dict[str, Any]]:
     """执行单个操作；连续操作复用连接，取消时必须释放资源。"""
-    if timeout <= 0 or count < 1 or interval is not None and interval <= 0:
+    if timeout <= 0 or count < 0 or interval is not None and interval <= 0:
         raise ValueError("timeout/count/interval must be positive")
     driver = create_driver(snapshot, device_id)
     results: list[dict[str, Any]] = []
@@ -101,14 +101,16 @@ async def execute(
             raise ValueError("protocol has no native read_many capability")
         if len(point_ids) == 1 and ProtocolCapability.READ not in caps:
             raise ValueError("protocol has no read capability")
-        for index in range(count):
+        index = 0
+        while count == 0 or index < count:
             async with asyncio.timeout(timeout):
                 if len(point_ids) == 1:
                     samples = (await driver.read_one(point_ids[0]),)
                 else:
                     samples = await driver.read_many(point_ids)
             results.extend(sample_dict(sample) for sample in samples)
-            if interval is not None and index + 1 < count:
+            index += 1
+            if interval is not None and (count == 0 or index < count):
                 await asyncio.sleep(interval)
         return results
     finally:
