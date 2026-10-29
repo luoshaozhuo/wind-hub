@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from core.domain.diagnostic import (
+from commander.application.diagnostic_model import (
     DeviceVerifyResult,
     DiagnosticCode,
     DiagnosticSeverity,
