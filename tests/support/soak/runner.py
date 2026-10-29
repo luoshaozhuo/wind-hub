@@ -143,7 +143,7 @@ class WriteStats:
 
 def _points_payload(group: LoadGroup) -> dict[str, dict[str, object]]:
     return {
-        f"r.{i:04d}": {
+        f"r_{i:04d}": {
             "point_groups": ["default"],
             "address": {"register_type": "holding", "address": i},
             "data_type": "int16",
@@ -443,7 +443,7 @@ async def _write_loop(app: CollectorApp, profile: SoakProfile, stats: WriteStats
         stats.commands += 1
         try:
             result = await app.runtime.devices[device_id].protocol.write_one(
-                ProtocolWrite(point="r.0000", value=tick % 0x8000)
+                ProtocolWrite(point="r_0000", value=tick % 0x8000)
             )
         except Exception:
             # 断连/传输失败 = 本次写失败；写循环本身必须持续。
