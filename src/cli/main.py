@@ -189,6 +189,8 @@ class WindHubShell(cmd.Cmd):
                 )
             operation, *args = rest
             if operation == "validate":
+                if len(args) == 2 and args[1] == "--scope=all":
+                    args = args[:1]
                 if len(args) == 3 and args[1:] == ["--scope", "all"]:
                     args = args[:1]
                 if len(args) != 1:
@@ -280,12 +282,14 @@ class WindHubShell(cmd.Cmd):
                 raise ValueError("usage: points DEVICE [POINT]")
             return points(loaded.snapshot, rest[0], rest[1] if len(rest) == 2 else None)
         if action == "gateways":
-            # 仅触发“必须已加载配置”门禁；当前 ConfigSnapshot 没有 Gateway 集合。
+            if len(rest) > 1:
+                raise ValueError("usage: gateways [GATEWAY_ID]")
             _ = self.config.current
             return {
                 "status": "UNKNOWN",
                 "code": "NOT_DEFINED",
                 "message": "Gateway inventory is not defined by the current ConfigSnapshot",
+                "gateway_id": rest[0] if rest else None,
                 "items": [],
             }
         if action == "clear":
@@ -300,7 +304,11 @@ class WindHubShell(cmd.Cmd):
             from .network_diagnostic import ping, resolve, route, tcp
 
             operation = args[0]
-            parser = argparse.ArgumentParser(prog=f"diagnose {operation}")
+            class SafeArgumentParser(argparse.ArgumentParser):
+                def error(self, message: str) -> None:
+                    raise ValueError(f"{self.prog}: {message}")
+
+            parser = SafeArgumentParser(prog=f"diagnose {operation}")
             parser.add_argument("host")
             if operation == "tcp":
                 parser.add_argument("port", nargs="?", type=int)
