@@ -3,7 +3,7 @@
 与 :mod:`tests.fixtures.services.compose` 的 wind-hub-test 栈完全隔离：
 
 - project 名 ``wind-hub-r5-<短随机>``，宿主端口动态分配且只绑 loopback；
-- 服务：NATS 2.10(-js) / Redis 7 / TDengine 3.3.8.8(taosAdapter) /
+- 服务：NATS 2.10(-js) / Redis 7 / TDengine 3.3.6.13(taosAdapter) /
   Kafka 3.9.1(KRaft)，版本固定在 docker-compose.r5.yml；
 - 生命周期只作用于本 project：``down -v --remove-orphans`` 不触碰用户
   已有容器，不执行全局 prune；

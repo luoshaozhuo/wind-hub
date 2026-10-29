@@ -33,7 +33,10 @@ services:
 
   tdengine:
     # 官方镜像：taosd + taosAdapter（6041 REST SQL）同容器启动。
-    image: tdengine/tdengine:3.3.8.8
+    # 3.3.6.13 是 Docker Hub 公开 3.3 线中实证支持 VARCHAR COMPOSITE KEY
+    # 的版本（DESCRIBE note=COMPOSITE KEY）；曾 pin 的 3.3.8.8 标签在
+    # Docker Hub 不存在，干净环境无法拉取（R6 D6-01）。
+    image: tdengine/tdengine:3.3.6.13
     ports:
       - "127.0.0.1:${R5_TDENGINE_PORT}:6041"
     healthcheck:
