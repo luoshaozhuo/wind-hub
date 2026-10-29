@@ -82,6 +82,7 @@ def _iec104_config(base: Path, port: int, redis_address: str) -> Path:
                     "host": redis_address.rpartition(":")[0],
                     "port": int(redis_address.rpartition(":")[2]),
                 },
+                "outputs": {IEC104_TASK_ID: {"key_prefix": "wind-hub-iec-restart"}},
             }
         },
         tasks={
@@ -90,7 +91,6 @@ def _iec104_config(base: Path, port: int, redis_address: str) -> Path:
                 "point_group": "telemetry",
                 # IEC104 为订阅型：interval 被协议忽略，仅满足 schema。
                 "interval": 0.2,
-                "outputs": [{"sink_id": "redis_sink", "key_prefix": "wind-hub-iec-restart"}],
             }
         },
         system={
