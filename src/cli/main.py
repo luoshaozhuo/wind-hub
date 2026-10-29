@@ -13,7 +13,7 @@ from typing import Any
 
 from core.application.errors import ConfigError
 
-from .config_session import ConfigSession
+from .config_session import ConfigSession, REQUIRED_FILES
 from .inventory import devices, points, sinks
 from .help import completion_words, help_text
 from .protocol_diagnostic import execute
@@ -120,13 +120,47 @@ class WindHubShell(cmd.Cmd):
             if not rest:
                 raise ValueError("usage: config validate PATH | read PATH | reload | diff PATH | show")
             operation, *args = rest
-            if operation in {"read", "validate", "diff"} and len(args) != 1:
+            if operation == "validate":
+                if len(args) == 3 and args[1:] == ["--scope", "all"]:
+                    args = args[:1]
+                if len(args) != 1:
+                    raise ValueError("usage: config validate PATH [--scope all]")
+            if operation in {"read", "diff"} and len(args) != 1:
                 raise ValueError(f"usage: config {operation} PATH")
+            if operation in {"reload", "show"} and args:
+                raise ValueError(f"usage: config {operation}")
             if operation == "read":
                 loaded = self.config.read(args[0])
                 return {"status": "PASS", "path": str(loaded.path), "fingerprint": loaded.fingerprint}
             if operation == "validate":
-                loaded = self.config.validate(args[0])
+                from pathlib import Path
+
+                base = Path(args[0]).expanduser().resolve()
+                if not base.is_dir():
+                    return {
+                        "status": "FAIL",
+                        "code": "CONFIG_DIRECTORY_NOT_FOUND",
+                        "path": str(base),
+                        "message": "Configuration directory does not exist",
+                    }
+                missing = [name for name in REQUIRED_FILES if not (base / name).is_file()]
+                if missing:
+                    return {
+                        "status": "FAIL",
+                        "code": "CONFIG_FILE_MISSING",
+                        "path": str(base),
+                        "missing_files": missing,
+                        "message": "Required configuration files are missing",
+                    }
+                try:
+                    loaded = self.config.validate(base)
+                except Exception as exc:
+                    return {
+                        "status": "FAIL",
+                        "code": "CONFIG_INVALID",
+                        "path": str(base),
+                        "message": f"Configuration validation failed ({type(exc).__name__})",
+                    }
                 return {"status": "PASS", "path": str(loaded.path), "fingerprint": loaded.fingerprint}
             if operation == "reload":
                 loaded = self.config.reload()
@@ -147,6 +181,9 @@ class WindHubShell(cmd.Cmd):
             raise ValueError(f"unsupported config command: {operation}")
         if action in {"devices", "points", "sinks"}:
             loaded = self.config.current
+            verbose = "--verbose" in rest
+            del verbose
+            rest = [token for token in rest if token != "--verbose"]
             if action == "devices":
                 return devices(loaded.snapshot, rest[0] if rest else None)
             if action == "sinks":
