@@ -39,11 +39,13 @@ def assemble_sinks(
     servers: tuple[str, ...],
     delivery: DeliveryMode,
     wind_farm_id: str,
+    deployment_id: str,
     intent_store: SinkIntentStore | None = None,
     sink_ids: frozenset[str] | None = None,
 ) -> dict[str, SinkRuntime]:
     """Build one consumer per enabled target with independent acknowledgments."""
     validate_subject_token(wind_farm_id)
+    validate_subject_token(deployment_id)
     snapshot = YamlConfigAdapter(Path(config_dir)).load()
     if snapshot.site.site_id != wind_farm_id:
         raise ValueError("wind_farm_id differs from site configuration")
@@ -90,7 +92,7 @@ def assemble_sinks(
             delivery=delivery,
             subject=f"wh.{'rt' if delivery == 'realtime' else 'hist'}.{wind_farm_id}.>",
             durable=(
-                "sink_" + sha256(f"{wind_farm_id}:{sink_id}".encode()).hexdigest()[:32]
+                "sink_" + sha256(f"{deployment_id}:{wind_farm_id}:{sink_id}".encode()).hexdigest()[:32]
                 if delivery == "reliable"
                 else None
             ),
