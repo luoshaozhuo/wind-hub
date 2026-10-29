@@ -15,26 +15,11 @@ from core.application.errors import ConfigError
 
 from .config_session import ConfigSession
 from .inventory import devices, points, sinks
+from .help import completion_words, help_text
 from .protocol_diagnostic import execute
 from .presentation import Timer, emit, response
 
-HELP = """Commands:
-  config validate PATH | read PATH | reload | diff PATH | show
-  devices [DEVICE] | points DEVICE [POINT] | sinks [SINK] | gateways
-  diagnose [--restart]          Run configured diagnostic pipeline
-  diagnose ping HOST_OR_DEVICE [--count N] [--timeout SECONDS]
-  diagnose tcp HOST_OR_DEVICE [PORT] [--timeout SECONDS]
-  diagnose route HOST
-  diagnose resolve HOST
-  diagnose protocol check DEVICE
-  diagnose protocol read DEVICE POINT [--interval SECONDS] [--count N] [--timeout SECONDS]
-  diagnose protocol read-many DEVICE POINT... [--timeout SECONDS]
-  diagnose protocol write DEVICE POINT VALUE [--yes] [--timeout SECONDS]
-  diagnose protocol gi DEVICE [--ca NUMBER] [--timeout SECONDS]
-  diagnose protocol listen DEVICE [POINT...] [--duration SECONDS]
-  diagnose protocol benchmark DEVICE POINT... [--samples N] [--interval SECONDS]
-  help | exit
-"""
+
 
 
 def _value(raw: str) -> bool | int | float | str:
@@ -106,7 +91,7 @@ class WindHubShell(cmd.Cmd):
 
     def do_help(self, arg: str) -> None:
         """Show command syntax."""
-        print(HELP)
+        print(help_text(shlex.split(arg)))
 
     def do_exit(self, arg: str) -> bool:
         """Exit interactive CLI."""
@@ -125,8 +110,11 @@ class WindHubShell(cmd.Cmd):
 
     def dispatch(self, tokens: list[str]) -> object:
         action, *rest = tokens
-        if action == "help" or "--help" in tokens:
-            print(HELP)
+        if action == "help":
+            print(help_text(rest))
+            return None
+        if "--help" in tokens:
+            print(help_text([token for token in tokens if token != "--help"]))
             return None
         if action == "config":
             if not rest:
@@ -323,7 +311,7 @@ def main() -> int:
     shell = WindHubShell()
     arguments = sys.argv[1:]
     if arguments and arguments[0] == "--help":
-        print(HELP)
+        print(help_text([]))
         return 0
     if len(arguments) >= 2 and arguments[0] == "--config":
         try:
@@ -373,12 +361,7 @@ def main() -> int:
                     super().append_string(string)
 
         def completion() -> WordCompleter:
-            words = [
-                "config", "validate", "read", "reload", "diff", "show",
-                "devices", "points", "sinks", "gateways", "diagnose", "protocol",
-                "check", "read-many", "write", "gi", "benchmark", "listen",
-                "ping", "tcp", "route", "resolve", "help", "clear", "exit",
-            ]
+            words = completion_words()
             loaded = shell.config._current
             if loaded is not None:
                 snapshot = loaded.snapshot
