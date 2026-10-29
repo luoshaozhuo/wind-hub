@@ -20,7 +20,7 @@ from core.domain import (
     ProtocolOptions,
     engineering_value,
 )
-from core.domain.diagnostic import (
+from commander.application.diagnostic_model import (
     DeviceVerifyResult,
     DiagnosticCode,
     DiagnosticSeverity,
