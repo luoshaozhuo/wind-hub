@@ -95,7 +95,11 @@ async def benchmark(
         async with asyncio.timeout(timeout):
             await driver.connect()
         caps = driver.capabilities()
-        capability = ProtocolCapability.READ if len(point_ids) == 1 else ProtocolCapability.READ_MANY
+        capability = (
+            ProtocolCapability.READ
+            if len(point_ids) == 1
+            else ProtocolCapability.READ_MANY
+        )
         if capability not in caps:
             raise ValueError(f"protocol does not support {capability.value}")
         for index in range(samples):
