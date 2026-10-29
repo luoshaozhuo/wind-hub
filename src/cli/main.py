@@ -210,7 +210,37 @@ def main() -> int:
         except (ConfigError, ValueError, OSError, RuntimeError) as exc:
             print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
             return 2
-    shell.cmdloop()
+    try:
+        from pathlib import Path
+
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.completion import WordCompleter
+        from prompt_toolkit.history import FileHistory
+
+        completer = WordCompleter(
+            ["config", "validate", "read", "reload", "diff", "show",
+             "devices", "points", "sinks", "gateways", "diagnose",
+             "protocol", "check", "read-many", "write", "gi", "benchmark",
+             "listen", "tcp", "resolve", "help", "exit"],
+            ignore_case=True,
+            sentence=True,
+        )
+        session: PromptSession[str] = PromptSession(
+            history=FileHistory(str(Path.home() / ".wind_hub_history")),
+            completer=completer,
+            complete_while_typing=False,
+        )
+        print(shell.intro)
+        while True:
+            try:
+                if shell.onecmd(session.prompt(shell.prompt)):
+                    break
+            except KeyboardInterrupt:
+                print("Interrupted.")
+            except EOFError:
+                break
+    except ImportError:
+        shell.cmdloop()
     return 0
 
 
