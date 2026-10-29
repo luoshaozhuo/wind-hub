@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import Any
 
 from core.application.config_snapshot import ConfigSnapshot
@@ -47,14 +49,16 @@ async def run_pipeline(
         driver = create_driver(snapshot, device_id)
         failure: str | None = None
         try:
-            await driver.connect()
+            async with asyncio.timeout(5.0):
+                await driver.connect()
             steps.append({**context, "operation": "connect", "status": "PASS"})
             for point in sorted(table.points.values(), key=lambda item: item.point_id):
                 from core.domain import PointAccess
 
                 if point.access not in (PointAccess.READ, PointAccess.READ_WRITE):
                     continue
-                sample = await driver.read_one(point.point_id)
+                async with asyncio.timeout(5.0):
+                    sample = await driver.read_one(point.point_id)
                 steps.append({
                     **context,
                     "operation": "read",
@@ -66,7 +70,8 @@ async def run_pipeline(
             failure = f"{type(exc).__name__}: {exc}"
         finally:
             try:
-                await driver.close()
+                async with asyncio.timeout(5.0):
+                    await driver.close()
             except Exception as exc:
                 if failure is None:
                     failure = f"close failed: {type(exc).__name__}: {exc}"
