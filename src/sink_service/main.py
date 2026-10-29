@@ -58,6 +58,7 @@ async def run_sink_service(
                 servers=servers,
                 delivery="reliable",
                 wind_farm_id=wind_farm_id,
+                deployment_id=deployment_id,
                 intent_store=store,
                 sink_ids=reliable_sinks,
             ),
