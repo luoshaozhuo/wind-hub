@@ -27,6 +27,8 @@ HELP = """Commands:
   diagnose protocol read-many DEVICE POINT... [--timeout SECONDS]
   diagnose protocol write DEVICE POINT VALUE [--timeout SECONDS]
   diagnose protocol gi DEVICE [--ca NUMBER] [--timeout SECONDS]
+  diagnose protocol listen DEVICE [POINT...] [--duration SECONDS]
+  diagnose protocol benchmark DEVICE POINT... [--samples N] [--interval SECONDS]
   help | exit
 """
 
@@ -51,6 +53,8 @@ def _options(args: list[str]) -> argparse.Namespace:
     parser.add_argument("--count", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--ca", type=int)
+    parser.add_argument("--duration", type=float, default=10.0)
+    parser.add_argument("--samples", type=int, default=10)
     return parser.parse_args(args)
 
 
@@ -144,6 +148,17 @@ class WindHubShell(cmd.Cmd):
         raise ValueError(f"unknown command: {action}. Type help.")
 
     def _diagnose(self, args: list[str]) -> object:
+        if args and args[0] in {"tcp", "resolve"}:
+            from .network_diagnostic import resolve, tcp
+
+            if args[0] == "resolve" and len(args) == 2:
+                return asyncio.run(resolve(args[1]))
+            if args[0] == "tcp" and len(args) in {3, 5}:
+                if len(args) == 5 and args[3] != "--timeout":
+                    raise ValueError("expected --timeout SECONDS")
+                timeout = float(args[4]) if len(args) == 5 else 3.0
+                return asyncio.run(tcp(args[1], int(args[2]), timeout=timeout))
+            raise ValueError("usage: diagnose tcp HOST PORT [--timeout SECONDS] | diagnose resolve HOST")
         loaded = self.config.require_diagnosable()
         if not args or args == ["--restart"]:
             from .pipeline import run_pipeline
@@ -158,15 +173,6 @@ class WindHubShell(cmd.Cmd):
             self._failed_fingerprint = loaded.fingerprint
             self.last_results = result["steps"]
             return result
-        if args[0] in {"tcp", "resolve"}:
-            from .network_diagnostic import resolve, tcp
-
-            if args[0] == "resolve" and len(args) == 2:
-                return asyncio.run(resolve(args[1]))
-            if args[0] == "tcp" and len(args) in {3, 5}:
-                timeout = float(args[4]) if len(args) == 5 and args[3] == "--timeout" else 3.0
-                return asyncio.run(tcp(args[1], int(args[2]), timeout=timeout))
-            raise ValueError("usage: diagnose tcp HOST PORT [--timeout SECONDS] | diagnose resolve HOST")
         if len(args) < 3 or args[0] != "protocol":
             raise ValueError("usage: diagnose [--restart] | diagnose protocol OP DEVICE ...")
         operation = args[1]
@@ -183,6 +189,21 @@ class WindHubShell(cmd.Cmd):
             raise ValueError(f"{operation} requires configured point IDs")
         if operation == "write" and len(positional) != 2:
             raise ValueError("usage: diagnose protocol write DEVICE POINT VALUE")
+        if operation in {"listen", "benchmark"}:
+            from .protocol_stream import benchmark, listen
+
+            if operation == "listen":
+                return asyncio.run(
+                    listen(loaded.snapshot, device_id, positional,
+                           duration=opts.duration, timeout=opts.timeout)
+                )
+            if not positional:
+                raise ValueError("benchmark requires at least one point ID")
+            return asyncio.run(
+                benchmark(loaded.snapshot, device_id, positional,
+                          samples=opts.samples, interval=opts.interval or 0.2,
+                          timeout=opts.timeout)
+            )
         value = _value(positional[1]) if operation == "write" else None
         point_ids = positional[:1] if operation == "write" else positional
         return asyncio.run(
