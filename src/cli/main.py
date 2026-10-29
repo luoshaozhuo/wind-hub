@@ -20,6 +20,8 @@ HELP = """Commands:
   config validate PATH | read PATH | reload | diff PATH | show
   devices [DEVICE] | points DEVICE [POINT] | sinks [SINK] | gateways
   diagnose [--restart]          Run configured diagnostic pipeline
+  diagnose tcp HOST PORT [--timeout SECONDS]
+  diagnose resolve HOST
   diagnose protocol check DEVICE
   diagnose protocol read DEVICE POINT [--interval SECONDS] [--count N] [--timeout SECONDS]
   diagnose protocol read-many DEVICE POINT... [--timeout SECONDS]
@@ -156,6 +158,15 @@ class WindHubShell(cmd.Cmd):
             self._failed_fingerprint = loaded.fingerprint
             self.last_results = result["steps"]
             return result
+        if args[0] in {"tcp", "resolve"}:
+            from .network_diagnostic import resolve, tcp
+
+            if args[0] == "resolve" and len(args) == 2:
+                return asyncio.run(resolve(args[1]))
+            if args[0] == "tcp" and len(args) in {3, 5}:
+                timeout = float(args[4]) if len(args) == 5 and args[3] == "--timeout" else 3.0
+                return asyncio.run(tcp(args[1], int(args[2]), timeout=timeout))
+            raise ValueError("usage: diagnose tcp HOST PORT [--timeout SECONDS] | diagnose resolve HOST")
         if len(args) < 3 or args[0] != "protocol":
             raise ValueError("usage: diagnose [--restart] | diagnose protocol OP DEVICE ...")
         operation = args[1]
