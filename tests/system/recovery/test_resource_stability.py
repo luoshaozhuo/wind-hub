@@ -48,11 +48,12 @@ FD_SLACK = 3
 KEY_PREFIX = "wind-hub-resources"
 
 
-def _config(base: Path, device_port: int, redis_address: str) -> Path:
+def _config(base: Path, device_port: int, redis_address: str, nats_url: str) -> Path:
     host, _, port = redis_address.rpartition(":")
     return write_functional_config(
         base,
         device_port,
+        nats_url=nats_url,
         sinks={
             "redis_sink": {
                 "type": "redis",
@@ -92,11 +93,14 @@ class TestReconnectFlapStability:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
         """RES-01：10 次断连/恢复循环后实例唯一、FD 不增长。"""
-        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service, nats_service)
+        await sink_service_factory(config_dir)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await _wait_data(redis_service)
@@ -142,7 +146,9 @@ class TestReloadStability:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
         """RES-02：10 次 reload（task 重启 + sink 重建）后实例唯一、FD 不增长。
@@ -151,7 +157,8 @@ class TestReloadStability:
         Redis timeout（触发 sink 重建、consumer 协程替换）——两条重建路径
         都是 asyncio task / 句柄泄漏高发区。
         """
-        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service, nats_service)
+        await sink_service_factory(config_dir)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await _wait_data(redis_service)

@@ -65,6 +65,11 @@ DEFAULT_MESSAGING: dict[str, Any] = {
 }
 
 
+def realtime_messaging(nats_url: str) -> dict[str, Any]:
+    """realtime NATS 的 system.messaging 块（write_config_tree 直写用）。"""
+    return {**DEFAULT_MESSAGING, "servers": [nats_url]}
+
+
 def modbus_device_dict(port: int, **overrides: Any) -> dict[str, Any]:
     """指向指定端口 Modbus fixture 的设备条目（devices Mapping 单条目）。"""
     device: dict[str, Any] = {

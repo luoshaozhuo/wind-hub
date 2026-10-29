@@ -25,6 +25,7 @@ import pytest
 
 from tests.support.config_helper import write_config_tree
 from tests.support.control import metrics_snapshot, start_task_instance
+from tests.support.functional_config import realtime_messaging
 from tests.support.netem import NetemScenario
 from tests.support.process import CollectorProcess
 from tests.support.recovery_helpers import (
@@ -51,7 +52,7 @@ DEVICE_ID = "modbus-1"
 READ_TIMEOUT_S = 2.0
 
 
-def _write_config(base: Path, link: NetemLink, redis_address: str) -> Path:
+def _write_config(base: Path, link: NetemLink, redis_address: str, nats_url: str) -> Path:
     from tests.support.functional_config import MODBUS_POINTS, modbus_device_dict
 
     devices = modbus_device_dict(link.device_port)
@@ -71,15 +72,24 @@ def _write_config(base: Path, link: NetemLink, redis_address: str) -> Path:
             }
         },
         tasks=telemetry_task(),
-        system={"runtime": {"connect_timeout": 1.0, "read_timeout": READ_TIMEOUT_S}},
+        system={
+            "runtime": {"connect_timeout": 1.0, "read_timeout": READ_TIMEOUT_S},
+            "messaging": realtime_messaging(nats_url),
+        },
     )
 
 
 async def _start_stack(
-    collector_factory, link: NetemLink, tmp_path: Path, redis_address: str
+    collector_factory,
+    sink_service_factory,
+    link: NetemLink,
+    tmp_path: Path,
+    redis_address: str,
+    nats_url: str,
 ) -> tuple[CollectorProcess, str]:
-    """起 Collector 并确认故障前基线：设备已连接、数据在出。"""
-    config_dir = _write_config(tmp_path / "cfg", link, redis_address)
+    """起 sink_service + Collector 并确认故障前基线：设备已连接、数据在出。"""
+    config_dir = _write_config(tmp_path / "cfg", link, redis_address, nats_url)
+    await sink_service_factory(config_dir)
     proc: CollectorProcess = await collector_factory(config_dir)
     await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
     await wait_status(
@@ -122,11 +132,22 @@ async def _assert_link_healthy(proc: CollectorProcess, redis_address: str, durat
 
 class TestDelayAndJitter:
     async def test_delay_ladder_no_false_disconnect(
-        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
+        self,
+        netem_link: NetemLink,
+        collector_factory,
+        sink_service_factory,
+        redis_service: str,
+        nats_service: str,
+        tmp_path: Path,
     ) -> None:
         """NET-01：10ms→50ms 延迟阶梯——无假断连、零重连、数据连续。"""
         proc, redis_address = await _start_stack(
-            collector_factory, netem_link, tmp_path, redis_service
+            collector_factory,
+            sink_service_factory,
+            netem_link,
+            tmp_path,
+            redis_service,
+            nats_service,
         )
         reconnects_base = await _reconnects(proc)
 
@@ -141,11 +162,22 @@ class TestDelayAndJitter:
         await _assert_link_healthy(proc, redis_address, duration=1.0)
 
     async def test_jitter_no_reconnect_storm(
-        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
+        self,
+        netem_link: NetemLink,
+        collector_factory,
+        sink_service_factory,
+        redis_service: str,
+        nats_service: str,
+        tmp_path: Path,
     ) -> None:
         """NET-02：20ms±10ms 抖动——健康状态稳定，无重连风暴。"""
         proc, redis_address = await _start_stack(
-            collector_factory, netem_link, tmp_path, redis_service
+            collector_factory,
+            sink_service_factory,
+            netem_link,
+            tmp_path,
+            redis_service,
+            nats_service,
         )
         reconnects_base = await _reconnects(proc)
 
@@ -160,7 +192,13 @@ class TestDelayAndJitter:
 
 class TestPacketLoss:
     async def test_low_loss_tolerated(
-        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
+        self,
+        netem_link: NetemLink,
+        collector_factory,
+        sink_service_factory,
+        redis_service: str,
+        nats_service: str,
+        tmp_path: Path,
     ) -> None:
         """NET-03：1% 丢包零影响（TCP 重传吸收）；10% 丢包可容忍且恢复。
 
@@ -169,7 +207,12 @@ class TestPacketLoss:
         ~1e-4/读），但绝不允许重连风暴，且清除后必须恢复。
         """
         proc, redis_address = await _start_stack(
-            collector_factory, netem_link, tmp_path, redis_service
+            collector_factory,
+            sink_service_factory,
+            netem_link,
+            tmp_path,
+            redis_service,
+            nats_service,
         )
         reconnects_base = await _reconnects(proc)
 
@@ -197,7 +240,13 @@ class TestPacketLoss:
         await _assert_link_healthy(proc, redis_address, duration=1.0)
 
     async def test_blackhole_detected_and_recovers(
-        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
+        self,
+        netem_link: NetemLink,
+        collector_factory,
+        sink_service_factory,
+        redis_service: str,
+        nats_service: str,
+        tmp_path: Path,
     ) -> None:
         """NET-04：黑洞（100% 丢包）→ 读超时判断连 → 退避重连 → 清除后恢复。
 
@@ -205,7 +254,12 @@ class TestPacketLoss:
         超时检测——这是现场基站掉线的真实形态。
         """
         proc, redis_address = await _start_stack(
-            collector_factory, netem_link, tmp_path, redis_service
+            collector_factory,
+            sink_service_factory,
+            netem_link,
+            tmp_path,
+            redis_service,
+            nats_service,
         )
         reconnects_base = await _reconnects(proc)
 
@@ -255,11 +309,22 @@ class TestPacketLoss:
 
 class TestShortFlap:
     async def test_sub_timeout_flap_does_not_reconnect(
-        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
+        self,
+        netem_link: NetemLink,
+        collector_factory,
+        sink_service_factory,
+        redis_service: str,
+        nats_service: str,
+        tmp_path: Path,
     ) -> None:
         """NET-05a：500ms 闪断（< 读超时 2s）——TCP 重传吸收，不得重建连接。"""
         proc, redis_address = await _start_stack(
-            collector_factory, netem_link, tmp_path, redis_service
+            collector_factory,
+            sink_service_factory,
+            netem_link,
+            tmp_path,
+            redis_service,
+            nats_service,
         )
         reconnects_base = await _reconnects(proc)
 
@@ -271,11 +336,22 @@ class TestShortFlap:
         ), "500ms 闪断不得触发连接重建（亚超时中断应由 TCP 重传吸收）"
 
     async def test_timeout_boundary_flap_recovers(
-        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
+        self,
+        netem_link: NetemLink,
+        collector_factory,
+        sink_service_factory,
+        redis_service: str,
+        nats_service: str,
+        tmp_path: Path,
     ) -> None:
         """NET-05b：2s 闪断（≈读超时）——允许一次断连重连，但必须自动恢复。"""
         proc, redis_address = await _start_stack(
-            collector_factory, netem_link, tmp_path, redis_service
+            collector_factory,
+            sink_service_factory,
+            netem_link,
+            tmp_path,
+            redis_service,
+            nats_service,
         )
 
         await netem_link.outage(2.0)
@@ -289,11 +365,22 @@ class TestShortFlap:
         await _assert_link_healthy(proc, redis_address, duration=1.0)
 
     async def test_supra_timeout_flap_reconnects(
-        self, netem_link: NetemLink, collector_factory, redis_service: str, tmp_path: Path
+        self,
+        netem_link: NetemLink,
+        collector_factory,
+        sink_service_factory,
+        redis_service: str,
+        nats_service: str,
+        tmp_path: Path,
     ) -> None:
         """NET-05c：5s 闪断（> 读超时）——必须判断连、退避、恢复后重连出数。"""
         proc, redis_address = await _start_stack(
-            collector_factory, netem_link, tmp_path, redis_service
+            collector_factory,
+            sink_service_factory,
+            netem_link,
+            tmp_path,
+            redis_service,
+            nats_service,
         )
         reconnects_base = await _reconnects(proc)
 

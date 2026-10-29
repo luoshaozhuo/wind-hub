@@ -23,6 +23,7 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.config_helper import write_config_tree
 from tests.support.control import metrics_snapshot, start_task_instance
+from tests.support.functional_config import realtime_messaging
 from tests.support.process import CollectorProcess, free_port
 from tests.support.recovery_helpers import telemetry_task, wait_status
 from tests.support.redis_client import point_key
@@ -41,7 +42,7 @@ OUTAGE_WINDOW = 14.0
 SAMPLE_INTERVAL = 0.25
 
 
-def _write_fast_config(base: Path, port: int, redis_address: str) -> Path:
+def _write_fast_config(base: Path, port: int, redis_address: str, nats_url: str) -> Path:
     from tests.support.functional_config import MODBUS_POINTS, modbus_device_dict
 
     task = telemetry_task()
@@ -61,7 +62,10 @@ def _write_fast_config(base: Path, port: int, redis_address: str) -> Path:
             }
         },
         tasks=task,
-        system={"runtime": {"connect_timeout": 1.0, "read_timeout": 2.0}},
+        system={
+            "runtime": {"connect_timeout": 1.0, "read_timeout": 2.0},
+            "messaging": realtime_messaging(nats_url),
+        },
     )
 
 
@@ -96,11 +100,17 @@ async def _sample_attempts(proc: CollectorProcess, window: float) -> tuple[list[
 
 class TestWatchdogRecovery:
     async def test_watchdog_recovers_without_poll_loop_reconnect(
-        self, collector_factory, redis_service: str, tmp_path: Path
+        self,
+        collector_factory,
+        sink_service_factory,
+        redis_service: str,
+        nats_service: str,
+        tmp_path: Path,
     ) -> None:
         port = free_port()
         server = ModbusMockServer(port=port)
-        config_dir = _write_fast_config(tmp_path / "cfg", port, redis_service)
+        config_dir = _write_fast_config(tmp_path / "cfg", port, redis_service, nats_service)
+        await sink_service_factory(config_dir)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 

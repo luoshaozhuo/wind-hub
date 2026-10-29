@@ -21,11 +21,12 @@ INSTANCE_ID = "modbus-telemetry:modbus-1"
 KEY_PREFIX = "wind-hub-shutdown"
 
 
-def _config(base: Path, port: int, redis_address: str) -> Path:
+def _config(base: Path, port: int, redis_address: str, nats_url: str) -> Path:
     host, _, redis_port = redis_address.rpartition(":")
     return write_functional_config(
         base,
         port,
+        nats_url=nats_url,
         sinks={
             "redis_sink": {
                 "type": "redis",
@@ -48,10 +49,13 @@ class TestGracefulShutdown:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
-        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service, nats_service)
+        await sink_service_factory(config_dir)
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
@@ -67,10 +71,13 @@ class TestGracefulShutdown:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
-        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = _config(tmp_path / "cfg", modbus_server.port, redis_service, nats_service)
+        await sink_service_factory(config_dir)
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
 
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)

@@ -21,7 +21,7 @@ from tests.support.control import (
     reload_config,
     start_task_instance,
 )
-from tests.support.functional_config import update_yaml
+from tests.support.functional_config import realtime_messaging, update_yaml
 from tests.support.process import CollectorProcess, run_cli_async
 from tests.support.recovery_helpers import (
     wait_status,
@@ -39,12 +39,12 @@ IEC104_TASK_ID = "iec104-telemetry"
 IEC104_INSTANCE_ID = "iec104-telemetry:iec104-1"
 
 IEC104_POINTS: dict[str, dict[str, Any]] = {
-    "meas.active_power": {
+    "meas_active_power": {
         "point_groups": ["telemetry"],
         "address": {"ca": 1, "ioa": 100, "type_id": "M_ME_NC_1"},
         "data_type": "float32",
     },
-    "meas.frequency": {
+    "meas_frequency": {
         "point_groups": ["telemetry"],
         "address": {"ca": 1, "ioa": 200, "type_id": "M_ME_NC_1"},
         "data_type": "float32",
@@ -52,7 +52,7 @@ IEC104_POINTS: dict[str, dict[str, Any]] = {
 }
 
 
-def _iec104_config(base: Path, port: int, redis_address: str) -> Path:
+def _iec104_config(base: Path, port: int, redis_address: str, nats_url: str) -> Path:
     """单 IEC104 设备 + Redis 最新值的现场配置（订阅型采集）。"""
     return write_config_tree(
         base,
@@ -99,7 +99,8 @@ def _iec104_config(base: Path, port: int, redis_address: str) -> Path:
                 "read_timeout": 2.0,
                 "write_timeout": 2.0,
                 "shutdown_timeout": 5.0,
-            }
+            },
+            "messaging": realtime_messaging(nats_url),
         },
     )
 
@@ -110,10 +111,16 @@ class TestCollectorRestart:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
-        config_dir = write_modbus_redis_config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
+        )
+        # sink_service 跨 Collector 重启独立存活，数据面恢复由它持续消费保证。
+        await sink_service_factory(config_dir, deployment_id="restart-modbus-sink")
 
         # ---- 第一个实例：正常采集后优雅停机 ----
         proc_a: CollectorProcess = await collector_factory(
@@ -151,17 +158,22 @@ class TestSubscriptionRestartPending:
         self,
         iec104_server: IEC104MockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
-        config_dir = _iec104_config(tmp_path / "cfg", iec104_server.port, redis_service)
+        config_dir = _iec104_config(
+            tmp_path / "cfg", iec104_server.port, redis_service, nats_service
+        )
+        await sink_service_factory(config_dir, deployment_id="restart-iec104-sink")
         proc: CollectorProcess = await collector_factory(config_dir)
 
         # ---- 正常：订阅建立，总召数据写入 Redis ----
         await start_task_instance(
             proc.grpc_target, task_id=IEC104_TASK_ID, instance_id=IEC104_INSTANCE_ID
         )
-        key = point_key("iec104-1", "meas.active_power", prefix="wind-hub-iec-restart")
+        key = point_key("iec104-1", "meas_active_power", prefix="wind-hub-iec-restart")
         await wait_redis_value(redis_service, key)
 
         # ---- 故障：从站停止，设备断连在边界可见 ----
@@ -174,7 +186,7 @@ class TestSubscriptionRestartPending:
 
         # ---- 断连期间变更点表：订阅必须重建但设备不可达 → reload 失败 ----
         def _add_point(data: dict[str, Any]) -> None:
-            data["point_tables"]["iec104"]["points"]["meas.reactive_power"] = {
+            data["point_tables"]["iec104"]["points"]["meas_reactive_power"] = {
                 "point_groups": ["telemetry"],
                 "address": {"ca": 1, "ioa": 300, "type_id": "M_ME_NC_1"},
                 "data_type": "float32",
@@ -182,7 +194,7 @@ class TestSubscriptionRestartPending:
             }
 
         def _add_business_point(data: dict[str, Any]) -> None:
-            data["business_points"]["meas.reactive_power"] = {
+            data["business_points"]["meas_reactive_power"] = {
                 "data_type": "float32",
                 "unit": "none",
             }

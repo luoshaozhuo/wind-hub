@@ -13,6 +13,7 @@ from tests.support.control import prepare_config, reload_config, start_task_inst
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, run_cli_async
 from tests.support.recovery_helpers import (
+    DEVICE_ID,
     wait_telemetry_value,
     write_modbus_redis_config,
 )
@@ -28,19 +29,25 @@ class TestReloadFailureResilience:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
-        config_dir = write_modbus_redis_config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
+        )
+        await sink_service_factory(config_dir)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         initial = await wait_telemetry_value(redis_service)
 
-        update_yaml(
-            config_dir,
-            "sinks.yaml",
-            lambda data: data["sinks"]["redis_sink"]["outputs"].update({"ghost_task": {}}),
-        )
+        # Collector 不解析 sinks.yaml（include_sinks=False）；故障注入必须
+        # 落在 Collector 实际校验的边界——Task 引用不存在的设备组。
+        def _break(data: dict[str, Any]) -> None:
+            data["tasks"][TASK_ID]["device_group_id"] = "ghost-device"
+
+        update_yaml(config_dir, "tasks.yaml", _break)
         prepared = await prepare_config(
             proc.grpc_target, config_dir=config_dir, revision_id="rev-broken"
         )
@@ -51,14 +58,11 @@ class TestReloadFailureResilience:
         continued = await wait_telemetry_value(redis_service, after=str(initial["timestamp"]))
 
         def _restore(data: dict[str, Any]) -> None:
+            # 恢复有效设备组，同时变更 interval——验证修复版本可正常激活。
+            data["tasks"][TASK_ID]["device_group_id"] = DEVICE_ID
             data["tasks"][TASK_ID]["interval"] = 0.5
 
         update_yaml(config_dir, "tasks.yaml", _restore)
-        update_yaml(
-            config_dir,
-            "sinks.yaml",
-            lambda data: data["sinks"]["redis_sink"]["outputs"].pop("ghost_task"),
-        )
         activated = await reload_config(
             proc.grpc_target, config_dir=config_dir, revision_id="rev-restored"
         )

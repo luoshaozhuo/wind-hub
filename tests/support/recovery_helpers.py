@@ -40,8 +40,18 @@ def telemetry_task(*, task_id: str = TASK_ID) -> dict[str, Any]:
     }
 
 
-def write_modbus_redis_config(base: Path, port: int, redis_address: str) -> Path:
-    """单 Modbus 设备和 Redis 最新值输出，用于进程级恢复测试。"""
+def write_modbus_redis_config(
+    base: Path,
+    port: int,
+    redis_address: str,
+    *,
+    nats_url: str = "nats://127.0.0.1:4222",
+) -> Path:
+    """单 Modbus 设备和 Redis 最新值输出，用于进程级恢复测试。
+
+    新架构下 Redis 由独立 sink_service 经 NATS 消费写入；调用方需另行
+    启动 sink_service（见 tests.system.conftest.sink_service_factory）。
+    """
     host, _, redis_port = redis_address.rpartition(":")
     return write_functional_config(
         base,
@@ -54,6 +64,7 @@ def write_modbus_redis_config(base: Path, port: int, redis_address: str) -> Path
             }
         },
         tasks=telemetry_task(),
+        nats_url=nats_url,
     )
 
 

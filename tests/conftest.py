@@ -133,7 +133,7 @@ async def nats_service() -> str:
     """
     import os
 
-    from tests.support.wait import wait_until
+    from tests.support.wait import WaitTimeoutError, wait_until
 
     servers = os.environ.get("WIND_HUB_TEST_NATS", "nats://127.0.0.1:4222")
     host_port = servers.removeprefix("nats://").partition("@")[2] or servers.removeprefix("nats://")
@@ -152,7 +152,11 @@ async def nats_service() -> str:
             await writer.wait_closed()
         return True
 
-    if not await wait_until(_reachable, timeout=10.0, interval=0.5):
+    try:
+        reachable = await wait_until(_reachable, timeout=10.0, interval=0.5)
+    except WaitTimeoutError:
+        reachable = False
+    if not reachable:
         pytest.skip(
             f"SKIPPED: real NATS not reachable at {servers} "
             "(set WIND_HUB_TEST_NATS or start a nats server)"

@@ -47,11 +47,16 @@ class TestPointTableChangeWhileOffline:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
         """CFG-02：掉线期间改点表——设备恢复后必须使用新点表出数。"""
-        config_dir = write_modbus_redis_config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
+        )
+        await sink_service_factory(config_dir)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_telemetry_value(
@@ -104,11 +109,16 @@ class TestStopTaskDuringReconnect:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
         """CFG-03：backoff 期间 stop task——设备恢复后 Task 必须保持 STOPPED。"""
-        config_dir = write_modbus_redis_config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
+        )
+        await sink_service_factory(config_dir)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_telemetry_value(redis_service)

@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -23,16 +23,15 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import start_task_instance, stop_instance
 from tests.support.functional_config import write_functional_config
-from tests.support.process import CollectorProcess, free_port, start_sink_service
+from tests.support.process import CollectorProcess
 from tests.support.redis_client import point_key
-from tests.support.wait import read_redis_value, wait_redis_value, wait_tcp_port
+from tests.support.wait import read_redis_value, wait_redis_value
 
 pytestmark = [pytest.mark.redis, pytest.mark.real_service]
 
 TASK_ID = "modbus-telemetry"
 DEVICE_ID = "modbus-1"
 INSTANCE_ID = f"{TASK_ID}:{DEVICE_ID}"
-SITE_ID = "test"
 
 #: 本文件 Redis sink 的 key_prefix（键规则见 tests.support.redis_client.point_key）。
 REDIS_KEY_PREFIX = "wind-hub-sys"
@@ -54,52 +53,6 @@ def _redis_sink(host: str, port: int) -> dict[str, Any]:
     }
 
 
-@pytest.fixture
-async def sink_service_factory(
-    tmp_path: Path,
-) -> AsyncIterator[Callable[..., Awaitable[CollectorProcess]]]:
-    """启动真实 sink_service 子进程并在结束时优雅回收。"""
-    started: list[CollectorProcess] = []
-
-    async def _start(config_dir: Path, nats_url: str) -> CollectorProcess:
-        state_dir = tmp_path / "sink-state"
-        state_dir.mkdir(parents=True, exist_ok=True)
-        proc = start_sink_service(
-            config_dir,
-            nats_servers=(nats_url,),
-            wind_farm_id=SITE_ID,
-            deployment_id=f"e2e-{free_port()}",
-            delivery="realtime",
-            realtime_sinks=(SINK_ID,),
-            state_dir=state_dir,
-            log_dir=tmp_path,
-        )
-        started.append(proc)
-        try:
-            # sink_service 管理面无健康 RPC；以其 gRPC 端口可连为进程装配完成
-            # 信号，真正的端到端就绪由后续 Redis 出数轮询保证。
-            await wait_tcp_port("127.0.0.1", int(proc.grpc_target.rpartition(":")[2]))
-            if not proc.is_running():
-                raise RuntimeError(f"sink_service exited early; see {proc.log_path}")
-        except BaseException:
-            proc.kill_tree()
-            proc.close_log()
-            started.remove(proc)
-            raise
-        return proc
-
-    yield _start
-
-    for proc in started:
-        try:
-            if proc.is_running():
-                proc.terminate()
-        except BaseException:
-            proc.kill_tree()
-        finally:
-            proc.close_log()
-
-
 @pytest.mark.redis
 class TestModbusToNatsToRedis:
     async def test_collected_points_reach_redis_via_nats(
@@ -119,7 +72,7 @@ class TestModbusToNatsToRedis:
             nats_url=nats_service,
         )
         # 先起消费侧（sink_service），再起生产侧（Collector），避免首拍丢失。
-        sink_proc = await sink_service_factory(config_dir, nats_service)
+        sink_proc = await sink_service_factory(config_dir)
         assert sink_proc.is_running()
         collector = await collector_factory(config_dir, collector_id="collector")
 
@@ -162,7 +115,7 @@ class TestModbusToNatsToRedis:
             sinks=_redis_sink(redis_host, int(redis_port)),
             nats_url=nats_service,
         )
-        await sink_service_factory(config_dir, nats_service)
+        await sink_service_factory(config_dir)
         collector = await collector_factory(config_dir, collector_id="collector")
         await start_task_instance(collector.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         key = point_key(DEVICE_ID, "rotor_speed", prefix=REDIS_KEY_PREFIX)
