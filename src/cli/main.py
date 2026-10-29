@@ -89,6 +89,61 @@ class WindHubShell(cmd.Cmd):
         except KeyboardInterrupt:
             print("\nInterrupted.")
 
+    def _candidates(self) -> list[str]:
+        words = completion_words()
+        loaded = self.config._current
+        if loaded is not None:
+            snapshot = loaded.snapshot
+            words.extend(str(key) for key in snapshot.site.devices)
+            words.extend(str(key) for key in snapshot.sinks)
+            words.extend(
+                point_id
+                for table in snapshot.point_tables.values()
+                for point_id in table.points
+            )
+        return sorted(set(words))
+
+    def completenames(self, text: str, *_: object) -> list[str]:
+        return [item for item in self._candidates() if item.startswith(text)]
+
+    def completedefault(self, text: str, *_: object) -> list[str]:
+        return self.completenames(text)
+
+    def preloop(self) -> None:
+        super().preloop()
+        try:
+            import readline
+            from pathlib import Path
+
+            self._history_path = Path.home() / ".wind_hub_history"
+            if self._history_path.is_file():
+                readline.read_history_file(str(self._history_path))
+        except (ImportError, OSError):
+            pass
+
+    def precmd(self, line: str) -> str:
+        if " write " in f" {line.lower()} ":
+            try:
+                import readline
+
+                count = readline.get_current_history_length()
+                if count:
+                    readline.remove_history_item(count - 1)
+            except (ImportError, OSError, ValueError):
+                pass
+        return line
+
+    def postloop(self) -> None:
+        try:
+            import readline
+
+            path = getattr(self, "_history_path", None)
+            if path is not None:
+                readline.write_history_file(str(path))
+        except (ImportError, OSError):
+            pass
+        super().postloop()
+
     def emptyline(self) -> None:
         return
 
