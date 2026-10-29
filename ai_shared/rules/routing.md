@@ -11,12 +11,12 @@
 | 等级 | 典型变更 | 验证 |
 |---|---|---|
 | 非产品 | rules/Agent/CI tooling | 只验证修改对象自身 |
-| L1 | 普通内部实现、普通前端页面/样式 | 合并时相关测试 |
-| L2 | protocol/RPC/sink 等边界 | 合并时相关 Contract/Integration |
-| L3 | acquisition/command/diagnostics/reload/startup/task-control/跨系统 E2E | 合并时相关 Integration/System |
-| Frontend E2E | 当前 Playwright 实际覆盖的 App shell / E2E 配置与测试 | 合并时相关 Frontend/E2E |
+| L1 | 普通内部实现、普通前端页面/样式 | 按需相关测试 |
+| L2 | protocol/RPC/sink 等边界 | 按需 Contract/Integration |
+| L3 | acquisition/command/diagnostics/reload/startup/task-control/跨系统 E2E | 按需 Integration/System |
+| Frontend E2E | 当前 Playwright 实际覆盖的 App shell / E2E 配置与测试 | 按需 Frontend/E2E |
 
-原则：开发阶段不强制测试；合并时验证完整影响范围，明确不可识别的范围采用保守回退。
+原则：测试按任务需要运行；合并不执行自动门禁或强制测试。
 
 ## 3. 编码任务
 
@@ -29,7 +29,7 @@ coding.md
 frontend.md
 ```
 
-开发、Commit、Push、创建 PR 不强制运行产品 Gate；开发中仅按需执行直接相关测试。最终受影响范围验证由用户调用 `//merge-branch` 统一触发。
+开发、Commit、Push、合并均不强制运行产品 Gate；按需执行直接相关测试。`//merge-branch` 只负责直接 Squash Merge 与安全清理。
 
 ## 4. Scope 规则
 
@@ -60,7 +60,7 @@ system-e2e
 | 场景 | Skill |
 |---|---|
 | 开发期间 | 按需运行定向检查，不强制 Gate |
-| 合并验收 | `merge-branch` 统一执行受影响范围验证 |
+| 直接合并 | `merge-branch`：无 PR、无合并门禁 |
 | Release / tag | `local-release-gate` |
 | hardware/performance/soak | `local-qualification` |
 | 当前 SHA 的相关 CI 失败 | `ci-fix-loop` |
