@@ -5,10 +5,10 @@
 （unit 1 / unit 2）的保持寄存器值：unit 2 供热加载测试新增设备使用。
 
 寄存器布局（wire address）：
-    - 100/101  ``rotor.speed`` （float32，big-endian）
-    - 102/103  ``gen.power``  （float32）
-    - 104      ``temp.int``   （int16）
-    - 200/201  ``setpoint.power``（float32，可写，供指令下发测试）
+    - 100/101  ``rotor_speed`` （float32，big-endian）
+    - 102/103  ``gen_power``  （float32）
+    - 104      ``temp_int``   （int16）
+    - 200/201  ``setpoint_power``（float32，可写，供指令下发测试）
 """
 
 from __future__ import annotations

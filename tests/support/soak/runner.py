@@ -25,13 +25,12 @@ from collector.assembly import CollectorApp, assemble_collector
 from core.application import ProtocolWrite
 from core.application.port.protocol import ProtocolPort
 from core.application.protocol_contract import WriteOutcome
-from core.domain import Sink
 from core.domain.point_value import PointValue
 from tests.support.config_helper import write_config_tree
 from tests.support.netem import NetemController, NetemScenario
 from tests.support.perf_servers import ModbusServerHandle
 from tests.support.soak.metrics import SoakMetrics, SoakMetricsCollector
-from tests.support.soak.sinks import RecordingSink, percentile
+from tests.support.soak.recorder import NatsSampleRecorder, percentile
 
 logger = logging.getLogger(__name__)
 
@@ -158,12 +157,12 @@ def write_soak_config(
     profile: SoakProfile,
     host: str,
     port: int,
+    nats_url: str,
 ) -> Path:
-    """生成 soak 配置目录（多设备/多任务/可选真实 sink）。
+    """生成 soak 配置目录（多设备/多任务，realtime 发布到真实 NATS）。
 
-    背压队列放大到 100 万：丢点只反映真实瓶颈而非人为触顶。sink 实例
-    由 ``assemble_collector`` 的 ``sink_factories`` 覆盖注入计量包装
-    （RecordingSink）；``type`` 仅为可解析的合法占位（redis），不产生真实 IO。
+    Task 不再声明 outputs——Sink 绑定属于 sink_service；soak 在 NATS 边界
+    以 :class:`NatsSampleRecorder` 计量投递/重复/延迟。
     """
     devices: dict[str, dict[str, object]] = {}
     device_models: dict[str, object] = {}
@@ -197,14 +196,8 @@ def write_soak_config(
                 "device_group_id": device_id,
                 "point_group": "default",
                 "interval": group.interval_s,
-                "outputs": [{"sink_id": "soak_sink"}],
             }
 
-    sink_type = "redis"
-    # FileSink 已移除：用合法的 redis kind 作可解析占位（outputs 无显式点，
-    # 对 redis 即任务组全量）。运行时 sink 实例由 sink_factories 覆盖为
-    # 计量包装 RecordingSink，不会真正连接该占位地址。
-    sink_connection: dict[str, object] = {"host": "127.0.0.1", "port": 6379}
     system = {
         "runtime": {
             "queue_maxsize": 1_000_000,
@@ -215,6 +208,12 @@ def write_soak_config(
             "watchdog_interval": 1.0,
             "health_timeout": 1.0,
         },
+        "messaging": {
+            "backend": "nats",
+            "servers": [nats_url],
+            "delivery": "realtime",
+            "max_staleness_ms": 60_000,
+        },
     }
     return write_config_tree(
         config_dir,
@@ -222,13 +221,6 @@ def write_soak_config(
         point_tables=point_tables,
         device_models=device_models,
         system=system,
-        sinks={
-            "soak_sink": {
-                "type": sink_type,
-                "enabled": True,
-                "connection": sink_connection,
-            }
-        },
         tasks=tasks,
     )
 
@@ -238,6 +230,7 @@ async def run_soak(
     *,
     host: str = "127.0.0.1",
     port: int = DEFAULT_SOAK_PORT,
+    nats_url: str = "nats://127.0.0.1:4222",
     duration_s: float = 30.0,
     warmup_s: float = 3.0,
     netem_devices: list[str] | None = None,
@@ -250,6 +243,7 @@ async def run_soak(
         profile: 负载形态（:data:`PROFILES` 或自定义）。
         host: Modbus server 绑定地址（netem 场景传 veth 的 server 侧 IP）。
         port: Modbus server 端口。
+        nats_url: 真实 NATS 地址；Collector 发布与边界录制器共用。
         duration_s: 测量时长（秒）。
         warmup_s: 预热时长（秒，不计入统计）。
         netem_devices / netem_scenario: 同时给出时在测量前应用 netem 场景。
@@ -257,16 +251,6 @@ async def run_soak(
     """
     if duration_s <= 0 or warmup_s < 0:
         raise ValueError("duration_s 必须为正，warmup_s 不能为负")
-
-    recording_holder: list[RecordingSink] = []
-
-    def _sink_factory(cfg: Sink) -> RecordingSink:
-        del cfg
-        sink = RecordingSink()
-        recording_holder.append(sink)
-        return sink
-
-    sink_type = "redis"
 
     controllers = [NetemController(dev) for dev in (netem_devices or [])]
     task_intervals = {
@@ -282,17 +266,19 @@ async def run_soak(
             profile,
             host,
             port,
+            nats_url,
         )
         await server.start()
+        recorder = NatsSampleRecorder(nats_url)
+        await recorder.open()
         try:
             for c in controllers:
                 if netem_scenario is not None:
                     c.apply(netem_scenario)
 
-            app = assemble_collector(config_dir, sink_factories={sink_type: _sink_factory})
+            app = assemble_collector(config_dir)
             runtime = app.runtime
             runtime.engine.add_observer(_make_cycle_observer(collector))
-            collector.set_queue_depth_provider(runtime.sink_queue_depths)
 
             await app.start()
             for instance in runtime.task_instances().values():
@@ -316,10 +302,9 @@ async def run_soak(
 
                 # ---- 测量窗口开始：重置基线 ----
                 collector.reset_measurement()
-                sink0 = recording_holder[0]
-                base_received = sink0.stats.received
-                base_duplicates = sink0.stats.duplicates
-                sink0.stats.latencies_ms.clear()
+                base_received = recorder.stats.received
+                base_duplicates = recorder.stats.duplicates
+                recorder.stats.latencies_ms.clear()
                 base = (
                     runtime.points_collected,
                     runtime.points_routed,
@@ -351,9 +336,10 @@ async def run_soak(
                 for c in controllers:
                     c.clear()
         finally:
+            await recorder.close()
             await server.stop()
 
-    sink = recording_holder[0]
+    window_latencies = list(recorder.stats.latencies_ms)
     resources = collector.resource_summary()
     sampled_reconnects, reconnect_time_ms = collector.reconnect_summary()
     # 风暴场景以驱动层精确建连事件为准；采样计数仅供对照（短不健康
@@ -367,11 +353,11 @@ async def run_soak(
         points_routed=routed,
         points_dropped=dropped,
         throughput_pps=collected / duration_s if duration_s > 0 else 0.0,
-        sink_received=sink.stats.received - base_received,
-        sink_duplicates=sink.stats.duplicates - base_duplicates,
-        sink_received_total=sink.stats.received,
-        sink_latency_p50_ms=percentile(sink.stats.latencies_ms, 50),
-        sink_latency_p99_ms=percentile(sink.stats.latencies_ms, 99),
+        sink_received=recorder.stats.received - base_received,
+        sink_duplicates=recorder.stats.duplicates - base_duplicates,
+        sink_received_total=recorder.stats.received,
+        sink_latency_p50_ms=percentile(window_latencies, 50),
+        sink_latency_p99_ms=percentile(window_latencies, 99),
         write_commands=write_stats.commands,
         write_failures=write_stats.failures,
         queue_depth_max=int(resources["queue_depth_max"]),

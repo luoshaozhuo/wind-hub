@@ -149,21 +149,16 @@ async def test_metadata_never_triggers_field_io() -> None:
     await runtime.stop()
 
 
-async def test_metadata_reflects_task_and_sink_changes_after_reload() -> None:
-    """Task 停用与 Sink 删除在 activate 后正确反映到采集路径。"""
+async def test_metadata_reflects_task_changes_after_reload() -> None:
+    """Task 停用在 activate 后正确反映到采集侧元数据。
+
+    Sink 绑定已移出 Collector（归属 sink_service），Collector 元数据只报告
+    覆盖该点的启用 Task 列表。
+    """
     from collector.application.config import CollectionTask
-    from core.application.sink_contract import ResolvedSink
     from core.domain import DeviceGroupId
 
-    # 与生产 loader 同形：装配期 config.sinks 携带 task_sources 白名单。
-    enabled_s1 = ResolvedSink(
-        sink_id="s1",
-        kind="redis",
-        enabled=True,
-        connection={"host": "127.0.0.1", "port": 6379},
-        task_sources={"t1": (("dev1", "p1"),)},
-    )
-    config = make_collector_config(sinks={"s1": enabled_s1})
+    config = make_collector_config()
     runtime, _ = make_runtime(config)
     state: dict[str, object] = {"config": config, "hash": "h1"}
     service = CollectorConfigService(
@@ -177,25 +172,19 @@ async def test_metadata_reflects_task_and_sink_changes_after_reload() -> None:
     before = metadata.get_points_metadata("dev1", ["p1"])
     assert before.points[0].metadata is not None
     assert before.points[0].metadata.task_ids == ("t1",)
-    assert before.points[0].metadata.sink_ids == ("s1",)
 
     disabled_task = CollectionTask(
         task_id="t1",
         device_group_id=DeviceGroupId("dev1"),
         point_group="g",
-        sink_ids=("s1",),
         interval=1.0,
         enabled=False,
     )
-    state["config"] = make_collector_config(
-        tasks={"t1": disabled_task},
-        sinks={"s1": enabled_s1},
-    )
+    state["config"] = make_collector_config(tasks={"t1": disabled_task})
     state["hash"] = "h2"
     assert (await service.prepare_config("r3")).success
     assert (await service.activate_config("r3")).success
     after = metadata.get_points_metadata("dev1", ["p1"])
     assert after.points[0].metadata is not None
     assert after.points[0].metadata.task_ids == ()
-    assert after.points[0].metadata.sink_ids == ()
     await runtime.stop()

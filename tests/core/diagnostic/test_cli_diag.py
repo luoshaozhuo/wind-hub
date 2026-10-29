@@ -15,7 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 from core.application.diagnostic import DiagnosticFinding, DiagnosticResult, DiagnosticStatus
-from core.infrastructure.diagnostic import cli, firewall, network, sink
+from core.infrastructure.diagnostic import cli, firewall, network
 
 runner = CliRunner()
 FIXTURE = Path("tests/fixtures/configs/example_modbus")
@@ -40,7 +40,6 @@ def _result(status: DiagnosticStatus, *, code: str = "X", message: str = "msg") 
         ["network", "--help"],
         ["network", "firewall", "--help"],
         ["protocol", "--help"],
-        ["sink", "--help"],
     ],
 )
 def test_help_and_subcommand_registration(args: list[str]) -> None:
@@ -113,27 +112,6 @@ def test_network_scan_empty_ports_exit_2() -> None:
     assert result.exit_code == 2
 
 
-@pytest.mark.parametrize(
-    ("status", "code"),
-    [
-        (DiagnosticStatus.FAIL, 1),
-        (DiagnosticStatus.UNKNOWN, 3),
-        (DiagnosticStatus.SKIPPED, 3),
-        (DiagnosticStatus.WARNING, 0),
-        (DiagnosticStatus.PASS, 0),
-    ],
-)
-def test_exit_codes_by_status(
-    monkeypatch: pytest.MonkeyPatch, status: DiagnosticStatus, code: int
-) -> None:
-    async def fake_check(*args, **kwargs) -> DiagnosticResult:
-        return _result(status)
-
-    monkeypatch.setattr(sink, "check_sink", fake_check)
-    result = runner.invoke(cli.app, ["sink", "check", "--sink", "s1", "--config", "x"])
-    assert result.exit_code == code
-
-
 def test_firewall_check_exit_3_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_firewall_check(port: int, *, direction: str, protocol: str) -> DiagnosticResult:
         return _result(DiagnosticStatus.UNKNOWN, code="FIREWALL_DECISION_UNDETERMINED")
@@ -162,24 +140,6 @@ def test_firewall_check_bad_direction_exit_2() -> None:
         ["network", "firewall", "check", "--port", "502", "--direction", "sideways"],
     )
     assert result.exit_code == 2
-
-
-def test_json_output_serializes_special_characters(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    message = '中文与 emoji 🔥 以及引号 "q"'
-
-    async def fake_check(*args, **kwargs) -> DiagnosticResult:
-        return _result(DiagnosticStatus.PASS, message=message)
-
-    monkeypatch.setattr(sink, "check_sink", fake_check)
-    result = runner.invoke(cli.app, ["sink", "check", "--sink", "s1", "--config", "x", "--json"])
-
-    assert result.exit_code == 0
-    text = result.stdout if hasattr(result, "stdout") else result.output
-    payload = json.loads(text)
-    assert payload["findings"][0]["message"] == message
-    assert "🔥" in text  # ensure_ascii=False，不转义成 \uXXXX
 
 
 def test_network_ping_invalid_count_exit_2() -> None:
@@ -385,19 +345,6 @@ def test_protocol_benchmark_command_wired(monkeypatch: pytest.MonkeyPatch) -> No
     assert result.exit_code == 0
     assert captured["ids"] == ["p1", "p2"]
     assert captured["samples"] == 3
-
-
-def test_sink_benchmark_command_wired(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_benchmark(config, sink_id, *, samples, interval, timeout) -> DiagnosticResult:
-        assert sink_id == "s1"
-        return _ok_result()
-
-    monkeypatch.setattr(sink, "benchmark_sink", fake_benchmark)
-    result = runner.invoke(
-        cli.app,
-        ["sink", "benchmark", "--sink", "s1", "--config", "x", "--samples", "2"],
-    )
-    assert result.exit_code == 0
 
 
 def test_config_diff_unchanged_wired() -> None:

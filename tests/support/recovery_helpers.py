@@ -80,7 +80,7 @@ def write_modbus_redis_config(base: Path, port: int, redis_address: str) -> Path
 async def wait_telemetry_value(
     redis_address: str,
     *,
-    point_id: str = "rotor.speed",
+    point_id: str = "rotor_speed",
     after: str | None = None,
     match: Callable[[dict[str, Any]], bool] | None = None,
 ) -> dict[str, Any]:

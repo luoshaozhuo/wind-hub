@@ -22,7 +22,6 @@ from collector.application.task_runtime import TaskRuntime
 from collector.domain.acquisition import AcquisitionEngine
 from tests.support.new_collector import (
     CollectorFakeProtocol,
-    FakeSink,
     make_collector_config,
     make_session,
 )
@@ -46,15 +45,15 @@ def _build():
     session = make_session(config, proto)
     devices = DeviceRuntime({"dev1": session}, RuntimeParams(connect_timeout=0.2))
     _RUNTIMES.append(devices)
-    sink = FakeSink()
     engine = AcquisitionEngine()
 
-    class _Dispatch:
-        async def dispatch(self, routed):
-            for batch in routed.values():
-                await sink.write(batch)
+    class _NullDispatch:
+        """并发语义测试不关心发布结果：绑定空 NATS 派发端口即可。"""
 
-    engine.attach_sink_dispatch(_Dispatch())
+        async def dispatch(self, task_id, values):
+            del task_id, values
+
+    engine.attach_sample_publisher(_NullDispatch())
     engine.attach_device_state(devices)
     tasks = TaskRuntime(dict(config.tasks), devices, engine)
     engine.attach_acquisition_state(tasks)

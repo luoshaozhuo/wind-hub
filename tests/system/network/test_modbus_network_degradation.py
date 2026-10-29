@@ -97,7 +97,7 @@ async def _reconnects(proc: CollectorProcess) -> int:
 
 
 async def _wait_flow(redis_address: str, *, after: str | None = None) -> str:
-    key = point_key(DEVICE_ID, "rotor.speed", prefix="wind-hub-netem")
+    key = point_key(DEVICE_ID, "rotor_speed", prefix="wind-hub-netem")
     value = await wait_redis_value(
         redis_address,
         key,

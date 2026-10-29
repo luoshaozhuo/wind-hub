@@ -7,3 +7,9 @@ sinks:
       port: 6379
       database: 0
       key_prefix: wind-hub
+    outputs:
+      turbine-modbus-all:
+        points:
+          - source: {device_id: modbus-001, point_id: active_power}
+            ref: modbus_001_active_power
+            address: {field: modbus_001_active_power}

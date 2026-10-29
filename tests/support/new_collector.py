@@ -1,7 +1,9 @@
 """新 Collector（src/collector）测试共享装配辅助。
 
 提供内存 CollectorConfig / CollectorDeviceSession / CollectorRuntime 构造与
-Fake Protocol/Sink，供 unit/component 层复用；不 import 任何 wind_hub_* 模块。
+Fake Protocol/NATS 发布替身，供 unit/component 层复用；不 import 任何
+wind_hub_* 模块。Collector 不再持有 Sink，采样经 SamplePublisher 发往 NATS，
+测试以 :class:`FakeNatsTransport` 记录已接受的 SampleMessage。
 """
 
 from __future__ import annotations
@@ -16,15 +18,18 @@ from collector.application.config import (
     CollectorConfig,
     RuntimeParams,
 )
+from collector.application.identity import CollectorIdentity
+from collector.application.nats_dispatch import SamplePublisher
 from collector.application.runtime import CollectorRuntime
 from collector.application.session import CollectorDeviceSession
 from collector.domain.acquisition import AcquisitionEngine
+from contracts.sample_message import SampleMessage
 from core.application import (
-    ConnectionHealth,
     ProtocolSample,
     Quality,
 )
 from core.application.port.protocol import ListenHandle, SubscriptionHandle
+from core.application.settings import MessagingSettings
 from core.domain import (
     BusinessPointId,
     ConnectionEndpoint,
@@ -127,41 +132,73 @@ class CollectorFakeRegistry(FakeRegistry):
 
 
 # ---------------------------------------------------------------------------
-# Fake Sink
+# Fake NATS 发布端口（PublisherPort）
 # ---------------------------------------------------------------------------
 
 
-class FakeSink:
-    """记录式 SinkPort：open/close/flush/write 全部落账。"""
+class FakeNatsTransport:
+    """记录式 NATS 发布替身：记录被接受的 SampleMessage。
 
-    def __init__(self, *, exclusive: bool = False) -> None:
+    Attributes:
+        published: publish 返回 True 的消息（已被“消息系统接受”）。
+        rejected: publish 返回 False 或抛异常的消息。
+        open_calls/close_calls: 生命周期调用计数。
+        fail: 置 True 时 publish 返回 False（模拟 NATS 不可用）。
+        raise_on_publish: 置异常时 publish 抛出（模拟意外故障）。
+    """
+
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        raise_on_publish: BaseException | None = None,
+    ) -> None:
+        self.published: list[SampleMessage] = []
+        self.rejected: list[SampleMessage] = []
         self.open_calls = 0
         self.close_calls = 0
-        self.flush_calls = 0
-        self.batches: list[list[Any]] = []
-        self.fail_open = False
-        self._exclusive = exclusive
-
-    @property
-    def exclusive_open(self) -> bool:
-        return self._exclusive
+        self.fail = fail
+        self.raise_on_publish = raise_on_publish
 
     async def open(self) -> None:
         self.open_calls += 1
-        if self.fail_open:
-            raise ConnectionError("fake sink open failure")
 
     async def close(self) -> None:
         self.close_calls += 1
 
-    async def write(self, batch: list[Any]) -> None:
-        self.batches.append(list(batch))
+    async def publish(self, message: SampleMessage) -> bool:
+        if self.raise_on_publish is not None:
+            self.rejected.append(message)
+            raise self.raise_on_publish
+        if self.fail:
+            self.rejected.append(message)
+            return False
+        self.published.append(message)
+        return True
 
-    async def flush(self) -> None:
-        self.flush_calls += 1
 
-    async def health(self) -> ConnectionHealth:
-        return ConnectionHealth(healthy=True)
+def make_sample_publisher(
+    transport: FakeNatsTransport | None = None,
+    *,
+    wind_farm_id: str = "test-farm",
+    delivery: str = "realtime",
+    max_staleness_ms: int | None = 500,
+) -> tuple[SamplePublisher, FakeNatsTransport]:
+    """构造绑定 FakeNatsTransport 的应用层 SamplePublisher。"""
+    transport = transport or FakeNatsTransport()
+    identity = CollectorIdentity(
+        collector_id="collector-test",
+        boot_id="boot-test",
+        config_hash="hash-test",
+    )
+    publisher = SamplePublisher(
+        transport,
+        wind_farm_id=wind_farm_id,
+        identity=identity,
+        delivery=delivery,  # type: ignore[arg-type]
+        max_staleness_ms=max_staleness_ms if delivery == "realtime" else None,
+    )
+    return publisher, transport
 
 
 # ---------------------------------------------------------------------------
@@ -178,14 +215,15 @@ def make_collector_config(
     point_groups: tuple[str, ...] = ("g",),
     device_group_id: str | None = None,
     tasks: dict[str, CollectionTask] | None = None,
-    sinks: dict[str, Any] | None = None,
+    messaging: MessagingSettings | None = None,
     ads_subscribe: bool = False,
     params: RuntimeParams | None = None,
 ) -> CollectorConfig:
     """构造单设备单点的内存 CollectorConfig（不经过 YAML）。
 
-    默认含一个采集任务 ``t1``：device_group_id=dev1、group=g、interval=1.0、
-    sink_ids=("s1",)。传 ``tasks={}`` 可关闭默认任务。
+    默认含一个采集任务 ``t1``：device_group_id=dev1、group=g、interval=1.0。
+    Task 不再声明输出去向（Sink 绑定在 sinks.yaml）。传 ``tasks={}`` 可关闭
+    默认任务。
     """
     unit = NONE_UNIT
     point = Point(
@@ -229,17 +267,21 @@ def make_collector_config(
                 device_group_id=DeviceGroupId(device_group_id or device_id),
                 point_group="g",
                 interval=1.0,
-                sink_ids=("s1",),
             )
         }
     return CollectorConfig(
         units=minimal_unit_catalog(),
+        messaging=messaging
+        or MessagingSettings(
+            servers=("nats://127.0.0.1:4222",),
+            delivery="realtime",
+            max_staleness_ms=500,
+        ),
         device_models=device_models,
         devices=devices,
         point_tables=point_tables,
         runtime=params or RuntimeParams(connect_timeout=0.2, shutdown_timeout=0.5),
         tasks=tasks,
-        sinks=sinks or {},
     )
 
 
@@ -263,18 +305,23 @@ def make_runtime(
     config: CollectorConfig,
     *,
     protocol: CollectorFakeProtocol | None = None,
-    sinks: dict[str, FakeSink] | None = None,
+    transport: FakeNatsTransport | None = None,
     engine: AcquisitionEngine | None = None,
-    sink_factory: Any = None,
 ) -> tuple[CollectorRuntime, CollectorFakeProtocol]:
-    """装配内存 CollectorRuntime：单设备会话 + Fake Sink + 会话工厂。
+    """装配内存 CollectorRuntime：单设备会话 + Fake NATS 发布 + 会话工厂。
 
-    返回 (runtime, protocol)；会话工厂经 FakeRegistry 产新协议实例，
-    热重载 add/rebuild 路径与真实组合根同形。
+    返回 (runtime, protocol)。调用方传入的 transport 可用于断言发布/拒绝
+    记录；热重载 add/rebuild 路径与真实组合根同形（经 FakeRegistry 产新协议
+    实例）。
     """
     proto = protocol or CollectorFakeProtocol()
     session = make_session(config, proto)
     registry = CollectorFakeRegistry()
+    publisher, transport = make_sample_publisher(
+        transport,
+        delivery=config.messaging.delivery,
+        max_staleness_ms=config.messaging.max_staleness_ms,
+    )
 
     def session_factory(device: Device, point_table: PointTable) -> CollectorDeviceSession:
         return CollectorDeviceSession(
@@ -286,22 +333,23 @@ def make_runtime(
 
     runtime = CollectorRuntime(
         devices={"dev1": session},
-        sinks=dict(sinks or {}),
+        publisher=publisher,
         engine=engine or AcquisitionEngine(),
         params=config.runtime,
         tasks=dict(config.tasks),
         session_factory=session_factory,
-        sink_factory=sink_factory,
     )
+    runtime.test_transport = transport  # type: ignore[attr-defined]
     return runtime, proto
 
 
 __all__ = [
     "CollectorFakeProtocol",
     "CollectorFakeRegistry",
-    "FakeSink",
+    "FakeNatsTransport",
     "make_collector_config",
     "make_runtime",
+    "make_sample_publisher",
     "make_session",
 ]
 
@@ -325,12 +373,12 @@ def write_collector_config_tree(
     ads: dict[str, Any] | None = None,
     tasks: dict[str, Any] | None = None,
     sinks: dict[str, Any] | None = None,
+    messaging: dict[str, Any] | None = None,
 ) -> Path:
     """写出 Collector 最小自包含配置树（含 tasks.yaml / sinks.yaml）。
 
-    默认：单设备 dev1、单点 p1(group g)、单 file Sink ``s1``（归档根目录
-    Redis output）、单 Task ``t1``（device_group_id=dev1, point_group=g,
-    interval=1.0），其 outputs 引用 s1 并映射 dev1.p1 → field value。
+    默认：单设备 dev1、单点 p1(group g)、单 Task ``t1``（不再含 outputs）、
+    空 sinks 映射（Sink 归属 sink_service）、realtime NATS messaging。
     """
     from tests.support.new_commander import write_minimal_config_tree, write_yaml
 
@@ -346,32 +394,32 @@ def write_collector_config_tree(
         runtime=runtime,
         ads=ads,
     )
-    if sinks is None:
-        sinks = {
-            "s1": {
-                "type": "redis",
-                "connection": {"host": "127.0.0.1"},
-            }
-        }
-    write_yaml(config_dir, "sinks.yaml", {"sinks": sinks})
+    write_yaml(config_dir, "sinks.yaml", {"sinks": sinks or {}})
     if tasks is None:
         tasks = {
             "t1": {
                 "device_group_id": "dev1",
                 "point_group": "g",
                 "interval": 1.0,
-                "outputs": [
-                    {
-                        "sink_id": "s1",
-                        "points": [
-                            {
-                                "source": {"device_id": "dev1", "point_id": "p1"},
-                                "address": {"field": "value"},
-                            }
-                        ],
-                    }
-                ],
             }
         }
     write_yaml(config_dir, "tasks.yaml", {"tasks": tasks})
+    # Collector loader 强制要求 system.messaging；默认写最小 realtime 配置，
+    # 调用方可经 messaging= 覆盖（传 {} 删除该段用于负向测试）。
+    import yaml
+
+    system_path = config_dir / "system.yaml"
+    system_doc = yaml.safe_load(system_path.read_text(encoding="utf-8")) or {}
+    if messaging is None:
+        system_doc["messaging"] = {
+            "backend": "nats",
+            "servers": ["nats://127.0.0.1:4222"],
+            "delivery": "realtime",
+            "max_staleness_ms": 500,
+        }
+    elif messaging:
+        system_doc["messaging"] = messaging
+    else:
+        system_doc.pop("messaging", None)
+    write_yaml(config_dir, "system.yaml", system_doc)
     return config_dir

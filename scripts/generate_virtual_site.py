@@ -68,6 +68,14 @@ def generate_site(
             "local_ip": "127.0.0.1",
             "local_ams_net_id": "127.0.0.1.1.1",
         }
+        # Collector loader 强制要求 system.messaging；虚拟站点默认走本机
+        # realtime NATS（E2E 需要真实链路时由测试环境提供 4222）。
+        system["messaging"] = {
+            "backend": "nats",
+            "servers": ["nats://127.0.0.1:4222"],
+            "delivery": "realtime",
+            "max_staleness_ms": 60_000,
+        }
         _write(output, "system.yaml", system)
 
         business = _read(output, "business_points.yaml")
@@ -172,17 +180,23 @@ def generate_site(
             },
         )
 
+        task_ids = [f"virtual-{family}" for family in ("modbus", "ads", "iec104")]
         tasks = {
-            f"virtual-{family}": {
-                "device_group_id": f"virtual_{family}",
+            task_id: {
+                "device_group_id": f"virtual_{task_id.split('-')[1]}",
                 "point_group": "all",
                 "interval": 1.0,
-                "outputs": [{"sink_id": "redis_latest"}],
                 "enabled": True,
             }
-            for family in ("modbus", "ads", "iec104")
+            for task_id in task_ids
         }
         _write(output, "tasks.yaml", {"tasks": tasks})
+
+        # Sink 绑定以 task_id 为键落在 sinks.yaml 的 outputs（空映射=该 Task
+        # 全量点组），Task 自身不再声明 outputs。
+        sinks = _read(output, "sinks.yaml")
+        sinks["sinks"]["redis_latest"]["outputs"] = {task_id: {} for task_id in task_ids}
+        _write(output, "sinks.yaml", sinks)
 
         # 拒绝留下不可由 Core 解析的半成品，和 Web Server/Collector 共用契约。
         snapshot = YamlConfigAdapter(output).load()

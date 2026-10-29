@@ -128,7 +128,7 @@ class TestWatchdogRecovery:
                 description="watchdog reconnect metric published",
             )
             value = await wait_redis_value(
-                redis_service, point_key(DEVICE_ID, "rotor.speed", prefix="wind-hub-watchdog")
+                redis_service, point_key(DEVICE_ID, "rotor_speed", prefix="wind-hub-watchdog")
             )
             assert value["quality"] == "good"
 

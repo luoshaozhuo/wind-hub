@@ -24,9 +24,9 @@ from tests.support.process import CollectorProcess
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
-#: 与 ModbusMockServer 默认寄存器布局一致的点表（setpoint.power @ holding 200）。
+#: 与 ModbusMockServer 默认寄存器布局一致的点表（setpoint_power @ holding 200）。
 _COMMANDER_POINTS: dict[str, dict[str, object]] = {
-    "setpoint.power": {
+    "setpoint_power": {
         "point_groups": ["control"],
         "address": {"register_type": "holding", "address": 200},
         "data_type": "float32",
@@ -44,7 +44,7 @@ async def _write_point_rpc(
     *,
     command_id: str,
     device_id: str = "modbus-1",
-    point_id: str = "setpoint.power",
+    point_id: str = "setpoint_power",
     value: float,
 ) -> pb.CommandResultMessage:
     """经真实 socket 发送一次携带 command_id 的 WritePoint RPC。"""

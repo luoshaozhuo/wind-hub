@@ -37,7 +37,7 @@ pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"
 
-# gen.power 默认 scale=2.0/offset=10.0：raw 800.0 → 1610.0；去掉换算后 → 800.0。
+# gen_power 默认 scale=2.0/offset=10.0：raw 800.0 → 1610.0；去掉换算后 → 800.0。
 SCALED_POWER = 1610.0
 RAW_POWER = 800.0
 
@@ -56,7 +56,7 @@ class TestPointTableChangeWhileOffline:
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_telemetry_value(
             redis_service,
-            point_id="gen.power",
+            point_id="gen_power",
             match=lambda value: value["value"] == pytest.approx(SCALED_POWER),
         )
 
@@ -65,9 +65,9 @@ class TestPointTableChangeWhileOffline:
             proc, lambda p: p["devices_connected"] == 0, description="device disconnected"
         )
 
-        # ---- 掉线期间修改点表（gen.power 去掉工程值换算）并重载 ----
+        # ---- 掉线期间修改点表（gen_power 去掉工程值换算）并重载 ----
         def _drop_scaling(data: dict[str, Any]) -> None:
-            point = data["point_tables"]["modbus"]["points"]["gen.power"]
+            point = data["point_tables"]["modbus"]["points"]["gen_power"]
             point.pop("scale", None)
             point.pop("offset", None)
 
@@ -89,12 +89,12 @@ class TestPointTableChangeWhileOffline:
         )
         observed = await wait_telemetry_value(
             redis_service,
-            point_id="gen.power",
+            point_id="gen_power",
             match=lambda value: value["value"] == pytest.approx(RAW_POWER),
         )
         await asyncio.sleep(1.0)
         latest = await wait_telemetry_value(
-            redis_service, point_id="gen.power", after=str(observed["timestamp"])
+            redis_service, point_id="gen_power", after=str(observed["timestamp"])
         )
         assert latest["value"] == pytest.approx(RAW_POWER)
 

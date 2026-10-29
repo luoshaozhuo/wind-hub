@@ -84,10 +84,10 @@ class TestQueryRoundTrip:
 class TestReadWriteRoundTrip:
     async def test_read_point_returns_real_value(self, client) -> None:
         grpc_client, _, _ = client
-        value = await grpc_client.read_point("modbus-1", "rotor.speed")
+        value = await grpc_client.read_point("modbus-1", "rotor_speed")
 
         assert value.device_id == "modbus-1"
-        assert value.point_id == "rotor.speed"
+        assert value.point_id == "rotor_speed"
         assert value.value == pytest.approx(1200.5)
 
     async def test_write_point_reaches_slave(self, client, modbus_server) -> None:
@@ -98,7 +98,7 @@ class TestReadWriteRoundTrip:
             Command(
                 command_id=uuid4().hex,
                 device_id="modbus-1",
-                point_id="setpoint.power",
+                point_id="setpoint_power",
                 value=1500.0,
             )
         )
@@ -107,7 +107,7 @@ class TestReadWriteRoundTrip:
         assert modbus_server.write_count == before + 1
 
         # 回读确认从站寄存器真实更新。
-        readback = await grpc_client.read_point("modbus-1", "setpoint.power")
+        readback = await grpc_client.read_point("modbus-1", "setpoint_power")
         assert readback.value == pytest.approx(1500.0)
 
 

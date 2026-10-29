@@ -55,7 +55,7 @@ class TestGracefulShutdown:
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
-        key = point_key("modbus-1", "rotor.speed", prefix=KEY_PREFIX)
+        key = point_key("modbus-1", "rotor_speed", prefix=KEY_PREFIX)
         value = await wait_redis_value(redis_service, key)
         assert value["quality"] == "good"
 

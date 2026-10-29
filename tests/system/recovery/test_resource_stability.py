@@ -71,7 +71,7 @@ def _config(base: Path, device_port: int, redis_address: str) -> Path:
 
 
 async def _wait_data(address: str, *, after: str | None = None) -> str:
-    key = point_key("modbus-1", "rotor.speed", prefix=KEY_PREFIX)
+    key = point_key("modbus-1", "rotor_speed", prefix=KEY_PREFIX)
     value = await wait_redis_value(
         address,
         key,

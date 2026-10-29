@@ -178,7 +178,7 @@ def _write_site(base: Path, *, interval: float = 0.2) -> Path:
         point_tables={
             "modbus": {
                 "points": {
-                    "rotor.speed": {
+                    "rotor_speed": {
                         "point_groups": ["telemetry"],
                         "address": {"register_type": "holding", "address": 100},
                         "data_type": "float32",
@@ -186,13 +186,18 @@ def _write_site(base: Path, *, interval: float = 0.2) -> Path:
                 }
             }
         },
-        sinks={"redis_latest": {"type": "redis", "connection": {"host": "127.0.0.1"}}},
+        sinks={
+            "redis_latest": {
+                "type": "redis",
+                "connection": {"host": "127.0.0.1"},
+                "outputs": {"modbus-telemetry": {}},
+            }
+        },
         tasks={
             "modbus-telemetry": {
                 "device_group_id": "modbus-1",
                 "point_group": "telemetry",
                 "interval": interval,
-                "outputs": [{"sink_id": "redis_latest"}],
             }
         },
     )
@@ -574,7 +579,7 @@ class TestComputeDiff:
             "points.yaml",
             lambda data: data["point_tables"]["modbus"]["points"].update(
                 {
-                    "gen.power": {
+                    "gen_power": {
                         "point_groups": ["telemetry"],
                         "address": {"register_type": "holding", "address": 102},
                         "data_type": "float32",
@@ -586,7 +591,7 @@ class TestComputeDiff:
             config_dir,
             "business_points.yaml",
             lambda data: data["business_points"].update(
-                {"gen.power": {"data_type": "float32", "unit": "none"}}
+                {"gen_power": {"data_type": "float32", "unit": "none"}}
             ),
         )
         new = _load(config_dir)

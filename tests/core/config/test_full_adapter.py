@@ -28,7 +28,9 @@ def test_load_example_modbus() -> None:
 
     task = config.tasks["turbine-modbus-all"]
     assert task.device_group_id == "turbine_modbus"
-    assert task.sink_ids == ("redis_latest",)
+    # Task 不再声明 sink_ids；Sink 绑定以 task_id 为键落在 sinks.yaml 的 outputs。
+    assert not hasattr(task, "sink_ids")
+    assert "turbine-modbus-all" in config.sinks["redis_latest"].outputs
 
 
 def test_full_loader_rejects_absent_yaml(tmp_path: Path) -> None:

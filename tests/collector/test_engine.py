@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from collector.domain.acquisition import AcquisitionEngine, SinkDelivery
+from collector.domain.acquisition import AcquisitionEngine
 from core.application import ProtocolSample, Quality
 from core.domain.point_value import PointValue
 from tests.support.new_collector import CollectorFakeProtocol, make_collector_config, make_session
@@ -16,11 +16,11 @@ pytestmark = pytest.mark.unit
 
 
 class _RecordingPorts:
-    """记录式 DeviceState/AcquisitionState/SinkDispatch 三端口。"""
+    """记录式 DeviceState/AcquisitionState/SampleDispatch 三端口。"""
 
     def __init__(self, *, connected: bool = True) -> None:
         self.connected = connected
-        self.dispatched: list[dict[str, SinkDelivery]] = []
+        self.dispatched: list[tuple[str, list[PointValue]]] = []
         self.read_success: list[str] = []
         self.read_failure: list[str] = []
         self.started: list[str] = []
@@ -49,13 +49,13 @@ class _RecordingPorts:
     ) -> None:
         self.failure.append((execution_id, error))
 
-    async def dispatch(self, routed: dict[str, SinkDelivery]) -> None:
-        self.dispatched.append(routed)
+    async def dispatch(self, task_id: str, values: list[PointValue]) -> None:
+        self.dispatched.append((task_id, values))
 
 
 def _engine(ports: _RecordingPorts, **kwargs) -> AcquisitionEngine:
     engine = AcquisitionEngine(**kwargs)
-    engine.attach_sink_dispatch(ports)
+    engine.attach_sample_publisher(ports)
     engine.attach_device_state(ports)
     engine.attach_acquisition_state(ports)
     return engine
@@ -68,30 +68,28 @@ def _session(**kwargs):
 async def test_collect_success_dispatches_to_targets():
     ports = _RecordingPorts()
     engine = _engine(ports)
-    await engine.collect(_session(), "g", ["s1", "s2"], "t1:dev1", "t1")
+    await engine.collect(_session(), "g", "t1:dev1", "t1")
 
     assert ports.success == [("t1:dev1", False)]
     assert ports.read_success == ["dev1"]
     assert len(ports.dispatched) == 1
-    routed = ports.dispatched[0]
-    assert set(routed) == {"s1", "s2"}
-    batch = routed["s1"]
-    assert batch.task_id == "t1"
-    assert batch.values[0].device_id == "dev1" and batch.values[0].point_id == "p1"
+    task_id, values = ports.dispatched[0]
+    assert task_id == "t1"
+    assert values[0].device_id == "dev1" and values[0].point_id == "p1"
     assert engine.points_collected == 1
 
 
 async def test_collect_empty_group_skips_without_state_reports():
     ports = _RecordingPorts()
     engine = _engine(ports)
-    await engine.collect(_session(), "no-such-group", ["s1"], "t1:dev1")
+    await engine.collect(_session(), "no-such-group", "t1:dev1")
     assert ports.started == [] and ports.dispatched == []
 
 
 async def test_collect_disconnected_device_fails_without_read():
     ports = _RecordingPorts(connected=False)
     engine = _engine(ports)
-    await engine.collect(_session(), "g", ["s1"], "t1:dev1")
+    await engine.collect(_session(), "g", "t1:dev1")
     assert ports.failure == [("t1:dev1", "device disconnected (reconnect backoff)")]
     assert ports.read_success == [] and ports.dispatched == []
 
@@ -101,7 +99,7 @@ async def test_collect_read_exception_reports_failure_and_no_dispatch():
     engine = _engine(ports)
     session = _session()
     session._protocol.read_error = ConnectionRefusedError("down")
-    await engine.collect(session, "g", ["s1"], "t1:dev1")
+    await engine.collect(session, "g", "t1:dev1")
     assert len(ports.failure) == 1 and "down" in ports.failure[0][1]
     assert ports.read_failure == ["dev1"]
     assert ports.dispatched == []
@@ -124,9 +122,10 @@ async def test_collect_all_bad_batch_is_failure_but_still_dispatched():
         )
 
     session._protocol.read_many = bad_read  # 测试替身：替换读取实现
-    await engine.collect(session, "g", ["s1"], "t1:dev1")
+    await engine.collect(session, "g", "t1:dev1")
     assert ports.failure == [("t1:dev1", "no valid values (1/1 BAD)")]
     assert len(ports.dispatched) == 1  # BAD 批次照常派发
+    assert ports.dispatched[0][1][0].quality is Quality.BAD
 
 
 async def test_collect_mixed_quality_is_partial_success():
@@ -154,7 +153,7 @@ async def test_collect_mixed_quality_is_partial_success():
         )
 
     session._protocol.read_many = mixed_read  # 测试替身：替换读取实现
-    await engine.collect(session, "g", ["s1"], "t1:dev1")
+    await engine.collect(session, "g", "t1:dev1")
     assert ports.success == [("t1:dev1", True)]
 
 
@@ -168,15 +167,15 @@ async def test_collect_read_timeout_reports_failure():
         return ()
 
     session._protocol.read_many = slow_read  # 测试替身：替换读取实现
-    await engine.collect(session, "g", ["s1"], "t1:dev1")
+    await engine.collect(session, "g", "t1:dev1")
     assert len(ports.failure) == 1 and "read timeout" in ports.failure[0][1]
     assert ports.read_failure == ["dev1"]
 
 
-async def test_process_requires_bound_sink_dispatch():
+async def test_process_requires_bound_sample_publisher():
     engine = AcquisitionEngine()
     with pytest.raises(RuntimeError, match="Sink"):
-        await engine.process([PointValue(device_id="d", point_id="p", value=1.0)], ["s1"])
+        await engine.process([PointValue(device_id="d", point_id="p", value=1.0)])
 
 
 async def test_observer_exception_isolated():
@@ -189,6 +188,6 @@ async def test_observer_exception_isolated():
 
     engine.add_observer(bad_observer)
     engine.add_observer(lambda values: seen.append(len(values)))
-    await engine.collect(_session(), "g", ["s1"], "t1:dev1")
+    await engine.collect(_session(), "g", "t1:dev1")
     assert seen == [1]
     assert ports.success == [("t1:dev1", False)]

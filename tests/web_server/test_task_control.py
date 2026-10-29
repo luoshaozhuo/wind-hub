@@ -38,11 +38,13 @@ class _Config:
                     device_group_id="d1",
                     point_group="fast",
                     interval=1.0,
-                    sink_ids=("archive",),
                     enabled=True,
                 )
                 for task_id in task_ids
-            }
+            },
+            # Sink 绑定落在 sinks.<id>.outputs（以 task_id 为键），Task 不再
+            # 携带 sink_ids；所有 Task 默认绑定到 archive Sink。
+            sinks={"archive": SimpleNamespace(outputs={task_id: {} for task_id in task_ids})},
         )
 
 

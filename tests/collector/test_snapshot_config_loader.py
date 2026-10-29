@@ -1,4 +1,8 @@
-"""Collector 使用 Core 完整配置快照加载设备、Task 与 Sink。"""
+"""Collector 使用 Core 完整配置快照加载设备、Task 与 messaging 配置。
+
+Sink 已移出 Collector（sinks.yaml 仅随配置目录透传，Collector loader 不
+加载），本测试不再断言 CollectorConfig.sinks。
+"""
 
 from pathlib import Path
 
@@ -20,7 +24,8 @@ def test_collector_loads_domain_snapshot(tmp_path: Path) -> None:
     assert config.tasks == snapshot.tasks
     assert config.device_models == snapshot.device_models
     assert config.point_tables == snapshot.point_tables
-    assert set(config.sinks) == set(snapshot.sinks)
+    assert config.messaging.servers == tuple(snapshot.system.messaging.servers)
+    assert config.messaging.delivery == snapshot.system.messaging.delivery
     assert config.devices == {
         device_id: device for device_id, device in snapshot.site.devices.items() if device.enabled
     }
@@ -30,7 +35,7 @@ def test_collector_accepts_snapshot_port_source(tmp_path: Path) -> None:
     snapshot = YamlConfigAdapter(write_collector_config_tree(tmp_path / "cfg")).load()
 
     class Source:
-        def load(self):
+        def load_collector(self):
             return snapshot
 
         def save(self, value):

@@ -90,12 +90,12 @@ class _ControllableDispatch:
         self.delivered: list[Any] = []
         self.calls = 0
 
-    async def dispatch(self, routed: dict[str, Any]) -> None:
+    async def dispatch(self, task_id: str, values: list[Any]) -> None:
+        del task_id
         self.calls += 1
         if self.failing:
-            raise RuntimeError("sink dispatch failed")
-        for batch in routed.values():
-            self.delivered.extend(batch.values)
+            raise RuntimeError("sample dispatch failed")
+        self.delivered.extend(values)
 
 
 class _GateDispatch:
@@ -106,10 +106,10 @@ class _GateDispatch:
         self.gate.set()
         self.delivered: list[Any] = []
 
-    async def dispatch(self, routed: dict[str, Any]) -> None:
+    async def dispatch(self, task_id: str, values: list[Any]) -> None:
+        del task_id
         await self.gate.wait()
-        for batch in routed.values():
-            self.delivered.extend(batch.values)
+        self.delivered.extend(values)
 
 
 @dataclass
@@ -130,14 +130,12 @@ def _two_tasks() -> dict[str, CollectionTask]:
             device_group_id=DeviceGroupId("dev1"),
             point_group="g",
             interval=1.0,
-            sink_ids=("s1",),
         ),
         "t2": CollectionTask(
             task_id="t2",
             device_group_id=DeviceGroupId("dev1"),
             point_group="g",
             interval=1.0,
-            sink_ids=("s1",),
         ),
     }
 
@@ -188,7 +186,7 @@ async def _assemble(
     devices = DeviceRuntime({"dev1": session}, params)
     engine = AcquisitionEngine()
     port = dispatch or _ControllableDispatch()
-    engine.attach_sink_dispatch(port)
+    engine.attach_sample_publisher(port)
     engine.attach_device_state(devices)
     tasks = TaskRuntime(task_defs, devices, engine)
     engine.attach_acquisition_state(tasks)
@@ -456,14 +454,12 @@ async def test_restore_failure_of_one_instance_does_not_block_others(
             device_group_id=DeviceGroupId("dev1"),
             point_group="g",
             interval=1.0,
-            sink_ids=("s1",),
         ),
         "t2": CollectionTask(
             task_id="t2",
             device_group_id=DeviceGroupId("dev1"),
             point_group="g2",
             interval=1.0,
-            sink_ids=("s1",),
         ),
     }
     asm = await _assemble(

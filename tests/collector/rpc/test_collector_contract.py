@@ -26,10 +26,7 @@ _RUNTIME_METHODS = [
     "ListTaskInstances",
     "GetTaskInstance",
     "ListDevices",
-    "ListSinks",
     "QueryLatestValues",
-    "VerifySink",
-    "WriteTestSink",
     "GetPointsMetadata",
 ]
 

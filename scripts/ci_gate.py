@@ -20,7 +20,7 @@ PR_TARGETS: dict[str, tuple[str, ...]] = {
         "tests/industrial_gateway",
     ),
     "integration-rpc": ("tests/system/rpc",),
-    "integration-sinks": ("tests/core/sink", "tests/collector/sink"),
+    "integration-sinks": ("tests/sink_service",),
     "system-acquisition": ("tests/system/acquisition",),
     "system-command": ("tests/system/command",),
     "system-e2e": ("tests/system/e2e",),
@@ -35,6 +35,7 @@ BACKEND_PREFIXES = (
     "src/web_server/",
     "src/industrial_gateway/",
     "src/seahorse/",
+    "src/sink_service/",
 )
 BACKEND_GLOBAL_FILES = {"pyproject.toml", "poetry.lock"}
 FRONTEND_E2E_FILES = {
@@ -340,6 +341,7 @@ def merge_gate(paths: list[str]) -> bool:
         "tests/commander",
         "tests/industrial_gateway",
         "tests/seahorse",
+        "tests/sink_service",
         "tests/web_server",
         "tests/cli",
         "tests/tooling",
@@ -356,9 +358,9 @@ def merge_gate(paths: list[str]) -> bool:
                     candidates.append("tests/system/recovery")
             else:
                 candidates.append("tests/core/protocol")
-        elif p.startswith("src/core/infrastructure/sink/"):
-            # sink 测试位于 core/sink 与 collector/sink。
-            candidates.extend(["tests/core/sink", "tests/collector/sink"])
+        elif p.startswith("src/sink_service/"):
+            # Sink 已独立为 sink_service 包，测试位于 tests/sink_service。
+            candidates.append("tests/sink_service")
         elif p.startswith("src/core/infrastructure/rpc/") or "/grpc/" in p:
             # 契约单测归属业务包 rpc/ 子目录；真实跨进程 RPC 在 system/rpc。
             candidates.extend(["tests/system/rpc"])

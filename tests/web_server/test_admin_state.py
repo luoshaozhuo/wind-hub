@@ -83,16 +83,20 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
     assert documents["devices.yaml"]["devices"]["d1"]["model_id"] == "m1"
     assert documents["devices.yaml"]["devices"]["d1"]["device_group_ids"] == ["g1"]
     assert documents["tasks.yaml"]["tasks"]["t1"]["device_group_id"] == "g1"
-    assert documents["tasks.yaml"]["tasks"]["t1"]["outputs"] == [{"sink_id": "s1"}]
+    # 新契约：Task 只声明采集定义，不再内嵌 Sink 去向。
+    assert "outputs" not in documents["tasks.yaml"]["tasks"]["t1"]
+    # Sink 绑定以 task_id 为键落在 sinks.yaml.sinks.<id>.outputs；全新保存时
+    # 无既有绑定可保留，故为空映射（结构化表单不编辑绑定细节）。
+    assert documents["sinks.yaml"]["sinks"]["s1"]["outputs"] == {}
     assert admin.mutate_yaml_files.await_count == 1
 
 
-async def test_replace_all_preserves_task_outputs_when_sink_set_changes() -> None:
-    """Admin 结构化保存只携带 sink 列表：既有 outputs 的 points/key_prefix 必须无损合并。
+async def test_replace_all_preserves_sink_outputs_when_sink_set_changes() -> None:
+    """结构化保存不编辑绑定：sinks.yaml 既有 outputs 的 points/key_prefix 必须无损保留。
 
     模拟两次连续保存共享同一 documents 视图（与 ConfigFileService 事务一致）：
-    第一次保存后手工补齐 s1/s2 的输出细节（来自 YAML 高级编辑），第二次保存
-    调整 sink 集合与顺序 → 保留项细节无损、删除项消失、新增项裸输出。
+    第一次保存后手工补齐 s1/s2 的 outputs 细节（来自 YAML 高级编辑），第二次
+    保存调整 sink 集合与顺序 → 保留项细节无损、删除项消失、新增项裸 outputs。
     """
     admin = MagicMock()
     admin.mutate_yaml_files = AsyncMock(return_value=ConfigApplyResult(success=True))
@@ -128,23 +132,24 @@ async def test_replace_all_preserves_task_outputs_when_sink_set_changes() -> Non
         )
 
     await _save(["s1", "s2"])
-    # 模拟 outputs 在结构化表单之外积累的每输出细节。
-    outputs = documents["tasks.yaml"]["tasks"]["t1"]["outputs"]
-    outputs[0]["key_prefix"] = "prefix-1"
-    outputs[0]["points"] = [{"source": {"device_id": "d1", "point_id": "p1"}}]
-    outputs[1]["points"] = [{"source": {"device_id": "d1", "point_id": "p2"}}]
+    # 绑定细节以 task_id 为键保存在各 Sink 的 outputs（结构化表单之外的高级编辑）。
+    documents["sinks.yaml"]["sinks"]["s1"]["outputs"]["t1"] = {
+        "key_prefix": "prefix-1",
+        "points": [{"source": {"device_id": "d1", "point_id": "p1"}}],
+    }
+    documents["sinks.yaml"]["sinks"]["s2"]["outputs"]["t1"] = {
+        "points": [{"source": {"device_id": "d1", "point_id": "p2"}}]
+    }
 
     # 第二次保存：删除 s1、新增 s3、顺序变为 s2 在前。
     await _save(["s2", "s3"])
 
-    merged = documents["tasks.yaml"]["tasks"]["t1"]["outputs"]
-    assert merged == [
-        {
-            "sink_id": "s2",
-            "points": [{"source": {"device_id": "d1", "point_id": "p2"}}],
-        },
-        {"sink_id": "s3"},
-    ]
+    sinks_doc = documents["sinks.yaml"]["sinks"]
+    assert "s1" not in sinks_doc  # 删除项连同绑定消失
+    assert sinks_doc["s2"]["outputs"] == {
+        "t1": {"points": [{"source": {"device_id": "d1", "point_id": "p2"}}]}
+    }
+    assert sinks_doc["s3"]["outputs"] == {}  # 新增项裸 outputs
 
 
 def test_admin_task_item_rejects_device_bound_task() -> None:
@@ -160,7 +165,7 @@ def test_admin_task_item_rejects_device_bound_task() -> None:
     assert "device_group" in str(exc_info.value)
 
 
-def test_admin_task_item_requires_group_interval_and_sinks() -> None:
+def test_admin_task_item_requires_group_and_interval() -> None:
     valid = {
         "task_id": "t1",
         "device_group": "g1",
@@ -173,7 +178,11 @@ def test_admin_task_item_requires_group_interval_and_sinks() -> None:
     for mutation in (
         {"device_group": None},
         {"interval": None},
-        {"sinks": []},
     ):
         with pytest.raises(ValidationError):
             AdminTaskItem(**{**valid, **mutation})
+
+    # 应用层模型不再要求非空 sinks：Task→Sink 绑定归 sinks.yaml.outputs，
+    # 结构化表单只做无损保留；“至少一个 Sink”的强制在 inbound 请求模型
+    # （AdminStateRequest）层，由 webapi/test_v1.py 覆盖。
+    AdminTaskItem(**{**valid, "sinks": []})

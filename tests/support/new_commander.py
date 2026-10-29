@@ -182,6 +182,8 @@ class FakeSubscriptionHandle:
     def __init__(self) -> None:
         self.started = False
         self.stopped = False
+        self.closed = False
+        self.stop_calls = 0
 
     async def start(self) -> None:
         if self.stopped:
@@ -189,8 +191,10 @@ class FakeSubscriptionHandle:
         self.started = True
 
     async def stop(self) -> None:
+        self.stop_calls += 1
         self.started = False
         self.stopped = True
+        self.closed = True
 
 
 class FakeListenHandle:

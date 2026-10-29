@@ -4,9 +4,8 @@
 
 1. 启动对应协议的本地 server（:mod:`tests.collector.perf.servers`）；
 2. 在 veth 两端应用 netem 场景（中断场景改为测量中触发一次）；
-3. 生成压测专用配置（单设备、NullSink——隔离外部 IO
-   耗时，专注采集 + 分发链路；背压队列放大到不可能触顶，丢点只可能
-   来自网络侧）；
+3. 生成压测专用配置（单设备、NullTransport 内存发布——隔离外部 NATS IO
+   耗时，专注采集 + 分发链路；丢点只可能来自网络侧）；
 4. ``assemble_collector`` + ``CollectorApp.start`` 起真实引擎；
 5. 预热 ``warmup_s``（不计入统计）→ 重置基线 → 测量 ``duration_s``；
 6. 停引擎、清 netem、返回 :class:`~tests.collector.perf.collector.PerfMetrics`。
@@ -28,10 +27,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from collector.application.nats_dispatch import SamplePublisher
 from collector.assembly import assemble_collector
+from contracts.sample_message import SampleMessage
 from core.application.port.protocol import ProtocolPort
 from core.domain.point_value import PointValue
-from tests.fixtures.sinks.null_sink import NullSink
+from core.infrastructure.config import YamlConfigAdapter
 from tests.support.config_helper import write_config_tree
 from tests.support.netem import NetemController, NetemScenario
 from tests.support.perf_collector import MetricsCollector, PerfMetrics
@@ -124,17 +125,17 @@ def get_point_configs(protocol: str, num_points: int) -> dict[str, dict[str, obj
             # 点表可用纯连续地址（1000 点 → 8 条 125 寄存器请求）。
             address: dict[str, object] = {"register_type": "holding", "address": i}
             data_type = "int16"
-            point_id = f"r.{i:04d}"
+            point_id = f"r_{i:04d}"
         elif protocol == "iec104":
             address = {"ca": 1, "ioa": 1001 + i, "type_id": "M_ME_NC_1"}
             data_type = "float32"
-            point_id = f"mv.{i:04d}"
+            point_id = f"mv_{i:04d}"
         else:  # ads（Sum 批量读要求符号寻址）
             address = {"symbol": f"MAIN.var{i}"}
             # 统一 Schema：ADS 点表 data_type 必须使用 PLC 原生名
             # （REAL→逻辑 float32），与生产 configs/points.yaml 一致。
             data_type = "REAL"
-            point_id = f"v.{i:04d}"
+            point_id = f"v_{i:04d}"
         points[point_id] = {
             "point_groups": ["default"],
             "address": address,
@@ -146,9 +147,9 @@ def get_point_configs(protocol: str, num_points: int) -> dict[str, dict[str, obj
 def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> Path:
     """把压测配置写为自包含配置目录，返回该目录。
 
-    背压队列放大到 100 万，确保丢点
-    只反映网络/引擎瓶颈而非人为触顶；Sink 由 ``assemble_collector`` 的
-    ``sink_factories`` 覆盖替换为 NullSink，``type`` 字段仅占位。
+    Collector 已不再进程内写 Sink；采样默认发往 NATS。压测在装配后用
+    :class:`_NullTransport` 替换发布传输（见 :func:`run_benchmark`），不产生
+    真实 NATS IO，故 ``sinks`` 留空、``messaging`` 仅为满足 loader 必填。
     """
     plan = PLANS[protocol]
     devices = get_device_config(protocol, host, port)
@@ -160,32 +161,56 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
         point_tables={"perf": {"protocol": protocol, "points": points}},
         system={
             "runtime": {
-                "queue_maxsize": 1_000_000,
-                "backpressure_policy": "drop_old",
                 "shutdown_timeout": 10.0,
                 "connect_timeout": 5.0,
                 "read_timeout": 5.0,
             },
+            # 发布传输在运行时被内存替身替换，不会真正连接此地址。
+            "messaging": {
+                "backend": "nats",
+                "servers": ["nats://127.0.0.1:4222"],
+                "delivery": "realtime",
+                "max_staleness_ms": 60_000,
+            },
         },
-        sinks={
-            "perf_null": {
-                # FileSink 已移除：用合法的 redis kind 作可解析占位，运行时
-                # 实例由 assemble_collector(sink_factories={"redis": NullSink})
-                # 覆盖，不会真正连接该地址（纯采集性能测量，隔离外部 IO）。
-                "type": "redis",
-                "enabled": True,
-                "connection": {"host": "127.0.0.1", "port": 6379},
-            }
-        },
+        sinks={},
         tasks={
             "perf": {
                 "device_group_id": plan.device_id,
                 "point_group": "default",
                 "interval": plan.poll_interval_s,
-                "outputs": [{"sink_id": "perf_null"}],
             }
         },
     )
+
+
+class _NullTransport:
+    """空发布传输：接受全部消息且不做任何 IO（压测隔离 NATS 耗时）。"""
+
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    async def publish(self, message: SampleMessage) -> bool:
+        del message
+        return True
+
+
+def _install_null_publisher(app: object, wind_farm_id: str) -> None:
+    """把 Collector 的发布传输替换为内存替身（runtime 与 engine 同一实例）。"""
+    config = app.boot_config  # type: ignore[attr-defined]
+    publisher = SamplePublisher(
+        _NullTransport(),
+        wind_farm_id=wind_farm_id,
+        identity=app.identity,  # type: ignore[attr-defined]
+        delivery=config.messaging.delivery,
+        max_staleness_ms=config.messaging.max_staleness_ms,
+    )
+    runtime = app.runtime  # type: ignore[attr-defined]
+    runtime._publisher = publisher
+    runtime._engine.attach_sample_publisher(publisher)
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +291,9 @@ async def run_benchmark(
             for c in controllers:
                 c.apply(scenario)  # 中断场景此处是 clear（稳态无规则）
 
-            app = assemble_collector(config_dir, sink_factories={"redis": lambda _cfg: NullSink()})
+            app = assemble_collector(config_dir)
+            site_id = YamlConfigAdapter(config_dir).load_collector().site.site_id
+            _install_null_publisher(app, site_id)
             runtime = app.runtime
             runtime.engine.add_observer(_make_latency_observer(collector))
 
