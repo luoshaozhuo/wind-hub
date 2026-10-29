@@ -105,9 +105,22 @@ async def execute(
                 raise ValueError("protocol does not support write")
             if len(point_ids) != 1 or value is None:
                 raise ValueError("write requires one configured point and a non-null value")
-            async with asyncio.timeout(timeout):
-                outcome = await driver.write_one(ProtocolWrite(point=point_ids[0], value=value))
-            return [{"point_id": outcome.point_id, "outcome": outcome.outcome.value, "message": outcome.message}]
+            try:
+                async with asyncio.timeout(timeout):
+                    outcome = await driver.write_one(
+                        ProtocolWrite(point=point_ids[0], value=value)
+                    )
+            except TimeoutError:
+                return [{
+                    "point_id": point_ids[0],
+                    "outcome": "unknown",
+                    "message": "Write timed out; command may have executed. Do not retry blindly.",
+                }]
+            return [{
+                "point_id": outcome.point_id,
+                "outcome": outcome.outcome.value,
+                "message": outcome.message,
+            }]
         if operation == "gi":
             if ProtocolCapability.INTERROGATE not in caps:
                 raise ValueError("protocol does not support interrogation")
