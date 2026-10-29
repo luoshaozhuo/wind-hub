@@ -23,7 +23,11 @@ async def tcp(host: str, port: int, *, timeout: float = 3.0) -> dict[str, Any]:
             }
         finally:
             writer.close()
-            await writer.wait_closed()
+            try:
+                async with asyncio.timeout(timeout):
+                    await writer.wait_closed()
+            except TimeoutError:
+                pass
 
 
 async def resolve(host: str, *, timeout: float = 3.0) -> dict[str, Any]:
