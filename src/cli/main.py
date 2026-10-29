@@ -262,18 +262,39 @@ class WindHubShell(cmd.Cmd):
         if operation in {"listen", "benchmark"}:
             from .protocol_stream import benchmark, listen
 
+            device_info = devices(loaded.snapshot, device_id)[0]
+            point_info = [points(loaded.snapshot, device_id, point_id)[0]
+                          for point_id in positional]
+            context = {
+                "device_id": device_id,
+                "protocol": device_info["protocol"],
+                "endpoint": {"host": device_info["host"], "port": device_info["port"]},
+                "protocol_options": device_info["protocol_options"],
+                "points": point_info,
+            }
             if operation == "listen":
-                return asyncio.run(
+                if opts.duration is None and self._format == "json":
+                    raise ValueError("unbounded JSON listen requires --duration")
+                on_sample = None
+                if opts.duration is None:
+                    print(json.dumps(context, ensure_ascii=False, default=str))
+                    on_sample = lambda sample: print(
+                        json.dumps(sample, ensure_ascii=False, allow_nan=False)
+                    )
+                payload = asyncio.run(
                     listen(loaded.snapshot, device_id, positional,
-                           duration=opts.duration, timeout=opts.timeout)
+                           duration=opts.duration, timeout=opts.timeout,
+                           on_sample=on_sample)
                 )
+                return {"status": "PASS", **context, "data": payload}
             if not positional:
                 raise ValueError("benchmark requires at least one point ID")
-            return asyncio.run(
+            payload = asyncio.run(
                 benchmark(loaded.snapshot, device_id, positional,
                           samples=opts.samples, interval=0.2 if opts.interval is None else opts.interval,
                           timeout=opts.timeout)
             )
+            return {"status": "PASS", **context, "data": payload}
         value = _value(positional[1]) if operation == "write" else None
         if operation == "write" and not opts.yes:
             if not getattr(self, "_interactive", False):
