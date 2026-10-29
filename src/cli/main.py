@@ -18,6 +18,7 @@ from .help import completion_words, help_text
 from .inventory import devices, points, sinks
 from .protocol_diagnostic import execute
 from .presentation import Timer, emit, response
+from .results import ResultStore
 
 
 
@@ -68,6 +69,7 @@ class WindHubShell(cmd.Cmd):
         self._interactive = False
         self._format = "table"
         self._timeout = 5.0
+        self.results = ResultStore()
 
     def default(self, line: str) -> None:
         try:
@@ -323,16 +325,29 @@ class WindHubShell(cmd.Cmd):
                     "port": port,
                     "message": f"{type(exc).__name__}: {exc}",
                 }
+        if args and args[0] == "result":
+            if len(args) != 1:
+                raise ValueError("usage: diagnose result")
+            return self.results.show()
+        if args and args[0] == "report":
+            if len(args) != 2:
+                raise ValueError("usage: diagnose report PATH.json")
+            return self.results.export(args[1])
         loaded = self.config.require_diagnosable()
         if not args or args == ["--restart"]:
-            return {
-                "status": "UNKNOWN",
-                "code": "AUTO_DIAGNOSIS_PENDING",
-                "message": (
-                    "Full communication-chain diagnosis is phase 3; "
-                    "manual network and protocol tools are available."
-                ),
-            }
+            from .pipeline import run
+
+            result = asyncio.run(
+                run(
+                    loaded.snapshot,
+                    loaded.fingerprint,
+                    previous=self.results.last,
+                    restart=bool(args),
+                    timeout=self._timeout,
+                )
+            )
+            self.results.record(result)
+            return result
         if len(args) < 3 or args[0] != "protocol":
             raise ValueError("usage: diagnose [--restart] | diagnose protocol OP DEVICE ...")
         operation = args[1]
