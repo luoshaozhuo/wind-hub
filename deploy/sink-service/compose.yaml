@@ -43,6 +43,8 @@ services:
       - nats://nats:4222
       - --wind-farm-id
       - ${WIND_HUB_SITE_ID:-my_site}
+      - --deployment-id
+      - ${WIND_HUB_DEPLOYMENT_ID:?Set deployment identity}
       - --delivery
       - both
       - --realtime-sink
