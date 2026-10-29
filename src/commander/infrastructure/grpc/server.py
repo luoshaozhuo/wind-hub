@@ -13,10 +13,10 @@ from uuid import uuid4
 import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
+from commander.application.diagnostic_model import DeviceVerifyResult, PointVerifyResult
 from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc as pb_grpc
 from contracts import common_pb2 as common_pb
-from commander.application.diagnostic_model import DeviceVerifyResult, PointVerifyResult
 from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
 
 from ...application.errors import CommandError, CommandUncertainError

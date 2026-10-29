@@ -85,7 +85,10 @@ def assemble_sinks(
             delivery=delivery,
             subject=f"wh.{'rt' if delivery == 'realtime' else 'hist'}.{wind_farm_id}.>",
             durable=(
-                "sink_" + sha256(f"{deployment_id}:{wind_farm_id}:{sink_id}".encode()).hexdigest()[:32]
+                (
+                    "sink_"
+                    + sha256(f"{deployment_id}:{wind_farm_id}:{sink_id}".encode()).hexdigest()[:32]
+                )
                 if delivery == "reliable"
                 else None
             ),

@@ -108,7 +108,10 @@ class NatsSinkConsumer:
             if self._on_delivery_error is not None:
                 self._on_delivery_error(str(exc), attempts)
             if attempts >= 10:
-                logger.error("JetStream poison message requires operator attention: attempt=%s", attempts)
+                logger.error(
+                    "JetStream poison message requires operator attention: attempt=%s",
+                    attempts,
+                )
             logger.exception("Reliable target write failed; requesting redelivery in %ss", delay)
             await msg.nak(delay=delay)
 
@@ -166,7 +169,7 @@ class NatsSinkConsumer:
             return
         try:
             if subscription is not None and self._durable is None:
-                await subscription.drain()
+                await subscription.drain()  # type: ignore[no-untyped-call]
             await client.drain()
         finally:
             await client.close()
