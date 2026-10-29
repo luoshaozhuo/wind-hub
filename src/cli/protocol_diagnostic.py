@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from core.application.config_snapshot import ConfigSnapshot
@@ -61,9 +61,10 @@ async def execute(
     count: int = 1,
     timeout: float = 5.0,
     common_address: int | None = None,
+    on_sample: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """执行单个操作；连续操作复用连接，取消时必须释放资源。"""
-    if timeout <= 0 or count < 0 or interval is not None and interval <= 0:
+    if timeout <= 0 or count < 0 or (interval is not None and interval <= 0):
         raise ValueError("timeout/count/interval must be positive")
     driver = create_driver(snapshot, device_id)
     results: list[dict[str, Any]] = []
@@ -97,6 +98,8 @@ async def execute(
             raise ValueError(f"unsupported diagnostic operation: {operation}")
         if not point_ids:
             raise ValueError("read requires at least one point")
+        if count == 0 and interval is None:
+            raise ValueError("unbounded read requires --interval")
         if len(point_ids) > 1 and ProtocolCapability.READ_MANY not in caps:
             raise ValueError("protocol has no native read_many capability")
         if len(point_ids) == 1 and ProtocolCapability.READ not in caps:
@@ -108,7 +111,12 @@ async def execute(
                     samples = (await driver.read_one(point_ids[0]),)
                 else:
                     samples = await driver.read_many(point_ids)
-            results.extend(sample_dict(sample) for sample in samples)
+            for sample in samples:
+                record = sample_dict(sample)
+                if on_sample is not None:
+                    on_sample(record)
+                else:
+                    results.append(record)
             index += 1
             if interval is not None and (count == 0 or index < count):
                 await asyncio.sleep(interval)
