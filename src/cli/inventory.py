@@ -26,7 +26,7 @@ def devices(snapshot: ConfigSnapshot, device_id: str | None = None) -> list[dict
                 "protocol": table.protocol.name,
                 "host": resolved.endpoint.host,
                 "port": resolved.endpoint.port,
-                "protocol_options": dict(options),
+                "protocol_options": {\n                    key: "***" if any(\n                        marker in key.lower()\n                        for marker in ("password", "secret", "token", "credential", "key")\n                    ) else value\n                    for key, value in options.items()\n                },
             }
         )
     if device_id is not None and not result:
