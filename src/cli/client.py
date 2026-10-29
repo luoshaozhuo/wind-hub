@@ -112,21 +112,9 @@ class CollectorClient:
             response = await runtime.GetMetricsSnapshot(empty_pb2.Empty(), timeout=timeout)
         elif operation == "devices":
             response = await runtime.ListDevices(empty_pb2.Empty(), timeout=timeout)
-        elif operation == "sinks":
-            response = await runtime.ListSinks(empty_pb2.Empty(), timeout=timeout)
         elif operation == "latest-values":
             response = await runtime.QueryLatestValues(
                 collector_pb.LatestValuesRequest(device_id=kwargs.get("device_id") or ""),
-                timeout=timeout,
-            )
-        elif operation == "verify-sink":
-            response = await runtime.VerifySink(
-                collector_pb.SinkRequest(name=kwargs["name"]),
-                timeout=timeout,
-            )
-        elif operation == "test-sink":
-            response = await runtime.WriteTestSink(
-                collector_pb.SinkRequest(name=kwargs["name"]),
                 timeout=timeout,
             )
         elif operation == "tasks":
