@@ -111,6 +111,10 @@ def sinks(snapshot: ConfigSnapshot, sink_id: str | None = None) -> list[dict[str
                 "sink_id": identity,
                 "kind": sink.kind,
                 "enabled": sink.enabled,
+                "task_ids": sorted(
+                    task_id for task_id, task in snapshot.tasks.items()
+                    if identity in task.sink_ids
+                ),
                 "connection": {
                     key: value
                     for key, value in sink.connection.items()
