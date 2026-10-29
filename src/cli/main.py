@@ -44,6 +44,8 @@ def _value(raw: str) -> bool | int | float | str:
         return raw
     if value is None or isinstance(value, dict | list):
         raise ValueError("write value must be a scalar")
+    if isinstance(value, float) and not __import__("math").isfinite(value):
+        raise ValueError("write value must be finite")
     if isinstance(value, bool | int | float | str):
         return value
     raise ValueError("invalid write value")
@@ -57,7 +59,9 @@ def _options(args: list[str]) -> argparse.Namespace:
     parser.add_argument("--ca", type=int)
     parser.add_argument("--duration", type=float, default=10.0)
     parser.add_argument("--samples", type=int, default=10)
-    return parser.parse_args(args)
+    parser.add_argument("--yes", action="store_true")
+    options, positional = parser.parse_known_args(args)
+    return options, positional
 
 
 class WindHubShell(cmd.Cmd):
@@ -209,14 +213,7 @@ class WindHubShell(cmd.Cmd):
             raise ValueError("usage: diagnose [--restart] | diagnose protocol OP DEVICE ...")
         operation = args[1]
         device_id = args[2]
-        positional: list[str] = []
-        option_tokens: list[str] = []
-        option_mode = False
-        for token in args[3:]:
-            if token.startswith("--"):
-                option_mode = True
-            (option_tokens if option_mode else positional).append(token)
-        opts = _options(option_tokens)
+        opts, positional = _options(args[3:])
         if operation in {"read", "read-many", "write"} and not positional:
             raise ValueError(f"{operation} requires configured point IDs")
         if operation == "write" and len(positional) != 2:
@@ -237,6 +234,17 @@ class WindHubShell(cmd.Cmd):
                           timeout=opts.timeout)
             )
         value = _value(positional[1]) if operation == "write" else None
+        if operation == "write" and not opts.yes:
+            if not getattr(self, "_interactive", False):
+                raise ValueError("non-interactive write requires --yes")
+            target = devices(loaded.snapshot, device_id)[0]
+            point = points(loaded.snapshot, device_id, positional[0])[0]
+            print("WRITE WARNING: physical device may execute this command.")
+            print(json.dumps({"device": device_id, "endpoint": target,
+                              "point": point, "value": value},
+                             ensure_ascii=False, default=str))
+            if input("Execute once? Type YES: ").strip() != "YES":
+                return {"status": "SKIPPED", "message": "write not confirmed"}
         point_ids = positional[:1] if operation == "write" else positional
         return asyncio.run(
             execute(
@@ -283,6 +291,7 @@ def main() -> int:
             completer=completer,
             complete_while_typing=False,
         )
+        shell._interactive = True
         print(shell.intro)
         while True:
             try:
