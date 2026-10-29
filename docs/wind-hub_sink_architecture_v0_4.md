@@ -431,7 +431,7 @@ flowchart LR
 | 消费者离线 | 无历史追补保证 | 按保留策略恢复消费 |
 | 旧样本 | 不得覆盖更新样本 | 不因“旧”而舍弃历史记录 |
 | 失效 | 超过时效阈值标记 stale / invalid | 历史记录按原始时间保存 |
-| 重复 | 可去重 / 丢弃 | 消费幂等，容忍至少一次投递 |
+| 重复 | 可去重 / 丢弃 | 相同消息重投最终存储幂等；同主键冲突内容按目标 UPSERT 语义处理，不承诺首写不可变（见 6.2） |
 | 故障 | 优先时效，允许丢失 | 失败可见，待确认消息可恢复 |
 
 `delivery` 为 Collector 实例级配置，每个实例仅使用 `realtime` 或 `reliable` 一种通道。`realtime` 表示消费侧最新值语义，不表示 Core NATS 自动提供“最后值缓存”。应由相应 Sink 维护最新样本及有效性；消费者重启后如需快照，应另设计快照来源，不能假定 Core NATS 自动补发。
@@ -480,7 +480,14 @@ NATS 传输消息采用 **版本化单样本信封**：一条消息表达一个�
 
 **实时排序**：同一测点必须确定唯一权威采集来源；配置阶段禁止多个 Collector / Task 对同一实时测点并行成为权威发布者。Sink 按 `sample_time` 比较，不允许较旧样本覆盖较新样本；时间相同但 `sample_id` 不同视为顺序不可判定，拒绝覆盖并报告配置/数据异常。设备时间不可信时，应使用 Collector 接收时的 UTC 时间作为有效采样时间，同时保留原设备时间元数据（如有）；跨设备时钟同步与异常监测属于部署条件。
 
-**历史去重**：Sink 对 `sample_id` 建立目标侧幂等依据；JetStream 可将该 ID 作为 `Nats-Msg-Id` 用于 Broker 去重窗口内的发布去重，但不能替代消费侧永久或保留期内的去重保障。
+**历史去重与存储幂等契约**：Sink 以 `(ts, sample_id)` 作为历史存储幂等键，对 `sample_id` 建立目标侧幂等依据；JetStream 可将该 ID 作为 `Nats-Msg-Id` 用于 Broker 去重窗口内的发布去重，但不能替代消费侧永久或保留期内的去重保障。契约边界如下：
+
+1. 上游同一 `sample_id` 对应的采样消息内容必须保持不变；有限发布重试与 JetStream 重投均复用原消息体。
+2. 相同消息（相同 `(ts, sample_id)` 与相同内容）重复投递时，目标最终只保留一条记录且内容一致——这是 Sink Service 承诺的最终存储幂等。
+3. 对相同 `(ts, sample_id)` 但内容不同的写入，目标数据库可能以 UPSERT 方式覆盖旧值；本架构**不承诺首写不可变**，也不为此新增去重数据库、状态机或读前检查逻辑。上游必须以「同 `sample_id` 内容不可变」规避该风险；任何绕过消息契约的同身份异值写入不属于受支持行为。
+4. 消费侧 ACK 只能在适配器确认目标数据库写入成功之后发出；写入失败、超时或结果不确定时不 ACK，依赖 JetStream 重投，重投的相同消息按第 2 项幂等收敛。
+
+TDengine 历史适配器使用 `(ts TIMESTAMP, sample_id VARCHAR(192) COMPOSITE KEY)` 复合主键（见 9.5），实测相同主键异值写入为 UPSERT 覆盖，恰为本契约第 3 项所述行为，不得宣称不可变存储。
 
 ## 6.3 输出地址与数据保留
 
@@ -559,11 +566,17 @@ JetStream 按配置约束容量、保留期限和待确认数量；消费者处�
 
 ## 9.3 消费处理与可靠确认
 
-`realtime` 消息接收后直接执行目标写入，避免为凑批引入额外等待；`reliable` 消息在写入成功后再 ACK。`write(batch)` 允许传入消息自身已有的多个点值，Adapter 也可使用目标系统原生批量写入 API，但 Sink Service 不建立跨消息聚合器、定时 Flush 或额外持久化缓冲。一次调用部分写入成功时，应保留失败/不确定语义，未经明确完成确认不 ACK 全部消息；具体幂等与部分成功策略在详细设计中落实。
+`realtime` 消息接收后直接执行目标写入，避免为凑批引入额外等待；`reliable` 消息在写入成功后再 ACK。`write(batch)` 允许传入消息自身已有的多个点值，Adapter 也可使用目标系统原生批量写入 API，但 Sink Service 不建立跨消息聚合器、定时 Flush 或额外持久化缓冲。一次调用部分写入成功时，应保留失败/不确定语义，未经明确完成确认不 ACK 全部消息；幂等语义按 6.2 历史去重与存储幂等契约、TDengine 具体行为见 9.5。
 
 ## 9.4 资源与并发
 
 同一 Sink 实例可以服务多个采集任务映射，但只有一个受控的写入消费执行路径或等效互斥机制；生命周期操作不能与写入并发破坏连接。多个进程访问 Redis、TDengine 等共享目标时依赖业务去重及目标系统一致性，不采用跨进程全局 asyncio 锁。Modbus TCP Server 独占同一监听地址和端口。
+
+## 9.5 TDengine 历史适配器契约
+
+TDengine 适配器经 taosAdapter REST SQL 写入，超级表以 `ts TIMESTAMP` 与 `sample_id VARCHAR(192) COMPOSITE KEY` 构成 `(ts, sample_id)` 复合主键，子表按测点身份哈希派生。存储语义遵循 6.2 的历史去重与存储幂等契约：相同消息重投最终一条；相同主键异值写入由数据库 UPSERT 覆盖，不承诺首写不可变，适配器不额外实现去重表或读前检查。
+
+**版本兼容**：复合主键依赖支持 `VARCHAR COMPOSITE KEY` 的 TDengine 服务端。已验证版本为 TDengine Community **3.3.6.13**（`DESCRIBE` 中 `sample_id` 的 note 为 `COMPOSITE KEY`，`SERVER_VERSION()` 实证）；不支持该语法的旧版本（如 3.3.5.0）在 Sink `open()` 建表阶段即被服务端拒绝，适配器以 `SinkError` fail-closed 并提示校验服务端兼容性，绝不假成功。部署方必须提供兼容版本；错误信息不声称未经核实的具体最低版本号。
 
 # 10. 配置设计
 
@@ -659,6 +672,8 @@ Sink Service 对 Web Server 提供 gRPC 管理端口，Web Admin 通过 Web Serv
 | Stop / Clear | 停止保留可靠积压；清空仅作用于该 Sink 待处理消息 | 已确定 |
 | Subject / Stream | `wh.rt.>` 与 `wh.hist.>` 隔离；每 Sink 独立订阅或 Durable Consumer；物理分片按部署扩展 | 已确定 |
 | 消息唯一性 | 单点单样本；Collector 启动 ID 加单调序号；目标侧幂等，重投不生成新 ID | 已确定 |
+| 历史幂等语义 | 幂等键 `(ts, sample_id)`；相同消息重投最终一条；同主键异值允许 UPSERT 覆盖，不承诺首写不可变；上游保证同 `sample_id` 内容不变；不新增去重存储 | 已确定 |
+| TDengine 版本 | 要求支持 VARCHAR COMPOSITE KEY；已验证 Community 3.3.6.13；旧版 open fail-closed | 已确定 |
 | NATS 故障/容量耗尽 | Collector 允许丢失未确认数据、持续报告并重试；不使用本地持久化 | 已确定 |
 | 数据失效 | Collector 随消息携带可配置有效期；Sink Service 负责失效；同一实时测点单权威来源 | 已确定 |
 
