@@ -6,6 +6,9 @@ from typing import Any
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.infrastructure.config.effective import resolve_effective_device
+from core.infrastructure.protocol.ads.config import parse_ads_config
+from core.infrastructure.protocol.iec104.config import parse_iec104_config
+from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
 
 def devices(snapshot: ConfigSnapshot, device_id: str | None = None) -> list[dict[str, Any]]:
@@ -17,6 +20,34 @@ def devices(snapshot: ConfigSnapshot, device_id: str | None = None) -> list[dict
         model = snapshot.device_models[device.device_model_id]
         table = snapshot.point_tables[model.point_table_id]
         resolved, options = resolve_effective_device(device, model, table.protocol.name)
+        if table.protocol.name == "modbus":
+            cfg = parse_modbus_config(resolved.endpoint, options)
+            effective = {
+                "slave_id": cfg.slave_id,
+                "word_order": cfg.word_order,
+                "timeout": cfg.timeout,
+            }
+        elif table.protocol.name == "ads":
+            cfg = parse_ads_config(resolved.endpoint, options)
+            effective = {
+                "target_net_id": cfg.target_net_id,
+                "target_port": cfg.target_port,
+                "timeout": cfg.timeout,
+                "route_auto_add": cfg.route_auto_add,
+                "local_ams_net_id": (
+                    snapshot.system.ads.local_ams_net_id
+                    if snapshot.system.ads is not None else None
+                ),
+            }
+        elif table.protocol.name == "iec104":
+            cfg = parse_iec104_config(resolved.endpoint, options)
+            effective = {
+                "read_timeout": cfg.read_timeout,
+                "command_timeout": cfg.command_timeout,
+                "interrogation_timeout": cfg.interrogation_timeout,
+            }
+        else:
+            raise ValueError(f"unknown protocol: {table.protocol.name}")
         result.append(
             {
                 "device_id": str(identity),
@@ -26,13 +57,7 @@ def devices(snapshot: ConfigSnapshot, device_id: str | None = None) -> list[dict
                 "protocol": table.protocol.name,
                 "host": resolved.endpoint.host,
                 "port": resolved.endpoint.port,
-                "protocol_options": {
-                    key: "***" if any(
-                        marker in key.lower()
-                        for marker in ("password", "secret", "token", "credential", "key")
-                    ) else value
-                    for key, value in options.items()
-                },
+                "protocol_options": effective,
             }
         )
     if device_id is not None and not result:
