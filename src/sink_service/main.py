@@ -29,6 +29,7 @@ async def run_sink_service(
     realtime_sinks: frozenset[str] = frozenset(),
     reliable_sinks: frozenset[str] = frozenset(),
     wind_farm_id: str,
+    deployment_id: str,
     shutdown_timeout: float = 30.0,
     grpc_listen: str = "127.0.0.1:50074",
     state_dir: Path = Path("/var/tmp/wind-hub/sink-state"),
@@ -136,6 +137,7 @@ def main() -> None:
     parser.add_argument("--realtime-sink", action="append", default=[])
     parser.add_argument("--reliable-sink", action="append", default=[])
     parser.add_argument("--wind-farm-id", required=True)
+    parser.add_argument("--deployment-id", required=True)
     parser.add_argument("--grpc-listen", default="127.0.0.1:50074")
     parser.add_argument("--state-dir", type=Path, default=Path("/var/tmp/wind-hub/sink-state"))
     args = parser.parse_args()
@@ -148,6 +150,7 @@ def main() -> None:
             realtime_sinks=frozenset(args.realtime_sink),
             reliable_sinks=frozenset(args.reliable_sink),
             wind_farm_id=args.wind_farm_id,
+            deployment_id=args.deployment_id,
             state_dir=args.state_dir,
             grpc_listen=args.grpc_listen,
         )
