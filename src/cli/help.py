@@ -67,10 +67,19 @@ No file writes or active configuration changes.
   Current Core ConfigSnapshot has no Gateway collection; result NOT_DEFINED.""",
     ("diagnose",): """Usage:
   diagnose [--restart]
+  diagnose result
+  diagnose report PATH.json
   diagnose ping/tcp/route/resolve ...
   diagnose protocol OP DEVICE ...
-No arguments: full automatic chain is reserved for phase 3 (returns UNKNOWN).
+No arguments: execute ordered read-only configuration-driven communication checks.
 Manual network commands can work before loading config; protocol tools require valid config.
+""",
+    ("diagnose", "result"): """Usage: diagnose result
+Display the previous automatic diagnosis result stored in this CLI session.
+""",
+    ("diagnose", "report"): """Usage: diagnose report PATH.json
+Atomically export the previous automatic diagnosis result as JSON.
+Does not invoke new checks. The parent directory must already exist.
 """,
     ("diagnose", "protocol"): """Usage: diagnose protocol OP DEVICE_ID ...
 Operations: check, read, read-many, write, listen, gi, benchmark.
