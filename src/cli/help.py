@@ -28,7 +28,8 @@ Examples:
 """
 
 COMMANDS: dict[tuple[str, ...], str] = {
-    ("config",): """Usage: config validate PATH [--scope all] | read PATH | reload | diff PATH | show
+    ("config",): """Usage:
+  config validate PATH [--scope all] | read PATH | reload | diff PATH | show
 validate: inspect mandatory YAML files, schema and references without replacing the current snapshot
 read: validate then atomically activate CLI configuration
 reload: validate same directory then atomically replace CLI snapshot; failed reload blocks diagnose
@@ -52,11 +53,21 @@ On failure retain old snapshot for inspection and block automatic diagnose.
 Compare the active memory snapshot against independently validated PATH.
 No file writes or active configuration changes.
 """,
-    ("devices",): "Usage: devices [DEVICE_ID] [--verbose]\nShows effective protocol, host, port and connection options (secrets redacted).",
-    ("points",): "Usage: points DEVICE_ID [POINT_ID] [--verbose]\nShows source point access, protocol address and data type.",
-    ("sinks",): "Usage: sinks [SINK_ID] [--verbose]\nShows Sink kinds, enabled flag and safe public endpoint parameters.",
-    ("gateways",): "Usage: gateways [GATEWAY_ID]\nCurrent Core ConfigSnapshot has no Gateway collection; result NOT_DEFINED.",
-    ("diagnose",): """Usage: diagnose [--restart] | diagnose ping/tcp/route/resolve ... | diagnose protocol OP DEVICE ...
+    ("devices",): """Usage:
+  devices [DEVICE_ID] [--verbose]
+  Shows effective protocol, host, port and connection options (secrets redacted).""",
+    ("points",): """Usage:
+  points DEVICE_ID [POINT_ID] [--verbose]
+  Shows source point access, protocol address and data type.""",
+    ("sinks",): """Usage:
+  sinks [SINK_ID] [--verbose]
+  Shows Sink kinds, enabled flag and safe public endpoint parameters.""",
+    ("gateways",): """Usage:
+  gateways [GATEWAY_ID]
+  Current Core ConfigSnapshot has no Gateway collection; result NOT_DEFINED.""",
+    ("diagnose",): """Usage:
+  diagnose [--restart] | diagnose ping/tcp/route/resolve ... | diagnose protocol OP DEVICE
+  ...
 No arguments: run configured diagnostics, stopping at first blocking failure.
 Manual network commands can work before loading config; protocol tools require valid config.
 """,
@@ -65,40 +76,57 @@ Operations: check, read, read-many, write, listen, gi, benchmark.
 All protocol operations use effective configuration and private Driver sessions.
 No arbitrary address is accepted by a protocol tool.
 """,
-    ("diagnose", "protocol", "read"): """Usage: diagnose protocol read DEVICE_ID POINT_ID [--interval SECONDS] [--count N] [--timeout SECONDS]
+    ("diagnose", "protocol", "read"): """Usage:
+  diagnose protocol read DEVICE_ID POINT_ID [--interval SECONDS] [--count N] [--timeout
+  SECONDS]
 --interval: 0.1..3600 s; omitted means one read.
 --count: 1..100000, only meaningful with --interval; omitted means repeat until Ctrl+C.
 Reads with one connected Driver session; Ctrl+C returns to shell.
 Example: diagnose protocol read turbine01 active_power --interval 1 --count 10
 """,
-    ("diagnose", "protocol", "read-many"): """Usage: diagnose protocol read-many DEVICE_ID POINT_ID [POINT_ID ...] [--timeout SECONDS]
+    ("diagnose", "protocol", "read-many"): """Usage:
+  diagnose protocol read-many DEVICE_ID POINT_ID [POINT_ID ...] [--timeout SECONDS]
 Requires native READ_MANY capability. Cannot emulate with repeated read_one calls.
 """,
-    ("diagnose", "protocol", "check"): """Usage: diagnose protocol check DEVICE_ID [--timeout SECONDS]
+    ("diagnose", "protocol", "check"): """Usage:
+  diagnose protocol check DEVICE_ID [--timeout SECONDS]
 Connect, check protocol health and release the independent diagnostic session.
 """,
-    ("diagnose", "protocol", "write"): """Usage: diagnose protocol write DEVICE_ID POINT_ID VALUE [--yes] [--timeout SECONDS]
+    ("diagnose", "protocol", "write"): """Usage:
+  diagnose protocol write DEVICE_ID POINT_ID VALUE [--yes] [--timeout SECONDS]
 VALUE: JSON scalar or plain string; no lists, objects, null or NaN.
 Interactive: displays effective endpoint/point/value and requires YES.
 Scripts: --yes is mandatory. UNKNOWN means command MAY have executed; never auto-retry.
 Example: diagnose protocol write turbine01 setpoint 1000 --yes
 """,
-    ("diagnose", "protocol", "listen"): """Usage: diagnose protocol listen DEVICE_ID [POINT_ID ...] [--duration SECONDS]
+    ("diagnose", "protocol", "listen"): """Usage:
+  diagnose protocol listen DEVICE_ID [POINT_ID ...] [--duration SECONDS]
 Requires native SUBSCRIBE or LISTEN; no polling fallback.
 Without --duration, listen until Ctrl+C; otherwise stop after specified positive seconds.
 """,
-    ("diagnose", "protocol", "gi"): """Usage: diagnose protocol gi DEVICE_ID [--ca CA] [--timeout SECONDS]
+    ("diagnose", "protocol", "gi"): """Usage:
+  diagnose protocol gi DEVICE_ID [--ca CA] [--timeout SECONDS]
 Only available when INTERROGATE is supported; CA must be configured for the device.
 A partial or timed-out interrogation is not PASS.
 """,
-    ("diagnose", "protocol", "benchmark"): """Usage: diagnose protocol benchmark DEVICE_ID POINT_ID [POINT_ID ...] [--samples N] [--interval SECONDS]
+    ("diagnose", "protocol", "benchmark"): """Usage:
+  diagnose protocol benchmark DEVICE_ID POINT_ID [POINT_ID ...] [--samples N] [--interval
+  SECONDS]
 Native reads only. Samples 1..200 (default 10), interval default 0.2 seconds.
 Reports min, mean, max and p95 duration.
 """,
-    ("diagnose", "ping"): "Usage: diagnose ping HOST_OR_DEVICE [--count N] [--timeout SECONDS]\nPerforms ICMP ping using local host routing.",
-    ("diagnose", "tcp"): "Usage: diagnose tcp HOST_OR_DEVICE [PORT] [--timeout SECONDS]\nPORT defaults from device config; mandatory with a literal host.",
-    ("diagnose", "route"): "Usage: diagnose route HOST\nInspects local Linux route chosen for HOST.",
-    ("diagnose", "resolve"): "Usage: diagnose resolve HOST\nResolves host to addresses without opening a socket.",
+    ("diagnose", "ping"): """Usage:
+  diagnose ping HOST_OR_DEVICE [--count N] [--timeout SECONDS]
+  Performs ICMP ping using local host routing.""",
+    ("diagnose", "tcp"): """Usage:
+  diagnose tcp HOST_OR_DEVICE [PORT] [--timeout SECONDS]
+  PORT defaults from device config; mandatory with a literal host.""",
+    ("diagnose", "route"): """Usage:
+  diagnose route HOST
+  Inspects local Linux route chosen for HOST.""",
+    ("diagnose", "resolve"): """Usage:
+  diagnose resolve HOST
+  Resolves host to addresses without opening a socket.""",
 }
 
 
