@@ -88,7 +88,10 @@ class WindHubShell(cmd.Cmd):
                     format_name=self._format,
                 )
         except (ConfigError, ValueError, OSError, RuntimeError, KeyError) as exc:
-            print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
+            error = {"status": "FAIL", "code": "CLI_ERROR",
+                     "message": f"{type(exc).__name__}: {exc}"}
+            emit(response("command", error, fingerprint=None, duration_ms=0),
+                 format_name=self._format)
         except KeyboardInterrupt:
             print("\nInterrupted.")
 
@@ -522,7 +525,19 @@ def main() -> int:
                 return 2 if arguments[:2] == ["config", "validate"] else 1
             return 0
         except (ConfigError, ValueError, OSError, RuntimeError, KeyError) as exc:
-            print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
+            if shell._format == "json":
+                emit(
+                    response(
+                        " ".join(arguments[:3]),
+                        {"status": "FAIL", "code": "CLI_ERROR",
+                         "message": f"{type(exc).__name__}: {exc}"},
+                        fingerprint=None,
+                        duration_ms=timer.elapsed_ms(),
+                    ),
+                    format_name="json",
+                )
+            else:
+                print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
             return 2
         except KeyboardInterrupt:
             return 130
