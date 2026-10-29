@@ -66,9 +66,10 @@ No file writes or active configuration changes.
   gateways [GATEWAY_ID]
   Current Core ConfigSnapshot has no Gateway collection; result NOT_DEFINED.""",
     ("diagnose",): """Usage:
-  diagnose [--restart] | diagnose ping/tcp/route/resolve ... | diagnose protocol OP DEVICE
-  ...
-No arguments: run configured diagnostics, stopping at first blocking failure.
+  diagnose [--restart]
+  diagnose ping/tcp/route/resolve ...
+  diagnose protocol OP DEVICE ...
+No arguments: full automatic chain is reserved for phase 3 (returns UNKNOWN).
 Manual network commands can work before loading config; protocol tools require valid config.
 """,
     ("diagnose", "protocol"): """Usage: diagnose protocol OP DEVICE_ID ...
@@ -77,8 +78,8 @@ All protocol operations use effective configuration and private Driver sessions.
 No arbitrary address is accepted by a protocol tool.
 """,
     ("diagnose", "protocol", "read"): """Usage:
-  diagnose protocol read DEVICE_ID POINT_ID [--interval SECONDS] [--count N] [--timeout
-  SECONDS]
+  diagnose protocol read DEVICE_ID POINT_ID
+    [--interval SECONDS] [--count N] [--timeout SECONDS]
 --interval: 0.1..3600 s; omitted means one read.
 --count: 1..100000, only meaningful with --interval; omitted means repeat until Ctrl+C.
 Reads with one connected Driver session; Ctrl+C returns to shell.
@@ -110,8 +111,8 @@ Only available when INTERROGATE is supported; CA must be configured for the devi
 A partial or timed-out interrogation is not PASS.
 """,
     ("diagnose", "protocol", "benchmark"): """Usage:
-  diagnose protocol benchmark DEVICE_ID POINT_ID [POINT_ID ...] [--samples N] [--interval
-  SECONDS]
+  diagnose protocol benchmark DEVICE_ID POINT_ID [POINT_ID ...]
+    [--samples N] [--interval SECONDS]
 Native reads only. Samples 1..200 (default 10), interval default 0.2 seconds.
 Reports min, mean, max and p95 duration.
 """,
