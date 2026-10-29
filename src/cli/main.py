@@ -29,7 +29,7 @@ HELP = """Commands:
   diagnose protocol check DEVICE
   diagnose protocol read DEVICE POINT [--interval SECONDS] [--count N] [--timeout SECONDS]
   diagnose protocol read-many DEVICE POINT... [--timeout SECONDS]
-  diagnose protocol write DEVICE POINT VALUE [--timeout SECONDS]
+  diagnose protocol write DEVICE POINT VALUE [--yes] [--timeout SECONDS]
   diagnose protocol gi DEVICE [--ca NUMBER] [--timeout SECONDS]
   diagnose protocol listen DEVICE [POINT...] [--duration SECONDS]
   diagnose protocol benchmark DEVICE POINT... [--samples N] [--interval SECONDS]
@@ -56,10 +56,10 @@ def _value(raw: str) -> bool | int | float | str:
 def _options(args: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(prog="diagnose protocol", add_help=True)
     parser.add_argument("--interval", type=float)
-    parser.add_argument("--count", type=int, default=1)
+    parser.add_argument("--count", type=int, default=None)
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--ca", type=int)
-    parser.add_argument("--duration", type=float, default=10.0)
+    parser.add_argument("--duration", type=float, default=None)
     parser.add_argument("--samples", type=int, default=10)
     parser.add_argument("--yes", action="store_true")
     options, positional = parser.parse_known_args(args)
@@ -76,7 +76,7 @@ class WindHubShell(cmd.Cmd):
         super().__init__()
         self.config = ConfigSession()
         self._interactive = False
-        self._format = 'table'
+        self._format = "table"
         self.last_results: list[dict[str, Any]] = []
         self._failed_device: str | None = None
         self._failed_fingerprint: str | None = None
@@ -232,6 +232,8 @@ class WindHubShell(cmd.Cmd):
             raise ValueError(f"{operation} requires configured point IDs")
         if operation == "write" and len(positional) != 2:
             raise ValueError("usage: diagnose protocol write DEVICE POINT VALUE")
+        if operation == "read-many" and opts.interval is not None:
+            raise ValueError("read-many is a single native batch operation")
         if operation in {"listen", "benchmark"}:
             from .protocol_stream import benchmark, listen
 
@@ -266,7 +268,18 @@ class WindHubShell(cmd.Cmd):
             points(loaded.snapshot, device_id, point_id)[0]
             for point_id in point_ids
         ]
-        streaming = operation in {"read", "read-many"} and opts.interval is not None
+        if opts.count is not None and not 1 <= opts.count <= 100000:
+            raise ValueError("--count must be in 1..100000")
+        if opts.count is not None and opts.interval is None:
+            raise ValueError("--count requires --interval")
+        if opts.interval is not None and not 0.1 <= opts.interval <= 3600:
+            raise ValueError("--interval must be in 0.1..3600 seconds")
+        streaming = operation == "read" and opts.interval is not None and opts.count is None
+        if streaming and self._format == "json":
+            raise ValueError("continuous JSON output requires --count")
+        if streaming:
+            print(json.dumps({"device_id": device_id, "endpoint": device_info,
+                              "points": selected_points}, ensure_ascii=False, default=str))
         on_sample = (
             (lambda sample: print(json.dumps(sample, ensure_ascii=False, allow_nan=False)))
             if streaming
@@ -280,7 +293,7 @@ class WindHubShell(cmd.Cmd):
                 point_ids=point_ids,
                 value=value,
                 interval=opts.interval,
-                count=0 if streaming and opts.count == 1 else opts.count,
+                count=0 if streaming else (opts.count or 1),
                 timeout=opts.timeout,
                 common_address=opts.ca,
                 on_sample=on_sample,
