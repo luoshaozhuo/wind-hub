@@ -86,7 +86,13 @@ def sinks(snapshot: ConfigSnapshot, sink_id: str | None = None) -> list[dict[str
                 "sink_id": identity,
                 "kind": sink.kind,
                 "enabled": sink.enabled,
-                "task_ids": sorted(sink.outputs),
+                "connection": {
+                    key: "***" if any(
+                        token in key.lower()
+                        for token in ("password", "token", "secret", "credential", "key")
+                    ) else value
+                    for key, value in sink.connection.items()
+                },
             }
         )
     if sink_id is not None and not result:
