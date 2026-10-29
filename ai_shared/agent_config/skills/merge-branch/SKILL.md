@@ -1,58 +1,36 @@
 ---
 name: merge-branch
-description: 由 Coding Agent 的 //merge-branch 指令触发；检查当前任务分支及 PR，执行一次本地受影响范围验证，通过后 Squash Merge 到 main 并验证。
+description: 直接将当前任务分支 Squash Merge 到 main，不创建 PR、不执行合并门禁，确认远程结果后清理任务分支。
 ---
 
 # merge-branch
 
-## 入口
+用户调用 `//merge-branch` 即授权直接合并，无须再次询问。
 
-用户调用 `//merge-branch` 即要求执行当前任务分支的合并，不再询问授权。
-
-在仓库工作区，使用本 Skill 所在目录的脚本：
+在本地仓库运行：
 
 ```bash
 python <skill-dir>/scripts/merge.py merge
 ```
 
-如果尚无 PR，先检查当前任务分支、创建指向 `main` 的 PR，再执行脚本。必须由运行在用户 wind-hub 工作区内的 Coding Agent 调用；远程 GitHub 修改无法代替本地 Conda 验收。
-`check` 仅用于排错，不得用 READY 代替实际合并结果。
+## 流程
 
-## 本地合并验收
+1. 确认当前位于非 main 的任务分支、工作区干净、本地 HEAD 与远程任务分支一致。
+2. 获取远程 main；确保 main 是任务分支祖先，避免意外吞掉独立的新提交。
+3. 以远程任务分支的整棵文件树、远程 main 为唯一 parent 创建一个 Squash Commit。
+4. 普通、非强制推送 Squash Commit 到 `origin/main`，然后重新 fetch 验证。
+5. 仅在远程 main 确认更新后同步本地 main，删除当前任务分支的本地与远程引用。
+6. 主分支保护拒绝推送时立即报告阻断，不创建 PR、不绕过保护、不删除源分支。
 
-用户触发合并时，`merge.py` 在确认远端分支与当前 HEAD 一致后，调用 `scripts/ci_gate.py merge`。验证范围由任务分支与 `origin/main` 的完整差异决定；开发、Commit、Push 和创建 PR 不强制运行完整产品测试。任何验证失败都阻止合并，代码或 main 变化后重新验收。GitHub Fast/PR 工作流仅运行轻量治理检查，不重复产品测试。
+## 不执行
 
-启动 `merge` 即允许脚本在 Gate 通过后立即合并，不是仅启动测试。先完成变更范围检查和已决定执行的补充验证，再调用脚本；不得与可能影响合并决定的检查并行运行，也不得把必要验证留到合并之后。
+- 不创建、查询或依赖 PR。
+- 不执行 `scripts/ci_gate.py`、Ruff、Mypy、pytest、GitHub Check 或 Review 门禁。
+- 不 force push、rebase、reset --hard，不覆写工作区用户修改。
+- 不修改 GitHub 分支保护设置，不使用 admin 绕过。
 
-测试路径选择以 `scripts/ci_gate.py` 为唯一实现：父目录覆盖的子路径需归并，同名测试模块使用独立导入模式。发现实际收集范围与选择范围不符时，先定位并修复选择器；不得用减少后的测试数量或单项复跑通过替代完整受影响范围验收。治理或工具变更只验证自身，不因此扩大到产品全量测试。
-
-Gate 失败后先定位原因；有证据支持时做定向复跑，修复后提交、推送，再执行完整受影响范围验收。不得无依据反复重跑直到偶然通过，也不得通过删测试、扩大 skip 或放宽断言解除阻断。
-
-验收结束后脚本重新检查工作区、分支、PR、CI 和审查，并核对验证时的 HEAD 与 main；合并请求使用 `--match-head-commit` 绑定已验证 HEAD。检查期间发生变化则停止，重新验收后才能合并。GitHub 分支保护仍是服务端最终门禁。
-
-## 门禁
-
-- 仅允许**当前任务分支 → main**，采用 **Squash Merge**；不得直接在本地 `main` 上操作。
-- 工作区干净，分支已推送且与远程同步；PR 不是 Draft、没有冲突。
-- CI 判定以仓库级 Actions 开关为准：经 GitHub API 明确 `actions/permissions.enabled=false`，且生效中的分支保护 / Ruleset 没有未满足的外部必需检查时，允许进入本地验收，报告 `CI=NOT_RUN_ACTIONS_DISABLED`，不得伪装成 PASS。
-- Actions 启用时，所有适用 Check 必须完成且成功；零 Check、失败、取消、进行中均 **BLOCKED**。
-- Actions 开关查询失败或返回未知，或禁用但存在未满足的外部 Required Checks，一律 **BLOCKED**；UNKNOWN 不得视作通过。
-- Required Checks 与必需审查必须满足实际生效的 GitHub 分支保护 / Ruleset，不能仅凭 PR Check 数为 0 判定无门禁。轻量 GitHub Check 不能替代合并时本地产品验收。
-- Actions 禁用不豁免本地受影响范围验证，Gate 仍必须 PASS。
-- 不允许 `--admin`、强制推送或绕过保护；不设置 `--allow-no-ci` 或任何人肉绕过开关。CI 异常按 RELATED / UNRELATED / UNKNOWN 处理。
-- 合并后核实 PR 为 MERGED，且 Squash Commit 已进入远程 `main` 历史。
-- 若合并响应不确定，先重新查询 PR 状态，不盲目重复执行合并。
-- 成功合并并核验远程 main 后，必须自动快进同步本地 main、切换到 main、删除经 PR HEAD 核验的本地任务分支；远程任务分支不自动删除。不得强行覆盖、重置或删除其他 worktree 使用的分支。
-
-## Hook
-
-当前 `git-safety-gate.py` 直接拦截 `gh pr merge`，但不拦截 Python 脚本入口。
-合并脚本内部使用受 GitHub 分支保护约束的普通 `gh pr merge --squash`。
-**不要求修改现有 Hook**；不关闭、不改写 Hook，不使用 `--admin`。
-安全门禁由脚本与 GitHub 双重实施。
+验证和测试在开发、独立验收或 Release 阶段按需求单独执行，不作为合并的自动前置条件。
 
 ## 输出
 
-报告 PR 链接、本地验收结果、CI 状态、已验证的 HEAD / main SHA、Squash Commit SHA、远程 `main` 验证结果和 MERGED / BLOCKED / UNKNOWN 状态。复核已经合并的 PR 时没有新的本地验收证据，不得补报 PASS。
-
-合并成功后由 `merge.py` **自动**执行本地收尾：`fetch origin main`、验证快进条件、`git switch main`、`git merge --ff-only origin/main`、核对本地 main 与 origin/main 一致、删除已验证的本地任务分支。仅在合并事实已核验、工作区干净且无其他 worktree 占用时允许 `git branch -D`。输出 `MERGED_AND_CLEANED`；若远程已合并但本地收尾失败，则输出 `MERGED_LOCAL_CLEANUP_BLOCKED` 和原因，不将远程合并误报为失败。
+报告源分支 SHA、合并前 main SHA、Squash Commit SHA、远程 main 最终 SHA、分支清理状态。推送失败时报告 `BLOCKED` 与服务端原因；严禁在 main 未更新时声称合并成功。
