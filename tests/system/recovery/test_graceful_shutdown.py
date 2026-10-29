@@ -29,8 +29,8 @@ def _config(base: Path, port: int, redis_address: str) -> Path:
         sinks={
             "redis_sink": {
                 "type": "redis",
-                "connection": {"host": host, "port": int(redis_port), "key_prefix": KEY_PREFIX},
-                "outputs": {TASK_ID: {}},
+                "connection": {"host": host, "port": int(redis_port)},
+                "outputs": {TASK_ID: {"key_prefix": KEY_PREFIX}},
             }
         },
         tasks={
