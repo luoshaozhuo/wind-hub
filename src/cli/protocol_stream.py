@@ -10,7 +10,7 @@ from typing import Any
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.protocol_contract import ProtocolCapability
 
-from .protocol_diagnostic import create_driver, sample_dict
+from .protocol_diagnostic import create_driver, prepare_ads, release_ads, sample_dict
 
 
 async def listen(
@@ -32,7 +32,9 @@ async def listen(
             samples.append(sample_dict(sample))
 
     handle: Any = None
+    ads_prepared = False
     try:
+        ads_prepared = await prepare_ads(snapshot, driver)
         async with asyncio.timeout(timeout):
             await driver.connect()
         capabilities = driver.capabilities()
@@ -56,8 +58,11 @@ async def listen(
                     else:
                         await handle.close()
         finally:
-            async with asyncio.timeout(timeout):
-                await driver.close()
+            try:
+                async with asyncio.timeout(timeout):
+                    await driver.close()
+            finally:
+                await release_ads(ads_prepared)
 
 
 async def benchmark(
@@ -76,7 +81,9 @@ async def benchmark(
         raise ValueError("interval must be nonnegative and timeout positive")
     driver = create_driver(snapshot, device_id)
     timings: list[float] = []
+    ads_prepared = False
     try:
+        ads_prepared = await prepare_ads(snapshot, driver)
         async with asyncio.timeout(timeout):
             await driver.connect()
         caps = driver.capabilities()
@@ -104,5 +111,8 @@ async def benchmark(
             "p95_ms": ordered[max(0, (95 * len(ordered) + 99) // 100 - 1)],
         }
     finally:
-        async with asyncio.timeout(timeout):
-            await driver.close()
+        try:
+            async with asyncio.timeout(timeout):
+                await driver.close()
+        finally:
+            await release_ads(ads_prepared)
