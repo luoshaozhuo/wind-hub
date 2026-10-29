@@ -95,6 +95,9 @@ class WindHubShell(cmd.Cmd):
         """Exit interactive CLI."""
         return True
 
+    def do_clear(self, arg: str) -> None:
+        print("\\033[2J\\033[H", end="")
+
     def do_quit(self, arg: str) -> bool:
         """Exit interactive CLI."""
         return True
@@ -130,7 +133,9 @@ class WindHubShell(cmd.Cmd):
             if operation == "show":
                 loaded = self.config.current
                 return {"path": str(loaded.path), "fingerprint": loaded.fingerprint,
-                        "devices": len(loaded.snapshot.site.devices), "sinks": len(loaded.snapshot.sinks)}
+                        "devices": len(loaded.snapshot.site.devices), "sinks": len(loaded.snapshot.sinks),
+                        "loaded_at": loaded.loaded_at.isoformat(),
+                        "last_reload": "FAIL" if self.config.reload_failed else "PASS"}
             raise ValueError(f"unsupported config command: {operation}")
         if action in {"devices", "points", "sinks"}:
             loaded = self.config.current
@@ -142,7 +147,11 @@ class WindHubShell(cmd.Cmd):
                 raise ValueError("usage: points DEVICE [POINT]")
             return points(loaded.snapshot, rest[0], rest[1] if len(rest) == 2 else None)
         if action == "gateways":
-            raise ValueError("Gateway inventory is not represented in the shared ConfigSnapshot")
+            self.config.current
+            return {"status": "UNKNOWN", "code": "NOT_DEFINED", "message": "Gateway inventory is not defined by the current ConfigSnapshot", "items": []}
+        if action == "clear":
+            print("\\033[2J\\033[H", end="")
+            return None
         if action == "diagnose":
             return self._diagnose(rest)
         raise ValueError(f"unknown command: {action}. Type help.")
