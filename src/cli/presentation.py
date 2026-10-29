@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from time import perf_counter
-from typing import Any
 
 
 def response(
