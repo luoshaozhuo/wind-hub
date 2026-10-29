@@ -237,7 +237,7 @@ class _FakeProbe:
         self.connected = False
 
     async def resolve(self, point):
-        from core.domain.diagnostic import ResolvedAddress
+        from commander.application.diagnostic_model import ResolvedAddress
 
         self.resolved.append(point.point_id)
         return ResolvedAddress(

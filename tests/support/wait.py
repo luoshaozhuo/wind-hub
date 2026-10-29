@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import time
@@ -125,6 +126,27 @@ async def wait_process_exit(
         return proc_wait()
 
     return await wait_until(_probe, timeout=timeout, interval=0.1, description=description)
+
+
+async def wait_tcp_port(
+    host: str,
+    port: int,
+    *,
+    timeout: float = 20.0,
+) -> str:
+    """等待 TCP 端口可连（用于无健康 RPC 的进程就绪探针，如 sink_service）。"""
+
+    async def _probe() -> str | None:
+        try:
+            _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=1.0)
+        except OSError:
+            return None
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        return f"{host}:{port}"
+
+    return await wait_until(_probe, timeout=timeout, interval=0.2, description=f"tcp {host}:{port}")
 
 
 async def read_redis_value(address: str, key: str) -> dict[str, Any] | None:

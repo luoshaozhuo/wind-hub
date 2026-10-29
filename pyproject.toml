@@ -9,6 +9,7 @@ packages = [
     { include = "core", from = "src" },
     { include = "contracts", from = "src" },
     { include = "collector", from = "src" },
+    { include = "sink_service", from = "src" },
     { include = "commander", from = "src" },
     { include = "cli", from = "src" },
     { include = "web_server", from = "src" },
@@ -28,6 +29,7 @@ protobuf = "^6.32"
 pymodbus = "^3.6"
 hat-drivers = "^0.10.10"
 pyads = "^3.4"
+nats-py = "^2.10"
 aiokafka = { version = "^0.14", optional = true }
 asyncpg = { version = "^0.31", optional = true }
 influxdb-client = { version = "^1.48", optional = true }
@@ -63,6 +65,9 @@ types-aiofiles = "^25.1.0.20260518"
 c104 = "^2.2"
 
 [tool.poetry.scripts]
+wind-hub-sink-service = "sink_service.main:main"
+wind-hub-sink-diagnostic = "sink_service.diagnostic_cli:main"
+wind-hub-sink = "sink_service.management_cli:main"
 wind-hub-collector = "collector.main:main"
 wind-hub = "cli.main:main"
 wind-hub-commander = "commander.main:main"
@@ -132,6 +137,8 @@ module = [
     "contracts.commander_pb2_grpc",
     "contracts.gateway_pb2",
     "contracts.gateway_pb2_grpc",
+    "contracts.sink_pb2",
+    "contracts.sink_pb2_grpc",
     "contracts.common_pb2",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]

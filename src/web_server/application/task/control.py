@@ -67,7 +67,11 @@ class TaskControlService:
                             "device_group": cfg.device_group_id,
                             "point_group": cfg.point_group,
                             "interval": cfg.interval,
-                            "targets": list(cfg.sink_ids),
+                            "targets": [
+                                name
+                                for name, sink in self._config.current_config.sinks.items()
+                                if cfg.task_id in sink.outputs
+                            ],
                             "enabled": cfg.enabled,
                             "assigned_worker_id": current.assigned_worker_id or placement.worker_id,
                             "placement_state": placement.state,
@@ -225,7 +229,11 @@ class TaskControlService:
             device_group=cfg.device_group_id,
             point_group=cfg.point_group,
             interval=cfg.interval,
-            targets=list(cfg.sink_ids),
+            targets=[
+                name
+                for name, sink in self._config.current_config.sinks.items()
+                if cfg.task_id in sink.outputs
+            ],
             enabled=cfg.enabled,
             runtime_state=(
                 "orphaned"

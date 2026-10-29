@@ -1,19 +1,18 @@
 """Collector 组合根。
 
-只装配采集链路：设备会话（Core 协议 Driver）、采集引擎、Sink 注册表与
+只装配采集链路：设备会话（Core 协议 Driver）、采集引擎、NATS Publisher 与
 热重载编排；不包含命令分发、诊断或 Web API。组合根是唯一允许跨层引用
 Infrastructure 具体实现的地方：它显式注册 Core 协议 Driver、持有进程级
-ADS 本机身份、按 enabled 实例化 Sink。
+ADS 本机身份。
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from contracts.sample_message import validate_subject_token
 from core.application import ProtocolRegistry
-from core.application.port import SinkPort
 from core.application.settings import ADSLocalConfig, LogSettings
 from core.domain import Device, PointTable
 from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
@@ -24,12 +23,12 @@ from .application.config_service import CollectorConfigService
 from .application.identity import CollectorIdentity, build_collector_identity
 from .application.latest_values import LatestValues
 from .application.metrics_state import CollectorMetricsState
+from .application.nats_dispatch import SamplePublisher
 from .application.runtime import CollectorRuntime
 from .application.session import CollectorDeviceSession
-from .application.sink_registry import SinkFactory
 from .domain.acquisition import AcquisitionEngine
 from .infrastructure.config.loader import collector_config_from_snapshot, load_collector_config
-from .infrastructure.sink_registry import build_sink_registry
+from .infrastructure.nats_publisher import NatsPublisher
 
 
 def build_protocol_registry() -> ProtocolRegistry:
@@ -47,7 +46,7 @@ class CollectorApp:
 
     Attributes:
         boot_config: 进程启动时加载的配置快照；仅表示启动基线。
-        runtime: Collector 运行时（Device/Task/Sink 编排）。
+        runtime: Collector 运行时（Device/Task/Publisher 编排）。
         config: 配置热重载编排服务。
         config_dir: 现场配置目录。
         config_hash: 启动配置集摘要。
@@ -84,15 +83,12 @@ def assemble_collector(
     config_dir: str | Path,
     *,
     collector_id: str | None = None,
-    sink_factories: Mapping[str, SinkFactory] | None = None,
 ) -> CollectorApp:
     """从现场配置目录装配 Collector，不执行网络 I/O。
 
     Args:
         config_dir: 现场配置目录。
         collector_id: 显式 Collector 稳定标识；为空时读取环境变量或主机名。
-        sink_factories: 按类型覆盖内置 Sink factory（性能/soak 等资格工具
-            注入 NullSink 或计量包装的 seam）；键必须是已注册的 Sink 类型。
 
     Raises:
         ValueError: 装配期间配置目录发生变化（TOCTOU）。
@@ -102,7 +98,7 @@ def assemble_collector(
     config_source = YamlConfigAdapter(config_path)
     before_hash = config_dir_digest(config_path)
     # 启动配置只完整解析一次：装配、日志初始化共用同一份快照。
-    snapshot = config_source.load()
+    snapshot = config_source.load_collector()
     config = collector_config_from_snapshot(snapshot)
     config_hash = config_dir_digest(config_path)
     if before_hash != config_hash:
@@ -131,15 +127,25 @@ def assemble_collector(
         for device_id, device in config.devices.items()
     }
 
-    sink_registry = build_sink_registry()
-    for type_name, factory in (sink_factories or {}).items():
-        sink_registry.override(type_name, factory)
-    sinks: dict[str, SinkPort] = {
-        name: sink_registry.create(resolved)
-        for name, resolved in config.sinks.items()
-        if resolved.enabled
-    }
+    transport = NatsPublisher(config.messaging.servers, config.messaging.delivery)
+    identity = build_collector_identity(config_hash, collector_id=collector_id)
+    validate_subject_token(snapshot.site.site_id)
+    validate_subject_token(identity.collector_id)
+    for task_id in config.tasks:
+        validate_subject_token(task_id)
+    for device_id in config.devices:
+        validate_subject_token(str(device_id))
+        table = config.point_table_for_device(device_id)
+        for point_id in table.points:
+            validate_subject_token(point_id)
 
+    publisher = SamplePublisher(
+        transport,
+        wind_farm_id=snapshot.site.site_id,
+        identity=identity,
+        delivery=config.messaging.delivery,
+        max_staleness_ms=config.messaging.max_staleness_ms,
+    )
     metrics = CollectorMetricsState()
     latest_values = LatestValues()
     engine = AcquisitionEngine(
@@ -150,12 +156,11 @@ def assemble_collector(
     engine.add_observer(latest_values.update)
     runtime = CollectorRuntime(
         devices,
-        sinks,
+        publisher,
         engine,
         config.runtime,
         tasks=dict(config.tasks),
         session_factory=session_factory,
-        sink_factory=sink_registry.create,
         metrics_hook=metrics,
     )
 
@@ -174,7 +179,7 @@ def assemble_collector(
         config_hash=config_hash,
         metrics=metrics,
         latest_values=latest_values,
-        identity=build_collector_identity(config_hash, collector_id=collector_id),
+        identity=identity,
         ads_local=config.ads_local,
         log_settings=snapshot.system.logs,
     )

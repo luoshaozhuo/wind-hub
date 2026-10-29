@@ -4,6 +4,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useConfigStore } from '../stores/config'
 import type { SinkDef, SinkType } from '../domain/types'
 import { statusTagType } from '../utils/status'
+import { manageSink, type SinkOperation } from '../api/sinks'
+import { queryClient } from '../api/queryClient'
+import { qk } from '../api/queryKeys'
 
 const configStore = useConfigStore()
 const filter = ref('')
@@ -221,11 +224,26 @@ async function verify(sink: SinkDef) {
   }
 }
 
-async function testWrite(sink: SinkDef) {
+async function controlSink(sink: SinkDef, operation: SinkOperation) {
   if (busy.value) return
+  if (operation === 'clear') {
+    try {
+      await ElMessageBox.confirm(
+        `清空 Sink ${sink.name} 的独立消费积压？请先停止此 Sink。`,
+        '确认清空',
+        { type: 'warning' },
+      )
+    } catch {
+      return
+    }
+  }
   busy.value = true
   try {
-    await configStore.writeTestSink(sink)
+    await manageSink(sink.name, operation)
+    await queryClient.invalidateQueries({ queryKey: qk.sinks })
+    ElMessage.success(`Sink ${sink.name}: ${operation} 已执行`)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error))
   } finally {
     busy.value = false
   }
@@ -256,7 +274,7 @@ async function remove(sink: SinkDef) {
     <el-row justify="space-between" align="middle" :gutter="16">
       <el-col :xs="24" :sm="12">
         <h1>Sinks</h1>
-        <p>配置 Redis、TDengine 和 Modbus 输出目标；状态由 Collector 返回。</p>
+        <p>配置 Redis、TDengine 和 Modbus 输出目标；状态由独立 Sink Service 返回。</p>
       </el-col>
       <el-col :xs="24" :sm="12">
         <el-row justify="end" :gutter="8">
@@ -290,7 +308,10 @@ async function remove(sink: SinkDef) {
           <template #default="{ row }">
             <el-space wrap>
               <el-button link :disabled="busy" @click="verify(row)">验证</el-button>
-              <el-button link :disabled="busy" @click="testWrite(row)">测试写入</el-button>
+              <el-button link :disabled="busy" @click="controlSink(row, 'start')">启动</el-button>
+              <el-button link :disabled="busy" @click="controlSink(row, 'stop')">停止</el-button>
+              <el-button link :disabled="busy" @click="controlSink(row, 'restart')">重启</el-button>
+              <el-button link :disabled="busy" @click="controlSink(row, 'clear')">清空</el-button>
               <el-button link type="danger" :disabled="busy" @click="remove(row)">删除</el-button>
             </el-space>
           </template>

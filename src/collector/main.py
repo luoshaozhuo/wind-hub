@@ -67,11 +67,11 @@ async def run_collector(
         await app.start()
         await grpc_server.start()
         logger.info(
-            "wind-hub-collector 已启动 devices=%d sinks=%d tasks=%d "
+            "wind-hub-collector 已启动 devices=%d tasks=%d delivery=%s "
             "collector_id=%s boot_id=%s config_hash=%s grpc=%s",
             len(app.boot_config.devices),
-            len(app.boot_config.sinks),
             len(app.boot_config.tasks),
+            app.boot_config.messaging.delivery,
             app.identity.collector_id,
             app.identity.boot_id,
             app.config_hash[:12],
@@ -130,11 +130,11 @@ def main() -> int:
     if args.check:
         app = assemble_collector(args.config, collector_id=args.collector_id)
         logger.info(
-            "配置校验通过 devices=%d disabled=%d sinks=%d tasks=%d config_hash=%s",
+            "配置校验通过 devices=%d disabled=%d tasks=%d delivery=%s config_hash=%s",
             len(app.boot_config.devices),
             len(app.boot_config.disabled_devices),
-            len(app.boot_config.sinks),
             len(app.boot_config.tasks),
+            app.boot_config.messaging.delivery,
             app.config_hash[:12],
         )
         return 0

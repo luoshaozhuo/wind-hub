@@ -1,0 +1,76 @@
+# Round 5 真实服务集成栈：NATS(JetStream) / Redis / TDengine(taosAdapter)
+# / Kafka(KRaft)。仅由 tests/fixtures/services/r5_stack.py 以独立 project
+# （wind-hub-r5-*）与动态宿主端口启动，绝不与用户已有容器或 wind-hub-test
+# project 共享名称/端口；所有宿主端口只绑 127.0.0.1。
+#
+# 镜像全部固定明确版本，禁止 latest。测试结束执行 down -v --remove-orphans，
+# 只清理本 project 的容器/网络/匿名卷，不执行任何全局 prune。
+name: ${R5_PROJECT}
+
+services:
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "127.0.0.1:${R5_NATS_PORT}:4222"
+      - "127.0.0.1:${R5_NATS_MON_PORT}:8222"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8222/healthz || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:${R5_REDIS_PORT}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  tdengine:
+    # 官方镜像：taosd + taosAdapter（6041 REST SQL）同容器启动。
+    # 3.3.6.13 是 Docker Hub 公开 3.3 线中实证支持 VARCHAR COMPOSITE KEY
+    # 的版本（DESCRIBE note=COMPOSITE KEY）；曾 pin 的 3.3.8.8 标签在
+    # Docker Hub 不存在，干净环境无法拉取（R6 D6-01）。
+    image: tdengine/tdengine:3.3.6.13
+    ports:
+      - "127.0.0.1:${R5_TDENGINE_PORT}:6041"
+    healthcheck:
+      test: ["CMD-SHELL", "taos -s 'SELECT SERVER_VERSION()' >/dev/null 2>&1 || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+
+  kafka:
+    # 官方 apache/kafka KRaft 单节点；advertised listener 必须是宿主映射端口，
+    # 客户端元数据重定向才能到达 127.0.0.1。
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://127.0.0.1:${R5_KAFKA_PORT}"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@127.0.0.1:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "127.0.0.1:${R5_KAFKA_PORT}:9092"
+    healthcheck:
+      # 容器内只做 L4 探测：kafka-topics.sh 每次冷启动独立 JVM（~10-20s），
+      # 不适合做高频健康检查；应用层就绪由测试侧真实 produce/consume 保证。
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9092' || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s

@@ -25,9 +25,9 @@ from tests.system.conftest import FullStack
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
-#: 命令目标点：``setpoint.power`` @ holding 200（float32，big-endian，
+#: 命令目标点：``setpoint_power`` @ holding 200（float32，big-endian，
 #: 与 write_functional_config 的点表及 ModbusMockServer 布局一致）。
-_COMMAND_POINT = "setpoint.power"
+_COMMAND_POINT = "setpoint_power"
 _COMMAND_ADDR = 200
 
 

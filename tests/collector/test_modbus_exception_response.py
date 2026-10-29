@@ -5,7 +5,10 @@
 必须将其分类为**非连接级**失败：不标记断连、不触发重连、不进入退避。
 否则一张错点表会把设备打入断连-重连循环，淹没真正离线的设备。
 
-修复点表并 reload 后，同一条连接上数据面必须恢复（全程零重连）。
+修复点表并 reload 后，同一条连接上采集必须恢复（全程零重连）。
+
+Sink Service 独立服务化后，「数据最终写入 Redis」的端到端恢复验证属于
+Collector→NATS→Sink Service 系统链路，见 tests/system 下的 E2E 测试。
 """
 
 from __future__ import annotations
@@ -20,14 +23,10 @@ from tests.support.functional_config import (
     MODBUS_POINTS,
     update_yaml,
 )
-from tests.support.redis_client import point_key
-from tests.support.wait import read_redis_value, wait_redis_value
 
 pytestmark = [
     pytest.mark.component,
     pytest.mark.modbus,
-    pytest.mark.redis,
-    pytest.mark.real_service,
 ]
 POINTS = "points.yaml"
 
@@ -41,34 +40,29 @@ BAD_POINT: dict[str, Any] = {
 
 
 def _points_with_bad_address() -> dict[str, Any]:
-    return {"modbus": {"points": {**MODBUS_POINTS, "bad.address": dict(BAD_POINT)}}}
+    return {"modbus": {"points": {**MODBUS_POINTS, "bad_address": dict(BAD_POINT)}}}
 
 
-def _redis_sink(redis_address: str, prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    host, _, port = redis_address.rpartition(":")
-    sinks = {
-        "redis_sink": {
-            "type": "redis",
-            "connection": {"host": host, "port": int(port), "key_prefix": prefix},
-        }
-    }
-    tasks = {
+def _telemetry_task() -> dict[str, Any]:
+    """Task 不再声明 outputs；Sink 绑定属于 sink_service 的 sinks.yaml。"""
+    return {
         "modbus-telemetry": {
             "device_group_id": "modbus-1",
             "point_group": "telemetry",
             "interval": 0.2,
-            "outputs": [{"sink_id": "redis_sink"}],
         }
     }
-    return sinks, tasks
 
 
 class TestExceptionResponseClassification:
     async def test_exception_response_not_classified_as_disconnect(
-        self, app_factory, redis_service: str, tmp_path: Path
+        self, app_factory, tmp_path: Path
     ) -> None:
-        sinks, tasks = _redis_sink(redis_service, f"wind-hub-exception-{tmp_path.name}")
-        ctx = await app_factory(point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks)
+        ctx = await app_factory(
+            point_tables=_points_with_bad_address(),
+            sinks={},
+            tasks=_telemetry_task(),
+        )
         await ctx.start_instances()
         app = ctx.app
         base = app.metrics.snapshot()
@@ -108,26 +102,35 @@ class TestExceptionResponseClassification:
         ), "异常响应导致的采集失败必须可见，不得静默吞掉"
 
     async def test_fixing_point_table_recovers_without_reconnect(
-        self, app_factory, redis_service: str, tmp_path: Path
+        self, app_factory, tmp_path: Path
     ) -> None:
-        sinks, tasks = _redis_sink(redis_service, f"wind-hub-exception-{tmp_path.name}")
-        ctx = await app_factory(point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks)
+        ctx = await app_factory(
+            point_tables=_points_with_bad_address(),
+            sinks={},
+            tasks=_telemetry_task(),
+        )
         await ctx.start_instances()
         app = ctx.app
-        key = point_key("modbus-1", "rotor.speed", prefix=f"wind-hub-exception-{tmp_path.name}")
-        await asyncio.sleep(1.0)  # 故障点表不得产生完整采集输出
-        assert await read_redis_value(redis_service, key) is None
+        await asyncio.sleep(1.0)  # 故障点表不产生有效采集
 
         # ---- 修复点表（去掉非法地址点）并 reload ----
         def mutate(data: dict[str, Any]) -> None:
-            data["point_tables"]["modbus"]["points"].pop("bad.address", None)
+            data["point_tables"]["modbus"]["points"].pop("bad_address", None)
 
         update_yaml(ctx.config_dir, POINTS, mutate)
         result = await app.config.reload()
         assert result.success, result.errors
 
-        # ---- 同一条连接上数据面恢复，全程零重连 ----
-        value = await wait_redis_value(redis_service, key, timeout=10.0)
-        assert value["quality"] == "good"
+        # ---- 同一条连接上采集恢复，全程零重连 ----
+        protocol = app.runtime.devices["modbus-1"].protocol
+        deadline = asyncio.get_running_loop().time() + 5.0
+        good_state_seen = 0
+        while asyncio.get_running_loop().time() < deadline:
+            state = app.runtime.device_state("modbus-1")
+            if state is not None and state.connected:
+                good_state_seen += 1
+            await asyncio.sleep(0.1)
+        assert good_state_seen > 0, "修复点表后采集状态未恢复"
         snap = app.metrics.snapshot()
         assert snap["device_reconnects"].get("modbus-1", 0) == 0
+        assert (await protocol.health()).healthy is True

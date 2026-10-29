@@ -31,8 +31,6 @@ from web_server.application.port.worker import (
     ConfigPrepareAck,
     DeviceRuntimeInfo,
     PlacementAck,
-    SinkOperationResult,
-    SinkRuntimeInfo,
 )
 
 
@@ -50,9 +48,7 @@ def _runtime_status_dto(message: pb.RuntimeStatusResponse) -> CollectorRuntimeSt
     return CollectorRuntimeStatus(
         running=message.running,
         device_count=message.device_count,
-        sink_count=message.sink_count,
         devices_connected=message.devices_connected,
-        sinks_healthy=message.sinks_healthy,
         points_collected=message.points_collected,
         points_routed=message.points_routed,
         points_dropped=message.points_dropped,
@@ -189,46 +185,6 @@ class CollectorGrpcClient(GrpcClientBase):
             )
             for item in response.items
         ]
-
-    async def list_sinks(self) -> list[SinkRuntimeInfo]:
-        """列出 Collector 当前 Sink 状态。"""
-        response = await self._runtime_stub.ListSinks(
-            empty_pb2.Empty(),
-            timeout=self.default_timeout,
-        )
-        return [
-            SinkRuntimeInfo(
-                name=item.name,
-                healthy=item.healthy,
-                message=item.message or None,
-                queue_depth=item.queue_depth,
-            )
-            for item in response.items
-        ]
-
-    async def verify_sink(self, name: str) -> SinkOperationResult:
-        """检查指定 Sink 健康状态。"""
-        response = await self._runtime_stub.VerifySink(
-            pb.SinkRequest(name=name),
-            timeout=self.default_timeout,
-        )
-        return SinkOperationResult(
-            success=response.success,
-            message=response.message or None,
-            queue_depth=response.queue_depth,
-        )
-
-    async def write_test_sink(self, name: str) -> SinkOperationResult:
-        """执行指定 Sink 的诊断写入。"""
-        response = await self._runtime_stub.WriteTestSink(
-            pb.SinkRequest(name=name),
-            timeout=self.default_timeout,
-        )
-        return SinkOperationResult(
-            success=response.success,
-            message=response.message or None,
-            queue_depth=response.queue_depth,
-        )
 
     async def list_tasks(self) -> list[CollectorTaskSummary]:
         """列出 Task Definition 聚合状态。"""

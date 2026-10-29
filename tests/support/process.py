@@ -302,6 +302,56 @@ def start_commander(
     )
 
 
+def start_sink_service(
+    config_dir: Path,
+    *,
+    nats_servers: tuple[str, ...],
+    wind_farm_id: str,
+    deployment_id: str,
+    delivery: str = "realtime",
+    realtime_sinks: tuple[str, ...] = (),
+    reliable_sinks: tuple[str, ...] = (),
+    grpc_port: int | None = None,
+    state_dir: Path | None = None,
+    log_dir: Path,
+    env_extra: dict[str, str] | None = None,
+) -> CollectorProcess:
+    """以 subprocess 启动真实 ``wind-hub-sink-service``。
+
+    管理面 gRPC（``--grpc-listen``）用作就绪探针，端口自动分配；
+    ``state_dir`` 存放每 Sink 的 operator stop 意图标记。
+    """
+    port = grpc_port if grpc_port is not None else free_port()
+    argv = [
+        "--config",
+        str(config_dir),
+        "--delivery",
+        delivery,
+        "--wind-farm-id",
+        wind_farm_id,
+        "--deployment-id",
+        deployment_id,
+        "--grpc-listen",
+        f"127.0.0.1:{port}",
+    ]
+    for server in nats_servers:
+        argv.extend(["--nats", server])
+    for sink_id in realtime_sinks:
+        argv.extend(["--realtime-sink", sink_id])
+    for sink_id in reliable_sinks:
+        argv.extend(["--reliable-sink", sink_id])
+    if state_dir is not None:
+        argv.extend(["--state-dir", str(state_dir)])
+    return _start_service(
+        "wind-hub-sink-service",
+        argv,
+        service="sink-service",
+        port=port,
+        log_dir=log_dir,
+        env_extra=env_extra,
+    )
+
+
 def start_web_server(
     config_dir: Path,
     *,

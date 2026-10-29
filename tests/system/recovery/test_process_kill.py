@@ -38,10 +38,17 @@ class TestProcessKillRecovery:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
-        config_dir = write_modbus_redis_config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
+        )
+        # 消费侧独立存活：Collector 被 SIGKILL 期间 sink_service 不动，
+        # 重启后数据面经同一 NATS 总线恢复。
+        await sink_service_factory(config_dir, deployment_id="kill-test-sink")
 
         # ---- 第一个实例：正常采集后直接 SIGKILL（无优雅停机） ----
         proc_a: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)

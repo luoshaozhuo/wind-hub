@@ -35,7 +35,6 @@ import {
   validateConfigText,
   verifySinkByName,
   writeDevicePoint,
-  writeTestSinkByName,
 } from './service'
 import { qualityForWindow, runQualityCheck } from './quality'
 import { systemHealthForRange } from './health'
@@ -170,14 +169,6 @@ export const handlers = [
   }),
   http.post(`${API}/sinks/:name/verify`, async ({ params }) => {
     const result = await verifySinkByName(String(params.name))
-    return isErr(result)
-      ? HttpResponse.json(errorBody(result.error.code, result.error.message), {
-          status: errStatus(result.error.code),
-        })
-      : HttpResponse.json(result)
-  }),
-  http.post(`${API}/sinks/:name/write-test`, async ({ params }) => {
-    const result = await writeTestSinkByName(String(params.name))
     return isErr(result)
       ? HttpResponse.json(errorBody(result.error.code, result.error.message), {
           status: errStatus(result.error.code),

@@ -32,6 +32,7 @@ from tests.support.new_collector import (
     CollectorFakeProtocol,
     make_collector_config,
     make_runtime,
+    make_sample_publisher,
     make_session,
 )
 from tests.support.new_commander import FakeSubscriptionHandle
@@ -47,7 +48,6 @@ def _task(task_id: str, group: str, *, interval: float = 0.02, enabled: bool = T
         device_group_id=DeviceGroupId(group),
         point_group="g",
         interval=interval,
-        sink_ids=("s1",),
         enabled=enabled,
     )
 
@@ -69,7 +69,7 @@ def _subscribe_runtime(config, proto: CollectorFakeProtocol) -> CollectorRuntime
     session = make_session(config, proto)
     return CollectorRuntime(
         devices={"dev1": session},
-        sinks={},
+        publisher=make_sample_publisher()[0],
         engine=AcquisitionEngine(),
         params=config.runtime,
         tasks=dict(config.tasks),
@@ -128,11 +128,12 @@ async def test_watchdog_reconnect_restores_running_poll_tasks() -> None:
         await runtime.stop()
 
 
-async def test_never_started_enabled_task_stopped_at_cold_boot_running_after_reconnect() -> None:
-    """方案 A：从未启动但 enabled 的实例冷启动保持 STOPPED，Watchdog 重连后 RUNNING。
+async def test_never_started_enabled_task_stays_stopped_after_reconnect() -> None:
+    """从未启动的 enabled 实例：冷启动与 Watchdog 重连后都保持 STOPPED。
 
-    第七轮契约修正（原 test_never_started_task_stays_stopped_after_reconnect
-    与方案 A 不一致——重连成功本就应启动故障设备的全部已启用实例）。
+    停止意图持久化契约（_desired_running）：Watchdog 只恢复用户期望运行
+    （曾显式启动）的失败实例；从未启动的 enabled 任务不会因设备重连被
+    自动拉起，必须由用户显式 start。
     """
     config = make_collector_config(tasks={"t1": _task("t1", "dev1")})
     runtime, proto = make_runtime(config)
@@ -141,7 +142,14 @@ async def test_never_started_enabled_task_stopped_at_cold_boot_running_after_rec
         # Collector 冷启动：enabled 但从未启动的实例只注册、不建句柄。
         assert runtime.instance_states()["t1:dev1"] is TaskInstanceState.STOPPED
         assert _handles(runtime) == {}
-        # Watchdog 重连成功：方案 A 自动启动该设备全部已启用实例。
+        # Watchdog 重连成功：不恢复从未期望运行的实例。
+        proto.connected = False
+        await _restore(runtime)
+        assert runtime.instance_states()["t1:dev1"] is TaskInstanceState.STOPPED
+        assert "t1:dev1" not in _handles(runtime)
+
+        # 显式启动后进入期望集合；随后的重连正常恢复。
+        await runtime.start_task_instance("t1:dev1")
         proto.connected = False
         await _restore(runtime)
         assert runtime.instance_states()["t1:dev1"] is TaskInstanceState.RUNNING
@@ -217,8 +225,9 @@ async def test_stop_after_disconnect_bookkeeping_persists_across_recoveries() ->
 async def test_stop_intent_does_not_leak_into_same_named_recreated_task() -> None:
     """第七轮 D6-b：旧实例的停止意图不得作用于删除后同名重建的新实例。
 
-    实例注销（sync_instances）必须丢弃 _recovery_stopped 簿记；重连后
-    新实例按方案 A 作为"从未启动的 enabled 任务"自动启动。
+    实例注销（sync_instances）必须丢弃旧代际的停止意图簿记；同名重建的
+    新实例是全新代际——与其他从未启动的 enabled 任务一样，重连不自动
+    拉起，必须由用户显式 start。
     """
     from collector.application.reload import compute_diff
 
@@ -229,17 +238,25 @@ async def test_stop_intent_does_not_leak_into_same_named_recreated_task() -> Non
         await runtime.start_task_instance("t1:dev1")
         proto.connected = False
         await runtime.stop_task_instance("t1:dev1")
-        assert "t1:dev1" in runtime.task_runtime._recovery_stopped
+        assert "t1:dev1" not in runtime.task_runtime._desired_running
 
         # 离线期间删除 t1，再以同名重建（新实例代际）。
         empty = make_collector_config(tasks={})
         await runtime.reconfigure(empty, compute_diff(config, empty))
         assert "t1:dev1" not in runtime.task_instances()
-        assert "t1:dev1" not in runtime.task_runtime._recovery_stopped
+        assert "t1:dev1" not in runtime.task_runtime._desired_running
         reborn = make_collector_config(tasks={"t1": _task("t1", "dev1", interval=0.02)})
         await runtime.reconfigure(reborn, compute_diff(empty, reborn))
         assert runtime.instance_states()["t1:dev1"] is TaskInstanceState.STOPPED
 
+        # 新代际实例不在期望运行集合：重连不复活。
+        await _restore(runtime)
+        assert runtime.instance_states()["t1:dev1"] is TaskInstanceState.STOPPED
+        assert "t1:dev1" not in _handles(runtime)
+
+        # 显式启动后才纳入恢复范围。
+        await runtime.start_task_instance("t1:dev1")
+        proto.connected = False
         await _restore(runtime)
         assert runtime.instance_states()["t1:dev1"] is TaskInstanceState.RUNNING
         assert "t1:dev1" in _handles(runtime)
@@ -248,7 +265,11 @@ async def test_stop_intent_does_not_leak_into_same_named_recreated_task() -> Non
 
 
 async def test_stop_intent_does_not_leak_into_disabled_then_reenabled_task() -> None:
-    """第七轮 D6-b：禁用再启用后的同名实例不继承禁用前的停止意图。"""
+    """禁用再启用后的同名实例是新代际：不继承旧停止意图，也不被重连自动拉起。
+
+    启用后是「从未启动的 enabled 任务」——保持 STOPPED 直到用户显式 start；
+    显式启动后重连正常恢复。
+    """
     from collector.application.reload import compute_diff
 
     config = make_collector_config(tasks={"t1": _task("t1", "dev1", interval=0.02)})
@@ -258,7 +279,7 @@ async def test_stop_intent_does_not_leak_into_disabled_then_reenabled_task() -> 
         await runtime.start_task_instance("t1:dev1")
         proto.connected = False
         await runtime.stop_task_instance("t1:dev1")
-        assert "t1:dev1" in runtime.task_runtime._recovery_stopped
+        assert "t1:dev1" not in runtime.task_runtime._desired_running
 
         disabled = make_collector_config(
             tasks={"t1": _task("t1", "dev1", interval=0.02, enabled=False)}
@@ -271,6 +292,14 @@ async def test_stop_intent_does_not_leak_into_disabled_then_reenabled_task() -> 
         await runtime.reconfigure(reenabled, compute_diff(disabled, reenabled))
         assert runtime.instance_states()["t1:dev1"] is TaskInstanceState.STOPPED
 
+        # 新代际实例不继承旧停止意图，但也未被期望运行：重连不拉起。
+        await _restore(runtime)
+        assert runtime.instance_states()["t1:dev1"] is TaskInstanceState.STOPPED
+        assert "t1:dev1" not in _handles(runtime)
+
+        # 显式 start 后新代际实例正常纳入恢复。
+        await runtime.start_task_instance("t1:dev1")
+        proto.connected = False
         await _restore(runtime)
         assert runtime.instance_states()["t1:dev1"] is TaskInstanceState.RUNNING
         assert "t1:dev1" in _handles(runtime)
@@ -307,7 +336,7 @@ async def test_watchdog_reconnect_restores_listen_mode_with_interrogation() -> N
     session = make_session(config, proto)
     runtime = CollectorRuntime(
         devices={"dev1": session},
-        sinks={},
+        publisher=make_sample_publisher()[0],
         engine=AcquisitionEngine(),
         params=config.runtime,
         tasks=dict(config.tasks),
@@ -512,7 +541,7 @@ async def test_faulty_device_reconnect_does_not_touch_healthy_device() -> None:
             "dev1": make_session(c1, p1, device_id="dev1"),
             "dev2": make_session(c2, p2, device_id="dev2"),
         },
-        sinks={},
+        publisher=make_sample_publisher()[0],
         engine=AcquisitionEngine(),
         params=RuntimeParams(connect_timeout=0.2, shutdown_timeout=0.5),
         tasks={**c1.tasks, **c2.tasks},

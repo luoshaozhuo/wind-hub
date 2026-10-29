@@ -7,7 +7,7 @@ import type { paths } from './generated/schema'
 
 // 生成路径已含 /api/v1 前缀；VITE_API_BASE 允许指向其他主机（可含 /api/v1 后缀，
 // 这里剥掉以避免重复）。
-const API_BASE = (import.meta.env.VITE_API_BASE || '')
+export const API_BASE = (import.meta.env.VITE_API_BASE || '')
   .replace(/\/api\/v1\/?$/, '')
   .replace(/\/$/, '')
 

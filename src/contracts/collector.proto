@@ -32,9 +32,7 @@ message AcquisitionInfoMessage {
 message RuntimeStatusResponse {
   bool running = 1;
   uint64 device_count = 2;
-  uint64 sink_count = 3;
   uint64 devices_connected = 4;
-  uint64 sinks_healthy = 5;
   uint64 points_collected = 6;
   uint64 points_routed = 7;
   uint64 points_dropped = 8;
@@ -134,21 +132,8 @@ message DeviceInfoMessage {
   string last_error = 6;
 }
 message ListDevicesResponse { repeated DeviceInfoMessage items = 1; }
-message SinkInfoMessage {
-  string name = 1; bool healthy = 2; string message = 3; uint64 queue_depth = 4;
-  uint64 write_failures = 5; uint64 points_dropped = 6;
-}
-message ListSinksResponse { repeated SinkInfoMessage items = 1; }
-message SinkRequest { string name = 1; }
-message SinkOperationResponse { bool success = 1; string message = 2; uint64 queue_depth = 3; }
 
 message DeviceDiffMessage {
-  repeated string added = 1;
-  repeated string removed = 2;
-  repeated string updated = 3;
-  repeated string unchanged = 4;
-}
-message SinkDiffMessage {
   repeated string added = 1;
   repeated string removed = 2;
   repeated string updated = 3;
@@ -162,7 +147,6 @@ message TaskDiffMessage {
 }
 message ConfigDiffMessage {
   DeviceDiffMessage devices = 1;
-  SinkDiffMessage sinks = 2;
   TaskDiffMessage tasks = 3;
   bool points_changed = 4;
   repeated string point_tables_changed = 5;
@@ -202,7 +186,6 @@ message PointMetadata {
   double offset = 6;
   repeated windhub.common.v1.AddressField configured_address = 7;
   repeated string task_ids = 8;
-  repeated string sink_ids = 9;
 }
 message PointMetadataResult {
   string point_id = 1;
@@ -226,10 +209,7 @@ service CollectorRuntimeService {
   rpc ListTaskInstances(google.protobuf.Empty) returns (ListTaskInstancesResponse);
   rpc GetTaskInstance(InstanceIdRequest) returns (TaskInstanceMessage);
   rpc ListDevices(google.protobuf.Empty) returns (ListDevicesResponse);
-  rpc ListSinks(google.protobuf.Empty) returns (ListSinksResponse);
   rpc QueryLatestValues(LatestValuesRequest) returns (LatestValuesResponse);
-  rpc VerifySink(SinkRequest) returns (SinkOperationResponse);
-  rpc WriteTestSink(SinkRequest) returns (SinkOperationResponse);
   rpc GetPointsMetadata(PointsMetadataRequest) returns (PointsMetadataResponse);
 }
 service CollectorControlService {

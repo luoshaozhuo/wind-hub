@@ -1,7 +1,7 @@
 """wind-hub-server composition root.
 
 Server 是独立管理/控制面：不装配、不启动 Collector Runtime。设备即时操作经
-Commander gRPC，采集 Task/运行态/Sink 状态经 Collector gRPC；Server 只持有
+Commander gRPC，采集 Task/运行态经 Collector gRPC，Sink 状态经独立 Sink Service gRPC；Server 只持有
 配置管理、读模型、监控历史与 Web/Admin 服务。
 """
 
@@ -13,6 +13,7 @@ from pathlib import Path
 from web_server.adapter.outbound.collector_directory import StaticCollectorDirectory
 from web_server.adapter.outbound.grpc.collector import CollectorGrpcClient
 from web_server.adapter.outbound.grpc.commander import CommanderGrpcClient
+from web_server.adapter.outbound.grpc.sink import SinkGrpcDirectory
 from web_server.application.app_context import AppContext
 from web_server.application.config.admin_state import AdminStateService
 from web_server.application.config.definitions import DefinitionQueryService
@@ -96,7 +97,6 @@ def assemble_server(
                 WorkerCapability.CONFIG,
                 WorkerCapability.TASK_RUNTIME,
                 WorkerCapability.ACQUISITION_STATUS,
-                WorkerCapability.SINK,
                 WorkerCapability.METRICS,
             ],
         )
@@ -127,10 +127,12 @@ def assemble_server(
         definitions=[*collector_definitions, commander_definition],
     )
     task_placements = TaskPlacementRegistry(config, collector_directory)
+    sink_directory = SinkGrpcDirectory()
     collector_status = CollectorStatusAggregator(
         collector_directory,
         task_placements,
         config,
+        sink_directory,
     )
     monitoring = MonitoringService(
         collector_status,
@@ -168,13 +170,7 @@ def assemble_server(
     admin_state = AdminStateService(config_admin)
     settings = SettingsService(config, config_admin, api_host=api_host, api_port=api_port)
     definitions = DefinitionQueryService(config, config_admin)
-    sink_ops = SinkService(
-        collector_directory,
-        monitoring,
-        task_placements,
-        config,
-        config_admin,
-    )
+    sink_ops = SinkService(monitoring, sink_directory, config, config_admin)
     diagnostics = DiagnosticService(
         commander_client,
         device_control,

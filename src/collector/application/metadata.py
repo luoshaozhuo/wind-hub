@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.application.sink_contract import ResolvedSink
 from core.domain import DeviceGroupId, DeviceId, Task
 
 from .config_service import CollectorConfigService
@@ -20,7 +19,6 @@ class PointMetadata:
     offset: float
     configured_address: dict[str, str | int | float | bool]
     task_ids: tuple[str, ...]
-    sink_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,36 +75,6 @@ class CollectorMetadataService:
                 for task in tasks_by_group.get((group_id, point_group), ())
             )
             task_ids = tuple(sorted(task.task_id for task in tasks))
-            # 仅将当前 Task 实际路由到 Sink 的测点报告为输出。
-            sink_ids = tuple(
-                sorted(
-                    {
-                        sink_id
-                        for task in tasks
-                        for sink_id in task.sink_ids
-                        if sink_id in config.sinks
-                        for sink in (config.sinks[sink_id],)
-                        if sink.enabled
-                        and (
-                            (
-                                sink.kind in {"redis", "tdengine"}
-                                and isinstance(sink, ResolvedSink)
-                                and (device_id, point_id)
-                                in (sink.task_sources or {}).get(str(task.task_id), ())
-                            )
-                            or (
-                                sink.kind == "modbus"
-                                and isinstance(sink, ResolvedSink)
-                                and any(
-                                    mapping["source"]["device_id"] == device_id
-                                    and mapping["source"]["point_id"] == point_id
-                                    for mapping in sink.points
-                                )
-                            )
-                        )
-                    }
-                )
-            )
             # data_type 由配置解析器写入 ext（与 BusinessPoint 校验一致），
             # 是权威来源；不回退到协议地址里的 "type"（如 IEC104 ASDU 类型）。
             raw_type = point.ext.get("data_type")
@@ -126,7 +94,6 @@ class CollectorMetadataService:
                             if value is not None and key != "data_type"
                         },
                         task_ids=task_ids,
-                        sink_ids=sink_ids,
                     ),
                 )
             )

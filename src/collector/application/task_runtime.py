@@ -169,14 +169,13 @@ class TaskRuntime:
 
         async def acquire() -> None:
             # POLL 型句柄的每 tick 执行体——实例快照现取，热重载替换
-            # targets 无需重启 handle。
+            # Publisher 不依赖旧输出 target。
             current = self._task_instances.get(instance_id)
             if current is None:
                 return
             await self._engine.collect(
                 device,
                 current.point_group,
-                list(current.targets),
                 instance_id,
                 current.task_id,
             )
@@ -189,7 +188,7 @@ class TaskRuntime:
                 return
             self.report_collect_started(instance_id, current.device_id, current.point_group)
             try:
-                await self._engine.process(values, list(current.targets), task_id=current.task_id)
+                await self._engine.process(values, task_id=current.task_id)
             except Exception as exc:
                 self.report_collect_failure(
                     instance_id, current.device_id, current.point_group, str(exc)
@@ -382,7 +381,7 @@ class TaskRuntime:
         - 新增的实例：以 STOPPED 注册（与启动语义一致——显式 start 才运行）；
         - 仍存在的实例：整体替换为最新快照；运行中实例的 interval /
           point_group 变化会重建采集句柄（poll 重新对齐节拍、订阅重新
-          注册），targets 单独变化无需重建（回调每轮现取最新实例）。
+          注册），采集回调每轮现取最新实例。
 
         本方法幂等，设备增删/重建/轻量更新与 Task diff 应用后都会调用。
         """
@@ -474,7 +473,6 @@ class TaskRuntime:
                     device_id=device_id,
                     point_group=task.point_group,
                     interval=task.interval,
-                    targets=task.sink_ids,
                 )
         return desired
 

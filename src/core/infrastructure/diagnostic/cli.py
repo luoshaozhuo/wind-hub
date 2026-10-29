@@ -9,7 +9,7 @@ from pathlib import Path
 import typer
 
 from core.application.diagnostic import DiagnosticResult, DiagnosticStatus
-from core.infrastructure.diagnostic import firewall, network, protocol, sink
+from core.infrastructure.diagnostic import firewall, network, protocol
 from core.infrastructure.diagnostic.config import check_config, compare_config
 
 app = typer.Typer(help="wind-hub Core diagnostic tools", no_args_is_help=True)
@@ -20,9 +20,7 @@ app.add_typer(network_app, name="network")
 firewall_app = typer.Typer(help="Inspect local firewall (read-only)", no_args_is_help=True)
 network_app.add_typer(firewall_app, name="firewall")
 protocol_app = typer.Typer(help="Read-only device protocol diagnostics", no_args_is_help=True)
-sink_app = typer.Typer(help="Downstream sink diagnostics", no_args_is_help=True)
 app.add_typer(protocol_app, name="protocol")
-app.add_typer(sink_app, name="sink")
 
 
 def _output(result: DiagnosticResult, json_output: bool) -> None:
@@ -247,39 +245,6 @@ def protocol_benchmark(
                 config,
                 device,
                 ids,
-                samples=samples,
-                interval=interval,
-                timeout=timeout,
-            )
-        ),
-        json_output,
-    )
-
-
-@sink_app.command("check")
-def sink_check(
-    sink_id: str = typer.Option(..., "--sink"),
-    config: Path = typer.Option(..., "--config"),
-    timeout: float = typer.Option(5.0, min=0.1, max=30),
-    json_output: bool = typer.Option(False, "--json"),
-) -> None:
-    _output(asyncio.run(sink.check_sink(config, sink_id, timeout=timeout)), json_output)
-
-
-@sink_app.command("benchmark")
-def sink_benchmark(
-    sink_id: str = typer.Option(..., "--sink"),
-    config: Path = typer.Option(..., "--config"),
-    samples: int = typer.Option(10, min=1, max=200),
-    interval: float = typer.Option(0.2, min=0, max=5),
-    timeout: float = typer.Option(5.0, min=0.1, max=30),
-    json_output: bool = typer.Option(False, "--json"),
-) -> None:
-    _output(
-        asyncio.run(
-            sink.benchmark_sink(
-                config,
-                sink_id,
                 samples=samples,
                 interval=interval,
                 timeout=timeout,

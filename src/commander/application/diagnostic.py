@@ -20,7 +20,8 @@ from core.domain import (
     ProtocolOptions,
     engineering_value,
 )
-from core.domain.diagnostic import (
+
+from .diagnostic_model import (
     DeviceVerifyResult,
     DiagnosticCode,
     DiagnosticSeverity,
@@ -29,7 +30,6 @@ from core.domain.diagnostic import (
     PointVerifyResult,
     ResolvedAddress,
 )
-
 from .errors import CommandError
 from .runtime import CommanderRuntime
 from .session import DeviceSession

@@ -9,12 +9,11 @@
 #                    `point_groups` 含该组的点，该组必须存在于每个匹配
 #                    到的启用设备的点表中（加载期校验）。
 #   interval:        float > 0（秒），周期采集任务必填。
-#   outputs:         list[Mapping]（必填，至少一个且不重复）—— 输出去向。
-#                    sink_id 必填，引用 sinks.yaml；key_prefix 可选，
-#                    用于 Redis 最新值输出的命名空间。
 #   enabled:         bool，默认 true；false 的 Task 不展开任何实例、
 #                    不可启动。
 #
+
+# 输出目标和 Source→Address 映射在 sinks.yaml 中声明。
 # 实例注册为 STOPPED，需经 CLI/Web API 显式 start 才开始采集。
 
 tasks:
@@ -24,9 +23,6 @@ tasks:
     device_group_id: turbine_modbus
     point_group: all
     interval: 1.0
-    outputs:
-      - sink_id: redis_latest
-      - sink_id: tdengine_history
     enabled: true
 
   # ADS 机组遥测（按 device_group 展开）
@@ -34,8 +30,6 @@ tasks:
     device_group_id: turbine_ads
     point_group: all
     interval: 1.0
-    outputs:
-      - sink_id: redis_latest
     enabled: true
 
   # IEC104 机组遥测（按 device_group 展开）
@@ -43,14 +37,6 @@ tasks:
     device_group_id: turbine_iec104
     point_group: all
     interval: 1.0
-    outputs:
-      - sink_id: tdengine_history
-      - sink_id: redis_latest
-        key_prefix: wind-hub
-        points:
-          - source: {device_id: iec104-001, point_id: active_power_iec}
-            ref: iec104_001_active_power
-            address: {field: iec104_001_active_power}
     enabled: true
 
   # SCADA 寄存器映射示例：任务禁用，启用前还需启用 modbus_scada Sink
@@ -58,16 +44,4 @@ tasks:
     device_group_id: turbine_modbus
     point_group: all
     interval: 1.0
-    outputs:
-      - sink_id: modbus_scada
-        points:
-          - source: {device_id: modbus-001, point_id: active_power}
-            ref: modbus_001_active_power
-            datatype: float32
-            address:
-              slave_id: 1
-              register_type: holding
-              address: 0
-              byte_order: big
-              word_order: big
     enabled: false

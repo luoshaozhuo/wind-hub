@@ -39,7 +39,6 @@ def test_metadata_field_numbers_are_stable() -> None:
         "offset": 6,
         "configured_address": 7,
         "task_ids": 8,
-        "sink_ids": 9,
     }
     assert {name: metadata.fields_by_name[name].number for name in expected} == expected
 

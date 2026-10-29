@@ -12,9 +12,6 @@
 #   name:    str，可选 —— 展示名，缺省等于 site_id。
 #
 # runtime（可选；None 表示未配置，默认值由各进程补全，见每项注释）
-#   queue_maxsize:       int > 0，每个 Sink 的有界队列容量（按批次计），默认 1000。
-#   backpressure_policy: drop_old / drop_new / block，队列满时的背压策略，
-#                        默认 drop_old。
 #   shutdown_timeout:    float > 0（秒），优雅停机等待消费者/资源释放，默认 10。
 #   connect_timeout:     float > 0（秒），单设备连接（含重连）超时，默认 1。
 #                        作用于应用层连接调度，与协议 protocol_options.timeout
@@ -56,9 +53,15 @@ site:
   site_id: my_site
   name: 我的风场
 
+# 每个 Collector 只使用一个 delivery；NATS 由独立部署系统启动。
+messaging:
+  backend: nats
+  servers:
+    - nats://127.0.0.1:4222
+  delivery: realtime
+  max_staleness_ms: 500
+
 runtime:
-  queue_maxsize: 1000
-  backpressure_policy: drop_old
   shutdown_timeout: 30.0
   connect_timeout: 10.0
   read_timeout: 5.0

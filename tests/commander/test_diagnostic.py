@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from commander.application.diagnostic import CommanderDiagnosticService
+from commander.application.diagnostic_model import DiagnosticCode, ResolvedAddress
 from commander.application.errors import CommandError
 from commander.application.runtime import CommanderRuntime
-from core.domain.diagnostic import DiagnosticCode, ResolvedAddress
 from tests.support.new_commander import FakeRegistry, make_commander_config
 
 pytestmark = pytest.mark.unit

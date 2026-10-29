@@ -23,9 +23,10 @@ from tests.support.functional_config import write_functional_config
 from tests.support.process import (
     CollectorProcess,
     free_port,
+    start_sink_service,
     start_web_server,
 )
-from tests.support.wait import wait_until
+from tests.support.wait import wait_tcp_port, wait_until
 
 #: full_stack 现场的稳定身份：collector_id 由本 fixture 显式指定，
 #: task id 来自 write_functional_config 的默认任务（见 functional_config）。
@@ -46,6 +47,69 @@ async def modbus_server() -> AsyncIterator[ModbusMockServer]:
         yield server
     finally:
         await server.stop()
+
+
+#: write_config_tree / write_functional_config 的默认站点身份；sink_service
+#: 的 --wind-farm-id 必须与 site_id 一致才能订阅到本现场的 realtime subject。
+SITE_ID = "test"
+
+
+@pytest.fixture
+async def sink_service_factory(
+    tmp_path: Path,
+    nats_service: str,
+) -> AsyncIterator[Callable[..., Awaitable[CollectorProcess]]]:
+    """启动真实 ``wind-hub-sink-service`` 子进程（消费侧），结束时优雅回收。
+
+    新架构下 Collector 只向 NATS 发布；断言 Redis 边界的系统测试必须同时
+    拉起独立 sink_service。先于 Collector 启动以避免首拍丢失；跨
+    Collector 重启的用例复用同一个 sink 句柄即可（消费侧独立存活）。
+    """
+    started: list[CollectorProcess] = []
+
+    async def _start(
+        config_dir: Path,
+        *,
+        realtime_sinks: tuple[str, ...] = ("redis_sink",),
+        reliable_sinks: tuple[str, ...] = (),
+        deployment_id: str | None = None,
+    ) -> CollectorProcess:
+        state_dir = tmp_path / f"sink-state-{free_port()}"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        proc = start_sink_service(
+            config_dir,
+            nats_servers=(nats_service,),
+            wind_farm_id=SITE_ID,
+            deployment_id=deployment_id or f"sys-{free_port()}",
+            realtime_sinks=realtime_sinks,
+            reliable_sinks=reliable_sinks,
+            state_dir=state_dir,
+            log_dir=tmp_path,
+        )
+        started.append(proc)
+        try:
+            # 管理面无健康 RPC；gRPC 端口可连即装配完成，端到端就绪由
+            # 后续 Redis 出数轮询保证。
+            await wait_tcp_port("127.0.0.1", int(proc.grpc_target.rpartition(":")[2]))
+            if not proc.is_running():
+                raise RuntimeError(f"sink_service exited early; see {proc.log_path}")
+        except BaseException:
+            proc.kill_tree()
+            proc.close_log()
+            started.remove(proc)
+            raise
+        return proc
+
+    yield _start
+
+    for proc in started:
+        try:
+            if proc.is_running():
+                proc.terminate()
+        except BaseException:
+            proc.kill_tree()
+        finally:
+            proc.close_log()
 
 
 @dataclass

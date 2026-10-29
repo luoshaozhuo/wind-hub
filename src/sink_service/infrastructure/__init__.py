@@ -1,0 +1,1 @@
+"""Sink Service infrastructure layer."""

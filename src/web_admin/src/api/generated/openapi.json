@@ -4418,9 +4418,10 @@
         ]
       }
     },
-    "/api/v1/sinks/{name}/write-test": {
+    "/api/v1/sinks/{name}/{operation}": {
       "post": {
-        "operationId": "sink_write_test_api_v1_sinks__name__write_test_post",
+        "description": "Forward lifecycle changes only to independent Sink Service.",
+        "operationId": "manage_sink_api_v1_sinks__name___operation__post",
         "parameters": [
           {
             "in": "path",
@@ -4430,6 +4431,15 @@
               "title": "Name",
               "type": "string"
             }
+          },
+          {
+            "in": "path",
+            "name": "operation",
+            "required": true,
+            "schema": {
+              "title": "Operation",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4437,7 +4447,9 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SinkTestResponse"
+                  "additionalProperties": true,
+                  "title": "Response Manage Sink Api V1 Sinks  Name   Operation  Post",
+                  "type": "object"
                 }
               }
             },
@@ -4454,7 +4466,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Sink Write Test",
+        "summary": "Manage Sink",
         "tags": [
           "v1-sinks"
         ]

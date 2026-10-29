@@ -5,7 +5,7 @@
 - 具有稳定唯一 ID 的实体集合一律使用 Mapping，Mapping Key 即实体 ID，
   实体内部不重复声明自身 ID；
 - 跨实体引用字段统一命名：``model_id`` / ``device_type_id`` /
-  ``point_table_id`` / ``device_group_id(s)`` / ``sink_ids`` /
+  ``point_table_id`` / ``device_group_id(s)`` /
   ``business_point_id`` / ``parent_id``；
 - ``endpoint`` 只表达 host/port；协议参数一律放在设备或型号的
   ``protocol_options``；型号连接默认值拆分为 ``endpoint_defaults``
@@ -27,6 +27,7 @@ from core.application.errors import ConfigError
 from core.application.settings import (
     ADSLocalConfig,
     LogSettings,
+    MessagingSettings,
     RuntimeSettings,
     SystemSettings,
     ThreadPoolSettings,
@@ -53,7 +54,7 @@ from core.domain import (
     Task,
     validate_core_config,
 )
-from core.domain.task import TaskOutput
+from core.domain.sink import SinkOutput
 from core.domain.unit import DIMENSIONLESS, UnitCatalog
 from core.infrastructure.protocol.ads.config import is_valid_ams_net_id, parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
@@ -221,7 +222,25 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
     logs_raw = _map(raw.get("logs", {}), "system.logs")
     _keys(logs_raw, set(LogSettings.__dataclass_fields__), "system.logs")
     logs = LogSettings(**logs_raw)
-    return site_id, name, SystemSettings(runtime=runtime, ads=ads, logs=logs)
+    messaging = None
+    if "messaging" in raw:
+        messaging_raw = _map(raw["messaging"], "system.messaging")
+        _keys(
+            messaging_raw,
+            {"backend", "servers", "delivery", "max_staleness_ms"},
+            "system.messaging",
+        )
+        if messaging_raw.get("backend") != "nats":
+            raise ConfigError("messaging.backend must be nats")
+        try:
+            messaging = MessagingSettings(
+                servers=tuple(messaging_raw["servers"]),
+                delivery=messaging_raw["delivery"],
+                max_staleness_ms=messaging_raw.get("max_staleness_ms"),
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ConfigError(f"invalid messaging configuration: {exc}") from exc
+    return site_id, name, SystemSettings(runtime=runtime, messaging=messaging, ads=ads, logs=logs)
 
 
 _ADS_LOGICAL_TYPES: dict[str, str] = {
@@ -557,47 +576,20 @@ def _devices(
 
 
 def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
+    """Parse acquisition tasks with no Sink output ownership."""
     _keys(raw, {"tasks"}, "tasks.yaml")
     result: dict[str, Task] = {}
     for raw_key, item in _map(raw.get("tasks", {}), "tasks").items():
         identity = _id_key(raw_key, "task ID")
         context = f"task '{identity}'"
         data = _map(item, context)
-        _keys(
-            data,
-            {"device_group_id", "point_group", "interval", "outputs", "enabled"},
-            context,
-        )
-        resolved: list[TaskOutput] = []
-        for index, item in enumerate(_list(data.get("outputs"), f"{context}.outputs")):
-            entry = _map(item, f"{context}.outputs[{index}]")
-            _keys(entry, {"sink_id", "key_prefix", "points"}, f"{context}.outputs[{index}]")
-            resolved.append(
-                TaskOutput(
-                    sink_id=_name(entry.get("sink_id"), f"{context}.outputs[{index}].sink_id"),
-                    key_prefix=(
-                        _name(entry["key_prefix"], f"{context}.outputs[{index}].key_prefix")
-                        if "key_prefix" in entry
-                        else None
-                    ),
-                    points=tuple(
-                        _map(point, f"{context}.outputs[{index}].points")
-                        for point in _list(
-                            entry.get("points", []), f"{context}.outputs[{index}].points"
-                        )
-                    ),
-                )
-            )
-        outputs = tuple(resolved)
-        sink_ids = tuple(output.sink_id for output in outputs)
+        _keys(data, {"device_group_id", "point_group", "interval", "enabled"}, context)
         result[identity] = Task(
             task_id=identity,
             device_group_id=DeviceGroupId(
                 _name(data.get("device_group_id"), f"{context}.device_group_id")
             ),
             point_group=_name(data.get("point_group"), f"{context}.point_group"),
-            sink_ids=sink_ids,
-            outputs=outputs,
             interval=_number(data.get("interval"), f"{context}.interval"),
             enabled=_flag(data.get("enabled", True), f"{context}.enabled"),
         )
@@ -613,11 +605,18 @@ def _sinks(raw: Mapping[str, Any]) -> dict[str, Sink]:
             kind=definition.type,
             enabled=definition.enabled,
             connection=entry["connection"],
+            outputs={
+                task_id: SinkOutput(
+                    key_prefix=output.get("key_prefix"),
+                    points=tuple(output.get("points", ())),
+                )
+                for task_id, output in entry.get("outputs", {}).items()
+            },
         )
     return sinks
 
 
-def load_domain(config_dir: Path) -> ConfigSnapshot:
+def load_domain(config_dir: Path, *, include_sinks: bool = True) -> ConfigSnapshot:
     """一次性解析完整 YAML 集合，构建并验证领域快照。"""
     base = Path(config_dir)
     system = read_yaml_mapping(base / "system.yaml")
@@ -626,7 +625,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
     device_document = read_yaml_mapping(base / "devices.yaml")
     point_document = read_yaml_mapping(base / "points.yaml")
     task_document = read_yaml_mapping(base / "tasks.yaml")
-    sink_document = read_yaml_mapping(base / "sinks.yaml")
+    sink_document = read_yaml_mapping(base / "sinks.yaml") if include_sinks else {}
     business_document = read_yaml_mapping(base / "business_points.yaml")
     try:
         site_id, site_name, settings = _system(system)
@@ -643,25 +642,26 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
             point_tables,
         )
         tasks = _tasks(task_document)
-        sinks = _sinks(sink_document)
-        for task in tasks.values():
-            for output in task.outputs:
-                sink = sinks.get(output.sink_id)
-                if sink is None:
-                    raise ConfigError(
-                        f"Task '{task.task_id}' references unknown sink '{output.sink_id}'"
-                    )
+        sinks = _sinks(sink_document) if include_sinks else {}
+        for sink in sinks.values():
+            for task_id, output in sink.outputs.items():
+                task = tasks.get(task_id)
+                if task is None:
+                    raise ConfigError(f"Sink '{sink.sink_id}' references unknown Task '{task_id}'")
                 if output.key_prefix is not None and sink.kind != "redis":
                     raise ConfigError(f"Task '{task.task_id}' key_prefix requires a Redis Sink")
-                if not output.points and sink.kind == "modbus":
-                    # Modbus 从站必须为每个点显式分配寄存器地址；空 points
-                    # 无法安全展开为通配（redis/tdengine 可按任务组全量投递）。
+                if task.enabled and not sink.enabled:
                     raise ConfigError(
-                        f"Task '{task.task_id}' modbus output '{output.sink_id}' "
-                        "must declare explicit points with register addresses"
+                        f"enabled Task {task.task_id} targets disabled Sink {sink.sink_id}"
+                    )
+                if not output.points and sink.kind in {"modbus", "grpc", "kafka"}:
+                    # 仅 Redis/TDengine 可以根据 Task 的采集组自动展开空映射。
+                    raise ConfigError(
+                        f"Task '{task.task_id}' output '{sink.sink_id}' "
+                        "must declare explicit point output mappings"
                     )
                 if output.points:
-                    # TaskOutput.points 在领域模型内被递归冻结（MappingProxy/tuple），
+                    # SinkOutput.points 在领域模型内被递归冻结（MappingProxy/tuple），
                     # 校验与 Sink 类型规则一律使用还原后的普通 dict/list 视图。
                     plain_points = [_yaml_plain(point) for point in output.points]
                     for mapping in plain_points:
@@ -696,7 +696,6 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
             business_points=business_points,
             point_tables=point_tables,
             tasks=tasks,
-            sink_ids=set(sinks),
             sinks=sinks,
         )
         site = Site(site_id=site_id, name=site_name, devices=devices)

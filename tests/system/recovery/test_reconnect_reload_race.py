@@ -37,7 +37,7 @@ pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"
 
-# gen.power 默认 scale=2.0/offset=10.0：raw 800.0 → 1610.0；去掉换算后 → 800.0。
+# gen_power 默认 scale=2.0/offset=10.0：raw 800.0 → 1610.0；去掉换算后 → 800.0。
 SCALED_POWER = 1610.0
 RAW_POWER = 800.0
 
@@ -47,16 +47,21 @@ class TestPointTableChangeWhileOffline:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
         """CFG-02：掉线期间改点表——设备恢复后必须使用新点表出数。"""
-        config_dir = write_modbus_redis_config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
+        )
+        await sink_service_factory(config_dir)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_telemetry_value(
             redis_service,
-            point_id="gen.power",
+            point_id="gen_power",
             match=lambda value: value["value"] == pytest.approx(SCALED_POWER),
         )
 
@@ -65,9 +70,9 @@ class TestPointTableChangeWhileOffline:
             proc, lambda p: p["devices_connected"] == 0, description="device disconnected"
         )
 
-        # ---- 掉线期间修改点表（gen.power 去掉工程值换算）并重载 ----
+        # ---- 掉线期间修改点表（gen_power 去掉工程值换算）并重载 ----
         def _drop_scaling(data: dict[str, Any]) -> None:
-            point = data["point_tables"]["modbus"]["points"]["gen.power"]
+            point = data["point_tables"]["modbus"]["points"]["gen_power"]
             point.pop("scale", None)
             point.pop("offset", None)
 
@@ -89,12 +94,12 @@ class TestPointTableChangeWhileOffline:
         )
         observed = await wait_telemetry_value(
             redis_service,
-            point_id="gen.power",
+            point_id="gen_power",
             match=lambda value: value["value"] == pytest.approx(RAW_POWER),
         )
         await asyncio.sleep(1.0)
         latest = await wait_telemetry_value(
-            redis_service, point_id="gen.power", after=str(observed["timestamp"])
+            redis_service, point_id="gen_power", after=str(observed["timestamp"])
         )
         assert latest["value"] == pytest.approx(RAW_POWER)
 
@@ -104,11 +109,16 @@ class TestStopTaskDuringReconnect:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
+        sink_service_factory,
         redis_service: str,
+        nats_service: str,
         tmp_path: Path,
     ) -> None:
         """CFG-03：backoff 期间 stop task——设备恢复后 Task 必须保持 STOPPED。"""
-        config_dir = write_modbus_redis_config(tmp_path / "cfg", modbus_server.port, redis_service)
+        config_dir = write_modbus_redis_config(
+            tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
+        )
+        await sink_service_factory(config_dir)
         proc: CollectorProcess = await collector_factory(config_dir)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_telemetry_value(redis_service)

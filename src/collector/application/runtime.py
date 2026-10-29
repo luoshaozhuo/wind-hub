@@ -1,22 +1,19 @@
-"""CollectorRuntime —— 采集系统三个子 Runtime 之间的整体协调器。
+"""CollectorRuntime —— 协调设备、任务与数据发布生命周期。
 
 架构位置：application 层。职责：
 
 - 设备子系统——委托 :class:`DeviceRuntime` 管理会话、连接状态与协议生命周期；
 - Task 子系统——委托 :class:`TaskRuntime` 管理 Task Definition 展开、实例
   启停、采集句柄与采集执行状态；
-- Sink 子系统——委托 :class:`SinkRuntime` 管理 Sink 生命周期、队列、
-  消费者、背压与派发；
-- 设备与 Sink 的增删 / 重建，配置热重载时的跨子系统顺序（:meth:`reconfigure`）；
+- 发布子系统——通过 NATS 将采样数据发送给独立 Sink Service；
+- 设备和采集任务的热更新；
 - CollectorRuntime 状态（running / 聚合 health / 组件计数 / 点位统计）；
 - 整体 ``start()`` / ``stop()`` 的子系统顺序。
 
 不负责：协议实现细节（ProtocolPort 适配器）、配置加载与 diff
-（CollectorConfigService）、采集时序（acquisition handle）、Sink 交付细节
-（SinkRuntime）。
+（CollectorConfigService）、采集时序（acquisition handle）和下游输出实现。
 
-失败语义：设备连接与 sink 打开均为 best-effort——单个失败记录日志并跳过，
-其余组件照常启动，失败组件经 :meth:`health` 暴露为不健康。
+失败语义：设备连接 best-effort；NATS 故障不阻断采集并持续报告。
 """
 
 from __future__ import annotations
@@ -28,7 +25,6 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from core.application import ConnectionHealth
-from core.application.port import SinkPort
 from core.domain import Device, DeviceId, PointTable
 
 from ..domain.acquisition import AcquisitionEngine
@@ -36,16 +32,14 @@ from .acquisition_state import AcquisitionRuntimeState
 from .config import CollectionTask, CollectorConfig, RuntimeParams
 from .device_runtime import DeviceRuntime
 from .device_state import DeviceRuntimeState
+from .nats_dispatch import SamplePublisher as NatsPublisher
 from .reload import (
     HOT_RELOADABLE_RUNTIME_FIELDS,
     ConfigDiff,
     DeviceDiff,
-    SinkDiff,
     TaskDiff,
 )
 from .session import AcquisitionMode, CollectorDeviceSession
-from .sink_registry import SinkFactory
-from .sink_runtime import SinkRuntime
 from .task_instance import CollectionTaskInstance, TaskInstanceState
 from .task_runtime import TaskRuntime
 
@@ -58,7 +52,7 @@ class RuntimeMetricsPort(Protocol):
     """运行时指标端口——由组合根注入（接 Prometheus 计数器/直方图）。
 
     只承载「事件发生时累加」的计数与观测（connect 失败、重连成功、
-    collect 完成、poll 时序统计）；gauge 类状态（设备连通数、sink 队列
+    collect 完成、poll 时序统计）；gauge 类状态（设备连通数、发布状态
     深度）由指标拉取时从 CollectorRuntime 快照覆盖，不经本端口。
     application 层不直接依赖 infra 的 metrics 模块——保持与引擎回调
     一致的依赖倒置。
@@ -95,30 +89,29 @@ SessionFactory = Callable[[Device, PointTable], CollectorDeviceSession]
 
 
 class CollectorRuntime:
-    """Collector 整体生命周期协调器——Device/Task/Sink 三个子 Runtime 的装配与编排。
+    """Collector 整体生命周期协调器——Device/Task/Publisher 的装配与编排。
 
     注入依赖（构造期均为纯内存装配，无网络 I/O）：
 
     - ``devices`` — 初始设备会话注册表，构造时把所有权交给
       DeviceRuntime；
-    - ``sinks`` — Sink 注册表，构造时把所有权交给 SinkRuntime；
+    - ``publisher`` — NATS 发布器，由 Collector 管理连接；
     - ``engine`` — 采集引擎；本类构造时把三个状态端口分别绑定到对应
-      子 Runtime（设备 → DeviceRuntime，采集 → TaskRuntime，派发 → SinkRuntime）；
+      子系统（设备 → DeviceRuntime，采集 → TaskRuntime，发布 → SamplePublisher）；
     - ``tasks`` — 采集 Task Definition 注册表，构造时把所有权交给 TaskRuntime；
     - ``params`` — 运行时参数（队列容量、背压策略、超时）；
-    - ``session_factory`` / ``sink_factory`` — 热重载重建组件用的工厂
+    - ``session_factory`` — 热重载重建设备会话所用的工厂
       （由组合根注入）。
     """
 
     def __init__(
         self,
         devices: dict[str, CollectorDeviceSession],
-        sinks: dict[str, SinkPort],
+        publisher: NatsPublisher,
         engine: AcquisitionEngine,
         params: RuntimeParams,
         tasks: dict[str, CollectionTask] | None = None,
         session_factory: SessionFactory | None = None,
-        sink_factory: SinkFactory | None = None,
         clock: Callable[[], float] = time.monotonic,
         metrics_hook: RuntimeMetricsPort | None = None,
     ) -> None:
@@ -143,7 +136,7 @@ class CollectorRuntime:
         self._device_runtime.set_reconnect_callback(
             restore_device_tasks, on_connected=prepare_device_tasks
         )
-        self._sink_runtime = SinkRuntime(sinks, params, sink_factory)
+        self._publisher = publisher
         self._session_factory = session_factory
         self._engine = engine
         self._params = params
@@ -154,8 +147,8 @@ class CollectorRuntime:
         # 采集执行状态的落点：引擎上报每次 collect 的开始/成功/失败
         # （TaskRuntime 实现 AcquisitionStatePort）。
         self._engine.attach_acquisition_state(self._task_runtime)
-        # Sink 派发的落点：引擎采集结果进入 SinkRuntime 的队列/背压/消费者机制。
-        self._engine.attach_sink_dispatch(self._sink_runtime)
+        # 采集结果直接进入 NATS 发布端口。
+        self._engine.attach_sample_publisher(self._publisher)
 
         # 生命周期串行化：start / stop 不能重叠，保证启动中状态不会被停机
         # 直接覆写；``running`` 依然只在 ``_started`` 真正完成后才返回 True。
@@ -178,19 +171,9 @@ class CollectorRuntime:
         return self._task_runtime
 
     @property
-    def sink_runtime(self) -> SinkRuntime:
-        """Sink 子系统；Sink 注册表、队列、消费者与派发端口的唯一入口。"""
-        return self._sink_runtime
-
-    @property
     def devices(self) -> Mapping[str, CollectorDeviceSession]:
         """当前设备注册表的只读视图（所有权与变更均在 DeviceRuntime）。"""
         return self._device_runtime.devices
-
-    @property
-    def sinks(self) -> Mapping[str, SinkPort]:
-        """当前 Sink 注册表的只读视图（所有权与变更均在 SinkRuntime）。"""
-        return self._sink_runtime.sinks
 
     def device_state(self, device_id: str) -> DeviceRuntimeState | None:
         """单台设备的连接/重连簿记状态（委托 DeviceRuntime）。"""
@@ -199,10 +182,6 @@ class CollectorRuntime:
     async def device_health(self) -> dict[str, ConnectionHealth]:
         """主动检查全部设备健康状态（委托 DeviceRuntime）。"""
         return await self._device_runtime.health()
-
-    async def sink_health(self) -> dict[str, ConnectionHealth]:
-        """主动检查全部 Sink 健康状态（委托 SinkRuntime）。"""
-        return await self._sink_runtime.health()
 
     @property
     def engine(self) -> AcquisitionEngine:
@@ -214,11 +193,11 @@ class CollectorRuntime:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """启动运行时——连接设备、打开 sink、注册采集 Task Instance（默认
+        """启动运行时——连接设备、启动消息发布、注册采集 Task Instance（默认
         STOPPED，显式 start 才启动 acquisition）。
 
-        子系统顺序：设备连接 → Sink 打开/消费者 → Task Instance 注册。
-        单设备/单 Sink 失败只记录状态并继续，避免一个现场端点阻断整进程。
+        子系统顺序：设备连接 → Publisher 启动 → Task Instance 注册。
+        NATS 故障不阻断设备采集；单设备故障不阻断其它设备。
         """
         async with self._lifecycle_lock:
             if self._running:
@@ -228,7 +207,7 @@ class CollectorRuntime:
 
             try:
                 await self._device_runtime.connect_all()
-                await self._sink_runtime.start()
+                await self._publisher.open()
                 # 实例默认 STOPPED，采集由控制面显式启动。
                 await self._task_runtime.sync_instances()
             except BaseException:
@@ -242,9 +221,9 @@ class CollectorRuntime:
 
     async def stop(self) -> None:
         """优雅停机——关闭全部 acquisition handle、排空队列、flush 并关闭
-        sink、关闭设备连接。
+        Publisher、关闭设备连接。
 
-        子系统按依赖逆序：先停采集（不再产生数据），再排空/关闭 Sink，
+        子系统按依赖逆序：先停采集（不再产生数据），再关闭 Publisher，
         最后关闭设备连接。单资源清理异常被记录但不阻断其他资源释放。
         """
         async with self._lifecycle_lock:
@@ -262,7 +241,7 @@ class CollectorRuntime:
         first_error: BaseException | None = None
         for name, cleanup in (
             ("tasks", self._task_runtime.stop_all),
-            ("sinks", self._sink_runtime.stop),
+            ("publisher", self._publisher.close),
             ("devices", self._device_runtime.close_all),
         ):
             try:
@@ -280,20 +259,14 @@ class CollectorRuntime:
     # ------------------------------------------------------------------
 
     async def health(self) -> dict[str, ConnectionHealth]:
-        """主动检查设备并合并当前 Sink 健康状态。"""
-        device_health, sink_health = await asyncio.gather(
-            self._device_runtime.health(),
-            self._sink_runtime.health(),
-        )
-        result = dict(device_health)
-        result.update(sink_health)
-        return result
+        """查询当前设备连接健康状态。"""
+        return await self._device_runtime.health()
 
     @property
     def running(self) -> bool:
         """运行时是否完整就绪。
 
-        ``True`` 仅在 :meth:`start` 完成全部步骤（设备连接尝试、sink
+        ``True`` 仅在 :meth:`start` 完成全部步骤（设备连接尝试、发布器
         打开、Task Instance 注册）之后、:meth:`stop` 开始之前。启动进行中
         （如不可达设备仍在 ``connect_timeout`` 内）为 ``False``，使
         健康检查能区分「启动中」与「已就绪」。
@@ -306,36 +279,19 @@ class CollectorRuntime:
         return len(self._device_runtime.devices)
 
     @property
-    def sink_count(self) -> int:
-        """返回当前 CollectorRuntime 注册的 Sink 数量。"""
-        return len(self._sink_runtime.sinks)
-
-    @property
     def points_collected(self) -> int:
         """累计采集点数（引擎侧口径）。"""
         return self._engine.points_collected
 
     @property
     def points_routed(self) -> int:
-        """累计派发点数——成功进入 sink 队列的点值总数（SinkRuntime 口径）。"""
-        return self._sink_runtime.points_routed
+        """累计成功发布样本数。"""
+        return self._publisher.points_published
 
     @property
     def points_dropped(self) -> int:
-        """累计丢弃点数——背压策略丢弃的点值总数（SinkRuntime 口径）。"""
-        return self._sink_runtime.points_dropped
-
-    def sink_queue_depths(self) -> dict[str, int]:
-        """各 sink 队列当前深度（只读透传 SinkRuntime）。"""
-        return self._sink_runtime.queue_depths()
-
-    def sink_write_failures(self) -> dict[str, int]:
-        """各 sink 运行期写失败次数（只读透传 SinkRuntime）。"""
-        return self._sink_runtime.write_failures()
-
-    def sink_drops(self) -> dict[str, int]:
-        """各 sink 运行期丢弃点数（只读透传 SinkRuntime）。"""
-        return self._sink_runtime.drops_by_sink()
+        """累计丢弃的样本数。"""
+        return self._publisher.points_dropped
 
     # ------------------------------------------------------------------
     # 采集 Task——查询与实例生命周期委托（实现与簿记在 TaskRuntime）
@@ -442,7 +398,7 @@ class CollectorRuntime:
         """基于真实 CollectorRuntime 注册表生成强制收敛 diff。
 
         用于失败回滚或 revision reconciliation。它不依赖 CollectorConfigService
-        的 current_config 基线，而是按当前实际设备/Sink/Task 注册表与目标配置
+        的 current_config 基线，而是按当前实际设备/Task 注册表与目标配置
         生成一个保守 diff，确保曾被部分 reconfigure 修改的运行态能够重新
         收敛到目标配置。
         """
@@ -452,15 +408,6 @@ class CollectorRuntime:
             added=sorted(target_device_ids - actual_device_ids),
             removed=sorted(actual_device_ids - target_device_ids),
             updated=sorted(target_device_ids & actual_device_ids),
-        )
-
-        target_sinks = {name: sink for name, sink in target.sinks.items() if sink.enabled}
-        actual_sink_ids = set(self._sink_runtime.sinks)
-        target_sink_ids = set(target_sinks)
-        sinks = SinkDiff(
-            added=sorted(target_sink_ids - actual_sink_ids),
-            removed=sorted(actual_sink_ids - target_sink_ids),
-            updated=sorted(target_sink_ids & actual_sink_ids),
         )
 
         target_task_ids = set(target.tasks)
@@ -474,7 +421,6 @@ class CollectorRuntime:
         changed_tables = sorted(str(t) for t in target.point_tables)
         return ConfigDiff(
             devices=devices,
-            sinks=sinks,
             tasks=tasks,
             points_changed=bool(changed_tables),
             point_tables_changed=changed_tables,
@@ -485,7 +431,7 @@ class CollectorRuntime:
         )
 
     async def reconfigure(self, new_config: CollectorConfig, diff: ConfigDiff) -> list[str]:
-        """按 diff 重构运行时——设备/sink/task 增删重建与点表重注入。
+        """按 diff 重构运行时——设备/task 增删重建与点表重注入。
 
         各阶段相互隔离：单阶段失败记录到返回的错误列表，其余阶段继续执行。
         本方法不修改配置快照——``current_config`` 的提交时机由
@@ -507,12 +453,6 @@ class CollectorRuntime:
         except Exception as exc:
             logger.error("Device diff apply failed: %s", exc, exc_info=True)
             errors.append(f"device: {exc}")
-
-        try:
-            await self._sink_runtime.apply_diff(diff.sinks, new_config.sinks)
-        except Exception as exc:
-            logger.error("Sink diff apply failed: %s", exc, exc_info=True)
-            errors.append(f"sink: {exc}")
 
         # 点表内容变化：对绑定受影响表、且未在设备 diff 中增删重建的设备，
         # 仅重注入点映射——不重建 Protocol 连接。
@@ -574,7 +514,6 @@ class CollectorRuntime:
         """
         self._params = params
         self._device_runtime.update_params(params)
-        self._sink_runtime.update_params(params)
 
     def _reinject_changed_tables(self, new_config: CollectorConfig, diff: ConfigDiff) -> None:
         """点表内容变化时，对绑定受影响表的既有设备重注入点映射。

@@ -1,0 +1,16 @@
+syntax = "proto3";
+package windhub.sink.v1;
+
+import "google/protobuf/wrappers.proto";
+
+// This service uses a versioned JSON object inside BytesValue to avoid
+// hand-maintaining generated protobuf artifacts until the contracts build.
+service SinkService {
+  rpc GetServiceStatus(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc ListSinks(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc GetSinkStatus(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc StartSink(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc StopSink(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc RestartSink(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc ClearSink(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+}

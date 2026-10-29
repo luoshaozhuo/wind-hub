@@ -2,7 +2,7 @@
 # wind-hub 配置模板 — Sink 输出（支持 TDengine、Modbus TCP Server、Redis、gRPC）
 # ---------------------------------------------------------------------------
 #
-# sinks: Mapping，Key 即 Sink ID（Task 经 outputs[].sink_id 引用）。字段：
+# sinks: Mapping，Key 即 Sink ID。Task 不再声明输出 Sink；由 Sink 绑定 Task。
 #   type:       modbus / redis / tdengine / grpc（必填）。
 #   enabled:    bool，默认 true；enabled Task 不允许引用 disabled Sink；
 #               同一 host:port 不允许两个 enabled 的 Modbus Sink。
@@ -27,7 +27,7 @@
 #     endpoint: str，默认 127.0.0.1:50073，仅支持本机回环地址。
 #     timeout: float > 0，默认 3 秒。
 #
-# Task outputs[].points 条目字段（仅在 tasks.yaml 声明）：
+# Sink outputs.<task_id>.points 条目字段（在 sinks.yaml 声明）：
 #   source:    必填 —— 内部点引用：{device_id, point_id}，必须存在于
 #              该设备绑定点表（继承展开后）。
 #   ref:       str，可选 —— 对外引用名，缺省 "<device_id>.<point_id>"；
@@ -58,6 +58,15 @@ sinks:
       database: 0
       timeout: 1.0
       key_prefix: "wind-hub"
+    outputs:
+      turbine-modbus-all: {}
+      turbine-ads-all: {}
+      turbine-iec104-all:
+        key_prefix: wind-hub
+        points:
+          - source: {device_id: iec104-001, point_id: active_power_iec}
+            ref: iec104_001_active_power
+            address: {field: iec104_001_active_power}
 
   # 历史时序库：密码应由部署时安全注入，勿在生产仓库保存明文。
   tdengine_history:
@@ -72,6 +81,9 @@ sinks:
       password: "CHANGE_ME"
       timeout: 5
       tls: false
+    outputs:
+      turbine-modbus-all: {}
+      turbine-iec104-all: {}
 
   # Modbus TCP Server（对 SCADA 暴露寄存器；默认关闭）
   modbus_scada:
@@ -80,6 +92,18 @@ sinks:
     connection:
       host: "0.0.0.0"
       port: 1502
+    outputs:
+      turbine-modbus-scada:
+        points:
+          - source: {device_id: modbus-001, point_id: active_power}
+            ref: modbus_001_active_power
+            datatype: float32
+            address:
+              slave_id: 1
+              register_type: holding
+              address: 0
+              byte_order: big
+              word_order: big
 
   # Collector -> Gateway 批量遥测 gRPC（按需启用）
   gateway_feedback:

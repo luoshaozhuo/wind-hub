@@ -20,12 +20,12 @@ from tests.support.config_helper import write_config_tree
 
 #: 与 ModbusMockServer 默认寄存器布局一致的点表。
 MODBUS_POINTS: dict[str, dict[str, Any]] = {
-    "rotor.speed": {
+    "rotor_speed": {
         "point_groups": ["telemetry"],
         "address": {"register_type": "holding", "address": 100},
         "data_type": "float32",
     },
-    "gen.power": {
+    "gen_power": {
         "point_groups": ["telemetry"],
         "address": {"register_type": "holding", "address": 102},
         "data_type": "float32",
@@ -33,12 +33,12 @@ MODBUS_POINTS: dict[str, dict[str, Any]] = {
         "scale": 2.0,
         "offset": 10.0,
     },
-    "temp.int": {
+    "temp_int": {
         "point_groups": ["telemetry"],
         "address": {"register_type": "holding", "address": 104},
         "data_type": "int16",
     },
-    "setpoint.power": {
+    "setpoint_power": {
         "point_groups": ["telemetry", "control"],
         "address": {"register_type": "holding", "address": 200},
         "data_type": "float32",
@@ -49,8 +49,25 @@ DEFAULT_TASK: dict[str, Any] = {
     "device_group_id": "modbus-1",
     "point_group": "telemetry",
     "interval": 0.2,
-    "outputs": [{"sink_id": "redis_sink"}],
 }
+
+#: Task 不再声明 outputs；Sink 绑定在 sinks.yaml 的 outputs.<task_id>。
+#: 空映射表示该 Sink 消费该 Task 全量点组。
+DEFAULT_SINK_OUTPUTS: dict[str, Any] = {"modbus-telemetry": {}}
+
+#: Collector 默认 realtime NATS 设置；组件级采集测试不依赖真实 NATS
+#: （发布失败只计 dropped），系统/E2E 测试经 nats_url 覆盖为真实地址。
+DEFAULT_MESSAGING: dict[str, Any] = {
+    "backend": "nats",
+    "servers": ["nats://127.0.0.1:4222"],
+    "delivery": "realtime",
+    "max_staleness_ms": 60_000,
+}
+
+
+def realtime_messaging(nats_url: str) -> dict[str, Any]:
+    """realtime NATS 的 system.messaging 块（write_config_tree 直写用）。"""
+    return {**DEFAULT_MESSAGING, "servers": [nats_url]}
 
 
 def modbus_device_dict(port: int, **overrides: Any) -> dict[str, Any]:
@@ -90,9 +107,11 @@ def write_functional_config(
     sinks: dict[str, Any] | None = None,
     system: dict[str, Any] | None = None,
     device_models: dict[str, Any] | None = None,
+    nats_url: str = "nats://127.0.0.1:4222",
 ) -> Path:
-    """写出单 Modbus 设备的测试配置；缺省输出为本机 Redis。
+    """写出单 Modbus 设备的测试配置；缺省 Sink 绑定为本机 Redis。
 
+    Task 经 sinks.yaml 的 outputs 绑定 Sink（sink_service 消费）；
     如需隔离 Redis 地址，应显式提供 ``sinks``。
     """
     if callable(devices):
@@ -108,6 +127,7 @@ def write_functional_config(
             "redis_sink": {
                 "type": "redis",
                 "connection": {"host": "127.0.0.1", "port": 6379},
+                "outputs": DEFAULT_SINK_OUTPUTS,
             }
         },
         tasks=tasks if tasks is not None else {"modbus-telemetry": dict(DEFAULT_TASK)},
@@ -121,6 +141,7 @@ def write_functional_config(
                 "health_timeout": 0.5,
                 **((system or {}).get("runtime") or {}),
             },
+            "messaging": {**DEFAULT_MESSAGING, "servers": [nats_url]},
             **{k: v for k, v in (system or {}).items() if k != "runtime"},
         },
     )

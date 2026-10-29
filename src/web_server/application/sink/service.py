@@ -1,8 +1,7 @@
-"""Sink 管理、Verify 与 Write Test 服务。"""
+"""Sink 管理与独立服务状态查询。"""
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any
 
@@ -12,9 +11,8 @@ from core.domain.sink import Sink
 from core.infrastructure.config.yaml import yaml_plain
 from web_server.application.config.files import ConfigApplyResult, ConfigFileService
 from web_server.application.config.service import ConfigService
-from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.monitoring import MonitoringSnapshotPort
-from web_server.application.task.placement import TaskPlacementRegistry
+from web_server.application.port.sink import SinkDirectoryPort
 
 
 class SinkSnapshot(BaseModel):
@@ -31,7 +29,7 @@ class SinkSnapshot(BaseModel):
 
 
 class SinkTestResult(BaseModel):
-    """Verify/Write Test 结果。"""
+    """Sink 状态验证结果。"""
 
     success: bool
     latency_ms: float
@@ -44,20 +42,18 @@ class SinkService:
 
     def __init__(
         self,
-        collectors: CollectorDirectory,
         monitoring: MonitoringSnapshotPort,
-        placements: TaskPlacementRegistry,
+        sink_directory: SinkDirectoryPort,
         config: ConfigService,
         admin: ConfigFileService,
     ) -> None:
-        self._collectors = collectors
         self._monitoring = monitoring
-        self._placements = placements
+        self._sink_directory = sink_directory
         self._config = config
         self._admin = admin
 
     def list_sinks(self) -> list[SinkSnapshot]:
-        """返回配置与最近一次 Collector Sink 运行态。"""
+        """返回配置与独立 Sink Service 的最近运行态。"""
         runtime = {row.name: row for row in self._monitoring.sinks_snapshot()}
         rows: list[SinkSnapshot] = []
         for cfg in self._config.current_config.sinks.values():
@@ -91,70 +87,43 @@ class SinkService:
         raise KeyError(name)
 
     async def verify(self, name: str) -> SinkTestResult:
-        """由 Collector 在实际运行环境验证 Sink。"""
+        """Query the independent Sink Service instead of a Collector."""
         self._config_for(name)
         started = time.monotonic()
-        worker_ids = self._placements.worker_ids_for_sink(name)
-        if not worker_ids:
+        try:
+            row = await self._sink_directory.call("GetSinkStatus", name)
+            healthy = (
+                row.get("state") == "running"
+                and row.get("nats_connected") is True
+                and row.get("config_pending_restart") is not True
+                and row.get("failure") is None
+            )
+            return SinkTestResult(
+                success=healthy,
+                latency_ms=(time.monotonic() - started) * 1000,
+                message=(
+                    "Sink configuration changed; restart Sink Service process"
+                    if row.get("config_pending_restart")
+                    else str(row.get("failure") or row.get("state"))
+                ),
+            )
+        except Exception as exc:
             return SinkTestResult(
                 success=False,
                 latency_ms=(time.monotonic() - started) * 1000,
-                message="sink is not assigned to any collector",
+                message=f"Sink Service unavailable: {exc}",
             )
-        results = await asyncio.gather(
-            *(self._collectors.get(worker_id).verify_sink(name) for worker_id in worker_ids)
-        )
-        steps: list[dict[str, object]] = [
-            {
-                "stage": "health",
-                "worker_id": worker_id,
-                "success": result.success,
-                "message": result.message,
-            }
-            for worker_id, result in zip(worker_ids, results, strict=True)
-        ]
-        return SinkTestResult(
-            success=all(result.success for result in results),
-            latency_ms=(time.monotonic() - started) * 1000,
-            message=next(
-                (result.message for result in results if result.message),
-                None,
-            ),
-            steps=steps,
-        )
 
-    async def write_test(self, name: str) -> SinkTestResult:
-        """由 Collector 对当前运行 Sink 执行明确标记的测试写入。"""
+    async def manage(self, name: str, operation: str) -> dict[str, Any]:
+        """Execute a Sink-specific management RPC."""
         self._config_for(name)
-        started = time.monotonic()
-        worker_ids = self._placements.worker_ids_for_sink(name)
-        if not worker_ids:
-            return SinkTestResult(
-                success=False,
-                latency_ms=(time.monotonic() - started) * 1000,
-                message="sink is not assigned to any collector",
-            )
-        results = await asyncio.gather(
-            *(self._collectors.get(worker_id).write_test_sink(name) for worker_id in worker_ids)
-        )
-        steps: list[dict[str, object]] = [
-            {
-                "stage": "write",
-                "worker_id": worker_id,
-                "success": result.success,
-                "message": result.message,
-            }
-            for worker_id, result in zip(worker_ids, results, strict=True)
-        ]
-        return SinkTestResult(
-            success=all(result.success for result in results),
-            latency_ms=(time.monotonic() - started) * 1000,
-            message=next(
-                (result.message for result in results if result.message),
-                None,
-            ),
-            steps=steps,
-        )
+        methods = {
+            "start": "StartSink",
+            "stop": "StopSink",
+            "restart": "RestartSink",
+            "clear": "ClearSink",
+        }
+        return await self._sink_directory.call(methods[operation], name)
 
     async def upsert(self, name: str, payload: dict[str, Any]) -> ConfigApplyResult:
         """新增或更新 Sink；通过 sinks.yaml 配置事务生效。"""
@@ -185,6 +154,7 @@ class SinkService:
                 "type": cfg.kind,
                 "enabled": cfg.enabled,
                 "connection": connection,
+                "outputs": previous.get("outputs", {}),
             }
 
         return await self._admin.mutate_yaml_files(
@@ -195,7 +165,7 @@ class SinkService:
         )
 
     async def delete(self, name: str) -> ConfigApplyResult:
-        """删除 Sink；若 Task 仍引用它，正式配置校验会拒绝 Apply。"""
+        """删除 Sink 定义及其所属 Task 输出映射。"""
         self._config_for(name)
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:

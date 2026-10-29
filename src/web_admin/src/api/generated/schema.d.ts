@@ -616,7 +616,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/sinks/{name}/write-test": {
+    "/api/v1/sinks/{name}/{operation}": {
         parameters: {
             query?: never;
             header?: never;
@@ -625,8 +625,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sink Write Test */
-        post: operations["sink_write_test_api_v1_sinks__name__write_test_post"];
+        /**
+         * Manage Sink
+         * @description Forward lifecycle changes only to independent Sink Service.
+         */
+        post: operations["manage_sink_api_v1_sinks__name___operation__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2978,12 +2981,13 @@ export interface operations {
             };
         };
     };
-    sink_write_test_api_v1_sinks__name__write_test_post: {
+    manage_sink_api_v1_sinks__name___operation__post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 name: string;
+                operation: string;
             };
             cookie?: never;
         };
@@ -2995,7 +2999,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SinkTestResponse"];
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

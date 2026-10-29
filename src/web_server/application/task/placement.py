@@ -243,23 +243,6 @@ class TaskPlacementRegistry:
                 workers.add(placements[task.task_id])
         return sorted(workers)
 
-    def worker_ids_for_sink(self, sink_name: str) -> list[str]:
-        """返回实际向指定 Sink 写入的当前 Collector。"""
-        if sink_name not in self._config.current_config.sinks:
-            raise KeyError(sink_name)
-
-        placements = {
-            row.task_id: row.worker_id
-            for row in self.list_placements()
-            if row.state is TaskPlacementState.ASSIGNED and row.worker_id is not None
-        }
-        workers = {
-            placements[task.task_id]
-            for task in self._config.current_config.tasks.values()
-            if (task.enabled and task.task_id in placements and sink_name in task.sink_ids)
-        }
-        return sorted(workers)
-
 
 __all__ = [
     "TaskPlacement",

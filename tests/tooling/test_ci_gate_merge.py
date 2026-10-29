@@ -88,9 +88,10 @@ def test_modbus_driver_has_no_recovery(
 def test_sink_uses_real_locations(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    selected, _, _ = _selected_paths(monkeypatch, capsys, "src/core/infrastructure/sink/redis.py")
-    assert "tests/core/sink" in selected
-    assert "tests/collector/sink" in selected
+    selected, _, _ = _selected_paths(
+        monkeypatch, capsys, "src/sink_service/infrastructure/adapters/redis.py"
+    )
+    assert "tests/sink_service" in selected
     # 旧层级目录不得出现在选择结果中。
     assert not any(
         path.startswith(("tests/unit", "tests/component", "tests/integration")) for path in selected
@@ -217,12 +218,12 @@ def test_deleted_test_file_falls_back_to_existing_parent(
     selected, labels, _ = _selected_paths(
         monkeypatch,
         capsys,
-        "src/core/infrastructure/sink/redis.py",
-        "tests/core/sink/test_removed_policy.py",
-        "tests/core/sink/removed_pkg/test_removed_real.py",
+        "src/sink_service/infrastructure/adapters/redis.py",
+        "tests/sink_service/test_removed_policy.py",
+        "tests/sink_service/removed_pkg/test_removed_real.py",
     )
-    assert "tests/core/sink" in selected
-    assert "tests/core/sink/test_removed_policy.py" not in selected
+    assert "tests/sink_service" in selected
+    assert "tests/sink_service/test_removed_policy.py" not in selected
     assert "affected-tests" in labels
 
 
@@ -232,9 +233,9 @@ def test_deleted_test_file_alone_selects_surrounding_suite(
     selected, _, _ = _selected_paths(
         monkeypatch,
         capsys,
-        "tests/collector/sink/test_removed_old_sink.py",
+        "tests/sink_service/test_removed_old_sink.py",
     )
-    assert selected == ["tests/collector/sink"]
+    assert selected == ["tests/sink_service"]
 
 
 def test_missing_candidate_path_fails_closed(

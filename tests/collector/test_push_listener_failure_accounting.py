@@ -25,17 +25,22 @@ from tests.support.iec104_fake import (
     make_driver,
     make_point,
 )
-from tests.support.new_collector import FakeSink, make_collector_config, make_session
+from tests.support.new_collector import make_collector_config, make_session
 
 pytestmark = [pytest.mark.component, pytest.mark.asyncio]
 
 
 class _RaisingDispatch:
-    """模拟 Sink 派发持续失败（如 sink 连接断）。"""
+    """模拟 NATS 派发端口持续抛出意外异常。
 
-    async def dispatch(self, routed: object) -> None:
-        del routed
-        raise RuntimeError("sink dispatch failed")
+    生产路径的 SamplePublisher 会吞掉 publish 失败并计 dropped（不使监听
+    失效）；本测试覆盖 dispatch 自身上抛的路径（如未预期的编程错误），
+    驱动监听器据此判失效，采集执行状态必须记账。
+    """
+
+    async def dispatch(self, task_id: str, values: object) -> None:
+        del task_id, values
+        raise RuntimeError("sample dispatch failed")
 
 
 async def test_push_listener_death_is_accounted_in_acquisition_state(
@@ -56,12 +61,10 @@ async def test_push_listener_death_is_accounted_in_acquisition_state(
     session = make_session(config, driver)
     devices = DeviceRuntime({"dev1": session}, RuntimeParams(connect_timeout=0.2))
     engine = AcquisitionEngine()
-    sink = FakeSink()
-    engine.attach_sink_dispatch(_RaisingDispatch())
+    engine.attach_sample_publisher(_RaisingDispatch())
     engine.attach_device_state(devices)
     tasks = TaskRuntime(dict(config.tasks), devices, engine)
     engine.attach_acquisition_state(tasks)
-    tasks._sink = sink  # type: ignore[attr-defined]
 
     try:
         await tasks.sync_instances()

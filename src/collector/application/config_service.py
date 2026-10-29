@@ -217,6 +217,8 @@ class CollectorConfigService:
             f"runtime.{name} change requires process restart"
             for name in restart_required_runtime_fields(self._current.runtime, candidate.runtime)
         ]
+        if self._current.messaging != candidate.messaging:
+            errors.append("system.messaging change requires process restart")
         if self._current.ads_local != candidate.ads_local:
             errors.append("ADS local identity change requires process restart")
         if self._current.units != candidate.units:

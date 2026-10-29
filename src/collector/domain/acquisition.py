@@ -1,6 +1,6 @@
 """AcquisitionEngine——PointValue 数据流的统一处理入口（Domain）。
 
-把一次获得的 PointValue 批次经过 Observer 和 targets 投递到 Sink，并维护
+把一次获得的 PointValue 批次经过 Observer 发布到 NATS，并维护
 采集执行状态/统计。主动轮询（Modbus / ADS Sum）与订阅推送（ADS
 notification / IEC104 spontaneous）最终都进入 :meth:`process`：
 
@@ -12,7 +12,7 @@ notification / IEC104 spontaneous）最终都进入 :meth:`process`：
 - 「什么时候执行」——那是 Application Runtime 的 acquisition handle
   （fixed-rate polling / subscription）的职责；
 - Protocol / Device 的创建、连接与关闭——那是 DeviceRuntime 的生命周期职责；
-- Sink 队列、背压与消费者任务——经 :class:`SinkDispatchPort` 端口委托。
+- 数据消息发布——经 :class:`SampleDispatchPort` 端口委托。
 
 并发语义：不同 Task Instance 的 :meth:`collect` / :meth:`process` 可并发
 执行；同一实例由其 acquisition handle 串行驱动，天然不重入。引擎自身
@@ -24,7 +24,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Protocol
 
 from core.application import Quality
@@ -53,22 +52,11 @@ class ReadableDevice(Protocol):
         ...
 
 
-@dataclass(frozen=True, slots=True)
-class SinkDelivery:
-    """带 Task 来源的不可变批次元信息；不修改设备原始 PointValue。"""
+class SampleDispatchPort(Protocol):
+    """消息发布端口——携带 Task 来源发布采样批次。"""
 
-    task_id: str
-    values: list[PointValue]
-
-    def __len__(self) -> int:
-        return len(self.values)
-
-
-class SinkDispatchPort(Protocol):
-    """Sink 派发端口——把按 sink 分组的批次交给 Sink 侧（队列/背压/消费者）。"""
-
-    async def dispatch(self, routed: dict[str, SinkDelivery]) -> None:
-        """派发一批按 sink 名分组的点值；空批次由实现方忽略。"""
+    async def dispatch(self, task_id: str, values: list[PointValue]) -> None:
+        """发布一次采样批次，具体消息拆分由实现方负责。"""
         ...
 
 
@@ -151,7 +139,7 @@ class AcquisitionEngine:
         # 各端口由 Runtime 在装配完成后注入（engine 先于 runtime 创建）；
         # 未绑定 sink 派发前调用 collect/process 抛 RuntimeError——组合根
         # 保证绑定发生在任何采集触发之前。
-        self._sink_dispatch: SinkDispatchPort | None = None
+        self._sample_dispatch: SampleDispatchPort | None = None
         self._device_state: DeviceStatePort | None = None
         self._acquisition_state: AcquisitionStatePort | None = None
 
@@ -165,9 +153,9 @@ class AcquisitionEngine:
     # 装配缝（组合根 / Runtime 专用）
     # ------------------------------------------------------------------
 
-    def attach_sink_dispatch(self, dispatch: SinkDispatchPort) -> None:
-        """绑定 Sink 派发端口——由 Runtime 在自身构造时调用一次。"""
-        self._sink_dispatch = dispatch
+    def attach_sample_publisher(self, dispatch: SampleDispatchPort) -> None:
+        """绑定 NATS 发布端口——由 Runtime 在自身构造时调用一次。"""
+        self._sample_dispatch = dispatch
 
     def attach_device_state(self, device_state: DeviceStatePort) -> None:
         """绑定设备连接状态端口——由 Runtime 在自身构造时调用一次。"""
@@ -189,7 +177,6 @@ class AcquisitionEngine:
         self,
         device: ReadableDevice,
         point_group: str,
-        targets: list[str],
         execution_id: str,
         task_id: str | None = None,
     ) -> None:
@@ -199,7 +186,7 @@ class AcquisitionEngine:
         下个周期会自然重试。
 
         Raises:
-            RuntimeError: Sink 派发端口尚未绑定（装配未完成）。
+            RuntimeError: NATS 发布端口尚未绑定（装配未完成）。
         """
         device_id = device.device_id
         point_ids = device.point_ids(point_group)
@@ -274,7 +261,7 @@ class AcquisitionEngine:
                     else:
                         partial = bad > 0
             if batch is not None:
-                await self.process(batch, targets, task_id=task_id or execution_id)
+                await self.process(batch, task_id=task_id or execution_id)
         except Exception as exc:
             # 派发阶段的意外异常：如实记为失败后原样上抛（由调用方——
             # polling handle——记录并继续下一周期），running 归位。
@@ -293,10 +280,8 @@ class AcquisitionEngine:
     # 统一数据处理入口（主动轮询与订阅推送在此汇合）
     # ------------------------------------------------------------------
 
-    async def process(
-        self, batch: list[PointValue], targets: list[str], *, task_id: str = "manual"
-    ) -> None:
-        """统计 → Observers → 按 targets 原样派发到 Sink。
+    async def process(self, batch: list[PointValue], *, task_id: str = "manual") -> None:
+        """统计 → Observers → 将采样发布至 NATS。
 
         订阅数据已经到达，不得再绕回 :meth:`collect`。同一个点被多个不同
         Task 采集时，各 Task 的 targets 独立派发——不做按 point_id 全局去重。
@@ -306,7 +291,7 @@ class AcquisitionEngine:
         """
         if not batch:
             return
-        if self._sink_dispatch is None:
+        if self._sample_dispatch is None:
             raise RuntimeError("AcquisitionEngine 未绑定 Sink 派发端口——组合根未完成装配")
         self._points_collected += len(batch)
         self._on_points_collected(len(batch))
@@ -314,7 +299,7 @@ class AcquisitionEngine:
         if bad:
             self._on_points_bad(bad)
         self._notify_observers(batch)
-        await self._sink_dispatch.dispatch({sink: SinkDelivery(task_id, batch) for sink in targets})
+        await self._sample_dispatch.dispatch(task_id, batch)
 
     # ------------------------------------------------------------------
     # 状态
@@ -343,6 +328,5 @@ __all__ = [
     "AcquisitionStatePort",
     "DeviceStatePort",
     "ReadableDevice",
-    "SinkDispatchPort",
-    "SinkDelivery",
+    "SampleDispatchPort",
 ]

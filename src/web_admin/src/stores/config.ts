@@ -19,12 +19,7 @@ import {
 } from '../api/config'
 import type { DeviceDto } from '../api/devices'
 import type { TaskDto } from '../api/tasks'
-import {
-  verifySink as apiVerifySink,
-  writeTestSink as apiWriteTestSink,
-  type SinkDto,
-  type SinkTestResult,
-} from '../api/sinks'
+import { verifySink as apiVerifySink, type SinkDto, type SinkTestResult } from '../api/sinks'
 import type { OverviewDto } from '../api/monitoring'
 import { ping, pointTableTest, protocolCheck } from '../api/diagnostics'
 import { awaitOperation } from '../api/operations'
@@ -600,26 +595,6 @@ export const useConfigStore = defineStore('config', {
         checks: sinkSteps(row),
       }
       s.runtime_state = !s.enabled ? 'disabled' : row.success ? 'healthy' : 'failed'
-    },
-
-    async writeTestSink(s: SinkDef) {
-      const row = await apiWriteTestSink(s.name)
-      if (row.success) {
-        s.last_write_at = formatNow()
-        s.writes_total++
-      } else {
-        s.failures_total++
-      }
-      s.latency_ms = Math.round(row.latency_ms)
-      s.error = row.message || ''
-      s.runtime_state = row.success ? 'healthy' : 'failed'
-      await queryClient.invalidateQueries({ queryKey: ['logs'] })
-      return {
-        ok: row.success,
-        title: row.success ? 'Write test passed' : 'Write test failed',
-        detail: row.message || 'Backend test completed',
-        latency: s.latency_ms,
-      }
     },
   },
 })

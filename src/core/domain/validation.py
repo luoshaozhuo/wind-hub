@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from .device import Device, DeviceGroup, DeviceModel, DeviceType
@@ -31,7 +31,6 @@ def validate_core_config(
     business_points: Mapping[BusinessPointId, BusinessPoint],
     point_tables: Mapping[PointTableId, PointTable],
     tasks: Mapping[str, Task] | None = None,
-    sink_ids: Collection[str] = (),
     sinks: Mapping[str, Sink] | None = None,
 ) -> None:
     """校验配置索引的领域引用、键-身份一致性与跨对象不变量。"""
@@ -47,9 +46,9 @@ def validate_core_config(
     _validate_device_models(device_models, device_types, point_tables)
     _validate_devices(devices, device_models, device_groups)
     if sinks is not None:
-        _validate_sinks(sinks, devices, device_models, point_tables)
+        _validate_sinks(sinks)
     if tasks is not None:
-        validate_task_references(tasks, device_groups, sink_ids)
+        validate_task_references(tasks, device_groups)
         _validate_task_point_groups(tasks, devices, device_models, point_tables)
 
 
@@ -198,13 +197,8 @@ def _validate_catalog_unit(unit: Unit, catalog: UnitCatalog, *, context: str) ->
         raise ValueError(f"{context} must reference unit '{unit.unit_id}' from the unit catalog")
 
 
-def _validate_sinks(
-    sinks: Mapping[str, Sink],
-    devices: Mapping[DeviceId, Device],
-    models: Mapping[DeviceModelId, DeviceModel],
-    tables: Mapping[PointTableId, PointTable],
-) -> None:
-    """检查 Sink 的稳定引用；连接与地址类型由 YAML Adapter 校验。"""
+def _validate_sinks(sinks: Mapping[str, Sink]) -> None:
+    """Validate configuration identity independently of acquisition Tasks."""
     _validate_identity(sinks, "sinks", "sink_id")
 
 

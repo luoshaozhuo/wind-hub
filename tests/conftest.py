@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
@@ -119,3 +121,44 @@ def redis_service(request: pytest.FixtureRequest) -> str:
     request.getfixturevalue("_compose_stack")
     compose.wait_services_healthy(["redis"])
     return "127.0.0.1:6379"
+
+
+@pytest.fixture(scope="session")
+async def nats_service() -> str:
+    """真实 NATS 地址（默认 ``nats://127.0.0.1:4222``）。
+
+    ``WIND_HUB_TEST_NATS`` 指向外部实例时使用该地址；NATS 不纳入 Redis
+    Compose 栈，需由测试环境显式提供（JetStream 在需要 reliable 时另开
+    ``-js``）。不可达时明确 skip——绝不退化为内存替身冒充真实链路。
+    """
+    import os
+
+    from tests.support.wait import WaitTimeoutError, wait_until
+
+    servers = os.environ.get("WIND_HUB_TEST_NATS", "nats://127.0.0.1:4222")
+    host_port = servers.removeprefix("nats://").partition("@")[2] or servers.removeprefix("nats://")
+    host, _, port = host_port.partition(":")
+
+    async def _reachable() -> bool:
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(host or "127.0.0.1", int(port or "4222")),
+                timeout=1.0,
+            )
+        except OSError:
+            return None
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        return True
+
+    try:
+        reachable = await wait_until(_reachable, timeout=10.0, interval=0.5)
+    except WaitTimeoutError:
+        reachable = False
+    if not reachable:
+        pytest.skip(
+            f"SKIPPED: real NATS not reachable at {servers} "
+            "(set WIND_HUB_TEST_NATS or start a nats server)"
+        )
+    return servers

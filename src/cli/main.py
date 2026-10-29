@@ -49,13 +49,8 @@ def _build_collector_parser(sub: argparse._SubParsersAction[argparse.ArgumentPar
     parser.add_argument("--target", default="127.0.0.1:50051")
     commands = parser.add_subparsers(dest="operation", required=True)
 
-    for name in ("info", "status", "metrics", "devices", "sinks", "tasks", "instances"):
+    for name in ("info", "status", "metrics", "devices", "tasks", "instances"):
         commands.add_parser(name)
-
-    sink = commands.add_parser("verify-sink")
-    sink.add_argument("name")
-    sink = commands.add_parser("test-sink")
-    sink.add_argument("name")
 
     task = commands.add_parser("task")
     task.add_argument("task_id")

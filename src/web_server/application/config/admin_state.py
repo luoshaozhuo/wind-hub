@@ -38,8 +38,6 @@ class AdminTaskItem(BaseModel):
             raise ValueError("task requires device_group")
         if self.interval is None:
             raise ValueError("task requires a positive interval")
-        if not self.sinks:
-            raise ValueError("task requires at least one sink")
         return self
 
 
@@ -104,9 +102,7 @@ class AdminStateService:
                         group for group in previous_groups[1:] if group != primary
                     )
             documents["devices.yaml"] = device_document
-            documents["tasks.yaml"] = self._tasks_document(
-                tasks, documents["tasks.yaml"].get("tasks", {})
-            )
+            documents["tasks.yaml"] = self._tasks_document(tasks)
             previous_sinks = documents["sinks.yaml"].get("sinks", {})
             documents["sinks.yaml"] = {
                 "sinks": {
@@ -114,6 +110,7 @@ class AdminStateService:
                         "type": item.type,
                         "enabled": item.enabled,
                         "connection": item.connection,
+                        "outputs": previous_sinks.get(item.name, {}).get("outputs", {}),
                     }
                     for item in sinks
                 }
@@ -194,30 +191,18 @@ class AdminStateService:
         }
 
     @staticmethod
-    def _tasks_document(items: list[AdminTaskItem], previous: dict[str, Any]) -> dict[str, Any]:
+    def _tasks_document(items: list[AdminTaskItem]) -> dict[str, Any]:
+        """Write only acquisition definitions; Sink mappings belong to sinks.yaml."""
         tasks: dict[str, Any] = {}
         for item in items:
             if not item.device_group or item.device:
-                raise ValueError(
-                    f"task {item.task_id} requires device_group under current Core schema"
-                )
+                raise ValueError(f"task {item.task_id} requires device_group")
             if item.interval is None or item.interval <= 0:
                 raise ValueError(f"task {item.task_id} requires a positive interval")
-            if not item.sinks:
-                raise ValueError(f"task {item.task_id} requires at least one sink")
-            previous_outputs = previous.get(item.task_id, {}).get("outputs", [])
-            mapped = {
-                item_output.get("sink_id"): item_output
-                for item_output in previous_outputs
-                if isinstance(item_output, dict)
-            }
             tasks[item.task_id] = {
                 "device_group_id": item.device_group,
                 "point_group": item.point_group,
                 "interval": item.interval,
-                "outputs": [
-                    dict(mapped.get(sink_id, {"sink_id": sink_id})) for sink_id in item.sinks
-                ],
                 "enabled": item.enabled,
             }
         return {"tasks": tasks}

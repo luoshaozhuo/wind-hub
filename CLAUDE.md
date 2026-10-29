@@ -41,11 +41,11 @@ ai_shared/agent_config/hooks/
 ## 3. 开发生命周期
 
 ```text
-origin/main → task branch → 开发 / 按需定向测试 → commit / push / PR
-→ //merge-branch（一次受影响范围本地验证）→ squash merge main
+origin/main → task branch → 开发 / 按需定向测试 → commit / push
+→ //merge-branch（直接 Squash Merge，不运行合并门禁、不创建 PR）→ main
 ```
 
-开发、Commit、Push 和 PR 创建均不强制完整测试。GitHub Fast/PR 仅执行轻量治理检查；Release 与硬件、性能、长稳测试仍使用独立门禁。
+开发、Commit、Push 和合并均不以测试或 CI 为前置门禁。按需测试；Release 与硬件、性能、长稳测试保持独立可选流程。
 
 ## 4. CI 失败
 
@@ -53,4 +53,4 @@ CI 状态与失败相关性分开记录。可证明与本次变更无关的既�
 
 ## 5. Git
 
-不直接在 main 开发或 push；一个独立任务一个短分支；禁止 force push、覆盖用户修改和危险历史重写。
+不在 main 直接开发；一个独立任务一个短分支；完成后直接 Squash Merge 到 main，不创建 PR、不运行合并门禁。禁止 force push、覆盖用户修改和危险历史重写；GitHub 服务端分支保护仍须遵守。
