@@ -33,7 +33,7 @@ services:
 
   tdengine:
     # 官方镜像：taosd + taosAdapter（6041 REST SQL）同容器启动。
-    image: tdengine/tdengine:3.3.5.0
+    image: tdengine/tdengine:3.3.8.8
     ports:
       - "127.0.0.1:${R5_TDENGINE_PORT}:6041"
     healthcheck:
