@@ -16,7 +16,7 @@ from core.application.protocol_contract import (
 from core.application.port.protocol import ProtocolPort
 from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.protocol.ads.driver import ADSDriver
-from core.infrastructure.protocol.iec104.driver import IEC104Driver
+from core.infrastructure.protocol.iec104.driver import IEC104Driver, IEC104InterrogationIncompleteError
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 
 
@@ -124,10 +124,18 @@ async def execute(
         if operation == "gi":
             if ProtocolCapability.INTERROGATE not in caps:
                 raise ValueError("protocol does not support interrogation")
-            async with asyncio.timeout(timeout):
-                samples = await driver.interrogate(
-                    InterrogationRequest(common_address=common_address)
-                )
+            try:
+                async with asyncio.timeout(timeout):
+                    samples = await driver.interrogate(
+                        InterrogationRequest(common_address=common_address)
+                    )
+            except IEC104InterrogationIncompleteError as exc:
+                return [{
+                    "status": "UNKNOWN",
+                    "common_address": exc.common_address,
+                    "message": exc.reason,
+                    "samples": [sample_dict(sample) for sample in exc.samples],
+                }]
             return [sample_dict(sample) for sample in samples]
         if operation not in {"read", "read-many"}:
             raise ValueError(f"unsupported diagnostic operation: {operation}")
