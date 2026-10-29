@@ -5,7 +5,7 @@
 - 分支：`feat/nats-sink-service`
 - 生产基线：`52017f70f1a5db5ce0a95c40cc3da6ee7d5fcb9f`（= origin HEAD）
 - merge-base：`cb380ddb`（origin/main，PR #105）
-- 验收提交：`c000a83f`（RPC 生成物同步）、`813c30e9`（ruff/mypy 机械修复，含本报告与设计文档入库）
+- 验收提交：`c000a83f`（RPC 生成物同步）、`813c30e9`（ruff/mypy 机械修复，含本报告与设计文档入库）、`e786ebc1`/`95084a7b`/`b863ae25`（报告与仓库清理）、`1f21f5eb`（OpenAPI 生成物同步）
 - **结论：FAIL**——主数据通路不可用、测试门禁中断、多处迁移残留。
 
 ---
@@ -24,7 +24,7 @@
 
 环境注记：`pyproject.toml` 新增 `nats-py ^2.10`，但 **`poetry.lock` 未更新**（grep 零命中）；验收机临时 pip 安装 nats-py 2.16.0 供静态检查。见 D-7。
 
-全量幸存测试（`--continue-on-collection-errors`，25 分钟）：**188 failed / 1150 passed / 100 errors**。RELATED 细分见第 3 节（定向重跑清单待补）。
+全量幸存测试（`--continue-on-collection-errors`，25 分钟）：**188 failed / 1150 passed / 100 errors**。定向重跑（collector/core/web_server/system/tooling/cli，25 分钟）：190 failed / 873 passed / 100 errors（范围不同，数字不直接可比）。抽样定性：主导签名是陈旧测试契约（`Task(sink_ids=)`、`CollectorConfig(sinks=)`、fixture 写旧 `outputs`、ci_gate 指向已删 tests/collector/sink、rpc_boundary 未含 sink_service）——RELATED，属下一轮测试重建；另有 D-1b 同源模板测试 7+ 项；openapi 生成物漂移已由提交 1f21f5eb 修复（3 passed）。system/recovery 约 20 项已抽样闭环：test_watchdog_restore 直接 `Task(sink_ids=)`（:45）；test_graceful_shutdown 等子进程类失败表现为 grpc ready 30s 超时，根因是 tests/support/new_collector.py:363、functional_config.py:52 及测试内联仍写旧 `outputs` 字段 → 加载期 ConfigError 进程不起。**全部 RELATED**，随测试/夹具重建消除；未见独立生产缺陷信号。
 
 ## 2. 设计符合性矩阵（v0_4 第 4～13 章）
 
@@ -81,7 +81,14 @@
   - tests/core/diagnostic/test_cli_diag.py:18 import `core.infrastructure.diagnostic.sink`（已删）
   - tests/support/soak/runner.py:34 import `tests.support.soak.sinks`（已删）→ 连带 test_long_running/test_target_load/test_soak_duration_override
 - tests/collector/rpc/test_collector_contract.py:29-32 `_RUNTIME_METHODS` 仍固化 ListSinks/VerifySink/WriteTestSink，实跑 **1 failed, 7 passed**。
-- 全量基线（幸存测试）：188 failed / 1150 passed / 100 errors（25 min）。RELATED 清单以定向重跑结果补充。
+- 全量基线（幸存测试）：188 failed / 1150 passed / 100 errors（25 min），定性分类见第 1 节末段。
+
+#### D-1b（配置 P0）　出厂 configs/tasks.yaml 是非法 YAML，默认部署必启动失败
+- 位置：configs/tasks.yaml:17——注释行被写入**字面 `\n` 转义序列**（单行长文本包含 `\n# 输出目标…Source→Address…\n# 实例注册…`）。
+- 复现：`python -c "import yaml; yaml.safe_load(open('configs/tasks.yaml'))"` →
+  `yaml.scanner.ScannerError: mapping values are not allowed here, line 17, column 6`；全 configs/ 仅此一文件损坏（10 个 YAML 逐一校验，其余 9 个 OK）。
+- 影响：任何用出厂配置树的启动在配置加载期失败；deploy/sink-service/compose.yaml:57/87/115 默认以只读挂载 `${WIND_HUB_CONFIG_DIR:-../../configs}`，文档化默认部署直接不可用。测试侧 test_template_configs 复制该文件做模板种子，7 项失败同源。
+- 属生产配置文件，按分工不代为修改；修复仅需将字面 `\n` 还原为真实换行。
 
 ### P1
 
@@ -128,7 +135,7 @@
 7. **nats_dispatch.py:68-71** 一次 publish 失败短路丢弃同批剩余全部样本（扩大了"允许丢当前采样"的范围）。
 8. **max_staleness_ms 热变更** Collector 侧需重启才生效（构造期固化），与"从新消息生效"有差距（Sink 侧符合）。
 9. **schema_version 可缺省**（有默认值），与 §6.2 必要字段表述不一致；消费侧未再校验 subject token。
-10. **前端/生成物残留**：web_admin generated/schema.d.ts 与 mocks 仍含 `/write-test` 与 SinkRuntime mock；tests/support/perf_runner.py:34 import 已删 null_sink（死代码，一引即崩）。
+10. **前端/测试残留**：OpenAPI 生成物已由 1f21f5eb 重新生成（write-test 已消失，契约测试转绿）；但 web_admin mocks/handlers.ts:179、mocks/state.ts 仍保留 write-test mock 与 SinkRuntime mock 模型（测试/开发夹具，下轮清）；tests/support/perf_runner.py:34 import 已删 null_sink（run_benchmark.py 仍引用它，一引即崩）。
 11. **Web 契约变更需知会**：write-test 端点删除；verify 降级为 GetSinkStatus 状态判定且异常返回 200+success=false；**Admin 批量保存的 task→sink targets 被静默丢弃**（admin_state.py 保留字段但不写 outputs），新 outputs 映射只能手编 sinks.yaml；sinks.yaml 变更对 Sink Service 不热生效（需重启，USAGE.txt 已写明，digest 报 pending_restart）。
 12. **nats_consumer**：durable close 不显式退订；ACK 自身失败再 NAK 可致重复写；AckWait 30s 硬编码与适配器超时无联动；连接参数硬编码（0.5s/3 次）；Clear 对从未启动的 durable 返回底层 NotFound 而非清晰前置条件错误，skipped 统计窗口漏新消息；realtime Clear 不报清缓存点数。
 13. **陈旧文档/死代码**：collector 多处 docstring 仍称 SinkRuntime/Sink 派发；assembly 重复检查块；src/core/infrastructure/sink/ 剩两个 __pycache__ 空目录。
@@ -139,6 +146,7 @@ NOT_RUN。本轮按分工先出缺陷报告：D-1 使 Collector→NATS 端到端
 
 ## 5. 修复建议（交 ChatGPT，不代为修改生产代码）
 
+0. 修复 configs/tasks.yaml:17 的字面 `\n`（还原为真实换行），恢复出厂配置树可加载，并加配置树 YAML 合法性冒烟测试。
 1. 实现 NatsPublisher.publish/close：realtime Core publish（失败返 False）、reliable JetStream publish 并以 PubAck 为成功边界、Nats-Msg-Id=sample_id、有限受控重试复用同 ID；close 走 drain。
 2. 修复 5 处测试残留 + RPC 契约方法表（属 Claude 侧测试职责，下一轮随测试重建处理）。
 3. Consumer：close 先停投递再 drain 在途回调；配置 max_deliver/退避，毒消息计入 sink 失败状态并经 gRPC 暴露，达阈值告警；FAILED 下停止/拉长 NAK。
@@ -149,4 +157,4 @@ NOT_RUN。本轮按分工先出缺陷报告：D-1 使 Collector→NATS 端到端
 
 ## 6. 最终结论
 
-**FAIL**。阻断项：D-1（发布桩，主数据通路不可用，运行时与 mypy 双证据）、D-2（门禁收集/契约测试红）。消费侧 ACK 纪律、Clear 语义、Stop 意图持久化、信封校验、Subject/Stream 隔离、协议边界等核心设计落地质量良好，但必须在 D-1/D-2 修复并补齐测试金字塔后重开 Round 2。
+**FAIL**。阻断项：D-1（发布桩，主数据通路不可用，运行时与 mypy 双证据）、D-1b（出厂 tasks.yaml 非法 YAML，默认部署启动失败）、D-2（门禁收集/契约测试红）。消费侧 ACK 纪律、Clear 语义、Stop 意图持久化、信封校验、Subject/Stream 隔离、协议边界等核心设计落地质量良好，但必须在 D-1/D-2 修复并补齐测试金字塔后重开 Round 2。
