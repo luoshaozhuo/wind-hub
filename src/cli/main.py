@@ -556,47 +556,6 @@ def main() -> int:
         except KeyboardInterrupt:
             return 130
 
-    try:
-        from pathlib import Path
-
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.completion import DynamicCompleter, WordCompleter
-        from prompt_toolkit.history import FileHistory
-
-        class SafeHistory(FileHistory):
-            def append_string(self, string: str) -> None:
-                if " write " not in f" {string.lower()} ":
-                    super().append_string(string)
-
-        def completion() -> WordCompleter:
-            words = completion_words()
-            loaded = shell.config._current
-            if loaded is not None:
-                snapshot = loaded.snapshot
-                words.extend(str(key) for key in snapshot.site.devices)
-                words.extend(str(key) for key in snapshot.sinks)
-                words.extend(
-                    str(point_id)
-                    for table in snapshot.point_tables.values()
-                    for point_id in table.points
-                )
-            return WordCompleter(words, ignore_case=True, sentence=True)
-
-        session: PromptSession[str] = PromptSession(
-            history=SafeHistory(str(Path.home() / ".wind_hub_history")),
-            completer=DynamicCompleter(completion),
-            complete_while_typing=False,
-        )
-        shell._interactive = True
-        print(shell.intro)
-        while True:
-            try:
-                if shell.onecmd(session.prompt(shell.prompt)):
-                    break
-            except KeyboardInterrupt:
-                print("Interrupted.")
-            except EOFError:
-                break
-    except ImportError:
-        shell.cmdloop()
+    shell._interactive = True
+    shell.cmdloop()
     return 0
