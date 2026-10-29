@@ -29,34 +29,13 @@ TASK_ID = "modbus-telemetry"
 DEVICE_ID = "modbus-1"
 
 
-def telemetry_task(
-    sink_id: str,
-    *,
-    task_id: str = TASK_ID,
-    key_prefix: str | None = None,
-) -> dict[str, Any]:
-    """单设备 telemetry 采集任务定义（新契约：outputs[].sink_id）。"""
-    output: dict[str, Any] = {"sink_id": sink_id}
-    if key_prefix is not None:
-        output["key_prefix"] = key_prefix
+def telemetry_task(*, task_id: str = TASK_ID) -> dict[str, Any]:
+    """One device telemetry Task; Sink routing belongs to sinks.yaml."""
     return {
         task_id: {
             "device_group_id": DEVICE_ID,
             "point_group": "telemetry",
             "interval": 0.2,
-            "outputs": [output],
-        }
-    }
-
-
-def telemetry_multi_task(sink_ids: list[str], *, task_id: str = TASK_ID) -> dict[str, Any]:
-    """单任务多 Sink 扇出（每 Sink 一个 output）。"""
-    return {
-        task_id: {
-            "device_group_id": DEVICE_ID,
-            "point_group": "telemetry",
-            "interval": 0.2,
-            "outputs": [{"sink_id": sink_id} for sink_id in sink_ids],
         }
     }
 
@@ -71,9 +50,10 @@ def write_modbus_redis_config(base: Path, port: int, redis_address: str) -> Path
             "redis_sink": {
                 "type": "redis",
                 "connection": {"host": host, "port": int(redis_port)},
+                "outputs": {TASK_ID: {"key_prefix": "wind-hub-recovery"}},
             }
         },
-        tasks=telemetry_task("redis_sink", key_prefix="wind-hub-recovery"),
+        tasks=telemetry_task(),
     )
 
 
