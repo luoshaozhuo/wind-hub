@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from core.application.config_diff import ConfigSnapshotDiff, diff_config_snapshots
@@ -79,7 +79,7 @@ class ConfigSession:
             path=base,
             snapshot=snapshot,
             fingerprint=digest.hexdigest(),
-            loaded_at=datetime.now(timezone.utc),
+            loaded_at=datetime.now(UTC),
         )
 
     def validate(self, path: str | Path) -> LoadedConfig:
