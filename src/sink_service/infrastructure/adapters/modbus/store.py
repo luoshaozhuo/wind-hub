@@ -67,8 +67,10 @@ class ModbusSinkStore:
                 value.register_type,
                 addresses,
             )
+            updated_bits = dict(bit_space)
             for address, bit in zip(addresses, value.bits, strict=True):
-                bit_space[address] = bit
+                updated_bits[address] = bit
+            setattr(slave, value.register_type, updated_bits)
             return
 
         register_space = self._register_space(slave, value.register_type)
@@ -79,8 +81,10 @@ class ModbusSinkStore:
             value.register_type,
             addresses,
         )
+        updated_registers = dict(register_space)
         for address, register in zip(addresses, value.registers, strict=True):
-            register_space[address] = register
+            updated_registers[address] = register
+        setattr(slave, value.register_type, updated_registers)
 
     def read_bits(
         self,
