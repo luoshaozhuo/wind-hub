@@ -248,7 +248,19 @@ class WindHubShell(cmd.Cmd):
             if input("Execute once? Type YES: ").strip() != "YES":
                 return {"status": "SKIPPED", "message": "write not confirmed"}
         point_ids = positional[:1] if operation == "write" else positional
-        return asyncio.run(
+        from .inventory import devices as inventory_devices
+        device_info = inventory_devices(loaded.snapshot, device_id)[0]
+        selected_points = [
+            points(loaded.snapshot, device_id, point_id)[0]
+            for point_id in point_ids
+        ]
+        streaming = operation in {"read", "read-many"} and opts.interval is not None
+        on_sample = (
+            (lambda sample: print(json.dumps(sample, ensure_ascii=False, allow_nan=False)))
+            if streaming
+            else None
+        )
+        payload = asyncio.run(
             execute(
                 loaded.snapshot,
                 device_id,
@@ -256,11 +268,30 @@ class WindHubShell(cmd.Cmd):
                 point_ids=point_ids,
                 value=value,
                 interval=opts.interval,
-                count=0 if opts.interval is not None and opts.count == 1 else opts.count,
+                count=0 if streaming and opts.count == 1 else opts.count,
                 timeout=opts.timeout,
                 common_address=opts.ca,
+                on_sample=on_sample,
             )
         )
+        outcome = payload[0].get("outcome") if operation == "write" and payload else None
+        status = (
+            "UNKNOWN" if outcome == "unknown"
+            else "FAIL" if outcome == "confirmed_failure"
+            else "PASS"
+        )
+        return {
+            "status": status,
+            "device_id": device_id,
+            "protocol": device_info["protocol"],
+            "endpoint": {
+                "host": device_info["host"],
+                "port": device_info["port"],
+            },
+            "protocol_options": device_info["protocol_options"],
+            "points": selected_points,
+            "data": payload,
+        }
 
 
 def main() -> int:
