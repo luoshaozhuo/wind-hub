@@ -48,6 +48,9 @@ def _options(args: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--samples", type=int, default=10)
     parser.add_argument("--yes", action="store_true")
     options, positional = parser.parse_known_args(args)
+    unknown_flags = [token for token in positional if token.startswith("--")]
+    if unknown_flags:
+        raise ValueError(f"unrecognized options: {unknown_flags}")
     return options, positional
 
 
@@ -253,6 +256,14 @@ class WindHubShell(cmd.Cmd):
         operation = args[1]
         device_id = args[2]
         opts, positional = _options(args[3:])
+        if operation in {"check", "gi"} and positional:
+            raise ValueError(f"{operation} does not accept point IDs")
+        if opts.ca is not None and operation != "gi":
+            raise ValueError("--ca is only valid with gi")
+        if opts.duration is not None and operation != "listen":
+            raise ValueError("--duration is only valid with listen")
+        if opts.count is not None and operation != "read":
+            raise ValueError("--count is only valid with read")
         if operation in {"read", "read-many", "write"} and not positional:
             raise ValueError(f"{operation} requires configured point IDs")
         if operation == "write" and len(positional) != 2:
@@ -347,7 +358,10 @@ class WindHubShell(cmd.Cmd):
         )
         outcome = payload[0].get("outcome") if operation == "write" and payload else None
         status = (
-            "UNKNOWN" if outcome == "unknown"
+            "UNKNOWN" if outcome == "unknown" or (
+                operation == "gi" and bool(payload)
+                and payload[0].get("status") == "UNKNOWN"
+            )
             else "FAIL" if outcome == "confirmed_failure"
             else "PASS"
         )
@@ -399,7 +413,9 @@ def main() -> int:
             emit(result, format_name=shell._format)
             if result["status"] == "UNKNOWN":
                 return 3
-            return 1 if result["status"] == "FAIL" else 0
+            if result["status"] == "FAIL":
+                return 2 if arguments[:2] == ["config", "validate"] else 1
+            return 0
         except (ConfigError, ValueError, OSError, RuntimeError, KeyError) as exc:
             print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
             return 2
