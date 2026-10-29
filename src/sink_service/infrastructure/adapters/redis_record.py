@@ -48,6 +48,7 @@ def encode_redis_record(
     payload = json.dumps(
         {
             "value": point.value,
+            "sample_id": point.sample_id,
             "quality": point.quality.value,
             "timestamp": _format_utc(point.timestamp),
             "source": point.source,
