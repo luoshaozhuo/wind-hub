@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import cmd
 import json
+import math
 import shlex
 import sys
 from typing import Any
@@ -44,14 +45,14 @@ def _value(raw: str) -> bool | int | float | str:
         return raw
     if value is None or isinstance(value, dict | list):
         raise ValueError("write value must be a scalar")
-    if isinstance(value, float) and not __import__("math").isfinite(value):
+    if isinstance(value, float) and not math.isfinite(value):
         raise ValueError("write value must be finite")
     if isinstance(value, bool | int | float | str):
         return value
     raise ValueError("invalid write value")
 
 
-def _options(args: list[str]) -> argparse.Namespace:
+def _options(args: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(prog="diagnose protocol", add_help=True)
     parser.add_argument("--interval", type=float)
     parser.add_argument("--count", type=int, default=1)
@@ -73,6 +74,7 @@ class WindHubShell(cmd.Cmd):
     def __init__(self) -> None:
         super().__init__()
         self.config = ConfigSession()
+        self._interactive = False
         self.last_results: list[dict[str, Any]] = []
         self._failed_device: str | None = None
         self._failed_fingerprint: str | None = None
@@ -230,7 +232,7 @@ class WindHubShell(cmd.Cmd):
                 raise ValueError("benchmark requires at least one point ID")
             return asyncio.run(
                 benchmark(loaded.snapshot, device_id, positional,
-                          samples=opts.samples, interval=opts.interval or 0.2,
+                          samples=opts.samples, interval=0.2 if opts.interval is None else opts.interval,
                           timeout=opts.timeout)
             )
         value = _value(positional[1]) if operation == "write" else None
