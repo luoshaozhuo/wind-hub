@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -18,11 +17,13 @@ from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.config_helper import write_config_tree
 from tests.support.control import (
+    collector_info,
+    get_task_instance,
     reload_config,
     start_task_instance,
 )
 from tests.support.functional_config import realtime_messaging, update_yaml
-from tests.support.process import CollectorProcess, run_cli_async
+from tests.support.process import CollectorProcess
 from tests.support.recovery_helpers import (
     wait_status,
     wait_telemetry_value,
@@ -140,9 +141,8 @@ class TestCollectorRestart:
         proc_b: CollectorProcess = await collector_factory(
             config_dir, collector_id="recovery-restart"
         )
-        info = await run_cli_async("info", target=proc_b.grpc_target)
-        assert info.returncode == 0
-        assert json.loads(info.stdout)["collector_id"] == "recovery-restart"
+        info = await collector_info(proc_b.grpc_target)
+        assert info.collector_id == "recovery-restart"
 
         await start_task_instance(
             proc_b.grpc_target,
@@ -208,8 +208,8 @@ class TestSubscriptionRestartPending:
         assert activated.errors
         # 实例保持已登记（不是消失），进程存活。
         assert proc.is_running()
-        instance = await run_cli_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
-        assert instance.returncode == 0
+        instance = await get_task_instance(proc.grpc_target, IEC104_INSTANCE_ID)
+        assert instance.instance_id == IEC104_INSTANCE_ID
 
         # ---- 恢复：从站重启，驱动自动重连 ----
         await iec104_server.start()
@@ -227,8 +227,8 @@ class TestSubscriptionRestartPending:
         )
         assert activated.success is True, list(activated.errors)
 
-        instance = await run_cli_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
-        assert json.loads(instance.stdout)["state"] == "running"
+        instance = await get_task_instance(proc.grpc_target, IEC104_INSTANCE_ID)
+        assert instance.state == "running"
         await wait_redis_value(
             redis_service,
             key,

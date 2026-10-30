@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.support.control import prepare_config, reload_config, start_task_instance
+from tests.support.control import (
+    get_task,
+    prepare_config,
+    reload_config,
+    start_task_instance,
+)
 from tests.support.functional_config import update_yaml
-from tests.support.process import CollectorProcess, run_cli_async
+from tests.support.process import CollectorProcess
 from tests.support.recovery_helpers import (
     DEVICE_ID,
     wait_telemetry_value,
@@ -68,7 +72,8 @@ class TestReloadFailureResilience:
         )
         assert activated.success is True, list(activated.errors)
 
-        task = await run_cli_async("task", TASK_ID, target=proc.grpc_target)
-        assert json.loads(task.stdout)["interval"] == 0.5
+        task = await get_task(proc.grpc_target, TASK_ID)
+        assert task.HasField("interval")
+        assert task.interval.value == 0.5
         final = await wait_telemetry_value(redis_service, after=str(continued["timestamp"]))
         assert final["quality"] == "good"

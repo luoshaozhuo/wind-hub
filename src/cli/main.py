@@ -1,246 +1,641 @@
-"""wind-hub 命令行入口。"""
+"""统一交互式 CLI：配置、对象查询和协议诊断。"""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import cmd
 import json
+import math
+import shlex
 import sys
+import typing
 from typing import Any
-from uuid import uuid4
 
-import grpc
+from core.application.errors import ConfigError
 
-from .client import CollectorClient, CommanderClient
+from .config_session import REQUIRED_FILES, ConfigSession
+from .help import completion_words, help_text
+from .inventory import devices, points, sinks
+from .presentation import Timer, emit, response
+from .protocol_diagnostic import execute
+from .results import ResultStore
 
 
-def _print(payload: dict[str, Any]) -> None:
-    """以 JSON 输出一次操作结果。"""
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
-
-
-def _parse_scalar(text: str) -> object:
-    """把命令行文本解析为 JSON 标量；无法解析时按字符串处理。"""
+def _value(raw: str) -> bool | int | float | str:
+    if raw.lower() in {"true", "false"}:
+        return raw.lower() == "true"
     try:
-        value = json.loads(text)
+        value = json.loads(raw)
     except json.JSONDecodeError:
-        return text
-    if isinstance(value, dict | list) or value is None:
-        raise ValueError("value must be bool/int/float/string")
-    return value
+        return raw
+    if value is None or isinstance(value, dict | list):
+        raise ValueError("write value must be a scalar")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("write value must be finite")
+    if isinstance(value, bool | int | float | str):
+        return value
+    raise ValueError("invalid write value")
 
 
-def _add_config_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    """加入 prepare / activate / abort 配置事务命令。"""
-    prepare = sub.add_parser("prepare-config")
-    prepare.add_argument("revision_id")
-    prepare.add_argument("config_hash")
-
-    activate = sub.add_parser("activate-config")
-    activate.add_argument("revision_id")
-
-    abort = sub.add_parser("abort-config")
-    abort.add_argument("revision_id")
-
-
-def _build_collector_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    """构建 Collector 子命令。"""
-    parser = sub.add_parser("collector", help="直接操控 Collector")
-    parser.add_argument("--target", default="127.0.0.1:50051")
-    commands = parser.add_subparsers(dest="operation", required=True)
-
-    for name in ("info", "status", "metrics", "devices", "tasks", "instances"):
-        commands.add_parser(name)
-
-    task = commands.add_parser("task")
-    task.add_argument("task_id")
-    instance = commands.add_parser("instance")
-    instance.add_argument("instance_id")
-
-    latest = commands.add_parser("latest-values")
-    latest.add_argument("--device", dest="device_id", default=None)
-
-    placement = commands.add_parser("apply-placement")
-    placement.add_argument("worker_id")
-    placement.add_argument("generation", type=int)
-    placement.add_argument("task_ids", nargs="*")
-
-    start_task = commands.add_parser("start-task")
-    start_task.add_argument("task_id")
-    start_task.add_argument("--placement-generation", type=int, required=True)
-    stop_task = commands.add_parser("stop-task")
-    stop_task.add_argument("task_id")
-
-    start_instance = commands.add_parser("start-instance")
-    start_instance.add_argument("instance_id")
-    start_instance.add_argument("--placement-generation", type=int, required=True)
-    stop_instance = commands.add_parser("stop-instance")
-    stop_instance.add_argument("instance_id")
-
-    _add_config_commands(commands)
-    prepare = commands.choices["prepare-config"]
-    prepare.add_argument("--force", action="store_true")
+def _options(args: list[str], default_timeout: float = 5.0) -> tuple[argparse.Namespace, list[str]]:
+    parser = argparse.ArgumentParser(prog="diagnose protocol", add_help=True)
+    parser.add_argument("--interval", type=float)
+    parser.add_argument("--count", type=int, default=None)
+    parser.add_argument("--timeout", type=float, default=default_timeout)
+    parser.add_argument("--ca", type=int)
+    parser.add_argument("--duration", type=float, default=None)
+    parser.add_argument("--samples", type=int, default=10)
+    parser.add_argument("--yes", action="store_true")
+    options, positional = parser.parse_known_args(args)
+    unknown_flags = [token for token in positional if token.startswith("--")]
+    if unknown_flags:
+        raise ValueError(f"unrecognized options: {unknown_flags}")
+    return options, positional
 
 
-def _build_commander_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    """构建 Commander 子命令。"""
-    parser = sub.add_parser("commander", help="直接操控 Commander")
-    parser.add_argument("--target", default="127.0.0.1:50052")
-    commands = parser.add_subparsers(dest="operation", required=True)
+class WindHubShell(cmd.Cmd):
+    """One CLI session; commands share a single validated configuration snapshot."""
 
-    commands.add_parser("status")
-    commands.add_parser("devices")
+    intro = "Wind Hub CLI. Type 'help' for commands."
+    prompt = "wind-hub> "
 
-    read = commands.add_parser("read")
-    read.add_argument("device_id")
-    read.add_argument("point_id")
+    def __init__(self) -> None:
+        super().__init__()
+        self.config = ConfigSession()
+        self._interactive = False
+        self._format = "table"
+        self._timeout = 5.0
+        self.results = ResultStore()
 
-    read_many = commands.add_parser("read-many")
-    read_many.add_argument("device_id")
-    read_many.add_argument("point_ids", nargs="+")
-
-    write = commands.add_parser("write")
-    write.add_argument("device_id")
-    write.add_argument("point_id")
-    write.add_argument("value", type=_parse_scalar)
-    write.add_argument("--command-id", default=None)
-    write.add_argument("--io-timeout", type=float, default=1.0)
-
-    write_many = commands.add_parser("write-many")
-    write_many.add_argument(
-        "--item",
-        action="append",
-        nargs=3,
-        metavar=("DEVICE", "POINT", "VALUE"),
-        required=True,
-    )
-    write_many.add_argument("--io-timeout", type=float, default=1.0)
-    write_many.add_argument(
-        "--command-id",
-        default=None,
-        help="Batch idempotency key; item IDs are derived deterministically",
-    )
-
-    verify_device = commands.add_parser("verify-device")
-    verify_device.add_argument("device_id")
-    verify_device.add_argument("--io-timeout", type=float, default=1.0)
-
-    for name in ("resolve-point", "verify-point"):
-        point = commands.add_parser(name)
-        point.add_argument("device_id")
-        point.add_argument("point_id")
-
-    verify_points = commands.add_parser("verify-points")
-    verify_points.add_argument("device_id")
-    verify_points.add_argument("--point-group", default="")
-
-    _add_config_commands(commands)
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """构建完整 CLI 参数解析器。"""
-    parser = argparse.ArgumentParser(
-        prog="wind-hub",
-        description="直接连接 Collector / Commander 的本地运维 CLI。",
-    )
-    parser.add_argument("--rpc-timeout", type=float, default=5.0)
-    services = parser.add_subparsers(dest="service", required=True)
-    _build_collector_parser(services)
-    _build_commander_parser(services)
-    return parser
-
-
-def _collector_kwargs(args: argparse.Namespace) -> dict[str, Any]:
-    """提取 Collector 操作参数。"""
-    keys = (
-        "name",
-        "task_id",
-        "instance_id",
-        "device_id",
-        "revision_id",
-        "config_hash",
-        "force",
-        "worker_id",
-        "generation",
-        "task_ids",
-        "placement_generation",
-    )
-    return {key: getattr(args, key) for key in keys if hasattr(args, key)}
-
-
-def _commander_kwargs(args: argparse.Namespace) -> dict[str, Any]:
-    """提取 Commander 操作参数并规范化批量写命令。"""
-    if args.operation == "write":
-        return {
-            "device_id": args.device_id,
-            "point_id": args.point_id,
-            "value": args.value,
-            "command_id": args.command_id or uuid4().hex,
-            "io_timeout": args.io_timeout,
-        }
-    if args.operation == "write-many":
-        batch_id = args.command_id or uuid4().hex
-        items = [
-            {
-                "device_id": device_id,
-                "point_id": point_id,
-                "value": _parse_scalar(value),
-                "command_id": f"{batch_id}:{index}",
-                "timeout": args.io_timeout,
+    def default(self, line: str) -> None:
+        try:
+            tokens = shlex.split(line)
+            if not tokens:
+                return
+            timer = Timer()
+            result = self.dispatch(tokens)
+            if result is not None:
+                loaded = self.config._current
+                fingerprint = loaded.fingerprint if loaded is not None else None
+                emit(
+                    response(
+                        " ".join(tokens[:3]),
+                        result,
+                        fingerprint=fingerprint,
+                        duration_ms=timer.elapsed_ms(),
+                    ),
+                    format_name=self._format,
+                )
+        except (ConfigError, ValueError, OSError, RuntimeError, KeyError) as exc:
+            error = {
+                "status": "FAIL",
+                "code": "CLI_ERROR",
+                "message": f"{type(exc).__name__}: {exc}",
             }
-            for index, (device_id, point_id, value) in enumerate(args.item)
+            emit(
+                response("command", error, fingerprint=None, duration_ms=0),
+                format_name=self._format,
+            )
+        except KeyboardInterrupt:
+            print("\nInterrupted.")
+
+    def _candidates(self) -> list[str]:
+        words = completion_words()
+        loaded = self.config._current
+        if loaded is not None:
+            snapshot = loaded.snapshot
+            words.extend(str(key) for key in snapshot.site.devices)
+            words.extend(str(key) for key in snapshot.sinks)
+            words.extend(
+                point_id for table in snapshot.point_tables.values() for point_id in table.points
+            )
+        return sorted(set(words))
+
+    def completenames(self, text: str, *_: object) -> list[str]:
+        return [item for item in self._candidates() if item.startswith(text)]
+
+    def completedefault(self, text: str, *_: object) -> list[str]:
+        return self.completenames(text)
+
+    def preloop(self) -> None:
+        super().preloop()
+        try:
+            import readline
+            from pathlib import Path
+
+            self._history_path = Path.home() / ".wind_hub_history"
+            if self._history_path.is_file():
+                readline.read_history_file(str(self._history_path))
+        except (ImportError, OSError):
+            pass
+
+    def precmd(self, line: str) -> str:
+        if " write " in f" {line.lower()} ":
+            try:
+                import readline
+
+                count = readline.get_current_history_length()
+                if count:
+                    readline.remove_history_item(count - 1)
+            except (ImportError, OSError, ValueError):
+                pass
+        return line
+
+    def postloop(self) -> None:
+        try:
+            import readline
+
+            path = getattr(self, "_history_path", None)
+            if path is not None:
+                readline.write_history_file(str(path))
+        except (ImportError, OSError):
+            pass
+        super().postloop()
+
+    def emptyline(self) -> bool:
+        return False
+
+    def do_help(self, arg: str) -> None:
+        """Show command syntax."""
+        print(help_text(shlex.split(arg)))
+
+    def do_exit(self, arg: str) -> bool:
+        """Exit interactive CLI."""
+        return True
+
+    def do_clear(self, arg: str) -> None:
+        print(chr(27) + "[2J" + chr(27) + "[H", end="")
+
+    def do_quit(self, arg: str) -> bool:
+        """Exit interactive CLI."""
+        return True
+
+    def do_EOF(self, arg: str) -> bool:  # noqa: N802  # cmd.Cmd 按 EOF 名分发，无法改名
+        print()
+        return True
+
+    def dispatch(self, tokens: list[str]) -> object:
+        action, *rest = tokens
+        if action == "help":
+            print(help_text(rest))
+            return None
+        if "--help" in tokens:
+            print(help_text([token for token in tokens if token != "--help"]))
+            return None
+        if action == "config":
+            if not rest:
+                raise ValueError(
+                    "usage: config validate PATH | read PATH | reload | diff PATH | show"
+                )
+            operation, *args = rest
+            if operation == "validate":
+                if len(args) == 2 and args[1] == "--scope=all":
+                    args = args[:1]
+                if len(args) == 3 and args[1:] == ["--scope", "all"]:
+                    args = args[:1]
+                if len(args) != 1:
+                    raise ValueError("usage: config validate PATH [--scope all]")
+            if operation in {"read", "diff"} and len(args) != 1:
+                raise ValueError(f"usage: config {operation} PATH")
+            if operation in {"reload", "show"} and args:
+                raise ValueError(f"usage: config {operation}")
+            if operation == "read":
+                loaded = self.config.read(args[0])
+                return {
+                    "status": "PASS",
+                    "path": str(loaded.path),
+                    "fingerprint": loaded.fingerprint,
+                }
+            if operation == "validate":
+                from pathlib import Path
+
+                base = Path(args[0]).expanduser().resolve()
+                if not base.is_dir():
+                    return {
+                        "status": "FAIL",
+                        "code": "CONFIG_DIRECTORY_NOT_FOUND",
+                        "path": str(base),
+                        "message": "Configuration directory does not exist",
+                    }
+                missing = [name for name in REQUIRED_FILES if not (base / name).is_file()]
+                if missing:
+                    return {
+                        "status": "FAIL",
+                        "code": "CONFIG_FILE_MISSING",
+                        "path": str(base),
+                        "missing_files": missing,
+                        "message": "Required configuration files are missing",
+                    }
+                try:
+                    loaded = self.config.validate(base)
+                except Exception as exc:
+                    return {
+                        "status": "FAIL",
+                        "code": "CONFIG_INVALID",
+                        "path": str(base),
+                        "message": f"Configuration validation failed ({type(exc).__name__})",
+                    }
+                return {
+                    "status": "PASS",
+                    "path": str(loaded.path),
+                    "fingerprint": loaded.fingerprint,
+                }
+            if operation == "reload":
+                loaded = self.config.reload()
+                return {
+                    "status": "PASS",
+                    "path": str(loaded.path),
+                    "fingerprint": loaded.fingerprint,
+                }
+            if operation == "diff":
+                change = self.config.diff(args[0])
+                return {
+                    "has_changes": change.has_changes,
+                    "sections": {
+                        name: {
+                            "added": sorted(section.added),
+                            "removed": sorted(section.removed),
+                            "changed": sorted(section.changed),
+                        }
+                        for name, section in change.sections.items()
+                    },
+                }
+            if operation == "show":
+                loaded = self.config.current
+                return {
+                    "path": str(loaded.path),
+                    "fingerprint": loaded.fingerprint,
+                    "devices": len(loaded.snapshot.site.devices),
+                    "sinks": len(loaded.snapshot.sinks),
+                    "loaded_at": loaded.loaded_at.isoformat(),
+                    "last_reload": "FAIL" if self.config.reload_failed else "PASS",
+                }
+            raise ValueError(f"unsupported config command: {operation}")
+        if action in {"devices", "points", "sinks"}:
+            loaded = self.config.current
+            rest = [token for token in rest if token != "--verbose"]
+            if action == "devices":
+                return devices(loaded.snapshot, rest[0] if rest else None)
+            if action == "sinks":
+                return sinks(loaded.snapshot, rest[0] if rest else None)
+            if not 1 <= len(rest) <= 2:
+                raise ValueError("usage: points DEVICE [POINT]")
+            return points(loaded.snapshot, rest[0], rest[1] if len(rest) == 2 else None)
+        if action == "gateways":
+            if len(rest) > 1:
+                raise ValueError("usage: gateways [GATEWAY_ID]")
+            _ = self.config.current
+            return {
+                "status": "UNKNOWN",
+                "code": "NOT_DEFINED",
+                "message": "Gateway inventory is not defined by the current ConfigSnapshot",
+                "gateway_id": rest[0] if rest else None,
+                "items": [],
+            }
+        if action == "clear":
+            print(chr(27) + "[2J" + chr(27) + "[H", end="")
+            return None
+        if action == "diagnose":
+            return self._diagnose(rest)
+        raise ValueError(f"unknown command: {action}. Type help.")
+
+    def _diagnose(self, args: list[str]) -> object:
+        if args and args[0] in {"tcp", "resolve", "ping", "route"}:
+            from .network_diagnostic import ping, resolve, route, tcp
+
+            operation = args[0]
+
+            class SafeArgumentParser(argparse.ArgumentParser):
+                def error(self, message: str) -> typing.NoReturn:
+                    raise ValueError(f"{self.prog}: {message}")
+
+            parser = SafeArgumentParser(prog=f"diagnose {operation}")
+            parser.add_argument("host")
+            if operation == "tcp":
+                parser.add_argument("port", nargs="?", type=int)
+            if operation == "ping":
+                parser.add_argument("--count", type=int, default=4)
+            default_timeout = 1.0 if operation == "ping" else 3.0
+            parser.add_argument("--timeout", type=float, default=default_timeout)
+            parsed = parser.parse_args(args[1:])
+            host = parsed.host
+            port = getattr(parsed, "port", None)
+            if self.config._current is not None:
+                from .inventory import devices
+
+                configured = self.config.current.snapshot.site.devices
+                if any(str(key) == host for key in configured):
+                    info = devices(self.config.current.snapshot, host)[0]
+                    host = str(info["host"])
+                    if operation == "tcp" and port is None:
+                        port = int(info["port"])
+            try:
+                if operation == "tcp":
+                    if port is None:
+                        raise ValueError("tcp requires PORT when host is not a configured device")
+                    return asyncio.run(tcp(host, port, timeout=parsed.timeout))
+                if operation == "ping":
+                    return asyncio.run(ping(host, count=parsed.count, timeout=parsed.timeout))
+                if operation == "route":
+                    return asyncio.run(route(host, timeout=parsed.timeout))
+                return asyncio.run(resolve(host, timeout=parsed.timeout))
+            except (OSError, TimeoutError) as exc:
+                return {
+                    "status": "FAIL",
+                    "code": "NETWORK_PROBE_FAILED",
+                    "host": host,
+                    "port": port,
+                    "message": f"{type(exc).__name__}: {exc}",
+                }
+        if args and args[0] == "result":
+            if len(args) != 1:
+                raise ValueError("usage: diagnose result")
+            return self.results.show()
+        if args and args[0] == "report":
+            if len(args) != 2:
+                raise ValueError("usage: diagnose report PATH.json")
+            return self.results.export(args[1])
+        loaded = self.config.require_diagnosable()
+        if not args or args == ["--restart"]:
+            from .pipeline import run
+
+            result = asyncio.run(
+                run(
+                    loaded.snapshot,
+                    loaded.fingerprint,
+                    previous=self.results.last,
+                    restart=bool(args),
+                    timeout=self._timeout,
+                )
+            )
+            self.results.record(result)
+            return result
+        if len(args) < 3 or args[0] != "protocol":
+            raise ValueError("usage: diagnose [--restart] | diagnose protocol OP DEVICE ...")
+        operation = args[1]
+        device_id = args[2]
+        opts, positional = _options(args[3:], self._timeout)
+        if operation in {"check", "gi"} and positional:
+            raise ValueError(f"{operation} does not accept point IDs")
+        if opts.ca is not None and operation != "gi":
+            raise ValueError("--ca is only valid with gi")
+        if opts.duration is not None and operation != "listen":
+            raise ValueError("--duration is only valid with listen")
+        if opts.count is not None and operation != "read":
+            raise ValueError("--count is only valid with read")
+        if operation in {"read", "read-many", "write"} and not positional:
+            raise ValueError(f"{operation} requires configured point IDs")
+        if operation == "write" and len(positional) != 2:
+            raise ValueError("usage: diagnose protocol write DEVICE POINT VALUE")
+        if operation == "read-many" and opts.interval is not None:
+            raise ValueError("read-many is a single native batch operation")
+        if operation in {"listen", "benchmark"}:
+            from .protocol_stream import benchmark, listen
+
+            device_info = devices(loaded.snapshot, device_id)[0]
+            point_info = [
+                points(loaded.snapshot, device_id, point_id)[0] for point_id in positional
+            ]
+            context = {
+                "device_id": device_id,
+                "protocol": device_info["protocol"],
+                "endpoint": {"host": device_info["host"], "port": device_info["port"]},
+                "protocol_options": device_info["protocol_options"],
+                "points": point_info,
+            }
+            if operation == "listen":
+                if opts.duration is None and self._format == "json":
+                    raise ValueError("unbounded JSON listen requires --duration")
+                on_sample = None
+                if opts.duration is None:
+                    print(json.dumps(context, ensure_ascii=False, default=str))
+
+                    def _emit_sample(sample: dict[str, Any]) -> None:
+                        print(json.dumps(sample, ensure_ascii=False, allow_nan=False))
+
+                    on_sample = _emit_sample
+                try:
+                    payload = asyncio.run(
+                        listen(
+                            loaded.snapshot,
+                            device_id,
+                            positional,
+                            duration=opts.duration,
+                            timeout=opts.timeout,
+                            on_sample=on_sample,
+                        )
+                    )
+                except Exception as exc:
+                    return {
+                        "status": "FAIL",
+                        "code": "PROTOCOL_LISTEN_FAILED",
+                        **context,
+                        "message": f"{type(exc).__name__}: {exc}",
+                    }
+                return {"status": "PASS", **context, "data": payload}
+            if not positional:
+                raise ValueError("benchmark requires at least one point ID")
+            try:
+                benchmark_payload = asyncio.run(
+                    benchmark(
+                        loaded.snapshot,
+                        device_id,
+                        positional,
+                        samples=opts.samples,
+                        interval=0.2 if opts.interval is None else opts.interval,
+                        timeout=opts.timeout,
+                    )
+                )
+            except Exception as exc:
+                return {
+                    "status": "FAIL",
+                    "code": "PROTOCOL_BENCHMARK_FAILED",
+                    **context,
+                    "message": f"{type(exc).__name__}: {exc}",
+                }
+            return {"status": "PASS", **context, "data": benchmark_payload}
+        value = _value(positional[1]) if operation == "write" else None
+        if operation == "write" and not opts.yes:
+            if not getattr(self, "_interactive", False):
+                raise ValueError("non-interactive write requires --yes")
+            target = devices(loaded.snapshot, device_id)[0]
+            point = points(loaded.snapshot, device_id, positional[0])[0]
+            print("WRITE WARNING: physical device may execute this command.")
+            print(
+                json.dumps(
+                    {"device": device_id, "endpoint": target, "point": point, "value": value},
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
+            if input("Execute once? Type YES: ").strip() != "YES":
+                return {"status": "SKIPPED", "message": "write not confirmed"}
+        point_ids = positional[:1] if operation == "write" else positional
+        from .inventory import devices as inventory_devices
+
+        device_info = inventory_devices(loaded.snapshot, device_id)[0]
+        selected_points = [
+            points(loaded.snapshot, device_id, point_id)[0] for point_id in point_ids
         ]
-        return {"items": items}
-
-    keys = (
-        "device_id",
-        "point_id",
-        "point_ids",
-        "point_group",
-        "io_timeout",
-        "revision_id",
-        "config_hash",
-    )
-    return {key: getattr(args, key) for key in keys if hasattr(args, key)}
-
-
-async def _run(args: argparse.Namespace) -> int:
-    """执行一次 CLI 命令。"""
-    if args.service == "collector":
-        async with CollectorClient(args.target, timeout=args.rpc_timeout) as client:
-            result = await client.call(args.operation, **_collector_kwargs(args))
-    else:
-        async with CommanderClient(args.target, timeout=args.rpc_timeout) as client:
-            result = await client.call(args.operation, **_commander_kwargs(args))
-    _print(result)
-    outcomes = [item["outcome"] for item in result.get("results", []) if "outcome" in item]
-    if "outcome" in result:
-        outcomes.append(result["outcome"])
-    # 退出码：0=全部确认成功；3=存在 UNKNOWN（命令可能已执行，需人工核实）；
-    # 2=确认失败或 RPC 级失败。
-    if any(outcome == "COMMAND_OUTCOME_UNKNOWN" for outcome in outcomes):
-        return 3
-    if outcomes and any(outcome != "COMMAND_OUTCOME_CONFIRMED_SUCCESS" for outcome in outcomes):
-        return 2
-    if result.get("success") is False or result.get("ok") is False:
-        return 2
-    return 0
+        if opts.count is not None and not 1 <= opts.count <= 100000:
+            raise ValueError("--count must be in 1..100000")
+        if opts.count is not None and opts.interval is None:
+            raise ValueError("--count requires --interval")
+        if opts.interval is not None and not 0.1 <= opts.interval <= 3600:
+            raise ValueError("--interval must be in 0.1..3600 seconds")
+        streaming = operation == "read" and opts.interval is not None and opts.count is None
+        if streaming and self._format == "json":
+            raise ValueError("continuous JSON output requires --count")
+        if streaming:
+            print(
+                json.dumps(
+                    {"device_id": device_id, "endpoint": device_info, "points": selected_points},
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
+        on_sample = (
+            (lambda sample: print(json.dumps(sample, ensure_ascii=False, allow_nan=False)))
+            if streaming
+            else None
+        )
+        try:
+            payload = asyncio.run(
+                execute(
+                    loaded.snapshot,
+                    device_id,
+                    operation,
+                    point_ids=point_ids,
+                    value=value,
+                    interval=opts.interval,
+                    count=0 if streaming else (opts.count or 1),
+                    timeout=opts.timeout,
+                    common_address=opts.ca,
+                    on_sample=on_sample,
+                )
+            )
+        except Exception as exc:
+            return {
+                "status": "FAIL",
+                "code": "PROTOCOL_DIAGNOSTIC_FAILED",
+                "device_id": device_id,
+                "endpoint": {"host": device_info["host"], "port": device_info["port"]},
+                "protocol": device_info["protocol"],
+                "protocol_options": device_info["protocol_options"],
+                "points": selected_points,
+                "message": f"{type(exc).__name__}: {exc}",
+                "data": [],
+            }
+        outcome = payload[0].get("outcome") if operation == "write" and payload else None
+        quality_warning = any(
+            str(item.get("quality", "good")).lower() != "good"
+            for item in payload
+            if "quality" in item
+        )
+        status = (
+            "UNKNOWN"
+            if outcome == "unknown"
+            or (operation == "gi" and bool(payload) and payload[0].get("status") == "UNKNOWN")
+            else "FAIL"
+            if outcome == "confirmed_failure"
+            else "WARNING"
+            if quality_warning
+            else "PASS"
+        )
+        return {
+            "status": status,
+            "device_id": device_id,
+            "protocol": device_info["protocol"],
+            "endpoint": {
+                "host": device_info["host"],
+                "port": device_info["port"],
+            },
+            "protocol_options": device_info["protocol_options"],
+            "points": selected_points,
+            "data": payload,
+        }
 
 
 def main() -> int:
-    """执行 wind-hub。"""
-    args = build_parser().parse_args()
-    try:
-        return asyncio.run(_run(args))
-    except (grpc.aio.AioRpcError, ValueError) as exc:
-        if isinstance(exc, grpc.aio.AioRpcError):
-            detail = f"{exc.code().name}: {exc.details()}"
-        else:
-            detail = str(exc)
-        print(f"wind-hub failed: {detail}", file=sys.stderr)
-        return 2
-    except KeyboardInterrupt:
-        return 130
+    shell = WindHubShell()
+    arguments = sys.argv[1:]
+    if arguments and arguments[0] == "--help":
+        print(help_text([]))
+        return 0
+    global_options: dict[str, str] = {}
+    while arguments and arguments[0] in {"--config", "--format", "--timeout"}:
+        option = arguments[0]
+        if len(arguments) < 2 or arguments[1].startswith("--"):
+            print(f"FAIL {option} requires a value", file=sys.stderr)
+            return 2
+        if option in global_options:
+            print(f"FAIL duplicate global option: {option}", file=sys.stderr)
+            return 2
+        global_options[option] = arguments[1]
+        arguments = arguments[2:]
+    if "--format" in global_options:
+        shell._format = global_options["--format"]
+        if shell._format not in {"table", "json"}:
+            print("FAIL --format must be table or json", file=sys.stderr)
+            return 2
+    if "--timeout" in global_options:
+        try:
+            shell._timeout = float(global_options["--timeout"])
+            if not math.isfinite(shell._timeout) or shell._timeout <= 0:
+                raise ValueError("timeout must be a positive finite number")
+        except ValueError as exc:
+            print(f"FAIL invalid --timeout: {exc}", file=sys.stderr)
+            return 2
+    if "--config" in global_options:
+        try:
+            shell.config.read(global_options["--config"])
+        except (ConfigError, ValueError, OSError) as exc:
+            print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
+    if arguments:
+        timer = Timer()
+        try:
+            payload = shell.dispatch(arguments)
+            if payload is None:
+                return 0
+            loaded = shell.config._current
+            result = response(
+                " ".join(arguments[:3]),
+                payload,
+                fingerprint=loaded.fingerprint if loaded is not None else None,
+                duration_ms=timer.elapsed_ms(),
+            )
+            emit(result, format_name=shell._format)
+            if result["status"] == "UNKNOWN":
+                return 3
+            if result["status"] == "FAIL":
+                return 2 if arguments[:2] == ["config", "validate"] else 1
+            return 0
+        except (ConfigError, ValueError, OSError, RuntimeError, KeyError) as exc:
+            if shell._format == "json":
+                emit(
+                    response(
+                        " ".join(arguments[:3]),
+                        {
+                            "status": "FAIL",
+                            "code": "CLI_ERROR",
+                            "message": f"{type(exc).__name__}: {exc}",
+                        },
+                        fingerprint=None,
+                        duration_ms=timer.elapsed_ms(),
+                    ),
+                    format_name="json",
+                )
+            else:
+                print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
+        except KeyboardInterrupt:
+            return 130
+
+    shell._interactive = True
+    shell.cmdloop()
+    return 0
 
 
 if __name__ == "__main__":

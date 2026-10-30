@@ -284,7 +284,7 @@ forbidden_modules = ["collector", "commander", "cli", "web_server"]
 
 # ---- generated protobuf 边界 ----
 # pb2/grpc stub 只允许出现在 grpc inbound/outbound adapter、core rpc codec
-# 与 cli client；application/domain 不感知 wire 形态。
+# 与 CLI diagnostic adapter；application/domain 不感知 wire 形态。
 
 [[tool.importlinter.contracts]]
 name = "new collector/commander application 与 domain 不得依赖生成的 protobuf"

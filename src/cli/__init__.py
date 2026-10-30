@@ -1,4 +1,1 @@
-"""Wind Hub 本地运维 CLI。
-
-CLI 直接连接 Collector 与 Commander 的 gRPC 控制面，不依赖 Server/Admin。
-"""
+"""Wind Hub 交互式运维 CLI：配置检查、对象查询与现场通信诊断。"""

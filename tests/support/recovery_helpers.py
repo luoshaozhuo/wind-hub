@@ -1,21 +1,21 @@
 """Recovery 测试共享助手——故障注入周期（正常 → 故障 → 检测 → 存活 → 恢复）
 中反复使用的边界观测原语与配置生成器。
 
-所有观测都发生在系统边界：CLI subprocess 的 status payload、独立 Redis
-连接——不读取 Collector 进程内部状态。
+所有观测都发生在系统边界：Collector gRPC Runtime 接口的 status payload、
+独立 Redis 连接——不读取 Collector 进程内部状态。
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from tests.support.control import runtime_status_snapshot
 from tests.support.functional_config import write_functional_config
-from tests.support.process import CollectorProcess, run_cli_async
+from tests.support.process import CollectorProcess
 from tests.support.redis_client import point_key
 from tests.support.wait import (
     WaitTimeoutError,
@@ -86,26 +86,9 @@ async def wait_telemetry_value(
     return await wait_redis_value(redis_address, key, match=_matches)
 
 
-async def cli_status(proc: CollectorProcess) -> dict[str, Any] | None:
-    """经 CLI subprocess 查询 Runtime status；RPC 失败返回 None（继续轮询）。"""
-    result = await run_cli_async("status", target=proc.grpc_target)
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    status: dict[str, Any] = json.loads(result.stdout)
-    return status
-
-
-async def cli_instance_states(proc: CollectorProcess) -> dict[str, str] | None:
-    """经 CLI task-instances 查询实例状态表（instance_id → state）。
-
-    与 status 的 ``acquisitions[].running``（一次 collect 执行中的瞬态
-    标志）不同，这是实例的生命周期状态（RUNNING/STOPPED）——任务控制
-    断言必须用它。RPC 失败返回 None（继续轮询）。
-    """
-    result = await run_cli_async("instances", target=proc.grpc_target)
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return {item["instance_id"]: item["state"] for item in json.loads(result.stdout)["items"]}
+async def status_snapshot(proc: CollectorProcess) -> dict[str, Any] | None:
+    """经 Collector gRPC Runtime 查询状态快照；RPC 失败返回 None（继续轮询）。"""
+    return await runtime_status_snapshot(proc.grpc_target)
 
 
 async def wait_status(
@@ -115,7 +98,7 @@ async def wait_status(
     timeout: float = 30.0,
     description: str = "status condition",
 ) -> dict[str, Any]:
-    """轮询 CLI status 直到 ``predicate(payload)`` 成立，返回该快照。
+    """轮询 gRPC Runtime status 直到 ``predicate(payload)`` 成立，返回该快照。
 
     超时消息带最近一次观测到的 payload 摘要——「条件没等到」与
     「RPC 一直失败」在诊断上是两种完全不同的问题。
@@ -124,7 +107,7 @@ async def wait_status(
 
     async def _probe() -> dict[str, Any] | None:
         nonlocal last_seen
-        payload = await cli_status(proc)
+        payload = await status_snapshot(proc)
         if payload is None:
             return None
         last_seen = payload
