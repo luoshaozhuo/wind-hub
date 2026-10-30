@@ -37,7 +37,8 @@ diff: compare current in-memory snapshot to separately validated PATH
 show: display active path, fingerprint, load time and reload status
 """,
     ("config", "validate"): """Usage: config validate PATH [--scope all]
-PATH: local configuration directory; --scope all and --scope=all are equivalent.\nDefault scope all checks all eight Core YAML files
+PATH: local configuration directory; --scope all and --scope=all are equivalent.
+Default scope all checks all eight Core YAML files
 Output: missing files, failed schema/reference checks, and validation verdict
 No config session changes. Exit: 0 PASS; 2 invalid config/path.
 """,
@@ -63,7 +64,9 @@ No file writes or active configuration changes.
   sinks [SINK_ID] [--verbose]
   Shows Sink kinds, enabled flag and safe public endpoint parameters.""",
     ("gateways",): """Usage:
-  gateways [GATEWAY_ID]\n  At most one Gateway ID is accepted.\n  Current Core ConfigSnapshot has no Gateway collection; result NOT_DEFINED.""",
+  gateways [GATEWAY_ID]
+  At most one Gateway ID is accepted.
+  Current Core ConfigSnapshot has no Gateway collection; result NOT_DEFINED.""",
     ("diagnose",): """Usage:
   diagnose [--restart]
   diagnose result

@@ -163,9 +163,7 @@ async def run(
                     await close_driver()
                     sink = sinks_by_id[target]
                     entry["sink_kind"] = sink["kind"]
-                    address = (
-                        _sink_address(sink) if kind == "sink_endpoint" else None
-                    )
+                    address = _sink_address(sink) if kind == "sink_endpoint" else None
                     if kind == "sink_not_tested":
                         entry["status"] = "UNKNOWN"
                         entry["message"] = (

@@ -9,6 +9,7 @@ import json
 import math
 import shlex
 import sys
+import typing
 from typing import Any
 
 from core.application.errors import ConfigError
@@ -304,8 +305,9 @@ class WindHubShell(cmd.Cmd):
             from .network_diagnostic import ping, resolve, route, tcp
 
             operation = args[0]
+
             class SafeArgumentParser(argparse.ArgumentParser):
-                def error(self, message: str) -> None:
+                def error(self, message: str) -> typing.NoReturn:
                     raise ValueError(f"{self.prog}: {message}")
 
             parser = SafeArgumentParser(prog=f"diagnose {operation}")
