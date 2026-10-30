@@ -7,7 +7,7 @@
 
 观测点（全部在进程边界）：
 - ``/proc/<pid>/fd`` 采样（含 socket/文件/管道）；
-- CLI status 的 acquisitions 列表（Task Instance 唯一、无重复 handle）；
+- gRPC ListTaskInstances 的状态表（Task Instance 唯一、无重复 handle）；
 - GetMetricsSnapshot 的 reconnects 计数（确认故障循环真实发生）。
 """
 
@@ -21,16 +21,14 @@ import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import (
+    instance_states,
     metrics_snapshot,
     reload_config,
     start_task_instance,
 )
 from tests.support.functional_config import update_yaml, write_functional_config
 from tests.support.process import CollectorProcess
-from tests.support.recovery_helpers import (
-    cli_instance_states,
-    wait_status,
-)
+from tests.support.recovery_helpers import wait_status
 from tests.support.redis_client import point_key
 from tests.support.wait import wait_redis_value
 
@@ -82,7 +80,7 @@ async def _wait_data(address: str, *, after: str | None = None) -> str:
 
 async def _single_running_instance(proc: CollectorProcess) -> None:
     """断言本用例实例唯一且处于 RUNNING 生命周期状态。"""
-    states = await cli_instance_states(proc)
+    states = await instance_states(proc.grpc_target)
     assert states is not None
     assert states.get(INSTANCE_ID) == "running", f"unexpected instance states: {states}"
 

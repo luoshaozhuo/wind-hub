@@ -11,7 +11,7 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess
 from tests.support.recovery_helpers import (
-    cli_status,
+    status_snapshot,
     wait_status,
     wait_telemetry_value,
     write_modbus_redis_config,
@@ -52,7 +52,7 @@ class TestProtocolDisconnectRecovery:
         assert (await wait_telemetry_value(redis_service))["timestamp"] == settled["timestamp"]
 
         assert proc.is_running()
-        status = await cli_status(proc)
+        status = await status_snapshot(proc)
         assert status is not None
         assert status["running"] is True
 

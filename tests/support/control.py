@@ -145,6 +145,82 @@ async def reload_config(
         await channel.close()
 
 
+async def collector_info(target: str) -> pb.CollectorInfoResponse:
+    """查询 Collector 身份与配置代次（GetCollectorInfo）。"""
+    channel = grpc.aio.insecure_channel(target)
+    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
+    try:
+        return await stub.GetCollectorInfo(empty_pb2.Empty(), timeout=5.0)
+    finally:
+        await channel.close()
+
+
+async def runtime_status(target: str) -> pb.RuntimeStatusResponse:
+    """查询 Runtime 运行状态（GetRuntimeStatus）。"""
+    channel = grpc.aio.insecure_channel(target)
+    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
+    try:
+        return await stub.GetRuntimeStatus(empty_pb2.Empty(), timeout=5.0)
+    finally:
+        await channel.close()
+
+
+async def runtime_status_snapshot(target: str) -> dict[str, Any] | None:
+    """Runtime 状态的 dict 快照；gRPC 暂不可用时返回 None（供轮询）。
+
+    仅保留恢复测试断言使用的标量字段；瞬态 acquisitions 不在此快照中。
+    """
+    try:
+        status = await runtime_status(target)
+    except grpc.aio.AioRpcError:
+        return None
+    return {
+        "running": status.running,
+        "device_count": status.device_count,
+        "sink_count": status.sink_count,
+        "devices_connected": status.devices_connected,
+        "sinks_healthy": status.sinks_healthy,
+        "points_collected": status.points_collected,
+        "points_routed": status.points_routed,
+        "points_dropped": status.points_dropped,
+    }
+
+
+async def get_task(target: str, task_id: str) -> pb.TaskSummaryMessage:
+    """查询单个 Task Definition 汇总（GetTask）。"""
+    channel = grpc.aio.insecure_channel(target)
+    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
+    try:
+        return await stub.GetTask(pb.TaskIdRequest(task_id=task_id), timeout=5.0)
+    finally:
+        await channel.close()
+
+
+async def get_task_instance(target: str, instance_id: str) -> pb.TaskInstanceMessage:
+    """查询单个 Task Instance（GetTaskInstance）。"""
+    channel = grpc.aio.insecure_channel(target)
+    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
+    try:
+        return await stub.GetTaskInstance(
+            pb.InstanceIdRequest(instance_id=instance_id), timeout=5.0
+        )
+    finally:
+        await channel.close()
+
+
+async def instance_states(target: str) -> dict[str, str] | None:
+    """实例生命周期状态表（instance_id → state）；gRPC 暂不可用时返回 None。"""
+    channel = grpc.aio.insecure_channel(target)
+    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
+    try:
+        response = await stub.ListTaskInstances(empty_pb2.Empty(), timeout=5.0)
+    except grpc.aio.AioRpcError:
+        return None
+    finally:
+        await channel.close()
+    return {item.instance_id: item.state for item in response.items}
+
+
 async def metrics_snapshot(target: str) -> dict[str, Any]:
     """查询 Collector 指标快照（connect_failures/reconnects 等累计计数）。
 

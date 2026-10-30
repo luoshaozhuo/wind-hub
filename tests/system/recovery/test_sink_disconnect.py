@@ -2,7 +2,7 @@
 
 故障注入手段是 Docker Compose 真实停止/启动服务（非 iptables 模拟）；
 检测与恢复信号来自系统边界：独立 Redis 连接的点值 timestamp 推进、
-CLI status 的 ``sinks_healthy``。用例在 finally 中恢复服务，保证
+gRPC Runtime status 的 ``sinks_healthy``。用例在 finally 中恢复服务，保证
 session 级 compose 栈不污染后续测试。
 """
 

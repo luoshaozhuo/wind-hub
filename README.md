@@ -168,36 +168,21 @@ wind-hub-collector --config configs
 # 即时命令与诊断进程（gRPC 默认 127.0.0.1:50052）
 wind-hub-commander --config configs
 
-# 本地运维 CLI（JSON 输出；不需要启动 Server/Admin）
-wind-hub collector status
-wind-hub collector tasks
-wind-hub commander status
-wind-hub commander read modbus-1 active_power
+# 本地诊断 CLI（交互式 shell；不需要启动 Server/Admin）
+wind-hub
+wind-hub devices
+wind-hub config validate configs
+wind-hub sinks
+wind-hub diagnose protocol read turbine01 active_power
 ```
 
-### 无 Server/Admin 的 CTL 操作
+### Collector / Commander 控制面
 
-只需分别启动 Collector 和 Commander 进程，CLI 通过独立 gRPC endpoint 直连。
-以下示例只使用 Collector / Commander 自身的 gRPC 接口：
+Collector 与 Commander 的生命周期控制（任务启停、配置热重载、状态查询）
+由 Server/Admin 经 gRPC 下发；`wind-hub` 是只读的配置与诊断入口，
+不提供 collector/commander 控制子命令。系统测试直接以 gRPC 调用
+Collector 控制面（见 `tests/support/control.py`）。
 
-```bash
-wind-hub collector info
-wind-hub collector tasks
-
-# task_id 应取自上面 tasks 命令的输出。
-wind-hub collector start-task task-1
-wind-hub collector instances
-wind-hub collector stop-task task-1
-
-# 直接经 Commander 读取与写入；不会请求 Server/Admin。
-wind-hub commander devices
-wind-hub commander read dev1 p1
-wind-hub commander write dev1 p1 12.5
-wind-hub commander verify-device dev1
-```
-
-远程 Collector / Commander 分别使用 `collector --target HOST:50051`
-和 `commander --target HOST:50052` 指定地址。
 当前控制面未提供身份认证，远程访问必须采取网络隔离和访问控制措施。
 
 更多参数见各入口 `--help`。

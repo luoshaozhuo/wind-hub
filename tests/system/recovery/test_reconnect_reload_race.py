@@ -17,6 +17,7 @@ import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import (
+    instance_states,
     reload_config,
     start_task_instance,
     stop_instance,
@@ -24,8 +25,7 @@ from tests.support.control import (
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess
 from tests.support.recovery_helpers import (
-    cli_instance_states,
-    cli_status,
+    status_snapshot,
     wait_status,
     wait_telemetry_value,
     write_modbus_redis_config,
@@ -78,7 +78,7 @@ class TestPointTableChangeWhileOffline:
         assert activated.success, f"activate failed: {list(activated.errors)}"
 
         # reload 不改变连接事实：设备仍是离线。
-        status = await cli_status(proc)
+        status = await status_snapshot(proc)
         assert status is not None
         assert status["devices_connected"] == 0
 
@@ -122,7 +122,7 @@ class TestStopTaskDuringReconnect:
         await stop_instance(proc.grpc_target, INSTANCE_ID)
 
         async def _stopped() -> bool | None:
-            states = await cli_instance_states(proc)
+            states = await instance_states(proc.grpc_target)
             if states is None:
                 return None
             return True if states.get(INSTANCE_ID) == "stopped" else None
@@ -136,7 +136,7 @@ class TestStopTaskDuringReconnect:
         await modbus_server.start()
         await asyncio.sleep(3.0)  # 覆盖至少一次重连成功 + 若干采集周期
 
-        states = await cli_instance_states(proc)
+        states = await instance_states(proc.grpc_target)
         assert states is not None
         assert (
             states.get(INSTANCE_ID) == "stopped"

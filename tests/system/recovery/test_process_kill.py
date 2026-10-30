@@ -8,14 +8,13 @@ finally/atexit 任何机会：连接半截、Redis 写入中断、锁不释放�
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.support.control import start_task_instance
-from tests.support.process import CollectorProcess, run_cli_async
+from tests.support.control import collector_info, start_task_instance
+from tests.support.process import CollectorProcess
 from tests.support.recovery_helpers import (
     TASK_ID,
     wait_telemetry_value,
@@ -56,9 +55,8 @@ class TestProcessKillRecovery:
 
         # ---- 同配置重启：控制面恢复、采集可重新启动、数据继续到达 ----
         proc_b: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
-        info = await run_cli_async("info", target=proc_b.grpc_target)
-        assert info.returncode == 0
-        assert json.loads(info.stdout)["collector_id"] == WORKER_ID
+        info = await collector_info(proc_b.grpc_target)
+        assert info.collector_id == WORKER_ID
 
         baseline = str(first["timestamp"])
         await start_task_instance(
