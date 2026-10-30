@@ -199,6 +199,7 @@ def fake_drivers(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     registry: dict[str, Any] = {}
     releases: list[bool] = []
     order: list[tuple[str, str]] = []
+    tcp_probes: list[tuple[str, int]] = []
     # 预建示例配置中的设备，用例可在调用前配置其行为。
     registry["modbus-001"] = FakeDriver("modbus-001", recorder=order)
     registry["wtg-101"] = FakeDriver("wtg-101", recorder=order)
@@ -230,8 +231,17 @@ def fake_drivers(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(pipeline_mod, "release_ads", release)
     monkeypatch.setattr(diag_mod, "release_ads", release)
     monkeypatch.setattr(stream_mod, "release_ads", release)
+
+    # Sink 出站探针同样使用替身：CLI 单测是 hermetic 的，不得隐式依赖
+    # 宿主机 6379 等端口上恰好有服务（Round 1 曾因此假绿）。
+    async def default_fake_tcp(host: str, port: int, *, timeout: float) -> dict[str, Any]:
+        tcp_probes.append((host, port))
+        return {"status": "PASS", "host": host, "port": port, "elapsed_ms": 0.1}
+
+    monkeypatch.setattr(pipeline_mod, "tcp", default_fake_tcp)
     registry["_releases"] = releases
     registry["_order"] = order
+    registry["_tcp_probes"] = tcp_probes
     return registry
 
 

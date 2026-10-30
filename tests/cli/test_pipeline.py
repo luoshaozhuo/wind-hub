@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 
@@ -235,6 +236,175 @@ async def test_timeout_bounds_validated(config_dir, fake_drivers) -> None:
         await run(snapshot, fingerprint, timeout=0)
     with pytest.raises(ValueError):
         await run(snapshot, fingerprint, timeout=301)
+
+
+# ---- P2-2：Sink 检查完整性（不得静默遗漏、不得误报 PASS）----
+
+
+def _write_sinks(base, content: str) -> Path:
+    (base / "sinks.yaml").write_text(content, encoding="utf-8")
+    return base
+
+
+_ALL_OUTBOUND = """\
+sinks:
+  redis_latest:
+    type: redis
+    enabled: true
+    connection: {host: 127.0.0.1, port: 6379}
+  kafka_main:
+    type: kafka
+    enabled: true
+    connection: {bootstrap_servers: "127.0.0.1:9092", topic: telemetry}
+  tdengine_main:
+    type: tdengine
+    enabled: true
+    connection: {host: 127.0.0.1, port: 6041, password: secret}
+  grpc_gateway:
+    type: grpc
+    enabled: true
+    connection: {endpoint: "127.0.0.1:50073"}
+"""
+
+_MIXED_REDIS_MODBUS = """\
+sinks:
+  redis_latest:
+    type: redis
+    enabled: true
+    connection: {host: 127.0.0.1, port: 6379}
+  modbus_inbound:
+    type: modbus
+    enabled: true
+    connection: {host: 127.0.0.1, port: 15020}
+"""
+
+_ALL_DISABLED = """\
+sinks:
+  redis_latest:
+    type: redis
+    enabled: false
+    connection: {host: 127.0.0.1, port: 6379}
+  modbus_inbound:
+    type: modbus
+    enabled: false
+    connection: {host: 127.0.0.1, port: 15020}
+"""
+
+
+def _snapshot_from(base):
+    loaded = ConfigSession().read(base)
+    return loaded.snapshot, loaded.fingerprint
+
+
+def test_plan_covers_all_four_outbound_sink_kinds(config_dir) -> None:
+    base = _write_sinks(config_dir("modbus"), _ALL_OUTBOUND)
+    snapshot, _ = _snapshot_from(base)
+    sink_steps = [step for step in plan(snapshot) if step["kind"].startswith("sink")]
+    by_kind: dict[str, str] = {step["target"]: step["kind"] for step in sink_steps}
+    assert by_kind == {
+        "redis_latest": "sink_endpoint",
+        "kafka_main": "sink_endpoint",
+        "tdengine_main": "sink_endpoint",
+        "grpc_gateway": "sink_endpoint",
+    }
+
+
+def test_plan_marks_modbus_inbound_sink_not_tested(config_dir) -> None:
+    base = _write_sinks(config_dir("modbus"), _MIXED_REDIS_MODBUS)
+    snapshot, _ = _snapshot_from(base)
+    sink_plan = [step for step in plan(snapshot) if step["kind"].startswith("sink")]
+    by_target = {step["target"]: step["kind"] for step in sink_plan}
+    assert by_target["redis_latest"] == "sink_endpoint"
+    # Modbus 入站 Sink 是监听方，出站 TCP 探针不适用：显式标记而非静默丢弃。
+    assert by_target["modbus_inbound"] == "sink_not_tested"
+
+
+def test_plan_excludes_disabled_sinks(config_dir) -> None:
+    base = _write_sinks(config_dir("modbus"), _ALL_DISABLED)
+    snapshot, _ = _snapshot_from(base)
+    assert not [step for step in plan(snapshot) if step["kind"].startswith("sink")]
+
+
+def test_unknown_sink_type_rejected_at_config_load(config_dir) -> None:
+    # 白名单外类型（如未来的 nats）在配置加载阶段 fail-closed，
+    # 不可能带着“未检查”的 Sink 进入诊断计划。
+    from core.application.errors import ConfigError
+
+    base = _write_sinks(
+        config_dir("modbus"),
+        """\
+sinks:
+  future_bus:
+    type: nats
+    enabled: true
+    connection: {servers: "127.0.0.1:4222"}
+""",
+    )
+    with pytest.raises(ConfigError, match="future_bus"):
+        ConfigSession().read(base)
+
+
+async def test_run_all_outbound_sinks_probe_tcp_and_pass(
+    config_dir, fake_drivers, monkeypatch
+) -> None:
+    from cli import pipeline as pipeline_mod
+
+    probes: list[tuple[str, int]] = []
+
+    async def fake_tcp(host: str, port: int, *, timeout: float) -> dict:
+        probes.append((host, port))
+        return {"status": "PASS", "host": host, "port": port, "elapsed_ms": 0.1}
+
+    monkeypatch.setattr(pipeline_mod, "tcp", fake_tcp)
+    base = _write_sinks(config_dir("modbus"), _ALL_OUTBOUND)
+    snapshot, fingerprint = _snapshot_from(base)
+    result = await run(snapshot, fingerprint, timeout=5)
+    assert result["status"] == "PASS"
+    sink_steps = [step for step in result["steps"] if step["kind"].startswith("sink")]
+    assert {step["status"] for step in sink_steps} == {"PASS"}
+    assert ("127.0.0.1", 6041) in probes and ("127.0.0.1", 50073) in probes
+    # scope/limitations 必须诚实声明只验证 TCP，不宣称数据交付。
+    assert "outbound Sink TCP endpoints" in result["scope"]
+    assert "does not verify data delivery" in result["limitations"]
+    for step in sink_steps:
+        # 探针结果只有连通性字段，不得出现交付/写入成功语义。
+        assert set(step["data"]) >= {"status", "host", "port"}
+        assert "delivered" not in step["data"]
+
+
+async def test_run_modbus_inbound_sink_is_unknown_not_false_pass(
+    config_dir, fake_drivers, monkeypatch
+) -> None:
+    from cli import pipeline as pipeline_mod
+
+    probed: list[tuple[str, int]] = []
+
+    async def fake_tcp(host: str, port: int, *, timeout: float) -> dict:
+        probed.append((host, port))
+        return {"status": "PASS", "host": host, "port": port, "elapsed_ms": 0.1}
+
+    monkeypatch.setattr(pipeline_mod, "tcp", fake_tcp)
+    base = _write_sinks(config_dir("modbus"), _MIXED_REDIS_MODBUS)
+    snapshot, fingerprint = _snapshot_from(base)
+    result = await run(snapshot, fingerprint, timeout=5)
+    # redis 出站探针照常执行；入站监听端口 15020 绝不被探。
+    assert probed == [("127.0.0.1", 6379)]
+    # 存在未覆盖的已启用 Sink：整体只能 UNKNOWN，绝不允许 PASS。
+    assert result["status"] == "UNKNOWN"
+    inbound = next(step for step in result["steps"] if step["target"] == "modbus_inbound")
+    assert inbound["kind"] == "sink_not_tested"
+    assert inbound["status"] == "UNKNOWN"
+    assert "modbus" in inbound["message"]
+    redis_step = next(step for step in result["steps"] if step["target"] == "redis_latest")
+    assert redis_step["kind"] == "sink_endpoint"
+
+
+async def test_run_all_sinks_disabled_has_no_sink_steps(config_dir, fake_drivers) -> None:
+    base = _write_sinks(config_dir("modbus"), _ALL_DISABLED)
+    snapshot, fingerprint = _snapshot_from(base)
+    result = await run(snapshot, fingerprint, timeout=5)
+    assert result["status"] == "PASS"
+    assert not [step for step in result["steps"] if step["kind"].startswith("sink")]
 
 
 # ---- shell 集成：结果与报告 ----

@@ -91,6 +91,11 @@ def test_gateways_command_not_defined(config_dir) -> None:
     assert result["status"] == "UNKNOWN"
     assert result["code"] == "NOT_DEFINED"
     assert result["items"] == []
+    # 至多接受一个 Gateway ID；help 与 dispatch 语法一致。
+    one = shell.dispatch(["gateways", "gw-1"])
+    assert isinstance(one, dict) and one["gateway_id"] == "gw-1"
+    with pytest.raises(ValueError, match="usage: gateways"):
+        shell.dispatch(["gateways", "gw-1", "gw-2"])
 
 
 def test_inventory_requires_loaded_config() -> None:

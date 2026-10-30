@@ -31,6 +31,34 @@ def test_completion_contains_command_words_and_dispatch_help() -> None:
     assert shell.dispatch(["--help"]) is None
 
 
+def test_help_text_matches_actual_parser_contract() -> None:
+    """Help 声明的语法必须与 dispatch 实际接受的语法一致（P2-3）。"""
+    validate_help = help_text(["config", "validate"])
+    assert "--scope all" in validate_help and "--scope=all" in validate_help
+    gateways_help = help_text(["gateways"])
+    assert "[GATEWAY_ID]" in gateways_help
+    assert "At most one Gateway ID" in gateways_help
+    diagnose_help = help_text(["diagnose"])
+    assert "diagnose ping/tcp/route/resolve" in diagnose_help
+    # 层级 help 均可渲染，最长前缀回退到具体子命令。
+    for path in (
+        ["config"],
+        ["config", "validate"],
+        ["gateways"],
+        ["diagnose"],
+        ["diagnose", "protocol", "read"],
+        ["diagnose", "protocol", "write"],
+    ):
+        assert help_text(path).strip()
+
+
+def test_legacy_cli_client_module_removed() -> None:
+    """旧 cli.client 模块已删除：不得再被 import（P2-4 回归钉死）。"""
+    import importlib.util
+
+    assert importlib.util.find_spec("cli.client") is None
+
+
 def test_unknown_command_raises_value_error() -> None:
     with pytest.raises(ValueError, match="unknown command"):
         WindHubShell().dispatch(["nonsense"])
@@ -58,16 +86,44 @@ def test_argument_errors_do_not_raise_systemexit_for_protocol_options(config_dir
         shell.dispatch(["diagnose", "report"])  # 无配置也先做参数检查
 
 
-def test_network_missing_host_argparse_kills_shell_is_known_gap(capsys) -> None:
-    """当前 argparse 缺参抛 SystemExit；交互 shell 无法回到提示符。
-
-    钉死现状（P2，待 ChatGPT 修复后翻转）：single-shot 退出码 2，
-    且交互 default 同样被 SystemExit 穿透。
-    """
+def test_network_argument_errors_raise_value_error_not_systemexit() -> None:
+    """网络子命令缺参/非法参数必须走 ValueError，绝不 SystemExit 穿透交互 shell。"""
     shell = WindHubShell()
-    with pytest.raises(SystemExit) as exc:
-        shell.dispatch(["diagnose", "tcp"])
-    assert exc.value.code == 2
+    # 缺少必填 host（四个网络子命令同源）。
+    for operation in ("tcp", "ping", "resolve", "route"):
+        with pytest.raises(ValueError, match="arguments are required: host"):
+            shell.dispatch(["diagnose", operation])
+    # 无法识别的参数与非法端口同样是 ValueError 而非 SystemExit
+    # （argparse 可能先报缺 host，消息文本不锁死，只锁异常类型）。
+    with pytest.raises(ValueError, match="diagnose tcp"):
+        shell.dispatch(["diagnose", "tcp", "--unknown"])
+    with pytest.raises(ValueError, match="invalid int value"):
+        shell.dispatch(["diagnose", "tcp", "127.0.0.1", "not-a-port"])
+
+
+def test_interactive_shell_survives_network_argument_error(capsys) -> None:
+    """交互模式下参数错误只打印 FAIL；下一条有效命令必须照常执行。"""
+    shell = WindHubShell()
+    shell.default("diagnose tcp")  # 缺 host：不得抛出，不得退出进程
+    captured = capsys.readouterr()
+    assert "FAIL" in captured.out
+    assert "CLI_ERROR" in captured.out
+    # 错误后 help 仍可用，证明 shell 存活在提示符上。
+    shell.default("help diagnose")
+    help_out = capsys.readouterr().out
+    assert "diagnose protocol OP DEVICE" in help_out
+
+
+def test_network_argument_error_single_shot_exit_code(run_cli) -> None:
+    """单次命令模式保持 argparse 传统退出码 2。"""
+    rc, _, err = run_cli(["diagnose", "tcp"])
+    assert rc == 2
+    assert "FAIL" in err  # table 模式错误走 stderr
+    rc, out, _ = run_cli(["--format", "json", "diagnose", "tcp"])
+    assert rc == 2
+    assert "CLI_ERROR" in out  # json 模式错误是结构化结果
+    rc, _, _ = run_cli(["diagnose", "ping", "--bogus"])
+    assert rc == 2
 
 
 def test_completion_includes_configured_identifiers(config_dir) -> None:

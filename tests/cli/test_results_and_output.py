@@ -112,3 +112,45 @@ def test_cli_help_exit_zero(run_cli) -> None:
     rc, out, _ = run_cli(["--help"])
     assert rc == 0
     assert "Wind Hub CLI" in out
+
+
+def test_global_flags_accepted_in_any_prefix_order(config_dir, run_cli) -> None:
+    base = config_dir("modbus")
+    # 三种全局参数任意前置次序都必须被接受。
+    for argv in (
+        ["--format", "json", "--config", str(base), "devices"],
+        ["--timeout", "5", "--config", str(base), "devices"],
+        ["--format", "json", "--timeout", "5", "--config", str(base), "devices"],
+        ["--config", str(base), "--format", "json", "devices"],
+    ):
+        rc, out, err = run_cli(argv)
+        assert rc == 0, f"{argv}: {err}"
+        if "--format" in argv:
+            assert '"command": "devices"' in out
+        else:
+            assert "PASS devices" in out
+
+
+def test_duplicate_global_option_rejected(config_dir, run_cli) -> None:
+    base = config_dir("modbus")
+    rc, _, err = run_cli(["--config", str(base), "--config", str(base), "devices"])
+    assert rc == 2
+    assert "duplicate" in err
+    rc, _, err = run_cli(["--format", "json", "--format", "table", "devices"])
+    assert rc == 2
+    assert "duplicate" in err
+
+
+def test_global_option_missing_value_rejected(run_cli) -> None:
+    rc, _, err = run_cli(["--config"])
+    assert rc == 2
+    assert "requires a value" in err
+    rc, _, err = run_cli(["--format", "json", "--config"])
+    assert rc == 2
+    assert "requires a value" in err
+
+
+def test_unknown_global_flag_rejected(run_cli) -> None:
+    rc, _, err = run_cli(["--bogus", "x", "devices"])
+    assert rc == 2
+    assert "unknown command" in err

@@ -235,3 +235,18 @@ def test_cli_config_validate_scope_all_accepted(run_cli, config_dir) -> None:
     base = config_dir("modbus")
     rc, _, _ = run_cli(["config", "validate", str(base), "--scope", "all"])
     assert rc == 0
+
+
+def test_cli_config_validate_scope_equals_form_equivalent(run_cli, config_dir) -> None:
+    base = config_dir("modbus")
+    # --scope=all 与 --scope all 行为一致（single-shot 与交互 dispatch 双路径）。
+    rc_spaced, _, _ = run_cli(["config", "validate", str(base), "--scope", "all"])
+    rc_equals, _, _ = run_cli(["config", "validate", str(base), "--scope=all"])
+    assert rc_spaced == rc_equals == 0
+    shell = WindHubShell()
+    result = shell.dispatch(["config", "validate", str(base), "--scope=all"])
+    assert isinstance(result, dict) and result["status"] == "PASS"
+    with pytest.raises(ValueError, match="usage: config validate"):
+        shell.dispatch(["config", "validate", str(base), "--scope", "full"])
+    with pytest.raises(ValueError, match="usage: config validate"):
+        shell.dispatch(["config", "validate", str(base), "--scope=all", "extra"])
