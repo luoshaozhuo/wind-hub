@@ -74,6 +74,9 @@ No file writes or active configuration changes.
   diagnose ping/tcp/route/resolve ...
   diagnose protocol OP DEVICE ...
 No arguments: execute ordered read-only configuration-driven communication checks.
+Scope: device protocol health, configured reads and outbound Sink TCP probes only.
+This is not an end-to-end data delivery test through Collector, NATS and Sink Service;
+a PASS means every executed check passed, not that the full data pipeline is verified.
 Manual network commands can work before loading config; protocol tools require valid config.
 """,
     ("diagnose", "result"): """Usage: diagnose result

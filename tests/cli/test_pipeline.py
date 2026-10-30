@@ -363,9 +363,10 @@ async def test_run_all_outbound_sinks_probe_tcp_and_pass(
     sink_steps = [step for step in result["steps"] if step["kind"].startswith("sink")]
     assert {step["status"] for step in sink_steps} == {"PASS"}
     assert ("127.0.0.1", 6041) in probes and ("127.0.0.1", 50073) in probes
-    # scope/limitations 必须诚实声明只验证 TCP，不宣称数据交付。
+    # scope/limitations 必须诚实声明只验证 TCP，不宣称 NATS 端到端数据交付。
     assert "outbound Sink TCP endpoints" in result["scope"]
     assert "does not verify data delivery" in result["limitations"]
+    assert "Collector, NATS, Sink Service" in result["limitations"]
     for step in sink_steps:
         # 探针结果只有连通性字段，不得出现交付/写入成功语义。
         assert set(step["data"]) >= {"status", "host", "port"}
@@ -405,6 +406,130 @@ async def test_run_all_sinks_disabled_has_no_sink_steps(config_dir, fake_drivers
     result = await run(snapshot, fingerprint, timeout=5)
     assert result["status"] == "PASS"
     assert not [step for step in result["steps"] if step["kind"].startswith("sink")]
+
+
+# ---- P2-1：空计划必须 UNKNOWN，绝不误报 PASS ----
+
+
+_NO_DEVICES = """\
+devices: {}
+device_groups:
+  turbine_modbus:
+    name: turbine_modbus
+"""
+
+_ONE_DISABLED_DEVICE = """\
+devices:
+  modbus-001:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
+    endpoint: {host: 127.0.0.11}
+    enabled: false
+device_groups:
+  turbine_modbus: {name: turbine_modbus}
+"""
+
+_ONE_DISABLED_SINK = """\
+sinks:
+  redis_latest:
+    type: redis
+    enabled: false
+    connection: {host: 127.0.0.1, port: 6379}
+"""
+
+_NO_SINKS = "sinks: {}\n"
+_NO_TASKS = "tasks: {}\n"
+
+
+def _write_config(base, **files: str) -> Path:
+    for name, content in files.items():
+        (base / name).write_text(content, encoding="utf-8")
+    return base
+
+
+def test_plan_empty_when_no_devices_and_no_sinks(config_dir) -> None:
+    base = _write_config(
+        config_dir("modbus"),
+        **{"devices.yaml": _NO_DEVICES, "sinks.yaml": _NO_SINKS, "tasks.yaml": _NO_TASKS},
+    )
+    snapshot, _ = _snapshot_from(base)
+    assert plan(snapshot) == []
+
+
+def _assert_empty_unknown(result: object, fingerprint: str) -> None:
+    assert isinstance(result, dict)
+    assert result["status"] == "UNKNOWN"
+    assert result["code"] == "NO_DIAGNOSTIC_TARGETS"
+    assert isinstance(result["message"], str) and result["message"]
+    assert result["total"] == 0
+    assert result["completed"] == 0
+    assert result["steps"] == []
+    assert result["failed_index"] is None
+    assert result["fingerprint"] == fingerprint
+    assert "outbound Sink TCP endpoints" in result["scope"]
+    assert "does not verify data delivery" in result["limitations"]
+    # 明确排除完整 NATS 数据链路，区分“检查通过”与“链路验证通过”。
+    assert "NATS" in result["limitations"] and "Sink Service" in result["limitations"]
+
+
+async def test_run_no_devices_no_sinks_is_unknown_without_io(config_dir, fake_drivers) -> None:
+    base = _write_config(
+        config_dir("modbus"),
+        **{"devices.yaml": _NO_DEVICES, "sinks.yaml": _NO_SINKS, "tasks.yaml": _NO_TASKS},
+    )
+    snapshot, fingerprint = _snapshot_from(base)
+    result = await run(snapshot, fingerprint, timeout=5)
+    _assert_empty_unknown(result, fingerprint)
+    # 不建立任何协议连接、不执行任何 TCP 探测（不允许用虚拟步骤凑 PASS）。
+    drivers = [value for key, value in fake_drivers.items() if not key.startswith("_")]
+    assert all(driver.connects == 0 for driver in drivers)
+    assert fake_drivers["_tcp_probes"] == []
+
+
+async def test_run_all_devices_and_sinks_disabled_is_unknown(config_dir, fake_drivers) -> None:
+    base = _write_config(
+        config_dir("modbus"),
+        **{"devices.yaml": _ONE_DISABLED_DEVICE, "sinks.yaml": _ONE_DISABLED_SINK},
+    )
+    snapshot, fingerprint = _snapshot_from(base)
+    assert plan(snapshot) == []
+    result = await run(snapshot, fingerprint, timeout=5)
+    _assert_empty_unknown(result, fingerprint)
+    assert fake_drivers["modbus-001"].connects == 0
+    assert fake_drivers["_tcp_probes"] == []
+
+
+async def test_run_empty_plan_ignores_previous_and_restart(config_dir, fake_drivers) -> None:
+    # 空计划不参与断点恢复：带陈旧 previous 或 --restart 仍是空 UNKNOWN。
+    base = _write_config(
+        config_dir("modbus"),
+        **{"devices.yaml": _NO_DEVICES, "sinks.yaml": _NO_SINKS, "tasks.yaml": _NO_TASKS},
+    )
+    snapshot, fingerprint = _snapshot_from(base)
+    stale = {
+        "fingerprint": fingerprint,
+        "failed_index": 0,
+        "steps": [{"kind": "protocol_check", "target": "ghost", "point": ""}],
+    }
+    result = await run(snapshot, fingerprint, previous=stale, restart=True, timeout=5)
+    _assert_empty_unknown(result, fingerprint)
+
+
+async def test_run_enabled_device_without_sinks_passes(config_dir, fake_drivers) -> None:
+    base = _write_config(config_dir("modbus"), **{"sinks.yaml": _NO_SINKS})
+    snapshot, fingerprint = _snapshot_from(base)
+    result = await run(snapshot, fingerprint, timeout=5)
+    assert result["status"] == "PASS"
+    assert result["completed"] == result["total"] and result["total"] > 0
+    assert not [step for step in result["steps"] if step["kind"].startswith("sink")]
+
+
+def test_diagnose_help_declares_scope_boundary() -> None:
+    from cli.help import help_text
+
+    text = help_text(["diagnose"])
+    assert "outbound Sink TCP probes" in text
+    assert "NATS" in text and "not an end-to-end" in text
 
 
 # ---- shell 集成：结果与报告 ----

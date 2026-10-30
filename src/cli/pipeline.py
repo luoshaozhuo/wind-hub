@@ -13,6 +13,20 @@ from .inventory import devices, points, sinks
 from .network_diagnostic import tcp
 from .protocol_diagnostic import create_driver, prepare_ads, release_ads, sample_dict
 
+# 自动诊断的诚实边界：PASS 只代表“执行的检查全部通过”，不代表端到端数据链路验证。
+SCOPE = (
+    "device protocol health checks, configured readable point reads, "
+    "and outbound Sink TCP endpoints"
+)
+LIMITATIONS = (
+    "Executed checks cover direct protocol health/read access and Sink TCP reachability only; "
+    "PASS means every executed check passed and does not verify data delivery through "
+    "Collector, NATS, Sink Service or the target store. "
+    "Enabled Sinks without an outbound TCP endpoint (for example Modbus inbound) stay UNKNOWN. "
+    "Control writes and business data checks are excluded."
+)
+NO_TARGETS_MESSAGE = "No enabled device or Sink provides a diagnostic target; nothing was checked"
+
 
 def plan(snapshot: ConfigSnapshot) -> list[dict[str, str]]:
     """确定性步骤列表；配置快照变化必须重建计划。"""
@@ -97,6 +111,21 @@ async def run(
     if not 0 < timeout <= 300:
         raise ValueError("timeout must be within 0..300 seconds")
     planned = plan(snapshot)
+    if not planned:
+        # 空计划不得误报 PASS：没有可执行检查时结论只能是 UNKNOWN，
+        # 且在建立任何协议连接或网络探测之前返回。
+        return {
+            "status": "UNKNOWN",
+            "code": "NO_DIAGNOSTIC_TARGETS",
+            "message": NO_TARGETS_MESSAGE,
+            "fingerprint": fingerprint,
+            "failed_index": None,
+            "total": 0,
+            "completed": 0,
+            "scope": SCOPE,
+            "limitations": LIMITATIONS,
+            "steps": [],
+        }
     start, steps = _resume(planned, fingerprint, previous, restart)
     devices_by_id = {str(item["device_id"]): item for item in devices(snapshot)}
     sinks_by_id = {str(item["sink_id"]): item for item in sinks(snapshot)}
@@ -208,10 +237,7 @@ def _result(
         "failed_index": failed_index,
         "total": len(planned),
         "completed": len(steps),
-        "scope": "device protocol checks, configured reads, and outbound Sink TCP endpoints",
-        "limitations": (
-            "TCP availability does not verify data delivery or service runtime; "
-            "control writes and business data checks are excluded."
-        ),
+        "scope": SCOPE,
+        "limitations": LIMITATIONS,
         "steps": steps,
     }

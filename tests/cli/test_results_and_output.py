@@ -86,6 +86,27 @@ def test_table_emit_empty_list(capsys) -> None:
     assert "(empty)" in capsys.readouterr().out
 
 
+def test_empty_diagnosis_exit_three_with_json_envelope(config_dir, run_cli) -> None:
+    import json
+
+    base = config_dir("modbus")
+    (base / "devices.yaml").write_text(
+        "devices: {}\ndevice_groups:\n  turbine_modbus:\n    name: turbine_modbus\n",
+        encoding="utf-8",
+    )
+    (base / "sinks.yaml").write_text("sinks: {}\n", encoding="utf-8")
+    (base / "tasks.yaml").write_text("tasks: {}\n", encoding="utf-8")
+    rc, out, err = run_cli(["--config", str(base), "--format", "json", "diagnose"])
+    assert rc == 3, err
+    payload = json.loads(out)
+    assert payload["status"] == "UNKNOWN"
+    assert payload["code"] == "NO_DIAGNOSTIC_TARGETS"
+    assert isinstance(payload["message"], str) and payload["message"]
+    assert payload["data"]["total"] == 0
+    assert payload["data"]["completed"] == 0
+    assert payload["data"]["steps"] == []
+
+
 def test_unknown_exit_code_three_and_fail_exit_one(config_dir, run_cli) -> None:
     base = config_dir("modbus")
     # 无结果查询 → UNKNOWN → 退出码 3。
