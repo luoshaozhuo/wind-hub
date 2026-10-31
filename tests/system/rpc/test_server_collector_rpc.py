@@ -1,181 +1,241 @@
-"""Integration：Server 出站 gRPC 适配器 ↔ 真实 Collector 进程。
+"""Integration：Server 出站 gRPC 适配器 ↔ 真实 Collector 进程（v2 三路径）。
 
-与 contract/rpc（proto 消息形状校验）不同，这里起真实 Collector
-subprocess，用 Server 生产路径的 ``CollectorGrpcClient`` 完成 round trip：
-状态查询 → Prepare/Activate/Abort → placement 快照 → 受栅栏保护的
-Start/Stop。placement 拒绝路径（未下发快照直接 Start）必须映射为
-``CollectorPlacementRejectedError``——Server 的 placement 安全语义依赖它。
+起真实 Collector subprocess，用 Server 生产路径的 ``CollectorGrpcClient``
+完成 round trip：身份/状态/清单查询 → Config 五 RPC（GetConfig/ValidateConfig/
+ReplaceConfig + 乐观 revision）→ 设备级 START/STOP（管理员令牌 + revision
+fencing）。v1 的 Prepare/Activate/Abort 与 placement generation 栅栏已移除：
+未携带管理员令牌的 START 必须 fail-closed（PERMISSION_DENIED），陈旧
+revision 必须映射为 ``CollectorTaskConflictError``。
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import grpc
 import pytest
+import yaml
 
-from core.infrastructure.config import config_dir_digest
-from tests.support.functional_config import update_yaml, write_functional_config
+from contracts import collector_v2_pb2 as pb
+from contracts import collector_v2_pb2_grpc as pb_grpc
+from core.infrastructure.config.versioned_templates import config_hash
+from tests.support import control
 from tests.support.process import CollectorProcess
+from tests.support.v2_config import SYSTEM_ADMIN_TOKEN, write_v2_modbus_tree
+from tests.support.wait import wait_until
 from web_server.adapter.outbound.grpc.collector import CollectorGrpcClient
-from web_server.application.port.worker import CollectorPlacementRejectedError
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
-TASK_ID = "modbus-telemetry"
-INSTANCE_ID = "modbus-telemetry:modbus-1"
+DEVICE_ID = "modbus-1"
 WORKER_ID = "it-rpc"
 
 
 @pytest.fixture
-async def client(
+async def stack(
     modbus_server,
     collector_factory,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[CollectorGrpcClient, Path, CollectorProcess]:
-    config_dir = write_functional_config(
-        tmp_path / "cfg",
-        modbus_server.port,
-        sinks={
-            "redis_sink": {
-                "type": "redis",
-                "connection": {"host": "127.0.0.1"},
-                "outputs": {TASK_ID: {}},
-            }
-        },
-        tasks={
-            TASK_ID: {
-                "device_group_id": "modbus-1",
-                "point_group": "telemetry",
-                "interval": 0.2,
-            }
-        },
-    )
-    proc: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
+    tree = write_v2_modbus_tree(tmp_path / "v2cfg", modbus_server.port)
+    proc: CollectorProcess = await collector_factory(tree, collector_id=WORKER_ID)
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", SYSTEM_ADMIN_TOKEN)
     client = CollectorGrpcClient(proc.grpc_target)
     try:
-        yield client, config_dir, proc
+        yield client, tree, proc
     finally:
         await client.close()
 
 
+def _devices_doc(tree: Path) -> dict:
+    return yaml.safe_load((tree / "instances" / "devices.yaml").read_text(encoding="utf-8"))
+
+
 class TestQueryRoundTrip:
-    async def test_config_status_reports_identity_and_hashes(self, client) -> None:
-        grpc_client, _, _ = client
+    async def test_config_status_reports_identity_and_revision(self, stack) -> None:
+        grpc_client, tree, _ = stack
         status = await grpc_client.config_status()
 
         assert status.collector_id == WORKER_ID
         assert status.runtime_running is True
-        assert status.config_hash
-        assert status.active_config_hash
+        assert status.active_revision
 
-    async def test_runtime_status_and_metrics(self, client) -> None:
-        grpc_client, _, _ = client
+        info = await control.collector_info(stack[2].grpc_target)
+        assert info.collector_id == WORKER_ID
+        assert info.active_revision == status.active_revision
+
+    async def test_runtime_status_and_metrics(self, stack) -> None:
+        grpc_client, _, _ = stack
         runtime = await grpc_client.runtime_status()
         assert runtime.running is True
+        assert runtime.device_count == 1
 
         metrics = await grpc_client.metrics_snapshot()
         assert metrics.counters is not None
 
-    async def test_inventory_queries(self, client) -> None:
-        grpc_client, _, _ = client
+    async def test_inventory_queries(self, stack) -> None:
+        grpc_client, _, _ = stack
         devices = await grpc_client.list_devices()
-        assert [d.device_id for d in devices] == ["modbus-1"]
+        assert [d.device_id for d in devices] == [DEVICE_ID]
 
         tasks = await grpc_client.list_tasks()
-        assert [t.task_id for t in tasks] == [TASK_ID]
+        assert [(t.task_id, t.device) for t in tasks] == [(DEVICE_ID, DEVICE_ID)]
+        assert tasks[0].runtime_state == "stopped"
 
         instances = await grpc_client.list_task_instances()
-        assert [i.instance_id for i in instances] == [INSTANCE_ID]
+        assert [i.instance_id for i in instances] == [DEVICE_ID]
 
 
-class TestConfigTransactionRoundTrip:
-    async def test_prepare_activate_abort_cycle(self, client) -> None:
-        grpc_client, config_dir, _ = client
-        update_yaml(
-            config_dir,
-            "tasks.yaml",
-            lambda data: data["tasks"][TASK_ID].update({"interval": 0.5}),
+class TestConfigRoundTrip:
+    async def test_get_config_revision_matches_on_disk_hash(self, stack) -> None:
+        _, tree, proc = stack
+        revision = await control.config_revision(proc.grpc_target)
+        assert revision == config_hash(_devices_doc(tree))
+
+    async def test_validate_accepts_current_and_rejects_unknown_field(self, stack) -> None:
+        _, tree, proc = stack
+        revision = await control.config_revision(proc.grpc_target)
+        doc = _devices_doc(tree)
+
+        accepted = await control.validate_config(
+            proc.grpc_target, yaml.safe_dump(doc), expected_revision=revision
         )
-        config_hash = config_dir_digest(config_dir)
+        assert accepted.valid, [issue.message for issue in accepted.errors]
 
-        prepared = await grpc_client.prepare_config("rev-it-1", config_hash)
-        assert prepared.success is True, prepared.errors
-        assert prepared.config_hash == config_hash
-
-        status = await grpc_client.config_status()
-        assert status.prepared_revision == "rev-it-1"
-
-        activated = await grpc_client.activate_config("rev-it-1")
-        assert activated.success is True, activated.errors
-        assert activated.active_config_hash == config_hash
-
-        status = await grpc_client.config_status()
-        assert status.active_revision == "rev-it-1"
-        assert status.active_config_hash == config_hash
-
-    async def test_abort_discards_prepared_revision(self, client) -> None:
-        grpc_client, config_dir, _ = client
-        update_yaml(
-            config_dir,
-            "tasks.yaml",
-            lambda data: data["tasks"][TASK_ID].update({"interval": 0.5}),
+        bad = dict(doc)
+        bad["devices"] = {k: dict(v) for k, v in doc["devices"].items()}
+        bad["devices"][DEVICE_ID]["bogus_field"] = 1
+        rejected = await control.validate_config(
+            proc.grpc_target, yaml.safe_dump(bad), expected_revision=revision
         )
-        config_hash = config_dir_digest(config_dir)
+        assert rejected.valid is False
+        assert rejected.errors
 
-        prepared = await grpc_client.prepare_config("rev-it-abort", config_hash)
-        assert prepared.success is True, prepared.errors
+    async def test_replace_moves_revision_and_stale_revision_is_aborted(self, stack) -> None:
+        _, tree, proc = stack
+        revision = await control.config_revision(proc.grpc_target)
+        doc = _devices_doc(tree)
+        candidate = dict(doc)
+        candidate["devices"] = {k: dict(v) for k, v in doc["devices"].items()}
+        candidate["devices"][DEVICE_ID]["endpoint"] = dict(
+            candidate["devices"][DEVICE_ID]["endpoint"], port=1503
+        )
 
-        aborted = await grpc_client.abort_config("rev-it-abort")
-        assert aborted.success is True
-        assert aborted.aborted is True
+        # 陈旧 revision 的替换必须被乐观锁拒绝。
+        stale = pb.ReplaceConfigRequest(
+            selector=pb.ConfigSelector(scope=pb.INSTANCE, name="devices"),
+            expected_revision="0" * 64,
+            request_id="it-replace-stale",
+            yaml_content=yaml.safe_dump(candidate),
+        )
+        channel = grpc.aio.insecure_channel(proc.grpc_target)
+        try:
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await pb_grpc.CollectorConfigServiceStub(channel).ReplaceConfig(
+                    stale,
+                    metadata=(("x-windhub-admin-token", SYSTEM_ADMIN_TOKEN),),
+                    timeout=10,
+                )
+            assert error.value.code() == grpc.StatusCode.ABORTED
+        finally:
+            await channel.close()
 
-        # Abort 后同 revision 不能再 Activate。
-        activated = await grpc_client.activate_config("rev-it-abort")
-        assert activated.success is False
+        result = await control.replace_config(
+            proc.grpc_target,
+            yaml.safe_dump(candidate),
+            expected_revision=revision,
+            request_id="it-replace-1",
+        )
+        assert result.success, [issue.message for issue in result.errors]
+        assert result.stored_revision == config_hash(candidate)
+        assert await control.config_revision(proc.grpc_target) == result.stored_revision
 
-    async def test_prepare_rejects_hash_mismatch(self, client) -> None:
-        grpc_client, _, _ = client
-        prepared = await grpc_client.prepare_config("rev-it-bad", "0" * 64)
-        assert prepared.success is False
-        assert prepared.errors
+    async def test_config_requires_admin_token(self, stack) -> None:
+        _, _, proc = stack
+        channel = grpc.aio.insecure_channel(proc.grpc_target)
+        try:
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await pb_grpc.CollectorConfigServiceStub(channel).GetConfig(
+                    pb.GetConfigRequest(
+                        selector=pb.ConfigSelector(scope=pb.INSTANCE, name="devices")
+                    ),
+                    timeout=5,
+                )
+            assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        finally:
+            await channel.close()
 
 
-class TestPlacementGateRoundTrip:
-    async def test_start_without_placement_is_rejected(self, client) -> None:
-        """未下发 placement 快照直接 Start：映射为端口层拒绝语义。"""
-        grpc_client, _, _ = client
-        with pytest.raises(CollectorPlacementRejectedError):
-            await grpc_client.start_task_instance(INSTANCE_ID, 1)
+class TestDeviceStartStopFencing:
+    async def test_start_without_admin_token_is_denied(self, stack) -> None:
+        _, _, proc = stack
+        revision = await control.config_revision(proc.grpc_target)
+        channel = grpc.aio.insecure_channel(proc.grpc_target)
+        try:
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await pb_grpc.CollectorTaskServiceStub(channel).StartTask(
+                    pb.TaskChangeRequest(
+                        device_id=DEVICE_ID,
+                        expected_revision=revision,
+                        request_id="it-no-token",
+                    ),
+                    timeout=5,
+                )
+            assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        finally:
+            await channel.close()
 
-    async def test_apply_placement_then_start_stop_cycle(self, client) -> None:
-        grpc_client, _, _ = client
-        placement = await grpc_client.apply_task_placement(WORKER_ID, 1, [TASK_ID])
-        assert placement.success is True
-        assert placement.generation == 1
-        assert placement.task_count == 1
+    async def test_start_stop_cycle_converges_and_persists(self, stack) -> None:
+        grpc_client, _, proc = stack
 
-        started = await grpc_client.start_task_instance(INSTANCE_ID, 1)
-        assert started.state == "running"
+        started = await grpc_client.start_task(DEVICE_ID)
+        assert started.device == DEVICE_ID
+        assert started.runtime_state == "running"
 
-        instances = await grpc_client.list_task_instances()
-        assert instances[0].state == "running"
+        async def _running() -> bool | None:
+            states = await control.instance_states(proc.grpc_target)
+            return states == {f"{DEVICE_ID}:{DEVICE_ID}": "RUNNING"} or None
 
-        stopped = await grpc_client.stop_task_instance(INSTANCE_ID)
-        assert stopped.state == "stopped"
+        await wait_until(_running, timeout=10, description="device RUNNING after START")
 
-    async def test_start_with_stale_generation_is_rejected(self, client) -> None:
-        """placement generation 前进后，旧 generation 的 Start 必须被拒绝。"""
-        grpc_client, _, _ = client
-        await grpc_client.apply_task_placement(WORKER_ID, 2, [TASK_ID])
+        # 意图已持久化到 devices.yaml 覆盖。
+        on_disk = _devices_doc(stack[1])
+        assert on_disk["devices"][DEVICE_ID]["overrides"]["task"]["desired_state"] == "START"
 
-        with pytest.raises(CollectorPlacementRejectedError):
-            await grpc_client.start_task_instance(INSTANCE_ID, 1)
+        stopped = await grpc_client.stop_task(DEVICE_ID)
+        assert stopped.runtime_state == "stopped"
+        on_disk = _devices_doc(stack[1])
+        assert on_disk["devices"][DEVICE_ID]["overrides"]["task"]["desired_state"] == "STOP"
 
-        started = await grpc_client.start_task(TASK_ID, 2)
-        assert started.task_id == TASK_ID
+    async def test_stale_revision_start_is_aborted(self, stack) -> None:
+        """真实链路上陈旧 revision 必须被拒绝（ABORTED）。
 
-    async def test_placement_for_wrong_worker_is_rejected(self, client) -> None:
-        """worker_id 与 Collector 身份不一致的快照必须被拒绝。"""
-        grpc_client, _, _ = client
-        with pytest.raises(CollectorPlacementRejectedError):
-            await grpc_client.apply_task_placement("someone-else", 1, [TASK_ID])
+        ABORTED → CollectorTaskConflictError 的出站映射由
+        tests/web_server/test_grpc_wire_conversion.py 在端口单测钉死。
+        """
+        _, _, proc = stack
+        channel = grpc.aio.insecure_channel(proc.grpc_target)
+        try:
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await pb_grpc.CollectorTaskServiceStub(channel).StartTask(
+                    pb.TaskChangeRequest(
+                        device_id=DEVICE_ID,
+                        expected_revision="0" * 64,
+                        request_id="it-stale-revision",
+                    ),
+                    metadata=(("x-windhub-admin-token", SYSTEM_ADMIN_TOKEN),),
+                    timeout=5,
+                )
+            assert error.value.code() == grpc.StatusCode.ABORTED
+        finally:
+            await channel.close()
+
+    async def test_unknown_device_is_not_found(self, stack) -> None:
+        grpc_client, _, proc = stack
+        with pytest.raises(grpc.aio.AioRpcError) as error:
+            await grpc_client.start_task("ghost-device")
+        assert error.value.code() == grpc.StatusCode.NOT_FOUND
+        with pytest.raises(grpc.aio.AioRpcError) as error:
+            await control.get_task(proc.grpc_target, "ghost-device")
+        assert error.value.code() == grpc.StatusCode.NOT_FOUND

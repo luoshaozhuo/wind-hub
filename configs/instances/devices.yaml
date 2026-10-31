@@ -1,0 +1,12 @@
+schema_version: 1
+devices:
+  WT01:
+    model:
+      id: modbus_wtg
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 1502
+    overrides:
+      task:
+        desired_state: STOP

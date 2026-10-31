@@ -2,19 +2,45 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.settings import MessagingSettings, RuntimeSettings
 from core.domain import Device, DeviceId
-from core.infrastructure.config.adapter import YamlConfigAdapter
+from core.infrastructure.config.collector_documents import (
+    CollectorDocumentLoader,
+    CollectorDocuments,
+)
+from core.infrastructure.config.collector_snapshot import build_collector_snapshot
 from core.infrastructure.config.effective import resolve_effective_device
 
 from ...application.config import CollectorConfig, RuntimeParams
 
 
-def load_collector_config(source: YamlConfigAdapter) -> CollectorConfig:
-    """从注入的配置来源加载 Collector 配置；不在 Loader 内实例化 Adapter。"""
-    return collector_config_from_snapshot(source.load_collector())
+def load_collector_config(source: CollectorDocumentLoader) -> CollectorConfig:
+    """Load a new complete Collector effective configuration."""
+    return collector_config_from_documents(source.load())
+
+
+def collector_config_from_documents(documents: CollectorDocuments) -> CollectorConfig:
+    """Construct an effective Collector config including persisted task intent."""
+    snapshot = build_collector_snapshot(documents)
+    return config_from_snapshot_and_documents(snapshot, documents)
+
+
+def config_from_snapshot_and_documents(
+    snapshot: ConfigSnapshot, documents: CollectorDocuments
+) -> CollectorConfig:
+    base = collector_config_from_snapshot(snapshot)
+    return replace(
+        base,
+        desired_states={
+            DeviceId(device_id): definition.desired_state
+            for device_id, definition in documents.devices.items()
+            if definition.enabled
+        },
+    )
 
 
 def collector_config_from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:

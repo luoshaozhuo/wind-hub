@@ -66,7 +66,14 @@ class _IEC104Session:
     @property
     def is_open(self) -> bool:
         conn = self._connection
-        return conn is not None and not self._closing and conn.is_enabled
+        receiver = self._receiver
+        return (
+            conn is not None
+            and not self._closing
+            and conn.is_enabled
+            and receiver is not None
+            and not receiver.done()
+        )
 
     async def open(self) -> None:
         if self._connection is not None or self._closing:

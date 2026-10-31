@@ -135,33 +135,51 @@ class CollectorProcess:
 
 
 def start_collector(
-    config_dir: Path,
+    config_tree: Path,
     *,
     grpc_port: int | None = None,
     collector_id: str = "system-test",
     shutdown_timeout: float = 15.0,
     log_dir: Path,
     env_extra: dict[str, str] | None = None,
+    admin_token: str | None = "system-test-admin-token",
 ) -> CollectorProcess:
-    """以 subprocess 启动真实 ``wind-hub-collector``。
+    """以 subprocess 启动真实 ``wind-hub-collector``（v2 三路径 CLI）。
 
     Args:
-        config_dir: 现场配置目录。
+        config_tree: v2 配置树根，须含 ``services/collector.yaml``、
+            ``instances/``、``templates/``（见 tests.support.v2_config）。
         grpc_port: gRPC 端口；None 时自动分配空闲端口。
         collector_id: Collector 标识。
         shutdown_timeout: 传入进程的优雅停机硬超时（秒）。
         log_dir: 进程日志目录（通常 ``tmp_path``）。
         env_extra: 追加环境变量（叠加在当前进程环境上）。
+        admin_token: 注入 WIND_HUB_COLLECTOR_ADMIN_TOKEN；None 时不注入
+            （用于 fail-closed 负向测试）。对端 Web Server 必须注入同值。
 
     Returns:
         CollectorProcess（调用方负责后续 wait_grpc_ready 与 terminate）。
     """
+    service_file = config_tree / "services" / "collector.yaml"
+    instances_dir = config_tree / "instances"
+    templates_dir = config_tree / "templates"
+    if not service_file.is_file():
+        raise FileNotFoundError(
+            f"{config_tree} is not a v2 config tree: missing services/collector.yaml"
+        )
+    env = dict(env_extra or {})
+    if admin_token is not None:
+        env.setdefault("WIND_HUB_COLLECTOR_ADMIN_TOKEN", admin_token)
     port = grpc_port if grpc_port is not None else free_port()
     return _start_service(
         "wind-hub-collector",
         [
             "--config",
-            str(config_dir),
+            str(service_file),
+            "--instances",
+            str(instances_dir),
+            "--templates",
+            str(templates_dir),
             "--collector-id",
             collector_id,
             "--grpc-host",
@@ -174,7 +192,7 @@ def start_collector(
         service="collector",
         port=port,
         log_dir=log_dir,
-        env_extra=env_extra,
+        env_extra=env,
     )
 
 

@@ -30,6 +30,7 @@ from tests.support.netem import NetemScenario
 from tests.support.process import CollectorProcess
 from tests.support.recovery_helpers import (
     TASK_ID,
+    recovery_collector_tree,
     status_snapshot,
     telemetry_task,
     wait_status,
@@ -45,7 +46,7 @@ pytestmark = [
     pytest.mark.real_service,
 ]
 
-INSTANCE_ID = f"{TASK_ID}:modbus-1"
+INSTANCE_ID = TASK_ID
 DEVICE_ID = "modbus-1"
 
 #: 采集周期 0.2s、读超时 2.0s——延迟/抖动/丢包断言的判定基准。
@@ -88,13 +89,14 @@ async def _start_stack(
     nats_url: str,
 ) -> tuple[CollectorProcess, str]:
     """起 sink_service + Collector 并确认故障前基线：设备已连接、数据在出。"""
-    config_dir = _write_config(tmp_path / "cfg", link, redis_address, nats_url)
-    await sink_service_factory(config_dir)
-    proc: CollectorProcess = await collector_factory(config_dir)
+    flat_dir = _write_config(tmp_path / "cfg", link, redis_address, nats_url)
+    await sink_service_factory(flat_dir)
+    v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_url)
+    proc: CollectorProcess = await collector_factory(v2_tree)
     await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
     await wait_status(
         proc,
-        lambda p: p["devices_connected"] == 1,
+        lambda p: p["device_connected"] == 1,
         timeout=20.0,
         description="device connected over veth link",
     )
@@ -125,7 +127,7 @@ async def _assert_link_healthy(proc: CollectorProcess, redis_address: str, durat
     while time.monotonic() < deadline:
         status = await status_snapshot(proc)
         assert status is not None, "本地控制面 status 查询失败"
-        assert status["devices_connected"] == 1, "链路损伤下出现假断连"
+        assert status["device_connected"] == 1, "链路损伤下出现假断连"
         await asyncio.sleep(0.5)
     await _wait_flow(redis_address, after=before)
 
@@ -233,7 +235,7 @@ class TestPacketLoss:
         assert (await _reconnects(proc)) - reconnects_base <= 1, "10% 丢包下出现重连风暴"
         await wait_status(
             proc,
-            lambda p: p["devices_connected"] == 1,
+            lambda p: p["device_connected"] == 1,
             timeout=15.0,
             description="device connected after 10% loss cleared",
         )
@@ -267,7 +269,7 @@ class TestPacketLoss:
         try:
             await wait_status(
                 proc,
-                lambda p: p["devices_connected"] == 0,
+                lambda p: p["device_connected"] == 0,
                 timeout=20.0,
                 description="blackhole detected as disconnect",
             )
@@ -288,18 +290,21 @@ class TestPacketLoss:
             first = await metrics_snapshot(proc.grpc_target)
             await asyncio.sleep(12.0)
             last = await metrics_snapshot(proc.grpc_target)
-            attempts = last["device_connect_failures"].get(DEVICE_ID, 0) - first[
-                "device_connect_failures"
-            ].get(DEVICE_ID, 0)
-            runs = last["counters"]["acquisition_runs"] - first["counters"]["acquisition_runs"]
+            attempts = int(last["device_connect_failures"].get(DEVICE_ID, 0)) - int(
+                first["device_connect_failures"].get(DEVICE_ID, 0)
+            )
+            runs = int(last["counters"]["acquisition_runs"]) - int(
+                first["counters"]["acquisition_runs"]
+            )
             assert 1 <= attempts <= 10, f"黑洞期 connect 尝试未被退避节流或失败未记账: {attempts}"
-            assert attempts * 5 < runs
+            # v2：未连接期间采集循环不调度（runs==0），建连只可能来自 Watchdog。
+            assert runs == 0, f"断连期间采集循环被调度: {runs} ticks"
         finally:
             netem_link.clear()
 
         await wait_status(
             proc,
-            lambda p: p["devices_connected"] == 1,
+            lambda p: p["device_connected"] == 1,
             timeout=20.0,
             description="reconnected after blackhole cleared",
         )
@@ -358,7 +363,7 @@ class TestShortFlap:
 
         await wait_status(
             proc,
-            lambda p: p["devices_connected"] == 1,
+            lambda p: p["device_connected"] == 1,
             timeout=15.0,
             description="link healthy after 2s flap",
         )
@@ -388,7 +393,7 @@ class TestShortFlap:
         try:
             await wait_status(
                 proc,
-                lambda p: p["devices_connected"] == 0,
+                lambda p: p["device_connected"] == 0,
                 timeout=15.0,
                 description="5s flap detected as disconnect",
             )
@@ -397,7 +402,7 @@ class TestShortFlap:
 
         await wait_status(
             proc,
-            lambda p: p["devices_connected"] == 1,
+            lambda p: p["device_connected"] == 1,
             timeout=20.0,
             description="reconnected after 5s flap",
         )

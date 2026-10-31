@@ -1,0 +1,17 @@
+schema_version: 1
+quantities:
+  dimensionless:
+    base_unit: none
+  active_power:
+    base_unit: watt
+units:
+  none:
+    symbol: ''
+    quantity: dimensionless
+  watt:
+    symbol: W
+    quantity: active_power
+  kilowatt:
+    symbol: kW
+    quantity: active_power
+    scale_to_base: 1000

@@ -1,0 +1,4 @@
+schema_version: 1
+template_id: modbus_tcp
+template_version: 1.0.0
+protocol: modbus

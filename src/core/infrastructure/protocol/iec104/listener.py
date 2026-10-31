@@ -39,6 +39,7 @@ class _Listener(ListenHandle):
             self.queue.put_nowait(filtered)
         except asyncio.QueueFull:
             self.failed = True
+            self.owner._listener_fault = True
             self.task.cancel()
             logger.error("IEC104 listener overflow: invalidated to avoid silent data loss")
 
@@ -50,6 +51,7 @@ class _Listener(ListenHandle):
                 raise
             except Exception:
                 self.failed = True
+                self.owner._listener_fault = True
                 logger.exception("IEC104 listener callback failed; listener invalidated")
                 return
 

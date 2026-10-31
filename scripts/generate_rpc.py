@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = ROOT / "src"
 PROTO_FILES = (
     "contracts/common.proto",
-    "contracts/collector.proto",
+    "contracts/collector_v2.proto",
     "contracts/sink.proto",
     "contracts/commander.proto",
     "contracts/gateway.proto",

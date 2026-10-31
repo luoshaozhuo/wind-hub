@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import nats
 from nats.aio.client import Client
@@ -26,6 +28,11 @@ class NatsPublisher:
         self._client: Client | None = None
         self._connect_task: asyncio.Task[None] | None = None
         self._stopping = False
+
+    @property
+    def connected(self) -> bool:
+        """Report cached transport readiness without network I/O."""
+        return self._client is not None and self._client.is_connected
 
     async def open(self) -> None:
         """Start a reconnect supervisor without blocking collection."""
@@ -76,6 +83,21 @@ class NatsPublisher:
             return True
         except Exception:
             logger.exception("NATS publication not confirmed: sample=%s", message.sample_id)
+            return False
+
+    async def publish_metrics(self, subject: str, payload: Mapping[str, Any]) -> bool:
+        """Best-effort metrics publication; never block acquisition."""
+        client = self._client
+        if self._stopping or client is None or not client.is_connected:
+            return False
+        try:
+            data = json.dumps(
+                payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+            ).encode("utf-8")
+            await asyncio.wait_for(client.publish(subject, data), timeout=0.5)
+            return True
+        except Exception:
+            logger.warning("NATS metrics publication failed", exc_info=True)
             return False
 
     async def close(self) -> None:

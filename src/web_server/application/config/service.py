@@ -1,7 +1,7 @@
 """Server 配置编排。
 
-Server 负责配置文件加载、校验、diff 与成功基线；Collector/Commander 只执行
-Server 指定 revision/hash 的 Prepare/Activate/Abort。配置事务在进程内串行，
+Server 负责自身及 Commander 共享配置事务；Collector 单独管理
+其 Service / Instance / Template 配置，不参与 Server 两阶段提交。配置事务在进程内串行，
 停机时可关闭新事务入口并等待当前事务完成。
 """
 
@@ -21,8 +21,6 @@ from core.application.config_snapshot import ConfigSnapshot
 from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
 from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.worker import (
-    CollectorInfo,
-    CollectorPort,
     CommanderPort,
     CommanderStatus,
     ConfigAbortAck,
@@ -47,10 +45,8 @@ logger = logging.getLogger(__name__)
 ConfigCommitHook = Callable[[ConfigSnapshot, ConfigSnapshot], None]
 
 
-def _active_config_hash(status: CommanderStatus | CollectorInfo) -> str:
-    """取参与者当前生效配置 hash；Collector 未激活时回落到启动 hash。"""
-    if isinstance(status, CollectorInfo):
-        return status.active_config_hash or status.config_hash
+def _active_config_hash(status: CommanderStatus) -> str:
+    """Return the active Commander configuration hash."""
     return status.active_config_hash
 
 
@@ -545,25 +541,8 @@ class ConfigService:
         ), None
 
     def _participant_ids(self) -> list[str]:
-        """返回稳定排序的配置事务参与者 ID。"""
-        collector_ids = self._collectors.list_worker_ids()
-        if COMMANDER_WORKER_ID in collector_ids:
-            raise ValueError(
-                f"collector worker_id '{COMMANDER_WORKER_ID}' conflicts with commander"
-            )
-        return [*collector_ids, COMMANDER_WORKER_ID]
-
-    async def _collector_participant(self, worker: str) -> CollectorPort:
-        """返回身份与逻辑 worker_id 一致的 Collector。"""
-        collector = self._collectors.get(worker)
-        status = await collector.config_status()
-        reported_id = status.collector_id
-        if reported_id != worker:
-            raise RuntimeError(
-                f"collector identity mismatch: expected={worker} "
-                f"reported={reported_id or '<empty>'}"
-            )
-        return collector
+        """Server-wide configuration transactions only target Commander."""
+        return [COMMANDER_WORKER_ID]
 
     async def _prepare_participant(
         self,
@@ -573,47 +552,25 @@ class ConfigService:
         *,
         force_workers: bool,
     ) -> ConfigPrepareAck:
-        """Prepare 单个配置事务参与者。"""
-        if worker == COMMANDER_WORKER_ID:
-            return await self._commander.prepare_config(revision_id, config_hash)
-        collector = await self._collector_participant(worker)
-        return await collector.prepare_config(
-            revision_id,
-            config_hash,
-            force_reconfigure=force_workers,
-        )
+        del force_workers
+        if worker != COMMANDER_WORKER_ID:
+            raise ValueError(f"unknown config participant: {worker}")
+        return await self._commander.prepare_config(revision_id, config_hash)
 
-    async def _activate_participant(
-        self,
-        worker: str,
-        revision_id: str,
-    ) -> ConfigActivateAck:
-        """Activate 单个配置事务参与者。"""
-        if worker == COMMANDER_WORKER_ID:
-            return await self._commander.activate_config(revision_id)
-        collector = await self._collector_participant(worker)
-        return await collector.activate_config(revision_id)
+    async def _activate_participant(self, worker: str, revision_id: str) -> ConfigActivateAck:
+        if worker != COMMANDER_WORKER_ID:
+            raise ValueError(f"unknown config participant: {worker}")
+        return await self._commander.activate_config(revision_id)
 
-    async def _abort_participant(
-        self,
-        worker: str,
-        revision_id: str,
-    ) -> ConfigAbortAck:
-        """Abort 单个配置事务参与者。"""
-        if worker == COMMANDER_WORKER_ID:
-            return await self._commander.abort_config(revision_id)
-        collector = await self._collector_participant(worker)
-        return await collector.abort_config(revision_id)
+    async def _abort_participant(self, worker: str, revision_id: str) -> ConfigAbortAck:
+        if worker != COMMANDER_WORKER_ID:
+            raise ValueError(f"unknown config participant: {worker}")
+        return await self._commander.abort_config(revision_id)
 
-    async def _status_participant(
-        self,
-        worker: str,
-    ) -> CommanderStatus | CollectorInfo:
-        """读取单个配置事务参与者当前配置状态。"""
-        if worker == COMMANDER_WORKER_ID:
-            return await self._commander.status()
-        collector = await self._collector_participant(worker)
-        return await collector.config_status()
+    async def _status_participant(self, worker: str) -> CommanderStatus:
+        if worker != COMMANDER_WORKER_ID:
+            raise ValueError(f"unknown config participant: {worker}")
+        return await self._commander.status()
 
 
 __all__ = ["ConfigService", "ReloadResult"]

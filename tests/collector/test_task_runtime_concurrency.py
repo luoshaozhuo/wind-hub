@@ -20,11 +20,23 @@ from collector.application.device_runtime import DeviceRuntime
 from collector.application.task_instance import TaskInstanceState
 from collector.application.task_runtime import TaskRuntime
 from collector.domain.acquisition import AcquisitionEngine
+from core.domain import DeviceGroupId
 from tests.support.new_collector import (
+    CollectionTask,
     CollectorFakeProtocol,
     make_collector_config,
     make_session,
 )
+
+#: v2 每设备一个 Task，task_id == device_id == instance_id。
+DEVICE_TASKS = {
+    "dev1": CollectionTask(
+        task_id="dev1",
+        device_group_id=DeviceGroupId("dev1"),
+        point_group="g",
+        interval=1.0,
+    )
+}
 
 pytestmark = pytest.mark.unit
 
@@ -40,7 +52,7 @@ async def _close_device_runtimes():
 
 
 def _build():
-    config = make_collector_config()
+    config = make_collector_config(tasks=DEVICE_TASKS)
     proto = CollectorFakeProtocol()
     session = make_session(config, proto)
     devices = DeviceRuntime({"dev1": session}, RuntimeParams(connect_timeout=0.2))
@@ -65,7 +77,7 @@ async def test_concurrent_stop_during_start_cannot_leave_running() -> None:
     tasks, session, devices = _build()
     await devices.connect_all()
     await tasks.sync_instances()
-    instance_id = "t1:dev1"
+    instance_id = "dev1"
 
     gate = asyncio.Event()
     original_start = session.start_acquisition
@@ -99,7 +111,7 @@ async def test_concurrent_double_start_creates_single_handle() -> None:
     tasks, session, _devices = _build()
     await _devices.connect_all()
     await tasks.sync_instances()
-    instance_id = "t1:dev1"
+    instance_id = "dev1"
 
     gate = asyncio.Event()
     original_start = session.start_acquisition
@@ -127,7 +139,7 @@ async def test_concurrent_double_stop_is_idempotent() -> None:
     tasks, session, devices = _build()
     await devices.connect_all()
     await tasks.sync_instances()
-    instance_id = "t1:dev1"
+    instance_id = "dev1"
     await tasks.start_instance(instance_id)
     handle = tasks._acquisition_handles[instance_id]  # noqa: SLF001
 
@@ -143,7 +155,7 @@ async def test_start_failure_during_pending_stop_leaves_stopped() -> None:
     tasks, session, devices = _build()
     await devices.connect_all()
     await tasks.sync_instances()
-    instance_id = "t1:dev1"
+    instance_id = "dev1"
 
     gate = asyncio.Event()
 
@@ -169,7 +181,7 @@ async def test_repeated_concurrent_start_stop_rounds_converge() -> None:
     tasks, _session, devices = _build()
     await devices.connect_all()
     await tasks.sync_instances()
-    instance_id = "t1:dev1"
+    instance_id = "dev1"
 
     for round_index in range(20):
         if round_index % 2 == 0:
@@ -195,7 +207,7 @@ async def test_operation_lock_reclaimed_after_instance_unregister_and_recreate()
     tasks, _session, devices = _build()
     await devices.connect_all()
     await tasks.sync_instances()
-    instance_id = "t1:dev1"
+    instance_id = "dev1"
     await tasks.start_instance(instance_id)
     await tasks.stop_instance(instance_id)
 
@@ -203,7 +215,7 @@ async def test_operation_lock_reclaimed_after_instance_unregister_and_recreate()
     assert instance_id not in tasks.task_instances()
     assert tasks._operation_locks == {}  # noqa: SLF001 — 注销即回收，无无限增长
 
-    config = make_collector_config()
+    config = make_collector_config(tasks=DEVICE_TASKS)
     await tasks.apply_definitions(dict(config.tasks))
     assert instance_id in tasks.task_instances()
     await tasks.start_instance(instance_id)

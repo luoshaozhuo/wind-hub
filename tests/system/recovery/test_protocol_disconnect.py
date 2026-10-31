@@ -11,6 +11,8 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess
 from tests.support.recovery_helpers import (
+    DEVICE_ID,
+    recovery_collector_tree,
     status_snapshot,
     wait_status,
     wait_telemetry_value,
@@ -19,8 +21,9 @@ from tests.support.recovery_helpers import (
 
 pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
-TASK_ID = "modbus-telemetry"
-INSTANCE_ID = "modbus-telemetry:modbus-1"
+# v2：task_id == device_id == instance_id == "modbus-1"。
+TASK_ID = DEVICE_ID
+INSTANCE_ID = DEVICE_ID
 
 
 class TestProtocolDisconnectRecovery:
@@ -33,11 +36,12 @@ class TestProtocolDisconnectRecovery:
         nats_service: str,
         tmp_path: Path,
     ) -> None:
-        config_dir = write_modbus_redis_config(
+        flat_dir = write_modbus_redis_config(
             tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
         )
-        await sink_service_factory(config_dir)
-        proc: CollectorProcess = await collector_factory(config_dir)
+        await sink_service_factory(flat_dir)
+        v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
+        proc: CollectorProcess = await collector_factory(v2_tree)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
         first = await wait_telemetry_value(redis_service)
@@ -46,7 +50,7 @@ class TestProtocolDisconnectRecovery:
         await modbus_server.stop()
         await wait_status(
             proc,
-            lambda status: status["devices_connected"] == 0,
+            lambda status: status["device_connected"] == 0,
             description="device detected disconnected",
         )
 
@@ -64,7 +68,7 @@ class TestProtocolDisconnectRecovery:
         await modbus_server.start()
         await wait_status(
             proc,
-            lambda status: status["devices_connected"] == 1,
+            lambda status: status["device_connected"] == 1,
             description="device reconnected",
         )
         rotor = await wait_telemetry_value(redis_service, after=str(settled["timestamp"]))

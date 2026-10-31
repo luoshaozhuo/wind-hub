@@ -172,15 +172,14 @@ class DeviceRuntime:
     def is_lightweight_update(
         self, device_id: str, device: Device, point_table: PointTable
     ) -> bool:
-        """仅点表绑定/设备分组/名称变化时可保留现有协议连接。"""
+        """Reuse an open connection when effective endpoint and protocol are stable."""
         existing = self._devices.get(device_id)
         if existing is None:
             return False
         return (
             existing.device.endpoint == device.endpoint
             and dict(existing.device.protocol_options) == dict(device.protocol_options)
-            and existing.device.device_model_id == device.device_model_id
-            and existing.subscribe_enabled == device.subscribe_enabled
+            and existing.protocol_name == point_table.protocol.name
         )
 
     def update_device(self, device_id: str, device: Device, point_table: PointTable) -> None:
@@ -449,6 +448,20 @@ class DeviceRuntime:
                     )
                 raise
 
+        async def _on_healthy() -> None:
+            if self._devices.get(device_id) is not session:
+                return
+            callback = self._reconnect_callback
+            if callback is not None:
+                await callback(device_id)
+
+        async def _on_unhealthy() -> None:
+            if self._devices.get(device_id) is not session:
+                return
+            prepare = self._reconnect_prepare
+            if prepare is not None:
+                await prepare(device_id)
+
         async def _on_connected() -> None:
             if self._devices.get(device_id) is not session:
                 return
@@ -478,6 +491,8 @@ class DeviceRuntime:
             connect_timeout=self._params.connect_timeout,
             on_success=_restore_push,
             on_connected=_on_connected,
+            on_unhealthy=_on_unhealthy,
+            on_healthy=_on_healthy,
             lifecycle_lock=self._connect_locks.setdefault(device_id, asyncio.Lock()),
             name=f"device:{device_id}",
         )

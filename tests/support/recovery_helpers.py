@@ -17,6 +17,7 @@ from tests.support.control import runtime_status_snapshot
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import point_key
+from tests.support.v2_config import emit_v2_tree_from_flat_site
 from tests.support.wait import (
     WaitTimeoutError,
     read_redis_value,
@@ -24,9 +25,11 @@ from tests.support.wait import (
     wait_until,
 )
 
-#: recovery 基线拓扑的固定身份（functional_config 的默认任务/设备）。
-TASK_ID = "modbus-telemetry"
+#: recovery 基线拓扑的固定身份。v2 下采集 task_id == device_id，扁平
+#: tasks.yaml 的任务名也必须使用设备身份——Sink outputs 授权按 NATS
+#: 消息里的 task_id（即 device_id）过滤，两侧身份必须一致。
 DEVICE_ID = "modbus-1"
+TASK_ID = DEVICE_ID
 
 
 def telemetry_task(*, task_id: str = TASK_ID) -> dict[str, Any]:
@@ -53,19 +56,32 @@ def write_modbus_redis_config(
     启动 sink_service（见 tests.system.conftest.sink_service_factory）。
     """
     host, _, redis_port = redis_address.rpartition(":")
-    return write_functional_config(
+    flat_dir = write_functional_config(
         base,
         port,
         sinks={
             "redis_sink": {
                 "type": "redis",
                 "connection": {"host": host, "port": int(redis_port)},
-                "outputs": {TASK_ID: {"key_prefix": "wind-hub-recovery"}},
+                # v2 采集 task_id == device_id；Sink 按 task_id 授权，
+                # 输出必须绑定设备身份 DEVICE_ID，而非扁平任务名。
+                "outputs": {DEVICE_ID: {"key_prefix": "wind-hub-recovery"}},
             }
         },
         tasks=telemetry_task(),
         nats_url=nats_url,
     )
+    return flat_dir
+
+
+def recovery_collector_tree(
+    flat_dir: Path,
+    tree_base: Path,
+    *,
+    nats_url: str = "nats://127.0.0.1:4222",
+) -> Path:
+    """从扁平 recovery 站点派生 Collector v2 三路径树（Sink 仍读扁平目录）。"""
+    return emit_v2_tree_from_flat_site(tree_base, flat_dir, nats_url=nats_url)
 
 
 async def wait_telemetry_value(

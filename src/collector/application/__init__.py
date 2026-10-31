@@ -1,6 +1,5 @@
-"""Collector Application——采集用例编排与运行时子系统。
+"""Collector application: device-scoped acquisition and configuration convergence.
 
-承载采集引擎装配（Device/Task/Sink 三个子 Runtime）、设备会话、
-配置热重载编排（prepare/activate/abort）。只依赖 ``core`` 与
-``collector.domain``；不得 import 本进程的 Infrastructure 具体类。
+The application layer depends on Core and Collector domain abstractions only.
+Configuration storage and gRPC transport belong to infrastructure.
 """

@@ -1,0 +1,6 @@
+schema_version: 1
+business_points:
+  active_power:
+    data_type: int32
+    unit: kilowatt
+    description: Active power

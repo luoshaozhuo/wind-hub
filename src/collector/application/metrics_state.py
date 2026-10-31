@@ -12,12 +12,20 @@ from collections import defaultdict, deque
 from datetime import UTC, datetime
 from typing import Any
 
+from .rolling_metrics import RollingMetricCounters
+
 
 class CollectorMetricsState:
     """Collector 进程内运行指标与近期事件缓存。"""
 
-    def __init__(self, event_capacity: int = 5000) -> None:
+    def __init__(
+        self,
+        event_capacity: int = 5000,
+        windows: tuple[int, ...] = (60, 300, 3600),
+        resolution: int = 60,
+    ) -> None:
         self._lock = threading.RLock()
+        self._rolling = RollingMetricCounters(windows, resolution)
         self._points_total = 0
         self._points_bad = 0
         self._runs = 0
@@ -35,11 +43,13 @@ class CollectorMetricsState:
         """记录一批采集点数量（引擎 on_points_collected 回调）。"""
         with self._lock:
             self._points_total += count
+            self._rolling.add("points_total", count)
 
     def observe_bad(self, count: int) -> None:
         """记录一批 BAD 质量点数量（引擎 on_points_bad 回调）。"""
         with self._lock:
             self._points_bad += count
+            self._rolling.add("points_bad", count)
 
     def acquisition_run_finished(
         self,
@@ -52,11 +62,14 @@ class CollectorMetricsState:
         del duration
         with self._lock:
             self._runs += 1
+            self._rolling.add("acquisition_runs", 1)
             if outcome == "failed":
                 self._failures += 1
+                self._rolling.add("acquisition_failures", 1)
                 self._event("acquisition_failed", device_id, f"{group}: collect failed")
             elif outcome == "partial":
                 self._partial += 1
+                self._rolling.add("acquisition_partial", 1)
                 self._event("acquisition_partial", device_id, f"{group}: partial batch")
 
     def acquisition_poll_stats(
@@ -72,9 +85,11 @@ class CollectorMetricsState:
         with self._lock:
             if overrun:
                 self._overruns += 1
+                self._rolling.add("poll_overruns", 1)
                 self._event("poll_overrun", device_id, f"{group}: overrun")
             if missed:
                 self._missed += missed
+                self._rolling.add("missed_cycles", missed)
                 self._event(
                     "missed_cycles",
                     device_id,
@@ -85,6 +100,7 @@ class CollectorMetricsState:
         """记录一次设备连接失败。"""
         with self._lock:
             self._connect_failures += 1
+            self._rolling.add("connect_failures", 1)
             self._device_connect_failures[device_id] += 1
             self._event("connect_failed", device_id, f"{protocol}: connection failed")
 
@@ -92,8 +108,13 @@ class CollectorMetricsState:
         """记录一次设备重连成功。"""
         with self._lock:
             self._reconnects += 1
+            self._rolling.add("reconnects", 1)
             self._device_reconnects[device_id] += 1
             self._event("reconnected", device_id, f"{protocol}: reconnected")
+
+    def window_snapshot(self, window_seconds: int) -> dict[str, float]:
+        """Return counters for one configured rolling window."""
+        return self._rolling.snapshot(window_seconds)
 
     def snapshot(self) -> dict[str, Any]:
         """返回 JSON 兼容指标快照。"""

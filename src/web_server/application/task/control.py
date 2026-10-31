@@ -14,7 +14,7 @@ from web_server.application.config.service import ConfigService
 from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.monitoring import MonitoringSnapshotPort
 from web_server.application.port.worker import (
-    CollectorPlacementRejectedError,
+    CollectorTaskConflictError,
     CollectorTaskInstance,
 )
 from web_server.application.task.collector import (
@@ -30,6 +30,38 @@ from web_server.application.task.reconcile import (
     TaskPlacementReconciler,
     TaskPlacementUnsafeError,
 )
+
+
+def _task_devices(config: ConfigService, task_id: str) -> set[str]:
+    """Resolve a Server task definition to Collector device identities."""
+    cfg = config.current_config.tasks[task_id]
+    return {
+        str(device.device_id)
+        for device in config.current_config.site.devices.values()
+        if cfg.device_group_id in device.device_group_ids and device.enabled
+    }
+
+
+def _enabled_tasks_for_device(
+    config: ConfigService,
+    device_id: str,
+) -> set[str]:
+    """Resolve one device to every enabled Task Definition whose group contains it."""
+    device = next(
+        (
+            entry
+            for entry in config.current_config.site.devices.values()
+            if str(entry.device_id) == device_id
+        ),
+        None,
+    )
+    if device is None or not device.enabled:
+        return set()
+    return {
+        cfg.task_id
+        for cfg in config.current_config.tasks.values()
+        if cfg.enabled and cfg.device_group_id in device.device_group_ids
+    }
 
 
 class TaskControlService:
@@ -91,7 +123,9 @@ class TaskControlService:
         by_worker: dict[str, set[str]] = {}
         for placement in placements:
             assert placement.worker_id is not None
-            by_worker.setdefault(placement.worker_id, set()).add(placement.task_id)
+            by_worker.setdefault(placement.worker_id, set()).update(
+                _task_devices(self._config, placement.task_id)
+            )
 
         worker_ids = sorted(by_worker)
 
@@ -111,7 +145,7 @@ class TaskControlService:
             rows.extend(
                 TaskInstanceDetail.model_validate({**asdict(row), "assigned_worker_id": worker_id})
                 for row in worker_rows
-                if row.task_id in assigned_task_ids
+                if row.device_id in assigned_task_ids
             )
         return rows
 
@@ -145,20 +179,18 @@ class TaskControlService:
                 {**asdict(row), "assigned_worker_id": placement.worker_id}
             )
             for row in rows
-            if row.task_id == task_id
+            if row.device_id in _task_devices(self._config, task_id)
         ]
 
     async def start_instance(self, instance_id: str) -> TaskInstanceDetail:
         self._reconciler.require_safe_start()
         current = await self.get_instance(instance_id)
+        self._require_enabled_owner(current.device_id, current.assigned_worker_id)
         collector = await verified_collector(self._collectors, current.assigned_worker_id)
         try:
             self._placements.sync()
-            data = await collector.start_task_instance(
-                instance_id,
-                self._placements.generation,
-            )
-        except CollectorPlacementRejectedError as exc:
+            data = await collector.start_task_instance(instance_id)
+        except CollectorTaskConflictError as exc:
             self._reconciler.invalidate_safety()
             raise TaskPlacementUnsafeError(str(exc)) from exc
         result = TaskInstanceDetail.model_validate(
@@ -177,42 +209,52 @@ class TaskControlService:
         await self._monitoring.refresh_now()
         return result
 
+    def _require_enabled_owner(self, device_id: str, worker_id: str) -> None:
+        """拒绝「该 Worker 上没有任何启用 Task 拥有此设备」的设备启动。
+
+        设备可被多个 Task 的设备组共享：只要存在一个启用且 placement 落在本
+        Worker 的 Task 拥有该设备，设备级实例启动即合法；全部归属 Task 均禁用
+        （或未分配到本 Worker）时拒绝，防止禁用 Task 借共享设备绕过 start 守卫。
+        """
+        owners = _enabled_tasks_for_device(self._config, device_id)
+        for task_id in owners:
+            placement = self._placements.placement_for_task(task_id)
+            if placement.state is TaskPlacementState.ASSIGNED and placement.worker_id == worker_id:
+                return
+        raise ValueError(f"device '{device_id}' has no enabled task on worker '{worker_id}'")
+
     async def start_task(self, task_id: str) -> TaskSummary:
+        """Start every device instance expanded from one configured Task Definition."""
+        cfg = self._config.current_config.tasks[task_id]
+        if not cfg.enabled:
+            raise ValueError(f"task '{task_id}' is disabled")
         self._reconciler.require_safe_start()
         worker_id = self._placements.worker_for_task(task_id)
         collector = await verified_collector(self._collectors, worker_id)
+        instances = await self.list_task_instances(task_id)
+        if not instances:
+            raise TaskPlacementUnsafeError(f"task '{task_id}' has no available device instances")
+        self._placements.sync()
         try:
-            self._placements.sync()
-            data = await collector.start_task(
-                task_id,
-                self._placements.generation,
-            )
-        except CollectorPlacementRejectedError as exc:
+            for instance in instances:
+                await collector.start_task(instance.device_id)
+        except CollectorTaskConflictError as exc:
             self._reconciler.invalidate_safety()
             raise TaskPlacementUnsafeError(str(exc)) from exc
-        result = TaskSummary.model_validate(
-            {
-                **asdict(data),
-                "assigned_worker_id": worker_id,
-                "placement_state": TaskPlacementState.ASSIGNED,
-            }
-        )
         await self._monitoring.refresh_now()
-        return result
+        return self.get_task_summary(task_id)
 
     async def stop_task(self, task_id: str) -> TaskSummary:
+        """Stop every device instance belonging to the requested Task Definition."""
         worker_id = self._placements.worker_for_task(task_id)
         collector = await verified_collector(self._collectors, worker_id)
-        data = await collector.stop_task(task_id)
-        result = TaskSummary.model_validate(
-            {
-                **asdict(data),
-                "assigned_worker_id": worker_id,
-                "placement_state": TaskPlacementState.ASSIGNED,
-            }
-        )
+        instances = await self.list_task_instances(task_id)
+        if not instances:
+            raise KeyError(f"task '{task_id}' has no device instances")
+        for instance in instances:
+            await collector.stop_task(instance.device_id)
         await self._monitoring.refresh_now()
-        return result
+        return self.get_task_summary(task_id)
 
     def _fallback_summary(
         self,

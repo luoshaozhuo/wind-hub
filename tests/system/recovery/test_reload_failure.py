@@ -1,35 +1,48 @@
-"""验证配置 prepare 失败不影响旧任务及后续成功激活。"""
+"""验证无效候选配置被拒后不影响运行中设备，随后的有效变更可正常收敛。
+
+v2 没有两段式 Prepare/Activate 事务：不落盘的候选校验走 ValidateConfig，
+生效走模板新版本发布 + devices 文档 ReplaceConfig。
+"""
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
-from typing import Any
 
 import pytest
+import yaml
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import (
     get_task,
-    prepare_config,
-    reload_config,
+    replace_config,
+    replace_template,
     start_task_instance,
+    validate_config,
 )
-from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess
 from tests.support.recovery_helpers import (
     DEVICE_ID,
+    recovery_collector_tree,
     wait_telemetry_value,
     write_modbus_redis_config,
 )
 
 pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
-TASK_ID = "modbus-telemetry"
-INSTANCE_ID = "modbus-telemetry:modbus-1"
+# v2：task_id == device_id == instance_id。
+TASK_ID = DEVICE_ID
+INSTANCE_ID = DEVICE_ID
+
+TEMPLATE_PUBLISH_ENV = {"WIND_HUB_COLLECTOR_TEMPLATE_PUBLISH": "enabled"}
+
+
+def _load(path: Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 class TestReloadFailureResilience:
-    async def test_failed_reload_keeps_running_and_recovers(
+    async def test_invalid_candidate_rejected_then_valid_change_converges(
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
@@ -38,42 +51,68 @@ class TestReloadFailureResilience:
         nats_service: str,
         tmp_path: Path,
     ) -> None:
-        config_dir = write_modbus_redis_config(
+        flat_dir = write_modbus_redis_config(
             tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
         )
-        await sink_service_factory(config_dir)
-        proc: CollectorProcess = await collector_factory(config_dir)
+        await sink_service_factory(flat_dir)
+        v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
+        proc: CollectorProcess = await collector_factory(
+            v2_tree, env_extra=dict(TEMPLATE_PUBLISH_ENV)
+        )
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         initial = await wait_telemetry_value(redis_service)
 
-        # Collector 不解析 sinks.yaml（include_sinks=False）；故障注入必须
-        # 落在 Collector 实际校验的边界——Task 引用不存在的设备组。
-        def _break(data: dict[str, Any]) -> None:
-            data["tasks"][TASK_ID]["device_group_id"] = "ghost-device"
-
-        update_yaml(config_dir, "tasks.yaml", _break)
-        prepared = await prepare_config(
-            proc.grpc_target, config_dir=config_dir, revision_id="rev-broken"
+        # ---- 无效候选：devices 文档引用不存在的型号版本，校验拒绝、不落盘 ----
+        devices_doc = _load(v2_tree / "instances" / "devices.yaml")
+        broken_doc = copy.deepcopy(devices_doc)
+        broken_doc["devices"][DEVICE_ID]["model"] = {"id": "ghost-model", "version": "9.9.9"}
+        checked = await validate_config(
+            proc.grpc_target,
+            yaml.safe_dump(broken_doc, allow_unicode=True, sort_keys=False),
         )
-        assert prepared.success is False
-        assert prepared.errors
+        assert checked.valid is False
+        assert list(checked.errors)
 
+        # 进程存活，旧配置下采集与出数持续。
         assert proc.is_running()
         continued = await wait_telemetry_value(redis_service, after=str(initial["timestamp"]))
 
-        def _restore(data: dict[str, Any]) -> None:
-            # 恢复有效设备组，同时变更 interval——验证修复版本可正常激活。
-            data["tasks"][TASK_ID]["device_group_id"] = DEVICE_ID
-            data["tasks"][TASK_ID]["interval"] = 0.5
-
-        update_yaml(config_dir, "tasks.yaml", _restore)
-        activated = await reload_config(
-            proc.grpc_target, config_dir=config_dir, revision_id="rev-restored"
+        # ---- 有效变更：task 节拍 0.2 → 0.5（新版本模板链 + devices 切换）----
+        devices_path = v2_tree / "instances" / "devices.yaml"
+        current = _load(devices_path)
+        model_id = current["devices"][DEVICE_ID]["model"]["id"]
+        model_version = current["devices"][DEVICE_ID]["model"]["version"]
+        model_doc = _load(
+            v2_tree / "templates" / "device_models" / model_id / f"{model_version}.yaml"
         )
-        assert activated.success is True, list(activated.errors)
+        task_ref = model_doc["task"]
+        task_doc = _load(
+            v2_tree / "templates" / "tasks" / task_ref["id"] / f"{task_ref['version']}.yaml"
+        )
+        new_task = copy.deepcopy(task_doc)
+        new_task["template_version"] = "1.0.1"
+        new_task["interval"] = 0.5
+        task_result = await replace_template(
+            proc.grpc_target, "tasks", task_ref["id"], "1.0.1", new_task
+        )
+        assert task_result.success, list(task_result.errors)
 
-        task = await get_task(proc.grpc_target, TASK_ID)
-        assert task.HasField("interval")
-        assert task.interval.value == 0.5
+        new_model = copy.deepcopy(model_doc)
+        new_model["template_version"] = "1.0.1"
+        new_model["task"] = {"id": task_ref["id"], "version": "1.0.1"}
+        model_result = await replace_template(
+            proc.grpc_target, "device_models", model_id, "1.0.1", new_model
+        )
+        assert model_result.success, list(model_result.errors)
+
+        devices_doc["devices"][DEVICE_ID]["model"]["version"] = "1.0.1"
+        activated = await replace_config(
+            proc.grpc_target,
+            yaml.safe_dump(devices_doc, allow_unicode=True, sort_keys=False),
+        )
+        assert activated.success, list(activated.errors)
+
+        task = await get_task(proc.grpc_target, DEVICE_ID)
+        assert task.interval_ms == 500
         final = await wait_telemetry_value(redis_service, after=str(continued["timestamp"]))
         assert final["quality"] == "good"

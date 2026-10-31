@@ -18,6 +18,7 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess, free_port
 from tests.support.redis_client import RedisTestClient, point_key
+from tests.support.v2_config import emit_v2_tree_from_flat_site
 from tests.support.wait import read_redis_value, wait_redis_value, wait_until
 from tests.system.r5.conftest import DEVICE_ID, make_sample, mgmt, publish, wait_state
 from tests.system.r5.r5_config import INSTANCE_ID, TASK_ID, write_r5_config
@@ -27,12 +28,14 @@ pytestmark = [pytest.mark.redis, pytest.mark.real_service, pytest.mark.system]
 POINT = "rotor_speed"
 
 
-def _redis_sink(host: str, port: int, *, sink_id: str, prefix: str) -> dict[str, Any]:
+def _redis_sink(
+    host: str, port: int, *, sink_id: str, prefix: str, task_id: str = TASK_ID
+) -> dict[str, Any]:
     return {
         sink_id: {
             "type": "redis",
             "connection": {"host": host, "port": port, "key_prefix": prefix, "timeout": 1.0},
-            "outputs": {TASK_ID: {}},
+            "outputs": {task_id: {}},
         }
     }
 
@@ -50,14 +53,26 @@ async def test_full_chain_collector_to_redis(
     tmp_path: Path,
 ) -> None:
     host, port = _split(r5_stack.redis)
+    # v2 采集 task_id == device_id；Sink 的 outputs 授权按 task_id 过滤，
+    # 扁平 Sink 配置必须用 v2 task 身份（modbus-1）才能接收该设备的数据。
+    v2_task = {
+        DEVICE_ID: {
+            "device_group_id": DEVICE_ID,
+            "point_group": "telemetry",
+            "interval": 0.2,
+        }
+    }
     config_dir = write_r5_config(
         tmp_path / "cfg",
         modbus_server.port,
         r5_stack.nats,
-        _redis_sink(host, port, sink_id="redis_sink", prefix="wh-r5-chain"),
+        _redis_sink(host, port, sink_id="redis_sink", prefix="wh-r5-chain", task_id=DEVICE_ID),
+        tasks=v2_task,
     )
     await r5_sink_factory(config_dir, realtime_sinks=("redis_sink",))
-    collector: CollectorProcess = await collector_factory(config_dir, collector_id="collector")
+    # Collector v2 只消费三路径树：从扁平 r5 站点派生（Sink 仍读扁平目录）。
+    v2_tree = emit_v2_tree_from_flat_site(tmp_path / "v2", config_dir, nats_url=r5_stack.nats)
+    collector: CollectorProcess = await collector_factory(v2_tree, collector_id="collector")
     await start_task_instance(collector.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
     key = point_key(DEVICE_ID, POINT, prefix="wh-r5-chain")

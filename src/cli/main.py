@@ -296,6 +296,10 @@ class WindHubShell(cmd.Cmd):
         if action == "clear":
             print(chr(27) + "[2J" + chr(27) + "[H", end="")
             return None
+        if action == "collector":
+            from .collector_control import run
+
+            return run(rest)
         if action == "diagnose":
             return self._diagnose(rest)
         raise ValueError(f"unknown command: {action}. Type help.")

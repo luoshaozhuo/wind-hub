@@ -71,7 +71,7 @@ async def wait_grpc_ready(target: str, *, timeout: float = 30.0) -> str:
         import grpc
         from google.protobuf import empty_pb2, json_format
 
-        from contracts import collector_pb2_grpc as pb_grpc
+        from contracts import collector_v2_pb2_grpc as pb_grpc
 
         channel = grpc.aio.insecure_channel(target)
         try:

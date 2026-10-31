@@ -1,8 +1,9 @@
-"""System：REST 配置事务全链路——文件读取 → 修改 → Apply → 全 Worker 收敛。
+"""System：REST 配置事务全链路——文件读取 → 修改 → Apply → Commander 收敛。
 
-Server 是配置事务唯一编排者：POST /config/apply 触发校验 → 全部 Worker
-Prepare/Activate → 成功后 Worker active revision 一致。失败路径（非法
-内容）必须拒绝且不破坏现役配置。
+v2 架构下 Collector 自管三路径配置（五 Config RPC），不参与 Server 的
+两段式事务：POST /config/apply 只对 Commander Prepare/Activate；成功后
+Commander 推进到新 revision，Collector 保持自身 active_revision 不变且
+仍然健康。失败路径（非法内容）必须拒绝且不破坏现役配置。
 """
 
 from __future__ import annotations
@@ -34,23 +35,35 @@ class TestConfigApplyViaRest:
         assert applied.status_code == 200, applied.text
         assert applied.json()["success"] is True, applied.json()
 
-        # ---- 收敛可观测：REST 查询反映新节拍，Worker active revision 一致 ----
+        # ---- 收敛可观测：REST 查询反映新节拍，Commander 推进 revision；
+        # Collector v2 不参与该事务，保持自身 revision 且仍然健康。 ----
         task = await full_stack.http.get(f"/api/v1/tasks/{SYSTEM_TASK_ID}")
         assert task.json()["interval"] == pytest.approx(0.7)
 
         async def _converged() -> dict | None:
-            workers = (await full_stack.http.get("/api/v1/workers")).json()
-            revisions = {w["worker_id"]: w["active_revision"] for w in workers}
-            if None in revisions.values():
+            workers = {
+                w["worker_id"]: w for w in (await full_stack.http.get("/api/v1/workers")).json()
+            }
+            commander = workers.get("commander") or workers.get("commander-1")
+            if commander is None or not commander.get("active_revision"):
                 return None
-            return revisions if len(set(revisions.values())) == 1 else None
+            collector = workers.get(SYSTEM_COLLECTOR_ID)
+            if collector is None or collector.get("active_revision") is None:
+                return None
+            return {
+                "commander": commander["active_revision"],
+                "collector": collector["active_revision"],
+            }
 
         revisions = await wait_until(
             _converged,
             timeout=15.0,
-            description="all workers converged to same active revision",
+            description="commander converged, collector healthy with own revision",
         )
-        assert set(revisions) == {SYSTEM_COLLECTOR_ID, "commander"}
+        # Collector 不参与 Server 事务：两个 Worker 的 revision 来源不同，
+        # 各自非空即可；Collector 不被 tasks.yaml 变更推动。
+        assert revisions["collector"]
+        assert revisions["commander"] != revisions["collector"]
 
     async def test_apply_invalid_content_rejected_and_system_unaffected(
         self, full_stack: FullStack

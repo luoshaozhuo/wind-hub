@@ -239,8 +239,9 @@ class CollectorDeviceSession:
     # ------------------------------------------------------------------
 
     def set_device(self, device: Device) -> None:
-        """替换不要求重建协议实例的设备配置快照。"""
+        """Update device metadata and acquisition policy without reconnecting."""
         self._device = device
+        self._subscribe_enabled = device.subscribe_enabled
 
     def set_points(self, point_table: PointTable) -> None:
         """更新点表与点位元数据（只更新内存映射，不触碰协议连接）。

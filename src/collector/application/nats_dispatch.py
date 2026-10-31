@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from datetime import UTC, datetime
 from typing import Protocol
@@ -16,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 class PublisherPort(Protocol):
     """Minimal publishing dependency supplied by infrastructure."""
+
+    @property
+    def connected(self) -> bool: ...
 
     async def open(self) -> None:
         """Initialize the NATS connection."""
@@ -41,6 +46,7 @@ class SamplePublisher:
         identity: CollectorIdentity,
         delivery: DeliveryMode,
         max_staleness_ms: int | None,
+        queue_capacity: int = 2048,
     ) -> None:
         if delivery == "realtime" and (max_staleness_ms is None or max_staleness_ms <= 0):
             raise ValueError("realtime delivery requires a positive max_staleness_ms")
@@ -49,26 +55,59 @@ class SamplePublisher:
         self._identity = identity
         self._delivery = delivery
         self._max_staleness_ms = max_staleness_ms if delivery == "realtime" else None
+        if queue_capacity <= 0:
+            raise ValueError("queue_capacity must be positive")
+        self._queue: asyncio.Queue[SampleMessage] = asyncio.Queue(maxsize=queue_capacity)
+        self._worker: asyncio.Task[None] | None = None
         self._sequence = 0
         self._points_published = 0
         self._points_dropped = 0
 
+    @property
+    def connected(self) -> bool:
+        """Return current NATS transport readiness."""
+        return self._publisher.connected
+
     async def open(self) -> None:
         """Open the NATS publisher."""
         await self._publisher.open()
+        if self._worker is None:
+            self._worker = asyncio.create_task(self._run(), name="sample-nats-dispatch")
 
     async def close(self) -> None:
         """Close the NATS publisher."""
+        worker, self._worker = self._worker, None
+        if worker is not None:
+            try:
+                await asyncio.wait_for(self._queue.join(), timeout=3.0)
+            except TimeoutError:
+                logger.warning("NATS sample queue not fully drained at shutdown")
+            worker.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await worker
         await self._publisher.close()
+
+    async def _run(self) -> None:
+        """Independent bounded publish worker; sender errors never stop the loop."""
+        while True:
+            message = await self._queue.get()
+            try:
+                try:
+                    delivered = await self._publisher.publish(message)
+                except Exception:
+                    delivered = False
+                    logger.exception("NATS sample dispatch failed")
+                if delivered:
+                    self._points_published += 1
+                else:
+                    self._points_dropped += 1
+            finally:
+                self._queue.task_done()
 
     async def dispatch(self, task_id: str, values: list[PointValue]) -> None:
         """Publish each sample independently; failures never abort acquisition."""
-        failed = False
         for value in values:
             self._sequence += 1
-            if failed:
-                self._points_dropped += 1
-                continue
             try:
                 message = SampleMessage(
                     wind_farm_id=self._wind_farm_id,
@@ -89,15 +128,9 @@ class SamplePublisher:
                 self._points_dropped += 1
                 continue
             try:
-                success = await self._publisher.publish(message)
-            except Exception:
-                logger.exception("NATS publisher failed unexpectedly")
-                success = False
-            if success:
-                self._points_published += 1
-            else:
+                self._queue.put_nowait(message)
+            except asyncio.QueueFull:
                 self._points_dropped += 1
-                failed = True
 
     @property
     def points_published(self) -> int:

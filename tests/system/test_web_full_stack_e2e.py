@@ -1,6 +1,8 @@
-"""真实全链路：Core YAML → 三协议各十台 → Collector/Commander → Web Server HTTP。
+"""真实全链路：三协议各十台 → Collector(v2)/Commander → Web Server HTTP。
 
-本套件不使用 MSW/fake gRPC，所有控制服务为独立进程。离线执行即可；
+本套件不使用 MSW/fake gRPC，所有控制服务为独立进程。Collector 消费 v2
+三路径配置树（由扁平虚拟站点派生，见 tests.support.v2_config），
+Commander / 协议从站 / Web Server 仍消费扁平 Core 站点。离线执行即可；
 每个用例独立目录、监听端口和故障隔离，结束后优雅关闭全部进程与虚拟从站。
 """
 
@@ -16,8 +18,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from contracts import collector_pb2 as pb
-from contracts import collector_pb2_grpc as pb_grpc
+from contracts import collector_v2_pb2 as pb
+from contracts import collector_v2_pb2_grpc as pb_grpc
 from scripts.generate_virtual_site import generate_site
 from scripts.protocol_servers import run_fleet
 from tests.support.process import (
@@ -28,6 +30,7 @@ from tests.support.process import (
     start_commander,
     start_web_server,
 )
+from tests.support.v2_config import SYSTEM_ADMIN_TOKEN, emit_v2_tree_from_flat_site
 from tests.support.wait import wait_commander_ready, wait_grpc_ready, wait_until
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.asyncio]
@@ -39,6 +42,8 @@ class LiveStack:
     collector: CollectorProcess
     commander: CollectorProcess
     web: CollectorProcess
+    config: Path
+    v2_tree: Path
 
 
 def _shutdown(proc: CollectorProcess) -> None:
@@ -53,7 +58,7 @@ def _shutdown(proc: CollectorProcess) -> None:
 
 @pytest_asyncio.fixture
 async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
-    """同一个 config 下启动 30 个真实从站和三个真实应用进程。"""
+    """同一个现场下启动 30 个真实从站和三个真实应用进程。"""
     modbus_port = free_port_block(10)
     iec104_port = free_port_block(10, exclude=set(range(modbus_port, modbus_port + 10)))
     config = generate_site(
@@ -61,10 +66,11 @@ async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
         modbus_base_port=modbus_port,
         iec104_base_port=iec104_port,
     )
+    v2_tree = emit_v2_tree_from_flat_site(tmp_path / "collector", config)
     processes: list[CollectorProcess] = []
     async with run_fleet(config, interval=0.25, seed=123):
         try:
-            collector = start_collector(config, collector_id="collector", log_dir=tmp_path)
+            collector = start_collector(v2_tree, collector_id="collector", log_dir=tmp_path)
             processes.append(collector)
             commander = start_commander(config, log_dir=tmp_path)
             processes.append(commander)
@@ -79,6 +85,7 @@ async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
                 collectors=(f"collector={collector.grpc_target}",),
                 commander=commander.grpc_target,
                 log_dir=tmp_path,
+                env_extra={"WIND_HUB_COLLECTOR_ADMIN_TOKEN": SYSTEM_ADMIN_TOKEN},
             )
             processes.append(web)
             url = f"http://127.0.0.1:{web_port}"
@@ -94,7 +101,7 @@ async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
                     return None
 
             await wait_until(ready, timeout=40, description="real Web Server HTTP")
-            yield LiveStack(url, collector, commander, web)
+            yield LiveStack(url, collector, commander, web, config, v2_tree)
         finally:
             # 应用先停，再停模拟从站，避免客户端连接遗留。
             for process in reversed(processes):
@@ -129,18 +136,23 @@ async def test_real_task_start_and_stop_via_http(
         assert stop.status_code == 200, stop.text
 
 
-async def test_direct_unfenced_collector_start_is_rejected(
+async def test_direct_unauthenticated_collector_start_is_denied(
     full_stack: LiveStack,
 ) -> None:
+    """v2 fail-closed：未携带管理员令牌的 StartTask 必须 PERMISSION_DENIED。"""
     channel = grpc.aio.insecure_channel(full_stack.collector.grpc_target)
     try:
-        stub = pb_grpc.CollectorControlServiceStub(channel)
+        stub = pb_grpc.CollectorTaskServiceStub(channel)
         with pytest.raises(grpc.aio.AioRpcError) as error:
             await stub.StartTask(
-                pb.TaskStartRequest(task_id="virtual-modbus", placement_generation=0),
+                pb.TaskChangeRequest(
+                    device_id="modbus-00",
+                    expected_revision="0" * 64,
+                    request_id="e2e-no-token",
+                ),
                 timeout=4,
             )
-        assert error.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+        assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
     finally:
         await channel.close()
 

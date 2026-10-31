@@ -17,7 +17,7 @@ from core.infrastructure.diagnostic.log_setup import configure_logging, configur
 from core.infrastructure.executor import configure_default_thread_pool
 
 from .assembly import assemble_collector
-from .infrastructure.grpc import build_grpc_server
+from .infrastructure.grpc.v2_server import build_v2_grpc_server
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,9 @@ def _install_signal_handlers(shutdown_event: asyncio.Event) -> None:
 
 
 async def run_collector(
-    config_dir: str | Path,
+    config_file: str | Path,
+    instances: str | Path,
+    templates: str | Path,
     *,
     collector_id: str | None = None,
     grpc_host: str = "127.0.0.1",
@@ -43,7 +45,9 @@ async def run_collector(
     """启动 Collector 与 gRPC 控制面，并阻塞到收到停机信号。
 
     Args:
-        config_dir: 现场配置目录。
+        config_file: Collector 服务配置文件。
+        instances: 设备实例目录。
+        templates: 版本化模板目录。
         collector_id: Collector 稳定标识；为空时读取环境变量或主机名。
         grpc_host: gRPC 控制面监听地址。
         grpc_port: gRPC 控制面监听端口。
@@ -51,7 +55,7 @@ async def run_collector(
             强制退出进程，避免单个卡死的资源释放阻断停机（与旧
             Collector ``--shutdown-timeout`` 语义一致）。
     """
-    app = assemble_collector(config_dir, collector_id=collector_id)
+    app = assemble_collector(config_file, instances, templates, collector_id=collector_id)
     configure_process_logging(
         app.log_settings,
         process_name=f"collector-{app.identity.collector_id}",
@@ -59,7 +63,7 @@ async def run_collector(
     # 进程级协议命令线程池：所有 Driver 的 to_thread 共用，必须先于任何
     # 协议命令安装（每进程一次；配置变更 restart-required）。
     configure_default_thread_pool(app.boot_config.runtime.thread_pool_max_workers)
-    grpc_server = build_grpc_server(app, app.identity, host=grpc_host, port=grpc_port)
+    grpc_server = build_v2_grpc_server(app, host=grpc_host, port=grpc_port)
     shutdown_event = asyncio.Event()
     _install_signal_handlers(shutdown_event)
 
@@ -101,7 +105,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="wind-hub-collector",
         description="启动 Wind Hub Collector 采集进程。",
     )
-    parser.add_argument("--config", required=True, help="现场配置目录")
+    parser.add_argument("--config", required=True, help="Collector 服务配置文件")
+    parser.add_argument("--instances", required=True, help="设备实例目录")
+    parser.add_argument("--templates", required=True, help="版本化模板目录")
     parser.add_argument(
         "--collector-id",
         default=None,
@@ -128,7 +134,12 @@ def main() -> int:
     configure_logging()
     args = build_parser().parse_args()
     if args.check:
-        app = assemble_collector(args.config, collector_id=args.collector_id)
+        app = assemble_collector(
+            args.config,
+            args.instances,
+            args.templates,
+            collector_id=args.collector_id,
+        )
         logger.info(
             "配置校验通过 devices=%d disabled=%d tasks=%d delivery=%s config_hash=%s",
             len(app.boot_config.devices),
@@ -141,6 +152,8 @@ def main() -> int:
     return asyncio.run(
         run_collector(
             args.config,
+            args.instances,
+            args.templates,
             collector_id=args.collector_id,
             grpc_host=args.grpc_host,
             grpc_port=args.grpc_port,

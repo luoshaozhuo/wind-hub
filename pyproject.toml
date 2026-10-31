@@ -101,7 +101,7 @@ extend-immutable-calls = [
 [tool.ruff.lint.per-file-ignores]
 # gRPC servicer 方法名由 proto service 定义强制（如 StartTask），
 # 框架按方法名分发，无法改为 snake_case。
-"src/collector/infrastructure/grpc/server.py" = ["N802"]
+"src/collector/infrastructure/grpc/v2_server.py" = ["N802"]
 "src/commander/infrastructure/grpc/server.py" = ["N802"]
 "src/industrial_gateway/infrastructure/grpc/data_server.py" = ["N802"]
 
@@ -131,8 +131,8 @@ ignore_missing_imports = true
 # 形态；这些是生成物特征而非缺陷，不参与手写代码的严格规则。
 [[tool.mypy.overrides]]
 module = [
-    "contracts.collector_pb2",
-    "contracts.collector_pb2_grpc",
+    "contracts.collector_v2_pb2",
+    "contracts.collector_v2_pb2_grpc",
     "contracts.commander_pb2",
     "contracts.commander_pb2_grpc",
     "contracts.gateway_pb2",

@@ -1,6 +1,6 @@
 """Collector 采集 Task 与持续采集生命周期的唯一权威。
 
-只管理 Task 子系统：Task Definition 按设备展开为 Task Instance，实例启停、
+只管理 Task 子系统：每台启用设备一个 Task Instance，实例启停、
 采集句柄、采集执行状态与 restart_pending 全部由本对象簿记。设备会话来自
 DeviceRuntime（依赖方向 TaskRuntime → DeviceRuntime，无反向依赖）；一次
 collect 的业务执行仍属于 Domain AcquisitionEngine，本对象只决定「哪个实例
@@ -13,7 +13,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from core.domain.point_value import PointValue
@@ -26,7 +26,6 @@ from .session import AcquisitionHandle
 from .task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
-    task_instance_id,
 )
 
 if TYPE_CHECKING:
@@ -38,7 +37,7 @@ logger = logging.getLogger(__name__)
 class TaskRuntime:
     """持有 Task 注册表与采集生命周期状态，并负责实例展开与启停。
 
-    六类簿记（Task Definition / Task Instance / TaskInstanceState /
+    六类簿记（设备采集定义 / Task Instance / TaskInstanceState /
     AcquisitionHandle / AcquisitionRuntimeState / restart_pending）的唯一
     权威；不保存设备会话（DeviceRuntime）或 Sink 状态（SinkRuntime）。
     三种状态维度严格分离：设备连接状态在 DeviceRuntime，实例生命周期状态
@@ -53,6 +52,8 @@ class TaskRuntime:
         engine: AcquisitionEngine,
         clock: Callable[[], float] = time.monotonic,
         metrics_hook: RuntimeMetricsPort | None = None,
+        desired_states: dict[str, str] | None = None,
+        persist_desired_state: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> None:
         self._task_defs: dict[str, CollectionTask] = dict(task_defs)
         self._devices = devices
@@ -73,8 +74,11 @@ class TaskRuntime:
         # 热重载过程中需要恢复 RUNNING、但上一次重建失败的实例。
         # 下一次 reload 会继续重试，直到成功或实例被显式停止/删除。
         self._restart_pending: set[str] = set()
-        # 用户的运行意图独立于句柄是否仍然有效；冷启动默认为空。
-        self._desired_running: set[str] = set()
+        # 用户的运行意图独立于句柄是否仍然有效；冷启动读取持久化配置。
+        self._desired_running: set[str] = {
+            device_id for device_id, state in (desired_states or {}).items() if state == "START"
+        }
+        self._persist_desired_state = persist_desired_state
 
         # 每个采集实例的业务执行状态——与设备连接状态、实例启停状态分维度。
         # 实例注册时建立、注销时删除；引擎 collect 经 AcquisitionStatePort
@@ -129,6 +133,13 @@ class TaskRuntime:
         """当前采集实例执行状态簿（``{instance_id: state}`` 浅拷贝）。"""
         return dict(self._acquisition_states)
 
+    def desired_states(self) -> dict[str, str]:
+        """Expose persisted START/STOP intent separately from actual state."""
+        return {
+            instance_id: "START" if instance_id in self._desired_running else "STOP"
+            for instance_id in self._task_instances
+        }
+
     # ------------------------------------------------------------------
     # 实例生命周期（控制面的操作面）
     # ------------------------------------------------------------------
@@ -151,6 +162,8 @@ class TaskRuntime:
         async with self._instance_guard(instance_id):
             if instance_id not in self._task_instances:
                 raise KeyError(instance_id)
+            if self._persist_desired_state is not None:
+                await self._persist_desired_state(instance_id, "START")
             self._desired_running.add(instance_id)
             await self._start_locked(instance_id)
 
@@ -166,6 +179,11 @@ class TaskRuntime:
         device = self._devices.devices.get(instance.device_id)
         if device is None:
             raise KeyError(f"device '{instance.device_id}' for instance '{instance_id}'")
+        if instance_id not in self._desired_running:
+            return
+        if not device.is_open():
+            self._restart_pending.add(instance_id)
+            return
 
         async def acquire() -> None:
             # POLL 型句柄的每 tick 执行体——实例快照现取，热重载替换
@@ -210,6 +228,8 @@ class TaskRuntime:
         except BaseException:
             # 启动失败/外部取消：状态维持 STOPPED，绝不提交半成品 RUNNING。
             self._instance_states[instance_id] = TaskInstanceState.STOPPED
+            if instance_id in self._desired_running:
+                self._restart_pending.add(instance_id)
             raise
         self._acquisition_handles[instance_id] = handle
         self._instance_states[instance_id] = TaskInstanceState.RUNNING
@@ -229,6 +249,8 @@ class TaskRuntime:
         async with self._instance_guard(instance_id):
             if instance_id not in self._task_instances:
                 raise KeyError(instance_id)
+            if self._persist_desired_state is not None:
+                await self._persist_desired_state(instance_id, "STOP")
             self._desired_running.discard(instance_id)
             if (
                 self._instance_states[instance_id] is TaskInstanceState.STOPPED
@@ -301,19 +323,76 @@ class TaskRuntime:
             iid for iid, instance in self._task_instances.items() if instance.device_id == device_id
         )
         for iid in ids:
-            await self.stop_instance(iid)
+            async with self._instance_guard(iid):
+                self._instance_states[iid] = TaskInstanceState.STOPPED
+                await self._close_acquisition_handle(iid)
+
+    async def restore_desired(self) -> None:
+        """Start only configured START tasks; leave failed starts for watchdog."""
+        for instance_id in tuple(self._desired_running):
+            if instance_id not in self._task_instances:
+                continue
+            try:
+                async with self._instance_guard(instance_id):
+                    await self._start_locked(instance_id)
+            except Exception:
+                self._restart_pending.add(instance_id)
+                logger.warning("Initial task start failed: %s", instance_id, exc_info=True)
+
+    async def stop_target_disabled(self, states: Mapping[str, str]) -> None:
+        """Apply persisted STOP before any hot-reload device or task mutation."""
+        for instance_id in tuple(self._task_instances):
+            if states.get(instance_id, "STOP") == "START":
+                continue
+            async with self._instance_guard(instance_id):
+                self._desired_running.discard(instance_id)
+                self._restart_pending.discard(instance_id)
+                if instance_id in self._instance_states:
+                    self._instance_states[instance_id] = TaskInstanceState.STOPPED
+                await self._close_acquisition_handle(instance_id)
+
+    async def apply_desired_states(self, states: Mapping[str, str]) -> None:
+        """Converge runtime to previously persisted intent without writing again."""
+        for instance_id in tuple(self._task_instances):
+            target = states.get(instance_id, "STOP")
+            if target not in ("START", "STOP"):
+                raise ValueError(f"invalid task intent for {instance_id!r}")
+            async with self._instance_guard(instance_id):
+                if target == "START":
+                    self._desired_running.add(instance_id)
+                    if self._instance_states[instance_id] is TaskInstanceState.STOPPED:
+                        await self._start_locked(instance_id)
+                else:
+                    self._desired_running.discard(instance_id)
+                    self._restart_pending.discard(instance_id)
+                    self._instance_states[instance_id] = TaskInstanceState.STOPPED
+                    await self._close_acquisition_handle(instance_id)
 
     async def stop_all(self) -> None:
         """停机路径：关闭全部实例采集句柄——polling 协程取消、订阅注销，
         不留后台 task 或订阅。
 
-        实例定义保留，统一标记 STOPPED——重启后需显式 start，与启动语义
-        一致。逐实例走与显式 stop 相同的串行锁路径，停机期间到达的
+        实例定义保留，统一标记 STOPPED，不改变持久化 START/STOP；
+        下次启动按配置恢复。逐实例走相同的串行锁路径，停机期间到达的
         start 调用要么先于本方法提交（随后即被关闭），要么在锁后看到
         STOPPED——不会在 stop_all 之后留下运行句柄。
         """
-        for instance_id in list(self._task_instances):
-            await self.stop_instance(instance_id)
+        first_error: BaseException | None = None
+        for instance_id in tuple(self._task_instances):
+            try:
+                async with self._instance_guard(instance_id):
+                    self._instance_states[instance_id] = TaskInstanceState.STOPPED
+                    await self._close_acquisition_handle(instance_id)
+            except BaseException as exc:
+                logger.warning(
+                    "Failed to close acquisition handle for %s",
+                    instance_id,
+                    exc_info=True,
+                )
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
     # ------------------------------------------------------------------
     # 设备变更协调（CollectorRuntime 在 session 变更前后调用）
@@ -347,8 +426,11 @@ class TaskRuntime:
             if iid not in self._task_instances or iid not in self._desired_running:
                 continue
             try:
-                await self.start_instance(iid)
+                async with self._instance_guard(iid):
+                    if iid in self._desired_running and iid in self._task_instances:
+                        await self._start_locked(iid)
             except Exception:
+                self._restart_pending.add(iid)
                 logger.warning(
                     "Hot-reload: task instance '%s' failed to restart after device rebuild",
                     iid,
@@ -374,106 +456,77 @@ class TaskRuntime:
         *,
         restart_subscription_devices: set[str] | None = None,
     ) -> None:
-        """把 Task Instance 注册表同步为「当前 Task 定义 × 当前设备」的展开
-        结果。
-
-        - 消失的实例：关闭采集句柄、删除实例与其生命周期/执行状态；
-        - 新增的实例：以 STOPPED 注册（与启动语义一致——显式 start 才运行）；
-        - 仍存在的实例：整体替换为最新快照；运行中实例的 interval /
-          point_group 变化会重建采集句柄（poll 重新对齐节拍、订阅重新
-          注册），采集回调每轮现取最新实例。
-
-        本方法幂等，设备增删/重建/轻量更新与 Task diff 应用后都会调用。
-        """
+        """Synchronize exactly one acquisition instance per enabled device."""
         desired = self._desired_instances()
-        restart_subscription_devices = restart_subscription_devices or set()
+        changed_subscriptions = restart_subscription_devices or set()
 
-        for iid in set(self._task_instances) - set(desired):
-            async with self._instance_guard(iid):
-                await self._close_acquisition_handle(iid)
-                self._task_instances.pop(iid, None)
-                self._instance_states.pop(iid, None)
-                self._acquisition_states.pop(iid, None)
-                self._restart_pending.discard(iid)
-                self._desired_running.discard(iid)
-            logger.info("Task instance '%s' unregistered", iid)
+        for instance_id in set(self._task_instances) - set(desired):
+            async with self._instance_guard(instance_id):
+                await self._close_acquisition_handle(instance_id)
+                self._task_instances.pop(instance_id, None)
+                self._instance_states.pop(instance_id, None)
+                self._acquisition_states.pop(instance_id, None)
+                self._restart_pending.discard(instance_id)
+                self._desired_running.discard(instance_id)
 
-        for iid, instance in desired.items():
-            old = self._task_instances.get(iid)
-            self._task_instances[iid] = instance
-            if old is None:
-                self._instance_states[iid] = TaskInstanceState.STOPPED
-                logger.info("Task instance '%s' registered (stopped)", iid)
-            else:
-                was_running = self._instance_states[iid] is TaskInstanceState.RUNNING
-                needs_restart = (iid in self._restart_pending and iid in self._desired_running) or (
-                    was_running
-                    and (
-                        old.interval != instance.interval
-                        or old.point_group != instance.point_group
-                        or instance.device_id in restart_subscription_devices
-                    )
+        for instance_id, instance in desired.items():
+            async with self._instance_guard(instance_id):
+                old = self._task_instances.get(instance_id)
+                was_running = self._instance_states.get(instance_id) is TaskInstanceState.RUNNING
+                changed = old is not None and (
+                    old.interval != instance.interval
+                    or old.point_group != instance.point_group
+                    or instance.device_id in changed_subscriptions
                 )
-                if needs_restart:
-                    # 节拍、选点或订阅地址变化：重建采集句柄并恢复 RUNNING。
-                    # 失败时保留 pending，reconfigure 向上返回错误，下一次 reload
-                    # 继续重试，避免“reload 成功但实例永久 STOPPED”。
-                    # 关旧与建新在同一实例锁内完成，显式 stop/start 无法插入。
-                    self._restart_pending.add(iid)
+                restart = (
+                    instance_id in self._restart_pending and instance_id in self._desired_running
+                ) or (was_running and changed)
+                if restart and was_running:
+                    self._instance_states[instance_id] = TaskInstanceState.STOPPED
+                    await self._close_acquisition_handle(instance_id)
+
+                self._task_instances[instance_id] = instance
+                self._instance_states.setdefault(instance_id, TaskInstanceState.STOPPED)
+                if restart and instance_id in self._desired_running:
+                    self._restart_pending.add(instance_id)
                     try:
-                        async with self._instance_guard(iid):
-                            if was_running:
-                                self._instance_states[iid] = TaskInstanceState.STOPPED
-                                await self._close_acquisition_handle(iid)
-                            await self._start_locked(iid)
+                        await self._start_locked(instance_id)
                     except Exception:
                         logger.warning(
-                            "Task instance '%s' failed to restart acquisition after reload",
-                            iid,
+                            "Task instance '%s' failed to restart after update",
+                            instance_id,
                             exc_info=True,
                         )
                         raise
-                    else:
-                        self._restart_pending.discard(iid)
-            state = self._acquisition_states.get(iid)
-            if (
-                state is None
-                or state.task_id != instance.task_id
-                or state.point_group != instance.point_group
-            ):
-                self._acquisition_states[iid] = AcquisitionRuntimeState(
-                    instance_id=iid,
-                    task_id=instance.task_id,
-                    device_id=instance.device_id,
-                    point_group=instance.point_group,
-                )
+
+                state = self._acquisition_states.get(instance_id)
+                if (
+                    state is None
+                    or state.task_id != instance.task_id
+                    or state.point_group != instance.point_group
+                ):
+                    self._acquisition_states[instance_id] = AcquisitionRuntimeState(
+                        instance_id=instance_id,
+                        task_id=instance.task_id,
+                        device_id=instance.device_id,
+                        point_group=instance.point_group,
+                    )
 
     def _desired_instances(self) -> dict[str, CollectionTaskInstance]:
-        """展开当前 Task 定义为 Task Instance 集。
+        """Build one stable acquisition instance for each enabled device."""
 
-        - ``enabled: false`` 的 Task 不展开（不创建运行实例）；
-        - ``device`` Task 只在设备存在时展开（停用设备不进快照，天然排除）；
-        - ``device_group`` Task 对每台 ``device_group`` 匹配的设备展开一个
-          实例。
-        """
         desired: dict[str, CollectionTaskInstance] = {}
-        for task in self._task_defs.values():
-            if not task.enabled:
+        for device_id in self._devices.devices:
+            task = self._task_defs.get(device_id)
+            if task is None or not task.enabled:
                 continue
-            device_ids = [
-                device_id
-                for device_id, session in self._devices.devices.items()
-                if str(task.device_group_id) in session.device_group_ids
-            ]
-            for device_id in device_ids:
-                iid = task_instance_id(task.task_id, device_id)
-                desired[iid] = CollectionTaskInstance(
-                    instance_id=iid,
-                    task_id=task.task_id,
-                    device_id=device_id,
-                    point_group=task.point_group,
-                    interval=task.interval,
-                )
+            desired[device_id] = CollectionTaskInstance(
+                instance_id=device_id,
+                task_id=device_id,
+                device_id=device_id,
+                point_group=task.point_group,
+                interval=task.interval,
+            )
         return desired
 
     # ------------------------------------------------------------------

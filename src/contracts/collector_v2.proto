@@ -1,0 +1,213 @@
+syntax = "proto3";
+package windhub.collector.v2;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "contracts/common.proto";
+
+enum TaskDesiredState { TASK_DESIRED_UNSPECIFIED = 0; START = 1; STOP = 2; }
+enum TaskActualState { TASK_ACTUAL_UNSPECIFIED = 0; RUNNING = 1; STOPPED = 2; }
+enum ConfigStatus { CONFIG_STATUS_UNSPECIFIED = 0; APPLIED = 1; RESTART_REQUIRED = 2; APPLY_FAILED = 3; }
+enum ConfigScope { CONFIG_SCOPE_UNSPECIFIED = 0; SERVICE = 1; INSTANCE = 2; TEMPLATE = 3; }
+enum ConfigPatchOperation { CONFIG_PATCH_UNSPECIFIED = 0; SET = 1; REMOVE = 2; }
+
+message ConfigSelector {
+  ConfigScope scope = 1;
+  string name = 2;
+  string version = 3;
+}
+message DeviceIdRequest { string device_id = 1; }
+message DeviceStatus {
+  string device_id = 1;
+  string protocol = 2;
+  bool connected = 3;
+  optional string last_error = 4;
+  uint32 consecutive_failures = 5;
+  google.protobuf.Timestamp last_connected_at = 6;
+  google.protobuf.Timestamp last_disconnected_at = 7;
+  bool watchdog_enabled = 8;
+  TaskDesiredState desired_state = 9;
+  TaskActualState actual_state = 10;
+}
+message CollectorInfoResponse {
+  string collector_id = 1; string boot_id = 2; string version = 3;
+  google.protobuf.Timestamp started_at = 4;
+  double uptime_seconds = 5; string site_id = 6; string active_revision = 7;
+}
+message RuntimeStatusResponse {
+  bool running = 1; uint32 device_total = 2; uint32 device_connected = 3;
+  uint32 device_disconnected = 4; uint32 task_total = 5;
+  uint32 task_running = 6; uint32 task_stopped = 7;
+  bool nats_connected = 8; ConfigStatus config_status = 9;
+}
+message ListDevicesRequest {
+  repeated string device_ids = 1;
+  optional string protocol = 2;
+  optional bool connected = 3;
+  uint32 page_size = 4;
+  string page_token = 5;
+}
+message ListDevicesResponse { repeated DeviceStatus devices = 1; string next_page_token = 2; }
+message GetDeviceResponse {
+  DeviceStatus device = 1; string model_id = 2; string model_version = 3;
+  string task_id = 4; google.protobuf.Timestamp last_sample_at = 5;
+  google.protobuf.Timestamp last_success_at = 6;
+  google.protobuf.Timestamp last_recovery_at = 7;
+}
+message GetLatestValuesRequest { string device_id = 1; repeated string point_ids = 2; }
+message LatestValue {
+  string point_id = 1; bool found = 2;
+  windhub.common.v1.ScalarValue value = 3;
+  string quality = 4; google.protobuf.Timestamp sample_time = 5;
+  google.protobuf.Timestamp receive_time = 6; double age_ms = 7;
+}
+message GetLatestValuesResponse { repeated LatestValue values = 1; }
+message GetPointMetadataRequest { string device_id = 1; repeated string point_ids = 2; }
+message PointMetadata {
+  string point_id = 1; string business_point_id = 2; string data_type = 3;
+  string unit_id = 4; string quantity_id = 5; string access = 6;
+  string description = 7; double scale = 8; double offset = 9;
+  repeated windhub.common.v1.AddressField protocol_address = 10;
+}
+message GetPointMetadataResponse {
+  repeated PointMetadata points = 1; string active_revision = 2;
+}
+
+message TaskStatus {
+  string task_id = 1; string device_id = 2; string template_id = 3;
+  optional uint32 interval_ms = 4; string mode = 5;
+  TaskDesiredState desired_state = 6; TaskActualState actual_state = 7;
+  optional string last_error = 8;
+  google.protobuf.Timestamp last_success_at = 9;
+}
+message ListTasksRequest {
+  repeated string device_ids = 1;
+  optional TaskDesiredState desired_state = 2;
+  optional TaskActualState actual_state = 3;
+  uint32 page_size = 4;
+  string page_token = 5;
+}
+message ListTasksResponse { repeated TaskStatus tasks = 1; string next_page_token = 2; }
+message TaskChangeRequest {
+  string device_id = 1;
+  string expected_revision = 2;
+  string request_id = 3;
+}
+message TaskChangeResponse {
+  string device_id = 1; TaskDesiredState desired_state = 2;
+  TaskActualState actual_state = 3; string stored_revision = 4;
+  bool converged = 5; optional string error = 6;
+}
+message GetConfigRequest { ConfigSelector selector = 1; bool effective = 2; }
+message TemplateReference { string name = 1; string version = 2; }
+message GetConfigResponse {
+  ConfigSelector selector = 1; uint32 schema_version = 2;
+  string revision = 3; string content_hash = 4;
+  string yaml_content = 5; repeated TemplateReference template_refs = 6;
+}
+message ConfigIssue {
+  string code = 1; string file = 2; string field_path = 3; string message = 4;
+}
+message ValidateConfigRequest {
+  ConfigSelector selector = 1; string yaml_content = 2;
+  optional string expected_revision = 3;
+}
+message ValidateConfigResponse {
+  bool valid = 1; repeated ConfigIssue errors = 2;
+  repeated ConfigIssue warnings = 3;
+  repeated string affected_devices = 4;
+  bool restart_required = 5; string candidate_hash = 6;
+}
+message ConfigPatch {
+  string path = 1; ConfigPatchOperation operation = 2;
+  google.protobuf.Value value = 3;
+}
+message UpdateConfigRequest {
+  ConfigSelector selector = 1; string expected_revision = 2;
+  string request_id = 3; repeated ConfigPatch updates = 4;
+}
+message ReplaceConfigRequest {
+  ConfigSelector selector = 1; string expected_revision = 2;
+  string request_id = 3; string yaml_content = 4;
+}
+message DeviceApplyResult {
+  string device_id = 1; string target_revision = 2;
+  bool applied = 3; string error = 4;
+}
+message ConfigMutationResponse {
+  bool success = 1; string stored_revision = 2;
+  ConfigStatus status = 3; bool restart_required = 4;
+  repeated DeviceApplyResult affected_devices = 5;
+  repeated ConfigIssue errors = 6;
+}
+message GetConfigStatusRequest {
+  repeated ConfigSelector selectors = 1; bool include_devices = 2;
+}
+message ConfigApplyStatus {
+  ConfigSelector selector = 1; string stored_revision = 2;
+  string active_revision = 3; string stored_hash = 4;
+  string active_hash = 5; ConfigStatus status = 6;
+  bool restart_required = 7;
+  google.protobuf.Timestamp last_attempt_at = 8;
+  repeated ConfigIssue errors = 9; repeated DeviceApplyResult devices = 10;
+}
+message GetConfigStatusResponse {
+  ConfigStatus status = 1; repeated ConfigApplyStatus configs = 2;
+}
+
+message GetMetricsRequest {
+  repeated string device_ids = 1;
+  repeated string metric_names = 2;
+  uint32 window_seconds = 3; uint32 page_size = 4;
+  string page_token = 5;
+}
+message MetricValue {
+  string name = 1; optional string device_id = 2; double value = 3;
+  string unit = 4; google.protobuf.Timestamp window_start = 5;
+  google.protobuf.Timestamp window_end = 6; bool valid = 7;
+  uint64 sample_count = 8;
+}
+message GetMetricsResponse {
+  string collector_id = 1; string boot_id = 2;
+  google.protobuf.Timestamp generated_at = 3;
+  repeated MetricValue metrics = 4; string next_page_token = 5;
+}
+message GetMetricsEventsRequest {
+  repeated string device_ids = 1; repeated string event_types = 2;
+  google.protobuf.Timestamp since = 3; uint32 limit = 4;
+}
+message MetricEvent {
+  string event_id = 1; google.protobuf.Timestamp timestamp = 2;
+  string event_type = 3; optional string device_id = 4;
+  string severity = 5; string message = 6;
+}
+message GetMetricsEventsResponse {
+  repeated MetricEvent events = 1; bool truncated = 2;
+}
+
+service CollectorRuntimeService {
+  rpc GetCollectorInfo(google.protobuf.Empty) returns (CollectorInfoResponse);
+  rpc GetRuntimeStatus(google.protobuf.Empty) returns (RuntimeStatusResponse);
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+  rpc GetDevice(DeviceIdRequest) returns (GetDeviceResponse);
+  rpc GetLatestValues(GetLatestValuesRequest) returns (GetLatestValuesResponse);
+  rpc GetPointMetadata(GetPointMetadataRequest) returns (GetPointMetadataResponse);
+}
+service CollectorTaskService {
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  rpc GetTask(DeviceIdRequest) returns (TaskStatus);
+  rpc StartTask(TaskChangeRequest) returns (TaskChangeResponse);
+  rpc StopTask(TaskChangeRequest) returns (TaskChangeResponse);
+}
+service CollectorConfigService {
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
+  rpc ValidateConfig(ValidateConfigRequest) returns (ValidateConfigResponse);
+  rpc UpdateConfig(UpdateConfigRequest) returns (ConfigMutationResponse);
+  rpc ReplaceConfig(ReplaceConfigRequest) returns (ConfigMutationResponse);
+  rpc GetConfigStatus(GetConfigStatusRequest) returns (GetConfigStatusResponse);
+}
+service CollectorMetricsService {
+  rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
+  rpc GetMetricsEvents(GetMetricsEventsRequest) returns (GetMetricsEventsResponse);
+}

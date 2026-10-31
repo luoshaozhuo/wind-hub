@@ -101,6 +101,7 @@ class IEC104Driver:
         self._unsettled_controls: dict[Address, object] = {}
         self._interrogation: dict[int, _Interrogation] = {}
         self._listeners: set[_Listener] = set()
+        self._listener_fault = False
 
     @property
     def state(self) -> ProtocolLifecycleState:
@@ -206,6 +207,7 @@ class IEC104Driver:
         except BaseException:
             self._state = ProtocolLifecycleState.FAULTED
             raise
+        self._listener_fault = False
         self._state = ProtocolLifecycleState.DISCONNECTED
 
     def _disconnect(self, session: _IEC104Session | None, exc: BaseException) -> None:
@@ -243,7 +245,9 @@ class IEC104Driver:
         """被动探测连接与 Listener，不能由 Watchdog 健康检查发 C_RD。"""
         if not self.is_open():
             return ConnectionHealth(False, "IEC104 session unavailable")
-        if any(listener.failed or listener.task.done() for listener in self._listeners):
+        if self._listener_fault or any(
+            listener.failed or listener.task.done() for listener in self._listeners
+        ):
             return ConnectionHealth(False, "IEC104 listener stopped; acquisition recovery required")
         return ConnectionHealth(True)
 

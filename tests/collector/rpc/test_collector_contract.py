@@ -1,4 +1,4 @@
-"""Collector gRPC v1 wire contract 契约测试。
+"""Collector gRPC v2 wire contract 契约测试。
 该契约是 wind-hub CLI / Web Admin 与 Collector 之间唯一的耦合点：service /
 method 名称与 path 构造规则一旦漂移，两侧会在运行时以 UNIMPLEMENTED
 失败。本测试直接从生成的 pb2 描述符（真实 wire 定义）读取并固化为显式
@@ -11,42 +11,54 @@ import re
 
 import pytest
 
-from contracts import collector_pb2 as pb
+from contracts import collector_v2_pb2 as pb
 
 pytestmark = pytest.mark.contract
 
-_PACKAGE = "windhub.collector.v1"
+_PACKAGE = "windhub.collector.v2"
 
 _RUNTIME_METHODS = [
     "GetCollectorInfo",
     "GetRuntimeStatus",
-    "GetMetricsSnapshot",
-    "ListTasks",
-    "GetTask",
-    "ListTaskInstances",
-    "GetTaskInstance",
     "ListDevices",
-    "QueryLatestValues",
-    "GetPointsMetadata",
+    "GetDevice",
+    "GetLatestValues",
+    "GetPointMetadata",
 ]
 
-_CONTROL_METHODS = [
-    "ApplyTaskPlacement",
+_TASK_METHODS = [
+    "ListTasks",
+    "GetTask",
     "StartTask",
     "StopTask",
-    "StartTaskInstance",
-    "StopTaskInstance",
-    "PrepareConfig",
-    "ActivateConfig",
-    "AbortConfig",
 ]
+
+_CONFIG_METHODS = [
+    "GetConfig",
+    "ValidateConfig",
+    "UpdateConfig",
+    "ReplaceConfig",
+    "GetConfigStatus",
+]
+
+_METRICS_METHODS = [
+    "GetMetrics",
+    "GetMetricsEvents",
+]
+
+_METHODS_BY_SERVICE = {
+    "CollectorRuntimeService": _RUNTIME_METHODS,
+    "CollectorTaskService": _TASK_METHODS,
+    "CollectorConfigService": _CONFIG_METHODS,
+    "CollectorMetricsService": _METRICS_METHODS,
+}
 
 
 def _service(name: str):
     try:
         return pb.DESCRIPTOR.services_by_name[name]
     except KeyError:
-        raise AssertionError(f"service '{name}' missing from collector.proto") from None
+        raise AssertionError(f"service '{name}' missing from collector_v2.proto") from None
 
 
 def test_package_name_is_stable() -> None:
@@ -54,20 +66,13 @@ def test_package_name_is_stable() -> None:
 
 
 def test_service_set_is_stable() -> None:
-    assert set(pb.DESCRIPTOR.services_by_name) == {
-        "CollectorRuntimeService",
-        "CollectorControlService",
-    }
+    assert set(pb.DESCRIPTOR.services_by_name) == set(_METHODS_BY_SERVICE)
 
 
-def test_runtime_service_methods_are_stable() -> None:
-    service = _service("CollectorRuntimeService")
-    assert [m.name for m in service.methods] == _RUNTIME_METHODS
-
-
-def test_control_service_methods_are_stable() -> None:
-    service = _service("CollectorControlService")
-    assert [m.name for m in service.methods] == _CONTROL_METHODS
+@pytest.mark.parametrize(("service_name", "methods"), list(_METHODS_BY_SERVICE.items()))
+def test_service_methods_are_stable(service_name: str, methods: list[str]) -> None:
+    service = _service(service_name)
+    assert [m.name for m in service.methods] == methods
 
 
 def test_method_names_follow_grpc_pascal_case() -> None:
@@ -76,7 +81,7 @@ def test_method_names_follow_grpc_pascal_case() -> None:
         for service in pb.DESCRIPTOR.services_by_name.values()
         for method in service.methods
     ]
-    assert methods, "expected methods in collector.proto"
+    assert methods, "expected methods in collector_v2.proto"
     for method in methods:
         assert re.fullmatch(r"[A-Z][A-Za-z0-9]*", method), method
 
@@ -101,9 +106,16 @@ def test_fully_qualified_method_paths() -> None:
             assert path.count("/") == 2
 
 
-def test_config_transaction_roundtrip_messages_exist() -> None:
-    """Prepare / Activate / Abort 三段式配置事务的 wire message 必须成对存在。"""
+def test_config_rpc_messages_exist() -> None:
+    """五个 Config RPC 的 wire message 必须成对存在。"""
     messages = pb.DESCRIPTOR.message_types_by_name
-    for stage in ("Prepare", "Activate", "Abort"):
-        assert f"{stage}ConfigRequest" in messages
-        assert f"{stage}ConfigResponse" in messages
+    pairs = [
+        ("GetConfig", "GetConfigRequest", "GetConfigResponse"),
+        ("ValidateConfig", "ValidateConfigRequest", "ValidateConfigResponse"),
+        ("UpdateConfig", "UpdateConfigRequest", "ConfigMutationResponse"),
+        ("ReplaceConfig", "ReplaceConfigRequest", "ConfigMutationResponse"),
+        ("GetConfigStatus", "GetConfigStatusRequest", "GetConfigStatusResponse"),
+    ]
+    for _rpc, request_name, response_name in pairs:
+        assert request_name in messages
+        assert response_name in messages

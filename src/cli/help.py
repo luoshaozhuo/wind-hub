@@ -14,6 +14,7 @@ Commands:
   sinks         List configured Sink outputs (credentials hidden)
   gateways      Report Gateway configuration availability
   diagnose      Run automatic diagnostics, or invoke a diagnostic tool
+  collector     Query and control Collector v2 via gRPC
   help          Show general or command-specific help
   clear         Clear terminal
   exit          Exit interactive shell
@@ -28,6 +29,18 @@ Examples:
 """
 
 COMMANDS: dict[tuple[str, ...], str] = {
+    ("collector",): """Usage: collector OP [ARGS] [--target HOST:PORT]
+  info | status | devices | tasks | metrics | events | config-status
+  device DEVICE | task DEVICE | latest DEVICE [POINT...] | points DEVICE [POINT...]
+  start DEVICE EXPECTED_REVISION | stop DEVICE EXPECTED_REVISION
+  config-get SCOPE NAME [VERSION]
+  config-validate SCOPE NAME FILE [VERSION]
+  config-replace SCOPE NAME EXPECTED_REVISION FILE [VERSION]
+  config-set SCOPE NAME EXPECTED_REVISION POINTER JSON_VALUE [VERSION]
+  config-remove SCOPE NAME EXPECTED_REVISION POINTER [VERSION]
+  Mutating operations require WIND_HUB_COLLECTOR_ADMIN_TOKEN.
+  Does not require the CLI legacy system.yaml configuration session.
+""",
     ("config",): """Usage:
   config validate PATH [--scope all] | read PATH | reload | diff PATH | show
 validate: inspect mandatory YAML files, schema and references without replacing the current snapshot

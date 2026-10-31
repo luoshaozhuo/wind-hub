@@ -1,8 +1,7 @@
 """Task placement 实际收敛。
 
-TaskPlacementReconciler 是 placement safety 的唯一权威：它把期望 placement
-下发到各 Collector、停止跑在错误 Collector 上的实例，并只在当前 generation
-完整收敛成功后才打开 start 安全栅栏。
+Server 自己计算任务目标 Worker，停止错误 Worker 的采集；
+Collector 只维护设备级期望状态，不接受 placement generation。
 """
 
 from __future__ import annotations
@@ -83,33 +82,36 @@ class TaskPlacementReconciler:
         orphaned_tasks = sorted(
             row.task_id for row in placements.values() if row.state is TaskPlacementState.ORPHANED
         )
-        worker_ids = self._collectors.list_worker_ids()
-
-        assigned_by_worker: dict[str, list[str]] = {
-            worker_id: sorted(
-                task_id
-                for task_id, placement in placements.items()
-                if placement.state is TaskPlacementState.ASSIGNED
-                and placement.worker_id == worker_id
-            )
-            for worker_id in worker_ids
+        device_tasks: dict[str, set[str]] = {}
+        for task in self._config.current_config.tasks.values():
+            for device in self._config.current_config.site.devices.values():
+                if task.device_group_id in device.device_group_ids and device.enabled:
+                    device_tasks.setdefault(str(device.device_id), set()).add(task.task_id)
+        # 同一设备被多个启用 Task 分配到不同 Worker 是归属冲突：显式报告并
+        # 保持 unsafe，禁止把冲突设备上的实例按「错误 Worker」静默停止。
+        expected_workers_by_device: dict[str, set[str]] = {}
+        for device_id, task_ids in device_tasks.items():
+            workers: set[str] = set()
+            for task_id in task_ids & enabled_tasks:
+                placement = placements.get(task_id)
+                if (
+                    placement is not None
+                    and placement.state is TaskPlacementState.ASSIGNED
+                    and placement.worker_id is not None
+                ):
+                    workers.add(placement.worker_id)
+            expected_workers_by_device[device_id] = workers
+        conflicting_devices = {
+            device_id
+            for device_id, workers in expected_workers_by_device.items()
+            if len(workers) > 1
         }
+        worker_ids = self._collectors.list_worker_ids()
 
         async def fetch(
             worker_id: str,
         ) -> tuple[CollectorPort, list[CollectorTaskInstance]]:
             collector = await verified_collector(self._collectors, worker_id)
-            placement = await collector.apply_task_placement(
-                worker_id,
-                generation,
-                assigned_by_worker[worker_id],
-            )
-            if not placement.success:
-                raise RuntimeError("collector rejected task placement")
-            if placement.generation != generation:
-                raise RuntimeError("collector placement generation acknowledgment mismatch")
-            if placement.task_count != len(assigned_by_worker[worker_id]):
-                raise RuntimeError("collector placement task-count acknowledgment mismatch")
             return collector, await collector.list_task_instances()
 
         results = await asyncio.gather(
@@ -117,7 +119,11 @@ class TaskPlacementReconciler:
             return_exceptions=True,
         )
         unavailable_workers: list[str] = []
-        errors: list[str] = []
+        errors: list[str] = [
+            f"device '{device_id}' ownership conflict: enabled tasks assign it to "
+            f"multiple workers {sorted(expected_workers_by_device[device_id])}"
+            for device_id in sorted(conflicting_devices)
+        ]
         examined_instances = 0
         wrong_running_instances = 0
         stopped_instances = 0
@@ -133,17 +139,14 @@ class TaskPlacementReconciler:
                 examined_instances += 1
                 if row.state != TaskInstanceState.RUNNING.value:
                     continue
-                task_id = row.task_id
-                placement = placements.get(task_id)
-                expected_worker = (
-                    placement.worker_id
-                    if task_id in enabled_tasks
-                    and placement is not None
-                    and placement.state is TaskPlacementState.ASSIGNED
-                    else None
-                )
-                if expected_worker == worker_id:
+                expected_workers = expected_workers_by_device.get(row.device_id, set())
+                if row.device_id in conflicting_devices:
+                    # 归属冲突已在 errors 报告：两个 Worker 都可能是合法属主，
+                    # 停止任何一侧都会以静默 STOP 掩盖冲突。
                     continue
+                if expected_workers == {worker_id}:
+                    continue
+                task_id = row.task_id
 
                 wrong_running_instances += 1
                 instance_id = row.instance_id

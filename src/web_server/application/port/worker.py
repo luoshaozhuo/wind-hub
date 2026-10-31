@@ -17,8 +17,8 @@ from web_server.application.port.monitoring import (
 )
 
 
-class CollectorPlacementRejectedError(RuntimeError):
-    """Collector 拒绝 placement snapshot 或受 placement 保护的 Start。"""
+class CollectorTaskConflictError(RuntimeError):
+    """Collector rejected a revision-checked device task operation."""
 
 
 # ===================================================================
@@ -132,19 +132,13 @@ class PointVerifyResult:
 
 @dataclass(frozen=True)
 class CollectorInfo:
-    """Collector 配置与进程身份状态。"""
+    """Runtime identity from Collector v2, independent of config ownership."""
 
-    component: str
     collector_id: str
     boot_id: str
-    config_hash: str
-    active_config_hash: str
-    prepared_config_hash: str | None
-    boot_config_hash: str
-    config_revision: str | None
     active_revision: str
-    prepared_revision: str | None
     runtime_running: bool
+    active_config_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -203,15 +197,6 @@ class CollectorTaskInstance:
     state: str
 
 
-@dataclass(frozen=True)
-class PlacementAck:
-    """Collector 对 placement 快照下发的应答。"""
-
-    success: bool
-    generation: int
-    task_count: int
-
-
 class CommanderPort(Protocol):
     """即时设备操作端口。"""
 
@@ -247,51 +232,15 @@ class CommanderPort(Protocol):
 
 
 class CollectorPort(Protocol):
-    """Collector 低频运行控制与状态查询端口。"""
+    """Collector v2 read queries and revision-checked device task controls."""
 
     async def config_status(self) -> CollectorInfo: ...
-
     async def runtime_status(self) -> CollectorRuntimeStatus: ...
-
     async def metrics_snapshot(self) -> MetricsSnapshot: ...
-
     async def list_devices(self) -> list[DeviceRuntimeInfo]: ...
-
     async def list_tasks(self) -> list[CollectorTaskSummary]: ...
-
     async def list_task_instances(self) -> list[CollectorTaskInstance]: ...
-
-    async def apply_task_placement(
-        self,
-        worker_id: str,
-        generation: int,
-        task_ids: list[str],
-    ) -> PlacementAck: ...
-
-    async def start_task(
-        self,
-        task_id: str,
-        placement_generation: int,
-    ) -> CollectorTaskSummary: ...
-
-    async def stop_task(self, task_id: str) -> CollectorTaskSummary: ...
-
-    async def start_task_instance(
-        self,
-        instance_id: str,
-        placement_generation: int,
-    ) -> CollectorTaskInstance: ...
-
-    async def stop_task_instance(self, instance_id: str) -> CollectorTaskInstance: ...
-
-    async def prepare_config(
-        self,
-        revision_id: str,
-        config_hash: str,
-        *,
-        force_reconfigure: bool = False,
-    ) -> ConfigPrepareAck: ...
-
-    async def activate_config(self, revision_id: str) -> ConfigActivateAck: ...
-
-    async def abort_config(self, revision_id: str) -> ConfigAbortAck: ...
+    async def start_task(self, device_id: str) -> CollectorTaskSummary: ...
+    async def stop_task(self, device_id: str) -> CollectorTaskSummary: ...
+    async def start_task_instance(self, device_id: str) -> CollectorTaskInstance: ...
+    async def stop_task_instance(self, device_id: str) -> CollectorTaskInstance: ...

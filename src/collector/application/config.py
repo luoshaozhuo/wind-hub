@@ -90,6 +90,7 @@ class CollectorConfig:
     runtime: RuntimeParams = field(default_factory=RuntimeParams)
     ads_local: ADSLocalConfig | None = None
     tasks: Mapping[str, CollectionTask] = field(default_factory=dict)
+    desired_states: Mapping[DeviceId, str] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
@@ -98,6 +99,7 @@ class CollectorConfig:
             "device_models",
             "point_tables",
             "tasks",
+            "desired_states",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
         object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))

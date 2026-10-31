@@ -17,6 +17,7 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess, free_port
 from tests.support.redis_client import point_key
+from tests.support.v2_config import emit_v2_tree_from_flat_site
 from tests.support.wait import read_redis_value, wait_redis_value, wait_until
 from tests.system.r5.conftest import DEVICE_ID, make_sample, mgmt, publish, wait_state
 from tests.system.r5.r5_config import INSTANCE_ID, TASK_ID, write_r5_config
@@ -148,16 +149,38 @@ async def test_collector_restart_independent_from_sink_service(
     tmp_path: Path,
 ) -> None:
     host, _, port = r5_stack.redis.rpartition(":")
+    # v2 采集 task_id == device_id：Sink outputs 授权与扁平任务定义同步改名。
+    v2_task = {
+        DEVICE_ID: {
+            "device_group_id": DEVICE_ID,
+            "point_group": "telemetry",
+            "interval": 0.2,
+        }
+    }
+    sink_spec = {
+        "redis_sink": {
+            "type": "redis",
+            "connection": {
+                "host": host,
+                "port": int(port),
+                "key_prefix": "wh-r5-procs",
+                "timeout": 1.0,
+            },
+            "outputs": {DEVICE_ID: {}},
+        }
+    }
     config_dir = write_r5_config(
         tmp_path / "cfg",
         modbus_server.port,
         r5_stack.nats,
-        _redis_sink(host, int(port), prefix="wh-r5-procs"),
+        sink_spec,
+        tasks=v2_task,
     )
     sink = await r5_sink_factory(config_dir, realtime_sinks=("redis_sink",))
     key = point_key(DEVICE_ID, POINT, prefix="wh-r5-procs")
+    v2_tree = emit_v2_tree_from_flat_site(tmp_path / "v2", config_dir, nats_url=r5_stack.nats)
 
-    collector_a: CollectorProcess = await collector_factory(config_dir, collector_id="collector-r5")
+    collector_a: CollectorProcess = await collector_factory(v2_tree, collector_id="collector-r5")
     await start_task_instance(collector_a.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
     first = await wait_redis_value(r5_stack.redis, key, timeout=30.0)
 
@@ -171,7 +194,7 @@ async def test_collector_restart_independent_from_sink_service(
     assert sink.is_running()
 
     # 新 Collector 进程复用同一配置继续发布，链路恢复出数（时间戳推进）。
-    collector_b: CollectorProcess = await collector_factory(config_dir, collector_id="collector-r5")
+    collector_b: CollectorProcess = await collector_factory(v2_tree, collector_id="collector-r5")
     await start_task_instance(collector_b.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
     async def _advances() -> dict[str, Any] | None:

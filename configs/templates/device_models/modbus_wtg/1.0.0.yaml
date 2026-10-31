@@ -1,0 +1,16 @@
+schema_version: 1
+template_id: modbus_wtg
+template_version: 1.0.0
+name: Example Modbus Turbine
+device_type_id: turbine
+protocol:
+  id: modbus_tcp
+  version: 1.0.0
+point_table:
+  id: modbus_wtg
+  version: 1.0.0
+task:
+  id: turbine_all
+  version: 1.0.0
+protocol_options:
+  slave_id: 1

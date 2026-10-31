@@ -1,5 +1,5 @@
-"""Collector gRPC 入站适配器（控制面 Server；wire contract 来自 shared core）。"""
+"""Collector v2 gRPC control-plane adapters."""
 
-from .server import CollectorGrpcServer, build_grpc_server
+from .v2_server import CollectorGrpcServerV2, build_v2_grpc_server
 
-__all__ = ["CollectorGrpcServer", "build_grpc_server"]
+__all__ = ["CollectorGrpcServerV2", "build_v2_grpc_server"]

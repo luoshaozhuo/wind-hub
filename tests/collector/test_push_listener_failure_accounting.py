@@ -19,13 +19,14 @@ from collector.application.device_runtime import DeviceRuntime
 from collector.application.task_instance import TaskInstanceState
 from collector.application.task_runtime import TaskRuntime
 from collector.domain.acquisition import AcquisitionEngine
+from core.domain import DeviceGroupId
 from tests.support.iec104_fake import (
     floating_data_msg,
     install_fake_connect,
     make_driver,
     make_point,
 )
-from tests.support.new_collector import make_collector_config, make_session
+from tests.support.new_collector import CollectionTask, make_collector_config, make_session
 
 pytestmark = [pytest.mark.component, pytest.mark.asyncio]
 
@@ -57,7 +58,18 @@ async def test_push_listener_death_is_accounted_in_acquisition_state(
 
     monkeypatch.setattr(driver, "interrogate", _no_interrogation)
 
-    config = make_collector_config(protocol="iec104")
+    # v2：每设备一个采集 Task，task_id == device_id == "dev1"。
+    config = make_collector_config(
+        protocol="iec104",
+        tasks={
+            "dev1": CollectionTask(
+                task_id="dev1",
+                device_group_id=DeviceGroupId("dev1"),
+                point_group="g",
+                interval=1.0,
+            )
+        },
+    )
     session = make_session(config, driver)
     devices = DeviceRuntime({"dev1": session}, RuntimeParams(connect_timeout=0.2))
     engine = AcquisitionEngine()
@@ -68,24 +80,24 @@ async def test_push_listener_death_is_accounted_in_acquisition_state(
 
     try:
         await tasks.sync_instances()
-        await tasks.start_instance("t1:dev1")
-        assert tasks.instance_states()["t1:dev1"] is TaskInstanceState.RUNNING
+        await tasks.start_instance("dev1")
+        assert tasks.instance_states()["dev1"] is TaskInstanceState.RUNNING
 
         # 设备上送一批数据；sink 派发异常使驱动监听器判失效。
         conn.deliver([floating_data_msg(1, 100, 1.0)])
         for _ in range(30):
-            handle = tasks._acquisition_handles["t1:dev1"]  # noqa: SLF001
+            handle = tasks._acquisition_handles["dev1"]  # noqa: SLF001
             if getattr(handle, "failed", False):
                 break
             await asyncio.sleep(0.01)
 
         assert getattr(
-            tasks._acquisition_handles["t1:dev1"],
+            tasks._acquisition_handles["dev1"],
             "failed",
             False,  # noqa: SLF001
         ), "driver listener must be invalidated after persistent callback failure"
 
-        state = tasks.acquisition_states().get("t1:dev1")
+        state = tasks.acquisition_states().get("dev1")
         assert state is not None
         # 期望：push 链路死亡必须反映到采集执行状态（失败计数），
         # 不得仅留下 RUNNING 簿记而无任何失败信号。

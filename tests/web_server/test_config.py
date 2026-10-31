@@ -1,10 +1,14 @@
-"""ConfigService 配置事务编排单元测试。
+"""ConfigService 配置事务编排单元测试（v2 参与者语义）。
 
-Server 是全系统配置事务的唯一编排者：加载/校验/diff → 全参与者 Prepare →
-全参与者 Activate → 失败时 Abort + 磁盘回滚 + Worker 强制收敛。这里用
-可编程的假 Worker（Collector/Commander 出站端口）覆盖事务矩阵：成功、
-无变更短路、prepare 失败、hash 不一致、activate 失败/结果未知、非法磁盘
-配置、停机拒绝、reconcile 收敛与身份校验——全部在进程内、无网络。
+v2 下 Collector 自行管理 Service / Instance / Template 三路径配置（五
+Config RPC + 乐观 revision），不再参与 Server 的两段式事务；Server 的
+ConfigService 只对 Commander 编排：加载/校验/diff → Prepare → Activate →
+失败时 Abort + 磁盘回滚 + 强制收敛。Collector 目录仍是构造必需（至少一个、
+身份不得与 Commander 冲突），但不收到任何配置事务 RPC。
+
+可编程假 Commander 覆盖事务矩阵：成功、无变更短路、prepare 失败、hash
+不一致、activate 失败/结果未知、非法磁盘配置、停机拒绝、reconcile 收敛
+——全部在进程内、无网络。
 """
 
 from __future__ import annotations
@@ -36,12 +40,12 @@ COLLECTOR_ID = "collector-1"
 
 
 # ---------------------------------------------------------------------------
-# 可编程假 Worker（同时扮演 Collector 与 Commander 出站端口）
+# 可编程假 Worker
 # ---------------------------------------------------------------------------
 
 
-class _FakeWorker:
-    """状态化假 Worker：记录调用、按队列吐出预设结果、维护 active 配置状态。
+class _FakeCommander:
+    """状态化假 Commander：记录调用、按队列吐出预设结果、维护 active 状态。
 
     ``prepare_outcomes`` / ``activate_outcomes`` 是结果队列：每次调用弹出一项
     （空队列时默认成功）；项为 Exception 实例时模拟 RPC 异常抛出。成功
@@ -49,9 +53,9 @@ class _FakeWorker:
     与「activate 后回查状态」路径可用自然状态断言。
     """
 
-    def __init__(self, worker_id: str) -> None:
-        self.worker_id = worker_id
-        self.prepare_calls: list[tuple[str, str, bool]] = []
+    def __init__(self) -> None:
+        self.worker_id = COMMANDER_WORKER_ID
+        self.prepare_calls: list[tuple[str, str]] = []
         self.activate_calls: list[str] = []
         self.abort_calls: list[str] = []
         self.prepare_outcomes: deque[Any] = deque()
@@ -65,24 +69,6 @@ class _FakeWorker:
     @staticmethod
     def _pop(queue: deque[Any], default: dict[str, Any]) -> Any:
         return queue.popleft() if queue else default
-
-    async def config_status(self) -> CollectorInfo:
-        if self.status_error is not None:
-            raise self.status_error
-        active_hash = self.active_hash or ""
-        return CollectorInfo(
-            component="collector",
-            collector_id=self.worker_id,
-            boot_id="boot-1",
-            config_hash=active_hash,
-            active_config_hash=active_hash,
-            prepared_config_hash=None,
-            boot_config_hash=active_hash,
-            config_revision=None,
-            active_revision=self.active_revision or "",
-            prepared_revision=None,
-            runtime_running=True,
-        )
 
     async def status(self) -> CommanderStatus:
         if self.status_error is not None:
@@ -99,9 +85,8 @@ class _FakeWorker:
         self,
         revision_id: str,
         config_hash: str,
-        force_reconfigure: bool = False,
     ) -> ConfigPrepareAck:
-        self.prepare_calls.append((revision_id, config_hash, force_reconfigure))
+        self.prepare_calls.append((revision_id, config_hash))
         outcome = self._pop(self.prepare_outcomes, {"success": True})
         if isinstance(outcome, BaseException):
             raise outcome
@@ -146,17 +131,32 @@ class _FakeWorker:
         )
 
 
+class _FakeCollector:
+    """Collector 替身：ConfigService 不得对它发起任何配置事务调用。"""
+
+    def __init__(self, worker_id: str = COLLECTOR_ID) -> None:
+        self.worker_id = worker_id
+
+    async def config_status(self) -> CollectorInfo:
+        return CollectorInfo(
+            collector_id=self.worker_id,
+            boot_id="boot-1",
+            active_revision="",
+            runtime_running=True,
+        )
+
+
 class _FakeDirectory:
     """CollectorDirectory 假实现：按 worker_id 返回假 Collector。"""
 
-    def __init__(self, workers: dict[str, _FakeWorker]) -> None:
-        self._workers = workers
+    def __init__(self, collectors: dict[str, _FakeCollector]) -> None:
+        self._collectors = collectors
 
-    def get(self, worker_id: str) -> _FakeWorker:
-        return self._workers[worker_id]
+    def get(self, worker_id: str) -> _FakeCollector:
+        return self._collectors[worker_id]
 
     def list_worker_ids(self) -> list[str]:
-        return sorted(self._workers)
+        return sorted(self._collectors)
 
 
 # ---------------------------------------------------------------------------
@@ -204,12 +204,12 @@ def _write_site(base: Path, *, interval: float = 0.2) -> Path:
 
 
 class _Fixture:
-    """一套 Service + 假 Worker + 配置目录的组合。"""
+    """一套 Service + 假 Commander + 假 Collector + 配置目录的组合。"""
 
     def __init__(self, tmp_path: Path) -> None:
         self.config_dir = _write_site(tmp_path / "cfg")
-        self.collector = _FakeWorker(COLLECTOR_ID)
-        self.commander = _FakeWorker(COMMANDER_WORKER_ID)
+        self.collector = _FakeCollector(COLLECTOR_ID)
+        self.commander = _FakeCommander()
         self.directory = _FakeDirectory({COLLECTOR_ID: self.collector})
         self.service = ConfigService(
             self.config_dir,
@@ -217,10 +217,6 @@ class _Fixture:
             self.commander,
             ConfigService.load_directory(self.config_dir),
         )
-
-    @property
-    def workers(self) -> list[_FakeWorker]:
-        return [self.collector, self.commander]
 
 
 @pytest.fixture
@@ -253,7 +249,7 @@ class TestConstruction:
             ConfigService(
                 config_dir,
                 _FakeDirectory({}),
-                _FakeWorker(COMMANDER_WORKER_ID),
+                _FakeCommander(),
                 ConfigService.load_directory(config_dir),
             )
 
@@ -262,8 +258,8 @@ class TestConstruction:
         with pytest.raises(ValueError, match="conflicts with commander"):
             ConfigService(
                 config_dir,
-                _FakeDirectory({COMMANDER_WORKER_ID: _FakeWorker(COMMANDER_WORKER_ID)}),
-                _FakeWorker(COMMANDER_WORKER_ID),
+                _FakeDirectory({COMMANDER_WORKER_ID: _FakeCollector(COMMANDER_WORKER_ID)}),
+                _FakeCommander(),
                 ConfigService.load_directory(config_dir),
             )
 
@@ -274,52 +270,47 @@ class TestConstruction:
 
 
 class TestReloadSuccess:
-    async def test_reload_prepares_and_activates_all_participants(self, fx: _Fixture) -> None:
+    async def test_reload_prepares_and_activates_commander(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.5)
         result = await fx.service.reload()
 
         assert result.success is True, result.errors
         assert sorted(result.diff.sections["tasks"].changed) == ["modbus-telemetry"]
-        # 全部参与者（collector + commander）按同 revision/hash 两阶段推进。
-        for worker in fx.workers:
-            assert len(worker.prepare_calls) == 1
-            assert worker.activate_calls == [worker.prepare_calls[0][0]]
-        assert fx.service.desired_revision == fx.collector.activate_calls[0]
+        # v2 唯一事务参与者是 Commander；Collector 不收任何事务 RPC。
+        assert len(fx.commander.prepare_calls) == 1
+        assert fx.commander.activate_calls == [fx.commander.prepare_calls[0][0]]
+        assert fx.service.desired_revision == fx.commander.activate_calls[0]
         assert fx.service.desired_config_hash is not None
 
     async def test_unchanged_config_short_circuits_without_rpc(self, fx: _Fixture) -> None:
         first = await fx.service.reload()
         assert first.success is True, first.errors
-        for worker in fx.workers:
-            worker.prepare_calls.clear()
-            worker.activate_calls.clear()
+        fx.commander.prepare_calls.clear()
+        fx.commander.activate_calls.clear()
 
         second = await fx.service.reload()
 
         assert second.success is True, second.errors
         assert second.diff.has_changes is False
-        for worker in fx.workers:
-            assert worker.prepare_calls == []
-            assert worker.activate_calls == []
+        assert fx.commander.prepare_calls == []
+        assert fx.commander.activate_calls == []
 
-    async def test_first_reload_without_changes_does_not_touch_workers(self, fx: _Fixture) -> None:
+    async def test_first_reload_without_changes_does_not_touch_commander(
+        self, fx: _Fixture
+    ) -> None:
         """磁盘配置与基线一致时，首次 reload 同样短路（幂等 bootstrap）。"""
         result = await fx.service.reload()
 
         assert result.success is True, result.errors
-        for worker in fx.workers:
-            assert worker.prepare_calls == []
+        assert fx.commander.prepare_calls == []
 
-    async def test_force_workers_bypasses_short_circuit(self, fx: _Fixture) -> None:
+    async def test_force_bypasses_short_circuit(self, fx: _Fixture) -> None:
+        """force_workers 下即便无 diff 也要对 Commander 执行一次事务。"""
         result = await fx.service.reload(force_workers=True)
 
         assert result.success is True, result.errors
-        # force_reconfigure 必须透传到 Collector 侧 prepare（Commander 端口
-        # 不接受 force 参数——其 prepare 语义见 CommanderPort 契约）。
-        assert fx.collector.prepare_calls and all(
-            force for _, _, force in fx.collector.prepare_calls
-        )
         assert len(fx.commander.prepare_calls) == 1
+        assert len(fx.commander.activate_calls) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -347,10 +338,9 @@ class TestReloadInvalidDiskConfig:
         # 失败必须回滚磁盘：tasks.yaml 恢复原内容，新增文件被删除。
         assert (fx.config_dir / "tasks.yaml").read_bytes() == original_tasks
         assert not ghost.exists()
-        # 非法配置不得触及任何 Worker。
-        for worker in fx.workers:
-            assert worker.prepare_calls == []
-            assert worker.activate_calls == []
+        # 非法配置不得触及 Commander。
+        assert fx.commander.prepare_calls == []
+        assert fx.commander.activate_calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -359,18 +349,16 @@ class TestReloadInvalidDiskConfig:
 
 
 class TestPrepareFailures:
-    async def test_prepare_failure_aborts_all_and_restores_disk(self, fx: _Fixture) -> None:
+    async def test_prepare_failure_aborts_and_restores_disk(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.9)
-        fx.collector.prepare_outcomes.append({"success": False, "errors": ["collector rejected"]})
+        fx.commander.prepare_outcomes.append({"success": False, "errors": ["commander rejected"]})
 
         result = await fx.service.reload()
 
         assert result.success is False
-        assert any("collector rejected" in e for e in result.errors)
-        # 全部参与者收到同 revision 的 Abort；无人收到 Activate。
-        for worker in fx.workers:
-            assert worker.abort_calls == [worker.prepare_calls[0][0]]
-            assert worker.activate_calls == []
+        assert any("commander rejected" in e for e in result.errors)
+        assert fx.commander.abort_calls == [fx.commander.prepare_calls[0][0]]
+        assert fx.commander.activate_calls == []
         # 磁盘回滚到最近成功基线。
         assert _task_interval(fx.config_dir) == 0.2
         assert fx.service.desired_revision is None
@@ -383,18 +371,7 @@ class TestPrepareFailures:
 
         assert result.success is False
         assert any("prepare hash mismatch" in e for e in result.errors)
-        for worker in fx.workers:
-            assert worker.activate_calls == []
-
-    async def test_collector_identity_mismatch_fails_reload(self, fx: _Fixture) -> None:
-        """Collector 上报身份与逻辑 worker_id 不一致：事务不得继续。"""
-        _set_interval(fx.config_dir, 0.9)
-        fx.collector.worker_id = "someone-else"
-
-        result = await fx.service.reload()
-
-        assert result.success is False
-        assert any("identity mismatch" in e for e in result.errors)
+        assert fx.commander.activate_calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -411,12 +388,10 @@ class TestActivateFailures:
 
         assert result.success is False
         assert any("boom" in e for e in result.errors)
-        for worker in fx.workers:
-            assert worker.abort_calls, "failed revision must be aborted"
-        # 磁盘回滚 + Worker 强制收敛到最近成功配置（rollback revision 重新
-        # prepare/activate；force_reconfigure 只透传到 Collector 端口）。
+        assert fx.commander.abort_calls, "failed revision must be aborted"
+        # 磁盘回滚 + Commander 强制收敛到最近成功配置（回滚事务再次
+        # prepare/activate）。
         assert _task_interval(fx.config_dir) == 0.2
-        assert any(force for _, _, force in fx.collector.prepare_calls[1:])
         assert len(fx.commander.prepare_calls) >= 2
         assert fx.service.desired_revision is None
 
@@ -425,7 +400,7 @@ class TestActivateFailures:
         _set_interval(fx.config_dir, 0.7)
 
         async def _activate_then_lose(revision_id: str) -> dict[str, Any]:
-            # 模拟 Worker 已生效但响应丢失：状态已翻转到新 revision。
+            # 模拟已生效但响应丢失：状态已翻转到新 revision。
             fx.commander.active_revision = revision_id
             fx.commander.active_hash = fx.commander._last_prepared_hash
             raise TimeoutError("activate response lost")
@@ -462,67 +437,55 @@ class TestShutdownSemantics:
 
         assert result.success is False
         assert result.errors == ["config transactions are shutting down"]
-        for worker in fx.workers:
-            assert worker.prepare_calls == []
+        assert fx.commander.prepare_calls == []
 
     async def test_wait_for_transactions_returns_true_when_idle(self, fx: _Fixture) -> None:
         assert await fx.service.wait_for_transactions(timeout=1.0) is True
 
 
 # ---------------------------------------------------------------------------
-# reconcile_workers
+# reconcile_workers（v2 只收敛 Commander）
 # ---------------------------------------------------------------------------
 
 
 class TestReconcileWorkers:
-    async def test_no_desired_revision_reports_for_all(self, fx: _Fixture) -> None:
+    async def test_no_desired_revision_reports_for_commander(self, fx: _Fixture) -> None:
         outcomes = await fx.service.reconcile_workers()
 
-        assert outcomes == {
-            COLLECTOR_ID: "no-desired-revision",
-            COMMANDER_WORKER_ID: "no-desired-revision",
-        }
+        assert outcomes == {COMMANDER_WORKER_ID: "no-desired-revision"}
 
     async def test_already_current_after_successful_reload(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.6)
         assert (await fx.service.reload()).success is True
-        for worker in fx.workers:
-            worker.prepare_calls.clear()
+        fx.commander.prepare_calls.clear()
 
         outcomes = await fx.service.reconcile_workers()
 
-        assert outcomes == {
-            COLLECTOR_ID: "already-current",
-            COMMANDER_WORKER_ID: "already-current",
-        }
-        for worker in fx.workers:
-            assert worker.prepare_calls == []
+        assert outcomes == {COMMANDER_WORKER_ID: "already-current"}
+        assert fx.commander.prepare_calls == []
 
-    async def test_drifted_worker_is_reconciled_with_force(self, fx: _Fixture) -> None:
+    async def test_drifted_commander_is_reconciled(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.6)
         assert (await fx.service.reload()).success is True
-        # 模拟 Worker 偏离：active 状态落后（如 Worker 重启丢了配置）。
-        fx.collector.active_revision = "stale"
-        fx.collector.active_hash = "stale"
-        fx.collector.prepare_calls.clear()
+        # 模拟 Commander 偏离：active 状态落后（如重启丢了配置）。
+        fx.commander.active_revision = "stale"
+        fx.commander.active_hash = "stale"
+        fx.commander.prepare_calls.clear()
 
         outcomes = await fx.service.reconcile_workers()
 
-        assert outcomes[COLLECTOR_ID] == "reconciled"
-        assert outcomes[COMMANDER_WORKER_ID] == "already-current"
-        revision, _, force = fx.collector.prepare_calls[0]
+        assert outcomes[COMMANDER_WORKER_ID] == "reconciled"
+        revision, _ = fx.commander.prepare_calls[0]
         assert revision == fx.service.desired_revision
-        assert force is True
 
-    async def test_status_error_reported_per_worker(self, fx: _Fixture) -> None:
+    async def test_status_error_reported(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.6)
         assert (await fx.service.reload()).success is True
-        fx.collector.status_error = ConnectionError("unreachable")
+        fx.commander.status_error = ConnectionError("unreachable")
 
         outcomes = await fx.service.reconcile_workers()
 
-        assert outcomes[COLLECTOR_ID].startswith("status-error:")
-        assert outcomes[COMMANDER_WORKER_ID] == "already-current"
+        assert outcomes[COMMANDER_WORKER_ID].startswith("status-error:")
 
     async def test_reconcile_rejected_after_transactions_closed(self, fx: _Fixture) -> None:
         fx.service.stop_accepting_transactions()
@@ -630,7 +593,7 @@ async def test_concurrent_reloads_are_serialized(fx: _Fixture) -> None:
     """并发 reload 由事务锁串行化：只有一次 prepare/activate 事务。
 
     第二个 reload 在锁内看到第一个已应用的结果并无变更短路——绝不出现
-    两个事务交错或 Worker 收到重复 revision 的情况。
+    两个事务交错或 Commander 收到重复 revision 的情况。
     """
     import asyncio
 
@@ -639,9 +602,8 @@ async def test_concurrent_reloads_are_serialized(fx: _Fixture) -> None:
     first, second = await asyncio.gather(fx.service.reload(), fx.service.reload())
 
     assert first.success and second.success
-    for worker in fx.workers:
-        assert len(worker.prepare_calls) == 1
-        assert len(worker.activate_calls) == 1
+    assert len(fx.commander.prepare_calls) == 1
+    assert len(fx.commander.activate_calls) == 1
 
 
 class TestCommitHooks:

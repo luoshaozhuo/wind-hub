@@ -33,6 +33,8 @@ class WatchdogUseCase:
         connect_timeout: float,
         on_success: ReconnectCallback | None = None,
         on_connected: ReconnectCallback | None = None,
+        on_unhealthy: ReconnectCallback | None = None,
+        on_healthy: ReconnectCallback | None = None,
         lifecycle_lock: asyncio.Lock | None = None,
         name: str = "",
     ) -> None:
@@ -51,6 +53,8 @@ class WatchdogUseCase:
         self._connect_timeout = float(connect_timeout)
         self._on_success = on_success
         self._on_connected = on_connected
+        self._on_unhealthy = on_unhealthy
+        self._on_healthy = on_healthy
         self._lifecycle_lock = lifecycle_lock or asyncio.Lock()
         self._name = name
 
@@ -113,8 +117,12 @@ class WatchdogUseCase:
             self._next_reconnect_at = 0.0
             if self._pending_restore is not None:
                 await self._restore_after_connect(self._pending_restore)
+            if self._on_healthy is not None and self._enabled:
+                await self._on_healthy()
             return health
 
+        if self._on_unhealthy is not None:
+            await self._on_unhealthy()
         self._health_failures += 1
         now = asyncio.get_running_loop().time()
         if self._health_failures < 2 or now < self._next_reconnect_at:

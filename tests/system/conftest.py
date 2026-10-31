@@ -26,6 +26,7 @@ from tests.support.process import (
     start_sink_service,
     start_web_server,
 )
+from tests.support.v2_config import SYSTEM_ADMIN_TOKEN, write_v2_modbus_tree
 from tests.support.wait import wait_tcp_port, wait_until
 
 #: full_stack 现场的稳定身份：collector_id 由本 fixture 显式指定，
@@ -114,7 +115,7 @@ async def sink_service_factory(
 
 @dataclass
 class FullStack:
-    """完整系统现场：Modbus 从站 + Collector + Commander + Web Server + REST 客户端。"""
+    """完整系统现场：Modbus 从站 + Collector(v2) + Commander + Web Server + REST。"""
 
     modbus: ModbusMockServer
     collector: CollectorProcess
@@ -122,6 +123,7 @@ class FullStack:
     server: CollectorProcess
     http: httpx.AsyncClient
     config_dir: Path
+    v2_tree: Path
 
 
 @pytest.fixture
@@ -133,11 +135,14 @@ async def full_stack(
 ) -> AsyncIterator[FullStack]:
     """REST → Server → Commander → Modbus 全链路真实进程现场。
 
-    Server 以独立 HTTP 端口启动，REST 客户端已确认就绪；结束后先关
-    客户端再优雅停机 Server（Worker 由各自工厂回收）。
+    Commander / Web Server 消费扁平 Core 站点；Collector v2 消费从同一
+    Modbus 端口派生的三路径配置树。Web Server 与 Collector 共享同一
+    管理员令牌（设备级 START/STOP 的 fail-closed 元数据）。Server 以独立
+    HTTP 端口启动，REST 客户端确认就绪；结束后先关客户端再优雅停机。
     """
     config_dir = write_functional_config(tmp_path / "cfg", modbus_server.port)
-    collector = await collector_factory(config_dir, collector_id="collector")
+    v2_tree = write_v2_modbus_tree(tmp_path / "v2cfg", modbus_server.port)
+    collector = await collector_factory(v2_tree, collector_id="collector")
     commander = await commander_factory(config_dir)
 
     http_port = free_port()
@@ -147,6 +152,7 @@ async def full_stack(
         collectors=(f"collector={collector.grpc_target}",),
         commander=commander.grpc_target,
         log_dir=tmp_path,
+        env_extra={"WIND_HUB_COLLECTOR_ADMIN_TOKEN": SYSTEM_ADMIN_TOKEN},
     )
     url = f"http://127.0.0.1:{http_port}"
 
@@ -173,6 +179,7 @@ async def full_stack(
             server=server,
             http=http,
             config_dir=config_dir,
+            v2_tree=v2_tree,
         )
     finally:
         await http.aclose()

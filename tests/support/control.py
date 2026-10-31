@@ -1,246 +1,450 @@
-"""System / Reliability 层的 Collector 控制面 RPC helper。
+"""System / Reliability 层的 Collector v2 控制面 RPC helper。
 
-system 测试需要驱动 Task 生命周期时，直接以 gRPC 调用
-CollectorControlService——与 CLI → Collector 的生产控制
-路径一致；不经过任何 Server 中转。
+system 测试需要驱动 Task 生命周期时，直接以 gRPC 调用 Collector v2
+四个服务——与 CLI → Collector 的生产控制路径一致；不经过任何 Server
+中转，也不使用任何 v1 兼容层：
+
+- 生命周期以 **设备** 为粒度（StartTask/StopTask），携带 devices 文档
+  当前 revision（expected_revision）与幂等 request_id；
+- START/STOP 意图由 Collector 持久化到 devices.yaml，冷启动按意图恢复；
+- 配置经五个 Config RPC 读取/校验/替换（无 Prepare/Activate 两段事务）；
+- 指标为累计计数 + 有界诊断事件（GetMetrics/GetMetricsEvents）。
+
+进程必须以同一管理员令牌启动（WIND_HUB_COLLECTOR_ADMIN_TOKEN）。
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
+import uuid
 from typing import Any
 
 import grpc
-from google.protobuf import empty_pb2
+import yaml
 
-from contracts import collector_pb2 as pb
-from contracts import collector_pb2_grpc as pb_grpc
-from core.infrastructure.config import config_dir_digest
+from contracts import collector_v2_pb2 as pb
+from contracts import collector_v2_pb2_grpc as pb_grpc
 
+#: system harness 启动 Collector 时统一注入的测试管理员令牌。
+DEFAULT_ADMIN_TOKEN = "system-test-admin-token"
 
-def _metrics_snapshot_to_dict(response: pb.MetricsSnapshotResponse) -> dict[str, Any]:
-    """把 MetricsSnapshotResponse 转换为便于断言的 dict。"""
-    return {
-        "counters": {
-            field.name: getattr(response.counters, field.name)
-            for field in response.counters.DESCRIPTOR.fields
-        },
-        "device_connect_failures": {
-            item.key: item.value for item in response.device_connect_failures
-        },
-        "device_reconnects": {item.key: item.value for item in response.device_reconnects},
-        "events": [
-            {
-                "timestamp": item.timestamp.ToJsonString(),
-                "kind": item.kind,
-                "object": item.object,
-                "message": item.message,
-            }
-            for item in response.events
-        ],
-    }
+_RUNTIME = pb.RuntimeStatusResponse
+_TASK_ACTUAL_NAMES = {
+    pb.RUNNING: "RUNNING",
+    pb.STOPPED: "STOPPED",
+}
 
 
-async def start_task_instance(
-    target: str,
-    *,
-    task_id: str,
-    instance_id: str,
-    placement_generation: int = 1,
-) -> None:
-    """启动单个已配置 Task Instance。
+def _admin_token(token: str | None) -> str:
+    return token or os.environ.get("WIND_HUB_COLLECTOR_ADMIN_TOKEN", DEFAULT_ADMIN_TOKEN)
 
-    生产路径下 Start 受 placement 栅栏保护：先向 Collector 下发当前
-    worker 的任务归属快照，再带 generation 启动。worker_id 不经参数
-    传递，而是向目标 Collector 查询其身份，避免测试与 collector_id
-    传参重复维护。
 
-    Args:
-        target: Collector gRPC endpoint（``host:port``）。
-        task_id: Task Definition ID（placement 快照中的任务归属）。
-        instance_id: 要启动的实例（``{task_id}:{device_id}``）。
-        placement_generation: placement 快照代次，默认 1。
-    """
-    channel = grpc.aio.insecure_channel(target)
-    control = pb_grpc.CollectorControlServiceStub(channel)
-    runtime = pb_grpc.CollectorRuntimeServiceStub(channel)
-    try:
-        info = await runtime.GetCollectorInfo(empty_pb2.Empty())
-        placement = await control.ApplyTaskPlacement(
-            pb.TaskPlacementSnapshotRequest(
-                worker_id=info.collector_id,
-                generation=placement_generation,
-                task_ids=[task_id],
-            )
+def _metadata(token: str | None) -> tuple[tuple[str, str]]:
+    return (("x-windhub-admin-token", _admin_token(token)),)  # type: ignore[return-value]
+
+
+def _devices_selector() -> pb.ConfigSelector:
+    return pb.ConfigSelector(scope=pb.INSTANCE, name="devices")
+
+
+def _template_selector(category: str, template_id: str, version: str) -> pb.ConfigSelector:
+    """TEMPLATE 选择器：name 必须是 ``category/id``，且携带精确版本。"""
+    return pb.ConfigSelector(scope=pb.TEMPLATE, name=f"{category}/{template_id}", version=version)
+
+
+def _channel(target: str) -> grpc.aio.Channel:
+    return grpc.aio.insecure_channel(target)
+
+
+def device_of_instance(instance_id: str) -> str:
+    """v1 风格 ``{task_id}:{device_id}`` → v2 设备粒度 ID。"""
+    return instance_id.rpartition(":")[2] or instance_id
+
+
+async def collector_info(target: str, *, timeout: float = 5.0) -> pb.CollectorInfoResponse:
+    """Collector 身份与活跃配置代次（GetCollectorInfo）。"""
+    from google.protobuf import empty_pb2
+
+    async with _channel(target) as channel:
+        return await pb_grpc.CollectorRuntimeServiceStub(channel).GetCollectorInfo(
+            empty_pb2.Empty(), timeout=timeout
         )
-        assert placement.success, f"ApplyTaskPlacement rejected: {list(placement.errors)}"
-        await control.StartTaskInstance(
-            pb.TaskInstanceStartRequest(
-                instance_id=instance_id,
-                placement_generation=placement_generation,
-            )
+
+
+async def runtime_status(target: str, *, timeout: float = 5.0) -> _RUNTIME:
+    """Runtime 运行状态（GetRuntimeStatus）。"""
+    from google.protobuf import empty_pb2
+
+    async with _channel(target) as channel:
+        return await pb_grpc.CollectorRuntimeServiceStub(channel).GetRuntimeStatus(
+            empty_pb2.Empty(), timeout=timeout
         )
-    finally:
-        await channel.close()
-
-
-async def prepare_config(
-    target: str,
-    *,
-    config_dir: Path,
-    revision_id: str,
-    force_reconfigure: bool = False,
-) -> pb.PrepareConfigResponse:
-    """调用 PrepareConfig 并返回原始响应（success/errors 由调用方断言）。
-
-    config_hash 以 ``config_dir_digest`` 对当前磁盘配置集计算——与
-    Collector prepare 路径的校验口径一致。用于验证「非法配置在 prepare
-    阶段即被拒绝」的失败路径。
-    """
-    channel = grpc.aio.insecure_channel(target)
-    stub = pb_grpc.CollectorControlServiceStub(channel)
-    try:
-        response: pb.PrepareConfigResponse = await stub.PrepareConfig(
-            pb.PrepareConfigRequest(
-                revision_id=revision_id,
-                config_hash=config_dir_digest(config_dir),
-                force_reconfigure=force_reconfigure,
-            )
-        )
-        return response
-    finally:
-        await channel.close()
-
-
-async def reload_config(
-    target: str,
-    *,
-    config_dir: Path,
-    revision_id: str,
-    force_reconfigure: bool = False,
-) -> pb.ActivateConfigResponse:
-    """经 Prepare/Activate 两段事务热重载 Collector 配置（等价生产 reload）。
-
-    断言 Prepare 成功（Prepare 失败属于调用方配置错误，应用 prepare_config
-    显式验证）；Activate 的 success/diff/errors 由调用方断言。
-
-    Returns:
-        ActivateConfigResponse。
-    """
-    prepared = await prepare_config(
-        target,
-        config_dir=config_dir,
-        revision_id=revision_id,
-        force_reconfigure=force_reconfigure,
-    )
-    assert prepared.success, f"PrepareConfig failed: {list(prepared.errors)}"
-    channel = grpc.aio.insecure_channel(target)
-    stub = pb_grpc.CollectorControlServiceStub(channel)
-    try:
-        response: pb.ActivateConfigResponse = await stub.ActivateConfig(
-            pb.ActivateConfigRequest(revision_id=revision_id)
-        )
-        return response
-    finally:
-        await channel.close()
-
-
-async def collector_info(target: str) -> pb.CollectorInfoResponse:
-    """查询 Collector 身份与配置代次（GetCollectorInfo）。"""
-    channel = grpc.aio.insecure_channel(target)
-    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
-    try:
-        return await stub.GetCollectorInfo(empty_pb2.Empty(), timeout=5.0)
-    finally:
-        await channel.close()
-
-
-async def runtime_status(target: str) -> pb.RuntimeStatusResponse:
-    """查询 Runtime 运行状态（GetRuntimeStatus）。"""
-    channel = grpc.aio.insecure_channel(target)
-    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
-    try:
-        return await stub.GetRuntimeStatus(empty_pb2.Empty(), timeout=5.0)
-    finally:
-        await channel.close()
 
 
 async def runtime_status_snapshot(target: str) -> dict[str, Any] | None:
-    """Runtime 状态的 dict 快照；gRPC 暂不可用时返回 None（供轮询）。
-
-    仅保留恢复测试断言使用的标量字段；瞬态 acquisitions 不在此快照中。
-    """
+    """v2 Runtime 状态的 dict 快照；gRPC 暂不可用时返回 None（供轮询）。"""
     try:
         status = await runtime_status(target)
     except grpc.aio.AioRpcError:
         return None
     return {
         "running": status.running,
-        "device_count": status.device_count,
-        "sink_count": status.sink_count,
-        "devices_connected": status.devices_connected,
-        "sinks_healthy": status.sinks_healthy,
-        "points_collected": status.points_collected,
-        "points_routed": status.points_routed,
-        "points_dropped": status.points_dropped,
+        "device_total": status.device_total,
+        "device_connected": status.device_connected,
+        "device_disconnected": status.device_disconnected,
+        "task_total": status.task_total,
+        "task_running": status.task_running,
+        "task_stopped": status.task_stopped,
+        "nats_connected": status.nats_connected,
+        "config_status": pb.ConfigStatus.Name(status.config_status),
     }
 
 
-async def get_task(target: str, task_id: str) -> pb.TaskSummaryMessage:
-    """查询单个 Task Definition 汇总（GetTask）。"""
-    channel = grpc.aio.insecure_channel(target)
-    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
-    try:
-        return await stub.GetTask(pb.TaskIdRequest(task_id=task_id), timeout=5.0)
-    finally:
-        await channel.close()
-
-
-async def get_task_instance(target: str, instance_id: str) -> pb.TaskInstanceMessage:
-    """查询单个 Task Instance（GetTaskInstance）。"""
-    channel = grpc.aio.insecure_channel(target)
-    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
-    try:
-        return await stub.GetTaskInstance(
-            pb.InstanceIdRequest(instance_id=instance_id), timeout=5.0
+async def config_revision(target: str, *, token: str | None = None, timeout: float = 5.0) -> str:
+    """读取 devices 文档当前 revision（START/STOP/配置变更的乐观版本）。"""
+    async with _channel(target) as channel:
+        response = await pb_grpc.CollectorConfigServiceStub(channel).GetConfig(
+            pb.GetConfigRequest(selector=_devices_selector()),
+            metadata=_metadata(token),
+            timeout=timeout,
         )
-    finally:
-        await channel.close()
+        return response.revision
+
+
+async def start_task(
+    target: str,
+    device_id: str,
+    *,
+    token: str | None = None,
+    expected_revision: str | None = None,
+    timeout: float = 10.0,
+) -> pb.TaskChangeResponse:
+    """设备级 START：持久化意图并收敛到 RUNNING（需管理员令牌）。"""
+    revision = expected_revision or await config_revision(target, token=token)
+    async with _channel(target) as channel:
+        return await pb_grpc.CollectorTaskServiceStub(channel).StartTask(
+            pb.TaskChangeRequest(
+                device_id=device_id,
+                expected_revision=revision,
+                request_id=f"start-{device_id}-{uuid.uuid4().hex[:12]}",
+            ),
+            metadata=_metadata(token),
+            timeout=timeout,
+        )
+
+
+async def stop_task(
+    target: str,
+    device_id: str,
+    *,
+    token: str | None = None,
+    expected_revision: str | None = None,
+    timeout: float = 10.0,
+) -> pb.TaskChangeResponse:
+    """设备级 STOP（幂等意图，持久化；手动 STOP 后看门狗不得自动复活）。"""
+    revision = expected_revision or await config_revision(target, token=token)
+    async with _channel(target) as channel:
+        return await pb_grpc.CollectorTaskServiceStub(channel).StopTask(
+            pb.TaskChangeRequest(
+                device_id=device_id,
+                expected_revision=revision,
+                request_id=f"stop-{device_id}-{uuid.uuid4().hex[:12]}",
+            ),
+            metadata=_metadata(token),
+            timeout=timeout,
+        )
+
+
+async def start_task_instance(
+    target: str,
+    *,
+    task_id: str = "",  # noqa: ARG001  # v2 设备粒度，task_id 仅为迁移期签名兼容
+    instance_id: str,
+    placement_generation: int = 1,  # noqa: ARG001  # v1 placement 栅栏已移除
+    token: str | None = None,
+) -> pb.TaskChangeResponse:
+    """迁移期适配：v1 ``instance_id="{task}:{device}"`` → v2 设备级 StartTask。"""
+    return await start_task(target, device_of_instance(instance_id), token=token)
+
+
+async def stop_instance(
+    target: str,
+    instance_id: str,
+    *,
+    token: str | None = None,
+) -> pb.TaskChangeResponse:
+    """迁移期适配：v1 ``instance_id="{task}:{device}"`` → v2 设备级 StopTask。"""
+    return await stop_task(target, device_of_instance(instance_id), token=token)
+
+
+async def get_task(target: str, device_id: str, *, timeout: float = 5.0) -> pb.TaskStatus:
+    """查询单设备 Task 状态（GetTask，键为 device_id）。"""
+    async with _channel(target) as channel:
+        return await pb_grpc.CollectorTaskServiceStub(channel).GetTask(
+            pb.DeviceIdRequest(device_id=device_id), timeout=timeout
+        )
+
+
+async def get_task_instance(
+    target: str, instance_id: str, *, timeout: float = 5.0
+) -> pb.TaskStatus:
+    """迁移期适配：按 v1 instance_id 查询，等价 :func:`get_task`。"""
+    return await get_task(target, device_of_instance(instance_id), timeout=timeout)
+
+
+async def list_tasks(
+    target: str,
+    *,
+    device_ids: tuple[str, ...] = (),
+    timeout: float = 5.0,
+) -> list[pb.TaskStatus]:
+    """列出全部（或指定设备的）Task 状态，自动翻页。"""
+    async with _channel(target) as channel:
+        stub = pb_grpc.CollectorTaskServiceStub(channel)
+        tasks: list[pb.TaskStatus] = []
+        page_token = ""
+        while True:
+            page = await stub.ListTasks(
+                pb.ListTasksRequest(device_ids=list(device_ids), page_token=page_token),
+                timeout=timeout,
+            )
+            tasks.extend(page.tasks)
+            if not page.next_page_token:
+                return tasks
+            page_token = page.next_page_token
 
 
 async def instance_states(target: str) -> dict[str, str] | None:
-    """实例生命周期状态表（instance_id → state）；gRPC 暂不可用时返回 None。"""
-    channel = grpc.aio.insecure_channel(target)
-    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
+    """设备 → 实际状态名（RUNNING/STOPPED）；gRPC 暂不可用时返回 None。
+
+    键为 ``{task_id}:{device_id}`` 形式（v2 TaskStatus 同时带两者），
+    保持与恢复测试既有断言习惯一致。
+    """
     try:
-        response = await stub.ListTaskInstances(empty_pb2.Empty(), timeout=5.0)
+        tasks = await list_tasks(target)
     except grpc.aio.AioRpcError:
         return None
-    finally:
-        await channel.close()
-    return {item.instance_id: item.state for item in response.items}
+    return {
+        f"{task.task_id}:{task.device_id}": _TASK_ACTUAL_NAMES.get(task.actual_state, "UNKNOWN")
+        for task in tasks
+    }
 
 
-async def metrics_snapshot(target: str) -> dict[str, Any]:
-    """查询 Collector 指标快照（connect_failures/reconnects 等累计计数）。
+async def validate_config(
+    target: str,
+    yaml_content: str,
+    *,
+    selector: pb.ConfigSelector | None = None,
+    expected_revision: str | None = None,
+    token: str | None = None,
+    timeout: float = 10.0,
+) -> pb.ValidateConfigResponse:
+    """ValidateConfig（不落盘）；默认校验 INSTANCE devices 文档。
 
-    backoff 与 reconnect 行为的边界观测点：计数单调不减，测试用前后差值
-    度量窗口内的 connect 尝试次数。
+    不传 expected_revision 时跳过乐观版本检查（该字段为 optional，空串
+    会被服务端当作显式陈旧版本拒绝）。
     """
-    channel = grpc.aio.insecure_channel(target)
-    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
-    try:
-        response = await stub.GetMetricsSnapshot(empty_pb2.Empty(), timeout=5.0)
-        return _metrics_snapshot_to_dict(response)
-    finally:
-        await channel.close()
+    request = pb.ValidateConfigRequest(
+        selector=selector or _devices_selector(),
+        yaml_content=yaml_content,
+    )
+    if expected_revision is not None:
+        request.expected_revision = expected_revision
+    async with _channel(target) as channel:
+        return await pb_grpc.CollectorConfigServiceStub(channel).ValidateConfig(
+            request,
+            metadata=_metadata(token),
+            timeout=timeout,
+        )
 
 
-async def stop_instance(target: str, instance_id: str) -> None:
-    """停止单个 Task Instance（幂等）。"""
-    channel = grpc.aio.insecure_channel(target)
-    stub = pb_grpc.CollectorControlServiceStub(channel)
-    try:
-        await stub.StopTaskInstance(pb.InstanceIdRequest(instance_id=instance_id))
-    finally:
-        await channel.close()
+async def replace_config(
+    target: str,
+    yaml_content: str,
+    *,
+    selector: pb.ConfigSelector | None = None,
+    expected_revision: str | None = None,
+    request_id: str | None = None,
+    token: str | None = None,
+    timeout: float = 15.0,
+) -> pb.ConfigMutationResponse:
+    """ReplaceConfig 整文档替换（原子落盘 + 运行时收敛）。"""
+    revision = expected_revision or await config_revision(target, token=token)
+    async with _channel(target) as channel:
+        return await pb_grpc.CollectorConfigServiceStub(channel).ReplaceConfig(
+            pb.ReplaceConfigRequest(
+                selector=selector or _devices_selector(),
+                expected_revision=revision,
+                request_id=request_id or f"replace-{uuid.uuid4().hex[:12]}",
+                yaml_content=yaml_content,
+            ),
+            metadata=_metadata(token),
+            timeout=timeout,
+        )
+
+
+async def replace_template(
+    target: str,
+    category: str,
+    template_id: str,
+    version: str,
+    document: dict[str, Any],
+    *,
+    create: bool = True,
+    request_id: str | None = None,
+    token: str | None = None,
+    timeout: float = 20.0,
+) -> pb.ConfigMutationResponse:
+    """发布一个不可变版本化模板（``templates/<category>/<id>/<ver>.yaml``）。
+
+    模板不可变：新版本发布必须携带 ``expected_revision="CREATE"``（生产
+    事务层对不存在文件的强制语义）；变更点表/型号/任务定义一律发布新版本，
+    再通过 :func:`replace_config` 把 devices 文档的引用切到新版本。
+    """
+    revision = "CREATE" if create else await config_revision(target, token=token)
+    async with _channel(target) as channel:
+        return await pb_grpc.CollectorConfigServiceStub(channel).ReplaceConfig(
+            pb.ReplaceConfigRequest(
+                selector=_template_selector(category, template_id, version),
+                expected_revision=revision,
+                request_id=request_id or f"replace-template-{uuid.uuid4().hex[:12]}",
+                yaml_content=yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
+            ),
+            metadata=_metadata(token),
+            timeout=timeout,
+        )
+
+
+async def replace_catalog(
+    target: str,
+    name: str,
+    document: dict[str, Any],
+    *,
+    request_id: str | None = None,
+    token: str | None = None,
+    timeout: float = 20.0,
+) -> pb.ConfigMutationResponse:
+    """替换无版本目录模板（``templates/units.yaml`` / ``business_points.yaml``）。"""
+    selector = pb.ConfigSelector(scope=pb.TEMPLATE, name=name)
+    async with _channel(target) as channel:
+        current = await pb_grpc.CollectorConfigServiceStub(channel).GetConfig(
+            pb.GetConfigRequest(selector=selector),
+            metadata=_metadata(token),
+            timeout=5.0,
+        )
+        revision = current.revision
+    async with _channel(target) as channel:
+        return await pb_grpc.CollectorConfigServiceStub(channel).ReplaceConfig(
+            pb.ReplaceConfigRequest(
+                selector=selector,
+                expected_revision=revision,
+                request_id=request_id or f"replace-catalog-{uuid.uuid4().hex[:12]}",
+                yaml_content=yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
+            ),
+            metadata=_metadata(token),
+            timeout=timeout,
+        )
+
+
+async def prepare_config(*args: Any, **kwargs: Any) -> pb.ValidateConfigResponse:
+    """已迁移：v1 PrepareConfig 的「不落盘校验」语义由 ValidateConfig 承担。"""
+    raise AttributeError(
+        "prepare_config 已迁移为 validate_config(target, yaml_content, ...)；"
+        "v1 config_dir/revision_id 两段事务已移除"
+    )
+
+
+async def reload_config(*args: Any, **kwargs: Any) -> pb.ConfigMutationResponse:
+    """已迁移：v1 Prepare/Activate 热重载由 ReplaceConfig 承担。"""
+    raise AttributeError(
+        "reload_config 已迁移为 replace_config(target, yaml_content, ...)；"
+        "v1 config_dir/revision_id 两段事务已移除"
+    )
+
+
+async def metrics(
+    target: str,
+    *,
+    device_ids: tuple[str, ...] = (),
+    metric_names: tuple[str, ...] = (),
+    window_seconds: int = 0,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    """累计计数与每设备计数的 dict 快照（GetMetrics，自动翻页）。"""
+    async with _channel(target) as channel:
+        stub = pb_grpc.CollectorMetricsServiceStub(channel)
+        counters: dict[str, float] = {}
+        device_connect_failures: dict[str, float] = {}
+        device_reconnects: dict[str, float] = {}
+        page_token = ""
+        while True:
+            response = await stub.GetMetrics(
+                pb.GetMetricsRequest(
+                    device_ids=list(device_ids),
+                    metric_names=list(metric_names),
+                    window_seconds=window_seconds,
+                    page_token=page_token,
+                ),
+                timeout=timeout,
+            )
+            for row in response.metrics:
+                if row.device_id:
+                    bucket = (
+                        device_reconnects
+                        if row.name == "device_reconnects"
+                        else device_connect_failures
+                    )
+                    bucket[row.device_id] = row.value
+                else:
+                    counters[row.name] = row.value
+            if not response.next_page_token:
+                break
+            page_token = response.next_page_token
+    return {
+        "counters": counters,
+        "device_connect_failures": device_connect_failures,
+        "device_reconnects": device_reconnects,
+    }
+
+
+async def metric_events(
+    target: str,
+    *,
+    device_ids: tuple[str, ...] = (),
+    event_types: tuple[str, ...] = (),
+    limit: int = 1000,
+    timeout: float = 5.0,
+) -> list[dict[str, Any]]:
+    """有界诊断事件（GetMetricsEvents），按时间顺序返回 dict 列表。"""
+    from google.protobuf import timestamp_pb2
+
+    async with _channel(target) as channel:
+        response = await pb_grpc.CollectorMetricsServiceStub(channel).GetMetricsEvents(
+            pb.GetMetricsEventsRequest(
+                device_ids=list(device_ids),
+                event_types=list(event_types),
+                limit=limit,
+            ),
+            timeout=timeout,
+        )
+    events: list[dict[str, Any]] = []
+    for item in response.events:
+        ts = timestamp_pb2.Timestamp()
+        ts.CopyFrom(item.timestamp)
+        events.append(
+            {
+                "timestamp": ts.ToJsonString(),
+                "kind": item.event_type,
+                "object": item.device_id,
+                "message": item.message,
+                "severity": item.severity,
+            }
+        )
+    return events
+
+
+async def metrics_snapshot(target: str, **kwargs: Any) -> dict[str, Any]:
+    """v1 习惯的完整快照：累计/每设备计数 + 诊断事件。"""
+    snapshot = await metrics(target, **kwargs)
+    snapshot["events"] = await metric_events(target)
+    return snapshot

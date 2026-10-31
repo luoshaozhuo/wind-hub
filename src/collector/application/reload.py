@@ -85,6 +85,9 @@ class ConfigDiff:
     """发生变化（新增/删除/内容/元数据修改）的点表名——Runtime 据此对绑定
     这些表的设备做点映射重注入（不重建 Protocol 连接）。"""
 
+    desired_changed: bool = False
+    """Persisted device-level task intent differs between config snapshots."""
+
     runtime_changed: bool = False
     """可热更新的 RuntimeParams 字段发生变化时为 True，activate 时把新
     params 快照应用到运行时 owner（restart-required 字段在 prepare 阶段
@@ -102,6 +105,7 @@ class ConfigDiff:
             or self.tasks.updated
             or self.points_changed
             or self.runtime_changed
+            or self.desired_changed
         )
 
 
@@ -180,6 +184,7 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
         tasks=tasks,
         points_changed=bool(changed_tables),
         point_tables_changed=changed_tables,
+        desired_changed=old.desired_states != new.desired_states,
         runtime_changed=any(
             getattr(old.runtime, name) != getattr(new.runtime, name)
             for name in HOT_RELOADABLE_RUNTIME_FIELDS

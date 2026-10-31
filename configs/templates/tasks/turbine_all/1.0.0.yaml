@@ -1,0 +1,6 @@
+schema_version: 1
+template_id: turbine_all
+template_version: 1.0.0
+point_group: all
+interval: 1.0
+desired_state: STOP

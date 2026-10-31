@@ -17,6 +17,7 @@ from tests.support.control import collector_info, start_task_instance
 from tests.support.process import CollectorProcess
 from tests.support.recovery_helpers import (
     TASK_ID,
+    recovery_collector_tree,
     wait_telemetry_value,
     write_modbus_redis_config,
 )
@@ -28,7 +29,7 @@ pytestmark = [
     pytest.mark.real_service,
 ]
 
-INSTANCE_ID = f"{TASK_ID}:modbus-1"
+INSTANCE_ID = TASK_ID
 WORKER_ID = "kill-test"
 
 
@@ -42,15 +43,16 @@ class TestProcessKillRecovery:
         nats_service: str,
         tmp_path: Path,
     ) -> None:
-        config_dir = write_modbus_redis_config(
+        flat_dir = write_modbus_redis_config(
             tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
         )
         # 消费侧独立存活：Collector 被 SIGKILL 期间 sink_service 不动，
         # 重启后数据面经同一 NATS 总线恢复。
-        await sink_service_factory(config_dir, deployment_id="kill-test-sink")
+        await sink_service_factory(flat_dir, deployment_id="kill-test-sink")
+        v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
 
         # ---- 第一个实例：正常采集后直接 SIGKILL（无优雅停机） ----
-        proc_a: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
+        proc_a: CollectorProcess = await collector_factory(v2_tree, collector_id=WORKER_ID)
         await start_task_instance(
             proc_a.grpc_target,
             task_id=TASK_ID,
@@ -61,7 +63,7 @@ class TestProcessKillRecovery:
         assert not proc_a.is_running()
 
         # ---- 同配置重启：控制面恢复、采集可重新启动、数据继续到达 ----
-        proc_b: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
+        proc_b: CollectorProcess = await collector_factory(v2_tree, collector_id=WORKER_ID)
         info = await collector_info(proc_b.grpc_target)
         assert info.collector_id == WORKER_ID
 

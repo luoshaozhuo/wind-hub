@@ -1,0 +1,22 @@
+schema_version: 1
+runtime:
+  shutdown_timeout: 30
+  connect_timeout: 10
+  read_timeout: 5
+  thread_pool:
+    max_workers: 32
+watchdog:
+  interval: 5
+  health_timeout: 1
+messaging:
+  servers:
+    - nats://127.0.0.1:4222
+  delivery: realtime
+  max_staleness_ms: 500
+metrics:
+  enabled: true
+  windows: [60, 300, 3600]
+  publish_interval: 60
+  max_staleness: 300
+  event_capacity: 1000
+  pending_capacity: 120

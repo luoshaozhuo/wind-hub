@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Protocol
 
 from core.application import ConnectionHealth
@@ -114,10 +114,18 @@ class CollectorRuntime:
         session_factory: SessionFactory | None = None,
         clock: Callable[[], float] = time.monotonic,
         metrics_hook: RuntimeMetricsPort | None = None,
+        desired_states: Mapping[str, str] | None = None,
+        persist_desired_state: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> None:
         self._device_runtime = DeviceRuntime(devices, params, clock, metrics_hook)
         self._task_runtime = TaskRuntime(
-            tasks or {}, self._device_runtime, engine, clock, metrics_hook
+            tasks or {},
+            self._device_runtime,
+            engine,
+            clock,
+            metrics_hook,
+            dict(desired_states or {}),
+            persist_desired_state,
         )
 
         async def restore_device_tasks(device_id: str) -> None:
@@ -193,8 +201,7 @@ class CollectorRuntime:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """启动运行时——连接设备、启动消息发布、注册采集 Task Instance（默认
-        STOPPED，显式 start 才启动 acquisition）。
+        """启动运行时——连接设备、启动消息发布，并按持久化状态恢复采集。
 
         子系统顺序：设备连接 → Publisher 启动 → Task Instance 注册。
         NATS 故障不阻断设备采集；单设备故障不阻断其它设备。
@@ -208,16 +215,18 @@ class CollectorRuntime:
             try:
                 await self._device_runtime.connect_all()
                 await self._publisher.open()
-                # 实例默认 STOPPED，采集由控制面显式启动。
+                # 先注册实例，再根据持久化 desired_state 恢复 START。
                 await self._task_runtime.sync_instances()
+                self._started = True
+                await self._task_runtime.restore_desired()
             except BaseException:
                 self._running = False
+                self._started = False
                 try:
                     await self._stop_components()
                 except BaseException:
                     logger.exception("Collector startup cleanup failed")
                 raise
-            self._started = True
 
     async def stop(self) -> None:
         """优雅停机——关闭全部 acquisition handle、排空队列、flush 并关闭
@@ -274,6 +283,11 @@ class CollectorRuntime:
         return self._running and self._started
 
     @property
+    def nats_connected(self) -> bool:
+        """Cached NATS connection state without I/O."""
+        return self._publisher.connected
+
+    @property
     def device_count(self) -> int:
         """返回当前 CollectorRuntime 注册的设备数量。"""
         return len(self._device_runtime.devices)
@@ -309,6 +323,10 @@ class CollectorRuntime:
         """各 Task Instance 的生命周期状态（浅拷贝，委托 TaskRuntime）。"""
         return self._task_runtime.instance_states()
 
+    def desired_states(self) -> dict[str, str]:
+        """Return persisted START/STOP intent independently of actual state."""
+        return self._task_runtime.desired_states()
+
     async def start_task_instance(self, instance_id: str) -> None:
         """启动单个 Task Instance 的持续采集（委托 TaskRuntime）。
 
@@ -316,7 +334,10 @@ class CollectorRuntime:
             KeyError: ``instance_id`` 不存在。
             Exception: 采集启动失败——状态保持 STOPPED，错误原样上抛。
         """
-        await self._task_runtime.start_instance(instance_id)
+        async with self._lifecycle_lock:
+            if not self._running or not self._started:
+                raise RuntimeError("Collector runtime is not running")
+            await self._task_runtime.start_instance(instance_id)
 
     async def stop_task_instance(self, instance_id: str) -> None:
         """停止单个 Task Instance 的持续采集（委托 TaskRuntime）。
@@ -324,7 +345,10 @@ class CollectorRuntime:
         Raises:
             KeyError: ``instance_id`` 不存在。
         """
-        await self._task_runtime.stop_instance(instance_id)
+        async with self._lifecycle_lock:
+            if not self._running or not self._started:
+                raise RuntimeError("Collector runtime is not running")
+            await self._task_runtime.stop_instance(instance_id)
 
     def acquisition_states(self) -> dict[str, AcquisitionRuntimeState]:
         """当前采集实例执行状态簿（``{instance_id: state}`` 浅拷贝，委托 TaskRuntime）。"""
@@ -349,6 +373,12 @@ class CollectorRuntime:
         if device_id in self._device_runtime.devices:
             if self._device_runtime.requires_rebuild(device_id, device, point_table):
                 if self._device_runtime.is_lightweight_update(device_id, device, point_table):
+                    session = self._device_runtime.devices[device_id]
+                    if (
+                        session.point_table != point_table
+                        or session.subscribe_enabled != device.subscribe_enabled
+                    ):
+                        await self._task_runtime.suspend_for_device_change(device_id)
                     self._device_runtime.update_device(device_id, device, point_table)
                 else:
                     await self.rebuild_device(device_id, device, point_table)
@@ -431,6 +461,13 @@ class CollectorRuntime:
         )
 
     async def reconfigure(self, new_config: CollectorConfig, diff: ConfigDiff) -> list[str]:
+        """Serialize hot configuration application against runtime shutdown."""
+        async with self._lifecycle_lock:
+            if not self._running or not self._started:
+                raise RuntimeError("Collector runtime is not running")
+            return await self._reconfigure_locked(new_config, diff)
+
+    async def _reconfigure_locked(self, new_config: CollectorConfig, diff: ConfigDiff) -> list[str]:
         """按 diff 重构运行时——设备/task 增删重建与点表重注入。
 
         各阶段相互隔离：单阶段失败记录到返回的错误列表，其余阶段继续执行。
@@ -446,13 +483,17 @@ class CollectorRuntime:
         """
         errors: list[str] = []
 
+        try:
+            await self._task_runtime.stop_target_disabled(
+                {str(key): value for key, value in new_config.desired_states.items()}
+            )
+        except Exception as exc:
+            logger.error("Failed to settle persisted STOP before reload", exc_info=True)
+            return [f"desired_state: {exc}"]
+
         restart_subscription_devices: set[str] = set()
 
-        try:
-            await self._apply_device_diff(diff, new_config)
-        except Exception as exc:
-            logger.error("Device diff apply failed: %s", exc, exc_info=True)
-            errors.append(f"device: {exc}")
+        errors.extend(await self._apply_device_diff(diff, new_config))
 
         # 点表内容变化：对绑定受影响表、且未在设备 diff 中增删重建的设备，
         # 仅重注入点映射——不重建 Protocol 连接。
@@ -502,6 +543,15 @@ class CollectorRuntime:
             logger.error("Task instance sync failed: %s", exc, exc_info=True)
             errors.append(f"tasks: {exc}")
 
+        if not any(error.startswith(("device:", "tasks:")) for error in errors):
+            try:
+                await self._task_runtime.apply_desired_states(
+                    {str(key): value for key, value in new_config.desired_states.items()}
+                )
+            except Exception as exc:
+                logger.error("Task intent convergence failed: %s", exc, exc_info=True)
+                errors.append(f"desired_state: {exc}")
+
         return errors
 
     def _apply_runtime_params(self, params: RuntimeParams) -> None:
@@ -545,41 +595,42 @@ class CollectorRuntime:
                 continue
             self._device_runtime.set_points(did, target_device, target_table)
 
-    async def _apply_device_diff(self, diff: ConfigDiff, new_cfg: CollectorConfig) -> None:
-        """按 diff 增删重建设备；新增/重建的会话由工厂创建。
+    async def _apply_device_diff(self, diff: ConfigDiff, new_cfg: CollectorConfig) -> list[str]:
+        """Apply changed devices independently and collect per-device errors."""
+        errors: list[str] = []
 
-        仅点表绑定/设备分组变化的设备走轻量路径——就地更新配置、重注入
-        点映射，不重建 Protocol 连接。
-        """
-        lightweight: set[str] = set()
-        for did in diff.devices.updated:
-            if self._device_runtime.is_lightweight_update(
-                did,
-                new_cfg.devices[DeviceId(did)],
-                new_cfg.point_table_for_device(DeviceId(did)),
-            ):
-                lightweight.add(did)
+        async def apply_one(device_id: str, operation: str) -> None:
+            if operation == "remove":
+                await self.remove_device(device_id)
+                return
+            device = new_cfg.devices[DeviceId(device_id)]
+            table = new_cfg.point_table_for_device(DeviceId(device_id))
+            if operation == "add":
+                await self.add_device(device_id, device, table)
+                return
+            if self._device_runtime.is_lightweight_update(device_id, device, table):
+                session = self._device_runtime.devices[device_id]
+                if (
+                    session.point_table != table
+                    or session.subscribe_enabled != device.subscribe_enabled
+                ):
+                    await self._task_runtime.suspend_for_device_change(device_id)
+                self._device_runtime.update_device(device_id, device, table)
+            else:
+                await self.rebuild_device(device_id, device, table)
 
-        if diff.devices.added or set(diff.devices.updated) - lightweight:
-            self._require_session_factory()
-
-        for did in diff.devices.removed:
-            await self.remove_device(did)
-
-        for did in diff.devices.added:
-            await self.add_device(
-                did,
-                new_cfg.devices[DeviceId(did)],
-                new_cfg.point_table_for_device(DeviceId(did)),
-            )
-
-        for did in diff.devices.updated:
-            device = new_cfg.devices[DeviceId(did)]
-            point_table = new_cfg.point_table_for_device(DeviceId(did))
-            if did in lightweight:
-                self._device_runtime.update_device(did, device, point_table)
-                continue
-            await self.rebuild_device(did, device, point_table)
+        for operation, device_ids in (
+            ("remove", diff.devices.removed),
+            ("add", diff.devices.added),
+            ("update", diff.devices.updated),
+        ):
+            for device_id in device_ids:
+                try:
+                    await apply_one(device_id, operation)
+                except Exception as exc:
+                    logger.exception("Failed to %s Collector device %s", operation, device_id)
+                    errors.append(f"device:{device_id}: {exc}")
+        return errors
 
 
 def _session_matches(

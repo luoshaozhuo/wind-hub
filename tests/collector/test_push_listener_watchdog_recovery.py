@@ -7,6 +7,11 @@ FakeConnection 工厂，每次重连产出一条全新连接）+ DeviceRuntime /
 TaskRuntime 真实装配，Watchdog 以 100ms 周期运行。唯一注入点是
 AcquisitionEngine 的 SinkDispatchPort——模拟 Sink 交付异常/阻塞，与生产
 中交付边界失败同构。
+
+v2 下每设备恰好一个采集实例（task_id == device_id == "dev1"）：旧版
+「同设备 t1/t2 多实例恢复隔离」场景在架构上不再存在，跨设备隔离由
+test_watchdog_restore 的故障/健康设备对覆盖；手动 STOP 不复活由
+test_watchdog_restore 的同设备停止意图测试覆盖。
 """
 
 from __future__ import annotations
@@ -25,19 +30,7 @@ from collector.application.session import CollectorDeviceSession
 from collector.application.task_instance import TaskInstanceState
 from collector.application.task_runtime import TaskRuntime
 from collector.domain.acquisition import AcquisitionEngine
-from core.domain import (
-    BusinessPointId,
-    ConnectionEndpoint,
-    Device,
-    DeviceGroupId,
-    DeviceId,
-    DeviceModelId,
-    Point,
-    PointAccess,
-    PointTable,
-    PointTableId,
-    Protocol,
-)
+from core.domain import DeviceGroupId
 from tests.support.iec104_fake import (
     FakeConnection,
     floating_data_msg,
@@ -46,7 +39,6 @@ from tests.support.iec104_fake import (
     make_point,
 )
 from tests.support.new_collector import make_collector_config, make_session
-from tests.support.units import NONE_UNIT
 from tests.support.wait import wait_until
 
 pytestmark = [pytest.mark.component, pytest.mark.asyncio]
@@ -99,7 +91,7 @@ class _ControllableDispatch:
 
 
 class _GateDispatch:
-    """可阻塞的 Sink 派发端口：gate 清除时数掘积压在 listener 队列。"""
+    """可阻塞的 Sink 派发端口：gate 清除时数据积压在 listener 队列。"""
 
     def __init__(self) -> None:
         self.gate = asyncio.Event()
@@ -122,31 +114,22 @@ class _Assembly:
     connections: list[_AutoGIConnection]
 
 
-def _two_tasks() -> dict[str, CollectionTask]:
-    """t1/t2 同设备同点组：t2 在测试中被显式停止，用于验证恢复范围。"""
+def _device_task() -> dict[str, CollectionTask]:
+    """v2：dev1 唯一采集任务（task_id == device_id）。"""
     return {
-        "t1": CollectionTask(
-            task_id="t1",
+        "dev1": CollectionTask(
+            task_id="dev1",
             device_group_id=DeviceGroupId("dev1"),
             point_group="g",
             interval=1.0,
-        ),
-        "t2": CollectionTask(
-            task_id="t2",
-            device_group_id=DeviceGroupId("dev1"),
-            point_group="g",
-            interval=1.0,
-        ),
+        )
     }
 
 
 async def _assemble(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    points: list[Point] | None = None,
-    task_defs: dict[str, CollectionTask] | None = None,
     dispatch: Any | None = None,
-    table: PointTable | None = None,
 ) -> _Assembly:
     connections: list[_AutoGIConnection] = []
 
@@ -158,37 +141,22 @@ async def _assemble(
 
     monkeypatch.setattr("core.infrastructure.protocol.iec104.session.iec104.connect", _factory)
 
-    driver = make_driver(points or [make_point("p1", 100)])
+    driver = make_driver([make_point("p1", 100)])
     params = RuntimeParams(
         connect_timeout=2.0,
         shutdown_timeout=0.5,
         watchdog_interval=WATCHDOG_INTERVAL,
         health_timeout=1.0,
     )
-    if table is None:
-        config = make_collector_config(
-            protocol="iec104", tasks=task_defs or _two_tasks(), params=params
-        )
-        session = make_session(config, driver)
-        task_defs = dict(config.tasks)
-    else:
-        device = Device(
-            device_id=DeviceId("dev1"),
-            device_model_id=DeviceModelId("mod"),
-            endpoint=ConnectionEndpoint("127.0.0.1", 2404),
-            device_group_ids=(DeviceGroupId("dev1"),),
-            subscribe_enabled=False,
-            protocol_options={},
-        )
-        session = CollectorDeviceSession(device, table, driver, subscribe_enabled=False)
-        assert task_defs is not None
+    config = make_collector_config(protocol="iec104", tasks=_device_task(), params=params)
+    session = make_session(config, driver)
 
     devices = DeviceRuntime({"dev1": session}, params)
     engine = AcquisitionEngine()
     port = dispatch or _ControllableDispatch()
     engine.attach_sample_publisher(port)
     engine.attach_device_state(devices)
-    tasks = TaskRuntime(task_defs, devices, engine)
+    tasks = TaskRuntime(dict(config.tasks), devices, engine)
     engine.attach_acquisition_state(tasks)
     devices.set_reconnect_callback(
         lambda device_id: tasks.start_device_tasks(device_id, can_restore=lambda: True),
@@ -207,16 +175,11 @@ async def test_push_failure_watchdog_recovery_full_loop(
     driver, tasks = asm.driver, asm.tasks
     try:
         # 1) LISTEN 启动：显式 start 后实例 RUNNING，首条 GI 已在连接 1 上发出。
-        await tasks.start_instance("t1:dev1")
-        assert tasks.instance_states()["t1:dev1"] is TaskInstanceState.RUNNING
-        # t2 先启动再被手动停止：重连后绝不得被自动恢复（desired_running 门控）。
-        await tasks.start_instance("t2:dev1")
-        assert tasks.instance_states()["t2:dev1"] is TaskInstanceState.RUNNING
-        await tasks.stop_instance("t2:dev1")
-        assert tasks.instance_states()["t2:dev1"] is TaskInstanceState.STOPPED
+        await tasks.start_instance("dev1")
+        assert tasks.instance_states()["dev1"] is TaskInstanceState.RUNNING
         conn1 = asm.connections[0]
-        assert conn1.gi_requests == [20, 20]
-        assert len(driver._listeners) == 1  # noqa: SLF001  — stop 已清退 t2 监听
+        assert conn1.gi_requests == [20]
+        assert len(driver._listeners) == 1  # noqa: SLF001
         old_listener = next(iter(driver._listeners))  # noqa: SLF001
         old_session = driver._session  # noqa: SLF001
 
@@ -227,7 +190,7 @@ async def test_push_failure_watchdog_recovery_full_loop(
             timeout=5.0,
             description="first spontaneous value reaches sink",
         )
-        state = tasks.acquisition_states()["t1:dev1"]
+        state = tasks.acquisition_states()["dev1"]
         assert state.last_success_at is not None
         assert state.consecutive_failures == 0
         assert state.last_error is None
@@ -249,11 +212,11 @@ async def test_push_failure_watchdog_recovery_full_loop(
             timeout=5.0,
             description="listener invalidated after callback failure",
         )
-        handle = tasks._acquisition_handles["t1:dev1"]  # noqa: SLF001
+        handle = tasks._acquisition_handles["dev1"]  # noqa: SLF001
         assert handle.failed
 
         # 5) 执行状态记账：consecutive_failures 递增、last_error 非空。
-        state = tasks.acquisition_states()["t1:dev1"]
+        state = tasks.acquisition_states()["dev1"]
         assert state.consecutive_failures > 0
         assert state.last_error
 
@@ -264,8 +227,7 @@ async def test_push_failure_watchdog_recovery_full_loop(
 
         # 7-11) Watchdog 按阈值/退避执行 close→connect：
         #  旧连接先彻底关闭，新连接建立；旧 session/listener 不复存在；
-        #  仅 desired_running 实例被恢复（STOPPED 的 t2 不恢复）；
-        #  新 Listener 建立并重新执行显式 GI。
+        #  desired_running 实例在新连接上恢复；新 Listener 建立并重发显式 GI。
         await wait_until(
             lambda: True if len(asm.connections) == 2 else None,
             timeout=10.0,
@@ -280,14 +242,12 @@ async def test_push_failure_watchdog_recovery_full_loop(
 
         await wait_until(
             lambda: (
-                True if tasks.instance_states()["t1:dev1"] is TaskInstanceState.RUNNING else None
+                True if tasks.instance_states()["dev1"] is TaskInstanceState.RUNNING else None
             ),
             timeout=5.0,
             description="desired-running instance restored",
         )
         assert conn2.gi_requests == [20], "Collector must re-issue explicit GI on restore"
-        assert "t2:dev1" not in tasks._acquisition_handles  # noqa: SLF001
-        assert tasks.instance_states()["t2:dev1"] is TaskInstanceState.STOPPED
         assert len(driver._listeners) == 1  # noqa: SLF001
         new_listener = next(iter(driver._listeners))  # noqa: SLF001
         assert new_listener is not old_listener
@@ -305,7 +265,7 @@ async def test_push_failure_watchdog_recovery_full_loop(
             timeout=5.0,
             description="spontaneous data reaches sink again after recovery",
         )
-        state = tasks.acquisition_states()["t1:dev1"]
+        state = tasks.acquisition_states()["dev1"]
         assert state.consecutive_failures == 0
         assert state.last_error is None
 
@@ -326,7 +286,7 @@ async def test_push_listener_queue_overflow_triggers_same_recovery_loop(
     asm = await _assemble(monkeypatch, dispatch=_GateDispatch())
     driver, tasks = asm.driver, asm.tasks
     try:
-        await tasks.start_instance("t1:dev1")
+        await tasks.start_instance("dev1")
         conn1 = asm.connections[0]
 
         # 先有一次成功交付，确认阻塞前链路健康。
@@ -358,7 +318,7 @@ async def test_push_listener_queue_overflow_triggers_same_recovery_loop(
         conn2 = asm.connections[1]
         await wait_until(
             lambda: (
-                True if tasks.instance_states()["t1:dev1"] is TaskInstanceState.RUNNING else None
+                True if tasks.instance_states()["dev1"] is TaskInstanceState.RUNNING else None
             ),
             timeout=5.0,
             description="instance restored after overflow reconnect",
@@ -372,7 +332,7 @@ async def test_push_listener_queue_overflow_triggers_same_recovery_loop(
             timeout=5.0,
             description="data reaches sink again after overflow recovery",
         )
-        state = tasks.acquisition_states()["t1:dev1"]
+        state = tasks.acquisition_states()["dev1"]
         assert state.consecutive_failures == 0
         assert state.last_error is None
         assert len(driver._listeners) == 1  # noqa: SLF001
@@ -390,7 +350,7 @@ async def test_healthy_listener_is_never_falsely_failed(
     asm = await _assemble(monkeypatch)
     driver, tasks = asm.driver, asm.tasks
     try:
-        await tasks.start_instance("t1:dev1")
+        await tasks.start_instance("dev1")
         conn = asm.connections[0]
         for i in range(10):
             conn.deliver([floating_data_msg(1, 100, float(i))])
@@ -401,7 +361,7 @@ async def test_healthy_listener_is_never_falsely_failed(
         assert not listener.failed
         assert not listener.task.done()
         assert (await driver.health()).healthy
-        assert tasks.acquisition_states()["t1:dev1"].consecutive_failures == 0
+        assert tasks.acquisition_states()["dev1"].consecutive_failures == 0
 
         # 健康检查是纯本地判断：不新增 listener，也不发任何报文。
         sent_before = len(conn.sent_messages)
@@ -415,121 +375,74 @@ async def test_healthy_listener_is_never_falsely_failed(
         await driver.close()
 
 
-def _two_group_table() -> PointTable:
-    def point(pid: str, ioa: int, groups: tuple[str, ...]) -> Point:
-        return Point(
-            point_id=pid,
-            business_point_id=BusinessPointId(pid),
-            source_unit=NONE_UNIT,
-            access=PointAccess.READ,
-            ext={"ioa": ioa, "ca": 1, "type_id": "M_ME_NC_1"},
-            point_groups=groups,
-        )
-
-    return PointTable(
-        PointTableId("tab"),
-        Protocol("iec104"),
-        {
-            "p1": point("p1", 100, ("g",)),
-            "p2": point("p2", 101, ("g2",)),
-        },
-    )
-
-
-async def test_restore_failure_of_one_instance_does_not_block_others(
+async def test_listener_fault_latch_survives_removal_but_not_manual_stop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """N1（round3 复现 → round4 修复验证）：同设备两个 desired_running 实例，
-    重连恢复时 t1 的 listen 持续失败，不得腐蚀 t2。
+    """故障锁存契约（fa31a1e7）：
 
-    十项要求在本测试与 unit/collector/test_task_runtime.py 中逐条覆盖：
-    多实例期望运行；t1 持续失败；t2 独立恢复；t1 保留 restart_pending；
-    Watchdog 经恢复回调异常持续获知"恢复未完成"；后续周期只重试 t1
-    （拒绝计数继续增长、t2 不重复建句柄/不重复 GI）；无额外物理重连；
-    运行意图不被清除。手动 STOPPED 不恢复见主闭环测试的 t2。
+    - 正常手动 listener.close()（STOP/热重载路径）不得置故障；
+    - 回调异常的故障位在 listener 离开集合后仍保持（不空集合假健康）；
+    - 只有完整 close→connect 清理完成后故障位才清除。
     """
-    task_defs = {
-        "t1": CollectionTask(
-            task_id="t1",
-            device_group_id=DeviceGroupId("dev1"),
-            point_group="g",
-            interval=1.0,
-        ),
-        "t2": CollectionTask(
-            task_id="t2",
-            device_group_id=DeviceGroupId("dev1"),
-            point_group="g2",
-            interval=1.0,
-        ),
-    }
-    asm = await _assemble(
-        monkeypatch,
-        points=[make_point("p1", 100), make_point("p2", 101)],
-        task_defs=task_defs,
-        table=_two_group_table(),
-    )
-    driver, tasks = asm.driver, asm.tasks
+    connections: list[FakeConnection] = []
+
+    async def _factory(addr: Any, **kwargs: Any) -> FakeConnection:
+        del addr, kwargs
+        conn = FakeConnection()
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr("core.infrastructure.protocol.iec104.session.iec104.connect", _factory)
+    driver = make_driver([make_point("p1", 100)])
+    await driver.connect()
     try:
-        await tasks.start_instance("t1:dev1")
-        await tasks.start_instance("t2:dev1")
-        assert len(driver._listeners) == 2  # noqa: SLF001
+        received: list[Any] = []
 
-        # 重连之后 t1 的监听注册持续被拒；t2 自身始终可以正常注册。
-        real_listen = driver.listen
-        rejected = {"count": 0}
+        async def good_cb(samples: Any) -> None:
+            received.extend(samples)
 
-        async def _listen(point_ids: Any, callback: Any, *, interval: Any = None) -> Any:
-            if len(asm.connections) >= 2 and "p1" in point_ids:
-                rejected["count"] += 1
-                raise RuntimeError("p1 listener registration rejected")
-            return await real_listen(point_ids, callback, interval=interval)
-
-        monkeypatch.setattr(driver, "listen", _listen)
-
-        # 用一次派发异常杀死 p2 的 listener 触发 health 恶化与看门狗重连。
-        asm.dispatch.failing = True
-        asm.connections[0].deliver([floating_data_msg(1, 101, 2.0)])
+        handle = await driver.listen(["p1"], good_cb)
+        conn = connections[0]
+        conn.deliver([floating_data_msg(1, 100, 1.0)])
         await wait_until(
-            lambda: True if len(asm.connections) == 2 else None,
-            timeout=10.0,
-            description="watchdog reconnect triggered by dead listener",
+            lambda: True if len(received) == 1 else None,
+            timeout=5.0,
+            description="good listener receives one value",
         )
-        asm.dispatch.failing = False
+        assert (await driver.health()).healthy
 
-        # 给看门狗多个恢复周期（每周期 100ms）：t2 理应被独立恢复。
-        deadline = asyncio.get_running_loop().time() + 3.0
-        restored = False
-        while asyncio.get_running_loop().time() < deadline:
-            if "t2:dev1" in tasks._acquisition_handles:  # noqa: SLF001
-                restored = True
-                break
-            await asyncio.sleep(0.05)
+        # 手动 STOP：关闭 listener 不得被登记为故障。
+        await handle.close()
+        assert driver._listeners == set()  # noqa: SLF001
+        assert driver._listener_fault is False  # noqa: SLF001
+        assert (await driver.health()).healthy
 
-        assert restored, "t2 restore must not be starved by persistent t1 restore failure"
+        # 回调死亡：故障立即锁存。
+        async def bad_cb(samples: Any) -> None:
+            del samples
+            raise RuntimeError("boom")
 
-        # t2 恢复后再观察多个看门狗周期，验证"恢复未完成"语义：
-        t2_handle = tasks._acquisition_handles["t2:dev1"]  # noqa: SLF001
-        assert tasks.instance_states()["t2:dev1"] is TaskInstanceState.RUNNING
-        count_at_restore = rejected["count"]
-        await asyncio.sleep(0.6)  # 约 6 个看门狗周期
+        bad_handle = await driver.listen(["p1"], bad_cb)
+        conn.deliver([floating_data_msg(1, 100, 2.0)])
+        await wait_until(
+            lambda: True if bad_handle.failed else None,
+            timeout=5.0,
+            description="bad listener fails",
+        )
+        assert driver._listener_fault is True  # noqa: SLF001
+        assert not (await driver.health()).healthy
 
-        # (4) t1 持续失败但保留 restart_pending 与运行意图（STOPPED 簿记 + pending）。
-        assert "t1:dev1" in tasks._restart_pending  # noqa: SLF001
-        assert "t1:dev1" in tasks._desired_running  # noqa: SLF001
-        assert "t2:dev1" in tasks._desired_running  # noqa: SLF001
-        assert tasks.instance_states()["t1:dev1"] is TaskInstanceState.STOPPED
+        # 故障 listener 被 prepare 路径关闭移出集合后，故障位不得丢失。
+        await bad_handle.close()
+        assert driver._listeners == set()  # noqa: SLF001
+        assert driver._listener_fault is True  # noqa: SLF001
+        assert not (await driver.health()).healthy
 
-        # (5)(6) Watchdog 仍在后续周期重试失败的 t1（拒绝计数继续增长）。
-        assert rejected["count"] > count_at_restore, "watchdog must keep retrying failed instance"
-
-        # (7) 已恢复的 t2 不重复创建句柄，也不重复发 GI；监听数稳定。
-        assert tasks._acquisition_handles["t2:dev1"] is t2_handle  # noqa: SLF001
-        assert asm.connections[1].gi_requests == [20]
-        listeners = set(driver._listeners)  # noqa: SLF001
-        assert len(listeners) == 1  # 只有 t2 的监听存活
-
-        # 持续失败期间不得发生多余的物理重连——恢复重试在既有连接上进行。
-        assert len(asm.connections) == 2
+        # 完整 close→connect（Watchdog 恢复路径）完成后才允许清除。
+        await driver.close()
+        assert driver._listener_fault is False  # noqa: SLF001
+        await driver.connect()
+        assert driver._listeners == set()  # noqa: SLF001
+        assert (await driver.health()).healthy
     finally:
-        await asm.devices.close_all()
         await driver.close()
