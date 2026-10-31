@@ -1,4 +1,4 @@
-"""Exact-version dependency traversal for Collector templates."""
+"""Resolve shared device templates independently of service-specific task templates."""
 
 from __future__ import annotations
 
@@ -7,6 +7,16 @@ from dataclasses import dataclass
 from core.application.errors import ConfigError
 
 from .versioned_templates import ResolvedTemplate, TemplateRef, VersionedTemplateRepository
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceTemplates:
+    """Service-independent protocol and point-table dependencies."""
+
+    model: ResolvedTemplate
+    protocol: ResolvedTemplate
+    point_table: ResolvedTemplate
+    inherited_tables: tuple[ResolvedTemplate, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,15 +34,28 @@ def _reference(raw: object, category: str) -> TemplateRef:
     return TemplateRef(category, raw["id"], raw["version"])
 
 
+def resolve_device_templates(
+    repository: VersionedTemplateRepository,
+    model: ResolvedTemplate,
+) -> DeviceTemplates:
+    """Resolve only dependencies every device needs, without requiring a task."""
+    protocol = repository.resolve(_reference(model.document.get("protocol"), "protocols"))
+    point_table = repository.resolve(_reference(model.document.get("point_table"), "point_tables"))
+    if point_table.document.get("protocol") != protocol.document.get("protocol"):
+        raise ConfigError("device protocol and point table protocol mismatch")
+    inherited = validate_point_table_chain(repository, point_table)
+    return DeviceTemplates(model, protocol, point_table, inherited)
+
+
 def resolve_model_templates(
     repository: VersionedTemplateRepository,
     model: ResolvedTemplate,
 ) -> ModelTemplates:
-    protocol = repository.resolve(_reference(model.document.get("protocol"), "protocols"))
-    point_table = repository.resolve(_reference(model.document.get("point_table"), "point_tables"))
+    device = resolve_device_templates(repository, model)
     task = repository.resolve(_reference(model.document.get("task"), "tasks"))
-    inherited = validate_point_table_chain(repository, point_table)
-    return ModelTemplates(model, protocol, point_table, task, inherited)
+    return ModelTemplates(
+        device.model, device.protocol, device.point_table, task, device.inherited_tables
+    )
 
 
 def validate_point_table_chain(

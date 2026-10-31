@@ -1,36 +1,40 @@
-"""只读配置诊断：复用 Core 已有的 YAML/领域配置校验与快照比较。"""
+"""Read-only diagnostic checks for shared instance and template configuration."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from core.application.config_diff import ConfigSnapshotDiff, diff_config_snapshots
-from core.application.config_snapshot import ConfigSnapshot
 from core.application.diagnostic import (
     DiagnosticFinding,
     DiagnosticResult,
     DiagnosticStatus,
 )
-from core.infrastructure.config.adapter import YamlConfigAdapter
+from core.infrastructure.config.shared_documents import (
+    SharedConfigPaths,
+    SharedDeviceDefinition,
+    SharedDocumentLoader,
+    SharedDocuments,
+)
 
 _REQUIRED_FILES = (
-    "system.yaml",
-    "units.yaml",
-    "device_models.yaml",
-    "devices.yaml",
-    "points.yaml",
-    "tasks.yaml",
-    "sinks.yaml",
-    "business_points.yaml",
+    "instances/site.yaml",
+    "instances/devices.yaml",
+    "templates/units.yaml",
+    "templates/business_points.yaml",
 )
 
 
-def _load(config_dir: Path) -> ConfigSnapshot:
-    return YamlConfigAdapter(config_dir).load()
+def _load(config_dir: Path) -> SharedDocuments:
+    return SharedDocumentLoader(
+        SharedConfigPaths(
+            instances=config_dir / "instances",
+            templates=config_dir / "templates",
+        )
+    ).load()
 
 
 def check_config(config_dir: str | Path) -> DiagnosticResult:
-    """执行完整配置检查；不修改文件、不访问设备及 Sink。"""
+    """Check shared configuration only; service settings are owned by services."""
     base = Path(config_dir)
     if not base.is_dir():
         return _failed(base, "CONFIG_DIRECTORY_NOT_FOUND", "Configuration directory not found")
@@ -51,9 +55,8 @@ def check_config(config_dir: str | Path) -> DiagnosticResult:
             ),
         )
     try:
-        snapshot = _load(base)
+        documents = _load(base)
     except Exception as exc:
-        # 不将原始异常消息直接写入报告；校验器可能包含配置中的敏感值。
         return _failed(
             base,
             "CONFIG_INVALID",
@@ -67,83 +70,123 @@ def check_config(config_dir: str | Path) -> DiagnosticResult:
             DiagnosticFinding(
                 code="CONFIG_VALID",
                 status=DiagnosticStatus.PASS,
-                message="YAML, schema and cross-reference validation passed",
+                message="Shared YAML, schema and template references validated",
             ),
         ),
         measurements={
-            "devices": len(snapshot.site.devices),
-            "device_models": len(snapshot.device_models),
-            "point_tables": len(snapshot.point_tables),
-            "tasks": len(snapshot.tasks),
-            "sinks": len(snapshot.sinks),
+            "devices": len(documents.devices),
+            "device_models": len(
+                {item.templates.model.reference for item in documents.devices.values()}
+            ),
+            "point_tables": len(
+                {item.templates.point_table.reference for item in documents.devices.values()}
+            ),
         },
     )
 
 
 def compare_config(previous: str | Path, current: str | Path) -> DiagnosticResult:
-    """检查两个配置目录并返回快照差异；任一目录无效即拒绝比较。"""
+    """Compare shared configuration after independently validating both roots."""
     previous_result = check_config(previous)
     current_result = check_config(current)
-    errors = (
-        *(
-            finding
-            for finding in previous_result.findings
-            if finding.status is DiagnosticStatus.FAIL
-        ),
-        *(
-            finding
-            for finding in current_result.findings
-            if finding.status is DiagnosticStatus.FAIL
-        ),
+    errors = tuple(
+        finding
+        for result in (previous_result, current_result)
+        for finding in result.findings
+        if finding.status is DiagnosticStatus.FAIL
     )
     if errors:
         return DiagnosticResult(
             category="config",
             target=f"{previous} -> {current}",
             status=DiagnosticStatus.FAIL,
-            findings=tuple(errors),
+            findings=errors,
         )
     try:
-        diff = diff_config_snapshots(_load(Path(previous)), _load(Path(current)))
+        before = _load(Path(previous))
+        after = _load(Path(current))
     except Exception as exc:
         return _failed(
             Path(current),
             "CONFIG_DIFF_FAILED",
             f"Configuration comparison failed ({type(exc).__name__})",
         )
-    return _diff_result(previous, current, diff)
+    return _diff_result(previous, current, before, after)
+
+
+def _template_identity(device: SharedDeviceDefinition) -> tuple[tuple[str, str, str], ...]:
+    """Stable template identity independent of checkout location."""
+    templates = device.templates
+    dependencies = (
+        templates.model,
+        templates.protocol,
+        templates.point_table,
+        *templates.inherited_tables,
+    )
+    return tuple(
+        (
+            item.reference.template_id,
+            item.reference.file_version,
+            item.content_hash,
+        )
+        for item in dependencies
+    )
 
 
 def _diff_result(
     previous: str | Path,
     current: str | Path,
-    diff: ConfigSnapshotDiff,
+    before: SharedDocuments,
+    after: SharedDocuments,
 ) -> DiagnosticResult:
-    sections = {
-        name: {
-            "added": sorted(section.added),
-            "removed": sorted(section.removed),
-            "changed": sorted(section.changed),
-        }
-        for name, section in diff.sections.items()
-    }
+    previous_devices = before.devices
+    current_devices = after.devices
+    previous_names = set(previous_devices)
+    current_names = set(current_devices)
+    common = previous_names & current_names
+    changed = sorted(
+        name
+        for name in common
+        if (
+            previous_devices[name].name,
+            previous_devices[name].endpoint,
+            previous_devices[name].protocol_options,
+            previous_devices[name].enabled,
+            _template_identity(previous_devices[name]),
+        )
+        != (
+            current_devices[name].name,
+            current_devices[name].endpoint,
+            current_devices[name].protocol_options,
+            current_devices[name].enabled,
+            _template_identity(current_devices[name]),
+        )
+    )
+    # Template changes also affect the revision even when instance values are unchanged.
+    has_changes = before.revision != after.revision
     return DiagnosticResult(
         category="config",
         target=f"{previous} -> {current}",
         status=DiagnosticStatus.PASS,
         findings=(
             DiagnosticFinding(
-                code="CONFIG_CHANGED" if diff.has_changes else "CONFIG_UNCHANGED",
+                code="CONFIG_CHANGED" if has_changes else "CONFIG_UNCHANGED",
                 status=DiagnosticStatus.PASS,
-                message="Configuration differences computed successfully",
+                message="Shared configuration differences computed successfully",
             ),
         ),
         evidence={
-            "has_changes": diff.has_changes,
-            "system_changed": diff.system_changed,
-            "site_changed": diff.site_changed,
-            "units_changed": diff.units_changed,
-            "sections": sections,
+            "has_changes": has_changes,
+            "site_changed": before.site != after.site,
+            "units_changed": before.units != after.units,
+            "business_points_changed": before.business_points != after.business_points,
+            "sections": {
+                "devices": {
+                    "added": sorted(current_names - previous_names),
+                    "removed": sorted(previous_names - current_names),
+                    "changed": changed,
+                }
+            },
         },
     )
 

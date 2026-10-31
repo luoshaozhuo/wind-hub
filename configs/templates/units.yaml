@@ -1,4 +1,5 @@
 schema_version: 1
+file_version: 1.0.0
 quantities:
   dimensionless:
     base_unit: none

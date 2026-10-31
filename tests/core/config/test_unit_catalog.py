@@ -153,67 +153,20 @@ def test_parse_rejects_missing_sections() -> None:
 def test_template_units_yaml_is_complete_catalog() -> None:
     from core.infrastructure.config.yaml import read_yaml_mapping
 
-    catalog = parse_unit_catalog(read_yaml_mapping(TEMPLATE_DIR / "units.yaml"))
-    # 迁移的内置单位必须全部存在
-    for unit_id in (
-        "none",
-        "percent",
-        "volt",
-        "kilovolt",
-        "ampere",
-        "watt",
-        "kilowatt",
-        "megawatt",
-        "var",
-        "kilovar",
-        "megavar",
-        "volt_ampere",
-        "kilovolt_ampere",
-        "megavolt_ampere",
-        "hertz",
-        "hertz_per_second",
-        "watt_hour",
-        "kilowatt_hour",
-        "megawatt_hour",
-        "meter",
-        "millimeter",
-        "meter_per_second",
-        "meter_per_second_squared",
-        "standard_gravity",
-        "radian",
-        "degree",
-        "radian_per_second",
-        "degree_per_second",
-        "rpm",
-        "radian_per_second_squared",
-        "degree_per_second_squared",
-        "rpm_per_second",
-        "newton",
-        "kilonewton",
-        "newton_meter",
-        "kilonewton_meter",
-        "pascal",
-        "kilopascal",
-        "megapascal",
-        "bar",
-        "kelvin",
-        "celsius",
-        "second",
-        "millisecond",
-        "minute",
-        "hour",
-        "ohm",
-        "siemens",
-        "farad",
-        "henry",
-    ):
-        assert unit_id in catalog, unit_id
-    # 风光储缺口补充
-    for unit_id in (
-        "watt_per_square_meter",
-        "kilowatt_hour_per_square_meter",
-        "ampere_hour",
-        "kilogram_per_cubic_meter",
-        "percent_rh",
-    ):
-        assert unit_id in catalog, unit_id
+    # units 目录现位于 templates/ 并带文件版本头，解析前剥离版本元数据。
+    document = {
+        key: value
+        for key, value in read_yaml_mapping(TEMPLATE_DIR / "templates" / "units.yaml").items()
+        if key not in {"schema_version", "file_version"}
+    }
+    catalog = parse_unit_catalog(document)
+    # 单位目录由配置驱动：仓库示例只携带其业务点实际使用的单位，
+    # 不再要求内置“完整单位表”。这里钉死示例目录的实际集合与基准换算。
+    assert set(catalog.units) == {"none", "watt", "kilowatt"}
+    assert catalog.base_units["active_power"] == "watt"
+    assert convert_value(1.0, catalog.unit("kilowatt"), catalog.unit("watt")) == 1000.0
+
+    # shipped 业务点引用的每个单位都必须能在目录中解析。
+    business = read_yaml_mapping(TEMPLATE_DIR / "templates" / "business_points.yaml")
+    for point in business.get("business_points", {}).values():
+        assert point["unit"] in catalog.units, point["unit"]

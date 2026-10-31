@@ -6,16 +6,31 @@ import asyncio
 from collections.abc import Sequence
 from pathlib import Path
 
-from core.application.diagnostic import DiagnosticFinding, DiagnosticResult, DiagnosticStatus
+from core.application.diagnostic import (
+    DiagnosticFinding,
+    DiagnosticResult,
+    DiagnosticStatus,
+)
 from core.application.port.protocol import ProtocolPort
 from core.application.protocol_contract import ProtocolCapability
-from core.infrastructure.config.adapter import YamlConfigAdapter
 from core.infrastructure.config.effective import resolve_effective_device
+from core.infrastructure.config.shared_documents import (
+    SharedConfigPaths,
+    SharedDocumentLoader,
+)
+from core.infrastructure.config.shared_snapshot import build_shared_snapshot
 from core.infrastructure.diagnostic.benchmark import benchmark
 
 
 def _driver(config: str | Path, device_id: str) -> ProtocolPort:
-    snapshot = YamlConfigAdapter(config).load()
+    root = Path(config)
+    documents = SharedDocumentLoader(
+        SharedConfigPaths(
+            instances=root / "instances",
+            templates=root / "templates",
+        )
+    ).load()
+    snapshot = build_shared_snapshot(documents)
     device = next((d for key, d in snapshot.site.devices.items() if str(key) == device_id), None)
     if device is None:
         raise ValueError(f"unknown device: {device_id}")

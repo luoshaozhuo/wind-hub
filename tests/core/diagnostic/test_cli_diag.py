@@ -18,7 +18,9 @@ from core.application.diagnostic import DiagnosticFinding, DiagnosticResult, Dia
 from core.infrastructure.diagnostic import cli, firewall, network
 
 runner = CliRunner()
-FIXTURE = Path("tests/fixtures/configs/example_modbus")
+# 只读配置诊断现在消费共享目录布局（instances/ + templates/），仓库 configs/
+# 本身即合法根；协议诊断用例 monkeypatch check_protocol，不实际加载该目录。
+FIXTURE = Path("configs")
 
 
 def _result(status: DiagnosticStatus, *, code: str = "X", message: str = "msg") -> DiagnosticResult:

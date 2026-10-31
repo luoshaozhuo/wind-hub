@@ -86,7 +86,15 @@ class ProtocolPort(Protocol[TPoint]):
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]: ...
 
-    async def write_one(self, write: ProtocolWrite[TPoint]) -> ProtocolWriteResult: ...
+    async def write_one(self, write: ProtocolWrite[TPoint]) -> ProtocolWriteResult:
+        """Submit one write; cancellation does not prove native I/O has stopped.
+
+        A confirmed result describes the device response, not resource settlement.
+        UNKNOWN must never be retried automatically. After cancellation, the
+        caller must retain exclusive device ownership until the underlying
+        session has safely closed or an operator has isolated the device.
+        """
+        ...
 
     async def write_many(
         self,

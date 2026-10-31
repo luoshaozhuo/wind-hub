@@ -292,9 +292,9 @@ async def test_benchmark_read_failure_yields_warning_not_retried(patched_driver)
 # --------------------------------------------------------------------------
 
 
-def test_driver_selects_modbus_from_real_fixture() -> None:
-    config = Path("tests/fixtures/configs/example_modbus")
-    driver = protocol._driver(config, "modbus-001")
+def test_driver_selects_modbus_from_shared_config() -> None:
+    config = Path(__file__).resolve().parents[3] / "configs"
+    driver = protocol._driver(config, "WT01")
 
     from core.infrastructure.protocol.modbus.driver import ModbusDriver
 
@@ -302,8 +302,49 @@ def test_driver_selects_modbus_from_real_fixture() -> None:
 
 
 def test_driver_unknown_device_raises() -> None:
+    config = Path(__file__).resolve().parents[3] / "configs"
     with pytest.raises(ValueError, match="unknown device"):
-        protocol._driver("tests/fixtures/configs/example_modbus", "no-such-device")
+        protocol._driver(config, "no-such-device")
+
+
+@pytest.mark.parametrize(
+    ("protocol_name", "module", "driver_name"),
+    [
+        ("ads", "core.infrastructure.protocol.ads.driver", "ADSDriver"),
+        ("modbus", "core.infrastructure.protocol.modbus.driver", "ModbusDriver"),
+        ("iec104", "core.infrastructure.protocol.iec104.driver", "IEC104Driver"),
+    ],
+)
+def test_driver_dispatches_by_protocol(
+    monkeypatch: pytest.MonkeyPatch,
+    protocol_name: str,
+    module: str,
+    driver_name: str,
+) -> None:
+    import importlib
+
+    marker = object()
+    table = SimpleNamespace(protocol=SimpleNamespace(name=protocol_name))
+    snapshot = SimpleNamespace(
+        site=SimpleNamespace(devices={"d": SimpleNamespace(device_model_id="m")}),
+        device_models={"m": SimpleNamespace(point_table_id="t")},
+        point_tables={"t": table},
+    )
+    monkeypatch.setattr(
+        protocol,
+        "SharedDocumentLoader",
+        lambda paths: SimpleNamespace(load=lambda: object()),
+    )
+    monkeypatch.setattr(protocol, "build_shared_snapshot", lambda documents: snapshot)
+    monkeypatch.setattr(
+        protocol,
+        "resolve_effective_device",
+        lambda device, model, name: (SimpleNamespace(endpoint="endpoint"), {}),
+    )
+    imported = importlib.import_module(module)
+    monkeypatch.setattr(imported, driver_name, lambda *args: marker)
+
+    assert protocol._driver("ignored", "d") is marker
 
 
 def test_driver_unsupported_protocol_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -314,36 +355,18 @@ def test_driver_unsupported_protocol_raises(monkeypatch: pytest.MonkeyPatch) -> 
         point_tables={"t": table},
     )
     monkeypatch.setattr(
-        "core.infrastructure.diagnostic.protocol.YamlConfigAdapter",
-        lambda path: SimpleNamespace(load=lambda: snapshot),
+        protocol,
+        "SharedDocumentLoader",
+        lambda paths: SimpleNamespace(load=lambda: object()),
     )
+    monkeypatch.setattr(protocol, "build_shared_snapshot", lambda documents: snapshot)
     monkeypatch.setattr(
         protocol,
         "resolve_effective_device",
-        lambda device, model, name: (SimpleNamespace(host="127.0.0.1", port=1), {}),
+        lambda device, model, name: (SimpleNamespace(endpoint="endpoint"), {}),
     )
-
     with pytest.raises(ValueError, match="unsupported protocol"):
         protocol._driver("ignored", "d")
-
-
-# --------------------------------------------------------------------------
-# 真实 fixture 驱动的三种 Driver 选择（仅构造，不连接）
-# --------------------------------------------------------------------------
-
-
-def test_driver_selects_ads_from_real_fixture() -> None:
-    from core.infrastructure.protocol.ads.driver import ADSDriver
-
-    driver = protocol._driver("tests/fixtures/configs/example_ads", "ads-001")
-    assert isinstance(driver, ADSDriver)
-
-
-def test_driver_selects_iec104_from_real_fixture() -> None:
-    from core.infrastructure.protocol.iec104.driver import IEC104Driver
-
-    driver = protocol._driver("tests/fixtures/configs/example_iec104", "wtg-101")
-    assert isinstance(driver, IEC104Driver)
 
 
 async def test_benchmark_multiple_points_uses_read_many(patched_driver) -> None:

@@ -12,6 +12,7 @@ from typing import Any
 
 from core.application.errors import ConfigError
 
+from .document_version import validate_document_version
 from .yaml import read_yaml_mapping
 
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
@@ -50,13 +51,13 @@ def config_hash(document: Mapping[str, Any]) -> str:
 class TemplateRef:
     category: str
     template_id: str
-    template_version: str
+    file_version: str
 
     def __post_init__(self) -> None:
         if self.category not in _CATEGORIES:
             raise ConfigError(f"unsupported template category: {self.category!r}")
         _identifier(self.template_id, label="template ID")
-        _version(self.template_version)
+        _version(self.file_version)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +79,7 @@ class VersionedTemplateRepository:
             self._root
             / reference.category
             / reference.template_id
-            / f"{reference.template_version}.yaml"
+            / f"{reference.file_version}.yaml"
         ).resolve()
         if not candidate.is_relative_to(self._root):
             raise ConfigError("template reference escapes configured root")
@@ -87,12 +88,11 @@ class VersionedTemplateRepository:
     def resolve(self, reference: TemplateRef) -> ResolvedTemplate:
         path = self.path_for(reference)
         document = read_yaml_mapping(path)
-        if type(document.get("schema_version")) is not int or document["schema_version"] != 1:
-            raise ConfigError(f"{path}: unsupported schema_version")
+        metadata = validate_document_version(document, path)
         if document.get("template_id") != reference.template_id:
             raise ConfigError(f"{path}: template_id mismatch")
-        if str(document.get("template_version")) != reference.template_version:
-            raise ConfigError(f"{path}: template_version mismatch")
+        if metadata.file_version != reference.file_version:
+            raise ConfigError(f"{path}: file_version mismatch")
         return ResolvedTemplate(
             reference=reference,
             path=path,

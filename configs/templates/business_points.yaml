@@ -1,4 +1,5 @@
 schema_version: 1
+file_version: 1.0.0
 business_points:
   active_power:
     data_type: int32
