@@ -277,7 +277,7 @@ class QueuedExecutor:
                 result = await asyncio.wait_for(
                     asyncio.shield(write), timeout=self._write_timeout
                 )
-            except TimeoutError:
+            except (TimeoutError, asyncio.CancelledError):
                 self._block_late(device_id, write)
                 owns_gate = False
                 self._unknown(command_id, "WRITE_TIMEOUT")
@@ -303,7 +303,7 @@ class QueuedExecutor:
     ) -> tuple[bool, bool]:
         try:
             await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
-        except TimeoutError:
+        except (TimeoutError, asyncio.CancelledError):
             self._block_late(device_id, task)
             self._unsent(command_id, CommandState.FAILED, "CONNECT_TIMEOUT")
             return False, False
