@@ -203,6 +203,7 @@ class CommanderConfigManager:
                 name: _device_fingerprint(value)
                 for name, value in candidate.devices.items()
             }
+            # Compare source documents at the same representation and grain.
             shared_changed = (
                 candidate.site != self._documents.site
                 or candidate.units != self._documents.units
