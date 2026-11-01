@@ -362,20 +362,20 @@ class QueuedExecutor:
         if self._fatal or entry.terminal_in_queue:
             return False
         if self._closed:
-            await self._unsent(command_id, CommandState.INTERRUPTED, "SERVICE_STOPPING")
+            await self._terminate_queued(entry, CommandState.INTERRUPTED, "SERVICE_STOPPING")
             return False
         if entry.command.spec.device_id in self._reloading:
-            await self._unsent(command_id, CommandState.FAILED, "CONFIG_RELOADING")
+            await self._terminate_queued(entry, CommandState.FAILED, "CONFIG_RELOADING")
             return False
         if queued and entry.deadline <= time.monotonic():
-            await self._unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+            await self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
             return False
         if not self._authorize(entry.command.spec):
-            await self._unsent(command_id, CommandState.FAILED, "CONFIG_CHANGED_OR_REVOKED")
+            await self._terminate_queued(entry, CommandState.FAILED, "CONFIG_CHANGED_OR_REVOKED")
             return False
         expires = entry.command.spec.expires_at
         if expires is not None and expires <= datetime.now(UTC):
-            await self._unsent(command_id, CommandState.EXPIRED, "EXPIRED")
+            await self._terminate_queued(entry, CommandState.EXPIRED, "EXPIRED")
             return False
         return True
 
@@ -424,7 +424,7 @@ class QueuedExecutor:
         if not await self._check_before_write(entry, queued=True):
             return
         if device_id in self._blocked:
-            await self._unsent(command_id, CommandState.FAILED, "DEVICE_BLOCKED")
+            await self._terminate_queued(entry, CommandState.FAILED, "DEVICE_BLOCKED")
             return
 
         # Only the FIFO head competes for a global connection/write permit.
