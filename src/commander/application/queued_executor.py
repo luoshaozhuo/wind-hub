@@ -370,56 +370,71 @@ class QueuedExecutor:
             if not self._check_before_write(entry, queued=False):
                 return
             group = self._batch_entries(device_id, entry, session)
-            # Persist every member before any potentially effective field write.
-            for member in group:
-                self._control.executing(member.command.command_id)
-            writes = tuple(
-                ProtocolWrite(
-                    point=member.command.spec.point_id,
-                    value=member.command.spec.value,
-                )
-                for member in group
-            )
-            native = asyncio.create_task(
-                session.write_many(writes)
-                if len(group) > 1
-                else session.write_one(writes[0])
-            )
             try:
-                result = await asyncio.wait_for(
-                    asyncio.shield(native), timeout=self._write_timeout
-                )
-            except (TimeoutError, asyncio.CancelledError):
-                self._block_late(device_id, native)
-                owns_gate = False
+                # Persist T2 for all children before the first native side effect.
                 for member in group:
-                    self._unknown(member.command.command_id, "WRITE_TIMEOUT")
-            except Exception as exc:
-                self._blocked.add(device_id)
-                for member in group:
-                    self._unknown(member.command.command_id, type(exc).__name__)
-            else:
-                results = result if isinstance(result, tuple) else (result,)
-                if (
-                    len(results) != len(group)
-                    or any(
-                        not isinstance(actual, ProtocolWriteResult)
-                        or actual.point_id != member.command.spec.point_id
-                        for member, actual in zip(group, results, strict=False)
-                    )
+                    self._control.executing(member.command.command_id)
+                if any(
+                    member.command.spec.expires_at is not None
+                    and member.command.spec.expires_at <= datetime.now(UTC)
+                    for member in group
                 ):
+                    # T2 is durable, but native I/O has not been invoked.
+                    for member in group:
+                        self._control.complete(
+                            member.command.command_id,
+                            CommandState.FAILED,
+                            outcome=CommandOutcome.CONFIRMED_FAILURE,
+                            error_code="EXPIRED_BEFORE_WRITE",
+                        )
+                    return
+                writes = tuple(
+                    ProtocolWrite(
+                        point=member.command.spec.point_id,
+                        value=member.command.spec.value,
+                    )
+                    for member in group
+                )
+                native = asyncio.create_task(
+                    session.write_many(writes)
+                    if len(group) > 1
+                    else session.write_one(writes[0])
+                )
+                try:
+                    result = await asyncio.wait_for(
+                        asyncio.shield(native), timeout=self._write_timeout
+                    )
+                except (TimeoutError, asyncio.CancelledError):
+                    self._block_late(device_id, native)
+                    owns_gate = False
+                    for member in group:
+                        self._unknown(member.command.command_id, "WRITE_TIMEOUT")
+                except Exception as exc:
                     self._blocked.add(device_id)
                     for member in group:
-                        self._unknown(
-                            member.command.command_id, "WRITE_RESULT_MISMATCH"
-                        )
+                        self._unknown(member.command.command_id, type(exc).__name__)
                 else:
-                    for member, actual in zip(group, results, strict=True):
-                        self._finish_write(
-                            member.command.command_id, device_id, actual
+                    results = result if isinstance(result, tuple) else (result,)
+                    if (
+                        len(results) != len(group)
+                        or any(
+                            not isinstance(actual, ProtocolWriteResult)
+                            or actual.point_id != member.command.spec.point_id
+                            for member, actual in zip(group, results, strict=False)
                         )
+                    ):
+                        self._blocked.add(device_id)
+                        for member in group:
+                            self._unknown(
+                                member.command.command_id, "WRITE_RESULT_MISMATCH"
+                            )
+                    else:
+                        for member, actual in zip(group, results, strict=True):
+                            self._finish_write(
+                                member.command.command_id, device_id, actual
+                            )
             finally:
-                # The head belongs to _run_device; remove any coalesced successors.
+                # _run_device owns the head; each coalesced successor is retired.
                 for member in group[1:]:
                     self._queues[device_id].remove(member)
                     self._entries.pop(member.command.command_id, None)
