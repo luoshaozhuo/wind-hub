@@ -261,6 +261,16 @@ class QueuedExecutor:
         finally:
             self._reloading.difference_update(device_ids)
 
+    @property
+    def operational(self) -> bool:
+        return not self._closed and not self._fatal
+
+    def pending_commands(self) -> int:
+        return sum(len(queue) for queue in self._queues.values())
+
+    def in_flight_native(self) -> int:
+        return len(self._native) + sum(self._retained_permits.values())
+
     def blocked_devices(self) -> frozenset[str]:
         return frozenset(self._blocked)
 
