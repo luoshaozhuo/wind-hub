@@ -82,6 +82,9 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
             "cleanup_interval_seconds",
             "storage_warning_ratio",
             "admission_stop_ratio",
+            "persistence_interval_ms",
+            "persistence_batch_size",
+            "persistence_max_events",
         },
         "repository",
     )
@@ -190,5 +193,28 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         audit_retry_max=retry_max,
         shutdown_grace_seconds=float(
             _positive(shutdown.get("grace_seconds", 10), "shutdown.grace_seconds")
+        ),
+        persistence_interval_seconds=(
+            float(
+                _positive(
+                    repository.get("persistence_interval_ms", 50),
+                    "repository.persistence_interval_ms",
+                )
+            )
+            / 1000
+        ),
+        persistence_batch_size=int(
+            _positive(
+                repository.get("persistence_batch_size", 500),
+                "repository.persistence_batch_size",
+                integer=True,
+            )
+        ),
+        persistence_max_events=int(
+            _positive(
+                repository.get("persistence_max_events", 100_000),
+                "repository.persistence_max_events",
+                integer=True,
+            )
         ),
     )
