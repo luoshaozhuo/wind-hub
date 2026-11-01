@@ -109,6 +109,15 @@ class CommanderConfigManager:
             )
         ).load()
         build_shared_snapshot(docs)
+        # Refuse a candidate read across concurrent file replacement.
+        verify = SharedDocumentLoader(
+            SharedConfigPaths(
+                instances=self._root / "instances",
+                templates=self._root / "templates",
+            )
+        ).load()
+        if verify.revision != docs.revision:
+            raise RuntimeError("shared configuration changed during validation")
         return docs
 
     def start(self) -> ServiceSettings:
