@@ -11,7 +11,7 @@ from core.infrastructure.config.yaml import read_yaml_mapping
 
 @dataclass(frozen=True, slots=True)
 class ServiceSettings:
-    file_version: str
+    file_version: int
     queue_timeout: float
     connect_timeout: float
     write_timeout: float
@@ -138,7 +138,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         if section in raw:
             _mapping(raw[section], section)
     return ServiceSettings(
-        file_version=str(raw["file_version"]),
+        file_version=raw["file_version"],
         queue_timeout=float(_positive(timeouts.get("queue_default_ms", 1000), "queue_default_ms")) / 1000,
         connect_timeout=float(_positive(timeouts.get("connect_ms", 3000), "connect_ms")) / 1000,
         write_timeout=float(_positive(timeouts.get("write_default_ms", 500), "write_default_ms")) / 1000,
