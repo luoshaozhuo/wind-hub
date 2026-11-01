@@ -59,6 +59,13 @@ class _Entry:
     deadline_handle: asyncio.TimerHandle | None = None
 
 
+class _SerialWriteError(Exception):
+    def __init__(self, results: tuple[ProtocolWriteResult, ...], cause: Exception):
+        super().__init__(str(cause))
+        self.results = results
+        self.cause = cause
+
+
 class QueuedExecutor:
     """Serialize each device and count native connect/write against a global gate.
 
@@ -486,7 +493,8 @@ class QueuedExecutor:
                     )
                     batch_completed = True
                     return
-                native = asyncio.create_task(self._write_group(session, writes))
+                progress: list[ProtocolWriteResult] = []
+                native = asyncio.create_task(self._write_group(session, writes, progress))
                 try:
                     result = await asyncio.wait_for(
                         asyncio.shield(native), timeout=self._write_timeout
@@ -495,29 +503,27 @@ class QueuedExecutor:
                     self._block_late(device_id, native)
                     owns_gate = False
                     await self._control.complete_many(
-                        tuple(
-                            (
-                                member.command.command_id,
-                                CommandState.UNKNOWN,
-                                CommandOutcome.UNKNOWN,
-                                "WRITE_TIMEOUT",
-                            )
-                            for member in group
+                        self._serial_terminal_changes(
+                            group, tuple(progress), "WRITE_TIMEOUT", unsettled=True
                         )
                     )
+                except _SerialWriteError as exc:
+                    self._blocked.add(device_id)
+                    self._retain_gate(device_id)
+                    owns_gate = False
+                    await self._control.complete_many(
+                        self._serial_terminal_changes(
+                            group, exc.results, type(exc.cause).__name__, unsettled=False
+                        )
+                    )
+                    self._schedule_auto_isolation(device_id)
                 except Exception as exc:
                     self._blocked.add(device_id)
                     self._retain_gate(device_id)
                     owns_gate = False
                     await self._control.complete_many(
-                        tuple(
-                            (
-                                member.command.command_id,
-                                CommandState.UNKNOWN,
-                                CommandOutcome.UNKNOWN,
-                                type(exc).__name__,
-                            )
-                            for member in group
+                        self._serial_terminal_changes(
+                            group, (), type(exc).__name__, unsettled=True
                         )
                     )
                     self._schedule_auto_isolation(device_id)
@@ -603,16 +609,59 @@ class QueuedExecutor:
             if owns_gate:
                 self._gate.release()
 
+    @staticmethod
+    def _serial_terminal_changes(
+        group: tuple[_Entry, ...],
+        confirmed: tuple[ProtocolWriteResult, ...],
+        error_code: str,
+        *,
+        unsettled: bool,
+    ) -> tuple[tuple[str, CommandState, CommandOutcome, str | None], ...]:
+        changes: list[tuple[str, CommandState, CommandOutcome, str | None]] = []
+        for index, member in enumerate(group):
+            if index < len(confirmed):
+                actual = confirmed[index]
+                if actual.outcome is WriteOutcome.CONFIRMED_SUCCESS:
+                    state, outcome, code = (
+                        CommandState.SUCCEEDED, CommandOutcome.CONFIRMED_SUCCESS, None
+                    )
+                elif actual.outcome is WriteOutcome.CONFIRMED_FAILURE:
+                    state, outcome, code = (
+                        CommandState.FAILED, CommandOutcome.CONFIRMED_FAILURE,
+                        "DEVICE_REJECTED",
+                    )
+                else:
+                    state, outcome, code = (
+                        CommandState.UNKNOWN, CommandOutcome.UNKNOWN, "WRITE_UNKNOWN"
+                    )
+            elif unsettled or index == len(confirmed):
+                state, outcome, code = (
+                    CommandState.UNKNOWN, CommandOutcome.UNKNOWN, error_code
+                )
+            else:
+                state, outcome, code = (
+                    CommandState.INTERRUPTED, CommandOutcome.NOT_SENT,
+                    "BATCH_ABORTED_NOT_SENT",
+                )
+            changes.append((member.command.command_id, state, outcome, code))
+        return tuple(changes)
+
     async def _write_group(
-        self, session: WriteSession, writes: tuple[ProtocolWrite, ...]
+        self, session: WriteSession, writes: tuple[ProtocolWrite, ...],
+        progress: list[ProtocolWriteResult],
     ) -> tuple[ProtocolWriteResult, ...]:
         """One logical batch: native batch when supported, else serial writes."""
         if len(writes) > 1 and ProtocolCapability.WRITE_MANY in session.capabilities():
             return await session.write_many(writes)
-        results: list[ProtocolWriteResult] = []
         for write in writes:
-            results.append(await session.write_one(write))
-        return tuple(results)
+            try:
+                result = await session.write_one(write)
+            except Exception as exc:
+                raise _SerialWriteError(tuple(progress), exc) from exc
+            progress.append(result)
+            if result.outcome is WriteOutcome.UNKNOWN:
+                raise _SerialWriteError(tuple(progress), RuntimeError("unknown serial write"))
+        return tuple(progress)
 
     def _batch_entries(
         self, device_id: str, head: _Entry, session: WriteSession
