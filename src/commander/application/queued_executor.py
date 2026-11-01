@@ -228,7 +228,7 @@ class QueuedExecutor:
         return self._control.get_command(command_id)
 
     async def quiesce_devices(self, device_ids: frozenset[str]) -> frozenset[str]:
-        """Drain affected devices; keep unsafe ones isolated on reload."""
+        """Stop admissions and writes for changed devices until reload finishes."""
         self._reloading.update(device_ids)
         failed: set[str] = set()
         try:
@@ -238,12 +238,13 @@ class QueuedExecutor:
                     try:
                         await asyncio.wait_for(
                             asyncio.shield(worker),
-                            timeout=self._queue_timeout + self._connect_timeout
+                            timeout=self._queue_timeout
+                            + self._connect_timeout
                             + self._write_timeout,
                         )
-                    except Exception:
-                        failed.add(device_id)
+                    except TimeoutError:
                         self._blocked.add(device_id)
+                        failed.add(device_id)
                         continue
                 if device_id in self._blocked:
                     if not await self.isolate_device(device_id):
@@ -251,15 +252,20 @@ class QueuedExecutor:
                     continue
                 session = self._sessions.get(device_id)
                 if session is not None:
+                    closing = self._isolation_tasks.get(device_id)
+                    if closing is None:
+                        closing = asyncio.create_task(session.close())
+                        self._isolation_tasks[device_id] = closing
                     try:
                         await asyncio.wait_for(
-                            asyncio.shield(asyncio.create_task(session.close())),
+                            asyncio.shield(closing),
                             timeout=self._connect_timeout,
                         )
                     except (TimeoutError, Exception):
                         self._blocked.add(device_id)
                         failed.add(device_id)
                     else:
+                        self._isolation_tasks.pop(device_id, None)
                         self._sessions.pop(device_id, None)
             return frozenset(failed)
         finally:
@@ -293,6 +299,8 @@ class QueuedExecutor:
             await asyncio.gather(idle, return_exceptions=True)
         queue = self._queues[device_id]
         while queue:
+            if self._fatal:
+                return
             entry = queue[0]
             try:
                 await self._execute(device_id, entry)
@@ -306,7 +314,8 @@ class QueuedExecutor:
                 if not entry.finished.done():
                     entry.finished.set_result(None)
             finally:
-                queue.popleft()
+                if queue and queue[0] is entry:
+                    queue.popleft()
                 if entry.deadline_handle is not None:
                     entry.deadline_handle.cancel()
                 if entry.finished.done():
