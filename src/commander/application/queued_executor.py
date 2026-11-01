@@ -214,14 +214,18 @@ class QueuedExecutor:
                 return
             session = self._sessions.get(device_id)
             if session is None:
-                session = self._factory(device_id)
+                try:
+                    session = self._factory(device_id)
+                except Exception:
+                    self._unsent(command_id, CommandState.FAILED, "SESSION_FACTORY_FAILED")
+                    return
                 self._sessions[device_id] = session
                 self._control.connecting(command_id)
                 connect = asyncio.create_task(session.connect())
-                owns_gate = await self._await_native(
-                    device_id, connect, self._connect_timeout, command_id, write=False
+                connected, owns_gate = await self._await_connect(
+                    device_id, connect, self._connect_timeout, command_id
                 )
-                if not owns_gate:
+                if not connected:
                     return
             if not self._check_before_write(entry):
                 return
@@ -252,27 +256,24 @@ class QueuedExecutor:
             if owns_gate:
                 self._gate.release()
 
-    async def _await_native(
+    async def _await_connect(
         self,
         device_id: str,
         task: asyncio.Task[None],
         timeout: float,
         command_id: str,
-        *,
-        write: bool,
-    ) -> bool:
-        del write
+    ) -> tuple[bool, bool]:
         try:
             await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
         except TimeoutError:
             self._block_late(device_id, task)
             self._unsent(command_id, CommandState.FAILED, "CONNECT_TIMEOUT")
-            return False
+            return False, False
         except Exception:
             self._blocked.add(device_id)
             self._unsent(command_id, CommandState.FAILED, "CONNECT_FAILED")
-            return True
-        return True
+            return False, True
+        return True, True
 
     def _finish_write(
         self,
