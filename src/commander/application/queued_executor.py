@@ -8,7 +8,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from core.application.protocol_contract import (
     ProtocolCapability,
@@ -110,7 +110,7 @@ class QueuedExecutor:
         self._entries: dict[str, _Entry] = {}
         self._sessions: dict[str, WriteSession] = {}
         self._blocked: set[str] = set()
-        self._native: set[asyncio.Task[object]] = set()
+        self._native: set[asyncio.Task[Any]] = set()
         self._native_by_device: dict[str, set[asyncio.Task[object]]] = defaultdict(set)
         self._isolation_tasks: dict[str, asyncio.Task[None]] = {}
         self._closed = False
@@ -146,12 +146,12 @@ class QueuedExecutor:
         if len(pending_global) >= self._global_batch_limit:
             raise OverflowError("global pending batch capacity exceeded")
         loop = asyncio.get_running_loop()
+        started = time.monotonic()
         accepted = self._control.accept(commands, caller_id=caller_id)
-        now = time.monotonic()
         for command in accepted:
             entry = _Entry(
                 command=command,
-                deadline=now + self._queue_timeout,
+                deadline=started + self._queue_timeout,
                 finished=loop.create_future(),
                 wakeup=asyncio.Event(),
             )
@@ -188,10 +188,13 @@ class QueuedExecutor:
     def _expire_queued(self, entry: _Entry) -> None:
         if entry.finished.done() or entry.terminal_in_queue:
             return
-        state = self._control.get_command(entry.command.command_id)
-        if state is None or state.state is not CommandState.ACCEPTED:
-            return
-        self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+        try:
+            state = self._control.get_command(entry.command.command_id)
+            if state is None or state.state is not CommandState.ACCEPTED:
+                return
+            self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+        except Exception:
+            self._fatal = True
 
     def cancel(self, command_id: str) -> bool:
         """Cancel only before the native write, without cancelling native I/O."""
@@ -318,7 +321,11 @@ class QueuedExecutor:
             and acquire.exception() is None
             and acquire.result()
         )
-        if not acquired or entry.terminal_in_queue or entry.deadline <= time.monotonic():
+        if (
+            not acquired
+            or entry.terminal_in_queue
+            or entry.deadline <= time.monotonic()
+        ):
             if acquired:
                 self._gate.release()
             if not entry.terminal_in_queue:
@@ -347,7 +354,9 @@ class QueuedExecutor:
                 try:
                     session = self._factory(device_id)
                 except Exception:
-                    self._unsent(command_id, CommandState.FAILED, "SESSION_FACTORY_FAILED")
+                    self._unsent(
+                        command_id, CommandState.FAILED, "SESSION_FACTORY_FAILED"
+                    )
                     return
                 self._sessions[device_id] = session
             if not session.is_open():
@@ -440,7 +449,10 @@ class QueuedExecutor:
                 or member.deadline != head.deadline
                 or spec.expires_at != head.command.spec.expires_at
                 or spec.config_reference != head.command.spec.config_reference
-                or (spec.expires_at is not None and spec.expires_at <= datetime.now(UTC))
+                or (
+                    spec.expires_at is not None
+                    and spec.expires_at <= datetime.now(UTC)
+                )
                 or not self._authorize(spec)
             ):
                 break
