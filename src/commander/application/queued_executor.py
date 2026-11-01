@@ -113,6 +113,7 @@ class QueuedExecutor:
         self._native: set[asyncio.Task[Any]] = set()
         self._native_by_device: dict[str, set[asyncio.Task[object]]] = defaultdict(set)
         self._isolation_tasks: dict[str, asyncio.Task[None]] = {}
+        self._retained_permits: dict[str, int] = defaultdict(int)
         self._closed = False
         self._fatal = False
 
@@ -418,6 +419,8 @@ class QueuedExecutor:
                         self._unknown(member.command.command_id, "WRITE_TIMEOUT")
                 except Exception as exc:
                     self._blocked.add(device_id)
+                    self._retain_gate(device_id)
+                    owns_gate = False
                     for member in group:
                         self._unknown(member.command.command_id, type(exc).__name__)
                 else:
@@ -431,15 +434,24 @@ class QueuedExecutor:
                         )
                     ):
                         self._blocked.add(device_id)
+                        self._retain_gate(device_id)
+                        owns_gate = False
                         for member in group:
                             self._unknown(
                                 member.command.command_id, "WRITE_RESULT_MISMATCH"
                             )
                     else:
+                        uncertain = False
                         for member, actual in zip(group, results, strict=True):
-                            self._finish_write(
-                                member.command.command_id, device_id, actual
+                            uncertain = (
+                                self._finish_write(
+                                    member.command.command_id, device_id, actual
+                                )
+                                or uncertain
                             )
+                        if uncertain:
+                            self._retain_gate(device_id)
+                            owns_gate = False
             finally:
                 # _run_device owns the head; each coalesced successor is retired.
                 for member in group[1:]:
@@ -507,7 +519,8 @@ class QueuedExecutor:
                 return False, False
             except Exception:
                 self._blocked.add(device_id)
-                return False, True
+                self._retain_gate(device_id)
+                return False, False
             self._sessions.pop(device_id, None)
             return False, True
         return True, True
@@ -517,23 +530,25 @@ class QueuedExecutor:
         command_id: str,
         device_id: str,
         result: ProtocolWriteResult,
-    ) -> None:
+    ) -> bool:
         if result.outcome is WriteOutcome.CONFIRMED_SUCCESS:
             self._control.complete(
                 command_id,
                 CommandState.SUCCEEDED,
                 outcome=CommandOutcome.CONFIRMED_SUCCESS,
             )
-        elif result.outcome is WriteOutcome.CONFIRMED_FAILURE:
+            return False
+        if result.outcome is WriteOutcome.CONFIRMED_FAILURE:
             self._control.complete(
                 command_id,
                 CommandState.FAILED,
                 outcome=CommandOutcome.CONFIRMED_FAILURE,
                 error_code="DEVICE_REJECTED",
             )
-        else:
-            self._blocked.add(device_id)
-            self._unknown(command_id, "WRITE_UNKNOWN")
+            return False
+        self._blocked.add(device_id)
+        self._unknown(command_id, "WRITE_UNKNOWN")
+        return True
 
     def _unknown(self, command_id: str, error_code: str) -> None:
         self._control.complete(
@@ -557,8 +572,8 @@ class QueuedExecutor:
                 task.result()
             except BaseException:
                 pass
-            # Completion releases global capacity, but not device isolation.
-            self._gate.release()
+            # Coroutine completion alone is not proof of physical I/O settlement.
+            # Global ownership remains until isolation closes the old session.
 
         native.add_done_callback(finished)
 
@@ -571,6 +586,7 @@ class QueuedExecutor:
             session = self._sessions.get(device_id)
             if session is None:
                 self._blocked.discard(device_id)
+                self._release_retained(device_id)
                 return True
             existing = asyncio.create_task(session.close())
             self._isolation_tasks[device_id] = existing
@@ -585,7 +601,12 @@ class QueuedExecutor:
         self._isolation_tasks.pop(device_id, None)
         self._sessions.pop(device_id, None)
         self._blocked.discard(device_id)
+        self._release_retained(device_id)
         return True
+
+    def _release_retained(self, device_id: str) -> None:
+        for _ in range(self._retained_permits.pop(device_id, 0)):
+            self._gate.release()
 
     async def _expire_session(self, device_id: str) -> None:
         await asyncio.sleep(self._idle_timeout)
