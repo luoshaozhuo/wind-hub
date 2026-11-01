@@ -107,6 +107,7 @@ class QueuedExecutor:
         self._idle_timeout = idle_timeout
         self._max_batch_points = max_batch_points
         self._idle_tasks: dict[str, asyncio.Task[None]] = {}
+        self._deadline_tasks: set[asyncio.Task[None]] = set()
         self._idle_closing: set[str] = set()
         self._queues: dict[str, deque[_Entry]] = defaultdict(deque)
         self._workers: dict[str, asyncio.Task[None]] = {}
@@ -178,7 +179,9 @@ class QueuedExecutor:
                     finished=loop.create_future(),
                     wakeup=asyncio.Event(),
                 )
-                entry.deadline_handle = loop.call_at(entry.deadline, lambda current=entry: asyncio.create_task(self._expire_queued(current)))
+                entry.deadline_handle = loop.call_at(
+                entry.deadline, self._schedule_expiry, entry
+            )
                 self._entries[command.command_id] = entry
                 self._queues[command.spec.device_id].append(entry)
             for device_id in counts:
@@ -204,6 +207,11 @@ class QueuedExecutor:
                 entry.deadline_handle.cancel()
             self._entries.pop(entry.command.command_id, None)
             entry.finished.set_result(None)
+
+    def _schedule_expiry(self, entry: _Entry) -> None:
+        task = asyncio.create_task(self._expire_queued(entry))
+        self._deadline_tasks.add(task)
+        task.add_done_callback(self._deadline_tasks.discard)
 
     async def _expire_queued(self, entry: _Entry) -> None:
         if entry.finished.done() or entry.terminal_in_queue or entry.gate_acquired:
@@ -702,6 +710,23 @@ class QueuedExecutor:
         if grace_seconds <= 0:
             raise ValueError("grace_seconds must be positive")
         self._closed = True
+        try:
+            await asyncio.wait_for(
+                self._admission_lock.acquire(), timeout=grace_seconds
+            )
+        except TimeoutError:
+            return frozenset({"__admission__"})
+        else:
+            self._admission_lock.release()
+        for entry in tuple(self._entries.values()):
+            if entry.deadline_handle is not None:
+                entry.deadline_handle.cancel()
+        if self._deadline_tasks:
+            _, pending_deadlines = await asyncio.wait(
+                tuple(self._deadline_tasks), timeout=grace_seconds
+            )
+            if pending_deadlines:
+                return frozenset({"__deadlines__"})
         workers = tuple(self._workers.values())
         if workers:
             _, pending = await asyncio.wait(workers, timeout=grace_seconds)
