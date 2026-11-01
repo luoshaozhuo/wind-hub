@@ -8,13 +8,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from core.application.protocol_registry import ProtocolRegistry
+
 from commander.application.audit import AuditDelivery, AuditTransport
 from commander.application.config_manager import (
     CommanderConfigManager,
     ReloadReport,
 )
 from commander.application.control import CommandControl
-from commander.application.queued_executor import QueuedExecutor, SessionFactory
+from commander.application.queued_executor import QueuedExecutor
 from commander.infrastructure.event_repository import EventRepository
 from commander.infrastructure.service_settings import ServiceSettings
 
@@ -56,12 +58,12 @@ class CommanderService:
         *,
         config_root: Path,
         service_config: Path,
-        session_factory: SessionFactory,
+        protocol_registry: ProtocolRegistry,
         audit_transport: AuditTransport,
     ) -> None:
         self._config_root = config_root
         self._service_path = service_config
-        self._factory = session_factory
+        self._registry = protocol_registry
         self._audit_transport = audit_transport
         self._audit: AuditDelivery | None = None
         self._state = ServiceState.STOPPED
@@ -114,7 +116,7 @@ class CommanderService:
             control = CommandControl(journal)
             executor = QueuedExecutor(
                 control,
-                self._factory,
+                lambda device_id: manager.create_session(device_id, self._registry),
                 manager.authorized,
                 global_capacity=settings.global_capacity,
                 queue_timeout=settings.queue_timeout,
