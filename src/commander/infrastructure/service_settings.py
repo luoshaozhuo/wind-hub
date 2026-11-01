@@ -22,6 +22,11 @@ class ServiceSettings:
     max_queued_batches_global: int
     max_batch_points: int
     sqlite_path: Path
+    max_storage_bytes: int
+    reserved_storage_bytes: int
+    admission_stop_ratio: float
+    retention_seconds: int
+    cleanup_interval_seconds: float
     audit_stream: str
     audit_subject: str
 
@@ -98,6 +103,21 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
     subject = audit.get("subject")
     if not all(isinstance(v, str) and v.strip() for v in (sqlite_path, stream, subject)):
         raise ValueError("repository.sqlite_path and audit stream/subject required")
+    max_storage = int(
+        _positive(repository.get("max_storage_bytes", 64 * 1024**3), "max_storage_bytes", integer=True)
+    )
+    reserved = int(
+        _positive(repository.get("reserved_storage_bytes", 6871947674), "reserved_storage_bytes", integer=True)
+    )
+    stop_ratio = repository.get("admission_stop_ratio", 0.9)
+    warning_ratio = repository.get("storage_warning_ratio", 0.8)
+    if not (
+        type(stop_ratio) in (float, int)
+        and type(warning_ratio) in (float, int)
+        and 0 < warning_ratio < stop_ratio < 1
+        and reserved < max_storage
+    ):
+        raise ValueError("invalid storage capacity and admission ratios")
     for section in ("grpc", "security"):
         if section in raw:
             _mapping(raw[section], section)
@@ -119,6 +139,15 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
             _positive(dispatch.get("max_batch_size", 10), "max_batch_size", integer=True)
         ),
         sqlite_path=Path(sqlite_path),
+        max_storage_bytes=max_storage,
+        reserved_storage_bytes=reserved,
+        admission_stop_ratio=float(stop_ratio),
+        retention_seconds=int(
+            _positive(repository.get("retention_seconds", 1800), "retention_seconds", integer=True)
+        ),
+        cleanup_interval_seconds=float(
+            _positive(repository.get("cleanup_interval_seconds", 60), "cleanup_interval_seconds")
+        ),
         audit_stream=stream,
         audit_subject=subject,
     )
