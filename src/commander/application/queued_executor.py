@@ -31,6 +31,8 @@ class WriteSession(Protocol):
 
     async def connect(self) -> None: ...
 
+    def is_open(self) -> bool: ...
+
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult: ...
 
     async def close(self) -> None: ...
@@ -90,6 +92,8 @@ class QueuedExecutor:
         self._sessions: dict[str, WriteSession] = {}
         self._blocked: set[str] = set()
         self._native: set[asyncio.Task[object]] = set()
+        self._native_by_device: dict[str, set[asyncio.Task[object]]] = defaultdict(set)
+        self._isolation_tasks: dict[str, asyncio.Task[None]] = {}
         self._closed = False
         self._fatal = False
 
@@ -246,6 +250,7 @@ class QueuedExecutor:
                     self._unsent(command_id, CommandState.FAILED, "SESSION_FACTORY_FAILED")
                     return
                 self._sessions[device_id] = session
+            if not session.is_open():
                 self._control.connecting(command_id)
                 connect = asyncio.create_task(session.connect())
                 connected, owns_gate = await self._await_connect(
@@ -337,9 +342,11 @@ class QueuedExecutor:
     ) -> None:
         self._blocked.add(device_id)
         self._native.add(native)
+        self._native_by_device[device_id].add(native)
 
         def finished(task: asyncio.Task[object]) -> None:
             self._native.discard(task)
+            self._native_by_device[device_id].discard(task)
             try:
                 task.result()
             except BaseException:
@@ -348,6 +355,31 @@ class QueuedExecutor:
             self._gate.release()
 
         native.add_done_callback(finished)
+
+    async def isolate_device(self, device_id: str) -> bool:
+        """Clear blocking only after native work settles and physical close succeeds."""
+        if self._native_by_device[device_id]:
+            return False
+        existing = self._isolation_tasks.get(device_id)
+        if existing is None:
+            session = self._sessions.get(device_id)
+            if session is None:
+                self._blocked.discard(device_id)
+                return True
+            existing = asyncio.create_task(session.close())
+            self._isolation_tasks[device_id] = existing
+        try:
+            await asyncio.shield(existing)
+        except asyncio.CancelledError:
+            return False
+        except Exception:
+            self._isolation_tasks.pop(device_id, None)
+            self._blocked.add(device_id)
+            return False
+        self._isolation_tasks.pop(device_id, None)
+        self._sessions.pop(device_id, None)
+        self._blocked.discard(device_id)
+        return True
 
     async def _expire_session(self, device_id: str) -> None:
         await asyncio.sleep(self._idle_timeout)
