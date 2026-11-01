@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from commander.infrastructure.audit_publisher import AuditPublisher
@@ -41,7 +41,7 @@ class NatsAuditTransport:
             connection.jetstream(timeout=self._timeout), self._subject
         )
 
-    async def publish(self, event: dict[str, Any]) -> None:
+    async def publish(self, event: Mapping[str, Any]) -> None:
         if self._publisher is None:
             await self.connect()
         assert self._publisher is not None
