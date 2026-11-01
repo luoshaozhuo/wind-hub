@@ -1,48 +1,59 @@
-"""Durable per-device FIFO execution with bounded global native I/O ownership."""
+"""Per-device FIFO dispatcher with durable decisions and safe native I/O ownership."""
 
 from __future__ import annotations
 
 import asyncio
 import time
 from collections import defaultdict, deque
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
-from core.application.protocol_contract import ProtocolWrite, WriteOutcome
+from core.application.protocol_contract import (
+    ProtocolWrite,
+    ProtocolWriteResult,
+    WriteOutcome,
+)
 
 from commander.application.control import CommandControl
 from commander.domain.command import (
     AcceptedCommand,
     CommandOutcome,
+    CommandResult,
     CommandSpec,
     CommandState,
 )
 
 
 class WriteSession(Protocol):
+    """One device transport. Factory construction must not perform native I/O."""
+
     async def connect(self) -> None: ...
-    async def write_one(self, write: ProtocolWrite) -> object: ...
+
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult: ...
+
     async def close(self) -> None: ...
 
 
-SessionFactory = Callable[[str], Awaitable[WriteSession]]
+SessionFactory = Callable[[str], WriteSession]
 
 
 @dataclass(slots=True)
-class _Queued:
+class _Entry:
     command: AcceptedCommand
     deadline: float
-    future: asyncio.Future[None]
+    finished: asyncio.Future[None]
+    cancelled: bool = False
 
 
 class QueuedExecutor:
-    """A device worker serializes native writes; global capacity includes lingering I/O.
+    """Serialize each device and count native connect/write against a global gate.
 
-    Only a successful native I/O settlement releases its ownership. Cancelling a
-    client waiter cannot abandon native ownership. An unresolvable driver keeps
-    its capacity and device blocked until service isolation.
+    A timeout detaches only the caller, never the native task. The device stays
+    blocked after ambiguous I/O, while global capacity is released only when
+    the native task actually settles. Operators must isolate blocked devices
+    before a new session can be installed.
     """
 
     def __init__(
@@ -57,21 +68,24 @@ class QueuedExecutor:
         max_queued_per_device: int = 100,
     ) -> None:
         if global_capacity < 1 or max_queued_per_device < 1:
-            raise ValueError("capacity must be positive")
+            raise ValueError("capacities must be positive")
         if min(queue_timeout, connect_timeout, write_timeout) <= 0:
             raise ValueError("timeouts must be positive")
         self._control = control
         self._factory = session_factory
-        self._global = asyncio.Semaphore(global_capacity)
+        self._gate = asyncio.Semaphore(global_capacity)
         self._queue_timeout = queue_timeout
         self._connect_timeout = connect_timeout
         self._write_timeout = write_timeout
         self._queue_limit = max_queued_per_device
-        self._queues: dict[str, deque[_Queued]] = defaultdict(deque)
+        self._queues: dict[str, deque[_Entry]] = defaultdict(deque)
         self._workers: dict[str, asyncio.Task[None]] = {}
+        self._entries: dict[str, _Entry] = {}
         self._sessions: dict[str, WriteSession] = {}
         self._blocked: set[str] = set()
+        self._native: set[asyncio.Task[object]] = set()
         self._closed = False
+        self._fatal = False
 
     def accept(
         self,
@@ -79,9 +93,9 @@ class QueuedExecutor:
         *,
         caller_id: str,
     ) -> tuple[AcceptedCommand, ...]:
-        """Durably accept before dispatch; capacity rejection occurs before acceptance."""
-        if self._closed:
-            raise RuntimeError("executor is closed")
+        """Atomically persist one batch before adding any command to FIFO."""
+        if self._closed or self._fatal:
+            raise RuntimeError("dispatcher unavailable")
         counts: dict[str, int] = defaultdict(int)
         for spec in commands:
             counts[spec.device_id] += 1
@@ -89,18 +103,41 @@ class QueuedExecutor:
             len(self._queues[device_id]) + count > self._queue_limit
             for device_id, count in counts.items()
         ):
-            raise OverflowError("device command queue capacity exhausted")
-        accepted = self._control.accept(commands, caller_id=caller_id)
+            raise OverflowError("per-device pending capacity exceeded")
         loop = asyncio.get_running_loop()
+        accepted = self._control.accept(commands, caller_id=caller_id)
+        now = time.monotonic()
         for command in accepted:
-            item = _Queued(
+            entry = _Entry(
                 command=command,
-                deadline=time.monotonic() + self._queue_timeout,
-                future=loop.create_future(),
+                deadline=now + self._queue_timeout,
+                finished=loop.create_future(),
             )
-            self._queues[command.spec.device_id].append(item)
-            self._ensure_worker(command.spec.device_id)
+            self._entries[command.command_id] = entry
+            self._queues[command.spec.device_id].append(entry)
+        for device_id in counts:
+            self._ensure_worker(device_id)
         return accepted
+
+    def cancel(self, command_id: str) -> bool:
+        """Request cancellation while queued; never cancel native protocol I/O."""
+        entry = self._entries.get(command_id)
+        if entry is None or entry.finished.done():
+            return False
+        state = self._control.get_command(command_id)
+        if state is None or state.state is not CommandState.ACCEPTED:
+            return False
+        entry.cancelled = True
+        return True
+
+    async def wait(self, command_id: str) -> CommandResult | None:
+        entry = self._entries.get(command_id)
+        if entry is not None:
+            await asyncio.shield(entry.finished)
+        return self._control.get_command(command_id)
+
+    def blocked_devices(self) -> frozenset[str]:
+        return frozenset(self._blocked)
 
     def _ensure_worker(self, device_id: str) -> None:
         task = self._workers.get(device_id)
@@ -112,149 +149,184 @@ class QueuedExecutor:
     async def _run_device(self, device_id: str) -> None:
         queue = self._queues[device_id]
         while queue:
-            item = queue[0]
+            entry = queue[0]
             try:
-                await self._execute(device_id, item)
-            except BaseException as exc:
-                if isinstance(exc, asyncio.CancelledError):
-                    raise
-                if not item.future.done():
-                    item.future.set_exception(exc)
+                await self._execute(device_id, entry)
+            except Exception as exc:
+                # A failed durable decision must halt subsequent field writes.
+                self._fatal = True
+                if not entry.finished.done():
+                    entry.finished.set_exception(exc)
+                return
+            else:
+                if not entry.finished.done():
+                    entry.finished.set_result(None)
             finally:
                 queue.popleft()
+                if entry.finished.done():
+                    self._entries.pop(entry.command.command_id, None)
 
-    async def _execute(self, device_id: str, item: _Queued) -> None:
-        spec = item.command.spec
-        command_id = item.command.command_id
-        remaining = item.deadline - time.monotonic()
-        if remaining <= 0:
-            self._complete_unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
-            item.future.set_result(None)
-            return
-        if spec.expires_at is not None:
-            if spec.expires_at <= datetime.now(UTC):
-                self._complete_unsent(command_id, CommandState.EXPIRED, "EXPIRED")
-                item.future.set_result(None)
-                return
-        if device_id in self._blocked:
-            self._complete_unsent(command_id, CommandState.FAILED, "DEVICE_BLOCKED")
-            item.future.set_result(None)
-            return
-        try:
-            await asyncio.wait_for(self._global.acquire(), timeout=remaining)
-        except TimeoutError:
-            self._complete_unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
-            item.future.set_result(None)
-            return
-        owned = True
-        try:
-            session = self._sessions.get(device_id)
-            if session is None:
-                session = await self._factory(device_id)
-                self._sessions[device_id] = session
-                self._control.connecting(command_id)
-                await asyncio.wait_for(session.connect(), timeout=self._connect_timeout)
-            if spec.expires_at is not None and spec.expires_at <= datetime.now(UTC):
-                self._complete_unsent(command_id, CommandState.EXPIRED, "EXPIRED")
-                item.future.set_result(None)
-                return
-            self._control.executing(command_id)
-            native = asyncio.create_task(
-                session.write_one(ProtocolWrite(point=spec.point_id, value=spec.value))
-            )
-            try:
-                result = await asyncio.wait_for(
-                    asyncio.shield(native), timeout=self._write_timeout
-                )
-                if result.outcome is WriteOutcome.CONFIRMED_SUCCESS:
-                    self._control.complete(
-                        command_id,
-                        CommandState.SUCCEEDED,
-                        outcome=CommandOutcome.CONFIRMED_SUCCESS,
-                    )
-                elif result.outcome is WriteOutcome.CONFIRMED_FAILURE:
-                    self._control.complete(
-                        command_id,
-                        CommandState.FAILED,
-                        outcome=CommandOutcome.CONFIRMED_FAILURE,
-                        error_code="DEVICE_REJECTED",
-                    )
-                else:
-                    self._control.complete(
-                        command_id,
-                        CommandState.UNKNOWN,
-                        outcome=CommandOutcome.UNKNOWN,
-                        error_code="WRITE_UNKNOWN",
-                    )
-            except (TimeoutError, asyncio.CancelledError):
-                self._control.complete(
-                    command_id,
-                    CommandState.UNKNOWN,
-                    outcome=CommandOutcome.UNKNOWN,
-                    error_code="WRITE_UNCERTAIN",
-                )
-                # A timed out driver still owns its native operation and capacity.
-                owned = False
-                self._blocked.add(device_id)
-                native.add_done_callback(
-                    lambda task: self._settle_late(device_id, task)
-                )
-            item.future.set_result(None)
-        except Exception as exc:
-            state = self._control.get_command(command_id)
-            if state is not None and state.state == CommandState.EXECUTING:
-                self._control.complete(
-                    command_id,
-                    CommandState.UNKNOWN,
-                    outcome=CommandOutcome.UNKNOWN,
-                    error_code="WRITE_EXCEPTION",
-                    error_message=type(exc).__name__,
-                )
-                self._blocked.add(device_id)
-            else:
-                self._control.complete(
-                    command_id,
-                    CommandState.FAILED,
-                    outcome=CommandOutcome.CONFIRMED_FAILURE,
-                    error_code="CONNECT_FAILED",
-                )
-            item.future.set_result(None)
-        finally:
-            if owned:
-                self._global.release()
-
-    def _settle_late(self, device_id: str, task: asyncio.Task[object]) -> None:
-        try:
-            task.result()
-        except BaseException:
-            pass
-        # A late completion does not itself prove the transport is reusable.
-        # Retain device isolation; allow capacity for other devices.
-        self._global.release()
-
-    def _complete_unsent(
-        self, command_id: str, state: CommandState, code: str
-    ) -> None:
+    def _unsent(self, command_id: str, state: CommandState, code: str) -> None:
         self._control.complete(
             command_id,
             state,
-            outcome=CommandOutcome.NOT_SENT
-            if state in (CommandState.EXPIRED, CommandState.CANCELLED)
-            else CommandOutcome.CONFIRMED_FAILURE,
+            outcome=(
+                CommandOutcome.CONFIRMED_FAILURE
+                if state is CommandState.FAILED
+                else CommandOutcome.NOT_SENT
+            ),
             error_code=code,
         )
 
-    async def await_command(self, command_id: str) -> None:
-        for queue in self._queues.values():
-            for item in queue:
-                if item.command.command_id == command_id:
-                    await asyncio.shield(item.future)
+    def _check_before_write(self, entry: _Entry) -> bool:
+        command_id = entry.command.command_id
+        if entry.cancelled:
+            self._unsent(command_id, CommandState.CANCELLED, "CANCELLED")
+            return False
+        if entry.deadline <= time.monotonic():
+            self._unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+            return False
+        expires = entry.command.spec.expires_at
+        if expires is not None and expires <= datetime.now(UTC):
+            self._unsent(command_id, CommandState.EXPIRED, "EXPIRED")
+            return False
+        return True
+
+    async def _execute(self, device_id: str, entry: _Entry) -> None:
+        command_id = entry.command.command_id
+        if not self._check_before_write(entry):
+            return
+        if device_id in self._blocked:
+            self._unsent(command_id, CommandState.FAILED, "DEVICE_BLOCKED")
+            return
+
+        # FIFO head alone competes for global capacity; the clock starts on receipt.
+        remaining = entry.deadline - time.monotonic()
+        try:
+            await asyncio.wait_for(self._gate.acquire(), timeout=max(remaining, 0.0))
+        except TimeoutError:
+            self._unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+            return
+
+        owns_gate = True
+        try:
+            if not self._check_before_write(entry):
+                return
+            session = self._sessions.get(device_id)
+            if session is None:
+                session = self._factory(device_id)
+                self._sessions[device_id] = session
+                self._control.connecting(command_id)
+                connect = asyncio.create_task(session.connect())
+                owns_gate = await self._await_native(
+                    device_id, connect, self._connect_timeout, command_id, write=False
+                )
+                if not owns_gate:
                     return
+            if not self._check_before_write(entry):
+                return
+            # Persist EXECUTING before the first potentially effective native write.
+            self._control.executing(command_id)
+            write = asyncio.create_task(
+                session.write_one(
+                    ProtocolWrite(
+                        point=entry.command.spec.point_id,
+                        value=entry.command.spec.value,
+                    )
+                )
+            )
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.shield(write), timeout=self._write_timeout
+                )
+            except TimeoutError:
+                self._block_late(device_id, write)
+                owns_gate = False
+                self._unknown(command_id, "WRITE_TIMEOUT")
+            except Exception as exc:
+                self._blocked.add(device_id)
+                self._unknown(command_id, type(exc).__name__)
+            else:
+                self._finish_write(command_id, device_id, result)
+        finally:
+            if owns_gate:
+                self._gate.release()
+
+    async def _await_native(
+        self,
+        device_id: str,
+        task: asyncio.Task[None],
+        timeout: float,
+        command_id: str,
+        *,
+        write: bool,
+    ) -> bool:
+        del write
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+        except TimeoutError:
+            self._block_late(device_id, task)
+            self._unsent(command_id, CommandState.FAILED, "CONNECT_TIMEOUT")
+            return False
+        except Exception:
+            self._blocked.add(device_id)
+            self._unsent(command_id, CommandState.FAILED, "CONNECT_FAILED")
+            return True
+        return True
+
+    def _finish_write(
+        self,
+        command_id: str,
+        device_id: str,
+        result: ProtocolWriteResult,
+    ) -> None:
+        if result.outcome is WriteOutcome.CONFIRMED_SUCCESS:
+            self._control.complete(
+                command_id,
+                CommandState.SUCCEEDED,
+                outcome=CommandOutcome.CONFIRMED_SUCCESS,
+            )
+        elif result.outcome is WriteOutcome.CONFIRMED_FAILURE:
+            self._control.complete(
+                command_id,
+                CommandState.FAILED,
+                outcome=CommandOutcome.CONFIRMED_FAILURE,
+                error_code="DEVICE_REJECTED",
+            )
+        else:
+            self._blocked.add(device_id)
+            self._unknown(command_id, "WRITE_UNKNOWN")
+
+    def _unknown(self, command_id: str, error_code: str) -> None:
+        self._control.complete(
+            command_id,
+            CommandState.UNKNOWN,
+            outcome=CommandOutcome.UNKNOWN,
+            error_code=error_code,
+        )
+
+    def _block_late(
+        self, device_id: str, native: asyncio.Task[object]
+    ) -> None:
+        self._blocked.add(device_id)
+        self._native.add(native)
+
+        def finished(task: asyncio.Task[object]) -> None:
+            self._native.discard(task)
+            try:
+                task.result()
+            except BaseException:
+                pass
+            # Completion releases global capacity, but not device isolation.
+            self._gate.release()
+
+        native.add_done_callback(finished)
 
     async def close(self) -> None:
+        """Stop admission, let active FIFO drain; never abandon native tasks."""
         self._closed = True
         await asyncio.gather(*self._workers.values(), return_exceptions=True)
-        await asyncio.gather(
-            *(session.close() for session in self._sessions.values()),
-            return_exceptions=True,
-        )
+        for device_id, session in self._sessions.items():
+            if device_id in self._blocked:
+                continue
+            await session.close()
