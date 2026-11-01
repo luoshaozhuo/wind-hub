@@ -131,8 +131,17 @@ class CommanderService:
             journal = await loop.run_in_executor(writer, partial(self._journal_factory, settings))
             recovered = await loop.run_in_executor(writer, journal.recover)
             initial_sequence = await loop.run_in_executor(writer, journal.latest_receive_seq)
-            buffer = BufferedJournal(initial_sequence=initial_sequence)
-            persistence = PersistenceWorker(buffer, journal, writer)
+            buffer = BufferedJournal(
+                initial_sequence=initial_sequence,
+                maximum_events=settings.persistence_max_events,
+            )
+            persistence = PersistenceWorker(
+                buffer,
+                journal,
+                writer,
+                interval=settings.persistence_interval_seconds,
+                batch_size=settings.persistence_batch_size,
+            )
             control = CommandControl(journal, writer, buffer)
             executor = QueuedExecutor(
                 control,
