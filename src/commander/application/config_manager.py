@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,7 +15,8 @@ from core.infrastructure.config.shared_documents import (
     SharedDocumentLoader,
     SharedDocuments,
 )
-from core.infrastructure.config.shared_snapshot import build_shared_snapshot
+from core.infrastructure.config.shared_snapshot import SharedDomainSnapshot, build_shared_snapshot
+from core.domain import DeviceId, DeviceModelId, PointTableId, PointAccess
 
 from commander.domain.command import CommandSpec
 from commander.infrastructure.service_settings import (
@@ -52,20 +53,29 @@ def _device_fingerprint(document: Any) -> str:
     ).hexdigest()
 
 
-def _writable(document: Any, point_id: str) -> bool:
-    """Conservative, source-level write permission; deny unknown point forms."""
-    table = document.templates.point_table.document
-    points = table.get("points", {})
-    if not isinstance(points, dict):
+def _writable(
+    snapshot: SharedDomainSnapshot, device_id: str, point_id: str, value: object
+) -> bool:
+    device = snapshot.site.devices.get(DeviceId(device_id))
+    if device is None or not device.enabled:
         return False
-    point = points.get(point_id)
-    if not isinstance(point, dict):
+    model = snapshot.device_models.get(DeviceModelId(device.device_model_id))
+    if model is None:
         return False
-    # Inherited or encoded permission is resolved by the real typed snapshot;
-    # raw declarations alone are never treated as permission.
-    access = point.get("access")
-    return access in ("write", "read_write", "rw")
-
+    table = snapshot.point_tables.get(PointTableId(model.point_table_id))
+    if table is None:
+        return False
+    point = table.points.get(point_id)
+    if point is None or point.access not in (PointAccess.WRITE, PointAccess.READ_WRITE):
+        return False
+    business = snapshot.business_points.get(point.business_point_id)
+    if business is None:
+        return False
+    try:
+        business.coerce(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return True
 
 class CommanderConfigManager:
     """Validate candidates before change; never expose a partial revision."""
@@ -75,13 +85,14 @@ class CommanderConfigManager:
         root: Path,
         service_config: Path,
         *,
-        quiesce: Callable[[frozenset[str]], object],
+        quiesce: Callable[[frozenset[str]], Awaitable[frozenset[str]]],
     ) -> None:
         self._root = root
         self._service_config = service_config
         self._quiesce = quiesce
         self._lock = asyncio.Lock()
         self._documents: SharedDocuments | None = None
+        self._snapshot: SharedDomainSnapshot | None = None
         self._settings: ServiceSettings | None = None
         self._fingerprints: dict[str, str] = {}
         self._disabled: set[str] = set()
@@ -101,6 +112,7 @@ class CommanderConfigManager:
         docs = self._load()
         self._settings = settings
         self._documents = docs
+        self._snapshot = build_shared_snapshot(docs)
         self._fingerprints = {
             device: _device_fingerprint(definition)
             for device, definition in docs.devices.items()
@@ -113,7 +125,7 @@ class CommanderConfigManager:
 
     def authorized(self, spec: CommandSpec) -> bool:
         documents = self._documents
-        if documents is None or spec.device_id in self._disabled:
+        if documents is None or self._snapshot is None or spec.device_id in self._disabled:
             return False
         definition = documents.devices.get(spec.device_id)
         if definition is None or not definition.enabled:
@@ -122,7 +134,7 @@ class CommanderConfigManager:
         return (
             expected is not None
             and spec.config_reference == expected
-            and _writable(definition, spec.point_id)
+            and _writable(self._snapshot, spec.device_id, spec.point_id, spec.value)
         )
 
     def device_revision(self, device_id: str) -> str | None:
@@ -145,11 +157,7 @@ class CommanderConfigManager:
                 for key in self._fingerprints.keys() | new_fp.keys()
                 if self._fingerprints.get(key) != new_fp.get(key)
             )
-            result = self._quiesce(changed)
-            if asyncio.iscoroutine(result):
-                blocked = frozenset(await result)
-            else:
-                blocked = frozenset(result)
+            blocked = frozenset(await self._quiesce(changed))
             retained = dict(self._documents.devices)
             current_fp = dict(self._fingerprints)
             for device_id in changed - blocked:
@@ -159,13 +167,17 @@ class CommanderConfigManager:
                 else:
                     retained.pop(device_id, None)
                     current_fp.pop(device_id, None)
-            self._documents = SharedDocuments(
+            applied = SharedDocuments(
                 site=candidate.site,
                 devices=retained,
                 units=candidate.units,
                 business_points=candidate.business_points,
                 revision=candidate.revision,
             )
+            # Rebuild the effective typed snapshot from the actually applied devices.
+            effective_snapshot = build_shared_snapshot(applied)
+            self._documents = applied
+            self._snapshot = effective_snapshot
             self._fingerprints = current_fp
             self._disabled = set(blocked)
             return ReloadReport(
