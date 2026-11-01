@@ -54,6 +54,9 @@ class _Entry:
     deadline: float
     finished: asyncio.Future[None]
     cancelled: bool = False
+    terminal_in_queue: bool = False
+    wakeup: asyncio.Event | None = None
+    deadline_handle: asyncio.TimerHandle | None = None
 
 
 class QueuedExecutor:
@@ -150,6 +153,10 @@ class QueuedExecutor:
                 command=command,
                 deadline=now + self._queue_timeout,
                 finished=loop.create_future(),
+                wakeup=asyncio.Event(),
+            )
+            entry.deadline_handle = loop.call_at(
+                entry.deadline, self._expire_queued, entry
             )
             self._entries[command.command_id] = entry
             self._queues[command.spec.device_id].append(entry)
@@ -157,19 +164,50 @@ class QueuedExecutor:
             self._ensure_worker(device_id)
         return accepted
 
+    def _terminate_queued(
+        self, entry: _Entry, state: CommandState, code: str
+    ) -> None:
+        if entry.finished.done() or entry.terminal_in_queue:
+            return
+        try:
+            self._unsent(entry.command.command_id, state, code)
+        except Exception:
+            self._fatal = True
+            raise
+        entry.terminal_in_queue = True
+        if entry.wakeup is not None:
+            entry.wakeup.set()
+        queue = self._queues[entry.command.spec.device_id]
+        if queue and queue[0] is not entry:
+            queue.remove(entry)
+            if entry.deadline_handle is not None:
+                entry.deadline_handle.cancel()
+            self._entries.pop(entry.command.command_id, None)
+            entry.finished.set_result(None)
+
+    def _expire_queued(self, entry: _Entry) -> None:
+        if entry.finished.done() or entry.terminal_in_queue:
+            return
+        state = self._control.get_command(entry.command.command_id)
+        if state is None or state.state is not CommandState.ACCEPTED:
+            return
+        self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+
     def cancel(self, command_id: str) -> bool:
-        """Request cancellation while queued; never cancel native protocol I/O."""
+        """Cancel only before the native write, without cancelling native I/O."""
         entry = self._entries.get(command_id)
-        if entry is None or entry.finished.done():
+        if entry is None or entry.finished.done() or entry.terminal_in_queue:
             return False
         state = self._control.get_command(command_id)
-        if state is None or state.state not in {
-            CommandState.ACCEPTED,
-            CommandState.CONNECTING,
-        }:
+        if state is None:
             return False
-        entry.cancelled = True
-        return True
+        if state.state is CommandState.ACCEPTED:
+            self._terminate_queued(entry, CommandState.CANCELLED, "CANCELLED")
+            return True
+        if state.state is CommandState.CONNECTING:
+            entry.cancelled = True
+            return True
+        return False
 
     async def wait(self, command_id: str) -> CommandResult | None:
         entry = self._entries.get(command_id)
@@ -209,6 +247,8 @@ class QueuedExecutor:
                     entry.finished.set_result(None)
             finally:
                 queue.popleft()
+                if entry.deadline_handle is not None:
+                    entry.deadline_handle.cancel()
                 if entry.finished.done():
                     self._entries.pop(entry.command.command_id, None)
         if (
@@ -236,7 +276,7 @@ class QueuedExecutor:
 
     def _check_before_write(self, entry: _Entry, *, queued: bool) -> bool:
         command_id = entry.command.command_id
-        if self._fatal:
+        if self._fatal or entry.terminal_in_queue:
             return False
         if entry.cancelled:
             self._unsent(command_id, CommandState.CANCELLED, "CANCELLED")
@@ -262,11 +302,41 @@ class QueuedExecutor:
             return
 
         # FIFO head alone competes for global capacity; the clock starts on receipt.
-        remaining = entry.deadline - time.monotonic()
+        remaining = max(entry.deadline - time.monotonic(), 0.0)
+        acquire = asyncio.create_task(self._gate.acquire())
+        wakeup = asyncio.create_task(entry.wakeup.wait()) if entry.wakeup else None
         try:
-            await asyncio.wait_for(self._gate.acquire(), timeout=max(remaining, 0.0))
-        except TimeoutError:
-            self._unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+            participants: set[asyncio.Task[bool]] = {acquire}
+            if wakeup is not None:
+                participants.add(wakeup)
+            done, _ = await asyncio.wait(
+                participants,
+                timeout=remaining,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if acquire not in done:
+                return
+            acquire.result()
+        finally:
+            if wakeup is not None:
+                wakeup.cancel()
+                await asyncio.gather(wakeup, return_exceptions=True)
+            if acquire.done() and not acquire.cancelled():
+                if acquire.exception() is None and acquire.result():
+                    # Ownership is transferred below only when the gate was won.
+                    if entry.terminal_in_queue or entry.deadline <= time.monotonic():
+                        self._gate.release()
+                        acquire = None
+            else:
+                acquire.cancel()
+                await asyncio.gather(acquire, return_exceptions=True)
+        if acquire is None:
+            if not entry.terminal_in_queue:
+                self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+            return
+        if not acquire.done() or acquire.cancelled():
+            if not entry.terminal_in_queue:
+                self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
             return
 
         owns_gate = True
@@ -345,6 +415,8 @@ class QueuedExecutor:
                 for member in group[1:]:
                     self._queues[device_id].remove(member)
                     self._entries.pop(member.command.command_id, None)
+                    if member.deadline_handle is not None:
+                        member.deadline_handle.cancel()
                     if not member.finished.done():
                         member.finished.set_result(None)
         finally:
