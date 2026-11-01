@@ -140,6 +140,8 @@ class QueuedExecutor:
                 raise PermissionError(
                     "command device/point/config reference is not authorized"
                 )
+            # Preflight raw-value conversion before any ACCEPTED event is committed.
+            self._prepare_write(spec)
             counts[spec.device_id] += 1
         for device_id in counts:
             pending = {item.command.request_id for item in self._queues[device_id]}
