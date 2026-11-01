@@ -9,7 +9,11 @@ from typing import Any, Protocol
 
 class JetStreamClient(Protocol):
     async def publish(
-        self, subject: str, payload: bytes, *, headers: Mapping[str, str]
+        self,
+        subject: str,
+        payload: bytes,
+        *,
+        headers: Mapping[str, Any] | None = None,
     ) -> object: ...
 
 
@@ -38,9 +42,9 @@ class AuditPublisher:
             for key, value in event.items()
             if key not in {"publish_state", "published_at", "attempts"}
         }
-        payload = json.dumps(
-            body, sort_keys=True, ensure_ascii=False, default=_json_value
-        ).encode("utf-8")
+        payload = json.dumps(body, sort_keys=True, ensure_ascii=False, default=_json_value).encode(
+            "utf-8"
+        )
         ack = await self._client.publish(
             self._subject,
             payload,

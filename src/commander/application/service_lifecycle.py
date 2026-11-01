@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from core.application.protocol_registry import ProtocolRegistry
-
 from commander.application.audit import AuditDelivery, AuditTransport
 from commander.application.config_manager import (
     CommanderConfigManager,
@@ -19,6 +17,7 @@ from commander.application.control import CommandControl
 from commander.application.queued_executor import QueuedExecutor
 from commander.infrastructure.event_repository import EventRepository
 from commander.infrastructure.service_settings import ServiceSettings
+from core.application.protocol_registry import ProtocolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +164,7 @@ class CommanderService:
                 stopped = await self._audit.stop()
                 if not stopped:
                     # An in-flight publisher still owns the repository.
-                    raise RuntimeError("startup failed with active audit publisher")
+                    raise RuntimeError("startup failed with active audit publisher") from None
                 self._audit = None
                 await self._audit_transport.close()
             if journal is not None:
@@ -182,16 +181,13 @@ class CommanderService:
             return await self._reload_locked()
 
     async def _reload_locked(self) -> ReloadReport:
-        if self._config is None or self._state not in (
-            ServiceState.READY, ServiceState.DEGRADED
-        ):
+        if self._config is None or self._state not in (ServiceState.READY, ServiceState.DEGRADED):
             raise RuntimeError("service not ready")
         report = await self._config.reload()
         self._restart_required = report.restart_required
         self._state = (
             ServiceState.DEGRADED
-            if report.blocked
-            or (self._executor and self._executor.blocked_devices())
+            if report.blocked or (self._executor and self._executor.blocked_devices())
             else ServiceState.READY
         )
         return report
@@ -274,7 +270,7 @@ class CommanderService:
             self._watchdog.cancel()
             await asyncio.gather(self._watchdog, return_exceptions=True)
             self._watchdog = None
-        blocked = frozenset()
+        blocked: frozenset[str] = frozenset()
         if self._executor is not None:
             blocked = await self._executor.close(grace_seconds=self._shutdown_grace)
         # Unsafe resources must never be hidden by a reported clean stop.

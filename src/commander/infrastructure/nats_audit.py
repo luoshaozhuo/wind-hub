@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
-from commander.infrastructure.audit_publisher import AuditPublisher
+from commander.infrastructure.audit_publisher import AuditPublisher, JetStreamClient
 
 
 class NatsAuditTransport:
@@ -37,9 +37,10 @@ class NatsAuditTransport:
 
         connection = await nats.connect(servers=list(self._servers))
         self._connection = connection
-        self._publisher = AuditPublisher(
-            connection.jetstream(timeout=self._timeout), self._subject, self._stream
-        )
+        # nats-py's JetStreamContext carries extra optional publish kwargs;
+        # the boundary contract is AuditPublisher's own JetStreamClient protocol.
+        client = cast(JetStreamClient, connection.jetstream(timeout=self._timeout))
+        self._publisher = AuditPublisher(client, self._subject, self._stream)
 
     async def publish(self, event: Mapping[str, Any]) -> None:
         if self._publisher is None:

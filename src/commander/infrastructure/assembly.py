@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.application.protocol_registry import ProtocolRegistry
-
 from commander.application.service_lifecycle import CommanderService
 from commander.infrastructure.nats_audit import NatsAuditTransport
 from commander.infrastructure.service_settings import load_service_settings
+from core.application.protocol_registry import ProtocolRegistry
 
 
 def build_commander(

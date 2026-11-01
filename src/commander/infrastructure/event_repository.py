@@ -8,20 +8,20 @@ import json
 import os
 import sqlite3
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 from uuid import uuid4
 
 from commander.domain.command import (
+    TERMINAL_STATES,
     AcceptedCommand,
     CommandOutcome,
     CommandResult,
     CommandSpec,
     CommandState,
-    TERMINAL_STATES,
     utc_now,
     validate_transition,
 )
@@ -134,12 +134,12 @@ class EventRepository:
         self._unavailable = False
         self._lock = threading.RLock()
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock_file = self._path.with_suffix(self._path.suffix + '.lock').open('a+b')
+        self._lock_file = self._path.with_suffix(self._path.suffix + ".lock").open("a+b")
         try:
             fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
             self._lock_file.close()
-            raise RepositoryError('Commander database is owned by another process') from exc
+            raise RepositoryError("Commander database is owned by another process") from exc
         try:
             self._db = sqlite3.connect(self._path, isolation_level=None, timeout=5)
         except BaseException:
@@ -275,9 +275,7 @@ class EventRepository:
                         "point_id": spec.point_id,
                         "value": spec.value,
                         "config_reference": spec.config_reference,
-                        "expires_at": (
-                            spec.expires_at.isoformat() if spec.expires_at else None
-                        ),
+                        "expires_at": (spec.expires_at.isoformat() if spec.expires_at else None),
                     }
                     for spec in specs
                 ],
@@ -299,9 +297,7 @@ class EventRepository:
                 if row is not None:
                     if row[0] != signature:
                         raise ValueError("idempotency key signature conflict")
-                    return tuple(
-                        result.command for result in self.get_request(row[1])
-                    )
+                    return tuple(result.command for result in self.get_request(row[1]))
             self._admit()
             if self._occupied() + sum(len(value) for value in encoded) + len(specs) * 4096 >= min(
                 self._max_bytes * self._stop_ratio, self._max_bytes - self._reserve
@@ -322,18 +318,26 @@ class EventRepository:
                         requested_value,config_reference,receive_seq,state,detail_json
                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
-                        str(uuid4()), command_id, "ACCEPTED", now.isoformat(),
-                        request_id, caller_id, operator_id, trace_id, spec.device_id,
-                        spec.point_id, value, spec.config_reference, seq,
+                        str(uuid4()),
+                        command_id,
+                        "ACCEPTED",
+                        now.isoformat(),
+                        request_id,
+                        caller_id,
+                        operator_id,
+                        trace_id,
+                        spec.device_id,
+                        spec.point_id,
+                        value,
+                        spec.config_reference,
+                        seq,
                         CommandState.ACCEPTED.value,
                         json.dumps(
                             {"expires_at": spec.expires_at.isoformat() if spec.expires_at else None}
                         ),
                     ),
                 )
-                accepted.append(
-                    AcceptedCommand(command_id, request_id, caller_id, spec, now, seq)
-                )
+                accepted.append(AcceptedCommand(command_id, request_id, caller_id, spec, now, seq))
             if idempotency_key is not None:
                 self._db.execute(
                     "INSERT INTO idempotency_keys VALUES(?,?,?,?)",
@@ -348,9 +352,7 @@ class EventRepository:
 
         return self._transaction(insert)
 
-    def find_idempotent(
-        self, caller_id: str, key: str
-    ) -> tuple[AcceptedCommand, ...]:
+    def find_idempotent(self, caller_id: str, key: str) -> tuple[AcceptedCommand, ...]:
         """Return already persisted commands without executing them again."""
         with self._lock:
             if self._closed or self._unavailable:
@@ -393,9 +395,14 @@ class EventRepository:
                     error_code,error_message,publish_state
                 ) VALUES(?,?,?,?,?,?,?,?,?)""",
                 (
-                    str(uuid4()), command_id, event_type, utc_now().isoformat(),
-                    state.value, outcome.value if outcome is not None else None,
-                    error_code, error_message,
+                    str(uuid4()),
+                    command_id,
+                    event_type,
+                    utc_now().isoformat(),
+                    state.value,
+                    outcome.value if outcome is not None else None,
+                    error_code,
+                    error_message,
                     "PENDING",
                 ),
             )
@@ -421,19 +428,28 @@ class EventRepository:
         detail = json.loads(first[13] or "{}")
         expires = detail.get("expires_at")
         spec = CommandSpec(
-            device_id=first[4], point_id=first[5],
-            value=json.loads(first[6]), config_reference=first[7],
+            device_id=first[4],
+            point_id=first[5],
+            value=json.loads(first[6]),
+            config_reference=first[7],
             expires_at=datetime.fromisoformat(expires) if expires else None,
         )
         command = AcceptedCommand(
-            command_id, first[2], first[3], spec,
-            datetime.fromisoformat(first[1]), first[8],
+            command_id,
+            first[2],
+            first[3],
+            spec,
+            datetime.fromisoformat(first[1]),
+            first[8],
         )
         last = rows[-1]
         state = CommandState(last[9])
         return CommandResult(
-            command, state, CommandOutcome(last[10]) if last[10] else None,
-            last[11], last[12],
+            command,
+            state,
+            CommandOutcome(last[10]) if last[10] else None,
+            last[11],
+            last[12],
             datetime.fromisoformat(last[1]) if state in TERMINAL_STATES else None,
         )
 
@@ -484,6 +500,7 @@ class EventRepository:
 
     def recover(self) -> tuple[str, ...]:
         """Finalize unfinished commands; no field I/O is ever performed."""
+
         def operation() -> tuple[str, ...]:
             rows = self._db.execute(
                 "SELECT command_id FROM command_events WHERE event_type='ACCEPTED' "
@@ -548,9 +565,7 @@ class EventRepository:
             ).fetchall()
             deleted = 0
             for (request_id,) in rows:
-                self._db.execute(
-                    "DELETE FROM idempotency_keys WHERE request_id=?", (request_id,)
-                )
+                self._db.execute("DELETE FROM idempotency_keys WHERE request_id=?", (request_id,))
                 command_rows = self._db.execute(
                     "SELECT command_id FROM command_events "
                     "WHERE request_id=? AND event_type='ACCEPTED'",

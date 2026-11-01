@@ -52,7 +52,9 @@ def _positive(raw: object, name: str, *, integer: bool = False) -> float | int:
         if type(raw) is not int or raw < 1:
             raise ValueError(f"{name}: expected positive integer")
         return raw
-    if type(raw) not in (int, float) or not 0 < raw < float("inf"):
+    if type(raw) not in (int, float) or not isinstance(raw, int | float):
+        raise ValueError(f"{name}: expected finite positive number")
+    if not 0 < raw < float("inf"):
         raise ValueError(f"{name}: expected finite positive number")
     return float(raw)
 
@@ -63,8 +65,15 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
     _keys(
         raw,
         {
-            "schema_version", "file_version", "grpc", "security",
-            "dispatcher", "repository", "audit", "timeouts", "shutdown",
+            "schema_version",
+            "file_version",
+            "grpc",
+            "security",
+            "dispatcher",
+            "repository",
+            "audit",
+            "timeouts",
+            "shutdown",
         },
         "commander service",
     )
@@ -77,8 +86,10 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
     _keys(
         dispatch,
         {
-            "max_concurrency", "max_pending_per_device",
-            "max_pending_global", "max_batch_size",
+            "max_concurrency",
+            "max_pending_per_device",
+            "max_pending_global",
+            "max_batch_size",
         },
         "dispatcher",
     )
@@ -90,9 +101,13 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
     _keys(
         repository,
         {
-            "sqlite_path", "max_storage_bytes", "reserved_storage_bytes",
-            "retention_seconds", "cleanup_interval_seconds",
-            "storage_warning_ratio", "admission_stop_ratio",
+            "sqlite_path",
+            "max_storage_bytes",
+            "reserved_storage_bytes",
+            "retention_seconds",
+            "cleanup_interval_seconds",
+            "storage_warning_ratio",
+            "admission_stop_ratio",
         },
         "repository",
     )
@@ -106,13 +121,29 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
     sqlite_path = repository.get("sqlite_path")
     stream = audit.get("stream")
     subject = audit.get("subject")
-    if not all(isinstance(v, str) and v.strip() for v in (sqlite_path, stream, subject)):
-        raise ValueError("repository.sqlite_path and audit stream/subject required")
+    for value, label in (
+        (sqlite_path, "repository.sqlite_path"),
+        (stream, "audit.stream"),
+        (subject, "audit.subject"),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{label} required")
+    assert isinstance(sqlite_path, str)
+    assert isinstance(stream, str)
+    assert isinstance(subject, str)
     max_storage = int(
-        _positive(repository.get("max_storage_bytes", 64 * 1024**3), "max_storage_bytes", integer=True)
+        _positive(
+            repository.get("max_storage_bytes", 64 * 1024**3),
+            "max_storage_bytes",
+            integer=True,
+        )
     )
     reserved = int(
-        _positive(repository.get("reserved_storage_bytes", 6871947674), "reserved_storage_bytes", integer=True)
+        _positive(
+            repository.get("reserved_storage_bytes", 6871947674),
+            "reserved_storage_bytes",
+            integer=True,
+        )
     )
     stop_ratio = repository.get("admission_stop_ratio", 0.9)
     warning_ratio = repository.get("storage_warning_ratio", 0.8)
@@ -139,14 +170,28 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
             _mapping(raw[section], section)
     return ServiceSettings(
         file_version=raw["file_version"],
-        queue_timeout=float(_positive(timeouts.get("queue_default_ms", 1000), "queue_default_ms")) / 1000,
-        connect_timeout=float(_positive(timeouts.get("connect_ms", 3000), "connect_ms")) / 1000,
-        write_timeout=float(_positive(timeouts.get("write_default_ms", 500), "write_default_ms")) / 1000,
+        queue_timeout=(
+            float(_positive(timeouts.get("queue_default_ms", 1000), "queue_default_ms")) / 1000
+        ),
+        connect_timeout=(float(_positive(timeouts.get("connect_ms", 3000), "connect_ms")) / 1000),
+        write_timeout=(
+            float(_positive(timeouts.get("write_default_ms", 500), "write_default_ms")) / 1000
+        ),
         idle_timeout=30.0,
         watchdog_interval=5.0,
-        global_capacity=int(_positive(dispatch.get("max_concurrency", 100), "max_concurrency", integer=True)),
+        global_capacity=int(
+            _positive(
+                dispatch.get("max_concurrency", 100),
+                "max_concurrency",
+                integer=True,
+            )
+        ),
         max_queued_batches_per_device=int(
-            _positive(dispatch.get("max_pending_per_device", 10), "max_pending_per_device", integer=True)
+            _positive(
+                dispatch.get("max_pending_per_device", 10),
+                "max_pending_per_device",
+                integer=True,
+            )
         ),
         max_queued_batches_global=int(
             _positive(dispatch.get("max_pending_global", 1000), "max_pending_global", integer=True)
@@ -170,6 +215,6 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         audit_retry_base=retry_base,
         audit_retry_max=retry_max,
         shutdown_grace_seconds=float(
-            _positive(shutdown.get('grace_seconds', 10), 'shutdown.grace_seconds')
+            _positive(shutdown.get("grace_seconds", 10), "shutdown.grace_seconds")
         ),
     )

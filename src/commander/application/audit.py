@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Mapping
 from typing import Any, Protocol
@@ -96,17 +97,20 @@ class AuditDelivery:
                     self._failures += 1
                     consecutive_failures += 1
                     self._journal.record_publish_failure(event["event_id"])
-                    logger.exception("audit publication failed", extra={"event_id": event["event_id"]})
-                    await self._sleep_or_stop(
-                        min(self._retry_max, self._retry_base * 2 ** min(consecutive_failures - 1, 12))
+                    logger.exception(
+                        "audit publication failed",
+                        extra={"event_id": event["event_id"]},
                     )
+                    backoff = min(
+                        self._retry_max,
+                        self._retry_base * 2 ** min(consecutive_failures - 1, 12),
+                    )
+                    await self._sleep_or_stop(backoff)
                     break
                 else:
                     self._published += 1
                     consecutive_failures = 0
 
     async def _sleep_or_stop(self, seconds: float) -> None:
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._stop.wait(), timeout=seconds)
-        except TimeoutError:
-            pass

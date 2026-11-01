@@ -106,7 +106,7 @@ class CommandSpec:
         for name in ("device_id", "point_id", "config_reference"):
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} must not be empty")
-        if not isinstance(self.value, (bool, int, float, str)):
+        if not isinstance(self.value, bool | int | float | str):
             raise ValueError("value must be a writable protocol scalar")
         if isinstance(self.value, float) and not isfinite(self.value):
             raise ValueError("value must be finite")

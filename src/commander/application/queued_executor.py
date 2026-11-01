@@ -3,19 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
-
-from core.application.protocol_contract import (
-    ProtocolCapability,
-    ProtocolWrite,
-    ProtocolWriteResult,
-    WriteOutcome,
-)
 
 from commander.application.control import CommandControl
 from commander.domain.command import (
@@ -24,6 +18,12 @@ from commander.domain.command import (
     CommandResult,
     CommandSpec,
     CommandState,
+)
+from core.application.protocol_contract import (
+    ProtocolCapability,
+    ProtocolWrite,
+    ProtocolWriteResult,
+    WriteOutcome,
 )
 
 
@@ -145,11 +145,9 @@ class QueuedExecutor:
         counts: dict[str, int] = defaultdict(int)
         for spec in commands:
             if spec.device_id in self._reloading or spec.device_id in self._blocked:
-                raise RuntimeError('device unavailable for control')
+                raise RuntimeError("device unavailable for control")
             if not self._authorize(spec):
-                raise PermissionError(
-                    "command device/point/config reference is not authorized"
-                )
+                raise PermissionError("command device/point/config reference is not authorized")
             # Preflight raw-value conversion before any ACCEPTED event is committed.
             self._prepare_write(spec)
             counts[spec.device_id] += 1
@@ -158,9 +156,7 @@ class QueuedExecutor:
             if len(pending) >= self._device_batch_limit:
                 raise OverflowError("per-device pending batch capacity exceeded")
         pending_global = {
-            item.command.request_id
-            for queue in self._queues.values()
-            for item in queue
+            item.command.request_id for queue in self._queues.values() for item in queue
         }
         if len(pending_global) >= self._global_batch_limit:
             raise OverflowError("global pending batch capacity exceeded")
@@ -176,18 +172,14 @@ class QueuedExecutor:
                 finished=loop.create_future(),
                 wakeup=asyncio.Event(),
             )
-            entry.deadline_handle = loop.call_at(
-                entry.deadline, self._expire_queued, entry
-            )
+            entry.deadline_handle = loop.call_at(entry.deadline, self._expire_queued, entry)
             self._entries[command.command_id] = entry
             self._queues[command.spec.device_id].append(entry)
         for device_id in counts:
             self._ensure_worker(device_id)
         return accepted
 
-    def _terminate_queued(
-        self, entry: _Entry, state: CommandState, code: str
-    ) -> None:
+    def _terminate_queued(self, entry: _Entry, state: CommandState, code: str) -> None:
         if entry.finished.done() or entry.terminal_in_queue:
             return
         try:
@@ -264,7 +256,7 @@ class QueuedExecutor:
                     continue
                 session = self._sessions.get(device_id)
                 if session is not None:
-                    closing = self._isolation_tasks.get(device_id)
+                    closing: asyncio.Task[None] | None = self._isolation_tasks.get(device_id)
                     if closing is None:
                         closing = asyncio.create_task(session.close())
                         self._isolation_tasks[device_id] = closing
@@ -273,7 +265,7 @@ class QueuedExecutor:
                             asyncio.shield(closing),
                             timeout=self._connect_timeout,
                         )
-                    except (TimeoutError, Exception):
+                    except Exception:
                         self._blocked.add(device_id)
                         failed.add(device_id)
                     else:
@@ -371,7 +363,7 @@ class QueuedExecutor:
             self._unsent(command_id, CommandState.INTERRUPTED, "SERVICE_STOPPING")
             return False
         if entry.command.spec.device_id in self._reloading:
-            self._unsent(command_id, CommandState.FAILED, 'CONFIG_RELOADING')
+            self._unsent(command_id, CommandState.FAILED, "CONFIG_RELOADING")
             return False
         if entry.cancelled:
             self._unsent(command_id, CommandState.CANCELLED, "CANCELLED")
@@ -420,11 +412,7 @@ class QueuedExecutor:
             if acquired:
                 self._gate.release()
             raise asyncio.CancelledError
-        if (
-            not acquired
-            or entry.terminal_in_queue
-            or entry.deadline <= time.monotonic()
-        ):
+        if not acquired or entry.terminal_in_queue or entry.deadline <= time.monotonic():
             if acquired:
                 self._gate.release()
             if not entry.terminal_in_queue:
@@ -453,9 +441,7 @@ class QueuedExecutor:
                 try:
                     session = self._factory(device_id)
                 except Exception:
-                    self._unsent(
-                        command_id, CommandState.FAILED, "SESSION_FACTORY_FAILED"
-                    )
+                    self._unsent(command_id, CommandState.FAILED, "SESSION_FACTORY_FAILED")
                     return
                 self._sessions[device_id] = session
             if not session.is_open():
@@ -471,10 +457,7 @@ class QueuedExecutor:
             group = self._batch_entries(device_id, entry, session)
             try:
                 # Validate and normalize every value before persisting T2.
-                writes = tuple(
-                    self._prepare_write(member.command.spec)
-                    for member in group
-                )
+                writes = tuple(self._prepare_write(member.command.spec) for member in group)
                 # Persist T2 for all children before the first native side effect.
                 for member in group:
                     self._control.executing(member.command.command_id)
@@ -493,9 +476,7 @@ class QueuedExecutor:
                         )
                     return
                 native = asyncio.create_task(
-                    session.write_many(writes)
-                    if len(group) > 1
-                    else session.write_one(writes[0])
+                    session.write_many(writes) if len(group) > 1 else session.write_one(writes[0])
                 )
                 try:
                     result = await asyncio.wait_for(
@@ -515,29 +496,22 @@ class QueuedExecutor:
                     self._schedule_auto_isolation(device_id)
                 else:
                     results = result if isinstance(result, tuple) else (result,)
-                    if (
-                        len(results) != len(group)
-                        or any(
-                            not isinstance(actual, ProtocolWriteResult)
-                            or actual.point_id != member.command.spec.point_id
-                            for member, actual in zip(group, results, strict=False)
-                        )
+                    if len(results) != len(group) or any(
+                        not isinstance(actual, ProtocolWriteResult)
+                        or actual.point_id != member.command.spec.point_id
+                        for member, actual in zip(group, results, strict=False)
                     ):
                         self._blocked.add(device_id)
                         self._retain_gate(device_id)
                         owns_gate = False
                         for member in group:
-                            self._unknown(
-                                member.command.command_id, "WRITE_RESULT_MISMATCH"
-                            )
+                            self._unknown(member.command.command_id, "WRITE_RESULT_MISMATCH")
                         self._schedule_auto_isolation(device_id)
                     else:
                         uncertain = False
                         for member, actual in zip(group, results, strict=True):
                             uncertain = (
-                                self._finish_write(
-                                    member.command.command_id, device_id, actual
-                                )
+                                self._finish_write(member.command.command_id, device_id, actual)
                                 or uncertain
                             )
                         if uncertain:
@@ -566,7 +540,7 @@ class QueuedExecutor:
         ):
             return (head,)
         group = [head]
-        for member in list(self._queues[device_id])[1:self._max_batch_points]:
+        for member in list(self._queues[device_id])[1 : self._max_batch_points]:
             spec = member.command.spec
             if (
                 member.cancelled
@@ -575,10 +549,7 @@ class QueuedExecutor:
                 or member.deadline != head.deadline
                 or spec.expires_at != head.command.spec.expires_at
                 or spec.config_reference != head.command.spec.config_reference
-                or (
-                    spec.expires_at is not None
-                    and spec.expires_at <= datetime.now(UTC)
-                )
+                or (spec.expires_at is not None and spec.expires_at <= datetime.now(UTC))
                 or not self._authorize(spec)
             ):
                 break
@@ -603,9 +574,7 @@ class QueuedExecutor:
             session = self._sessions[device_id]
             closing = asyncio.create_task(session.close())
             try:
-                await asyncio.wait_for(
-                    asyncio.shield(closing), timeout=self._connect_timeout
-                )
+                await asyncio.wait_for(asyncio.shield(closing), timeout=self._connect_timeout)
             except TimeoutError:
                 self._block_late(device_id, closing)
                 return False, False
@@ -650,9 +619,11 @@ class QueuedExecutor:
             error_code=error_code,
         )
 
-    def _block_late(
-        self, device_id: str, native: asyncio.Task[Any]
-    ) -> None:
+    def _retain_gate(self, device_id: str) -> None:
+        """Transfer the current permit into retained ownership until isolation."""
+        self._retained_permits[device_id] += 1
+
+    def _block_late(self, device_id: str, native: asyncio.Task[Any]) -> None:
         self._blocked.add(device_id)
         self._retain_gate(device_id)
         self._native.add(native)
@@ -661,10 +632,8 @@ class QueuedExecutor:
         def finished(task: asyncio.Task[Any]) -> None:
             self._native.discard(task)
             self._native_by_device[device_id].discard(task)
-            try:
+            with contextlib.suppress(BaseException):
                 task.result()
-            except BaseException:
-                pass
             # Completion alone is insufficient; verify safe physical close.
             if not self._native_by_device[device_id]:
                 self._schedule_auto_isolation(device_id)
@@ -680,6 +649,7 @@ class QueuedExecutor:
             return
         task = asyncio.create_task(self.isolate_device(device_id))
         self._auto_recovery.add(task)
+
         def settled(completed: asyncio.Task[bool]) -> None:
             self._auto_recovery.discard(completed)
             try:
@@ -755,11 +725,13 @@ class QueuedExecutor:
         if self._idle_tasks:
             await asyncio.wait(tuple(self._idle_tasks.values()), timeout=self._connect_timeout)
         for device_id, session in tuple(self._sessions.items()):
-            worker = self._workers.get(device_id)
-            if device_id in self._blocked or (worker is not None and not worker.done()):
+            active_worker: asyncio.Task[None] | None = self._workers.get(device_id)
+            if device_id in self._blocked or (
+                active_worker is not None and not active_worker.done()
+            ):
                 self._blocked.add(device_id)
                 continue
-            closing = self._isolation_tasks.get(device_id)
+            closing: asyncio.Task[None] | None = self._isolation_tasks.get(device_id)
             if closing is None:
                 closing = asyncio.create_task(session.close())
                 self._isolation_tasks[device_id] = closing
@@ -768,7 +740,7 @@ class QueuedExecutor:
                     asyncio.shield(closing),
                     timeout=self._connect_timeout,
                 )
-            except (TimeoutError, Exception):
+            except Exception:
                 self._blocked.add(device_id)
             else:
                 self._isolation_tasks.pop(device_id, None)
