@@ -299,6 +299,7 @@ class QueuedExecutor:
     async def _acquire_gate(self, entry: _Entry) -> bool:
         acquire = asyncio.create_task(self._gate.acquire())
         wakeup = asyncio.create_task(entry.wakeup.wait()) if entry.wakeup else None
+        interrupted = False
         try:
             participants = {acquire}
             if wakeup is not None:
@@ -308,6 +309,8 @@ class QueuedExecutor:
                 timeout=max(entry.deadline - time.monotonic(), 0.0),
                 return_when=asyncio.FIRST_COMPLETED,
             )
+        except asyncio.CancelledError:
+            interrupted = True
         finally:
             if wakeup is not None:
                 wakeup.cancel()
@@ -321,6 +324,10 @@ class QueuedExecutor:
             and acquire.exception() is None
             and acquire.result()
         )
+        if interrupted:
+            if acquired:
+                self._gate.release()
+            raise asyncio.CancelledError
         if (
             not acquired
             or entry.terminal_in_queue
