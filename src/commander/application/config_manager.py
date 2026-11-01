@@ -9,13 +9,9 @@ import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from commander.domain.command import CommandSpec
-from commander.infrastructure.service_settings import (
-    ServiceSettings,
-    load_service_settings,
-)
 from core.application.port import ProtocolPort
 from core.application.protocol_contract import ProtocolWrite
 from core.application.protocol_registry import ProtocolRegistry
@@ -113,6 +109,14 @@ def _validate_unique_connections(snapshot: SharedDomainSnapshot) -> None:
         seen[identity] = str(device_id)
 
 
+class SettingsLoader(Protocol):
+    def __call__(self) -> object: ...
+
+
+class ConfigPaths(Protocol):
+    def __call__(self) -> SharedDocuments: ...
+
+
 class CommanderConfigManager:
     """Validate candidates before change; never expose a partial revision."""
 
@@ -122,14 +126,16 @@ class CommanderConfigManager:
         service_config: Path,
         *,
         quiesce: Callable[[frozenset[str]], Awaitable[frozenset[str]]],
+        settings_loader: SettingsLoader,
     ) -> None:
         self._root = root
         self._service_config = service_config
+        self._settings_loader = settings_loader
         self._quiesce = quiesce
         self._lock = asyncio.Lock()
         self._documents: SharedDocuments | None = None
         self._snapshot: SharedDomainSnapshot | None = None
-        self._settings: ServiceSettings | None = None
+        self._settings: object | None = None
         self._fingerprints: dict[str, str] = {}
         self._disabled: set[str] = set()
 
@@ -152,8 +158,8 @@ class CommanderConfigManager:
             raise RuntimeError("shared configuration changed during validation")
         return docs
 
-    def start(self) -> ServiceSettings:
-        settings = load_service_settings(self._service_config)
+    def start(self) -> object:
+        settings = self._settings_loader()
         docs = self._load()
         self._settings = settings
         self._documents = docs
@@ -232,7 +238,7 @@ class CommanderConfigManager:
             if self._documents is None or self._settings is None:
                 raise RuntimeError("config manager not started")
             candidate = self._load()
-            service_candidate = load_service_settings(self._service_config)
+            service_candidate = self._settings_loader()
             restart_required = service_candidate != self._settings
             new_fp = {name: _device_fingerprint(value) for name, value in candidate.devices.items()}
             # Compare source documents at the same representation and grain.
