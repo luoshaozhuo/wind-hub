@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import sqlite3
@@ -78,6 +79,13 @@ CREATE INDEX IF NOT EXISTS ce_pending_publish
     ON command_events(event_seq) WHERE publish_state='PENDING';
 CREATE INDEX IF NOT EXISTS ce_device_order
     ON command_events(device_id,receive_seq) WHERE event_type='ACCEPTED';
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    caller_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    PRIMARY KEY (caller_id, idempotency_key)
+);
 CREATE TABLE IF NOT EXISTS repository_meta (
     key TEXT PRIMARY KEY, value TEXT NOT NULL
 );
@@ -204,6 +212,7 @@ class EventRepository:
         caller_id: str,
         operator_id: str | None = None,
         trace_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> tuple[AcceptedCommand, ...]:
         if not specs or not caller_id.strip():
             raise ValueError("nonempty batch and caller_id required")
@@ -212,10 +221,43 @@ class EventRepository:
             json.dumps(spec.value, allow_nan=False, separators=(",", ":")).encode("utf-8")
             for spec in specs
         ]
+        if idempotency_key is not None and not idempotency_key.strip():
+            raise ValueError("idempotency_key must not be blank")
+        signature = hashlib.sha256(
+            json.dumps(
+                [
+                    {
+                        "device_id": spec.device_id,
+                        "point_id": spec.point_id,
+                        "value": spec.value,
+                        "config_reference": spec.config_reference,
+                        "expires_at": (
+                            spec.expires_at.isoformat() if spec.expires_at else None
+                        ),
+                    }
+                    for spec in specs
+                ],
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
         request_id = str(uuid4())
         now = utc_now()
 
         def insert() -> tuple[AcceptedCommand, ...]:
+            if idempotency_key is not None:
+                row = self._db.execute(
+                    "SELECT signature, request_id FROM idempotency_keys "
+                    "WHERE caller_id=? AND idempotency_key=?",
+                    (caller_id, idempotency_key),
+                ).fetchone()
+                if row is not None:
+                    if row[0] != signature:
+                        raise ValueError("idempotency key signature conflict")
+                    return tuple(
+                        result.command for result in self.get_request(row[1])
+                    )
             self._admit()
             if self._occupied() + sum(len(value) for value in encoded) + len(specs) * 4096 >= min(
                 self._max_bytes * self._stop_ratio, self._max_bytes - self._reserve
@@ -248,6 +290,11 @@ class EventRepository:
                 accepted.append(
                     AcceptedCommand(command_id, request_id, caller_id, spec, now, seq)
                 )
+            if idempotency_key is not None:
+                self._db.execute(
+                    "INSERT INTO idempotency_keys VALUES(?,?,?,?)",
+                    (caller_id, idempotency_key, signature, request_id),
+                )
             self._db.execute(
                 "INSERT INTO repository_meta(key,value) VALUES('receive_seq',?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -256,6 +303,22 @@ class EventRepository:
             return tuple(accepted)
 
         return self._transaction(insert)
+
+    def find_idempotent(
+        self, caller_id: str, key: str
+    ) -> tuple[AcceptedCommand, ...]:
+        """Return already persisted commands without executing them again."""
+        with self._lock:
+            if self._closed or self._unavailable:
+                raise RepositoryError("command journal is unavailable")
+            row = self._db.execute(
+                "SELECT request_id FROM idempotency_keys "
+                "WHERE caller_id=? AND idempotency_key=?",
+                (caller_id, key),
+            ).fetchone()
+            if row is None:
+                return ()
+            return tuple(result.command for result in self.get_request(row[0]))
 
     def _current_state(self, command_id: str) -> CommandState:
         row = self._db.execute(
@@ -441,6 +504,9 @@ class EventRepository:
             ).fetchall()
             deleted = 0
             for (request_id,) in rows:
+                self._db.execute(
+                    "DELETE FROM idempotency_keys WHERE request_id=?", (request_id,)
+                )
                 command_rows = self._db.execute(
                     "SELECT command_id FROM command_events "
                     "WHERE request_id=? AND event_type='ACCEPTED'",
