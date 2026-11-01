@@ -113,6 +113,7 @@ class EventRepository:
         self._stop_ratio = admission_stop_ratio
         self._retention = retention_seconds
         self._closed = False
+        self._unavailable = False
         self._lock = threading.RLock()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock_file = self._path.with_suffix(self._path.suffix + '.lock').open('a+b')
@@ -174,17 +175,26 @@ class EventRepository:
 
     def _transaction(self, operation: Callable[[], _T]) -> _T:
         with self._lock:
+            if self._closed or self._unavailable:
+                raise RepositoryError("command journal is unavailable")
             try:
                 self._db.execute("BEGIN IMMEDIATE")
                 result = operation()
                 self._db.execute("COMMIT")
                 return result
-            except BaseException:
+            except BaseException as exc:
+                if isinstance(exc, sqlite3.Error):
+                    self._unavailable = True
                 if self._db.in_transaction:
                     try:
                         self._db.execute("ROLLBACK")
-                    except sqlite3.Error as exc:
-                        raise RepositoryError("rollback failed; repository unusable") from exc
+                    except sqlite3.Error as rollback_error:
+                        self._unavailable = True
+                        raise RepositoryError(
+                            "rollback failed; repository unusable"
+                        ) from rollback_error
+                if isinstance(exc, sqlite3.Error):
+                    raise RepositoryError("SQLite transaction failed; restart required") from exc
                 raise
 
     def accept(
@@ -287,6 +297,8 @@ class EventRepository:
 
     def get(self, command_id: str) -> CommandResult | None:
         with self._lock:
+            if self._closed or self._unavailable:
+                raise RepositoryError("command journal is unavailable")
             rows = self._db.execute(
                 "SELECT event_type,occurred_at,request_id,caller_id,device_id,point_id,"
                 "requested_value,config_reference,receive_seq,state,outcome,"
