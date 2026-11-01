@@ -125,7 +125,7 @@ class QueuedExecutor:
         if entry is None or entry.finished.done():
             return False
         state = self._control.get_command(command_id)
-        if state is None or state.state is not CommandState.ACCEPTED:
+        if state is None or state.state not in {\n            CommandState.ACCEPTED,\n            CommandState.CONNECTING,\n        }:
             return False
         entry.cancelled = True
         return True
@@ -251,7 +251,7 @@ class QueuedExecutor:
                 self._blocked.add(device_id)
                 self._unknown(command_id, type(exc).__name__)
             else:
-                self._finish_write(command_id, device_id, result)
+                if result.point_id != entry.command.spec.point_id:\n                    self._blocked.add(device_id)\n                    self._unknown(command_id, "WRITE_RESULT_MISMATCH")\n                else:\n                    self._finish_write(command_id, device_id, result)
         finally:
             if owns_gate:
                 self._gate.release()
