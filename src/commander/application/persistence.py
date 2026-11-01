@@ -43,6 +43,8 @@ class BufferedJournal:
         maximum_events: int = 100_000,
         initial_sequence: int = 0,
     ) -> None:
+        if maximum_events <= 0 or initial_sequence < 0:
+            raise ValueError("invalid buffer capacity or receive sequence")
         self._maximum = maximum_events
         self._sequence = initial_sequence
         self._pending: deque[PendingEvent] = deque()
@@ -154,12 +156,15 @@ class BufferedJournal:
         # Every accepted command owns reserved T2/T3 capacity.
         if len({change[0] for change in changes}) != len(changes):
             raise ValueError("duplicate transition")
-        for command_id, state, outcome, *_ in changes:
-            current = self._results[command_id]
-            validate_transition(current.state, state, outcome)
+        for change in changes:
+            current = self._results[change[0]]
+            validate_transition(current.state, change[1], change[2])
         now = utc_now()
         for change in changes:
-            command_id, state, outcome, error_code = change[:4]
+            command_id = change[0]
+            state = change[1]
+            outcome = change[2]
+            error_code = change[3]
             message = change[4] if len(change) == 5 else None
             previous = self._results[command_id]
             self._results[command_id] = CommandResult(
@@ -242,6 +247,8 @@ class PersistenceWorker:
         interval: float = 0.05,
         batch_size: int = 500,
     ) -> None:
+        if interval <= 0 or batch_size <= 0:
+            raise ValueError("invalid persistence worker interval or batch size")
         self._buffer = buffer
         self._repository = repository
         self._writer = writer
@@ -254,6 +261,10 @@ class PersistenceWorker:
     @property
     def failure(self) -> Exception | None:
         return self._failed
+
+    @property
+    def operational(self) -> bool:
+        return self._task is not None and not self._task.done()
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name="commander:persistence")
@@ -291,5 +302,8 @@ class PersistenceWorker:
         try:
             await asyncio.wait_for(asyncio.shield(self._task), timeout)
         except TimeoutError:
+            return False
+        except Exception as exc:
+            self._failed = exc
             return False
         return True
