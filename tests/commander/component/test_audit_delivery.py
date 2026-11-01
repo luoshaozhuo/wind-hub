@@ -139,6 +139,97 @@ async def test_stop_returns_false_when_publisher_still_in_io(repo: EventReposito
         await asyncio.sleep(0.05)
 
 
+async def test_stop_returns_false_when_worker_dies_during_shutdown(
+    repo: EventRepository,
+) -> None:
+    """停机瞬间发布失败：worker 异常退出，stop 必须如实返回 False。"""
+    _four_events(repo)
+    transport = ScriptedTransport(fail_times=1)
+    delivery = AuditDelivery(repo, transport, retry_base=0.01)
+    delivery.start()
+    # 首轮发布即失败且 stop 已置位：worker 抛错而不是静默吞掉。
+    assert await delivery.stop(timeout=2.0) is False
+    assert delivery.operational is False
+    assert delivery.failures == 1
+
+
+async def test_tail_events_inserted_during_stop_are_drained(repo: EventRepository) -> None:
+    """最后一个事件在发布在途时写入：停机排空不得丢失末尾事件。"""
+    first_ids = _four_events(repo)
+    release = asyncio.Event()
+    transport = ScriptedTransport(hang=release)
+    delivery = AuditDelivery(repo, transport, retry_base=0.01)
+    delivery.start()
+    await asyncio.sleep(0.05)  # worker 卡在队首 publish 上
+    try:
+        # 在途期间再写一条完整命令链（模拟终态事件与停机并发）。
+        before = {event["event_id"] for event in repo.pending_events(100)}
+        tail = repo.accept([CommandSpec("WT01", "p", 2.0, "ref")], caller_id="op")[0]
+        repo.transition(tail.command_id, CommandState.CONNECTING)
+        repo.transition(tail.command_id, CommandState.EXECUTING)
+        repo.transition(
+            tail.command_id,
+            CommandState.SUCCEEDED,
+            outcome=CommandOutcome.CONFIRMED_SUCCESS,
+        )
+        tail_ids = [
+            event["event_id"]
+            for event in repo.pending_events(100)
+            if event["event_id"] not in before
+        ]
+        assert len(tail_ids) == 4
+        stop_task = asyncio.create_task(delivery.stop(timeout=5.0))
+        await asyncio.sleep(0.05)
+        release.set()
+        assert await stop_task is True
+    finally:
+        release.set()
+        if delivery.operational:
+            await delivery.stop(timeout=2.0)
+    assert not repo.pending_events(100)
+    assert [event["event_id"] for event in transport.published] == first_ids + tail_ids
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "B3 残留：stop 置位后首次 publish 失败立即 RuntimeError 退出，"
+        "未在停机预算内做有界定重试；NATS 短暂中断恢复后停机排空失败。"
+    ),
+)
+async def test_transient_outage_recovers_within_stop_budget(repo: EventRepository) -> None:
+    """停机窗口内 NATS 短暂中断后恢复：stop 应在预算内排空成功而非立即失败。"""
+    _four_events(repo)
+
+    class FlappingTransport:
+        def __init__(self) -> None:
+            self.published: list[dict[str, Any]] = []
+            self.failed = False
+
+        async def publish(self, event: Mapping[str, Any]) -> None:
+            # 留出窗口让 stop 在首轮发布期间置位。
+            await asyncio.sleep(0.05)
+            if not self.failed:
+                self.failed = True
+                raise ConnectionError("jetstream briefly unavailable")
+            self.published.append(dict(event))
+
+        async def close(self) -> None:
+            return None
+
+    flapping = FlappingTransport()
+    delivery = AuditDelivery(repo, flapping, retry_base=0.05, retry_max=0.1)
+    delivery.start()
+    try:
+        stop_task = asyncio.create_task(delivery.stop(timeout=5.0))
+        # 恢复后应在预算内继续排空，而不是 worker 死亡、stop 返回 False。
+        assert await stop_task is True
+        assert not repo.pending_events(100)
+    finally:
+        if delivery.operational:
+            await delivery.stop(timeout=2.0)
+
+
 async def test_invalid_retry_construction_rejected(repo: EventRepository) -> None:
     with pytest.raises(ValueError):
         AuditDelivery(repo, ScriptedTransport(), retry_base=0, retry_max=0.05)

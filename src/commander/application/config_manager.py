@@ -88,14 +88,25 @@ def _validate_unique_connections(snapshot: SharedDomainSnapshot) -> None:
         if not device.enabled:
             continue
         model = snapshot.device_models[device.device_model_id]
-        protocol = snapshot.point_tables[model.point_table_id].protocol.name
+        table = snapshot.point_tables[model.point_table_id]
+        # Identity must reflect effective model/device option merge and port
+        # fallback; otherwise two devices that physically coincide can be
+        # admitted (or two distinct targets rejected on a raw-config collision).
+        effective_device, effective_options = resolve_effective_device(
+            device, model, table.protocol.name
+        )
         options = json.dumps(
-            dict(device.protocol_options),
+            dict(effective_options),
             sort_keys=True,
             separators=(",", ":"),
             default=str,
         )
-        identity = (protocol, device.endpoint.host, device.endpoint.port, options)
+        identity = (
+            table.protocol.name,
+            effective_device.endpoint.host,
+            effective_device.endpoint.port,
+            options,
+        )
         prior = seen.get(identity)
         if prior is not None:
             raise ValueError(f"duplicate protocol connection for {prior} and {device_id}")
