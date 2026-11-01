@@ -50,7 +50,7 @@ class AuditPublisher:
             raise RuntimeError("audit PubAck received from unexpected stream")
 
 
-def _json_value(value: object) -> str:
+def _json_value(value: object) -> Any:
     if isinstance(value, bytes):
-        return value.decode("utf-8")
+        return json.loads(value.decode("utf-8"))
     raise TypeError(f"unsupported audit value type: {type(value).__name__}")
