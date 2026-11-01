@@ -219,6 +219,8 @@ class QueuedExecutor:
 
     def _check_before_write(self, entry: _Entry, *, queued: bool) -> bool:
         command_id = entry.command.command_id
+        if self._fatal:
+            return False
         if entry.cancelled:
             self._unsent(command_id, CommandState.CANCELLED, "CANCELLED")
             return False
@@ -484,7 +486,12 @@ class QueuedExecutor:
             if device_id not in self._idle_closing:
                 idle.cancel()
         await asyncio.gather(*self._idle_tasks.values(), return_exceptions=True)
-        for device_id, session in self._sessions.items():
+        for device_id, session in tuple(self._sessions.items()):
             if device_id in self._blocked:
                 continue
-            await session.close()
+            try:
+                await session.close()
+            except Exception:
+                self._blocked.add(device_id)
+            else:
+                self._sessions.pop(device_id, None)
