@@ -150,16 +150,18 @@ class CommanderService:
         self._restart_required = report.restart_required
         self._state = (
             ServiceState.DEGRADED
-            if report.blocked or (self._executor and self._executor.blocked_devices())
+            if report.blocked
+            or (self._executor and self._executor.blocked_devices())
             else ServiceState.READY
         )
         return report
 
     def health(self) -> RuntimeHealth:
-        blocked = (
-            tuple(sorted(self._executor.blocked_devices()))
-            if self._executor is not None
-            else ()
+        blocked = tuple(
+            sorted(
+                (self._executor.blocked_devices() if self._executor else frozenset())
+                | (self._config.blocked_devices() if self._config else frozenset())
+            )
         )
         operational = self._executor is not None and self._executor.operational
         return RuntimeHealth(
@@ -187,6 +189,8 @@ class CommanderService:
             if self._executor is None:
                 return
             blocked = self._executor.blocked_devices()
+            if self._config is not None:
+                blocked |= self._config.blocked_devices()
             if not self._executor.operational:
                 self._state = ServiceState.FAILED
                 logger.error("Commander dispatcher unavailable")
