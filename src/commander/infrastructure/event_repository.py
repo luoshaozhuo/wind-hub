@@ -499,7 +499,6 @@ class EventRepository:
             ).fetchall()
             deleted = 0
             for (request_id,) in rows:
-                self._db.execute("DELETE FROM idempotency_keys WHERE request_id=?", (request_id,))
                 command_rows = self._db.execute(
                     "SELECT command_id FROM command_events "
                     "WHERE request_id=? AND event_type='ACCEPTED'",
