@@ -111,7 +111,7 @@ class QueuedExecutor:
         self._sessions: dict[str, WriteSession] = {}
         self._blocked: set[str] = set()
         self._native: set[asyncio.Task[Any]] = set()
-        self._native_by_device: dict[str, set[asyncio.Task[object]]] = defaultdict(set)
+        self._native_by_device: dict[str, set[asyncio.Task[Any]]] = defaultdict(set)
         self._isolation_tasks: dict[str, asyncio.Task[None]] = {}
         self._retained_permits: dict[str, int] = defaultdict(int)
         self._closed = False
@@ -559,13 +559,14 @@ class QueuedExecutor:
         )
 
     def _block_late(
-        self, device_id: str, native: asyncio.Task[object]
+        self, device_id: str, native: asyncio.Task[Any]
     ) -> None:
         self._blocked.add(device_id)
+        self._retain_gate(device_id)
         self._native.add(native)
         self._native_by_device[device_id].add(native)
 
-        def finished(task: asyncio.Task[object]) -> None:
+        def finished(task: asyncio.Task[Any]) -> None:
             self._native.discard(task)
             self._native_by_device[device_id].discard(task)
             try:
