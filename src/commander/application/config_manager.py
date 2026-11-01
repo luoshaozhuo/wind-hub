@@ -167,7 +167,7 @@ class CommanderConfigManager:
                 if shared_changed
                 or self._fingerprints.get(key) != new_fp.get(key)
             )
-            blocked = frozenset(await self._quiesce(changed))
+            blocked = frozenset(await self._quiesce(changed | self._disabled))
             # Shared site/units/business definitions cannot be applied partially.
             # Keep the old shared documents whenever a dependent device is unsafe.
             use_new_shared = not (shared_changed and blocked)
