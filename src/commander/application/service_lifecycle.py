@@ -191,6 +191,7 @@ class CommanderService:
         )
         operational = self._executor is not None and self._executor.operational
         audit_operational = self._audit is not None and self._audit.operational
+        journal_operational = self._journal is not None and self._journal.operational
         return RuntimeHealth(
             state=self._state,
             ready=(
@@ -198,6 +199,7 @@ class CommanderService:
                 and not blocked
                 and operational
                 and audit_operational
+                and journal_operational
             ),
             revision=self._config.revision if self._config else "",
             blocked_devices=blocked,
@@ -225,7 +227,9 @@ class CommanderService:
             blocked = self._executor.blocked_devices()
             if self._config is not None:
                 blocked |= self._config.blocked_devices()
-            if not self._executor.operational:
+            if not self._executor.operational or (
+                self._journal is not None and not self._journal.operational
+            ):
                 self._state = ServiceState.FAILED
                 logger.error("Commander dispatcher unavailable")
                 return
