@@ -149,6 +149,13 @@ class CommanderService:
             )
         except BaseException:
             self._state = ServiceState.FAILED
+            if self._audit is not None:
+                stopped = await self._audit.stop()
+                if not stopped:
+                    # An in-flight publisher still owns the repository.
+                    raise RuntimeError("startup failed with active audit publisher")
+                self._audit = None
+                await self._audit_transport.close()
             if journal is not None:
                 journal.close()
             raise
