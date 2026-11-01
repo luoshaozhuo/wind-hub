@@ -358,7 +358,7 @@ class QueuedExecutor:
 
     async def isolate_device(self, device_id: str) -> bool:
         """Clear blocking only after native work settles and physical close succeeds."""
-        if self._native_by_device[device_id]:
+        if device_id not in self._blocked or self._native_by_device[device_id]:
             return False
         existing = self._isolation_tasks.get(device_id)
         if existing is None:
@@ -385,13 +385,14 @@ class QueuedExecutor:
         await asyncio.sleep(self._idle_timeout)
         if self._queues[device_id] or device_id in self._blocked:
             return
-        session = self._sessions.pop(device_id, None)
+        session = self._sessions.get(device_id)
         if session is None:
             return
         self._idle_closing.add(device_id)
         try:
             await session.close()
-        except Exception:
+            self._sessions.pop(device_id, None)
+        except BaseException:
             self._blocked.add(device_id)
         finally:
             self._idle_closing.discard(device_id)
