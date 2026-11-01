@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import os
 import sqlite3
 import threading
@@ -18,7 +19,6 @@ from commander.domain.command import (
     CommandResult,
     CommandSpec,
     CommandState,
-    CommandStateError,
     TERMINAL_STATES,
     utc_now,
     validate_transition,
@@ -111,6 +111,12 @@ class EventRepository:
         self._retention = retention_seconds
         self._lock = threading.RLock()
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock_file = self._path.with_suffix(self._path.suffix + '.lock').open('a+b')
+        try:
+            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            self._lock_file.close()
+            raise RepositoryError('Commander database is owned by another process') from exc
         self._db = sqlite3.connect(self._path, isolation_level=None, timeout=5)
         try:
             self._db.execute("PRAGMA journal_mode=WAL")
@@ -124,11 +130,14 @@ class EventRepository:
                 raise RepositoryError("unsupported repository schema")
         except BaseException:
             self._db.close()
+            self._lock_file.close()
             raise
 
     def close(self) -> None:
         with self._lock:
             self._db.close()
+            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+            self._lock_file.close()
 
     def _occupied(self) -> int:
         return sum(
@@ -285,6 +294,17 @@ class EventRepository:
             last[11], last[12],
             datetime.fromisoformat(last[1]) if state in TERMINAL_STATES else None,
         )
+
+    def get_request(self, request_id: str) -> tuple[CommandResult, ...]:
+        """Return every accepted child in durable receive order."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT command_id FROM command_events WHERE request_id=? "
+                "AND event_type='ACCEPTED' ORDER BY receive_seq",
+                (request_id,),
+            ).fetchall()
+        results = (self.get(command_id) for (command_id,) in rows)
+        return tuple(result for result in results if result is not None)
 
     def pending_events(self, limit: int = 100) -> tuple[dict[str, Any], ...]:
         if limit <= 0:
