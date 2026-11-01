@@ -241,6 +241,7 @@ class CommanderService:
                 and operational
                 and audit_operational
                 and journal_operational
+                and (self._persistence is None or self._persistence.failure is None)
             ),
             revision=self._config.revision if self._config else "",
             blocked_devices=blocked,
@@ -278,9 +279,8 @@ class CommanderService:
                         self._writer, self._journal.metrics
                     )
                 except Exception:
-                    self._state = ServiceState.FAILED
+                    self._state = ServiceState.DEGRADED
                     logger.exception("Commander journal metrics unavailable")
-                    return
             if self._persistence is not None and self._persistence.failure is not None:
                 self._state = ServiceState.DEGRADED
                 logger.warning("Commander persistence retrying", exc_info=self._persistence.failure)
@@ -289,17 +289,20 @@ class CommanderService:
             blocked = self._executor.blocked_devices()
             if self._config is not None:
                 blocked |= self._config.blocked_devices()
-            if not self._executor.operational or (
-                self._journal is not None and not self._journal.operational
-            ):
+            if not self._executor.operational:
                 self._state = ServiceState.FAILED
                 logger.error("Commander dispatcher unavailable")
                 return
+            if self._journal is not None and not self._journal.operational:
+                self._state = ServiceState.DEGRADED
+                logger.error("Commander SQLite journal unavailable")
             if self._audit is None or not self._audit.operational:
                 self._state = ServiceState.DEGRADED
                 logger.error("Commander audit delivery stopped unexpectedly")
-            elif blocked or (
-                self._persistence is not None and self._persistence.failure is not None
+            elif (
+                blocked
+                or (self._persistence is not None and self._persistence.failure is not None)
+                or (self._journal is not None and not self._journal.operational)
             ):
                 self._state = ServiceState.DEGRADED
                 logger.warning("commander blocked devices", extra={"count": len(blocked)})
