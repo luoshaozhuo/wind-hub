@@ -7,6 +7,7 @@ import time
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 
 from core.application.protocol_contract import ProtocolWrite, WriteOutcome
@@ -131,8 +132,6 @@ class QueuedExecutor:
             item.future.set_result(None)
             return
         if spec.expires_at is not None:
-            from datetime import datetime, UTC
-
             if spec.expires_at <= datetime.now(UTC):
                 self._complete_unsent(command_id, CommandState.EXPIRED, "EXPIRED")
                 item.future.set_result(None)
@@ -155,6 +154,10 @@ class QueuedExecutor:
                 self._sessions[device_id] = session
                 self._control.connecting(command_id)
                 await asyncio.wait_for(session.connect(), timeout=self._connect_timeout)
+            if spec.expires_at is not None and spec.expires_at <= datetime.now(UTC):
+                self._complete_unsent(command_id, CommandState.EXPIRED, "EXPIRED")
+                item.future.set_result(None)
+                return
             self._control.executing(command_id)
             native = asyncio.create_task(
                 session.write_one(ProtocolWrite(point=spec.point_id, value=spec.value))
