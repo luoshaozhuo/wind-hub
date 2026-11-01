@@ -19,6 +19,8 @@ class AuditJournal(Protocol):
 class AuditTransport(Protocol):
     async def publish(self, event: Mapping[str, Any]) -> None: ...
 
+    async def close(self) -> None: ...
+
 
 class AuditDelivery:
     """At-least-once publication. Never acknowledge SQLite before JetStream."""
@@ -49,6 +51,10 @@ class AuditDelivery:
     @property
     def failures(self) -> int:
         return self._failures
+
+    @property
+    def operational(self) -> bool:
+        return self._task is not None and not self._task.done()
 
     def start(self) -> None:
         if self._task is not None:
