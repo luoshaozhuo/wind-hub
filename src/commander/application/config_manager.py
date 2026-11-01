@@ -15,8 +15,11 @@ from core.infrastructure.config.shared_documents import (
     SharedDocumentLoader,
     SharedDocuments,
 )
-from core.infrastructure.config.shared_snapshot import SharedDomainSnapshot, build_shared_snapshot
-from core.domain import DeviceId, DeviceModelId, PointTableId, PointAccess
+from core.domain import DeviceId, DeviceModelId, PointAccess, PointTableId
+from core.infrastructure.config.shared_snapshot import (
+    SharedDomainSnapshot,
+    build_shared_snapshot,
+)
 
 from commander.domain.command import CommandSpec
 from commander.infrastructure.service_settings import (
@@ -76,6 +79,7 @@ def _writable(
     except (TypeError, ValueError, OverflowError):
         return False
     return True
+
 
 class CommanderConfigManager:
     """Validate candidates before change; never expose a partial revision."""
@@ -152,29 +156,60 @@ class CommanderConfigManager:
                 name: _device_fingerprint(value)
                 for name, value in candidate.devices.items()
             }
+            shared_changed = (
+                candidate.site != self._documents.site
+                or candidate.units != self._documents.units
+                or candidate.business_points != self._documents.business_points
+            )
             changed = frozenset(
                 key
                 for key in self._fingerprints.keys() | new_fp.keys()
-                if self._fingerprints.get(key) != new_fp.get(key)
+                if shared_changed
+                or self._fingerprints.get(key) != new_fp.get(key)
             )
             blocked = frozenset(await self._quiesce(changed))
+            # Shared site/units/business definitions cannot be applied partially.
+            # Keep the old shared documents whenever a dependent device is unsafe.
+            use_new_shared = not (shared_changed and blocked)
+            effective_site = candidate.site if use_new_shared else self._documents.site
+            effective_units = candidate.units if use_new_shared else self._documents.units
+            effective_business = (
+                candidate.business_points
+                if use_new_shared
+                else self._documents.business_points
+            )
             retained = dict(self._documents.devices)
             current_fp = dict(self._fingerprints)
-            for device_id in changed - blocked:
+            applied_devices = changed - blocked
+            if shared_changed and blocked:
+                applied_devices = frozenset()
+                blocked = changed
+            for device_id in applied_devices:
                 if device_id in candidate.devices:
                     retained[device_id] = candidate.devices[device_id]
                     current_fp[device_id] = new_fp[device_id]
                 else:
                     retained.pop(device_id, None)
                     current_fp.pop(device_id, None)
+            applied_revision = hashlib.sha256(
+                json.dumps(
+                    {
+                        "site": effective_site,
+                        "units": effective_units,
+                        "business_points": effective_business,
+                        "devices": current_fp,
+                    },
+                    sort_keys=True,
+                    default=str,
+                ).encode()
+            ).hexdigest()
             applied = SharedDocuments(
-                site=candidate.site,
+                site=effective_site,
                 devices=retained,
-                units=candidate.units,
-                business_points=candidate.business_points,
-                revision=candidate.revision,
+                units=effective_units,
+                business_points=effective_business,
+                revision=applied_revision,
             )
-            # Rebuild the effective typed snapshot from the actually applied devices.
             effective_snapshot = build_shared_snapshot(applied)
             self._documents = applied
             self._snapshot = effective_snapshot
@@ -182,7 +217,7 @@ class CommanderConfigManager:
             self._disabled = set(blocked)
             return ReloadReport(
                 revision=self.revision,
-                changed=tuple(sorted(changed - blocked)),
+                changed=tuple(sorted(applied_devices)),
                 unchanged=tuple(sorted(set(candidate.devices) - changed)),
                 blocked=tuple(sorted(blocked)),
                 restart_required=restart_required,
