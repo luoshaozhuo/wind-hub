@@ -352,7 +352,7 @@ class EventRepository:
                     str(uuid4()), command_id, event_type, utc_now().isoformat(),
                     state.value, outcome.value if outcome is not None else None,
                     error_code, error_message,
-                    "PENDING" if event_type == "COMPLETED" else "PUBLISHED",
+                    "PENDING",
                 ),
             )
 
@@ -412,7 +412,7 @@ class EventRepository:
             try:
                 rows = self._db.execute(
                     "SELECT * FROM command_events WHERE publish_state='PENDING' "
-                    "AND event_type IN ('ACCEPTED','COMPLETED') "
+                    "AND event_type IN ('ACCEPTED','CONNECTING','EXECUTING','COMPLETED') "
                     "ORDER BY event_seq LIMIT ?",
                     (limit,),
                 ).fetchall()
