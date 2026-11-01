@@ -241,7 +241,11 @@ class CommanderService:
                 and operational
                 and audit_operational
                 and journal_operational
-                and (self._persistence is None or self._persistence.failure is None)
+                and (
+                    self._persistence is not None
+                    and self._persistence.operational
+                    and self._persistence.failure is None
+                )
             ),
             revision=self._config.revision if self._config else "",
             blocked_devices=blocked,
@@ -281,9 +285,14 @@ class CommanderService:
                 except Exception:
                     self._state = ServiceState.DEGRADED
                     logger.exception("Commander journal metrics unavailable")
-            if self._persistence is not None and self._persistence.failure is not None:
+            if self._persistence is not None and not self._persistence.operational:
                 self._state = ServiceState.DEGRADED
-                logger.warning("Commander persistence retrying", exc_info=self._persistence.failure)
+                logger.error("Commander persistence worker stopped unexpectedly")
+            elif self._persistence is not None and self._persistence.failure is not None:
+                self._state = ServiceState.DEGRADED
+                logger.warning(
+                    "Commander persistence retrying", exc_info=self._persistence.failure
+                )
             if self._executor is None:
                 return
             blocked = self._executor.blocked_devices()
@@ -301,7 +310,13 @@ class CommanderService:
                 logger.error("Commander audit delivery stopped unexpectedly")
             elif (
                 blocked
-                or (self._persistence is not None and self._persistence.failure is not None)
+                or (
+                    self._persistence is not None
+                    and (
+                        not self._persistence.operational
+                        or self._persistence.failure is not None
+                    )
+                )
                 or (self._journal is not None and not self._journal.operational)
             ):
                 self._state = ServiceState.DEGRADED
