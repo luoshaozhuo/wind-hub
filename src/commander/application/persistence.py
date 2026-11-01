@@ -50,6 +50,8 @@ class BufferedJournal:
         self._pending: deque[PendingEvent] = deque()
         self._results: dict[str, CommandResult] = {}
         self._requests: dict[str, list[str]] = defaultdict(list)
+        self._reserved: dict[str, int] = {}
+        self._reserved_total = 0
         self._wake = asyncio.Event()
         self._closed = False
 
@@ -64,10 +66,15 @@ class BufferedJournal:
     def _capacity(self, amount: int) -> None:
         if self._closed:
             raise RuntimeError("persistence queue closed")
-        if len(self._pending) + amount > self._maximum:
+        if len(self._pending) + self._reserved_total + amount > self._maximum:
             raise OverflowError("persistence queue full")
 
     def _add(self, fields: dict[str, Any]) -> None:
+        command_id = str(fields["command_id"])
+        reserved = self._reserved.get(command_id, 0)
+        if reserved:
+            self._reserved[command_id] = reserved - 1
+            self._reserved_total -= 1
         self._pending.append(PendingEvent(fields))
         self._wake.set()
 
@@ -81,7 +88,8 @@ class BufferedJournal:
     ) -> tuple[AcceptedCommand, ...]:
         if not specs or not caller_id.strip():
             raise ValueError("nonempty batch and caller_id required")
-        self._capacity(len(specs))
+        # Reserve T1, optional CONNECTING, T2 and T3 for every command.
+        self._capacity(4 * len(specs))
         encoded = [json.dumps(spec.value, allow_nan=False) for spec in specs]
         request_id = str(uuid4())
         now = utc_now()
@@ -91,6 +99,8 @@ class BufferedJournal:
             command = AcceptedCommand(
                 str(uuid4()), request_id, caller_id, spec, now, self._sequence
             )
+            self._reserved[command.command_id] = 4
+            self._reserved_total += 4
             self._results[command.command_id] = CommandResult(
                 command, CommandState.ACCEPTED, None, None, None, None
             )
@@ -139,7 +149,7 @@ class BufferedJournal:
     ) -> None:
         if not changes:
             raise ValueError("empty transition batch")
-        self._capacity(len(changes))
+        # Every accepted command owns reserved T2/T3 capacity.
         if len({change[0] for change in changes}) != len(changes):
             raise ValueError("duplicate transition")
         for command_id, state, outcome, *_ in changes:
@@ -170,6 +180,8 @@ class BufferedJournal:
                     "error_message": message,
                 }
             )
+            if state in TERMINAL_STATES:
+                self._reserved_total -= self._reserved.pop(command_id, 0)
 
     def get_cached(self, command_id: str) -> CommandResult | None:
         return self._results.get(command_id)
