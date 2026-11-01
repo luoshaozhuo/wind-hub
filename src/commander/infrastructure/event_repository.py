@@ -10,7 +10,7 @@ import threading
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 from uuid import uuid4
 
 from commander.domain.command import (
@@ -85,6 +85,9 @@ INSERT OR IGNORE INTO repository_meta(key,value) VALUES ('schema_version','1');
 """
 
 
+_T = TypeVar("_T")
+
+
 class EventRepository:
     """Single process writer; connection must not be shared with another process."""
 
@@ -109,6 +112,7 @@ class EventRepository:
         self._reserve = reserved_storage_bytes
         self._stop_ratio = admission_stop_ratio
         self._retention = retention_seconds
+        self._closed = False
         self._lock = threading.RLock()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock_file = self._path.with_suffix(self._path.suffix + '.lock').open('a+b')
@@ -117,7 +121,11 @@ class EventRepository:
         except OSError as exc:
             self._lock_file.close()
             raise RepositoryError('Commander database is owned by another process') from exc
-        self._db = sqlite3.connect(self._path, isolation_level=None, timeout=5)
+        try:
+            self._db = sqlite3.connect(self._path, isolation_level=None, timeout=5)
+        except BaseException:
+            self._lock_file.close()
+            raise
         try:
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.execute("PRAGMA synchronous=FULL")
@@ -135,6 +143,9 @@ class EventRepository:
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             self._db.close()
             fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
             self._lock_file.close()
@@ -161,7 +172,7 @@ class EventRepository:
         if stat.f_bavail * stat.f_frsize < min(self._reserve, self._max_bytes):
             raise StorageFullError("insufficient filesystem space for command completion")
 
-    def _transaction(self, operation: Any) -> Any:
+    def _transaction(self, operation: Callable[[], _T]) -> _T:
         with self._lock:
             try:
                 self._db.execute("BEGIN IMMEDIATE")
@@ -170,7 +181,10 @@ class EventRepository:
                 return result
             except BaseException:
                 if self._db.in_transaction:
-                    self._db.execute("ROLLBACK")
+                    try:
+                        self._db.execute("ROLLBACK")
+                    except sqlite3.Error as exc:
+                        raise RepositoryError("rollback failed; repository unusable") from exc
                 raise
 
     def accept(
@@ -193,6 +207,10 @@ class EventRepository:
 
         def insert() -> tuple[AcceptedCommand, ...]:
             self._admit()
+            if self._occupied() + sum(len(value) for value in encoded) + len(specs) * 4096 >= min(
+                self._max_bytes * self._stop_ratio, self._max_bytes - self._reserve
+            ):
+                raise StorageFullError("batch exceeds admission capacity")
             row = self._db.execute(
                 "SELECT value FROM repository_meta WHERE key='receive_seq'"
             ).fetchone()
@@ -389,34 +407,37 @@ class EventRepository:
 
         def purge() -> int:
             rows = self._db.execute(
-                """SELECT request_id FROM command_events WHERE event_type='ACCEPTED'
-                   GROUP BY request_id HAVING
-                   COUNT(*) = (
-                       SELECT COUNT(*) FROM command_events AS a
-                       WHERE a.request_id=command_events.request_id AND a.event_type='ACCEPTED'
-                         AND EXISTS (
-                             SELECT 1 FROM command_events AS t
-                             WHERE t.command_id=a.command_id
-                             AND t.event_type='COMPLETED' AND t.occurred_at<=?
-                         )
-                         AND NOT EXISTS (
-                             SELECT 1 FROM command_events AS e
-                             WHERE e.command_id=a.command_id
-                               AND e.publish_state='PENDING'
-                         )
-                   ) AND MAX(occurred_at)<=? LIMIT ?""",
+                """SELECT a.request_id
+                   FROM command_events AS a
+                   WHERE a.event_type='ACCEPTED'
+                   GROUP BY a.request_id
+                   HAVING COUNT(*) = SUM(
+                       CASE WHEN EXISTS (
+                           SELECT 1 FROM command_events AS t
+                           WHERE t.command_id=a.command_id
+                             AND t.event_type='COMPLETED'
+                             AND t.occurred_at<=?
+                       ) AND NOT EXISTS (
+                           SELECT 1 FROM command_events AS e
+                           WHERE e.command_id=a.command_id
+                             AND e.publish_state='PENDING'
+                       ) THEN 1 ELSE 0 END
+                   )
+                   AND MAX(a.occurred_at)<=?
+                   ORDER BY MIN(a.event_seq) LIMIT ?""",
                 (cutoff, cutoff, limit),
             ).fetchall()
             deleted = 0
             for (request_id,) in rows:
-                commands = self._db.execute(
+                command_rows = self._db.execute(
                     "SELECT command_id FROM command_events "
                     "WHERE request_id=? AND event_type='ACCEPTED'",
                     (request_id,),
                 ).fetchall()
-                for (command_id,) in commands:
+                for (command_id,) in command_rows:
                     self._db.execute(
-                        "DELETE FROM command_events WHERE command_id=?", (command_id,)
+                        "DELETE FROM command_events WHERE command_id=?",
+                        (command_id,),
                     )
                     deleted += 1
             return deleted
