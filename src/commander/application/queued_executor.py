@@ -126,10 +126,20 @@ class QueuedExecutor:
         commands: Sequence[CommandSpec],
         *,
         caller_id: str,
+        idempotency_key: str | None = None,
     ) -> tuple[AcceptedCommand, ...]:
-        """Atomically persist one batch before adding any command to FIFO."""
+        """Persist first; retries reuse prior commands without another field write."""
         if self._closed or self._fatal:
             raise RuntimeError("dispatcher unavailable")
+        if idempotency_key is not None:
+            prior = self._control.find_idempotent(caller_id, idempotency_key)
+            if prior:
+                # The journal checks the full signature including expires_at.
+                return self._control.accept(
+                    commands,
+                    caller_id=caller_id,
+                    idempotency_key=idempotency_key,
+                )
         if len(commands) > self._max_batch_points:
             raise OverflowError("batch point limit exceeded")
         counts: dict[str, int] = defaultdict(int)
@@ -156,7 +166,9 @@ class QueuedExecutor:
             raise OverflowError("global pending batch capacity exceeded")
         loop = asyncio.get_running_loop()
         started = time.monotonic()
-        accepted = self._control.accept(commands, caller_id=caller_id)
+        accepted = self._control.accept(
+            commands, caller_id=caller_id, idempotency_key=idempotency_key
+        )
         for command in accepted:
             entry = _Entry(
                 command=command,
