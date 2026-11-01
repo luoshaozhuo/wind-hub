@@ -208,12 +208,12 @@ class QueuedExecutor:
             error_code=code,
         )
 
-    def _check_before_write(self, entry: _Entry) -> bool:
+    def _check_before_write(self, entry: _Entry, *, queued: bool) -> bool:
         command_id = entry.command.command_id
         if entry.cancelled:
             self._unsent(command_id, CommandState.CANCELLED, "CANCELLED")
             return False
-        if entry.deadline <= time.monotonic():
+        if queued and entry.deadline <= time.monotonic():
             self._unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
             return False
         if not self._authorize(entry.command.spec):
@@ -227,7 +227,7 @@ class QueuedExecutor:
 
     async def _execute(self, device_id: str, entry: _Entry) -> None:
         command_id = entry.command.command_id
-        if not self._check_before_write(entry):
+        if not self._check_before_write(entry, queued=True):
             return
         if device_id in self._blocked:
             self._unsent(command_id, CommandState.FAILED, "DEVICE_BLOCKED")
@@ -243,7 +243,7 @@ class QueuedExecutor:
 
         owns_gate = True
         try:
-            if not self._check_before_write(entry):
+            if not self._check_before_write(entry, queued=True):
                 return
             session = self._sessions.get(device_id)
             if session is None:
@@ -261,7 +261,7 @@ class QueuedExecutor:
                 )
                 if not connected:
                     return
-            if not self._check_before_write(entry):
+            if not self._check_before_write(entry, queued=False):
                 return
             # Persist EXECUTING before the first potentially effective native write.
             self._control.executing(command_id)
