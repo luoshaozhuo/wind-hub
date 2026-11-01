@@ -72,6 +72,10 @@ class AuditDelivery:
         except TimeoutError:
             # A publisher still in I/O must not be cancelled and forgotten.
             return False
+        except Exception:
+            logger.exception("Commander audit worker failed")
+            self._task = None
+            return False
         self._task = None
         return True
 
