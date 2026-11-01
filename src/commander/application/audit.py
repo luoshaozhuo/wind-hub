@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Mapping
 from typing import Any, Protocol
 
@@ -41,6 +42,7 @@ class AuditDelivery:
         self._retry_base = retry_base
         self._retry_max = retry_max
         self._stop = asyncio.Event()
+        self._stop_deadline: float | None = None
         self._task: asyncio.Task[None] | None = None
         self._published = 0
         self._failures = 0
@@ -61,9 +63,13 @@ class AuditDelivery:
         if self._task is not None:
             raise RuntimeError("audit delivery already started")
         self._stop.clear()
+        self._stop_deadline = None
         self._task = asyncio.create_task(self._run(), name="commander:audit")
 
     async def stop(self, *, timeout: float = 5.0) -> bool:
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+        self._stop_deadline = time.monotonic() + timeout
         self._stop.set()
         task = self._task
         if task is None:
@@ -83,6 +89,8 @@ class AuditDelivery:
     async def _run(self) -> None:
         consecutive_failures = 0
         while True:
+            if self._stop_deadline is not None and time.monotonic() >= self._stop_deadline:
+                raise TimeoutError("audit drain deadline exceeded")
             pending = self._journal.pending_events(limit=100)
             if not pending:
                 if self._stop.is_set():
@@ -101,9 +109,6 @@ class AuditDelivery:
                         "audit publication failed",
                         extra={"event_id": event["event_id"]},
                     )
-                    if self._stop.is_set():
-                        # Preserve all unacknowledged outbox records for restart.
-                        raise RuntimeError("audit drain failed during shutdown") from None
                     backoff = min(
                         self._retry_max,
                         self._retry_base * 2 ** min(consecutive_failures - 1, 12),
@@ -115,5 +120,12 @@ class AuditDelivery:
                     consecutive_failures = 0
 
     async def _sleep_or_stop(self, seconds: float) -> None:
+        deadline = self._stop_deadline
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("audit drain deadline exceeded")
+            await asyncio.sleep(min(seconds, remaining))
+            return
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._stop.wait(), timeout=seconds)
