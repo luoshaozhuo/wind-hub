@@ -180,8 +180,8 @@ class QueuedExecutor:
                     wakeup=asyncio.Event(),
                 )
                 entry.deadline_handle = loop.call_at(
-                entry.deadline, self._schedule_expiry, entry
-            )
+                    entry.deadline, self._schedule_expiry, entry
+                )
                 self._entries[command.command_id] = entry
                 self._queues[command.spec.device_id].append(entry)
             for device_id in counts:
