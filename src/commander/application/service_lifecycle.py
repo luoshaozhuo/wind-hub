@@ -289,7 +289,9 @@ class CommanderService:
             if self._audit is None or not self._audit.operational:
                 self._state = ServiceState.DEGRADED
                 logger.error("Commander audit delivery stopped unexpectedly")
-            elif blocked:
+            elif blocked or (
+                self._persistence is not None and self._persistence.failure is not None
+            ):
                 self._state = ServiceState.DEGRADED
                 logger.warning("commander blocked devices", extra={"count": len(blocked)})
             elif self._state is ServiceState.DEGRADED:
