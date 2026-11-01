@@ -21,6 +21,7 @@ from core.application.protocol_contract import ProtocolWrite
 from core.application.protocol_registry import ProtocolRegistry
 from core.domain import DeviceId, DeviceModelId, PointAccess, PointTableId, convert_value
 from core.domain.point import raw_write_value
+from core.infrastructure.config.effective import resolve_effective_device
 from core.infrastructure.config.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
@@ -205,7 +206,8 @@ class CommanderConfigManager:
             raise KeyError(device_id)
         model = snapshot.device_models[device.device_model_id]
         table = snapshot.point_tables[model.point_table_id]
-        return registry.create(device.endpoint, table, device.protocol_options)
+        effective_device, options = resolve_effective_device(device, model, table.protocol.name)
+        return registry.create(effective_device.endpoint, table, options)
 
     def device_revision(self, device_id: str) -> str | None:
         return self._fingerprints.get(device_id)
