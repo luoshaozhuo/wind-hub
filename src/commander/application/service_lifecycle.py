@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from commander.application.audit import AuditDelivery, AuditTransport
 from commander.application.config_manager import (
     CommanderConfigManager,
     ReloadReport,
@@ -54,10 +55,13 @@ class CommanderService:
         config_root: Path,
         service_config: Path,
         session_factory: SessionFactory,
+        audit_transport: AuditTransport,
     ) -> None:
         self._config_root = config_root
         self._service_path = service_config
         self._factory = session_factory
+        self._audit_transport = audit_transport
+        self._audit: AuditDelivery | None = None
         self._state = ServiceState.STOPPED
         self._journal: EventRepository | None = None
         self._control: CommandControl | None = None
@@ -119,6 +123,9 @@ class CommanderService:
                 max_queued_batches_global=settings.max_queued_batches_global,
                 max_batch_points=settings.max_batch_points,
             )
+            audit = AuditDelivery(journal, self._audit_transport)
+            audit.start()
+            self._audit = audit
             self._journal = journal
             self._control = control
             self._executor = executor
@@ -216,7 +223,14 @@ class CommanderService:
         if blocked:
             self._state = ServiceState.FAILED
             return blocked
+        if self._audit is not None:
+            audit_settled = await self._audit.stop()
+            if not audit_settled:
+                self._state = ServiceState.FAILED
+                return frozenset({"__audit_publisher__"})
+            self._audit = None
         if self._journal is not None:
             self._journal.close()
+            self._journal = None
         self._state = ServiceState.STOPPED
         return blocked
