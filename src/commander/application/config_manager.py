@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -162,10 +163,10 @@ class CommanderConfigManager:
         point = self._snapshot.point_tables[model.point_table_id].point(spec.point_id)
         business = self._snapshot.business_points[point.business_point_id]
         typed = business.coerce(spec.value)
-        return ProtocolWrite(
-            point=spec.point_id,
-            value=raw_write_value(point, typed),
-        )
+        raw_value = raw_write_value(point, typed)
+        if isinstance(raw_value, float) and not math.isfinite(raw_value):
+            raise ValueError("scaled protocol write value must be finite")
+        return ProtocolWrite(point=spec.point_id, value=raw_value)
 
     def create_session(self, device_id: str, registry: ProtocolRegistry):
         """Construct a disconnected Core protocol driver from active configuration."""
