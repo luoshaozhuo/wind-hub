@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import fcntl
+import json
 import os
 import sqlite3
 import threading
@@ -369,8 +369,12 @@ class EventRepository:
                     "event_id,command_id,event_type,occurred_at,state,outcome)"
                     " VALUES(?,?,?,?,?,?)",
                     (
-                        str(uuid4()), command_id, "COMPLETED", utc_now().isoformat(),
-                        state.value, outcome.value,
+                        str(uuid4()),
+                        command_id,
+                        "COMPLETED",
+                        utc_now().isoformat(),
+                        state.value,
+                        outcome.value,
                     ),
                 )
                 recovered.append(command_id)
