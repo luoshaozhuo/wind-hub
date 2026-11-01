@@ -114,6 +114,7 @@ class QueuedExecutor:
         self._native_by_device: dict[str, set[asyncio.Task[Any]]] = defaultdict(set)
         self._isolation_tasks: dict[str, asyncio.Task[None]] = {}
         self._retained_permits: dict[str, int] = defaultdict(int)
+        self._auto_recovery: set[asyncio.Task[bool]] = set()
         self._closed = False
         self._fatal = False
 
@@ -423,6 +424,7 @@ class QueuedExecutor:
                     owns_gate = False
                     for member in group:
                         self._unknown(member.command.command_id, type(exc).__name__)
+                    self._schedule_auto_isolation(device_id)
                 else:
                     results = result if isinstance(result, tuple) else (result,)
                     if (
@@ -440,6 +442,7 @@ class QueuedExecutor:
                             self._unknown(
                                 member.command.command_id, "WRITE_RESULT_MISMATCH"
                             )
+                        self._schedule_auto_isolation(device_id)
                     else:
                         uncertain = False
                         for member, actual in zip(group, results, strict=True):
@@ -452,6 +455,7 @@ class QueuedExecutor:
                         if uncertain:
                             self._retain_gate(device_id)
                             owns_gate = False
+                            self._schedule_auto_isolation(device_id)
             finally:
                 # _run_device owns the head; each coalesced successor is retired.
                 for member in group[1:]:
@@ -573,10 +577,22 @@ class QueuedExecutor:
                 task.result()
             except BaseException:
                 pass
-            # Coroutine completion alone is not proof of physical I/O settlement.
-            # Global ownership remains until isolation closes the old session.
+            # Completion alone is insufficient; verify safe physical close.
+            if not self._native_by_device[device_id]:
+                self._schedule_auto_isolation(device_id)
 
         native.add_done_callback(finished)
+
+    def _schedule_auto_isolation(self, device_id: str) -> None:
+        if (
+            device_id not in self._blocked
+            or self._native_by_device[device_id]
+            or device_id in self._isolation_tasks
+        ):
+            return
+        task = asyncio.create_task(self.isolate_device(device_id))
+        self._auto_recovery.add(task)
+        task.add_done_callback(self._auto_recovery.discard)
 
     async def isolate_device(self, device_id: str) -> bool:
         """Clear blocking only after native work settles and physical close succeeds."""
@@ -633,6 +649,7 @@ class QueuedExecutor:
             if device_id not in self._idle_closing:
                 idle.cancel()
         await asyncio.gather(*self._idle_tasks.values(), return_exceptions=True)
+        await asyncio.gather(*self._auto_recovery, return_exceptions=True)
         for device_id, session in tuple(self._sessions.items()):
             if device_id in self._blocked:
                 continue
