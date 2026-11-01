@@ -158,7 +158,7 @@ class EventRepository:
         if self._occupied() >= available:
             raise StorageFullError("SQLite capacity reserved for completion and recovery")
         stat = os.statvfs(self._path.parent)
-        if stat.f_bavail * stat.f_frsize < self._reserve:
+        if stat.f_bavail * stat.f_frsize < min(self._reserve, self._max_bytes):
             raise StorageFullError("insufficient filesystem space for command completion")
 
     def _transaction(self, operation: Any) -> Any:
@@ -194,10 +194,9 @@ class EventRepository:
         def insert() -> tuple[AcceptedCommand, ...]:
             self._admit()
             row = self._db.execute(
-                "SELECT COALESCE(MAX(receive_seq),0) FROM command_events "
-                "WHERE event_type='ACCEPTED'"
+                "SELECT value FROM repository_meta WHERE key='receive_seq'"
             ).fetchone()
-            seq = int(row[0])
+            seq = int(row[0]) if row else 0
             accepted: list[AcceptedCommand] = []
             for spec, value in zip(specs, encoded, strict=True):
                 seq += 1
@@ -221,6 +220,11 @@ class EventRepository:
                 accepted.append(
                     AcceptedCommand(command_id, request_id, caller_id, spec, now, seq)
                 )
+            self._db.execute(
+                "INSERT INTO repository_meta(key,value) VALUES('receive_seq',?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(seq),),
+            )
             return tuple(accepted)
 
         return self._transaction(insert)
@@ -256,7 +260,8 @@ class EventRepository:
                 (
                     str(uuid4()), command_id, event_type, utc_now().isoformat(),
                     state.value, outcome.value if outcome is not None else None,
-                    error_code, error_message, "PENDING",
+                    error_code, error_message,
+                    "PENDING" if event_type == "COMPLETED" else "PUBLISHED",
                 ),
             )
 
