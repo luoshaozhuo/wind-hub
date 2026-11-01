@@ -30,3 +30,6 @@ class ServiceSettings:
     audit_retry_base: float
     audit_retry_max: float
     shutdown_grace_seconds: float
+    persistence_interval_seconds: float = 0.05
+    persistence_batch_size: int = 500
+    persistence_max_events: int = 100_000
