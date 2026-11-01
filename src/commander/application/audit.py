@@ -82,14 +82,14 @@ class AuditDelivery:
 
     async def _run(self) -> None:
         consecutive_failures = 0
-        while not self._stop.is_set():
+        while True:
             pending = self._journal.pending_events(limit=100)
             if not pending:
+                if self._stop.is_set():
+                    return
                 await self._sleep_or_stop(0.1)
                 continue
             for event in pending:
-                if self._stop.is_set():
-                    return
                 try:
                     await self._transport.publish(event)
                     self._journal.mark_published(event["event_id"])
@@ -101,6 +101,9 @@ class AuditDelivery:
                         "audit publication failed",
                         extra={"event_id": event["event_id"]},
                     )
+                    if self._stop.is_set():
+                        # Preserve all unacknowledged outbox records for restart.
+                        raise RuntimeError("audit drain failed during shutdown") from None
                     backoff = min(
                         self._retry_max,
                         self._retry_base * 2 ** min(consecutive_failures - 1, 12),
