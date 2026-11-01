@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from commander.application.settings import ServiceSettings
 from commander.domain.command import CommandSpec
 from core.application.port import ProtocolPort
 from core.application.protocol_contract import ProtocolWrite
@@ -110,11 +111,7 @@ def _validate_unique_connections(snapshot: SharedDomainSnapshot) -> None:
 
 
 class SettingsLoader(Protocol):
-    def __call__(self) -> object: ...
-
-
-class ConfigPaths(Protocol):
-    def __call__(self) -> SharedDocuments: ...
+    def __call__(self) -> ServiceSettings: ...
 
 
 class CommanderConfigManager:
@@ -135,7 +132,7 @@ class CommanderConfigManager:
         self._lock = asyncio.Lock()
         self._documents: SharedDocuments | None = None
         self._snapshot: SharedDomainSnapshot | None = None
-        self._settings: object | None = None
+        self._settings: ServiceSettings | None = None
         self._fingerprints: dict[str, str] = {}
         self._disabled: set[str] = set()
 
@@ -158,7 +155,7 @@ class CommanderConfigManager:
             raise RuntimeError("shared configuration changed during validation")
         return docs
 
-    def start(self) -> object:
+    def start(self) -> ServiceSettings:
         settings = self._settings_loader()
         docs = self._load()
         self._settings = settings
