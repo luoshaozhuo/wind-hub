@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Protocol
 
 from commander.domain.command import (
     AcceptedCommand,
@@ -11,13 +12,37 @@ from commander.domain.command import (
     CommandSpec,
     CommandState,
 )
-from commander.infrastructure.event_repository import EventRepository
+class CommandJournal(Protocol):
+    def accept(
+        self,
+        specs: Sequence[CommandSpec],
+        *,
+        caller_id: str,
+        operator_id: str | None = None,
+        trace_id: str | None = None,
+    ) -> tuple[AcceptedCommand, ...]: ...
+
+    def transition(
+        self,
+        command_id: str,
+        state: CommandState,
+        *,
+        outcome: CommandOutcome | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> None: ...
+
+    def get(self, command_id: str) -> CommandResult | None: ...
+
+    def get_request(self, request_id: str) -> tuple[CommandResult, ...]: ...
+
+    def recover(self) -> tuple[str, ...]: ...
 
 
 class CommandControl:
     """Only persist verified decisions; device I/O belongs to later stages."""
 
-    def __init__(self, repository: EventRepository) -> None:
+    def __init__(self, repository: CommandJournal) -> None:
         self._repository = repository
 
     def accept(
