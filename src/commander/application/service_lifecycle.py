@@ -116,7 +116,10 @@ class CommanderService:
             raise RuntimeError("service already started")
         self._state = ServiceState.STARTING
         journal: JournalPort | None = None
-        self._writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix='commander-sqlite')
+        writer = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="commander-sqlite"
+        )
+        self._writer = writer
         loop = asyncio.get_running_loop()
         try:
             # Parse and validate the entire candidate before enabling any write.
@@ -127,7 +130,6 @@ class CommanderService:
                 settings_loader=self._settings_loader,
             )
             settings: ServiceSettings = manager.start()
-            writer = self._writer
             journal = await loop.run_in_executor(
                 writer, partial(self._journal_factory, settings)
             )
@@ -179,7 +181,7 @@ class CommanderService:
                 self._audit = None
                 await self._audit_transport.close()
             if journal is not None:
-                await loop.run_in_executor(self._writer, journal.close)
+                await loop.run_in_executor(writer, journal.close)
             if self._writer is not None:
                 await asyncio.to_thread(self._writer.shutdown, wait=True)
                 self._writer = None
