@@ -17,6 +17,8 @@ from core.infrastructure.config.shared_documents import (
 )
 from core.application.protocol_registry import ProtocolRegistry
 from core.domain import DeviceId, DeviceModelId, PointAccess, PointTableId
+from core.domain.point import raw_write_value
+from core.application.protocol_contract import ProtocolWrite
 from core.infrastructure.config.shared_snapshot import (
     SharedDomainSnapshot,
     build_shared_snapshot,
@@ -149,6 +151,20 @@ class CommanderConfigManager:
             expected is not None
             and spec.config_reference == expected
             and _writable(self._snapshot, spec.device_id, spec.point_id, spec.value)
+        )
+
+    def prepare_write(self, spec: CommandSpec) -> ProtocolWrite:
+        """Convert authorized engineering input to protocol raw value."""
+        if not self.authorized(spec) or self._snapshot is None:
+            raise PermissionError("device, point or config version is not writable")
+        device = self._snapshot.site.devices[DeviceId(spec.device_id)]
+        model = self._snapshot.device_models[device.device_model_id]
+        point = self._snapshot.point_tables[model.point_table_id].point(spec.point_id)
+        business = self._snapshot.business_points[point.business_point_id]
+        typed = business.coerce(spec.value)
+        return ProtocolWrite(
+            point=spec.point_id,
+            value=raw_write_value(point, typed),
         )
 
     def create_session(self, device_id: str, registry: ProtocolRegistry):
