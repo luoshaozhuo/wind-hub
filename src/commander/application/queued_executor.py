@@ -121,7 +121,7 @@ class QueuedExecutor:
         self._closed = False
         self._fatal = False
 
-    def accept(
+    async def accept(
         self,
         commands: Sequence[CommandSpec],
         *,
@@ -152,7 +152,7 @@ class QueuedExecutor:
             raise OverflowError("global pending batch capacity exceeded")
         loop = asyncio.get_running_loop()
         started = time.monotonic()
-        accepted = self._control.accept(commands, caller_id=caller_id)
+        accepted = await self._control.accept(commands, caller_id=caller_id)
         for command in accepted:
             entry = _Entry(
                 command=command,
@@ -160,18 +160,18 @@ class QueuedExecutor:
                 finished=loop.create_future(),
                 wakeup=asyncio.Event(),
             )
-            entry.deadline_handle = loop.call_at(entry.deadline, self._expire_queued, entry)
+            entry.deadline_handle = loop.call_at(entry.deadline, lambda current=entry: asyncio.create_task(self._expire_queued(current)))
             self._entries[command.command_id] = entry
             self._queues[command.spec.device_id].append(entry)
         for device_id in counts:
             self._ensure_worker(device_id)
         return accepted
 
-    def _terminate_queued(self, entry: _Entry, state: CommandState, code: str) -> None:
+    async def _terminate_queued(self, entry: _Entry, state: CommandState, code: str) -> None:
         if entry.finished.done() or entry.terminal_in_queue:
             return
         try:
-            self._unsent(entry.command.command_id, state, code)
+            await self._unsent(entry.command.command_id, state, code)
         except Exception as exc:
             self._fail_waiters(exc)
             raise
@@ -186,38 +186,22 @@ class QueuedExecutor:
             self._entries.pop(entry.command.command_id, None)
             entry.finished.set_result(None)
 
-    def _expire_queued(self, entry: _Entry) -> None:
+    async def _expire_queued(self, entry: _Entry) -> None:
         if entry.finished.done() or entry.terminal_in_queue:
             return
         try:
-            state = self._control.get_command(entry.command.command_id)
+            state = await self._control.get_command(entry.command.command_id)
             if state is None or state.state is not CommandState.ACCEPTED:
                 return
-            self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+            await self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
         except Exception as exc:
             self._fail_waiters(exc)
-
-    def cancel(self, command_id: str) -> bool:
-        """Cancel only before the native write, without cancelling native I/O."""
-        entry = self._entries.get(command_id)
-        if entry is None or entry.finished.done() or entry.terminal_in_queue:
-            return False
-        state = self._control.get_command(command_id)
-        if state is None:
-            return False
-        if state.state is CommandState.ACCEPTED:
-            self._terminate_queued(entry, CommandState.CANCELLED, "CANCELLED")
-            return True
-        if state.state is CommandState.CONNECTING:
-            entry.cancelled = True
-            return True
-        return False
 
     async def wait(self, command_id: str) -> CommandResult | None:
         entry = self._entries.get(command_id)
         if entry is not None:
             await asyncio.shield(entry.finished)
-        return self._control.get_command(command_id)
+        return await self._control.get_command(command_id)
 
     async def quiesce_devices(self, device_ids: frozenset[str]) -> frozenset[str]:
         """Stop admissions and writes for changed devices until reload finishes."""
@@ -331,8 +315,8 @@ class QueuedExecutor:
                 name=f"commander:idle:{device_id}",
             )
 
-    def _unsent(self, command_id: str, state: CommandState, code: str) -> None:
-        self._control.complete(
+    async def _unsent(self, command_id: str, state: CommandState, code: str) -> None:
+        await self._control.complete(
             command_id,
             state,
             outcome=(
@@ -343,28 +327,28 @@ class QueuedExecutor:
             error_code=code,
         )
 
-    def _check_before_write(self, entry: _Entry, *, queued: bool) -> bool:
+    async def _check_before_write(self, entry: _Entry, *, queued: bool) -> bool:
         command_id = entry.command.command_id
         if self._fatal or entry.terminal_in_queue:
             return False
         if self._closed:
-            self._unsent(command_id, CommandState.INTERRUPTED, "SERVICE_STOPPING")
+            await self._unsent(command_id, CommandState.INTERRUPTED, "SERVICE_STOPPING")
             return False
         if entry.command.spec.device_id in self._reloading:
-            self._unsent(command_id, CommandState.FAILED, "CONFIG_RELOADING")
+            await self._unsent(command_id, CommandState.FAILED, "CONFIG_RELOADING")
             return False
         if entry.cancelled:
-            self._unsent(command_id, CommandState.CANCELLED, "CANCELLED")
+            await self._unsent(command_id, CommandState.CANCELLED, "CANCELLED")
             return False
         if queued and entry.deadline <= time.monotonic():
-            self._unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+            await self._unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
             return False
         if not self._authorize(entry.command.spec):
-            self._unsent(command_id, CommandState.FAILED, "CONFIG_CHANGED_OR_REVOKED")
+            await self._unsent(command_id, CommandState.FAILED, "CONFIG_CHANGED_OR_REVOKED")
             return False
         expires = entry.command.spec.expires_at
         if expires is not None and expires <= datetime.now(UTC):
-            self._unsent(command_id, CommandState.EXPIRED, "EXPIRED")
+            await self._unsent(command_id, CommandState.EXPIRED, "EXPIRED")
             return False
         return True
 
@@ -404,16 +388,16 @@ class QueuedExecutor:
             if acquired:
                 self._gate.release()
             if not entry.terminal_in_queue:
-                self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+                await self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
             return False
         return True
 
     async def _execute(self, device_id: str, entry: _Entry) -> None:
         command_id = entry.command.command_id
-        if not self._check_before_write(entry, queued=True):
+        if not await self._check_before_write(entry, queued=True):
             return
         if device_id in self._blocked:
-            self._unsent(command_id, CommandState.FAILED, "DEVICE_BLOCKED")
+            await self._unsent(command_id, CommandState.FAILED, "DEVICE_BLOCKED")
             return
 
         # Only the FIFO head competes for a global connection/write permit.
@@ -422,25 +406,25 @@ class QueuedExecutor:
 
         owns_gate = True
         try:
-            if not self._check_before_write(entry, queued=True):
+            if not await self._check_before_write(entry, queued=True):
                 return
             session = self._sessions.get(device_id)
             if session is None:
                 try:
                     session = self._factory(device_id)
                 except Exception:
-                    self._unsent(command_id, CommandState.FAILED, "SESSION_FACTORY_FAILED")
+                    await self._unsent(command_id, CommandState.FAILED, "SESSION_FACTORY_FAILED")
                     return
                 self._sessions[device_id] = session
             if not session.is_open():
-                self._control.connecting(command_id)
+                await self._control.connecting(command_id)
                 connect = asyncio.create_task(session.connect())
                 connected, owns_gate = await self._await_connect(
                     device_id, connect, self._connect_timeout, command_id
                 )
                 if not connected:
                     return
-            if not self._check_before_write(entry, queued=False):
+            if not await self._check_before_write(entry, queued=False):
                 return
             group = self._batch_entries(device_id, entry, session)
             try:
@@ -448,7 +432,7 @@ class QueuedExecutor:
                 writes = tuple(self._prepare_write(member.command.spec) for member in group)
                 # Persist T2 for all children before the first native side effect.
                 for member in group:
-                    self._control.executing(member.command.command_id)
+                    await self._control.executing(member.command.command_id)
                 if any(
                     member.command.spec.expires_at is not None
                     and member.command.spec.expires_at <= datetime.now(UTC)
@@ -456,7 +440,7 @@ class QueuedExecutor:
                 ):
                     # T2 is durable, but native I/O has not been invoked.
                     for member in group:
-                        self._control.complete(
+                        await self._control.complete(
                             member.command.command_id,
                             CommandState.EXPIRED,
                             outcome=CommandOutcome.NOT_SENT,
@@ -474,13 +458,13 @@ class QueuedExecutor:
                     self._block_late(device_id, native)
                     owns_gate = False
                     for member in group:
-                        self._unknown(member.command.command_id, "WRITE_TIMEOUT")
+                        await self._unknown(member.command.command_id, "WRITE_TIMEOUT")
                 except Exception as exc:
                     self._blocked.add(device_id)
                     self._retain_gate(device_id)
                     owns_gate = False
                     for member in group:
-                        self._unknown(member.command.command_id, type(exc).__name__)
+                        await self._unknown(member.command.command_id, type(exc).__name__)
                     self._schedule_auto_isolation(device_id)
                 else:
                     results = result if isinstance(result, tuple) else (result,)
@@ -493,13 +477,13 @@ class QueuedExecutor:
                         self._retain_gate(device_id)
                         owns_gate = False
                         for member in group:
-                            self._unknown(member.command.command_id, "WRITE_RESULT_MISMATCH")
+                            await self._unknown(member.command.command_id, "WRITE_RESULT_MISMATCH")
                         self._schedule_auto_isolation(device_id)
                     else:
                         uncertain = False
                         for member, actual in zip(group, results, strict=True):
                             uncertain = (
-                                self._finish_write(member.command.command_id, device_id, actual)
+                                await self._finish_write(member.command.command_id, device_id, actual)
                                 or uncertain
                             )
                         if uncertain:
@@ -555,10 +539,10 @@ class QueuedExecutor:
             await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
         except (TimeoutError, asyncio.CancelledError):
             self._block_late(device_id, task)
-            self._unsent(command_id, CommandState.FAILED, "CONNECT_TIMEOUT")
+            await self._unsent(command_id, CommandState.FAILED, "CONNECT_TIMEOUT")
             return False, False
         except Exception:
-            self._unsent(command_id, CommandState.FAILED, "CONNECT_FAILED")
+            await self._unsent(command_id, CommandState.FAILED, "CONNECT_FAILED")
             session = self._sessions[device_id]
             closing = asyncio.create_task(session.close())
             try:
@@ -574,21 +558,21 @@ class QueuedExecutor:
             return False, True
         return True, True
 
-    def _finish_write(
+    async def _finish_write(
         self,
         command_id: str,
         device_id: str,
         result: ProtocolWriteResult,
     ) -> bool:
         if result.outcome is WriteOutcome.CONFIRMED_SUCCESS:
-            self._control.complete(
+            await self._control.complete(
                 command_id,
                 CommandState.SUCCEEDED,
                 outcome=CommandOutcome.CONFIRMED_SUCCESS,
             )
             return False
         if result.outcome is WriteOutcome.CONFIRMED_FAILURE:
-            self._control.complete(
+            await self._control.complete(
                 command_id,
                 CommandState.FAILED,
                 outcome=CommandOutcome.CONFIRMED_FAILURE,
@@ -596,11 +580,11 @@ class QueuedExecutor:
             )
             return False
         self._blocked.add(device_id)
-        self._unknown(command_id, "WRITE_UNKNOWN")
+        await self._unknown(command_id, "WRITE_UNKNOWN")
         return True
 
-    def _unknown(self, command_id: str, error_code: str) -> None:
-        self._control.complete(
+    async def _unknown(self, command_id: str, error_code: str) -> None:
+        await self._control.complete(
             command_id,
             CommandState.UNKNOWN,
             outcome=CommandOutcome.UNKNOWN,
