@@ -17,7 +17,7 @@ from core.infrastructure.config.shared_documents import (
     SharedDocuments,
 )
 from core.application.protocol_registry import ProtocolRegistry
-from core.domain import DeviceId, DeviceModelId, PointAccess, PointTableId
+from core.domain import DeviceId, DeviceModelId, PointAccess, PointTableId, convert_value
 from core.domain.point import raw_write_value
 from core.application.protocol_contract import ProtocolWrite
 from core.infrastructure.config.shared_snapshot import (
@@ -163,7 +163,12 @@ class CommanderConfigManager:
         point = self._snapshot.point_tables[model.point_table_id].point(spec.point_id)
         business = self._snapshot.business_points[point.business_point_id]
         typed = business.coerce(spec.value)
-        raw_value = raw_write_value(point, typed)
+        point_value = (
+            convert_value(float(typed), business.standard_unit, point.source_unit)
+            if isinstance(typed, int | float) and not isinstance(typed, bool)
+            else typed
+        )
+        raw_value = raw_write_value(point, point_value)
         if isinstance(raw_value, float) and not math.isfinite(raw_value):
             raise ValueError("scaled protocol write value must be finite")
         return ProtocolWrite(point=spec.point_id, value=raw_value)
