@@ -47,6 +47,13 @@ class JournalPort(Protocol):
         error_message: str | None = None,
     ) -> None: ...
 
+    def transition_many(
+        self,
+        changes: Sequence[
+            tuple[str, CommandState, CommandOutcome | None, str | None]
+        ],
+    ) -> None: ...
+
     def get(self, command_id: str) -> CommandResult | None: ...
 
     def get_request(self, request_id: str) -> tuple[CommandResult, ...]: ...
