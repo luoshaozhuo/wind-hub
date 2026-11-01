@@ -7,8 +7,8 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import Executor
 from functools import partial
 from typing import Any, TypeVar
-from typing import Protocol
 
+from commander.application.journal_port import JournalPort
 from commander.domain.command import (
     AcceptedCommand,
     CommandOutcome,
@@ -18,40 +18,13 @@ from commander.domain.command import (
 )
 
 
-class CommandJournal(Protocol):
-    def accept(
-        self,
-        specs: Sequence[CommandSpec],
-        *,
-        caller_id: str,
-        operator_id: str | None = None,
-        trace_id: str | None = None,
-    ) -> tuple[AcceptedCommand, ...]: ...
-
-    def transition(
-        self,
-        command_id: str,
-        state: CommandState,
-        *,
-        outcome: CommandOutcome | None = None,
-        error_code: str | None = None,
-        error_message: str | None = None,
-    ) -> None: ...
-
-    def get(self, command_id: str) -> CommandResult | None: ...
-
-    def get_request(self, request_id: str) -> tuple[CommandResult, ...]: ...
-
-    def recover(self) -> tuple[str, ...]: ...
-
-
 _T = TypeVar("_T")
 
 
 class CommandControl:
     """Only persist verified decisions; device I/O belongs to later stages."""
 
-    def __init__(self, repository: CommandJournal, writer: Executor) -> None:
+    def __init__(self, repository: JournalPort, writer: Executor) -> None:
         self._repository = repository
         self._writer = writer
 
