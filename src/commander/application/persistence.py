@@ -39,12 +39,10 @@ class BufferedJournal:
 
     def __init__(
         self,
-        persistent: JournalPort,
         *,
         maximum_events: int = 100_000,
         initial_sequence: int = 0,
     ) -> None:
-        self._persistent = persistent
         self._maximum = maximum_events
         self._sequence = initial_sequence
         self._pending: deque[PendingEvent] = deque()
@@ -238,7 +236,7 @@ class PersistenceWorker:
     def __init__(
         self,
         buffer: BufferedJournal,
-        repository: Any,
+        repository: JournalPort,
         writer: Executor,
         *,
         interval: float = 0.05,
