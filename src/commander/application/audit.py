@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from concurrent.futures import Executor
+from functools import partial
 import time
 from collections.abc import Mapping
 from typing import Any, Protocol
@@ -31,6 +33,7 @@ class AuditDelivery:
         self,
         journal: AuditJournal,
         transport: AuditTransport,
+        writer: Executor,
         *,
         retry_base: float = 0.2,
         retry_max: float = 10.0,
@@ -39,6 +42,7 @@ class AuditDelivery:
             raise ValueError("invalid retry intervals")
         self._journal = journal
         self._transport = transport
+        self._writer = writer
         self._retry_base = retry_base
         self._retry_max = retry_max
         self._stop = asyncio.Event()
@@ -91,7 +95,10 @@ class AuditDelivery:
         while True:
             if self._stop_deadline is not None and time.monotonic() >= self._stop_deadline:
                 raise TimeoutError("audit drain deadline exceeded")
-            pending = self._journal.pending_events(limit=100)
+            loop = asyncio.get_running_loop()
+            pending = await loop.run_in_executor(
+                self._writer, partial(self._journal.pending_events, limit=100)
+            )
             if not pending:
                 if self._stop.is_set():
                     return
@@ -100,11 +107,16 @@ class AuditDelivery:
             for event in pending:
                 try:
                     await self._transport.publish(event)
-                    self._journal.mark_published(event["event_id"])
+                    await loop.run_in_executor(
+                        self._writer, partial(self._journal.mark_published, event["event_id"])
+                    )
                 except Exception:
                     self._failures += 1
                     consecutive_failures += 1
-                    self._journal.record_publish_failure(event["event_id"])
+                    await loop.run_in_executor(
+                        self._writer,
+                        partial(self._journal.record_publish_failure, event["event_id"]),
+                    )
                     logger.exception(
                         "audit publication failed",
                         extra={"event_id": event["event_id"]},
