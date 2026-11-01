@@ -40,6 +40,8 @@ class RuntimeHealth:
     restart_required: bool
     pending_commands: int
     inflight_io: int
+    audit_published: int
+    audit_failures: int
 
 
 class CommanderService:
@@ -123,7 +125,12 @@ class CommanderService:
                 max_queued_batches_global=settings.max_queued_batches_global,
                 max_batch_points=settings.max_batch_points,
             )
-            audit = AuditDelivery(journal, self._audit_transport)
+            audit = AuditDelivery(
+                journal,
+                self._audit_transport,
+                retry_base=settings.audit_retry_base,
+                retry_max=settings.audit_retry_max,
+            )
             audit.start()
             self._audit = audit
             self._journal = journal
@@ -180,6 +187,8 @@ class CommanderService:
             restart_required=self._restart_required,
             pending_commands=self._executor.pending_commands() if self._executor else 0,
             inflight_io=self._executor.in_flight_native() if self._executor else 0,
+            audit_published=self._audit.published if self._audit else 0,
+            audit_failures=self._audit.failures if self._audit else 0,
         )
 
     async def _run_watchdog(self, interval: float) -> None:
