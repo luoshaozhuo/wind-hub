@@ -8,7 +8,6 @@ from collections import defaultdict, deque
 from collections.abc import Sequence
 from concurrent.futures import Executor
 from dataclasses import dataclass
-from datetime import datetime
 from functools import partial
 from typing import Any
 from uuid import uuid4
@@ -226,16 +225,17 @@ class PersistenceWorker:
     async def _run(self) -> None:
         loop = asyncio.get_running_loop()
         while not self._stopping or self._buffer.pending_count:
-            snapshot = self._buffer.snapshot(self._batch_size)
-            if not snapshot:
+            if not self._buffer.pending_count:
                 self._buffer.wake.clear()
                 try:
                     await asyncio.wait_for(self._buffer.wake.wait(), timeout=self._interval)
                 except TimeoutError:
                     pass
-                if self._stopping:
-                    break
                 continue
+            if not self._stopping and self._buffer.pending_count < self._batch_size:
+                # Coalesce independent command events before one SQLite COMMIT.
+                await asyncio.sleep(self._interval)
+            snapshot = self._buffer.snapshot(self._batch_size)
             try:
                 await loop.run_in_executor(
                     self._writer, partial(self._repository.append_events, snapshot)
