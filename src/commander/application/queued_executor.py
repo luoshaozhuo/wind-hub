@@ -60,6 +60,7 @@ class QueuedExecutor:
         self,
         control: CommandControl,
         session_factory: SessionFactory,
+        authorize: Callable[[CommandSpec], bool],
         *,
         global_capacity: int = 32,
         queue_timeout: float = 5.0,
@@ -74,6 +75,7 @@ class QueuedExecutor:
             raise ValueError("timeouts must be positive")
         self._control = control
         self._factory = session_factory
+        self._authorize = authorize
         self._gate = asyncio.Semaphore(global_capacity)
         self._queue_timeout = queue_timeout
         self._connect_timeout = connect_timeout
@@ -102,6 +104,8 @@ class QueuedExecutor:
             raise RuntimeError("dispatcher unavailable")
         counts: dict[str, int] = defaultdict(int)
         for spec in commands:
+            if not self._authorize(spec):
+                raise PermissionError("command device/point/config reference is not authorized")
             counts[spec.device_id] += 1
         if any(
             len(self._queues[device_id]) + count > self._queue_limit
@@ -204,6 +208,9 @@ class QueuedExecutor:
             return False
         if entry.deadline <= time.monotonic():
             self._unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+            return False
+        if not self._authorize(entry.command.spec):
+            self._unsent(command_id, CommandState.FAILED, "CONFIG_CHANGED_OR_REVOKED")
             return False
         expires = entry.command.spec.expires_at
         if expires is not None and expires <= datetime.now(UTC):
