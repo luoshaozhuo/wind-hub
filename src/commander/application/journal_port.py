@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
-from commander.domain.command import AcceptedCommand, CommandOutcome, CommandResult, CommandSpec, CommandState
+from commander.domain.command import (
+    AcceptedCommand,
+    CommandOutcome,
+    CommandResult,
+    CommandSpec,
+    CommandState,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +53,7 @@ class JournalPort(Protocol):
 
     def recover(self) -> tuple[str, ...]: ...
 
-    def pending_events(self, limit: int = 100) -> tuple[dict[str, object], ...]: ...
+    def pending_events(self, limit: int = 100) -> tuple[dict[str, Any], ...]: ...
 
     def mark_published(self, event_id: str) -> None: ...
 
