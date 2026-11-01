@@ -48,6 +48,9 @@ class BufferedJournal:
         self._maximum = maximum_events
         self._sequence = initial_sequence
         self._pending: deque[PendingEvent] = deque()
+        self._pending_counts: dict[str, int] = defaultdict(int)
+        self._evictable_requests: deque[str] = deque()
+        self._cache_limit = 10_000
         self._results: dict[str, CommandResult] = {}
         self._requests: dict[str, list[str]] = defaultdict(list)
         self._reserved: dict[str, int] = {}
@@ -76,6 +79,7 @@ class BufferedJournal:
             self._reserved[command_id] = reserved - 1
             self._reserved_total -= 1
         self._pending.append(PendingEvent(fields))
+        self._pending_counts[command_id] += 1
         self._wake.set()
 
     def accept(
@@ -188,14 +192,36 @@ class BufferedJournal:
 
     def get_request_cached(self, request_id: str) -> tuple[CommandResult, ...] | None:
         ids = self._requests.get(request_id)
-        return tuple(self._results[item] for item in ids) if ids is not None else None
+        if ids is None or any(item not in self._results for item in ids):
+            return None
+        return tuple(self._results[item] for item in ids)
 
     def snapshot(self, limit: int) -> tuple[dict[str, Any], ...]:
         return tuple(event.fields for event in list(self._pending)[:limit])
 
     def confirm(self, count: int) -> None:
+        affected: set[str] = set()
         for _ in range(count):
-            self._pending.popleft()
+            command_id = str(self._pending.popleft().fields["command_id"])
+            self._pending_counts[command_id] -= 1
+            if self._pending_counts[command_id] == 0:
+                del self._pending_counts[command_id]
+                command = self._results.get(command_id)
+                if command is not None:
+                    affected.add(command.command.request_id)
+        for request_id in affected:
+            commands = self._requests.get(request_id, [])
+            if commands and all(
+                command_id not in self._pending_counts
+                and self._results[command_id].state in TERMINAL_STATES
+                for command_id in commands
+            ):
+                self._evictable_requests.append(request_id)
+        while len(self._results) > self._cache_limit and self._evictable_requests:
+            request_id = self._evictable_requests.popleft()
+            for command_id in self._requests.pop(request_id, []):
+                self._results.pop(command_id, None)
+                self._reserved.pop(command_id, None)
 
     @property
     def wake(self) -> asyncio.Event:
