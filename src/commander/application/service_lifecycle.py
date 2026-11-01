@@ -125,9 +125,7 @@ class CommanderService:
                 settings_loader=self._settings_loader,
             )
             settings: ServiceSettings = manager.start()
-            journal = await loop.run_in_executor(
-                writer, partial(self._journal_factory, settings)
-            )
+            journal = await loop.run_in_executor(writer, partial(self._journal_factory, settings))
             recovered = await loop.run_in_executor(writer, journal.recover)
             control = CommandControl(journal, writer)
             executor = QueuedExecutor(
@@ -312,9 +310,7 @@ class CommanderService:
             self._state = ServiceState.FAILED
             return frozenset({"__audit_connection__"})
         if self._journal is not None and self._writer is not None:
-            await asyncio.get_running_loop().run_in_executor(
-                self._writer, self._journal.close
-            )
+            await asyncio.get_running_loop().run_in_executor(self._writer, self._journal.close)
             self._journal = None
         if self._writer is not None:
             await asyncio.to_thread(self._writer.shutdown, wait=True)

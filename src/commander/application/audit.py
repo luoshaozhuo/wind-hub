@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from concurrent.futures import Executor
-from functools import partial
 import time
 from collections.abc import Mapping
+from concurrent.futures import Executor
+from functools import partial
 from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)

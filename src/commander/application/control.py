@@ -17,7 +17,6 @@ from commander.domain.command import (
     CommandState,
 )
 
-
 _T = TypeVar("_T")
 
 
@@ -28,9 +27,7 @@ class CommandControl:
         self._repository = repository
         self._writer = writer
 
-    async def _run(
-        self, method: Callable[..., _T], *args: Any, **kwargs: Any
-    ) -> _T:
+    async def _run(self, method: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
         loop = asyncio.get_running_loop()
         work = loop.run_in_executor(self._writer, partial(method, *args, **kwargs))
         try:

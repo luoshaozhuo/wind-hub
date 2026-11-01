@@ -9,7 +9,6 @@ from commander.application.settings import ServiceSettings
 from core.infrastructure.config.yaml import read_yaml_mapping
 
 
-
 def _mapping(raw: object, name: str) -> dict[str, Any]:
     if not isinstance(raw, dict) or any(not isinstance(k, str) for k in raw):
         raise ValueError(f"{name}: expected string-keyed mapping")

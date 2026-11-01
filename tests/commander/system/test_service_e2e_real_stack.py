@@ -20,8 +20,8 @@ from nats.aio.client import Client as NatsClient
 
 from commander.application.service_lifecycle import CommanderService, ServiceState
 from commander.domain.command import CommandSpec, CommandState
+from commander.infrastructure.assembly import build_commander
 from commander.infrastructure.event_repository import EventRepository
-from commander.infrastructure.nats_audit import NatsAuditTransport
 from core.application.protocol_registry import ProtocolRegistry
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.modbus import ModbusDriver
@@ -65,7 +65,7 @@ async def _fetch(nc: NatsClient, stream: str, subject: str, count: int) -> list[
 
 async def _start_service(
     root: Path, db_path: Path, nats_url: str, modbus_port: int
-) -> tuple[CommanderService, str, str, NatsAuditTransport]:
+) -> tuple[CommanderService, str, str]:
     stream = f"CMD_SYS_{uuid.uuid4().hex[:12]}"
     subject = f"commander.sys.{uuid.uuid4().hex[:8]}"
     yaml_path = write_service_config(
@@ -75,22 +75,21 @@ async def _start_service(
     bootstrap = await _connect(nats_url)
     await bootstrap.jetstream(timeout=5).add_stream(name=stream, subjects=[subject])
     await bootstrap.drain()
-    transport = NatsAuditTransport([nats_url], stream=stream, subject=subject)
-    service = CommanderService(
+    # 组合根注入 settings_loader / journal_factory，与生产装配完全一致。
+    service = build_commander(
         config_root=root,
         service_config=yaml_path,
         protocol_registry=_registry(),
-        audit_transport=transport,
     )
     await service.start()
-    return service, stream, subject, transport
+    return service, stream, subject
 
 
 async def test_full_command_chain_real_modbus_and_jetstream(
     config_tree, modbus_server, jetstream_url
 ) -> None:
     root, db_path = config_tree
-    service, stream, subject, _transport = await _start_service(
+    service, stream, subject = await _start_service(
         root, db_path, jetstream_url, modbus_server.port
     )
     nc: NatsClient | None = None
@@ -102,7 +101,7 @@ async def test_full_command_chain_real_modbus_and_jetstream(
         fingerprint = _fingerprint(service)
         assert len(fingerprint) == 64
 
-        accepted = service.executor.accept(
+        accepted = await service.executor.accept(
             [CommandSpec("WT01", "setpoint_power", 42.5, fingerprint)],
             caller_id="ops-console",
         )
@@ -171,7 +170,7 @@ async def test_restart_recovers_executing_command_as_unknown(
     config_tree, modbus_server, jetstream_url
 ) -> None:
     root, db_path = config_tree
-    service, _stream, _subject, _transport = await _start_service(
+    service, _stream, _subject = await _start_service(
         root, db_path, jetstream_url, modbus_server.port
     )
     fingerprint = _fingerprint(service)
@@ -194,12 +193,12 @@ async def test_restart_recovers_executing_command_as_unknown(
     finally:
         journal.close()
 
-    service2, _s2, _j2, _t2 = await _start_service(root, db_path, jetstream_url, modbus_server.port)
+    service2, _s2, _j2 = await _start_service(root, db_path, jetstream_url, modbus_server.port)
     try:
         health = service2.health()
         assert health.recovered_commands == 1
         assert health.state is ServiceState.READY
-        recovered = service2.control.get_command(command_id)
+        recovered = await service2.control.get_command(command_id)
         assert recovered is not None and recovered.outcome is not None
         assert recovered.state.value == "UNKNOWN"
         assert recovered.outcome.value == "UNKNOWN"
@@ -212,7 +211,7 @@ async def test_reload_unchanged_config_is_noop_and_restart_not_required(
     config_tree, modbus_server, jetstream_url
 ) -> None:
     root, db_path = config_tree
-    service, _stream, _subject, _transport = await _start_service(
+    service, _stream, _subject = await _start_service(
         root, db_path, jetstream_url, modbus_server.port
     )
     try:

@@ -155,9 +155,7 @@ class QueuedExecutor:
                 raise OverflowError("global pending batch capacity exceeded")
             loop = asyncio.get_running_loop()
             started = time.monotonic()
-            admission = asyncio.create_task(
-                self._control.accept(commands, caller_id=caller_id)
-            )
+            admission = asyncio.create_task(self._control.accept(commands, caller_id=caller_id))
             try:
                 accepted = await asyncio.shield(admission)
             except asyncio.CancelledError:
@@ -179,9 +177,7 @@ class QueuedExecutor:
                     finished=loop.create_future(),
                     wakeup=asyncio.Event(),
                 )
-                entry.deadline_handle = loop.call_at(
-                    entry.deadline, self._schedule_expiry, entry
-                )
+                entry.deadline_handle = loop.call_at(entry.deadline, self._schedule_expiry, entry)
                 self._entries[command.command_id] = entry
                 self._queues[command.spec.device_id].append(entry)
             for device_id in counts:
@@ -358,7 +354,6 @@ class QueuedExecutor:
         )
 
     async def _check_before_write(self, entry: _Entry, *, queued: bool) -> bool:
-        command_id = entry.command.command_id
         if self._fatal or entry.terminal_in_queue:
             return False
         if self._closed:
@@ -730,9 +725,7 @@ class QueuedExecutor:
             raise ValueError("grace_seconds must be positive")
         self._closed = True
         try:
-            await asyncio.wait_for(
-                self._admission_lock.acquire(), timeout=grace_seconds
-            )
+            await asyncio.wait_for(self._admission_lock.acquire(), timeout=grace_seconds)
         except TimeoutError:
             return frozenset({"__admission__"})
         else:

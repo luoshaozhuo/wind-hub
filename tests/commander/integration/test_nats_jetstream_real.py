@@ -13,6 +13,7 @@ import subprocess
 import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
 import nats
@@ -164,21 +165,26 @@ async def test_audit_delivery_over_real_jetstream_drains_outbox_in_order(
 ) -> None:
     nc, stream, subject, url = jetstream
     js = nc.jetstream(timeout=5)
-    repo = EventRepository(tmp_path / "cmd.db")
+    writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="it-sqlite")
+    repo = writer.submit(lambda: EventRepository(tmp_path / "cmd.db")).result()
     transport = NatsAuditTransport([url], stream=stream, subject=subject)
-    delivery = AuditDelivery(repo, transport, retry_base=0.1, retry_max=1.0)
-    command = repo.accept([CommandSpec("WT01", "p", 3.5, "ref-v1")], caller_id="ops")[0]
-    repo.transition(command.command_id, CommandState.CONNECTING)
-    repo.transition(command.command_id, CommandState.EXECUTING)
-    repo.transition(
-        command.command_id,
-        CommandState.SUCCEEDED,
-        outcome=CommandOutcome.CONFIRMED_SUCCESS,
-    )
+    delivery = AuditDelivery(repo, transport, writer, retry_base=0.1, retry_max=1.0)
+
+    def seed() -> None:
+        command = repo.accept([CommandSpec("WT01", "p", 3.5, "ref-v1")], caller_id="ops")[0]
+        repo.transition(command.command_id, CommandState.CONNECTING)
+        repo.transition(command.command_id, CommandState.EXECUTING)
+        repo.transition(
+            command.command_id,
+            CommandState.SUCCEEDED,
+            outcome=CommandOutcome.CONFIRMED_SUCCESS,
+        )
+
+    writer.submit(seed).result()
     delivery.start()
     try:
         for _ in range(300):
-            if not repo.pending_events(100):
+            if not writer.submit(repo.pending_events, 100).result():
                 break
             await asyncio.sleep(0.02)
         else:  # pragma: no cover
@@ -187,7 +193,8 @@ async def test_audit_delivery_over_real_jetstream_drains_outbox_in_order(
     finally:
         if delivery.operational:
             await delivery.stop(timeout=5.0)
-        repo.close()
+        writer.submit(repo.close).result()
+        writer.shutdown(wait=True)
         await transport.close()
     payloads = await _fetch_all(js, stream, subject, 4)
     types = [json.loads(p)["event_type"] for p in payloads]

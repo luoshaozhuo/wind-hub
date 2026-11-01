@@ -13,6 +13,7 @@ import subprocess
 import time
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
@@ -124,20 +125,22 @@ async def test_stop_drains_full_pending_outbox(nats_container, tmp_path) -> None
     """停止时 outbox 积压 12 条：stop 必须末轮排空后才返回 True。"""
     url, _name = nats_container
     nc, stream, subject = await _stream(url)
-    repo = EventRepository(tmp_path / "b3.db")
+    writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="b3-sqlite")
+    repo = writer.submit(lambda: EventRepository(tmp_path / "b3.db")).result()
     transport = NatsAuditTransport([url], stream=stream, subject=subject)
-    delivery = AuditDelivery(repo, transport, retry_base=0.1, retry_max=1.0)
+    delivery = AuditDelivery(repo, transport, writer, retry_base=0.1, retry_max=1.0)
     for i in range(3):
-        _full_chain(repo, float(i + 1))
+        writer.submit(_full_chain, repo, float(i + 1)).result()
     delivery.start()
     try:
         # 不等后台自然排空；stop 自身负责末轮排空。
         assert await delivery.stop(timeout=15.0) is True
-        assert not repo.pending_events(100)
+        assert not writer.submit(repo.pending_events, 100).result()
     finally:
         if delivery.operational:
             await delivery.stop(timeout=5.0)
-        repo.close()
+        writer.submit(repo.close).result()
+        writer.shutdown(wait=True)
         await transport.close()
     try:
         payloads = await _fetch_all(nc.jetstream(timeout=5), stream, subject, 12)
@@ -155,13 +158,14 @@ async def test_persistent_outage_bounded_stop_then_restart_republishes(
     # 建流后立即释放：本用例随后会停掉整个容器，不让此连接跨越中断窗口。
     await nc.drain()
     db_path = tmp_path / "b3_restart.db"
-    repo = EventRepository(db_path)
+    writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="b3-sqlite")
+    repo = writer.submit(lambda: EventRepository(db_path)).result()
     transport = NatsAuditTransport([url], stream=stream, subject=subject)
-    delivery = AuditDelivery(repo, transport, retry_base=0.1, retry_max=1.0)
-    _full_chain(repo, 1.0)
+    delivery = AuditDelivery(repo, transport, writer, retry_base=0.1, retry_max=1.0)
+    writer.submit(_full_chain, repo, 1.0).result()
     delivery.start()
     for _ in range(300):
-        if not repo.pending_events(100):
+        if not writer.submit(repo.pending_events, 100).result():
             break
         await asyncio.sleep(0.02)
     else:  # pragma: no cover
@@ -172,31 +176,40 @@ async def test_persistent_outage_bounded_stop_then_restart_republishes(
     subprocess.run(["docker", "stop", name], capture_output=True, check=True, timeout=20)
     _wait_port(int(port), open_expected=False)
     try:
-        _full_chain(repo, 2.0)
+        writer.submit(_full_chain, repo, 2.0).result()
         started = time.monotonic()
         assert await delivery.stop(timeout=8.0) is False
         elapsed = time.monotonic() - started
         assert elapsed < 15.0, "stop must remain bounded under persistent outage"
+        # shield 保护的在途发布不可取消：stop 到点返回 False 后，等该原生 I/O
+        # 失败返回、worker 自查停机 deadline 后自行终止（不被遗忘）。
+        for _ in range(750):
+            if not delivery.operational:
+                break
+            await asyncio.sleep(0.02)
         assert delivery.operational is False
-        pending = repo.pending_events(100)
+        pending = writer.submit(repo.pending_events, 100).result()
         assert len(pending) == 4
         # 停机窗口内首个失败即如实终止 worker；至少队首留下失败簿记，
         # 其余未尝试事件保持 PENDING（attempts=0），重启后全部补发。
         assert any(row["attempts"] >= 1 for row in pending)
-        repo.close()
+        writer.submit(repo.close).result()
+        writer.shutdown(wait=True)
 
         # 恢复 NATS；服务器就绪后再 drain 旧连接，避免后台重连任务残留。
         subprocess.run(["docker", "start", name], capture_output=True, check=True, timeout=20)
         await _wait_nats_ready(url)
         with contextlib.suppress(Exception):
             await asyncio.wait_for(transport.close(), timeout=5.0)
-        repo2 = EventRepository(db_path)
+        # 新进程语义：新 writer 线程归属新连接。
+        writer2 = ThreadPoolExecutor(max_workers=1, thread_name_prefix="b3-sqlite-r")
+        repo2 = writer2.submit(lambda: EventRepository(db_path)).result()
         transport2 = NatsAuditTransport([url], stream=stream, subject=subject)
-        delivery2 = AuditDelivery(repo2, transport2, retry_base=0.1, retry_max=1.0)
+        delivery2 = AuditDelivery(repo2, transport2, writer2, retry_base=0.1, retry_max=1.0)
         delivery2.start()
         try:
             for _ in range(500):
-                if not repo2.pending_events(100):
+                if not writer2.submit(repo2.pending_events, 100).result():
                     break
                 await asyncio.sleep(0.02)
             else:  # pragma: no cover
@@ -205,7 +218,8 @@ async def test_persistent_outage_bounded_stop_then_restart_republishes(
         finally:
             if delivery2.operational:
                 await delivery2.stop(timeout=5.0)
-            repo2.close()
+            writer2.submit(repo2.close).result()
+            writer2.shutdown(wait=True)
             await transport2.close()
     finally:
         with contextlib.suppress(subprocess.SubprocessError):

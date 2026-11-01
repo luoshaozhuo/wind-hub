@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -168,20 +170,73 @@ def test_recovery_survives_process_restart_with_real_reopen(tmp_path: Path) -> N
         second.close()
 
 
-def test_idempotency_replay_returns_same_commands(repo: EventRepository) -> None:
+def test_each_submission_creates_fresh_request_per_rr02(repo: EventRepository) -> None:
+    """RR-02：重复提交是新请求；服务端不接受、不依赖调用方幂等编号。"""
     specs = [_spec()]
-    first = repo.accept(specs, caller_id="op", idempotency_key="key-1")
-    second = repo.accept(specs, caller_id="op", idempotency_key="key-1")
-    assert tuple(c.command_id for c in first) == tuple(c.command_id for c in second)
-    assert tuple(c.command_id for c in repo.find_idempotent("op", "key-1")) == tuple(
-        c.command_id for c in first
-    )
-    # 同一 key 不同批量签名必须拒绝。
-    with pytest.raises(ValueError):
-        repo.accept([_spec(value=99.0)], caller_id="op", idempotency_key="key-1")
-    # key 按调用方隔离。
-    other = repo.accept(specs, caller_id="someone-else", idempotency_key="key-1")
-    assert other[0].command_id != first[0].command_id
+    first = repo.accept(specs, caller_id="op")
+    second = repo.accept(specs, caller_id="op")
+    # 新 request_id、新 command_id、receive_seq 全局递增。
+    assert first[0].request_id != second[0].request_id
+    assert first[0].command_id != second[0].command_id
+    assert first[0].receive_seq == 1
+    assert second[0].receive_seq == 2
+    # 两个请求可分别按 request_id 查询。
+    first_members = repo.get_request(first[0].request_id)
+    second_members = repo.get_request(second[0].request_id)
+    assert [c.command.command_id for c in first_members] == [first[0].command_id]
+    assert [c.command.command_id for c in second_members] == [second[0].command_id]
+    # 仓储接口不再暴露任何调用方幂等键能力。
+    assert not hasattr(repo, "find_idempotent")
+    import inspect
+
+    assert "idempotency_key" not in inspect.signature(repo.accept).parameters
+
+
+def test_legacy_database_with_idempotency_table_still_usable(tmp_path: Path) -> None:
+    """旧版本残留 idempotency_keys 表：升级打开不破坏既有命令记录。"""
+    db = tmp_path / "legacy.db"
+    legacy = sqlite3.connect(db)
+    try:
+        legacy.execute(
+            "CREATE TABLE idempotency_keys ("
+            "caller_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,"
+            "request_id TEXT NOT NULL, command_count INTEGER NOT NULL,"
+            "created_at TEXT NOT NULL, PRIMARY KEY(caller_id, idempotency_key))"
+        )
+        legacy.execute(
+            "INSERT INTO idempotency_keys VALUES ('op','old-key','req-legacy',1,'2026-01-01')"
+        )
+        legacy.commit()
+    finally:
+        legacy.close()
+
+    upgraded = EventRepository(db)
+    try:
+        accepted = upgraded.accept([_spec()], caller_id="op")
+        upgraded.transition(accepted[0].command_id, CommandState.CONNECTING)
+        upgraded.transition(accepted[0].command_id, CommandState.EXECUTING)
+        upgraded.transition(
+            accepted[0].command_id,
+            CommandState.SUCCEEDED,
+            outcome=CommandOutcome.CONFIRMED_SUCCESS,
+        )
+        result = _must(upgraded.get(accepted[0].command_id))
+        assert result.state is CommandState.SUCCEEDED
+        raw = sqlite3.connect(db)
+        try:
+            names = {
+                row[0] for row in raw.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
+            # 旧表保留但不属于新 schema 契约；新表与旧记录共存可读。
+            assert {"command_events", "repository_meta"} <= names
+            leftover = raw.execute(
+                "SELECT request_id FROM idempotency_keys WHERE idempotency_key='old-key'"
+            ).fetchone()
+            assert leftover == ("req-legacy",)
+        finally:
+            raw.close()
+    finally:
+        upgraded.close()
 
 
 def test_outbox_pending_mark_and_failure_attempts(repo: EventRepository) -> None:
@@ -280,7 +335,8 @@ def test_pragmas_and_schema_on_real_database_file(tmp_path: Path) -> None:
             names = {
                 row[0] for row in raw.execute("SELECT name FROM sqlite_master WHERE type='table'")
             }
-            assert {"command_events", "idempotency_keys", "repository_meta"} <= names
+            assert {"command_events", "repository_meta"} <= names
+            assert "idempotency_keys" not in names
         finally:
             raw.close()
     finally:
@@ -304,17 +360,60 @@ def test_metrics_report_accepted_and_terminal_counts(repo: EventRepository) -> N
     assert metrics.used_bytes > 0
 
 
-def test_command_control_maps_service_boundaries(repo: EventRepository) -> None:
-    control = CommandControl(repo)
-    command = control.accept([_spec()], caller_id="op")[0]
-    control.connecting(command.command_id)
-    control.executing(command.command_id)
-    control.complete(
-        command.command_id,
-        CommandState.UNKNOWN,
-        outcome=CommandOutcome.UNKNOWN,
-        error_code="WRITE_TIMEOUT",
-    )
-    result = _must(control.get_command(command.command_id))
-    assert result.state is CommandState.UNKNOWN
-    assert result.error_code == "WRITE_TIMEOUT"
+async def test_command_control_maps_service_boundaries(
+    tmp_path: Path, sqlite_writer: ThreadPoolExecutor
+) -> None:
+    repo = sqlite_writer.submit(
+        lambda: EventRepository(tmp_path / "ctrl.db", retention_seconds=1800)
+    ).result()
+    try:
+        control = CommandControl(repo, sqlite_writer)
+        command = (await control.accept([_spec()], caller_id="op"))[0]
+        await control.connecting(command.command_id)
+        await control.executing(command.command_id)
+        await control.complete(
+            command.command_id,
+            CommandState.UNKNOWN,
+            outcome=CommandOutcome.UNKNOWN,
+            error_code="WRITE_TIMEOUT",
+        )
+        result = _must(await control.get_command(command.command_id))
+        assert result.state is CommandState.UNKNOWN
+        assert result.error_code == "WRITE_TIMEOUT"
+    finally:
+        sqlite_writer.submit(repo.close).result()
+
+
+async def test_control_cancellation_waits_for_durable_t1_settlement(
+    tmp_path: Path, sqlite_writer: ThreadPoolExecutor
+) -> None:
+    """T1 提交在 writer 队列中等待时调用方被取消：提交不得丢失。
+
+    单线程池先被阻塞任务占住，accept 只能排队；此时取消调用方协程，
+    CommandControl 必须等待已提交的 SQLite 工作落定后再传播取消，
+    禁止出现“SQLite 提交成功但调用链无人知晓”的孤儿 T1。
+    """
+    import threading
+
+    repo = sqlite_writer.submit(
+        lambda: EventRepository(tmp_path / "cancel.db", retention_seconds=1800)
+    ).result()
+    try:
+        release = threading.Event()
+        sqlite_writer.submit(lambda: release.wait(5.0))  # 占住唯一 writer 线程
+        control = CommandControl(repo, sqlite_writer)
+        task = asyncio.create_task(control.accept([_spec()], caller_id="op"))
+        await asyncio.sleep(0.05)  # 确保 accept 已进入 writer 队列但无法执行
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        release.set()
+        # 被屏蔽的提交最终必须落盘可查（经 writer 线程读取，避免跨线程）。
+        for _ in range(200):
+            total = sqlite_writer.submit(repo.metrics).result().accepted_total
+            if total == 1:
+                break
+            await asyncio.sleep(0.01)
+        assert sqlite_writer.submit(repo.metrics).result().accepted_total == 1
+    finally:
+        sqlite_writer.submit(repo.close).result()

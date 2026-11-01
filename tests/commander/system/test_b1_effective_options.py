@@ -16,7 +16,8 @@ import pytest
 from commander.application.config_manager import CommanderConfigManager
 from commander.application.service_lifecycle import CommanderService
 from commander.domain.command import CommandSpec
-from commander.infrastructure.nats_audit import NatsAuditTransport
+from commander.infrastructure.assembly import build_commander
+from commander.infrastructure.service_settings import load_service_settings
 from core.application.protocol_contract import ProtocolWrite
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.modbus import ModbusDriver
@@ -45,9 +46,9 @@ dispatcher:
 repository:
   sqlite_path: {sqlite_path}
 audit:
-  nats_servers: ["nats://127.0.0.1:1"]
-  stream: S
-  subject: s
+  nats_servers: ["{nats_url}"]
+  stream: {stream}
+  subject: {subject}
 """
 
 
@@ -56,6 +57,9 @@ def _build_tree(
     *,
     devices_yaml: str,
     model_yaml: str,
+    nats_url: str = "nats://127.0.0.1:1",
+    stream: str = "S",
+    subject: str = "s",
 ) -> tuple[Path, Path]:
     root = tmp_root / "config"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
@@ -70,7 +74,12 @@ def _build_tree(
     db_path = tmp_root / "state" / "commander.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     service_yaml = tmp_root / "commander.yaml"
-    service_yaml.write_text(_SERVICE_YAML.format(sqlite_path=str(db_path)), encoding="utf-8")
+    service_yaml.write_text(
+        _SERVICE_YAML.format(
+            sqlite_path=str(db_path), nats_url=nats_url, stream=stream, subject=subject
+        ),
+        encoding="utf-8",
+    )
     return root, service_yaml
 
 
@@ -118,7 +127,11 @@ def _manager(root: Path, service_yaml: Path) -> CommanderConfigManager:
     async def _no_quiesce(_devices: frozenset[str]) -> frozenset[str]:
         return frozenset()
 
-    manager = CommanderConfigManager(root, service_yaml, quiesce=_no_quiesce)
+    manager = CommanderConfigManager(
+        root,
+        quiesce=_no_quiesce,
+        settings_loader=lambda: load_service_settings(service_yaml),
+    )
     manager.start()
     return manager
 
@@ -150,6 +163,8 @@ async def _start_real_service(
     model_port: int | None = None,
     device_port: int | None = None,
 ) -> tuple[CommanderService, Path, str, str]:
+    stream = f"CMD_B1_{uuid.uuid4().hex[:12]}"
+    subject = f"commander.b1.{uuid.uuid4().hex[:8]}"
     config_root, service_yaml = _build_tree(
         tmp_path,
         devices_yaml=_devices_yaml(port=device_port, word_order=device_word_order),
@@ -157,17 +172,17 @@ async def _start_real_service(
             port=modbus_port if model_port is None else model_port,
             word_order=model_word_order,
         ),
+        nats_url=nats_url,
+        stream=stream,
+        subject=subject,
     )
-    stream = f"CMD_B1_{uuid.uuid4().hex[:12]}"
-    subject = f"commander.b1.{uuid.uuid4().hex[:8]}"
     bootstrap = await _connect(nats_url)
     await bootstrap.jetstream(timeout=5).add_stream(name=stream, subjects=[subject])
     await bootstrap.drain()
-    service = CommanderService(
+    service = build_commander(
         config_root=config_root,
         service_config=service_yaml,
         protocol_registry=_registry(),
-        audit_transport=NatsAuditTransport([nats_url], stream=stream, subject=subject),
     )
     await service.start()
     return service, config_root, stream, subject
@@ -185,7 +200,7 @@ async def test_model_only_options_and_model_default_port_drive_real_modbus(
     try:
         fingerprint = _config(service).device_revision("WT-B1")
         assert fingerprint is not None
-        accepted = service.executor.accept(
+        accepted = await service.executor.accept(
             [CommandSpec("WT-B1", "setpoint_power", 42.5, fingerprint)],
             caller_id="ops-b1",
         )
@@ -277,7 +292,7 @@ async def test_model_option_change_rotates_fingerprint_and_reload_routes_new_ses
         try:
             old_reference = _config(service).device_revision("WT-B1")
             assert old_reference is not None
-            accepted = service.executor.accept(
+            accepted = await service.executor.accept(
                 [CommandSpec("WT-B1", "setpoint_power", 11.0, old_reference)],
                 caller_id="ops-b1",
             )
@@ -300,7 +315,7 @@ async def test_model_option_change_rotates_fingerprint_and_reload_routes_new_ses
                 CommandSpec("WT-B1", "setpoint_power", 1.0, old_reference)
             )
 
-            accepted2 = service.executor.accept(
+            accepted2 = await service.executor.accept(
                 [CommandSpec("WT-B1", "setpoint_power", 22.0, new_reference)],
                 caller_id="ops-b1",
             )

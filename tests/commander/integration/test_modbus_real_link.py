@@ -53,7 +53,9 @@ async def test_real_modbus_write_confirmed_and_persisted(modbus_server, control)
         connect_timeout=3.0,
         write_timeout=3.0,
     )
-    accepted = executor.accept([CommandSpec("WT01", "command", 42.5, "ref-v1")], caller_id="ops")
+    accepted = await executor.accept(
+        [CommandSpec("WT01", "command", 42.5, "ref-v1")], caller_id="ops"
+    )
     try:
         waited = await asyncio.wait_for(executor.wait(accepted[0].command_id), timeout=5.0)
         assert waited is not None
@@ -71,7 +73,7 @@ async def test_real_modbus_write_confirmed_and_persisted(modbus_server, control)
         assert sample.value == pytest.approx(42.5)
     finally:
         await driver.close()
-    events = control.get_command(accepted[0].command_id)
+    events = await control.get_command(accepted[0].command_id)
     assert events.state is CommandState.SUCCEEDED
     assert events.completed_at is not None
 
@@ -90,7 +92,7 @@ async def test_real_modbus_batch_writes_each_point_separately_without_write_many
         connect_timeout=3.0,
         write_timeout=3.0,
     )
-    accepted = executor.accept(
+    accepted = await executor.accept(
         [
             CommandSpec("WT01", "command", 7.0, "ref-v1"),
             CommandSpec("WT01", "temperature", 31, "ref-v1"),
@@ -128,7 +130,9 @@ async def test_unreachable_modbus_connect_is_confirmed_failure(control) -> None:
         connect_timeout=2.0,
         write_timeout=2.0,
     )
-    accepted = executor.accept([CommandSpec("WT01", "command", 1.0, "ref-v1")], caller_id="ops")
+    accepted = await executor.accept(
+        [CommandSpec("WT01", "command", 1.0, "ref-v1")], caller_id="ops"
+    )
     try:
         waited = await asyncio.wait_for(executor.wait(accepted[0].command_id), timeout=5.0)
         assert waited is not None
@@ -164,7 +168,7 @@ async def test_point_without_write_access_rejected_before_wire(modbus_server, co
         connect_timeout=3.0,
         write_timeout=3.0,
     )
-    accepted = executor.accept([CommandSpec("WT01", "speed", 1.0, "ref-v1")], caller_id="ops")
+    accepted = await executor.accept([CommandSpec("WT01", "speed", 1.0, "ref-v1")], caller_id="ops")
     try:
         waited = await asyncio.wait_for(executor.wait(accepted[0].command_id), timeout=5.0)
         assert waited is not None

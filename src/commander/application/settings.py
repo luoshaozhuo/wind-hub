@@ -30,4 +30,3 @@ class ServiceSettings:
     audit_retry_base: float
     audit_retry_max: float
     shutdown_grace_seconds: float
-

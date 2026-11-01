@@ -12,6 +12,7 @@ from shutil import copytree
 import pytest
 
 from commander.application.config_manager import CommanderConfigManager
+from commander.infrastructure.service_settings import load_service_settings
 
 _REPO_CONFIGS = Path(__file__).resolve().parents[3] / "configs"
 
@@ -114,7 +115,11 @@ def _manager(root: Path, service_yaml: Path) -> CommanderConfigManager:
     async def _no_quiesce(_devices: frozenset[str]) -> frozenset[str]:
         return frozenset()
 
-    manager = CommanderConfigManager(root, service_yaml, quiesce=_no_quiesce)
+    manager = CommanderConfigManager(
+        root,
+        quiesce=_no_quiesce,
+        settings_loader=lambda: load_service_settings(service_yaml),
+    )
     manager.start()
     return manager
 
