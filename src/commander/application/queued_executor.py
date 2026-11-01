@@ -736,12 +736,14 @@ class QueuedExecutor:
         finally:
             self._idle_closing.discard(device_id)
 
-    async def close(self) -> frozenset[str]:
+    async def close(self, *, grace_seconds: float = 10.0) -> frozenset[str]:
         """Bound shutdown; keep native tasks and sessions owned when unresolved."""
+        if grace_seconds <= 0:
+            raise ValueError("grace_seconds must be positive")
         self._closed = True
         workers = tuple(self._workers.values())
         if workers:
-            _, pending = await asyncio.wait(workers, timeout=self._queue_timeout)
+            _, pending = await asyncio.wait(workers, timeout=grace_seconds)
             for task in pending:
                 # Do not cancel: the task may own a still-active protocol write.
                 for device_id, worker in self._workers.items():
