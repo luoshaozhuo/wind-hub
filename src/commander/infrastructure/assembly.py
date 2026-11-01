@@ -26,7 +26,6 @@ def build_commander(
     )
     return CommanderService(
         config_root=config_root,
-        service_config=service_config,
         protocol_registry=protocol_registry,
         audit_transport=audit_transport,
         settings_loader=lambda: load_service_settings(service_config),
