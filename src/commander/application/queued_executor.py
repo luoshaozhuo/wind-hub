@@ -66,10 +66,11 @@ class QueuedExecutor:
         connect_timeout: float = 3.0,
         write_timeout: float = 3.0,
         max_queued_per_device: int = 100,
+        idle_timeout: float = 30.0,
     ) -> None:
         if global_capacity < 1 or max_queued_per_device < 1:
             raise ValueError("capacities must be positive")
-        if min(queue_timeout, connect_timeout, write_timeout) <= 0:
+        if min(queue_timeout, connect_timeout, write_timeout, idle_timeout) <= 0:
             raise ValueError("timeouts must be positive")
         self._control = control
         self._factory = session_factory
@@ -78,6 +79,9 @@ class QueuedExecutor:
         self._connect_timeout = connect_timeout
         self._write_timeout = write_timeout
         self._queue_limit = max_queued_per_device
+        self._idle_timeout = idle_timeout
+        self._idle_tasks: dict[str, asyncio.Task[None]] = {}
+        self._idle_closing: set[str] = set()
         self._queues: dict[str, deque[_Entry]] = defaultdict(deque)
         self._workers: dict[str, asyncio.Task[None]] = {}
         self._entries: dict[str, _Entry] = {}
@@ -147,6 +151,11 @@ class QueuedExecutor:
             )
 
     async def _run_device(self, device_id: str) -> None:
+        idle = self._idle_tasks.pop(device_id, None)
+        if idle is not None:
+            if device_id not in self._idle_closing:
+                idle.cancel()
+            await asyncio.gather(idle, return_exceptions=True)
         queue = self._queues[device_id]
         while queue:
             entry = queue[0]
@@ -165,6 +174,16 @@ class QueuedExecutor:
                 queue.popleft()
                 if entry.finished.done():
                     self._entries.pop(entry.command.command_id, None)
+        if (
+            not self._closed
+            and not self._fatal
+            and device_id in self._sessions
+            and device_id not in self._blocked
+        ):
+            self._idle_tasks[device_id] = asyncio.create_task(
+                self._expire_session(device_id),
+                name=f"commander:idle:{device_id}",
+            )
 
     def _unsent(self, command_id: str, state: CommandState, code: str) -> None:
         self._control.complete(
@@ -323,10 +342,29 @@ class QueuedExecutor:
 
         native.add_done_callback(finished)
 
+    async def _expire_session(self, device_id: str) -> None:
+        await asyncio.sleep(self._idle_timeout)
+        if self._queues[device_id] or device_id in self._blocked:
+            return
+        session = self._sessions.pop(device_id, None)
+        if session is None:
+            return
+        self._idle_closing.add(device_id)
+        try:
+            await session.close()
+        except Exception:
+            self._blocked.add(device_id)
+        finally:
+            self._idle_closing.discard(device_id)
+
     async def close(self) -> None:
         """Stop admission, let active FIFO drain; never abandon native tasks."""
         self._closed = True
         await asyncio.gather(*self._workers.values(), return_exceptions=True)
+        for device_id, idle in tuple(self._idle_tasks.items()):
+            if device_id not in self._idle_closing:
+                idle.cancel()
+        await asyncio.gather(*self._idle_tasks.values(), return_exceptions=True)
         for device_id, session in self._sessions.items():
             if device_id in self._blocked:
                 continue
