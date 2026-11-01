@@ -32,6 +32,7 @@ class ServiceSettings:
     nats_servers: tuple[str, ...]
     audit_retry_base: float
     audit_retry_max: float
+    shutdown_grace_seconds: float
 
 
 def _mapping(raw: object, name: str) -> dict[str, Any]:
@@ -100,7 +101,8 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         {"nats_servers", "stream", "subject", "retry_base_ms", "retry_max_ms"},
         "audit",
     )
-    _keys(_mapping(raw.get("shutdown", {}), "shutdown"), {"grace_seconds"}, "shutdown")
+    shutdown = _mapping(raw.get("shutdown", {}), "shutdown")
+    _keys(shutdown, {"grace_seconds"}, "shutdown")
     sqlite_path = repository.get("sqlite_path")
     stream = audit.get("stream")
     subject = audit.get("subject")
@@ -128,8 +130,8 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         or any(not isinstance(server, str) or not server.strip() for server in servers)
     ):
         raise ValueError("audit.nats_servers requires a non-empty list")
-    retry_base = float(_positive(audit.get("retry_base_ms", 200), "retry_base_ms")) / 1000
-    retry_max = float(_positive(audit.get("retry_max_ms", 10000), "retry_max_ms")) / 1000
+    retry_base = float(_positive(audit.get("retry_base_ms", 100), "retry_base_ms")) / 1000
+    retry_max = float(_positive(audit.get("retry_max_ms", 5000), "retry_max_ms")) / 1000
     if retry_max < retry_base:
         raise ValueError("audit retry_max_ms must be >= retry_base_ms")
     for section in ("grpc", "security"):
@@ -167,4 +169,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         nats_servers=tuple(servers),
         audit_retry_base=retry_base,
         audit_retry_max=retry_max,
+        shutdown_grace_seconds=float(
+            _positive(shutdown.get('grace_seconds', 10), 'shutdown.grace_seconds')
+        ),
     )
