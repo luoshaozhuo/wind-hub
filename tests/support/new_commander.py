@@ -1,6 +1,6 @@
 """新 Commander（src/commander）测试共享装配辅助。
 
-提供最小 YAML 配置树写出、Fake ProtocolPort 与内存 CommanderConfig 构造，
+提供最小 YAML 配置树写出与 Fake ProtocolPort，
 供 unit/component 层复用；不 import 任何 wind_hub_* 模块。
 """
 
@@ -13,7 +13,6 @@ from typing import Any
 
 import yaml
 
-from commander.application.config import CommanderConfig
 from core.application import (
     ConnectionHealth,
     InterrogationRequest,
@@ -28,26 +27,8 @@ from core.application import (
 from core.application.errors import ProtocolCapabilityError
 from core.application.port.protocol import ListenHandle, SubscriptionHandle
 from core.application.protocol_registry import ProtocolRegistry
-from core.application.settings import ADSLocalConfig
-from core.domain import (
-    BusinessPoint,
-    BusinessPointId,
-    ConnectionEndpoint,
-    DataType,
-    Device,
-    DeviceGroupId,
-    DeviceId,
-    DeviceModel,
-    DeviceModelId,
-    DeviceTypeId,
-    Point,
-    PointAccess,
-    PointTable,
-    PointTableId,
-    Protocol,
-    ProtocolOptions,
-)
-from tests.support.units import MINIMAL_UNITS_DOCUMENT, NONE_UNIT, minimal_unit_catalog
+from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
+from tests.support.units import MINIMAL_UNITS_DOCUMENT
 
 # ---------------------------------------------------------------------------
 # YAML 配置树
@@ -332,82 +313,11 @@ class FakeRegistry(ProtocolRegistry):
         return instance
 
 
-# ---------------------------------------------------------------------------
-# 内存 CommanderConfig
-# ---------------------------------------------------------------------------
-
-
-def make_commander_config(
-    *,
-    device_id: str = "dev1",
-    protocol: str = "modbus",
-    address: dict[str, Any] | None = None,
-    protocol_options_by_device: dict[str, Any] | None = None,
-    ads_local: ADSLocalConfig | None = None,
-    scale: float = 1.0,
-    offset: float = 0.0,
-    access: PointAccess = PointAccess.READ_WRITE,
-    data_type: DataType = DataType.FLOAT32,
-    connect_timeout: float = 1.0,
-    write_timeout: float = 1.0,
-) -> CommanderConfig:
-    """构造单设备单点的内存 CommanderConfig（不经过 YAML）。"""
-    unit = NONE_UNIT
-    bp = BusinessPoint(
-        business_point_id=BusinessPointId("p1"),
-        data_type=data_type,
-        standard_unit=unit,
-    )
-    point = Point(
-        point_id="p1",
-        business_point_id=bp.business_point_id,
-        source_unit=unit,
-        access=access,
-        scale=scale,
-        offset=offset,
-        ext=address or {"register_type": "holding", "address": 100},
-        point_groups=("g",),
-    )
-    table = PointTable(
-        point_table_id=PointTableId("tab"),
-        protocol=Protocol(protocol),
-        points={"p1": point},
-    )
-    # Commander 配置边界要求每个启用 ADS 设备显式提供 target_net_id；
-    # 仅关心诊断/选项透传的用例无需逐个显式声明。
-    options = dict(protocol_options_by_device or {})
-    if protocol == "ads" and "target_net_id" not in options:
-        options["target_net_id"] = "192.0.2.10.1.1"
-    return CommanderConfig(
-        units=minimal_unit_catalog(),
-        device_models={
-            DeviceModelId("mod"): DeviceModel(
-                device_model_id=DeviceModelId("mod"),
-                device_type_id=DeviceTypeId("turbine"),
-                point_table_id=PointTableId("tab"),
-            )
-        },
-        devices={
-            DeviceId(device_id): Device(
-                device_id=DeviceId(device_id),
-                device_model_id=DeviceModelId("mod"),
-                endpoint=ConnectionEndpoint(host="127.0.0.1", port=502),
-                device_group_ids=(DeviceGroupId("grp"),),
-                protocol_options=options,
-            )
-        },
-        business_points={bp.business_point_id: bp},
-        point_tables={PointTableId("tab"): table},
-        ads_local=ads_local,
-        connect_timeout=connect_timeout,
-        write_timeout=write_timeout,
-    )
-
-
 __all__ = [
     "FakeProtocol",
     "FakeRegistry",
-    "make_commander_config",
+    "FakeListenHandle",
+    "FakeSubscriptionHandle",
     "write_minimal_config_tree",
     "write_yaml",
 ]
