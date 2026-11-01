@@ -38,7 +38,7 @@ class NatsAuditTransport:
         connection = await nats.connect(servers=list(self._servers))
         self._connection = connection
         self._publisher = AuditPublisher(
-            connection.jetstream(timeout=self._timeout), self._subject
+            connection.jetstream(timeout=self._timeout), self._subject, self._stream
         )
 
     async def publish(self, event: Mapping[str, Any]) -> None:
