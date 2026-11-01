@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -16,7 +18,7 @@ from commander.application.config_manager import (
 )
 from commander.application.control import CommandControl
 from commander.application.queued_executor import QueuedExecutor
-from commander.application.journal_port import JournalPort
+from commander.application.journal_port import JournalMetrics, JournalPort
 from commander.application.settings import ServiceSettings
 from core.application.protocol_registry import ProtocolRegistry
 
@@ -77,6 +79,8 @@ class CommanderService:
         self._audit: AuditDelivery | None = None
         self._state = ServiceState.STOPPED
         self._journal: JournalPort | None = None
+        self._writer: ThreadPoolExecutor | None = None
+        self._journal_stats: JournalMetrics | None = None
         self._control: CommandControl | None = None
         self._executor: QueuedExecutor | None = None
         self._config: CommanderConfigManager | None = None
@@ -112,6 +116,8 @@ class CommanderService:
             raise RuntimeError("service already started")
         self._state = ServiceState.STARTING
         journal: JournalPort | None = None
+        self._writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix='commander-sqlite')
+        loop = asyncio.get_running_loop()
         try:
             # Parse and validate the entire candidate before enabling any write.
             manager = CommanderConfigManager(
@@ -121,9 +127,12 @@ class CommanderService:
                 settings_loader=self._settings_loader,
             )
             settings: ServiceSettings = manager.start()
-            journal = self._journal_factory(settings)
-            recovered = journal.recover()
-            control = CommandControl(journal)
+            writer = self._writer
+            journal = await loop.run_in_executor(
+                writer, partial(self._journal_factory, settings)
+            )
+            recovered = await loop.run_in_executor(writer, journal.recover)
+            control = CommandControl(journal, writer)
             executor = QueuedExecutor(
                 control,
                 lambda device_id: manager.create_session(device_id, self._registry),
@@ -141,6 +150,7 @@ class CommanderService:
             audit = AuditDelivery(
                 journal,
                 self._audit_transport,
+                writer,
                 retry_base=settings.audit_retry_base,
                 retry_max=settings.audit_retry_max,
             )
@@ -151,6 +161,7 @@ class CommanderService:
             self._executor = executor
             self._config = manager
             self._recovered = len(recovered)
+            self._journal_stats = await loop.run_in_executor(writer, journal.metrics)
             self._cleanup_interval = settings.cleanup_interval_seconds
             self._shutdown_grace = settings.shutdown_grace_seconds
             self._state = ServiceState.READY
@@ -168,7 +179,10 @@ class CommanderService:
                 self._audit = None
                 await self._audit_transport.close()
             if journal is not None:
-                journal.close()
+                await loop.run_in_executor(self._writer, journal.close)
+            if self._writer is not None:
+                await asyncio.to_thread(self._writer.shutdown, wait=True)
+                self._writer = None
             raise
 
     async def _quiesce(self, devices: frozenset[str]) -> frozenset[str]:
@@ -202,7 +216,7 @@ class CommanderService:
         operational = self._executor is not None and self._executor.operational
         audit_operational = self._audit is not None and self._audit.operational
         journal_operational = self._journal is not None and self._journal.operational
-        stats = self._journal.metrics() if journal_operational and self._journal else None
+        stats = self._journal_stats if journal_operational else None
         return RuntimeHealth(
             state=self._state,
             ready=(
@@ -235,9 +249,21 @@ class CommanderService:
             if elapsed >= self._cleanup_interval and self._journal is not None:
                 elapsed = 0.0
                 try:
-                    self._journal.cleanup()
+                    if self._writer is not None:
+                        await asyncio.get_running_loop().run_in_executor(
+                            self._writer, self._journal.cleanup
+                        )
                 except Exception:
                     logger.exception("commander journal cleanup failed")
+            if self._journal is not None and self._writer is not None:
+                try:
+                    self._journal_stats = await asyncio.get_running_loop().run_in_executor(
+                        self._writer, self._journal.metrics
+                    )
+                except Exception:
+                    self._state = ServiceState.FAILED
+                    logger.exception('Commander journal metrics unavailable')
+                    return
             if self._executor is None:
                 return
             blocked = self._executor.blocked_devices()
@@ -288,8 +314,13 @@ class CommanderService:
         except Exception:
             self._state = ServiceState.FAILED
             return frozenset({"__audit_connection__"})
-        if self._journal is not None:
-            self._journal.close()
+        if self._journal is not None and self._writer is not None:
+            await asyncio.get_running_loop().run_in_executor(
+                self._writer, self._journal.close
+            )
             self._journal = None
+        if self._writer is not None:
+            await asyncio.to_thread(self._writer.shutdown, wait=True)
+            self._writer = None
         self._state = ServiceState.STOPPED
         return blocked
