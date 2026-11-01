@@ -150,6 +150,10 @@ class EventRepository:
             self._lock_file.close()
             raise
 
+    @property
+    def operational(self) -> bool:
+        return not self._closed and not self._unavailable
+
     def close(self) -> None:
         with self._lock:
             if self._closed:
