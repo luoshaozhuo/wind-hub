@@ -1,4 +1,4 @@
-"""Transport-independent command acceptance and durable lifecycle service."""
+"""In-memory command lifecycle with asynchronous durable-history lookups."""
 
 from __future__ import annotations
 
@@ -22,10 +22,10 @@ _T = TypeVar("_T")
 
 
 class CommandControl:
-    """Only persist verified decisions; device I/O belongs to later stages."""
+    """Record all command decisions in memory; never await SQLite on the write path."""
 
     def __init__(
-        self, repository: JournalPort, writer: Executor, buffer: BufferedJournal | None = None
+        self, repository: JournalPort, writer: Executor, buffer: BufferedJournal
     ) -> None:
         self._repository = repository
         self._writer = writer
@@ -37,8 +37,6 @@ class CommandControl:
         try:
             return await asyncio.shield(work)
         except asyncio.CancelledError:
-            # Native SQLite work is not cancellable after executor submission.
-            # Wait for settlement before permitting another device operation.
             await work
             raise
 
@@ -50,48 +48,26 @@ class CommandControl:
         operator_id: str | None = None,
         trace_id: str | None = None,
     ) -> tuple[AcceptedCommand, ...]:
-        if self._buffer is not None:
-            return self._buffer.accept(
-                commands, caller_id=caller_id, operator_id=operator_id, trace_id=trace_id
-            )
-        return await self._run(
-            self._repository.accept,
-            commands,
-            caller_id=caller_id,
-            operator_id=operator_id,
-            trace_id=trace_id,
+        return self._buffer.accept(
+            commands, caller_id=caller_id, operator_id=operator_id, trace_id=trace_id
         )
 
     async def connecting(self, command_id: str) -> None:
-        if self._buffer is not None:
-            self._buffer.transition(command_id, CommandState.CONNECTING)
-            return
-        await self._run(self._repository.transition, command_id, CommandState.CONNECTING)
+        self._buffer.transition(command_id, CommandState.CONNECTING)
 
     async def executing(self, command_id: str) -> None:
-        """Commit this boundary before any potentially effective field write."""
-        if self._buffer is not None:
-            self._buffer.transition(command_id, CommandState.EXECUTING)
-            return
-        await self._run(self._repository.transition, command_id, CommandState.EXECUTING)
+        self._buffer.transition(command_id, CommandState.EXECUTING)
 
     async def executing_many(self, command_ids: Sequence[str]) -> None:
-        """Persist all batch T2 boundaries atomically before any field write."""
-        changes = tuple((command_id, CommandState.EXECUTING, None, None) for command_id in command_ids)
-        if self._buffer is not None:
-            self._buffer.transition_many(changes)
-            return
-        await self._run(self._repository.transition_many, changes)
+        self._buffer.transition_many(
+            tuple((command_id, CommandState.EXECUTING, None, None) for command_id in command_ids)
+        )
 
     async def complete_many(
         self,
         changes: Sequence[tuple[str, CommandState, CommandOutcome, str | None]],
     ) -> None:
-        """Commit all batch terminal decisions in one SQLite transaction."""
-        if self._buffer is not None:
-            self._buffer.transition_many(changes)
-            return
-        await self._run(self._repository.transition_many, tuple(changes))
+        self._buffer.transition_many(changes)
 
     async def complete(
         self,
@@ -102,35 +78,22 @@ class CommandControl:
         error_code: str | None = None,
         error_message: str | None = None,
     ) -> None:
-        if self._buffer is not None:
-            self._buffer.transition(
-                command_id, state, outcome=outcome,
-                error_code=error_code, error_message=error_message,
-            )
-            return
-        await self._run(
-            self._repository.transition,
-            command_id,
-            state,
-            outcome=outcome,
-            error_code=error_code,
-            error_message=error_message,
+        self._buffer.transition(
+            command_id, state, outcome=outcome,
+            error_code=error_code, error_message=error_message,
         )
 
     async def get_command(self, command_id: str) -> CommandResult | None:
-        if self._buffer is not None:
-            cached = self._buffer.get_cached(command_id)
-            if cached is not None:
-                return cached
+        cached = self._buffer.get_cached(command_id)
+        if cached is not None:
+            return cached
         return await self._run(self._repository.get, command_id)
 
     async def get_request(self, request_id: str) -> tuple[CommandResult, ...]:
-        if self._buffer is not None:
-            cached = self._buffer.get_request_cached(request_id)
-            if cached is not None:
-                return cached
+        cached = self._buffer.get_request_cached(request_id)
+        if cached is not None:
+            return cached
         return await self._run(self._repository.get_request, request_id)
 
     async def recover(self) -> tuple[str, ...]:
-        """Must run before the future runtime starts accepting commands."""
         return await self._run(self._repository.recover)
