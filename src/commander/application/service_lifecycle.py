@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
-from collections.abc import Callable
 
 from commander.application.audit import AuditDelivery, AuditTransport
 from commander.application.config_manager import (
@@ -17,8 +17,8 @@ from commander.application.config_manager import (
     ReloadReport,
 )
 from commander.application.control import CommandControl
-from commander.application.queued_executor import QueuedExecutor
 from commander.application.journal_port import JournalMetrics, JournalPort
+from commander.application.queued_executor import QueuedExecutor
 from commander.application.settings import ServiceSettings
 from core.application.protocol_registry import ProtocolRegistry
 
@@ -114,9 +114,7 @@ class CommanderService:
             raise RuntimeError("service already started")
         self._state = ServiceState.STARTING
         journal: JournalPort | None = None
-        writer = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="commander-sqlite"
-        )
+        writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="commander-sqlite")
         self._writer = writer
         loop = asyncio.get_running_loop()
         try:
@@ -261,7 +259,7 @@ class CommanderService:
                     )
                 except Exception:
                     self._state = ServiceState.FAILED
-                    logger.exception('Commander journal metrics unavailable')
+                    logger.exception("Commander journal metrics unavailable")
                     return
             if self._executor is None:
                 return
