@@ -367,6 +367,9 @@ class QueuedExecutor:
         command_id = entry.command.command_id
         if self._fatal or entry.terminal_in_queue:
             return False
+        if self._closed:
+            self._unsent(command_id, CommandState.INTERRUPTED, "SERVICE_STOPPING")
+            return False
         if entry.command.spec.device_id in self._reloading:
             self._unsent(command_id, CommandState.FAILED, 'CONFIG_RELOADING')
             return False
