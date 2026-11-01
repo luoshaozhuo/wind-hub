@@ -163,11 +163,16 @@ class CommanderConfigManager:
         point = self._snapshot.point_tables[model.point_table_id].point(spec.point_id)
         business = self._snapshot.business_points[point.business_point_id]
         typed = business.coerce(spec.value)
-        point_value = (
-            convert_value(float(typed), business.standard_unit, point.source_unit)
-            if isinstance(typed, int | float) and not isinstance(typed, bool)
-            else typed
-        )
+        point_value = typed
+        if isinstance(typed, int | float) and not isinstance(typed, bool):
+            if business.standard_unit != point.source_unit:
+                if isinstance(typed, int) and abs(typed) > 2**53:
+                    raise ValueError(
+                        "large integer cannot undergo floating-point unit conversion safely"
+                    )
+                point_value = convert_value(
+                    float(typed), business.standard_unit, point.source_unit
+                )
         raw_value = raw_write_value(point, point_value)
         if isinstance(raw_value, float) and not math.isfinite(raw_value):
             raise ValueError("scaled protocol write value must be finite")
