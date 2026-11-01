@@ -37,6 +37,8 @@ class RuntimeHealth:
     blocked_devices: tuple[str, ...]
     recovered_commands: int
     restart_required: bool
+    pending_commands: int
+    inflight_io: int
 
 
 class CommanderService:
@@ -159,13 +161,16 @@ class CommanderService:
             if self._executor is not None
             else ()
         )
+        operational = self._executor is not None and self._executor.operational
         return RuntimeHealth(
             state=self._state,
-            ready=self._state is ServiceState.READY and not blocked,
+            ready=self._state is ServiceState.READY and not blocked and operational,
             revision=self._config.revision if self._config else "",
             blocked_devices=blocked,
             recovered_commands=self._recovered,
             restart_required=self._restart_required,
+            pending_commands=self._executor.pending_commands() if self._executor else 0,
+            inflight_io=self._executor.in_flight_native() if self._executor else 0,
         )
 
     async def _run_watchdog(self, interval: float) -> None:
@@ -182,6 +187,10 @@ class CommanderService:
             if self._executor is None:
                 return
             blocked = self._executor.blocked_devices()
+            if not self._executor.operational:
+                self._state = ServiceState.FAILED
+                logger.error("Commander dispatcher unavailable")
+                return
             if blocked:
                 self._state = ServiceState.DEGRADED
                 logger.warning("commander blocked devices", extra={"count": len(blocked)})
