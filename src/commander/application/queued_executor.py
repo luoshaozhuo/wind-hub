@@ -55,6 +55,7 @@ class _Entry:
     finished: asyncio.Future[None]
     cancelled: bool = False
     terminal_in_queue: bool = False
+    gate_acquired: bool = False
     wakeup: asyncio.Event | None = None
     deadline_handle: asyncio.TimerHandle | None = None
 
@@ -190,11 +191,11 @@ class QueuedExecutor:
             entry.finished.set_result(None)
 
     async def _expire_queued(self, entry: _Entry) -> None:
-        if entry.finished.done() or entry.terminal_in_queue:
+        if entry.finished.done() or entry.terminal_in_queue or entry.gate_acquired:
             return
         try:
             state = await self._control.get_command(entry.command.command_id)
-            if state is None or state.state is not CommandState.ACCEPTED:
+            if entry.gate_acquired or state is None or state.state is not CommandState.ACCEPTED:
                 return
             await self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
         except Exception as exc:
@@ -408,6 +409,7 @@ class QueuedExecutor:
             return
 
         # A global permit ends queue waiting; subsequent connect is not queue time.
+        entry.gate_acquired = True
         if entry.deadline_handle is not None:
             entry.deadline_handle.cancel()
         owns_gate = True
