@@ -463,22 +463,27 @@ class QueuedExecutor:
             try:
                 # Validate and normalize every value before persisting T2.
                 writes = tuple(self._prepare_write(member.command.spec) for member in group)
-                # Persist T2 for all children before the first native side effect.
-                for member in group:
-                    await self._control.executing(member.command.command_id)
+                # One atomic T2 transaction; no native effect before commit.
+                await self._control.executing_many(
+                    tuple(member.command.command_id for member in group)
+                )
                 if any(
                     member.command.spec.expires_at is not None
                     and member.command.spec.expires_at <= datetime.now(UTC)
                     for member in group
                 ):
-                    # T2 is durable, but native I/O has not been invoked.
-                    for member in group:
-                        await self._control.complete(
-                            member.command.command_id,
-                            CommandState.EXPIRED,
-                            outcome=CommandOutcome.NOT_SENT,
-                            error_code="EXPIRED_BEFORE_WRITE",
+                    # T2 durable; no native write invoked.
+                    await self._control.complete_many(
+                        tuple(
+                            (
+                                member.command.command_id,
+                                CommandState.EXPIRED,
+                                CommandOutcome.NOT_SENT,
+                                "EXPIRED_BEFORE_WRITE",
+                            )
+                            for member in group
                         )
+                    )
                     batch_completed = True
                     return
                 native = asyncio.create_task(
@@ -491,14 +496,32 @@ class QueuedExecutor:
                 except (TimeoutError, asyncio.CancelledError):
                     self._block_late(device_id, native)
                     owns_gate = False
-                    for member in group:
-                        await self._unknown(member.command.command_id, "WRITE_TIMEOUT")
+                    await self._control.complete_many(
+                        tuple(
+                            (
+                                member.command.command_id,
+                                CommandState.UNKNOWN,
+                                CommandOutcome.UNKNOWN,
+                                "WRITE_TIMEOUT",
+                            )
+                            for member in group
+                        )
+                    )
                 except Exception as exc:
                     self._blocked.add(device_id)
                     self._retain_gate(device_id)
                     owns_gate = False
-                    for member in group:
-                        await self._unknown(member.command.command_id, type(exc).__name__)
+                    await self._control.complete_many(
+                        tuple(
+                            (
+                                member.command.command_id,
+                                CommandState.UNKNOWN,
+                                CommandOutcome.UNKNOWN,
+                                type(exc).__name__,
+                            )
+                            for member in group
+                        )
+                    )
                     self._schedule_auto_isolation(device_id)
                 else:
                     results = result if isinstance(result, tuple) else (result,)
@@ -510,18 +533,56 @@ class QueuedExecutor:
                         self._blocked.add(device_id)
                         self._retain_gate(device_id)
                         owns_gate = False
-                        for member in group:
-                            await self._unknown(member.command.command_id, "WRITE_RESULT_MISMATCH")
+                        await self._control.complete_many(
+                            tuple(
+                                (
+                                    member.command.command_id,
+                                    CommandState.UNKNOWN,
+                                    CommandOutcome.UNKNOWN,
+                                    "WRITE_RESULT_MISMATCH",
+                                )
+                                for member in group
+                            )
+                        )
                         self._schedule_auto_isolation(device_id)
                     else:
-                        uncertain = False
-                        for member, actual in zip(group, results, strict=True):
-                            uncertain = (
-                                await self._finish_write(
-                                    member.command.command_id, device_id, actual
-                                )
-                                or uncertain
+                        uncertain = any(
+                            actual.outcome not in (
+                                WriteOutcome.CONFIRMED_SUCCESS,
+                                WriteOutcome.CONFIRMED_FAILURE,
                             )
+                            for actual in results
+                        )
+                        changes = tuple(
+                            (
+                                member.command.command_id,
+                                (
+                                    CommandState.SUCCEEDED
+                                    if actual.outcome is WriteOutcome.CONFIRMED_SUCCESS
+                                    else CommandState.FAILED
+                                    if actual.outcome is WriteOutcome.CONFIRMED_FAILURE
+                                    else CommandState.UNKNOWN
+                                ),
+                                (
+                                    CommandOutcome.CONFIRMED_SUCCESS
+                                    if actual.outcome is WriteOutcome.CONFIRMED_SUCCESS
+                                    else CommandOutcome.CONFIRMED_FAILURE
+                                    if actual.outcome is WriteOutcome.CONFIRMED_FAILURE
+                                    else CommandOutcome.UNKNOWN
+                                ),
+                                (
+                                    None
+                                    if actual.outcome is WriteOutcome.CONFIRMED_SUCCESS
+                                    else "DEVICE_REJECTED"
+                                    if actual.outcome is WriteOutcome.CONFIRMED_FAILURE
+                                    else "WRITE_UNKNOWN"
+                                ),
+                            )
+                            for member, actual in zip(group, results, strict=True)
+                        )
+                        if uncertain:
+                            self._blocked.add(device_id)
+                        await self._control.complete_many(changes)
                         if uncertain:
                             self._retain_gate(device_id)
                             owns_gate = False
