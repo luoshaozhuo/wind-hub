@@ -120,13 +120,11 @@ class CommanderConfigManager:
     def __init__(
         self,
         root: Path,
-        service_config: Path,
         *,
         quiesce: Callable[[frozenset[str]], Awaitable[frozenset[str]]],
         settings_loader: SettingsLoader,
     ) -> None:
         self._root = root
-        self._service_config = service_config
         self._settings_loader = settings_loader
         self._quiesce = quiesce
         self._lock = asyncio.Lock()
