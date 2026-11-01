@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from math import isfinite
+
+from core.domain.sample_value import WritableScalar
 
 
 class CommandState(StrEnum):
@@ -91,7 +93,7 @@ def validate_transition(
 class CommandSpec:
     device_id: str
     point_id: str
-    value: Any
+    value: WritableScalar
     config_reference: str
     expires_at: datetime | None = None
 
@@ -99,6 +101,10 @@ class CommandSpec:
         for name in ("device_id", "point_id", "config_reference"):
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} must not be empty")
+        if not isinstance(self.value, (bool, int, float, str)):
+            raise ValueError("value must be a writable protocol scalar")
+        if isinstance(self.value, float) and not isfinite(self.value):
+            raise ValueError("value must be finite")
         if self.expires_at is not None and self.expires_at.utcoffset() is None:
             raise ValueError("expires_at must include timezone")
 
