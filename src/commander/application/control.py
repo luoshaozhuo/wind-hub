@@ -24,9 +24,7 @@ _T = TypeVar("_T")
 class CommandControl:
     """Record all command decisions in memory; never await SQLite on the write path."""
 
-    def __init__(
-        self, repository: JournalPort, writer: Executor, buffer: BufferedJournal
-    ) -> None:
+    def __init__(self, repository: JournalPort, writer: Executor, buffer: BufferedJournal) -> None:
         self._repository = repository
         self._writer = writer
         self._buffer = buffer
@@ -79,8 +77,11 @@ class CommandControl:
         error_message: str | None = None,
     ) -> None:
         self._buffer.transition(
-            command_id, state, outcome=outcome,
-            error_code=error_code, error_message=error_message,
+            command_id,
+            state,
+            outcome=outcome,
+            error_code=error_code,
+            error_message=error_message,
         )
 
     async def get_command(self, command_id: str) -> CommandResult | None:

@@ -290,9 +290,7 @@ class CommanderService:
                 logger.error("Commander persistence worker stopped unexpectedly")
             elif self._persistence is not None and self._persistence.failure is not None:
                 self._state = ServiceState.DEGRADED
-                logger.warning(
-                    "Commander persistence retrying", exc_info=self._persistence.failure
-                )
+                logger.warning("Commander persistence retrying", exc_info=self._persistence.failure)
             if self._executor is None:
                 return
             blocked = self._executor.blocked_devices()
@@ -312,10 +310,7 @@ class CommanderService:
                 blocked
                 or (
                     self._persistence is not None
-                    and (
-                        not self._persistence.operational
-                        or self._persistence.failure is not None
-                    )
+                    and (not self._persistence.operational or self._persistence.failure is not None)
                 )
                 or (self._journal is not None and not self._journal.operational)
             ):

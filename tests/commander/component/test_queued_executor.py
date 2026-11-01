@@ -265,15 +265,27 @@ async def test_device_rejection_is_confirmed_failure_not_unknown(control) -> Non
 
 
 async def test_admission_cancel_after_t1_settles_interrupted_without_field_write(
-    control, sqlite_writer
+    repository, sqlite_writer, buffer
 ) -> None:
-    """调用方在 durable T1 在途时取消受理：命令必须终结，绝不发现场。
+    """调用方在内存 T1 落定前取消受理：取消窗口内命令仍须终结，绝不发现场。
 
-    取代已删除的 executor.cancel() UR 外 API 测试。v1_1 语义（commit
-    2675f69a）：writer 队列中的 T1 不可取消，取消传播后执行器把已提交
-    命令落 INTERRUPTED / NOT_SENT / ADMISSION_CANCELLED。
+    write-behind 后 T1 为 loop 内同步内存操作，无 writer 阻塞窗口；用
+    受理门把 control.accept 挡在 T1 记录之前，取消必落在 shield 窗口内：
+    shield 保护的内存受理在门放行后落定，执行器把命令落
+    INTERRUPTED / NOT_SENT / ADMISSION_CANCELLED，现场零写入。
     """
-    import threading
+    from commander.application.control import CommandControl
+
+    class GatedControl(CommandControl):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            self.admit = asyncio.Event()
+            self.entered = 0
+
+        async def accept(self, commands, *, caller_id, **kwargs):
+            self.entered += 1
+            await self.admit.wait()
+            return await super().accept(commands, caller_id=caller_id, **kwargs)
 
     gate = asyncio.Event()
 
@@ -282,24 +294,31 @@ async def test_admission_cancel_after_t1_settles_interrupted_without_field_write
             gate.set()
             return await super().write_one(write)
 
+    gated = GatedControl(repository, sqlite_writer, buffer)
     sessions = {"WT01": OrderedSession()}
-    executor = build_executor(control, sessions, global_capacity=1)
+    executor = build_executor(gated, sessions, global_capacity=1)
 
-    # 占住唯一 SQLite writer：accept 的 T1 只能排队，取消必落在提交窗口内。
-    release_writer = threading.Event()
-    sqlite_writer.submit(lambda: release_writer.wait(5.0))
     task = asyncio.create_task(executor.accept([make_spec("p9")], caller_id="op"))
-    await asyncio.sleep(0.05)
+    # 等执行器进入受理门（已持受理锁、T1 尚未记录）。
+    for _ in range(200):
+        if gated.entered:
+            break
+        await asyncio.sleep(0.005)
+    assert gated.entered == 1
     task.cancel()
+    # 先让取消送达执行器：shield 外层进入 CancelledError 善后并等待 admission；
+    # 然后才放行受理门，shield 保护的内存 T1 落定，善后终结 INTERRUPTED 后重抛。
+    # 顺序颠倒（先 await task 后 set 门）会与善后互相等待死锁。
+    await asyncio.sleep(0.05)
+    gated.admit.set()
     with pytest.raises(asyncio.CancelledError):
         await task
-    release_writer.set()
-    # 给执行器取消善后（durable T1 -> INTERRUPTED）留时间。
     for _ in range(200):
         await asyncio.sleep(0.01)
         if executor.pending_commands() == 0:
             break
     try:
+        assert executor.pending_commands() == 0
         assert sessions["WT01"].one_calls == []
         assert gate.is_set() is False
     finally:

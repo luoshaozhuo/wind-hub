@@ -244,10 +244,24 @@ class EventRepository:
         if not events:
             return
         columns = (
-            "event_id", "command_id", "event_type", "occurred_at", "request_id",
-            "caller_id", "operator_id", "trace_id", "device_id", "point_id",
-            "requested_value", "config_reference", "receive_seq", "state",
-            "outcome", "error_code", "error_message", "detail_json",
+            "event_id",
+            "command_id",
+            "event_type",
+            "occurred_at",
+            "request_id",
+            "caller_id",
+            "operator_id",
+            "trace_id",
+            "device_id",
+            "point_id",
+            "requested_value",
+            "config_reference",
+            "receive_seq",
+            "state",
+            "outcome",
+            "error_code",
+            "error_message",
+            "detail_json",
         )
         placeholders = ",".join("?" for _ in columns)
         statement = (
@@ -263,10 +277,13 @@ class EventRepository:
             )
             newest = max((int(item.get("receive_seq") or 0) for item in events), default=0)
             if newest:
+                # UPSERT：全新库的 write-behind 首写也必须创建 meta 行，
+                # 否则重启后 latest_receive_seq() 恒为 0、受理序号归零重复。
                 self._db.execute(
-                    "UPDATE repository_meta SET value=MAX(CAST(value AS INTEGER), ?) "
-                    "WHERE key='receive_seq'",
-                    (newest,),
+                    "INSERT INTO repository_meta(key,value) VALUES('receive_seq',?) "
+                    "ON CONFLICT(key) DO UPDATE SET "
+                    "value=MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER))",
+                    (str(newest),),
                 )
 
         self._transaction(write)

@@ -203,6 +203,89 @@ async def test_audit_delivery_over_real_jetstream_drains_outbox_in_order(
     assert states == ["ACCEPTED", "CONNECTING", "EXECUTING", "SUCCEEDED"]
 
 
+async def test_volatile_events_are_never_published_before_durable_flush(
+    jetstream: tuple[NatsClient, str, str, str], tmp_path
+) -> None:
+    """两种可靠性分层：未落盘事件绝不发布；落盘后 outbox 才投递 JetStream。
+
+    用 60s interval 的 worker 冻结后台落盘：命令在内存中走完终态后，
+    JetStream 必须零消息；显式排空后四个事件才按序到达。
+    """
+    from commander.application.control import CommandControl
+    from commander.application.persistence import BufferedJournal, PersistenceWorker
+    from commander.application.queued_executor import QueuedExecutor
+    from core.application.protocol_contract import (
+        ProtocolCapability,
+        ProtocolWrite,
+        ProtocolWriteResult,
+        WriteOutcome,
+    )
+
+    from ..component.conftest import FakeSession, build_executor, make_spec
+
+    nc, stream, subject, url = jetstream
+    js = nc.jetstream(timeout=5)
+    writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="it-sqlite")
+    repo = writer.submit(lambda: EventRepository(tmp_path / "volatile.db")).result()
+    buffer = BufferedJournal()
+    # 超大 interval：测试期间后台绝不可能自行 flush。
+    persistence = PersistenceWorker(buffer, repo, writer, interval=60.0, batch_size=500)
+    control = CommandControl(repo, writer, buffer)
+    transport = NatsAuditTransport([url], stream=stream, subject=subject)
+    delivery = AuditDelivery(repo, transport, writer, retry_base=0.1, retry_max=1.0)
+    persistence.start()
+    delivery.start()
+
+    class _OkSession(FakeSession):
+        def capabilities(self) -> frozenset[ProtocolCapability]:
+            return frozenset({ProtocolCapability.READ, ProtocolCapability.WRITE})
+
+        async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+            return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_SUCCESS)
+
+    executor: QueuedExecutor = build_executor(control, {"WT01": _OkSession()})
+    try:
+        accepted = await executor.accept([make_spec(device="WT01")], caller_id="ops")
+        await asyncio.gather(*(executor.wait(c.command_id) for c in accepted))
+        # 内存已终态但全部未落盘：给足 outbox 轮询窗口，JetStream 必须零消息。
+        await asyncio.sleep(0.6)
+        with pytest.raises(asyncio.TimeoutError):
+            await _drain_probe(js, stream, subject)
+        # 显式有界排空：落盘后 outbox 投递，四事件按序到达。
+        assert await persistence.stop(timeout=10.0)
+        assert buffer.pending_count == 0
+        for _ in range(300):
+            if not writer.submit(repo.pending_events, 100).result():
+                break
+            await asyncio.sleep(0.02)
+        else:  # pragma: no cover
+            pytest.fail("volatile-flush outbox did not drain")
+        assert await delivery.stop(timeout=5.0)
+    finally:
+        if delivery.operational:
+            await delivery.stop(timeout=5.0)
+        await executor.close()
+        writer.submit(repo.close).result()
+        writer.shutdown(wait=True)
+        await transport.close()
+
+    payloads = await _fetch_all(js, stream, subject, 4)
+    assert [json.loads(p)["event_type"] for p in payloads] == [
+        "ACCEPTED",
+        "CONNECTING",
+        "EXECUTING",
+        "COMPLETED",
+    ]
+
+
+async def _drain_probe(js: Any, stream: str, subject: str) -> object:
+    sub = await js.pull_subscribe(subject, durable=f"d-{uuid.uuid4().hex[:12]}", stream=stream)
+    try:
+        return await sub.fetch(1, timeout=0.8)
+    finally:
+        await sub.unsubscribe()
+
+
 @pytest.mark.parametrize("p2_returns_unknown", [False, True])
 async def test_mixed_result_serial_batch_audit_events_complete_ordered_unique(
     jetstream: tuple[NatsClient, str, str, str], tmp_path, p2_returns_unknown: bool
@@ -213,6 +296,7 @@ async def test_mixed_result_serial_batch_audit_events_complete_ordered_unique(
     （有协议交互但结果未知）；两种载体下 p3 都必须是 NOT_SENT。
     """
     from commander.application.control import CommandControl
+    from commander.application.persistence import BufferedJournal, PersistenceWorker
     from commander.application.queued_executor import QueuedExecutor
     from core.application.protocol_contract import (
         ProtocolCapability,
@@ -227,9 +311,12 @@ async def test_mixed_result_serial_batch_audit_events_complete_ordered_unique(
     js = nc.jetstream(timeout=5)
     writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="it-sqlite")
     repo = writer.submit(lambda: EventRepository(tmp_path / "mixed.db")).result()
-    control = CommandControl(repo, writer)
+    buffer = BufferedJournal()
+    persistence = PersistenceWorker(buffer, repo, writer, interval=0.02, batch_size=500)
+    control = CommandControl(repo, writer, buffer)
     transport = NatsAuditTransport([url], stream=stream, subject=subject)
     delivery = AuditDelivery(repo, transport, writer, retry_base=0.1, retry_max=1.0)
+    persistence.start()
 
     class _ScriptedSerialSession:
         def __init__(self, p2_returns_unknown: bool) -> None:
@@ -290,12 +377,15 @@ async def test_mixed_result_serial_batch_audit_events_complete_ordered_unique(
         "UNKNOWN",
         "NOT_SENT",
     ]
-    # 审计投影与仓储查询一致（须在 writer 关闭前经控制面查询）。
+    # 审计投影与内存查询一致（须在 writer 关闭前经控制面查询）。
     for index, accepted_command in enumerate(accepted):
         record = await control.get_command(accepted_command.command_id)
         assert record is not None
         assert record.state.value == expected_states[index]
         assert record.outcome is not None and record.outcome.value == expected_outcomes[index]
+    # write-behind：先有界排空内存事件到 SQLite，再由 outbox 投递 JetStream。
+    assert await persistence.stop(timeout=10.0)
+    assert buffer.pending_count == 0
     try:
         for _ in range(300):
             if not writer.submit(repo.pending_events, 100).result():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections import defaultdict, deque
 from collections.abc import Sequence
@@ -256,6 +257,7 @@ class PersistenceWorker:
         self._batch_size = batch_size
         self._task: asyncio.Task[None] | None = None
         self._stopping = False
+        self._stop_event = asyncio.Event()
         self._failed: Exception | None = None
 
     @property
@@ -274,14 +276,15 @@ class PersistenceWorker:
         while not self._stopping or self._buffer.pending_count:
             if not self._buffer.pending_count:
                 self._buffer.wake.clear()
-                try:
+                with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._buffer.wake.wait(), timeout=self._interval)
-                except TimeoutError:
-                    pass
                 continue
             if not self._stopping and self._buffer.pending_count < self._batch_size:
                 # Coalesce independent command events before one SQLite COMMIT.
-                await asyncio.sleep(self._interval)
+                # 固定合并窗口（新事件不重置计时，避免持续细流饿死落盘）；
+                # stop() 置位停机事件可立即中断窗口，无需等完整个 interval。
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=self._interval)
             snapshot = self._buffer.snapshot(self._batch_size)
             try:
                 await loop.run_in_executor(
@@ -296,9 +299,18 @@ class PersistenceWorker:
 
     async def stop(self, timeout: float) -> bool:
         self._stopping = True
+        self._stop_event.set()
         self._buffer.wake.set()
         if self._task is None:
             return True
+        if self._task.done():
+            # 任务已异常退出：等待它只会抛 CancelledError；停机路径必须
+            # 如实返回 False，由服务映射 FAILED + __persistence_queue__。
+            if not self._task.cancelled():
+                exception = self._task.exception()
+                if isinstance(exception, Exception):
+                    self._failed = exception
+            return False
         try:
             await asyncio.wait_for(asyncio.shield(self._task), timeout)
         except TimeoutError:

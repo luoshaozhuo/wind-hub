@@ -16,7 +16,6 @@ B4 延迟必须分四个口径独立测量，禁止混用单一端到端数字�
 from __future__ import annotations
 
 import asyncio
-import statistics
 import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -24,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from commander.application.control import CommandControl
+from commander.application.persistence import BufferedJournal, PersistenceWorker
 from commander.infrastructure.event_repository import EventRepository
 from core.application.protocol_contract import ProtocolWrite, ProtocolWriteResult
 
@@ -44,7 +44,7 @@ class _InstrumentedWriter(ThreadPoolExecutor):
         self._depth = 0
         self.max_depth = 0
         self.queue_wait_ms: list[float] = []
-        self.tx = {"accept": 0, "transition": 0, "transition_many": 0}
+        self.tx: dict[str, int] = {}
 
     def submit(self, fn, /, *args, **kwargs):
         enqueued = time.perf_counter()
@@ -60,23 +60,54 @@ class _InstrumentedWriter(ThreadPoolExecutor):
 
 
 async def test_dispatch_throughput_100_devices_real_sqlite(tmp_path) -> None:
-    # 独立装配：对唯一 writer 池做积压/事务计数插桩（与生产同模型：
-    # repo 在 writer 线程内创建关闭，control 注入该池）。
+    # 独立装配：write-behind 生产同模型——loop 内 BufferedJournal +
+    # PersistenceWorker（50ms/500）+ 唯一 writer 线程真实 SQLite WAL/FULL。
     writer = _InstrumentedWriter()
     repository = writer.submit(lambda: EventRepository(tmp_path / "perf.db")).result()
-    control = CommandControl(repository, writer)
+    buffer = BufferedJournal()
+    worker = PersistenceWorker(buffer, repository, writer, interval=0.05, batch_size=500)
 
-    # 在唯一事务边界计数（单条 transition 内部委托 transition_many，
-    # 在方法层会计两次；_transaction 每次 BEGIN/COMMIT 恰好一次）。
+    # 插桩：事务边界计数、每批事件数、事件生成→落盘延迟、内存队列最大积压。
     original_tx = repository._transaction
+    original_append = repository.append_events
+    batches: list[int] = []
+    flush_latency_ms: list[float] = []
+    enqueued_at: dict[str, float] = {}
+    original_add = buffer._add
+
+    def instrumented_add(fields) -> None:
+        enqueued_at[str(fields["event_id"])] = time.perf_counter()
+        return original_add(fields)
+
+    buffer._add = instrumented_add  # type: ignore[method-assign]
 
     def counted_tx(operation):
         name = getattr(operation, "__name__", "?")
         writer.tx[name] = writer.tx.get(name, 0) + 1
         return original_tx(operation)
 
-    repository._transaction = counted_tx
+    def instrumented_append(events):
+        now = time.perf_counter()
+        batches.append(len(events))
+        flush_latency_ms.extend(
+            (now - enqueued_at[str(event["event_id"])]) * 1000 for event in events
+        )
+        return original_append(events)
 
+    repository._transaction = counted_tx
+    repository.append_events = instrumented_append
+
+    control = CommandControl(repository, writer, buffer)
+    max_pending = {"value": 0}
+    stop_sampling = asyncio.Event()
+
+    async def sample_backlog() -> None:
+        while not stop_sampling.is_set():
+            max_pending["value"] = max(max_pending["value"], buffer.pending_count)
+            await asyncio.sleep(0.001)
+
+    sampler = asyncio.create_task(sample_backlog())
+    worker.start()
     sessions = {f"WT{i:03d}": FakeSession() for i in range(DEVICE_COUNT)}
     executor = build_executor(
         control,
@@ -110,6 +141,11 @@ async def test_dispatch_throughput_100_devices_real_sqlite(tmp_path) -> None:
     finally:
         blocked = await executor.close(grace_seconds=10.0)
         assert blocked == frozenset()
+    elapsed_field = time.perf_counter() - started
+    # 现场全部完成后有界排空 write-behind 队列。
+    assert await worker.stop(timeout=30.0)
+    stop_sampling.set()
+    await sampler
     elapsed = time.perf_counter() - started
     terminal_metrics = writer.submit(repository.metrics).result()
     writer.submit(repository.close).result()
@@ -117,27 +153,37 @@ async def test_dispatch_throughput_100_devices_real_sqlite(tmp_path) -> None:
 
     total_commands = DEVICE_COUNT * COMMANDS_PER_DEVICE * BATCH_POINTS
     total_batches = DEVICE_COUNT * COMMANDS_PER_DEVICE
+    expected_events = total_commands * 3 + DEVICE_COUNT  # T1/T2/T3 + CONNECTING/设备
     all_latency = [value for values in per_device for value in values]
     all_latency.sort()
     p50 = all_latency[len(all_latency) // 2]
     p99 = all_latency[min(len(all_latency) - 1, int(len(all_latency) * 0.99))]
-    points_per_second = total_commands / elapsed
-    batches_per_second = total_batches / elapsed
+    # write-behind 主口径：现场控制完成速率（不等待 SQLite）。
+    points_per_second = total_commands / elapsed_field
+    batches_per_second = total_batches / elapsed_field
 
     total_tx = sum(writer.tx.values())
     qwait = sorted(writer.queue_wait_ms)
     qwait_p99 = qwait[min(len(qwait) - 1, int(len(qwait) * 0.99))]
+    flush_latency_ms.sort()
+    flush_p50 = flush_latency_ms[len(flush_latency_ms) // 2]
+    flush_p99 = flush_latency_ms[min(len(flush_latency_ms) - 1, int(len(flush_latency_ms) * 0.99))]
     print(
         "\n[perf] "
-        f"batches={total_batches} elapsed={elapsed:.2f}s "
+        f"batches={total_batches} field_elapsed={elapsed_field:.2f}s drain_elapsed={elapsed:.2f}s "
         f"batches/s={batches_per_second:.0f} points/s={points_per_second:.0f} "
-        f"latency_ms p50={p50:.1f} p99={p99:.1f} "
-        f"jitter_ms={statistics.pstdev(all_latency):.1f}"
+        f"e2e_ms p50={p50:.1f} p99={p99:.1f}"
+    )
+    print(
+        "[perf-persistence] "
+        f"events={expected_events} append_batches={len(batches)} "
+        f"events/batch avg={sum(batches) / len(batches):.1f} max={max(batches)} "
+        f"flush_latency_ms p50={flush_p50:.1f} p99={flush_p99:.1f} "
+        f"max_backlog={max_pending['value']}"
     )
     print(
         "[perf-sqlite] "
         f"tx={dict(sorted(writer.tx.items()))} total={total_tx} "
-        f"tx/batch={total_tx / total_batches:.2f} "
         f"writer_queue max_depth={writer.max_depth} wait_p99_ms={qwait_p99:.2f}"
     )
 
@@ -148,15 +194,120 @@ async def test_dispatch_throughput_100_devices_real_sqlite(tmp_path) -> None:
     assert terminal.get("SUCCEEDED") == total_commands
     assert not (set(terminal) - {"SUCCEEDED"})
 
-    # 合并后每批 3 个 SQLite 事务（T1/T2批/T3批），CONNECTING 每设备 1 次
-    # （会话复用）：3100 次 fsync 承担 10000 点，对照 round3 逐点 ~22100 次。
-    expected_tx = total_batches * 3 + DEVICE_COUNT
-    assert total_tx == expected_tx, sorted(writer.tx.items())
-    assert total_tx / total_batches == pytest.approx(3.1, abs=0.01)
+    # write-behind：所有事件单事务幂等批量落盘；每批 ≤ batch_size，无丢失无重复。
+    assert sum(batches) == expected_events
+    assert max(batches) <= 500
+    assert terminal_metrics.accepted_total == total_commands
 
-    # 防回归地板：round4 实测 ~430 批/s、p99≈245ms（设计目标 1000 批/s 尚未达）。
-    assert batches_per_second >= 300
-    assert p99 <= 400.0
+    # 防回归地板：write-behind 现场路径必须显著优于同步基线
+    # （round6 396–413 批/s、P99 256–267ms）。设计目标 1000 批/s 以实测为准。
+    assert batches_per_second >= 500
+    assert p99 <= 200.0
+
+
+async def test_dispatch_throughput_survives_full_sqlite_outage_then_drains(tmp_path) -> None:
+    """故障矩阵性能口径：现场阶段 SQLite 全程不可用，恢复后批量补齐、无丢失。
+
+    测量：故障期间现场控制吞吐不被拖垮；内存积压严格小于容量上限；
+    恢复后全部事件幂等落盘（INSERT OR IGNORE + event_id UNIQUE）。
+    """
+    import sqlite3
+
+    writer = _InstrumentedWriter()
+    repository = writer.submit(lambda: EventRepository(tmp_path / "perf_outage.db")).result()
+    buffer = BufferedJournal()
+    worker = PersistenceWorker(buffer, repository, writer, interval=0.05, batch_size=500)
+
+    state = {"failing": True, "failed_batches": 0}
+    original_append = repository.append_events
+
+    def faulting_append(events):
+        if state["failing"]:
+            state["failed_batches"] += 1
+            raise sqlite3.OperationalError("simulated disk outage during load")
+        return original_append(events)
+
+    repository.append_events = faulting_append
+
+    batches: list[int] = []
+
+    def counting_append(events):
+        batches.append(len(events))
+        return original_append(events)
+
+    control = CommandControl(repository, writer, buffer)
+    max_pending = {"value": 0}
+    stop_sampling = asyncio.Event()
+
+    async def sample_backlog() -> None:
+        while not stop_sampling.is_set():
+            max_pending["value"] = max(max_pending["value"], buffer.pending_count)
+            await asyncio.sleep(0.001)
+
+    sampler = asyncio.create_task(sample_backlog())
+    worker.start()
+    sessions = {f"WT{i:03d}": FakeSession() for i in range(DEVICE_COUNT)}
+    executor = build_executor(
+        control,
+        sessions,
+        global_capacity=100,
+        max_queued_batches_per_device=20,
+        max_queued_batches_global=2000,
+        max_batch_points=BATCH_POINTS,
+        queue_timeout=10.0,
+        connect_timeout=3.0,
+        write_timeout=3.0,
+    )
+
+    async def run_device(device: str) -> None:
+        for _ in range(COMMANDS_PER_DEVICE):
+            specs = tuple(
+                make_spec(f"p{point}", device=device, value=float(point))
+                for point in range(BATCH_POINTS)
+            )
+            accepted = await executor.accept(list(specs), caller_id="perf")
+            await asyncio.gather(*(executor.wait(c.command_id) for c in accepted))
+
+    started = time.perf_counter()
+    try:
+        await asyncio.gather(*(run_device(f"WT{i:03d}") for i in range(DEVICE_COUNT)))
+    finally:
+        blocked = await executor.close(grace_seconds=10.0)
+        assert blocked == frozenset()
+    outage_elapsed = time.perf_counter() - started
+    # 故障期间：全部事件滞留内存，worker 健康面必须有失败记录。
+    assert worker.failure is not None
+    assert state["failed_batches"] >= 1
+    assert 0 < max_pending["value"] < 100_000
+    # 恢复 SQLite：替换计数包装并有界排空。
+    repository.append_events = counting_append
+    assert await worker.stop(timeout=30.0)
+    stop_sampling.set()
+    await sampler
+    total_elapsed = time.perf_counter() - started
+    terminal_metrics = writer.submit(repository.metrics).result()
+    writer.submit(repository.close).result()
+    writer.shutdown(wait=True)
+
+    total_commands = DEVICE_COUNT * COMMANDS_PER_DEVICE * BATCH_POINTS
+    total_batches = DEVICE_COUNT * COMMANDS_PER_DEVICE
+    expected_events = total_commands * 3 + DEVICE_COUNT
+    field_batches_per_second = total_batches / outage_elapsed
+    print(
+        "\n[perf-outage] "
+        f"field_elapsed={outage_elapsed:.2f}s total_with_drain={total_elapsed:.2f}s "
+        f"field_batches/s={field_batches_per_second:.0f} "
+        f"failed_attempts={state['failed_batches']} max_backlog={max_pending['value']} "
+        f"drain_batches={len(batches)} events={sum(batches)}"
+    )
+
+    # 现场吞吐在 SQLite 全程故障下不得被持久化拖垮（防回归地板 500 批/s）。
+    assert field_batches_per_second >= 500
+    # 恢复后无丢失、无重复：30100 事件全部幂等落盘，终态全成功。
+    assert sum(batches) == expected_events
+    assert max(batches) <= 500
+    assert terminal_metrics.accepted_total == total_commands
+    assert dict(terminal_metrics.terminal_counts).get("SUCCEEDED") == total_commands
 
 
 class _TimedSession(FakeSession):

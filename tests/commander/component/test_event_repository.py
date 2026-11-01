@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import sqlite3
 import time
 from collections.abc import Iterator
@@ -239,6 +238,62 @@ def test_legacy_database_with_idempotency_table_still_usable(tmp_path: Path) -> 
         upgraded.close()
 
 
+def _append_event(
+    *,
+    event_id: str,
+    command_id: str,
+    receive_seq: int,
+    event_type: str = "ACCEPTED",
+    state: str = "ACCEPTED",
+) -> dict[str, object]:
+    fields: dict[str, object] = {
+        "event_id": event_id,
+        "command_id": command_id,
+        "event_type": event_type,
+        "occurred_at": "2026-11-01T00:00:00+00:00",
+        "state": state,
+    }
+    if event_type == "ACCEPTED":
+        fields.update(
+            request_id=f"req-{command_id}",
+            caller_id="op",
+            device_id="WT01",
+            point_id="p",
+            requested_value="1.0",
+            config_reference="ref",
+            receive_seq=receive_seq,
+        )
+    return fields
+
+
+def test_append_events_upserts_receive_seq_on_fresh_database(tmp_path: Path) -> None:
+    """write-behind 首写全新库：receive_seq 行必须被创建，重启后序号不得归零。"""
+    db = tmp_path / "wb.db"
+    first = EventRepository(db)
+    try:
+        first.append_events(
+            [
+                _append_event(event_id="e1", command_id="c1", receive_seq=1),
+                _append_event(event_id="e3", command_id="c3", receive_seq=3),
+            ]
+        )
+        assert first.latest_receive_seq() == 3
+    finally:
+        first.close()
+
+    second = EventRepository(db)
+    try:
+        # 重开库（模拟进程重启）：BufferedJournal 的 initial_sequence 必须从 3 续接。
+        assert second.latest_receive_seq() == 3
+        # worker 重试/乱序批次不得让高水位回退。
+        second.append_events([_append_event(event_id="e2", command_id="c2", receive_seq=2)])
+        assert second.latest_receive_seq() == 3
+        second.append_events([_append_event(event_id="e4", command_id="c4", receive_seq=4)])
+        assert second.latest_receive_seq() == 4
+    finally:
+        second.close()
+
+
 def test_outbox_pending_mark_and_failure_attempts(repo: EventRepository) -> None:
     command = repo.accept([_spec()], caller_id="op")[0]
     repo.transition(command.command_id, CommandState.CONNECTING)
@@ -363,11 +418,16 @@ def test_metrics_report_accepted_and_terminal_counts(repo: EventRepository) -> N
 async def test_command_control_maps_service_boundaries(
     tmp_path: Path, sqlite_writer: ThreadPoolExecutor
 ) -> None:
+    from commander.application.persistence import BufferedJournal, PersistenceWorker
+
     repo = sqlite_writer.submit(
         lambda: EventRepository(tmp_path / "ctrl.db", retention_seconds=1800)
     ).result()
+    buffer = BufferedJournal()
+    worker = PersistenceWorker(buffer, repo, sqlite_writer, interval=0.02, batch_size=500)
+    worker.start()
     try:
-        control = CommandControl(repo, sqlite_writer)
+        control = CommandControl(repo, sqlite_writer, buffer)
         command = (await control.accept([_spec()], caller_id="op"))[0]
         await control.connecting(command.command_id)
         await control.executing(command.command_id)
@@ -377,43 +437,45 @@ async def test_command_control_maps_service_boundaries(
             outcome=CommandOutcome.UNKNOWN,
             error_code="WRITE_TIMEOUT",
         )
+        # T1/T2/T3 在内存同步生效，调用方立即查询。
         result = _must(await control.get_command(command.command_id))
         assert result.state is CommandState.UNKNOWN
         assert result.error_code == "WRITE_TIMEOUT"
+        assert await worker.stop(timeout=5.0)
+        # 排空后持久层投影一致（UNKNOWN 终态事件落盘）。
+        durable = sqlite_writer.submit(repo.get, command.command_id).result()
+        assert durable is not None
+        assert durable.state is CommandState.UNKNOWN
+        assert durable.error_code == "WRITE_TIMEOUT"
     finally:
         sqlite_writer.submit(repo.close).result()
 
 
-async def test_control_cancellation_waits_for_durable_t1_settlement(
+async def test_control_accept_is_memory_synchronous_even_when_writer_blocked(
     tmp_path: Path, sqlite_writer: ThreadPoolExecutor
 ) -> None:
-    """T1 提交在 writer 队列中等待时调用方被取消：提交不得丢失。
+    """write-behind 新契约：T1 不等待 SQLite。
 
-    单线程池先被阻塞任务占住，accept 只能排队；此时取消调用方协程，
-    CommandControl 必须等待已提交的 SQLite 工作落定后再传播取消，
-    禁止出现“SQLite 提交成功但调用链无人知晓”的孤儿 T1。
+    旧测试要求“writer 队列中的 T1 不可取消、必落盘”；新架构下 T1 在
+    loop 内存中同步完成——即使唯一 writer 线程被占死，accept 立即返回、
+    内存可查；落盘是后台 worker 的职责，崩溃允许丢失未落盘事件。
     """
     import threading
+
+    from commander.application.persistence import BufferedJournal
 
     repo = sqlite_writer.submit(
         lambda: EventRepository(tmp_path / "cancel.db", retention_seconds=1800)
     ).result()
+    release = threading.Event()
+    sqlite_writer.submit(lambda: release.wait(2.0))  # 占住唯一 writer 线程
     try:
-        release = threading.Event()
-        sqlite_writer.submit(lambda: release.wait(5.0))  # 占住唯一 writer 线程
-        control = CommandControl(repo, sqlite_writer)
-        task = asyncio.create_task(control.accept([_spec()], caller_id="op"))
-        await asyncio.sleep(0.05)  # 确保 accept 已进入 writer 队列但无法执行
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        release.set()
-        # 被屏蔽的提交最终必须落盘可查（经 writer 线程读取，避免跨线程）。
-        for _ in range(200):
-            total = sqlite_writer.submit(repo.metrics).result().accepted_total
-            if total == 1:
-                break
-            await asyncio.sleep(0.01)
-        assert sqlite_writer.submit(repo.metrics).result().accepted_total == 1
+        control = CommandControl(repo, sqlite_writer, BufferedJournal())
+        started = time.perf_counter()
+        command = (await control.accept([_spec()], caller_id="op"))[0]
+        assert time.perf_counter() - started < 0.05  # 不经过 writer 线程
+        result = _must(await control.get_command(command.command_id))
+        assert result.state is CommandState.ACCEPTED
     finally:
+        release.set()
         sqlite_writer.submit(repo.close).result()
