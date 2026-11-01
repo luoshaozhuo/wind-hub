@@ -318,6 +318,9 @@ class QueuedExecutor:
             entry = queue[0]
             try:
                 await self._execute(device_id, entry)
+            except asyncio.CancelledError:
+                self._fail_waiters(RuntimeError("device worker cancelled during command"))
+                raise
             except Exception as exc:
                 self._fail_waiters(exc)
                 return
