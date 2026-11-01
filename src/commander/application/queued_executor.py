@@ -94,6 +94,7 @@ class QueuedExecutor:
         if min(queue_timeout, connect_timeout, write_timeout, idle_timeout) <= 0:
             raise ValueError("timeouts must be positive")
         self._control = control
+        self._admission_lock = asyncio.Lock()
         self._factory = session_factory
         self._authorize = authorize
         self._prepare_write = prepare_write
@@ -128,58 +129,60 @@ class QueuedExecutor:
         caller_id: str,
     ) -> tuple[AcceptedCommand, ...]:
         """Each submitted batch is a new request; never infer caller idempotency."""
-        if self._closed or self._fatal:
-            raise RuntimeError("dispatcher unavailable")
-        if len(commands) > self._max_batch_points:
-            raise OverflowError("batch point limit exceeded")
-        counts: dict[str, int] = defaultdict(int)
-        for spec in commands:
-            if spec.device_id in self._reloading or spec.device_id in self._blocked:
-                raise RuntimeError("device unavailable for control")
-            if not self._authorize(spec):
-                raise PermissionError("command device/point/config reference is not authorized")
-            # Preflight raw-value conversion before any ACCEPTED event is committed.
-            self._prepare_write(spec)
-            counts[spec.device_id] += 1
-        for device_id in counts:
-            pending = {item.command.request_id for item in self._queues[device_id]}
-            if len(pending) >= self._device_batch_limit:
-                raise OverflowError("per-device pending batch capacity exceeded")
-        pending_global = {
-            item.command.request_id for queue in self._queues.values() for item in queue
-        }
-        if len(pending_global) >= self._global_batch_limit:
-            raise OverflowError("global pending batch capacity exceeded")
-        loop = asyncio.get_running_loop()
-        started = time.monotonic()
-        accepted = await self._control.accept(commands, caller_id=caller_id)
-        for command in accepted:
-            entry = _Entry(
-                command=command,
-                deadline=started + self._queue_timeout,
-                finished=loop.create_future(),
-                wakeup=asyncio.Event(),
-            )
-            entry.deadline_handle = loop.call_at(entry.deadline, lambda current=entry: asyncio.create_task(self._expire_queued(current)))
-            self._entries[command.command_id] = entry
-            self._queues[command.spec.device_id].append(entry)
-        for device_id in counts:
-            self._ensure_worker(device_id)
-        return accepted
+        async with self._admission_lock:
+            if self._closed or self._fatal:
+                raise RuntimeError("dispatcher unavailable")
+            if len(commands) > self._max_batch_points:
+                raise OverflowError("batch point limit exceeded")
+            counts: dict[str, int] = defaultdict(int)
+            for spec in commands:
+                if spec.device_id in self._reloading or spec.device_id in self._blocked:
+                    raise RuntimeError("device unavailable for control")
+                if not self._authorize(spec):
+                    raise PermissionError("command device/point/config reference is not authorized")
+                # Preflight raw-value conversion before any ACCEPTED event is committed.
+                self._prepare_write(spec)
+                counts[spec.device_id] += 1
+            for device_id in counts:
+                pending = {item.command.request_id for item in self._queues[device_id]}
+                if len(pending) >= self._device_batch_limit:
+                    raise OverflowError("per-device pending batch capacity exceeded")
+            pending_global = {
+                item.command.request_id for queue in self._queues.values() for item in queue
+            }
+            if len(pending_global) >= self._global_batch_limit:
+                raise OverflowError("global pending batch capacity exceeded")
+            loop = asyncio.get_running_loop()
+            started = time.monotonic()
+            accepted = await self._control.accept(commands, caller_id=caller_id)
+            for command in accepted:
+                entry = _Entry(
+                    command=command,
+                    deadline=started + self._queue_timeout,
+                    finished=loop.create_future(),
+                    wakeup=asyncio.Event(),
+                )
+                entry.deadline_handle = loop.call_at(entry.deadline, lambda current=entry: asyncio.create_task(self._expire_queued(current)))
+                self._entries[command.command_id] = entry
+                self._queues[command.spec.device_id].append(entry)
+            for device_id in counts:
+                self._ensure_worker(device_id)
+            return accepted
 
     async def _terminate_queued(self, entry: _Entry, state: CommandState, code: str) -> None:
         if entry.finished.done() or entry.terminal_in_queue:
             return
+        # Claim the queued entry synchronously before awaiting durable I/O.
+        entry.terminal_in_queue = True
         try:
             await self._unsent(entry.command.command_id, state, code)
         except Exception as exc:
             self._fail_waiters(exc)
             raise
-        entry.terminal_in_queue = True
         if entry.wakeup is not None:
             entry.wakeup.set()
         queue = self._queues[entry.command.spec.device_id]
-        if queue and queue[0] is not entry:
+        if queue and queue[0] is not entry and entry in queue:
             queue.remove(entry)
             if entry.deadline_handle is not None:
                 entry.deadline_handle.cancel()
@@ -404,9 +407,12 @@ class QueuedExecutor:
         if not await self._acquire_gate(entry):
             return
 
+        # A global permit ends queue waiting; subsequent connect is not queue time.
+        if entry.deadline_handle is not None:
+            entry.deadline_handle.cancel()
         owns_gate = True
         try:
-            if not await self._check_before_write(entry, queued=True):
+            if not await self._check_before_write(entry, queued=False):
                 return
             session = self._sessions.get(device_id)
             if session is None:
