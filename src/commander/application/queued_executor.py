@@ -660,31 +660,6 @@ class QueuedExecutor:
             return False, True
         return True, True
 
-    async def _finish_write(
-        self,
-        command_id: str,
-        device_id: str,
-        result: ProtocolWriteResult,
-    ) -> bool:
-        if result.outcome is WriteOutcome.CONFIRMED_SUCCESS:
-            await self._control.complete(
-                command_id,
-                CommandState.SUCCEEDED,
-                outcome=CommandOutcome.CONFIRMED_SUCCESS,
-            )
-            return False
-        if result.outcome is WriteOutcome.CONFIRMED_FAILURE:
-            await self._control.complete(
-                command_id,
-                CommandState.FAILED,
-                outcome=CommandOutcome.CONFIRMED_FAILURE,
-                error_code="DEVICE_REJECTED",
-            )
-            return False
-        self._blocked.add(device_id)
-        await self._unknown(command_id, "WRITE_UNKNOWN")
-        return True
-
     async def _unknown(self, command_id: str, error_code: str) -> None:
         await self._control.complete(
             command_id,
