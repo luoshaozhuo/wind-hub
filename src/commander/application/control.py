@@ -61,6 +61,23 @@ class CommandControl:
         """Commit this boundary before any potentially effective field write."""
         await self._run(self._repository.transition, command_id, CommandState.EXECUTING)
 
+    async def executing_many(self, command_ids: Sequence[str]) -> None:
+        """Persist all batch T2 boundaries atomically before any field write."""
+        await self._run(
+            self._repository.transition_many,
+            tuple((command_id, CommandState.EXECUTING, None, None)
+                  for command_id in command_ids),
+        )
+
+    async def complete_many(
+        self,
+        changes: Sequence[
+            tuple[str, CommandState, CommandOutcome, str | None]
+        ],
+    ) -> None:
+        """Commit all batch terminal decisions in one SQLite transaction."""
+        await self._run(self._repository.transition_many, tuple(changes))
+
     async def complete(
         self,
         command_id: str,
