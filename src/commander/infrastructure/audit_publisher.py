@@ -16,11 +16,14 @@ class JetStreamClient(Protocol):
 class AuditPublisher:
     """Publish immutable journal events; acknowledgement is required."""
 
-    def __init__(self, client: JetStreamClient, subject: str) -> None:
+    def __init__(self, client: JetStreamClient, subject: str, stream: str) -> None:
         if not subject.strip():
             raise ValueError("audit subject must not be empty")
         self._client = client
+        if not stream.strip():
+            raise ValueError("audit stream must not be empty")
         self._subject = subject
+        self._stream = stream
 
     async def publish(self, event: Mapping[str, Any]) -> None:
         event_id = event.get("event_id")
@@ -38,11 +41,13 @@ class AuditPublisher:
         payload = json.dumps(
             body, sort_keys=True, ensure_ascii=False, default=_json_value
         ).encode("utf-8")
-        await self._client.publish(
+        ack = await self._client.publish(
             self._subject,
             payload,
             headers={"Nats-Msg-Id": event_id},
         )
+        if getattr(ack, "stream", None) != self._stream:
+            raise RuntimeError("audit PubAck received from unexpected stream")
 
 
 def _json_value(value: object) -> str:
