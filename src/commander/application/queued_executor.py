@@ -530,10 +530,6 @@ class QueuedExecutor:
             finally:
                 # Never signal completion if SQLite failed in the middle of
                 # a multi-point terminal decision; the fatal path owns them.
-                if not batch_completed:
-                    continue_cleanup = False
-                else:
-                    continue_cleanup = True
                 if batch_completed:
                     for member in group[1:]:
                         if member in self._queues[device_id]:
