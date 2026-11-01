@@ -180,8 +180,8 @@ class QueuedExecutor:
             return
         try:
             self._unsent(entry.command.command_id, state, code)
-        except Exception:
-            self._fatal = True
+        except Exception as exc:
+            self._fail_waiters(exc)
             raise
         entry.terminal_in_queue = True
         if entry.wakeup is not None:
@@ -202,8 +202,8 @@ class QueuedExecutor:
             if state is None or state.state is not CommandState.ACCEPTED:
                 return
             self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
-        except Exception:
-            self._fatal = True
+        except Exception as exc:
+            self._fail_waiters(exc)
 
     def cancel(self, command_id: str) -> bool:
         """Cancel only before the native write, without cancelling native I/O."""
@@ -291,6 +291,17 @@ class QueuedExecutor:
                 self._run_device(device_id), name=f"commander:{device_id}"
             )
 
+    def _fail_waiters(self, error: Exception) -> None:
+        """Never strand accepted callers when durable decisions fail."""
+        self._fatal = True
+        for item in tuple(self._entries.values()):
+            if item.deadline_handle is not None:
+                item.deadline_handle.cancel()
+            if item.wakeup is not None:
+                item.wakeup.set()
+            if not item.finished.done():
+                item.finished.set_exception(error)
+
     async def _run_device(self, device_id: str) -> None:
         idle = self._idle_tasks.pop(device_id, None)
         if idle is not None:
@@ -305,10 +316,7 @@ class QueuedExecutor:
             try:
                 await self._execute(device_id, entry)
             except Exception as exc:
-                # A failed durable decision must halt subsequent field writes.
-                self._fatal = True
-                if not entry.finished.done():
-                    entry.finished.set_exception(exc)
+                self._fail_waiters(exc)
                 return
             else:
                 if not entry.finished.done():
