@@ -232,6 +232,45 @@ class EventRepository:
                     raise RepositoryError("SQLite transaction failed; restart required") from exc
                 raise
 
+    def latest_receive_seq(self) -> int:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT value FROM repository_meta WHERE key='receive_seq'"
+            ).fetchone()
+            return int(row[0]) if row is not None else 0
+
+    def append_events(self, events: Sequence[dict[str, Any]]) -> None:
+        """Persist ordered volatile events, idempotently across worker retries."""
+        if not events:
+            return
+        columns = (
+            "event_id", "command_id", "event_type", "occurred_at", "request_id",
+            "caller_id", "operator_id", "trace_id", "device_id", "point_id",
+            "requested_value", "config_reference", "receive_seq", "state",
+            "outcome", "error_code", "error_message", "detail_json",
+        )
+        placeholders = ",".join("?" for _ in columns)
+        statement = (
+            f"INSERT OR IGNORE INTO command_events ({','.join(columns)}) "
+            f"VALUES ({placeholders})"
+        )
+
+        def write() -> None:
+            self._admit()
+            self._db.executemany(
+                statement,
+                [tuple(event.get(column) for column in columns) for event in events],
+            )
+            newest = max((int(item.get("receive_seq") or 0) for item in events), default=0)
+            if newest:
+                self._db.execute(
+                    "UPDATE repository_meta SET value=MAX(CAST(value AS INTEGER), ?) "
+                    "WHERE key='receive_seq'",
+                    (newest,),
+                )
+
+        self._transaction(write)
+
     def accept(
         self,
         specs: Sequence[CommandSpec],
