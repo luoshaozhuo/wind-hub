@@ -110,6 +110,7 @@ class QueuedExecutor:
         self._entries: dict[str, _Entry] = {}
         self._sessions: dict[str, WriteSession] = {}
         self._blocked: set[str] = set()
+        self._reloading: set[str] = set()
         self._native: set[asyncio.Task[Any]] = set()
         self._native_by_device: dict[str, set[asyncio.Task[Any]]] = defaultdict(set)
         self._isolation_tasks: dict[str, asyncio.Task[None]] = {}
@@ -131,6 +132,8 @@ class QueuedExecutor:
             raise OverflowError("batch point limit exceeded")
         counts: dict[str, int] = defaultdict(int)
         for spec in commands:
+            if spec.device_id in self._reloading or spec.device_id in self._blocked:
+                raise RuntimeError('device unavailable for control')
             if not self._authorize(spec):
                 raise PermissionError(
                     "command device/point/config reference is not authorized"
@@ -220,6 +223,44 @@ class QueuedExecutor:
             await asyncio.shield(entry.finished)
         return self._control.get_command(command_id)
 
+    async def quiesce_devices(self, device_ids: frozenset[str]) -> frozenset[str]:
+        """Drain affected devices; keep unsafe ones isolated on reload."""
+        self._reloading.update(device_ids)
+        failed: set[str] = set()
+        try:
+            for device_id in sorted(device_ids):
+                worker = self._workers.get(device_id)
+                if worker is not None and not worker.done():
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(worker),
+                            timeout=self._queue_timeout + self._connect_timeout
+                            + self._write_timeout,
+                        )
+                    except (TimeoutError, Exception):
+                        failed.add(device_id)
+                        self._blocked.add(device_id)
+                        continue
+                if device_id in self._blocked:
+                    if not await self.isolate_device(device_id):
+                        failed.add(device_id)
+                    continue
+                session = self._sessions.get(device_id)
+                if session is not None:
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(asyncio.create_task(session.close())),
+                            timeout=self._connect_timeout,
+                        )
+                    except (TimeoutError, Exception):
+                        self._blocked.add(device_id)
+                        failed.add(device_id)
+                    else:
+                        self._sessions.pop(device_id, None)
+            return frozenset(failed)
+        finally:
+            self._reloading.difference_update(device_ids)
+
     def blocked_devices(self) -> frozenset[str]:
         return frozenset(self._blocked)
 
@@ -282,6 +323,9 @@ class QueuedExecutor:
     def _check_before_write(self, entry: _Entry, *, queued: bool) -> bool:
         command_id = entry.command.command_id
         if self._fatal or entry.terminal_in_queue:
+            return False
+        if entry.command.spec.device_id in self._reloading:
+            self._unsent(command_id, CommandState.FAILED, 'CONFIG_RELOADING')
             return False
         if entry.cancelled:
             self._unsent(command_id, CommandState.CANCELLED, "CANCELLED")
