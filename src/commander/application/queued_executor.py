@@ -519,7 +519,9 @@ class QueuedExecutor:
                         uncertain = False
                         for member, actual in zip(group, results, strict=True):
                             uncertain = (
-                                await self._finish_write(member.command.command_id, device_id, actual)
+                                await self._finish_write(
+                                    member.command.command_id, device_id, actual
+                                )
                                 or uncertain
                             )
                         if uncertain:
