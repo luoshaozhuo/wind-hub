@@ -64,14 +64,12 @@ class CommanderService:
         self,
         *,
         config_root: Path,
-        service_config: Path,
         protocol_registry: ProtocolRegistry,
         audit_transport: AuditTransport,
         settings_loader: Callable[[], ServiceSettings],
         journal_factory: Callable[[ServiceSettings], JournalPort],
     ) -> None:
         self._config_root = config_root
-        self._service_path = service_config
         self._registry = protocol_registry
         self._audit_transport = audit_transport
         self._settings_loader = settings_loader
@@ -125,7 +123,6 @@ class CommanderService:
             # Parse and validate the entire candidate before enabling any write.
             manager = CommanderConfigManager(
                 self._config_root,
-                self._service_path,
                 quiesce=self._quiesce,
                 settings_loader=self._settings_loader,
             )
