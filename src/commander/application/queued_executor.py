@@ -673,9 +673,7 @@ class QueuedExecutor:
             try:
                 result = await session.write_one(write)
             except Exception as exc:
-                raise _SerialWriteError(
-                    tuple(progress), exc, current_unconfirmed=True
-                ) from exc
+                raise _SerialWriteError(tuple(progress), exc, current_unconfirmed=True) from exc
             progress.append(result)
             if result.outcome is WriteOutcome.UNKNOWN:
                 raise _SerialWriteError(

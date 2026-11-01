@@ -576,6 +576,68 @@ async def test_serial_batch_failure_matrix_per_point_adjudication(
         await executor.close()
 
 
+@pytest.mark.parametrize(
+    ("script", "expected", "attempted"),
+    [
+        # 第 2 点返回 UNKNOWN：当前点 UNKNOWN，其后确定未调用 → NOT_SENT。
+        (
+            {
+                "p0": WriteOutcome.CONFIRMED_SUCCESS,
+                "p1": WriteOutcome.UNKNOWN,
+                "p2": WriteOutcome.CONFIRMED_SUCCESS,
+            },
+            (
+                CommandState.SUCCEEDED,
+                CommandState.UNKNOWN,
+                CommandState.INTERRUPTED,
+            ),
+            ["p0", "p1"],
+        ),
+        # 第 1 点即返回 UNKNOWN：当前点 UNKNOWN，其余两点均确定未发送。
+        (
+            {
+                "p0": WriteOutcome.UNKNOWN,
+                "p1": WriteOutcome.CONFIRMED_SUCCESS,
+                "p2": WriteOutcome.CONFIRMED_SUCCESS,
+            },
+            (
+                CommandState.UNKNOWN,
+                CommandState.INTERRUPTED,
+                CommandState.INTERRUPTED,
+            ),
+            ["p0"],
+        ),
+    ],
+)
+async def test_serial_batch_returned_unknown_matrix(
+    control, repository, sqlite_writer, script, expected, attempted
+) -> None:
+    """矩阵：write_one 返回 UNKNOWN（非抛异常）时后续点按 NOT_SENT 裁决。"""
+    session = _ScriptedPointSession(script)
+    executor = build_executor(control, {"WT01": session}, max_batch_points=10)
+    points = ["p0", "p1", "p2"]
+    accepted = await executor.accept([make_spec(point) for point in points], caller_id="op")
+    await asyncio.gather(
+        *(executor.wait(c.command_id) for c in accepted),
+        return_exceptions=True,
+    )
+    try:
+        actual = tuple(_durable_state(repository, sqlite_writer, c.command_id) for c in accepted)
+        assert actual == expected
+        outcomes = {
+            c.spec.point_id: sqlite_writer.submit(repository.get, c.command_id).result().outcome
+            for c in accepted
+        }
+        # INTERRUPTED 必须配对 NOT_SENT outcome（状态机/审计投影一致）。
+        for point, state in zip(points, actual, strict=True):
+            if state is CommandState.INTERRUPTED:
+                assert outcomes[point] is CommandOutcome.NOT_SENT
+        # 物理写严格停在返回 UNKNOWN 的点，之后的点绝不触达。
+        assert session.one_calls == attempted
+    finally:
+        await executor.close()
+
+
 class _HangThenResumeSession(FakeSession):
     """p1 的 write_one 挂起直到外部放行：模拟写超时但底层 I/O 仍存活。"""
 
@@ -635,24 +697,15 @@ async def test_serial_batch_write_timeout_marks_unsettled_suffix_unknown_without
         await executor.close(grace_seconds=10.0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPEN（round5 N1-b，P2，B 类交 ChatGPT）：write_one 对中间点返回 "
-        "WriteOutcome.UNKNOWN 时，_write_group 先把该点 append 进 progress 再抛 "
-        "_SerialWriteError，exc.results 长度含当前点；_serial_terminal_changes "
-        "中后续第一个点命中 index == len(confirmed) 被强制 UNKNOWN。但该点的 "
-        "write_one 从未被调用，物理上确定未发送，应判 INTERRUPTED/NOT_SENT"
-        "（v1_1 表 4-11 与 round5 矩阵第 5 行）。属保守方向误标"
-        "（不会重复写、不会误报成功、不提前释放资源），故 P2。修复方向："
-        "区分『异常中断点（不在 confirmed 内）』与『返回 UNKNOWN 的点"
-        "（在 confirmed 内）』，后者后续点走 NOT_SENT 分支。"
-    ),
-)
 async def test_serial_batch_returned_unknown_outcome_suffix_is_not_sent(
     control, repository, sqlite_writer
 ) -> None:
-    """中间点协议返回 UNKNOWN：当前点 UNKNOWN，后续确定未调用点 NOT_SENT。"""
+    """中间点协议返回 UNKNOWN（round5 N1-b，已修复转正式）。
+
+    返回 UNKNOWN 的当前点保留 UNKNOWN；其后确定未调用点必须
+    INTERRUPTED/NOT_SENT——与"抛异常的中断点"语义不同（异常点是否已
+    发出未知；返回 UNKNOWN 的点已有协议交互，后续点则从未触达）。
+    """
     session = _ScriptedPointSession(
         {
             "p0": WriteOutcome.CONFIRMED_SUCCESS,

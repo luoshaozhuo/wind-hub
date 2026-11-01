@@ -203,10 +203,15 @@ async def test_audit_delivery_over_real_jetstream_drains_outbox_in_order(
     assert states == ["ACCEPTED", "CONNECTING", "EXECUTING", "SUCCEEDED"]
 
 
+@pytest.mark.parametrize("p2_returns_unknown", [False, True])
 async def test_mixed_result_serial_batch_audit_events_complete_ordered_unique(
-    jetstream: tuple[NatsClient, str, str, str], tmp_path
+    jetstream: tuple[NatsClient, str, str, str], tmp_path, p2_returns_unknown: bool
 ) -> None:
-    """N1 混合终态批次（成功/拒绝/UNKNOWN/NOT_SENT）的审计事件齐全、有序、不重复。"""
+    """N1/N1-b 混合终态批次（成功/拒绝/UNKNOWN/NOT_SENT）审计齐全有序不重复。
+
+    p2 两种载体各跑一次：抛异常（中断点未确认）与返回 UNKNOWN 结果
+    （有协议交互但结果未知）；两种载体下 p3 都必须是 NOT_SENT。
+    """
     from commander.application.control import CommandControl
     from commander.application.queued_executor import QueuedExecutor
     from core.application.protocol_contract import (
@@ -227,8 +232,9 @@ async def test_mixed_result_serial_batch_audit_events_complete_ordered_unique(
     delivery = AuditDelivery(repo, transport, writer, retry_base=0.1, retry_max=1.0)
 
     class _ScriptedSerialSession:
-        def __init__(self) -> None:
+        def __init__(self, p2_returns_unknown: bool) -> None:
             self.calls: list[str] = []
+            self._p2_returns_unknown = p2_returns_unknown
 
         def capabilities(self) -> frozenset[ProtocolCapability]:
             return frozenset({ProtocolCapability.READ, ProtocolCapability.WRITE})
@@ -247,13 +253,15 @@ async def test_mixed_result_serial_batch_audit_events_complete_ordered_unique(
             if write.point == "p1":
                 return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_FAILURE)
             if write.point == "p2":
+                if self._p2_returns_unknown:
+                    return ProtocolWriteResult(write.point, WriteOutcome.UNKNOWN)
                 raise ConnectionError("link reset mid-batch")
             return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_SUCCESS)
 
         async def write_many(self, writes: Any) -> tuple[ProtocolWriteResult, ...]:
             raise AssertionError("session does not advertise WRITE_MANY")
 
-    session = _ScriptedSerialSession()
+    session = _ScriptedSerialSession(p2_returns_unknown)
     executor = QueuedExecutor(
         control,
         lambda _device_id: session,

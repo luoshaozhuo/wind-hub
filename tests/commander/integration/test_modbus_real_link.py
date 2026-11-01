@@ -226,34 +226,43 @@ class _DelayAckOnSecond(_DriverWrapper):
         return await task
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPEN（round5 N1-b 在真实 Modbus 链路上复现）：p1 发往不存在的 "
-        "slave 3，从站不响应，驱动等待超时按连接级故障裁决 UNKNOWN；执行器"
-        "中止批次后确定未调用的 p2 被误判 UNKNOWN 而非 INTERRUPTED/NOT_SENT。"
-        "服务端 PDU 计数与寄存器回读同时证明 p2 物理未发送。与组件级 "
-        "strict xfail 同根因。"
-    ),
-)
-async def test_real_modbus_unknown_mid_batch_physical_boundary_and_per_point_terminal(
+class _CloseAfterFirst(_DriverWrapper):
+    """p0 确认后真实关闭驱动会话（从站继续运行）：后续点提交前连接已消失。"""
+
+    def __init__(self, driver: ModbusDriver) -> None:
+        super().__init__(driver)
+
+    async def write_one(self, write: ProtocolWrite) -> Any:
+        result = await super().write_one(write)
+        if len(self.physical) == 1:
+            # 驱动公共生命周期：物理拆除 TCP（对端视角=连接消失），
+            # is_open 同步翻 False；后续 write_one 在提交前即可证未发送。
+            await self._driver.close()
+        return result
+
+
+async def test_real_modbus_rst_mid_batch_confirmed_not_sent_never_reaches_wire(
     modbus_server, control
 ) -> None:
-    # p0/p2 在 unit 1；p1 在不存在的 unit 3：PDU 到达从站但无任何响应，
-    # 驱动按"未知结果、可能已执行"裁决 UNKNOWN（非 CONFIRMED_FAILURE）。
-    table = make_table(
-        "modbus",
-        make_point("p0", register_type="holding", address=200, data_type="float32"),
-        make_point("p1", register_type="holding", address=202, data_type="float32", slave_id=3),
-        make_point("p2", register_type="holding", address=204, data_type="float32"),
-    )
+    """p0 确认后连接真实消失：后续点可证未发送，只有 p0 到达 wire。
 
-    def factory(_device_id: str) -> ModbusDriver:
-        return ModbusDriver(
-            ConnectionEndpoint("127.0.0.1", modbus_server.port),
-            table,
-            {"word_order": "big_endian", "timeout": 0.6},
+    真实 Modbus 驱动对"提交前会话已关闭"给 CONFIRMED_FAILURE（可证未发送），
+    执行器对已确认失败不中止批次（矩阵第 5 行），p2 仍被调用但同样快速失败。
+    物理边界以服务端 PDU 计数与寄存器回读为准：p0 落寄存器，p1/p2 保持原值。
+    """
+    table = _three_point_table()
+    holder: dict[str, _CloseAfterFirst] = {}
+
+    def factory(device_id: str) -> Any:
+        wrapper = _CloseAfterFirst(
+            ModbusDriver(
+                ConnectionEndpoint("127.0.0.1", modbus_server.port),
+                table,
+                {"word_order": "big_endian", "timeout": 2.0},
+            )
         )
+        holder[device_id] = wrapper
+        return wrapper
 
     executor = QueuedExecutor(
         control,
@@ -294,17 +303,19 @@ async def test_real_modbus_unknown_mid_batch_physical_boundary_and_per_point_ter
             for c, r in zip(accepted, results, strict=True)
             if r is not None and not isinstance(r, BaseException)
         }
+        # p0 现场成功；RST 后 p1/p2 均在提交前被驱动证明未发送。
         assert states == {
             "p0": CommandState.SUCCEEDED,
-            "p1": CommandState.UNKNOWN,
-            "p2": CommandState.INTERRUPTED,
+            "p1": CommandState.FAILED,
+            "p2": CommandState.FAILED,
         }
+        # 执行器对每点恰好调用一次 write_one（失败点不重试）。
+        assert holder["WT01"].physical == ["p0", "p1", "p2"]
     finally:
         await executor.close()
 
-    # 物理证据：p0 真实落寄存器；p1 无响应寄存器保持原值；
-    # p2 的 FC06 从未发出（服务端仅收到 p0/p1 两个写 PDU）。
-    assert modbus_server.write_count == 2
+    # 物理证据：服务端只处理了 p0 的 FC06（从站全程在线，寄存器保留）。
+    assert modbus_server.write_count == 1
     verifier = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", modbus_server.port),
         table,
