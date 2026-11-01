@@ -203,18 +203,23 @@ class CommanderConfigManager:
                 else:
                     retained.pop(device_id, None)
                     current_fp.pop(device_id, None)
-            applied_revision = hashlib.sha256(
-                json.dumps(
-                    {
-                        "site": effective_site,
-                        "units": effective_units,
-                        "business_points": effective_business,
-                        "devices": current_fp,
-                    },
-                    sort_keys=True,
-                    default=str,
-                ).encode()
-            ).hexdigest()
+            if not blocked:
+                applied_revision = candidate.revision
+            elif not applied_devices:
+                applied_revision = self._documents.revision
+            else:
+                applied_revision = hashlib.sha256(
+                    json.dumps(
+                        {
+                            "site": effective_site,
+                            "units": effective_units,
+                            "business_points": effective_business,
+                            "devices": current_fp,
+                        },
+                        sort_keys=True,
+                        default=str,
+                    ).encode()
+                ).hexdigest()
             applied = SharedDocuments(
                 site=effective_site,
                 devices=retained,
