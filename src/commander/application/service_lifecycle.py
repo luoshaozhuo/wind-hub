@@ -7,7 +7,6 @@ import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable
 
 from commander.application.config_manager import (
     CommanderConfigManager,
@@ -15,7 +14,6 @@ from commander.application.config_manager import (
 )
 from commander.application.control import CommandControl
 from commander.application.queued_executor import QueuedExecutor, SessionFactory
-from commander.domain.command import CommandSpec
 from commander.infrastructure.event_repository import EventRepository
 from commander.infrastructure.service_settings import ServiceSettings
 
@@ -66,6 +64,7 @@ class CommanderService:
         self._watchdog: asyncio.Task[None] | None = None
         self._recovered = 0
         self._restart_required = False
+        self._cleanup_interval = 60.0
 
     @property
     def control(self) -> CommandControl:
@@ -96,7 +95,13 @@ class CommanderService:
                 quiesce=self._quiesce,
             )
             settings: ServiceSettings = manager.start()
-            journal = EventRepository(settings.sqlite_path)
+            journal = EventRepository(
+                settings.sqlite_path,
+                max_storage_bytes=settings.max_storage_bytes,
+                reserved_storage_bytes=settings.reserved_storage_bytes,
+                admission_stop_ratio=settings.admission_stop_ratio,
+                retention_seconds=settings.retention_seconds,
+            )
             recovered = journal.recover()
             control = CommandControl(journal)
             executor = QueuedExecutor(
@@ -117,6 +122,7 @@ class CommanderService:
             self._executor = executor
             self._config = manager
             self._recovered = len(recovered)
+            self._cleanup_interval = settings.cleanup_interval_seconds
             self._state = ServiceState.READY
             self._watchdog = asyncio.create_task(
                 self._run_watchdog(settings.watchdog_interval),
@@ -140,7 +146,11 @@ class CommanderService:
             raise RuntimeError("service not ready")
         report = await self._config.reload()
         self._restart_required = report.restart_required
-        self._state = ServiceState.DEGRADED if report.blocked else ServiceState.READY
+        self._state = (
+            ServiceState.DEGRADED
+            if report.blocked or (self._executor and self._executor.blocked_devices())
+            else ServiceState.READY
+        )
         return report
 
     def health(self) -> RuntimeHealth:
@@ -159,8 +169,16 @@ class CommanderService:
         )
 
     async def _run_watchdog(self, interval: float) -> None:
+        elapsed = 0.0
         while self._state in (ServiceState.READY, ServiceState.DEGRADED):
             await asyncio.sleep(interval)
+            elapsed += interval
+            if elapsed >= self._cleanup_interval and self._journal is not None:
+                elapsed = 0.0
+                try:
+                    self._journal.cleanup()
+                except Exception:
+                    logger.exception("commander journal cleanup failed")
             if self._executor is None:
                 return
             blocked = self._executor.blocked_devices()
