@@ -1,4 +1,12 @@
-"""Commander command identity, state transitions and immutable results."""
+"""Commander command identity, state transitions and immutable results.
+
+The domain records distinct terminal states for query and recovery. The event
+journal persists every terminal transition as event_type=COMPLETED, while its
+state and outcome columns preserve the precise terminal classification:
+SUCCEEDED/CONFIRMED_SUCCESS, FAILED/CONFIRMED_FAILURE, UNKNOWN/UNKNOWN,
+INTERRUPTED/NOT_SENT, EXPIRED/NOT_SENT and CANCELLED/NOT_SENT.
+This is a projection, not a second independent state machine.
+"""
 
 from __future__ import annotations
 
