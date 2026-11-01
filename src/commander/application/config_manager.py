@@ -85,6 +85,29 @@ def _writable(
     return True
 
 
+def _validate_unique_connections(snapshot: SharedDomainSnapshot) -> None:
+    """Reject two controlled devices sharing one physical connection identity."""
+    seen: dict[tuple[str, str, int | None, str], str] = {}
+    for device_id, device in snapshot.site.devices.items():
+        if not device.enabled:
+            continue
+        model = snapshot.device_models[device.device_model_id]
+        protocol = snapshot.point_tables[model.point_table_id].protocol.name
+        options = json.dumps(
+            dict(device.protocol_options),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        identity = (protocol, device.endpoint.host, device.endpoint.port, options)
+        prior = seen.get(identity)
+        if prior is not None:
+            raise ValueError(
+                f"duplicate protocol connection for {prior} and {device_id}"
+            )
+        seen[identity] = str(device_id)
+
+
 class CommanderConfigManager:
     """Validate candidates before change; never expose a partial revision."""
 
@@ -130,6 +153,7 @@ class CommanderConfigManager:
         self._settings = settings
         self._documents = docs
         self._snapshot = build_shared_snapshot(docs)
+        _validate_unique_connections(self._snapshot)
         self._fingerprints = {
             device: _device_fingerprint(definition)
             for device, definition in docs.devices.items()
@@ -269,6 +293,7 @@ class CommanderConfigManager:
                 revision=applied_revision,
             )
             effective_snapshot = build_shared_snapshot(applied)
+            _validate_unique_connections(effective_snapshot)
             self._documents = applied
             self._snapshot = effective_snapshot
             self._fingerprints = current_fp
