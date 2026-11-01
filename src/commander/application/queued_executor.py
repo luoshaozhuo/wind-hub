@@ -487,7 +487,7 @@ class QueuedExecutor:
                     batch_completed = True
                     return
                 native = asyncio.create_task(
-                    session.write_many(writes) if len(group) > 1 else session.write_one(writes[0])
+                    self._write_group(session, writes)
                 )
                 try:
                     result = await asyncio.wait_for(
@@ -604,13 +604,21 @@ class QueuedExecutor:
             if owns_gate:
                 self._gate.release()
 
+    async def _write_group(
+        self, session: WriteSession, writes: tuple[ProtocolWrite, ...]
+    ) -> tuple[ProtocolWriteResult, ...]:
+        """One logical batch: native batch when supported, else serial writes."""
+        if len(writes) > 1 and ProtocolCapability.WRITE_MANY in session.capabilities():
+            return await session.write_many(writes)
+        results: list[ProtocolWriteResult] = []
+        for write in writes:
+            results.append(await session.write_one(write))
+        return tuple(results)
+
     def _batch_entries(
         self, device_id: str, head: _Entry, session: WriteSession
     ) -> tuple[_Entry, ...]:
-        if (
-            self._max_batch_points == 1
-            or ProtocolCapability.WRITE_MANY not in session.capabilities()
-        ):
+        if self._max_batch_points == 1:
             return (head,)
         group = [head]
         for member in list(self._queues[device_id])[1 : self._max_batch_points]:
