@@ -29,6 +29,9 @@ class ServiceSettings:
     cleanup_interval_seconds: float
     audit_stream: str
     audit_subject: str
+    nats_servers: tuple[str, ...]
+    audit_retry_base: float
+    audit_retry_max: float
 
 
 def _mapping(raw: object, name: str) -> dict[str, Any]:
@@ -118,6 +121,17 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         and reserved < max_storage
     ):
         raise ValueError("invalid storage capacity and admission ratios")
+    servers = audit.get("nats_servers")
+    if (
+        not isinstance(servers, list)
+        or not servers
+        or any(not isinstance(server, str) or not server.strip() for server in servers)
+    ):
+        raise ValueError("audit.nats_servers requires a non-empty list")
+    retry_base = float(_positive(audit.get("retry_base_ms", 200), "retry_base_ms")) / 1000
+    retry_max = float(_positive(audit.get("retry_max_ms", 10000), "retry_max_ms")) / 1000
+    if retry_max < retry_base:
+        raise ValueError("audit retry_max_ms must be >= retry_base_ms")
     for section in ("grpc", "security"):
         if section in raw:
             _mapping(raw[section], section)
@@ -150,4 +164,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         ),
         audit_stream=stream,
         audit_subject=subject,
+        nats_servers=tuple(servers),
+        audit_retry_base=retry_base,
+        audit_retry_max=retry_max,
     )
