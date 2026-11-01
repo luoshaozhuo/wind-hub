@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from core.application.protocol_contract import (
+    ProtocolCapability,
     ProtocolWrite,
     ProtocolWriteResult,
     WriteOutcome,
@@ -33,7 +34,13 @@ class WriteSession(Protocol):
 
     def is_open(self) -> bool: ...
 
+    def capabilities(self) -> frozenset[ProtocolCapability]: ...
+
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult: ...
+
+    async def write_many(
+        self, writes: Sequence[ProtocolWrite]
+    ) -> tuple[ProtocolWriteResult, ...]: ...
 
     async def close(self) -> None: ...
 
@@ -70,8 +77,9 @@ class QueuedExecutor:
         write_timeout: float = 3.0,
         max_queued_per_device: int = 100,
         idle_timeout: float = 30.0,
+        max_batch_points: int = 10,
     ) -> None:
-        if global_capacity < 1 or max_queued_per_device < 1:
+        if global_capacity < 1 or max_queued_per_device < 1 or max_batch_points < 1:
             raise ValueError("capacities must be positive")
         if min(queue_timeout, connect_timeout, write_timeout, idle_timeout) <= 0:
             raise ValueError("timeouts must be positive")
@@ -84,6 +92,7 @@ class QueuedExecutor:
         self._write_timeout = write_timeout
         self._queue_limit = max_queued_per_device
         self._idle_timeout = idle_timeout
+        self._max_batch_points = max_batch_points
         self._idle_tasks: dict[str, asyncio.Task[None]] = {}
         self._idle_closing: set[str] = set()
         self._queues: dict[str, deque[_Entry]] = defaultdict(deque)
@@ -263,36 +272,87 @@ class QueuedExecutor:
                     return
             if not self._check_before_write(entry, queued=False):
                 return
-            # Persist EXECUTING before the first potentially effective native write.
-            self._control.executing(command_id)
-            write = asyncio.create_task(
-                session.write_one(
-                    ProtocolWrite(
-                        point=entry.command.spec.point_id,
-                        value=entry.command.spec.value,
-                    )
+            group = self._batch_entries(device_id, entry, session)
+            # Persist every member before any potentially effective field write.
+            for member in group:
+                self._control.executing(member.command.command_id)
+            writes = tuple(
+                ProtocolWrite(
+                    point=member.command.spec.point_id,
+                    value=member.command.spec.value,
                 )
+                for member in group
+            )
+            native = asyncio.create_task(
+                session.write_many(writes)
+                if len(group) > 1
+                else session.write_one(writes[0])
             )
             try:
                 result = await asyncio.wait_for(
-                    asyncio.shield(write), timeout=self._write_timeout
+                    asyncio.shield(native), timeout=self._write_timeout
                 )
             except (TimeoutError, asyncio.CancelledError):
-                self._block_late(device_id, write)
+                self._block_late(device_id, native)
                 owns_gate = False
-                self._unknown(command_id, "WRITE_TIMEOUT")
+                for member in group:
+                    self._unknown(member.command.command_id, "WRITE_TIMEOUT")
             except Exception as exc:
                 self._blocked.add(device_id)
-                self._unknown(command_id, type(exc).__name__)
+                for member in group:
+                    self._unknown(member.command.command_id, type(exc).__name__)
             else:
-                if result.point_id != entry.command.spec.point_id:
+                results = result if isinstance(result, tuple) else (result,)
+                if (
+                    len(results) != len(group)
+                    or any(
+                        not isinstance(actual, ProtocolWriteResult)
+                        or actual.point_id != member.command.spec.point_id
+                        for member, actual in zip(group, results, strict=False)
+                    )
+                ):
                     self._blocked.add(device_id)
-                    self._unknown(command_id, "WRITE_RESULT_MISMATCH")
+                    for member in group:
+                        self._unknown(
+                            member.command.command_id, "WRITE_RESULT_MISMATCH"
+                        )
                 else:
-                    self._finish_write(command_id, device_id, result)
+                    for member, actual in zip(group, results, strict=True):
+                        self._finish_write(
+                            member.command.command_id, device_id, actual
+                        )
+            finally:
+                # The head belongs to _run_device; remove any coalesced successors.
+                for member in group[1:]:
+                    self._queues[device_id].remove(member)
+                    self._entries.pop(member.command.command_id, None)
+                    if not member.finished.done():
+                        member.finished.set_result(None)
         finally:
             if owns_gate:
                 self._gate.release()
+
+    def _batch_entries(
+        self, device_id: str, head: _Entry, session: WriteSession
+    ) -> tuple[_Entry, ...]:
+        if (
+            self._max_batch_points == 1
+            or ProtocolCapability.WRITE_MANY not in session.capabilities()
+        ):
+            return (head,)
+        group = [head]
+        for member in list(self._queues[device_id])[1:self._max_batch_points]:
+            spec = member.command.spec
+            if (
+                member.cancelled
+                or member.deadline <= time.monotonic()
+                or spec.config_reference != head.command.spec.config_reference
+                or (spec.expires_at is not None and spec.expires_at <= datetime.now(UTC))
+                or not self._authorize(spec)
+            ):
+                break
+            group.append(member)
+        return tuple(group)
 
     async def _await_connect(
         self,
