@@ -455,6 +455,13 @@ class QueuedExecutor:
             if not await self._check_before_write(entry, queued=False):
                 return
             group = self._batch_entries(device_id, entry, session)
+            # Each member shares the acquired permit. Its queue timer must
+            # no longer race the sequential durable T2 transitions.
+            for member in group:
+                member.gate_acquired = True
+                if member.deadline_handle is not None:
+                    member.deadline_handle.cancel()
+            batch_completed = False
             try:
                 # Validate and normalize every value before persisting T2.
                 writes = tuple(self._prepare_write(member.command.spec) for member in group)
@@ -474,6 +481,7 @@ class QueuedExecutor:
                             outcome=CommandOutcome.NOT_SENT,
                             error_code="EXPIRED_BEFORE_WRITE",
                         )
+                    batch_completed = True
                     return
                 native = asyncio.create_task(
                     session.write_many(writes) if len(group) > 1 else session.write_one(writes[0])
@@ -518,15 +526,23 @@ class QueuedExecutor:
                             self._retain_gate(device_id)
                             owns_gate = False
                             self._schedule_auto_isolation(device_id)
+                batch_completed = True
             finally:
-                # _run_device owns the head; each coalesced successor is retired.
-                for member in group[1:]:
-                    self._queues[device_id].remove(member)
-                    self._entries.pop(member.command.command_id, None)
-                    if member.deadline_handle is not None:
-                        member.deadline_handle.cancel()
-                    if not member.finished.done():
-                        member.finished.set_result(None)
+                # Never signal completion if SQLite failed in the middle of
+                # a multi-point terminal decision; the fatal path owns them.
+                if not batch_completed:
+                    continue_cleanup = False
+                else:
+                    continue_cleanup = True
+                if batch_completed:
+                    for member in group[1:]:
+                        if member in self._queues[device_id]:
+                            self._queues[device_id].remove(member)
+                        self._entries.pop(member.command.command_id, None)
+                        if member.deadline_handle is not None:
+                            member.deadline_handle.cancel()
+                        if not member.finished.done():
+                            member.finished.set_result(None)
         finally:
             if owns_gate:
                 self._gate.release()
@@ -543,7 +559,9 @@ class QueuedExecutor:
         for member in list(self._queues[device_id])[1 : self._max_batch_points]:
             spec = member.command.spec
             if (
-                member.deadline <= time.monotonic()
+                member.terminal_in_queue
+                or member.finished.done()
+                or member.deadline <= time.monotonic()
                 or member.command.request_id != head.command.request_id
                 or member.deadline != head.deadline
                 or spec.expires_at != head.command.spec.expires_at
