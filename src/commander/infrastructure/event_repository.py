@@ -1,4 +1,4 @@
-"""SQLite command event journal: atomic acceptance, outbox and crash recovery."""
+"""SQLite command event history: write-behind snapshots and audit outbox."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from commander.domain.command import (
 
 
 class RepositoryError(RuntimeError):
-    """Persistence unavailable; never perform a field write after this failure."""
+    """Persistence unavailable; the bounded volatile control path may continue."""
 
 
 class StorageFullError(RepositoryError):
