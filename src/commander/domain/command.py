@@ -74,6 +74,7 @@ _ALLOWED = {
             CommandState.FAILED,
             CommandState.UNKNOWN,
             CommandState.EXPIRED,
+            CommandState.INTERRUPTED,
         }
     ),
 }
