@@ -1,5 +1,6 @@
 syntax = "proto3";
 package windhub.common.v1;
+import "google/protobuf/timestamp.proto";
 
 message ScalarValue {
   oneof kind {
@@ -11,8 +12,124 @@ message ScalarValue {
     bytes bytes_value = 6;
   }
 }
-
-message AddressField {
-  string key = 1;
-  ScalarValue value = 2;
+message AddressField { string key = 1; ScalarValue value = 2; }
+message Empty {}
+message ObjectId { string id = 1; }
+message Pagination { uint32 page_size = 1; string page_token = 2; }
+message OperationRequest { string id = 1; string expected_revision = 2; }
+message OperationResult {
+  string operation_id = 1; bool accepted = 2; string desired_state = 3;
+  string actual_state = 4; string revision = 5; string error_code = 6;
+  string message = 7;
+}
+message PointMetadata {
+  string point_id = 1; string data_type = 2; string unit = 3;
+  bool readable = 4; bool writable = 5; repeated AddressField address = 6;
+  optional double minimum = 7; optional double maximum = 8;
+  string revision = 9;
+}
+message Sample {
+  string point_id = 1; optional ScalarValue value = 2; string quality = 3;
+  google.protobuf.Timestamp sample_timestamp = 4;
+  google.protobuf.Timestamp queried_at = 5;
+  string freshness = 6; string error_code = 7; string error_message = 8;
+}
+message Evidence { string name = 1; string value = 2; }
+message DiagnosticStage {
+  string stage = 1; string status = 2; uint64 duration_ms = 3;
+  string error_code = 4; string message = 5; repeated Evidence evidence = 6;
+  google.protobuf.Timestamp observed_at = 7; string source = 8;
+}
+message GetServiceInfoResponse {
+  string service_id = 1; string process_role = 2; string software_version = 3;
+  string contract_version = 4; google.protobuf.Timestamp started_at = 5;
+}
+message DependencyHealth {
+  string name = 1; string health = 2; string detail = 3;
+}
+message GetServiceStatusResponse {
+  string health = 1; repeated DependencyHealth dependencies = 2;
+  google.protobuf.Timestamp observed_at = 3;
+}
+message GetCapabilitiesResponse {
+  repeated string rpc_names = 1; repeated string protocols = 2;
+  repeated string features = 3;
+}
+enum SnapshotScope {
+  SNAPSHOT_SCOPE_UNSPECIFIED = 0;
+  SNAPSHOT_SCOPE_DISK = 1;
+  SNAPSHOT_SCOPE_RUNTIME = 2;
+  SNAPSHOT_SCOPE_CANDIDATE = 3;
+}
+message SnapshotFile {
+  string relative_path = 1; bytes content = 2; uint64 size_bytes = 3;
+  string sha256 = 4;
+}
+message ValidationIssue {
+  string path = 1; string code = 2; string message = 3;
+}
+message ApplicationResult {
+  string object_id = 1; string status = 2; string error_code = 3;
+  string message = 4;
+}
+message GetConfigSnapshotRequest {
+  SnapshotScope scope = 1; string candidate_id = 2;
+}
+message GetConfigSnapshotResponse {
+  string snapshot_id = 1; string revision = 2; repeated SnapshotFile files = 3;
+  repeated ValidationIssue validation = 4; string application_id = 5;
+  repeated ApplicationResult apply_results = 6; string last_error = 7;
+}
+message PushConfigSnapshotRequest {
+  repeated SnapshotFile files = 1; string expected_revision = 2;
+}
+message PushConfigSnapshotResponse {
+  string candidate_id = 1; bool valid = 2;
+  repeated ValidationIssue validation = 3; string base_revision = 4;
+}
+message ApplyConfigSnapshotRequest {
+  string candidate_id = 1; string expected_revision = 2;
+}
+message ApplyConfigSnapshotResponse {
+  string file_commit = 1; repeated ApplicationResult apply_results = 2;
+  string effective_revision = 3; bool restart_required = 4;
+  string application_id = 5;
+}
+message GetMetricsRequest { string scope = 1; uint64 window_ms = 2; }
+message Metric {
+  string name = 1; double value = 2; string unit = 3;
+  uint64 window_ms = 4; google.protobuf.Timestamp sampled_at = 5;
+}
+message GetMetricsResponse { repeated Metric metrics = 1; }
+message GetEventsRequest {
+  google.protobuf.Timestamp from_time = 1;
+  google.protobuf.Timestamp to_time = 2; string filter = 3;
+  uint32 page_size = 4; string page_token = 5;
+}
+message Event {
+  string event_id = 1; google.protobuf.Timestamp timestamp = 2;
+  string severity = 3; string source = 4; string error_code = 5;
+  string message = 6;
+}
+message GetEventsResponse {
+  repeated Event events = 1; string next_page_token = 2;
+}
+message DiagnoseRequest {
+  string target_id = 1; repeated string stages = 2;
+  uint32 timeout_ms = 3; string correlation_id = 4;
+}
+message DiagnoseResponse {
+  string overall_status = 1; repeated DiagnosticStage stages = 2;
+  repeated string limitations = 3;
+}
+service CommonService {
+  rpc GetServiceInfo(Empty) returns (GetServiceInfoResponse);
+  rpc GetServiceStatus(Empty) returns (GetServiceStatusResponse);
+  rpc GetCapabilities(Empty) returns (GetCapabilitiesResponse);
+  rpc GetConfigSnapshot(GetConfigSnapshotRequest) returns (GetConfigSnapshotResponse);
+  rpc PushConfigSnapshot(PushConfigSnapshotRequest) returns (PushConfigSnapshotResponse);
+  rpc ApplyConfigSnapshot(ApplyConfigSnapshotRequest) returns (ApplyConfigSnapshotResponse);
+  rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
+  rpc GetEvents(GetEventsRequest) returns (GetEventsResponse);
+  rpc Diagnose(DiagnoseRequest) returns (DiagnoseResponse);
 }

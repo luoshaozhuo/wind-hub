@@ -115,7 +115,7 @@ exclude = "(_pb2\\.py|_pb2_grpc\\.py)$"
 # grpcio 未附带 py.typed，且当前环境无法安装 grpcio-stubs；
 # 将 grpc 视为动态类型模块（Any），边界类型安全由 pb2 .pyi stub 保证。
 [[tool.mypy.overrides]]
-module = ["grpc", "grpc.*"]
+module = ["grpc", "grpc.*", "grpc_tools", "grpc_tools.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
 
@@ -130,15 +130,18 @@ ignore_missing_imports = true
 # 形态；这些是生成物特征而非缺陷，不参与手写代码的严格规则。
 [[tool.mypy.overrides]]
 module = [
-    "contracts.collector_v2_pb2",
-    "contracts.collector_v2_pb2_grpc",
+    "contracts.common_pb2",
+    "contracts.common_pb2_grpc",
+    "contracts.collector_pb2",
+    "contracts.collector_pb2_grpc",
     "contracts.commander_pb2",
     "contracts.commander_pb2_grpc",
-    "contracts.gateway_pb2",
-    "contracts.gateway_pb2_grpc",
-    "contracts.sink_pb2",
-    "contracts.sink_pb2_grpc",
-    "contracts.common_pb2",
+    "contracts.sink_service_pb2",
+    "contracts.sink_service_pb2_grpc",
+    "contracts.industrial_gateway_pb2",
+    "contracts.industrial_gateway_pb2_grpc",
+    "contracts.data_generator_pb2",
+    "contracts.data_generator_pb2_grpc",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]
 

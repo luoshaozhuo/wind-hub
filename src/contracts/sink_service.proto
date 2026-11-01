@@ -1,0 +1,22 @@
+syntax = "proto3";
+package windhub.sink.v1;
+import "contracts/common.proto";
+message ListDeliveriesRequest {
+  string channel = 1; uint32 page_size = 2; string page_token = 3;
+}
+message Delivery {
+  string delivery_id = 1; string channel = 2; string sink_id = 3;
+  string process_role = 4; string desired_state = 5; string actual_state = 6;
+  string revision = 7; string last_error = 8;
+  repeated windhub.common.v1.AddressField config = 9;
+}
+message ListDeliveriesResponse {
+  repeated Delivery deliveries = 1; string next_page_token = 2;
+}
+message GetDeliveryResponse { Delivery delivery = 1; }
+service SinkService {
+  rpc ListDeliveries(ListDeliveriesRequest) returns (ListDeliveriesResponse);
+  rpc GetDelivery(windhub.common.v1.ObjectId) returns (GetDeliveryResponse);
+  rpc StartDelivery(windhub.common.v1.OperationRequest) returns (windhub.common.v1.OperationResult);
+  rpc StopDelivery(windhub.common.v1.OperationRequest) returns (windhub.common.v1.OperationResult);
+}

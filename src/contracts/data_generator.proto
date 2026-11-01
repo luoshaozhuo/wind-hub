@@ -1,0 +1,49 @@
+syntax = "proto3";
+package windhub.data_generator.v1;
+import "contracts/common.proto";
+import "google/protobuf/timestamp.proto";
+message ListDevicesRequest {
+  string filter = 1; uint32 page_size = 2; string page_token = 3;
+}
+message Device {
+  string device_id = 1; string protocol = 2; string endpoint = 3;
+  string generation_id = 4; string actual_state = 5;
+}
+message ListDevicesResponse { repeated Device devices = 1; string next_page_token = 2; }
+message GetDeviceResponse { Device device = 1; }
+message ListScenariosRequest { uint32 page_size = 1; string page_token = 2; }
+message Scenario {
+  string scenario_id = 1; string active_version = 2;
+  repeated string available_versions = 3; repeated string device_ids = 4;
+  string description = 5;
+}
+message ListScenariosResponse {
+  repeated Scenario scenarios = 1; string next_page_token = 2;
+}
+message Generation {
+  string generation_id = 1; string scenario_id = 2; string scenario_version = 3;
+  string desired_state = 4; string actual_state = 5;
+  google.protobuf.Timestamp started_at = 6; string last_error = 7;
+}
+message GetGenerationResponse { Generation generation = 1; }
+message StartGenerationRequest {
+  string scenario_id = 1; optional string scenario_version = 2;
+  string expected_revision = 3;
+}
+message StartGenerationResponse {
+  string generation_id = 1; bool accepted = 2; string actual_state = 3;
+  string error_code = 4; string message = 5;
+}
+message StopGenerationRequest { string generation_id = 1; string expected_revision = 2; }
+message StopGenerationResponse {
+  bool accepted = 1; string actual_state = 2; string error_code = 3;
+  string message = 4;
+}
+service DataGeneratorService {
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+  rpc GetDevice(windhub.common.v1.ObjectId) returns (GetDeviceResponse);
+  rpc ListScenarios(ListScenariosRequest) returns (ListScenariosResponse);
+  rpc GetGeneration(windhub.common.v1.ObjectId) returns (GetGenerationResponse);
+  rpc StartGeneration(StartGenerationRequest) returns (StartGenerationResponse);
+  rpc StopGeneration(StopGenerationRequest) returns (StopGenerationResponse);
+}

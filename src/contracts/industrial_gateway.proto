@@ -1,0 +1,41 @@
+syntax = "proto3";
+package windhub.gateway.v1;
+import "contracts/common.proto";
+message ListGatewaysRequest {
+  string filter = 1; uint32 page_size = 2; string page_token = 3;
+}
+message Gateway {
+  string gateway_id = 1; string endpoint = 2; string mapping_summary = 3;
+  string desired_state = 4; string actual_state = 5; string revision = 6;
+  string last_error = 7;
+}
+message ListGatewaysResponse {
+  repeated Gateway gateways = 1; string next_page_token = 2;
+}
+message GetGatewayResponse { Gateway gateway = 1; }
+message ListVariablesRequest {
+  string gateway_id = 1; string filter = 2; uint32 page_size = 3;
+  string page_token = 4;
+}
+message Variable {
+  string variable_id = 1; string name = 2; string data_type = 3;
+  bool readable = 4; bool writable = 5;
+  repeated windhub.common.v1.AddressField address = 6;
+}
+message ListVariablesResponse {
+  repeated Variable variables = 1; string next_page_token = 2;
+}
+message ReadVariablesRequest {
+  string gateway_id = 1; repeated string variable_ids = 2;
+}
+message ReadVariablesResponse {
+  string gateway_id = 1; repeated windhub.common.v1.Sample values = 2;
+}
+service IndustrialGatewayService {
+  rpc ListGateways(ListGatewaysRequest) returns (ListGatewaysResponse);
+  rpc GetGateway(windhub.common.v1.ObjectId) returns (GetGatewayResponse);
+  rpc StartGateway(windhub.common.v1.OperationRequest) returns (windhub.common.v1.OperationResult);
+  rpc StopGateway(windhub.common.v1.OperationRequest) returns (windhub.common.v1.OperationResult);
+  rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
+  rpc ReadVariables(ReadVariablesRequest) returns (ReadVariablesResponse);
+}

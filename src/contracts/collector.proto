@@ -1,0 +1,65 @@
+syntax = "proto3";
+package windhub.collector.v1;
+import "contracts/common.proto";
+import "google/protobuf/timestamp.proto";
+message DeviceQuery { string device_id = 1; }
+message PointQuery { string device_id = 1; string point_id = 2; }
+message ListDevicesRequest {
+  string filter = 1; uint32 page_size = 2; string page_token = 3;
+}
+message Device {
+  string device_id = 1; string protocol = 2; string endpoint = 3;
+  string task_id = 4; string actual_state = 5; string revision = 6;
+}
+message ListDevicesResponse { repeated Device devices = 1; string next_page_token = 2; }
+message GetDeviceResponse { Device device = 1; }
+message ListPointsRequest {
+  string device_id = 1; string filter = 2; uint32 page_size = 3;
+  string page_token = 4;
+}
+message ListPointsResponse {
+  repeated windhub.common.v1.PointMetadata points = 1; string next_page_token = 2;
+}
+message GetPointResponse { windhub.common.v1.PointMetadata point = 1; }
+message ReadPointsRequest {
+  string device_id = 1; repeated string point_ids = 2; uint32 timeout_ms = 3;
+}
+message ReadPointsResponse {
+  string device_id = 1; repeated windhub.common.v1.Sample samples = 2;
+  google.protobuf.Timestamp queried_at = 3;
+}
+message Task {
+  string task_id = 1; string device_id = 2; string desired_state = 3;
+  string actual_state = 4; string revision = 5; string last_error = 6;
+}
+message ListTasksRequest { string filter = 1; uint32 page_size = 2; string page_token = 3; }
+message ListTasksResponse { repeated Task tasks = 1; string next_page_token = 2; }
+message GetTaskResponse { Task task = 1; }
+message GetPublishingStatusRequest { string channel = 1; }
+message PublishingStatus {
+  string channel = 1; bool nats_connected = 2; uint64 published = 3;
+  uint64 failed = 4; uint64 backpressure = 5; string last_error = 6;
+}
+message GetPublishingStatusResponse { repeated PublishingStatus channels = 1; }
+message InterrogateDeviceRequest {
+  string device_id = 1; optional uint32 common_address = 2;
+  uint32 timeout_ms = 3;
+}
+message InterrogateDeviceResponse {
+  string status = 1; repeated windhub.common.v1.Sample samples = 2;
+  repeated string missing_point_ids = 3; string error_code = 4;
+  string error_message = 5;
+}
+service CollectorService {
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+  rpc GetDevice(DeviceQuery) returns (GetDeviceResponse);
+  rpc ListPoints(ListPointsRequest) returns (ListPointsResponse);
+  rpc GetPoint(PointQuery) returns (GetPointResponse);
+  rpc ReadPoints(ReadPointsRequest) returns (ReadPointsResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  rpc GetTask(windhub.common.v1.ObjectId) returns (GetTaskResponse);
+  rpc StartTask(windhub.common.v1.OperationRequest) returns (windhub.common.v1.OperationResult);
+  rpc StopTask(windhub.common.v1.OperationRequest) returns (windhub.common.v1.OperationResult);
+  rpc GetPublishingStatus(GetPublishingStatusRequest) returns (GetPublishingStatusResponse);
+  rpc InterrogateDevice(InterrogateDeviceRequest) returns (InterrogateDeviceResponse);
+}
