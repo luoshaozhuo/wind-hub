@@ -9,6 +9,7 @@ import os
 import sqlite3
 import threading
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, TypeVar
@@ -93,6 +94,15 @@ INSERT OR IGNORE INTO repository_meta(key,value) VALUES ('schema_version','1');
 """
 
 
+@dataclass(frozen=True, slots=True)
+class JournalMetrics:
+    used_bytes: int
+    accepted_total: int
+    pending_events: int
+    oldest_pending_age_ms: float
+    terminal_counts: tuple[tuple[str, int], ...]
+
+
 _T = TypeVar("_T")
 
 
@@ -162,6 +172,36 @@ class EventRepository:
             self._db.close()
             fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
             self._lock_file.close()
+
+    def metrics(self) -> JournalMetrics:
+        with self._lock:
+            if not self.operational:
+                raise RepositoryError("command journal is unavailable")
+            used = self._occupied()
+            accepted = self._db.execute(
+                "SELECT COUNT(*) FROM command_events WHERE event_type='ACCEPTED'"
+            ).fetchone()[0]
+            pending, oldest = self._db.execute(
+                "SELECT COUNT(*), MIN(occurred_at) FROM command_events "
+                "WHERE publish_state='PENDING'"
+            ).fetchone()
+            rows = self._db.execute(
+                "SELECT state, COUNT(*) FROM command_events "
+                "WHERE event_type='COMPLETED' GROUP BY state"
+            ).fetchall()
+            age_ms = 0.0
+            if oldest is not None:
+                age_ms = max(
+                    0.0,
+                    (utc_now() - datetime.fromisoformat(oldest)).total_seconds() * 1000,
+                )
+            return JournalMetrics(
+                used_bytes=used,
+                accepted_total=accepted,
+                pending_events=pending,
+                oldest_pending_age_ms=age_ms,
+                terminal_counts=tuple((str(name), int(count)) for name, count in rows),
+            )
 
     def _occupied(self) -> int:
         return sum(
