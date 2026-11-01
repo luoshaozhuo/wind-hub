@@ -75,11 +75,17 @@ class QueuedExecutor:
         queue_timeout: float = 5.0,
         connect_timeout: float = 3.0,
         write_timeout: float = 3.0,
-        max_queued_per_device: int = 100,
+        max_queued_batches_per_device: int = 10,
+        max_queued_batches_global: int = 1000,
         idle_timeout: float = 30.0,
         max_batch_points: int = 10,
     ) -> None:
-        if global_capacity < 1 or max_queued_per_device < 1 or max_batch_points < 1:
+        if (
+            global_capacity < 1
+            or max_queued_batches_per_device < 1
+            or max_queued_batches_global < 1
+            or max_batch_points < 1
+        ):
             raise ValueError("capacities must be positive")
         if min(queue_timeout, connect_timeout, write_timeout, idle_timeout) <= 0:
             raise ValueError("timeouts must be positive")
@@ -90,7 +96,8 @@ class QueuedExecutor:
         self._queue_timeout = queue_timeout
         self._connect_timeout = connect_timeout
         self._write_timeout = write_timeout
-        self._queue_limit = max_queued_per_device
+        self._device_batch_limit = max_queued_batches_per_device
+        self._global_batch_limit = max_queued_batches_global
         self._idle_timeout = idle_timeout
         self._max_batch_points = max_batch_points
         self._idle_tasks: dict[str, asyncio.Task[None]] = {}
@@ -115,16 +122,26 @@ class QueuedExecutor:
         """Atomically persist one batch before adding any command to FIFO."""
         if self._closed or self._fatal:
             raise RuntimeError("dispatcher unavailable")
+        if len(commands) > self._max_batch_points:
+            raise OverflowError("batch point limit exceeded")
         counts: dict[str, int] = defaultdict(int)
         for spec in commands:
             if not self._authorize(spec):
-                raise PermissionError("command device/point/config reference is not authorized")
+                raise PermissionError(
+                    "command device/point/config reference is not authorized"
+                )
             counts[spec.device_id] += 1
-        if any(
-            len(self._queues[device_id]) + count > self._queue_limit
-            for device_id, count in counts.items()
-        ):
-            raise OverflowError("per-device pending capacity exceeded")
+        for device_id in counts:
+            pending = {item.command.request_id for item in self._queues[device_id]}
+            if len(pending) >= self._device_batch_limit:
+                raise OverflowError("per-device pending batch capacity exceeded")
+        pending_global = {
+            item.command.request_id
+            for queue in self._queues.values()
+            for item in queue
+        }
+        if len(pending_global) >= self._global_batch_limit:
+            raise OverflowError("global pending batch capacity exceeded")
         loop = asyncio.get_running_loop()
         accepted = self._control.accept(commands, caller_id=caller_id)
         now = time.monotonic()
@@ -348,6 +365,9 @@ class QueuedExecutor:
             if (
                 member.cancelled
                 or member.deadline <= time.monotonic()
+                or member.command.request_id != head.command.request_id
+                or member.deadline != head.deadline
+                or spec.expires_at != head.command.spec.expires_at
                 or spec.config_reference != head.command.spec.config_reference
                 or (spec.expires_at is not None and spec.expires_at <= datetime.now(UTC))
                 or not self._authorize(spec)
