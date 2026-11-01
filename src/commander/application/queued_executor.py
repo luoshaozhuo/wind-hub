@@ -155,7 +155,7 @@ class QueuedExecutor:
                     raise RuntimeError("device unavailable for control")
                 if not self._authorize(spec):
                     raise PermissionError("command device/point/config reference is not authorized")
-                # Preflight raw-value conversion before any ACCEPTED event is committed.
+                # Reject invalid values before admitting them to the in-memory journal.
                 self._prepare_write(spec)
                 counts[spec.device_id] += 1
             for device_id in counts:
@@ -173,8 +173,7 @@ class QueuedExecutor:
             try:
                 accepted = await asyncio.shield(admission)
             except asyncio.CancelledError:
-                # COMMIT cannot be cancelled once queued on the SQLite thread.
-                # Finalize any durable T1 before propagating caller cancellation.
+                # Resolve admission ownership before propagating cancellation.
                 accepted = await admission
                 for command in accepted:
                     await self._control.complete(
@@ -201,7 +200,7 @@ class QueuedExecutor:
     async def _terminate_queued(self, entry: _Entry, state: CommandState, code: str) -> None:
         if entry.finished.done() or entry.terminal_in_queue:
             return
-        # Claim the queued entry synchronously before awaiting durable I/O.
+        # Claim the queued entry before finalizing its in-memory state.
         entry.terminal_in_queue = True
         try:
             await self._unsent(entry.command.command_id, state, code)
@@ -305,7 +304,7 @@ class QueuedExecutor:
             )
 
     def _fail_waiters(self, error: Exception) -> None:
-        """Never strand accepted callers when durable decisions fail."""
+        """Never strand accepted callers when a command decision fails."""
         self._fatal = True
         for item in tuple(self._entries.values()):
             if item.deadline_handle is not None:
@@ -467,17 +466,17 @@ class QueuedExecutor:
             if not await self._check_before_write(entry, queued=False):
                 return
             group = self._batch_entries(device_id, entry, session)
-            # Each member shares the acquired permit. Its queue timer must
-            # no longer race the sequential durable T2 transitions.
+            # Each member shares the acquired permit; no queued timeout may
+            # race the in-memory T2 transitions.
             for member in group:
                 member.gate_acquired = True
                 if member.deadline_handle is not None:
                     member.deadline_handle.cancel()
             batch_completed = False
             try:
-                # Validate and normalize every value before persisting T2.
+                # Validate and normalize every value before recording T2.
                 writes = tuple(self._prepare_write(member.command.spec) for member in group)
-                # One atomic T2 transaction; no native effect before commit.
+                # Record the complete T2 batch in memory before native I/O.
                 await self._control.executing_many(
                     tuple(member.command.command_id for member in group)
                 )
@@ -486,7 +485,7 @@ class QueuedExecutor:
                     and member.command.spec.expires_at <= datetime.now(UTC)
                     for member in group
                 ):
-                    # T2 durable; no native write invoked.
+                    # T2 recorded in memory; no native write invoked.
                     await self._control.complete_many(
                         tuple(
                             (
@@ -603,8 +602,7 @@ class QueuedExecutor:
                             self._schedule_auto_isolation(device_id)
                 batch_completed = True
             finally:
-                # Never signal completion if SQLite failed in the middle of
-                # a multi-point terminal decision; the fatal path owns them.
+                # Only signal completion after every in-memory terminal decision.
                 if batch_completed:
                     for member in group[1:]:
                         if member in self._queues[device_id]:
