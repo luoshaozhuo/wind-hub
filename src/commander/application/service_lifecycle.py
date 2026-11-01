@@ -44,6 +44,11 @@ class RuntimeHealth:
     inflight_io: int
     audit_published: int
     audit_failures: int
+    repository_used_bytes: int
+    audit_pending_count: int
+    audit_oldest_age_ms: float
+    control_accepted_total: int
+    control_terminal_counts: tuple[tuple[str, int], ...]
 
 
 class CommanderService:
@@ -192,6 +197,7 @@ class CommanderService:
         operational = self._executor is not None and self._executor.operational
         audit_operational = self._audit is not None and self._audit.operational
         journal_operational = self._journal is not None and self._journal.operational
+        stats = self._journal.metrics() if journal_operational and self._journal else None
         return RuntimeHealth(
             state=self._state,
             ready=(
@@ -209,6 +215,11 @@ class CommanderService:
             inflight_io=self._executor.in_flight_native() if self._executor else 0,
             audit_published=self._audit.published if self._audit else 0,
             audit_failures=self._audit.failures if self._audit else 0,
+            repository_used_bytes=stats.used_bytes if stats else 0,
+            audit_pending_count=stats.pending_events if stats else 0,
+            audit_oldest_age_ms=stats.oldest_pending_age_ms if stats else 0.0,
+            control_accepted_total=stats.accepted_total if stats else 0,
+            control_terminal_counts=stats.terminal_counts if stats else (),
         )
 
     async def _run_watchdog(self, interval: float) -> None:
