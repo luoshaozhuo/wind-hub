@@ -18,6 +18,7 @@ from commander.application.config_manager import (
 )
 from commander.application.control import CommandControl
 from commander.application.journal_port import JournalMetrics, JournalPort
+from commander.application.persistence import BufferedJournal, PersistenceWorker
 from commander.application.queued_executor import QueuedExecutor
 from commander.application.settings import ServiceSettings
 from core.application.protocol_registry import ProtocolRegistry
@@ -77,6 +78,8 @@ class CommanderService:
         self._audit: AuditDelivery | None = None
         self._state = ServiceState.STOPPED
         self._journal: JournalPort | None = None
+        self._buffer: BufferedJournal | None = None
+        self._persistence: PersistenceWorker | None = None
         self._writer: ThreadPoolExecutor | None = None
         self._journal_stats: JournalMetrics | None = None
         self._control: CommandControl | None = None
@@ -127,7 +130,10 @@ class CommanderService:
             settings: ServiceSettings = manager.start()
             journal = await loop.run_in_executor(writer, partial(self._journal_factory, settings))
             recovered = await loop.run_in_executor(writer, journal.recover)
-            control = CommandControl(journal, writer)
+            initial_sequence = await loop.run_in_executor(writer, journal.latest_receive_seq)
+            buffer = BufferedJournal(journal, initial_sequence=initial_sequence)
+            persistence = PersistenceWorker(buffer, journal, writer)
+            control = CommandControl(journal, writer, buffer)
             executor = QueuedExecutor(
                 control,
                 lambda device_id: manager.create_session(device_id, self._registry),
@@ -149,6 +155,9 @@ class CommanderService:
                 retry_base=settings.audit_retry_base,
                 retry_max=settings.audit_retry_max,
             )
+            persistence.start()
+            self._buffer = buffer
+            self._persistence = persistence
             audit.start()
             self._audit = audit
             self._journal = journal
@@ -166,6 +175,9 @@ class CommanderService:
             )
         except BaseException:
             self._state = ServiceState.FAILED
+            if self._persistence is not None:
+                await self._persistence.stop(timeout=5.0)
+                self._persistence = None
             if self._audit is not None:
                 stopped = await self._audit.stop()
                 if not stopped:
@@ -230,7 +242,8 @@ class CommanderService:
             audit_published=self._audit.published if self._audit else 0,
             audit_failures=self._audit.failures if self._audit else 0,
             repository_used_bytes=stats.used_bytes if stats else 0,
-            audit_pending_count=stats.pending_events if stats else 0,
+            audit_pending_count=(stats.pending_events if stats else 0)
+            + (self._buffer.pending_count if self._buffer else 0),
             audit_oldest_age_ms=stats.oldest_pending_age_ms if stats else 0.0,
             control_accepted_total=stats.accepted_total if stats else 0,
             control_terminal_counts=stats.terminal_counts if stats else (),
@@ -259,6 +272,9 @@ class CommanderService:
                     self._state = ServiceState.FAILED
                     logger.exception("Commander journal metrics unavailable")
                     return
+            if self._persistence is not None and self._persistence.failure is not None:
+                self._state = ServiceState.DEGRADED
+                logger.warning("Commander persistence retrying", exc_info=self._persistence.failure)
             if self._executor is None:
                 return
             blocked = self._executor.blocked_devices()
@@ -298,6 +314,12 @@ class CommanderService:
         if blocked:
             self._state = ServiceState.FAILED
             return blocked
+        if self._persistence is not None:
+            persisted = await self._persistence.stop(timeout=self._shutdown_grace)
+            if not persisted:
+                self._state = ServiceState.FAILED
+                return frozenset({"__persistence_queue__"})
+            self._persistence = None
         if self._audit is not None:
             audit_settled = await self._audit.stop(timeout=self._shutdown_grace)
             if not audit_settled:
@@ -315,5 +337,8 @@ class CommanderService:
         if self._writer is not None:
             await asyncio.to_thread(self._writer.shutdown, wait=True)
             self._writer = None
+        if self._buffer is not None:
+            self._buffer.close()
+            self._buffer = None
         self._state = ServiceState.STOPPED
         return blocked
