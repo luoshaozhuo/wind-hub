@@ -153,6 +153,9 @@ class CommanderConfigManager:
     def device_revision(self, device_id: str) -> str | None:
         return self._fingerprints.get(device_id)
 
+    def blocked_devices(self) -> frozenset[str]:
+        return frozenset(self._disabled)
+
     async def reload(self) -> ReloadReport:
         """Swap only safe devices; retain old binding for unsafe devices."""
         async with self._lock:
