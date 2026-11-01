@@ -154,7 +154,23 @@ class QueuedExecutor:
                 raise OverflowError("global pending batch capacity exceeded")
             loop = asyncio.get_running_loop()
             started = time.monotonic()
-            accepted = await self._control.accept(commands, caller_id=caller_id)
+            admission = asyncio.create_task(
+                self._control.accept(commands, caller_id=caller_id)
+            )
+            try:
+                accepted = await asyncio.shield(admission)
+            except asyncio.CancelledError:
+                # COMMIT cannot be cancelled once queued on the SQLite thread.
+                # Finalize any durable T1 before propagating caller cancellation.
+                accepted = await admission
+                for command in accepted:
+                    await self._control.complete(
+                        command.command_id,
+                        CommandState.INTERRUPTED,
+                        outcome=CommandOutcome.NOT_SENT,
+                        error_code="ADMISSION_CANCELLED",
+                    )
+                raise
             for command in accepted:
                 entry = _Entry(
                     command=command,
