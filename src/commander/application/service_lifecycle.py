@@ -75,6 +75,7 @@ class CommanderService:
         self._recovered = 0
         self._restart_required = False
         self._cleanup_interval = 60.0
+        self._shutdown_grace = 10.0
 
     @property
     def control(self) -> CommandControl:
@@ -142,6 +143,7 @@ class CommanderService:
             self._config = manager
             self._recovered = len(recovered)
             self._cleanup_interval = settings.cleanup_interval_seconds
+            self._shutdown_grace = settings.shutdown_grace_seconds
             self._state = ServiceState.READY
             self._watchdog = asyncio.create_task(
                 self._run_watchdog(settings.watchdog_interval),
@@ -246,13 +248,13 @@ class CommanderService:
             self._watchdog = None
         blocked = frozenset()
         if self._executor is not None:
-            blocked = await self._executor.close()
+            blocked = await self._executor.close(grace_seconds=self._shutdown_grace)
         # Unsafe resources must never be hidden by a reported clean stop.
         if blocked:
             self._state = ServiceState.FAILED
             return blocked
         if self._audit is not None:
-            audit_settled = await self._audit.stop()
+            audit_settled = await self._audit.stop(timeout=self._shutdown_grace)
             if not audit_settled:
                 self._state = ServiceState.FAILED
                 return frozenset({"__audit_publisher__"})
