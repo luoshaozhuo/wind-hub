@@ -487,8 +487,8 @@ class QueuedExecutor:
                     for member in group:
                         self._control.complete(
                             member.command.command_id,
-                            CommandState.FAILED,
-                            outcome=CommandOutcome.CONFIRMED_FAILURE,
+                            CommandState.EXPIRED,
+                            outcome=CommandOutcome.NOT_SENT,
                             error_code="EXPIRED_BEFORE_WRITE",
                         )
                     return
