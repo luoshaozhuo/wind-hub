@@ -60,6 +60,8 @@ def test_command_state_members_match_design_enum() -> None:
         (CommandState.CONNECTING, CommandState.FAILED, CommandOutcome.CONFIRMED_FAILURE),
         (CommandState.CONNECTING, CommandState.CANCELLED, CommandOutcome.NOT_SENT),
         (CommandState.CONNECTING, CommandState.INTERRUPTED, CommandOutcome.NOT_SENT),
+        # 串行批量中断后可证明未发送的后续点：T2 已提交但现场从未触达。
+        (CommandState.EXECUTING, CommandState.INTERRUPTED, CommandOutcome.NOT_SENT),
     ],
 )
 def test_legal_transitions(
@@ -83,7 +85,8 @@ def test_terminal_states_have_no_outgoing_transitions(state: CommandState) -> No
         (CommandState.CONNECTING, CommandState.SUCCEEDED),
         (CommandState.CONNECTING, CommandState.UNKNOWN),
         # UNKNOWN 只能在执行证据模糊时由 EXECUTING 进入。
-        (CommandState.EXECUTING, CommandState.INTERRUPTED),
+        # EXECUTING→INTERRUPTED/NOT_SENT 合法：串行批量中可证明未发送的
+        # 后续点在 durable T2 之后按证据收尾（v1_1 表 4-11，round5 N1）。
         (CommandState.EXECUTING, CommandState.CANCELLED),
         (CommandState.EXECUTING, CommandState.CONNECTING),
         (CommandState.ACCEPTED, CommandState.ACCEPTED),

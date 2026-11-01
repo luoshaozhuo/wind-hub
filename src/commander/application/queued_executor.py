@@ -522,9 +522,7 @@ class QueuedExecutor:
                     self._retain_gate(device_id)
                     owns_gate = False
                     await self._control.complete_many(
-                        self._serial_terminal_changes(
-                            group, (), type(exc).__name__, unsettled=True
-                        )
+                        self._serial_terminal_changes(group, (), type(exc).__name__, unsettled=True)
                     )
                     self._schedule_auto_isolation(device_id)
                 else:
@@ -623,31 +621,37 @@ class QueuedExecutor:
                 actual = confirmed[index]
                 if actual.outcome is WriteOutcome.CONFIRMED_SUCCESS:
                     state, outcome, code = (
-                        CommandState.SUCCEEDED, CommandOutcome.CONFIRMED_SUCCESS, None
+                        CommandState.SUCCEEDED,
+                        CommandOutcome.CONFIRMED_SUCCESS,
+                        None,
                     )
                 elif actual.outcome is WriteOutcome.CONFIRMED_FAILURE:
                     state, outcome, code = (
-                        CommandState.FAILED, CommandOutcome.CONFIRMED_FAILURE,
+                        CommandState.FAILED,
+                        CommandOutcome.CONFIRMED_FAILURE,
                         "DEVICE_REJECTED",
                     )
                 else:
                     state, outcome, code = (
-                        CommandState.UNKNOWN, CommandOutcome.UNKNOWN, "WRITE_UNKNOWN"
+                        CommandState.UNKNOWN,
+                        CommandOutcome.UNKNOWN,
+                        "WRITE_UNKNOWN",
                     )
             elif unsettled or index == len(confirmed):
-                state, outcome, code = (
-                    CommandState.UNKNOWN, CommandOutcome.UNKNOWN, error_code
-                )
+                state, outcome, code = (CommandState.UNKNOWN, CommandOutcome.UNKNOWN, error_code)
             else:
                 state, outcome, code = (
-                    CommandState.INTERRUPTED, CommandOutcome.NOT_SENT,
+                    CommandState.INTERRUPTED,
+                    CommandOutcome.NOT_SENT,
                     "BATCH_ABORTED_NOT_SENT",
                 )
             changes.append((member.command.command_id, state, outcome, code))
         return tuple(changes)
 
     async def _write_group(
-        self, session: WriteSession, writes: tuple[ProtocolWrite, ...],
+        self,
+        session: WriteSession,
+        writes: tuple[ProtocolWrite, ...],
         progress: list[ProtocolWriteResult],
     ) -> tuple[ProtocolWriteResult, ...]:
         """One logical batch: native batch when supported, else serial writes."""

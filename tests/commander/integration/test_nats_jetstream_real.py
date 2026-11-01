@@ -201,3 +201,128 @@ async def test_audit_delivery_over_real_jetstream_drains_outbox_in_order(
     assert types == ["ACCEPTED", "CONNECTING", "EXECUTING", "COMPLETED"]
     states = [json.loads(p)["state"] for p in payloads]
     assert states == ["ACCEPTED", "CONNECTING", "EXECUTING", "SUCCEEDED"]
+
+
+async def test_mixed_result_serial_batch_audit_events_complete_ordered_unique(
+    jetstream: tuple[NatsClient, str, str, str], tmp_path
+) -> None:
+    """N1 混合终态批次（成功/拒绝/UNKNOWN/NOT_SENT）的审计事件齐全、有序、不重复。"""
+    from commander.application.control import CommandControl
+    from commander.application.queued_executor import QueuedExecutor
+    from core.application.protocol_contract import (
+        ProtocolCapability,
+        ProtocolWrite,
+        ProtocolWriteResult,
+        WriteOutcome,
+    )
+
+    from ..component.conftest import make_spec
+
+    nc, stream, subject, url = jetstream
+    js = nc.jetstream(timeout=5)
+    writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="it-sqlite")
+    repo = writer.submit(lambda: EventRepository(tmp_path / "mixed.db")).result()
+    control = CommandControl(repo, writer)
+    transport = NatsAuditTransport([url], stream=stream, subject=subject)
+    delivery = AuditDelivery(repo, transport, writer, retry_base=0.1, retry_max=1.0)
+
+    class _ScriptedSerialSession:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def capabilities(self) -> frozenset[ProtocolCapability]:
+            return frozenset({ProtocolCapability.READ, ProtocolCapability.WRITE})
+
+        def is_open(self) -> bool:
+            return True
+
+        async def connect(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+        async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+            self.calls.append(write.point)
+            if write.point == "p1":
+                return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_FAILURE)
+            if write.point == "p2":
+                raise ConnectionError("link reset mid-batch")
+            return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_SUCCESS)
+
+        async def write_many(self, writes: Any) -> tuple[ProtocolWriteResult, ...]:
+            raise AssertionError("session does not advertise WRITE_MANY")
+
+    session = _ScriptedSerialSession()
+    executor = QueuedExecutor(
+        control,
+        lambda _device_id: session,
+        lambda _spec: True,
+        lambda spec: ProtocolWrite(point=spec.point_id, value=spec.value),
+        max_batch_points=10,
+        write_timeout=3.0,
+    )
+
+    delivery.start()
+    accepted = await executor.accept(
+        [make_spec(f"p{i}", device="WT01") for i in range(4)], caller_id="ops"
+    )
+    try:
+        await asyncio.gather(
+            *(executor.wait(c.command_id) for c in accepted),
+            return_exceptions=True,
+        )
+        assert session.calls == ["p0", "p1", "p2"]
+    finally:
+        await executor.close()
+    expected_states = ["SUCCEEDED", "FAILED", "UNKNOWN", "INTERRUPTED"]
+    expected_outcomes = [
+        "CONFIRMED_SUCCESS",
+        "CONFIRMED_FAILURE",
+        "UNKNOWN",
+        "NOT_SENT",
+    ]
+    # 审计投影与仓储查询一致（须在 writer 关闭前经控制面查询）。
+    for index, accepted_command in enumerate(accepted):
+        record = await control.get_command(accepted_command.command_id)
+        assert record is not None
+        assert record.state.value == expected_states[index]
+        assert record.outcome is not None and record.outcome.value == expected_outcomes[index]
+    try:
+        for _ in range(300):
+            if not writer.submit(repo.pending_events, 100).result():
+                break
+            await asyncio.sleep(0.02)
+        else:  # pragma: no cover
+            pytest.fail("mixed-batch outbox did not drain")
+        assert await delivery.stop(timeout=5.0)
+    finally:
+        if delivery.operational:
+            await delivery.stop(timeout=5.0)
+        writer.submit(repo.close).result()
+        writer.shutdown(wait=True)
+        await transport.close()
+
+    payloads = await _fetch_all(js, stream, subject, 12)
+    events = [json.loads(payload) for payload in payloads]
+    assert len({event["event_id"] for event in events}) == 12
+    # 全局顺序：4 ACCEPTED → 4 EXECUTING（单 T2 事务）→ 4 COMPLETED（单 T3 事务）。
+    assert [event["event_type"] for event in events] == [
+        "ACCEPTED",
+        "ACCEPTED",
+        "ACCEPTED",
+        "ACCEPTED",
+        "EXECUTING",
+        "EXECUTING",
+        "EXECUTING",
+        "EXECUTING",
+        "COMPLETED",
+        "COMPLETED",
+        "COMPLETED",
+        "COMPLETED",
+    ]
+    point_by_command = {c.command_id: c.spec.point_id for c in accepted}
+    completed = events[8:]
+    by_point = {point_by_command[event["command_id"]]: event for event in completed}
+    assert [by_point[f"p{i}"]["state"] for i in range(4)] == expected_states
+    assert [by_point[f"p{i}"]["outcome"] for i in range(4)] == expected_outcomes

@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -49,6 +51,10 @@ def _durable_state(repo: EventRepository, writer: ThreadPoolExecutor, command_id
     result = writer.submit(repo.get, command_id).result()
     assert result is not None
     return result.state
+
+
+def repository_path(repo: EventRepository) -> Path:
+    return repo._path
 
 
 async def test_concurrent_accepts_across_devices_all_durable_and_settled(
@@ -457,22 +463,14 @@ async def test_serial_batch_mixed_confirmed_outcomes_recorded_per_point(
         await executor.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPEN（round4 N1，B 类交 ChatGPT）：无 WRITE_MANY 协议共享批次顺序 "
-        "write_one，中途异常时 _write_group 已取得的前序点确认结果被丢弃，"
-        "except Exception 路径把整组（含 CONFIRMED_SUCCESS/FAILURE 点）"
-        "统一标 UNKNOWN，违反 v1_1 表 4-11『按实际证据逐点报告』"
-        "（RR-03/UC-02）。修复方向：_write_group 返回已确认部分结果与"
-        "中断点，终态批量事务按点裁决（已确认点如实、中断点 UNKNOWN、"
-        "未尝试点不得标 SUCCEEDED）。"
-    ),
-)
 async def test_serial_batch_midpoint_exception_keeps_earlier_confirmed_evidence(
     control, repository, sqlite_writer
 ) -> None:
-    """逐点写第 3 点抛异常：前两点已有协议确认，必须按证据保留逐点终态。"""
+    """逐点写第 3 点抛异常：前两点已有协议确认，必须按证据保留逐点终态。
+
+    round4 N1 修复后转为正式用例：已确认点如实裁决，中断点 UNKNOWN，
+    其后确定未发送点 INTERRUPTED/NOT_SENT；每点至多一次物理写、顺序不变。
+    """
     session = _ScriptedPointSession(
         {
             "p0": WriteOutcome.CONFIRMED_SUCCESS,
@@ -495,13 +493,237 @@ async def test_serial_batch_midpoint_exception_keeps_earlier_confirmed_evidence(
             c.spec.point_id: _durable_state(repository, sqlite_writer, c.command_id)
             for c in accepted
         }
+        outcomes = {
+            c.spec.point_id: sqlite_writer.submit(repository.get, c.command_id).result().outcome
+            for c in accepted
+        }
         # p0/p1 已有协议级确认证据：不得降级为 UNKNOWN。
         assert states["p0"] is CommandState.SUCCEEDED
         assert states["p1"] is CommandState.FAILED
-        # p2 可能已发出：UNKNOWN；p3 未尝试，绝不能标成功。
+        assert outcomes["p1"] is CommandOutcome.CONFIRMED_FAILURE
+        # p2 可能已发出：UNKNOWN；p3 确定未尝试：INTERRUPTED/NOT_SENT。
         assert states["p2"] is CommandState.UNKNOWN
-        assert states["p3"] is not CommandState.SUCCEEDED
-        # p3 物理上不得被触达。
-        assert "p3" not in session.one_calls
+        assert states["p3"] is CommandState.INTERRUPTED
+        assert outcomes["p3"] is CommandOutcome.NOT_SENT
+        # 物理写恰好触达到中断点，顺序与配置一致，每点至多一次。
+        assert session.one_calls == ["p0", "p1", "p2"]
+        assert session.many_calls == []
     finally:
         await executor.close()
+
+
+@pytest.mark.parametrize(
+    ("script", "expected"),
+    [
+        # 第 2 点异常，第 1 点已确认成功。
+        (
+            {
+                "p0": WriteOutcome.CONFIRMED_SUCCESS,
+                "p1": ConnectionError("link lost"),
+                "p2": WriteOutcome.CONFIRMED_SUCCESS,
+            },
+            (
+                CommandState.SUCCEEDED,
+                CommandState.UNKNOWN,
+                CommandState.INTERRUPTED,
+            ),
+        ),
+        # 第 2 点异常，第 1 点已确认失败（设备拒绝也是证据，不得升级）。
+        (
+            {
+                "p0": WriteOutcome.CONFIRMED_FAILURE,
+                "p1": OSError("reset"),
+                "p2": WriteOutcome.CONFIRMED_SUCCESS,
+            },
+            (CommandState.FAILED, CommandState.UNKNOWN, CommandState.INTERRUPTED),
+        ),
+        # 第 1 点即异常：中断点 UNKNOWN，其余均为确定未发送。
+        (
+            {
+                "p0": ConnectionError("link lost"),
+                "p1": WriteOutcome.CONFIRMED_SUCCESS,
+                "p2": WriteOutcome.CONFIRMED_SUCCESS,
+            },
+            (
+                CommandState.UNKNOWN,
+                CommandState.INTERRUPTED,
+                CommandState.INTERRUPTED,
+            ),
+        ),
+    ],
+)
+async def test_serial_batch_failure_matrix_per_point_adjudication(
+    control, repository, sqlite_writer, script, expected
+) -> None:
+    """N1 故障矩阵：异常位置不同，逐点终态必须严格匹配现场证据。"""
+    session = _ScriptedPointSession(script)
+    executor = build_executor(control, {"WT01": session}, max_batch_points=10, write_timeout=2.0)
+    points = ["p0", "p1", "p2"]
+    accepted = await executor.accept([make_spec(point) for point in points], caller_id="op")
+    await asyncio.gather(
+        *(executor.wait(c.command_id) for c in accepted),
+        return_exceptions=True,
+    )
+    try:
+        actual = tuple(_durable_state(repository, sqlite_writer, c.command_id) for c in accepted)
+        assert actual == expected
+        # 物理写严格停在第一个异常点，之后的点绝不触达。
+        failure_index = next(
+            i for i, point in enumerate(points) if isinstance(script[point], Exception)
+        )
+        assert session.one_calls == points[: failure_index + 1]
+    finally:
+        await executor.close()
+
+
+class _HangThenResumeSession(FakeSession):
+    """p1 的 write_one 挂起直到外部放行：模拟写超时但底层 I/O 仍存活。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.resume = asyncio.Event()
+
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        self.one_calls.append(write.point)
+        if write.point == "p1":
+            await self.resume.wait()
+        return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_SUCCESS)
+
+
+async def test_serial_batch_write_timeout_marks_unsettled_suffix_unknown_without_overwrite(
+    control, repository, sqlite_writer
+) -> None:
+    """超时后被 shield 的底层任务继续跑：未确认点全判 UNKNOWN，事后不得覆盖。
+
+    关键安全性：wait_for 超时不取消 native I/O；p1/p2 物理上随后确实写入，
+    但终态必须保持 UNKNOWN（可能已执行，不自动重试、不被成功结果覆盖）；
+    已确认的 p0 保持 SUCCEEDED。每点物理写至多一次。
+    """
+    session = _HangThenResumeSession()
+    executor = build_executor(control, {"WT01": session}, max_batch_points=10, write_timeout=0.3)
+    accepted = await executor.accept(
+        [make_spec("p0"), make_spec("p1"), make_spec("p2")], caller_id="op"
+    )
+    try:
+        await asyncio.gather(
+            *(executor.wait(c.command_id) for c in accepted),
+            return_exceptions=True,
+        )
+        states_at_timeout = {
+            c.spec.point_id: _durable_state(repository, sqlite_writer, c.command_id)
+            for c in accepted
+        }
+        assert states_at_timeout == {
+            "p0": CommandState.SUCCEEDED,
+            "p1": CommandState.UNKNOWN,
+            "p2": CommandState.UNKNOWN,
+        }
+        assert session.one_calls == ["p0", "p1"]
+        # 放行底层任务：p1 返回成功且 p2 随后被真实写入。
+        session.resume.set()
+        deadline = time.monotonic() + 3.0
+        while "p2" not in session.one_calls and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        assert session.one_calls == ["p0", "p1", "p2"]
+        # 物理成功不得改写已落盘的 UNKNOWN 终态（无第二次 T3）。
+        states_after_settle = {
+            c.spec.point_id: _durable_state(repository, sqlite_writer, c.command_id)
+            for c in accepted
+        }
+        assert states_after_settle == states_at_timeout
+    finally:
+        await executor.close(grace_seconds=10.0)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "OPEN（round5 N1-b，P2，B 类交 ChatGPT）：write_one 对中间点返回 "
+        "WriteOutcome.UNKNOWN 时，_write_group 先把该点 append 进 progress 再抛 "
+        "_SerialWriteError，exc.results 长度含当前点；_serial_terminal_changes "
+        "中后续第一个点命中 index == len(confirmed) 被强制 UNKNOWN。但该点的 "
+        "write_one 从未被调用，物理上确定未发送，应判 INTERRUPTED/NOT_SENT"
+        "（v1_1 表 4-11 与 round5 矩阵第 5 行）。属保守方向误标"
+        "（不会重复写、不会误报成功、不提前释放资源），故 P2。修复方向："
+        "区分『异常中断点（不在 confirmed 内）』与『返回 UNKNOWN 的点"
+        "（在 confirmed 内）』，后者后续点走 NOT_SENT 分支。"
+    ),
+)
+async def test_serial_batch_returned_unknown_outcome_suffix_is_not_sent(
+    control, repository, sqlite_writer
+) -> None:
+    """中间点协议返回 UNKNOWN：当前点 UNKNOWN，后续确定未调用点 NOT_SENT。"""
+    session = _ScriptedPointSession(
+        {
+            "p0": WriteOutcome.CONFIRMED_SUCCESS,
+            "p1": WriteOutcome.UNKNOWN,
+            "p2": WriteOutcome.CONFIRMED_SUCCESS,
+        }
+    )
+    executor = build_executor(control, {"WT01": session}, max_batch_points=10)
+    accepted = await executor.accept(
+        [make_spec("p0"), make_spec("p1"), make_spec("p2")], caller_id="op"
+    )
+    await asyncio.gather(
+        *(executor.wait(c.command_id) for c in accepted),
+        return_exceptions=True,
+    )
+    try:
+        states = {
+            c.spec.point_id: _durable_state(repository, sqlite_writer, c.command_id)
+            for c in accepted
+        }
+        assert states == {
+            "p0": CommandState.SUCCEEDED,
+            "p1": CommandState.UNKNOWN,
+            "p2": CommandState.INTERRUPTED,
+        }
+        assert session.one_calls == ["p0", "p1"]
+    finally:
+        await executor.close()
+
+
+async def test_serial_batch_t3_failure_rollback_and_restart_recovers_unknown(
+    control, repository, sqlite_writer, tmp_path
+) -> None:
+    """串行批量 T3 单事务故障：现场已逐点写入，全部保持 EXECUTING；重开恢复 UNKNOWN。"""
+    session = _ScriptedPointSession(
+        {
+            "p0": WriteOutcome.CONFIRMED_SUCCESS,
+            "p1": WriteOutcome.CONFIRMED_SUCCESS,
+            "p2": OSError("reset"),
+            "p3": WriteOutcome.CONFIRMED_SUCCESS,
+        }
+    )
+    executor = build_executor(control, {"WT01": session}, max_batch_points=10)
+    accepted = await executor.accept(
+        [make_spec("p0"), make_spec("p1"), make_spec("p2"), make_spec("p3")],
+        caller_id="op",
+    )
+    repository.transition_many = _fault_transition_many(repository, phase=CommandState.SUCCEEDED)
+    outcomes = await asyncio.gather(
+        *(executor.wait(c.command_id) for c in accepted), return_exceptions=True
+    )
+    try:
+        assert all(isinstance(outcome, BaseException) for outcome in outcomes)
+        # 现场严格写到中断点：p0/p1 已确认、p2 异常、p3 未触达。
+        assert session.one_calls == ["p0", "p1", "p2"]
+        assert executor.operational is False
+        for member in accepted:
+            assert (
+                _durable_state(repository, sqlite_writer, member.command_id)
+                is CommandState.EXECUTING
+            )
+    finally:
+        await executor.close()
+    # 模拟进程重启：新仓储重开同一库，所有 EXECUTING 恢复 UNKNOWN，不重发现场。
+    db_path = repository_path(repository)
+    sqlite_writer.submit(repository.close).result()
+    reopen = sqlite_writer.submit(lambda: EventRepository(db_path)).result()
+    try:
+        recovered = sqlite_writer.submit(reopen.recover).result()
+        assert set(recovered) == {c.command_id for c in accepted}
+        for member in accepted:
+            assert _durable_state(reopen, sqlite_writer, member.command_id) is CommandState.UNKNOWN
+    finally:
+        sqlite_writer.submit(reopen.close).result()
