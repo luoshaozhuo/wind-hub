@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from collections.abc import Callable
 
 from commander.application.audit import AuditDelivery, AuditTransport
 from commander.application.config_manager import (
@@ -15,8 +16,8 @@ from commander.application.config_manager import (
 )
 from commander.application.control import CommandControl
 from commander.application.queued_executor import QueuedExecutor
-from commander.infrastructure.event_repository import EventRepository
-from commander.infrastructure.service_settings import ServiceSettings
+from commander.application.journal_port import JournalPort
+from commander.application.settings import ServiceSettings
 from core.application.protocol_registry import ProtocolRegistry
 
 logger = logging.getLogger(__name__)
@@ -64,14 +65,18 @@ class CommanderService:
         service_config: Path,
         protocol_registry: ProtocolRegistry,
         audit_transport: AuditTransport,
+        settings_loader: Callable[[], ServiceSettings],
+        journal_factory: Callable[[ServiceSettings], JournalPort],
     ) -> None:
         self._config_root = config_root
         self._service_path = service_config
         self._registry = protocol_registry
         self._audit_transport = audit_transport
+        self._settings_loader = settings_loader
+        self._journal_factory = journal_factory
         self._audit: AuditDelivery | None = None
         self._state = ServiceState.STOPPED
-        self._journal: EventRepository | None = None
+        self._journal: JournalPort | None = None
         self._control: CommandControl | None = None
         self._executor: QueuedExecutor | None = None
         self._config: CommanderConfigManager | None = None
@@ -106,22 +111,17 @@ class CommanderService:
         if self._state is not ServiceState.STOPPED:
             raise RuntimeError("service already started")
         self._state = ServiceState.STARTING
-        journal: EventRepository | None = None
+        journal: JournalPort | None = None
         try:
             # Parse and validate the entire candidate before enabling any write.
             manager = CommanderConfigManager(
                 self._config_root,
                 self._service_path,
                 quiesce=self._quiesce,
+                settings_loader=self._settings_loader,
             )
             settings: ServiceSettings = manager.start()
-            journal = EventRepository(
-                settings.sqlite_path,
-                max_storage_bytes=settings.max_storage_bytes,
-                reserved_storage_bytes=settings.reserved_storage_bytes,
-                admission_stop_ratio=settings.admission_stop_ratio,
-                retention_seconds=settings.retention_seconds,
-            )
+            journal = self._journal_factory(settings)
             recovered = journal.recover()
             control = CommandControl(journal)
             executor = QueuedExecutor(
