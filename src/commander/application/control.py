@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import Executor
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -38,16 +40,21 @@ class CommandJournal(Protocol):
 
     def get_request(self, request_id: str) -> tuple[CommandResult, ...]: ...
 
-    def recover(self) -> tuple[str, ...]: ...
+    async def recover(self) -> tuple[str, ...]: ...
 
 
 class CommandControl:
     """Only persist verified decisions; device I/O belongs to later stages."""
 
-    def __init__(self, repository: CommandJournal) -> None:
+    def __init__(self, repository: CommandJournal, writer: Executor) -> None:
         self._repository = repository
+        self._writer = writer
 
-    def accept(
+    async def _run(self, method, *args, **kwargs):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._writer, lambda: method(*args, **kwargs))
+
+    async def accept(
         self,
         commands: Sequence[CommandSpec],
         *,
@@ -56,21 +63,22 @@ class CommandControl:
         trace_id: str | None = None,
         idempotency_key: str | None = None,
     ) -> tuple[AcceptedCommand, ...]:
-        return self._repository.accept(
+        return await self._run(
+            self._repository.accept,
             commands,
             caller_id=caller_id,
             operator_id=operator_id,
             trace_id=trace_id,
         )
 
-    def connecting(self, command_id: str) -> None:
-        self._repository.transition(command_id, CommandState.CONNECTING)
+    async def connecting(self, command_id: str) -> None:
+        await self._run(self._repository.transition,command_id, CommandState.CONNECTING)
 
-    def executing(self, command_id: str) -> None:
+    async def executing(self, command_id: str) -> None:
         """Commit this boundary before any potentially effective field write."""
-        self._repository.transition(command_id, CommandState.EXECUTING)
+        await self._run(self._repository.transition, command_id, CommandState.EXECUTING)
 
-    def complete(
+    async def complete(
         self,
         command_id: str,
         state: CommandState,
@@ -79,7 +87,8 @@ class CommandControl:
         error_code: str | None = None,
         error_message: str | None = None,
     ) -> None:
-        self._repository.transition(
+        await self._run(
+            self._repository.transition,
             command_id,
             state,
             outcome=outcome,
@@ -87,12 +96,12 @@ class CommandControl:
             error_message=error_message,
         )
 
-    def get_command(self, command_id: str) -> CommandResult | None:
-        return self._repository.get(command_id)
+    async def get_command(self, command_id: str) -> CommandResult | None:
+        return await self._run(self._repository.get, command_id)
 
-    def get_request(self, request_id: str) -> tuple[CommandResult, ...]:
-        return self._repository.get_request(request_id)
+    async def get_request(self, request_id: str) -> tuple[CommandResult, ...]:
+        return await self._run(self._repository.get_request, request_id)
 
     def recover(self) -> tuple[str, ...]:
         """Must run before the future runtime starts accepting commands."""
-        return self._repository.recover()
+        return await self._run(self._repository.recover)
