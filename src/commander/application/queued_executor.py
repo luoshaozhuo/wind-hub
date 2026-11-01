@@ -237,7 +237,7 @@ class QueuedExecutor:
                             timeout=self._queue_timeout + self._connect_timeout
                             + self._write_timeout,
                         )
-                    except (TimeoutError, Exception):
+                    except Exception:
                         failed.add(device_id)
                         self._blocked.add(device_id)
                         continue
