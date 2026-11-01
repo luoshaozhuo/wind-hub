@@ -293,6 +293,39 @@ class QueuedExecutor:
             return False
         return True
 
+    async def _acquire_gate(self, entry: _Entry) -> bool:
+        acquire = asyncio.create_task(self._gate.acquire())
+        wakeup = asyncio.create_task(entry.wakeup.wait()) if entry.wakeup else None
+        try:
+            participants = {acquire}
+            if wakeup is not None:
+                participants.add(wakeup)
+            await asyncio.wait(
+                participants,
+                timeout=max(entry.deadline - time.monotonic(), 0.0),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            if wakeup is not None:
+                wakeup.cancel()
+                await asyncio.gather(wakeup, return_exceptions=True)
+            if not acquire.done():
+                acquire.cancel()
+                await asyncio.gather(acquire, return_exceptions=True)
+        acquired = (
+            acquire.done()
+            and not acquire.cancelled()
+            and acquire.exception() is None
+            and acquire.result()
+        )
+        if not acquired or entry.terminal_in_queue or entry.deadline <= time.monotonic():
+            if acquired:
+                self._gate.release()
+            if not entry.terminal_in_queue:
+                self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+            return False
+        return True
+
     async def _execute(self, device_id: str, entry: _Entry) -> None:
         command_id = entry.command.command_id
         if not self._check_before_write(entry, queued=True):
@@ -301,42 +334,8 @@ class QueuedExecutor:
             self._unsent(command_id, CommandState.FAILED, "DEVICE_BLOCKED")
             return
 
-        # FIFO head alone competes for global capacity; the clock starts on receipt.
-        remaining = max(entry.deadline - time.monotonic(), 0.0)
-        acquire = asyncio.create_task(self._gate.acquire())
-        wakeup = asyncio.create_task(entry.wakeup.wait()) if entry.wakeup else None
-        try:
-            participants: set[asyncio.Task[bool]] = {acquire}
-            if wakeup is not None:
-                participants.add(wakeup)
-            done, _ = await asyncio.wait(
-                participants,
-                timeout=remaining,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if acquire not in done:
-                return
-            acquire.result()
-        finally:
-            if wakeup is not None:
-                wakeup.cancel()
-                await asyncio.gather(wakeup, return_exceptions=True)
-            if acquire.done() and not acquire.cancelled():
-                if acquire.exception() is None and acquire.result():
-                    # Ownership is transferred below only when the gate was won.
-                    if entry.terminal_in_queue or entry.deadline <= time.monotonic():
-                        self._gate.release()
-                        acquire = None
-            else:
-                acquire.cancel()
-                await asyncio.gather(acquire, return_exceptions=True)
-        if acquire is None:
-            if not entry.terminal_in_queue:
-                self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
-            return
-        if not acquire.done() or acquire.cancelled():
-            if not entry.terminal_in_queue:
-                self._terminate_queued(entry, CommandState.EXPIRED, "QUEUE_TIMEOUT")
+        # Only the FIFO head competes for a global connection/write permit.
+        if not await self._acquire_gate(entry):
             return
 
         owns_gate = True
