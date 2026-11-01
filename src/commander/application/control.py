@@ -32,9 +32,14 @@ class CommandControl:
         self, method: Callable[..., _T], *args: Any, **kwargs: Any
     ) -> _T:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._writer, partial(method, *args, **kwargs)
-        )
+        work = loop.run_in_executor(self._writer, partial(method, *args, **kwargs))
+        try:
+            return await asyncio.shield(work)
+        except asyncio.CancelledError:
+            # Native SQLite work is not cancellable after executor submission.
+            # Wait for settlement before permitting another device operation.
+            await work
+            raise
 
     async def accept(
         self,
