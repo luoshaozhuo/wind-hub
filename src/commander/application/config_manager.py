@@ -15,6 +15,7 @@ from core.infrastructure.config.shared_documents import (
     SharedDocumentLoader,
     SharedDocuments,
 )
+from core.application.protocol_registry import ProtocolRegistry
 from core.domain import DeviceId, DeviceModelId, PointAccess, PointTableId
 from core.infrastructure.config.shared_snapshot import (
     SharedDomainSnapshot,
@@ -149,6 +150,18 @@ class CommanderConfigManager:
             and spec.config_reference == expected
             and _writable(self._snapshot, spec.device_id, spec.point_id, spec.value)
         )
+
+    def create_session(self, device_id: str, registry: ProtocolRegistry):
+        """Construct a disconnected Core protocol driver from active configuration."""
+        snapshot = self._snapshot
+        if snapshot is None or device_id in self._disabled:
+            raise RuntimeError("device configuration is unavailable")
+        device = snapshot.site.devices.get(DeviceId(device_id))
+        if device is None or not device.enabled:
+            raise KeyError(device_id)
+        model = snapshot.device_models[device.device_model_id]
+        table = snapshot.point_tables[model.point_table_id]
+        return registry.create(device.endpoint, table, device.protocol_options)
 
     def device_revision(self, device_id: str) -> str | None:
         return self._fingerprints.get(device_id)
