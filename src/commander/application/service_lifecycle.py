@@ -118,6 +118,7 @@ class CommanderService:
                 control,
                 lambda device_id: manager.create_session(device_id, self._registry),
                 manager.authorized,
+                manager.prepare_write,
                 global_capacity=settings.global_capacity,
                 queue_timeout=settings.queue_timeout,
                 connect_timeout=settings.connect_timeout,
