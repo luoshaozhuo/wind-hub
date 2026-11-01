@@ -81,6 +81,7 @@ class CommanderService:
         self._restart_required = False
         self._cleanup_interval = 60.0
         self._shutdown_grace = 10.0
+        self._lifecycle_lock = asyncio.Lock()
 
     @property
     def control(self) -> CommandControl:
@@ -99,6 +100,10 @@ class CommanderService:
         return self._executor
 
     async def start(self) -> None:
+        async with self._lifecycle_lock:
+            await self._start_locked()
+
+    async def _start_locked(self) -> None:
         if self._state is not ServiceState.STOPPED:
             raise RuntimeError("service already started")
         self._state = ServiceState.STARTING
@@ -173,6 +178,10 @@ class CommanderService:
         return await self._executor.quiesce_devices(devices)
 
     async def reload(self) -> ReloadReport:
+        async with self._lifecycle_lock:
+            return await self._reload_locked()
+
+    async def _reload_locked(self) -> ReloadReport:
         if self._config is None or self._state not in (
             ServiceState.READY, ServiceState.DEGRADED
         ):
@@ -254,6 +263,10 @@ class CommanderService:
                 self._state = ServiceState.READY
 
     async def stop(self) -> frozenset[str]:
+        async with self._lifecycle_lock:
+            return await self._stop_locked()
+
+    async def _stop_locked(self) -> frozenset[str]:
         if self._state is ServiceState.STOPPED:
             return frozenset()
         self._state = ServiceState.STOPPING
