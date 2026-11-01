@@ -49,9 +49,7 @@ class JournalPort(Protocol):
 
     def transition_many(
         self,
-        changes: Sequence[
-            tuple[str, CommandState, CommandOutcome | None, str | None]
-        ],
+        changes: Sequence[tuple[str, CommandState, CommandOutcome | None, str | None]],
     ) -> None: ...
 
     def get(self, command_id: str) -> CommandResult | None: ...

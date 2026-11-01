@@ -19,9 +19,12 @@ import asyncio
 import statistics
 import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from commander.application.control import CommandControl
+from commander.infrastructure.event_repository import EventRepository
 from core.application.protocol_contract import ProtocolWrite, ProtocolWriteResult
 
 from ..component.conftest import FakeSession, build_executor, make_spec
@@ -33,18 +36,47 @@ COMMANDS_PER_DEVICE = 10
 BATCH_POINTS = 10
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPEN（round3 实测）：writer 单线程化后每批 20 次 T2/T3 跨线程往返，"
-        "100 设备饱和负载 180 批/s、e2e p99≈575ms；ee92aee0 基线 670 批/s、"
-        "p99≈161ms（同机同日对照）。属调度层缺陷：批量组 T2/T3 应合并为"
-        "单个 writer 作业/单事务，交 ChatGPT 整改；修复后本 strict xfail 须转正式。"
-    ),
-)
-async def test_dispatch_throughput_100_devices_real_sqlite(
-    control, repository, sqlite_writer
-) -> None:
+class _InstrumentedWriter(ThreadPoolExecutor):
+    """记录唯一 writer 线程的队列积压深度与入队→开跑等待时延。"""
+
+    def __init__(self) -> None:
+        super().__init__(max_workers=1, thread_name_prefix="perf-sqlite")
+        self._depth = 0
+        self.max_depth = 0
+        self.queue_wait_ms: list[float] = []
+        self.tx = {"accept": 0, "transition": 0, "transition_many": 0}
+
+    def submit(self, fn, /, *args, **kwargs):
+        enqueued = time.perf_counter()
+        self._depth += 1
+        self.max_depth = max(self.max_depth, self._depth)
+
+        def wrapped() -> object:
+            self.queue_wait_ms.append((time.perf_counter() - enqueued) * 1000)
+            self._depth -= 1
+            return fn(*args, **kwargs)
+
+        return super().submit(wrapped)
+
+
+async def test_dispatch_throughput_100_devices_real_sqlite(tmp_path) -> None:
+    # 独立装配：对唯一 writer 池做积压/事务计数插桩（与生产同模型：
+    # repo 在 writer 线程内创建关闭，control 注入该池）。
+    writer = _InstrumentedWriter()
+    repository = writer.submit(lambda: EventRepository(tmp_path / "perf.db")).result()
+    control = CommandControl(repository, writer)
+
+    # 在唯一事务边界计数（单条 transition 内部委托 transition_many，
+    # 在方法层会计两次；_transaction 每次 BEGIN/COMMIT 恰好一次）。
+    original_tx = repository._transaction
+
+    def counted_tx(operation):
+        name = getattr(operation, "__name__", "?")
+        writer.tx[name] = writer.tx.get(name, 0) + 1
+        return original_tx(operation)
+
+    repository._transaction = counted_tx
+
     sessions = {f"WT{i:03d}": FakeSession() for i in range(DEVICE_COUNT)}
     executor = build_executor(
         control,
@@ -79,6 +111,9 @@ async def test_dispatch_throughput_100_devices_real_sqlite(
         blocked = await executor.close(grace_seconds=10.0)
         assert blocked == frozenset()
     elapsed = time.perf_counter() - started
+    terminal_metrics = writer.submit(repository.metrics).result()
+    writer.submit(repository.close).result()
+    writer.shutdown(wait=True)
 
     total_commands = DEVICE_COUNT * COMMANDS_PER_DEVICE * BATCH_POINTS
     total_batches = DEVICE_COUNT * COMMANDS_PER_DEVICE
@@ -89,6 +124,9 @@ async def test_dispatch_throughput_100_devices_real_sqlite(
     points_per_second = total_commands / elapsed
     batches_per_second = total_batches / elapsed
 
+    total_tx = sum(writer.tx.values())
+    qwait = sorted(writer.queue_wait_ms)
+    qwait_p99 = qwait[min(len(qwait) - 1, int(len(qwait) * 0.99))]
     print(
         "\n[perf] "
         f"batches={total_batches} elapsed={elapsed:.2f}s "
@@ -96,17 +134,29 @@ async def test_dispatch_throughput_100_devices_real_sqlite(
         f"latency_ms p50={p50:.1f} p99={p99:.1f} "
         f"jitter_ms={statistics.pstdev(all_latency):.1f}"
     )
+    print(
+        "[perf-sqlite] "
+        f"tx={dict(sorted(writer.tx.items()))} total={total_tx} "
+        f"tx/batch={total_tx / total_batches:.2f} "
+        f"writer_queue max_depth={writer.max_depth} wait_p99_ms={qwait_p99:.2f}"
+    )
 
     # 全部确证成功，无一过期/UNKNOWN。
     assert executor.pending_commands() == 0
     assert sum(len(s.one_calls) for s in sessions.values()) == total_commands
-    terminal = dict(sqlite_writer.submit(repository.metrics).result().terminal_counts)
+    terminal = dict(terminal_metrics.terminal_counts)
     assert terminal.get("SUCCEEDED") == total_commands
     assert not (set(terminal) - {"SUCCEEDED"})
 
-    # 防回归下限（设计目标 1000 批/s；真实 fsync 环境下只钉宽松地板）。
-    assert batches_per_second >= 100
-    assert p99 <= 500.0
+    # 合并后每批 3 个 SQLite 事务（T1/T2批/T3批），CONNECTING 每设备 1 次
+    # （会话复用）：3100 次 fsync 承担 10000 点，对照 round3 逐点 ~22100 次。
+    expected_tx = total_batches * 3 + DEVICE_COUNT
+    assert total_tx == expected_tx, sorted(writer.tx.items())
+    assert total_tx / total_batches == pytest.approx(3.1, abs=0.01)
+
+    # 防回归地板：round4 实测 ~430 批/s、p99≈245ms（设计目标 1000 批/s 尚未达）。
+    assert batches_per_second >= 300
+    assert p99 <= 400.0
 
 
 class _TimedSession(FakeSession):

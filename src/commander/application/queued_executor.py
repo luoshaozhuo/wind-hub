@@ -486,9 +486,7 @@ class QueuedExecutor:
                     )
                     batch_completed = True
                     return
-                native = asyncio.create_task(
-                    self._write_group(session, writes)
-                )
+                native = asyncio.create_task(self._write_group(session, writes))
                 try:
                     result = await asyncio.wait_for(
                         asyncio.shield(native), timeout=self._write_timeout
@@ -547,7 +545,8 @@ class QueuedExecutor:
                         self._schedule_auto_isolation(device_id)
                     else:
                         uncertain = any(
-                            actual.outcome not in (
+                            actual.outcome
+                            not in (
                                 WriteOutcome.CONFIRMED_SUCCESS,
                                 WriteOutcome.CONFIRMED_FAILURE,
                             )

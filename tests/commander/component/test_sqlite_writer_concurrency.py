@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -28,6 +28,7 @@ from core.application.protocol_contract import (
     ProtocolCapability,
     ProtocolWrite,
     ProtocolWriteResult,
+    WriteOutcome,
 )
 
 from .conftest import FakeSession, build_executor, make_spec, wait_for_result
@@ -103,6 +104,20 @@ def _fault_transitions_after(repo: EventRepository, *, fail_from: int) -> Callab
     return fault
 
 
+def _fault_transition_many(repo: EventRepository, *, phase: CommandState) -> Callable[..., None]:
+    """让含指定阶段的整批 transition_many 事务抛 sqlite3.Error（模拟磁盘故障）。"""
+    original = repo.transition_many
+
+    def fault(
+        changes: Sequence[tuple[str, CommandState, CommandOutcome | None, str | None]],
+    ) -> None:
+        if any(item[1] is phase for item in changes):
+            raise sqlite3.OperationalError("simulated disk I/O error")
+        original(changes)
+
+    return fault
+
+
 async def test_sqlite_error_during_single_t2_fail_closed_without_field_write(
     control, repository, sqlite_writer
 ) -> None:
@@ -124,16 +139,40 @@ async def test_sqlite_error_during_single_t2_fail_closed_without_field_write(
         await executor.close()
 
 
-async def test_batch_t2_partial_failure_leaves_no_silent_stranding(
+def test_transition_many_atomic_rollback_when_one_member_illegal(repository, sqlite_writer) -> None:
+    """仓储级：批量事务中一个成员转移非法，整批 ROLLBACK，无部分落盘。"""
+
+    def seed() -> tuple[str, str]:
+        accepted = repository.accept([make_spec("p1"), make_spec("p2")], caller_id="op")
+        repository.transition(accepted[0].command_id, CommandState.CONNECTING)
+        return accepted[0].command_id, accepted[1].command_id
+
+    c1, c2 = sqlite_writer.submit(seed).result()
+    # c1 合法（CONNECTING→EXECUTING）；c2 非法（ACCEPTED→SUCCEEDED）。
+    with pytest.raises(Exception):  # noqa: B017, BLE001
+        sqlite_writer.submit(
+            repository.transition_many,
+            (
+                (c1, CommandState.EXECUTING, None, None),
+                (c2, CommandState.SUCCEEDED, CommandOutcome.CONFIRMED_SUCCESS, None),
+            ),
+        ).result()
+    # 整批回滚：c1 停在 CONNECTING（无 T2），c2 停在 ACCEPTED。
+    assert _durable_state(repository, sqlite_writer, c1) is CommandState.CONNECTING
+    assert _durable_state(repository, sqlite_writer, c2) is CommandState.ACCEPTED
+    # 单条非法后仓储仍可用（非 sqlite 错误不打 unavailable）。
+    assert repository.operational
+
+
+async def test_batch_t2_transaction_failure_rolls_back_whole_batch_without_field_write(
     control, repository, sqlite_writer
 ) -> None:
-    """场景：批量 T2 部分失败。
+    """场景：批量 T2 单事务故障，整批回滚。
 
-    3 点批量：第 1 个成员 T2 落盘成功、第 2 个起磁盘故障。要求：
-      - 首批原生写入完全不发起（全组 T2 先于现场）；
-      - 执行器 fatal，每个等待方都收到异常而非静默悬挂；
-      - 已 durable T2 的成员在持久层确为 EXECUTING（崩溃恢复语义 UNKNOWN，
-        由仓储恢复测试钉住），进程内不存在“无终态又无人记账”的成员。
+    3 点批量的 EXECUTING 批量事务遇磁盘错误。要求：
+      - 事务原子回滚：无任何成员 durable EXECUTING（头停 CONNECTING、余 ACCEPTED）；
+      - 原生写入完全不发起（T2 先于现场）；
+      - 执行器 fatal，每个等待方都收到异常而非静默悬挂。
     """
     session = FakeSession(
         capabilities=frozenset(
@@ -148,21 +187,63 @@ async def test_batch_t2_partial_failure_leaves_no_silent_stranding(
     accepted = await executor.accept(
         [make_spec("p1"), make_spec("p2"), make_spec("p3")], caller_id="op"
     )
-    # 调用序列：成员1 CONNECTING、成员1 EXECUTING（T2 durable）、成员2 T2 起故障。
-    repository.transition = _fault_transitions_after(repository, fail_from=3)
+    repository.transition_many = _fault_transition_many(repository, phase=CommandState.EXECUTING)
     outcomes = await asyncio.gather(
         *(executor.wait(c.command_id) for c in accepted), return_exceptions=True
     )
     try:
         assert all(isinstance(outcome, BaseException) for outcome in outcomes)
-        # 全组 T2 未齐：原生多写/单写均不得发起。
+        # 批量 T2 未提交：原生多写/单写均不得发起。
         assert session.many_calls == [] and session.one_calls == []
         assert executor.operational is False
-        # 首个成员的 T2 必须真实 durable（非内存假象）。
+        # 单事务回滚：无一个成员到达 durable EXECUTING。
         assert (
             _durable_state(repository, sqlite_writer, accepted[0].command_id)
-            is CommandState.EXECUTING
+            is CommandState.CONNECTING
         )
+        for member in accepted[1:]:
+            assert (
+                _durable_state(repository, sqlite_writer, member.command_id)
+                is CommandState.ACCEPTED
+            )
+    finally:
+        await executor.close()
+
+
+async def test_batch_t3_transaction_failure_after_real_field_write_fail_closed(
+    control, repository, sqlite_writer
+) -> None:
+    """场景：现场已写但 T3 批量终态事务故障。
+
+    原生写入已真实发生（点已可能生效），终态事务提交失败时不得伪造成功：
+    执行器 fatal，成员保持 durable EXECUTING（崩溃恢复 → UNKNOWN，绝不重发）。
+    """
+    session = FakeSession(
+        capabilities=frozenset(
+            {
+                ProtocolCapability.READ,
+                ProtocolCapability.WRITE,
+                ProtocolCapability.WRITE_MANY,
+            }
+        )
+    )
+    executor = build_executor(control, {"WT01": session}, max_batch_points=10)
+    accepted = await executor.accept([make_spec("p1"), make_spec("p2")], caller_id="op")
+    repository.transition_many = _fault_transition_many(repository, phase=CommandState.SUCCEEDED)
+    outcomes = await asyncio.gather(
+        *(executor.wait(c.command_id) for c in accepted), return_exceptions=True
+    )
+    try:
+        assert all(isinstance(outcome, BaseException) for outcome in outcomes)
+        # 现场多写真实发生且只发生一次。
+        assert session.many_calls == [("p1", "p2")]
+        assert executor.operational is False
+        # 无终态落盘：成员停在 durable EXECUTING（恢复语义 UNKNOWN，不重发）。
+        for member in accepted:
+            assert (
+                _durable_state(repository, sqlite_writer, member.command_id)
+                is CommandState.EXECUTING
+            )
     finally:
         await executor.close()
 
@@ -317,3 +398,110 @@ async def test_terminal_outcome_mapping_consistent_for_all_settlement_paths(
     counts = dict(sqlite_writer.submit(repository.metrics).result().terminal_counts)
     assert counts.get("EXPIRED") == 1
     assert counts.get("SUCCEEDED") == 1
+
+
+class _ScriptedPointSession(FakeSession):
+    """无 WRITE_MANY 的 Modbus 型会话：逐点按脚本返回成功/拒绝/异常/挂起。"""
+
+    def __init__(self, script: dict[str, Any]) -> None:
+        super().__init__()  # 仅 READ/WRITE，无 WRITE_MANY
+        self._script = script
+
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        action = self._script[write.point]
+        self.one_calls.append(write.point)
+        if isinstance(action, Exception):
+            raise action
+        return ProtocolWriteResult(write.point, action)
+
+
+async def test_serial_batch_mixed_confirmed_outcomes_recorded_per_point(
+    control, repository, sqlite_writer
+) -> None:
+    """无 WRITE_MANY 共享批次：各点确认结果不同（成功/明确拒绝）必须逐点裁决。"""
+    session = _ScriptedPointSession(
+        {
+            "p0": WriteOutcome.CONFIRMED_SUCCESS,
+            "p1": WriteOutcome.CONFIRMED_FAILURE,
+            "p2": WriteOutcome.CONFIRMED_SUCCESS,
+        }
+    )
+    executor = build_executor(control, {"WT01": session}, max_batch_points=10)
+    accepted = await executor.accept(
+        [make_spec("p0"), make_spec("p1"), make_spec("p2")], caller_id="op"
+    )
+    raw_results = await asyncio.gather(*(executor.wait(c.command_id) for c in accepted))
+    results: list[CommandResult] = []
+    for result in raw_results:
+        assert result is not None
+        results.append(result)
+    try:
+        states = {
+            command.spec.point_id: result.state
+            for command, result in zip(accepted, results, strict=True)
+        }
+        outcomes = {
+            command.spec.point_id: result.outcome
+            for command, result in zip(accepted, results, strict=True)
+        }
+        assert states == {
+            "p0": CommandState.SUCCEEDED,
+            "p1": CommandState.FAILED,
+            "p2": CommandState.SUCCEEDED,
+        }
+        assert outcomes["p1"] is CommandOutcome.CONFIRMED_FAILURE
+        # 逐点三次 write_one，无任何 write_many。
+        assert session.one_calls == ["p0", "p1", "p2"]
+        assert session.many_calls == []
+    finally:
+        await executor.close()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "OPEN（round4 N1，B 类交 ChatGPT）：无 WRITE_MANY 协议共享批次顺序 "
+        "write_one，中途异常时 _write_group 已取得的前序点确认结果被丢弃，"
+        "except Exception 路径把整组（含 CONFIRMED_SUCCESS/FAILURE 点）"
+        "统一标 UNKNOWN，违反 v1_1 表 4-11『按实际证据逐点报告』"
+        "（RR-03/UC-02）。修复方向：_write_group 返回已确认部分结果与"
+        "中断点，终态批量事务按点裁决（已确认点如实、中断点 UNKNOWN、"
+        "未尝试点不得标 SUCCEEDED）。"
+    ),
+)
+async def test_serial_batch_midpoint_exception_keeps_earlier_confirmed_evidence(
+    control, repository, sqlite_writer
+) -> None:
+    """逐点写第 3 点抛异常：前两点已有协议确认，必须按证据保留逐点终态。"""
+    session = _ScriptedPointSession(
+        {
+            "p0": WriteOutcome.CONFIRMED_SUCCESS,
+            "p1": WriteOutcome.CONFIRMED_FAILURE,
+            "p2": OSError("link reset mid-batch"),
+            "p3": WriteOutcome.CONFIRMED_SUCCESS,
+        }
+    )
+    executor = build_executor(control, {"WT01": session}, max_batch_points=10)
+    accepted = await executor.accept(
+        [make_spec("p0"), make_spec("p1"), make_spec("p2"), make_spec("p3")],
+        caller_id="op",
+    )
+    await asyncio.gather(
+        *(executor.wait(c.command_id) for c in accepted),
+        return_exceptions=True,
+    )
+    try:
+        states = {
+            c.spec.point_id: _durable_state(repository, sqlite_writer, c.command_id)
+            for c in accepted
+        }
+        # p0/p1 已有协议级确认证据：不得降级为 UNKNOWN。
+        assert states["p0"] is CommandState.SUCCEEDED
+        assert states["p1"] is CommandState.FAILED
+        # p2 可能已发出：UNKNOWN；p3 未尝试，绝不能标成功。
+        assert states["p2"] is CommandState.UNKNOWN
+        assert states["p3"] is not CommandState.SUCCEEDED
+        # p3 物理上不得被触达。
+        assert "p3" not in session.one_calls
+    finally:
+        await executor.close()
