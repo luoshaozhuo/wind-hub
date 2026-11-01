@@ -592,7 +592,14 @@ class QueuedExecutor:
             return
         task = asyncio.create_task(self.isolate_device(device_id))
         self._auto_recovery.add(task)
-        task.add_done_callback(self._auto_recovery.discard)
+        def settled(completed: asyncio.Task[bool]) -> None:
+            self._auto_recovery.discard(completed)
+            try:
+                completed.result()
+            except BaseException:
+                self._blocked.add(device_id)
+
+        task.add_done_callback(settled)
 
     async def isolate_device(self, device_id: str) -> bool:
         """Clear blocking only after native work settles and physical close succeeds."""
@@ -641,8 +648,8 @@ class QueuedExecutor:
         finally:
             self._idle_closing.discard(device_id)
 
-    async def close(self) -> None:
-        """Stop admission, let active FIFO drain; never abandon native tasks."""
+    async def close(self) -> frozenset[str]:
+        """Stop admission; return any device with unsafe, unclosed resources."""
         self._closed = True
         await asyncio.gather(*self._workers.values(), return_exceptions=True)
         for device_id, idle in tuple(self._idle_tasks.items()):
@@ -650,6 +657,9 @@ class QueuedExecutor:
                 idle.cancel()
         await asyncio.gather(*self._idle_tasks.values(), return_exceptions=True)
         await asyncio.gather(*self._auto_recovery, return_exceptions=True)
+        await asyncio.gather(
+            *tuple(self._isolation_tasks.values()), return_exceptions=True
+        )
         for device_id, session in tuple(self._sessions.items()):
             if device_id in self._blocked:
                 continue
@@ -659,3 +669,4 @@ class QueuedExecutor:
                 self._blocked.add(device_id)
             else:
                 self._sessions.pop(device_id, None)
+        return self.blocked_devices()
