@@ -61,7 +61,12 @@ _ALLOWED = {
         }
     ),
     CommandState.EXECUTING: frozenset(
-        {CommandState.SUCCEEDED, CommandState.FAILED, CommandState.UNKNOWN}
+        {
+            CommandState.SUCCEEDED,
+            CommandState.FAILED,
+            CommandState.UNKNOWN,
+            CommandState.EXPIRED,
+        }
     ),
 }
 
