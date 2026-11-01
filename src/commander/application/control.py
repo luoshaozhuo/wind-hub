@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Sequence
 from concurrent.futures import Executor
-from collections.abc import Sequence
+from functools import partial
+from typing import Any, TypeVar
 from typing import Protocol
 
 from commander.domain.command import (
@@ -40,7 +42,10 @@ class CommandJournal(Protocol):
 
     def get_request(self, request_id: str) -> tuple[CommandResult, ...]: ...
 
-    async def recover(self) -> tuple[str, ...]: ...
+    def recover(self) -> tuple[str, ...]: ...
+
+
+_T = TypeVar("_T")
 
 
 class CommandControl:
@@ -50,9 +55,13 @@ class CommandControl:
         self._repository = repository
         self._writer = writer
 
-    async def _run(self, method, *args, **kwargs):
+    async def _run(
+        self, method: Callable[..., _T], *args: Any, **kwargs: Any
+    ) -> _T:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._writer, lambda: method(*args, **kwargs))
+        return await loop.run_in_executor(
+            self._writer, partial(method, *args, **kwargs)
+        )
 
     async def accept(
         self,
@@ -61,7 +70,6 @@ class CommandControl:
         caller_id: str,
         operator_id: str | None = None,
         trace_id: str | None = None,
-        idempotency_key: str | None = None,
     ) -> tuple[AcceptedCommand, ...]:
         return await self._run(
             self._repository.accept,
@@ -72,7 +80,7 @@ class CommandControl:
         )
 
     async def connecting(self, command_id: str) -> None:
-        await self._run(self._repository.transition,command_id, CommandState.CONNECTING)
+        await self._run(self._repository.transition, command_id, CommandState.CONNECTING)
 
     async def executing(self, command_id: str) -> None:
         """Commit this boundary before any potentially effective field write."""
@@ -102,6 +110,6 @@ class CommandControl:
     async def get_request(self, request_id: str) -> tuple[CommandResult, ...]:
         return await self._run(self._repository.get_request, request_id)
 
-    def recover(self) -> tuple[str, ...]:
+    async def recover(self) -> tuple[str, ...]:
         """Must run before the future runtime starts accepting commands."""
         return await self._run(self._repository.recover)
