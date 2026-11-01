@@ -8,12 +8,12 @@ import os
 import sqlite3
 import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, TypeVar
 from uuid import uuid4
 
+from commander.application.journal_port import JournalMetrics
 from commander.domain.command import (
     TERMINAL_STATES,
     AcceptedCommand,
@@ -84,15 +84,6 @@ CREATE TABLE IF NOT EXISTS repository_meta (
 );
 INSERT OR IGNORE INTO repository_meta(key,value) VALUES ('schema_version','1');
 """
-
-
-@dataclass(frozen=True, slots=True)
-class JournalMetrics:
-    used_bytes: int
-    accepted_total: int
-    pending_events: int
-    oldest_pending_age_ms: float
-    terminal_counts: tuple[tuple[str, int], ...]
 
 
 _T = TypeVar("_T")
