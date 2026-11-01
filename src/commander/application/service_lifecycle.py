@@ -180,9 +180,15 @@ class CommanderService:
             )
         )
         operational = self._executor is not None and self._executor.operational
+        audit_operational = self._audit is not None and self._audit.operational
         return RuntimeHealth(
             state=self._state,
-            ready=self._state is ServiceState.READY and not blocked and operational,
+            ready=(
+                self._state is ServiceState.READY
+                and not blocked
+                and operational
+                and audit_operational
+            ),
             revision=self._config.revision if self._config else "",
             blocked_devices=blocked,
             recovered_commands=self._recovered,
@@ -213,7 +219,10 @@ class CommanderService:
                 self._state = ServiceState.FAILED
                 logger.error("Commander dispatcher unavailable")
                 return
-            if blocked:
+            if self._audit is None or not self._audit.operational:
+                self._state = ServiceState.DEGRADED
+                logger.error("Commander audit delivery stopped unexpectedly")
+            elif blocked:
                 self._state = ServiceState.DEGRADED
                 logger.warning("commander blocked devices", extra={"count": len(blocked)})
             elif self._state is ServiceState.DEGRADED:
@@ -240,6 +249,11 @@ class CommanderService:
                 self._state = ServiceState.FAILED
                 return frozenset({"__audit_publisher__"})
             self._audit = None
+        try:
+            await self._audit_transport.close()
+        except Exception:
+            self._state = ServiceState.FAILED
+            return frozenset({"__audit_connection__"})
         if self._journal is not None:
             self._journal.close()
             self._journal = None
