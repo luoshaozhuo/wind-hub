@@ -22,6 +22,11 @@ class CommandJournal(Protocol):
         caller_id: str,
         operator_id: str | None = None,
         trace_id: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> tuple[AcceptedCommand, ...]: ...
+
+    def find_idempotent(
+        self, caller_id: str, key: str
     ) -> tuple[AcceptedCommand, ...]: ...
 
     def transition(
@@ -54,13 +59,20 @@ class CommandControl:
         caller_id: str,
         operator_id: str | None = None,
         trace_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> tuple[AcceptedCommand, ...]:
         return self._repository.accept(
             commands,
             caller_id=caller_id,
             operator_id=operator_id,
             trace_id=trace_id,
+            idempotency_key=idempotency_key,
         )
+
+    def find_idempotent(
+        self, caller_id: str, key: str
+    ) -> tuple[AcceptedCommand, ...]:
+        return self._repository.find_idempotent(caller_id, key)
 
     def connecting(self, command_id: str) -> None:
         self._repository.transition(command_id, CommandState.CONNECTING)
