@@ -310,6 +310,37 @@ class EventRepository:
             raise KeyError(command_id)
         return CommandState(row[0])
 
+    def transition_many(
+        self,
+        changes: Sequence[
+            tuple[str, CommandState, CommandOutcome | None, str | None]
+        ],
+    ) -> None:
+        """Atomically persist a batch's phase boundary in one fsync."""
+        if not changes:
+            raise ValueError("transition batch must not be empty")
+        if len({item[0] for item in changes}) != len(changes):
+            raise ValueError("duplicate command in transition batch")
+
+        def insert() -> None:
+            for command_id, state, outcome, error_code in changes:
+                previous = self._current_state(command_id)
+                validate_transition(previous, state, outcome)
+                event_type = "COMPLETED" if state in TERMINAL_STATES else state.value
+                self._db.execute(
+                    """INSERT INTO command_events(
+                        event_id,command_id,event_type,occurred_at,state,outcome,
+                        error_code,publish_state
+                    ) VALUES(?,?,?,?,?,?,?,?)""",
+                    (
+                        str(uuid4()), command_id, event_type, utc_now().isoformat(),
+                        state.value, outcome.value if outcome is not None else None,
+                        error_code, "PENDING",
+                    ),
+                )
+
+        self._transaction(insert)
+
     def transition(
         self,
         command_id: str,
@@ -319,29 +350,25 @@ class EventRepository:
         error_code: str | None = None,
         error_message: str | None = None,
     ) -> None:
-        def insert() -> None:
-            previous = self._current_state(command_id)
-            validate_transition(previous, state, outcome)
-            event_type = "COMPLETED" if state in TERMINAL_STATES else state.value
-            self._db.execute(
-                """INSERT INTO command_events(
-                    event_id,command_id,event_type,occurred_at,state,outcome,
-                    error_code,error_message,publish_state
-                ) VALUES(?,?,?,?,?,?,?,?,?)""",
-                (
-                    str(uuid4()),
-                    command_id,
-                    event_type,
-                    utc_now().isoformat(),
-                    state.value,
-                    outcome.value if outcome is not None else None,
-                    error_code,
-                    error_message,
-                    "PENDING",
-                ),
-            )
-
-        self._transaction(insert)
+        if error_message is not None:
+            def insert() -> None:
+                previous = self._current_state(command_id)
+                validate_transition(previous, state, outcome)
+                event_type = "COMPLETED" if state in TERMINAL_STATES else state.value
+                self._db.execute(
+                    """INSERT INTO command_events(
+                        event_id,command_id,event_type,occurred_at,state,outcome,
+                        error_code,error_message,publish_state
+                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (
+                        str(uuid4()), command_id, event_type, utc_now().isoformat(),
+                        state.value, outcome.value if outcome is not None else None,
+                        error_code, error_message, "PENDING",
+                    ),
+                )
+            self._transaction(insert)
+            return
+        self.transition_many(((command_id, state, outcome, error_code),))
 
     def get(self, command_id: str) -> CommandResult | None:
         with self._lock:
