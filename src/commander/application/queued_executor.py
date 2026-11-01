@@ -722,24 +722,38 @@ class QueuedExecutor:
             self._idle_closing.discard(device_id)
 
     async def close(self) -> frozenset[str]:
-        """Stop admission; return any device with unsafe, unclosed resources."""
+        """Bound shutdown; keep native tasks and sessions owned when unresolved."""
         self._closed = True
-        await asyncio.gather(*self._workers.values(), return_exceptions=True)
+        workers = tuple(self._workers.values())
+        if workers:
+            _, pending = await asyncio.wait(workers, timeout=self._queue_timeout)
+            for task in pending:
+                # Do not cancel: the task may own a still-active protocol write.
+                for device_id, worker in self._workers.items():
+                    if worker is task:
+                        self._blocked.add(device_id)
         for device_id, idle in tuple(self._idle_tasks.items()):
             if device_id not in self._idle_closing:
                 idle.cancel()
-        await asyncio.gather(*self._idle_tasks.values(), return_exceptions=True)
-        await asyncio.gather(*self._auto_recovery, return_exceptions=True)
-        await asyncio.gather(
-            *tuple(self._isolation_tasks.values()), return_exceptions=True
-        )
+        if self._idle_tasks:
+            await asyncio.wait(tuple(self._idle_tasks.values()), timeout=self._connect_timeout)
         for device_id, session in tuple(self._sessions.items()):
-            if device_id in self._blocked:
+            worker = self._workers.get(device_id)
+            if device_id in self._blocked or (worker is not None and not worker.done()):
+                self._blocked.add(device_id)
                 continue
+            closing = self._isolation_tasks.get(device_id)
+            if closing is None:
+                closing = asyncio.create_task(session.close())
+                self._isolation_tasks[device_id] = closing
             try:
-                await session.close()
-            except Exception:
+                await asyncio.wait_for(
+                    asyncio.shield(closing),
+                    timeout=self._connect_timeout,
+                )
+            except (TimeoutError, Exception):
                 self._blocked.add(device_id)
             else:
+                self._isolation_tasks.pop(device_id, None)
                 self._sessions.pop(device_id, None)
         return self.blocked_devices()
