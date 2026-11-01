@@ -12,6 +12,8 @@ from commander.domain.command import (
     CommandSpec,
     CommandState,
 )
+
+
 class CommandJournal(Protocol):
     def accept(
         self,
