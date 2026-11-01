@@ -73,6 +73,7 @@ class QueuedExecutor:
         control: CommandControl,
         session_factory: SessionFactory,
         authorize: Callable[[CommandSpec], bool],
+        prepare_write: Callable[[CommandSpec], ProtocolWrite],
         *,
         global_capacity: int = 32,
         queue_timeout: float = 5.0,
@@ -95,6 +96,7 @@ class QueuedExecutor:
         self._control = control
         self._factory = session_factory
         self._authorize = authorize
+        self._prepare_write = prepare_write
         self._gate = asyncio.Semaphore(global_capacity)
         self._queue_timeout = queue_timeout
         self._connect_timeout = connect_timeout
@@ -434,6 +436,11 @@ class QueuedExecutor:
                 return
             group = self._batch_entries(device_id, entry, session)
             try:
+                # Validate and normalize every value before persisting T2.
+                writes = tuple(
+                    self._prepare_write(member.command.spec)
+                    for member in group
+                )
                 # Persist T2 for all children before the first native side effect.
                 for member in group:
                     self._control.executing(member.command.command_id)
@@ -451,13 +458,6 @@ class QueuedExecutor:
                             error_code="EXPIRED_BEFORE_WRITE",
                         )
                     return
-                writes = tuple(
-                    ProtocolWrite(
-                        point=member.command.spec.point_id,
-                        value=member.command.spec.value,
-                    )
-                    for member in group
-                )
                 native = asyncio.create_task(
                     session.write_many(writes)
                     if len(group) > 1
