@@ -53,7 +53,6 @@ class _Entry:
     command: AcceptedCommand
     deadline: float
     finished: asyncio.Future[None]
-    cancelled: bool = False
     terminal_in_queue: bool = False
     gate_acquired: bool = False
     wakeup: asyncio.Event | None = None
@@ -341,9 +340,6 @@ class QueuedExecutor:
         if entry.command.spec.device_id in self._reloading:
             await self._unsent(command_id, CommandState.FAILED, "CONFIG_RELOADING")
             return False
-        if entry.cancelled:
-            await self._unsent(command_id, CommandState.CANCELLED, "CANCELLED")
-            return False
         if queued and entry.deadline <= time.monotonic():
             await self._unsent(command_id, CommandState.EXPIRED, "QUEUE_TIMEOUT")
             return False
@@ -523,8 +519,7 @@ class QueuedExecutor:
         for member in list(self._queues[device_id])[1 : self._max_batch_points]:
             spec = member.command.spec
             if (
-                member.cancelled
-                or member.deadline <= time.monotonic()
+                member.deadline <= time.monotonic()
                 or member.command.request_id != head.command.request_id
                 or member.deadline != head.deadline
                 or spec.expires_at != head.command.spec.expires_at
