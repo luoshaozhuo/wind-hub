@@ -301,8 +301,20 @@ class QueuedExecutor:
             self._unsent(command_id, CommandState.FAILED, "CONNECT_TIMEOUT")
             return False, False
         except Exception:
-            self._blocked.add(device_id)
             self._unsent(command_id, CommandState.FAILED, "CONNECT_FAILED")
+            session = self._sessions[device_id]
+            closing = asyncio.create_task(session.close())
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(closing), timeout=self._connect_timeout
+                )
+            except TimeoutError:
+                self._block_late(device_id, closing)
+                return False, False
+            except Exception:
+                self._blocked.add(device_id)
+                return False, True
+            self._sessions.pop(device_id, None)
             return False, True
         return True, True
 
