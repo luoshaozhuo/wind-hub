@@ -54,6 +54,11 @@ class ConfigManager:
         self._candidates: dict[str, Candidate] = {}
         self._applications: dict[str, Application] = {}
         self._reconcile = reconcile
+        self._last_error = ""
+
+    @property
+    def last_error(self) -> str:
+        return self._last_error
 
     @property
     def disk(self) -> ValidatedSnapshot:
@@ -127,9 +132,9 @@ class ConfigManager:
                 try:
                     changed = await self._reconcile(snapshot)
                     self._runtime = snapshot
-                except Exception:
-                    # Disk is already committed; do not advertise runtime success.
-                    pass
+                except Exception as exc:
+                    # Disk is already committed; report actual pending convergence.
+                    self._last_error = str(exc)
             application_id = secrets.token_urlsafe(24)
             application = Application(
                 application_id=application_id,
