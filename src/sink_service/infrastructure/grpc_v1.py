@@ -255,14 +255,12 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
         start: bool,
     ) -> common_pb2.OperationResult:
         try:
-            self._registry.get(request.id)
+            # The Writer owns intent for both roles, even when the Reader runs
+            # the actual reliable Delivery.
             snapshot, _commit = await self._config.set_delivery_desired(
-                request.id, running=start, expected_revision=request.expected_revision
-            )
-            # A new revision must be accepted by the reconciler before executing.
-            await self._registry.accept_revision(snapshot.revision)
-            view = await self._registry.set_desired(
-                request.id, running=start, expected_revision=snapshot.revision
+                request.id,
+                running=start,
+                expected_revision=request.expected_revision,
             )
         except KeyError as exc:
             await _abort(context, grpc.StatusCode.NOT_FOUND, str(exc))
@@ -270,12 +268,27 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
         except ConfigurationError as exc:
             await _abort(context, grpc.StatusCode.FAILED_PRECONDITION, str(exc))
             raise AssertionError("gRPC abort returned") from exc
+
+        desired = "START" if start else "STOP"
+        try:
+            view = self._registry.get(request.id)
+        except KeyError:
+            # The other process will reconcile the newly committed revision.
+            return common_pb2.OperationResult(
+                operation_id=snapshot.revision,
+                accepted=True,
+                desired_state=desired,
+                actual_state="PENDING",
+                revision=snapshot.revision,
+            )
         return common_pb2.OperationResult(
             operation_id=snapshot.revision,
             accepted=True,
             desired_state=view.desired_state,
             actual_state=view.actual_state,
             revision=snapshot.revision,
+            error_code="RUNTIME_FAILED" if view.last_error else "",
+            message=view.last_error,
         )
 
     async def StartDelivery(
