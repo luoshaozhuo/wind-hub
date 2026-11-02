@@ -273,7 +273,7 @@ class DeliveryRegistry:
                         entry.view, actual_state=ActualState.STOPPED, last_error=""
                     )
             if failures:
-                raise ExceptionGroup("Delivery shutdown failed", failures)
+                raise BaseExceptionGroup("Delivery shutdown failed", failures)
 
     async def reconcile_all(self) -> None:
         """Retry failed START intent; never resurrect an operator STOP."""
