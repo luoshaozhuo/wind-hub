@@ -1,0 +1,1344 @@
+# GW2MW 风机 ADS 点表：基于用户提供的 PLC Symbol 清单筛选。
+# 范围：变桨、变流、发电机、轮毂、气象、偏航；包含测量反馈、设定值、限值和阈值。
+# Symbol 名称为源文件原文，PLC 标量类型在下方依照业务点约束映射。
+# 特别注意：单位、缩放、控制信号读写方向、限值与阈值解释仍需逐项现场核实。
+# 数值型别可能与某些源 PLC 类型不符；不能在未核对源文件 typeName 前投入使用。
+# index_group/index_offset 由 Core 连接时按 Symbol 解析，不在点表内固化。
+# Core 当前将 ADS 点暴露为可读写；本文件并不构成真实 PLC 写权限授权。
+schema_version: 1
+template_id: ads_wtg_gw2mw
+file_version: 1.0.0
+protocol: ads
+points:
+  a02_dm_pitchangle1:
+    business_point_id: pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".A02_DM_PITCHANGLE1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_angle；类型/工程单位/可写权限待现场核实"
+  a03_dm_pitchratedemand1:
+    business_point_id: pitch_rate_setpoint
+    point_groups: [all, pitch]
+    address:
+      symbol: ".A03_DM_PITCHRATEDEMAND1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_rate_setpoint；类型/工程单位/可写权限待现场核实"
+  pitch_position_blade_1:
+    business_point_id: pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCH_POSITION_BLADE_1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_angle；类型/工程单位/可写权限待现场核实"
+  pitch_position_blade_2:
+    business_point_id: pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCH_POSITION_BLADE_2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_angle；类型/工程单位/可写权限待现场核实"
+  pitch_position_blade_3:
+    business_point_id: pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCH_POSITION_BLADE_3"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_angle；类型/工程单位/可写权限待现场核实"
+  pitchratedemand1:
+    business_point_id: pitch_rate_setpoint
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCHRATEDEMAND1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_rate_setpoint；类型/工程单位/可写权限待现场核实"
+  pitchratedemand2:
+    business_point_id: pitch_rate_setpoint
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCHRATEDEMAND2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_rate_setpoint；类型/工程单位/可写权限待现场核实"
+  pitchratedemand3:
+    business_point_id: pitch_rate_setpoint
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCHRATEDEMAND3"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_rate_setpoint；类型/工程单位/可写权限待现场核实"
+  s_expectedpitchangle1:
+    business_point_id: pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".S_EXPECTEDPITCHANGLE1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_angle；类型/工程单位/可写权限待现场核实"
+  s_expectedpitchangle2:
+    business_point_id: pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".S_EXPECTEDPITCHANGLE2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_angle；类型/工程单位/可写权限待现场核实"
+  s_expectedpitchangle3:
+    business_point_id: pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".S_EXPECTEDPITCHANGLE3"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_angle；类型/工程单位/可写权限待现场核实"
+  pa_rpitchratelowerlimit_degps:
+    business_point_id: pitch_rate_setpoint
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PA_RPITCHRATELOWERLIMIT_DEGPS"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_rate_setpoint；类型/工程单位/可写权限待现场核实"
+  pa_rpitchrateupperlimit_degps:
+    business_point_id: pitch_rate_setpoint
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PA_RPITCHRATEUPPERLIMIT_DEGPS"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_rate_setpoint；类型/工程单位/可写权限待现场核实"
+  p_maximumpitchratelimit:
+    business_point_id: pitch_rate_setpoint
+    point_groups: [all, pitch]
+    address:
+      symbol: ".P_MAXIMUMPITCHRATELIMIT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_rate_setpoint；类型/工程单位/可写权限待现场核实"
+  p_minimumpitchratelimit:
+    business_point_id: pitch_rate_setpoint
+    point_groups: [all, pitch]
+    address:
+      symbol: ".P_MINIMUMPITCHRATELIMIT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_rate_setpoint；类型/工程单位/可写权限待现场核实"
+  p_pitchangletolerance:
+    business_point_id: pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".P_PITCHANGLETOLERANCE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_angle；类型/工程单位/可写权限待现场核实"
+  p_dualpitchspeedgainsspeedthreshold:
+    business_point_id: pitch_rate_setpoint
+    point_groups: [all, pitch]
+    address:
+      symbol: ".P_DUALPITCHSPEEDGAINSSPEEDTHRESHOLD"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_rate_setpoint；类型/工程单位/可写权限待现场核实"
+  p_fastshutdownpitchrate:
+    business_point_id: pitch_rate_setpoint
+    point_groups: [all, pitch]
+    address:
+      symbol: ".P_FASTSHUTDOWNPITCHRATE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：pitch_rate_setpoint；类型/工程单位/可写权限待现场核实"
+  average_converter_active_power_1s:
+    business_point_id: turbine_active_power
+    point_groups: [all, converter]
+    address:
+      symbol: ".AVERAGE_CONVERTER_ACTIVE_POWER_1S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilowatt
+    scale: 1.0
+    offset: 0.0
+    description: "推测：turbine_active_power；类型/工程单位/可写权限待现场核实"
+  average_converter_reactive_power_1s:
+    business_point_id: reactive_power
+    point_groups: [all, converter]
+    address:
+      symbol: ".AVERAGE_CONVERTER_REACTIVE_POWER_1S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilovar
+    scale: 1.0
+    offset: 0.0
+    description: "推测：reactive_power；类型/工程单位/可写权限待现场核实"
+  converter_in_torque:
+    business_point_id: generator_torque
+    point_groups: [all, converter]
+    address:
+      symbol: ".CONVERTER_IN_TORQUE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_torque；类型/工程单位/可写权限待现场核实"
+  converter_reactive_power_control_enable:
+    business_point_id: device_remote_control_enabled
+    point_groups: [all, converter]
+    address:
+      symbol: ".CONVERTER_REACTIVE_POWER_CONTROL_ENABLE"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_remote_control_enabled；类型/工程单位/可写权限待现场核实"
+  converter_reactive_power_setpoint:
+    business_point_id: reactive_power_setpoint
+    point_groups: [all, converter]
+    address:
+      symbol: ".CONVERTER_REACTIVE_POWER_SETPOINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilovar
+    scale: 1.0
+    offset: 0.0
+    description: "推测：reactive_power_setpoint；类型/工程单位/可写权限待现场核实"
+  from_converter_temperature:
+    business_point_id: converter_temperature
+    point_groups: [all, converter]
+    address:
+      symbol: ".FROM_CONVERTER_TEMPERATURE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：converter_temperature；类型/工程单位/可写权限待现场核实"
+  to_converter_temperature:
+    business_point_id: converter_temperature
+    point_groups: [all, converter]
+    address:
+      symbol: ".TO_CONVERTER_TEMPERATURE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：converter_temperature；类型/工程单位/可写权限待现场核实"
+  gh_control_converter_dc_current_setpoint:
+    business_point_id: grid_current
+    point_groups: [all, converter]
+    address:
+      symbol: ".GH_CONTROL_CONVERTER_DC_CURRENT_SETPOINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: ampere
+    scale: 1.0
+    offset: 0.0
+    description: "推测：grid_current；类型/工程单位/可写权限待现场核实"
+  gh_control_converter_torque_setpoint:
+    business_point_id: generator_torque_setpoint
+    point_groups: [all, converter]
+    address:
+      symbol: ".GH_CONTROL_CONVERTER_TORQUE_SETPOINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_torque_setpoint；类型/工程单位/可写权限待现场核实"
+  visu_converter_active_power:
+    business_point_id: turbine_active_power
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_CONVERTER_ACTIVE_POWER"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilowatt
+    scale: 1.0
+    offset: 0.0
+    description: "推测：turbine_active_power；类型/工程单位/可写权限待现场核实"
+  visu_converter_reactive_power:
+    business_point_id: reactive_power
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_CONVERTER_REACTIVE_POWER"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilovar
+    scale: 1.0
+    offset: 0.0
+    description: "推测：reactive_power；类型/工程单位/可写权限待现场核实"
+  visu_converter_in_torque:
+    business_point_id: generator_torque
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_CONVERTER_IN_TORQUE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_torque；类型/工程单位/可写权限待现场核实"
+  visu_converter_torque_reference:
+    business_point_id: generator_torque_setpoint
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_CONVERTER_TORQUE_REFERENCE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_torque_setpoint；类型/工程单位/可写权限待现场核实"
+  visu_pitch_converter_temperature_1:
+    business_point_id: converter_temperature
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_PITCH_CONVERTER_TEMPERATURE_1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：converter_temperature；类型/工程单位/可写权限待现场核实"
+  visu_pitch_converter_temperature_2:
+    business_point_id: converter_temperature
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_PITCH_CONVERTER_TEMPERATURE_2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：converter_temperature；类型/工程单位/可写权限待现场核实"
+  visu_pitch_converter_temperature_3:
+    business_point_id: converter_temperature
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_PITCH_CONVERTER_TEMPERATURE_3"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：converter_temperature；类型/工程单位/可写权限待现场核实"
+  mean_converter_active_power_max:
+    business_point_id: turbine_active_power
+    point_groups: [all, converter]
+    address:
+      symbol: ".MEAN_CONVERTER_ACTIVE_POWER_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilowatt
+    scale: 1.0
+    offset: 0.0
+    description: "推测：turbine_active_power；类型/工程单位/可写权限待现场核实"
+  mean_converter_reactive_power_max:
+    business_point_id: reactive_power
+    point_groups: [all, converter]
+    address:
+      symbol: ".MEAN_CONVERTER_REACTIVE_POWER_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilovar
+    scale: 1.0
+    offset: 0.0
+    description: "推测：reactive_power；类型/工程单位/可写权限待现场核实"
+  a01_dm_generatorspeed:
+    business_point_id: generator_speed
+    point_groups: [all, generator]
+    address:
+      symbol: ".A01_DM_GENERATORSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_speed；类型/工程单位/可写权限待现场核实"
+  generator_speed_momentary:
+    business_point_id: generator_speed
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_SPEED_MOMENTARY"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_speed；类型/工程单位/可写权限待现场核实"
+  average_generator_speed_10m:
+    business_point_id: generator_speed
+    point_groups: [all, generator]
+    address:
+      symbol: ".AVERAGE_GENERATOR_SPEED_10M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_speed；类型/工程单位/可写权限待现场核实"
+  average_generator_speed_10s:
+    business_point_id: generator_speed
+    point_groups: [all, generator]
+    address:
+      symbol: ".AVERAGE_GENERATOR_SPEED_10S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_speed；类型/工程单位/可写权限待现场核实"
+  average_generator_speed_1m:
+    business_point_id: generator_speed
+    point_groups: [all, generator]
+    address:
+      symbol: ".AVERAGE_GENERATOR_SPEED_1M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_speed；类型/工程单位/可写权限待现场核实"
+  d_generatorspeedsetpoint:
+    business_point_id: generator_speed
+    point_groups: [all, generator]
+    address:
+      symbol: ".D_GENERATORSPEEDSETPOINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_speed；类型/工程单位/可写权限待现场核实"
+  d_generatortorquesetpoint:
+    business_point_id: generator_torque_setpoint
+    point_groups: [all, generator]
+    address:
+      symbol: ".D_GENERATORTORQUESETPOINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_torque_setpoint；类型/工程单位/可写权限待现场核实"
+  generator_temperature_1:
+    business_point_id: generator_temperature
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_TEMPERATURE_1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_temperature；类型/工程单位/可写权限待现场核实"
+  generator_temperature_2:
+    business_point_id: generator_temperature
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_TEMPERATURE_2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_temperature；类型/工程单位/可写权限待现场核实"
+  generator_temperature_3:
+    business_point_id: generator_temperature
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_TEMPERATURE_3"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_temperature；类型/工程单位/可写权限待现场核实"
+  generator_temperature_4:
+    business_point_id: generator_temperature
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_TEMPERATURE_4"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_temperature；类型/工程单位/可写权限待现场核实"
+  generator_temperature_momentary_max:
+    business_point_id: generator_temperature
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_TEMPERATURE_MOMENTARY_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_temperature；类型/工程单位/可写权限待现场核实"
+  hmi_control_generator_speed_set_point:
+    business_point_id: generator_speed
+    point_groups: [all, generator]
+    address:
+      symbol: ".HMI_CONTROL_GENERATOR_SPEED_SET_POINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_speed；类型/工程单位/可写权限待现场核实"
+  p_maxgeneratorspeedforswtrip:
+    business_point_id: generator_speed
+    point_groups: [all, generator]
+    address:
+      symbol: ".P_MAXGENERATORSPEEDFORSWTRIP"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_speed；类型/工程单位/可写权限待现场核实"
+  p_maximumgeneratortorque:
+    business_point_id: generator_torque
+    point_groups: [all, generator]
+    address:
+      symbol: ".P_MAXIMUMGENERATORTORQUE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_torque；类型/工程单位/可写权限待现场核实"
+  p_ratedgeneratorspeed:
+    business_point_id: generator_speed
+    point_groups: [all, generator]
+    address:
+      symbol: ".P_RATEDGENERATORSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_speed；类型/工程单位/可写权限待现场核实"
+  ratedgeneratorspeed:
+    business_point_id: generator_speed
+    point_groups: [all, generator]
+    address:
+      symbol: ".RATEDGENERATORSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_speed；类型/工程单位/可写权限待现场核实"
+  lp_ratedgeneratortorque:
+    business_point_id: generator_torque
+    point_groups: [all, generator]
+    address:
+      symbol: ".LP_RATEDGENERATORTORQUE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "推测：generator_torque；类型/工程单位/可写权限待现场核实"
+  hubtemp:
+    business_point_id: nacelle_temperature
+    point_groups: [all, hub]
+    address:
+      symbol: ".HUBTEMP"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：nacelle_temperature；类型/工程单位/可写权限待现场核实"
+  hub_temperature_avg_2m:
+    business_point_id: nacelle_temperature
+    point_groups: [all, hub]
+    address:
+      symbol: ".HUB_TEMPERATURE_AVG_2M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：nacelle_temperature；类型/工程单位/可写权限待现场核实"
+  visu_hubtemp:
+    business_point_id: nacelle_temperature
+    point_groups: [all, hub]
+    address:
+      symbol: ".VISU_HUBTEMP"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：nacelle_temperature；类型/工程单位/可写权限待现场核实"
+  opcrotorspeed:
+    business_point_id: rotor_speed
+    point_groups: [all, hub]
+    address:
+      symbol: ".OPCROTORSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：rotor_speed；类型/工程单位/可写权限待现场核实"
+  rao_rotorspeedrtds:
+    business_point_id: rotor_speed
+    point_groups: [all, hub]
+    address:
+      symbol: ".RAO_ROTORSPEEDRTDS"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：rotor_speed；类型/工程单位/可写权限待现场核实"
+  hmi_control_rotor_speed_max:
+    business_point_id: rotor_speed
+    point_groups: [all, hub]
+    address:
+      symbol: ".HMI_CONTROL_ROTOR_SPEED_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：rotor_speed；类型/工程单位/可写权限待现场核实"
+  prot_hmi_control_rotor_speed_max:
+    business_point_id: rotor_speed
+    point_groups: [all, hub]
+    address:
+      symbol: ".PROT_HMI_CONTROL_ROTOR_SPEED_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：rotor_speed；类型/工程单位/可写权限待现场核实"
+  rotor_lock_activated:
+    business_point_id: device_running
+    point_groups: [all, hub]
+    address:
+      symbol: ".ROTOR_LOCK_ACTIVATED"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_running；类型/工程单位/可写权限待现场核实"
+  profi_in_rotor_locked:
+    business_point_id: device_running
+    point_groups: [all, hub]
+    address:
+      symbol: ".PROFI_IN_ROTOR_LOCKED"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_running；类型/工程单位/可写权限待现场核实"
+  profi_in_rotor_locked2:
+    business_point_id: device_running
+    point_groups: [all, hub]
+    address:
+      symbol: ".PROFI_IN_ROTOR_LOCKED2"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_running；类型/工程单位/可写权限待现场核实"
+  prot_bhubfanonstatus:
+    business_point_id: device_running
+    point_groups: [all, hub]
+    address:
+      symbol: ".PROT_BHUBFANONSTATUS"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_running；类型/工程单位/可写权限待现场核实"
+  prot_bhubfanstart:
+    business_point_id: device_start_command
+    point_groups: [all, hub]
+    address:
+      symbol: ".PROT_BHUBFANSTART"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_start_command；类型/工程单位/可写权限待现场核实"
+  hmi_control_start_hubfan:
+    business_point_id: device_start_command
+    point_groups: [all, hub]
+    address:
+      symbol: ".HMI_CONTROL_START_HUBFAN"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_start_command；类型/工程单位/可写权限待现场核实"
+  err_hubfanfault:
+    business_point_id: device_fault_active
+    point_groups: [all, hub]
+    address:
+      symbol: ".ERR_HUBFANFAULT"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_fault_active；类型/工程单位/可写权限待现场核实"
+  err_hubtemphi:
+    business_point_id: device_fault_active
+    point_groups: [all, hub]
+    address:
+      symbol: ".ERR_HUBTEMPHI"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_fault_active；类型/工程单位/可写权限待现场核实"
+  warn_hubtemphi:
+    business_point_id: device_warning_active
+    point_groups: [all, hub]
+    address:
+      symbol: ".WARN_HUBTEMPHI"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_warning_active；类型/工程单位/可写权限待现场核实"
+  gh_limitpower_local_rotor_speed_calculation_result:
+    business_point_id: rotor_speed
+    point_groups: [all, hub]
+    address:
+      symbol: ".GH_LIMITPOWER.LOCAL_ROTOR_SPEED_CALCULATION_RESULT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "推测：rotor_speed；类型/工程单位/可写权限待现场核实"
+  a07_dm_windspeed:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".A07_DM_WINDSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  ambient_temperature:
+    business_point_id: air_temperature
+    point_groups: [all, weather]
+    address:
+      symbol: ".AMBIENT_TEMPERATURE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：air_temperature；类型/工程单位/可写权限待现场核实"
+  ambient_temperature_avg_2m:
+    business_point_id: air_temperature
+    point_groups: [all, weather]
+    address:
+      symbol: ".AMBIENT_TEMPERATURE_AVG_2M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：air_temperature；类型/工程单位/可写权限待现场核实"
+  averagewindspeed_10m:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGEWINDSPEED_10M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  average_wind_speed_3s:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_SPEED_3S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  average_wind_speed_10s:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_SPEED_10S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  average_wind_speed_10m:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_SPEED_10M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  average_wind_speed1_10m:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_SPEED1_10M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  average_wind_speed2_10m:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_SPEED2_10M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  average_wind_vane_wind_direction_25s:
+    business_point_id: wind_direction
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_VANE_WIND_DIRECTION_25S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_direction；类型/工程单位/可写权限待现场核实"
+  average_wind_vane_wind_direction1_25s:
+    business_point_id: wind_direction
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_VANE_WIND_DIRECTION1_25S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_direction；类型/工程单位/可写权限待现场核实"
+  average_wind_vane_wind_direction2_25s:
+    business_point_id: wind_direction
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_VANE_WIND_DIRECTION2_25S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_direction；类型/工程单位/可写权限待现场核实"
+  measuredwindspeed:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".MEASUREDWINDSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  opcwindspeed:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".OPCWINDSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  mean_wind_speed_max:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".MEAN_WIND_SPEED_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  mean_wind_speed_min:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".MEAN_WIND_SPEED_MIN"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  p_cutoutwindspeed1:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".P_CUTOUTWINDSPEED1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  p_cutoutwindspeed2:
+    business_point_id: wind_speed
+    point_groups: [all, weather]
+    address:
+      symbol: ".P_CUTOUTWINDSPEED2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：wind_speed；类型/工程单位/可写权限待现场核实"
+  mean_ambient_temperature_max:
+    business_point_id: air_temperature
+    point_groups: [all, weather]
+    address:
+      symbol: ".MEAN_AMBIENT_TEMPERATURE_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "推测：air_temperature；类型/工程单位/可写权限待现场核实"
+  d_highyawerrorthreshold:
+    business_point_id: yaw_error
+    point_groups: [all, yaw]
+    address:
+      symbol: ".D_HIGHYAWERRORTHRESHOLD"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_error；类型/工程单位/可写权限待现场核实"
+  d_highyawerroraverageyawerror:
+    business_point_id: yaw_error
+    point_groups: [all, yaw]
+    address:
+      symbol: ".D_HIGHYAWERRORAVERAGEYAWERROR"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_error；类型/工程单位/可写权限待现场核实"
+  in_ryawpositioncurrentvalue1_inst_deg:
+    business_point_id: nacelle_direction
+    point_groups: [all, yaw]
+    address:
+      symbol: ".IN_RYAWPOSITIONCURRENTVALUE1_INST_DEG"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：nacelle_direction；类型/工程单位/可写权限待现场核实"
+  in_ryawpositioncurrentvalue2_inst_deg:
+    business_point_id: nacelle_direction
+    point_groups: [all, yaw]
+    address:
+      symbol: ".IN_RYAWPOSITIONCURRENTVALUE2_INST_DEG"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：nacelle_direction；类型/工程单位/可写权限待现场核实"
+  in_ryawspeedcurrentvalue1_inst_degps:
+    business_point_id: yaw_rate
+    point_groups: [all, yaw]
+    address:
+      symbol: ".IN_RYAWSPEEDCURRENTVALUE1_INST_DEGPS"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_rate；类型/工程单位/可写权限待现场核实"
+  in_ryawspeedcurrentvalue2_inst_degps:
+    business_point_id: yaw_rate
+    point_groups: [all, yaw]
+    address:
+      symbol: ".IN_RYAWSPEEDCURRENTVALUE2_INST_DEGPS"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_rate；类型/工程单位/可写权限待现场核实"
+  measuredyawerror:
+    business_point_id: yaw_error
+    point_groups: [all, yaw]
+    address:
+      symbol: ".MEASUREDYAWERROR"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_error；类型/工程单位/可写权限待现场核实"
+  prot_mainyawposition:
+    business_point_id: nacelle_direction
+    point_groups: [all, yaw]
+    address:
+      symbol: ".PROT_MAINYAWPOSITION"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：nacelle_direction；类型/工程单位/可写权限待现场核实"
+  prot_mainyawspeed:
+    business_point_id: yaw_rate
+    point_groups: [all, yaw]
+    address:
+      symbol: ".PROT_MAINYAWSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_rate；类型/工程单位/可写权限待现场核实"
+  p_aboveratedyawerrorlimit:
+    business_point_id: yaw_error
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_ABOVERATEDYAWERRORLIMIT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_error；类型/工程单位/可写权限待现场核实"
+  p_yawpitchkickyawerrorthreshold:
+    business_point_id: yaw_error
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_YAWPITCHKICKYAWERRORTHRESHOLD"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_error；类型/工程单位/可写权限待现场核实"
+  p_highyawerroryawavt:
+    business_point_id: yaw_error
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_HIGHYAWERRORYAWAVT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_error；类型/工程单位/可写权限待现场核实"
+  p_nacelleaccmaxyawerror:
+    business_point_id: yaw_error
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_NACELLEACCMAXYAWERROR"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_error；类型/工程单位/可写权限待现场核实"
+  storage_yaw_position:
+    business_point_id: nacelle_direction
+    point_groups: [all, yaw]
+    address:
+      symbol: ".STORAGE_YAW_POSITION"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：nacelle_direction；类型/工程单位/可写权限待现场核实"
+  storage_yaw_position_2:
+    business_point_id: nacelle_direction
+    point_groups: [all, yaw]
+    address:
+      symbol: ".STORAGE_YAW_POSITION_2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：nacelle_direction；类型/工程单位/可写权限待现场核实"
+  storage_yaw_speed:
+    business_point_id: yaw_rate
+    point_groups: [all, yaw]
+    address:
+      symbol: ".STORAGE_YAW_SPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_rate；类型/工程单位/可写权限待现场核实"
+  visu_yaw_position:
+    business_point_id: nacelle_direction
+    point_groups: [all, yaw]
+    address:
+      symbol: ".VISU_YAW_POSITION"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "推测：nacelle_direction；类型/工程单位/可写权限待现场核实"
+  visu_yaw_speed:
+    business_point_id: yaw_rate
+    point_groups: [all, yaw]
+    address:
+      symbol: ".VISU_YAW_SPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "推测：yaw_rate；类型/工程单位/可写权限待现场核实"
+  err_yawspeedoutofrange:
+    business_point_id: device_fault_active
+    point_groups: [all, yaw]
+    address:
+      symbol: ".ERR_YAWSPEEDOUTOFRANGE"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_fault_active；类型/工程单位/可写权限待现场核实"
+  p_yawerrorderatingenable:
+    business_point_id: device_remote_control_enabled
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_YAWERRORDERATINGENABLE"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_remote_control_enabled；类型/工程单位/可写权限待现场核实"
+  p_yawerrorflag:
+    business_point_id: device_warning_active
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_YAWERRORFLAG"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "推测：device_warning_active；类型/工程单位/可写权限待现场核实"

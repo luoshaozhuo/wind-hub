@@ -24,10 +24,18 @@ def test_shared_snapshot_resolves_typed_devices_and_points() -> None:
 
     snapshot = build_shared_snapshot(documents)
 
-    assert DeviceId("WT01") in snapshot.site.devices
-    device = snapshot.site.devices[DeviceId("WT01")]
+    assert DeviceId("GW01") in snapshot.site.devices
+    assert DeviceId("TZ01") in snapshot.site.devices
+
+    ads_device = snapshot.site.devices[DeviceId("GW01")]
+    ads_model = snapshot.device_models[ads_device.device_model_id]
+    ads_table = snapshot.point_tables[ads_model.point_table_id]
+    assert ads_table.protocol.name == "ads"
+    assert "a02_dm_pitchangle1" in ads_table.points
+
+    device = snapshot.site.devices[DeviceId("TZ01")]
     model = snapshot.device_models[device.device_model_id]
     table = snapshot.point_tables[model.point_table_id]
     assert table.protocol.name == "modbus"
-    assert "active_power" in table.points
+    assert "measured_power" in table.points
     assert snapshot.revision == documents.revision

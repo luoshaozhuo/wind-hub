@@ -27,8 +27,11 @@ def test_shared_loader_resolves_devices_without_service_config() -> None:
     documents = loader.load()
 
     assert documents.site["site_id"] == "example_site"
-    assert "WT01" in documents.devices
-    assert documents.devices["WT01"].templates.protocol.document["protocol"] == "modbus"
+    assert set(documents.devices) == {f"GW0{i}" for i in range(1, 6)} | {
+        f"TZ0{i}" for i in range(1, 6)
+    }
+    assert documents.devices["GW01"].templates.protocol.document["protocol"] == "ads"
+    assert documents.devices["TZ01"].templates.protocol.document["protocol"] == "modbus"
     assert len(documents.revision) == 64
 
 

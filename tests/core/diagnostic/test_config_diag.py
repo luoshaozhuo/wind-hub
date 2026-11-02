@@ -15,9 +15,9 @@ _REQUIRED = (
     "instances/devices.yaml",
     "templates/units.yaml",
     "templates/business_points.yaml",
-    "templates/device_models/modbus_wtg/1.0.0.yaml",
-    "templates/protocols/modbus_tcp/1.0.0.yaml",
-    "templates/point_tables/modbus_wtg/1.0.0.yaml",
+    "templates/device_models/wtg_tz2mw_1.0.0.yaml",
+    "templates/protocols/modbus_tcp_1.0.0.yaml",
+    "templates/point_tables/modbus_wtg_tz2mw_1.0.0.yaml",
 )
 
 
@@ -77,7 +77,7 @@ def test_cross_reference_error_is_fail(tmp_path: Path) -> None:
     devices_path = tmp_path / "instances/devices.yaml"
     text = devices_path.read_text(encoding="utf-8")
     devices_path.write_text(
-        text.replace("id: modbus_wtg", "id: no_such_model"),
+        text.replace("id: wtg_tz2mw", "id: no_such_model"),
         encoding="utf-8",
     )
     result = check_config(tmp_path)
@@ -105,7 +105,7 @@ def test_compare_changed_directory_reports_sections(tmp_path: Path) -> None:
     _copy_shared(FIXTURE, current)
     site = current / "instances/site.yaml"
     site.write_text(
-        site.read_text(encoding="utf-8").replace("Example Wind Farm", "Modified Wind Farm"),
+        site.read_text(encoding="utf-8").replace("本地风电仿真站", "Modified Wind Farm"),
         encoding="utf-8",
     )
     result = compare_config(previous, current)
@@ -151,9 +151,9 @@ def test_compare_changed_point_table_marks_dependent_device(
     current = tmp_path / "current"
     _copy_shared(FIXTURE, previous)
     _copy_shared(FIXTURE, current)
-    table = current / "templates/point_tables/modbus_wtg/1.0.0.yaml"
+    table = current / "templates/point_tables/modbus_wtg_tz2mw_1.0.0.yaml"
     table.write_text(
-        table.read_text(encoding="utf-8").replace("address: 0", "address: 2"),
+        table.read_text(encoding="utf-8").replace("address: 187", "address: 188"),
         encoding="utf-8",
     )
 
@@ -161,4 +161,10 @@ def test_compare_changed_point_table_marks_dependent_device(
 
     assert result.status is DiagnosticStatus.PASS
     assert result.evidence["has_changes"] is True
-    assert result.evidence["sections"]["devices"]["changed"] == ["WT01"]
+    assert result.evidence["sections"]["devices"]["changed"] == [
+        "TZ01",
+        "TZ02",
+        "TZ03",
+        "TZ04",
+        "TZ05",
+    ]

@@ -1,18 +1,1164 @@
+# Core 共享机械与电气工程单位目录。
+# 工程量按业务语义分类，不仅按物理量纲分类。
+# 单位换算：基准值 = 原值 × scale_to_base + offset_to_base。
+# dB、dBm 等对数单位以及依赖上下文的单位，需采用专门模型处理。
 schema_version: 1
-file_version: 1.0.0
+file_version: 1.1.0
 quantities:
   dimensionless:
     base_unit: none
+  ratio:
+    base_unit: ratio_one
+  angle:
+    base_unit: radian
+  solid_angle:
+    base_unit: steradian
+  length:
+    base_unit: meter
+  area:
+    base_unit: square_meter
+  volume:
+    base_unit: cubic_meter
+  time:
+    base_unit: second
+  frequency:
+    base_unit: hertz
+  angular_velocity:
+    base_unit: radian_per_second
+  angular_acceleration:
+    base_unit: radian_per_second_squared
+  velocity:
+    base_unit: meter_per_second
+  acceleration:
+    base_unit: meter_per_second_squared
+  jerk:
+    base_unit: meter_per_second_cubed
+  mass:
+    base_unit: kilogram
+  mass_flow:
+    base_unit: kilogram_per_second
+  volume_flow:
+    base_unit: cubic_meter_per_second
+  density:
+    base_unit: kilogram_per_cubic_meter
+  specific_volume:
+    base_unit: cubic_meter_per_kilogram
+  force:
+    base_unit: newton
+  torque:
+    base_unit: newton_meter_torque
+  moment_of_inertia:
+    base_unit: kilogram_square_meter
+  pressure:
+    base_unit: pascal
+  stress:
+    base_unit: pascal_stress
+  strain:
+    base_unit: strain_one
+  strain_rate:
+    base_unit: per_second_strain
+  stiffness:
+    base_unit: newton_per_meter
+  damping:
+    base_unit: newton_second_per_meter
+  dynamic_viscosity:
+    base_unit: pascal_second
+  kinematic_viscosity:
+    base_unit: square_meter_per_second
+  surface_tension:
+    base_unit: newton_per_meter_surface
+  energy:
+    base_unit: joule
+  active_energy:
+    base_unit: watt_hour
+  reactive_energy:
+    base_unit: var_hour
+  apparent_energy:
+    base_unit: volt_ampere_hour
+  power:
+    base_unit: watt_generic
   active_power:
     base_unit: watt
+  reactive_power:
+    base_unit: var
+  apparent_power:
+    base_unit: volt_ampere
+  power_factor:
+    base_unit: power_factor_one
+  efficiency:
+    base_unit: efficiency_one
+  temperature:
+    base_unit: kelvin
+  temperature_difference:
+    base_unit: kelvin_difference
+  heat_flow:
+    base_unit: watt_heat
+  specific_heat_capacity:
+    base_unit: joule_per_kilogram_kelvin
+  thermal_conductivity:
+    base_unit: watt_per_meter_kelvin
+  heat_transfer_coefficient:
+    base_unit: watt_per_square_meter_kelvin
+  thermal_resistance:
+    base_unit: kelvin_per_watt
+  thermal_expansion_coefficient:
+    base_unit: per_kelvin
+  specific_energy:
+    base_unit: joule_per_kilogram
+  energy_density:
+    base_unit: joule_per_cubic_meter
+  electric_current:
+    base_unit: ampere
+  electric_voltage:
+    base_unit: volt
+  electrical_resistance:
+    base_unit: ohm
+  electrical_conductance:
+    base_unit: siemens
+  resistivity:
+    base_unit: ohm_meter
+  conductivity:
+    base_unit: siemens_per_meter
+  electric_charge:
+    base_unit: coulomb
+  capacitance:
+    base_unit: farad
+  inductance:
+    base_unit: henry
+  magnetic_flux:
+    base_unit: weber
+  magnetic_flux_density:
+    base_unit: tesla
+  magnetic_field_strength:
+    base_unit: ampere_per_meter
+  magnetomotive_force:
+    base_unit: ampere_turn
+  permeability:
+    base_unit: henry_per_meter
+  permittivity:
+    base_unit: farad_per_meter
+  electric_field_strength:
+    base_unit: volt_per_meter
+  current_density:
+    base_unit: ampere_per_square_meter
+  charge_density:
+    base_unit: coulomb_per_cubic_meter
+  electric_flux_density:
+    base_unit: coulomb_per_square_meter
+  frequency_rate:
+    base_unit: hertz_per_second
+  voltage_rate:
+    base_unit: volt_per_second
+  current_rate:
+    base_unit: ampere_per_second
+  rotational_inertia:
+    base_unit: kilogram_square_meter_rotational
+  information:
+    base_unit: bit
+  data_rate:
+    base_unit: bit_per_second
+  luminous_flux:
+    base_unit: lumen
+  illuminance:
+    base_unit: lux
+  humidity_ratio:
+    base_unit: kilogram_per_kilogram_dry_air
+  relative_humidity:
+    base_unit: relative_humidity_one
 units:
   none:
     symbol: ''
     quantity: dimensionless
+  ratio_one:
+    symbol: ''
+    quantity: ratio
+  percent:
+    symbol: "%"
+    quantity: ratio
+    scale_to_base: 0.01
+  permille:
+    symbol: "‰"
+    quantity: ratio
+    scale_to_base: 0.001
+  ppm:
+    symbol: "ppm"
+    quantity: ratio
+    scale_to_base: 0.000001
+  ppb:
+    symbol: "ppb"
+    quantity: ratio
+    scale_to_base: 1.0e-9
+  radian:
+    symbol: "rad"
+    quantity: angle
+  degree:
+    symbol: "°"
+    quantity: angle
+    scale_to_base: 0.017453292519943295
+  arcminute:
+    symbol: "′"
+    quantity: angle
+    scale_to_base: 0.0002908882086657216
+  arcsecond:
+    symbol: "″"
+    quantity: angle
+    scale_to_base: 0.00000484813681109536
+  revolution:
+    symbol: "rev"
+    quantity: angle
+    scale_to_base: 6.283185307179586
+  steradian:
+    symbol: "sr"
+    quantity: solid_angle
+  meter:
+    symbol: "m"
+    quantity: length
+  millimeter:
+    symbol: "mm"
+    quantity: length
+    scale_to_base: 0.001
+  micrometer:
+    symbol: "µm"
+    quantity: length
+    scale_to_base: 1.0e-6
+  nanometer:
+    symbol: "nm"
+    quantity: length
+    scale_to_base: 1.0e-9
+  centimeter:
+    symbol: "cm"
+    quantity: length
+    scale_to_base: 0.01
+  kilometer:
+    symbol: "km"
+    quantity: length
+    scale_to_base: 1000
+  inch:
+    symbol: "in"
+    quantity: length
+    scale_to_base: 0.0254
+  foot:
+    symbol: "ft"
+    quantity: length
+    scale_to_base: 0.3048
+  yard:
+    symbol: "yd"
+    quantity: length
+    scale_to_base: 0.9144
+  mile:
+    symbol: "mi"
+    quantity: length
+    scale_to_base: 1609.344
+  nautical_mile:
+    symbol: "nmi"
+    quantity: length
+    scale_to_base: 1852
+  square_meter:
+    symbol: "m²"
+    quantity: area
+  square_millimeter:
+    symbol: "mm²"
+    quantity: area
+    scale_to_base: 1.0e-6
+  square_centimeter:
+    symbol: "cm²"
+    quantity: area
+    scale_to_base: 0.0001
+  square_kilometer:
+    symbol: "km²"
+    quantity: area
+    scale_to_base: 1000000
+  hectare:
+    symbol: "ha"
+    quantity: area
+    scale_to_base: 10000
+  square_inch:
+    symbol: "in²"
+    quantity: area
+    scale_to_base: 0.00064516
+  square_foot:
+    symbol: "ft²"
+    quantity: area
+    scale_to_base: 0.09290304
+  cubic_meter:
+    symbol: "m³"
+    quantity: volume
+  cubic_millimeter:
+    symbol: "mm³"
+    quantity: volume
+    scale_to_base: 1.0e-9
+  cubic_centimeter:
+    symbol: "cm³"
+    quantity: volume
+    scale_to_base: 1.0e-6
+  liter:
+    symbol: "L"
+    quantity: volume
+    scale_to_base: 0.001
+  milliliter:
+    symbol: "mL"
+    quantity: volume
+    scale_to_base: 1.0e-6
+  cubic_foot:
+    symbol: "ft³"
+    quantity: volume
+    scale_to_base: 0.028316846592
+  us_gallon:
+    symbol: "gal(US)"
+    quantity: volume
+    scale_to_base: 0.003785411784
+  second:
+    symbol: "s"
+    quantity: time
+  millisecond:
+    symbol: "ms"
+    quantity: time
+    scale_to_base: 0.001
+  microsecond:
+    symbol: "µs"
+    quantity: time
+    scale_to_base: 1.0e-6
+  nanosecond:
+    symbol: "ns"
+    quantity: time
+    scale_to_base: 1.0e-9
+  minute:
+    symbol: "min"
+    quantity: time
+    scale_to_base: 60
+  hour:
+    symbol: "h"
+    quantity: time
+    scale_to_base: 3600
+  day:
+    symbol: "d"
+    quantity: time
+    scale_to_base: 86400
+  week:
+    symbol: "wk"
+    quantity: time
+    scale_to_base: 604800
+  hertz:
+    symbol: "Hz"
+    quantity: frequency
+  millihertz:
+    symbol: "mHz"
+    quantity: frequency
+    scale_to_base: 0.001
+  kilohertz:
+    symbol: "kHz"
+    quantity: frequency
+    scale_to_base: 1000
+  megahertz:
+    symbol: "MHz"
+    quantity: frequency
+    scale_to_base: 1000000
+  gigahertz:
+    symbol: "GHz"
+    quantity: frequency
+    scale_to_base: 1000000000
+  rpm:
+    symbol: "r/min"
+    quantity: frequency
+    scale_to_base: 0.016666666666666666
+  radian_per_second:
+    symbol: "rad/s"
+    quantity: angular_velocity
+  degree_per_second:
+    symbol: "°/s"
+    quantity: angular_velocity
+    scale_to_base: 0.017453292519943295
+  revolution_per_minute:
+    symbol: "rev/min"
+    quantity: angular_velocity
+    scale_to_base: 0.10471975511965977
+  radian_per_second_squared:
+    symbol: "rad/s²"
+    quantity: angular_acceleration
+  degree_per_second_squared:
+    symbol: "°/s²"
+    quantity: angular_acceleration
+    scale_to_base: 0.017453292519943295
+  meter_per_second:
+    symbol: "m/s"
+    quantity: velocity
+  millimeter_per_second:
+    symbol: "mm/s"
+    quantity: velocity
+    scale_to_base: 0.001
+  kilometer_per_hour:
+    symbol: "km/h"
+    quantity: velocity
+    scale_to_base: 0.2777777777777778
+  mile_per_hour:
+    symbol: "mph"
+    quantity: velocity
+    scale_to_base: 0.44704
+  knot:
+    symbol: "kn"
+    quantity: velocity
+    scale_to_base: 0.5144444444444445
+  foot_per_second:
+    symbol: "ft/s"
+    quantity: velocity
+    scale_to_base: 0.3048
+  meter_per_second_squared:
+    symbol: "m/s²"
+    quantity: acceleration
+  millimeter_per_second_squared:
+    symbol: "mm/s²"
+    quantity: acceleration
+    scale_to_base: 0.001
+  standard_gravity:
+    symbol: "g₀"
+    quantity: acceleration
+    scale_to_base: 9.80665
+  galileo:
+    symbol: "Gal"
+    quantity: acceleration
+    scale_to_base: 0.01
+  meter_per_second_cubed:
+    symbol: "m/s³"
+    quantity: jerk
+  kilogram:
+    symbol: "kg"
+    quantity: mass
+  gram:
+    symbol: "g"
+    quantity: mass
+    scale_to_base: 0.001
+  milligram:
+    symbol: "mg"
+    quantity: mass
+    scale_to_base: 1.0e-6
+  microgram:
+    symbol: "µg"
+    quantity: mass
+    scale_to_base: 1.0e-9
+  tonne:
+    symbol: "t"
+    quantity: mass
+    scale_to_base: 1000
+  pound_mass:
+    symbol: "lb"
+    quantity: mass
+    scale_to_base: 0.45359237
+  ounce:
+    symbol: "oz"
+    quantity: mass
+    scale_to_base: 0.028349523125
+  kilogram_per_second:
+    symbol: "kg/s"
+    quantity: mass_flow
+  kilogram_per_hour:
+    symbol: "kg/h"
+    quantity: mass_flow
+    scale_to_base: 0.0002777777777777778
+  tonne_per_hour:
+    symbol: "t/h"
+    quantity: mass_flow
+    scale_to_base: 0.2777777777777778
+  gram_per_second:
+    symbol: "g/s"
+    quantity: mass_flow
+    scale_to_base: 0.001
+  cubic_meter_per_second:
+    symbol: "m³/s"
+    quantity: volume_flow
+  cubic_meter_per_hour:
+    symbol: "m³/h"
+    quantity: volume_flow
+    scale_to_base: 0.0002777777777777778
+  liter_per_second:
+    symbol: "L/s"
+    quantity: volume_flow
+    scale_to_base: 0.001
+  liter_per_minute:
+    symbol: "L/min"
+    quantity: volume_flow
+    scale_to_base: 0.000016666666666666667
+  us_gallon_per_minute:
+    symbol: "gpm"
+    quantity: volume_flow
+    scale_to_base: 0.0000630901964
+  kilogram_per_cubic_meter:
+    symbol: "kg/m³"
+    quantity: density
+  gram_per_cubic_centimeter:
+    symbol: "g/cm³"
+    quantity: density
+    scale_to_base: 1000
+  kilogram_per_liter:
+    symbol: "kg/L"
+    quantity: density
+    scale_to_base: 1000
+  cubic_meter_per_kilogram:
+    symbol: "m³/kg"
+    quantity: specific_volume
+  newton:
+    symbol: "N"
+    quantity: force
+  millinewton:
+    symbol: "mN"
+    quantity: force
+    scale_to_base: 0.001
+  kilonewton:
+    symbol: "kN"
+    quantity: force
+    scale_to_base: 1000
+  meganewton:
+    symbol: "MN"
+    quantity: force
+    scale_to_base: 1000000
+  kilogram_force:
+    symbol: "kgf"
+    quantity: force
+    scale_to_base: 9.80665
+  pound_force:
+    symbol: "lbf"
+    quantity: force
+    scale_to_base: 4.4482216152605
+  newton_meter_torque:
+    symbol: "N·m"
+    quantity: torque
+  kilonewton_meter_torque:
+    symbol: "kN·m"
+    quantity: torque
+    scale_to_base: 1000
+  newton_millimeter_torque:
+    symbol: "N·mm"
+    quantity: torque
+    scale_to_base: 0.001
+  pound_force_foot:
+    symbol: "lbf·ft"
+    quantity: torque
+    scale_to_base: 1.3558179483314004
+  kilogram_square_meter:
+    symbol: "kg·m²"
+    quantity: moment_of_inertia
+  gram_square_centimeter:
+    symbol: "g·cm²"
+    quantity: moment_of_inertia
+    scale_to_base: 1.0e-7
+  pascal:
+    symbol: "Pa"
+    quantity: pressure
+  kilopascal:
+    symbol: "kPa"
+    quantity: pressure
+    scale_to_base: 1000
+  megapascal:
+    symbol: "MPa"
+    quantity: pressure
+    scale_to_base: 1000000
+  gigapascal:
+    symbol: "GPa"
+    quantity: pressure
+    scale_to_base: 1000000000
+  bar:
+    symbol: "bar"
+    quantity: pressure
+    scale_to_base: 100000
+  millibar:
+    symbol: "mbar"
+    quantity: pressure
+    scale_to_base: 100
+  standard_atmosphere:
+    symbol: "atm"
+    quantity: pressure
+    scale_to_base: 101325
+  torr:
+    symbol: "Torr"
+    quantity: pressure
+    scale_to_base: 133.32236842105263
+  psi:
+    symbol: "psi"
+    quantity: pressure
+    scale_to_base: 6894.757293168
+  pascal_stress:
+    symbol: "Pa"
+    quantity: stress
+  megapascal_stress:
+    symbol: "MPa"
+    quantity: stress
+    scale_to_base: 1000000
+  gigapascal_stress:
+    symbol: "GPa"
+    quantity: stress
+    scale_to_base: 1000000000
+  strain_one:
+    symbol: "1"
+    quantity: strain
+  microstrain:
+    symbol: "µε"
+    quantity: strain
+    scale_to_base: 1.0e-6
+  millistrain:
+    symbol: "mε"
+    quantity: strain
+    scale_to_base: 0.001
+  percent_strain:
+    symbol: "%"
+    quantity: strain
+    scale_to_base: 0.01
+  per_second_strain:
+    symbol: "s⁻¹"
+    quantity: strain_rate
+  newton_per_meter:
+    symbol: "N/m"
+    quantity: stiffness
+  kilonewton_per_meter:
+    symbol: "kN/m"
+    quantity: stiffness
+    scale_to_base: 1000
+  newton_per_millimeter:
+    symbol: "N/mm"
+    quantity: stiffness
+    scale_to_base: 1000
+  newton_second_per_meter:
+    symbol: "N·s/m"
+    quantity: damping
+  kilonewton_second_per_meter:
+    symbol: "kN·s/m"
+    quantity: damping
+    scale_to_base: 1000
+  pascal_second:
+    symbol: "Pa·s"
+    quantity: dynamic_viscosity
+  millipascal_second:
+    symbol: "mPa·s"
+    quantity: dynamic_viscosity
+    scale_to_base: 0.001
+  centipoise:
+    symbol: "cP"
+    quantity: dynamic_viscosity
+    scale_to_base: 0.001
+  poise:
+    symbol: "P"
+    quantity: dynamic_viscosity
+    scale_to_base: 0.1
+  square_meter_per_second:
+    symbol: "m²/s"
+    quantity: kinematic_viscosity
+  centistokes:
+    symbol: "cSt"
+    quantity: kinematic_viscosity
+    scale_to_base: 1.0e-6
+  stokes:
+    symbol: "St"
+    quantity: kinematic_viscosity
+    scale_to_base: 0.0001
+  newton_per_meter_surface:
+    symbol: "N/m"
+    quantity: surface_tension
+  millinewton_per_meter_surface:
+    symbol: "mN/m"
+    quantity: surface_tension
+    scale_to_base: 0.001
+  joule:
+    symbol: "J"
+    quantity: energy
+  millijoule:
+    symbol: "mJ"
+    quantity: energy
+    scale_to_base: 0.001
+  kilojoule:
+    symbol: "kJ"
+    quantity: energy
+    scale_to_base: 1000
+  megajoule:
+    symbol: "MJ"
+    quantity: energy
+    scale_to_base: 1000000
+  gigajoule:
+    symbol: "GJ"
+    quantity: energy
+    scale_to_base: 1000000000
+  calorie_thermochemical:
+    symbol: "cal"
+    quantity: energy
+    scale_to_base: 4.184
+  kilocalorie_thermochemical:
+    symbol: "kcal"
+    quantity: energy
+    scale_to_base: 4184
+  btu_it:
+    symbol: "BTU"
+    quantity: energy
+    scale_to_base: 1055.05585262
+  electronvolt:
+    symbol: "eV"
+    quantity: energy
+    scale_to_base: 1.602176634e-19
+  watt_hour:
+    symbol: "Wh"
+    quantity: active_energy
+  kilowatt_hour:
+    symbol: "kWh"
+    quantity: active_energy
+    scale_to_base: 1000
+  megawatt_hour:
+    symbol: "MWh"
+    quantity: active_energy
+    scale_to_base: 1000000
+  gigawatt_hour:
+    symbol: "GWh"
+    quantity: active_energy
+    scale_to_base: 1000000000
+  joule_active_energy:
+    symbol: "J"
+    quantity: active_energy
+    scale_to_base: 0.0002777777777777778
+  var_hour:
+    symbol: "varh"
+    quantity: reactive_energy
+  kilovar_hour:
+    symbol: "kvarh"
+    quantity: reactive_energy
+    scale_to_base: 1000
+  megavar_hour:
+    symbol: "Mvarh"
+    quantity: reactive_energy
+    scale_to_base: 1000000
+  volt_ampere_hour:
+    symbol: "VAh"
+    quantity: apparent_energy
+  kilovolt_ampere_hour:
+    symbol: "kVAh"
+    quantity: apparent_energy
+    scale_to_base: 1000
+  megavolt_ampere_hour:
+    symbol: "MVAh"
+    quantity: apparent_energy
+    scale_to_base: 1000000
+  watt_generic:
+    symbol: "W"
+    quantity: power
+  kilowatt_generic:
+    symbol: "kW"
+    quantity: power
+    scale_to_base: 1000
+  megawatt_generic:
+    symbol: "MW"
+    quantity: power
+    scale_to_base: 1000000
+  horsepower_mechanical:
+    symbol: "hp"
+    quantity: power
+    scale_to_base: 745.6998715822702
   watt:
-    symbol: W
+    symbol: "W"
     quantity: active_power
+  milliwatt:
+    symbol: "mW"
+    quantity: active_power
+    scale_to_base: 0.001
   kilowatt:
-    symbol: kW
+    symbol: "kW"
     quantity: active_power
     scale_to_base: 1000
+  megawatt:
+    symbol: "MW"
+    quantity: active_power
+    scale_to_base: 1000000
+  gigawatt:
+    symbol: "GW"
+    quantity: active_power
+    scale_to_base: 1000000000
+  var:
+    symbol: "var"
+    quantity: reactive_power
+  kilovar:
+    symbol: "kvar"
+    quantity: reactive_power
+    scale_to_base: 1000
+  megavar:
+    symbol: "Mvar"
+    quantity: reactive_power
+    scale_to_base: 1000000
+  volt_ampere:
+    symbol: "VA"
+    quantity: apparent_power
+  kilovolt_ampere:
+    symbol: "kVA"
+    quantity: apparent_power
+    scale_to_base: 1000
+  megavolt_ampere:
+    symbol: "MVA"
+    quantity: apparent_power
+    scale_to_base: 1000000
+  power_factor_one:
+    symbol: "1"
+    quantity: power_factor
+  power_factor_percent:
+    symbol: "%"
+    quantity: power_factor
+    scale_to_base: 0.01
+  efficiency_one:
+    symbol: "1"
+    quantity: efficiency
+  efficiency_percent:
+    symbol: "%"
+    quantity: efficiency
+    scale_to_base: 0.01
+  kelvin:
+    symbol: "K"
+    quantity: temperature
+  celsius:
+    symbol: "°C"
+    quantity: temperature
+    offset_to_base: 273.15
+  fahrenheit:
+    symbol: "°F"
+    quantity: temperature
+    scale_to_base: 0.5555555555555556
+    offset_to_base: 255.3722222222222
+  rankine:
+    symbol: "°R"
+    quantity: temperature
+    scale_to_base: 0.5555555555555556
+  kelvin_difference:
+    symbol: "K"
+    quantity: temperature_difference
+  celsius_difference:
+    symbol: "°C"
+    quantity: temperature_difference
+  fahrenheit_difference:
+    symbol: "°F"
+    quantity: temperature_difference
+    scale_to_base: 0.5555555555555556
+  watt_heat:
+    symbol: "W"
+    quantity: heat_flow
+  kilowatt_heat:
+    symbol: "kW"
+    quantity: heat_flow
+    scale_to_base: 1000
+  btu_per_hour:
+    symbol: "BTU/h"
+    quantity: heat_flow
+    scale_to_base: 0.2930710701722222
+  joule_per_kilogram_kelvin:
+    symbol: "J/(kg·K)"
+    quantity: specific_heat_capacity
+  kilojoule_per_kilogram_kelvin:
+    symbol: "kJ/(kg·K)"
+    quantity: specific_heat_capacity
+    scale_to_base: 1000
+  watt_per_meter_kelvin:
+    symbol: "W/(m·K)"
+    quantity: thermal_conductivity
+  watt_per_square_meter_kelvin:
+    symbol: "W/(m²·K)"
+    quantity: heat_transfer_coefficient
+  kelvin_per_watt:
+    symbol: "K/W"
+    quantity: thermal_resistance
+  per_kelvin:
+    symbol: "K⁻¹"
+    quantity: thermal_expansion_coefficient
+  micro_per_kelvin:
+    symbol: "µ/K"
+    quantity: thermal_expansion_coefficient
+    scale_to_base: 1.0e-6
+  joule_per_kilogram:
+    symbol: "J/kg"
+    quantity: specific_energy
+  kilojoule_per_kilogram:
+    symbol: "kJ/kg"
+    quantity: specific_energy
+    scale_to_base: 1000
+  watt_hour_per_kilogram:
+    symbol: "Wh/kg"
+    quantity: specific_energy
+    scale_to_base: 3600
+  joule_per_cubic_meter:
+    symbol: "J/m³"
+    quantity: energy_density
+  watt_hour_per_liter:
+    symbol: "Wh/L"
+    quantity: energy_density
+    scale_to_base: 3600000
+  ampere:
+    symbol: "A"
+    quantity: electric_current
+  microampere:
+    symbol: "µA"
+    quantity: electric_current
+    scale_to_base: 1.0e-6
+  milliampere:
+    symbol: "mA"
+    quantity: electric_current
+    scale_to_base: 0.001
+  kiloampere:
+    symbol: "kA"
+    quantity: electric_current
+    scale_to_base: 1000
+  volt:
+    symbol: "V"
+    quantity: electric_voltage
+  microvolt:
+    symbol: "µV"
+    quantity: electric_voltage
+    scale_to_base: 1.0e-6
+  millivolt:
+    symbol: "mV"
+    quantity: electric_voltage
+    scale_to_base: 0.001
+  kilovolt:
+    symbol: "kV"
+    quantity: electric_voltage
+    scale_to_base: 1000
+  megavolt:
+    symbol: "MV"
+    quantity: electric_voltage
+    scale_to_base: 1000000
+  ohm:
+    symbol: "Ω"
+    quantity: electrical_resistance
+  milliohm:
+    symbol: "mΩ"
+    quantity: electrical_resistance
+    scale_to_base: 0.001
+  microohm:
+    symbol: "µΩ"
+    quantity: electrical_resistance
+    scale_to_base: 1.0e-6
+  kiloohm:
+    symbol: "kΩ"
+    quantity: electrical_resistance
+    scale_to_base: 1000
+  megaohm:
+    symbol: "MΩ"
+    quantity: electrical_resistance
+    scale_to_base: 1000000
+  siemens:
+    symbol: "S"
+    quantity: electrical_conductance
+  millisiemens:
+    symbol: "mS"
+    quantity: electrical_conductance
+    scale_to_base: 0.001
+  microsiemens:
+    symbol: "µS"
+    quantity: electrical_conductance
+    scale_to_base: 1.0e-6
+  ohm_meter:
+    symbol: "Ω·m"
+    quantity: resistivity
+  ohm_millimeter_squared_per_meter:
+    symbol: "Ω·mm²/m"
+    quantity: resistivity
+    scale_to_base: 1.0e-6
+  siemens_per_meter:
+    symbol: "S/m"
+    quantity: conductivity
+  millisiemens_per_centimeter:
+    symbol: "mS/cm"
+    quantity: conductivity
+    scale_to_base: 0.1
+  coulomb:
+    symbol: "C"
+    quantity: electric_charge
+  millicoulomb:
+    symbol: "mC"
+    quantity: electric_charge
+    scale_to_base: 0.001
+  ampere_hour:
+    symbol: "Ah"
+    quantity: electric_charge
+    scale_to_base: 3600
+  milliampere_hour:
+    symbol: "mAh"
+    quantity: electric_charge
+    scale_to_base: 3.6
+  farad:
+    symbol: "F"
+    quantity: capacitance
+  millifarad:
+    symbol: "mF"
+    quantity: capacitance
+    scale_to_base: 0.001
+  microfarad:
+    symbol: "µF"
+    quantity: capacitance
+    scale_to_base: 1.0e-6
+  nanofarad:
+    symbol: "nF"
+    quantity: capacitance
+    scale_to_base: 1.0e-9
+  picofarad:
+    symbol: "pF"
+    quantity: capacitance
+    scale_to_base: 1.0e-12
+  henry:
+    symbol: "H"
+    quantity: inductance
+  millihenry:
+    symbol: "mH"
+    quantity: inductance
+    scale_to_base: 0.001
+  microhenry:
+    symbol: "µH"
+    quantity: inductance
+    scale_to_base: 1.0e-6
+  nanohenry:
+    symbol: "nH"
+    quantity: inductance
+    scale_to_base: 1.0e-9
+  weber:
+    symbol: "Wb"
+    quantity: magnetic_flux
+  milliweber:
+    symbol: "mWb"
+    quantity: magnetic_flux
+    scale_to_base: 0.001
+  tesla:
+    symbol: "T"
+    quantity: magnetic_flux_density
+  millitesla:
+    symbol: "mT"
+    quantity: magnetic_flux_density
+    scale_to_base: 0.001
+  microtesla:
+    symbol: "µT"
+    quantity: magnetic_flux_density
+    scale_to_base: 1.0e-6
+  gauss:
+    symbol: "G"
+    quantity: magnetic_flux_density
+    scale_to_base: 0.0001
+  ampere_per_meter:
+    symbol: "A/m"
+    quantity: magnetic_field_strength
+  kiloampere_per_meter:
+    symbol: "kA/m"
+    quantity: magnetic_field_strength
+    scale_to_base: 1000
+  oersted:
+    symbol: "Oe"
+    quantity: magnetic_field_strength
+    scale_to_base: 79.57747154594767
+  ampere_turn:
+    symbol: "A·turn"
+    quantity: magnetomotive_force
+  kiloampere_turn:
+    symbol: "kA·turn"
+    quantity: magnetomotive_force
+    scale_to_base: 1000
+  henry_per_meter:
+    symbol: "H/m"
+    quantity: permeability
+  farad_per_meter:
+    symbol: "F/m"
+    quantity: permittivity
+  volt_per_meter:
+    symbol: "V/m"
+    quantity: electric_field_strength
+  kilovolt_per_meter:
+    symbol: "kV/m"
+    quantity: electric_field_strength
+    scale_to_base: 1000
+  kilovolt_per_millimeter:
+    symbol: "kV/mm"
+    quantity: electric_field_strength
+    scale_to_base: 1000000
+  ampere_per_square_meter:
+    symbol: "A/m²"
+    quantity: current_density
+  ampere_per_square_millimeter:
+    symbol: "A/mm²"
+    quantity: current_density
+    scale_to_base: 1000000
+  coulomb_per_cubic_meter:
+    symbol: "C/m³"
+    quantity: charge_density
+  coulomb_per_square_meter:
+    symbol: "C/m²"
+    quantity: electric_flux_density
+  hertz_per_second:
+    symbol: "Hz/s"
+    quantity: frequency_rate
+  millihertz_per_second:
+    symbol: "mHz/s"
+    quantity: frequency_rate
+    scale_to_base: 0.001
+  volt_per_second:
+    symbol: "V/s"
+    quantity: voltage_rate
+  kilovolt_per_second:
+    symbol: "kV/s"
+    quantity: voltage_rate
+    scale_to_base: 1000
+  ampere_per_second:
+    symbol: "A/s"
+    quantity: current_rate
+  kilogram_square_meter_rotational:
+    symbol: "kg·m²"
+    quantity: rotational_inertia
+  bit:
+    symbol: "bit"
+    quantity: information
+  byte:
+    symbol: "B"
+    quantity: information
+    scale_to_base: 8
+  kilobit:
+    symbol: "kbit"
+    quantity: information
+    scale_to_base: 1000
+  megabit:
+    symbol: "Mbit"
+    quantity: information
+    scale_to_base: 1000000
+  kilobyte:
+    symbol: "kB"
+    quantity: information
+    scale_to_base: 8000
+  megabyte:
+    symbol: "MB"
+    quantity: information
+    scale_to_base: 8000000
+  kibibyte:
+    symbol: "KiB"
+    quantity: information
+    scale_to_base: 8192
+  mebibyte:
+    symbol: "MiB"
+    quantity: information
+    scale_to_base: 8388608
+  bit_per_second:
+    symbol: "bit/s"
+    quantity: data_rate
+  kilobit_per_second:
+    symbol: "kbit/s"
+    quantity: data_rate
+    scale_to_base: 1000
+  megabit_per_second:
+    symbol: "Mbit/s"
+    quantity: data_rate
+    scale_to_base: 1000000
+  gigabit_per_second:
+    symbol: "Gbit/s"
+    quantity: data_rate
+    scale_to_base: 1000000000
+  lumen:
+    symbol: "lm"
+    quantity: luminous_flux
+  lux:
+    symbol: "lx"
+    quantity: illuminance
+  kilogram_per_kilogram_dry_air:
+    symbol: "kg/kg"
+    quantity: humidity_ratio
+  gram_per_kilogram_dry_air:
+    symbol: "g/kg"
+    quantity: humidity_ratio
+    scale_to_base: 0.001
+  relative_humidity_one:
+    symbol: "1"
+    quantity: relative_humidity
+  relative_humidity_percent:
+    symbol: "%RH"
+    quantity: relative_humidity
+    scale_to_base: 0.01

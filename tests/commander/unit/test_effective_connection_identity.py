@@ -85,11 +85,11 @@ def _build_tree(tmp_root: Path, devices_yaml: str, *, model_port: int, slave_id:
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
     (root / "instances" / "devices.yaml").write_text(devices_yaml, encoding="utf-8")
-    (root / "templates/device_models/modbus_wtg/1.0.0.yaml").write_text(
+    (root / "templates/device_models/modbus_wtg_1.0.0.yaml").write_text(
         _MODEL_TEMPLATE.format(model_port=model_port, slave_id=slave_id),
         encoding="utf-8",
     )
-    (root / "templates/point_tables/modbus_wtg/1.0.0.yaml").write_text(
+    (root / "templates/point_tables/modbus_wtg_1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
     (root / "templates/business_points.yaml").write_text(_BUSINESS_POINTS, encoding="utf-8")
