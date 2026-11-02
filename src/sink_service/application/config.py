@@ -275,5 +275,7 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
         resolved = path.resolve(strict=True)
         if not resolved.is_relative_to(root) or not resolved.is_file():
             raise ConfigurationError(f"unsafe configuration file: {path}")
+        if path.is_symlink():
+            raise ConfigurationError(f"symbolic-link configuration file: {path}")
         files.append(SnapshotFile(resolved.relative_to(root).as_posix(), resolved.read_bytes()))
     return validate_snapshot(tuple(files))
