@@ -83,6 +83,10 @@ async def serve_control_plane(
     lease = WriterLease(config_root) if writer else None
     if lease is not None:
         lease.acquire()
+        if not (config_root / "CURRENT").exists():
+            # Publish the original validated filesystem snapshot before the
+            # Reader starts polling; never let the Reader see an empty domain.
+            store.commit(initial, "", old=None)
     server: grpc.aio.Server | None = None
     poll_task: asyncio.Task[None] | None = None
     try:
