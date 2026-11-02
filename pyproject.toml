@@ -103,6 +103,7 @@ extend-immutable-calls = [
 "src/collector/infrastructure/grpc/v2_server.py" = ["N802"]
 "src/commander/infrastructure/grpc/server.py" = ["N802"]
 "src/industrial_gateway/infrastructure/grpc/data_server.py" = ["N802"]
+"src/sink_service/infrastructure/grpc_v1.py" = ["N802"]
 
 [tool.mypy]
 strict = true
