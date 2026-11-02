@@ -219,8 +219,10 @@ class ConfigManager:
             return snapshot, committed
 
     async def mark_active(self, snapshot: ValidatedSnapshot) -> None:
-        """Reader/Delivery reconciler reports actual successful convergence."""
+        """Reader accepts a validated committed revision after successful apply."""
         async with self._lock:
-            if snapshot.revision != self._disk.revision:
+            if self._writer and snapshot.revision != self._disk.revision:
                 raise ConfigurationError("stale runtime revision")
+            if not self._writer:
+                self._disk = snapshot
             self._runtime = snapshot
