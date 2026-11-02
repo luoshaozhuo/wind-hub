@@ -29,6 +29,8 @@ class Application:
     effective_revision: str
     restart_required: bool
     pending: tuple[str, ...]
+    applied: tuple[str, ...]
+    error: str
 
 
 class ConfigManager:
@@ -117,9 +119,18 @@ class ConfigManager:
                 raise ConfigurationError("configuration revision conflict")
             snapshot = candidate.snapshot
             committed = self._store.commit(snapshot, expected_revision, old=self._disk)
-            previous_service = self._runtime.service
+            previous_services = {
+                item.path: item.content
+                for item in self._runtime.files
+                if item.path.startswith("services/")
+            }
+            current_services = {
+                item.path: item.content
+                for item in snapshot.files
+                if item.path.startswith("services/")
+            }
             self._disk = snapshot
-            restart_required = previous_service != snapshot.service
+            restart_required = previous_services != current_services
             previous_deliveries = self._runtime.deliveries
             changed = tuple(
                 sorted(
@@ -128,20 +139,28 @@ class ConfigManager:
                     if previous_deliveries.get(key) != snapshot.deliveries.get(key)
                 )
             )
-            if self._reconcile is not None and not restart_required:
+            applied: tuple[str, ...] = ()
+            error = ""
+            if self._reconcile is not None:
                 try:
-                    changed = await self._reconcile(snapshot)
-                    self._runtime = snapshot
+                    await self._reconcile(snapshot)
+                    applied = changed
+                    if not restart_required:
+                        self._runtime = snapshot
                 except Exception as exc:
                     # Disk is already committed; report actual pending convergence.
-                    self._last_error = str(exc)
+                    error = str(exc)
+                    self._last_error = error
+            pending = tuple(item for item in changed if item not in applied)
             application_id = secrets.token_urlsafe(24)
             application = Application(
                 application_id=application_id,
                 file_commit=committed,
                 effective_revision=self._runtime.revision,
                 restart_required=restart_required,
-                pending=changed,
+                pending=pending,
+                applied=applied,
+                error=error,
             )
             self._applications[application_id] = application
             del self._candidates[candidate_id]
