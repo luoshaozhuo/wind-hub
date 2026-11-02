@@ -31,6 +31,27 @@ message ReadVariablesRequest {
 message ReadVariablesResponse {
   string gateway_id = 1; repeated windhub.common.v1.Sample values = 2;
 }
+
+// Updates Gateway-owned variable state without forwarding industrial commands.
+// A failed item does not roll back independently valid variables.
+message VariableUpdate {
+  string variable_id = 1;
+  windhub.common.v1.ScalarValue value = 2;
+}
+message UpdateVariablesRequest {
+  string gateway_id = 1;
+  repeated VariableUpdate values = 2;
+}
+message VariableUpdateResult {
+  string variable_id = 1;
+  bool success = 2;
+  string error_code = 3;
+  string message = 4;
+}
+message UpdateVariablesResponse {
+  repeated VariableUpdateResult results = 1;
+}
+
 service IndustrialGatewayService {
   rpc ListGateways(ListGatewaysRequest) returns (ListGatewaysResponse);
   rpc GetGateway(windhub.common.v1.ObjectId) returns (GetGatewayResponse);
@@ -38,4 +59,5 @@ service IndustrialGatewayService {
   rpc StopGateway(windhub.common.v1.OperationRequest) returns (windhub.common.v1.OperationResult);
   rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
   rpc ReadVariables(ReadVariablesRequest) returns (ReadVariablesResponse);
+  rpc UpdateVariables(UpdateVariablesRequest) returns (UpdateVariablesResponse);
 }

@@ -10,6 +10,7 @@ from typing import Protocol
 
 import pytest
 from google.protobuf import timestamp_pb2
+from google.protobuf.descriptor_pb2 import FieldDescriptorProto
 
 from contracts import (
     collector_pb2,
@@ -365,3 +366,106 @@ def test_data_generator_scenario_and_generation_fields() -> None:
         actual_state="RUNNING",
     )
     assert generation.scenario_version == "3"
+
+
+def test_gateway_update_variables_batch_wire_roundtrip() -> None:
+    """One Gateway request may report partial success without losing input order."""
+    request = industrial_gateway_pb2.UpdateVariablesRequest(
+        gateway_id="gateway-1",
+        values=[
+            industrial_gateway_pb2.VariableUpdate(
+                variable_id="wind_power",
+                value=common_pb2.ScalarValue(double_value=42.5),
+            ),
+            industrial_gateway_pb2.VariableUpdate(
+                variable_id="missing",
+                value=common_pb2.ScalarValue(bool_value=False),
+            ),
+        ],
+    )
+    restored = industrial_gateway_pb2.UpdateVariablesRequest.FromString(request.SerializeToString())
+    assert restored.gateway_id == "gateway-1"
+    assert [item.variable_id for item in restored.values] == ["wind_power", "missing"]
+    assert restored.values[0].value.WhichOneof("kind") == "double_value"
+    assert restored.values[1].value.WhichOneof("kind") == "bool_value"
+
+    response = industrial_gateway_pb2.UpdateVariablesResponse(
+        results=[
+            industrial_gateway_pb2.VariableUpdateResult(variable_id="wind_power", success=True),
+            industrial_gateway_pb2.VariableUpdateResult(
+                variable_id="missing",
+                success=False,
+                error_code="NOT_FOUND",
+                message="unknown variable",
+            ),
+        ]
+    )
+    decoded = industrial_gateway_pb2.UpdateVariablesResponse.FromString(
+        response.SerializeToString()
+    )
+    assert [(item.variable_id, item.success) for item in decoded.results] == [
+        ("wind_power", True),
+        ("missing", False),
+    ]
+    assert decoded.results[1].error_code == "NOT_FOUND"
+
+
+def test_gateway_update_variables_field_numbers_and_types_frozen() -> None:
+    """四个新消息字段名/编号/类型冻结；VariableUpdate 复用 common.ScalarValue。"""
+    proto = FieldDescriptorProto
+
+    def fields(
+        message_name: str,
+    ) -> list[tuple[int, str, int, str, str | None]]:
+        message = industrial_gateway_pb2.DESCRIPTOR.message_types_by_name[message_name]
+        return [
+            (
+                field.number,
+                field.name,
+                field.type,
+                "repeated" if field.is_repeated else "singular",
+                field.message_type.full_name if field.message_type is not None else None,
+            )
+            for field in message.fields
+        ]
+
+    assert fields("VariableUpdate") == [
+        (1, "variable_id", proto.TYPE_STRING, "singular", None),
+        (2, "value", proto.TYPE_MESSAGE, "singular", "windhub.common.v1.ScalarValue"),
+    ]
+    assert fields("UpdateVariablesRequest") == [
+        (1, "gateway_id", proto.TYPE_STRING, "singular", None),
+        (
+            2,
+            "values",
+            proto.TYPE_MESSAGE,
+            "repeated",
+            "windhub.gateway.v1.VariableUpdate",
+        ),
+    ]
+    assert fields("VariableUpdateResult") == [
+        (1, "variable_id", proto.TYPE_STRING, "singular", None),
+        (2, "success", proto.TYPE_BOOL, "singular", None),
+        (3, "error_code", proto.TYPE_STRING, "singular", None),
+        (4, "message", proto.TYPE_STRING, "singular", None),
+    ]
+    assert fields("UpdateVariablesResponse") == [
+        (
+            1,
+            "results",
+            proto.TYPE_MESSAGE,
+            "repeated",
+            "windhub.gateway.v1.VariableUpdateResult",
+        ),
+    ]
+
+
+def test_gateway_update_variables_shares_variable_id_semantics() -> None:
+    """UpdateVariables 与 ListVariables/ReadVariables 使用同一字符串变量 ID 语义。"""
+    descriptor = industrial_gateway_pb2.DESCRIPTOR
+    listed = descriptor.message_types_by_name["Variable"].fields_by_name["variable_id"]
+    read = descriptor.message_types_by_name["ReadVariablesRequest"].fields_by_name["variable_ids"]
+    updated = descriptor.message_types_by_name["VariableUpdate"].fields_by_name["variable_id"]
+    assert listed.type == updated.type == FieldDescriptorProto.TYPE_STRING
+    assert read.type == FieldDescriptorProto.TYPE_STRING
+    assert read.is_repeated
