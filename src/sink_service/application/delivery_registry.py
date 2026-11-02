@@ -77,7 +77,11 @@ class DeliveryRegistry:
         signatures: dict[str, str] = {}
         for identifier, item in definitions.items():
             raw = {
-                "delivery": snapshot.deliveries[identifier],
+                "delivery": {
+                    key: value
+                    for key, value in snapshot.deliveries[identifier].items()
+                    if key != "desired_state"
+                },
                 "sink": snapshot.sinks[item.sink_id],
                 "delivery_template": (
                     snapshot.deliveries[identifier]["template_id"],
