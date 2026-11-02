@@ -128,7 +128,7 @@ class DeliveryRegistry:
                         await self._reconcile(existing)
                     except Exception:
                         # The FAILED state and error remain queryable.
-                        pass
+                        changed.append(identifier)
                     continue
                 # Construct the replacement before closing the active binding.
                 replacement = factory(definition, snapshot)
@@ -153,9 +153,14 @@ class DeliveryRegistry:
                     await self._reconcile(self._entries[identifier])
                 except Exception:
                     # Keep the failed Delivery registered for management queries.
-                    pass
+                    continue
             self._revision = snapshot.revision
-        return tuple(changed)
+        return tuple(
+            identifier
+            for identifier in changed
+            if identifier not in self._entries
+            or self._entries[identifier].view.actual_state != ActualState.FAILED
+        )
 
     @property
     def revision(self) -> str:
