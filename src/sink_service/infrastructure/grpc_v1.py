@@ -72,9 +72,15 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
     """CommonService with explicit unsupported-stage behavior."""
 
     def __init__(
-        self, config: ConfigManager, *, service_id: str, role: str
+        self,
+        config: ConfigManager,
+        registry: DeliveryRegistry,
+        *,
+        service_id: str,
+        role: str,
     ) -> None:
         self._config = config
+        self._registry = registry
         self._service_id = service_id
         self._role = role
         self._started_at = datetime.now(UTC)
@@ -93,8 +99,20 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
     async def GetServiceStatus(
         self, request: common_pb2.Empty, context: grpc.aio.ServicerContext[Any, Any]
     ) -> common_pb2.GetServiceStatusResponse:
+        views = self._registry.list()
+        failed = [view.delivery_id for view in views if view.actual_state == "FAILED"]
+        health = "DEGRADED" if failed or self._config.last_error else "HEALTHY"
         return common_pb2.GetServiceStatusResponse(
-            health="DEGRADED", observed_at=_timestamp(datetime.now(UTC))
+            health=health,
+            dependencies=[
+                common_pb2.DependencyHealth(
+                    name=view.delivery_id,
+                    health="FAILED" if view.delivery_id in failed else view.actual_state,
+                    detail=view.last_error,
+                )
+                for view in views
+            ],
+            observed_at=_timestamp(datetime.now(UTC)),
         )
 
     async def GetCapabilities(
@@ -339,7 +357,7 @@ def build_v1_server(
         options=[("grpc.max_receive_message_length", max_request_bytes)],
     )
     common_pb2_grpc.add_CommonServiceServicer_to_server(
-        CommonServiceServer(config, service_id=service_id, role=role), server
+        CommonServiceServer(config, registry, service_id=service_id, role=role), server
     )
     sink_service_pb2_grpc.add_SinkServiceServicer_to_server(
         SinkServiceServer(registry, config), server
