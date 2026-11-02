@@ -11,7 +11,7 @@ import secrets
 from pathlib import Path
 
 from sink_service.application.config import read_snapshot, validate_snapshot
-from sink_service.domain.config import ConfigurationError, SnapshotFile, ValidatedSnapshot
+from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 
 
 class GenerationStore:
@@ -102,16 +102,3 @@ class GenerationStore:
         self._sync_dir(self._root)
         return checked.revision
 
-
-def snapshot_from_wire(files: list[tuple[str, bytes, int, str]]) -> ValidatedSnapshot:
-    """Validate metadata before interpreting caller-provided YAML bytes."""
-    import hashlib
-
-    items: list[SnapshotFile] = []
-    for path, content, size, expected_hash in files:
-        if size != len(content):
-            raise ConfigurationError(f"{path}: size_bytes mismatch")
-        if hashlib.sha256(content).hexdigest() != expected_hash:
-            raise ConfigurationError(f"{path}: sha256 mismatch")
-        items.append(SnapshotFile(path, content))
-    return validate_snapshot(tuple(items))
