@@ -83,6 +83,7 @@ async def serve_control_plane(
     lease = WriterLease(config_root) if writer else None
     server: grpc.aio.Server | None = None
     poll_task: asyncio.Task[None] | None = None
+    recovery_task: asyncio.Task[None] | None = None
     try:
         if lease is not None:
             lease.acquire()
@@ -105,6 +106,16 @@ async def serve_control_plane(
             callers=service["security"]["callers"],
         )
         await server.start()
+
+        async def recover_running() -> None:
+            while not stop.is_set():
+                await registry.reconcile_all()
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=5.0)
+                except TimeoutError:
+                    continue
+
+        recovery_task = asyncio.create_task(recover_running())
         if not writer:
             sync = service["config_sync"]
             reader = ConfigReader(
@@ -119,6 +130,8 @@ async def serve_control_plane(
         stop.set()
         if poll_task is not None:
             await poll_task
+        if recovery_task is not None:
+            await recovery_task
         if server is not None:
             await server.stop(grace=5.0)
         # The Writer lease must be released even if an Adapter shutdown fails.
