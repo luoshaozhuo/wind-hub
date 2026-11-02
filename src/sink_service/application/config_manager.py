@@ -156,9 +156,8 @@ class ConfigManager:
             error = ""
             if self._reconcile is not None:
                 try:
-                    await self._reconcile(snapshot)
-                    applied = changed
-                    if not restart_required:
+                    applied = await self._reconcile(snapshot)
+                    if not restart_required and not (set(changed) - set(applied)):
                         self._runtime = snapshot
                 except Exception as exc:
                     # Disk is already committed; report actual pending convergence.
