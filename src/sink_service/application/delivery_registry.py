@@ -96,6 +96,23 @@ class DeliveryRegistry:
         except KeyError as exc:
             raise KeyError(f"unknown Delivery: {delivery_id}") from exc
 
+    async def accept_revision(self, revision: str) -> None:
+        """Advance reconciler revision after the Writer commits its intent."""
+        async with self._lock:
+            self._revision = revision
+            for entry in self._entries.values():
+                old = entry.view
+                entry.view = DeliveryView(
+                    delivery_id=old.delivery_id,
+                    channel=old.channel,
+                    sink_id=old.sink_id,
+                    process_role=old.process_role,
+                    desired_state=old.desired_state,
+                    actual_state=old.actual_state,
+                    revision=revision,
+                    last_error=old.last_error,
+                )
+
     async def set_desired(
         self, delivery_id: str, *, running: bool, expected_revision: str
     ) -> DeliveryView:
