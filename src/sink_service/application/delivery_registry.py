@@ -222,6 +222,18 @@ class DeliveryRegistry:
             await self._reconcile(entry)
             return entry.view
 
+    async def shutdown(self) -> None:
+        """Close every process-owned port without changing persisted STOP intent."""
+        async with self._lock:
+            for entry in self._entries.values():
+                try:
+                    await entry.port.stop()
+                finally:
+                    old = entry.view
+                    entry.view = self._replace(
+                        old, actual_state=ActualState.STOPPED, last_error=""
+                    )
+
     async def reconcile_all(self) -> None:
         """Restore START intent, never resurrect an operator STOP."""
         async with self._lock:
