@@ -93,6 +93,14 @@ class GenerationStore:
             except BaseException:
                 # A failed stage is not reachable through CURRENT.
                 raise
+        # Never point CURRENT at an existing corrupt or partial generation.
+        # This also validates a generation reused after an interrupted Apply.
+        committed = read_snapshot(target, target / next(
+            item.path for item in checked.files
+            if item.path.startswith("services/") and item.path.endswith(".yaml")
+        ))
+        if committed.revision != checked.revision:
+            raise ConfigurationError("existing committed generation differs from candidate")
         temporary = self._root / f".CURRENT-{secrets.token_hex(12)}"
         with temporary.open("x", encoding="ascii") as stream:
             stream.write(checked.revision + "\n")
