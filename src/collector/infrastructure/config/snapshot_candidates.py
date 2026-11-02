@@ -70,8 +70,16 @@ class SnapshotCandidateStore:
         path = PurePosixPath(raw)
         if not path.parts or path.as_posix() != raw:
             raise SnapshotCandidateError("snapshot path is not normalized")
-        if path.parts[0] not in ("services", "instances", "templates"):
-            raise SnapshotCandidateError("snapshot path is outside Collector config")
+        if path.parts[0] == "services":
+            allowed = path.parts == ("services", "collector.yaml")
+        elif path.parts[0] == "instances":
+            allowed = path.parts in (("instances", "site.yaml"), ("instances", "devices.yaml"))
+        elif path.parts[0] == "templates":
+            allowed = len(path.parts) >= 2
+        else:
+            allowed = False
+        if not allowed:
+            raise SnapshotCandidateError("snapshot path is outside Collector ownership")
         if path.suffix != ".yaml":
             raise SnapshotCandidateError("snapshot requires YAML files")
         return raw
