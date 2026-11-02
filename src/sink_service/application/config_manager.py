@@ -209,8 +209,13 @@ class ConfigManager:
             )
             self._disk = snapshot
             if self._reconcile is not None:
-                await self._reconcile(snapshot)
-                self._runtime = snapshot
+                try:
+                    await self._reconcile(snapshot)
+                    self._runtime = snapshot
+                    self._last_error = ""
+                except Exception as exc:
+                    # Operator intent is durable despite an unready Delivery.
+                    self._last_error = str(exc)
             return snapshot, committed
 
     async def mark_active(self, snapshot: ValidatedSnapshot) -> None:
