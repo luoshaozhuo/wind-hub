@@ -76,6 +76,8 @@ async def serve_control_plane(
     manager = ConfigManager(store, initial, writer=writer, reconcile=reconcile)
 
     async def apply_reader_snapshot(snapshot: ValidatedSnapshot) -> None:
+        if service_configuration(snapshot, service_file) != service:
+            raise ConfigurationError("RESTART_REQUIRED: Reader Service configuration changed")
         await reconcile(snapshot)
         await manager.mark_active(snapshot)
     lease = WriterLease(config_root) if writer else None
@@ -115,7 +117,9 @@ async def serve_control_plane(
             await poll_task
         if server is not None:
             await server.stop(grace=5.0)
-        # Explicitly terminate process-owned Delivery resources on shutdown.
-        await registry.shutdown()
-        if lease is not None:
-            lease.release()
+        # The Writer lease must be released even if an Adapter shutdown fails.
+        try:
+            await registry.shutdown()
+        finally:
+            if lease is not None:
+                lease.release()
