@@ -279,3 +279,15 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
             raise ConfigurationError(f"unsafe configuration file: {path}")
         files.append(SnapshotFile(resolved.relative_to(root).as_posix(), resolved.read_bytes()))
     return validate_snapshot(tuple(files))
+
+
+def snapshot_from_wire(files: list[tuple[str, bytes, int, str]]) -> ValidatedSnapshot:
+    """Validate transport file metadata before parsing any YAML payload."""
+    items: list[SnapshotFile] = []
+    for path, content, size, expected_hash in files:
+        if size != len(content):
+            raise ConfigurationError(f"{path}: size_bytes mismatch")
+        if hashlib.sha256(content).hexdigest() != expected_hash:
+            raise ConfigurationError(f"{path}: sha256 mismatch")
+        items.append(SnapshotFile(path, content))
+    return validate_snapshot(tuple(items))
