@@ -170,10 +170,20 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             effective_revision=applied.effective_revision,
             restart_required=applied.restart_required,
             application_id=applied.application_id,
-            apply_results=[
-                common_pb2.ApplicationResult(object_id=name, status="PENDING")
-                for name in applied.pending
-            ],
+            apply_results=(
+                [
+                    common_pb2.ApplicationResult(object_id=name, status="APPLIED")
+                    for name in applied.applied
+                ]
+                + [
+                    common_pb2.ApplicationResult(
+                        object_id=name,
+                        status="FAILED" if applied.error else "PENDING",
+                        message=applied.error,
+                    )
+                    for name in applied.pending
+                ]
+            ),
         )
 
     async def GetMetrics(
