@@ -194,6 +194,7 @@ root_packages = [
     "web_server",
     "industrial_gateway",
     "seahorse",
+    "sink_service",
     "contracts",
 ]
 
@@ -310,3 +311,27 @@ name = "web_server 只通过 core RPC 访问服务"
 type = "forbidden"
 source_modules = ["web_server"]
 forbidden_modules = ["collector", "commander", "cli"]
+
+
+# ---- Sink Service clean-rewrite boundaries ----
+
+[[tool.importlinter.contracts]]
+name = "sink service three-layer architecture"
+type = "layers"
+layers = [
+    "sink_service.infrastructure",
+    "sink_service.application",
+    "sink_service.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "sink service does not import other process packages"
+type = "forbidden"
+source_modules = ["sink_service"]
+forbidden_modules = [
+    "collector",
+    "commander",
+    "industrial_gateway",
+    "cli",
+    "web_server",
+]
