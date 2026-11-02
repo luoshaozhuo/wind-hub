@@ -10,7 +10,7 @@ from pathlib import Path
 
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_registry import DeliveryPort
-from sink_service.application.service_v1 import serve_control_plane
+from sink_service.infrastructure.bootstrap import serve_control_plane
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 
 logger = logging.getLogger(__name__)
