@@ -76,7 +76,18 @@ class DeliveryRegistry:
         }
         signatures: dict[str, str] = {}
         for identifier, item in definitions.items():
+            template_paths = {
+                f"templates/deliveries/{snapshot.deliveries[identifier]['template_id']}/"
+                f"{snapshot.deliveries[identifier]['template_version']}.yaml",
+                f"templates/sinks/{snapshot.sinks[item.sink_id]['template_id']}/"
+                f"{snapshot.sinks[item.sink_id]['template_version']}.yaml",
+            }
             raw = {
+                "templates": {
+                    file.path: hashlib.sha256(file.content).hexdigest()
+                    for file in snapshot.files
+                    if file.path in template_paths
+                },
                 "delivery": {
                     key: value
                     for key, value in snapshot.deliveries[identifier].items()
