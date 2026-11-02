@@ -92,8 +92,12 @@ def validate_service(service: dict[str, Any]) -> None:
     expect_positive_int(grpc.get("max_request_bytes"), "grpc.max_request_bytes", 2 * 1024**2)
     expect_positive_int(grpc.get("default_deadline_ms"), "grpc.default_deadline_ms", 5000)
     runtime = expect_mapping(service.get("runtime"), "service.runtime")
-    global_limit = expect_positive_int(runtime.get("max_inflight_global"), "runtime.max_inflight_global")
-    per_sink = expect_positive_int(runtime.get("max_inflight_per_sink"), "runtime.max_inflight_per_sink")
+    global_limit = expect_positive_int(
+        runtime.get("max_inflight_global"), "runtime.max_inflight_global"
+    )
+    per_sink = expect_positive_int(
+        runtime.get("max_inflight_per_sink"), "runtime.max_inflight_per_sink"
+    )
     if per_sink > global_limit:
         raise ConfigurationError("runtime.max_inflight_per_sink exceeds global limit")
     expect_positive_int(runtime.get("max_pending_points"), "runtime.max_pending_points")
@@ -103,7 +107,9 @@ def validate_service(service: dict[str, Any]) -> None:
     interval = expect_positive_int(
         metrics.get("metrics_compute_interval_ms"), "metrics.metrics_compute_interval_ms", 60000
     )
-    window = expect_positive_int(metrics.get("metrics_window_ms"), "metrics.metrics_window_ms", 3600000)
+    window = expect_positive_int(
+        metrics.get("metrics_window_ms"), "metrics.metrics_window_ms", 3600000
+    )
     if interval < 100 or window < 1000 or window < interval:
         raise ConfigurationError("metrics: unsupported interval or window")
     supported = metrics.get("supported_window_ms")
