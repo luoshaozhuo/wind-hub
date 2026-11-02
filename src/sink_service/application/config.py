@@ -212,7 +212,9 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     service_path = service_path.resolve(strict=True)
     if not service_path.is_relative_to(root):
         raise ConfigurationError("Service path escapes configuration root")
-    paths = [service_path]
+    paths = list((root / "services").rglob("*.yaml"))
+    if service_path not in [p.resolve(strict=True) for p in paths]:
+        raise ConfigurationError("selected Service is absent from shared snapshot")
     for category in ("templates", "instances"):
         directory = root / category
         if directory.exists():
