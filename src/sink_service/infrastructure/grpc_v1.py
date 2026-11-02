@@ -126,15 +126,12 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                 "GetConfigSnapshot",
                 "PushConfigSnapshot",
                 "ApplyConfigSnapshot",
-                "GetMetrics",
-                "GetEvents",
-                "Diagnose",
                 "ListDeliveries",
                 "GetDelivery",
                 "StartDelivery",
                 "StopDelivery",
             ],
-            protocols=["nats", "redis", "kafka", "modbus_tcp"],
+            protocols=[],
             features=["full_snapshot_configuration", "per_delivery_lifecycle"],
         )
 
