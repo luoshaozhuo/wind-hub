@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
+from sink_service.application.delivery_definition import DeliveryDefinition, delivery_definitions
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 
 
@@ -41,6 +45,7 @@ class DeliveryView:
 class _Entry:
     port: DeliveryPort
     view: DeliveryView
+    signature: str = ""
 
 
 class DeliveryRegistry:
@@ -53,6 +58,81 @@ class DeliveryRegistry:
         self._revision = snapshot.revision
         self._entries: dict[str, _Entry] = {}
         self._lock = asyncio.Lock()
+
+    async def apply_configuration(
+        self,
+        snapshot: ValidatedSnapshot,
+        factory: Callable[[DeliveryDefinition, ValidatedSnapshot], DeliveryPort],
+    ) -> tuple[str, ...]:
+        """Incrementally reconcile changed, added and removed Deliveries.
+
+        Only changed bindings close their old ports. An unchanged STOP remains
+        stopped and is never revived by a Watchdog.
+        """
+        definitions = {
+            item.delivery_id: item
+            for item in delivery_definitions(snapshot)
+            if item.channel == self._role
+        }
+        signatures: dict[str, str] = {}
+        for identifier, item in definitions.items():
+            raw = {
+                "delivery": snapshot.deliveries[identifier],
+                "sink": snapshot.sinks[item.sink_id],
+                "delivery_template": (
+                    snapshot.deliveries[identifier]["template_id"],
+                    snapshot.deliveries[identifier]["template_version"],
+                ),
+            }
+            signatures[identifier] = hashlib.sha256(
+                json.dumps(raw, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+        changed: list[str] = []
+        async with self._lock:
+            for identifier in sorted(set(self._entries) - set(definitions)):
+                entry = self._entries[identifier]
+                await entry.port.stop()
+                del self._entries[identifier]
+                changed.append(identifier)
+            for identifier, definition in definitions.items():
+                existing = self._entries.get(identifier)
+                signature = signatures[identifier]
+                if existing is not None and existing.signature == signature:
+                    old = existing.view
+                    existing.view = DeliveryView(
+                        delivery_id=old.delivery_id,
+                        channel=old.channel,
+                        sink_id=old.sink_id,
+                        process_role=old.process_role,
+                        desired_state=definition.desired_state,
+                        actual_state=old.actual_state,
+                        revision=snapshot.revision,
+                        last_error=old.last_error,
+                    )
+                    await self._reconcile(existing)
+                    continue
+                # Construct the replacement before closing the active binding.
+                replacement = factory(definition, snapshot)
+                if existing is not None:
+                    await existing.port.stop()
+                self._entries[identifier] = _Entry(
+                    port=replacement,
+                    view=DeliveryView(
+                        delivery_id=identifier,
+                        channel=definition.channel,
+                        sink_id=definition.sink_id,
+                        process_role=self._role,
+                        desired_state=definition.desired_state,
+                        actual_state=ActualState.STOPPED,
+                        revision=snapshot.revision,
+                        last_error="",
+                    ),
+                    signature=signature,
+                )
+                changed.append(identifier)
+                await self._reconcile(self._entries[identifier])
+            self._revision = snapshot.revision
+        return tuple(changed)
 
     @property
     def revision(self) -> str:
