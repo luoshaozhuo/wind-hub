@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +74,10 @@ async def serve_control_plane(
         return await registry.apply_configuration(snapshot, port_factory)
 
     manager = ConfigManager(store, initial, writer=writer, reconcile=reconcile)
+
+    async def apply_reader_snapshot(snapshot: ValidatedSnapshot) -> None:
+        await reconcile(snapshot)
+        await manager.mark_active(snapshot)
     lease = WriterLease(config_root) if writer else None
     if lease is not None:
         lease.acquire()
@@ -101,7 +104,7 @@ async def serve_control_plane(
             reader = ConfigReader(
                 config_root,
                 service_file,
-                reconcile,
+                apply_reader_snapshot,
                 poll_interval_ms=sync["poll_interval_ms"],
             )
             poll_task = asyncio.create_task(reader.run(stop))
