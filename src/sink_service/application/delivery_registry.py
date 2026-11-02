@@ -251,16 +251,23 @@ class DeliveryRegistry:
             return entry.view
 
     async def shutdown(self) -> None:
-        """Close every process-owned port without changing persisted STOP intent."""
+        """Close all ports even if one refuses to terminate."""
         async with self._lock:
+            failures: list[BaseException] = []
             for entry in self._entries.values():
                 try:
                     await entry.port.stop()
-                finally:
-                    old = entry.view
+                except BaseException as exc:
+                    failures.append(exc)
                     entry.view = self._replace(
-                        old, actual_state=ActualState.STOPPED, last_error=""
+                        entry.view, actual_state=ActualState.FAILED, last_error=str(exc)
                     )
+                else:
+                    entry.view = self._replace(
+                        entry.view, actual_state=ActualState.STOPPED, last_error=""
+                    )
+            if failures:
+                raise ExceptionGroup("Delivery shutdown failed", failures)
 
     async def reconcile_all(self) -> None:
         """Restore START intent, never resurrect an operator STOP."""
@@ -282,7 +289,7 @@ class DeliveryRegistry:
                 await entry.port.start()
             else:
                 await entry.port.stop()
-        except Exception as exc:
+        except BaseException as exc:
             entry.view = self._replace(
                 entry.view, actual_state=ActualState.FAILED, last_error=str(exc)
             )
