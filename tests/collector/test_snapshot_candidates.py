@@ -20,6 +20,8 @@ from collector.infrastructure.config.snapshot_candidates import (
         "instances/./devices.yaml",
         "instances\\devices.yaml",
         "other/devices.yaml",
+        "services/commander.yaml",
+        "instances/deliveries.yaml",
         "instances/devices.json",
         "",
     ],
