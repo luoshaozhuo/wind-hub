@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any
@@ -137,7 +136,7 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common_pb2.PushConfigSnapshotResponse:
         try:
-            candidate_id, snapshot = await self._config.push(
+            candidate_id, _snapshot = await self._config.push(
                 [
                     (item.relative_path, bytes(item.content), item.size_bytes, item.sha256)
                     for item in request.files
@@ -207,17 +206,23 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
         request: sink_service_pb2.ListDeliveriesRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> sink_service_pb2.ListDeliveriesResponse:
-        if request.page_token:
-            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "unsupported page token")
-            raise AssertionError("gRPC abort returned")
+        try:
+            offset = int(request.page_token) if request.page_token else 0
+            if offset < 0 or str(offset) != (request.page_token or "0"):
+                raise ValueError("invalid page token")
+        except ValueError as exc:
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise AssertionError("gRPC abort returned") from exc
         values = self._registry.list(request.channel)
         limit = request.page_size or 100
         if limit > 500:
             await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "page size exceeds 500")
             raise AssertionError("gRPC abort returned")
         return sink_service_pb2.ListDeliveriesResponse(
-            deliveries=[_delivery(view) for view in values[:limit]],
-            next_page_token=str(limit) if len(values) > limit else "",
+            deliveries=[_delivery(view) for view in values[offset : offset + limit]],
+            next_page_token=(
+                str(offset + limit) if len(values) > offset + limit else ""
+            ),
         )
 
     async def GetDelivery(
