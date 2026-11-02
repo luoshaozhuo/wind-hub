@@ -1,1 +1,1 @@
-"""Wind Hub 交互式运维 CLI：配置检查、对象查询与现场通信诊断。"""
+"""Wind Hub CLI v1: Typer commands, gRPC clients and local diagnostics."""
