@@ -60,11 +60,14 @@ class GenerationStore:
             raise ConfigurationError("snapshot was modified after validation")
         if old is not None:
             previous = {item.path: item.content for item in old.files}
-            for item in checked.files:
-                if item.path.startswith("templates/"):
-                    old_content = previous.get(item.path)
-                    if old_content is not None and old_content != item.content:
-                        raise ConfigurationError(f"immutable template version modified: {item.path}")
+            current = {item.path: item.content for item in checked.files}
+            for path, old_content in previous.items():
+                if not path.startswith("templates/"):
+                    continue
+                if path not in current:
+                    raise ConfigurationError(f"published template version deleted: {path}")
+                if current[path] != old_content:
+                    raise ConfigurationError(f"immutable template version modified: {path}")
         target = self._generation(checked.revision)
         self._generations.mkdir(parents=True, exist_ok=True)
         if not target.exists():
