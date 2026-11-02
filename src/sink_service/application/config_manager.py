@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 import secrets
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -214,7 +214,7 @@ class ConfigManager:
                     self._runtime = snapshot
                     self._last_error = ""
                 except Exception as exc:
-                    # Operator intent is durable despite an unready Delivery.
+                    # The desired state has already been committed to disk.
                     self._last_error = str(exc)
             return snapshot, committed
 
