@@ -5,14 +5,27 @@ from __future__ import annotations
 import asyncio
 import secrets
 from collections.abc import Awaitable, Callable
+from typing import Protocol
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import yaml
 
-from sink_service.application.config import validate_snapshot
+from sink_service.application.config import snapshot_from_wire, validate_snapshot
 from sink_service.domain.config import ConfigurationError, SnapshotFile, ValidatedSnapshot
-from sink_service.infrastructure.config_repository import GenerationStore, snapshot_from_wire
+
+
+
+class SnapshotCommitPort(Protocol):
+    """Atomic persistent commit port implemented by infrastructure."""
+
+    def commit(
+        self,
+        snapshot: ValidatedSnapshot,
+        expected_revision: str,
+        *,
+        old: ValidatedSnapshot | None,
+    ) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +51,7 @@ class ConfigManager:
 
     def __init__(
         self,
-        store: GenerationStore,
+        store: SnapshotCommitPort,
         initial: ValidatedSnapshot,
         *,
         writer: bool,
