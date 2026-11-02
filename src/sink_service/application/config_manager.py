@@ -213,6 +213,7 @@ class ConfigManager:
                 if not isinstance(delivery, dict):
                     raise ConfigurationError("Delivery is missing in current snapshot")
                 delivery["desired_state"] = "START" if running else "STOP"
+                doc["revision"] = secrets.token_hex(16)
                 updated.append(
                     SnapshotFile(
                         item.path,
