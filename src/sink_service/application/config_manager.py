@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -10,9 +11,7 @@ from datetime import UTC, datetime, timedelta
 import yaml
 
 from sink_service.application.config import validate_snapshot
-from sink_service.domain.config import SnapshotFile
-
-from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
+from sink_service.domain.config import ConfigurationError, SnapshotFile, ValidatedSnapshot
 from sink_service.infrastructure.config_repository import GenerationStore, snapshot_from_wire
 
 
@@ -43,6 +42,7 @@ class ConfigManager:
         writer: bool,
         candidate_ttl_seconds: int = 300,
         max_candidates: int = 8,
+        reconcile: Callable[[ValidatedSnapshot], Awaitable[tuple[str, ...]]] | None = None,
     ) -> None:
         self._store = store
         self._disk = initial
@@ -53,6 +53,7 @@ class ConfigManager:
         self._lock = asyncio.Lock()
         self._candidates: dict[str, Candidate] = {}
         self._applications: dict[str, Application] = {}
+        self._reconcile = reconcile
 
     @property
     def disk(self) -> ValidatedSnapshot:
@@ -122,6 +123,13 @@ class ConfigManager:
                     if previous_deliveries.get(key) != snapshot.deliveries.get(key)
                 )
             )
+            if self._reconcile is not None and not restart_required:
+                try:
+                    changed = await self._reconcile(snapshot)
+                    self._runtime = snapshot
+                except Exception:
+                    # Disk is already committed; do not advertise runtime success.
+                    pass
             application_id = secrets.token_urlsafe(24)
             application = Application(
                 application_id=application_id,
@@ -176,6 +184,9 @@ class ConfigManager:
                 snapshot, expected_revision, old=self._disk
             )
             self._disk = snapshot
+            if self._reconcile is not None:
+                await self._reconcile(snapshot)
+                self._runtime = snapshot
             return snapshot, committed
 
     async def mark_active(self, snapshot: ValidatedSnapshot) -> None:
