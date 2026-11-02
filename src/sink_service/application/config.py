@@ -272,10 +272,10 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
             paths.extend(directory.rglob("*.yaml"))
     files: list[SnapshotFile] = []
     for path in paths:
+        if path.is_symlink() or any(parent.is_symlink() for parent in path.parents if parent != root):
+            raise ConfigurationError(f"symbolic-link configuration path: {path}")
         resolved = path.resolve(strict=True)
         if not resolved.is_relative_to(root) or not resolved.is_file():
             raise ConfigurationError(f"unsafe configuration file: {path}")
-        if path.is_symlink():
-            raise ConfigurationError(f"symbolic-link configuration file: {path}")
         files.append(SnapshotFile(resolved.relative_to(root).as_posix(), resolved.read_bytes()))
     return validate_snapshot(tuple(files))
