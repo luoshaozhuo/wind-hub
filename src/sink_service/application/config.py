@@ -191,6 +191,53 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         if key in addresses:
             raise ConfigurationError(f"sinks.{sink_id}: duplicate Modbus listen address")
         addresses.add(key)
+    # Validate the complete Modbus value/quality address closure per Sink.
+    for sink_id, (kind, _caps) in sinks.items():
+        if kind != "modbus_tcp":
+            continue
+        sink = sink_instances[sink_id]
+        template = _template(
+            docs, "sinks", sink["template_id"], sink["template_version"]
+        )
+        output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
+        if output.get("value_encoding") != "float32_be":
+            raise ConfigurationError(f"sinks.{sink_id}: unsupported value encoding")
+        if output.get("quality_encoding") != "separate_register":
+            raise ConfigurationError(f"sinks.{sink_id}: missing quality registers")
+        if output.get("quality_codes") != {"good": 0, "bad": 1, "uncertain": 2}:
+            raise ConfigurationError(f"sinks.{sink_id}: invalid quality codes")
+        expect_positive_int(output.get("unit_id"), f"sinks.{sink_id}.unit_id", 247)
+        start = output.get("register_start")
+        quality_start = output.get("quality_register_start")
+        if type(start) is not int or not 0 <= start <= 65535:
+            raise ConfigurationError(f"sinks.{sink_id}: invalid register_start")
+        if type(quality_start) is not int or not 0 <= quality_start <= 65535:
+            raise ConfigurationError(f"sinks.{sink_id}: invalid quality_register_start")
+        sources: set[tuple[str, str, str]] = set()
+        for delivery_id, delivery in delivery_instances.items():
+            if delivery["sink_id"] != sink_id:
+                continue
+            source = delivery["source"]
+            devices, points = source["devices"], source["points"]
+            if not devices or not points:
+                raise ConfigurationError(
+                    f"deliveries.{delivery_id}: Modbus requires bounded explicit point map"
+                )
+            for device_id in devices:
+                for point_id in points:
+                    key = (source["collector_id"], device_id, point_id)
+                    if key in sources:
+                        raise ConfigurationError(f"sinks.{sink_id}: duplicate output point {key}")
+                    sources.add(key)
+        width = len(sources)
+        if width == 0:
+            continue
+        value_end = start + 2 * width - 1
+        quality_end = quality_start + width - 1
+        if max(value_end, quality_end) > 65535:
+            raise ConfigurationError(f"sinks.{sink_id}: Modbus register overflow")
+        if start <= quality_end and quality_start <= value_end:
+            raise ConfigurationError(f"sinks.{sink_id}: value/quality registers overlap")
     digest = hashlib.sha256()
     for path, item in sorted(by_path.items()):
         digest.update(path.encode("utf-8"))
