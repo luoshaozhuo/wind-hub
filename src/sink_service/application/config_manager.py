@@ -5,15 +5,14 @@ from __future__ import annotations
 import asyncio
 import secrets
 from collections.abc import Awaitable, Callable
-from typing import Protocol
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
 
 import yaml
 
 from sink_service.application.config import snapshot_from_wire, validate_snapshot
 from sink_service.domain.config import ConfigurationError, SnapshotFile, ValidatedSnapshot
-
 
 
 class SnapshotCommitPort(Protocol):
@@ -157,8 +156,15 @@ class ConfigManager:
             if self._reconcile is not None:
                 try:
                     applied = await self._reconcile(snapshot)
-                    if not restart_required and not (set(changed) - set(applied)):
-                        self._runtime = snapshot
+                    if not restart_required:
+                        # This revision is effective only when every affected
+                        # object has successfully converged.
+                        if not (set(changed) - set(applied)):
+                            self._runtime = snapshot
+                            self._last_error = ""
+                        else:
+                            error = "one or more Deliveries are not converged"
+                            self._last_error = error
                 except Exception as exc:
                     # Disk is already committed; report actual pending convergence.
                     error = str(exc)
@@ -222,9 +228,12 @@ class ConfigManager:
             self._disk = snapshot
             if self._reconcile is not None:
                 try:
-                    await self._reconcile(snapshot)
-                    self._runtime = snapshot
-                    self._last_error = ""
+                    applied = await self._reconcile(snapshot)
+                    if delivery_id in applied or not running:
+                        self._runtime = snapshot
+                        self._last_error = ""
+                    else:
+                        self._last_error = "Delivery did not reach requested state"
                 except Exception as exc:
                     # The desired state has already been committed to disk.
                     self._last_error = str(exc)
