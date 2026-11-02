@@ -155,10 +155,22 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         by_path[item.path] = item
     docs = {path: _yaml_doc(item) for path, item in by_path.items()}
     service_files = [path for path in docs if path.startswith("services/")]
-    if len(service_files) != 1:
-        raise ConfigurationError("one Service file per process snapshot is required")
-    service = docs[service_files[0]]
-    validate_service(service)
+    if len(service_files) != 2:
+        raise ConfigurationError("shared snapshot requires realtime and reliable Service files")
+    services = [docs[path] for path in service_files]
+    for item in services:
+        validate_service(item)
+    if {item["process_role"] for item in services} != {"realtime", "reliable"}:
+        raise ConfigurationError("Service processes must have distinct roles")
+    if sum(item["config_writer"] for item in services) != 1:
+        raise ConfigurationError("configuration domain requires exactly one Writer")
+    if len({item["grpc"]["listen_port"] for item in services}) != 2:
+        raise ConfigurationError("Service gRPC ports must be distinct")
+    if len({item["config_root"] for item in services}) != 1:
+        raise ConfigurationError("Service config_root values must match")
+    if len({(item["wind_farm_id"], item["deployment_id"]) for item in services}) != 1:
+        raise ConfigurationError("Service source identity must match")
+    service = next(item for item in services if item["config_writer"])
     sink_instances = _instances(docs, "sinks")
     delivery_instances = _instances(docs, "deliveries")
     sinks = {
