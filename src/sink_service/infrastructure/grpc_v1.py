@@ -13,6 +13,7 @@ from contracts import common_pb2, common_pb2_grpc, sink_service_pb2, sink_servic
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.delivery_registry import DeliveryRegistry, DeliveryView
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
+from sink_service.infrastructure.grpc_auth import PeerAuthorization
 
 
 def _timestamp(now: datetime) -> Timestamp:
@@ -288,8 +289,10 @@ def build_v1_server(
     address: str,
     max_active_rpcs: int,
     max_request_bytes: int,
+    callers: object,
 ) -> grpc.aio.Server:
     server = grpc.aio.server(
+        interceptors=[PeerAuthorization(callers)],
         maximum_concurrent_rpcs=max_active_rpcs,
         options=[("grpc.max_receive_message_length", max_request_bytes)],
     )
