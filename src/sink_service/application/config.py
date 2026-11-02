@@ -148,6 +148,10 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     """Resolve all cross-file template references before accepting a snapshot."""
     if not files:
         raise ConfigurationError("empty configuration snapshot")
+    if len(files) > 256:
+        raise ConfigurationError("configuration file count exceeds 256")
+    if sum(len(item.content) for item in files) > 2 * 1024 * 1024:
+        raise ConfigurationError("configuration snapshot exceeds 2 MiB")
     by_path: dict[str, SnapshotFile] = {}
     for item in files:
         if item.path in by_path:
@@ -164,7 +168,7 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         raise ConfigurationError("Service processes must have distinct roles")
     if sum(item["config_writer"] for item in services) != 1:
         raise ConfigurationError("configuration domain requires exactly one Writer")
-    if len({item["grpc"]["listen_port"] for item in services}) != 2:
+    if len({(item["grpc"]["listen_host"], item["grpc"]["listen_port"]) for item in services}) != 2:
         raise ConfigurationError("Service gRPC ports must be distinct")
     if len({item["config_root"] for item in services}) != 1:
         raise ConfigurationError("Service config_root values must match")
