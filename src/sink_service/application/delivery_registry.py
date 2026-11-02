@@ -270,10 +270,21 @@ class DeliveryRegistry:
                 raise ExceptionGroup("Delivery shutdown failed", failures)
 
     async def reconcile_all(self) -> None:
-        """Restore START intent, never resurrect an operator STOP."""
+        """Retry failed START intent; never resurrect an operator STOP."""
         async with self._lock:
             for entry in self._entries.values():
-                await self._reconcile(entry)
+                if entry.view.desired_state != "START":
+                    continue
+                if entry.view.actual_state not in (
+                    ActualState.STOPPED,
+                    ActualState.FAILED,
+                ):
+                    continue
+                try:
+                    await self._reconcile(entry)
+                except Exception:
+                    # Keep other Deliveries recoverable if one adapter fails.
+                    continue
 
     async def _reconcile(self, entry: _Entry) -> None:
         old = entry.view
