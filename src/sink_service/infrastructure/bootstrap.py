@@ -79,6 +79,12 @@ async def serve_control_plane(
         if service_configuration(snapshot, service_file) != service:
             raise ConfigurationError("RESTART_REQUIRED: Reader Service configuration changed")
         await reconcile(snapshot)
+        failed = [
+            item.delivery_id for item in registry.list()
+            if item.desired_state == "START" and item.actual_state != "RUNNING"
+        ]
+        if failed:
+            raise ConfigurationError(f"Reader Deliveries not converged: {failed}")
         await manager.mark_active(snapshot)
     lease = WriterLease(config_root) if writer else None
     server: grpc.aio.Server | None = None
@@ -91,7 +97,7 @@ async def serve_control_plane(
                 # Publish the original validated filesystem snapshot before
                 # the Reader starts polling.
                 store.commit(initial, "", old=None)
-        # A failed initial reconciliation prevents false READY status.
+        # Keep failed Deliveries visible while the Watchdog retries START intent.
         await reconcile(initial)
         grpc_config = service["grpc"]
         server = build_v1_server(
