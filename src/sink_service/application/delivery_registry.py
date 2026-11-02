@@ -124,7 +124,11 @@ class DeliveryRegistry:
                         revision=snapshot.revision,
                         last_error=old.last_error,
                     )
-                    await self._reconcile(existing)
+                    try:
+                        await self._reconcile(existing)
+                    except Exception:
+                        # The FAILED state and error remain queryable.
+                        pass
                     continue
                 # Construct the replacement before closing the active binding.
                 replacement = factory(definition, snapshot)
@@ -145,7 +149,11 @@ class DeliveryRegistry:
                     signature=signature,
                 )
                 changed.append(identifier)
-                await self._reconcile(self._entries[identifier])
+                try:
+                    await self._reconcile(self._entries[identifier])
+                except Exception:
+                    # Keep the failed Delivery registered for management queries.
+                    pass
             self._revision = snapshot.revision
         return tuple(changed)
 
