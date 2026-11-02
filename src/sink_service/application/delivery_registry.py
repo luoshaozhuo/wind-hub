@@ -106,7 +106,13 @@ class DeliveryRegistry:
         async with self._lock:
             for identifier in sorted(set(self._entries) - set(definitions)):
                 entry = self._entries[identifier]
-                await entry.port.stop()
+                try:
+                    await entry.port.stop()
+                except Exception as exc:
+                    entry.view = self._replace(
+                        entry.view, actual_state=ActualState.FAILED, last_error=str(exc)
+                    )
+                    continue
                 del self._entries[identifier]
                 changed.append(identifier)
             for identifier, definition in definitions.items():
