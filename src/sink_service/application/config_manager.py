@@ -7,6 +7,11 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+import yaml
+
+from sink_service.application.config import validate_snapshot
+from sink_service.domain.config import SnapshotFile
+
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 from sink_service.infrastructure.config_repository import GenerationStore, snapshot_from_wire
 
@@ -128,6 +133,50 @@ class ConfigManager:
             self._applications[application_id] = application
             del self._candidates[candidate_id]
             return application
+
+    async def set_delivery_desired(
+        self,
+        delivery_id: str,
+        *,
+        running: bool,
+        expected_revision: str,
+    ) -> tuple[ValidatedSnapshot, str]:
+        """Persist operator intent via the same CAS as full snapshot Apply."""
+        self._require_writer()
+        async with self._lock:
+            if self._disk.revision != expected_revision:
+                raise ConfigurationError("configuration revision conflict")
+            if delivery_id not in self._disk.deliveries:
+                raise KeyError(f"unknown Delivery: {delivery_id}")
+            updated: list[SnapshotFile] = []
+            for item in self._disk.files:
+                if item.path != "instances/deliveries.yaml":
+                    updated.append(item)
+                    continue
+                doc = yaml.safe_load(item.content)
+                if not isinstance(doc, dict):
+                    raise ConfigurationError("invalid Delivery instances file")
+                deliveries = doc.get("deliveries")
+                if not isinstance(deliveries, dict):
+                    raise ConfigurationError("invalid Deliveries mapping")
+                delivery = deliveries.get(delivery_id)
+                if not isinstance(delivery, dict):
+                    raise ConfigurationError("Delivery is missing in current snapshot")
+                delivery["desired_state"] = "START" if running else "STOP"
+                updated.append(
+                    SnapshotFile(
+                        item.path,
+                        yaml.safe_dump(
+                            doc, allow_unicode=True, sort_keys=False
+                        ).encode("utf-8"),
+                    )
+                )
+            snapshot = validate_snapshot(tuple(updated))
+            committed = self._store.commit(
+                snapshot, expected_revision, old=self._disk
+            )
+            self._disk = snapshot
+            return snapshot, committed
 
     async def mark_active(self, snapshot: ValidatedSnapshot) -> None:
         """Reader/Delivery reconciler reports actual successful convergence."""
