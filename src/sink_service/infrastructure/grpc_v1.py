@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any
@@ -42,7 +43,18 @@ async def _abort(
     await context.abort(code, message)
 
 
-def _delivery(value: DeliveryView) -> sink_service_pb2.Delivery:
+def _delivery(
+    value: DeliveryView, configuration: dict[str, Any] | None = None
+) -> sink_service_pb2.Delivery:
+    fields = [
+        common_pb2.AddressField(
+            key=key,
+            value=common_pb2.ScalarValue(
+                string_value=json.dumps(item, ensure_ascii=False, sort_keys=True)
+            ),
+        )
+        for key, item in sorted((configuration or {}).items())
+    ]
     return sink_service_pb2.Delivery(
         delivery_id=value.delivery_id,
         channel=value.channel,
@@ -52,6 +64,7 @@ def _delivery(value: DeliveryView) -> sink_service_pb2.Delivery:
         actual_state=value.actual_state,
         revision=value.revision,
         last_error=value.last_error,
+        config=fields,
     )
 
 
@@ -230,7 +243,10 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
             await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "page size exceeds 500")
             raise AssertionError("gRPC abort returned")
         return sink_service_pb2.ListDeliveriesResponse(
-            deliveries=[_delivery(view) for view in values[offset : offset + limit]],
+            deliveries=[
+                _delivery(view, self._config.disk.deliveries.get(view.delivery_id))
+                for view in values[offset : offset + limit]
+            ],
             next_page_token=(
                 str(offset + limit) if len(values) > offset + limit else ""
             ),
@@ -241,7 +257,10 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
     ) -> sink_service_pb2.GetDeliveryResponse:
         try:
             return sink_service_pb2.GetDeliveryResponse(
-                delivery=_delivery(self._registry.get(request.id))
+                delivery=_delivery(
+                    self._registry.get(request.id),
+                    self._config.disk.deliveries.get(request.id),
+                )
             )
         except KeyError as exc:
             await _abort(context, grpc.StatusCode.NOT_FOUND, str(exc))
