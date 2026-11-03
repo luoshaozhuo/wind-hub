@@ -58,6 +58,15 @@ class ReliableDeliveryPort:
         self.dlq_total = 0
         self._started_at = datetime.now(UTC)
 
+    @property
+    def metrics(self) -> dict[str, float]:
+        return {
+            "delivered_total": float(self.delivered_total),
+            "failed_total": float(self.failed_total),
+            "retry_total": float(self.retry_total),
+            "dlq_total": float(self.dlq_total),
+        }
+
     def _create_adapter(self) -> Any:
         sink = self._snapshot.sinks[self._definition.sink_id]
         template = _template(
