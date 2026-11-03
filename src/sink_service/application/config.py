@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,9 +11,9 @@ import yaml
 
 from sink_service.domain.config import (
     ConfigurationError,
-    config_sources,
     SnapshotFile,
     ValidatedSnapshot,
+    config_sources,
     expect_mapping,
     expect_nonempty_str,
     expect_positive_int,
@@ -34,8 +35,6 @@ def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
 
 def template_path(template_root: str, family: str, name: str, version: str) -> str:
     """Resolve an exact template version without directory scanning."""
-    import re
-
     if family not in {"sinks", "deliveries"}:
         raise ConfigurationError("unsupported template family")
     if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", name) is None:
@@ -179,6 +178,11 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     service_files = [path for path in docs if path.startswith("configs/services/")]
     if len(service_files) != 2:
         raise ConfigurationError("shared snapshot requires realtime and reliable Service files")
+    if set(service_files) != {
+        "configs/services/sink-realtime.yaml",
+        "configs/services/sink-reliable.yaml",
+    }:
+        raise ConfigurationError("unexpected Service file in Sink configuration snapshot")
     services = [docs[path] for path in service_files]
     for service_doc in services:
         validate_service(service_doc)
