@@ -194,17 +194,73 @@ def validate_service_limits(service: dict[str, Any]) -> None:
         raise GeneratorError("metrics retention must cover window")
 
 
+def resolve_source(service_file: Path, value: object, *, directory: bool = False) -> Path:
+    """Resolve an explicit service-owned path within the configuration root."""
+    if not isinstance(value, str) or not value.strip():
+        raise GeneratorError("service configuration source path must be a nonempty string")
+    if Path(value).is_absolute():
+        raise GeneratorError("config references must be relative to the service file")
+    root = service_file.parent.parent.resolve()
+    resolved = (service_file.parent / value).resolve()
+    if not resolved.is_relative_to(root):
+        raise GeneratorError("config reference escapes the configured root")
+    if directory and not resolved.is_dir():
+        raise GeneratorError(f"template directory not found: {resolved}")
+    if not directory and not resolved.is_file():
+        raise GeneratorError(f"configuration document not found: {resolved}")
+    return resolved
+
+
+def config_sources(service_file: Path, service: dict[str, Any]) -> dict[str, Path]:
+    raw = service.get("configuration")
+    if not isinstance(raw, dict) or set(raw) != {"instances", "templates"}:
+        raise GeneratorError("service.configuration requires instances and templates")
+    instances = raw["instances"]
+    templates = raw["templates"]
+    if not isinstance(instances, dict) or set(instances) != {
+        "site", "devices", "scenarios",
+    }:
+        raise GeneratorError("instances requires site, devices and scenarios paths")
+    if not isinstance(templates, dict) or set(templates) != {
+        "root", "units", "business_points",
+    }:
+        raise GeneratorError("templates requires root, units, business_points paths")
+    resolved = {
+        key: resolve_source(service_file, instances[key])
+        for key in ("site", "devices", "scenarios")
+    }
+    resolved.update({
+        key: resolve_source(service_file, templates[key])
+        for key in ("units", "business_points")
+    })
+    resolved["templates_root"] = resolve_source(
+        service_file, templates["root"], directory=True,
+    )
+    if not all(
+        resolved[key].is_relative_to(resolved["templates_root"])
+        for key in ("units", "business_points")
+    ):
+        raise GeneratorError("shared template catalogs must be inside templates.root")
+    return resolved
+
+
 def load_settings(service_path: Path) -> Settings:
-    path = service_path.absolute()
+    path = service_path.resolve(strict=True)
     if path.parent.name != "services":
         raise GeneratorError("service configuration must be inside services/")
     root = path.parent.parent
     service = load_yaml(path)
     validate_service_limits(service)
-    instance = load_yaml(root / "instances" / "data-generator.yaml")
+    paths = config_sources(path, service)
+    instance = load_yaml(paths["scenarios"])
     try:
         documents = SharedDocumentLoader(SharedConfigPaths(
-            instances=root / "instances", templates=root / "templates",
+            instances=paths["site"].parent,
+            templates=paths["templates_root"],
+            site_file=paths["site"],
+            devices_file=paths["devices"],
+            units_file=paths["units"],
+            business_points_file=paths["business_points"],
         )).load()
         shared = build_shared_snapshot(documents)
     except (OSError, KeyError, TypeError, ValueError) as exc:
@@ -271,4 +327,8 @@ def load_settings(service_path: Path) -> Settings:
     payload = json.dumps({"service": service, "instance": instance,
                           "shared_revision": shared.revision},
                          sort_keys=True, ensure_ascii=False).encode()
-    return Settings(root, service, scenarios, hashlib.sha256(payload).hexdigest(), shared)
+    return Settings(
+        root, service, scenarios, hashlib.sha256(payload).hexdigest(), shared,
+        path, paths["scenarios"], paths["site"], paths["devices"],
+        paths["units"], paths["business_points"], paths["templates_root"],
+    )
