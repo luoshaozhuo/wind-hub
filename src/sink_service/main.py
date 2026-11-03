@@ -18,7 +18,9 @@ from sink_service.infrastructure.reliable_runtime import ReliableFactory
 logger = logging.getLogger(__name__)
 
 
-async def run_sink_service(config_root: Path, service_file: str) -> None:
+async def run_sink_service(
+    config_root: Path, service_file: str, peer_service_file: str | None = None
+) -> None:
     """Run one process; role and Writer ownership come exclusively from Service YAML."""
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -35,16 +37,25 @@ async def run_sink_service(config_root: Path, service_file: str) -> None:
             return realtime_factory(definition, snapshot)
         return reliable_factory(definition, snapshot)
 
-    await serve_control_plane(config_root, service_file, factory, stop)
+    await serve_control_plane(
+        config_root, service_file, factory, stop,
+        peer_service_file=peer_service_file,
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="wind-hub-sink-service")
     parser.add_argument("--config-root", type=Path, required=True)
     parser.add_argument("--service-file", required=True)
+    parser.add_argument(
+        "--peer-service-file",
+        help="Explicit second Service file, required only for initial generation",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(run_sink_service(args.config_root, args.service_file))
+    asyncio.run(
+        run_sink_service(args.config_root, args.service_file, args.peer_service_file)
+    )
 
 
 if __name__ == "__main__":
