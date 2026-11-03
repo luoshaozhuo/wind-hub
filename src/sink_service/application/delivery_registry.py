@@ -62,6 +62,11 @@ class DeliveryRegistry:
         self._revision = snapshot.revision
         self._entries: dict[str, _Entry] = {}
         self._retired_counters: dict[str, float] = {}
+        self._retired_by_delivery: dict[str, dict[str, float]] = {}
+        self._retired_latency_by_delivery: dict[
+            str, deque[tuple[datetime, float]]
+        ] = {}
+        self._retired_overflow_by_delivery: dict[str, datetime] = {}
         self._retired_latencies: deque[tuple[datetime, float]] = deque(maxlen=50000)
         self._retired_overflow: datetime | None = None
         self._lock = asyncio.Lock()
@@ -272,7 +277,11 @@ class DeliveryRegistry:
 
     def _retire(self, entry: _Entry) -> None:
         """Preserve monotonic counters when a Delivery binding is replaced."""
+        identifier = entry.view.delivery_id
+        previous = self._retired_by_delivery.setdefault(identifier, {})
         for name, value in getattr(entry.port, 'metrics', {}).items():
+            if name.endswith('_total'):
+                previous[name] = previous.get(name, 0.0) + float(value)
             if name.endswith('_total'):
                 self._retired_counters[name] = (
                     self._retired_counters.get(name, 0.0) + float(value)
@@ -281,11 +290,23 @@ class DeliveryRegistry:
             if len(self._retired_latencies) == self._retired_latencies.maxlen:
                 self._retired_overflow = item[0]
             self._retired_latencies.append(item)
+        history = self._retired_latency_by_delivery.setdefault(
+            identifier, deque(maxlen=50000)
+        )
+        for item in getattr(entry.port, 'latency_samples', ()):
+            if len(history) == history.maxlen:
+                self._retired_overflow_by_delivery[identifier] = item[0]
+            history.append(item)
         overflow = getattr(entry.port, 'latency_overflow_at', None)
         if overflow is not None and (
             self._retired_overflow is None or overflow > self._retired_overflow
         ):
             self._retired_overflow = overflow
+        if overflow is not None:
+            self._retired_overflow_by_delivery[identifier] = max(
+                overflow,
+                self._retired_overflow_by_delivery.get(identifier, overflow),
+            )
 
     def counters(self) -> dict[str, float]:
         """Aggregate counters and only gauges verified for all active owners."""
