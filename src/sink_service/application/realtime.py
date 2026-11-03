@@ -59,9 +59,11 @@ class RealtimeEngine:
         self._relative = relative_threshold
         self._latest: dict[tuple[str, str], SampleMessage] = {}
         self._sent: dict[tuple[str, str], SampleMessage] = {}
+        self._sent_at: dict[tuple[str, str], float] = {}
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self.last_error = ""
+        self.received_total = 0
         self.dropped_total = 0
         self.delivered_total = 0
 
@@ -76,7 +78,7 @@ class RealtimeEngine:
         if self._max_age_ms is not None:
             max_age = min(max_age, self._max_age_ms)
         age_ms = (now - sample.sample_time).total_seconds() * 1000
-        return 0 <= age_ms <= max_age
+        return 0 <= age_ms < max_age
 
     def _changed(self, current: SampleMessage, previous: SampleMessage | None) -> bool:
         if previous is None or current.quality != previous.quality:
@@ -88,10 +90,15 @@ class RealtimeEngine:
             return a != b
         if isinstance(a, (int, float)) and isinstance(b, (int, float)):
             difference = abs(a - b)
-            scale = max(abs(b), abs(a))
-            return difference > self._absolute and (
-                scale == 0 or difference > self._relative * scale
+            if self._absolute == 0 and self._relative == 0:
+                return difference > 0
+            absolute_hit = self._absolute > 0 and difference >= self._absolute
+            relative_hit = (
+                self._relative > 0
+                and b != 0
+                and difference / abs(b) >= self._relative
             )
+            return absolute_hit or relative_hit
         return a != b
 
     def offer(self, sample: SampleMessage) -> bool:
@@ -106,6 +113,7 @@ class RealtimeEngine:
         ):
             self.dropped_total += 1
             return False
+        self.received_total += 1
         key = self._key(sample)
         prior = self._latest.get(key)
         if prior is not None and (
@@ -123,6 +131,10 @@ class RealtimeEngine:
             self.dropped_total += 1
             self.last_error = "realtime latest-value cache at capacity"
             return False
+        if prior is not None:
+            confirmed = self._sent.get(key)
+            if confirmed is None or confirmed.sample_id != prior.sample_id:
+                self.dropped_total += 1
         self._latest[key] = sample
         return True
 
@@ -162,12 +174,20 @@ class RealtimeEngine:
                 if not self._fresh(sample, now):
                     self._latest.pop(key, None)
                     self._sent.pop(key, None)
+                    self._sent_at.pop(key, None)
                     self.dropped_total += 1
-            periodic = self._policy in {"periodic", "change_with_heartbeat"}
             items = [
                 sample
                 for key, sample in sorted(self._latest.items())
-                if periodic or self._changed(sample, self._sent.get(key))
+                if (
+                    self._policy == "periodic"
+                    or self._changed(sample, self._sent.get(key))
+                    or (
+                        self._policy == "change_with_heartbeat"
+                        and now_mono - self._sent_at.get(key, float("-inf"))
+                        >= self._interval
+                    )
+                )
             ]
             for index in range(0, len(items), 500):
                 batch = tuple(items[index : index + 500])
@@ -188,7 +208,9 @@ class RealtimeEngine:
                     break
                 for offset in settled:
                     sample = batch[offset]
-                    self._sent[self._key(sample)] = sample
+                    key = self._key(sample)
+                    self._sent[key] = sample
+                    self._sent_at[key] = loop.time()
                 self.delivered_total += len(delivered)
                 self.last_error = outcome.error
                 if outcome.error:
