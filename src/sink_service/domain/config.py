@@ -92,7 +92,7 @@ def require_version(doc: dict[str, Any], location: str) -> None:
     if type(doc.get("schema_version")) is not int or doc["schema_version"] != 1:
         raise ConfigurationError(f"{location}: unsupported schema_version")
     version = expect_nonempty_str(doc.get("file_version"), f"{location}.file_version")
-    if re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+", version) is None:
+    if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
         raise ConfigurationError(f"{location}: invalid file_version")
 
 
