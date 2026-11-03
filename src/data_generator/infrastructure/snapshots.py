@@ -44,21 +44,15 @@ def _write_durable(path: Path, data: bytes) -> None:
 
 
 def _validate_path(path: str) -> None:
-    if not path or "\\" in path or Path(path).is_absolute() or "//" in path:
+    if not path or "\\\\" in path or Path(path).is_absolute() or "//" in path:
         raise GeneratorError("invalid snapshot path")
     parts = Path(path).parts
     if any(part in (".", "..") for part in parts):
         raise GeneratorError("snapshot path traversal")
-    if path not in (
-        "services/data-generator-service.yaml",
-        "instances/data-generator.yaml",
-        "instances/site.yaml",
-        "instances/devices.yaml",
-        "templates/units.yaml",
-        "templates/business_points.yaml",
-    ) and not (len(parts) >= 3 and parts[0] == "templates"
-                and parts[-1].endswith(".yaml")):
+    if len(parts) < 2 or parts[0] not in ("services", "instances", "templates"):
         raise GeneratorError(f"unmanaged snapshot path: {path}")
+    if not path.endswith(".yaml"):
+        raise GeneratorError("snapshot only accepts YAML configuration documents")
 
 
 def _check_file_path(root: Path, relative: str) -> Path:
@@ -105,14 +99,22 @@ class SnapshotManager:
 
     def _read_disk(self) -> tuple[FileContent, ...]:
         root = self.settings.root
-        files = [root / "services" / "data-generator-service.yaml"]
-        files.extend(sorted((root / "instances").glob("*.yaml")))
-        files.extend(sorted((root / "templates").rglob("*.yaml")))
-        result: list[FileContent] = []
-        for file in files:
-            relative = file.relative_to(root).as_posix()
-            result.append(FileContent(relative, _check_file_path(root, relative).read_bytes()))
-        return tuple(result)
+        paths = {
+            self.settings.service_file,
+            self.settings.scenario_file,
+            self.settings.site_file,
+            self.settings.devices_file,
+            self.settings.units_file,
+            self.settings.business_points_file,
+        }
+        paths.update(self.settings.templates_root.rglob("*.yaml"))
+        return tuple(
+            FileContent(
+                path.relative_to(root).as_posix(),
+                _check_file_path(root, path.relative_to(root).as_posix()).read_bytes(),
+            )
+            for path in sorted(paths)
+        )
 
     def get(self, scope: str, candidate_id: str = "") -> tuple[FileContent, ...]:
         if scope == "CANDIDATE":
@@ -138,23 +140,27 @@ class SnapshotManager:
                 raise GeneratorError("duplicate path or empty snapshot content")
             paths.add(file.path)
             _check_file_path(self.settings.root, file.path)
+        root = self.settings.root
         required = {
-            "services/data-generator-service.yaml",
-            "instances/data-generator.yaml",
-            "instances/site.yaml",
-            "instances/devices.yaml",
-            "templates/units.yaml",
-            "templates/business_points.yaml",
+            path.relative_to(root).as_posix()
+            for path in (
+                self.settings.service_file,
+                self.settings.scenario_file,
+                self.settings.site_file,
+                self.settings.devices_file,
+                self.settings.units_file,
+                self.settings.business_points_file,
+            )
         }
         if not required <= paths:
-            raise GeneratorError("snapshot missing required config documents")
+            raise GeneratorError("snapshot missing declared configuration documents")
         with tempfile.TemporaryDirectory(prefix="dg-validate-") as location:
             staged = Path(location)
             for file in files:
                 target = _check_file_path(staged, file.path)
                 _write_durable(target, file.data)
             staged_settings = load_settings(
-                staged / "services" / "data-generator-service.yaml"
+                staged / self.settings.service_file.relative_to(self.settings.root)
             )
         for scenario_id, previous in self.settings.scenarios.items():
             changed = staged_settings.scenarios.get(scenario_id)
@@ -205,10 +211,11 @@ class SnapshotManager:
                 os.replace(temporary, target)
                 _sync_dir(target.parent)
             new_settings = load_settings(
-                root / "services" / "data-generator-service.yaml"
+                self.settings.service_file
             )
-            new_service = proposed["services/data-generator-service.yaml"]
-            old_service = original["services/data-generator-service.yaml"]
+            service_key = self.settings.service_file.relative_to(root).as_posix()
+            new_service = proposed[service_key]
+            old_service = original[service_key]
             restart_required = new_service != old_service
             (journal / "active.json").unlink()
             _sync_dir(journal)
@@ -223,7 +230,7 @@ class SnapshotManager:
             else:
                 old_runtime = {file.path: file.data for file in self._runtime_files}
                 for file in files:
-                    if file.path != "services/data-generator-service.yaml":
+                    if file.path != service_key:
                         old_runtime[file.path] = file.data
                 self._runtime_files = tuple(FileContent(p, data)
                                             for p, data in sorted(old_runtime.items()))
