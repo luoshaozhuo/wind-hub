@@ -289,18 +289,21 @@ class UpdateVariablesRequest(_message.Message):
 
     GATEWAY_ID_FIELD_NUMBER: _builtins.int
     VALUES_FIELD_NUMBER: _builtins.int
+    LEASE_TOKEN_FIELD_NUMBER: _builtins.int
     gateway_id: _builtins.str
+    lease_token: _builtins.str
     @_builtins.property
     def values(self) -> _containers.RepeatedCompositeFieldContainer[Global___VariableUpdate]: ...
     def __init__(
         self,
         *,
         gateway_id: _builtins.str = ...,
+        lease_token: _builtins.str = ...,
         values: _abc.Iterable[Global___VariableUpdate] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["gateway_id", b"gateway_id", "values", b"values"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["gateway_id", b"gateway_id", "lease_token", b"lease_token", "values", b"values"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -353,3 +356,49 @@ class UpdateVariablesResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___UpdateVariablesResponse: _TypeAlias = UpdateVariablesResponse  # noqa: Y015
+
+@_typing.final
+class ClaimTargetsRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    GATEWAY_ID_FIELD_NUMBER: _builtins.int
+    OWNER_ID_FIELD_NUMBER: _builtins.int
+    VARIABLE_IDS_FIELD_NUMBER: _builtins.int
+    ACTION_FIELD_NUMBER: _builtins.int
+    LEASE_TOKEN_FIELD_NUMBER: _builtins.int
+    LEASE_MS_FIELD_NUMBER: _builtins.int
+    gateway_id: _builtins.str
+    owner_id: _builtins.str
+    action: _builtins.str
+    lease_token: _builtins.str
+    lease_ms: _builtins.int
+    @_builtins.property
+    def variable_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    def __init__(self, *, gateway_id: _builtins.str = ..., owner_id: _builtins.str = ...,
+                 variable_ids: _abc.Iterable[_builtins.str] | None = ...,
+                 action: _builtins.str = ..., lease_token: _builtins.str = ...,
+                 lease_ms: _builtins.int = ...) -> None: ...
+    def HasField(self, field_name: _Never) -> _builtins.bool: ...
+    def ClearField(self, field_name: _builtins.str) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ClaimTargetsRequest: _TypeAlias = ClaimTargetsRequest  # noqa: Y015
+
+@_typing.final
+class ClaimTargetsResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    ACCEPTED_FIELD_NUMBER: _builtins.int
+    LEASE_TOKEN_FIELD_NUMBER: _builtins.int
+    ERROR_CODE_FIELD_NUMBER: _builtins.int
+    MESSAGE_FIELD_NUMBER: _builtins.int
+    accepted: _builtins.bool
+    lease_token: _builtins.str
+    error_code: _builtins.str
+    message: _builtins.str
+    def __init__(self, *, accepted: _builtins.bool = ...,
+                 lease_token: _builtins.str = ..., error_code: _builtins.str = ...,
+                 message: _builtins.str = ...) -> None: ...
+    def HasField(self, field_name: _Never) -> _builtins.bool: ...
+    def ClearField(self, field_name: _builtins.str) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ClaimTargetsResponse: _TypeAlias = ClaimTargetsResponse  # noqa: Y015
