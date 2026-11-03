@@ -8,7 +8,11 @@
 
 ## 1. 最终分支及 SHA
 
-（待提交后填写）
+- 分支：`feat/sink-service-v1-rewrite`（已 push，起点 fd6b76cd，纯快进无覆盖）
+- 生产修复：`708c1605` fix(sink): close stage-one control-plane contract gaps
+- 测试与白名单/报告：`0a160670` test(sink): add stage-one control-plane acceptance coverage
+- 报告 SHA 补录：见第三次 docs 提交（本节）
+- 未创建 PR、未合并 main、未使用 force push/rebase；RPC 生成物（*_pb2）未入库。
 
 ## 2. 静态检查实际结果
 
@@ -113,7 +117,7 @@ URI SAN 鉴权键实证：使用真实 TLS 握手探针确认 grpc-python `auth_
 - 新增 81 个阶段一测试（见 3.1）与临时 CA/mTLS 证书夹具（EC P-256，CA+server+3 客户端身份）。
 - 格式/类型/导入修复若干（ruff format 9 文件、mypy 变量遮蔽、contracts 拆分导入等）。
 
-（提交 SHA 待 push 后填写）
+生产修复提交 `708c1605`；测试、白名单与本报告提交 `0a160670`（均已 push）。
 
 ## 6. 未关闭缺陷与台账（移交 ChatGPT）
 
