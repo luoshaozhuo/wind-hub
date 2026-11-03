@@ -185,17 +185,28 @@ class KafkaOutput:
         if producer is not None:
             await producer.stop()
 
-    async def write_batch(self, samples: tuple[SampleMessage, ...]) -> None:
+    async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         async with self._lock:
             if self._producer is None:
-                raise ConnectionError("Kafka output is not connected")
-            for sample in samples:
+                return BatchOutcome((), (), "Kafka output is not connected")
+            delivered: list[int] = []
+            for index, sample in enumerate(samples):
                 key = ":".join(
                     (sample.wind_farm_id, sample.collector_id, sample.device_id)
                 ).encode("utf-8")
-                await self._producer.send_and_wait(
-                    self._topic, key=key, value=sample.encode()
-                )
+                try:
+                    await self._producer.send_and_wait(
+                        self._topic, key=key, value=sample.encode()
+                    )
+                except Exception as exc:
+                    return BatchOutcome(
+                        delivered=tuple(delivered),
+                        settled=tuple(delivered),
+                        error=f"Kafka broker confirmation not received: {exc}",
+                    )
+                delivered.append(index)
+            result = tuple(delivered)
+            return BatchOutcome(delivered=result, settled=result)
 
 
 class _RegisterImage:
