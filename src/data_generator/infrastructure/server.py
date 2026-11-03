@@ -224,6 +224,14 @@ class CommonService(common_rpc.CommonServiceServicer):
     async def PushConfigSnapshot(
         self, request: common.PushConfigSnapshotRequest, context: Any,
     ) -> common.PushConfigSnapshotResponse:
+        # The transaction owns the lock after client cancellation.
+        return await asyncio.shield(
+            asyncio.create_task(self._push_snapshot(request))
+        )
+
+    async def _push_snapshot(
+        self, request: common.PushConfigSnapshotRequest,
+    ) -> common.PushConfigSnapshotResponse:
         async with self._config_lock:
             try:
                 files = tuple(FileContent(f.relative_path, bytes(f.content))
@@ -251,6 +259,14 @@ class CommonService(common_rpc.CommonServiceServicer):
 
     async def ApplyConfigSnapshot(
         self, request: common.ApplyConfigSnapshotRequest, context: Any,
+    ) -> common.ApplyConfigSnapshotResponse:
+        # Cancellation of the caller cannot release a live file-commit lock.
+        return await asyncio.shield(
+            asyncio.create_task(self._apply_snapshot(request))
+        )
+
+    async def _apply_snapshot(
+        self, request: common.ApplyConfigSnapshotRequest,
     ) -> common.ApplyConfigSnapshotResponse:
         async with self._config_lock:
             try:
