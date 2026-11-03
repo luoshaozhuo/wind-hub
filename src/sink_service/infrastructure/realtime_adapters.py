@@ -29,17 +29,27 @@ def _redis_command(*parts: str) -> bytes:
     return b"".join(chunks)
 
 
-_REDIS_CAS = (
-    "local cur=redis.call('GET',KEYS[1]);"
-    "if cur then local old=cjson.decode(cur);"
-    "if old.sample_time>ARGV[2] then return 0 end;"
-    "if old.sample_time==ARGV[2] then "
-    "if old.sample_id==ARGV[3] then return 2 end;"
-    "return -1 end end;"
-    "if ARGV[4]=='' then redis.call('SET',KEYS[1],ARGV[1]);"
-    "else redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[4]);end;return 1"
+_REDIS_BATCH_CAS = (
+    "local result={};"
+    "for i=1,#KEYS do "
+    "local base=(i-1)*4;"
+    "local code=1;"
+    "local cur=redis.call('GET',KEYS[i]);"
+    "if cur then "
+    "local old=cjson.decode(cur);"
+    "if old.sample_time>ARGV[base+2] then code=0;"
+    "elseif old.sample_time==ARGV[base+2] then "
+    "if old.sample_id==ARGV[base+3] then code=2;else code=-1;end;"
+    "end;end;"
+    "if code==1 then "
+    "if ARGV[base+4]=='' then "
+    "redis.call('SET',KEYS[i],ARGV[base+1]);"
+    "else "
+    "redis.call('SET',KEYS[i],ARGV[base+1],'PXAT',ARGV[base+4]);"
+    "end;end;"
+    "result[i]=code;"
+    "end;return result"
 )
-
 
 class RedisOutput:
     """One serial RESP2 connection with atomic per-point monotonic writes."""
@@ -123,6 +133,18 @@ class RedisOutput:
             raise ConnectionError("unexpected Redis response type")
         return int(response[1:-2])
 
+    async def _integer_array(self, count: int) -> list[int]:
+        reader = self._reader
+        if reader is None:
+            raise ConnectionError('Redis output is disconnected')
+        header = await asyncio.wait_for(reader.readline(), timeout=self._timeout)
+        if header.startswith(b'-'):
+            raise ConnectionError('Redis batch script failed')
+        if not header.startswith(b'*') or not header.endswith(b'\r\n'):
+            raise ConnectionError('unexpected Redis batch response')
+        if int(header[1:-2]) != count:
+            raise ConnectionError('Redis batch response length mismatch')
+        return [await self._integer() for _ in range(count)]
     async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         if not samples:
             return BatchOutcome((), ())
