@@ -19,6 +19,7 @@ class ConfigReader:
         self,
         root: Path,
         service_file: str,
+        peer_service_file: str,
         apply: ApplyCallback,
         *,
         poll_interval_ms: int,
@@ -27,6 +28,7 @@ class ConfigReader:
             raise ConfigurationError("poll interval must be positive")
         self._root = root
         self._service_file = service_file
+        self._peer_service_file = peer_service_file
         self._apply = apply
         self._interval = poll_interval_ms / 1000
         self._last_revision = ""
@@ -45,7 +47,11 @@ class ConfigReader:
         if len(pointer) != 64 or any(d not in "0123456789abcdef" for d in pointer):
             raise ConfigurationError("invalid committed generation pointer")
         generation = self._root / ".generations" / pointer
-        return read_snapshot(generation, generation / self._service_file)
+        return read_snapshot(
+            generation,
+            generation / self._service_file,
+            generation / self._peer_service_file,
+        )
 
     async def refresh(self) -> bool:
         """A failed application never advances the Reader's effective revision."""
