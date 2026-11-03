@@ -1,0 +1,21 @@
+schema_version: 1
+file_version: "1.0.0"
+template_id: "modbus_registers"
+kind: modbus_tcp
+capabilities:
+  realtime: true                 # 仅支持实时；Reliable 配置必须拒绝
+  reliable: false
+  idempotent: true               # 对同一点最新寄存器镜像覆盖更新
+  supports_concurrent_write: false # 单写入者更新寄存器映射
+  max_safe_inflight: 1
+connection:
+  listen_host: "0.0.0.0"        # 服务监听地址；部署时设置网络 ACL
+  port: 1502                     # 1..65535；实例间监听地址不可冲突
+output:
+  unit_id: 1                     # 1..247
+  register_start: 1000           # 0..65535
+  value_encoding: float32_be     # float32_be；每值占用两个 Holding Register
+  quality_encoding: separate_register # separate_register；不得隐去质量
+  quality_register_start: 2000   # 0..65535；每值占用一个独立寄存器（500 值对应 value 1000..1999、quality 2000..2499）
+  quality_codes: {good: 0, bad: 1, uncertain: 2}
+  write_timeout_ms: 2000         # 1..30000；内部更新期限

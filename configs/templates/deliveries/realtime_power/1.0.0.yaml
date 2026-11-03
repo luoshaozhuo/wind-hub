@@ -1,0 +1,12 @@
+schema_version: 1
+file_version: "1.0.0"
+template_id: "realtime_power"
+delivery_mode: realtime            # realtime | reliable
+source_filter: {} # 不配置质量过滤；good/bad/uncertain 均须派发
+output:
+  policy: change_with_heartbeat    # periodic | on_change | change_with_heartbeat
+  period_ms: 100                  # 正整数毫秒；10 Hz 示例（保底周期同此参数）
+  absolute_threshold: 1.0        # >=0；目标点工程单位
+  relative_threshold: 0.01       # >=0；相对比例
+staleness:
+  max_age_ms: 3000               # 正数；仅作为附加更严格约束，不覆盖来源 max_staleness_ms；到期即丢弃

@@ -1,0 +1,26 @@
+schema_version: 1
+file_version: "1.0.0"
+revision: "sinks-r1"           # 并发修改令牌；由 Writer 更新
+sinks:
+  ems_redis:
+    template_id: redis_realtime
+    template_version: "1.0.0"
+    connection:
+      host: "192.168.1.10"       # 目标主机 IP 或 DNS
+      port: 6379                  # 1..65535
+      credential_ref: "redis/ems" # Secret 引用；禁止明文口令
+    overrides: {}                # 仅覆盖模板明确允许的字段
+  history_kafka:
+    template_id: kafka_history
+    template_version: "1.0.0"   # Kafka 模板须声明幂等/确认能力
+    connection:
+      bootstrap_servers: ["192.168.1.20:9092"]
+      credential_ref: "kafka/history"
+    overrides: {}
+  modbus_view:
+    template_id: modbus_registers
+    template_version: "1.0.0"
+    connection:
+      listen_host: "0.0.0.0"
+      port: 1502
+    overrides: {}

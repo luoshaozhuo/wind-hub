@@ -1,0 +1,21 @@
+schema_version: 1
+file_version: "1.0.0"
+template_id: "kafka_history"
+kind: kafka
+capabilities:
+  realtime: false
+  reliable: true                # 须明确下游接受至少一次或按 sample_id 去重
+  idempotent: false            # Kafka Producer 幂等不等于跨系统业务幂等
+  supports_concurrent_write: false # 单写入序列，无并行写入
+  max_safe_inflight: 1         # 单写入时必须为 1
+connection:
+  bootstrap_servers: ["192.168.1.20:9092"]
+  credential_ref: "kafka/history"
+output:
+  topic: "windhub.samples"
+  key_field: device_id         # 同一设备路由到固定分区
+  business_duplicate_policy: allow_at_least_once # require_dedup | allow_at_least_once；显式重复策略
+  dedup_identity_fields: [delivery_id, sample_id] # 稳定身份；下游按需去重
+  enable_idempotence: true
+  acks: all
+  write_timeout_ms: 2000

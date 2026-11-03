@@ -1,0 +1,76 @@
+schema_version: 1            # 固定结构版本 1；不支持其它版本时拒绝
+file_version: "1.0.0"       # 文件版本：非空、内容变更须更新
+service_id: "sink-west"     # 服务逻辑身份：非空、部署内唯一
+wind_farm_id: "farm-a"          # 风场标识：必须与消息身份匹配
+deployment_id: "prod-a"     # 部署身份：用于稳定消费命名
+process_role: "realtime"   # realtime | reliable；两个进程分别配置
+config_writer: true        # true | false；同一共享配置域仅一个 true
+config_root: "/etc/wind-hub/config"  # 三类配置文件的共享一致根目录
+
+grpc:
+  listen_host: "127.0.0.1"      # 绑定 IP；可指定网卡地址
+  listen_port: 50061            # 1..65535；另一进程必须不同
+  max_active_rpcs: 64           # 1..64；默认/本版本验收并发上限
+  max_request_bytes: 2097152     # 1..2097152；请求体上限 2 MiB
+  default_deadline_ms: 5000      # 1..5000；应用层内部预算，不能假定 gRPC 自动为客户端注入 deadline
+
+security:
+  ca_cert: "/etc/wind-hub/tls/ca.crt"         # 信任的客户端 CA
+  server_cert: "/etc/wind-hub/tls/sink.crt"   # 服务端证书
+  server_key: "/etc/wind-hub/tls/sink.key"    # 私钥路径，不在日志中输出
+  callers:                              # mTLS 证书可信身份到权限映射
+    - caller_id: "maintenance"          # 非空、唯一
+      certificate_identity: "spiffe://wind-hub/maintenance" # URI SAN
+      permissions: [query, control, config] # query | control | config
+
+nats:
+  servers: ["nats://127.0.0.1:4222"] # 非空服务器 URL 列表
+  realtime_subject: "wh.rt"       # Core NATS 前缀；订阅过滤匹配 wh.rt.>
+  reliable_subject: "wh.hist"     # JetStream Subject 前缀；Stream 覆盖 wh.hist.>
+  reliable_stream: "WH_HISTORY"   # 必须覆盖 reliable_subject
+  dead_letter_stream: "WH_DLQ"    # 死信流，必须持久可写
+  dead_letter_subject: "wh.dlq"  # 单独的 DLQ 主题，必须属于 dead_letter_stream
+  history_storage: file          # 已有可靠 Stream 必须持久化，校验 Broker 实态
+  dlq_storage: file              # DLQ Stream 必须持久化，校验 Broker 实态
+  history_discard: new           # 源 Stream 满时拒绝新发布，不覆盖未交付消息
+  dlq_discard: new               # DLQ 满时拒绝新死信，不覆盖已有死信
+  dlq_max_bytes: 1073741824      # 示例容量 1 GiB；按现场核定
+  dlq_max_age_seconds: 2592000  # 示例保留期 30 天；超限告警
+  connect_timeout_ms: 2000        # 正整数
+  max_reconnect_interval_ms: 5000 # 正整数
+
+runtime:
+  max_inflight_global: 128      # 正整数；包含未安全收敛的 I/O
+  max_inflight_per_sink: 8      # 正整数 <= 全局上限；可由 Sink 模板收紧
+  max_pending_points: 10000    # 每 Delivery 实时缓存点数上限；一个点存一份最新样本
+  io_wait_timeout_ms: 3000     # 正整数；仅限定等待，不证明 I/O 已结束
+  watchdog_interval_ms: 5000  # 500..60000 ms，按期望状态恢复
+  max_event_records: 10000     # 1..10000；事件内存窗口条数
+
+reliable:
+  max_deliver: -1              # 配置意图：不因次数触发终止；部署前用实际 NATS 版本校验该值与持续重投行为
+  ack_wait_seconds: 30         # >0；期间长 I/O 用 InProgress 续约
+  retry_base_ms: 1000         # >0；JetStream 重投退避基数
+  retry_max_ms: 60000         # >= retry_base_ms
+  max_inflight_per_delivery: 1 # 已决策固定 1；不能增大
+  transient_retry_policy: continuous  # 临时故障持续受控退避，不以次数耗尽判永久错误
+  permanent_error_action: dlq         # 持久化 PubAck 后才 ACK 原消息
+  replay_max_inflight: 1              # 仅占用目标剩余额度，不预留或抢占
+  replay_max_rate_per_second: 50      # 示例补发限速，受目标侧配额约束
+  replay_starvation_alarm_seconds: 300 # 低优先级持续饥饿则告警
+  dedup_key: sample_id                # 结合 delivery_id 确定业务身份
+
+metrics:
+  metrics_compute_interval_ms: 1000 # 100..60000；计算周期
+  metrics_window_ms: 60000         # 1000..3600000；滚动窗口；须能被桶宽整除
+  supported_window_ms: [60000]     # 非空、去重；首版仅可查询已计算窗口
+  max_time_buckets: 120            # 1..3600；实际时间桶宽 = 500 ms；覆盖 60000 ms
+  overrun_policy: skip             # 固定 skip，不允许任务重入
+
+config_sync:
+  poll_interval_ms: 1000      # Reader 检查原子提交版本的周期
+  apply_timeout_ms: 10000     # 配置 gRPC 等待的上限
+  writer_endpoint: "" # Reader 用；Writer 可空
+
+shutdown:
+  grace_seconds: 10           # >0；未收敛 I/O 不强制安全释放
