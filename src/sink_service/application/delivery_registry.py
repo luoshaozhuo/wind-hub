@@ -329,6 +329,43 @@ class DeliveryRegistry:
             result.setdefault(name, 0.0)
         result.setdefault('io_inflight', 0.0)
         return result
+    def delivery_observations(
+        self,
+    ) -> tuple[
+        dict[str, dict[str, float]],
+        dict[str, tuple[tuple[datetime, float], ...]],
+        dict[str, datetime | None],
+    ]:
+        """Read separate live Delivery counters, P99 inputs and overflow markers."""
+        counters: dict[str, dict[str, float]] = {}
+        histories: dict[str, tuple[tuple[datetime, float], ...]] = {}
+        overflows: dict[str, datetime | None] = {}
+        for identifier, entry in self._entries.items():
+            values = dict(self._retired_by_delivery.get(identifier, {}))
+            for name, value in getattr(entry.port, 'metrics', {}).items():
+                if name.endswith('_total'):
+                    values[name] = values.get(name, 0.0) + float(value)
+                else:
+                    values[name] = float(value)
+            counters[identifier] = values
+            histories[identifier] = (
+                tuple(self._retired_latency_by_delivery.get(identifier, ()))
+                + tuple(getattr(entry.port, 'latency_samples', ()))
+            )
+            earlier = self._retired_overflow_by_delivery.get(identifier)
+            current = getattr(entry.port, 'latency_overflow_at', None)
+            overflows[identifier] = max(
+                (point for point in (earlier, current) if point is not None),
+                default=None,
+            )
+        # Retired Delivery IDs are no longer exposed at Delivery scope.
+        live = set(self._entries)
+        for identifier in tuple(self._retired_by_delivery):
+            if identifier not in live:
+                self._retired_by_delivery.pop(identifier, None)
+                self._retired_latency_by_delivery.pop(identifier, None)
+                self._retired_overflow_by_delivery.pop(identifier, None)
+        return counters, histories, overflows
     def latency_observations(self) -> tuple[tuple[datetime, float], ...]:
         values = list(self._retired_latencies)
         for entry in self._entries.values():
