@@ -11,6 +11,7 @@ from pathlib import Path
 from data_generator.application.config import load_settings
 from data_generator.application.runtime import Runtime
 from data_generator.application.snapshots import recover_transaction
+from data_generator.infrastructure.gateway import GatewayWriter
 from data_generator.infrastructure.server import make_server
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,14 @@ logger = logging.getLogger(__name__)
 async def run(config_path: Path) -> None:
     recover_transaction(config_path.absolute().parent.parent)
     settings = load_settings(config_path)
-    runtime = Runtime(settings)
+    output = settings.service.get("output", {})
+    buffer = settings.service.get("buffer", {})
+    writer = GatewayWriter(
+        timeout=float(output.get("grpc_timeout_seconds", 3.0)),
+        max_points=int(buffer.get("max_points_per_batch", 1000)),
+        max_inflight=int(output.get("max_inflight", 1)),
+    )
+    runtime = Runtime(settings, writer)
     bind = settings.service.get("service", {}).get("grpc_bind", "127.0.0.1:50061")
     server = make_server(runtime, bind)
     shutdown = asyncio.Event()
