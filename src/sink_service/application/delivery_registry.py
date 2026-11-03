@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol
 
+import yaml
+
 from sink_service.application.config import template_path
 from sink_service.application.delivery_definition import DeliveryDefinition, delivery_definitions
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, config_sources
@@ -106,6 +108,15 @@ class DeliveryRegistry:
                     sink["template_id"], sink["template_version"],
                 ),
             }
+            sink_template_path = template_path(
+                template_root, "sinks",
+                sink["template_id"], sink["template_version"],
+            )
+            sink_template = next(
+                file for file in snapshot.files
+                if file.path == sink_template_path
+            )
+            sink_kind = yaml.safe_load(sink_template.content)["kind"]
             raw = {
                 "templates": {
                     file.path: hashlib.sha256(file.content).hexdigest()
@@ -124,7 +135,7 @@ class DeliveryRegistry:
                         for name, value in sorted(snapshot.deliveries.items())
                         if value['sink_id'] == item.sink_id
                     }
-                    if sink['template_id'] == 'modbus_registers'
+                    if sink_kind == 'modbus_tcp'
                     else {}
                 ),
                 "delivery_template": (
