@@ -43,9 +43,7 @@ def _template(
     return item
 
 
-def _instances(
-    docs: dict[str, dict[str, Any]], family: str
-) -> dict[str, dict[str, Any]]:
+def _instances(docs: dict[str, dict[str, Any]], family: str) -> dict[str, dict[str, Any]]:
     path = f"instances/{family}.yaml"
     container = docs.get(path)
     if container is None:
@@ -53,8 +51,7 @@ def _instances(
     expect_nonempty_str(container.get("revision"), f"{path}.revision")
     instances = expect_mapping(container.get(family), f"{path}.{family}")
     return {
-        key: expect_mapping(value, f"{path}.{family}.{key}")
-        for key, value in instances.items()
+        key: expect_mapping(value, f"{path}.{family}.{key}") for key, value in instances.items()
     }
 
 
@@ -62,17 +59,16 @@ def _validate_sink(
     sink_id: str, sink: dict[str, Any], docs: dict[str, dict[str, Any]]
 ) -> tuple[str, dict[str, Any]]:
     name = expect_nonempty_str(sink.get("template_id"), f"sinks.{sink_id}.template_id")
-    version = expect_nonempty_str(
-        sink.get("template_version"), f"sinks.{sink_id}.template_version"
-    )
+    version = expect_nonempty_str(sink.get("template_version"), f"sinks.{sink_id}.template_version")
     template = _template(docs, "sinks", name, version)
     kind = template.get("kind")
     if kind not in ("redis", "kafka", "modbus_tcp"):
         raise ConfigurationError(f"sinks.{sink_id}: unsupported Adapter {kind!r}")
     caps = expect_mapping(template.get("capabilities"), f"sinks.{sink_id}.capabilities")
-    if any(type(caps.get(k)) is not bool for k in (
-        "realtime", "reliable", "idempotent", "supports_concurrent_write"
-    )):
+    if any(
+        type(caps.get(k)) is not bool
+        for k in ("realtime", "reliable", "idempotent", "supports_concurrent_write")
+    ):
         raise ConfigurationError(f"sinks.{sink_id}: invalid capability declaration")
     maximum = expect_positive_int(
         caps.get("max_safe_inflight"), f"sinks.{sink_id}.max_safe_inflight"
@@ -83,9 +79,7 @@ def _validate_sink(
         raise ConfigurationError(f"sinks.{sink_id}: Modbus Server cannot be reliable")
     if kind == "kafka" and caps["reliable"]:
         output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
-        if output.get("business_duplicate_policy") not in (
-            "require_dedup", "allow_at_least_once"
-        ):
+        if output.get("business_duplicate_policy") not in ("require_dedup", "allow_at_least_once"):
             raise ConfigurationError(f"sinks.{sink_id}: missing Kafka duplicate policy")
     expect_mapping(sink.get("connection"), f"sinks.{sink_id}.connection")
     expect_mapping(sink.get("overrides"), f"sinks.{sink_id}.overrides")
@@ -101,9 +95,7 @@ def _validate_delivery(
     sinks: dict[str, tuple[str, dict[str, Any]]],
     service: dict[str, Any],
 ) -> None:
-    name = expect_nonempty_str(
-        delivery.get("template_id"), f"deliveries.{delivery_id}.template_id"
-    )
+    name = expect_nonempty_str(delivery.get("template_id"), f"deliveries.{delivery_id}.template_id")
     version = expect_nonempty_str(
         delivery.get("template_version"), f"deliveries.{delivery_id}.template_version"
     )
@@ -111,9 +103,7 @@ def _validate_delivery(
     mode = template.get("delivery_mode")
     if mode not in ("realtime", "reliable"):
         raise ConfigurationError(f"deliveries.{delivery_id}: unsupported mode")
-    sink_id = expect_nonempty_str(
-        delivery.get("sink_id"), f"deliveries.{delivery_id}.sink_id"
-    )
+    sink_id = expect_nonempty_str(delivery.get("sink_id"), f"deliveries.{delivery_id}.sink_id")
     if sink_id not in sinks:
         raise ConfigurationError(f"deliveries.{delivery_id}: unknown Sink {sink_id}")
     kind, caps = sinks[sink_id]
@@ -129,18 +119,18 @@ def _validate_delivery(
     expect_nonempty_str(source.get("collector_id"), f"deliveries.{delivery_id}.collector_id")
     for field in ("devices", "points"):
         values = source.get(field)
-        if not isinstance(values, list) or any(
-            not isinstance(value, str) or not value for value in values
-        ) or len(values) != len(set(values)):
+        if (
+            not isinstance(values, list)
+            or any(not isinstance(value, str) or not value for value in values)
+            or len(values) != len(set(values))
+        ):
             raise ConfigurationError(f"deliveries.{delivery_id}: invalid {field}")
     expect_mapping(delivery.get("overrides"), f"deliveries.{delivery_id}.overrides")
     if delivery["overrides"]:
         raise ConfigurationError(f"deliveries.{delivery_id}: undeclared overrides")
     if mode == "realtime":
         output = expect_mapping(template.get("output"), f"deliveries.{delivery_id}.output")
-        if output.get("policy") not in (
-            "periodic", "on_change", "change_with_heartbeat"
-        ):
+        if output.get("policy") not in ("periodic", "on_change", "change_with_heartbeat"):
             raise ConfigurationError(f"deliveries.{delivery_id}: unknown output policy")
         expect_positive_int(output.get("period_ms"), f"deliveries.{delivery_id}.period_ms")
     if mode == "reliable":
@@ -169,19 +159,19 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     if len(service_files) != 2:
         raise ConfigurationError("shared snapshot requires realtime and reliable Service files")
     services = [docs[path] for path in service_files]
-    for item in services:
-        validate_service(item)
-    if {item["process_role"] for item in services} != {"realtime", "reliable"}:
+    for service_doc in services:
+        validate_service(service_doc)
+    if {doc["process_role"] for doc in services} != {"realtime", "reliable"}:
         raise ConfigurationError("Service processes must have distinct roles")
-    if sum(item["config_writer"] for item in services) != 1:
+    if sum(doc["config_writer"] for doc in services) != 1:
         raise ConfigurationError("configuration domain requires exactly one Writer")
-    if len({(item["grpc"]["listen_host"], item["grpc"]["listen_port"]) for item in services}) != 2:
+    if len({(doc["grpc"]["listen_host"], doc["grpc"]["listen_port"]) for doc in services}) != 2:
         raise ConfigurationError("Service gRPC ports must be distinct")
-    if len({item["config_root"] for item in services}) != 1:
+    if len({doc["config_root"] for doc in services}) != 1:
         raise ConfigurationError("Service config_root values must match")
-    if len({(item["wind_farm_id"], item["deployment_id"]) for item in services}) != 1:
+    if len({(doc["wind_farm_id"], doc["deployment_id"]) for doc in services}) != 1:
         raise ConfigurationError("Service source identity must match")
-    service = next(item for item in services if item["config_writer"])
+    service = next(doc for doc in services if doc["config_writer"])
     sink_instances = _instances(docs, "sinks")
     delivery_instances = _instances(docs, "deliveries")
     sinks = {
@@ -207,9 +197,7 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         if kind != "modbus_tcp":
             continue
         sink = sink_instances[sink_id]
-        template = _template(
-            docs, "sinks", sink["template_id"], sink["template_version"]
-        )
+        template = _template(docs, "sinks", sink["template_id"], sink["template_version"])
         output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
         if output.get("value_encoding") != "float32_be":
             raise ConfigurationError(f"sinks.{sink_id}: unsupported value encoding")
@@ -236,10 +224,12 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
                 )
             for device_id in devices:
                 for point_id in points:
-                    key = (source["collector_id"], device_id, point_id)
-                    if key in sources:
-                        raise ConfigurationError(f"sinks.{sink_id}: duplicate output point {key}")
-                    sources.add(key)
+                    point_key = (source["collector_id"], device_id, point_id)
+                    if point_key in sources:
+                        raise ConfigurationError(
+                            f"sinks.{sink_id}: duplicate output point {point_key}"
+                        )
+                    sources.add(point_key)
         width = len(sources)
         if width == 0:
             continue
@@ -252,9 +242,9 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     digest = hashlib.sha256()
     for path, item in sorted(by_path.items()):
         digest.update(path.encode("utf-8"))
-        digest.update(b"\\0")
+        digest.update(b"\x00")
         digest.update(item.content)
-        digest.update(b"\\0")
+        digest.update(b"\x00")
     return ValidatedSnapshot(
         revision=digest.hexdigest(),
         files=tuple(by_path[path] for path in sorted(by_path)),

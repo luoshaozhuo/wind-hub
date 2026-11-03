@@ -13,7 +13,14 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from contracts import common_pb2, common_pb2_grpc, sink_service_pb2, sink_service_pb2_grpc
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.delivery_registry import DeliveryRegistry, DeliveryView
-from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
+from sink_service.domain.config import (
+    CandidateNotFoundError,
+    ConfigurationError,
+    InvalidConfigurationError,
+    RevisionConflictError,
+    ValidatedSnapshot,
+    WriterRequiredError,
+)
 from sink_service.infrastructure.grpc_auth import PeerAuthorization
 
 
@@ -41,6 +48,19 @@ async def _abort(
     message: str,
 ) -> None:
     await context.abort(code, message)
+
+
+def _status_for(exc: ConfigurationError) -> grpc.StatusCode:
+    """Map the domain error taxonomy to the gRPC status contract (section 9.3.1)."""
+    if isinstance(exc, InvalidConfigurationError):
+        return grpc.StatusCode.INVALID_ARGUMENT
+    if isinstance(exc, RevisionConflictError):
+        return grpc.StatusCode.ABORTED
+    if isinstance(exc, WriterRequiredError):
+        return grpc.StatusCode.PERMISSION_DENIED
+    if isinstance(exc, CandidateNotFoundError):
+        return grpc.StatusCode.NOT_FOUND
+    return grpc.StatusCode.FAILED_PRECONDITION
 
 
 def _delivery(
@@ -148,15 +168,35 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             try:
                 snapshot = self._config.candidate(request.candidate_id)
             except ConfigurationError as exc:
-                await _abort(context, grpc.StatusCode.NOT_FOUND, str(exc))
+                await _abort(context, _status_for(exc), str(exc))
                 raise AssertionError("gRPC abort returned") from exc
         else:
             await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "invalid snapshot scope")
             raise AssertionError("gRPC abort returned")
+        application = self._config.latest_application
+        if application is not None and application.file_commit == snapshot.revision:
+            apply_results = [
+                common_pb2.ApplicationResult(object_id=name, status="APPLIED")
+                for name in application.applied
+            ] + [
+                common_pb2.ApplicationResult(
+                    object_id=name,
+                    status="FAILED" if application.error else "PENDING",
+                    message=application.error,
+                )
+                for name in application.pending
+            ]
+            application_id = application.application_id
+        else:
+            apply_results = []
+            application_id = ""
         return common_pb2.GetConfigSnapshotResponse(
             snapshot_id=snapshot.revision,
             revision=snapshot.revision,
             files=_files(snapshot),
+            application_id=application_id,
+            apply_results=apply_results,
+            last_error=self._config.last_error,
         )
 
     async def PushConfigSnapshot(
@@ -173,7 +213,7 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                 request.expected_revision,
             )
         except ConfigurationError as exc:
-            await _abort(context, grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            await _abort(context, _status_for(exc), str(exc))
             raise AssertionError("gRPC abort returned") from exc
         return common_pb2.PushConfigSnapshotResponse(
             candidate_id=candidate_id,
@@ -187,11 +227,9 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common_pb2.ApplyConfigSnapshotResponse:
         try:
-            applied = await self._config.apply(
-                request.candidate_id, request.expected_revision
-            )
+            applied = await self._config.apply(request.candidate_id, request.expected_revision)
         except ConfigurationError as exc:
-            await _abort(context, grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            await _abort(context, _status_for(exc), str(exc))
             raise AssertionError("gRPC abort returned") from exc
         return common_pb2.ApplyConfigSnapshotResponse(
             file_commit=applied.file_commit,
@@ -262,9 +300,7 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
                 _delivery(view, self._config.disk.deliveries.get(view.delivery_id))
                 for view in values[offset : offset + limit]
             ],
-            next_page_token=(
-                str(offset + limit) if len(values) > offset + limit else ""
-            ),
+            next_page_token=(str(offset + limit) if len(values) > offset + limit else ""),
         )
 
     async def GetDelivery(
@@ -300,7 +336,7 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
             await _abort(context, grpc.StatusCode.NOT_FOUND, str(exc))
             raise AssertionError("gRPC abort returned") from exc
         except ConfigurationError as exc:
-            await _abort(context, grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            await _abort(context, _status_for(exc), str(exc))
             raise AssertionError("gRPC abort returned") from exc
 
         desired = "START" if start else "STOP"

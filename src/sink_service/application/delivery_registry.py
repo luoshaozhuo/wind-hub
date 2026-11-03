@@ -46,6 +46,7 @@ class _Entry:
     port: DeliveryPort
     view: DeliveryView
     signature: str = ""
+    removing: bool = False
 
 
 class DeliveryRegistry:
@@ -106,9 +107,13 @@ class DeliveryRegistry:
         async with self._lock:
             for identifier in sorted(set(self._entries) - set(definitions)):
                 entry = self._entries[identifier]
+                entry.view = self._replace(
+                    entry.view, actual_state=ActualState.STOPPING, last_error=""
+                )
                 try:
                     await entry.port.stop()
                 except Exception as exc:
+                    entry.removing = True
                     entry.view = self._replace(
                         entry.view, actual_state=ActualState.FAILED, last_error=str(exc)
                     )
@@ -132,6 +137,9 @@ class DeliveryRegistry:
                     )
                     try:
                         await self._reconcile(existing)
+                        # A signature-preserving change is still a real
+                        # convergence (e.g. operator desired_state change).
+                        changed.append(identifier)
                     except Exception:
                         # The FAILED state and error remain queryable.
                         changed.append(identifier)
@@ -279,6 +287,9 @@ class DeliveryRegistry:
         """Retry failed START intent; never resurrect an operator STOP."""
         async with self._lock:
             for entry in self._entries.values():
+                if entry.removing:
+                    # A Delivery pending removal must never be resurrected.
+                    continue
                 if entry.view.desired_state != "START":
                     continue
                 if entry.view.actual_state not in (

@@ -32,10 +32,7 @@ def delivery_definitions(snapshot: ValidatedSnapshot) -> tuple[DeliveryDefinitio
     for delivery_id, value in sorted(snapshot.deliveries.items()):
         if not isinstance(value, dict):
             raise ConfigurationError(f"deliveries.{delivery_id}: invalid instance")
-        path = (
-            f"templates/deliveries/{value['template_id']}/"
-            f"{value['template_version']}.yaml"
-        )
+        path = f"templates/deliveries/{value['template_id']}/" f"{value['template_version']}.yaml"
         template = templates.get(path)
         if template is None:
             raise ConfigurationError(f"deliveries.{delivery_id}: missing template")

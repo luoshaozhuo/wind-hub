@@ -12,7 +12,15 @@ from typing import Protocol
 import yaml
 
 from sink_service.application.config import snapshot_from_wire, validate_snapshot
-from sink_service.domain.config import ConfigurationError, SnapshotFile, ValidatedSnapshot
+from sink_service.domain.config import (
+    CandidateNotFoundError,
+    ConfigurationError,
+    InvalidConfigurationError,
+    RevisionConflictError,
+    SnapshotFile,
+    ValidatedSnapshot,
+    WriterRequiredError,
+)
 
 
 class SnapshotCommitPort(Protocol):
@@ -67,6 +75,7 @@ class ConfigManager:
         self._lock = asyncio.Lock()
         self._candidates: dict[str, Candidate] = {}
         self._applications: dict[str, Application] = {}
+        self._latest_application: dict[str, Application] = {}
         self._reconcile = reconcile
         self._last_error = ""
 
@@ -85,12 +94,17 @@ class ConfigManager:
     def candidate(self, candidate_id: str) -> ValidatedSnapshot:
         candidate = self._candidates.get(candidate_id)
         if candidate is None or candidate.expires_at <= datetime.now(UTC):
-            raise ConfigurationError("candidate missing or expired")
+            raise CandidateNotFoundError("candidate missing or expired")
         return candidate.snapshot
+
+    @property
+    def latest_application(self) -> Application | None:
+        """Most recent Apply outcome for the current disk revision, if any."""
+        return self._latest_application.get(self._disk.revision)
 
     def _require_writer(self) -> None:
         if not self._writer:
-            raise ConfigurationError("configuration changes require the designated Writer")
+            raise WriterRequiredError("configuration changes require the designated Writer")
 
     async def push(
         self,
@@ -100,13 +114,14 @@ class ConfigManager:
         self._require_writer()
         async with self._lock:
             if expected_revision != self._disk.revision:
-                raise ConfigurationError("configuration revision conflict")
-            snapshot = snapshot_from_wire(files)
+                raise RevisionConflictError("configuration revision conflict")
+            try:
+                snapshot = snapshot_from_wire(files)
+            except ConfigurationError as exc:
+                raise InvalidConfigurationError(str(exc)) from exc
             now = datetime.now(UTC)
             self._candidates = {
-                key: value
-                for key, value in self._candidates.items()
-                if value.expires_at > now
+                key: value for key, value in self._candidates.items() if value.expires_at > now
             }
             if len(self._candidates) >= self._max_candidates:
                 raise ConfigurationError("candidate capacity exceeded")
@@ -123,12 +138,12 @@ class ConfigManager:
         async with self._lock:
             candidate = self._candidates.get(candidate_id)
             if candidate is None or candidate.expires_at <= datetime.now(UTC):
-                raise ConfigurationError("candidate missing or expired")
+                raise CandidateNotFoundError("candidate missing or expired")
             if (
                 candidate.base_revision != expected_revision
                 or self._disk.revision != expected_revision
             ):
-                raise ConfigurationError("configuration revision conflict")
+                raise RevisionConflictError("configuration revision conflict")
             snapshot = candidate.snapshot
             committed = self._store.commit(snapshot, expected_revision, old=self._disk)
             previous_services = {
@@ -181,6 +196,7 @@ class ConfigManager:
                 error=error,
             )
             self._applications[application_id] = application
+            self._latest_application[snapshot.revision] = application
             del self._candidates[candidate_id]
             return application
 
@@ -195,7 +211,7 @@ class ConfigManager:
         self._require_writer()
         async with self._lock:
             if self._disk.revision != expected_revision:
-                raise ConfigurationError("configuration revision conflict")
+                raise RevisionConflictError("configuration revision conflict")
             if delivery_id not in self._disk.deliveries:
                 raise KeyError(f"unknown Delivery: {delivery_id}")
             updated: list[SnapshotFile] = []
@@ -217,15 +233,14 @@ class ConfigManager:
                 updated.append(
                     SnapshotFile(
                         item.path,
-                        yaml.safe_dump(
-                            doc, allow_unicode=True, sort_keys=False
-                        ).encode("utf-8"),
+                        yaml.safe_dump(doc, allow_unicode=True, sort_keys=False).encode("utf-8"),
                     )
                 )
-            snapshot = validate_snapshot(tuple(updated))
-            committed = self._store.commit(
-                snapshot, expected_revision, old=self._disk
-            )
+            try:
+                snapshot = validate_snapshot(tuple(updated))
+            except ConfigurationError as exc:
+                raise InvalidConfigurationError(str(exc)) from exc
+            committed = self._store.commit(snapshot, expected_revision, old=self._disk)
             self._disk = snapshot
             if self._reconcile is not None:
                 try:
@@ -244,7 +259,7 @@ class ConfigManager:
         """Reader accepts a validated committed revision after successful apply."""
         async with self._lock:
             if self._writer and snapshot.revision != self._disk.revision:
-                raise ConfigurationError("stale runtime revision")
+                raise RevisionConflictError("stale runtime revision")
             if not self._writer:
                 self._disk = snapshot
             self._runtime = snapshot

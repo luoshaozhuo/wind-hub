@@ -22,6 +22,22 @@ class ConfigurationError(ValueError):
     """A supplied snapshot violates the frozen configuration contract."""
 
 
+class InvalidConfigurationError(ConfigurationError):
+    """The request payload itself is invalid; maps to gRPC INVALID_ARGUMENT."""
+
+
+class RevisionConflictError(ConfigurationError):
+    """expected_revision no longer matches the authoritative revision (ABORTED)."""
+
+
+class WriterRequiredError(ConfigurationError):
+    """A mutating call reached a Reader process; maps to PERMISSION_DENIED."""
+
+
+class CandidateNotFoundError(ConfigurationError):
+    """The candidate id is unknown or expired; maps to gRPC NOT_FOUND."""
+
+
 @dataclass(frozen=True, slots=True)
 class SnapshotFile:
     path: str
@@ -113,8 +129,10 @@ def validate_service(service: dict[str, Any]) -> None:
     if interval < 100 or window < 1000 or window < interval:
         raise ConfigurationError("metrics: unsupported interval or window")
     supported = metrics.get("supported_window_ms")
-    if not isinstance(supported, list) or not supported or any(
-        type(item) is not int or item != window for item in supported
+    if (
+        not isinstance(supported, list)
+        or not supported
+        or any(type(item) is not int or item != window for item in supported)
     ):
         raise ConfigurationError("metrics.supported_window_ms must contain configured window")
     buckets = expect_positive_int(metrics.get("max_time_buckets"), "metrics.max_time_buckets", 3600)

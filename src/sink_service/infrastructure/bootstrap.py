@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import grpc
@@ -23,9 +23,19 @@ from sink_service.infrastructure.writer_lease import WriterLease
 DeliveryFactory = Callable[[DeliveryDefinition, ValidatedSnapshot], DeliveryPort]
 
 
-def service_configuration(
-    snapshot: ValidatedSnapshot, service_file: str
-) -> dict[str, Any]:
+def _safe_managed_path(relative_path: str) -> bool:
+    if (
+        not relative_path
+        or relative_path.startswith("/")
+        or "\\" in relative_path
+        or any(part in ("", ".", "..") for part in relative_path.split("/"))
+        or PurePosixPath(relative_path).as_posix() != relative_path
+    ):
+        return False
+    return relative_path.startswith("services/") and relative_path.endswith(".yaml")
+
+
+def service_configuration(snapshot: ValidatedSnapshot, service_file: str) -> dict[str, Any]:
     """Select process-local Service configuration from a complete shared snapshot."""
     for item in snapshot.files:
         if item.path != service_file:
@@ -56,7 +66,7 @@ async def serve_control_plane(
     stop: asyncio.Event,
 ) -> None:
     """Run the control plane; data-plane implementation is injected by assembly."""
-    if not service_file.startswith("services/") or not service_file.endswith(".yaml"):
+    if not _safe_managed_path(service_file):
         raise ConfigurationError("invalid Service relative path")
     store = GenerationStore(config_root)
     if (config_root / "CURRENT").exists():
@@ -80,12 +90,14 @@ async def serve_control_plane(
             raise ConfigurationError("RESTART_REQUIRED: Reader Service configuration changed")
         await reconcile(snapshot)
         failed = [
-            item.delivery_id for item in registry.list()
+            item.delivery_id
+            for item in registry.list()
             if item.desired_state == "START" and item.actual_state != "RUNNING"
         ]
         if failed:
             raise ConfigurationError(f"Reader Deliveries not converged: {failed}")
         await manager.mark_active(snapshot)
+
     lease = WriterLease(config_root) if writer else None
     server: grpc.aio.Server | None = None
     poll_task: asyncio.Task[None] | None = None
@@ -139,7 +151,7 @@ async def serve_control_plane(
         if recovery_task is not None:
             await recovery_task
         if server is not None:
-            await server.stop(grace=5.0)
+            await server.stop(grace=float(service["shutdown"]["grace_seconds"]))
         # The Writer lease must be released even if an Adapter shutdown fails.
         try:
             await registry.shutdown()

@@ -11,7 +11,11 @@ import secrets
 from pathlib import Path
 
 from sink_service.application.config import read_snapshot, validate_snapshot
-from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
+from sink_service.domain.config import (
+    ConfigurationError,
+    RevisionConflictError,
+    ValidatedSnapshot,
+)
 
 
 class GenerationStore:
@@ -29,6 +33,12 @@ class GenerationStore:
 
     def load(self, service_path: str) -> ValidatedSnapshot:
         """Read a complete committed generation through a single pointer."""
+        if (
+            not service_path.startswith("services/")
+            or any(part in ("", ".", "..") for part in service_path.split("/"))
+            or not service_path.endswith(".yaml")
+        ):
+            raise ConfigurationError("invalid Service relative path")
         identifier = self._current.read_text(encoding="ascii").strip()
         directory = self._generation(identifier)
         return read_snapshot(directory, directory / service_path)
@@ -54,20 +64,20 @@ class GenerationStore:
         """
         current_revision = "" if old is None else old.revision
         if expected_revision != current_revision:
-            raise ConfigurationError("configuration revision conflict")
+            raise RevisionConflictError("configuration revision conflict")
         checked = validate_snapshot(snapshot.files)
         if checked.revision != snapshot.revision:
             raise ConfigurationError("snapshot was modified after validation")
         if old is not None:
             previous = {item.path: item.content for item in old.files}
             current = {item.path: item.content for item in checked.files}
-            for path, old_content in previous.items():
-                if not path.startswith("templates/"):
+            for old_path, old_content in previous.items():
+                if not old_path.startswith("templates/"):
                     continue
-                if path not in current:
-                    raise ConfigurationError(f"published template version deleted: {path}")
-                if current[path] != old_content:
-                    raise ConfigurationError(f"immutable template version modified: {path}")
+                if old_path not in current:
+                    raise ConfigurationError(f"published template version deleted: {old_path}")
+                if current[old_path] != old_content:
+                    raise ConfigurationError(f"immutable template version modified: {old_path}")
         target = self._generation(checked.revision)
         self._generations.mkdir(parents=True, exist_ok=True)
         if not target.exists():
@@ -95,10 +105,15 @@ class GenerationStore:
                 raise
         # Never point CURRENT at an existing corrupt or partial generation.
         # This also validates a generation reused after an interrupted Apply.
-        committed = read_snapshot(target, target / next(
-            item.path for item in checked.files
-            if item.path.startswith("services/") and item.path.endswith(".yaml")
-        ))
+        committed = read_snapshot(
+            target,
+            target
+            / next(
+                item.path
+                for item in checked.files
+                if item.path.startswith("services/") and item.path.endswith(".yaml")
+            ),
+        )
         if committed.revision != checked.revision:
             raise ConfigurationError("existing committed generation differs from candidate")
         temporary = self._root / f".CURRENT-{secrets.token_hex(12)}"
@@ -109,4 +124,3 @@ class GenerationStore:
         os.replace(temporary, self._current)
         self._sync_dir(self._root)
         return checked.revision
-

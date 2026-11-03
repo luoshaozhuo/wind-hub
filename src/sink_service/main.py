@@ -10,8 +10,8 @@ from pathlib import Path
 
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_registry import DeliveryPort
-from sink_service.infrastructure.bootstrap import serve_control_plane
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
+from sink_service.infrastructure.bootstrap import serve_control_plane
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,7 @@ class _PendingDataPlane:
         return
 
 
-def _stage_one_factory(
-    definition: DeliveryDefinition, snapshot: ValidatedSnapshot
-) -> DeliveryPort:
+def _stage_one_factory(definition: DeliveryDefinition, snapshot: ValidatedSnapshot) -> DeliveryPort:
     """Stage-one control plane MUST NOT claim successful sample delivery."""
     return _PendingDataPlane(definition.delivery_id)
 

@@ -26,7 +26,7 @@ _PERMISSIONS = {
 }
 
 
-class PeerAuthorization(grpc.aio.ServerInterceptor):
+class PeerAuthorization(grpc.aio.ServerInterceptor):  # type: ignore[misc]
     """Authorize the URI SAN of a mutually authenticated client certificate."""
 
     def __init__(self, callers: object) -> None:
@@ -52,9 +52,7 @@ class PeerAuthorization(grpc.aio.ServerInterceptor):
 
     async def intercept_service(
         self,
-        continuation: Callable[
-            [grpc.HandlerCallDetails], Awaitable[grpc.RpcMethodHandler | None]
-        ],
+        continuation: Callable[[grpc.HandlerCallDetails], Awaitable[grpc.RpcMethodHandler | None]],
         handler_call_details: grpc.HandlerCallDetails,
     ) -> grpc.RpcMethodHandler | None:
         handler = await continuation(handler_call_details)
@@ -69,9 +67,8 @@ class PeerAuthorization(grpc.aio.ServerInterceptor):
             peer = context.auth_context() or {}
             identities = peer.get("x509_subject_alternative_name", ())
             allowed = any(
-                permission in self._identities.get(
-                    identity.decode("utf-8", errors="strict"), frozenset()
-                )
+                permission
+                in self._identities.get(identity.decode("utf-8", errors="strict"), frozenset())
                 for identity in identities
             )
             if not allowed:
