@@ -290,11 +290,13 @@ class _RegisterImage:
             raise ConfigurationError("duplicate Modbus source point")
         self._values: dict[int, int] = {}
         self._valid: set[int] = set()
+        self._last: dict[int, tuple[Any, str]] = {}
         self._value_start, self._quality_start = value_start, quality_start
         self._width = len(points)
 
     def update(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         pending: dict[int, int] = {}
+        confirmed_versions: dict[int, tuple[Any, str]] = {}
         delivered: list[int] = []
         errors: list[str] = []
         for offset, sample in enumerate(samples):
@@ -308,6 +310,17 @@ class _RegisterImage:
             if index is None:
                 errors.append(f"Modbus point not mapped: {key}")
                 continue
+            prior = self._last.get(index)
+            if prior is not None:
+                old_time, old_id = prior
+                if sample.sample_time < old_time or (
+                    sample.sample_time == old_time and sample.sample_id == old_id
+                ):
+                    # An older or already confirmed sample must not roll back the image.
+                    continue
+                if sample.sample_time == old_time:
+                    errors.append(f"Modbus conflicting identity for sample time: {key}")
+                    continue
             if isinstance(sample.value, bool) or not isinstance(
                 sample.value, (int, float)
             ):
@@ -327,10 +340,12 @@ class _RegisterImage:
                 "bad": 1,
                 "uncertain": 2,
             }[sample.quality]
+            confirmed_versions[index] = (sample.sample_time, sample.sample_id)
             delivered.append(offset)
         # No await within the register image update: readers see one entire batch.
         self._values.update(pending)
         self._valid.update(pending)
+        self._last.update(confirmed_versions)
         confirmed = tuple(delivered)
         return BatchOutcome(
             delivered=confirmed, settled=confirmed, error="; ".join(errors)
