@@ -25,9 +25,7 @@ from data_generator.application.models import interpolation_table, random_value
 from data_generator.domain.model import GeneratorError, OutputMapping, OutputTarget
 from data_generator.domain.scenario import Scenario, Settings
 
-
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -42,7 +40,6 @@ def load_yaml(path: Path) -> dict[str, Any]:
     if not _VERSION.fullmatch(data["file_version"]):
         raise GeneratorError(f"{path}: expected MAJOR.MINOR.PATCH file_version")
     return data
-
 
 
 def _resolve_points(
@@ -77,9 +74,7 @@ def _resolve_points(
             business = shared.business_points[defined.business_point_id]
             effective = dict(point)
             effective["data_type"] = business.data_type.value
-            if effective.get("model") is not None and not isinstance(
-                effective["model"], dict
-            ):
+            if effective.get("model") is not None and not isinstance(effective["model"], dict):
                 raise GeneratorError("invalid model parameters")
             points[key] = effective
     if not points:
@@ -92,8 +87,10 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
     if kind == "simulation":
         interval = source.get("interval_seconds")
         if (
-            not isinstance(interval, int | float) or isinstance(interval, bool)
-            or not math.isfinite(interval) or interval <= 0
+            not isinstance(interval, int | float)
+            or isinstance(interval, bool)
+            or not math.isfinite(interval)
+            or interval <= 0
         ):
             raise GeneratorError("invalid simulation interval")
         if type(source.get("seed", 0)) is not int:
@@ -104,8 +101,7 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
             if not isinstance(model, dict) or model.get("kind") not in ("random", "static"):
                 raise GeneratorError(f"{key}: invalid simulation model")
             if model["kind"] == "random":
-                random_value(0, key[0], key[1], 1,
-                             {**model, "data_type": point["data_type"]})
+                random_value(0, key[0], key[1], 1, {**model, "data_type": point["data_type"]})
                 dependencies[key] = None
             else:
                 interpolation_table(model)
@@ -126,8 +122,10 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
             raise GeneratorError("only non-looping CSV replay supported")
         speed = source.get("speed")
         if (
-            not isinstance(speed, int | float) or isinstance(speed, bool)
-            or not math.isfinite(speed) or speed <= 0
+            not isinstance(speed, int | float)
+            or isinstance(speed, bool)
+            or not math.isfinite(speed)
+            or speed <= 0
         ):
             raise GeneratorError("invalid replay speed")
         if not isinstance(source.get("file"), str) or not source["file"]:
@@ -138,7 +136,9 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
         except (KeyError, AttributeError, ValueError) as exc:
             raise GeneratorError("invalid replay time range") from exc
         if (
-            first.tzinfo is None or last.tzinfo is None or first >= last
+            first.tzinfo is None
+            or last.tzinfo is None
+            or first >= last
             or first.utcoffset() != last.utcoffset()
             or first.utcoffset() != timedelta(0)
         ):
@@ -149,7 +149,7 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
 
 def validate_service_limits(service: dict[str, Any]) -> None:
     """Validate resource budgets before admitting any generation or configuration candidate."""
-    limits = {
+    limits: dict[str, dict[str, tuple[float, float]]] = {
         "output": {
             "max_inflight": (1, 128),
             "grpc_timeout_seconds": (0.01, 60.0),
@@ -183,14 +183,13 @@ def validate_service_limits(service: dict[str, Any]) -> None:
                 continue
             value = configured[key]
             if (
-                isinstance(value, bool) or not isinstance(value, int | float)
+                isinstance(value, bool)
+                or not isinstance(value, int | float)
                 or not math.isfinite(float(value))
                 or not lower <= value <= upper
                 or (isinstance(lower, int) and type(value) is not int)
             ):
-                raise GeneratorError(
-                    f"invalid {section}.{key}: must be within {lower}..{upper}"
-                )
+                raise GeneratorError(f"invalid {section}.{key}: must be within {lower}..{upper}")
     metrics = service.get("metrics", {})
     if metrics.get("window_seconds", 60) < metrics.get("sample_seconds", 1.0):
         raise GeneratorError("metrics window must cover sampling interval")
@@ -220,13 +219,16 @@ def resolve_source(service_file: Path, value: object, *, directory: bool = False
 def config_sources(service_file: Path, service: dict[str, Any]) -> dict[str, Path]:
     configuration = service.get("configuration")
     if not isinstance(configuration, dict) or set(configuration) != {
-        "instances", "templates",
+        "instances",
+        "templates",
     }:
         raise GeneratorError("service.configuration requires instances and templates")
     instances = configuration["instances"]
     templates = configuration["templates"]
     if not isinstance(instances, dict) or set(instances) != {
-        "site", "devices", "scenarios",
+        "site",
+        "devices",
+        "scenarios",
     }:
         raise GeneratorError("instances requires site, devices and scenarios paths")
     if not isinstance(templates, dict) or set(templates) != {"root"}:
@@ -236,7 +238,9 @@ def config_sources(service_file: Path, service: dict[str, Any]) -> dict[str, Pat
         for key in ("site", "devices", "scenarios")
     }
     resolved["templates_root"] = resolve_source(
-        service_file, templates["root"], directory=True,
+        service_file,
+        templates["root"],
+        directory=True,
     )
     resolved["units"] = resolved["templates_root"] / "units.yaml"
     resolved["business_points"] = resolved["templates_root"] / "business_points.yaml"
@@ -257,12 +261,14 @@ def load_settings(service_path: Path) -> Settings:
     paths = config_sources(path, service)
     instance = load_yaml(paths["scenarios"])
     try:
-        documents = SharedDocumentLoader(SharedConfigPaths(
-            instances=paths["site"].parent,
-            templates=paths["templates_root"],
-            site_file=paths["site"],
-            devices_file=paths["devices"],
-        )).load()
+        documents = SharedDocumentLoader(
+            SharedConfigPaths(
+                instances=paths["site"].parent,
+                templates=paths["templates_root"],
+                site_file=paths["site"],
+                devices_file=paths["devices"],
+            )
+        ).load()
         shared = build_shared_snapshot(documents)
     except (OSError, KeyError, TypeError, ValueError) as exc:
         raise GeneratorError(f"invalid shared configuration: {exc}") from exc
@@ -314,8 +320,14 @@ def load_settings(service_path: Path) -> Settings:
         if set(points) - {(item.device_id, item.point_id) for item in mappings}:
             raise GeneratorError("enabled source point lacks output mapping")
         scenarios[scenario_id] = Scenario(
-            scenario_id, version, str(raw.get("description", "")), source,
-            devices, points, tuple(mappings), gateways,
+            scenario_id,
+            version,
+            str(raw.get("description", "")),
+            source,
+            devices,
+            points,
+            tuple(mappings),
+            gateways,
         )
     payload = json.dumps(
         {
@@ -327,7 +339,16 @@ def load_settings(service_path: Path) -> Settings:
         ensure_ascii=False,
     ).encode("utf-8")
     return Settings(
-        root, service, scenarios, hashlib.sha256(payload).hexdigest(), shared,
-        path, paths["scenarios"], paths["site"], paths["devices"],
-        paths["units"], paths["business_points"], paths["templates_root"],
+        root,
+        service,
+        scenarios,
+        hashlib.sha256(payload).hexdigest(),
+        shared,
+        path,
+        paths["scenarios"],
+        paths["site"],
+        paths["devices"],
+        paths["units"],
+        paths["business_points"],
+        paths["templates_root"],
     )

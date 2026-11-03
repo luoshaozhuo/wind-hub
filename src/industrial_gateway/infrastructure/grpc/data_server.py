@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-from ipaddress import ip_address
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from ipaddress import ip_address
 
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -24,7 +24,7 @@ IsRunning = Callable[[str], bool]
 
 def _time_now() -> Timestamp:
     value = Timestamp()
-    value.FromDatetime(datetime.now(timezone.utc))
+    value.FromDatetime(datetime.now(UTC))
     return value
 
 
@@ -41,9 +41,7 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
     ) -> None:
         self._store = store
         self._config = config
-        self._revision = hashlib.sha256(
-            config.model_dump_json().encode("utf-8")
-        ).hexdigest()
+        self._revision = hashlib.sha256(config.model_dump_json().encode("utf-8")).hexdigest()
         self._start = start
         self._stop = stop
         self._is_running = is_running
@@ -55,7 +53,10 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
             point_table = config.point_tables[device.point_table_id]
             for point_id, point in point_table.points.items():
                 target[f"{device_id}.{point_id}"] = (
-                    device_id, point_id, point.data_type, PointRole(point.role),
+                    device_id,
+                    point_id,
+                    point.data_type,
+                    PointRole(point.role),
                 )
 
     def _catalog(self, gateway_id: str) -> dict[str, tuple[str, str, str, PointRole]]:
@@ -65,7 +66,9 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
             raise ValueError(f"unknown gateway: {gateway_id}") from exc
 
     async def _require_catalog(
-        self, gateway_id: str, context: grpc.aio.ServicerContext,
+        self,
+        gateway_id: str,
+        context: grpc.aio.ServicerContext,
     ) -> dict[str, tuple[str, str, str, PointRole]]:
         try:
             return self._catalog(gateway_id)
@@ -74,10 +77,14 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
             raise RuntimeError("gRPC abort returned") from exc
 
     def _gateway(self, gateway_id: str) -> gateway.Gateway:
-        members = [name for name, device in self._config.devices.items()
-                   if device.endpoint_id == gateway_id]
+        members = [
+            name
+            for name, device in self._config.devices.items()
+            if device.endpoint_id == gateway_id
+        ]
         return gateway.Gateway(
-            gateway_id=gateway_id, endpoint=self._config.data_grpc_bind or "",
+            gateway_id=gateway_id,
+            endpoint=self._config.data_grpc_bind or "",
             mapping_summary=f"{len(members)} virtual devices",
             revision=self._revision,
             desired_state="RUNNING" if self._is_running(gateway_id) else "STOPPED",
@@ -85,7 +92,9 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
         )
 
     async def ListGateways(
-        self, request: gateway.ListGatewaysRequest, context: grpc.aio.ServicerContext,
+        self,
+        request: gateway.ListGatewaysRequest,
+        context: grpc.aio.ServicerContext,
     ) -> gateway.ListGatewaysResponse:
         names = [name for name in sorted(self._definitions) if request.filter in name]
         try:
@@ -103,47 +112,65 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
         )
 
     async def GetGateway(
-        self, request: common.ObjectId, context: grpc.aio.ServicerContext,
+        self,
+        request: common.ObjectId,
+        context: grpc.aio.ServicerContext,
     ) -> gateway.GetGatewayResponse:
         await self._require_catalog(request.id, context)
         return gateway.GetGatewayResponse(gateway=self._gateway(request.id))
 
     async def _lifecycle(
-        self, request: common.OperationRequest, context: grpc.aio.ServicerContext,
-        action: LifecycleAction, desired: str,
+        self,
+        request: common.OperationRequest,
+        context: grpc.aio.ServicerContext,
+        action: LifecycleAction,
+        desired: str,
     ) -> common.OperationResult:
         await self._require_catalog(request.id, context)
         if request.expected_revision and request.expected_revision != self._revision:
             return common.OperationResult(
-                accepted=False, revision=self._revision,
-                desired_state=desired, actual_state="CONFLICT",
+                accepted=False,
+                revision=self._revision,
+                desired_state=desired,
+                actual_state="CONFLICT",
                 error_code="REVISION_CONFLICT",
             )
         try:
             changed = await action(request.id)
         except (OSError, RuntimeError, ValueError) as exc:
             return common.OperationResult(
-                accepted=False, actual_state="FAILED", desired_state=desired,
-                error_code="LIFECYCLE_FAILED", message=str(exc),
+                accepted=False,
+                actual_state="FAILED",
+                desired_state=desired,
+                error_code="LIFECYCLE_FAILED",
+                message=str(exc),
             )
         return common.OperationResult(
-            accepted=True, desired_state=desired, revision=self._revision,
+            accepted=True,
+            desired_state=desired,
+            revision=self._revision,
             actual_state="RUNNING" if self._is_running(request.id) else "STOPPED",
             message="changed" if changed else "already in requested state",
         )
 
     async def StartGateway(
-        self, request: common.OperationRequest, context: grpc.aio.ServicerContext,
+        self,
+        request: common.OperationRequest,
+        context: grpc.aio.ServicerContext,
     ) -> common.OperationResult:
         return await self._lifecycle(request, context, self._start, "RUNNING")
 
     async def StopGateway(
-        self, request: common.OperationRequest, context: grpc.aio.ServicerContext,
+        self,
+        request: common.OperationRequest,
+        context: grpc.aio.ServicerContext,
     ) -> common.OperationResult:
         return await self._lifecycle(request, context, self._stop, "STOPPED")
 
     async def ListVariables(
-        self, request: gateway.ListVariablesRequest, context: grpc.aio.ServicerContext,
+        self,
+        request: gateway.ListVariablesRequest,
+        context: grpc.aio.ServicerContext,
     ) -> gateway.ListVariablesResponse:
         catalog = await self._require_catalog(request.gateway_id, context)
         names = [name for name in sorted(catalog) if request.filter in name]
@@ -158,8 +185,11 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
         end = offset + size
         variables = [
             gateway.Variable(
-                variable_id=name, name=name, data_type=catalog[name][2],
-                readable=True, writable=catalog[name][3] is PointRole.FEEDBACK,
+                variable_id=name,
+                name=name,
+                data_type=catalog[name][2],
+                readable=True,
+                writable=catalog[name][3] is PointRole.FEEDBACK,
             )
             for name in names[offset:end]
         ]
@@ -169,7 +199,9 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
         )
 
     async def ReadVariables(
-        self, request: gateway.ReadVariablesRequest, context: grpc.aio.ServicerContext,
+        self,
+        request: gateway.ReadVariablesRequest,
+        context: grpc.aio.ServicerContext,
     ) -> gateway.ReadVariablesResponse:
         catalog = await self._require_catalog(request.gateway_id, context)
         names = request.variable_ids or tuple(sorted(catalog))
@@ -181,7 +213,8 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
             device_id, point_id, _, _ = catalog[name]
             state = self._store.read(device_id, point_id)
             sample = common.Sample(
-                point_id=name, quality="GOOD" if state.value is not None else "UNKNOWN",
+                point_id=name,
+                quality="GOOD" if state.value is not None else "UNKNOWN",
                 freshness="CURRENT" if state.value is not None else "UNAVAILABLE",
                 queried_at=_time_now(),
             )
@@ -191,11 +224,14 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
                 sample.error_code = "NO_VALUE"
             samples.append(sample)
         return gateway.ReadVariablesResponse(
-            gateway_id=request.gateway_id, values=samples,
+            gateway_id=request.gateway_id,
+            values=samples,
         )
 
     async def UpdateVariables(
-        self, request: gateway.UpdateVariablesRequest, context: grpc.aio.ServicerContext,
+        self,
+        request: gateway.UpdateVariablesRequest,
+        context: grpc.aio.ServicerContext,
     ) -> gateway.UpdateVariablesResponse:
         # This service is currently loopback-only. Enforce the configured
         # data-writer IP allowlist in addition to the network bind restriction.
@@ -207,8 +243,7 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
             address = peer[5:].rsplit(":", 1)[0].strip("[]")
         try:
             authorized = ip_address(address) in {
-                ip_address(value)
-                for value in self._config.control.access.data_writers
+                ip_address(value) for value in self._config.control.access.data_writers
             }
         except ValueError:
             authorized = False
@@ -243,10 +278,14 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
             except (ValueError, KeyError, TypeError, PermissionError) as exc:
                 code = "INVALID_VARIABLE"
                 message = str(exc)
-            results.append(gateway.VariableUpdateResult(
-                variable_id=item.variable_id, success=not code,
-                error_code=code, message=message,
-            ))
+            results.append(
+                gateway.VariableUpdateResult(
+                    variable_id=item.variable_id,
+                    success=not code,
+                    error_code=code,
+                    message=message,
+                )
+            )
         return gateway.UpdateVariablesResponse(results=results)
 
 
@@ -262,7 +301,8 @@ def create_grpc_server(
         raise ValueError("unauthenticated Gateway gRPC must bind loopback")
     server = grpc.aio.server()
     gateway_rpc.add_IndustrialGatewayServiceServicer_to_server(
-        IndustrialGatewayService(store, config, start, stop, is_running), server,
+        IndustrialGatewayService(store, config, start, stop, is_running),
+        server,
     )
     if server.add_insecure_port(bind) == 0:
         raise RuntimeError("unable to bind Gateway gRPC listener")

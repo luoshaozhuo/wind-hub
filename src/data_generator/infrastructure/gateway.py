@@ -22,20 +22,25 @@ from data_generator.domain.model import (
 )
 from data_generator.domain.scenario import Scenario
 
-_CLEAR_REJECTION_CODES = frozenset({
-    grpc.StatusCode.INVALID_ARGUMENT,
-    grpc.StatusCode.NOT_FOUND,
-    grpc.StatusCode.PERMISSION_DENIED,
-    grpc.StatusCode.UNAUTHENTICATED,
-    grpc.StatusCode.FAILED_PRECONDITION,
-})
+_CLEAR_REJECTION_CODES = frozenset(
+    {
+        grpc.StatusCode.INVALID_ARGUMENT,
+        grpc.StatusCode.NOT_FOUND,
+        grpc.StatusCode.PERMISSION_DENIED,
+        grpc.StatusCode.UNAUTHENTICATED,
+        grpc.StatusCode.FAILED_PRECONDITION,
+    }
+)
 
 
 class GatewayWriter:
     """Each Gateway is serialized; the global RPC permit follows real call lifetime."""
 
     def __init__(
-        self, timeout: float = 3.0, max_points: int = 1000, max_inflight: int = 1,
+        self,
+        timeout: float = 3.0,
+        max_points: int = 1000,
+        max_inflight: int = 1,
     ) -> None:
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("Gateway timeout must be positive and finite")
@@ -62,14 +67,16 @@ class GatewayWriter:
     def unsettled_gateways(self) -> frozenset[str]:
         """Native calls still in progress, including those that timed out logically."""
         return frozenset(
-            name for name, task in self._unsettled.items()
+            name
+            for name, task in self._unsettled.items()
             if not task.done() or name not in self._settled_callbacks
         )
 
     async def wait_settled(self, gateway_ids: frozenset[str], timeout: float) -> bool:
         """Wait no longer than the stop deadline; do not cancel native calls."""
         tasks = [
-            task for name, task in self._unsettled.items()
+            task
+            for name, task in self._unsettled.items()
             if name in gateway_ids and not task.done()
         ]
         if tasks:
@@ -77,9 +84,7 @@ class GatewayWriter:
             if pending:
                 return False
         # A completed Task is not released until its accounting callback has run.
-        return not bool(gateway_ids.intersection(
-            self.unsafe_gateways | self.unsettled_gateways
-        ))
+        return not bool(gateway_ids.intersection(self.unsafe_gateways | self.unsettled_gateways))
 
     async def validate(self, scenario: Scenario) -> None:
         """Read the real Gateway catalog; never send data before target validation."""
@@ -104,7 +109,9 @@ class GatewayWriter:
                     response = await asyncio.wait_for(
                         stub.ListVariables(
                             industrial_gateway_pb2.ListVariablesRequest(
-                                gateway_id=gateway_id, page_token=token, page_size=1000,
+                                gateway_id=gateway_id,
+                                page_token=token,
+                                page_size=1000,
                             ),
                         ),
                         timeout=self._timeout,
@@ -134,13 +141,9 @@ class GatewayWriter:
                 raise GeneratorError(f"Gateway {gateway_id} catalog page limit")
             missing = set(expected_types) - found
             if missing:
-                raise GeneratorError(
-                    f"Gateway {gateway_id} missing targets: {sorted(missing)}"
-                )
+                raise GeneratorError(f"Gateway {gateway_id} missing targets: {sorted(missing)}")
 
-        await asyncio.gather(
-            *(check(name, points) for name, points in expected.items())
-        )
+        await asyncio.gather(*(check(name, points) for name, points in expected.items()))
 
     async def send(self, scenario: Scenario, batch: DataBatch) -> list[DeliveryResult]:
         values = {(point.device_id, point.point_id): point.value for point in batch.points}
@@ -150,13 +153,18 @@ class GatewayWriter:
             if key in values:
                 groups[mapping.target.gateway_id].append((mapping.target, values[key]))
 
-        async def group(gateway_id: str, entries: list[tuple[OutputTarget, Scalar]]
-                        ) -> list[DeliveryResult]:
+        async def group(
+            gateway_id: str, entries: list[tuple[OutputTarget, Scalar]]
+        ) -> list[DeliveryResult]:
             outcomes: list[DeliveryResult] = []
             for offset in range(0, len(entries), self._max_points):
-                outcomes.extend(await self._send_one(
-                    scenario, gateway_id, entries[offset:offset + self._max_points],
-                ))
+                outcomes.extend(
+                    await self._send_one(
+                        scenario,
+                        gateway_id,
+                        entries[offset : offset + self._max_points],
+                    )
+                )
             return outcomes
 
         individual = await asyncio.gather(
@@ -172,21 +180,23 @@ class GatewayWriter:
     ) -> list[DeliveryResult]:
         async with self._locks[gateway_id]:
             if gateway_id in self._unsafe:
-                return [DeliveryResult(target, "FAILED", "TARGET_QUARANTINED")
-                        for target, _ in entries]
+                return [
+                    DeliveryResult(target, "FAILED", "TARGET_QUARANTINED") for target, _ in entries
+                ]
             prior = self._unsettled.get(gateway_id)
             if prior is not None and (
                 not prior.done() or gateway_id not in self._settled_callbacks
             ):
-                return [DeliveryResult(target, "FAILED", "TARGET_BUSY")
-                        for target, _ in entries]
+                return [DeliveryResult(target, "FAILED", "TARGET_BUSY") for target, _ in entries]
             self._unsettled.pop(gateway_id, None)
             self._settled_callbacks.discard(gateway_id)
             try:
                 await asyncio.wait_for(self._available.acquire(), timeout=self._timeout)
             except TimeoutError:
-                return [DeliveryResult(target, "FAILED", "BACKPRESSURE_TIMEOUT")
-                        for target, _ in entries]
+                return [
+                    DeliveryResult(target, "FAILED", "BACKPRESSURE_TIMEOUT")
+                    for target, _ in entries
+                ]
             try:
                 endpoint = scenario.gateways[gateway_id]
                 if endpoint not in self._channels:
@@ -198,7 +208,8 @@ class GatewayWriter:
                     gateway_id=gateway_id,
                     values=[
                         industrial_gateway_pb2.VariableUpdate(
-                            variable_id=target.variable_id, value=encode_scalar(value),
+                            variable_id=target.variable_id,
+                            value=encode_scalar(value),
                         )
                         for target, value in entries
                     ],
@@ -230,14 +241,17 @@ class GatewayWriter:
                         self._unsafe.add(gateway_id)
                     for target, _ in entries:
                         self.last_native_results[target] = DeliveryResult(
-                            target, "FAILED" if confirmed_rejection else "UNKNOWN",
+                            target,
+                            "FAILED" if confirmed_rejection else "UNKNOWN",
                             str(error.code()),
                         )
                 except BaseException:
                     self._unsafe.add(gateway_id)
                     for target, _ in entries:
                         self.last_native_results[target] = DeliveryResult(
-                            target, "UNKNOWN", "NATIVE_CALL_UNSETTLED",
+                            target,
+                            "UNKNOWN",
+                            "NATIVE_CALL_UNSETTLED",
                         )
                 else:
                     received = {item.variable_id: item for item in reply.results}
@@ -250,11 +264,16 @@ class GatewayWriter:
                         item = received.get(target.variable_id) if valid else None
                         self.last_native_results[target] = (
                             DeliveryResult(
-                                target, "SUCCESS" if item.success else "FAILED",
-                                item.error_code, item.message,
+                                target,
+                                "SUCCESS" if item.success else "FAILED",
+                                item.error_code,
+                                item.message,
                             )
-                            if item is not None else DeliveryResult(
-                                target, "UNKNOWN", "INVALID_ACK",
+                            if item is not None
+                            else DeliveryResult(
+                                target,
+                                "UNKNOWN",
+                                "INVALID_ACK",
                             )
                         )
                 self._settled_callbacks.add(gateway_id)
@@ -265,15 +284,15 @@ class GatewayWriter:
             except grpc.RpcError as error:
                 code = error.code()
                 if code in _CLEAR_REJECTION_CODES:
-                    return [DeliveryResult(target, "FAILED", str(code), str(error))
-                            for target, _ in entries]
+                    return [
+                        DeliveryResult(target, "FAILED", str(code), str(error))
+                        for target, _ in entries
+                    ]
                 self._unsafe.add(gateway_id)
-                return [DeliveryResult(target, "UNKNOWN", str(code))
-                        for target, _ in entries]
+                return [DeliveryResult(target, "UNKNOWN", str(code)) for target, _ in entries]
             except TimeoutError:
                 self._unsafe.add(gateway_id)
-                return [DeliveryResult(target, "UNKNOWN", "RPC_TIMEOUT")
-                        for target, _ in entries]
+                return [DeliveryResult(target, "UNKNOWN", "RPC_TIMEOUT") for target, _ in entries]
             except asyncio.CancelledError:
                 self._unsafe.add(gateway_id)
                 raise
@@ -281,8 +300,7 @@ class GatewayWriter:
             received = {item.variable_id: item for item in response.results}
             if len(received) != len(response.results) or set(received) != expected:
                 self._unsafe.add(gateway_id)
-                return [DeliveryResult(target, "UNKNOWN", "INVALID_ACK")
-                        for target, _ in entries]
+                return [DeliveryResult(target, "UNKNOWN", "INVALID_ACK") for target, _ in entries]
             results: list[DeliveryResult] = []
             for target, _ in entries:
                 item = received.get(target.variable_id)
@@ -292,9 +310,14 @@ class GatewayWriter:
                 elif item.success:
                     results.append(DeliveryResult(target, "SUCCESS"))
                 else:
-                    results.append(DeliveryResult(
-                        target, "FAILED", item.error_code, item.message,
-                    ))
+                    results.append(
+                        DeliveryResult(
+                            target,
+                            "FAILED",
+                            item.error_code,
+                            item.message,
+                        )
+                    )
             return results
 
     async def drain(self) -> None:

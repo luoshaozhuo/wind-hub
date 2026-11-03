@@ -67,8 +67,12 @@ class GatewayApplication:
                 if self.config is None:
                     raise RuntimeError("Gateway config missing for gRPC service")
                 self.data_server = create_grpc_server(
-                    self.store, self.data_grpc_bind, self.config,
-                    self.start_gateway, self.stop_gateway, self.is_running,
+                    self.store,
+                    self.data_grpc_bind,
+                    self.config,
+                    self.start_gateway,
+                    self.stop_gateway,
+                    self.is_running,
                 )
                 await self.data_server.start()
             for gateway_id in self.endpoint_ids:

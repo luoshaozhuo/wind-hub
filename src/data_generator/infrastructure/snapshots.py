@@ -131,8 +131,7 @@ class SnapshotManager:
         self.settings = settings
         self._runtime_files = self._read_disk()
         self._disk_private = {
-            file.path: file.data
-            for file in self._runtime_files if file.path in self._owned()
+            file.path: file.data for file in self._runtime_files if file.path in self._owned()
         }
         self._candidate: tuple[str, tuple[FileContent, ...], str, Settings] | None = None
         self._restart_pending = False
@@ -148,9 +147,12 @@ class SnapshotManager:
     def _read_disk(self) -> tuple[FileContent, ...]:
         settings = self.settings
         paths = {
-            settings.service_file, settings.scenario_file,
-            settings.site_file, settings.devices_file,
-            settings.units_file, settings.business_points_file,
+            settings.service_file,
+            settings.scenario_file,
+            settings.site_file,
+            settings.devices_file,
+            settings.units_file,
+            settings.business_points_file,
         }
         documents = SharedDocumentLoader(
             SharedConfigPaths(
@@ -162,13 +164,16 @@ class SnapshotManager:
         ).load()
         for device in documents.devices.values():
             refs = device.templates
-            paths.update((
-                refs.model.path, refs.protocol.path, refs.point_table.path,
-                *(item.path for item in refs.inherited_tables),
-            ))
+            paths.update(
+                (
+                    refs.model.path,
+                    refs.protocol.path,
+                    refs.point_table.path,
+                    *(item.path for item in refs.inherited_tables),
+                )
+            )
         return tuple(
-            FileContent(_relative(settings.root, item), item.read_bytes())
-            for item in sorted(paths)
+            FileContent(_relative(settings.root, item), item.read_bytes()) for item in sorted(paths)
         )
 
     def get(self, scope: str, candidate_id: str = "") -> tuple[FileContent, ...]:
@@ -222,9 +227,7 @@ class SnapshotManager:
         for relative, content in provided.items():
             _safe_target(self.settings.root, relative)
             if relative not in owned and content != original[relative]:
-                raise GeneratorError(
-                    f"Core shared configuration is read-only: {relative}"
-                )
+                raise GeneratorError(f"Core shared configuration is read-only: {relative}")
 
         # Stage against the complete *read-only* Core tree, never publish it.
         root = self.settings.root
@@ -235,23 +238,13 @@ class SnapshotManager:
                 if file.path in owned:
                     target = _safe_target(stage, file.path)
                     _durable_write(target, file.data)
-            staged = load_settings(
-                stage / _relative(root, self.settings.service_file)
-            )
+            staged = load_settings(stage / _relative(root, self.settings.service_file))
             candidate_document = yaml.safe_load(staged.scenario_file.read_text(encoding="utf-8"))
-        old_document = yaml.safe_load(
-            self.settings.scenario_file.read_text(encoding="utf-8")
-        )
-        existing = {
-            item["scenario_id"]: item for item in old_document["scenarios"]
-        }
+        old_document = yaml.safe_load(self.settings.scenario_file.read_text(encoding="utf-8"))
+        existing = {item["scenario_id"]: item for item in old_document["scenarios"]}
         for item in candidate_document["scenarios"]:
             before = existing.get(item["scenario_id"])
-            if (
-                before is not None
-                and before["version"] == item["version"]
-                and before != item
-            ):
+            if before is not None and before["version"] == item["version"] and before != item:
                 raise GeneratorError(
                     "immutable scenario version changed: "
                     f"{item['scenario_id']}@{item['version']}"
@@ -268,13 +261,8 @@ class SnapshotManager:
             raise GeneratorError("expected_revision mismatch")
         self._assert_unchanged()
         root = self.settings.root
-        original = {
-            f.path: f.data for f in self._read_disk()
-            if f.path in self._owned()
-        }
-        proposed = {
-            f.path: f.data for f in candidate[1] if f.path in self._owned()
-        }
+        original = {f.path: f.data for f in self._read_disk() if f.path in self._owned()}
+        proposed = {f.path: f.data for f in candidate[1] if f.path in self._owned()}
         changed = [name for name in sorted(proposed) if proposed[name] != original[name]]
         if not changed:
             if not self._restart_pending:
@@ -318,9 +306,9 @@ class SnapshotManager:
                     new_settings.scenario_file.read_bytes()
                 ),
             }
-            next_runtime_files = self._read_disk() if not (
-                self._restart_pending or restart
-            ) else self._runtime_files
+            next_runtime_files = (
+                self._read_disk() if not (self._restart_pending or restart) else self._runtime_files
+            )
             # Durable decision separates successful commit from rollback recovery.
             _durable_write(
                 journal / "committed.json",

@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import math
+import contextlib
 import logging
+import math
 import time
 import uuid
 from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from data_generator.application.models import generate_values
 from data_generator.application.replay import decode_value, iter_records, replay_deadline
@@ -21,7 +22,6 @@ from data_generator.domain.model import (
     GeneratorError,
     OutputTarget,
     Scalar,
-    validate_scalar,
 )
 from data_generator.domain.scenario import Scenario, Settings, resolve_history
 from data_generator.ports.output import OutputPort
@@ -72,37 +72,48 @@ class Runtime:
         self.latest_replay_timestamp: datetime | None = None
         self.replay_speed: float | None = None
         self.counters: dict[str, int] = {
-            "generated": 0, "batches": 0, "replay_read": 0,
-            "attempted": 0, "confirmed": 0, "failed": 0,
-            "unknown": 0, "partial_batches": 0,
-            "unknown_batches": 0, "skipped_steps": 0,
+            "generated": 0,
+            "batches": 0,
+            "replay_read": 0,
+            "attempted": 0,
+            "confirmed": 0,
+            "failed": 0,
+            "unknown": 0,
+            "partial_batches": 0,
+            "unknown_batches": 0,
+            "skipped_steps": 0,
         }
 
     def record(self, severity: str, source: str, error_code: str, message: str) -> None:
         self.events.append(
             RuntimeEvent(
-                str(uuid.uuid4()), datetime.now(timezone.utc),
-                severity, source, error_code, message,
+                str(uuid.uuid4()),
+                datetime.now(UTC),
+                severity,
+                source,
+                error_code,
+                message,
             )
         )
         logger.log(
-            logging.ERROR if severity == "ERROR" else
-            logging.WARNING if severity == "WARNING" else logging.INFO,
-            "%s: %s", error_code, message,
+            logging.ERROR
+            if severity == "ERROR"
+            else logging.WARNING
+            if severity == "WARNING"
+            else logging.INFO,
+            "%s: %s",
+            error_code,
+            message,
             extra={"source_id": source, "stage": error_code},
         )
 
     @staticmethod
     def _gateway_keys(generation: GenerationState) -> frozenset[str]:
-        return frozenset(
-            mapping.target.gateway_id for mapping in generation.scenario.mappings
-        )
+        return frozenset(mapping.target.gateway_id for mapping in generation.scenario.mappings)
 
     def _blocked(self, generation: GenerationState) -> bool:
         keys = self._gateway_keys(generation)
-        return bool(keys & (
-            self.writer.unsafe_gateways | self.writer.unsettled_gateways
-        ))
+        return bool(keys & (self.writer.unsafe_gateways | self.writer.unsettled_gateways))
 
     def _reconcile_locked(self) -> None:
         """Release all reserved keys only after safe source and native I/O settlement."""
@@ -122,7 +133,8 @@ class Runtime:
         self._task = None
 
     async def commit_configuration(
-        self, commit: Callable[[], tuple[Settings, bool]],
+        self,
+        commit: Callable[[], tuple[Settings, bool]],
     ) -> tuple[Settings, bool]:
         """Hold the same boundary as Start/Stop while switching active config."""
         async with self._lock:
@@ -139,7 +151,10 @@ class Runtime:
             return self.generations.get(generation_id)
 
     async def start(
-        self, scenario_id: str, version: str | None, revision: str,
+        self,
+        scenario_id: str,
+        version: str | None,
+        revision: str,
     ) -> GenerationState:
         async with self._lock:
             if revision and revision != self.settings.revision:
@@ -166,8 +181,10 @@ class Runtime:
                 raise GeneratorError(f"unsettled Gateway targets: {sorted(unsafe)}")
             await self.writer.validate(scenario)
             state = GenerationState(
-                str(uuid.uuid4()), scenario, self.settings,
-                started_at=datetime.now(timezone.utc),
+                str(uuid.uuid4()),
+                scenario,
+                self.settings,
+                started_at=datetime.now(UTC),
             )
             self.generations[state.generation_id] = state
             self._active = state.generation_id
@@ -180,15 +197,23 @@ class Runtime:
 
     async def _finish_when_settled(self, generation: GenerationState) -> None:
         """Reap completed source ownership when native I/O becomes trustworthy."""
-        timeout = float(generation.bound_settings.service.get(
-            "output", {},
-        ).get("grpc_timeout_seconds", 3.0)) * 2
+        timeout = (
+            float(
+                generation.bound_settings.service.get(
+                    "output",
+                    {},
+                ).get("grpc_timeout_seconds", 3.0)
+            )
+            * 2
+        )
         try:
             await self.writer.wait_settled(self._gateway_keys(generation), timeout)
         except (OSError, RuntimeError, ValueError) as exc:
             self.record(
-                "WARNING", generation.generation_id,
-                "SETTLEMENT_ERROR", str(exc),
+                "WARNING",
+                generation.generation_id,
+                "SETTLEMENT_ERROR",
+                str(exc),
             )
         async with self._lock:
             if self._active == generation.generation_id:
@@ -211,14 +236,13 @@ class Runtime:
 
         timeout = float(
             generation.bound_settings.service.get("output", {}).get(
-                "grpc_timeout_seconds", 3.0,
+                "grpc_timeout_seconds",
+                3.0,
             )
         )
-        try:
+        # The caller's cancellation cannot prove that its native output settled.
+        with contextlib.suppress(TimeoutError, asyncio.CancelledError):
             await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
-        except (TimeoutError, asyncio.CancelledError):
-            # The caller's cancellation cannot prove that its native output settled.
-            pass
         keys = self._gateway_keys(generation)
         settled = await self.writer.wait_settled(keys, timeout=timeout)
         async with self._lock:
@@ -229,7 +253,9 @@ class Runtime:
                 if not generation.last_error:
                     generation.last_error = "UNSETTLED_GATEWAY_OUTPUT"
                 self.record(
-                    "WARNING", generation_id, "STOP_PENDING_IO",
+                    "WARNING",
+                    generation_id,
+                    "STOP_PENDING_IO",
                     "Gateway I/O did not safely settle before stop deadline",
                 )
         return generation
@@ -241,7 +267,9 @@ class Runtime:
         settled = await self.writer.close()
         if not settled:
             self.record(
-                "WARNING", "runtime", "UNSETTLED_IO_ON_SHUTDOWN",
+                "WARNING",
+                "runtime",
+                "UNSETTLED_IO_ON_SHUTDOWN",
                 "native Gateway updates unresolved at shutdown deadline",
             )
 
@@ -284,14 +312,17 @@ class Runtime:
         while generation.desired_state == "RUNNING":
             now = time.monotonic()
             next_step = max(
-                sequence + 1, math.floor((now - epoch) / interval) + 1,
+                sequence + 1,
+                math.floor((now - epoch) / interval) + 1,
             )
             skipped = next_step - sequence - 1
             if skipped:
                 self.counters["skipped_steps"] += skipped
                 self.record(
-                    "WARNING", generation.generation_id,
-                    "SKIPPED_PERIOD", str(skipped),
+                    "WARNING",
+                    generation.generation_id,
+                    "SKIPPED_PERIOD",
+                    str(skipped),
                 )
             sequence = next_step
             planned = epoch + sequence * interval
@@ -303,7 +334,10 @@ class Runtime:
             try:
                 values = generate_values(seed, sequence, scenario.points)
                 await self._emit(
-                    generation, sequence, datetime.now(timezone.utc), values,
+                    generation,
+                    sequence,
+                    datetime.now(UTC),
+                    values,
                 )
             except Exception:
                 self.counters.setdefault("failed_periods", 0)
@@ -313,9 +347,7 @@ class Runtime:
                 self.observations.append(
                     (time.monotonic(), "simulation_duration_seconds", time.monotonic() - began)
                 )
-                self.observations.append(
-                    (time.monotonic(), "schedule_lag_seconds", lag)
-                )
+                self.observations.append((time.monotonic(), "schedule_lag_seconds", lag))
 
     async def _replay(self, generation: GenerationState) -> None:
         scenario = generation.scenario
@@ -330,14 +362,13 @@ class Runtime:
         first_time: datetime | None = None
         epoch = 0.0
         async for record in iter_records(
-            resolve_history(bound.root, source["file"]), start, end,
+            resolve_history(bound.root, source["file"]),
+            start,
+            end,
             read_batch_size=int(limits.get("read_batch_size", 1000)),
             max_file_bytes=int(limits.get("max_file_bytes", 268435456)),
             max_records=int(limits.get("max_records", 1000000)),
-            point_types={
-                key: str(point["data_type"])
-                for key, point in scenario.points.items()
-            },
+            point_types={key: str(point["data_type"]) for key, point in scenario.points.items()},
         ):
             if generation.desired_state != "RUNNING":
                 return
@@ -360,7 +391,10 @@ class Runtime:
             checked = decode_value(record.value, kind)
             sequence += 1
             status = await self._emit(
-                generation, sequence, record.source_time, {key: checked},
+                generation,
+                sequence,
+                record.source_time,
+                {key: checked},
             )
             self.counters.setdefault("replay_submitted", 0)
             self.counters["replay_submitted"] += 1
@@ -371,7 +405,6 @@ class Runtime:
         if sequence == 0:
             raise GeneratorError("EMPTY_REPLAY_WINDOW: no source records in time range")
 
-
     async def _emit(
         self,
         generation: GenerationState,
@@ -380,7 +413,9 @@ class Runtime:
         values: dict[tuple[str, str], Scalar],
     ) -> str:
         batch = DataBatch(
-            generation.generation_id, sequence, datetime.now(timezone.utc),
+            generation.generation_id,
+            sequence,
+            datetime.now(UTC),
             tuple(
                 DataPoint(device, point, value, timestamp)
                 for (device, point), value in values.items()
@@ -396,20 +431,17 @@ class Runtime:
         if len(results) != expected or expected == 0:
             raise GeneratorError("Gateway delivery results incomplete")
         not_sent = {"TARGET_QUARANTINED", "TARGET_BUSY", "BACKPRESSURE_TIMEOUT"}
-        self.counters["attempted"] += sum(
-            result.error_code not in not_sent for result in results
-        )
+        self.counters["attempted"] += sum(result.error_code not in not_sent for result in results)
         confirmed = 0
         failed = 0
         unknown = 0
         for result in results:
             self.last_targets[result.target] = result
             totals = self.target_counts.setdefault(
-                result.target, {"SUCCESS": 0, "FAILED": 0, "UNKNOWN": 0},
+                result.target,
+                {"SUCCESS": 0, "FAILED": 0, "UNKNOWN": 0},
             )
-            classification = (
-                result.state if result.state in ("SUCCESS", "FAILED") else "UNKNOWN"
-            )
+            classification = result.state if result.state in ("SUCCESS", "FAILED") else "UNKNOWN"
             totals[classification] += 1
             self.gateway_counts[result.target.gateway_id][classification] += 1
             if result.state == "SUCCESS":
@@ -422,7 +454,9 @@ class Runtime:
                 unknown += 1
                 self.counters["unknown"] += 1
                 self.record(
-                    "WARNING", generation.generation_id, "UNKNOWN_OUTPUT",
+                    "WARNING",
+                    generation.generation_id,
+                    "UNKNOWN_OUTPUT",
                     f"{result.target.gateway_id}:{result.target.variable_id}"
                     f" {result.error_code}",
                 )
@@ -439,7 +473,10 @@ class Runtime:
         self.last_batch_status = status
         logger.info(
             "delivery batch %s confirmed=%d failed=%d unknown=%d",
-            status, confirmed, failed, unknown,
+            status,
+            confirmed,
+            failed,
+            unknown,
             extra={
                 "source_id": generation.generation_id,
                 "batch_sequence": sequence,
@@ -448,7 +485,9 @@ class Runtime:
         )
         if status != "SUCCESS":
             self.record(
-                "WARNING", generation.generation_id,
-                "BATCH_" + status, str(sequence),
+                "WARNING",
+                generation.generation_id,
+                "BATCH_" + status,
+                str(sequence),
             )
         return status

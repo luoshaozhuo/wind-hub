@@ -59,14 +59,24 @@ class DeliveryResult:
     message: str = ""
 
 
-def validate_scalar(value: Scalar, data_type: str, minimum: float | None = None,
-                    maximum: float | None = None) -> Scalar:
+def validate_scalar(
+    value: Scalar, data_type: str, minimum: float | None = None, maximum: float | None = None
+) -> Scalar:
     """Validate without allowing bool to masquerade as int or non-finite floats."""
     types = {
-        "bool": bool, "float64": float, "float32": float,
-        "int8": int, "int16": int, "int32": int, "int64": int,
-        "uint8": int, "uint16": int, "uint32": int, "uint64": int,
-        "str": str, "bytes": bytes,
+        "bool": bool,
+        "float64": float,
+        "float32": float,
+        "int8": int,
+        "int16": int,
+        "int32": int,
+        "int64": int,
+        "uint8": int,
+        "uint16": int,
+        "uint32": int,
+        "uint64": int,
+        "str": str,
+        "bytes": bytes,
     }
     if data_type not in types:
         raise GeneratorError(f"unsupported scalar type: {data_type}")
@@ -80,10 +90,10 @@ def validate_scalar(value: Scalar, data_type: str, minimum: float | None = None,
     if data_type.startswith("uint") and int(value) < 0:
         raise GeneratorError("negative unsigned value")
     bounds = {
-        "int8": (-2**7, 2**7 - 1),
-        "int16": (-2**15, 2**15 - 1),
-        "int32": (-2**31, 2**31 - 1),
-        "int64": (-2**63, 2**63 - 1),
+        "int8": (-(2**7), 2**7 - 1),
+        "int16": (-(2**15), 2**15 - 1),
+        "int32": (-(2**31), 2**31 - 1),
+        "int64": (-(2**63), 2**63 - 1),
         "uint8": (0, 2**8 - 1),
         "uint16": (0, 2**16 - 1),
         "uint32": (0, 2**32 - 1),
@@ -93,10 +103,8 @@ def validate_scalar(value: Scalar, data_type: str, minimum: float | None = None,
         raise GeneratorError("integer outside scalar type range")
     if data_type == "float32" and abs(float(value)) > 3.4028234663852886e38:
         raise GeneratorError("float32 overflow")
-    if minimum is not None:
-        if not isinstance(value, int | float) or float(value) < minimum:
-            raise GeneratorError("scalar below minimum")
-    if maximum is not None:
-        if not isinstance(value, int | float) or float(value) > maximum:
-            raise GeneratorError("scalar above maximum")
+    if minimum is not None and (not isinstance(value, int | float) or float(value) < minimum):
+        raise GeneratorError("scalar below minimum")
+    if maximum is not None and (not isinstance(value, int | float) or float(value) > maximum):
+        raise GeneratorError("scalar above maximum")
     return value

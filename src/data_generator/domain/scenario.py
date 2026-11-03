@@ -40,7 +40,6 @@ class Settings:
     templates_root: Path
 
 
-
 def resolve_history(root: Path, relative: str) -> Path:
     if not relative or Path(relative).is_absolute():
         raise GeneratorError("history path must be relative")
@@ -49,4 +48,3 @@ def resolve_history(root: Path, relative: str) -> Path:
     if not candidate.is_relative_to(base):
         raise GeneratorError("history path escapes authorized history directory")
     return candidate
-

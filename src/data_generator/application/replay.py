@@ -8,10 +8,10 @@ import math
 import sqlite3
 import tempfile
 from collections.abc import AsyncIterator, Callable, Mapping
-from typing import TypeVar
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypeVar
 
 from data_generator.domain.model import GeneratorError, Scalar, validate_scalar
 
@@ -97,23 +97,26 @@ def _index_csv(
                         raise ValueError("empty or missing field")
                     if None in row:
                         raise ValueError("unexpected additional columns")
-                    stamp = datetime.fromisoformat(
-                        row["source_timestamp"].replace("Z", "+00:00")
-                    )
-                    if stamp.tzinfo is None or stamp.utcoffset() != timezone.utc.utcoffset(stamp):
+                    stamp = datetime.fromisoformat(row["source_timestamp"].replace("Z", "+00:00"))
+                    if stamp.tzinfo is None or stamp.utcoffset() != UTC.utcoffset(stamp):
                         raise ValueError("source_timestamp must be UTC")
                     key = (row["device_id"], row["point_id"])
                     data_type = point_types.get(key)
                     if data_type is None:
                         raise GeneratorError(f"unmapped replay source point: {key}")
                     decode_value(row["value"], data_type)
-                    normalized = stamp.astimezone(timezone.utc).isoformat(
-                        timespec="microseconds"
-                    )
+                    normalized = stamp.astimezone(UTC).isoformat(timespec="microseconds")
                     connection.execute(
                         "INSERT INTO records VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (line, normalized, row["device_id"], row["point_id"],
-                         row["value"], row["quality"], row["record_id"]),
+                        (
+                            line,
+                            normalized,
+                            row["device_id"],
+                            row["point_id"],
+                            row["value"],
+                            row["quality"],
+                            row["record_id"],
+                        ),
                     )
                 except (KeyError, TypeError, ValueError, sqlite3.Error) as exc:
                     raise GeneratorError(f"invalid CSV line {line}: {exc}") from exc
@@ -126,8 +129,8 @@ def _next_batch(
     after: tuple[str, int] | None,
     size: int,
 ) -> list[tuple[int, str, str, str, str, str, str]]:
-    beginning = start.astimezone(timezone.utc).isoformat(timespec="microseconds")
-    ending = end.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    beginning = start.astimezone(UTC).isoformat(timespec="microseconds")
+    ending = end.astimezone(UTC).isoformat(timespec="microseconds")
     sql = (
         "SELECT line_no, ts, device_id, point_id, value, quality, record_id"
         " FROM records WHERE ts >= ? AND ts < ?"
@@ -159,20 +162,36 @@ async def iter_records(
     with tempfile.TemporaryDirectory(prefix="windhub-replay-") as temporary:
         database = Path(temporary) / "replay.sqlite3"
         await _owned_thread(
-            _index_csv, source, database, start, end, max_records, point_types,
+            _index_csv,
+            source,
+            database,
+            start,
+            end,
+            max_records,
+            point_types,
         )
         cursor: tuple[str, int] | None = None
         while True:
             rows = await _owned_thread(
-                _next_batch, database, start, end, cursor, read_batch_size,
+                _next_batch,
+                database,
+                start,
+                end,
+                cursor,
+                read_batch_size,
             )
             if not rows:
                 return
             for line_no, ts, device, point, value, quality, record_id in rows:
                 cursor = (ts, line_no)
                 yield ReplayRecord(
-                    device, point, datetime.fromisoformat(ts),
-                    value, quality, record_id, line_no,
+                    device,
+                    point,
+                    datetime.fromisoformat(ts),
+                    value,
+                    quality,
+                    record_id,
+                    line_no,
                 )
 
 

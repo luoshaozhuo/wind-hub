@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -39,27 +39,36 @@ def snapshot(runtime: Runtime, scope: str, window_ms: int) -> common.GetMetricsR
     maximum = int(config.get("max_series", 2000))
     now = time.monotonic()
     timestamp = Timestamp()
-    timestamp.FromDatetime(datetime.now(timezone.utc))
+    timestamp.FromDatetime(datetime.now(UTC))
     metrics: list[common.Metric] = []
 
     def add(name: str, value: float, unit: str, window: int = 0) -> None:
         if len(metrics) >= maximum:
             return
-        metrics.append(common.Metric(
-            name=name, value=float(value), unit=unit,
-            window_ms=window, sampled_at=timestamp,
-        ))
+        metrics.append(
+            common.Metric(
+                name=name,
+                value=float(value),
+                unit=unit,
+                window_ms=window,
+                sampled_at=timestamp,
+            )
+        )
 
     if gateway_filter is None:
         for key, value in sorted(runtime.counters.items()):
             add(f"data_generator.{key}_total", float(value), "count")
-        add("data_generator.active_generations", float(
-            sum(state.actual_state in ("STARTING", "RUNNING", "STOPPING")
-                for state in runtime.generations.values())
-        ), "count")
-        add("data_generator.unsafe_gateways", float(
-            len(runtime.writer.unsafe_gateways)
-        ), "count")
+        add(
+            "data_generator.active_generations",
+            float(
+                sum(
+                    state.actual_state in ("STARTING", "RUNNING", "STOPPING")
+                    for state in runtime.generations.values()
+                )
+            ),
+            "count",
+        )
+        add("data_generator.unsafe_gateways", float(len(runtime.writer.unsafe_gateways)), "count")
         if runtime.replay_speed is not None:
             add("data_generator.replay_speed", runtime.replay_speed, "ratio")
         if runtime.latest_replay_timestamp is not None:
@@ -69,9 +78,9 @@ def snapshot(runtime: Runtime, scope: str, window_ms: int) -> common.GetMetricsR
                 "unix_second",
             )
         observations: dict[str, list[float]] = defaultdict(list)
-        for observed_at, name, value in runtime.observations:
+        for observed_at, name, observed_value in runtime.observations:
             if (now - observed_at) * 1000 <= duration_ms:
-                observations[name].append(value)
+                observations[name].append(observed_value)
         for name, values in sorted(observations.items()):
             for label, percentile in (("p50", 0.5), ("p95", 0.95), ("p99", 0.99)):
                 result = _percentile(values, percentile)
@@ -81,20 +90,29 @@ def snapshot(runtime: Runtime, scope: str, window_ms: int) -> common.GetMetricsR
             for status, count in sorted(counts.items()):
                 add(f"gateway.{gateway_id}.{status.lower()}_total", count, "count")
     else:
-        for status, count in sorted(runtime.gateway_counts.get(
-            gateway_filter, {},
-        ).items()):
+        for status, count in sorted(
+            runtime.gateway_counts.get(
+                gateway_filter,
+                {},
+            ).items()
+        ):
             add(f"gateway.{gateway_filter}.{status.lower()}_total", count, "count")
 
     durations: dict[str, list[float]] = defaultdict(list)
     for observed_at, gateway_id, milliseconds in runtime.writer.rpc_durations:
-        if (now - observed_at) * 1000 <= duration_ms:
-            if gateway_filter is None or gateway_filter == gateway_id:
-                durations[gateway_id].append(milliseconds / 1000.0)
+        if (now - observed_at) * 1000 <= duration_ms and (
+            gateway_filter is None or gateway_filter == gateway_id
+        ):
+            durations[gateway_id].append(milliseconds / 1000.0)
     for gateway_id, values in sorted(durations.items()):
         add(f"gateway.{gateway_id}.rpc_completed_window", len(values), "count", duration_ms)
         for label, quantile in (("p50", 0.5), ("p95", 0.95), ("p99", 0.99)):
-            value = _percentile(values, quantile)
-            if value is not None:
-                add(f"gateway.{gateway_id}.rpc_duration_{label}", value, "second", duration_ms)
+            percentile_value = _percentile(values, quantile)
+            if percentile_value is not None:
+                add(
+                    f"gateway.{gateway_id}.rpc_duration_{label}",
+                    percentile_value,
+                    "second",
+                    duration_ms,
+                )
     return common.GetMetricsResponse(metrics=metrics)

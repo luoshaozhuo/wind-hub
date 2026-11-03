@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections import deque
 from typing import Protocol
 
-from data_generator.domain.scenario import Scenario
 from data_generator.domain.model import DataBatch, DeliveryResult
+from data_generator.domain.scenario import Scenario
 
 
 class OutputPort(Protocol):
