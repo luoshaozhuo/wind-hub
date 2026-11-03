@@ -219,6 +219,24 @@ class CommonService(common_rpc.CommonServiceServicer):
                 )
                 for item in files
             ],
+            apply_results=[
+                common.ApplicationResult(
+                    object_id=state.generation_id,
+                    status="BOUND_OLD_VERSION",
+                    message=(
+                        f"{state.scenario.scenario_id}@{state.scenario.version}"
+                        " retained by active Generation"
+                    ),
+                )
+                for state in self.runtime.generations.values()
+                if scope == "RUNTIME"
+                and state.actual_state in ("STARTING", "RUNNING", "STOPPING")
+                and (
+                    state.scenario != self.runtime.settings.scenarios.get(
+                        state.scenario.scenario_id
+                    )
+                )
+            ],
         )
 
     async def PushConfigSnapshot(
