@@ -112,33 +112,71 @@ class NatsRealtimeIngress:
 
 
 class _SinkOutput:
-    """An adapter is opened once for a stable configuration and reference-counted."""
+    """Shared adapter, ownership count, and a physical Sink concurrency cap."""
 
-    def __init__(self, adapter: Any, signature: str) -> None:
+    def __init__(self, adapter: Any, signature: str, capacity: int) -> None:
         self.adapter = adapter
         self.signature = signature
         self.references = 0
+        self.quota = asyncio.Semaphore(capacity)
 
 
 class _QuotaWriter:
-    """Hold the process-wide in-flight quota until native write settles."""
+    """Keep the global/Sink quota while native I/O is not settled."""
 
     def __init__(
-        self, adapter: Any, quota: asyncio.Semaphore, timeout_ms: int,
+        self,
+        adapter: Any,
+        global_quota: asyncio.Semaphore,
+        sink_quota: asyncio.Semaphore,
+        timeout_ms: int,
     ) -> None:
         self._adapter = adapter
-        self._quota = quota
+        self._global_quota = global_quota
+        self._sink_quota = sink_quota
         self._timeout = timeout_ms / 1000
+        self._pending: asyncio.Task[BatchOutcome] | None = None
+
+    def _finish(self, task: asyncio.Task[BatchOutcome]) -> None:
+        if not task.cancelled():
+            task.exception()
+        self._sink_quota.release()
+        self._global_quota.release()
 
     async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
+        pending = self._pending
+        if pending is not None and not pending.done():
+            return BatchOutcome((), (), "previous Sink I/O remains unsettled")
         try:
-            await asyncio.wait_for(self._quota.acquire(), timeout=self._timeout)
+            await asyncio.wait_for(self._global_quota.acquire(), timeout=self._timeout)
         except TimeoutError:
-            return BatchOutcome((), (), "realtime global I/O quota wait timeout")
+            return BatchOutcome((), (), "global I/O quota exhausted")
         try:
-            return await self._adapter.write_batch(samples)
-        finally:
-            self._quota.release()
+            await asyncio.wait_for(self._sink_quota.acquire(), timeout=self._timeout)
+        except BaseException:
+            self._global_quota.release()
+            raise
+        try:
+            task = asyncio.create_task(self._adapter.write_batch(samples))
+        except BaseException:
+            self._sink_quota.release()
+            self._global_quota.release()
+            raise
+        self._pending = task
+        task.add_done_callback(self._finish)
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=self._timeout)
+        except TimeoutError:
+            return BatchOutcome((), (), "Sink I/O result uncertain; waiting for settlement")
+
+    async def settle(self) -> None:
+        """Do not release a shared Sink while an issued operation is unresolved."""
+        task = self._pending
+        if task is not None:
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
 
 
 class SinkOutputPool:
