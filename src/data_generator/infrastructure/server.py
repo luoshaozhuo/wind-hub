@@ -20,6 +20,20 @@ from data_generator.infrastructure.snapshots import FileContent, SnapshotManager
 from data_generator.domain.model import GeneratorError
 
 
+def runtime_error_code(error: GeneratorError) -> str:
+    """Stable RPC classification without changing the frozen protobuf schema."""
+    detail = str(error).lower()
+    if "revision" in detail or "version unavailable" in detail:
+        return "REVISION_CONFLICT"
+    if "not found" in detail:
+        return "NOT_FOUND"
+    if "ownership" in detail or "unsettled" in detail or "conflict" in detail:
+        return "RESOURCE_BUSY"
+    if "preflight" in detail or "missing targets" in detail:
+        return "GATEWAY_UNAVAILABLE"
+    return "INVALID_STATE"
+
+
 def config_error_code(error: Exception) -> str:
     """Preserve actionable configuration failure categories in RPC responses."""
     detail = str(error).lower()
@@ -125,7 +139,7 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
 
     async def GetGeneration(self, request: common.ObjectId,
                             context: Any) -> dg.GetGenerationResponse:
-        state = self.runtime.generations.get(request.id)
+        state = await self.runtime.get_generation(request.id)
         if state is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "generation not found")
             raise RuntimeError("unreachable")
@@ -140,8 +154,10 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
                 request.expected_revision,
             )
         except GeneratorError as exc:
-            return dg.StartGenerationResponse(accepted=False, actual_state="REJECTED",
-                                              error_code="INVALID_STATE", message=str(exc))
+            return dg.StartGenerationResponse(
+                accepted=False, actual_state="REJECTED",
+                error_code=runtime_error_code(exc), message=str(exc),
+            )
         return dg.StartGenerationResponse(generation_id=state.generation_id,
                                           accepted=True, actual_state=state.actual_state)
 
@@ -150,8 +166,10 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
         try:
             state = await self.runtime.stop(request.generation_id, request.expected_revision)
         except GeneratorError as exc:
-            return dg.StopGenerationResponse(accepted=False, actual_state="REJECTED",
-                                             error_code="INVALID_STATE", message=str(exc))
+            return dg.StopGenerationResponse(
+                accepted=False, actual_state="REJECTED",
+                error_code=runtime_error_code(exc), message=str(exc),
+            )
         return dg.StopGenerationResponse(accepted=True, actual_state=state.actual_state)
 
 
@@ -355,6 +373,11 @@ class CommonService(common_rpc.CommonServiceServicer):
             offset = int(request.page_token or "0")
             if offset < 0:
                 raise ValueError("negative offset")
+            if request.HasField("from_time") and request.HasField("to_time"):
+                if request.from_time.ToDatetime(tzinfo=timezone.utc) > (
+                    request.to_time.ToDatetime(tzinfo=timezone.utc)
+                ):
+                    raise ValueError("invalid event time range")
         except ValueError:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid page token")
             raise RuntimeError("unreachable") from None
@@ -368,6 +391,9 @@ class CommonService(common_rpc.CommonServiceServicer):
         if request.filter:
             events = [event for event in events if request.filter in event.source
                       or request.filter in event.error_code]
+        if offset > len(events):
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "event page out of range")
+            raise RuntimeError("unreachable")
         limit = min(request.page_size or 100, 1000)
         selection = events[offset:offset + limit]
         return common.GetEventsResponse(
