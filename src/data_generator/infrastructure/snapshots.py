@@ -156,6 +156,19 @@ class SnapshotManager:
             staged_settings = load_settings(
                 staged / "services" / "data-generator-service.yaml"
             )
+        for scenario_id, previous in self.settings.scenarios.items():
+            changed = staged_settings.scenarios.get(scenario_id)
+            if changed is not None and changed.version == previous.version and changed != previous:
+                raise GeneratorError(
+                    f"scenario version {scenario_id}@{previous.version} cannot be overwritten"
+                )
+        original = {item.path: item.data for item in self._read_disk()}
+        for item in files:
+            if item.path.startswith("templates/") and item.path in original:
+                if item.data != original[item.path]:
+                    raise GeneratorError(
+                        f"published template is immutable: {item.path}"
+                    )
         candidate_id = str(uuid.uuid4())
         self._candidate = (candidate_id, files, self.settings.revision, staged_settings)
         return candidate_id
