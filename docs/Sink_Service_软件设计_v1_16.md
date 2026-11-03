@@ -2635,6 +2635,7 @@ runtime:
   max_inflight_per_sink: 8      # 正整数 <= 全局上限；可由 Sink 模板收紧
   max_pending_points: 10000    # 每 Delivery 实时缓存点数上限；一个点存一份最新样本
   io_wait_timeout_ms: 3000     # 正整数；仅限定等待，不证明 I/O 已结束
+  watchdog_interval_ms: 5000   # 500..60000 ms；可省略，默认 5000；只恢复 desired=START 的故障 Delivery
   max_event_records: 10000     # 1..10000；事件内存窗口条数
 
 reliable:
