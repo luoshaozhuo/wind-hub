@@ -127,6 +127,7 @@ class Observability:
             str, Sequence[tuple[datetime, float]]
         ] | None = None,
         delivery_overflows: Mapping[str, datetime | None] | None = None,
+        delivery_origins: Mapping[str, datetime] | None = None,
     ) -> None:
         """Publish one periodic process + Delivery scope snapshot atomically."""
         now = datetime.now(UTC)
@@ -146,7 +147,10 @@ class Observability:
             observations = (delivery_latencies or {}).get(identifier, ())
             overflow = (delivery_overflows or {}).get(identifier)
             result = self._compute_window(
-                now, self._delivery_started_at.setdefault(identifier, now),
+                now,
+                self._delivery_started_at.setdefault(
+                    identifier, (delivery_origins or {}).get(identifier, now)
+                ),
                 history, snapshot, observations, overflow,
             )
             # Readiness and window coverage are process-level contract metrics.
