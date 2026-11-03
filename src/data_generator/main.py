@@ -12,6 +12,7 @@ from data_generator.infrastructure.config import load_settings
 from data_generator.application.runtime import Runtime
 from data_generator.infrastructure.snapshots import recover_transaction
 from data_generator.infrastructure.gateway import GatewayWriter
+from data_generator.infrastructure.logging import configure_logging
 from data_generator.infrastructure.server import make_server
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ def main() -> int:
         recover_transaction(args.config.absolute().parent.parent)
         load_settings(args.config)
         return 0
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     asyncio.run(run(args.config))
     return 0
 
