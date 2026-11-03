@@ -74,7 +74,7 @@ class GatewayWriter:
                     variable_id=target.variable_id, value=scalar_message(value)
                 ) for target, value in entries],
             )
-            task = asyncio.create_task(stub.UpdateVariables(request))
+            task = asyncio.ensure_future(stub.UpdateVariables(request))
             self._pending.add(task)
             task.add_done_callback(self._pending.discard)
             try:

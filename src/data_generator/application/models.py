@@ -17,10 +17,11 @@ def random_value(
     raw = f"{seed}:{device_id}:{point_id}".encode()
     point_seed = int.from_bytes(hashlib.sha256(raw).digest()[:8], "big")
     rng = random.Random(point_seed)
-    for _ in range(step):
-        result = rng.random()
     if step < 1:
         raise GeneratorError("step must be positive")
+    rng.seed(int.from_bytes(hashlib.sha256(
+        f"{point_seed}:{step}".encode()).digest()[:8], "big"))
+    result = rng.random()
     kind = str(params.get("data_type", "float64"))
     lower = params.get("minimum", 0)
     upper = params.get("maximum", 1)

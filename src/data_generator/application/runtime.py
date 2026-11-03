@@ -66,14 +66,18 @@ class Runtime:
             if generation is None:
                 raise GeneratorError("generation not found")
             generation.desired_state = "STOPPED"
-            if self._active == generation_id and self._task:
-                self._task.cancel()
-                await asyncio.gather(self._task, return_exceptions=True)
-                generation.actual_state = "STOPPING"
-                await self.writer.drain()
-                generation.actual_state = "STOPPED"
+            if self._active != generation_id or self._task is None:
+                return generation
+            task = self._task
+            generation.actual_state = "STOPPING"
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await self.writer.drain()
+        async with self._lock:
+            generation.actual_state = "STOPPED"
+            if self._active == generation_id:
                 self._active = None
-            return generation
+        return generation
 
     async def shutdown(self) -> None:
         if self._active is not None:
