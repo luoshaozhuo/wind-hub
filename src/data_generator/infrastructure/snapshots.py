@@ -8,10 +8,10 @@ import os
 import shutil
 import tempfile
 import uuid
-
-import yaml
 from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
 
 from core.infrastructure.config.shared_documents import SharedConfigPaths, SharedDocumentLoader
 from data_generator.domain.model import GeneratorError
@@ -99,6 +99,11 @@ def recover_transaction(root: Path) -> None:
     root = root.resolve()
     journal = root / ".dg_transaction"
     marker = journal / "active.json"
+    # A durable commit decision wins even if post-commit cleanup was interrupted.
+    if (journal / "committed.json").exists():
+        shutil.rmtree(journal)
+        _sync_dir(root)
+        return
     if marker.exists():
         state = json.loads(marker.read_text(encoding="utf-8"))
         for relative in state["changed"]:
@@ -285,14 +290,21 @@ class SnapshotManager:
                 proposed[_relative(root, self.settings.service_file)]
                 != original[_relative(root, self.settings.service_file)]
             )
-            (journal / "active.json").unlink()
-            _sync_dir(journal)
+            # Durable decision separates successful commit from rollback recovery.
+            _durable_write(
+                journal / "committed.json",
+                json.dumps({"revision": new_settings.revision}).encode(),
+            )
         except BaseException:
             recover_transaction(root)
             raise
         else:
-            shutil.rmtree(journal)
-            _sync_dir(root)
+            # Cleanup failures do not transform a committed update into failure.
+            try:
+                shutil.rmtree(journal)
+                _sync_dir(root)
+            except OSError:
+                pass
             self.settings = new_settings
             self._disk_private = {
                 file.path: file.data for file in self._read_disk()
