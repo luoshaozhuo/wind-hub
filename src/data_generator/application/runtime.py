@@ -6,7 +6,7 @@ import asyncio
 import math
 import time
 import uuid
-from collections import deque
+from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -59,6 +59,10 @@ class Runtime:
         self._task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
         self.last_targets: dict[OutputTarget, DeliveryResult] = {}
+        self.target_counts: dict[OutputTarget, dict[str, int]] = {}
+        self.gateway_counts: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"SUCCESS": 0, "FAILED": 0, "UNKNOWN": 0}
+        )
         self.last_batch_status = "NONE"
         self.counters: dict[str, int] = {
             "generated": 0, "batches": 0, "replay_read": 0,
@@ -324,6 +328,14 @@ class Runtime:
         unknown = 0
         for result in results:
             self.last_targets[result.target] = result
+            totals = self.target_counts.setdefault(
+                result.target, {"SUCCESS": 0, "FAILED": 0, "UNKNOWN": 0},
+            )
+            classification = (
+                result.state if result.state in ("SUCCESS", "FAILED") else "UNKNOWN"
+            )
+            totals[classification] += 1
+            self.gateway_counts[result.target.gateway_id][classification] += 1
             if result.state == "SUCCESS":
                 confirmed += 1
                 self.counters["confirmed"] += 1
