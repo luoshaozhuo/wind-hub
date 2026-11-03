@@ -35,6 +35,10 @@ class Observability:
         self._window_ms = window_ms
         self._computed: dict[str, float] = {'metrics_snapshot_ready': 0.0}
         self.computed_at: datetime | None = None
+        self._delivery_samples: dict[
+            str, deque[tuple[datetime, dict[str, float]]]
+        ] = {}
+        self._delivery_computed: dict[str, dict[str, float]] = {}
 
     def count(self, metric: str, delta: float = 1.0) -> None:
         self._counts[metric] = self._counts.get(metric, 0.0) + delta
@@ -58,29 +62,22 @@ class Observability:
         )
         self.count("events_total")
 
-    def sample(
+    def _compute_window(
         self,
-        current: Mapping[str, float],
-        *,
-        latency_observations: Sequence[tuple[datetime, float]] = (),
-        latency_overflow_at: datetime | None = None,
-    ) -> None:
-        """Compute one immutable window snapshot; querying never recalculates."""
-        now = datetime.now(UTC)
-        counters = {**self._counts, **current}
-        self._samples.append((now, counters))
+        now: datetime,
+        origin: datetime,
+        history: deque[tuple[datetime, dict[str, float]]],
+        counters: dict[str, float],
+        latency_observations: Sequence[tuple[datetime, float]],
+        latency_overflow_at: datetime | None,
+    ) -> dict[str, float]:
         cutoff = now.timestamp() - self._window_ms / 1000
-        while len(self._samples) > 1 and (
-            self._samples[1][0].timestamp() <= cutoff
-        ):
-            self._samples.popleft()
-        previous = (
-            {}
-            if cutoff <= self.started_at.timestamp()
-            else self._samples[0][1]
-        )
+        while len(history) > 1 and history[1][0].timestamp() <= cutoff:
+            history.popleft()
+        previous = {} if cutoff <= origin.timestamp() else history[0][1]
         covered_ms = min(
-            float(self._window_ms), max(0.0, (now - self.started_at).total_seconds() * 1000)
+            float(self._window_ms),
+            max(0.0, (now - origin).total_seconds() * 1000),
         )
         result = {
             name: float(counters.get(name, 0.0))
@@ -96,16 +93,16 @@ class Observability:
         if covered_ms > 0:
             delivered = max(
                 0.0, counters.get('delivered_total', 0.0)
-                - previous.get('delivered_total', 0.0)
+                - previous.get('delivered_total', 0.0),
             )
             result['delivered_rate_per_second'] = delivered / (covered_ms / 1000)
         succeeded = max(
             0.0, counters.get('write_success_total', 0.0)
-            - previous.get('write_success_total', 0.0)
+            - previous.get('write_success_total', 0.0),
         )
         failed = max(
             0.0, counters.get('failed_total', 0.0)
-            - previous.get('failed_total', 0.0)
+            - previous.get('failed_total', 0.0),
         )
         if succeeded + failed > 0:
             result['write_success_ratio'] = succeeded / (succeeded + failed)
@@ -116,14 +113,62 @@ class Observability:
             )
             if values:
                 result['write_latency_ms_p99'] = values[ceil(len(values) * 0.99) - 1]
-        self._computed = result
+        return result
+
+    def sample(
+        self,
+        current: Mapping[str, float],
+        *,
+        latency_observations: Sequence[tuple[datetime, float]] = (),
+        latency_overflow_at: datetime | None = None,
+        delivery_counters: Mapping[str, Mapping[str, float]] | None = None,
+        delivery_latencies: Mapping[
+            str, Sequence[tuple[datetime, float]]
+        ] | None = None,
+        delivery_overflows: Mapping[str, datetime | None] | None = None,
+    ) -> None:
+        """Publish one periodic process + Delivery scope snapshot atomically."""
+        now = datetime.now(UTC)
+        counters = {**self._counts, **current}
+        self._samples.append((now, counters))
+        process = self._compute_window(
+            now, self.started_at, self._samples, counters,
+            latency_observations, latency_overflow_at,
+        )
+        details: dict[str, dict[str, float]] = {}
+        for identifier, values in (delivery_counters or {}).items():
+            history = self._delivery_samples.setdefault(
+                identifier, deque(maxlen=36002)
+            )
+            snapshot = dict(values)
+            history.append((now, snapshot))
+            observations = (delivery_latencies or {}).get(identifier, ())
+            overflow = (delivery_overflows or {}).get(identifier)
+            result = self._compute_window(
+                now, history[0][0], history, snapshot, observations, overflow,
+            )
+            # Readiness and window coverage are process-level contract metrics.
+            result.pop('metrics_snapshot_ready', None)
+            result.pop('metrics_covered_ms', None)
+            details[identifier] = result
+        for identifier in tuple(self._delivery_samples):
+            if identifier not in details:
+                del self._delivery_samples[identifier]
+        self._delivery_computed = details
+        self._computed = process
         self.computed_at = now
 
     def snapshot(self, window_ms: int) -> dict[str, float]:
-        """Read only the last completed periodic snapshot."""
+        """Read the last process snapshot, without recalculating metrics."""
         if window_ms != self._window_ms:
             raise ValueError('unsupported metrics window')
         return dict(self._computed)
+
+    def delivery_snapshot(self, window_ms: int) -> dict[str, dict[str, float]]:
+        """Read the last atomically sampled per-Delivery metric collection."""
+        if window_ms != self._window_ms:
+            raise ValueError('unsupported metrics window')
+        return {key: dict(value) for key, value in self._delivery_computed.items()}
 
     def list_events(
         self,
