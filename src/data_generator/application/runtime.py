@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import logging
 import time
 import uuid
 from collections import defaultdict, deque
@@ -24,6 +25,8 @@ from data_generator.domain.model import (
 )
 from data_generator.domain.scenario import Scenario, Settings, resolve_history
 from data_generator.ports.output import OutputPort
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -81,6 +84,12 @@ class Runtime:
                 str(uuid.uuid4()), datetime.now(timezone.utc),
                 severity, source, error_code, message,
             )
+        )
+        logger.log(
+            logging.ERROR if severity == "ERROR" else
+            logging.WARNING if severity == "WARNING" else logging.INFO,
+            "%s: %s", error_code, message,
+            extra={"source_id": source, "stage": error_code},
         )
 
     @staticmethod
