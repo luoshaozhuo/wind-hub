@@ -32,7 +32,7 @@ def _safe_managed_path(relative_path: str) -> bool:
         or PurePosixPath(relative_path).as_posix() != relative_path
     ):
         return False
-    return relative_path.startswith("services/") and relative_path.endswith(".yaml")
+    return relative_path.startswith("configs/services/") and relative_path.endswith(".yaml")
 
 
 def service_configuration(snapshot: ValidatedSnapshot, service_file: str) -> dict[str, Any]:
