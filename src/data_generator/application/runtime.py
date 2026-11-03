@@ -14,7 +14,7 @@ from data_generator.application.config import Scenario, Settings, resolve_histor
 from data_generator.application.models import random_value, static_value
 from data_generator.application.replay import iter_records, replay_deadline
 from data_generator.domain.model import DataBatch, DataPoint, GeneratorError, Scalar, validate_scalar
-from data_generator.infrastructure.gateway import GatewayWriter
+from data_generator.ports.output import OutputPort
 
 
 @dataclass(slots=True)
@@ -38,15 +38,9 @@ class RuntimeEvent:
 
 
 class Runtime:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, writer: OutputPort) -> None:
         self.settings = settings
-        output = settings.service.get("output", {})
-        buffer = settings.service.get("buffer", {})
-        self.writer = GatewayWriter(
-            timeout=float(output.get("grpc_timeout_seconds", 3.0)),
-            max_points=int(buffer.get("max_points_per_batch", 1000)),
-            max_inflight=int(output.get("max_inflight", 1)),
-        )
+        self.writer = writer
         self.generations: dict[str, GenerationState] = {}
         self.events: deque[RuntimeEvent] = deque(maxlen=1000)
         self._active: str | None = None
