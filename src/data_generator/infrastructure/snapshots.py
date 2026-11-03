@@ -136,8 +136,8 @@ class SnapshotManager:
         }
         self._candidate: tuple[str, tuple[FileContent, ...], str, Settings] | None = None
         self._restart_pending = False
-        self.max_files = 2
-        self.max_bytes = 8 * 1024 * 1024
+        self.max_files = 4096
+        self.max_bytes = 64 * 1024 * 1024
 
     def _owned(self) -> set[str]:
         return {
@@ -203,15 +203,23 @@ class SnapshotManager:
         self._adopt_authoritative_shared()
         if not expected or expected != self.settings.revision:
             raise GeneratorError("expected_revision mismatch")
-        if len(files) != self.max_files:
-            raise GeneratorError("snapshot must include exactly two private files")
+        if not files or len(files) > self.max_files:
+            raise GeneratorError("snapshot file capacity exceeded")
         if sum(len(f.data) for f in files) > self.max_bytes:
-            raise GeneratorError("snapshot size limit exceeded")
-        supplied = {f.path for f in files}
-        if len(supplied) != len(files) or supplied != self._owned():
-            raise GeneratorError("snapshot may only update owned service and scenario files")
-        if any(not f.data for f in files):
-            raise GeneratorError("empty private configuration document")
+            raise GeneratorError("snapshot byte capacity exceeded")
+        original = {f.path: f.data for f in self._read_disk()}
+        provided = {f.path: f.data for f in files}
+        if len(provided) != len(files) or set(provided) != set(original):
+            raise GeneratorError("snapshot must contain the complete current file set")
+        if any(not item.data for item in files):
+            raise GeneratorError("empty configuration file in snapshot")
+        owned = self._owned()
+        for relative, content in provided.items():
+            _safe_target(self.settings.root, relative)
+            if relative not in owned and content != original[relative]:
+                raise GeneratorError(
+                    f"Core shared configuration is read-only: {relative}"
+                )
 
         # Stage against the complete *read-only* Core tree, never publish it.
         root = self.settings.root
@@ -219,8 +227,9 @@ class SnapshotManager:
             stage = Path(scratch) / "configs"
             _stage_readonly_tree(root, stage)
             for file in files:
-                target = _safe_target(stage, file.path)
-                _durable_write(target, file.data)
+                if file.path in owned:
+                    target = _safe_target(stage, file.path)
+                    _durable_write(target, file.data)
             staged = load_settings(
                 stage / _relative(root, self.settings.service_file)
             )
@@ -258,7 +267,9 @@ class SnapshotManager:
             f.path: f.data for f in self._read_disk()
             if f.path in self._owned()
         }
-        proposed = {f.path: f.data for f in candidate[1]}
+        proposed = {
+            f.path: f.data for f in candidate[1] if f.path in self._owned()
+        }
         changed = [name for name in sorted(proposed) if proposed[name] != original[name]]
         if not changed:
             if not self._restart_pending:
