@@ -232,9 +232,24 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                 ],
                 request.expected_revision,
             )
+        except InvalidConfigurationError as exc:
+            reason = str(exc)
+            path, separator, message = reason.partition(':')
+            return common_pb2.PushConfigSnapshotResponse(
+                candidate_id='',
+                valid=False,
+                base_revision=self._config.disk.revision,
+                validation=[
+                    common_pb2.ValidationIssue(
+                        path=path if separator else '',
+                        code='INVALID_CONFIGURATION',
+                        message=message.strip() if separator else reason,
+                    )
+                ],
+            )
         except ConfigurationError as exc:
             await _abort(context, _status_for(exc), str(exc))
-            raise AssertionError("gRPC abort returned") from exc
+            raise AssertionError('gRPC abort returned') from exc
         return common_pb2.PushConfigSnapshotResponse(
             candidate_id=candidate_id,
             valid=True,
