@@ -11,16 +11,15 @@ from datetime import datetime
 from typing import Any
 
 import nats
-import yaml
 from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.aio.subscription import Subscription
 
 from contracts.sample_message import SampleMessage
-from sink_service.application.config import template_path
+from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.realtime import BatchOutcome, RealtimeEngine
-from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, config_sources
+from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 from sink_service.infrastructure.realtime_adapters import (
     KafkaOutput,
     ModbusOutput,
@@ -28,18 +27,6 @@ from sink_service.infrastructure.realtime_adapters import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _template(snapshot: ValidatedSnapshot, family: str, name: str, version: str) -> dict[str, Any]:
-    _, root = config_sources(snapshot.service)
-    path = template_path(root, family, name, version)
-    for item in snapshot.files:
-        if item.path == path:
-            document = yaml.safe_load(item.content)
-            if not isinstance(document, dict):
-                raise ConfigurationError(f"{path}: invalid template document")
-            return document
-    raise ConfigurationError(f"missing template {path}")
 
 
 class NatsRealtimeIngress:
