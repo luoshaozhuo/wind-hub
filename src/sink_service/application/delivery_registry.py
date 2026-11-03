@@ -12,9 +12,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol
 
-import yaml
-
-from sink_service.application.config import template_path
+from sink_service.application.config import template_document, template_path
 from sink_service.application.delivery_definition import DeliveryDefinition, delivery_definitions
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, config_sources
 
@@ -108,15 +106,9 @@ class DeliveryRegistry:
                     sink["template_id"], sink["template_version"],
                 ),
             }
-            sink_template_path = template_path(
-                template_root, "sinks",
-                sink["template_id"], sink["template_version"],
-            )
-            sink_template = next(
-                file for file in snapshot.files
-                if file.path == sink_template_path
-            )
-            sink_kind = yaml.safe_load(sink_template.content)["kind"]
+            sink_kind = template_document(
+                snapshot, "sinks", sink["template_id"], sink["template_version"]
+            )["kind"]
             raw = {
                 "templates": {
                     file.path: hashlib.sha256(file.content).hexdigest()
