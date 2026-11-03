@@ -80,7 +80,10 @@ async def serve_control_plane(
     writer = service["config_writer"]
     role = service["process_role"]
     registry = DeliveryRegistry(role, initial)
-    telemetry = Observability(service['runtime']['max_event_records'])
+    telemetry = Observability(
+        service['runtime']['max_event_records'],
+        window_ms=service['metrics']['metrics_window_ms'],
+    )
 
     async def reconcile(snapshot: ValidatedSnapshot) -> tuple[str, ...]:
         return await registry.apply_configuration(snapshot, port_factory)
@@ -144,20 +147,26 @@ async def serve_control_plane(
         async def collect_metrics() -> None:
             previous_states: dict[str, tuple[str, str]] = {}
             interval = service['metrics']['metrics_compute_interval_ms'] / 1000
+            loop = asyncio.get_running_loop()
+            next_tick = loop.time() + interval
             while not stop.is_set():
+                try:
+                    await asyncio.wait_for(
+                        stop.wait(), timeout=max(0.0, next_tick - loop.time())
+                    )
+                except TimeoutError:
+                    pass
+                if stop.is_set():
+                    return
+                current = loop.time()
+                next_tick += max(1, int((current - next_tick) / interval) + 1) * interval
                 views = registry.list()
                 counters = registry.counters()
-                counters['delivery_total'] = float(len(views))
-                counters['delivery_running'] = float(
-                    sum(view.actual_state == 'RUNNING' for view in views)
+                telemetry.sample(
+                    counters,
+                    latency_observations=registry.latency_observations(),
+                    latency_overflow_at=registry.latency_overflow_at(),
                 )
-                counters['delivery_failed'] = float(
-                    sum(view.actual_state == 'FAILED' for view in views)
-                )
-                counters['delivery_stopped'] = float(
-                    sum(view.actual_state == 'STOPPED' for view in views)
-                )
-                telemetry.sample(counters)
                 states = {
                     view.delivery_id: (view.actual_state, view.last_error)
                     for view in views
@@ -169,11 +178,6 @@ async def serve_control_plane(
                             identifier, 'DELIVERY_STATE', f'{state[0]}: {state[1]}',
                         )
                 previous_states = states
-                try:
-                    await asyncio.wait_for(stop.wait(), timeout=interval)
-                except TimeoutError:
-                    continue
-
         metrics_task = asyncio.create_task(collect_metrics())
         if not writer:
             sync = service["config_sync"]
