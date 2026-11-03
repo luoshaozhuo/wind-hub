@@ -228,6 +228,15 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     }:
         raise ConfigurationError("unexpected Service file in Sink configuration snapshot")
     services = [docs[path] for path in service_files]
+    if (
+        docs['configs/services/sink-realtime.yaml']['process_role'] != 'realtime'
+        or docs['configs/services/sink-reliable.yaml']['process_role'] != 'reliable'
+        or not docs['configs/services/sink-realtime.yaml']['config_writer']
+        or docs['configs/services/sink-reliable.yaml']['config_writer']
+    ):
+        raise ConfigurationError(
+            'Sink Service role and Writer ownership must match explicit Service pathname'
+        )
     for service_doc in services:
         validate_service(service_doc)
     if {doc["process_role"] for doc in services} != {"realtime", "reliable"}:
