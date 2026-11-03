@@ -356,20 +356,26 @@ class _RegisterImage:
                 if sample.sample_time == old_time:
                     errors.append(f"Modbus conflicting identity for sample time: {key}")
                     continue
-            if isinstance(sample.value, bool) or not isinstance(
-                sample.value, (int, float)
-            ):
-                errors.append(f"Modbus float32 requires numeric sample: {key}")
-                continue
-            try:
-                binary = struct.pack(">f", sample.value)
-            except (ValueError, OverflowError, struct.error) as exc:
-                errors.append(f"Modbus float32 invalid at {key}: {exc}")
-                continue
-            high, low = struct.unpack(">HH", binary)
             value_address = self._value_start + index * 2
-            pending[value_address] = high
-            pending[value_address + 1] = low
+            if sample.value is None and sample.quality in ('bad', 'uncertain'):
+                # Publish quality without synthesizing a fictitious measured value.
+                # A previous numeric image remains readable only with this
+                # explicitly degraded quality; fresh points have no value yet.
+                pass
+            else:
+                if isinstance(sample.value, bool) or not isinstance(
+                    sample.value, (int, float)
+                ):
+                    errors.append(f'Modbus float32 requires numeric sample: {key}')
+                    continue
+                try:
+                    binary = struct.pack('>f', sample.value)
+                except (ValueError, OverflowError, struct.error) as exc:
+                    errors.append(f'Modbus float32 invalid at {key}: {exc}')
+                    continue
+                high, low = struct.unpack('>HH', binary)
+                pending[value_address] = high
+                pending[value_address + 1] = low
             pending[self._quality_start + index] = {
                 "good": 0,
                 "bad": 1,
