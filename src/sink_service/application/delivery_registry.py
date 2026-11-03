@@ -128,6 +128,21 @@ class DeliveryRegistry:
                     continue
                 del self._entries[identifier]
                 changed.append(identifier)
+            # Drain all changed users of a shared Sink before rebinding any.
+            for identifier in sorted(definitions):
+                entry = self._entries.get(identifier)
+                if entry is None or entry.signature == signatures[identifier]:
+                    continue
+                try:
+                    await entry.port.stop()
+                except Exception as exc:
+                    entry.removing = True
+                    entry.view = self._replace(
+                        entry.view, actual_state=ActualState.FAILED, last_error=str(exc)
+                    )
+                    continue
+                del self._entries[identifier]
+                changed.append(identifier)
             for identifier, definition in definitions.items():
                 existing = self._entries.get(identifier)
                 signature = signatures[identifier]
@@ -152,10 +167,10 @@ class DeliveryRegistry:
                         # The FAILED state and error remain queryable.
                         changed.append(identifier)
                     continue
-                # Construct the replacement before closing the active binding.
-                replacement = factory(definition, snapshot)
+                # A failed old port retains ownership until a later retry.
                 if existing is not None:
-                    await existing.port.stop()
+                    continue
+                replacement = factory(definition, snapshot)
                 self._entries[identifier] = _Entry(
                     port=replacement,
                     view=DeliveryView(
