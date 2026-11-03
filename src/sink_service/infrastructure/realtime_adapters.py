@@ -34,7 +34,7 @@ _REDIS_CAS = (
     "if cur then local old=cjson.decode(cur);"
     "if old.sample_time>ARGV[2] then return 0 end;"
     "if old.sample_time==ARGV[2] then "
-    "if old.sample_id==ARGV[3] then return 0 end;"
+    "if old.sample_id==ARGV[3] then return 2 end;"
     "return -1 end end;"
     "redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[4]);return 1"
 )
@@ -175,11 +175,13 @@ class RedisOutput:
                 errors: list[str] = []
                 for index in range(len(samples)):
                     result = await self._integer()
-                    if result in (0, 1):
+                    if result in (0, 1, 2):
                         settled.append(index)
                         success_attempts += 1
                         latencies.append((time.perf_counter() - start_time) * 1000)
-                        if result == 1:
+                        if result in (1, 2):
+                            # Code 2 proves the target still holds the same sample.
+                            # It is a valid confirmed periodic/heartbeat output.
                             delivered.append(index)
                     else:
                         failed_attempts += 1
