@@ -312,7 +312,8 @@ class ReliableDeliveryPort:
         )
         if ack.stream != config['dead_letter_stream']:
             raise ConfigurationError('DLQ PubAck confirms an unexpected Stream')
-        self.dlq_total += 1
+        if not getattr(ack, 'duplicate', False):
+            self.dlq_total += 1
 
     async def _write_with_heartbeat(
         self, message: Any, sample: SampleMessage
