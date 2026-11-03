@@ -323,9 +323,15 @@ def load_settings(service_path: Path) -> Settings:
             scenario_id, version, str(raw.get("description", "")), source,
             devices, points, tuple(mappings), gateways,
         )
-    payload = json.dumps({"service": service, "instance": instance,
-                          "shared_revision": shared.revision},
-                         sort_keys=True, ensure_ascii=False).encode()
+    payload = json.dumps(
+        {
+            "service_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "scenario_sha256": hashlib.sha256(paths["scenarios"].read_bytes()).hexdigest(),
+            "shared_revision": shared.revision,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    ).encode("utf-8")
     return Settings(
         root, service, scenarios, hashlib.sha256(payload).hexdigest(), shared,
         path, paths["scenarios"], paths["site"], paths["devices"],
