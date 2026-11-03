@@ -1940,7 +1940,7 @@ flowchart LR
 
 ## 9.3 Gateway 客户端：正式 UpdateVariables 契约
 
-依据 `main@bf9dc6d2815a62b77a5e9868b3c6e8e35b3a492c` 的 `src/contracts/industrial_gateway.proto`，`IndustrialGatewayService` 包含八项 Unary RPC，新增的 `UpdateVariables` 已成为正式契约。Data Generator 作为 Gateway 客户端，只使用需要的查询和数据更新方法。
+依据 `main@bf9dc6d2815a62b77a5e9868b3c6e8e35b3a492c` 的 `src/contracts/industrial_gateway.proto`，`IndustrialGatewayService` 包含八项 Unary RPC，新增 `ClaimTargets`，并要求 `UpdateVariables` 携带租约令牌。Data Generator 作为 Gateway 客户端，使用只读目录查询、租约管理和数据更新方法。
 
 <p class="table-caption">表 9-3 Gateway RPC 与 Data Generator 职责</p>
 
