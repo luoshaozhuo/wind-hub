@@ -7,6 +7,7 @@ import math
 import time
 from collections import defaultdict, deque
 from collections.abc import Sequence
+from typing import Any
 
 import grpc
 
@@ -39,8 +40,8 @@ class GatewayWriter:
         self._available = asyncio.Semaphore(max_inflight)
         self._channels: dict[str, grpc.aio.Channel] = {}
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
-        self._pending: set[asyncio.Future[object]] = set()
-        self._unsettled: dict[str, asyncio.Future[object]] = {}
+        self._pending: set[asyncio.Future[Any]] = set()
+        self._unsettled: dict[str, asyncio.Future[Any]] = {}
         self._unsafe: set[str] = set()
         self.rpc_durations: deque[tuple[float, str, float]] = deque(maxlen=4096)
 
@@ -118,7 +119,7 @@ class GatewayWriter:
             self._pending.add(task)
             expected = {target.variable_id for target, _ in entries}
 
-            def on_complete(completed: asyncio.Future[object]) -> None:
+            def on_complete(completed: asyncio.Future[Any]) -> None:
                 self._pending.discard(completed)
                 self._available.release()
                 self.rpc_durations.append(
@@ -156,6 +157,10 @@ class GatewayWriter:
                 raise
 
             received = {item.variable_id: item for item in response.results}
+            if len(received) != len(response.results) or set(received) != expected:
+                self._unsafe.add(gateway_id)
+                return [DeliveryResult(target, "UNKNOWN", "INVALID_ACK")
+                        for target, _ in entries]
             results: list[DeliveryResult] = []
             for target, _ in entries:
                 item = received.get(target.variable_id)
