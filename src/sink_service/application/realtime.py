@@ -61,6 +61,7 @@ class RealtimeEngine:
         self._sent: dict[tuple[str, str], SampleMessage] = {}
         self._sent_at: dict[tuple[str, str], float] = {}
         self._skipped: dict[tuple[str, str], str] = {}
+        self._wakeup = asyncio.Event()
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self.last_error = ""
@@ -142,6 +143,8 @@ class RealtimeEngine:
             if confirmed is None or confirmed.sample_id != prior.sample_id:
                 self.dropped_total += 1
         self._latest[key] = sample
+        if self._policy != 'periodic' and self._changed(sample, self._sent.get(key)):
+            self._wakeup.set()
         return True
 
     async def start(self) -> None:
@@ -152,6 +155,7 @@ class RealtimeEngine:
 
     async def stop(self) -> None:
         self._stop.set()
+        self._wakeup.set()
         task = self._task
         if task is not None:
             await task
@@ -162,19 +166,29 @@ class RealtimeEngine:
         loop = asyncio.get_running_loop()
         next_tick = loop.time() + self._interval
         while not self._stop.is_set():
-            try:
-                await asyncio.wait_for(
-                    self._stop.wait(), timeout=max(0.0, next_tick - loop.time())
-                )
-            except TimeoutError:
-                pass
+            delay = max(0.0, next_tick - loop.time())
+            if self._policy == 'periodic':
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=delay)
+                except TimeoutError:
+                    pass
+                event_fired = False
+            else:
+                try:
+                    await asyncio.wait_for(self._wakeup.wait(), timeout=delay)
+                except TimeoutError:
+                    pass
+                event_fired = self._wakeup.is_set()
+                self._wakeup.clear()
             if self._stop.is_set():
                 return
             now_mono = loop.time()
-            next_tick += (
-                max(1, int((now_mono - next_tick) / self._interval) + 1)
-                * self._interval
-            )
+            periodic_due = now_mono >= next_tick
+            if periodic_due:
+                next_tick += (
+                    max(1, int((now_mono - next_tick) / self._interval) + 1)
+                    * self._interval
+                )
             now = datetime.now(UTC)
             for key, sample in tuple(self._latest.items()):
                 if not self._fresh(sample, now):
@@ -183,17 +197,22 @@ class RealtimeEngine:
                     self._sent_at.pop(key, None)
                     self._skipped.pop(key, None)
                     self.dropped_total += 1
+            if self._policy == 'periodic' and not periodic_due:
+                continue
+            if self._policy == 'on_change' and not event_fired:
+                continue
             items = [
                 sample
                 for key, sample in sorted(self._latest.items())
                 if (
                     self._skipped.get(key) != sample.sample_id
                     and (
-                        self._policy == "periodic"
+                        (self._policy == 'periodic' and periodic_due)
                         or self._changed(sample, self._sent.get(key))
                         or (
-                            self._policy == "change_with_heartbeat"
-                            and now_mono - self._sent_at.get(key, float("-inf"))
+                            self._policy == 'change_with_heartbeat'
+                            and periodic_due
+                            and now_mono - self._sent_at.get(key, float('-inf'))
                             >= self._interval
                         )
                     )
