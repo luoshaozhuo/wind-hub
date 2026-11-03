@@ -10,6 +10,7 @@ import yaml
 
 from sink_service.domain.config import (
     ConfigurationError,
+    config_sources,
     SnapshotFile,
     ValidatedSnapshot,
     expect_mapping,
@@ -31,10 +32,27 @@ def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
     return doc
 
 
+def template_path(template_root: str, family: str, name: str, version: str) -> str:
+    """Resolve an exact template version without directory scanning."""
+    import re
+
+    if family not in {"sinks", "deliveries"}:
+        raise ConfigurationError("unsupported template family")
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", name) is None:
+        raise ConfigurationError(f"invalid template_id: {name!r}")
+    if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
+        raise ConfigurationError(f"invalid template_version: {version!r}")
+    return f"{template_root}/{family}/{name}_{version}.yaml"
+
+
 def _template(
-    docs: dict[str, dict[str, Any]], family: str, name: str, version: str
+    docs: dict[str, dict[str, Any]],
+    template_root: str,
+    family: str,
+    name: str,
+    version: str,
 ) -> dict[str, Any]:
-    path = f"templates/{family}/{name}/{version}.yaml"
+    path = template_path(template_root, family, name, version)
     item = docs.get(path)
     if item is None:
         raise ConfigurationError(f"missing template: {path}")
@@ -43,24 +61,26 @@ def _template(
     return item
 
 
-def _instances(docs: dict[str, dict[str, Any]], family: str) -> dict[str, dict[str, Any]]:
-    path = f"instances/{family}.yaml"
+def _instances(
+    docs: dict[str, dict[str, Any]], family: str, path: str
+) -> dict[str, dict[str, Any]]:
     container = docs.get(path)
     if container is None:
         raise ConfigurationError(f"missing required instance file: {path}")
     expect_nonempty_str(container.get("revision"), f"{path}.revision")
     instances = expect_mapping(container.get(family), f"{path}.{family}")
     return {
-        key: expect_mapping(value, f"{path}.{family}.{key}") for key, value in instances.items()
+        key: expect_mapping(value, f"{path}.{family}.{key}")
+        for key, value in instances.items()
     }
 
 
 def _validate_sink(
-    sink_id: str, sink: dict[str, Any], docs: dict[str, dict[str, Any]]
+    sink_id: str, sink: dict[str, Any], docs: dict[str, dict[str, Any]], template_root: str
 ) -> tuple[str, dict[str, Any]]:
     name = expect_nonempty_str(sink.get("template_id"), f"sinks.{sink_id}.template_id")
     version = expect_nonempty_str(sink.get("template_version"), f"sinks.{sink_id}.template_version")
-    template = _template(docs, "sinks", name, version)
+    template = _template(docs, template_root, "sinks", name, version)
     kind = template.get("kind")
     if kind not in ("redis", "kafka", "modbus_tcp"):
         raise ConfigurationError(f"sinks.{sink_id}: unsupported Adapter {kind!r}")
@@ -94,12 +114,13 @@ def _validate_delivery(
     docs: dict[str, dict[str, Any]],
     sinks: dict[str, tuple[str, dict[str, Any]]],
     service: dict[str, Any],
+    template_root: str,
 ) -> None:
     name = expect_nonempty_str(delivery.get("template_id"), f"deliveries.{delivery_id}.template_id")
     version = expect_nonempty_str(
         delivery.get("template_version"), f"deliveries.{delivery_id}.template_version"
     )
-    template = _template(docs, "deliveries", name, version)
+    template = _template(docs, template_root, "deliveries", name, version)
     mode = template.get("delivery_mode")
     if mode not in ("realtime", "reliable"):
         raise ConfigurationError(f"deliveries.{delivery_id}: unsupported mode")
@@ -150,33 +171,12 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     if sum(len(item.content) for item in files) > 2 * 1024 * 1024:
         raise ConfigurationError("configuration snapshot exceeds 2 MiB")
     by_path: dict[str, SnapshotFile] = {}
-    allowed_instance_files = {
-        "instances/sinks.yaml",
-        "instances/deliveries.yaml",
-    }
-    allowed_service_files = {
-        "services/sink-realtime.yaml",
-        "services/sink-reliable.yaml",
-    }
     for item in files:
-        parts = item.path.split("/")
-        owned = (
-            item.path in allowed_instance_files
-            or item.path in allowed_service_files
-            or (
-                len(parts) == 4
-                and parts[0] == "templates"
-                and parts[1] in {"sinks", "deliveries"}
-                and parts[3].endswith(".yaml")
-            )
-        )
-        if not owned:
-            raise ConfigurationError(f"Sink snapshot does not own file: {item.path}")
         if item.path in by_path:
             raise ConfigurationError(f"duplicate file: {item.path}")
         by_path[item.path] = item
     docs = {path: _yaml_doc(item) for path, item in by_path.items()}
-    service_files = [path for path in docs if path.startswith("services/")]
+    service_files = [path for path in docs if path.startswith("configs/services/")]
     if len(service_files) != 2:
         raise ConfigurationError("shared snapshot requires realtime and reliable Service files")
     services = [docs[path] for path in service_files]
@@ -193,14 +193,32 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     if len({(doc["wind_farm_id"], doc["deployment_id"]) for doc in services}) != 1:
         raise ConfigurationError("Service source identity must match")
     service = next(doc for doc in services if doc["config_writer"])
-    sink_instances = _instances(docs, "sinks")
-    delivery_instances = _instances(docs, "deliveries")
+    source_paths, template_root = config_sources(service)
+    if any(config_sources(doc) != (source_paths, template_root) for doc in services):
+        raise ConfigurationError("Writer/Reader config_sources must match")
+    sink_instances = _instances(docs, "sinks", source_paths["sinks"])
+    delivery_instances = _instances(docs, "deliveries", source_paths["deliveries"])
+    required = set(service_files) | set(source_paths.values())
+    for family, definitions in (("sinks", sink_instances), ("deliveries", delivery_instances)):
+        for identifier, definition in definitions.items():
+            name = expect_nonempty_str(
+                definition.get("template_id"), f"{family}.{identifier}.template_id"
+            )
+            version = expect_nonempty_str(
+                definition.get("template_version"), f"{family}.{identifier}.template_version"
+            )
+            required.add(template_path(template_root, family, name, version))
+    if set(by_path) != required:
+        raise ConfigurationError(
+            f"snapshot file closure mismatch: missing={sorted(required - set(by_path))}, "
+            f"unexpected={sorted(set(by_path) - required)}"
+        )
     sinks = {
-        sink_id: _validate_sink(sink_id, definition, docs)
+        sink_id: _validate_sink(sink_id, definition, docs, template_root)
         for sink_id, definition in sink_instances.items()
     }
     for delivery_id, definition in delivery_instances.items():
-        _validate_delivery(delivery_id, definition, docs, sinks, service)
+        _validate_delivery(delivery_id, definition, docs, sinks, service, template_root)
     addresses: set[tuple[str, int]] = set()
     for sink_id, (kind, _caps) in sinks.items():
         if kind != "modbus_tcp":
@@ -218,7 +236,7 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         if kind != "modbus_tcp":
             continue
         sink = sink_instances[sink_id]
-        template = _template(docs, "sinks", sink["template_id"], sink["template_version"])
+        template = _template(docs, template_root, "sinks", sink["template_id"], sink["template_version"])
         output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
         if output.get("value_encoding") != "float32_be":
             raise ConfigurationError(f"sinks.{sink_id}: unsupported value encoding")
