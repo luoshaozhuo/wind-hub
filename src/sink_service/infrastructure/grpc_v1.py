@@ -247,6 +247,10 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                 request.expected_revision,
             )
         except InvalidConfigurationError as exc:
+            self._observability.event(
+                'ERROR', 'configuration', 'CONFIG_PUSH_REJECTED',
+                f'caller={_peer_identity(context)} reason={exc}',
+            )
             reason = str(exc)
             path, separator, message = reason.partition(':')
             return common_pb2.PushConfigSnapshotResponse(
@@ -262,6 +266,10 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                 ],
             )
         except ConfigurationError as exc:
+            self._observability.event(
+                'ERROR', 'configuration', 'CONFIG_PUSH_REJECTED',
+                f'caller={_peer_identity(context)} reason={exc}',
+            )
             await _abort(context, _status_for(exc), str(exc))
             raise AssertionError('gRPC abort returned') from exc
         self._observability.event(
@@ -535,6 +543,10 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
             await _abort(context, grpc.StatusCode.NOT_FOUND, str(exc))
             raise AssertionError("gRPC abort returned") from exc
         except ConfigurationError as exc:
+            self._observability.event(
+                'ERROR', request.id, 'DELIVERY_INTENT_REJECTED',
+                f'caller={_peer_identity(context)} reason={exc}',
+            )
             await _abort(context, _status_for(exc), str(exc))
             raise AssertionError("gRPC abort returned") from exc
 
