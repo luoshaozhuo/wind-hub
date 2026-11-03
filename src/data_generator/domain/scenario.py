@@ -30,6 +30,13 @@ class Settings:
     scenarios: dict[str, Scenario]
     revision: str
     shared: SharedDomainSnapshot
+    service_file: Path
+    scenario_file: Path
+    site_file: Path
+    devices_file: Path
+    units_file: Path
+    business_points_file: Path
+    templates_root: Path
 
 
 
