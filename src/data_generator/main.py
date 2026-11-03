@@ -10,12 +10,14 @@ from pathlib import Path
 
 from data_generator.application.config import load_settings
 from data_generator.application.runtime import Runtime
+from data_generator.application.snapshots import recover_transaction
 from data_generator.infrastructure.server import make_server
 
 logger = logging.getLogger(__name__)
 
 
 async def run(config_path: Path) -> None:
+    recover_transaction(config_path.absolute().parent.parent)
     settings = load_settings(config_path)
     runtime = Runtime(settings)
     bind = settings.service.get("service", {}).get("grpc_bind", "127.0.0.1:50061")
@@ -41,6 +43,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     if args.check:
+        recover_transaction(args.config.absolute().parent.parent)
         load_settings(args.config)
         return 0
     logging.basicConfig(level=logging.INFO)
