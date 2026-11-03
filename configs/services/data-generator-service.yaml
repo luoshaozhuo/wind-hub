@@ -1,6 +1,15 @@
 # Data Generator service configuration; restart required after modification.
 schema_version: 1
 file_version: "1.0.0"
+configuration:
+  instances:
+    site: "../instances/site.yaml"
+    devices: "../instances/devices.yaml"
+    scenarios: "../instances/data-generator.yaml"
+  templates:
+    root: "../templates"
+    units: "../templates/units.yaml"
+    business_points: "../templates/business_points.yaml"
 service:
   grpc_bind: "127.0.0.1:50061"
 output:
