@@ -7,8 +7,8 @@ import hashlib
 import json
 from collections import deque
 from collections.abc import Callable
-from datetime import UTC, datetime
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol
 
