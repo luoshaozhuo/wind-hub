@@ -481,6 +481,15 @@ class ReliableDeliveryPort:
                         self.latency_samples.append((timestamp, latency))
                     if 0 in result.delivered:
                         self.delivered_total += 1
+                    if result.error.startswith('Redis CAS conflicts at samples'):
+                        # The target explicitly rejected a same-time conflicting
+                        # identity. Repeating it cannot make it a valid version.
+                        await self._dead_letter(message, result.error)
+                        await message.ack_sync(timeout=5)
+                        self._backlog = metadata.num_pending
+                        self.last_error = ''
+                        backoff = config['retry_base_ms'] / 1000
+                        continue
                     if 0 in result.delivered or (not result.error and 0 in result.settled):
                         await message.ack_sync(timeout=5)
                         self._backlog = metadata.num_pending
