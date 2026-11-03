@@ -244,24 +244,35 @@ class KafkaOutput:
         async with self._lock:
             if self._producer is None:
                 return BatchOutcome((), (), "Kafka output is not connected")
-            delivered: list[int] = []
+            pending: list[tuple[int, Any]] = []
+            failures: list[str] = []
             for index, sample in enumerate(samples):
                 key = ":".join(
                     (sample.wind_farm_id, sample.collector_id, sample.device_id)
                 ).encode("utf-8")
                 try:
-                    await self._producer.send_and_wait(
+                    confirmation = await self._producer.send(
                         self._topic, key=key, value=sample.encode()
                     )
                 except Exception as exc:
-                    return BatchOutcome(
-                        delivered=tuple(delivered),
-                        settled=tuple(delivered),
-                        error=f"Kafka broker confirmation not received: {exc}",
-                    )
-                delivered.append(index)
+                    failures.append(f"Kafka sample {index} not queued: {exc}")
+                    break
+                pending.append((index, confirmation))
+            delivered: list[int] = []
+            # Every submitted future remains owned until the broker resolves it.
+            for index, confirmation in pending:
+                try:
+                    await confirmation
+                except Exception as exc:
+                    failures.append(f"Kafka sample {index} not confirmed: {exc}")
+                else:
+                    delivered.append(index)
             result = tuple(delivered)
-            return BatchOutcome(delivered=result, settled=result)
+            return BatchOutcome(
+                delivered=result,
+                settled=result,
+                error="; ".join(failures),
+            )
 
 
 class _RegisterImage:
