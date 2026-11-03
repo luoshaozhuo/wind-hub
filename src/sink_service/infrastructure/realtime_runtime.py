@@ -389,33 +389,37 @@ class RealtimeDeliveryPort:
         if self._engine is not None:
             return
         sink = await self._pool.acquire(self._sink_id, self._snapshot)
-        instance = self._snapshot.deliveries[self._id]
-        template = _template(
-            self._snapshot, "deliveries",
-            instance["template_id"], instance["template_version"],
-        )
-        output = template["output"]
-        staleness = template.get("staleness", {})
-        source = instance["source"]
-        engine = RealtimeEngine(
-            writer=sink,
-            wind_farm_id=source["wind_farm_id"],
-            collector_id=source["collector_id"],
-            devices=frozenset(source["devices"]),
-            points=frozenset(source["points"]),
-            policy=output["policy"],
-            period_ms=output["period_ms"],
-            max_points=self._snapshot.service["runtime"]["max_pending_points"],
-            max_age_ms=staleness.get("max_age_ms"),
-            absolute_threshold=output.get("absolute_threshold", 0.0),
-            relative_threshold=output.get("relative_threshold", 0.0),
-        )
+        engine: RealtimeEngine | None = None
         try:
+            instance = self._snapshot.deliveries[self._id]
+            template = _template(
+                self._snapshot, 'deliveries',
+                instance['template_id'], instance['template_version'],
+            )
+            output = template['output']
+            staleness = template.get('staleness', {})
+            source = instance['source']
+            engine = RealtimeEngine(
+                writer=sink,
+                wind_farm_id=source['wind_farm_id'],
+                collector_id=source['collector_id'],
+                devices=frozenset(source['devices']),
+                points=frozenset(source['points']),
+                policy=output['policy'],
+                period_ms=output['period_ms'],
+                max_points=self._snapshot.service['runtime']['max_pending_points'],
+                max_age_ms=staleness.get('max_age_ms'),
+                absolute_threshold=output.get('absolute_threshold', 0.0),
+                relative_threshold=output.get('relative_threshold', 0.0),
+            )
             await engine.start()
             await self._ingress.add(self._id, engine)
-        except Exception:
-            await engine.stop()
-            await self._pool.release(self._sink_id)
+        except BaseException:
+            try:
+                if engine is not None:
+                    await engine.stop()
+            finally:
+                await self._pool.release(self._sink_id)
             raise
         self._engine = engine
         self._writer = sink
