@@ -343,19 +343,22 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     )
 
 
-def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
-    """Read explicit Instance paths and only the referenced template versions."""
+def read_snapshot(
+    root: Path, service_path: Path, peer_service_path: Path
+) -> ValidatedSnapshot:
+    """Load two explicitly named Services and their referenced configuration closure."""
     root = root.resolve(strict=True)
-    selected = service_path.resolve(strict=True)
-    if not selected.is_relative_to(root):
-        raise ConfigurationError("Service path escapes configuration root")
-    relative = selected.relative_to(root).as_posix()
-    if relative not in (
-        "configs/services/sink-realtime.yaml",
-        "configs/services/sink-reliable.yaml",
-    ):
-        raise ConfigurationError("selected Service is not a declared Sink process")
-
+    selected: list[str] = []
+    for path in (service_path, peer_service_path):
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(root):
+            raise ConfigurationError('Service path escapes configuration root')
+        relative = resolved.relative_to(root).as_posix()
+        if not relative.startswith('configs/services/') or not relative.endswith('.yaml'):
+            raise ConfigurationError('Service must be an explicit Service pathname')
+        selected.append(relative)
+    if len(set(selected)) != 2:
+        raise ConfigurationError('two distinct Service pathnames are required')
     def safe_file(pathname: str) -> SnapshotFile:
         target = root / pathname
         if target.is_symlink() or any(
@@ -367,10 +370,7 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
             raise ConfigurationError(f"unsafe configuration file: {pathname}")
         return SnapshotFile(pathname, resolved.read_bytes())
 
-    service_paths = (
-        "configs/services/sink-realtime.yaml",
-        "configs/services/sink-reliable.yaml",
-    )
+    service_paths = tuple(selected)
     files = [safe_file(path) for path in service_paths]
     services = [_yaml_doc(item) for item in files]
     for service in services:
