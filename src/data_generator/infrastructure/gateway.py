@@ -249,7 +249,8 @@ class GatewayWriter:
                                 target, "UNKNOWN", "INVALID_ACK",
                             )
                         )
-            self._settled_callbacks.add(gateway_id)
+                self._settled_callbacks.add(gateway_id)
+
             task.add_done_callback(on_complete)
             try:
                 response = await asyncio.wait_for(asyncio.shield(task), self._timeout)
