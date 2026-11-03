@@ -187,6 +187,20 @@ class ConfigManager:
                     if previous_deliveries.get(key) != snapshot.deliveries.get(key)
                 )
             )
+            # Remote Reader Deliveries remain pending until independently observed.
+            role = self._runtime.service['process_role']
+            before = {
+                item.delivery_id: item.channel
+                for item in delivery_definitions(self._runtime)
+            }
+            after = {
+                item.delivery_id: item.channel
+                for item in delivery_definitions(snapshot)
+            }
+            local_changed = {
+                identifier for identifier in changed
+                if before.get(identifier) == role or after.get(identifier) == role
+            }
             applied: tuple[str, ...] = ()
             error = ""
             # A Service-level source or runtime change is restart-only.
@@ -196,7 +210,7 @@ class ConfigManager:
                     applied = await self._reconcile(snapshot)
                     # This revision is effective only after every affected
                     # local object has converged.
-                    if not (set(changed) - set(applied)):
+                    if local_changed.issubset(set(applied)):
                         self._runtime = snapshot
                         self._last_error = ""
                     else:
