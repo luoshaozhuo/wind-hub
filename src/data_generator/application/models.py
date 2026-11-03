@@ -27,7 +27,10 @@ def random_value(
     kind = str(params.get("data_type", "float64"))
     lower = params.get("minimum", 0)
     upper = params.get("maximum", 1)
-    if type(lower) not in (float, int) or type(upper) not in (float, int):
+    if (
+        not isinstance(lower, int | float) or isinstance(lower, bool)
+        or not isinstance(upper, int | float) or isinstance(upper, bool)
+    ):
         raise GeneratorError("random bounds must be numeric")
     if not math.isfinite(float(lower)) or not math.isfinite(float(upper)):
         raise GeneratorError("random bounds must be finite")
@@ -81,7 +84,10 @@ def static_value(params: Mapping[str, object], inputs: Mapping[str, Scalar]) -> 
     """Calculate a table-based physical relation without state integration."""
     table = interpolation_table(params)
     raw = inputs.get(str(params["input_point"]))
-    if type(raw) not in (int, float) or not math.isfinite(float(raw)):
+    if (
+        not isinstance(raw, int | float) or isinstance(raw, bool)
+        or not math.isfinite(float(raw))
+    ):
         raise GeneratorError("static model input missing or not finite")
     x = float(raw)
     if x < table[0][0] or x > table[-1][0]:
