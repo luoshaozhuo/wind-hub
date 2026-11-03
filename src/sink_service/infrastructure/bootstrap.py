@@ -13,7 +13,7 @@ import yaml
 
 from sink_service.application.config import read_snapshot
 from sink_service.application.config_manager import ConfigManager
-from sink_service.application.delivery_definition import DeliveryDefinition
+from sink_service.application.delivery_definition import DeliveryDefinition, delivery_definitions
 from sink_service.application.delivery_registry import DeliveryPort, DeliveryRegistry
 from sink_service.application.observability import Observability
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, validate_service
@@ -100,19 +100,31 @@ async def serve_control_plane(
 
     manager = ConfigManager(store, initial, writer=writer, reconcile=reconcile)
 
+    def local_converged(snapshot: ValidatedSnapshot) -> bool:
+        expected = {
+            item.delivery_id: item.desired_state
+            for item in delivery_definitions(snapshot)
+            if item.channel == role
+        }
+        actual = {view.delivery_id: view for view in registry.list()}
+        if set(actual) != set(expected):
+            return False
+        return all(
+            actual[identifier].desired_state == desired
+            and actual[identifier].actual_state
+            == ('RUNNING' if desired == 'START' else 'STOPPED')
+            and actual[identifier].revision == snapshot.revision
+            for identifier, desired in expected.items()
+        )
+
     async def apply_reader_snapshot(snapshot: ValidatedSnapshot) -> None:
         local_service = service_configuration(snapshot, service_file)
         if local_service != service:
-            raise ConfigurationError("RESTART_REQUIRED: Reader Service configuration changed")
+            raise ConfigurationError('RESTART_REQUIRED: Reader Service changed')
         snapshot = replace(snapshot, service=local_service)
         await reconcile(snapshot)
-        failed = [
-            item.delivery_id
-            for item in registry.list()
-            if item.desired_state == "START" and item.actual_state != "RUNNING"
-        ]
-        if failed:
-            raise ConfigurationError(f"Reader Deliveries not converged: {failed}")
+        if not local_converged(snapshot):
+            raise ConfigurationError('Reader Deliveries not fully converged')
         await manager.mark_active(snapshot)
 
     lease = WriterLease(config_root) if writer else None
@@ -149,11 +161,27 @@ async def serve_control_plane(
         async def recover_running() -> None:
             while not stop.is_set():
                 await registry.reconcile_all()
+                if writer and manager.runtime.revision != manager.disk.revision:
+                    pending = manager.disk
+                    current_service = service_configuration(pending, service_file)
+                    old_services = {
+                        item.path: item.content for item in manager.runtime.files
+                        if item.path.startswith('configs/services/')
+                    }
+                    new_services = {
+                        item.path: item.content for item in pending.files
+                        if item.path.startswith('configs/services/')
+                    }
+                    if (
+                        current_service == service
+                        and old_services == new_services
+                        and local_converged(pending)
+                    ):
+                        await manager.mark_active(pending)
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=watchdog_seconds)
                 except TimeoutError:
                     continue
-
         recovery_task = asyncio.create_task(recover_running())
 
         async def collect_metrics() -> None:
