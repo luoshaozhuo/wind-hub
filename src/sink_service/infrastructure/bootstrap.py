@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -83,6 +84,9 @@ async def serve_control_plane(
             config_root, config_root / service_file, config_root / peer_service_file
         )
     service = service_configuration(initial, service_file)
+    # Validation covers both Services, but each OS process must carry its
+    # own authoritative runtime Service view, never the Writer's by default.
+    initial = replace(initial, service=service)
     if Path(service["config_root"]).resolve() != config_root.resolve():
         raise ConfigurationError("Service config_root differs from runtime path")
     writer = service["config_writer"]
@@ -99,8 +103,10 @@ async def serve_control_plane(
     manager = ConfigManager(store, initial, writer=writer, reconcile=reconcile)
 
     async def apply_reader_snapshot(snapshot: ValidatedSnapshot) -> None:
-        if service_configuration(snapshot, service_file) != service:
+        local_service = service_configuration(snapshot, service_file)
+        if local_service != service:
             raise ConfigurationError("RESTART_REQUIRED: Reader Service configuration changed")
+        snapshot = replace(snapshot, service=local_service)
         await reconcile(snapshot)
         failed = [
             item.delivery_id
