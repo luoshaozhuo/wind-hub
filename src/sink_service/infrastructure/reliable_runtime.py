@@ -236,6 +236,7 @@ class ReliableDeliveryPort:
             ):
                 raise ConfigurationError("existing JetStream Durable configuration mismatch")
             self._backlog = actual.num_pending + actual.num_ack_pending
+            self._last_backlog_progress = time.monotonic()
             self.last_error = ''
             self._stop.clear()
             task = asyncio.create_task(self._run())
@@ -376,12 +377,37 @@ class ReliableDeliveryPort:
         except TimeoutError:
             pass
 
+    async def _check_capacity(self) -> None:
+        """Poll Broker-owned capacity every 10 s; never mutate Streams."""
+        client = self._client
+        if client is None or not client.is_connected:
+            self._capacity_alarm = 'SOURCE_CAPACITY_UNKNOWN: Broker disconnected'
+            return
+        cfg = self._snapshot.service['nats']
+        try:
+            js = client.jetstream()
+            source = await js.stream_info(cfg['reliable_stream'])
+            dead_letter = await js.stream_info(cfg['dead_letter_stream'])
+            alarms: list[str] = []
+            for label, stream in (('SOURCE', source), ('DLQ', dead_letter)):
+                cap = stream.config.max_bytes
+                if cap <= 0:
+                    alarms.append(f'{label}_CAPACITY_UNKNOWN: no finite MaxBytes')
+                elif stream.state.bytes >= cap * 0.9:
+                    alarms.append(f'{label}_CAPACITY_RISK: >=90% of MaxBytes')
+            self._capacity_alarm = '; '.join(alarms)
+        except Exception as exc:
+            self._capacity_alarm = f'SOURCE_CAPACITY_UNKNOWN: {exc}'
     async def _run(self) -> None:
         assert self._subscription is not None
         config = self._snapshot.service["reliable"]
         backoff = config["retry_base_ms"] / 1000
         max_backoff = config["retry_max_ms"] / 1000
         while not self._stop.is_set():
+            now = time.monotonic()
+            if now - self._last_capacity_check >= 10:
+                self._last_capacity_check = now
+                await self._check_capacity()
             try:
                 messages = await self._subscription.fetch(
                     batch=1, timeout=1.0
@@ -458,6 +484,7 @@ class ReliableDeliveryPort:
                     if 0 in result.delivered or (not result.error and 0 in result.settled):
                         await message.ack_sync(timeout=5)
                         self._backlog = metadata.num_pending
+                        self._last_backlog_progress = time.monotonic()
                         self.last_error = ""
                         backoff = config["retry_base_ms"] / 1000
                         continue
