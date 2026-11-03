@@ -137,6 +137,17 @@ class ReliableDeliveryPort:
                 raise ConfigurationError("history Stream must use file storage")
             if stream.config.discard.name.lower() != "new":
                 raise ConfigurationError("history Stream must reject overflow")
+            dead = await js.stream_info(nats_config['dead_letter_stream'])
+            if nats_config['dead_letter_subject'] not in dead.config.subjects:
+                raise ConfigurationError('DLQ Stream subject is not configured')
+            if (
+                dead.config.storage.name.lower() != 'file'
+                or dead.config.discard.name.lower() != 'new'
+                or dead.config.max_bytes <= 0
+                or dead.config.max_bytes < nats_config['dlq_max_bytes']
+                or dead.config.max_age < nats_config['dlq_max_age_seconds']
+            ):
+                raise ConfigurationError('DLQ Stream retention/capacity is unsafe')
             source = self._snapshot.deliveries[self._definition.delivery_id]["source"]
             prefix = nats_config["reliable_subject"]
             subject = (
