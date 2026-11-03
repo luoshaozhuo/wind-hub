@@ -56,7 +56,7 @@ class Observability:
     def sample(self, current: Mapping[str, float]) -> None:
         """Observe process and Delivery counters; keep only a bounded history."""
         now = datetime.now(UTC)
-        self._samples.append((now, dict(current)))
+        self._samples.append((now, {**self._counts, **current}))
         while self._samples and (now - self._samples[0][0]).total_seconds() > 3600:
             self._samples.popleft()
 
