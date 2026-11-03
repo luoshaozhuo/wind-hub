@@ -6,6 +6,7 @@ import hashlib
 import math
 import random
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 from data_generator.domain.model import GeneratorError, Scalar, validate_scalar
 
@@ -103,22 +104,25 @@ def static_value(params: Mapping[str, object], inputs: Mapping[str, Scalar]) -> 
 def generate_values(
     seed: int,
     step: int,
-    points: Mapping[tuple[str, str], Mapping[str, object]],
+    points: Mapping[tuple[str, str], Mapping[str, Any]],
 ) -> dict[tuple[str, str], Scalar]:
     """Evaluate one non-reentrant period in dependency order."""
     calculated: dict[tuple[str, str], Scalar] = {}
     pending = dict(points)
     while pending:
-        ready = [
-            (key, point)
-            for key, point in pending.items()
-            if point.get("model", {}).get("kind") != "static"
-            or (key[0], point["model"].get("input_point")) in calculated
-        ]
+        ready = []
+        for key, point in pending.items():
+            model = point.get("model")
+            if not isinstance(model, Mapping):
+                raise GeneratorError(f"invalid model configuration for {key}")
+            if model.get("kind") != "static" or (
+                key[0], str(model.get("input_point", ""))
+            ) in calculated:
+                ready.append((key, point))
         if not ready:
             raise GeneratorError("unresolvable static model dependency")
         for (device_id, point_id), point in ready:
-            model = point.get("model", {})
+            model = point["model"]
             kind = model.get("kind")
             data_type = str(point["data_type"])
             if kind == "random":
