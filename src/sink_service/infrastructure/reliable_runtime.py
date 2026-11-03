@@ -201,7 +201,9 @@ class ReliableDeliveryPort:
                 raise ConfigurationError("existing JetStream Durable configuration mismatch")
             self._backlog = actual.num_pending + actual.num_ack_pending
             self._stop.clear()
-            self._task = asyncio.create_task(self._run())
+            task = asyncio.create_task(self._run())
+            task.add_done_callback(self._on_task_finished)
+            self._task = task
         except BaseException:
             if self._client is not None:
                 await self._client.close()
@@ -210,11 +212,23 @@ class ReliableDeliveryPort:
             self._adapter = None
             raise
 
+    def _on_task_finished(self, task: asyncio.Task[None]) -> None:
+        if task.cancelled():
+            self.last_error = 'Reliable consumer task was cancelled unexpectedly'
+            return
+        failure = task.exception()
+        if failure is not None:
+            self.last_error = f'Reliable consumer task stopped unexpectedly: {failure}'
     async def stop(self) -> None:
         self._stop.set()
         task = self._task
         if task is not None:
-            await task
+            try:
+                await task
+            except Exception as exc:
+                # The consumer failed, but cleanup must still release its
+                # settled connections; the failure remains observable.
+                self.last_error = f'Reliable consumer terminated: {exc}'
             self._task = None
         client = self._client
         if client is not None:
