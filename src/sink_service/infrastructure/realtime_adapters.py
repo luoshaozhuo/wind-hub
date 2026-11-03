@@ -69,7 +69,7 @@ class RedisOutput:
                 answer = await asyncio.wait_for(
                     self._reader.readline(), timeout=self._timeout
                 )
-                if answer != b"+OK\\r\\n":
+                if answer != b"+OK\r\n":
                     raise ConnectionError("Redis authentication failed")
         except BaseException:
             writer, self._writer = self._writer, None
