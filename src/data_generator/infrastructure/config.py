@@ -91,7 +91,10 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
     kind = source.get("kind")
     if kind == "simulation":
         interval = source.get("interval_seconds")
-        if type(interval) not in (int, float) or not math.isfinite(interval) or interval <= 0:
+        if (
+            not isinstance(interval, int | float) or isinstance(interval, bool)
+            or not math.isfinite(interval) or interval <= 0
+        ):
             raise GeneratorError("invalid simulation interval")
         if type(source.get("seed", 0)) is not int:
             raise GeneratorError("simulation seed must be integer")
@@ -122,7 +125,10 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
         if source.get("history_reader") != "csv" or source.get("loop", False) is not False:
             raise GeneratorError("only non-looping CSV replay supported")
         speed = source.get("speed")
-        if type(speed) not in (float, int) or not math.isfinite(speed) or speed <= 0:
+        if (
+            not isinstance(speed, int | float) or isinstance(speed, bool)
+            or not math.isfinite(speed) or speed <= 0
+        ):
             raise GeneratorError("invalid replay speed")
         if not isinstance(source.get("file"), str) or not source["file"]:
             raise GeneratorError("replay requires CSV path")
@@ -137,12 +143,64 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
         raise GeneratorError("unsupported source kind")
 
 
+def validate_service_limits(service: dict[str, Any]) -> None:
+    """Validate resource budgets before admitting any generation or configuration candidate."""
+    limits = {
+        "output": {
+            "max_inflight": (1, 128),
+            "grpc_timeout_seconds": (0.01, 60.0),
+        },
+        "buffer": {
+            "max_batches": (1, 4096),
+            "max_points_per_batch": (1, 5000),
+        },
+        "replay": {
+            "read_batch_size": (1, 100000),
+            "max_file_bytes": (1, 1073741824),
+            "max_records": (1, 10000000),
+        },
+        "diagnose": {
+            "max_concurrent": (1, 64),
+            "timeout_seconds": (0.1, 60.0),
+        },
+        "metrics": {
+            "sample_seconds": (0.01, 60.0),
+            "window_seconds": (1, 3600),
+            "retain_seconds": (1, 86400),
+            "max_series": (1, 10000),
+        },
+    }
+    for section, settings in limits.items():
+        configured = service.get(section, {})
+        if not isinstance(configured, dict):
+            raise GeneratorError(f"service {section} must be a mapping")
+        for key, (lower, upper) in settings.items():
+            if key not in configured:
+                continue
+            value = configured[key]
+            if (
+                isinstance(value, bool) or not isinstance(value, int | float)
+                or not math.isfinite(float(value))
+                or not lower <= value <= upper
+                or (isinstance(lower, int) and type(value) is not int)
+            ):
+                raise GeneratorError(
+                    f"invalid {section}.{key}: must be within {lower}..{upper}"
+                )
+    metrics = service.get("metrics", {})
+    if metrics.get("window_seconds", 60) < metrics.get("sample_seconds", 1.0):
+        raise GeneratorError("metrics window must cover sampling interval")
+    if metrics.get("retain_seconds", 3600) < metrics.get("window_seconds", 60):
+        raise GeneratorError("metrics retention must cover window")
+
+
 def load_settings(service_path: Path) -> Settings:
     path = service_path.absolute()
     if path.parent.name != "services":
         raise GeneratorError("service configuration must be inside services/")
     root = path.parent.parent
     service = load_yaml(path)
+    validate_service_limits(service)
     instance = load_yaml(root / "instances" / "data-generator.yaml")
     try:
         documents = SharedDocumentLoader(SharedConfigPaths(
