@@ -169,7 +169,9 @@ class ConfigManager:
             )
             applied: tuple[str, ...] = ()
             error = ""
-            if self._reconcile is not None:
+            # A Service-level source or runtime change is restart-only.
+            # Never reconcile against a new config_sources graph in the old process.
+            if self._reconcile is not None and not restart_required:
                 try:
                     applied = await self._reconcile(snapshot)
                     if not restart_required:
