@@ -412,8 +412,26 @@ class CommonService(common_rpc.CommonServiceServicer):
         except TimeoutError:
             await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, "diagnostics capacity reached")
             raise RuntimeError("gRPC abort returned") from None
+        self.runtime.counters["diagnostic_total"] = (
+            self.runtime.counters.get("diagnostic_total", 0) + 1
+        )
         try:
-            return await self.diagnostics.run(request)
+            response = await self.diagnostics.run(request)
+            if response.overall_status == "FAIL":
+                self.runtime.counters["diagnostic_failed"] = (
+                    self.runtime.counters.get("diagnostic_failed", 0) + 1
+                )
+            if "NO_DIAGNOSTIC_TARGETS" in response.limitations:
+                self.runtime.counters["diagnostic_no_targets"] = (
+                    self.runtime.counters.get("diagnostic_no_targets", 0) + 1
+                )
+            self.runtime.record(
+                "WARNING" if response.overall_status != "PASS" else "INFO",
+                request.target_id or "diagnostics",
+                f"DIAGNOSTIC_{response.overall_status}",
+                request.correlation_id,
+            )
+            return response
         finally:
             self._diagnostics_permits.release()
 
