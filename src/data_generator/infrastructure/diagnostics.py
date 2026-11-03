@@ -13,6 +13,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as gateway
 from contracts import industrial_gateway_pb2_grpc as gateway_rpc
+from core.infrastructure.rpc.scalar_codec import encode_scalar
 from data_generator.application.models import generate_values
 from data_generator.domain.scenario import Scenario, Settings, resolve_history
 
@@ -51,7 +52,7 @@ class Diagnostics:
             for mapping in scenario.mappings
             if mapping.target.gateway_id == gateway_id
         }
-        actual: dict[str, str] = {}
+        actual: dict[str, tuple[str, bool]] = {}
         async with grpc.aio.insecure_channel(endpoint) as channel:
             stub = gateway_rpc.IndustrialGatewayServiceStub(channel)
             token = ""
@@ -65,7 +66,7 @@ class Diagnostics:
                 for item in response.variables:
                     if item.variable_id in actual:
                         raise ValueError(f"duplicate Gateway variable: {item.variable_id}")
-                    actual[item.variable_id] = item.data_type
+                    actual[item.variable_id] = (item.data_type, item.writable)
                 token = response.next_page_token
                 if not token:
                     break
@@ -76,7 +77,7 @@ class Diagnostics:
             raise ValueError(f"missing Gateway variable(s): {sorted(missing)}")
         incompatible = [
             variable_id for variable_id, data_type in expected.items()
-            if actual[variable_id] != data_type
+            if actual[variable_id] != (data_type, True)
         ]
         if incompatible:
             raise ValueError(f"Gateway scalar type mismatch: {sorted(incompatible)}")
@@ -97,8 +98,10 @@ class Diagnostics:
                 overall_status="FAIL", limitations=["duplicate or excessive stages"],
             )
         timeout = min(
-            max(request.timeout_ms / 1000.0, 0.1), self._max_seconds,
+            request.timeout_ms / 1000.0 if request.timeout_ms else self._max_seconds,
+            self._max_seconds,
         )
+        timeout = max(timeout, 0.1)
         output: list[common.DiagnosticStage] = []
         limitations: list[str] = []
         for name in stages:
@@ -134,8 +137,25 @@ class Diagnostics:
                 elif name == "mapping":
                     if not scenario.mappings:
                         raise ValueError("no output mappings")
+                    targets = [mapping.target for mapping in scenario.mappings]
+                    if len(targets) != len(set(targets)):
+                        raise ValueError("duplicate output target")
+                    if scenario.source["kind"] == "simulation":
+                        values = generate_values(
+                            int(scenario.source.get("seed", 0)), 1, scenario.points,
+                        )
+                        for value in values.values():
+                            if encode_scalar(value).WhichOneof("kind") is None:
+                                raise ValueError("invalid scalar wire encoding")
+                        evidence.append(common.Evidence(
+                            name="encoded_points", value=str(len(values)),
+                        ))
+                    else:
+                        limitations.append(
+                            "replay scalar contents checked during source initialization"
+                        )
                     evidence.append(common.Evidence(
-                        name="unique_targets", value=str(len(scenario.mappings)),
+                        name="unique_targets", value=str(len(targets)),
                     ))
                     status, error_code = "PASS", ""
                 elif name == "network":
