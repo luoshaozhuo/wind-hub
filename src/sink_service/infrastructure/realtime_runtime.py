@@ -312,6 +312,7 @@ class RealtimeDeliveryPort:
         self._ingress = ingress
         self._engine: RealtimeEngine | None = None
         self._writer: _QuotaWriter | None = None
+        self._stopping = False
 
     @property
     def last_error(self) -> str:
@@ -322,6 +323,8 @@ class RealtimeDeliveryPort:
         return self._engine.last_error
 
     async def start(self) -> None:
+        if self._stopping:
+            raise ConfigurationError("previous Delivery stop has not safely settled")
         if self._engine is not None:
             return
         sink = await self._pool.acquire(self._sink_id, self._snapshot)
@@ -360,6 +363,7 @@ class RealtimeDeliveryPort:
         engine = self._engine
         if engine is None:
             return
+        self._stopping = True
         # Keep ownership until all work and the physical connection are settled.
         await self._ingress.remove(self._id)
         await engine.stop()
@@ -368,6 +372,7 @@ class RealtimeDeliveryPort:
         await self._pool.release(self._sink_id)
         self._engine = None
         self._writer = None
+        self._stopping = False
 
 
 class RealtimeFactory:
