@@ -192,7 +192,8 @@ class GatewayWriter:
                     owner_id, response.lease_token, names, endpoint,
                 )
                 acquired.append(gateway_id)
-            for gateway_id in acquired:
+                # Start renewal immediately: acquiring later Gateway groups
+                # must not let an earlier reservation expire.
                 self._renewers[gateway_id] = asyncio.create_task(
                     self._renew(gateway_id)
                 )
