@@ -216,8 +216,9 @@ class ConfigManager:
             if delivery_id not in self._disk.deliveries:
                 raise KeyError(f"unknown Delivery: {delivery_id}")
             updated: list[SnapshotFile] = []
+            source_paths, _ = config_sources(self._disk.service)
+            found = False
             for item in self._disk.files:
-                source_paths, _ = config_sources(self._disk.service)
                 if item.path != source_paths["deliveries"]:
                     updated.append(item)
                     continue
@@ -230,6 +231,7 @@ class ConfigManager:
                 delivery = deliveries.get(delivery_id)
                 if not isinstance(delivery, dict):
                     raise ConfigurationError("Delivery is missing in current snapshot")
+                found = True
                 delivery["desired_state"] = "START" if running else "STOP"
                 doc["revision"] = secrets.token_hex(16)
                 updated.append(
@@ -238,6 +240,8 @@ class ConfigManager:
                         yaml.safe_dump(doc, allow_unicode=True, sort_keys=False).encode("utf-8"),
                     )
                 )
+            if not found:
+                raise ConfigurationError("Delivery instance pathname missing from snapshot")
             try:
                 snapshot = validate_snapshot(tuple(updated))
             except ConfigurationError as exc:
@@ -247,7 +251,7 @@ class ConfigManager:
             if self._reconcile is not None:
                 try:
                     applied = await self._reconcile(snapshot)
-                    if delivery_id in applied or not running:
+                    if delivery_id in applied:
                         self._runtime = snapshot
                         self._last_error = ""
                     else:
