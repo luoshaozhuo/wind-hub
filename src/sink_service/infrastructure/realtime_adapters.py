@@ -270,34 +270,39 @@ class KafkaOutput:
         async with self._lock:
             if self._producer is None:
                 return BatchOutcome((), (), "Kafka output is not connected")
-            pending: list[tuple[int, Any]] = []
+            pending: list[tuple[int, Any, float]] = []
             failures: list[str] = []
             for index, sample in enumerate(samples):
                 key = ":".join(
                     (sample.wind_farm_id, sample.collector_id, sample.device_id)
                 ).encode("utf-8")
                 try:
+                    started = time.perf_counter()
                     confirmation = await self._producer.send(
                         self._topic, key=key, value=sample.encode()
                     )
                 except Exception as exc:
                     failures.append(f"Kafka sample {index} not queued: {exc}")
                     break
-                pending.append((index, confirmation))
+                pending.append((index, confirmation, started))
             delivered: list[int] = []
+            latencies: list[float] = []
             # Every submitted future remains owned until the broker resolves it.
-            for index, confirmation in pending:
+            for index, confirmation, started in pending:
                 try:
                     await confirmation
                 except Exception as exc:
                     failures.append(f"Kafka sample {index} not confirmed: {exc}")
                 else:
                     delivered.append(index)
+                    latencies.append((time.perf_counter() - started) * 1000)
             result = tuple(delivered)
             return BatchOutcome(
                 delivered=result,
                 settled=result,
                 error="; ".join(failures),
+                successful_attempts=len(delivered),
+                successful_latencies_ms=tuple(latencies),
             )
 
 
