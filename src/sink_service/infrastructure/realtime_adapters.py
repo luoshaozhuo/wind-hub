@@ -104,15 +104,21 @@ class RedisOutput:
                             "collector_id", "device_id", "point_id", "wind_farm_id",
                         },
                     )
-                    data = json.dumps(
-                        payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-                    )
                     timestamp = sample.sample_time.astimezone(UTC).isoformat(
                         timespec="microseconds"
                     )
+                    payload["sample_time"] = timestamp
+                    data = json.dumps(
+                        payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                    )
+                    expiry_ms = (
+                        int(sample.sample_time.timestamp() * 1000)
+                        + (sample.max_staleness_ms or 1)
+                    )
                     commands.append(
                         _redis_command(
-                            "EVAL", _REDIS_CAS, "1", key, data, timestamp, sample.sample_id
+                            "EVAL", _REDIS_CAS, "1", key, data,
+                            timestamp, sample.sample_id, str(expiry_ms),
                         )
                     )
                 self._writer.write(b"".join(commands))
