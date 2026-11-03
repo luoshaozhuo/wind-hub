@@ -36,7 +36,8 @@ _REDIS_CAS = (
     "if old.sample_time==ARGV[2] then "
     "if old.sample_id==ARGV[3] then return 2 end;"
     "return -1 end end;"
-    "redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[4]);return 1"
+    "if ARGV[4]=='' then redis.call('SET',KEYS[1],ARGV[1]);"
+    "else redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[4]);end;return 1"
 )
 
 
@@ -159,14 +160,18 @@ class RedisOutput:
                     encoded = json.dumps(
                         payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False,
                     )
-                    expiry_ms = (
-                        int(sample.sample_time.timestamp() * 1000)
-                        + (sample.max_staleness_ms or 1)
+                    expiry = (
+                        str(
+                            int(sample.sample_time.timestamp() * 1000)
+                            + sample.max_staleness_ms
+                        )
+                        if sample.max_staleness_ms is not None
+                        else ""
                     )
                     commands.append(
                         _redis_command(
                             "EVAL", _REDIS_CAS, "1", key, encoded,
-                            timestamp, sample.sample_id, str(expiry_ms),
+                            timestamp, sample.sample_id, expiry,
                         )
                     )
                 start_time = time.perf_counter()
