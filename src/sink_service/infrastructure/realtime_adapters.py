@@ -349,10 +349,14 @@ class _RegisterImage:
             prior = self._last.get(index)
             if prior is not None:
                 old_time, old_id = prior
-                if sample.sample_time < old_time or (
-                    sample.sample_time == old_time and sample.sample_id == old_id
-                ):
-                    # An older or already confirmed sample must not roll back the image.
+                if sample.sample_time < old_time:
+                    # Historical/out-of-order sample must not roll back the image.
+                    settled.append(offset)
+                    continue
+                if sample.sample_time == old_time and sample.sample_id == old_id:
+                    # An identical already-exposed image is confirmed again at the
+                    # periodic/heartbeat boundary; no register rewrite is needed.
+                    delivered.append(offset)
                     settled.append(offset)
                     continue
                 if sample.sample_time == old_time:
