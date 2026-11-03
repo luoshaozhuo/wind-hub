@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import struct
+import time
 from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any
@@ -129,6 +130,9 @@ class RedisOutput:
                 await self._connect()
             delivered: list[int] = []
             settled: list[int] = []
+            success_attempts = 0
+            failed_attempts = 0
+            latencies: list[float] = []
             try:
                 commands: list[bytes] = []
                 for sample in samples:
@@ -165,22 +169,28 @@ class RedisOutput:
                             timestamp, sample.sample_id, str(expiry_ms),
                         )
                     )
+                start_time = time.perf_counter()
                 self._writer.write(b"".join(commands))
                 await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
                 errors: list[str] = []
                 for index in range(len(samples)):
                     result = await self._integer()
-                    if result == 1:
-                        delivered.append(index)
+                    if result in (0, 1):
                         settled.append(index)
-                    elif result == 0:
-                        settled.append(index)
+                        success_attempts += 1
+                        latencies.append((time.perf_counter() - start_time) * 1000)
+                        if result == 1:
+                            delivered.append(index)
                     else:
-                        errors.append(f"Redis CAS conflict at sample {index}")
+                        failed_attempts += 1
+                        errors.append(f'Redis CAS conflict at sample {index}')
                 return BatchOutcome(
                     delivered=tuple(delivered),
                     settled=tuple(settled),
                     error="; ".join(errors),
+                    successful_attempts=success_attempts,
+                    failed_attempts=failed_attempts,
+                    successful_latencies_ms=tuple(latencies),
                 )
             except Exception as exc:
                 # In-flight commands may have executed; retry by stable sample ID.
@@ -191,6 +201,9 @@ class RedisOutput:
                     await writer.wait_closed()
                 return BatchOutcome(
                     delivered=tuple(delivered), settled=tuple(settled), error=str(exc),
+                    successful_attempts=success_attempts,
+                    failed_attempts=failed_attempts,
+                    successful_latencies_ms=tuple(latencies),
                 )
 
 
