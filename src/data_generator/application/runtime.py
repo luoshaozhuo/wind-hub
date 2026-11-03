@@ -290,7 +290,8 @@ class Runtime:
             if status != "SUCCESS":
                 raise GeneratorError(
                     f"CSV line {record.line_number}: output {status}; replay halted"
-                )        if sequence == 0:
+                )
+        if sequence == 0:
             raise GeneratorError("EMPTY_REPLAY_WINDOW: no source records in time range")
 
 
