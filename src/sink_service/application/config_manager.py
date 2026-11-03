@@ -155,7 +155,7 @@ class ConfigManager:
             current_services = {
                 item.path: item.content
                 for item in snapshot.files
-                if item.path.startswith("services/")
+                if item.path.startswith("configs/services/")
             }
             self._disk = snapshot
             restart_required = previous_services != current_services
