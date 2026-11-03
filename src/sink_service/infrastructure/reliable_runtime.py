@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -208,17 +209,26 @@ class ReliableDeliveryPort:
             raise ConfigurationError("DLQ Stream must use file storage")
         if stream.config.discard.name.lower() != "new":
             raise ConfigurationError("DLQ Stream must reject overflow")
+        metadata = message.metadata
         record = {
-            "delivery_id": self._definition.delivery_id,
-            "subject": message.subject,
-            "payload_utf8": message.data.decode("utf-8", errors="replace"),
-            "reason": reason,
-            "received_at": datetime.now(UTC).isoformat(),
+            'delivery_id': self._definition.delivery_id,
+            'subject': message.subject,
+            'source_stream': metadata.stream,
+            'consumer': metadata.consumer,
+            'source_sequence': metadata.sequence.stream,
+            'source_timestamp': metadata.timestamp.astimezone(UTC).isoformat(),
+            'payload_base64': base64.b64encode(message.data).decode('ascii'),
+            'classification': 'PERMANENT',
+            'reason': reason,
+            'first_failed_at': datetime.now(UTC).isoformat(),
+            'last_failed_at': datetime.now(UTC).isoformat(),
         }
-        payload = json.dumps(record, ensure_ascii=False, allow_nan=False).encode("utf-8")
-        digest = hashlib.sha256(
-            self._definition.delivery_id.encode("utf-8") + message.data
-        ).hexdigest()
+        payload = json.dumps(record, ensure_ascii=False, allow_nan=False).encode('utf-8')
+        identity = (
+            f'{self._definition.delivery_id}:{metadata.stream}:'
+            f'{metadata.sequence.stream}'
+        ).encode('utf-8')
+        digest = hashlib.sha256(identity).hexdigest()
         await js.publish(
             config["dead_letter_subject"],
             payload,
@@ -281,14 +291,18 @@ class ReliableDeliveryPort:
                         self.last_error = f"DLQ publication not confirmed: {inner}"
                         await message.nak(delay=backoff)
                     continue
+                replay_owner = (message.headers or {}).get('Wh-Replay-Delivery', '')
+                if replay_owner and replay_owner != self._definition.delivery_id:
+                    await message.ack_sync(timeout=5)
+                    continue
                 if not self._matches(sample):
-                    await message.ack()
+                    await message.ack_sync(timeout=5)
                     continue
                 try:
                     assert self._adapter is not None
                     result = await self._write_with_heartbeat(message, sample)
                     if 0 in result.delivered or (not result.error and 0 in result.settled):
-                        await message.ack()
+                        await message.ack_sync(timeout=5)
                         self.delivered_total += int(0 in result.delivered)
                         self.last_error = ""
                         backoff = config["retry_base_ms"] / 1000
