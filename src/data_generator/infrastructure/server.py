@@ -436,7 +436,28 @@ class CommonService(common_rpc.CommonServiceServicer):
             self._diagnostics_permits.release()
 
 
+def validate_rpc_contracts() -> None:
+    """Fail startup on missing public unary implementations or descriptor drift."""
+    services = (
+        (dg.DESCRIPTOR.services_by_name["DataGeneratorService"], DataGeneratorService, 6),
+        (common.DESCRIPTOR.services_by_name["CommonService"], CommonService, 9),
+    )
+    for descriptor, implementation, expected_count in services:
+        if len(descriptor.methods) != expected_count:
+            raise GeneratorError(
+                f"{descriptor.full_name}: unexpected RPC count"
+            )
+        for method in descriptor.methods:
+            if method.client_streaming or method.server_streaming:
+                raise GeneratorError(f"{descriptor.full_name}.{method.name}: not unary")
+            if method.name not in implementation.__dict__:
+                raise GeneratorError(
+                    f"{descriptor.full_name}.{method.name}: implementation missing"
+                )
+
+
 def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
+    validate_rpc_contracts()
     if not bind.startswith(("127.0.0.1:", "[::1]:")):
         raise GeneratorError("insecure gRPC listener restricted to loopback")
     server = grpc.aio.server()
