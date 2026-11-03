@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
+import time
+from collections import defaultdict, deque
 from collections.abc import Sequence
 
 import grpc
@@ -43,6 +44,7 @@ class GatewayWriter:
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._pending: set[asyncio.Task[object]] = set()
         self._unsettled: dict[str, asyncio.Task[object]] = {}
+        self.rpc_durations: deque[tuple[float, str, float]] = deque(maxlen=4096)
 
     async def send(self, scenario: Scenario, batch: DataBatch) -> list[DeliveryResult]:
         values = {(point.device_id, point.point_id): point.value for point in batch.points}
@@ -81,14 +83,33 @@ class GatewayWriter:
                     variable_id=target.variable_id, value=scalar_message(value)
                 ) for target, value in entries],
             )
-            task = asyncio.ensure_future(stub.UpdateVariables(request))
+            started = time.monotonic()
+            task = asyncio.ensure_future(
+                stub.UpdateVariables(request, timeout=self._timeout * 2)
+            )
             self._unsettled[gateway_id] = task
             self._pending.add(task)
-            task.add_done_callback(self._pending.discard)
+            def observe(completed: asyncio.Task[object]) -> None:
+                self._pending.discard(completed)
+                self.rpc_durations.append(
+                    (time.monotonic(), gateway_id, (time.monotonic() - started) * 1000)
+                )
+            task.add_done_callback(observe)
             try:
                 response = await asyncio.wait_for(asyncio.shield(task), self._timeout)
-            except (TimeoutError, grpc.RpcError, asyncio.CancelledError):
-                return [DeliveryResult(target, "UNKNOWN") for target, _ in entries]
+            except grpc.RpcError as exc:
+                code = exc.code()
+                if code in (
+                    grpc.StatusCode.INVALID_ARGUMENT, grpc.StatusCode.NOT_FOUND,
+                    grpc.StatusCode.PERMISSION_DENIED, grpc.StatusCode.UNAUTHENTICATED,
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                ):
+                    return [DeliveryResult(target, "FAILED", str(code), str(exc))
+                            for target, _ in entries]
+                return [DeliveryResult(target, "UNKNOWN", str(code)) for target, _ in entries]
+            except (TimeoutError, asyncio.CancelledError):
+                return [DeliveryResult(target, "UNKNOWN", "RPC_TIMEOUT")
+                        for target, _ in entries]
             received = {result.variable_id: result for result in response.results}
             return [
                 DeliveryResult(target,
