@@ -209,10 +209,16 @@ async def serve_control_plane(
                 next_tick += max(1, int((current - next_tick) / interval) + 1) * interval
                 views = registry.list()
                 counters = registry.counters()
+                delivery_counts, delivery_latencies, delivery_overflows = (
+                    registry.delivery_observations()
+                )
                 telemetry.sample(
                     counters,
                     latency_observations=registry.latency_observations(),
                     latency_overflow_at=registry.latency_overflow_at(),
+                    delivery_counters=delivery_counts,
+                    delivery_latencies=delivery_latencies,
+                    delivery_overflows=delivery_overflows,
                 )
                 states = {
                     view.delivery_id: (view.actual_state, view.last_error)
