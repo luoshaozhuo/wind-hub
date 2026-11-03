@@ -467,7 +467,12 @@ class Runtime:
                     f"{result.target.gateway_id}:{result.target.variable_id}"
                     f" {result.error_code}",
                 )
-        if any(result.error_code in {"LEASE_LOST", "LEASE_NOT_HELD"} for result in results):
+        if any(
+            result.error_code in {
+                "LEASE_LOST", "LEASE_NOT_HELD", "TARGET_QUARANTINED",
+            }
+            for result in results
+        ):
             raise GeneratorError("Gateway target lease lost; refusing further output")
         if unknown:
             status = "UNKNOWN"

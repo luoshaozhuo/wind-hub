@@ -17,6 +17,7 @@ class OutputPort(Protocol):
     def unsettled_gateways(self) -> frozenset[str]: ...
 
     rpc_durations: deque[tuple[float, str, float]]
+    native_started: dict[str, int]
 
     def has_claims(self, owner_id: str) -> bool: ...
 

@@ -21,6 +21,7 @@ replay:
 diagnose:
   max_concurrent: 2
   timeout_seconds: 10.0
+  permit_wait_seconds: 0.5
 metrics:
   enabled: true
   sample_seconds: 1.0
