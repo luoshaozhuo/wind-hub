@@ -107,6 +107,7 @@ extend-immutable-calls = [
 "src/collector/infrastructure/grpc/v2_server.py" = ["N802"]
 "src/commander/infrastructure/grpc/server.py" = ["N802"]
 "src/industrial_gateway/infrastructure/grpc/data_server.py" = ["N802"]
+"src/data_generator/infrastructure/server.py" = ["N802"]
 
 [tool.mypy]
 strict = true
@@ -219,6 +220,7 @@ forbidden_modules = [
     "commander",
     "cli",
     "web_server",
+    "data_generator",
 ]
 
 [[tool.importlinter.contracts]]
@@ -320,3 +322,30 @@ name = "web_server 只通过 core RPC 访问服务"
 type = "forbidden"
 source_modules = ["web_server"]
 forbidden_modules = ["collector", "commander", "cli"]
+
+# ---- Data Generator v1 boundary ----
+
+[[tool.importlinter.contracts]]
+name = "data generator 三层依赖方向"
+type = "layers"
+layers = [
+    "data_generator.infrastructure",
+    "data_generator.application",
+    "data_generator.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "data generator 不得依赖其他进程包"
+type = "forbidden"
+source_modules = ["data_generator"]
+forbidden_modules = ["collector", "commander", "cli", "industrial_gateway", "web_server"]
+
+[[tool.importlinter.contracts]]
+name = "data generator 业务层不得依赖 wire Proto"
+type = "forbidden"
+source_modules = ["data_generator.application", "data_generator.domain"]
+forbidden_modules = [
+    "contracts.common_pb2",
+    "contracts.data_generator_pb2",
+    "contracts.industrial_gateway_pb2",
+]
