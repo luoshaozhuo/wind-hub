@@ -484,4 +484,12 @@ class ModbusOutput:
             self._server = None
 
     async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
-        return self._image.update(samples)
+        started = time.perf_counter()
+        result = self._image.update(samples)
+        if not result.delivered:
+            return result
+        return BatchOutcome(
+            delivered=result.delivered, settled=result.settled, error=result.error,
+            successful_attempts=1,
+            successful_latencies_ms=((time.perf_counter() - started) * 1000,),
+        )
