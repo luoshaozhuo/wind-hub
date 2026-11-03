@@ -57,6 +57,7 @@ class GatewayWriter:
         self._unsafe: set[str] = set()
         self.rpc_durations: deque[tuple[float, str, float]] = deque(maxlen=4096)
         self.last_native_results: dict[OutputTarget, DeliveryResult] = {}
+        self.native_started: dict[str, int] = defaultdict(int)
         self._claims: dict[str, tuple[str, str, tuple[str, ...], str]] = {}
         self._renewers: dict[str, asyncio.Task[None]] = {}
         self._lease_ms = min(60000, max(10000, math.ceil(timeout * 6000)))
@@ -359,6 +360,7 @@ class GatewayWriter:
             except BaseException:
                 self._available.release()
                 raise
+            self.native_started[gateway_id] += 1
             self._unsettled[gateway_id] = task
             self._pending.add(task)
             expected = {target.variable_id for target, _ in entries}

@@ -166,6 +166,7 @@ def validate_service_limits(service: dict[str, Any]) -> None:
         "diagnose": {
             "max_concurrent": (1, 64),
             "timeout_seconds": (0.1, 60.0),
+            "permit_wait_seconds": (0.01, 10.0),
         },
         "metrics": {
             "sample_seconds": (0.01, 60.0),

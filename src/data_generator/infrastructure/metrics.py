@@ -41,9 +41,12 @@ def snapshot(runtime: Runtime, scope: str, window_ms: int) -> common.GetMetricsR
     timestamp = Timestamp()
     timestamp.FromDatetime(datetime.now(UTC))
     metrics: list[common.Metric] = []
+    truncated = False
 
     def add(name: str, value: float, unit: str, window: int = 0) -> None:
+        nonlocal truncated
         if len(metrics) >= maximum:
+            truncated = True
             return
         metrics.append(
             common.Metric(
@@ -89,7 +92,14 @@ def snapshot(runtime: Runtime, scope: str, window_ms: int) -> common.GetMetricsR
         for gateway_id, counts in sorted(runtime.gateway_counts.items()):
             for status, count in sorted(counts.items()):
                 add(f"gateway.{gateway_id}.{status.lower()}_total", count, "count")
+        for gateway_id, count in sorted(runtime.writer.native_started.items()):
+            add(f"gateway.{gateway_id}.rpc_native_started_total", count, "count")
     else:
+        add(
+            f"gateway.{gateway_filter}.rpc_native_started_total",
+            runtime.writer.native_started.get(gateway_filter, 0),
+            "count",
+        )
         for status, count in sorted(
             runtime.gateway_counts.get(
                 gateway_filter,
@@ -115,4 +125,12 @@ def snapshot(runtime: Runtime, scope: str, window_ms: int) -> common.GetMetricsR
                     "second",
                     duration_ms,
                 )
+    if truncated:
+        metrics[-1] = common.Metric(
+            name="data_generator.metrics_truncated",
+            value=1.0,
+            unit="bool",
+            window_ms=duration_ms,
+            sampled_at=timestamp,
+        )
     return common.GetMetricsResponse(metrics=metrics)

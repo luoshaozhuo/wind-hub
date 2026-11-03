@@ -29,7 +29,12 @@ def runtime_error_code(error: GeneratorError) -> str:
         return "NOT_FOUND"
     if "ownership" in detail or "unsettled" in detail or "conflict" in detail:
         return "RESOURCE_BUSY"
-    if "preflight" in detail or "missing targets" in detail:
+    if (
+        "expected writable" in detail or "type mismatch" in detail
+        or "missing targets" in detail or "repeated target" in detail
+    ):
+        return "TARGET_VALIDATION_FAILED"
+    if "preflight" in detail or "catalog page limit" in detail:
         return "GATEWAY_UNAVAILABLE"
     return "INVALID_STATE"
 
@@ -207,8 +212,9 @@ class CommonService(common_rpc.CommonServiceServicer):
         self.runtime = runtime
         self.snapshots = SnapshotManager(runtime.settings)
         self.diagnostics = Diagnostics(runtime.settings)
-        limit = int(runtime.settings.service.get("diagnose", {}).get("max_concurrent", 2))
-        self._diagnostics_permits = asyncio.Semaphore(limit)
+        options = runtime.settings.service.get("diagnose", {})
+        self._diagnostics_permits = asyncio.Semaphore(int(options.get("max_concurrent", 2)))
+        self._diagnostics_wait = float(options.get("permit_wait_seconds", 0.5))
         self.started = datetime.now(UTC)
         self._config_lock = asyncio.Lock()
 
@@ -405,6 +411,10 @@ class CommonService(common_rpc.CommonServiceServicer):
                 apply_results=[
                     common.ApplicationResult(
                         object_id=scenario_id,
+                        message=(
+                            f"disk_revision={settings.revision}; "
+                            f"effective_revision={self.runtime.settings.revision}"
+                        ),
                         status=(
                             "RESTART_REQUIRED"
                             if restart_required
@@ -488,7 +498,9 @@ class CommonService(common_rpc.CommonServiceServicer):
         context: Any,
     ) -> common.DiagnoseResponse:
         try:
-            await asyncio.wait_for(self._diagnostics_permits.acquire(), timeout=0.001)
+            await asyncio.wait_for(
+                self._diagnostics_permits.acquire(), timeout=self._diagnostics_wait,
+            )
         except TimeoutError:
             await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, "diagnostics capacity reached")
             raise RuntimeError("gRPC abort returned") from None
