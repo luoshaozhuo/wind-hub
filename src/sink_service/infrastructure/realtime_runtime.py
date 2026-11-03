@@ -311,6 +311,7 @@ class RealtimeDeliveryPort:
         self._pool = pool
         self._ingress = ingress
         self._engine: RealtimeEngine | None = None
+        self._writer: _QuotaWriter | None = None
 
     @property
     def last_error(self) -> str:
@@ -353,6 +354,7 @@ class RealtimeDeliveryPort:
             await self._pool.release(self._sink_id)
             raise
         self._engine = engine
+        self._writer = sink
 
     async def stop(self) -> None:
         engine = self._engine
@@ -361,8 +363,11 @@ class RealtimeDeliveryPort:
         # Keep ownership until all work and the physical connection are settled.
         await self._ingress.remove(self._id)
         await engine.stop()
+        if self._writer is not None:
+            await self._writer.settle()
         await self._pool.release(self._sink_id)
         self._engine = None
+        self._writer = None
 
 
 class RealtimeFactory:
