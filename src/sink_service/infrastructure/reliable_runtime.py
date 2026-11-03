@@ -13,6 +13,7 @@ import nats
 import yaml
 from contracts.sample_message import SampleMessage
 from nats.aio.client import Client
+from nats.js.api import AckPolicy, ConsumerConfig
 
 from sink_service.application.config import template_path
 from sink_service.application.delivery_definition import DeliveryDefinition
@@ -127,11 +128,29 @@ class ReliableDeliveryPort:
             subject = (
                 f"{prefix}.{source['wind_farm_id']}.{source['collector_id']}.>"
             )
+            durable = self._durable_id(self._snapshot, self._definition.delivery_id)
+            reliable = config["reliable"]
             self._subscription = await js.pull_subscribe(
                 subject,
-                durable=self._durable_id(self._snapshot, self._definition.delivery_id),
+                durable=durable,
                 stream=nats_config["reliable_stream"],
+                config=ConsumerConfig(
+                    durable_name=durable,
+                    filter_subject=subject,
+                    ack_policy=AckPolicy.EXPLICIT,
+                    ack_wait=float(reliable["ack_wait_seconds"]),
+                    max_deliver=-1,
+                    max_ack_pending=1,
+                ),
             )
+            actual = await js.consumer_info(nats_config["reliable_stream"], durable)
+            if (
+                actual.config.max_deliver != -1
+                or actual.config.max_ack_pending != 1
+                or actual.config.ack_policy != AckPolicy.EXPLICIT
+                or actual.config.filter_subject != subject
+            ):
+                raise ConfigurationError("existing JetStream Durable configuration mismatch")
             self._stop.clear()
             self._task = asyncio.create_task(self._run())
         except BaseException:
@@ -197,6 +216,20 @@ class ReliableDeliveryPort:
         )
         self.dlq_total += 1
 
+    async def _write_with_heartbeat(
+        self, message: Any, sample: SampleMessage
+    ) -> BatchOutcome:
+        """Extend AckWait while one native target operation remains owned."""
+        assert self._adapter is not None
+        task = asyncio.create_task(self._adapter.write_batch((sample,)))
+        interval = max(0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3)
+        while not task.done():
+            try:
+                return await asyncio.wait_for(asyncio.shield(task), timeout=interval)
+            except TimeoutError:
+                await message.in_progress()
+        return await asyncio.shield(task)
+
     async def _run(self) -> None:
         assert self._subscription is not None
         config = self._snapshot.service["reliable"]
@@ -225,7 +258,7 @@ class ReliableDeliveryPort:
                 except (ValueError, UnicodeError) as exc:
                     try:
                         await self._dead_letter(message, str(exc))
-                        await message.ack()
+                        await message.ack_sync(timeout=5)
                     except Exception as inner:
                         self.last_error = f"DLQ publication not confirmed: {inner}"
                         await message.nak(delay=backoff)
@@ -235,7 +268,7 @@ class ReliableDeliveryPort:
                     continue
                 try:
                     assert self._adapter is not None
-                    result: BatchOutcome = await self._adapter.write_batch((sample,))
+                    result = await self._write_with_heartbeat(message, sample)
                     if 0 in result.delivered or (not result.error and 0 in result.settled):
                         await message.ack()
                         self.delivered_total += int(0 in result.delivered)
