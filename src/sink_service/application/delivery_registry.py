@@ -406,8 +406,24 @@ class DeliveryRegistry:
                 if entry.removing:
                     # A Delivery pending removal must never be resurrected.
                     continue
-                if entry.view.desired_state != "START":
+                if entry.view.desired_state != 'START':
                     continue
+                if (
+                    entry.view.actual_state == ActualState.RUNNING
+                    and getattr(entry.port, 'last_error', '')
+                ):
+                    # An asynchronously failed Delivery still owns its native
+                    # resources. Stop and settle them before a guarded restart.
+                    try:
+                        await entry.port.stop()
+                        entry.view = self._replace(
+                            entry.view, actual_state=ActualState.STOPPED, last_error=''
+                        )
+                    except Exception as exc:
+                        entry.view = self._replace(
+                            entry.view, actual_state=ActualState.FAILED, last_error=str(exc)
+                        )
+                        continue
                 if entry.view.actual_state not in (
                     ActualState.STOPPED,
                     ActualState.FAILED,
