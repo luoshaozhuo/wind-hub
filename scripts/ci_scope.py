@@ -64,7 +64,8 @@ def _backend_pr_targets(path: str) -> set[str]:
             path,
             "src/core/infrastructure/rpc/",
             "tests/system/rpc/",
-            "tests/collector/rpc/",
+            "tests/collector/component/",
+            "tests/collector/system/",
             "tests/commander/rpc/",
         )
         or "/grpc/" in path
@@ -82,7 +83,7 @@ def _backend_pr_targets(path: str) -> set[str]:
             path,
             "src/core/infrastructure/sink/",
             "tests/core/sink/",
-            "tests/collector/sink/",
+            "tests/collector/integration/",
         )
         or path == "src/collector/application/sink_runtime.py"
     ):
@@ -92,6 +93,8 @@ def _backend_pr_targets(path: str) -> set[str]:
         path,
         "src/collector/application/",
         "tests/system/acquisition/",
+        "tests/collector/system/",
+        "tests/collector/integration/",
     ) or path in {
         "src/collector/assembly.py",
         "src/collector/main.py",

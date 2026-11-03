@@ -70,13 +70,12 @@ def test_resolve_rejects_file_version_mismatch(tmp_path: Path) -> None:
 
 def test_flat_categories_use_flat_versioned_filenames() -> None:
     templates = _CONFIGS / "templates"
-    for category in ("protocols", "point_tables", "device_models"):
+    for category in ("protocols", "point_tables", "device_models", "tasks"):
         base = templates / category
         assert base.is_dir()
         assert not any(path.is_dir() for path in base.iterdir()), f"{category} 仍含嵌套目录"
         assert list(base.glob("*_1.0.0.yaml")), f"{category} 缺少扁平版本文件"
-    # tasks 仍按 <id>/<version>.yaml 嵌套布局。
-    assert (templates / "tasks" / "turbine_all" / "1.0.0.yaml").is_file()
+    assert (templates / "tasks" / "turbine_all_1.0.0.yaml").is_file()
 
 
 def test_point_table_inheritance_cycle_rejected(tmp_path: Path) -> None:

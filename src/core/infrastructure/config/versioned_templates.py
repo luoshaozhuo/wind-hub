@@ -75,8 +75,9 @@ class VersionedTemplateRepository:
         self._root = Path(root).resolve()
 
     def path_for(self, reference: TemplateRef) -> Path:
-        # 协议、点表和设备型号使用统一的扁平版本文件名。
-        if reference.category in {"protocols", "point_tables", "device_models"}:
+        # 协议、点表、设备型号与任务统一使用扁平版本文件名；deliveries
+        # 仍保留 <id>/<version>.yaml 嵌套布局。
+        if reference.category in {"protocols", "point_tables", "device_models", "tasks"}:
             candidate = (
                 self._root
                 / reference.category

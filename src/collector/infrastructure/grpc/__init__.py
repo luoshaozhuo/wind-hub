@@ -1,5 +1,5 @@
-"""Collector v2 gRPC control-plane adapters."""
+"""Collector gRPC adapters using the authoritative contracts."""
 
-from .v2_server import CollectorGrpcServerV2, build_v2_grpc_server
+from .config_service import CollectorConfigRpc
 
-__all__ = ["CollectorGrpcServerV2", "build_v2_grpc_server"]
+__all__ = ["CollectorConfigRpc"]

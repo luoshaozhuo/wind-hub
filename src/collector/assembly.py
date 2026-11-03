@@ -1,10 +1,4 @@
-"""Collector 组合根。
-
-只装配采集链路：设备会话（Core 协议 Driver）、采集引擎、NATS Publisher 与
-热重载编排；不包含命令分发、诊断或 Web API。组合根是唯一允许跨层引用
-Infrastructure 具体实现的地方：它显式注册 Core 协议 Driver、持有进程级
-ADS 本机身份。
-"""
+"""Collector v1 composition root for configuration and acquisition."""
 
 from __future__ import annotations
 
@@ -12,294 +6,293 @@ import asyncio
 import contextlib
 import logging
 import os
+import socket
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
-from contracts.sample_message import validate_subject_token
-from core.application import ProtocolRegistry
-from core.application.settings import ADSLocalConfig, LogSettings
+import grpc
+import yaml
+
+from contracts import collector_pb2_grpc, common_pb2_grpc
+from core.application import ProtocolPort, ProtocolRegistry
+from core.application.settings import ADSLocalConfig
 from core.domain import Device, PointTable
-from core.infrastructure.config import CollectorDocumentLoader, ConfigPaths
-from core.infrastructure.config.collector_snapshot import build_collector_snapshot
+from core.infrastructure.config import read_yaml_mapping
+from core.infrastructure.executor import configure_default_thread_pool
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
-from .application.config import CollectorConfig
-from .application.config_service import CollectorConfigService
-from .application.identity import CollectorIdentity, build_collector_identity
-from .application.latest_values import LatestValues
-from .application.metrics_state import CollectorMetricsState
-from .application.nats_dispatch import SamplePublisher
-from .application.runtime import CollectorRuntime
-from .application.session import CollectorDeviceSession
-from .domain.acquisition import AcquisitionEngine
-from .infrastructure.config.admin import CollectorConfigAdmin
-from .infrastructure.config.desired_state_store import DesiredStateStore
-from .infrastructure.config.loader import config_from_snapshot_and_documents, load_collector_config
-from .infrastructure.config.transactions import CollectorConfigTransactions
-from .infrastructure.nats_publisher import NatsPublisher
+from .application.acquisition import CollectorAcquisition
+from .application.configuration import CollectorConfigurationManager
+from .application.lifecycle import CollectorLifecycle
+from .application.telemetry import CollectorTelemetry
+from .infrastructure.config.snapshot_repository import (
+    CollectorSnapshotRepository,
+)
+from .infrastructure.config.task_control import CollectorTaskControl
+from .infrastructure.config.validation import (
+    parse_collector_runtime,
+    resolve_source_paths,
+    validate_collector_snapshot,
+)
+from .infrastructure.grpc.collector_service import CollectorDeviceRpc
+from .infrastructure.grpc.config_service import CollectorConfigRpc
+from .infrastructure.metrics_emitter import CollectorMetricsEmitter
+from .infrastructure.publisher import CollectorPublisher
+from .infrastructure.resource_sampler import CollectorResourceSampler
 
 logger = logging.getLogger(__name__)
 
 
-def build_protocol_registry() -> ProtocolRegistry:
-    """显式注册 Collector 使用的 Core 协议 Driver。"""
-    registry = ProtocolRegistry()
-    registry.register("ads", ADSDriver)
-    registry.register("modbus", ModbusDriver)
-    registry.register("iec104", IEC104Driver)
-    return registry
-
-
 @dataclass(slots=True)
 class CollectorApp:
-    """Collector 进程对象图。
-
-    Attributes:
-        boot_config: 进程启动时加载的配置快照；仅表示启动基线。
-        runtime: Collector 运行时（Device/Task/Publisher 编排）。
-        config: 配置热重载编排服务。
-        config_file: Collector 服务配置文件。
-        instances: 设备实例目录。
-        templates: 版本化模板根目录。
-        config_hash: 启动配置集摘要。
-        metrics: 进程级采集质量计数与近期事件（gRPC 指标快照的唯一事实源）。
-        identity: 本次进程启动身份（collector_id / boot_id / 启动摘要）。
-    """
-
-    boot_config: CollectorConfig
-    runtime: CollectorRuntime
-    config: CollectorConfigService
-    config_admin: CollectorConfigAdmin
-    config_file: Path
-    config_paths: ConfigPaths
-    site_id: str
-    config_hash: str
-    metrics: CollectorMetricsState
-    latest_values: LatestValues
-    identity: CollectorIdentity
-    ads_local: ADSLocalConfig | None
-    log_settings: LogSettings
-    metric_transport: NatsPublisher
-    metric_windows: tuple[int, ...]
-    metric_interval: int
-    metrics_enabled: bool
-    _metrics_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
-    _config_retry_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
+    lifecycle: CollectorLifecycle
+    configuration: CollectorConfigurationManager
+    task_control: CollectorTaskControl
+    server: grpc.aio.Server
+    endpoint: str
+    ads_local: ADSLocalConfig | None = None
+    thread_pool_workers: int = 32
+    metrics_emitter: CollectorMetricsEmitter | None = None
+    resource_sampler: CollectorResourceSampler | None = None
+    _started: bool = False
+    _retry_task: asyncio.Task[None] | None = field(default=None, init=False)
 
     async def start(self) -> None:
-        """Start runtime and independent failed-config convergence supervision."""
+        if self._started:
+            return
+        revision = self.configuration.status().disk_revision
+        paths = self.configuration.active_paths()
+        configure_default_thread_pool(self.thread_pool_workers)
         if self.ads_local is not None:
             await ADSDriver.initialize_local(self.ads_local)
         try:
-            await self.runtime.start()
+            await self.lifecycle.start(paths, revision)
         except BaseException:
-            await ADSDriver.close_local()
+            if self.ads_local is not None:
+                await ADSDriver.close_local()
             raise
-        if self.metrics_enabled:
-            self._metrics_task = asyncio.create_task(
-                self._publish_metrics_loop(), name="collector-metrics-publisher"
-            )
-        self._config_retry_task = asyncio.create_task(
-            self._retry_config_convergence(),
-            name="collector-config-retry",
+        await asyncio.to_thread(self.configuration.mark_started, self.lifecycle.apply_errors)
+        try:
+            await self.server.start()
+        except BaseException:
+            try:
+                await self.lifecycle.stop()
+            finally:
+                if self.ads_local is not None:
+                    await ADSDriver.close_local()
+            raise
+        try:
+            if self.metrics_emitter is not None:
+                await self.metrics_emitter.start()
+            if self.resource_sampler is not None:
+                await self.resource_sampler.start()
+        except BaseException:
+            try:
+                if self.resource_sampler is not None:
+                    await self.resource_sampler.stop()
+            finally:
+                try:
+                    if self.metrics_emitter is not None:
+                        await self.metrics_emitter.stop()
+                finally:
+                    try:
+                        await self.server.stop(grace=0)
+                    finally:
+                        try:
+                            await self.lifecycle.stop()
+                        finally:
+                            if self.ads_local is not None:
+                                await ADSDriver.close_local()
+            raise
+        self._started = True
+        self._retry_task = asyncio.create_task(
+            self._retry_failed_config(), name="collector-config-convergence"
         )
 
-    async def _publish_metrics_loop(self) -> None:
-        """Periodically publish rolling windows to an isolated metrics subject."""
-        from datetime import UTC, datetime
-
-        subject = f"wh.metrics.{self.site_id}.{self.identity.collector_id}"
-        while True:
-            await asyncio.sleep(self.metric_interval)
-            payload = {
-                "schema_version": 1,
-                "collector_id": self.identity.collector_id,
-                "boot_id": self.identity.boot_id,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "windows": {
-                    str(window): self.metrics.window_snapshot(window)
-                    for window in self.metric_windows
-                },
-                "counters": self.metrics.snapshot()["counters"],
-                "nats_connected": self.runtime.nats_connected,
-            }
-            if not await self.metric_transport.publish_metrics(subject, payload):
-                logger.warning("Collector metrics not published; retry next interval")
-
-    async def _retry_config_convergence(self) -> None:
+    async def _retry_failed_config(self) -> None:
         while True:
             await asyncio.sleep(5)
             try:
-                await self.config_admin.retry_failed()
+                if self.configuration.status().apply_errors:
+                    await self.configuration.retry_failed()
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.warning("Collector config convergence retry failed", exc_info=True)
+                logger.exception("Collector configuration convergence retry failed")
 
     async def stop(self) -> None:
-        """Stop background retries, acquisition, publishing, and ADS identity."""
-        metrics_task = self._metrics_task
-        self._metrics_task = None
-        if metrics_task is not None:
-            metrics_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await metrics_task
-        task = self._config_retry_task
-        self._config_retry_task = None
+        if not self._started:
+            return
+        self._started = False
+        task = self._retry_task
+        self._retry_task = None
         if task is not None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         try:
-            await self.runtime.stop()
+            await self.server.stop(grace=5.0)
         finally:
-            await ADSDriver.close_local()
+            try:
+                await self.lifecycle.stop()
+            finally:
+                try:
+                    if self.resource_sampler is not None:
+                        await self.resource_sampler.stop()
+                finally:
+                    try:
+                        if self.metrics_emitter is not None:
+                            await self.metrics_emitter.stop()
+                    finally:
+                        if self.ads_local is not None:
+                            await ADSDriver.close_local()
 
 
-def assemble_collector(
+async def assemble_collector(
     config_file: str | Path,
-    instances: str | Path,
-    templates: str | Path,
     *,
+    state_directory: str | Path,
     collector_id: str | None = None,
+    grpc_host: str = "127.0.0.1",
+    grpc_port: int = 50051,
 ) -> CollectorApp:
-    """从现场配置目录装配 Collector，不执行网络 I/O。
-
-    Args:
-        config_file: Collector 服务配置文件。
-        collector_id: 显式 Collector 稳定标识；为空时读取环境变量或主机名。
-
-    Raises:
-        ConfigError: 配置非法。
-    """
-    config_path = Path(config_file)
-    config_source = CollectorDocumentLoader(
-        ConfigPaths(config_path, Path(instances), Path(templates))
-    )
-    documents = config_source.load()
-    snapshot = build_collector_snapshot(documents)
-    config = config_from_snapshot_and_documents(snapshot, documents)
-    config_hash = documents.revision
-
-    protocol_registry = build_protocol_registry()
-
-    def session_factory(device: Device, point_table: PointTable) -> CollectorDeviceSession:
-        protocol = protocol_registry.create(
-            device.endpoint,
-            point_table,
-            device.protocol_options,
+    """Create a Collector whose configuration comes from one verified generation."""
+    # CURRENT is authoritative after the initial import. Never consult the
+    # mutable source tree during crash recovery or normal process restart.
+    config_path = Path(config_file).absolute()
+    if config_path.parent.name != "services":
+        raise ValueError("Collector service file must reside in a services directory")
+    validate_snapshot = partial(validate_collector_snapshot, source_root=config_path.parent.parent)
+    repository = CollectorSnapshotRepository(Path(state_directory))
+    if repository.active_revision() is None:
+        source = await asyncio.to_thread(resolve_source_paths, config_path)
+        files = await asyncio.to_thread(repository.collect_source, source)
+        candidate = await asyncio.to_thread(
+            repository.stage,
+            files,
+            expected_revision="",
+            validate=validate_snapshot,
         )
-        return CollectorDeviceSession(
-            device,
-            point_table,
-            protocol,
-            subscribe_enabled=device.subscribe_enabled,
+        await repository.commit(
+            candidate.candidate_id,
+            expected_revision="",
+            validate=validate_snapshot,
         )
-
-    devices = {
-        str(device_id): session_factory(device, config.point_table_for_device(device_id))
-        for device_id, device in config.devices.items()
-    }
-
-    transport = NatsPublisher(config.messaging.servers, config.messaging.delivery)
-    identity = build_collector_identity(config_hash, collector_id=collector_id)
-    validate_subject_token(snapshot.site.site_id)
-    validate_subject_token(identity.collector_id)
-    for task_id in config.tasks:
-        validate_subject_token(task_id)
-    for device_id in config.devices:
-        validate_subject_token(str(device_id))
-        table = config.point_table_for_device(device_id)
-        for point_id in table.points:
-            validate_subject_token(point_id)
-
-    raw_metrics = documents.service.get("metrics", {})
-    publisher = SamplePublisher(
-        transport,
-        wind_farm_id=snapshot.site.site_id,
-        identity=identity,
-        delivery=config.messaging.delivery,
-        max_staleness_ms=config.messaging.max_staleness_ms,
-        queue_capacity=raw_metrics.get("pending_capacity", 2048),
+    service = read_yaml_mapping(repository.active_paths().service)
+    shared = await asyncio.to_thread(
+        parse_collector_runtime,
+        repository.active_paths(),
+        repository.active_revision() or "",
     )
-    metrics = CollectorMetricsState(
-        event_capacity=raw_metrics.get("event_capacity", 5000),
-        windows=tuple(raw_metrics.get("windows", (60, 300, 3600))),
-        resolution=raw_metrics.get("publish_interval", 60),
+    messaging = service["messaging"]
+    telemetry = CollectorTelemetry(
+        event_limit=service.get("metrics", {}).get("event_capacity", 1000),
+        windows_seconds=tuple(service.get("metrics", {}).get("windows", [60, 300, 3600])),
     )
-    latest_values = LatestValues()
-    engine = AcquisitionEngine(
-        read_timeout=config.runtime.read_timeout,
-        on_points_collected=metrics.observe_collected,
-        on_points_bad=metrics.observe_bad,
+    metrics_emitter = (
+        CollectorMetricsEmitter(
+            telemetry,
+            servers=messaging["servers"],
+            site_id=shared.site_id,
+            collector_id=(
+                collector_id or os.getenv("WIND_HUB_COLLECTOR_ID") or socket.gethostname()
+            ),
+            interval_seconds=service.get("metrics", {}).get("publish_interval", 60),
+            max_staleness_seconds=service.get("metrics", {}).get("max_staleness", 300),
+            capacity=service.get("metrics", {}).get("pending_capacity", 120),
+        )
+        if service.get("metrics", {}).get("enabled", True)
+        else None
     )
-    engine.add_observer(latest_values.update)
-    intent_store = DesiredStateStore(instances)
-    runtime = CollectorRuntime(
-        devices,
+    publisher = CollectorPublisher(
+        servers=messaging["servers"],
+        site_id=shared.site_id,
+        collector_id=(collector_id or os.getenv("WIND_HUB_COLLECTOR_ID") or socket.gethostname()),
+        delivery=messaging.get("delivery", "realtime"),
+        max_staleness_ms=messaging.get("max_staleness_ms", 500),
+        # The bounded sample queue is independent of metrics.pending_capacity,
+        # which design §11.4 defines as the pending Metrics-message capacity.
+        telemetry=telemetry,
+    )
+    registry = ProtocolRegistry()
+    registry.register("ads", ADSDriver)
+    registry.register("modbus", ModbusDriver)
+    registry.register("iec104", IEC104Driver)
+
+    def create_driver(device: Device, point_table: PointTable) -> ProtocolPort:
+        return registry.create(device.endpoint, point_table, device.protocol_options)
+
+    acquisition = CollectorAcquisition(
+        create_driver,
         publisher,
-        engine,
-        config.runtime,
-        tasks=dict(config.tasks),
-        session_factory=session_factory,
-        metrics_hook=metrics,
-        desired_states={str(key): value for key, value in config.desired_states.items()},
-        persist_desired_state=intent_store.set_state,
+        telemetry=telemetry,
+        metrics_subject=metrics_emitter,
     )
+    lifecycle = CollectorLifecycle(parse_collector_runtime, acquisition)
 
-    config_service = CollectorConfigService(
-        runtime,
-        config,
-        load_config=lambda: load_collector_config(config_source),
-        config_digest=lambda: config_source.load().revision,
-        config_hash=config_hash,
-        latest_values=latest_values,
+    def requires_restart(old: bytes, new: bytes) -> bool:
+        return bool(yaml.safe_load(old) != yaml.safe_load(new))
+
+    configuration = CollectorConfigurationManager(
+        repository,
+        validate=validate_snapshot,
+        runtime=lifecycle,
+        restart_required=requires_restart,
+        telemetry=telemetry,
     )
-
-    def authorize_config(selector: object, operation: str) -> None:
-        from .infrastructure.config.transactions import ConfigSelector
-
-        if not isinstance(selector, ConfigSelector):
-            raise PermissionError("unknown configuration selector")
-        if (
-            selector.scope == "TEMPLATE"
-            and operation == "write"
-            and os.getenv("WIND_HUB_COLLECTOR_TEMPLATE_PUBLISH") != "enabled"
-        ):
-            raise PermissionError("template publication is not authorized")
-
-    config_admin = CollectorConfigAdmin(
-        CollectorConfigTransactions(
-            ConfigPaths(config_path, Path(instances), Path(templates)),
-            documents,
+    if not 0 <= grpc_port <= 65535:
+        raise ValueError("grpc_port must be within 0..65535")
+    certificate_path = os.getenv("WIND_HUB_COLLECTOR_TLS_CERT")
+    key_path = os.getenv("WIND_HUB_COLLECTOR_TLS_KEY")
+    ca_path = os.getenv("WIND_HUB_COLLECTOR_TLS_CA")
+    tls_configured = all((certificate_path, key_path, ca_path))
+    if any((certificate_path, key_path, ca_path)) and not tls_configured:
+        raise ValueError("Collector mTLS requires certificate, key and CA together")
+    if grpc_host not in {"127.0.0.1", "localhost", "::1"} and not tls_configured:
+        raise ValueError("remote Collector gRPC requires mTLS configuration")
+    server = grpc.aio.server(
+        options=(
+            ("grpc.max_receive_message_length", 20 * 1024 * 1024),
+            ("grpc.max_send_message_length", 20 * 1024 * 1024),
         ),
-        config_service,
-        authorize=authorize_config,
+        maximum_concurrent_rpcs=32,
     )
-
+    task_control = CollectorTaskControl(configuration)
+    common_pb2_grpc.add_CommonServiceServicer_to_server(
+        CollectorConfigRpc(configuration, lifecycle, acquisition, telemetry, publisher),
+        server,
+    )
+    collector_pb2_grpc.add_CollectorServiceServicer_to_server(
+        CollectorDeviceRpc(acquisition, configuration, task_control, publisher),
+        server,
+    )
+    endpoint = f"[{grpc_host}]:{grpc_port}" if ":" in grpc_host else f"{grpc_host}:{grpc_port}"
+    if tls_configured:
+        assert certificate_path is not None
+        assert key_path is not None
+        assert ca_path is not None
+        credentials = grpc.ssl_server_credentials(
+            ((Path(key_path).read_bytes(), Path(certificate_path).read_bytes()),),
+            root_certificates=Path(ca_path).read_bytes(),
+            require_client_auth=True,
+        )
+        port = server.add_secure_port(endpoint, credentials)
+    else:
+        port = server.add_insecure_port(endpoint)
+    if port == 0:
+        raise RuntimeError(f"cannot bind Collector gRPC endpoint {endpoint}")
+    ads_config = service.get("ads")
+    ads_local = ADSLocalConfig(**ads_config) if ads_config else None
+    workers = service.get("runtime", {}).get("thread_pool", {}).get("max_workers", 32)
     return CollectorApp(
-        boot_config=config,
-        runtime=runtime,
-        config=config_service,
-        config_admin=config_admin,
-        config_file=config_path,
-        config_paths=ConfigPaths(config_path, Path(instances), Path(templates)),
-        site_id=snapshot.site.site_id,
-        config_hash=config_hash,
-        metrics=metrics,
-        metric_transport=transport,
-        metric_windows=tuple(raw_metrics.get("windows", (60, 300, 3600))),
-        metric_interval=raw_metrics.get("publish_interval", 60),
-        metrics_enabled=raw_metrics.get("enabled", True),
-        latest_values=latest_values,
-        identity=identity,
-        ads_local=config.ads_local,
-        log_settings=snapshot.system.logs,
+        lifecycle,
+        configuration,
+        task_control,
+        server,
+        f"{grpc_host}:{port}",
+        ads_local,
+        workers,
+        metrics_emitter,
+        CollectorResourceSampler(telemetry) if metrics_emitter is not None else None,
     )
-
-
-__all__ = [
-    "CollectorApp",
-    "assemble_collector",
-    "build_protocol_registry",
-]

@@ -1,159 +1,111 @@
-"""wind-hub-collector 独立进程入口。
-
-Collector 独立运行：不依赖 Commander，gRPC 控制面承载低频状态查询、Task
-控制、Sink 检查与配置事务。默认启动后驻留等待停机信号；``--check`` 仅做
-配置加载校验。
-"""
+"""Collector v1 process entrypoint and graceful lifecycle coordination."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 import logging
+import os
 import signal
+import sys
+import tempfile
 from pathlib import Path
 
-from core.infrastructure.diagnostic.log_setup import configure_logging, configure_process_logging
-from core.infrastructure.executor import configure_default_thread_pool
-
 from .assembly import assemble_collector
-from .infrastructure.grpc.v2_server import build_v2_grpc_server
+from .infrastructure.config.process_lock import collector_state_owner
+from .infrastructure.config.snapshot_repository import CollectorSnapshotRepository
+from .infrastructure.config.validation import (
+    resolve_source_paths,
+    validate_collector_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _install_signal_handlers(shutdown_event: asyncio.Event) -> None:
-    """把 SIGINT/SIGTERM 映射为 Collector 优雅停机事件。"""
-    loop = asyncio.get_running_loop()
-    try:
-        loop.add_signal_handler(signal.SIGINT, shutdown_event.set)
-        loop.add_signal_handler(signal.SIGTERM, shutdown_event.set)
-    except NotImplementedError:
-        logger.warning("当前事件循环不支持 add_signal_handler；请通过进程管理器停止 Collector")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="wind-hub-collector")
+    parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--state-directory", type=Path, default=None)
+    parser.add_argument("--collector-id", default=None)
+    parser.add_argument("--grpc-host", default="127.0.0.1")
+    parser.add_argument("--grpc-port", type=int, default=50051)
+    parser.add_argument("--shutdown-timeout", type=float, default=30.0)
+    parser.add_argument("--check", action="store_true")
+    return parser
 
 
 async def run_collector(
-    config_file: str | Path,
-    instances: str | Path,
-    templates: str | Path,
+    config_file: Path,
+    state_directory: Path,
     *,
     collector_id: str | None = None,
     grpc_host: str = "127.0.0.1",
     grpc_port: int = 50051,
     shutdown_timeout: float = 30.0,
 ) -> int:
-    """启动 Collector 与 gRPC 控制面，并阻塞到收到停机信号。
-
-    Args:
-        config_file: Collector 服务配置文件。
-        instances: 设备实例目录。
-        templates: 版本化模板目录。
-        collector_id: Collector 稳定标识；为空时读取环境变量或主机名。
-        grpc_host: gRPC 控制面监听地址。
-        grpc_port: gRPC 控制面监听端口。
-        shutdown_timeout: 优雅停机整体硬超时（秒）。超时后记录日志并
-            强制退出进程，避免单个卡死的资源释放阻断停机（与旧
-            Collector ``--shutdown-timeout`` 语义一致）。
-    """
-    app = assemble_collector(config_file, instances, templates, collector_id=collector_id)
-    configure_process_logging(
-        app.log_settings,
-        process_name=f"collector-{app.identity.collector_id}",
-    )
-    # 进程级协议命令线程池：所有 Driver 的 to_thread 共用，必须先于任何
-    # 协议命令安装（每进程一次；配置变更 restart-required）。
-    configure_default_thread_pool(app.boot_config.runtime.thread_pool_max_workers)
-    grpc_server = build_v2_grpc_server(app, host=grpc_host, port=grpc_port)
-    shutdown_event = asyncio.Event()
-    _install_signal_handlers(shutdown_event)
-
-    try:
-        await app.start()
-        await grpc_server.start()
-        logger.info(
-            "wind-hub-collector 已启动 devices=%d tasks=%d delivery=%s "
-            "collector_id=%s boot_id=%s config_hash=%s grpc=%s",
-            len(app.boot_config.devices),
-            len(app.boot_config.tasks),
-            app.boot_config.messaging.delivery,
-            app.identity.collector_id,
-            app.identity.boot_id,
-            app.config_hash[:12],
-            grpc_server.endpoint,
+    if shutdown_timeout <= 0:
+        raise ValueError("shutdown_timeout must be positive")
+    with collector_state_owner(state_directory):
+        app = await assemble_collector(
+            config_file,
+            state_directory=state_directory,
+            collector_id=collector_id,
+            grpc_host=grpc_host,
+            grpc_port=grpc_port,
         )
-        await shutdown_event.wait()
-        logger.info("收到停机信号，Collector 开始优雅停机")
-    finally:
+        exit_requested = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(signum, exit_requested.set)
+            except NotImplementedError:
+                logger.warning("signal handlers not supported by this event loop")
         try:
-            await grpc_server.stop()
+            await app.start()
+            logger.info("Collector configuration service listening on %s", app.endpoint)
+            await exit_requested.wait()
         finally:
             try:
                 await asyncio.wait_for(app.stop(), timeout=shutdown_timeout)
             except TimeoutError:
-                logger.error(
-                    "优雅停机超过 %.1fs 硬超时，强制退出（可能有资源未释放）",
-                    shutdown_timeout,
-                )
+                logger.error("Collector shutdown exceeded deadline; resources may remain")
+                _exit_now(1)
+            except BaseException:
+                # Unsettled I/O already makes this process unsafe: leave without
+                # running Runner task cancellation, which can wedge on orphaned
+                # shielded protocol tasks (core modbus session close race).
+                logger.exception("Collector shutdown failed; exiting without safe settle")
+                _exit_now(1)
+        return 0
 
-    logger.info("wind-hub-collector 已干净退出")
-    return 0
 
-
-def build_parser() -> argparse.ArgumentParser:
-    """构建 Collector CLI 参数解析器。"""
-    parser = argparse.ArgumentParser(
-        prog="wind-hub-collector",
-        description="启动 Wind Hub Collector 采集进程。",
-    )
-    parser.add_argument("--config", required=True, help="Collector 服务配置文件")
-    parser.add_argument("--instances", required=True, help="设备实例目录")
-    parser.add_argument("--templates", required=True, help="版本化模板目录")
-    parser.add_argument(
-        "--collector-id",
-        default=None,
-        help="Collector 稳定标识（默认读取 WIND_HUB_COLLECTOR_ID 或主机名）",
-    )
-    parser.add_argument("--grpc-host", default="127.0.0.1", help="gRPC 控制面监听地址")
-    parser.add_argument("--grpc-port", type=int, default=50051, help="gRPC 控制面监听端口")
-    parser.add_argument(
-        "--shutdown-timeout",
-        type=float,
-        default=30.0,
-        help="优雅停机整体硬超时（秒，默认 30）",
-    )
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="仅加载并校验配置后退出，不启动运行时",
-    )
-    return parser
+def _exit_now(code: int) -> None:
+    """Terminate immediately after a failed shutdown, flushing captured logs."""
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
 
 
 def main() -> int:
-    """同步 Collector CLI 入口。"""
-    configure_logging()
+    logging.basicConfig(level=logging.INFO)
     args = build_parser().parse_args()
     if args.check:
-        app = assemble_collector(
-            args.config,
-            args.instances,
-            args.templates,
-            collector_id=args.collector_id,
-        )
-        logger.info(
-            "配置校验通过 devices=%d disabled=%d tasks=%d delivery=%s config_hash=%s",
-            len(app.boot_config.devices),
-            len(app.boot_config.disabled_devices),
-            len(app.boot_config.tasks),
-            app.boot_config.messaging.delivery,
-            app.config_hash[:12],
-        )
+        paths = resolve_source_paths(args.config)
+        # Validate the exact source references using the production snapshot layout.
+        with tempfile.TemporaryDirectory(prefix="collector-check-") as directory:
+            repository = CollectorSnapshotRepository(Path(directory) / "state")
+            files = repository.collect_source(paths)
+            logical_root = Path(directory) / "snapshot"
+            logical_root.mkdir()
+            repository._write_generation(logical_root, tuple(sorted(files.items())))
+            validate_collector_snapshot(repository._paths(logical_root))
+        logger.info("Collector configuration validated")
         return 0
     return asyncio.run(
         run_collector(
             args.config,
-            args.instances,
-            args.templates,
+            args.state_directory or (args.config.resolve().parent.parent / ".collector-state"),
             collector_id=args.collector_id,
             grpc_host=args.grpc_host,
             grpc_port=args.grpc_port,
