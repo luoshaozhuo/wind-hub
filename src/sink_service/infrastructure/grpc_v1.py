@@ -151,8 +151,21 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                 "StartDelivery",
                 "StopDelivery",
             ],
-            protocols=[],
-            features=["full_snapshot_configuration", "per_delivery_lifecycle"],
+            protocols=(
+                ["nats_core", "redis", "kafka", "modbus_tcp"]
+                if self._role == "realtime"
+                else []
+            ),
+            features=(
+                [
+                    "full_snapshot_configuration",
+                    "per_delivery_lifecycle",
+                    "realtime_latest_value",
+                    "realtime_batch_output",
+                ]
+                if self._role == "realtime"
+                else ["full_snapshot_configuration", "per_delivery_lifecycle"]
+            ),
         )
 
     async def GetConfigSnapshot(
