@@ -5,7 +5,13 @@ wind_farm_id: "farm-a"          # 风场标识：必须与消息身份匹配
 deployment_id: "prod-a"     # 部署身份：用于稳定消费命名
 process_role: "realtime"   # realtime | reliable；两个进程分别配置
 config_writer: true        # true | false；同一共享配置域仅一个 true
-config_root: "/etc/wind-hub/config"  # 三类配置文件的共享一致根目录
+config_root: "/etc/wind-hub"  # 三类配置文件的共享一致根目录
+config_sources:
+  instances:
+    sinks: "configs/instances/sinks.yaml"
+    deliveries: "configs/instances/deliveries.yaml"
+  templates:
+    root: "configs/templates"
 
 grpc:
   listen_host: "127.0.0.1"      # 绑定 IP；可指定网卡地址
