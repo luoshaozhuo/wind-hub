@@ -17,7 +17,6 @@ from nats.aio.msg import Msg
 from nats.aio.subscription import Subscription
 
 from contracts.sample_message import SampleMessage
-
 from sink_service.application.config import template_path
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.realtime import BatchOutcome, RealtimeEngine
