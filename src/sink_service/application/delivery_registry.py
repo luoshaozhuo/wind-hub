@@ -215,14 +215,32 @@ class DeliveryRegistry:
         )
         self._entries[delivery_id] = _Entry(port=port, view=view)
 
+    @staticmethod
+    def _visible(entry: _Entry) -> DeliveryView:
+        """Surface asynchronous output degradation without releasing ownership."""
+        view = entry.view
+        error = getattr(entry.port, "last_error", "")
+        if error and view.actual_state == ActualState.RUNNING:
+            return DeliveryView(
+                delivery_id=view.delivery_id,
+                channel=view.channel,
+                sink_id=view.sink_id,
+                process_role=view.process_role,
+                desired_state=view.desired_state,
+                actual_state=ActualState.FAILED,
+                revision=view.revision,
+                last_error=error,
+            )
+        return view
+
     def list(self, channel: str = "") -> tuple[DeliveryView, ...]:
         if channel and channel != self._role:
             return ()
-        return tuple(self._entries[key].view for key in sorted(self._entries))
+        return tuple(self._visible(self._entries[key]) for key in sorted(self._entries))
 
     def get(self, delivery_id: str) -> DeliveryView:
         try:
-            return self._entries[delivery_id].view
+            return self._visible(self._entries[delivery_id])
         except KeyError as exc:
             raise KeyError(f"unknown Delivery: {delivery_id}") from exc
 
