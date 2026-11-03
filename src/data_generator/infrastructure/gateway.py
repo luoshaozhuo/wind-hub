@@ -225,10 +225,15 @@ class GatewayWriter:
                     if not reply.accepted:
                         self._unsafe.add(gateway_id)
                         return
+                    # Read-only lease renewal is a controlled re-probe. It
+                    # does not replay an earlier UNKNOWN variable update.
+                    if gateway_id not in self.unsettled_gateways:
+                        self._unsafe.discard(gateway_id)
                 except (grpc.RpcError, TimeoutError):
-                    # A missed renewal is unsafe until a new acquisition.
                     self._unsafe.add(gateway_id)
-                    return
+                    # A transient network fault can recover before lease expiry.
+                    # Later renewal is fenced by the Gateway's live token.
+                    continue
         except asyncio.CancelledError:
             raise
 
