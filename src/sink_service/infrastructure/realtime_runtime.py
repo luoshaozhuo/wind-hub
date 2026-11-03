@@ -50,6 +50,7 @@ class NatsRealtimeIngress:
         self._client: Client | None = None
         self._subscription: Subscription | None = None
         self._engines: dict[str, RealtimeEngine] = {}
+        self._routes: dict[tuple[str, str], dict[str, RealtimeEngine]] = {}
         self._lock = asyncio.Lock()
         self.last_error = ""
 
@@ -83,10 +84,16 @@ class NatsRealtimeIngress:
                 self._client = client
                 self._subscription = subscription
             self._engines[delivery_id] = engine
+            self._routes.setdefault(engine.source_identity, {})[delivery_id] = engine
 
     async def remove(self, delivery_id: str) -> None:
         async with self._lock:
-            self._engines.pop(delivery_id, None)
+            engine = self._engines.pop(delivery_id, None)
+            if engine is not None:
+                route = self._routes[engine.source_identity]
+                route.pop(delivery_id)
+                if not route:
+                    del self._routes[engine.source_identity]
             if self._engines:
                 return
             client, self._client = self._client, None
@@ -107,7 +114,8 @@ class NatsRealtimeIngress:
             self.last_error = str(exc)
             logger.warning("Sink realtime message rejected: %s", exc)
             return
-        for engine in tuple(self._engines.values()):
+        source = (sample.wind_farm_id, sample.collector_id)
+        for engine in tuple(self._routes.get(source, {}).values()):
             engine.offer(sample)
 
 
