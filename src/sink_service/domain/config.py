@@ -218,6 +218,10 @@ def validate_service(service: dict[str, Any]) -> None:
     nats = expect_mapping(service.get("nats"), "service.nats")
     if not isinstance(nats.get("servers"), list) or not nats["servers"]:
         raise ConfigurationError("nats.servers must be a non-empty list")
+    if any(not isinstance(url, str) or not url.startswith("nats://") for url in nats["servers"]):
+        raise ConfigurationError("nats.servers contains an invalid NATS URL")
+    if nats.get("realtime_subject") != "wh.rt":
+        raise ConfigurationError("realtime NATS subject must match the SampleMessage contract")
     for field in ("history_storage", "dlq_storage"):
         if nats.get(field) != "file":
             raise ConfigurationError(f"nats.{field} must be file")
