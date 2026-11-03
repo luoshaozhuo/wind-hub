@@ -60,6 +60,7 @@ class RealtimeEngine:
         self._latest: dict[tuple[str, str], SampleMessage] = {}
         self._sent: dict[tuple[str, str], SampleMessage] = {}
         self._sent_at: dict[tuple[str, str], float] = {}
+        self._skipped: dict[tuple[str, str], str] = {}
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self.last_error = ""
@@ -175,17 +176,21 @@ class RealtimeEngine:
                     self._latest.pop(key, None)
                     self._sent.pop(key, None)
                     self._sent_at.pop(key, None)
+                    self._skipped.pop(key, None)
                     self.dropped_total += 1
             items = [
                 sample
                 for key, sample in sorted(self._latest.items())
                 if (
-                    self._policy == "periodic"
-                    or self._changed(sample, self._sent.get(key))
-                    or (
-                        self._policy == "change_with_heartbeat"
-                        and now_mono - self._sent_at.get(key, float("-inf"))
-                        >= self._interval
+                    self._skipped.get(key) != sample.sample_id
+                    and (
+                        self._policy == "periodic"
+                        or self._changed(sample, self._sent.get(key))
+                        or (
+                            self._policy == "change_with_heartbeat"
+                            and now_mono - self._sent_at.get(key, float("-inf"))
+                            >= self._interval
+                        )
                     )
                 )
             ]
@@ -209,8 +214,13 @@ class RealtimeEngine:
                 for offset in settled:
                     sample = batch[offset]
                     key = self._key(sample)
-                    self._sent[key] = sample
-                    self._sent_at[key] = loop.time()
+                    if offset in delivered:
+                        self._sent[key] = sample
+                        self._sent_at[key] = loop.time()
+                        self._skipped.pop(key, None)
+                    else:
+                        # A stale/duplicate target-side CAS skip is not a new success.
+                        self._skipped[key] = sample.sample_id
                 self.delivered_total += len(delivered)
                 self.last_error = outcome.error
                 if outcome.error:
