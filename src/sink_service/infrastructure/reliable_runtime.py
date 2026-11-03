@@ -13,6 +13,7 @@ import nats
 import yaml
 from contracts.sample_message import SampleMessage
 from nats.aio.client import Client
+from nats.errors import TimeoutError as NatsTimeoutError
 from nats.js.api import AckPolicy, ConsumerConfig
 
 from sink_service.application.config import template_path
@@ -228,16 +229,24 @@ class ReliableDeliveryPort:
     async def _write_with_heartbeat(
         self, message: Any, sample: SampleMessage
     ) -> BatchOutcome:
-        """Extend AckWait while one native target operation remains owned."""
+        """Keep native target I/O owned even if the AckWait renewal fails."""
         assert self._adapter is not None
         task = asyncio.create_task(self._adapter.write_batch((sample,)))
-        interval = max(0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3)
+        interval = max(0.5, self._snapshot.service['reliable']['ack_wait_seconds'] / 3)
+        progress_error: Exception | None = None
         while not task.done():
             try:
-                return await asyncio.wait_for(asyncio.shield(task), timeout=interval)
+                await asyncio.wait_for(asyncio.shield(task), timeout=interval)
             except TimeoutError:
-                await message.in_progress()
-        return await asyncio.shield(task)
+                try:
+                    await message.in_progress()
+                except Exception as exc:
+                    progress_error = exc
+                continue
+        result: BatchOutcome = await asyncio.shield(task)
+        if progress_error is not None:
+            raise RuntimeError('JetStream ACK deadline extension failed') from progress_error
+        return result
 
     async def _run(self) -> None:
         assert self._subscription is not None
@@ -249,7 +258,7 @@ class ReliableDeliveryPort:
                 messages = await self._subscription.fetch(
                     batch=1, timeout=1.0
                 )
-            except (TimeoutError, asyncio.TimeoutError):
+            except (TimeoutError, NatsTimeoutError):
                 continue
             except Exception as exc:
                 self.last_error = str(exc)
