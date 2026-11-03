@@ -368,8 +368,16 @@ class _RegisterImage:
             and address + count <= self._quality_start + self._width
         ):
             return None
-        if any(offset not in self._valid for offset in range(address, address + count)):
-            return None
+        now = datetime.now(UTC).timestamp()
+        for offset in range(address, address + count):
+            if offset not in self._valid:
+                return None
+            if self._value_start <= offset < self._value_start + self._width * 2:
+                index = (offset - self._value_start) // 2
+            else:
+                index = offset - self._quality_start
+            if now >= self._expires.get(index, 0.0):
+                return None
         return [self._values[offset] for offset in range(address, address + count)]
 
 
