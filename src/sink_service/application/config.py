@@ -38,7 +38,7 @@ def _template(
     item = docs.get(path)
     if item is None:
         raise ConfigurationError(f"missing template: {path}")
-    if item.get("template_id") != name or item.get("object_version") != version:
+    if item.get("template_id") != name or item.get("file_version") != version:
         raise ConfigurationError(f"{path}: template identity does not match reference")
     return item
 
@@ -150,7 +150,28 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     if sum(len(item.content) for item in files) > 2 * 1024 * 1024:
         raise ConfigurationError("configuration snapshot exceeds 2 MiB")
     by_path: dict[str, SnapshotFile] = {}
+    allowed_instance_files = {
+        "instances/sinks.yaml",
+        "instances/deliveries.yaml",
+    }
+    allowed_service_files = {
+        "services/sink-realtime.yaml",
+        "services/sink-reliable.yaml",
+    }
     for item in files:
+        parts = item.path.split("/")
+        owned = (
+            item.path in allowed_instance_files
+            or item.path in allowed_service_files
+            or (
+                len(parts) == 4
+                and parts[0] == "templates"
+                and parts[1] in {"sinks", "deliveries"}
+                and parts[3].endswith(".yaml")
+            )
+        )
+        if not owned:
+            raise ConfigurationError(f"Sink snapshot does not own file: {item.path}")
         if item.path in by_path:
             raise ConfigurationError(f"duplicate file: {item.path}")
         by_path[item.path] = item
@@ -260,11 +281,17 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     service_path = service_path.resolve(strict=True)
     if not service_path.is_relative_to(root):
         raise ConfigurationError("Service path escapes configuration root")
-    paths = list((root / "services").rglob("*.yaml"))
-    if service_path not in [p.resolve(strict=True) for p in paths]:
-        raise ConfigurationError("selected Service is absent from shared snapshot")
-    for category in ("templates", "instances"):
-        directory = root / category
+    managed = (
+        "services/sink-realtime.yaml",
+        "services/sink-reliable.yaml",
+        "instances/sinks.yaml",
+        "instances/deliveries.yaml",
+    )
+    paths = [root / relative for relative in managed]
+    if service_path not in paths:
+        raise ConfigurationError("selected Service is not a Sink Service configuration")
+    for family in ("sinks", "deliveries"):
+        directory = root / "templates" / family
         if directory.exists():
             paths.extend(directory.rglob("*.yaml"))
     files: list[SnapshotFile] = []
