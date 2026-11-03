@@ -314,7 +314,9 @@ class SnapshotManager:
             )
             next_private = {
                 _relative(root, new_settings.service_file): new_settings.service_file.read_bytes(),
-                _relative(root, new_settings.scenario_file): new_settings.scenario_file.read_bytes(),
+                _relative(root, new_settings.scenario_file): (
+                    new_settings.scenario_file.read_bytes()
+                ),
             }
             next_runtime_files = self._read_disk() if not (
                 self._restart_pending or restart

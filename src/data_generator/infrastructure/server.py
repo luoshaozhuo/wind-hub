@@ -187,12 +187,16 @@ class CommonService(common_rpc.CommonServiceServicer):
         self.started = datetime.now(timezone.utc)
         self._config_lock = asyncio.Lock()
 
-    async def GetServiceInfo(self, request: common.Empty, context: Any) -> common.GetServiceInfoResponse:
+    async def GetServiceInfo(
+        self, request: common.Empty, context: Any,
+    ) -> common.GetServiceInfoResponse:
         return common.GetServiceInfoResponse(service_id="data_generator", process_role="generator",
                                              software_version="0.1.0", contract_version="v1",
                                              started_at=stamp(self.started))
 
-    async def GetServiceStatus(self, request: common.Empty, context: Any) -> common.GetServiceStatusResponse:
+    async def GetServiceStatus(
+        self, request: common.Empty, context: Any,
+    ) -> common.GetServiceStatusResponse:
         failed = any(
             state.actual_state == "FAILED"
             for state in self.runtime.generations.values()
@@ -216,7 +220,9 @@ class CommonService(common_rpc.CommonServiceServicer):
             observed_at=stamp(),
         )
 
-    async def GetCapabilities(self, request: common.Empty, context: Any) -> common.GetCapabilitiesResponse:
+    async def GetCapabilities(
+        self, request: common.Empty, context: Any,
+    ) -> common.GetCapabilitiesResponse:
         return common.GetCapabilitiesResponse(
             rpc_names=[m.name for m in dg.DESCRIPTOR.services_by_name[
                 "DataGeneratorService"].methods]

@@ -13,7 +13,13 @@ import grpc
 
 from contracts import industrial_gateway_pb2, industrial_gateway_pb2_grpc
 from core.infrastructure.rpc.scalar_codec import encode_scalar
-from data_generator.domain.model import DataBatch, DeliveryResult, GeneratorError, OutputTarget, Scalar
+from data_generator.domain.model import (
+    DataBatch,
+    DeliveryResult,
+    GeneratorError,
+    OutputTarget,
+    Scalar,
+)
 from data_generator.domain.scenario import Scenario
 
 _CLEAR_REJECTION_CODES = frozenset({
