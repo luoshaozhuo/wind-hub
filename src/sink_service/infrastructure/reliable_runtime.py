@@ -271,8 +271,22 @@ class ReliableDeliveryPort:
         if stream.config.discard.name.lower() != "new":
             raise ConfigurationError("DLQ Stream must reject overflow")
         metadata = message.metadata
+        identity = (
+            f'{self._definition.delivery_id}:{metadata.stream}:'
+            f'{metadata.consumer}:{metadata.sequence.stream}'
+        ).encode('utf-8')
+        dead_letter_id = hashlib.sha256(identity).hexdigest()
+        try:
+            source = json.loads(message.data)
+            sample_id = source.get('sample_id', '') if isinstance(source, dict) else ''
+        except (UnicodeError, ValueError):
+            sample_id = ''
+        observed_at = datetime.now(UTC).isoformat()
         record = {
+            'dead_letter_id': dead_letter_id,
             'delivery_id': self._definition.delivery_id,
+            'sample_id': sample_id if isinstance(sample_id, str) else '',
+            'config_revision': self._snapshot.revision,
             'subject': message.subject,
             'source_stream': metadata.stream,
             'consumer': metadata.consumer,
@@ -281,20 +295,17 @@ class ReliableDeliveryPort:
             'payload_base64': base64.b64encode(message.data).decode('ascii'),
             'classification': 'PERMANENT',
             'reason': reason,
-            'first_failed_at': datetime.now(UTC).isoformat(),
-            'last_failed_at': datetime.now(UTC).isoformat(),
+            'first_failed_at': observed_at,
+            'last_failed_at': observed_at,
         }
         payload = json.dumps(record, ensure_ascii=False, allow_nan=False).encode('utf-8')
-        identity = (
-            f'{self._definition.delivery_id}:{metadata.stream}:'
-            f'{metadata.sequence.stream}'
-        ).encode('utf-8')
-        digest = hashlib.sha256(identity).hexdigest()
-        await js.publish(
-            config["dead_letter_subject"],
+        ack = await js.publish(
+            config['dead_letter_subject'],
             payload,
-            headers={"Nats-Msg-Id": digest},
+            headers={'Nats-Msg-Id': dead_letter_id},
         )
+        if ack.stream != config['dead_letter_stream']:
+            raise ConfigurationError('DLQ PubAck confirms an unexpected Stream')
         self.dlq_total += 1
 
     async def _write_with_heartbeat(
