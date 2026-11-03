@@ -188,10 +188,15 @@ def load_settings(service_path: Path) -> Settings:
                 raise GeneratorError("invalid Gateway endpoint")
             gateways[gateway_id] = endpoint
             for mapping in gateway.get("feedback_mapping", []):
+                if not isinstance(mapping, dict):
+                    raise GeneratorError("invalid feedback mapping")
                 key = (mapping.get("device_id"), mapping.get("point_id"))
                 if key not in points:
                     raise GeneratorError("output mapping references unknown source point")
-                target = OutputTarget(gateway_id, mapping.get("variable_id", ""))
+                variable_id = mapping.get("variable_id")
+                if not isinstance(variable_id, str) or not variable_id.strip():
+                    raise GeneratorError("invalid output variable ID")
+                target = OutputTarget(gateway_id, variable_id)
                 if target in targets:
                     raise GeneratorError(f"duplicate output target: {target}")
                 targets.add(target)
