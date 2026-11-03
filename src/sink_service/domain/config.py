@@ -102,7 +102,7 @@ def managed_path(value: object, location: str, *, directory: bool = False) -> st
     parts = path.split("/")
     if (
         path.startswith("/")
-        or "\\\\" in path
+        or "\\" in path
         or any(part in ("", ".", "..") for part in parts)
         or PurePosixPath(path).as_posix() != path
         or len(parts) < 2
