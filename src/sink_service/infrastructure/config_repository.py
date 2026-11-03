@@ -31,7 +31,7 @@ class GenerationStore:
             raise ConfigurationError("invalid generation identifier")
         return self._generations / identifier
 
-    def load(self, service_path: str) -> ValidatedSnapshot:
+    def load(self, service_path: str, peer_service_path: str) -> ValidatedSnapshot:
         """Read a complete committed generation through a single pointer."""
         if (
             not service_path.startswith("configs/services/")
@@ -41,7 +41,9 @@ class GenerationStore:
             raise ConfigurationError("invalid Service relative path")
         identifier = self._current.read_text(encoding="ascii").strip()
         directory = self._generation(identifier)
-        return read_snapshot(directory, directory / service_path)
+        return read_snapshot(
+            directory, directory / service_path, directory / peer_service_path
+        )
 
     @staticmethod
     def _sync_dir(path: Path) -> None:
@@ -123,14 +125,14 @@ class GenerationStore:
                 raise
         # Never point CURRENT at an existing corrupt or partial generation.
         # This also validates a generation reused after an interrupted Apply.
+        service_paths = sorted(
+            file.path for file in checked.files
+            if file.path.startswith('configs/services/')
+        )
+        if len(service_paths) != 2:
+            raise ConfigurationError('validated snapshot must contain two Services')
         committed = read_snapshot(
-            target,
-            target
-            / next(
-                item.path
-                for item in checked.files
-                if item.path.startswith("configs/services/") and item.path.endswith(".yaml")
-            ),
+            target, target / service_paths[0], target / service_paths[1]
         )
         if committed.revision != checked.revision:
             raise ConfigurationError("existing committed generation differs from candidate")
