@@ -388,7 +388,8 @@ class GatewayWriter:
                     reply = completed.result()
                 except grpc.RpcError as error:
                     confirmed_rejection = error.code() in _CLEAR_REJECTION_CODES
-                    if confirmed_rejection:
+                    fenced = error.code() == grpc.StatusCode.FAILED_PRECONDITION
+                    if confirmed_rejection and not fenced:
                         self._unsafe.discard(gateway_id)
                     else:
                         self._unsafe.add(gateway_id)
@@ -396,7 +397,7 @@ class GatewayWriter:
                         self.last_native_results[target] = DeliveryResult(
                             target,
                             "FAILED" if confirmed_rejection else "UNKNOWN",
-                            str(error.code()),
+                            "LEASE_LOST" if fenced else str(error.code()),
                         )
                 except BaseException:
                     self._unsafe.add(gateway_id)
@@ -437,8 +438,15 @@ class GatewayWriter:
             except grpc.RpcError as error:
                 code = error.code()
                 if code in _CLEAR_REJECTION_CODES:
+                    if code == grpc.StatusCode.FAILED_PRECONDITION:
+                        self._unsafe.add(gateway_id)
                     return [
-                        DeliveryResult(target, "FAILED", str(code), str(error))
+                        DeliveryResult(
+                            target, "FAILED",
+                            "LEASE_LOST" if code == grpc.StatusCode.FAILED_PRECONDITION
+                            else str(code),
+                            str(error),
+                        )
                         for target, _ in entries
                     ]
                 self._unsafe.add(gateway_id)
