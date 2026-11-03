@@ -70,8 +70,10 @@ class GatewayWriter:
             _, pending = await asyncio.wait(tasks, timeout=timeout)
             if pending:
                 return False
-        # A settled transport error remains quarantined without a trusted ACK.
-        return not bool(gateway_ids.intersection(self._unsafe))
+        # A completed Task is not released until its accounting callback has run.
+        return not bool(gateway_ids.intersection(
+            self.unsafe_gateways | self.unsettled_gateways
+        ))
 
     async def validate(self, scenario: Scenario) -> None:
         """Read the real Gateway catalog; never send data before target validation."""
