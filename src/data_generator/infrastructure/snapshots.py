@@ -185,6 +185,11 @@ class SnapshotManager:
     def disk_revision(self) -> str:
         return load_settings(self.settings.service_file).revision
 
+    def candidate_revision(self, candidate_id: str) -> str:
+        if self._candidate is None or self._candidate[0] != candidate_id:
+            raise GeneratorError("candidate not found")
+        return self._candidate[3].revision
+
     def _assert_unchanged(self) -> Settings:
         latest = load_settings(self.settings.service_file)
         if latest.revision != self.settings.revision:

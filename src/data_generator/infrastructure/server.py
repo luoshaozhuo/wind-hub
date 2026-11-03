@@ -236,10 +236,12 @@ class CommonService(common_rpc.CommonServiceServicer):
             except (GeneratorError, OSError, ValueError) as exc:
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
                 raise RuntimeError("gRPC abort returned") from exc
-            revision = (
-                self.runtime.settings.revision if scope == "RUNTIME"
-                else await asyncio.to_thread(self.snapshots.disk_revision)
-            )
+            if scope == "RUNTIME":
+                revision = self.runtime.settings.revision
+            elif scope == "CANDIDATE":
+                revision = self.snapshots.candidate_revision(request.candidate_id)
+            else:
+                revision = await asyncio.to_thread(self.snapshots.disk_revision)
             snapshot_id = (
                 request.candidate_id if scope == "CANDIDATE" else revision
             )
