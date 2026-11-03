@@ -59,7 +59,7 @@ def _index_csv(
     max_records: int,
     point_types: Mapping[tuple[str, str], str],
 ) -> None:
-    """Index every input line; repeated values and record IDs are never deduplicated."""
+    """Keep repeated samples while requiring unique source record identifiers."""
     if start.tzinfo is None or end.tzinfo is None or not start < end:
         raise GeneratorError("invalid replay time window")
     with sqlite3.connect(database) as connection:
@@ -69,6 +69,7 @@ def _index_csv(
             " quality TEXT NOT NULL, record_id TEXT NOT NULL)"
         )
         connection.execute("CREATE INDEX replay_order ON records(ts, line_no)")
+        connection.execute("CREATE UNIQUE INDEX replay_identity ON records(record_id)")
         with source.open("r", encoding="utf-8", newline="") as stream:
             reader = csv.DictReader(stream)
             if tuple(reader.fieldnames or ()) != FIELDS:
