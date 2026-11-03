@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -25,6 +26,16 @@ class GenerationState:
     started_at: datetime | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeEvent:
+    event_id: str
+    timestamp: datetime
+    severity: str
+    source: str
+    error_code: str
+    message: str
+
+
 class Runtime:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -33,11 +44,16 @@ class Runtime:
         self.writer = GatewayWriter(float(output.get("grpc_timeout_seconds", 3.0)),
                                     int(buffer.get("max_points_per_batch", 1000)))
         self.generations: dict[str, GenerationState] = {}
+        self.events: deque[RuntimeEvent] = deque(maxlen=1000)
         self._active: str | None = None
         self._task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
         self.counters: dict[str, int] = {"generated": 0, "confirmed": 0,
                                         "failed": 0, "unknown": 0}
+
+    def record(self, severity: str, source: str, error_code: str, message: str) -> None:
+        self.events.append(RuntimeEvent(str(uuid.uuid4()), datetime.now(timezone.utc),
+                                        severity, source, error_code, message))
 
     async def start(self, scenario_id: str, version: str | None,
                     revision: str) -> GenerationState:
@@ -56,6 +72,7 @@ class Runtime:
             self.generations[generation.generation_id] = generation
             self._active = generation.generation_id
             self._task = asyncio.create_task(self._run(generation))
+            self.record("INFO", generation.generation_id, "START", scenario_id)
             return generation
 
     async def stop(self, generation_id: str, revision: str) -> GenerationState:
@@ -97,6 +114,7 @@ class Runtime:
         except Exception as exc:
             generation.last_error = str(exc)
             generation.actual_state = "FAILED"
+            self.record("ERROR", generation.generation_id, "FAILED", str(exc))
         finally:
             # A completed task only releases ownership once outstanding writes settle.
             await self.writer.drain()
@@ -181,3 +199,4 @@ class Runtime:
                 self.counters["failed"] += 1
             else:
                 self.counters["unknown"] += 1
+                self.record("WARNING", generation.generation_id, "UNKNOWN_OUTPUT", result.error_code)
