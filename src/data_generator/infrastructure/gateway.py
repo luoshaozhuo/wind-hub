@@ -42,6 +42,7 @@ class GatewayWriter:
         self._channels: dict[str, grpc.aio.Channel] = {}
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._pending: set[asyncio.Task[object]] = set()
+        self._unsettled: dict[str, asyncio.Task[object]] = {}
 
     async def send(self, scenario: Scenario, batch: DataBatch) -> list[DeliveryResult]:
         values = {(point.device_id, point.point_id): point.value for point in batch.points}
@@ -62,6 +63,12 @@ class GatewayWriter:
         entries: Sequence[tuple[OutputTarget, Scalar]],
     ) -> list[DeliveryResult]:
         async with self._locks[gateway_id]:
+            prior = self._unsettled.get(gateway_id)
+            if prior is not None and not prior.done():
+                # Do not overlap a timed-out write with a later value for that target.
+                return [DeliveryResult(target, "UNKNOWN", "UNSETTLED_IO")
+                        for target, _ in entries]
+            self._unsettled.pop(gateway_id, None)
             endpoint = scenario.gateways[gateway_id]
             if endpoint not in self._channels:
                 self._channels[endpoint] = grpc.aio.insecure_channel(endpoint)
@@ -75,6 +82,7 @@ class GatewayWriter:
                 ) for target, value in entries],
             )
             task = asyncio.ensure_future(stub.UpdateVariables(request))
+            self._unsettled[gateway_id] = task
             self._pending.add(task)
             task.add_done_callback(self._pending.discard)
             try:
@@ -94,5 +102,10 @@ class GatewayWriter:
     async def drain(self) -> None:
         if self._pending:
             await asyncio.gather(*self._pending, return_exceptions=True)
+        self._unsettled.clear()
+
+    async def close(self) -> None:
+        await self.drain()
         for channel in self._channels.values():
             await channel.close()
+        self._channels.clear()

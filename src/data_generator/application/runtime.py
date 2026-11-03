@@ -82,8 +82,7 @@ class Runtime:
     async def shutdown(self) -> None:
         if self._active is not None:
             await self.stop(self._active, "")
-        else:
-            await self.writer.drain()
+        await self.writer.close()
 
     async def _run(self, generation: GenerationState) -> None:
         generation.actual_state = "RUNNING"
@@ -116,19 +115,27 @@ class Runtime:
             seq += 1
             stamp = datetime.now(timezone.utc)
             values = {}
-            for (device_id, point_id), point in scenario.points.items():
-                model = point.get("model", {})
-                kind = model.get("kind")
-                if kind == "random":
-                    value = random_value(seed, device_id, point_id, seq,
-                                         {**model, "data_type": point.get("data_type", "float64")})
-                elif kind == "static":
-                    value = static_value({**model, "data_type": point.get("data_type", "float64")},
-                                         {key[1]: val for key, val in values.items()
-                                          if key[0] == device_id})
-                else:
-                    raise GeneratorError(f"unsupported model: {kind}")
-                values[(device_id, point_id)] = validate_scalar(value, point["data_type"])
+            pending = dict(scenario.points)
+            while pending:
+                ready = [(key, point) for key, point in pending.items()
+                         if point.get("model", {}).get("kind") != "static"
+                         or (key[0], point["model"].get("input_point")) in values]
+                if not ready:
+                    raise GeneratorError("unresolvable static model dependency")
+                for (device_id, point_id), point in ready:
+                    model = point.get("model", {})
+                    kind = model.get("kind")
+                    if kind == "random":
+                        value = random_value(seed, device_id, point_id, seq,
+                                             {**model, "data_type": point["data_type"]})
+                    elif kind == "static":
+                        value = static_value({**model, "data_type": point["data_type"]},
+                                             {key[1]: val for key, val in values.items()
+                                              if key[0] == device_id})
+                    else:
+                        raise GeneratorError(f"unsupported model: {kind}")
+                    values[(device_id, point_id)] = validate_scalar(value, point["data_type"])
+                    del pending[(device_id, point_id)]
             await self._emit(generation, seq, stamp, values)
             await asyncio.sleep(interval)
 
