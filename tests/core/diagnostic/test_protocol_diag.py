@@ -294,7 +294,7 @@ async def test_benchmark_read_failure_yields_warning_not_retried(patched_driver)
 
 def test_driver_selects_modbus_from_shared_config() -> None:
     config = Path(__file__).resolve().parents[3] / "configs"
-    driver = protocol._driver(config, "WT01")
+    driver = protocol._driver(config, "TZ01")
 
     from core.infrastructure.protocol.modbus.driver import ModbusDriver
 

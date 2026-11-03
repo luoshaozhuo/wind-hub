@@ -1,0 +1,61 @@
+schema_version: 1
+cli:
+  prompt: "wind-hub> "
+  output_format: table
+  timeout_seconds: 5
+  history: true
+  max_display_rows: 1000
+  poll_interval_ms: 1000
+  poll_reconnect_attempts: 3
+  snapshot_max_bytes: 67108864
+  diff_max_file_bytes: 1048576
+  diff_max_output_lines: 10000
+services:
+  collector:
+    grpc_endpoint: "127.0.0.1:50051"
+    tls_profile: local
+    manager: containerd
+    target: collector
+    namespace: default
+    manager_socket: "/run/containerd/containerd.sock"
+  commander:
+    grpc_endpoint: "127.0.0.1:50052"
+    tls_profile: local
+    manager: isulad
+    isula_binary: "/usr/bin/isula"
+    target: commander
+  sink_realtime:
+    grpc_endpoint: "127.0.0.1:50053"
+    tls_profile: local
+    manager: systemd
+    systemd_scope: system
+    target: wind-hub-sink-realtime.service
+  sink_reliable:
+    rpc_via: sink_realtime
+    tls_profile: local
+    manager: systemd
+    systemd_scope: system
+    target: wind-hub-sink-reliable.service
+  gateway:
+    grpc_endpoint: "127.0.0.1:50054"
+    tls_profile: local
+    manager: containerd
+    target: gateway
+    namespace: default
+    manager_socket: "/run/containerd/containerd.sock"
+  data_generator:
+    grpc_endpoint: "127.0.0.1:50055"
+    tls_profile: local
+    manager: systemd
+    systemd_scope: system
+    target: wind-hub-data_generator.service
+tls_profiles:
+  local:
+    ca_cert: "/etc/wind-hub/certs/ca.crt"
+    client_cert: "/etc/wind-hub/certs/cli.crt"
+    client_key: "/etc/wind-hub/certs/cli.key"
+network_probe:
+  max_hosts: 1024
+  max_concurrency: 64
+  timeout_seconds: 1
+  industrial_tcp_ports: [102, 502, 2404, 4840, 44818, 48898]

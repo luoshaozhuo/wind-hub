@@ -1,0 +1,171 @@
+# ADS PLC 测点映射模板（TwinCAT 2）；来源：用户提供的 12 条 PLC Symbol 截图。
+# 注意：Symbol 名称和 bytes 来自截图；PLC 类型、业务含义和单位均为推断，未经现场验证。
+# 本模板为示例/待核实配置，不应直接用于现场写控制指令。
+# 1 字节暂按 BOOL，4 字节暂按 REAL（有功功率暂按 DINT），2 字节暂按 INT。
+# 同样的字节数不能唯一确定 PLC 类型：4 字节也可能是 DINT/UDINT/REAL。
+# 必须核对 PLC 符号表声明、工程量纲、缩放比例、字节长度及写入权限。
+# ADS Symbol 以“.”开头来自截图，必须原样核实；Core 驱动会在连接时按 Symbol 解析地址。
+# Point 的业务语义复用共享 business_points；叶片编号、相别及统计窗口保留在本点表。
+# 对数值使用 scale=1、offset=0 只是暂定占位，不代表已经确认工程单位转换。
+# Core 对 ADS 点表暂统一视为可读写；控制权限应由 PLC、上层命令授权及联锁保障。
+schema_version: 1
+template_id: ads_wtg_4xems
+file_version: 1.0.0
+protocol: ads
+points:
+  # 有功功率调节使能（推测：1=允许，0=禁止，需确认）
+  hmi_control_active_power_enable:
+    business_point_id: device_control_enable_command
+    point_groups: [all, control]
+    address:
+      symbol: ".HMI_CONTROL_ACTIVE_POWER_ENABLE"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "有功功率调节使能（推测：1=允许，0=禁止，需确认）"
+  # HMI 启动控制信号（推测：脉冲/保持语义待确认）
+  hmi_control_start_signal:
+    business_point_id: device_start_command
+    point_groups: [all, control]
+    address:
+      symbol: ".hmi_control_start_signal"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "HMI 启动控制信号（推测：脉冲/保持语义待确认）"
+  # HMI 停止控制信号（推测：脉冲/保持语义待确认）
+  hmi_control_stop_signal:
+    business_point_id: device_stop_command
+    point_groups: [all, control]
+    address:
+      symbol: ".hmi_control_stop_signal"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "HMI 停止控制信号（推测：脉冲/保持语义待确认）"
+  # 电网侧有功功率（推测；DINT/REAL 及 kW/W 待确认）
+  grid_active_power:
+    business_point_id: active_power
+    point_groups: [all, electrical]
+    address:
+      symbol: ".visu_grid_active_power"
+      data_type: DINT
+      size: 4
+    data_type: DINT
+    unit: kilowatt
+    scale: 1.0
+    offset: 0.0
+    description: "电网侧有功功率（推测；DINT/REAL 及 kW/W 待确认）"
+  # 1 号叶片桨距角（推测：单位 °，方向待确认）
+  blade_1_pitch_angle:
+    business_point_id: pitch_angle
+    point_groups: [all, mechanical]
+    address:
+      symbol: ".visu_pitch_position_blade_1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "1 号叶片桨距角（推测：单位 °，方向待确认）"
+  # 3 秒平均风速（推测：单位 m/s，窗口定义待确认）
+  average_wind_speed_3s:
+    business_point_id: wind_speed
+    point_groups: [all, meteorology]
+    address:
+      symbol: ".visu_average_wind_speed_3s"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "3 秒平均风速（推测：单位 m/s，窗口定义待确认）"
+  # 电网侧无功功率（推测：单位 kvar、正负方向待确认）
+  grid_reactive_power:
+    business_point_id: reactive_power
+    point_groups: [all, electrical]
+    address:
+      symbol: ".visu_grid_reactive_power"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilovar
+    scale: 1.0
+    offset: 0.0
+    description: "电网侧无功功率（推测：单位 kvar、正负方向待确认）"
+  # A 相电网电压（推测：相电压有效值 V，待确认）
+  grid_voltage_phase_a:
+    business_point_id: grid_voltage
+    point_groups: [all, electrical]
+    address:
+      symbol: ".visu_grid_Ua"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: volt
+    scale: 1.0
+    offset: 0.0
+    description: "A 相电网电压（推测：相电压有效值 V，待确认）"
+  # 电网 1 相电流（推测：A 相有效值 A，待确认）
+  grid_current_phase_1:
+    business_point_id: grid_current
+    point_groups: [all, electrical]
+    address:
+      symbol: ".visu_grid_I1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: ampere
+    scale: 1.0
+    offset: 0.0
+    description: "电网 1 相电流（推测：A 相有效值 A，待确认）"
+  # 环境气温（推测：℃，测量位置待确认）
+  ambient_temperature:
+    business_point_id: air_temperature
+    point_groups: [all, meteorology]
+    address:
+      symbol: ".visu_ambient_temperature"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "环境气温（推测：℃，测量位置待确认）"
+  # 25 秒平均风向标风向（推测：°，角度基准待确认）
+  average_wind_direction_25s:
+    business_point_id: wind_direction
+    point_groups: [all, meteorology]
+    address:
+      symbol: ".visu_average_wind_vane_wind_direction_25s"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "25 秒平均风向标风向（推测：°，角度基准待确认）"
+  # HMI 有功输出功率限值原始控制字（INT/UINT、工程值缩放和写入语义待确认）
+  hmi_control_output_power_limit:
+    business_point_id: active_power_limit_raw
+    point_groups: [all, control]
+    address:
+      symbol: ".hmi_control_output_power_limit"
+      data_type: INT
+      size: 2
+    data_type: INT
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "HMI 有功输出功率限值原始控制字（INT/UINT、工程值缩放和写入语义待确认）"

@@ -21,6 +21,10 @@ packages = [
 python = "^3.11"
 pydantic = "^2.0"
 pyyaml = "^6.0"
+typer = "^0.15"
+prompt-toolkit = "^3.0"
+rich = "^13.0"
+dbus-next = "^0.2.3"
 fastapi = "^0.115"
 uvicorn = { version = "^0.32", extras = ["standard"] }
 prometheus-client = "^0.21"
@@ -102,8 +106,8 @@ extend-immutable-calls = [
 # 框架按方法名分发，无法改为 snake_case。
 "src/collector/infrastructure/grpc/v2_server.py" = ["N802"]
 "src/commander/infrastructure/grpc/server.py" = ["N802"]
-"src/industrial_gateway/infrastructure/grpc/data_server.py" = ["N802"]
 "src/sink_service/infrastructure/grpc_v1.py" = ["N802"]
+"src/industrial_gateway/infrastructure/grpc/data_server.py" = ["N802"]
 
 [tool.mypy]
 strict = true
@@ -117,6 +121,13 @@ exclude = "(_pb2\\.py|_pb2_grpc\\.py)$"
 # 将 grpc 视为动态类型模块（Any），边界类型安全由 pb2 .pyi stub 保证。
 [[tool.mypy.overrides]]
 module = ["grpc", "grpc.*", "grpc_tools", "grpc_tools.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
+# dbus-next 未附带 py.typed；D-Bus 代理接口方法为运行时动态生成，
+# systemd 适配边界的正确性由真实 system bus 测试覆盖。
+[[tool.mypy.overrides]]
+module = ["dbus_next", "dbus_next.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
 
@@ -311,7 +322,6 @@ name = "web_server 只通过 core RPC 访问服务"
 type = "forbidden"
 source_modules = ["web_server"]
 forbidden_modules = ["collector", "commander", "cli"]
-
 
 # ---- Sink Service clean-rewrite boundaries ----
 

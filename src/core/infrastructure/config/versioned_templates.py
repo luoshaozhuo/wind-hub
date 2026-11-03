@@ -75,12 +75,20 @@ class VersionedTemplateRepository:
         self._root = Path(root).resolve()
 
     def path_for(self, reference: TemplateRef) -> Path:
-        candidate = (
-            self._root
-            / reference.category
-            / reference.template_id
-            / f"{reference.file_version}.yaml"
-        ).resolve()
+        # 协议、点表和设备型号使用统一的扁平版本文件名。
+        if reference.category in {"protocols", "point_tables", "device_models"}:
+            candidate = (
+                self._root
+                / reference.category
+                / f"{reference.template_id}_{reference.file_version}.yaml"
+            ).resolve()
+        else:
+            candidate = (
+                self._root
+                / reference.category
+                / reference.template_id
+                / f"{reference.file_version}.yaml"
+            ).resolve()
         if not candidate.is_relative_to(self._root):
             raise ConfigError("template reference escapes configured root")
         return candidate

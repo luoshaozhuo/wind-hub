@@ -1,0 +1,154 @@
+# TZ2MW 风机 Modbus TCP 点表；来源：plcs_modbus_rw.json。
+# 源文件有 3 台机组，10 个测点完全一致，本文件抽取其共享点表。
+# 现场 IP/port、设备 ID、key_prefix 属于设备实例；采集周期与 LMDB 路径不是点表属性。
+# 源字段映射：fncode=4 -> input(只读)，fncode=3 -> holding(可写)。
+# rw=Write 来源于原始系统；当前 Core 的 holding 点按 READ_WRITE 处理，无法仅凭本点表表达只写权限。
+# S16/S32 按有符号 int16/int32 保留原始类型；PLC 字序及工程单位未在源文件声明。
+# unit=none、scale=1.0、offset=0.0 为未换算的原始寄存器值，不得视为已确认工程单位。
+# 实际写入控制前必须确认编码、量程、启停码值、权限与现场联锁。
+# 原始设备参数：3 台设备均为 TCP 502、modbus_uid=1；此处仅在点表中记录 slave_id=1。
+schema_version: 1
+template_id: modbus_wtg_tz2mw
+file_version: 1.0.0
+protocol: modbus
+points:
+  # 电网有功功率测量；源键 measured_power_S32；rw=Read；原始数据类型 int32。
+  measured_power:
+    business_point_id: tz2mw_measured_power_raw
+    point_groups: [all, electrical]
+    address:
+      register_type: input
+      address: 187
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "电网有功功率测量（原始值；工程单位及缩放待确认）"
+  # 10 分钟有功功率测量；源键 measured_power_10min_S32；rw=Read；原始数据类型 int32。
+  measured_power_10min:
+    business_point_id: tz2mw_measured_power_10min_raw
+    point_groups: [all, electrical]
+    address:
+      register_type: input
+      address: 213
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "10 分钟有功功率测量（原始值；工程单位及缩放待确认）"
+  # 电网无功功率测量；源键 measured_reactive_power_S32；rw=Read；原始数据类型 int32。
+  measured_reactive_power:
+    business_point_id: tz2mw_measured_reactive_power_raw
+    point_groups: [all, electrical]
+    address:
+      register_type: input
+      address: 189
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "电网无功功率测量（原始值；工程单位及缩放待确认）"
+  # 风速测量；源键 wind_speed_S16；rw=Read；原始数据类型 int16。
+  wind_speed:
+    business_point_id: tz2mw_wind_speed_raw
+    point_groups: [all, meteorology]
+    address:
+      register_type: input
+      address: 365
+      count: 1
+      slave_id: 1
+    data_type: int16
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "风速测量（原始值；工程单位及缩放待确认）"
+  # 发电机转速测量；源键 generator_speed_S32；rw=Read；原始数据类型 int32。
+  generator_speed:
+    business_point_id: tz2mw_generator_speed_raw
+    point_groups: [all, generator]
+    address:
+      register_type: input
+      address: 113
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "发电机转速测量（原始值；工程单位及缩放待确认）"
+  # 桨距角测量；源键 pitch_angle_S32；rw=Read；原始数据类型 int32。
+  pitch_angle:
+    business_point_id: tz2mw_pitch_angle_raw
+    point_groups: [all, pitch]
+    address:
+      register_type: input
+      address: 837
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "桨距角测量（原始值；工程单位及缩放待确认）"
+  # 风机状态代码；源键 turbine_status_int；rw=Read；原始数据类型 int16。
+  turbine_status_int:
+    business_point_id: tz2mw_turbine_status_raw
+    point_groups: [all, status]
+    address:
+      register_type: input
+      address: 0
+      count: 1
+      slave_id: 1
+    data_type: int16
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "风机状态代码（原始值；工程单位及缩放待确认）"
+  # 有功功率需求控制；源键 power_demand_S32；rw=Write；原始数据类型 int32。
+  power_demand:
+    business_point_id: tz2mw_power_demand_raw
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 2001
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "有功功率需求控制（原始值；工程单位及缩放待确认）"
+  # 无功功率需求控制；源键 reactive_power_demand_S32；rw=Write；原始数据类型 int32。
+  reactive_power_demand:
+    business_point_id: tz2mw_reactive_power_demand_raw
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 2003
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "无功功率需求控制（原始值；工程单位及缩放待确认）"
+  # 风机启停控制字；源键 start_stop_command_S16；rw=Write；原始数据类型 int16。
+  start_stop_command:
+    business_point_id: tz2mw_start_stop_command_raw
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 2005
+      count: 1
+      slave_id: 1
+    data_type: int16
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "风机启停控制字（原始值；工程单位及缩放待确认）"

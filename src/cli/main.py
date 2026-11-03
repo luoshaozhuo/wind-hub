@@ -1,646 +1,453 @@
-"""统一交互式 CLI：配置、对象查询和协议诊断。"""
+"""Typer entrypoint and one-loop interactive wind-hub shell."""
 
 from __future__ import annotations
 
-import argparse
 import asyncio
-import cmd
-import json
-import math
+import io
 import shlex
-import sys
-import typing
-from typing import Any
+import signal
+from concurrent.futures import CancelledError as FutureCancelled
+from concurrent.futures import Future
+from contextlib import redirect_stdout
+from pathlib import Path
+from typing import Annotated, Any
 
-from core.application.errors import ConfigError
+import click
+import grpc
+import typer
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.history import DummyHistory
+from typer._click import exceptions as typer_click_exceptions
 
-from .config_session import REQUIRED_FILES, ConfigSession
-from .help import completion_words, help_text
-from .inventory import devices, points, sinks
-from .presentation import Timer, emit, response
-from .protocol_diagnostic import execute
-from .results import ResultStore
+# Typer 0.27 vendors Click; its internal Exit is not in the package's public API.
+from typer._click.core import Exit as _TyperClickExit  # type: ignore[attr-defined]
+
+from .business_commands import collector, commander
+from .common_commands import config as remote_config
+from .diagnose_commands import diagnose
+from .directory_diff import compare_directories
+from .history import SafeHistory
+from .network_probe import industrial_probe, ping_probe, scan_cidr, tcp_probe
+from .plant_commands import data_generator, gateway, sink
+from .process_manager import manage
+from .runtime import Runtime
+
+app = typer.Typer(no_args_is_help=False, add_completion=False)
+service_app = typer.Typer(help="Configured service targets and public gRPC status.")
+config_app = typer.Typer(help="CLI-local configuration comparison.")
+net_app = typer.Typer(help="One-shot local network probes.")
+app.add_typer(service_app, name="service")
+app.add_typer(config_app, name="config")
+for _remote_command in remote_config.registered_commands:
+    config_app.registered_commands.append(_remote_command)
+app.add_typer(net_app, name="net")
+app.add_typer(collector, name="collector")
+app.add_typer(commander, name="commander")
+app.add_typer(sink, name="sink")
+app.add_typer(gateway, name="gateway")
+app.add_typer(data_generator, name="data-generator")
+app.add_typer(diagnose, name="diagnose")
+
+_config: Path | None = None
+_format: str | None = None
+_runtime: Runtime | None = None
+_shell_loop: asyncio.AbstractEventLoop | None = None
+_active_rpc: Future[Any] | None = None
 
 
-def _value(raw: str) -> bool | int | float | str:
-    if raw.lower() in {"true", "false"}:
-        return raw.lower() == "true"
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError:
-        return raw
-    if value is None or isinstance(value, dict | list):
-        raise ValueError("write value must be a scalar")
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError("write value must be finite")
-    if isinstance(value, bool | int | float | str):
-        return value
-    raise ValueError("invalid write value")
+def runtime() -> Runtime:
+    global _runtime
+    if _runtime is None:
+        _runtime = Runtime(_config, _format)
+    return _runtime
 
 
-def _options(args: list[str], default_timeout: float = 5.0) -> tuple[argparse.Namespace, list[str]]:
-    parser = argparse.ArgumentParser(prog="diagnose protocol", add_help=True)
-    parser.add_argument("--interval", type=float)
-    parser.add_argument("--count", type=int, default=None)
-    parser.add_argument("--timeout", type=float, default=default_timeout)
-    parser.add_argument("--ca", type=int)
-    parser.add_argument("--duration", type=float, default=None)
-    parser.add_argument("--samples", type=int, default=10)
-    parser.add_argument("--yes", action="store_true")
-    options, positional = parser.parse_known_args(args)
-    unknown_flags = [token for token in positional if token.startswith("--")]
-    if unknown_flags:
-        raise ValueError(f"unrecognized options: {unknown_flags}")
-    return options, positional
+def _run(command: str, task: Any) -> None:
+    global _active_rpc
 
-
-class WindHubShell(cmd.Cmd):
-    """One CLI session; commands share a single validated configuration snapshot."""
-
-    intro = "Wind Hub CLI. Type 'help' for commands."
-    prompt = "wind-hub> "
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.config = ConfigSession()
-        self._interactive = False
-        self._format = "table"
-        self._timeout = 5.0
-        self.results = ResultStore()
-
-    def default(self, line: str) -> None:
+    async def invoke() -> None:
+        exit_code = 0
+        cancelled_in_shell = False
         try:
-            tokens = shlex.split(line)
-            if not tokens:
-                return
-            timer = Timer()
-            result = self.dispatch(tokens)
-            if result is not None:
-                loaded = self.config._current
-                fingerprint = loaded.fingerprint if loaded is not None else None
-                emit(
-                    response(
-                        " ".join(tokens[:3]),
-                        result,
-                        fingerprint=fingerprint,
-                        duration_ms=timer.elapsed_ms(),
-                    ),
-                    format_name=self._format,
-                )
-        except (ConfigError, ValueError, OSError, RuntimeError, KeyError) as exc:
-            error = {
-                "status": "FAIL",
-                "code": "CLI_ERROR",
-                "message": f"{type(exc).__name__}: {exc}",
-            }
-            emit(
-                response("command", error, fingerprint=None, duration_ms=0),
-                format_name=self._format,
-            )
-        except KeyboardInterrupt:
-            print("\nInterrupted.")
-
-    def _candidates(self) -> list[str]:
-        words = completion_words()
-        loaded = self.config._current
-        if loaded is not None:
-            snapshot = loaded.snapshot
-            words.extend(str(key) for key in snapshot.site.devices)
-            words.extend(str(key) for key in snapshot.sinks)
-            words.extend(
-                point_id for table in snapshot.point_tables.values() for point_id in table.points
-            )
-        return sorted(set(words))
-
-    def completenames(self, text: str, *_: object) -> list[str]:
-        return [item for item in self._candidates() if item.startswith(text)]
-
-    def completedefault(self, text: str, *_: object) -> list[str]:
-        return self.completenames(text)
-
-    def preloop(self) -> None:
-        super().preloop()
-        try:
-            import readline
-            from pathlib import Path
-
-            self._history_path = Path.home() / ".wind_hub_history"
-            if self._history_path.is_file():
-                readline.read_history_file(str(self._history_path))
-        except (ImportError, OSError):
-            pass
-
-    def precmd(self, line: str) -> str:
-        if " write " in f" {line.lower()} ":
-            try:
-                import readline
-
-                count = readline.get_current_history_length()
-                if count:
-                    readline.remove_history_item(count - 1)
-            except (ImportError, OSError, ValueError):
-                pass
-        return line
-
-    def postloop(self) -> None:
-        try:
-            import readline
-
-            path = getattr(self, "_history_path", None)
-            if path is not None:
-                readline.write_history_file(str(path))
-        except (ImportError, OSError):
-            pass
-        super().postloop()
-
-    def emptyline(self) -> bool:
-        return False
-
-    def do_help(self, arg: str) -> None:
-        """Show command syntax."""
-        print(help_text(shlex.split(arg)))
-
-    def do_exit(self, arg: str) -> bool:
-        """Exit interactive CLI."""
-        return True
-
-    def do_clear(self, arg: str) -> None:
-        print(chr(27) + "[2J" + chr(27) + "[H", end="")
-
-    def do_quit(self, arg: str) -> bool:
-        """Exit interactive CLI."""
-        return True
-
-    def do_EOF(self, arg: str) -> bool:  # noqa: N802  # cmd.Cmd 按 EOF 名分发，无法改名
-        print()
-        return True
-
-    def dispatch(self, tokens: list[str]) -> object:
-        action, *rest = tokens
-        if action == "help":
-            print(help_text(rest))
-            return None
-        if "--help" in tokens:
-            print(help_text([token for token in tokens if token != "--help"]))
-            return None
-        if action == "config":
-            if not rest:
-                raise ValueError(
-                    "usage: config validate PATH | read PATH | reload | diff PATH | show"
-                )
-            operation, *args = rest
-            if operation == "validate":
-                if len(args) == 2 and args[1] == "--scope=all":
-                    args = args[:1]
-                if len(args) == 3 and args[1:] == ["--scope", "all"]:
-                    args = args[:1]
-                if len(args) != 1:
-                    raise ValueError("usage: config validate PATH [--scope all]")
-            if operation in {"read", "diff"} and len(args) != 1:
-                raise ValueError(f"usage: config {operation} PATH")
-            if operation in {"reload", "show"} and args:
-                raise ValueError(f"usage: config {operation}")
-            if operation == "read":
-                loaded = self.config.read(args[0])
-                return {
-                    "status": "PASS",
-                    "path": str(loaded.path),
-                    "fingerprint": loaded.fingerprint,
-                }
-            if operation == "validate":
-                from pathlib import Path
-
-                base = Path(args[0]).expanduser().resolve()
-                if not base.is_dir():
-                    return {
-                        "status": "FAIL",
-                        "code": "CONFIG_DIRECTORY_NOT_FOUND",
-                        "path": str(base),
-                        "message": "Configuration directory does not exist",
-                    }
-                missing = [name for name in REQUIRED_FILES if not (base / name).is_file()]
-                if missing:
-                    return {
-                        "status": "FAIL",
-                        "code": "CONFIG_FILE_MISSING",
-                        "path": str(base),
-                        "missing_files": missing,
-                        "message": "Required configuration files are missing",
-                    }
-                try:
-                    loaded = self.config.validate(base)
-                except Exception as exc:
-                    return {
-                        "status": "FAIL",
-                        "code": "CONFIG_INVALID",
-                        "path": str(base),
-                        "message": f"Configuration validation failed ({type(exc).__name__})",
-                    }
-                return {
-                    "status": "PASS",
-                    "path": str(loaded.path),
-                    "fingerprint": loaded.fingerprint,
-                }
-            if operation == "reload":
-                loaded = self.config.reload()
-                return {
-                    "status": "PASS",
-                    "path": str(loaded.path),
-                    "fingerprint": loaded.fingerprint,
-                }
-            if operation == "diff":
-                change = self.config.diff(args[0])
-                return {
-                    "has_changes": change.has_changes,
-                    "sections": {
-                        name: {
-                            "added": sorted(section.added),
-                            "removed": sorted(section.removed),
-                            "changed": sorted(section.changed),
-                        }
-                        for name, section in change.sections.items()
-                    },
-                }
-            if operation == "show":
-                loaded = self.config.current
-                return {
-                    "path": str(loaded.path),
-                    "fingerprint": loaded.fingerprint,
-                    "devices": len(loaded.snapshot.site.devices),
-                    "sinks": len(loaded.snapshot.sinks),
-                    "loaded_at": loaded.loaded_at.isoformat(),
-                    "last_reload": "FAIL" if self.config.reload_failed else "PASS",
-                }
-            raise ValueError(f"unsupported config command: {operation}")
-        if action in {"devices", "points", "sinks"}:
-            loaded = self.config.current
-            rest = [token for token in rest if token != "--verbose"]
-            if action == "devices":
-                return devices(loaded.snapshot, rest[0] if rest else None)
-            if action == "sinks":
-                return sinks(loaded.snapshot, rest[0] if rest else None)
-            if not 1 <= len(rest) <= 2:
-                raise ValueError("usage: points DEVICE [POINT]")
-            return points(loaded.snapshot, rest[0], rest[1] if len(rest) == 2 else None)
-        if action == "gateways":
-            if len(rest) > 1:
-                raise ValueError("usage: gateways [GATEWAY_ID]")
-            _ = self.config.current
-            return {
-                "status": "UNKNOWN",
-                "code": "NOT_DEFINED",
-                "message": "Gateway inventory is not defined by the current ConfigSnapshot",
-                "gateway_id": rest[0] if rest else None,
-                "items": [],
-            }
-        if action == "clear":
-            print(chr(27) + "[2J" + chr(27) + "[H", end="")
-            return None
-        if action == "collector":
-            from .collector_control import run
-
-            return run(rest)
-        if action == "diagnose":
-            return self._diagnose(rest)
-        raise ValueError(f"unknown command: {action}. Type help.")
-
-    def _diagnose(self, args: list[str]) -> object:
-        if args and args[0] in {"tcp", "resolve", "ping", "route"}:
-            from .network_diagnostic import ping, resolve, route, tcp
-
-            operation = args[0]
-
-            class SafeArgumentParser(argparse.ArgumentParser):
-                def error(self, message: str) -> typing.NoReturn:
-                    raise ValueError(f"{self.prog}: {message}")
-
-            parser = SafeArgumentParser(prog=f"diagnose {operation}")
-            parser.add_argument("host")
-            if operation == "tcp":
-                parser.add_argument("port", nargs="?", type=int)
-            if operation == "ping":
-                parser.add_argument("--count", type=int, default=4)
-            default_timeout = 1.0 if operation == "ping" else 3.0
-            parser.add_argument("--timeout", type=float, default=default_timeout)
-            parsed = parser.parse_args(args[1:])
-            host = parsed.host
-            port = getattr(parsed, "port", None)
-            if self.config._current is not None:
-                from .inventory import devices
-
-                configured = self.config.current.snapshot.site.devices
-                if any(str(key) == host for key in configured):
-                    info = devices(self.config.current.snapshot, host)[0]
-                    host = str(info["host"])
-                    if operation == "tcp" and port is None:
-                        port = int(info["port"])
-            try:
-                if operation == "tcp":
-                    if port is None:
-                        raise ValueError("tcp requires PORT when host is not a configured device")
-                    return asyncio.run(tcp(host, port, timeout=parsed.timeout))
-                if operation == "ping":
-                    return asyncio.run(ping(host, count=parsed.count, timeout=parsed.timeout))
-                if operation == "route":
-                    return asyncio.run(route(host, timeout=parsed.timeout))
-                return asyncio.run(resolve(host, timeout=parsed.timeout))
-            except (OSError, TimeoutError) as exc:
-                return {
-                    "status": "FAIL",
-                    "code": "NETWORK_PROBE_FAILED",
-                    "host": host,
-                    "port": port,
-                    "message": f"{type(exc).__name__}: {exc}",
-                }
-        if args and args[0] == "result":
-            if len(args) != 1:
-                raise ValueError("usage: diagnose result")
-            return self.results.show()
-        if args and args[0] == "report":
-            if len(args) != 2:
-                raise ValueError("usage: diagnose report PATH.json")
-            return self.results.export(args[1])
-        loaded = self.config.require_diagnosable()
-        if not args or args == ["--restart"]:
-            from .pipeline import run
-
-            result = asyncio.run(
-                run(
-                    loaded.snapshot,
-                    loaded.fingerprint,
-                    previous=self.results.last,
-                    restart=bool(args),
-                    timeout=self._timeout,
-                )
-            )
-            self.results.record(result)
-            return result
-        if len(args) < 3 or args[0] != "protocol":
-            raise ValueError("usage: diagnose [--restart] | diagnose protocol OP DEVICE ...")
-        operation = args[1]
-        device_id = args[2]
-        opts, positional = _options(args[3:], self._timeout)
-        if operation in {"check", "gi"} and positional:
-            raise ValueError(f"{operation} does not accept point IDs")
-        if opts.ca is not None and operation != "gi":
-            raise ValueError("--ca is only valid with gi")
-        if opts.duration is not None and operation != "listen":
-            raise ValueError("--duration is only valid with listen")
-        if opts.count is not None and operation != "read":
-            raise ValueError("--count is only valid with read")
-        if operation in {"read", "read-many", "write"} and not positional:
-            raise ValueError(f"{operation} requires configured point IDs")
-        if operation == "write" and len(positional) != 2:
-            raise ValueError("usage: diagnose protocol write DEVICE POINT VALUE")
-        if operation == "read-many" and opts.interval is not None:
-            raise ValueError("read-many is a single native batch operation")
-        if operation in {"listen", "benchmark"}:
-            from .protocol_stream import benchmark, listen
-
-            device_info = devices(loaded.snapshot, device_id)[0]
-            point_info = [
-                points(loaded.snapshot, device_id, point_id)[0] for point_id in positional
-            ]
-            context = {
-                "device_id": device_id,
-                "protocol": device_info["protocol"],
-                "endpoint": {"host": device_info["host"], "port": device_info["port"]},
-                "protocol_options": device_info["protocol_options"],
-                "points": point_info,
-            }
-            if operation == "listen":
-                if opts.duration is None and self._format == "json":
-                    raise ValueError("unbounded JSON listen requires --duration")
-                on_sample = None
-                if opts.duration is None:
-                    print(json.dumps(context, ensure_ascii=False, default=str))
-
-                    def _emit_sample(sample: dict[str, Any]) -> None:
-                        print(json.dumps(sample, ensure_ascii=False, allow_nan=False))
-
-                    on_sample = _emit_sample
-                try:
-                    payload = asyncio.run(
-                        listen(
-                            loaded.snapshot,
-                            device_id,
-                            positional,
-                            duration=opts.duration,
-                            timeout=opts.timeout,
-                            on_sample=on_sample,
-                        )
-                    )
-                except Exception as exc:
-                    return {
-                        "status": "FAIL",
-                        "code": "PROTOCOL_LISTEN_FAILED",
-                        **context,
-                        "message": f"{type(exc).__name__}: {exc}",
-                    }
-                return {"status": "PASS", **context, "data": payload}
-            if not positional:
-                raise ValueError("benchmark requires at least one point ID")
-            try:
-                benchmark_payload = asyncio.run(
-                    benchmark(
-                        loaded.snapshot,
-                        device_id,
-                        positional,
-                        samples=opts.samples,
-                        interval=0.2 if opts.interval is None else opts.interval,
-                        timeout=opts.timeout,
-                    )
-                )
-            except Exception as exc:
-                return {
-                    "status": "FAIL",
-                    "code": "PROTOCOL_BENCHMARK_FAILED",
-                    **context,
-                    "message": f"{type(exc).__name__}: {exc}",
-                }
-            return {"status": "PASS", **context, "data": benchmark_payload}
-        value = _value(positional[1]) if operation == "write" else None
-        if operation == "write" and not opts.yes:
-            if not getattr(self, "_interactive", False):
-                raise ValueError("non-interactive write requires --yes")
-            target = devices(loaded.snapshot, device_id)[0]
-            point = points(loaded.snapshot, device_id, positional[0])[0]
-            print("WRITE WARNING: physical device may execute this command.")
-            print(
-                json.dumps(
-                    {"device": device_id, "endpoint": target, "point": point, "value": value},
-                    ensure_ascii=False,
-                    default=str,
-                )
-            )
-            if input("Execute once? Type YES: ").strip() != "YES":
-                return {"status": "SKIPPED", "message": "write not confirmed"}
-        point_ids = positional[:1] if operation == "write" else positional
-        from .inventory import devices as inventory_devices
-
-        device_info = inventory_devices(loaded.snapshot, device_id)[0]
-        selected_points = [
-            points(loaded.snapshot, device_id, point_id)[0] for point_id in point_ids
-        ]
-        if opts.count is not None and not 1 <= opts.count <= 100000:
-            raise ValueError("--count must be in 1..100000")
-        if opts.count is not None and opts.interval is None:
-            raise ValueError("--count requires --interval")
-        if opts.interval is not None and not 0.1 <= opts.interval <= 3600:
-            raise ValueError("--interval must be in 0.1..3600 seconds")
-        streaming = operation == "read" and opts.interval is not None and opts.count is None
-        if streaming and self._format == "json":
-            raise ValueError("continuous JSON output requires --count")
-        if streaming:
-            print(
-                json.dumps(
-                    {"device_id": device_id, "endpoint": device_info, "points": selected_points},
-                    ensure_ascii=False,
-                    default=str,
-                )
-            )
-        on_sample = (
-            (lambda sample: print(json.dumps(sample, ensure_ascii=False, allow_nan=False)))
-            if streaming
-            else None
-        )
-        try:
-            payload = asyncio.run(
-                execute(
-                    loaded.snapshot,
-                    device_id,
-                    operation,
-                    point_ids=point_ids,
-                    value=value,
-                    interval=opts.interval,
-                    count=0 if streaming else (opts.count or 1),
-                    timeout=opts.timeout,
-                    common_address=opts.ca,
-                    on_sample=on_sample,
-                )
-            )
+            data = await task
+            exit_code = runtime().present(command, data)
+        except asyncio.CancelledError:
+            runtime().interrupted(command)
+            exit_code = 130
+            # Shell 模式下跨线程 future 已取消（工作线程据此抛 Exit(130)）；
+            # 在事件循环任务里再抛 Exit 只会成为无人 retrieve 的孤儿异常。
+            cancelled_in_shell = _shell_loop is not None
         except Exception as exc:
-            return {
-                "status": "FAIL",
-                "code": "PROTOCOL_DIAGNOSTIC_FAILED",
-                "device_id": device_id,
-                "endpoint": {"host": device_info["host"], "port": device_info["port"]},
-                "protocol": device_info["protocol"],
-                "protocol_options": device_info["protocol_options"],
-                "points": selected_points,
-                "message": f"{type(exc).__name__}: {exc}",
-                "data": [],
-            }
-        outcome = payload[0].get("outcome") if operation == "write" and payload else None
-        quality_warning = any(
-            str(item.get("quality", "good")).lower() != "good"
-            for item in payload
-            if "quality" in item
-        )
-        status = (
-            "UNKNOWN"
-            if outcome == "unknown"
-            or (operation == "gi" and bool(payload) and payload[0].get("status") == "UNKNOWN")
-            else "FAIL"
-            if outcome == "confirmed_failure"
-            else "WARNING"
-            if quality_warning
-            else "PASS"
-        )
-        return {
-            "status": status,
-            "device_id": device_id,
-            "protocol": device_info["protocol"],
-            "endpoint": {
-                "host": device_info["host"],
-                "port": device_info["port"],
-            },
-            "protocol_options": device_info["protocol_options"],
-            "points": selected_points,
-            "data": payload,
-        }
+            runtime().error(command, exc)
+            exit_code = 2
+            if isinstance(exc, NotImplementedError):
+                exit_code = 3
+            elif isinstance(exc, TimeoutError | asyncio.TimeoutError):
+                # 设计表 10-2：本地总预算超时等同 DEADLINE，结果 UNKNOWN，不是参数错误。
+                exit_code = 3
+            elif isinstance(exc, grpc.aio.AioRpcError):
+                if exc.code() in {
+                    grpc.StatusCode.UNAVAILABLE,
+                    grpc.StatusCode.DEADLINE_EXCEEDED,
+                    grpc.StatusCode.UNIMPLEMENTED,
+                    grpc.StatusCode.CANCELLED,
+                }:
+                    exit_code = 3
+                elif exc.code() in {
+                    grpc.StatusCode.ABORTED,
+                    grpc.StatusCode.ALREADY_EXISTS,
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    # 设计表 10-2：对象消失是业务失败（1），不是参数/配置错误（2）。
+                    grpc.StatusCode.NOT_FOUND,
+                }:
+                    exit_code = 1
+            elif isinstance(exc, RuntimeError):
+                # 进程管理层 fail-closed（身份不符、FIFO 预检失败等）是业务失败（1）。
+                exit_code = 1
+        finally:
+            if _shell_loop is None:
+                await runtime().close()
+        if exit_code and not cancelled_in_shell:
+            raise typer.Exit(code=exit_code)
+
+    if _shell_loop is None:
+        asyncio.run(invoke())
+    else:
+        future = asyncio.run_coroutine_threadsafe(invoke(), _shell_loop)
+        _active_rpc = future
+        try:
+            future.result()
+        except FutureCancelled as exc:
+            raise typer.Exit(code=130) from exc
+        finally:
+            _active_rpc = None
 
 
-def main() -> int:
-    shell = WindHubShell()
-    arguments = sys.argv[1:]
-    if arguments and arguments[0] == "--help":
-        print(help_text([]))
-        return 0
-    global_options: dict[str, str] = {}
-    while arguments and arguments[0] in {"--config", "--format", "--timeout"}:
-        option = arguments[0]
-        if len(arguments) < 2 or arguments[1].startswith("--"):
-            print(f"FAIL {option} requires a value", file=sys.stderr)
-            return 2
-        if option in global_options:
-            print(f"FAIL duplicate global option: {option}", file=sys.stderr)
-            return 2
-        global_options[option] = arguments[1]
-        arguments = arguments[2:]
-    if "--format" in global_options:
-        shell._format = global_options["--format"]
-        if shell._format not in {"table", "json"}:
-            print("FAIL --format must be table or json", file=sys.stderr)
-            return 2
-    if "--timeout" in global_options:
+@app.callback(invoke_without_command=True)
+def entry(
+    ctx: typer.Context,
+    config: Annotated[Path | None, typer.Option("--config", help="CLI YAML configuration")] = None,
+    output_format: Annotated[str | None, typer.Option("--format", help="table or json")] = None,
+) -> None:
+    global _config, _format, _runtime
+    if output_format is not None and output_format not in {"table", "json"}:
+        raise typer.BadParameter("must be table or json")
+    selected = config or (Path("cli.yaml") if Path("cli.yaml").is_file() else None)
+    _config, _format = selected, output_format
+    if _shell_loop is None:
+        _runtime = Runtime(selected, output_format)
+    if selected is not None:
         try:
-            shell._timeout = float(global_options["--timeout"])
-            if not math.isfinite(shell._timeout) or shell._timeout <= 0:
-                raise ValueError("timeout must be a positive finite number")
-        except ValueError as exc:
-            print(f"FAIL invalid --timeout: {exc}", file=sys.stderr)
-            return 2
-    if "--config" in global_options:
+            runtime().config()
+        except (ValueError, OSError) as exc:
+            raise typer.BadParameter(str(exc), param_hint="--config") from exc
+    if ctx.invoked_subcommand is None:
+        asyncio.run(shell())
+
+
+def _command_words() -> list[str]:
+    """Build completion and summary help from the actual registered Typer tree."""
+    root = typer.main.get_command(app)
+    names: list[str] = []
+
+    def visit(prefix: tuple[str, ...], group: Any) -> None:
+        commands = getattr(group, "commands", None)
+        if isinstance(commands, dict):
+            for name, child in commands.items():
+                visit((*prefix, name), child)
+        elif prefix:
+            names.append(" ".join(prefix))
+
+    visit((), root)
+    return sorted(set(names))
+
+
+@app.command("help")
+def help_command() -> None:
+    """List available stage-one command groups."""
+    print(chr(10).join(_command_words()))
+
+
+@app.command("exit")
+def exit_command() -> None:
+    """Exit a shell session (one-shot calls simply return)."""
+
+
+@service_app.command("list")
+def service_list() -> None:
+    try:
+        if _config is None:
+            raise ValueError("service list requires --config CLI_YAML")
+        targets = runtime().config().services
+        runtime().present(
+            "service list",
+            [
+                {
+                    "service": name,
+                    "endpoint": target.grpc_endpoint,
+                    "rpc_via": target.rpc_via,
+                    "manager": target.manager,
+                    "target": target.target,
+                }
+                for name, target in targets.items()
+            ],
+        )
+    except (ValueError, OSError) as exc:
+        runtime().error("service list", exc)
+        raise typer.Exit(code=2) from exc
+
+
+async def _manage_service(name: str, operation: str) -> dict[str, Any]:
+    """Report actual manager transition and separately observed gRPC health."""
+    context = runtime()
+    target = context.target(name)
+    process = await manage(target, operation)
+    result: dict[str, Any] = {
+        "service": name,
+        "operation": operation,
+        "process": process,
+    }
+    if operation == "stop":
+        result["business"] = {"health": "UNAVAILABLE", "reason": "process stopped"}
+        return result
+    if target.grpc_endpoint is None or target.rpc_via is not None:
+        result["business"] = {"health": "UNKNOWN", "reason": "no exclusive gRPC endpoint"}
+        return result
+    deadline = asyncio.get_running_loop().time() + target.timeout
+    while True:
         try:
-            shell.config.read(global_options["--config"])
-        except (ConfigError, ValueError, OSError) as exc:
-            print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
-            return 2
-    if arguments:
-        timer = Timer()
-        try:
-            payload = shell.dispatch(arguments)
-            if payload is None:
-                return 0
-            loaded = shell.config._current
-            result = response(
-                " ".join(arguments[:3]),
-                payload,
-                fingerprint=loaded.fingerprint if loaded is not None else None,
-                duration_ms=timer.elapsed_ms(),
-            )
-            emit(result, format_name=shell._format)
-            if result["status"] == "UNKNOWN":
-                return 3
-            if result["status"] == "FAIL":
-                return 2 if arguments[:2] == ["config", "validate"] else 1
-            return 0
-        except (ConfigError, ValueError, OSError, RuntimeError, KeyError) as exc:
-            if shell._format == "json":
-                emit(
-                    response(
-                        " ".join(arguments[:3]),
-                        {
-                            "status": "FAIL",
-                            "code": "CLI_ERROR",
-                            "message": f"{type(exc).__name__}: {exc}",
-                        },
-                        fingerprint=None,
-                        duration_ms=timer.elapsed_ms(),
-                    ),
-                    format_name="json",
-                )
+            result["business"] = await context.call_common(name, "GetServiceStatus")
+            return result
+        except grpc.aio.AioRpcError as exc:
+            if exc.code() not in {
+                grpc.StatusCode.UNAVAILABLE,
+                grpc.StatusCode.DEADLINE_EXCEEDED,
+            }:
+                raise
+            if asyncio.get_running_loop().time() >= deadline:
+                result["business"] = {"health": "UNKNOWN", "error": str(exc)}
+                return result
+            await asyncio.sleep(0.2)
+
+
+@service_app.command("start")
+def service_start(name: str, yes: bool = typer.Option(False, "--yes")) -> None:
+    from .safety import confirm_mutation
+
+    confirm_mutation(f"Start process {name}?", yes, command="service start")
+    _run("service start", _manage_service(name, "start"))
+
+
+@service_app.command("stop")
+def service_stop(name: str, yes: bool = typer.Option(False, "--yes")) -> None:
+    from .safety import confirm_mutation
+
+    confirm_mutation(f"Stop process {name}?", yes, command="service stop")
+    _run("service stop", _manage_service(name, "stop"))
+
+
+@service_app.command("restart")
+def service_restart(name: str, yes: bool = typer.Option(False, "--yes")) -> None:
+    from .safety import confirm_mutation
+
+    confirm_mutation(f"Restart process {name}?", yes, command="service restart")
+    _run("service restart", _manage_service(name, "restart"))
+
+
+@service_app.command("info")
+def service_info(name: str) -> None:
+    _run("service info", runtime().call_common(name, "GetServiceInfo"))
+
+
+@service_app.command("status")
+def service_status(name: Annotated[str | None, typer.Argument()] = None) -> None:
+    """Keep process state and business readiness separately observable."""
+
+    async def status() -> list[dict[str, Any]]:
+        names = [name] if name is not None else list(runtime().config().services)
+
+        async def check(item: str) -> dict[str, Any]:
+            target = runtime().target(item)
+            result: dict[str, Any] = {"service": item}
+            if target.manager is not None:
+                try:
+                    result["process"] = await manage(target, "status")
+                except (ValueError, OSError, RuntimeError, TimeoutError, grpc.RpcError) as exc:
+                    result["process"] = {"status": "UNKNOWN", "error": str(exc)}
             else:
-                print(f"FAIL {type(exc).__name__}: {exc}", file=sys.stderr)
-            return 2
-        except KeyboardInterrupt:
-            return 130
+                result["process"] = {"status": "UNMANAGED"}
+            if target.rpc_via is not None:
+                result["business"] = {
+                    "status": "UNKNOWN",
+                    "reason": "RPC uses shared manager endpoint",
+                    "rpc_via": target.rpc_via,
+                }
+            elif target.grpc_endpoint is None:
+                result["business"] = {"status": "UNAVAILABLE", "reason": "no gRPC endpoint"}
+            else:
+                try:
+                    result["business"] = await runtime().call_common(item, "GetServiceStatus")
+                except (ValueError, OSError, RuntimeError, TimeoutError, grpc.RpcError) as exc:
+                    result["business"] = {"health": "UNKNOWN", "error": str(exc)}
+            return result
 
-    shell._interactive = True
-    shell.cmdloop()
-    return 0
+        return await asyncio.gather(*(check(item) for item in names))
+
+    _run("service status", status())
+
+
+@service_app.command("capabilities")
+def service_capabilities(name: str) -> None:
+    _run("service capabilities", runtime().call_common(name, "GetCapabilities"))
+
+
+@config_app.command("diff")
+def config_diff(left: Path, right: Path) -> None:
+    try:
+        cfg = runtime().config() if _config else None
+        result = compare_directories(
+            left,
+            right,
+            max_file_bytes=cfg.diff_max_file_bytes if cfg else 1048576,
+            max_output_lines=cfg.diff_max_output_lines if cfg else 10000,
+        )
+        code = runtime().present("config diff", result)
+        if code:
+            raise typer.Exit(code=code)
+    except (ValueError, OSError) as exc:
+        runtime().error("config diff", exc)
+        raise typer.Exit(code=2) from exc
+
+
+@net_app.command("ping")
+def net_ping(host: str, timeout: float | None = None) -> None:
+    settings = runtime().config() if _config else None
+    default = settings.probe_timeout if settings else 1.0
+    _run("net ping", ping_probe(host, timeout if timeout is not None else default))
+
+
+@net_app.command("tcp")
+def net_tcp(host: str, port: int, timeout: float | None = None) -> None:
+    default = runtime().config().probe_timeout if _config else 1.0
+    _run("net tcp", tcp_probe(host, port, timeout if timeout is not None else default))
+
+
+@net_app.command("industrial")
+def net_industrial(host: str, timeout: float | None = None) -> None:
+    cfg = runtime().config() if _config else None
+    default = cfg.probe_timeout if cfg else 1.0
+    ports = cfg.industrial_ports if cfg else None
+    _run(
+        "net industrial", industrial_probe(host, timeout if timeout is not None else default, ports)
+    )
+
+
+@net_app.command("scan")
+def net_scan(cidr: str, timeout: float | None = None, concurrency: int | None = None) -> None:
+    cfg = runtime().config() if _config else None
+    default = cfg.probe_timeout if cfg else 1.0
+    workers = cfg.max_concurrency if cfg else 64
+    limit = cfg.max_hosts if cfg else 1024
+    _run(
+        "net scan",
+        scan_cidr(
+            cidr,
+            timeout if timeout is not None else default,
+            concurrency if concurrency is not None else workers,
+            limit,
+        ),
+    )
+
+
+def _dispatch_typer(arguments: list[str]) -> str:
+    """Parse shell commands via the same Typer tree as one-shot execution."""
+    command = typer.main.get_command(app)
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        try:
+            command.main(args=arguments, prog_name="wind-hub", standalone_mode=False)
+        except (click.exceptions.Exit, typer.Exit, _TyperClickExit):
+            pass  # Structured failure has already been emitted.
+        except (
+            click.ClickException,
+            typer_click_exceptions.ClickException,
+        ) as exc:
+            raise ValueError(exc.format_message()) from exc
+    return buffer.getvalue()
+
+
+async def shell() -> None:
+    """One event loop owns all grpc.aio channels across the shell session."""
+    global _shell_loop
+    _shell_loop = asyncio.get_running_loop()
+    loop = asyncio.get_running_loop()
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    try:
+        loop.add_signal_handler(
+            signal.SIGINT, lambda: _active_rpc.cancel() if _active_rpc else None
+        )
+        installed_handler = True
+    except (NotImplementedError, RuntimeError):
+        installed_handler = False
+    session = runtime()
+    cfg = session.config() if _config else None
+    history = SafeHistory() if cfg is None or cfg.history else DummyHistory()
+    words = _command_words()
+    prompt: PromptSession[str] = PromptSession(
+        history=history, completer=WordCompleter(words, sentence=True)
+    )
+    try:
+        while True:
+            try:
+                line = await prompt.prompt_async(cfg.prompt if cfg else "wind-hub> ")
+            except EOFError:
+                break
+            except KeyboardInterrupt:
+                continue
+            try:
+                arguments = shlex.split(line)
+            except ValueError as exc:
+                session.error("shell", exc)
+                continue
+            if not arguments:
+                continue
+            if arguments[0] in {"exit", "quit"}:
+                break
+            prefix = ["--config", str(_config)] if _config else []
+            if _format is not None:
+                prefix.extend(["--format", _format])
+            # prompt_toolkit installs its own SIGINT handler while prompting.
+            # Restore the foreground-RPC handler after every prompt, before
+            # dispatching blocking Typer commands in a worker thread.
+            if installed_handler:
+                loop.add_signal_handler(
+                    signal.SIGINT, lambda: _active_rpc.cancel() if _active_rpc else None
+                )
+            try:
+                output = await asyncio.to_thread(_dispatch_typer, prefix + arguments)
+                if output:
+                    print(output, end="")
+            except (ValueError, OSError, RuntimeError, grpc.RpcError) as exc:
+                session.error(line, exc)
+            except asyncio.CancelledError:
+                session.interrupted(line)
+    finally:
+        if installed_handler:
+            loop.remove_signal_handler(signal.SIGINT)
+            signal.signal(signal.SIGINT, previous_sigint)
+        _shell_loop = None
+        await session.close()
+
+
+def main() -> None:
+    app()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # `python -m cli.main` 通过 runpy 以 __main__ 身份再执行本文件；直接调用
+    # main() 会让 __main__ 与子模块惰性导入的 cli.main 成为两个实例，全局
+    # _config/_runtime 分裂（子模块命令拿到空 Runtime）。统一收敛到单例模块。
+    from cli.main import main as _cli_main
+
+    _cli_main()

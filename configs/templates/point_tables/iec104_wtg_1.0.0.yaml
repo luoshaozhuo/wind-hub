@@ -1,0 +1,68 @@
+# IEC 60870-5-104 风机点表：完整 CA/IOA 地址示例，必须以现场协议表为准。
+# Core 以 (ca, ioa) 作为唯一地址，单条 TCP 连接可包含多个公共地址 CA。
+# ca 为 0~65535 整数；ioa 为 0~16777215 整数，同一 CA 下 IOA 不可重复。
+# address.type/type_id 为 ASDU 类型（如 M_ME_NC_1、M_SP_NA_1、C_SE_NB_1）。
+# point.data_type 是标准 Python 标量类型，不是 IEC104 ASDU 类型。
+# 遥测 M_* 为只读；命令 C_* 可写，且命令点可指定 command_mode、confirmation。
+# command_mode：direct（直发）或 select_execute（选择后执行）。
+# confirmation：act_con（激活确认）或 act_term（激活终止）。
+# 监测点不得包含命令选项；控制点的访问语义依赖 address.type 以 C_ 开头。
+schema_version: 1
+template_id: iec104_wtg
+file_version: 1.0.0
+protocol: iec104
+points:
+  active_power:
+    business_point_id: active_power
+    point_groups: [all, electrical]
+    address:
+      ca: 1
+      ioa: 1001
+      type: M_ME_NB_1
+      type_id: M_ME_NB_1
+    data_type: int32
+    unit: kilowatt
+    scale: 1.0
+    offset: 0.0
+    description: "机组有功功率遥测，CA/IOA 为示例"
+  grid_frequency:
+    business_point_id: grid_frequency
+    point_groups: [all, electrical]
+    address:
+      ca: 1
+      ioa: 1002
+      type: M_ME_NC_1
+      type_id: M_ME_NC_1
+    data_type: float32
+    unit: hertz
+    scale: 1.0
+    offset: 0.0
+    description: "电网频率遥测，CA/IOA 为示例"
+  device_running:
+    business_point_id: device_running
+    point_groups: [all, status]
+    address:
+      ca: 1
+      ioa: 1003
+      type: M_SP_NA_1
+      type_id: M_SP_NA_1
+    data_type: bool
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "机组运行单点遥信，CA/IOA 为示例"
+  active_power_setpoint:
+    business_point_id: active_power_setpoint
+    point_groups: [all, control]
+    address:
+      ca: 1
+      ioa: 2001
+      type: C_SE_NC_1
+      type_id: C_SE_NC_1
+      command_mode: select_execute
+      confirmation: act_term
+    data_type: float32
+    unit: kilowatt
+    scale: 1.0
+    offset: 0.0
+    description: "有功设定值控制，CA/IOA 为示例"

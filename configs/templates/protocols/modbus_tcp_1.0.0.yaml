@@ -1,0 +1,22 @@
+# Modbus TCP 通用协议模板。当前 Core 仅支持 TCP，不支持 RTU/ASCII。
+# 此模板只定义协议级默认值；设备地址 host 与现场差异参数由实例或设备型号提供。
+# 优先级：设备实例 > 设备型号 > 本协议模板 > Core 解析器缺省值。
+schema_version: 1
+template_id: modbus_tcp
+file_version: 1.0.0
+protocol: modbus
+protocol_options:
+  # 传输方式：仅允许 tcp；不支持 serial、rtu、ascii。
+  mode: tcp
+  # Modbus 单元标识：整数 0~255。经网关访问时须按现场从站地址设置。
+  slave_id: 1
+  # 单次请求应答超时，单位秒，必须 > 0；不是采集任务调度周期。
+  timeout: 5.0
+  # 多寄存器组合数值的 16 位字顺序：big_endian 或 little_endian。
+  # 注意此项不等于单寄存器内字节序；应按 PLC 点表确认。
+  word_order: little_endian
+  # 健康检查测点 ID。null 表示不指定，由 Core 使用默认健康检查方式。
+  # 若指定字符串，必须是当前设备点表中的可读测点 point_id。
+  health_point_id: null
+# endpoint.host 在设备实例中配置，不能为空。
+# endpoint.port 可在设备实例或型号中覆盖；Core 默认 TCP 端口 502。

@@ -15,9 +15,9 @@ from core.infrastructure.config.versioned_templates import (
 
 
 def _template(root: Path, category: str, name: str, body: str) -> None:
-    directory = root / category / name
+    directory = root / category
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "1.0.0.yaml").write_text(
+    (directory / f"{name}_1.0.0.yaml").write_text(
         f"schema_version: 1\ntemplate_id: {name}\nfile_version: 1.0.0\n{body}",
         encoding="utf-8",
     )

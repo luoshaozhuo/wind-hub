@@ -1,266 +1,369 @@
-"""CLI 验收测试共享夹具：真实 YAML 配置副本 + 内存 Fake Driver。
+"""CLI v1 验收共享 fixture。
 
-所有协议交互均使用 FakeDriver，不触碰真实设备；网络类测试只使用本机
-loopback 上的临时 TCP 服务。
+- ``certs``：临时 CA / 服务器 / 客户端证书（cryptography 真实签发，不预生成静态资产）；
+- ``FakeRpcServer``：真实 grpc.aio 服务器，按冻结 proto 描述符注册六个服务的全部
+  Unary 方法，测试用 ``respond`` 注入响应或 gRPC 错误；这不是 mock daemon，
+  进程管理（containerd/iSulad/systemd）的真实验收另行处理；
+- ``cli_env``：临时 cli.yaml + 真实 mTLS 端点 + Typer CliRunner/子进程两种调用方式。
 """
 
 from __future__ import annotations
 
 import asyncio
-import shutil
+import datetime
+import ipaddress
+import json
+import socket
+import subprocess
 import sys
-from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+import threading
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import grpc
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
+from google.protobuf import message_factory
+from grpc import aio as grpc_aio
+from typer.testing import CliRunner
 
-from core.application.protocol_contract import (
-    ConnectionHealth,
-    ProtocolCapability,
-    ProtocolSample,
-    ProtocolWrite,
-    ProtocolWriteResult,
-    WriteOutcome,
+from contracts import (
+    collector_pb2,
+    commander_pb2,
+    common_pb2,
+    data_generator_pb2,
+    industrial_gateway_pb2,
+    sink_service_pb2,
 )
-from core.domain.sample_value import Quality
 
-FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "configs"
-CONFIG_NAMES = ("modbus", "iec104", "ads")
+_PB2_MODULES = (
+    common_pb2,
+    collector_pb2,
+    commander_pb2,
+    sink_service_pb2,
+    industrial_gateway_pb2,
+    data_generator_pb2,
+)
 
 
-def sample(point_id: str, value: object = 1.0, quality: Quality = Quality.GOOD) -> ProtocolSample:
-    return ProtocolSample(
-        point_id=point_id,
-        value=value,  # type: ignore[arg-type]
-        timestamp=datetime.now(UTC),
-        quality=quality,
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _write_certs(directory: Path) -> dict[str, Path]:
+    directory.mkdir(parents=True, exist_ok=True)
+    ca_key = ec.generate_private_key(ec.SECP256R1())
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "wind-hub-test-ca")])
+    now = datetime.datetime.now(datetime.UTC)
+    ca_cert = (
+        x509.CertificateBuilder()
+        .subject_name(ca_name)
+        .issuer_name(ca_name)
+        .public_key(ca_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=5))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(ca_key, hashes.SHA256())
     )
 
-
-@pytest.fixture
-def config_dir(tmp_path: Path) -> Callable[[str], Path]:
-    """把仓库示例配置复制到临时目录，测试可任意破坏文件内容。"""
-
-    def _copy(name: str = "modbus") -> Path:
-        if name not in CONFIG_NAMES:
-            raise KeyError(name)
-        target = tmp_path / f"cfg_{name}"
-        shutil.copytree(FIXTURE_ROOT / f"example_{name}", target)
-        return target
-
-    return _copy
-
-
-class FakeSubscription:
-    """模拟 SUBSCRIBE 句柄：start 推送一批，stop 幂等。"""
-
-    def __init__(self, driver: FakeDriver, callback: Any) -> None:
-        self._driver = driver
-        self._callback = callback
-        self._task: asyncio.Task[None] | None = None
-        self.stopped = False
-
-    async def start(self) -> None:
-        self._driver.events.append("subscribe_start")
-
-        async def _push() -> None:
-            await asyncio.sleep(0)
-            await self._callback(tuple(self._driver.sample_points))
-
-        self._task = asyncio.create_task(_push())
-
-    async def stop(self) -> None:
-        self._driver.events.append("subscribe_stop")
-        if self._task is not None:
-            await self._task
-        self.stopped = True
-
-
-class FakeListen:
-    """模拟 LISTEN 句柄：建立即推送一批，close 幂等。"""
-
-    def __init__(self, driver: FakeDriver, callback: Any) -> None:
-        self._driver = driver
-        self._callback = callback
-        self.closed = False
-
-    async def serve(self) -> None:
-        await asyncio.sleep(0)
-        await self._callback(tuple(self._driver.sample_points))
-
-    async def close(self) -> None:
-        self._driver.events.append("listen_close")
-        self.closed = True
-
-
-class FakeDriver:
-    """记录全部调用的协议 Driver 替身；行为可逐用例配置。"""
-
-    def __init__(
-        self,
-        device_id: str = "dev",
-        *,
-        capabilities: frozenset[ProtocolCapability] | None = None,
-        healthy: bool = True,
-        recorder: list[tuple[str, str]] | None = None,
-    ) -> None:
-        self.device_id = device_id
-        self._recorder = recorder
-        self._capabilities = capabilities or frozenset(
-            {
-                ProtocolCapability.READ,
-                ProtocolCapability.READ_MANY,
-                ProtocolCapability.WRITE,
-                ProtocolCapability.SUBSCRIBE,
-                ProtocolCapability.INTERROGATE,
-            }
+    def leaf(name: str, *, client: bool) -> tuple[Path, Path]:
+        key = ec.generate_private_key(ec.SECP256R1())
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)]))
+            .issuer_name(ca_cert.subject)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(minutes=5))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(
+                x509.ExtendedKeyUsage(
+                    [
+                        x509.oid.ExtendedKeyUsageOID.SERVER_AUTH
+                        if not client
+                        else x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH
+                    ]
+                ),
+                critical=True,
+            )
+            .add_extension(
+                x509.SubjectAlternativeName(
+                    [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+                ),
+                critical=False,
+            )
+            .sign(ca_key, hashes.SHA256())
         )
-        self.healthy = healthy
-        self.health_message: str | None = None
-        self.connects = 0
-        self.closes = 0
-        self.write_calls = 0
-        self.read_one_calls = 0
-        self.read_many_calls = 0
-        self.interrogate_calls = 0
-        self.events: list[str] = []
-        self.quality: Quality = Quality.GOOD
-        self.write_outcome = WriteOutcome.CONFIRMED_SUCCESS
-        self.write_timeout = False
-        self.read_gate: asyncio.Event | None = None
-        self.sample_points = (sample("active_power"), sample("wind_speed", 2.5))
-        self.last_write: ProtocolWrite[Any] | None = None
+        key_path = directory / f"{name}.key"
+        cert_path = directory / f"{name}.crt"
+        key_path.write_bytes(
+            key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            )
+        )
+        cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+        return cert_path, key_path
 
-    def _record(self, event: str) -> None:
-        self.events.append(event)
-        if self._recorder is not None:
-            self._recorder.append((self.device_id, event))
-
-    def capabilities(self) -> frozenset[ProtocolCapability]:
-        return self._capabilities
-
-    async def connect(self) -> None:
-        self.connects += 1
-        self._record("connect")
-
-    async def close(self) -> None:
-        self.closes += 1
-        self._record("close")
-
-    async def health(self) -> ConnectionHealth:
-        self._record("health")
-        return ConnectionHealth(healthy=self.healthy, message=self.health_message)
-
-    async def read_one(self, point_id: str) -> ProtocolSample:
-        self.read_one_calls += 1
-        return await self._sample(point_id)
-
-    async def _sample(self, point_id: str) -> ProtocolSample:
-        if self.read_gate is not None:
-            await self.read_gate.wait()
-        return sample(point_id, quality=self.quality)
-
-    async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
-        self.read_many_calls += 1
-        # Fake 原生批量读：与 read_one 调用计数独立，便于钉死“不模拟批量”。
-        collected: list[ProtocolSample] = []
-        for point_id in point_ids:
-            collected.append(await self._sample(point_id))
-        return tuple(collected)
-
-    async def write_one(self, write: ProtocolWrite[Any]) -> ProtocolWriteResult:
-        self.write_calls += 1
-        self.last_write = write
-        if self.write_timeout:
-            await asyncio.Event().wait()
-        return ProtocolWriteResult(point_id=write.point, outcome=self.write_outcome, message=None)
-
-    async def interrogate(self, request: Any) -> tuple[ProtocolSample, ...]:
-        self.interrogate_calls += 1
-        return tuple(self.sample_points)
-
-    def subscribe(self, point_ids: Sequence[str], callback: Any) -> FakeSubscription:
-        self.events.append("subscribe_create")
-        return FakeSubscription(self, callback)
-
-    async def listen(self, point_ids: Sequence[str], callback: Any) -> FakeListen:
-        self.events.append("listen_create")
-        handle = FakeListen(self, callback)
-        await handle.serve()
-        return handle
+    ca_path = directory / "ca.crt"
+    ca_path.write_bytes(ca_cert.public_bytes(serialization.Encoding.PEM))
+    server_crt, server_key = leaf("server", client=False)
+    client_crt, client_key = leaf("client", client=True)
+    return {
+        "ca": ca_path,
+        "server_crt": server_crt,
+        "server_key": server_key,
+        "client_crt": client_crt,
+        "client_key": client_key,
+    }
 
 
 @pytest.fixture
-def fake_drivers(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """在三个 CLI 模块注入同一套按设备 ID 索引的 FakeDriver。"""
+def certs(tmp_path: Path) -> dict[str, Path]:
+    return _write_certs(tmp_path / "certs")
 
-    registry: dict[str, Any] = {}
-    releases: list[bool] = []
-    order: list[tuple[str, str]] = []
-    tcp_probes: list[tuple[str, int]] = []
-    # 预建示例配置中的设备，用例可在调用前配置其行为。
-    registry["modbus-001"] = FakeDriver("modbus-001", recorder=order)
-    registry["wtg-101"] = FakeDriver("wtg-101", recorder=order)
-    registry["ads-001"] = FakeDriver("ads-001", recorder=order)
-    registry["ads-010"] = FakeDriver("ads-010", recorder=order)
 
-    def factory(snapshot: object, device_id: str) -> FakeDriver:
-        if device_id not in registry:
-            registry[device_id] = FakeDriver(device_id, recorder=order)
-        return registry[device_id]
+Behavior = Callable[[Any, grpc_aio.ServicerContext], Awaitable[Any]]
 
-    async def prepare(snapshot: object, driver: FakeDriver) -> bool:
-        driver.events.append("prepare_ads")
-        return False
 
-    async def release(prepared: bool) -> None:
-        releases.append(prepared)
+@dataclass
+class CallRecord:
+    path: str
+    request: Any
 
-    import cli.pipeline as pipeline_mod
-    import cli.protocol_diagnostic as diag_mod
-    import cli.protocol_stream as stream_mod
 
-    monkeypatch.setattr(pipeline_mod, "create_driver", factory)
-    monkeypatch.setattr(diag_mod, "create_driver", factory)
-    monkeypatch.setattr(stream_mod, "create_driver", factory)
-    monkeypatch.setattr(pipeline_mod, "prepare_ads", prepare)
-    monkeypatch.setattr(diag_mod, "prepare_ads", prepare)
-    monkeypatch.setattr(stream_mod, "prepare_ads", prepare)
-    monkeypatch.setattr(pipeline_mod, "release_ads", release)
-    monkeypatch.setattr(diag_mod, "release_ads", release)
-    monkeypatch.setattr(stream_mod, "release_ads", release)
+class FakeRpcServer:
+    """真实 grpc.aio 服务器；行为表按 /package.Service/Method 注册。"""
 
-    # Sink 出站探针同样使用替身：CLI 单测是 hermetic 的，不得隐式依赖
-    # 宿主机 6379 等端口上恰好有服务（Round 1 曾因此假绿）。
-    async def default_fake_tcp(host: str, port: int, *, timeout: float) -> dict[str, Any]:
-        tcp_probes.append((host, port))
-        return {"status": "PASS", "host": host, "port": port, "elapsed_ms": 0.1}
+    def __init__(self, cert_files: dict[str, Path]) -> None:
+        self.cert_files = cert_files
+        self.port = _free_port()
+        self.behaviors: dict[str, Behavior] = {}
+        self.errors: dict[str, grpc.StatusCode] = {}
+        self.calls: list[CallRecord] = []
+        self._server: grpc_aio.Server | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
 
-    monkeypatch.setattr(pipeline_mod, "tcp", default_fake_tcp)
-    registry["_releases"] = releases
-    registry["_order"] = order
-    registry["_tcp_probes"] = tcp_probes
-    return registry
+    def respond(self, method: str, behavior: Behavior) -> None:
+        self.behaviors[method] = behavior
+
+    def respond_value(self, method: str, response: Any) -> None:
+        async def behavior(request: Any, context: grpc_aio.ServicerContext) -> Any:
+            return response
+
+        self.respond(method, behavior)
+
+    def fail(self, method: str, code: grpc.StatusCode, details: str = "injected") -> None:
+        async def behavior(request: Any, context: grpc_aio.ServicerContext) -> Any:
+            await context.abort(code, details)
+
+        self.respond(method, behavior)
+
+    def start_thread(self) -> None:
+        """在专用线程的事件循环中运行——CLI 在主线程独立循环发起真实 TCP/mTLS 调用。"""
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(
+            target=self._loop.run_forever, name="fake-rpc-server", daemon=True
+        )
+        self._thread.start()
+        future = asyncio.run_coroutine_threadsafe(self._build(), self._loop)
+        future.result(10)
+
+    def stop_thread(self) -> None:
+        if self._loop is None or self._thread is None:
+            return
+        future = asyncio.run_coroutine_threadsafe(self._shutdown(), self._loop)
+        future.result(10)
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._thread.join(timeout=5)
+        self._loop = None
+        self._thread = None
+
+    async def _build(self, *, require_client: bool = True) -> None:
+        server = grpc_aio.server()
+        for module in _PB2_MODULES:
+            for service in module.DESCRIPTOR.services_by_name.values():
+                handlers: dict[str, grpc.RpcMethodHandler] = {}
+                for method in service.methods:
+                    if method.client_streaming or method.server_streaming:
+                        continue  # v1 CLI 只使用 Unary RPC
+                    request_cls = message_factory.GetMessageClass(method.input_type)
+                    response_cls = message_factory.GetMessageClass(method.output_type)
+                    path = f"/{service.full_name}/{method.name}"
+                    handlers[method.name] = grpc.unary_unary_rpc_method_handler(
+                        self._make(path, request_cls),
+                        request_deserializer=request_cls.FromString,
+                        response_serializer=response_cls.SerializeToString,
+                    )
+                server.add_generic_rpc_handlers(
+                    (grpc.method_handlers_generic_handler(service.full_name, handlers),)
+                )
+        credentials = grpc.ssl_server_credentials(
+            [
+                (
+                    self.cert_files["server_key"].read_bytes(),
+                    self.cert_files["server_crt"].read_bytes(),
+                )
+            ],
+            root_certificates=self.cert_files["ca"].read_bytes(),
+            require_client_auth=require_client,
+        )
+        server.add_secure_port(f"127.0.0.1:{self.port}", credentials)
+        await server.start()
+        self._server = server
+
+    async def _shutdown(self) -> None:
+        if self._server is not None:
+            await self._server.stop(grace=1)
+            self._server = None
+
+    def _make(self, path: str, request_cls: Any) -> Callable[..., Awaitable[Any]]:
+        async def dispatch(raw_request: Any, context: grpc_aio.ServicerContext) -> Any:
+            request = request_cls() if raw_request is None else raw_request
+            self.calls.append(CallRecord(path, request))
+            behavior = self.behaviors.get(path)
+            if behavior is None:
+                await context.abort(grpc.StatusCode.UNIMPLEMENTED, f"no test behavior for {path}")
+                raise AssertionError("unreachable after abort")
+            return await behavior(request, context)
+
+        return dispatch
+
+    def method_path(self, service_name: str, method: str) -> str:
+        for module in _PB2_MODULES:
+            service = module.DESCRIPTOR.services_by_name.get(service_name)
+            if service is not None:
+                return f"/{service.full_name}/{method}"
+        raise KeyError(service_name)
 
 
 @pytest.fixture
-def run_cli(capsys: pytest.CaptureFixture[str]) -> Callable[[list[str]], tuple[int, str, str]]:
-    """在进程内执行单次 CLI，返回 (退出码, stdout, stderr)。"""
+def fake_server(certs: dict[str, Path]):
+    server = FakeRpcServer(certs)
+    server.start_thread()
+    try:
+        yield server
+    finally:
+        server.stop_thread()
 
-    def _run(argv: list[str]) -> tuple[int, str, str]:
-        from cli.main import main
 
-        old_argv = sys.argv
-        sys.argv = ["wind-hub", *argv]
-        try:
-            rc = main()
-        except SystemExit as exc:
-            rc = int(exc.code) if exc.code is not None else 0
-        finally:
-            sys.argv = old_argv
-        captured = capsys.readouterr()
-        return rc, captured.out, captured.err
+def _write_cli_yaml(
+    path: Path, cert_files: dict[str, Path], port: int, *, tls: bool = True
+) -> Path:
+    services = "\n".join(
+        f"""  {name}:
+    grpc_endpoint: "localhost:{port}"
+    tls_profile: mtls"""
+        for name in (
+            "collector",
+            "commander",
+            "sink_realtime",
+            "sink_reliable",
+            "gateway",
+            "data_generator",
+        )
+    )
+    profile = ""
+    if tls:
+        profile = f"""
+tls_profiles:
+  mtls:
+    ca_cert: {cert_files['ca']}
+    client_cert: {cert_files['client_crt']}
+    client_key: {cert_files['client_key']}
+"""
+    path.write_text(
+        f"""schema_version: 1
+cli:
+  timeout_seconds: 5
+  output_format: table
+services:
+{services}
+{profile}
+""",
+        encoding="utf-8",
+    )
+    return path
 
-    return _run
+
+@dataclass
+class CliResult:
+    exit_code: int
+    stdout: str
+
+    def json(self) -> dict[str, Any]:
+        lines = [line for line in self.stdout.splitlines() if line.startswith("{")]
+        assert lines, f"no JSON envelope in output: {self.stdout!r}"
+        result: dict[str, Any] = json.loads(lines[-1])
+        return result
+
+
+@dataclass
+class CliEnv:
+    config_path: Path
+    server: FakeRpcServer
+    invoke: Callable[..., CliResult]
+    subprocess_invoke: Callable[..., CliResult]
+
+
+@pytest.fixture
+def cli_env(tmp_path: Path, certs: dict[str, Path], fake_server: FakeRpcServer):
+    import cli.main as main_module
+
+    config_path = _write_cli_yaml(tmp_path / "cli.yaml", certs, fake_server.port)
+    runner = CliRunner()
+    previous = (
+        main_module._config,
+        main_module._format,
+        main_module._runtime,
+        main_module._shell_loop,
+        main_module._active_rpc,
+    )
+
+    def invoke(*arguments: str, format: str = "json") -> CliResult:
+        args = ["--config", str(config_path)]
+        if format:
+            args.extend(["--format", format])
+        args.extend(arguments)
+        result = runner.invoke(main_module.app, args, catch_exceptions=False)
+        return CliResult(result.exit_code, result.stdout)
+
+    def subprocess_invoke(*arguments: str) -> CliResult:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "cli.main",
+                "--config",
+                str(config_path),
+                "--format",
+                "json",
+                *arguments,
+            ],
+            cwd=Path(__file__).resolve().parents[2] / "src",
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        return CliResult(completed.returncode, completed.stdout)
+
+    yield CliEnv(config_path, fake_server, invoke, subprocess_invoke)
+
+    (
+        main_module._config,
+        main_module._format,
+        main_module._runtime,
+        main_module._shell_loop,
+        main_module._active_rpc,
+    ) = previous

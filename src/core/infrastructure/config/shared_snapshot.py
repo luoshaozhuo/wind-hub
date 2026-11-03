@@ -25,6 +25,9 @@ from core.domain import (
     validate_core_config,
 )
 from core.domain.unit import UnitCatalog
+from core.infrastructure.protocol.ads.config import parse_ads_config
+from core.infrastructure.protocol.iec104.config import parse_iec104_config
+from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
 from .business_points import parse_business_points
 from .shared_documents import SharedDocuments
@@ -52,6 +55,13 @@ def _content(document: Mapping[str, Any]) -> dict[str, Any]:
         for key, value in document.items()
         if key not in {"schema_version", "file_version", "template_id"}
     }
+
+
+_PROTOCOL_PARSERS = {
+    "ads": parse_ads_config,
+    "modbus": parse_modbus_config,
+    "iec104": parse_iec104_config,
+}
 
 
 def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
@@ -100,6 +110,24 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
         type_id = DeviceTypeId(str(model_data.get("device_type_id", "generic")))
         device_types.setdefault(type_id, DeviceType(type_id, str(type_id)))
         model_id = DeviceModelId(f"{model.reference.template_id}@{model.reference.file_version}")
+        # 协议模板提供默认参数；设备型号覆盖协议模板；实例覆盖设备型号。
+        protocol_document = _content(definition.templates.protocol.document)
+        if set(protocol_document) - {"protocol", "protocol_options"}:
+            raise ConfigError(f"{device_id}: unknown protocol template fields")
+        protocol_defaults = protocol_document.get("protocol_options", {})
+        model_options = model_data.get("protocol_options", {})
+        if not isinstance(protocol_defaults, dict) or not isinstance(model_options, dict):
+            raise ConfigError(f"{device_id}: invalid protocol_options mapping")
+        merged_options = {**protocol_defaults, **model_options}
+        effective_options = {**merged_options, **definition.protocol_options}
+        endpoint_defaults = model_data.get("endpoint_defaults", {})
+        _PROTOCOL_PARSERS[protocol](
+            ConnectionEndpoint(
+                host=definition.endpoint["host"],
+                port=definition.endpoint.get("port") or endpoint_defaults.get("port"),
+            ),
+            effective_options,
+        )
         models[model_id] = DeviceModel(
             device_model_id=model_id,
             device_type_id=type_id,
@@ -107,7 +135,7 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
             name=model_data.get("name"),
             manufacturer=model_data.get("manufacturer"),
             endpoint_defaults=model_data.get("endpoint_defaults", {}),
-            protocol_options=model_data.get("protocol_options", {}),
+            protocol_options=merged_options,
         )
         group_id = DeviceGroupId(device_id)
         groups[group_id] = DeviceGroup(group_id, device_id)

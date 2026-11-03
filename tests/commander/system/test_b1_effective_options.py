@@ -65,9 +65,9 @@ def _build_tree(
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
     (root / "instances" / "devices.yaml").write_text(devices_yaml, encoding="utf-8")
-    model_file = root / "templates/device_models/modbus_wtg/1.0.0.yaml"
+    model_file = root / "templates/device_models/modbus_wtg_1.0.0.yaml"
     model_file.write_text(model_yaml, encoding="utf-8")
-    (root / "templates/point_tables/modbus_wtg/1.0.0.yaml").write_text(
+    (root / "templates/point_tables/modbus_wtg_1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
     (root / "templates/business_points.yaml").write_text(_BUSINESS_POINTS, encoding="utf-8")
@@ -300,7 +300,7 @@ async def test_model_option_change_rotates_fingerprint_and_reload_routes_new_ses
             assert first is not None and first.state.value == "SUCCEEDED"
 
             # 修改型号模板：默认端口 A → B。
-            model_file = config_root / "templates/device_models/modbus_wtg/1.0.0.yaml"
+            model_file = config_root / "templates/device_models/modbus_wtg_1.0.0.yaml"
             model_file.write_text(
                 _model_yaml(port=port_b, word_order="big_endian"),
                 encoding="utf-8",

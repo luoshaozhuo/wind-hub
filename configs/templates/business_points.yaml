@@ -1,7 +1,938 @@
+# Core 共享业务量语义目录：按物理量和控制语义分类，不枚举设备具体测点。
+# 传感器编号、叶片编号、相别、设备层级和时间统计窗口由 point_tables 表达。
+# 业务点不包含协议地址、设备实例编号及访问权限。
 schema_version: 1
-file_version: 1.0.0
+file_version: 1.2.0
 business_points:
   active_power:
     data_type: int32
     unit: kilowatt
-    description: Active power
+    description: "有功功率"
+  reactive_power:
+    data_type: float32
+    unit: kilovar
+    description: "无功功率"
+  apparent_power:
+    data_type: float32
+    unit: kilovolt_ampere
+    description: "视在功率"
+  active_energy_import:
+    data_type: float32
+    unit: kilowatt_hour
+    description: "有功电能输入"
+  active_energy_export:
+    data_type: float32
+    unit: kilowatt_hour
+    description: "有功电能输出"
+  reactive_energy_import:
+    data_type: float32
+    unit: kilovar_hour
+    description: "无功电能输入"
+  reactive_energy_export:
+    data_type: float32
+    unit: kilovar_hour
+    description: "无功电能输出"
+  apparent_energy:
+    data_type: float32
+    unit: kilovolt_ampere_hour
+    description: "视在电能"
+  power_factor:
+    data_type: float32
+    unit: power_factor_one
+    description: "功率因数"
+  grid_frequency:
+    data_type: float32
+    unit: hertz
+    description: "电网频率"
+  frequency_deviation:
+    data_type: float32
+    unit: hertz
+    description: "频率偏差"
+  frequency_rocof:
+    data_type: float32
+    unit: hertz_per_second
+    description: "电网频率变化率"
+  grid_voltage:
+    data_type: float32
+    unit: volt
+    description: "电网电压"
+  grid_current:
+    data_type: float32
+    unit: ampere
+    description: "电网电流"
+  grid_neutral_current:
+    data_type: float32
+    unit: ampere
+    description: "电网中性线电流"
+  voltage_unbalance:
+    data_type: float32
+    unit: percent
+    description: "电压不平衡度"
+  current_unbalance:
+    data_type: float32
+    unit: percent
+    description: "电流不平衡度"
+  voltage_thd:
+    data_type: float32
+    unit: percent
+    description: "电压总谐波畸变率"
+  current_thd:
+    data_type: float32
+    unit: percent
+    description: "电流总谐波畸变率"
+  grid_phase_angle:
+    data_type: float32
+    unit: degree
+    description: "电网相角"
+  positive_sequence_voltage:
+    data_type: float32
+    unit: volt
+    description: "正序电压"
+  negative_sequence_voltage:
+    data_type: float32
+    unit: volt
+    description: "负序电压"
+  zero_sequence_voltage:
+    data_type: float32
+    unit: volt
+    description: "零序电压"
+  positive_sequence_current:
+    data_type: float32
+    unit: ampere
+    description: "正序电流"
+  negative_sequence_current:
+    data_type: float32
+    unit: ampere
+    description: "负序电流"
+  zero_sequence_current:
+    data_type: float32
+    unit: ampere
+    description: "零序电流"
+  insulation_resistance:
+    data_type: float32
+    unit: megaohm
+    description: "绝缘电阻"
+  ground_resistance:
+    data_type: float32
+    unit: ohm
+    description: "接地电阻"
+  leakage_current:
+    data_type: float32
+    unit: milliampere
+    description: "漏电电流"
+  dc_bus_voltage:
+    data_type: float32
+    unit: volt
+    description: "直流母线电压"
+  dc_bus_current:
+    data_type: float32
+    unit: ampere
+    description: "直流母线电流"
+  dc_bus_power:
+    data_type: float32
+    unit: kilowatt
+    description: "直流母线功率"
+  dc_link_capacitor_temperature:
+    data_type: float32
+    unit: celsius
+    description: "直流链路电容器温度"
+  converter_temperature:
+    data_type: float32
+    unit: celsius
+    description: "变流器温度"
+  transformer_oil_temperature:
+    data_type: float32
+    unit: celsius
+    description: "变压器油温度"
+  transformer_winding_temperature:
+    data_type: float32
+    unit: celsius
+    description: "变压器绕组温度"
+  transformer_load_ratio:
+    data_type: float32
+    unit: percent
+    description: "变压器负载比率"
+  transformer_tap_position:
+    data_type: int32
+    unit: none
+    description: "变压器分接开关位置"
+  device_operating_state:
+    data_type: int32
+    unit: none
+    description: "设备运行状态"
+  device_control_mode:
+    data_type: int32
+    unit: none
+    description: "设备控制模式"
+  device_fault_code:
+    data_type: int32
+    unit: none
+    description: "设备故障代码"
+  device_warning_code:
+    data_type: int32
+    unit: none
+    description: "设备告警代码"
+  device_run_time:
+    data_type: float32
+    unit: hour
+    description: "设备运行时间"
+  device_start_count:
+    data_type: uint64
+    unit: none
+    description: "设备启动次数"
+  device_availability:
+    data_type: float32
+    unit: percent
+    description: "设备可利用率"
+  device_online:
+    data_type: bool
+    unit: none
+    description: "设备在线"
+  device_running:
+    data_type: bool
+    unit: none
+    description: "设备运行中"
+  device_ready:
+    data_type: bool
+    unit: none
+    description: "设备就绪"
+  device_fault_active:
+    data_type: bool
+    unit: none
+    description: "设备故障有功"
+  device_warning_active:
+    data_type: bool
+    unit: none
+    description: "设备告警有功"
+  device_emergency_stop:
+    data_type: bool
+    unit: none
+    description: "设备紧急停止"
+  device_remote_control_enabled:
+    data_type: bool
+    unit: none
+    description: "设备远程控制使能"
+  device_maintenance_mode:
+    data_type: bool
+    unit: none
+    description: "设备检修模式"
+  device_comm_health:
+    data_type: int32
+    unit: none
+    description: "设备通信健康"
+  device_control_enable_command:
+    data_type: bool
+    unit: none
+    description: "设备控制使能指令"
+  device_start_command:
+    data_type: bool
+    unit: none
+    description: "设备启动指令"
+  device_stop_command:
+    data_type: bool
+    unit: none
+    description: "设备停止指令"
+  device_reset_fault_command:
+    data_type: bool
+    unit: none
+    description: "设备复位故障指令"
+  active_power_setpoint:
+    data_type: float32
+    unit: kilowatt
+    description: "有功功率设定值"
+  reactive_power_setpoint:
+    data_type: float32
+    unit: kilovar
+    description: "无功功率设定值"
+  power_factor_setpoint:
+    data_type: float32
+    unit: power_factor_one
+    description: "功率因数设定值"
+  voltage_setpoint:
+    data_type: float32
+    unit: volt
+    description: "电压设定值"
+  frequency_setpoint:
+    data_type: float32
+    unit: hertz
+    description: "频率设定值"
+  active_power_limit:
+    data_type: float32
+    unit: kilowatt
+    description: "有功功率限制"
+  # 厂商 PLC 原始限功率控制字；与标准工程值 active_power_limit 区分。
+  # 该数据为 16 位有符号原始值，实际工程单位、比例与符号待设备手册确认。
+  active_power_limit_raw:
+    data_type: int16
+    unit: none
+    description: "有功功率限制原始控制字"
+  reactive_power_limit:
+    data_type: float32
+    unit: kilovar
+    description: "无功功率限制"
+  wind_speed:
+    data_type: float32
+    unit: meter_per_second
+    description: "风速度"
+  wind_gust_speed:
+    data_type: float32
+    unit: meter_per_second
+    description: "风阵风速度"
+  wind_direction:
+    data_type: float32
+    unit: degree
+    description: "风方向"
+  air_temperature:
+    data_type: float32
+    unit: celsius
+    description: "空气温度"
+  air_pressure:
+    data_type: float32
+    unit: pascal
+    description: "空气压力"
+  air_density:
+    data_type: float32
+    unit: kilogram_per_cubic_meter
+    description: "空气密度"
+  relative_humidity:
+    data_type: float32
+    unit: relative_humidity_percent
+    description: "相对湿度"
+  turbulence_intensity:
+    data_type: float32
+    unit: percent
+    description: "湍流强度"
+  nacelle_direction:
+    data_type: float32
+    unit: degree
+    description: "机舱方向"
+  nacelle_position:
+    data_type: float32
+    unit: degree
+    description: "机舱位置"
+  yaw_error:
+    data_type: float32
+    unit: degree
+    description: "偏航误差"
+  yaw_rate:
+    data_type: float32
+    unit: degree_per_second
+    description: "偏航速率"
+  yaw_brake_applied:
+    data_type: bool
+    unit: none
+    description: "偏航制动器投入"
+  rotor_speed:
+    data_type: float32
+    unit: revolution_per_minute
+    description: "叶轮速度"
+  rotor_azimuth:
+    data_type: float32
+    unit: degree
+    description: "叶轮方位角"
+  generator_speed:
+    data_type: float32
+    unit: revolution_per_minute
+    description: "发电机速度"
+  generator_torque:
+    data_type: float32
+    unit: kilonewton_meter_torque
+    description: "发电机转矩"
+  generator_torque_setpoint:
+    data_type: float32
+    unit: kilonewton_meter_torque
+    description: "发电机转矩设定值"
+  generator_temperature:
+    data_type: float32
+    unit: celsius
+    description: "发电机温度"
+  generator_current:
+    data_type: float32
+    unit: ampere
+    description: "发电机电流"
+  generator_voltage:
+    data_type: float32
+    unit: volt
+    description: "发电机电压"
+  generator_frequency:
+    data_type: float32
+    unit: hertz
+    description: "发电机频率"
+  gearbox_oil_temperature:
+    data_type: float32
+    unit: celsius
+    description: "齿轮箱油温度"
+  gearbox_oil_pressure:
+    data_type: float32
+    unit: bar
+    description: "齿轮箱油压力"
+  gearbox_oil_level:
+    data_type: float32
+    unit: percent
+    description: "齿轮箱油液位"
+  gearbox_vibration:
+    data_type: float32
+    unit: millimeter_per_second
+    description: "齿轮箱振动"
+  main_bearing_vibration:
+    data_type: float32
+    unit: millimeter_per_second
+    description: "主轴承振动"
+  main_shaft_torque:
+    data_type: float32
+    unit: kilonewton_meter_torque
+    description: "主轴转矩"
+  blade_1_pitch_angle:
+    data_type: float32
+    unit: degree
+    description: "叶片一变桨角度"
+  blade_2_pitch_angle:
+    data_type: float32
+    unit: degree
+    description: "叶片二变桨角度"
+  blade_3_pitch_angle:
+    data_type: float32
+    unit: degree
+    description: "叶片三变桨角度"
+  blade_pitch_setpoint:
+    data_type: float32
+    unit: degree
+    description: "叶片变桨设定值"
+  blade_1_pitch_motor_current:
+    data_type: float32
+    unit: ampere
+    description: "叶片一变桨电机电流"
+  blade_2_pitch_motor_current:
+    data_type: float32
+    unit: ampere
+    description: "叶片二变桨电机电流"
+  blade_3_pitch_motor_current:
+    data_type: float32
+    unit: ampere
+    description: "叶片三变桨电机电流"
+  blade_1_pitch_motor_temperature:
+    data_type: float32
+    unit: celsius
+    description: "叶片一变桨电机温度"
+  blade_2_pitch_motor_temperature:
+    data_type: float32
+    unit: celsius
+    description: "叶片二变桨电机温度"
+  blade_3_pitch_motor_temperature:
+    data_type: float32
+    unit: celsius
+    description: "叶片三变桨电机温度"
+  blade_1_root_bending_moment:
+    data_type: float32
+    unit: kilonewton_meter_torque
+    description: "叶片一根部弯曲弯矩"
+  blade_2_root_bending_moment:
+    data_type: float32
+    unit: kilonewton_meter_torque
+    description: "叶片二根部弯曲弯矩"
+  blade_3_root_bending_moment:
+    data_type: float32
+    unit: kilonewton_meter_torque
+    description: "叶片三根部弯曲弯矩"
+  blade_ice_detected:
+    data_type: bool
+    unit: none
+    description: "叶片结冰检测到"
+  pitch_system_fault:
+    data_type: bool
+    unit: none
+    description: "变桨系统故障"
+  hydraulic_system_pressure:
+    data_type: float32
+    unit: bar
+    description: "液压系统压力"
+  hydraulic_system_temperature:
+    data_type: float32
+    unit: celsius
+    description: "液压系统温度"
+  hydraulic_oil_level:
+    data_type: float32
+    unit: percent
+    description: "液压油液位"
+  nacelle_temperature:
+    data_type: float32
+    unit: celsius
+    description: "机舱温度"
+  nacelle_vibration:
+    data_type: float32
+    unit: millimeter_per_second
+    description: "机舱振动"
+  tower_door_open:
+    data_type: bool
+    unit: none
+    description: "塔筒门打开"
+  turbine_state:
+    data_type: int32
+    unit: none
+    description: "风力机组状态"
+  turbine_curtailment_active:
+    data_type: bool
+    unit: none
+    description: "风力机组限发有功"
+  turbine_icing_mode:
+    data_type: bool
+    unit: none
+    description: "风力机组结冰模式"
+  turbine_energy_production:
+    data_type: float32
+    unit: kilowatt_hour
+    description: "风机累计发电量"
+  turbine_power_curve_reference:
+    data_type: float32
+    unit: kilowatt
+    description: "风力机组功率曲线参考"
+  pv_dc_voltage:
+    data_type: float32
+    unit: volt
+    description: "光伏直流电压"
+  pv_dc_current:
+    data_type: float32
+    unit: ampere
+    description: "光伏直流电流"
+  pv_dc_power:
+    data_type: float32
+    unit: kilowatt
+    description: "光伏直流功率"
+  pv_ground_fault:
+    data_type: bool
+    unit: none
+    description: "光伏接地故障"
+  pv_insulation_resistance:
+    data_type: float32
+    unit: megaohm
+    description: "光伏绝缘电阻"
+  pv_module_temperature:
+    data_type: float32
+    unit: celsius
+    description: "光伏组件温度"
+  pv_cell_temperature:
+    data_type: float32
+    unit: celsius
+    description: "光伏电池片温度"
+  pv_ambient_temperature:
+    data_type: float32
+    unit: celsius
+    description: "光伏环境温度"
+  pv_inverter_efficiency:
+    data_type: float32
+    unit: efficiency_percent
+    description: "光伏逆变器转换效率"
+  pv_inverter_temperature:
+    data_type: float32
+    unit: celsius
+    description: "光伏逆变器温度"
+  pv_inverter_igbt_temperature:
+    data_type: float32
+    unit: celsius
+    description: "光伏逆变器IGBT温度"
+  pv_inverter_operating_state:
+    data_type: int32
+    unit: none
+    description: "光伏逆变器运行状态"
+  pv_inverter_fault_code:
+    data_type: int32
+    unit: none
+    description: "光伏逆变器故障代码"
+  pv_inverter_warning_code:
+    data_type: int32
+    unit: none
+    description: "光伏逆变器告警代码"
+  pv_inverter_active_power_setpoint:
+    data_type: float32
+    unit: kilowatt
+    description: "光伏逆变器有功功率设定值"
+  pv_inverter_reactive_power_setpoint:
+    data_type: float32
+    unit: kilovar
+    description: "光伏逆变器无功功率设定值"
+  pv_inverter_power_factor_setpoint:
+    data_type: float32
+    unit: power_factor_one
+    description: "光伏逆变器功率因数设定值"
+  pv_inverter_active_power_limit:
+    data_type: float32
+    unit: kilowatt
+    description: "光伏逆变器有功功率限制"
+  pv_inverter_grid_connected:
+    data_type: bool
+    unit: none
+    description: "光伏逆变器电网已连接"
+  pv_tracker_azimuth:
+    data_type: float32
+    unit: degree
+    description: "光伏跟踪支架方位角"
+  pv_tracker_tilt:
+    data_type: float32
+    unit: degree
+    description: "光伏跟踪支架倾角"
+  pv_tracker_azimuth_setpoint:
+    data_type: float32
+    unit: degree
+    description: "光伏跟踪支架方位角设定值"
+  pv_tracker_tilt_setpoint:
+    data_type: float32
+    unit: degree
+    description: "光伏跟踪支架倾角设定值"
+  pv_tracker_wind_stow_active:
+    data_type: bool
+    unit: none
+    description: "光伏跟踪支架风避风收拢有功"
+  pv_tracker_fault:
+    data_type: bool
+    unit: none
+    description: "光伏跟踪支架故障"
+  pv_tracker_operating_state:
+    data_type: int32
+    unit: none
+    description: "光伏跟踪支架运行状态"
+  battery_soc:
+    data_type: float32
+    unit: percent
+    description: "电池荷电状态（SOC）"
+  battery_soh:
+    data_type: float32
+    unit: percent
+    description: "电池健康状态（SOH）"
+  battery_soe:
+    data_type: float32
+    unit: percent
+    description: "电池能量状态（SOE）"
+  battery_sop_charge:
+    data_type: float32
+    unit: kilowatt
+    description: "电池最大允许充电功率"
+  battery_sop_discharge:
+    data_type: float32
+    unit: kilowatt
+    description: "电池最大允许放电功率"
+  battery_voltage:
+    data_type: float32
+    unit: volt
+    description: "电池电压"
+  battery_current:
+    data_type: float32
+    unit: ampere
+    description: "电池电流"
+  battery_power:
+    data_type: float32
+    unit: kilowatt
+    description: "电池功率"
+  battery_temperature:
+    data_type: float32
+    unit: celsius
+    description: "电池温度"
+  battery_charge_current_limit:
+    data_type: float32
+    unit: ampere
+    description: "电池充电电流限制"
+  battery_discharge_current_limit:
+    data_type: float32
+    unit: ampere
+    description: "电池放电电流限制"
+  battery_charge_voltage_limit:
+    data_type: float32
+    unit: volt
+    description: "电池充电电压限制"
+  battery_discharge_voltage_limit:
+    data_type: float32
+    unit: volt
+    description: "电池放电电压限制"
+  battery_charge_power_limit:
+    data_type: float32
+    unit: kilowatt
+    description: "电池充电功率限制"
+  battery_discharge_power_limit:
+    data_type: float32
+    unit: kilowatt
+    description: "电池放电功率限制"
+  battery_available_charge_energy:
+    data_type: float32
+    unit: kilowatt_hour
+    description: "电池可用充电电能"
+  battery_available_discharge_energy:
+    data_type: float32
+    unit: kilowatt_hour
+    description: "电池可用放电电能"
+  battery_rated_capacity:
+    data_type: float32
+    unit: ampere_hour
+    description: "电池额定容量"
+  battery_remaining_capacity:
+    data_type: float32
+    unit: ampere_hour
+    description: "电池剩余容量"
+  battery_cycle_count:
+    data_type: uint64
+    unit: none
+    description: "电池循环次数"
+  battery_charge_throughput:
+    data_type: float32
+    unit: ampere_hour
+    description: "电池充电吞吐量"
+  battery_discharge_throughput:
+    data_type: float32
+    unit: ampere_hour
+    description: "电池放电吞吐量"
+  battery_dc_insulation_resistance:
+    data_type: float32
+    unit: megaohm
+    description: "电池直流绝缘电阻"
+  battery_contactor_positive_closed:
+    data_type: bool
+    unit: none
+    description: "电池接触器正闭合"
+  battery_contactor_negative_closed:
+    data_type: bool
+    unit: none
+    description: "电池接触器负闭合"
+  battery_precharge_contactor_closed:
+    data_type: bool
+    unit: none
+    description: "电池预充接触器闭合"
+  battery_balancing_active:
+    data_type: bool
+    unit: none
+    description: "电池均衡有功"
+  battery_charge_enabled:
+    data_type: bool
+    unit: none
+    description: "电池充电使能"
+  battery_discharge_enabled:
+    data_type: bool
+    unit: none
+    description: "电池放电使能"
+  battery_thermal_runaway_alarm:
+    data_type: bool
+    unit: none
+    description: "电池热失控报警"
+  battery_overtemperature_alarm:
+    data_type: bool
+    unit: none
+    description: "电池过温报警"
+  battery_undertemperature_alarm:
+    data_type: bool
+    unit: none
+    description: "电池欠温报警"
+  battery_insulation_fault:
+    data_type: bool
+    unit: none
+    description: "电池绝缘故障"
+  battery_bms_state:
+    data_type: int32
+    unit: none
+    description: "电池电池管理系统状态"
+  battery_bms_fault_code:
+    data_type: int32
+    unit: none
+    description: "电池电池管理系统故障代码"
+  battery_charge_energy:
+    data_type: float32
+    unit: kilowatt_hour
+    description: "电池充电电能"
+  battery_discharge_energy:
+    data_type: float32
+    unit: kilowatt_hour
+    description: "电池放电电能"
+  battery_charge_discharge_mode:
+    data_type: int32
+    unit: none
+    description: "电池充电放电模式"
+  battery_charge_power_setpoint:
+    data_type: float32
+    unit: kilowatt
+    description: "电池充电功率设定值"
+  battery_discharge_power_setpoint:
+    data_type: float32
+    unit: kilowatt
+    description: "电池放电功率设定值"
+  pcs_operating_state:
+    data_type: int32
+    unit: none
+    description: "储能变流器运行状态"
+  pcs_fault_code:
+    data_type: int32
+    unit: none
+    description: "储能变流器故障代码"
+  pcs_efficiency:
+    data_type: float32
+    unit: efficiency_percent
+    description: "储能变流器转换效率"
+  pcs_transformer_temperature:
+    data_type: float32
+    unit: celsius
+    description: "储能变流器变压器温度"
+  pcs_cooling_fan_running:
+    data_type: bool
+    unit: none
+    description: "储能变流器冷却风扇运行中"
+  pcs_grid_forming_enabled:
+    data_type: bool
+    unit: none
+    description: "储能变流器电网构网使能"
+  pcs_charge_discharge_command:
+    data_type: int32
+    unit: none
+    description: "储能变流器充电放电指令"
+  pcs_active_power_setpoint:
+    data_type: float32
+    unit: kilowatt
+    description: "储能变流器有功功率设定值"
+  pcs_reactive_power_setpoint:
+    data_type: float32
+    unit: kilovar
+    description: "储能变流器无功功率设定值"
+  pcs_voltage_setpoint:
+    data_type: float32
+    unit: volt
+    description: "储能变流器电压设定值"
+  pcs_frequency_setpoint:
+    data_type: float32
+    unit: hertz
+    description: "储能变流器频率设定值"
+  ess_container_temperature:
+    data_type: float32
+    unit: celsius
+    description: "储能集装箱温度"
+  ess_container_humidity:
+    data_type: float32
+    unit: relative_humidity_percent
+    description: "储能集装箱湿度"
+  ess_coolant_flow_rate:
+    data_type: float32
+    unit: liter_per_minute
+    description: "储能冷却液流量速率"
+  ess_coolant_pressure:
+    data_type: float32
+    unit: bar
+    description: "储能冷却液压力"
+  ess_hvac_running:
+    data_type: bool
+    unit: none
+    description: "储能空调运行中"
+  ess_smoke_alarm:
+    data_type: bool
+    unit: none
+    description: "储能烟雾报警"
+  ess_fire_alarm:
+    data_type: bool
+    unit: none
+    description: "储能火灾报警"
+  ess_fire_suppression_active:
+    data_type: bool
+    unit: none
+    description: "储能火灾灭火有功"
+  ess_gas_alarm:
+    data_type: bool
+    unit: none
+    description: "储能气体报警"
+  ess_door_open:
+    data_type: bool
+    unit: none
+    description: "储能门打开"
+  ess_emergency_stop:
+    data_type: bool
+    unit: none
+    description: "储能紧急停止"
+  pitch_angle:
+    data_type: float32
+    unit: degree
+    description: "变桨角度"
+  pitch_motor_current:
+    data_type: float32
+    unit: ampere
+    description: "变桨电机电流"
+  pitch_motor_temperature:
+    data_type: float32
+    unit: celsius
+    description: "变桨电机温度"
+  blade_root_bending_moment:
+    data_type: float32
+    unit: kilonewton_meter_torque
+    description: "叶根弯矩"
+  bearing_temperature:
+    data_type: float32
+    unit: celsius
+    description: "轴承温度"
+  winding_temperature:
+    data_type: float32
+    unit: celsius
+    description: "绕组温度"
+  vibration_velocity:
+    data_type: float32
+    unit: millimeter_per_second
+    description: "振动速度"
+  cell_voltage:
+    data_type: float32
+    unit: volt
+    description: "电芯电压"
+  cell_temperature:
+    data_type: float32
+    unit: celsius
+    description: "电芯温度"
+  string_current:
+    data_type: float32
+    unit: ampere
+    description: "光伏组串电流"
+  string_voltage:
+    data_type: float32
+    unit: volt
+    description: "光伏组串电压"
+  turbine_active_power:
+    data_type: float32
+    unit: kilowatt
+    description: "风力机组有功功率（32位浮点）"
+  pitch_rate_setpoint:
+    data_type: float32
+    unit: degree_per_second
+    description: "变桨速率设定值"
+  nacelle_acceleration:
+    data_type: float32
+    unit: meter_per_second_squared
+    description: "机舱加速度"
+
+# TZ2MW Modbus 源寄存器原始语义；不假设现场工程单位与变比。
+  tz2mw_measured_power_raw:
+    data_type: int32
+    unit: none
+    description: "有功功率原始测量值（S32；单位及缩放待核实）"
+  tz2mw_measured_power_10min_raw:
+    data_type: int32
+    unit: none
+    description: "10 分钟有功功率原始值（S32；统计含义待核实）"
+  tz2mw_measured_reactive_power_raw:
+    data_type: int32
+    unit: none
+    description: "无功功率原始测量值（S32；单位及缩放待核实）"
+  tz2mw_wind_speed_raw:
+    data_type: int16
+    unit: none
+    description: "风速原始测量值（S16；单位及缩放待核实）"
+  tz2mw_generator_speed_raw:
+    data_type: int32
+    unit: none
+    description: "发电机转速原始测量值（S32；单位及缩放待核实）"
+  tz2mw_pitch_angle_raw:
+    data_type: int32
+    unit: none
+    description: "桨距角原始测量值（S32；单位及缩放待核实）"
+  tz2mw_turbine_status_raw:
+    data_type: int16
+    unit: none
+    description: "机组状态原始代码（16 位；枚举值待核实）"
+  tz2mw_power_demand_raw:
+    data_type: int32
+    unit: none
+    description: "有功功率需求原始控制字（S32；单位及缩放待核实）"
+  tz2mw_reactive_power_demand_raw:
+    data_type: int32
+    unit: none
+    description: "无功功率需求原始控制字（S32；单位及缩放待核实）"
+  tz2mw_start_stop_command_raw:
+    data_type: int16
+    unit: none
+    description: "启停控制原始命令字（S16；码值、写入触发方式待核实）"

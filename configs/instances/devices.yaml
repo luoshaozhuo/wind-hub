@@ -1,13 +1,136 @@
+# =============================================================================
+# 文件：configs/instances/devices.yaml
+# 用途：设备实例清单；两种风机型号各 5 台，全部连接本机仿真服务。
+# 字段说明（当前 Core SharedDocumentLoader 支持的全部设备配置字段）：
+#   schema_version：结构版本，当前为整数 1。
+#   file_version：文件版本，采用 MAJOR.MINOR.PATCH 格式。
+#   devices：以唯一设备 ID 为键的设备映射。
+#   devices.<ID>.name：设备显示名称，非空字符串；可选。
+#   devices.<ID>.enabled：设备是否允许启用，true/false；可选，默认 true。
+#   devices.<ID>.model.id：设备型号模板 ID，必须与模板 template_id 一致。
+#   devices.<ID>.model.version：设备型号模板版本，必须精确匹配文件版本。
+#   devices.<ID>.endpoint.host：设备主机名或 IP，非空字符串。
+#   devices.<ID>.endpoint.port：目标服务端口，整数 1~65535；可选。
+#   devices.<ID>.overrides：设备级覆盖项，按型号/协议需求设置，此处不枚举。
+#
+# 连接隔离：
+#   GW01~GW05：ADS TwinCAT 2；主机 IP 均为 127.0.0.1，目标 AMS Net ID 不同；
+#               Runtime AMS Port 为 801。每个 Net ID 必须有有效的本地 ADS 路由。
+#               AMS Net ID 与 Runtime Port 组合定位目标，不可仅靠 TCP IP 区分。
+#   TZ01~TZ05：Modbus TCP；主机 IP 均为 127.0.0.1，端口分别为 1502~1506；
+#               应分别启动监听这些端口的 Modbus 从站仿真服务。
+# 本地模拟设备只有在相应服务及路由确实存在时才可连接。
+# =============================================================================
 schema_version: 1
 file_version: 1.0.0
 devices:
-  WT01:
+  GW01:
+    name: "GW2MW 风机 01"
+    enabled: true
     model:
-      id: modbus_wtg
+      id: wtg_gw2mw
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 801
+    overrides:
+      protocol_options:
+        target_net_id: "127.0.0.1.1.1"
+  GW02:
+    name: "GW2MW 风机 02"
+    enabled: true
+    model:
+      id: wtg_gw2mw
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 801
+    overrides:
+      protocol_options:
+        target_net_id: "127.0.0.1.1.2"
+  GW03:
+    name: "GW2MW 风机 03"
+    enabled: true
+    model:
+      id: wtg_gw2mw
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 801
+    overrides:
+      protocol_options:
+        target_net_id: "127.0.0.1.1.3"
+  GW04:
+    name: "GW2MW 风机 04"
+    enabled: true
+    model:
+      id: wtg_gw2mw
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 801
+    overrides:
+      protocol_options:
+        target_net_id: "127.0.0.1.1.4"
+  GW05:
+    name: "GW2MW 风机 05"
+    enabled: true
+    model:
+      id: wtg_gw2mw
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 801
+    overrides:
+      protocol_options:
+        target_net_id: "127.0.0.1.1.5"
+  TZ01:
+    name: "TZ2MW 风机 01"
+    enabled: true
+    model:
+      id: wtg_tz2mw
       version: 1.0.0
     endpoint:
       host: 127.0.0.1
       port: 1502
-    overrides:
-      task:
-        desired_state: STOP
+    overrides: {}
+  TZ02:
+    name: "TZ2MW 风机 02"
+    enabled: true
+    model:
+      id: wtg_tz2mw
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 1503
+    overrides: {}
+  TZ03:
+    name: "TZ2MW 风机 03"
+    enabled: true
+    model:
+      id: wtg_tz2mw
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 1504
+    overrides: {}
+  TZ04:
+    name: "TZ2MW 风机 04"
+    enabled: true
+    model:
+      id: wtg_tz2mw
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 1505
+    overrides: {}
+  TZ05:
+    name: "TZ2MW 风机 05"
+    enabled: true
+    model:
+      id: wtg_tz2mw
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 1506
+    overrides: {}
