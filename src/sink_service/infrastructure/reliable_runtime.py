@@ -331,14 +331,22 @@ class ReliableDeliveryPort:
                 except (ValueError, UnicodeError) as exc:
                     try:
                         await self._dead_letter(message, str(exc))
-                        await message.ack_sync(timeout=5)
-                    except Exception as inner:
-                        self.last_error = f"DLQ publication not confirmed: {inner}"
+                    except Exception as failure:
+                        self.last_error = f'DLQ_BLOCKED: PubAck unavailable: {failure}'
                         try:
                             await message.nak(delay=min(backoff, max_backoff))
                         except Exception as nak_error:
-                            self.last_error = f'DLQ_BLOCKED; NAK unresolved: {nak_error}'
+                            self.last_error = (
+                                f'DLQ_BLOCKED: NAK unresolved: {nak_error}'
+                            )
                         await self._retry_pause(min(backoff, max_backoff))
+                        continue
+                    try:
+                        await message.ack_sync(timeout=5)
+                    except Exception as failure:
+                        # The original remains the Broker's responsibility;
+                        # the DLQ message is already durably published.
+                        self.last_error = f'DLQ transferred; source ACK uncertain: {failure}'
                     continue
                 replay_owner = (message.headers or {}).get('Wh-Replay-Delivery', '')
                 if replay_owner and replay_owner != self._definition.delivery_id:
