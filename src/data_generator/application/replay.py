@@ -7,12 +7,12 @@ import csv
 import math
 import sqlite3
 import tempfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from data_generator.domain.model import GeneratorError
+from data_generator.domain.model import GeneratorError, Scalar, validate_scalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,12 +29,35 @@ class ReplayRecord:
 FIELDS = ("device_id", "point_id", "source_timestamp", "value", "quality", "record_id")
 
 
+def decode_value(raw: str, kind: str) -> Scalar:
+    """One scalar conversion contract for preflight and replay emission."""
+    try:
+        if kind == "bool":
+            if raw.lower() not in ("true", "false"):
+                raise ValueError("bool must be true or false")
+            value: Scalar = raw.lower() == "true"
+        elif kind.startswith(("int", "uint")):
+            value = int(raw)
+        elif kind.startswith("float"):
+            value = float(raw)
+        elif kind == "bytes":
+            value = raw.encode("utf-8")
+        elif kind == "str":
+            value = raw
+        else:
+            raise GeneratorError(f"unsupported replay type: {kind}")
+        return validate_scalar(value, kind)
+    except (ValueError, OverflowError) as exc:
+        raise GeneratorError(f"invalid {kind} value: {raw!r}") from exc
+
+
 def _index_csv(
     source: Path,
     database: Path,
     start: datetime,
     end: datetime,
     max_records: int,
+    point_types: Mapping[tuple[str, str], str],
 ) -> None:
     """Index every input line; repeated values and record IDs are never deduplicated."""
     if start.tzinfo is None or end.tzinfo is None or not start < end:
@@ -63,6 +86,11 @@ def _index_csv(
                     )
                     if stamp.tzinfo is None:
                         raise ValueError("timestamp missing timezone")
+                    key = (row["device_id"], row["point_id"])
+                    data_type = point_types.get(key)
+                    if data_type is None:
+                        raise GeneratorError(f"unmapped replay source point: {key}")
+                    decode_value(row["value"], data_type)
                     normalized = stamp.astimezone(timezone.utc).isoformat(
                         timespec="microseconds"
                     )
@@ -105,6 +133,7 @@ async def iter_records(
     read_batch_size: int = 1000,
     max_file_bytes: int = 256 * 1024 * 1024,
     max_records: int = 1_000_000,
+    point_types: Mapping[tuple[str, str], str],
 ) -> AsyncIterator[ReplayRecord]:
     """Bounded temporary disk index, then stable timestamp and source-line reads."""
     if not 1 <= read_batch_size <= 100_000 or max_records < 1 or max_file_bytes < 1:
@@ -114,7 +143,7 @@ async def iter_records(
     with tempfile.TemporaryDirectory(prefix="windhub-replay-") as temporary:
         database = Path(temporary) / "replay.sqlite3"
         await asyncio.to_thread(
-            _index_csv, source, database, start, end, max_records,
+            _index_csv, source, database, start, end, max_records, point_types,
         )
         cursor: tuple[str, int] | None = None
         while True:
