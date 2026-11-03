@@ -71,6 +71,29 @@ def _safe_target(root: Path, relative: str) -> Path:
     return target
 
 
+def _stage_readonly_tree(root: Path, destination: Path) -> None:
+    """Copy bounded YAML sources for candidate validation without following links."""
+    count = 0
+    size = 0
+    for name in ("services", "instances", "templates"):
+        directory = root / name
+        if not directory.is_dir() or directory.is_symlink():
+            raise GeneratorError(f"configuration directory unavailable: {name}")
+        for source in directory.rglob("*"):
+            if source.is_symlink():
+                raise GeneratorError(f"symbolic link in configuration tree: {source}")
+            if not source.is_file() or source.suffix != ".yaml":
+                continue
+            count += 1
+            size += source.stat().st_size
+            if count > 4096 or size > 64 * 1024 * 1024:
+                raise GeneratorError("configuration staging resource limit exceeded")
+            relative = source.relative_to(root).as_posix()
+            target = _safe_target(destination, relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+
+
 def recover_transaction(root: Path) -> None:
     """Recover an interrupted private-file commit before reading service settings."""
     root = root.resolve()
@@ -188,13 +211,7 @@ class SnapshotManager:
         root = self.settings.root
         with tempfile.TemporaryDirectory(prefix="dg-config-") as scratch:
             stage = Path(scratch) / "configs"
-            for top in ("services", "instances", "templates"):
-                source = root / top
-                if source.exists():
-                    shutil.copytree(
-                        source, stage / top, symlinks=False,
-                        ignore=shutil.ignore_patterns(".dg_transaction"),
-                    )
+            _stage_readonly_tree(root, stage)
             for file in files:
                 target = _safe_target(stage, file.path)
                 _durable_write(target, file.data)
@@ -262,6 +279,8 @@ class SnapshotManager:
                 os.replace(journal / "new" / name, target)
                 _sync_dir(target.parent)
             new_settings = load_settings(self.settings.service_file)
+            if new_settings.revision != candidate[3].revision:
+                raise GeneratorError("candidate changed between validation and commit")
             restart = (
                 proposed[_relative(root, self.settings.service_file)]
                 != original[_relative(root, self.settings.service_file)]
