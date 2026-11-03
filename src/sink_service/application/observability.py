@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -27,6 +28,7 @@ class Observability:
             raise ValueError("max_events must be positive")
         self._events: deque[RuntimeEvent] = deque(maxlen=max_events)
         self._counts: dict[str, float] = {}
+        self._samples: deque[tuple[datetime, dict[str, float]]] = deque(maxlen=3602)
         self.started_at = datetime.now(UTC)
 
     def count(self, metric: str, delta: float = 1.0) -> None:
@@ -51,8 +53,32 @@ class Observability:
         )
         self.count("events_total")
 
-    def snapshot(self) -> dict[str, float]:
-        return dict(self._counts)
+    def sample(self, current: Mapping[str, float]) -> None:
+        """Observe process and Delivery counters; keep only a bounded history."""
+        now = datetime.now(UTC)
+        self._samples.append((now, dict(current)))
+        while self._samples and (now - self._samples[0][0]).total_seconds() > 3600:
+            self._samples.popleft()
+
+    def snapshot(self, window_ms: int) -> dict[str, float]:
+        """Return current gauges and counter differences over the requested window."""
+        current = self._samples[-1][1] if self._samples else {}
+        if len(self._samples) < 2:
+            return dict(current)
+        cutoff = datetime.now(UTC).timestamp() - window_ms / 1000
+        earliest = self._samples[0][1]
+        for timestamp, counters in self._samples:
+            if timestamp.timestamp() <= cutoff:
+                earliest = counters
+            else:
+                break
+        values: dict[str, float] = {}
+        for key, value in current.items():
+            if key.endswith("_total"):
+                values[key] = max(0.0, value - earliest.get(key, 0.0))
+            else:
+                values[key] = value
+        return values
 
     def list_events(
         self,
