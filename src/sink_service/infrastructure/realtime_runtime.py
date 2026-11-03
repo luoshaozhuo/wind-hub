@@ -144,12 +144,14 @@ class SinkOutputPool:
                 port=int(connection["port"]),
                 namespace=output["namespace"],
                 timeout_ms=int(output["write_timeout_ms"]),
+                credential_ref=connection.get("credential_ref", ""),
             )
         elif kind == "kafka":
             adapter = KafkaOutput(
                 servers=list(connection["bootstrap_servers"]),
                 topic=output["topic"],
                 timeout_ms=int(output["write_timeout_ms"]),
+                credential_ref=connection.get("credential_ref", ""),
             )
         elif kind == "modbus_tcp":
             points: set[tuple[str, str, str, str]] = set()
