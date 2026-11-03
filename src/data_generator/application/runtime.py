@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
-from collections import deque
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from data_generator.application.config import Scenario, Settings, resolve_history
 from data_generator.application.models import random_value, static_value
 from data_generator.application.replay import iter_records, replay_deadline
-from data_generator.domain.model import DataBatch, DataPoint, GeneratorError, validate_scalar
+from data_generator.domain.model import DataBatch, DataPoint, GeneratorError, Scalar, validate_scalar
 from data_generator.infrastructure.gateway import GatewayWriter
 
 
@@ -41,19 +42,30 @@ class Runtime:
         self.settings = settings
         output = settings.service.get("output", {})
         buffer = settings.service.get("buffer", {})
-        self.writer = GatewayWriter(float(output.get("grpc_timeout_seconds", 3.0)),
-                                    int(buffer.get("max_points_per_batch", 1000)))
+        self.writer = GatewayWriter(
+            timeout=float(output.get("grpc_timeout_seconds", 3.0)),
+            max_points=int(buffer.get("max_points_per_batch", 1000)),
+            max_inflight=int(output.get("max_inflight", 1)),
+        )
         self.generations: dict[str, GenerationState] = {}
         self.events: deque[RuntimeEvent] = deque(maxlen=1000)
         self._active: str | None = None
         self._task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
-        self.counters: dict[str, int] = {"generated": 0, "confirmed": 0,
-                                        "failed": 0, "unknown": 0}
+        self.counters: dict[str, int] = {
+            "generated": 0, "batches": 0, "replay_read": 0,
+            "attempted": 0, "confirmed": 0, "failed": 0,
+            "unknown": 0, "skipped_steps": 0,
+        }
 
     def record(self, severity: str, source: str, error_code: str, message: str) -> None:
         self.events.append(RuntimeEvent(str(uuid.uuid4()), datetime.now(timezone.utc),
                                         severity, source, error_code, message))
+
+    def _unsafe_for(self, generation: GenerationState) -> bool:
+        unsafe = self.writer.unsafe_gateways
+        return any(mapping.target.gateway_id in unsafe
+                   for mapping in generation.scenario.mappings)
 
     async def start(self, scenario_id: str, version: str | None,
                     revision: str) -> GenerationState:
@@ -116,10 +128,13 @@ class Runtime:
             generation.actual_state = "FAILED"
             self.record("ERROR", generation.generation_id, "FAILED", str(exc))
         finally:
-            # A completed task only releases ownership once outstanding writes settle.
             await self.writer.drain()
             async with self._lock:
-                if self._active == generation.generation_id:
+                if self._unsafe_for(generation):
+                    generation.actual_state = "STOPPING"
+                    generation.desired_state = "STOPPED"
+                    generation.last_error = "UNSETTLED_GATEWAY_OUTPUT"
+                elif self._active == generation.generation_id:
                     self._active = None
 
     async def _simulate(self, generation: GenerationState) -> None:
@@ -129,10 +144,19 @@ class Runtime:
             raise GeneratorError("invalid simulation interval")
         seed = int(scenario.source.get("seed", 0))
         seq = 0
+        epoch = time.monotonic()
         while generation.desired_state == "RUNNING":
-            seq += 1
+            now = time.monotonic()
+            next_step = max(seq + 1, math.floor((now - epoch) / interval) + 1)
+            if next_step > seq + 1:
+                skipped = next_step - seq - 1
+                self.counters["skipped_steps"] += skipped
+                self.record("WARNING", generation.generation_id, "SKIPPED_PERIOD",
+                            str(skipped))
+            seq = next_step
+            await asyncio.sleep(max(0.0, epoch + seq * interval - now))
             stamp = datetime.now(timezone.utc)
-            values = {}
+            values: dict[tuple[str, str], Scalar] = {}
             pending = dict(scenario.points)
             while pending:
                 ready = [(key, point) for key, point in pending.items()
@@ -155,7 +179,6 @@ class Runtime:
                     values[(device_id, point_id)] = validate_scalar(value, point["data_type"])
                     del pending[(device_id, point_id)]
             await self._emit(generation, seq, stamp, values)
-            await asyncio.sleep(interval)
 
     async def _replay(self, generation: GenerationState) -> None:
         scenario = generation.scenario
@@ -176,6 +199,7 @@ class Runtime:
             if generation.desired_state != "RUNNING":
                 return
             seq += 1
+            self.counters["replay_read"] += 1
             if first_time is None:
                 first_time = record.source_time
                 origin = time.monotonic()
@@ -202,12 +226,14 @@ class Runtime:
             )
 
     async def _emit(self, generation: GenerationState, sequence: int,
-                    timestamp: datetime, values: dict[tuple[str, str], object]) -> None:
+                    timestamp: datetime, values: dict[tuple[str, str], Scalar]) -> None:
         batch = DataBatch(generation.generation_id, sequence, datetime.now(timezone.utc),
                           tuple(DataPoint(device, point, value, timestamp)
                                 for (device, point), value in values.items()))
         self.counters["generated"] += len(batch.points)
+        self.counters["batches"] += 1
         outcomes = await self.writer.send(generation.scenario, batch)
+        self.counters["attempted"] += len(outcomes)
         for result in outcomes:
             if result.state == "SUCCESS":
                 self.counters["confirmed"] += 1
