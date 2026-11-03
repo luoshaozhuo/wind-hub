@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from datetime import datetime
 from typing import Any
 
 import nats
@@ -150,6 +151,11 @@ class _QuotaWriter:
             task.exception()
         self._sink_quota.release()
         self._global_quota.release()
+
+    @property
+    def io_inflight(self) -> bool:
+        task = self._pending
+        return task is not None and not task.done()
 
     async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         pending = self._pending
@@ -328,10 +334,23 @@ class RealtimeDeliveryPort:
         if self._engine is None:
             return {}
         return {
-            "received_total": float(self._engine.received_total),
-            "dropped_total": float(self._engine.dropped_total),
-            "delivered_total": float(self._engine.delivered_total),
+            'received_total': float(self._engine.received_total),
+            'dropped_total': float(self._engine.dropped_total),
+            'delivered_total': float(self._engine.delivered_total),
+            'failed_total': float(self._engine.failed_total),
+            'write_success_total': float(self._engine.write_success_total),
+            'io_inflight': float(
+                self._writer.io_inflight if self._writer is not None else False
+            ),
         }
+
+    @property
+    def latency_samples(self) -> tuple[tuple[datetime, float], ...]:
+        return tuple(self._engine.latency_samples) if self._engine is not None else ()
+
+    @property
+    def latency_overflow_at(self) -> datetime | None:
+        return self._engine.latency_overflow_at if self._engine is not None else None
 
     @property
     def last_error(self) -> str:
