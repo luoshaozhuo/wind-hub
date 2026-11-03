@@ -307,6 +307,13 @@ class SnapshotManager:
                 proposed[_relative(root, self.settings.service_file)]
                 != original[_relative(root, self.settings.service_file)]
             )
+            next_private = {
+                _relative(root, new_settings.service_file): new_settings.service_file.read_bytes(),
+                _relative(root, new_settings.scenario_file): new_settings.scenario_file.read_bytes(),
+            }
+            next_runtime_files = self._read_disk() if not (
+                self._restart_pending or restart
+            ) else self._runtime_files
             # Durable decision separates successful commit from rollback recovery.
             _durable_write(
                 journal / "committed.json",
@@ -323,12 +330,9 @@ class SnapshotManager:
             except OSError:
                 pass
             self.settings = new_settings
-            self._disk_private = {
-                file.path: file.data for file in self._read_disk()
-                if file.path in self._owned()
-            }
+            self._disk_private = next_private
             self._restart_pending = self._restart_pending or restart
             if not self._restart_pending:
-                self._runtime_files = self._read_disk()
+                self._runtime_files = next_runtime_files
             self._candidate = None
             return new_settings, self._restart_pending
