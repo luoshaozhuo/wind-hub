@@ -16,6 +16,9 @@ class BatchOutcome:
     delivered: tuple[int, ...]
     settled: tuple[int, ...]
     error: str = ""
+    successful_attempts: int = 0
+    failed_attempts: int = 0
+    successful_latencies_ms: tuple[float, ...] = ()
 
 
 class BatchWriter(Protocol):
