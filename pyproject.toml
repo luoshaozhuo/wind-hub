@@ -14,7 +14,7 @@ packages = [
     { include = "cli", from = "src" },
     { include = "web_server", from = "src" },
     { include = "industrial_gateway", from = "src" },
-    { include = "seahorse", from = "src" },
+    { include = "data_generator", from = "src" },
 ]
 
 [tool.poetry.dependencies]
@@ -76,7 +76,7 @@ wind-hub-collector = "collector.main:main"
 wind-hub = "cli.main:main"
 wind-hub-server = "web_server.main:main"
 wind-hub-gateway = "industrial_gateway.main:main"
-wind-hub-seahorse = "seahorse.main:main"
+wind-hub-data-generator = "data_generator.main:main"
 
 [tool.ruff]
 line-length = 100
@@ -203,7 +203,7 @@ root_packages = [
     "cli",
     "web_server",
     "industrial_gateway",
-    "seahorse",
+    "data_generator",
     "contracts",
 ]
 
