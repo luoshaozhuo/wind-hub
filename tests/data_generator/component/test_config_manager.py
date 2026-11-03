@@ -101,8 +101,7 @@ def test_invalid_candidate_scenario_rejected(configs_root) -> None:  # noqa: ANN
     document = yaml.safe_load(disk[scenario_rel].data)
     # 同一目标变量被两个源点映射：配置期必须拒绝。
     document["scenarios"][0]["gateways"][0]["feedback_mapping"].append(
-        {"device_id": "GW01", "point_id": "a02_dm_pitchangle1",
-         "variable_id": "GW01.pitch_angle"}
+        {"device_id": "GW01", "point_id": "a02_dm_pitchangle1", "variable_id": "GW01.pitch_angle"}
     )
     files = tuple(
         FileContent(path, yaml.safe_dump(document).encode() if path == scenario_rel else item.data)
@@ -219,6 +218,8 @@ def test_committed_marker_wins_on_restart(configs_root) -> None:  # noqa: ANN001
     (journal / "committed.json").write_text(
         json.dumps({"revision": manager.settings.revision}), encoding="utf-8"
     )
-    (journal / "active.json").write_text(json.dumps({"existing": [], "changed": []}), encoding="utf-8")
+    (journal / "active.json").write_text(
+        json.dumps({"existing": [], "changed": []}), encoding="utf-8"
+    )
     recover_transaction(root)
     assert not journal.exists()

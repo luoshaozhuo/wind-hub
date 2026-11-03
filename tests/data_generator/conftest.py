@@ -24,13 +24,16 @@ import grpc
 import pytest
 import yaml
 
-from contracts import data_generator_pb2_grpc as dg_rpc
+from contracts import common_pb2 as common
 from contracts import common_pb2_grpc as common_rpc
+from contracts import data_generator_pb2_grpc as dg_rpc
+from contracts import industrial_gateway_pb2 as gw
+from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from data_generator.application.runtime import Runtime
 from data_generator.infrastructure.config import load_settings
 from data_generator.infrastructure.gateway import GatewayWriter
 from data_generator.infrastructure.server import make_server
-from data_generator.infrastructure.snapshots import recover_transaction
+from data_generator.infrastructure.snapshots import file_sha256, recover_transaction
 from industrial_gateway.assembly import GatewayApplication, assemble_gateway
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
 
@@ -43,7 +46,7 @@ def reserve_port() -> int:
     """预留一个 loopback TCP 端口（测试环境竞态窗口可接受）。"""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
+    port = int(sock.getsockname()[1])
     sock.close()
     return port
 
@@ -72,6 +75,7 @@ def write_service_yaml(
     output_timeout: float = 2.0,
     max_inflight: int = 16,
     diagnose_concurrent: int = 4,
+    metrics_max_series: int = 2000,
 ) -> Path:
     """生成服务配置（直接路径契约：相对 configs 根，禁止绝对路径与 ..）。"""
     service = {
@@ -94,7 +98,7 @@ def write_service_yaml(
             "sample_seconds": 1.0,
             "window_seconds": 60,
             "retain_seconds": 3600,
-            "max_series": 2000,
+            "max_series": metrics_max_series,
         },
     }
     path = root / "services" / "data-generator.yaml"
@@ -132,6 +136,8 @@ def configs_root(tmp_path: Path) -> Callable[..., Path]:
         bind: str | None = None,
         output_timeout: float = 2.0,
         max_inflight: int = 16,
+        diagnose_concurrent: int = 4,
+        metrics_max_series: int = 2000,
         history: dict[str, Sequence[str]] | None = None,
     ) -> Path:
         root = tmp_path / f"configs-{len(created)}"
@@ -147,10 +153,71 @@ def configs_root(tmp_path: Path) -> Callable[..., Path]:
             bind=bind or f"127.0.0.1:{reserve_port()}",
             output_timeout=output_timeout,
             max_inflight=max_inflight,
+            diagnose_concurrent=diagnose_concurrent,
+            metrics_max_series=metrics_max_series,
         )
         return service_path
 
     return factory
+
+
+def simulation_document(
+    gateways: dict[str, str],
+    specs: Sequence[tuple[str, str, dict[str, Any] | None, Sequence[tuple[str, str]]]],
+    *,
+    scenario_id: str = "demo-random",
+    version: str = "1.0.0",
+    interval: float = 1.0,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """通用模拟场景构造器。
+
+    specs: [(device_id, point_id, model(None=random 3..15), [(gateway_id, variable_id)])]
+    """
+    devices: dict[str, list[dict[str, Any]]] = {}
+    per_gateway: dict[str, list[dict[str, str]]] = {gateway_id: [] for gateway_id in gateways}
+    for device_id, point_id, model, mappings in specs:
+        devices.setdefault(device_id, []).append(
+            {
+                "point_id": point_id,
+                "model": model
+                or {
+                    "kind": "random",
+                    "distribution": "uniform",
+                    "minimum": 3.0,
+                    "maximum": 15.0,
+                },
+            }
+        )
+        for gateway_id, variable_id in mappings:
+            per_gateway[gateway_id].append(
+                {"device_id": device_id, "point_id": point_id, "variable_id": variable_id}
+            )
+    gateway_entries = [
+        {
+            "gateway_id": gateway_id,
+            "endpoint": endpoint,
+            "feedback_mapping": per_gateway[gateway_id],
+        }
+        for gateway_id, endpoint in sorted(gateways.items())
+    ]
+    return {
+        "schema_version": 1,
+        "file_version": "1.0.0",
+        "scenarios": [
+            {
+                "scenario_id": scenario_id,
+                "version": version,
+                "description": "acceptance generated scenario",
+                "source": {"kind": "simulation", "interval_seconds": interval, "seed": seed},
+                "devices": [
+                    {"device_id": device_id, "points": points}
+                    for device_id, points in sorted(devices.items())
+                ],
+                "gateways": gateway_entries,
+            }
+        ],
+    }
 
 
 def ship_scenarios_document(
@@ -165,21 +232,43 @@ def ship_scenarios_document(
     point: str = "a02_dm_pitchangle1",
     mappings: Sequence[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """基于真实 Core 点表点 a02_dm_pitchangle1 构造场景文档。"""
-    if mappings is None:
-        mappings = [(gateway_id, var) for gateway_id, var in ()]
-    gateway_entries = [
-        {
-            "gateway_id": gateway_id,
-            "endpoint": endpoint,
-            "feedback_mapping": [
-                {"device_id": device, "point_id": point, "variable_id": variable_id}
-                for gateway_id_check, variable_id in mappings
-                if gateway_id_check == gateway_id
-            ],
-        }
-        for gateway_id, endpoint in sorted(gateways.items())
+    """基于真实 Core 点表点 a02_dm_pitchangle1 构造单点随机场景。"""
+    specs = [
+        (
+            device,
+            point,
+            {
+                "kind": "random",
+                "distribution": "uniform",
+                "minimum": minimum,
+                "maximum": maximum,
+            },
+            mappings or [],
+        )
     ]
+    return simulation_document(
+        gateways,
+        specs,
+        scenario_id=scenario_id,
+        interval=interval,
+        seed=seed,
+    )
+
+
+def replay_document(
+    gateways: dict[str, str],
+    *,
+    file: str = "history/short.csv",
+    scenario_id: str = "demo-replay",
+    speed: float = 100.0,
+    start: str = "2026-01-01T00:00:00Z",
+    end: str = "2026-01-01T01:00:00Z",
+    device: str = "GW02",
+    point: str = "a02_dm_pitchangle1",
+    mappings: Sequence[tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    if mappings is None:
+        mappings = [("gw-test", f"{device}.pitch_angle")]
     return {
         "schema_version": 1,
         "file_version": "1.0.0",
@@ -187,32 +276,185 @@ def ship_scenarios_document(
             {
                 "scenario_id": scenario_id,
                 "version": "1.0.0",
-                "description": "acceptance generated scenario",
+                "description": "acceptance replay scenario",
                 "source": {
-                    "kind": "simulation",
-                    "interval_seconds": interval,
-                    "seed": seed,
+                    "kind": "replay",
+                    "history_reader": "csv",
+                    "file": file,
+                    "start_time": start,
+                    "end_time": end,
+                    "speed": speed,
+                    "loop": False,
                 },
-                "devices": [
+                "devices": [{"device_id": device, "points": [{"point_id": point}]}],
+                "gateways": [
                     {
-                        "device_id": device,
-                        "points": [
-                            {
-                                "point_id": point,
-                                "model": {
-                                    "kind": "random",
-                                    "distribution": "uniform",
-                                    "minimum": minimum,
-                                    "maximum": maximum,
-                                },
-                            }
+                        "gateway_id": gateway_id,
+                        "endpoint": endpoint,
+                        "feedback_mapping": [
+                            {"device_id": device, "point_id": point, "variable_id": variable_id}
+                            for mapped_gw, variable_id in mappings
+                            if mapped_gw == gateway_id
                         ],
                     }
+                    for gateway_id, endpoint in sorted(gateways.items())
                 ],
-                "gateways": gateway_entries,
             }
         ],
     }
+
+
+# --------------------------------------------------------------------------- #
+# 正式 Proto 故障注入网关（实现冻结的 IndustrialGatewayService 七 RPC 契约；
+# 仅用于超时/挂起/拒绝等真实 Gateway 无法稳定构造的故障，成功路径禁止使用）
+# --------------------------------------------------------------------------- #
+
+
+class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
+    """按 gateway_id 注入行为的正式契约服务；UpdateVariables 是唯一数据入口。"""
+
+    # 跨实例（多个故障网关 Server）聚合的在途并发峰值，用于验证全局许可有界。
+    global_active = 0
+    global_max_active = 0
+
+    @classmethod
+    def reset_concurrency(cls) -> None:
+        cls.global_active = 0
+        cls.global_max_active = 0
+
+    def __init__(
+        self,
+        catalog: dict[str, Sequence[tuple[str, str, bool]]],
+        behaviors: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
+        # catalog: gateway_id -> [(variable_id, data_type, writable), ...]
+        self._catalog = {gateway_id: list(items) for gateway_id, items in catalog.items()}
+        self._behaviors = behaviors or {}
+        self.update_calls: dict[str, list[list[str]]] = {gateway_id: [] for gateway_id in catalog}
+        self.list_calls: dict[str, int] = {gateway_id: 0 for gateway_id in catalog}
+        self.store: dict[str, dict[str, Any]] = {gateway_id: {} for gateway_id in catalog}
+
+    def _variables(self, gateway_id: str, flt: str) -> list[gw.Variable]:
+        return [
+            gw.Variable(variable_id=name, name=name, data_type=dtype, writable=writable)
+            for name, dtype, writable in self._catalog.get(gateway_id, ())
+            if flt in name
+        ]
+
+    async def GetGateway(self, request, context):  # noqa: ANN001, ANN202, N802
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by data generator")
+
+    async def StartGateway(self, request, context):  # noqa: ANN001, ANN202, N802
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by data generator")
+
+    async def StopGateway(self, request, context):  # noqa: ANN001, ANN202, N802
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by data generator")
+
+    async def ListGateways(self, request, context):  # noqa: ANN001, ANN202, N802
+        return gw.ListGatewaysResponse(
+            gateways=[
+                gw.Gateway(gateway_id=gateway_id, actual_state="RUNNING")
+                for gateway_id in self._catalog
+            ]
+        )
+
+    async def ListVariables(self, request, context):  # noqa: ANN001, ANN202, N802
+        behavior = self._behaviors.get(request.gateway_id, {})
+        if "list_abort" in behavior:
+            await context.abort(behavior["list_abort"], "injected list failure")
+        gate = behavior.get("list_gate")
+        if gate is not None:
+            await gate.wait()
+        delay = behavior.get("list_delay", 0.0)
+        if delay:
+            await asyncio.sleep(delay)
+        self.list_calls[request.gateway_id] = self.list_calls.get(request.gateway_id, 0) + 1
+        return gw.ListVariablesResponse(
+            variables=self._variables(request.gateway_id, request.filter)
+        )
+
+    async def UpdateVariables(self, request, context):  # noqa: ANN001, ANN202, N802
+        behavior = self._behaviors.get(request.gateway_id, {})
+        self.update_calls.setdefault(request.gateway_id, []).append(
+            [item.variable_id for item in request.values]
+        )
+        FaultGatewayService.global_active += 1
+        FaultGatewayService.global_max_active = max(
+            FaultGatewayService.global_max_active, FaultGatewayService.global_active
+        )
+        try:
+            if "abort" in behavior:
+                await context.abort(behavior["abort"], "injected update failure")
+            gate = behavior.get("gate")
+            if gate is not None:
+                await gate.wait()
+            delay = behavior.get("delay", 0.0)
+            if delay:
+                await asyncio.sleep(delay)
+            per_item_fail = behavior.get("per_item_fail", frozenset())
+            omit = behavior.get("omit", frozenset())
+            results = []
+            for item in request.values:
+                if item.variable_id in omit:
+                    continue
+                success = item.variable_id not in per_item_fail
+                if success:
+                    self.store[request.gateway_id][item.variable_id] = item.value
+                results.append(
+                    gw.VariableUpdateResult(
+                        variable_id=item.variable_id,
+                        success=success,
+                        error_code="INJECTED" if not success else "",
+                    )
+                )
+            return gw.UpdateVariablesResponse(results=results)
+        finally:
+            FaultGatewayService.global_active -= 1
+
+    async def ReadVariables(self, request, context):  # noqa: ANN001, ANN202, N802
+        values = []
+        for variable_id in request.variable_ids:
+            raw = self.store.get(request.gateway_id, {}).get(variable_id)
+            if raw is None:
+                sample = common.Sample(
+                    point_id=variable_id, quality="UNKNOWN", error_code="NO_VALUE"
+                )
+            else:
+                sample = common.Sample(point_id=variable_id, quality="GOOD", value=raw)
+            values.append(sample)
+        return gw.ReadVariablesResponse(gateway_id=request.gateway_id, values=values)
+
+
+@dataclass(slots=True)
+class FaultGateway:
+    server: grpc.aio.Server
+    service: FaultGatewayService
+    bind: str
+
+    async def stop(self) -> None:
+        await self.server.stop(grace=0)
+
+
+@pytest.fixture
+async def start_fault_gateway() -> AsyncIterator[Callable[..., Awaitable[FaultGateway]]]:
+    servers: list[FaultGateway] = []
+
+    async def factory(
+        catalog: dict[str, Sequence[tuple[str, str, bool]]],
+        behaviors: dict[str, dict[str, Any]] | None = None,
+    ) -> FaultGateway:
+        server = grpc.aio.server()
+        service = FaultGatewayService(catalog, behaviors)
+        gw_rpc.add_IndustrialGatewayServiceServicer_to_server(service, server)
+        port = server.add_insecure_port("127.0.0.1:0")
+        await server.start()
+        fault = FaultGateway(server, service, f"127.0.0.1:{port}")
+        servers.append(fault)
+        return fault
+
+    yield factory
+    for server in reversed(servers):
+        await server.stop()
 
 
 # --------------------------------------------------------------------------- #
@@ -365,9 +607,7 @@ async def dg_server(
         settings = load_settings(service_path)
         output = settings.service.get("output", {})
         writer = GatewayWriter(
-            timeout=float(output.get("grpc_timeout_seconds", 3.0))
-            if timeout is None
-            else timeout,
+            timeout=float(output.get("grpc_timeout_seconds", 3.0)) if timeout is None else timeout,
             max_points=int(settings.service.get("buffer", {}).get("max_points_per_batch", 1000)),
             max_inflight=int(output.get("max_inflight", 1)),
         )
@@ -421,10 +661,10 @@ async def wait_for_port(bind: str, timeout: float = 15.0) -> None:
 def dg_subprocess(tmp_path: Path):
     processes: list[subprocess.Popen[bytes]] = []
 
-    async def factory(service_path: Path, *, wait_ready: bool = True) -> tuple[str, subprocess.Popen]:
-        bind_text = yaml.safe_load(service_path.read_text(encoding="utf-8"))["service"][
-            "grpc_bind"
-        ]
+    async def factory(
+        service_path: Path, *, wait_ready: bool = True
+    ) -> tuple[str, subprocess.Popen[bytes]]:
+        bind_text = yaml.safe_load(service_path.read_text(encoding="utf-8"))["service"]["grpc_bind"]
         env = dict(os.environ)
         existing = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = str(SRC_PATH) + (os.pathsep + existing if existing else "")
@@ -466,3 +706,43 @@ async def grpc_channel(bind: str) -> AsyncIterator[grpc.aio.Channel]:
         yield channel
     finally:
         await channel.close()
+
+
+async def read_gateway_variable(bind: str, gateway_id: str, variable_id: str) -> common.Sample:
+    """通过正式 ReadVariables 读回单个变量。"""
+    async with grpc.aio.insecure_channel(bind) as channel:
+        stub = gw_rpc.IndustrialGatewayServiceStub(channel)
+        response = await stub.ReadVariables(
+            gw.ReadVariablesRequest(gateway_id=gateway_id, variable_ids=[variable_id])
+        )
+    sample: common.Sample = response.values[0]
+    return sample
+
+
+def metric_map(metrics_response: Any) -> dict[str, float]:
+    return {item.name: item.value for item in metrics_response.metrics}
+
+
+async def dg_stubs(bind: str) -> tuple[grpc.aio.Channel, Any, Any]:
+    """独立服务进程的真实 gRPC 客户端（DG 6 + Common 9 同一信道）。"""
+    channel = grpc.aio.insecure_channel(bind)
+    await channel.channel_ready()
+    return channel, dg_rpc.DataGeneratorServiceStub(channel), common_rpc.CommonServiceStub(channel)
+
+
+def replace_snapshot_files(
+    snapshot: Any, replacements: dict[str, bytes]
+) -> list[common.SnapshotFile]:
+    """在完整文件集快照上替换私有文件内容，用于 Push 候选构造。"""
+    files = []
+    for item in snapshot.files:
+        data = replacements.get(item.relative_path, item.content)
+        files.append(
+            common.SnapshotFile(
+                relative_path=item.relative_path,
+                content=data,
+                size_bytes=len(data),
+                sha256=file_sha256(data),
+            )
+        )
+    return files

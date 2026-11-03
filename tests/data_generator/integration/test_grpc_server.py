@@ -38,7 +38,9 @@ async def _start_full_stack(start_real_gateway, configs_root, dg_server):  # noq
 
 
 async def test_all_fifteen_rpcs_callable(
-    start_real_gateway, configs_root, dg_server  # noqa: ANN001
+    start_real_gateway,
+    configs_root,
+    dg_server,  # noqa: ANN001
 ) -> None:
     _gateway, harness = await _start_full_stack(start_real_gateway, configs_root, dg_server)
     info = await harness.common.GetServiceInfo(common.Empty())
@@ -63,7 +65,8 @@ async def test_all_fifteen_rpcs_callable(
     assert snapshot.files
     metrics = await harness.common.GetMetrics(common.GetMetricsRequest())
     assert metrics.metrics is not None
-    events = await harness.common.GetEvents(common.GetEventsRequest())
+    events_response = await harness.common.GetEvents(common.GetEventsRequest())
+    assert events_response is not None
     diagnose = await harness.common.Diagnose(common.DiagnoseRequest(target_id="ghost"))
     assert diagnose.overall_status == "UNKNOWN"
 
@@ -107,7 +110,9 @@ async def test_grpc_error_mapping(start_real_gateway, configs_root, dg_server) -
 
 
 async def test_start_revision_conflict_rejected_in_body(
-    start_real_gateway, configs_root, dg_server  # noqa: ANN001
+    start_real_gateway,
+    configs_root,
+    dg_server,  # noqa: ANN001
 ) -> None:
     _gateway, harness = await _start_full_stack(start_real_gateway, configs_root, dg_server)
     response = await harness.dg.StartGeneration(
@@ -118,7 +123,9 @@ async def test_start_revision_conflict_rejected_in_body(
 
 
 async def test_cancelled_push_releases_config_lock(
-    start_real_gateway, configs_root, dg_server  # noqa: ANN001
+    start_real_gateway,
+    configs_root,
+    dg_server,  # noqa: ANN001
 ) -> None:
     _gateway, harness = await _start_full_stack(start_real_gateway, configs_root, dg_server)
     disk = await harness.common.GetConfigSnapshot(

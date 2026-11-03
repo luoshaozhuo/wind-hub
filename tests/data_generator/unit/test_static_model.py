@@ -24,7 +24,9 @@ TABLE = {
 
 def test_table_requires_function_and_two_rows() -> None:
     with pytest.raises(GeneratorError):
-        interpolation_table({"function": "polynomial", "input_point": "x", "values": [[0, 0], [1, 1]]})
+        interpolation_table(
+            {"function": "polynomial", "input_point": "x", "values": [[0, 0], [1, 1]]}
+        )
     with pytest.raises(GeneratorError):
         interpolation_table({"function": "linear_table", "input_point": "x", "values": [[0, 0]]})
 
@@ -61,9 +63,7 @@ def test_interpolation_linear_between_rows() -> None:
 def test_out_of_range_rejected_by_default_and_clamped_when_configured() -> None:
     with pytest.raises(GeneratorError, match="outside defined range"):
         static_value({**TABLE, "data_type": "float64"}, {"x": 2.5})
-    clamped = static_value(
-        {**TABLE, "out_of_range": "clamp", "data_type": "float64"}, {"x": 2.5}
-    )
+    clamped = static_value({**TABLE, "out_of_range": "clamp", "data_type": "float64"}, {"x": 2.5})
     assert clamped == 30.0
 
 
@@ -143,4 +143,4 @@ def test_generated_values_are_finite() -> None:
     }
     with pytest.raises(GeneratorError, match="float32 overflow"):
         generate_values(1, 1, points)
-    assert math.isfinite(static_value({**TABLE, "data_type": "float64"}, {"x": 1.0}))
+    assert math.isfinite(float(static_value({**TABLE, "data_type": "float64"}, {"x": 1.0})))

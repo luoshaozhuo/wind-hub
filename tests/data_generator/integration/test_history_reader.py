@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -35,8 +36,8 @@ def _write(tmp_path: Path, name: str, lines: list[str], *, raw: bool = False) ->
     return path
 
 
-async def _collect(source: Path, start=T0, end=None, **kwargs: object) -> list:
-    records: list = []
+async def _collect(source: Path, start=T0, end=None, **kwargs: Any) -> list[Any]:
+    records: list[Any] = []
     async for record in iter_records(
         source,
         start,

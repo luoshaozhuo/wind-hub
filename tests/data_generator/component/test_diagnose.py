@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from contracts import common_pb2 as common
@@ -9,7 +11,7 @@ from data_generator.infrastructure.config import load_settings
 from data_generator.infrastructure.diagnostics import Diagnostics
 from data_generator.infrastructure.snapshots import recover_transaction
 
-from ..conftest import ship_scenarios_document, write_history
+from ..conftest import ship_scenarios_document
 
 pytestmark = [pytest.mark.component, pytest.mark.reliability, pytest.mark.no_targets]
 
@@ -19,8 +21,10 @@ def _diagnostics(service_path) -> Diagnostics:  # noqa: ANN001
     return Diagnostics(load_settings(service_path))
 
 
-def _request(target: str = "", stages: object = None, timeout_ms: int = 0) -> common.DiagnoseRequest:
-    return common.DiagnoseRequest(target_id=target, stages=list(stages or []), timeout_ms=timeout_ms)
+def _request(target: str = "", stages: Any = None, timeout_ms: int = 0) -> common.DiagnoseRequest:
+    return common.DiagnoseRequest(
+        target_id=target, stages=list(stages or []), timeout_ms=timeout_ms
+    )
 
 
 async def test_unknown_target_returns_no_diagnostic_targets(configs_root) -> None:  # noqa: ANN001
@@ -42,9 +46,7 @@ async def test_simulation_source_and_mapping_pass(configs_root) -> None:  # noqa
             mappings=[("gw-test", "GW01.pitch_angle")],
         ),
     )
-    response = await _diagnostics(service_path).run(
-        _request("demo-random", ["source", "mapping"])
-    )
+    response = await _diagnostics(service_path).run(_request("demo-random", ["source", "mapping"]))
     stages = {item.stage: item for item in response.stages}
     assert stages["source"].status == "PASS"
     assert stages["mapping"].status == "PASS"
@@ -106,14 +108,19 @@ async def test_replay_source_stage_reads_real_csv_header(configs_root) -> None: 
                         "speed": 1.0,
                         "loop": False,
                     },
-                    "devices": [{"device_id": "GW02", "points": [{"point_id": "a02_dm_pitchangle1"}]}],
+                    "devices": [
+                        {"device_id": "GW02", "points": [{"point_id": "a02_dm_pitchangle1"}]}
+                    ],
                     "gateways": [
                         {
                             "gateway_id": "gw-test",
                             "endpoint": "127.0.0.1:59999",
                             "feedback_mapping": [
-                                {"device_id": "GW02", "point_id": "a02_dm_pitchangle1",
-                                 "variable_id": "GW02.pitch_angle"}
+                                {
+                                    "device_id": "GW02",
+                                    "point_id": "a02_dm_pitchangle1",
+                                    "variable_id": "GW02.pitch_angle",
+                                }
                             ],
                         }
                     ],

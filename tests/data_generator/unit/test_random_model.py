@@ -39,7 +39,7 @@ def test_uniform_values_stay_within_bounds() -> None:
     params = {"minimum": -2.0, "maximum": -1.0, "data_type": "float32"}
     for step in range(1, 200):
         value = random_value(9, "d", "p", step, params)
-        assert -2.0 <= value <= -1.0
+        assert -2.0 <= float(value) <= -1.0
 
 
 @pytest.mark.parametrize(
@@ -93,4 +93,4 @@ def test_generate_values_resolves_all_points_once() -> None:
     }
     values = generate_values(5, 1, points)
     assert set(values) == set(points)
-    assert all(math.isfinite(v) for v in values.values())
+    assert all(math.isfinite(float(v)) for v in values.values())

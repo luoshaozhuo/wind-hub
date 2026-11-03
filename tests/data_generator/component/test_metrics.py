@@ -29,8 +29,13 @@ def _runtime(window_seconds: int = 60, max_series: int = 2000) -> Any:
 
     runtime = SimpleNamespace()
     runtime.settings = SimpleNamespace(
-        service={"metrics": {"window_seconds": window_seconds, "retain_seconds": 3600,
-                              "max_series": max_series}},
+        service={
+            "metrics": {
+                "window_seconds": window_seconds,
+                "retain_seconds": 3600,
+                "max_series": max_series,
+            }
+        },
     )
     runtime.counters = {"generated": 0, "batches": 0, "confirmed": 0}
     runtime.generations = {}

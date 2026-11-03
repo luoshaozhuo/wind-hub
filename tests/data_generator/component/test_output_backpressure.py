@@ -43,15 +43,33 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         self.abort = abort
         self.calls: list[list[str]] = []
 
-    async def ListVariables(self, request, context):  # noqa: ANN001
+    async def GetGateway(self, request, context):  # noqa: ANN001, ANN202, N802
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by data generator")
+
+    async def StartGateway(self, request, context):  # noqa: ANN001, ANN202, N802
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by data generator")
+
+    async def StopGateway(self, request, context):  # noqa: ANN001, ANN202, N802
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by data generator")
+
+    async def ListGateways(self, request, context):  # noqa: ANN001, ANN202, N802
+        return gw.ListGatewaysResponse(
+            gateways=[gw.Gateway(gateway_id="gw-a", actual_state="RUNNING")]
+        )
+
+    async def ListVariables(self, request, context):  # noqa: ANN001, N802
         return gw.ListVariablesResponse(
             variables=[
-                gw.Variable(variable_id="GW01.a", name="GW01.a", data_type="float32", writable=True),
-                gw.Variable(variable_id="GW01.b", name="GW01.b", data_type="float32", writable=True),
+                gw.Variable(
+                    variable_id="GW01.a", name="GW01.a", data_type="float32", writable=True
+                ),
+                gw.Variable(
+                    variable_id="GW01.b", name="GW01.b", data_type="float32", writable=True
+                ),
             ]
         )
 
-    async def UpdateVariables(self, request, context):  # noqa: ANN001
+    async def UpdateVariables(self, request, context):  # noqa: ANN001, N802
         self.calls.append([item.variable_id for item in request.values])
         if self.abort is not None:
             await context.abort(self.abort, "injected")
@@ -69,6 +87,9 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
             if item.variable_id not in self.omit
         ]
         return gw.UpdateVariablesResponse(results=results)
+
+    async def ReadVariables(self, request, context):  # noqa: ANN001, ANN202, N802
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by data generator")
 
 
 def _scenario(bind: str) -> Scenario:
@@ -104,7 +125,9 @@ def _batch() -> DataBatch:
     )
 
 
-async def _start_service(service: gw_rpc.IndustrialGatewayServiceServicer) -> tuple[grpc.aio.Server, str]:
+async def _start_service(
+    service: gw_rpc.IndustrialGatewayServiceServicer,
+) -> tuple[grpc.aio.Server, str]:
     server = grpc.aio.server()
     gw_rpc.add_IndustrialGatewayServiceServicer_to_server(service, server)
     port = server.add_insecure_port("127.0.0.1:0")

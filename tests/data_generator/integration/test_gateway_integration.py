@@ -69,7 +69,8 @@ async def gw_list(stub, gateway_id: str, variable_id: str) -> gw.Variable:  # no
     response = await stub.ListVariables(
         gw.ListVariablesRequest(gateway_id=gateway_id, filter=variable_id)
     )
-    (item,) = [v for v in response.variables if v.variable_id == variable_id]
+    item = next(v for v in response.variables if v.variable_id == variable_id)
+    assert isinstance(item, gw.Variable)
     return item
 
 
@@ -149,13 +150,16 @@ async def test_batch_size_limits_abort(start_real_gateway) -> None:  # noqa: ANN
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
     channel, stub = await _stub(gateway.data_bind)
     try:
-        for values in ([], [
-            gw.VariableUpdate(
-                variable_id="GW01.pitch_angle",
-                value=common.ScalarValue(double_value=1.0),
-            )
-            for _ in range(5001)
-        ]):
+        for values in (
+            [],
+            [
+                gw.VariableUpdate(
+                    variable_id="GW01.pitch_angle",
+                    value=common.ScalarValue(double_value=1.0),
+                )
+                for _ in range(5001)
+            ],
+        ):
             with pytest.raises(grpc.RpcError) as info:
                 await stub.UpdateVariables(
                     gw.UpdateVariablesRequest(gateway_id="gw-a", values=values)
@@ -214,7 +218,8 @@ async def test_gateway_lifecycle_rpc_and_revision_conflict(start_real_gateway) -
 
 
 async def test_dg_writer_uses_formal_update_rpc_end_to_end(
-    start_real_gateway, configs_root  # noqa: ANN001
+    start_real_gateway,
+    configs_root,  # noqa: ANN001
 ) -> None:
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
     service_path = configs_root(
@@ -255,7 +260,8 @@ async def test_dg_writer_uses_formal_update_rpc_end_to_end(
 
 
 async def test_dg_writer_preflight_rejects_type_mismatch(
-    start_real_gateway, configs_root  # noqa: ANN001
+    start_real_gateway,
+    configs_root,  # noqa: ANN001
 ) -> None:
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
     document = ship_scenarios_document(

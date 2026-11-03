@@ -6,6 +6,8 @@ DataGeneratorService 6 + CommonService 9，全部 Unary；校验真实入参/出
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from contracts import common_pb2 as common
@@ -14,7 +16,7 @@ from contracts import industrial_gateway_pb2 as gw
 
 pytestmark = [pytest.mark.integration, pytest.mark.reliability, pytest.mark.contract]
 
-DG_METHODS = {
+DG_METHODS: dict[str, tuple[Any, Any]] = {
     "ListDevices": (dg.ListDevicesRequest, dg.ListDevicesResponse),
     "GetDevice": (common.ObjectId, dg.GetDeviceResponse),
     "ListScenarios": (dg.ListScenariosRequest, dg.ListScenariosResponse),
@@ -22,7 +24,7 @@ DG_METHODS = {
     "StartGeneration": (dg.StartGenerationRequest, dg.StartGenerationResponse),
     "StopGeneration": (dg.StopGenerationRequest, dg.StopGenerationResponse),
 }
-COMMON_METHODS = {
+COMMON_METHODS: dict[str, tuple[Any, Any]] = {
     "GetServiceInfo": (common.Empty, common.GetServiceInfoResponse),
     "GetServiceStatus": (common.Empty, common.GetServiceStatusResponse),
     "GetCapabilities": (common.Empty, common.GetCapabilitiesResponse),
@@ -77,7 +79,14 @@ def test_sample_value_and_metadata_bounds_optional() -> None:
 def test_scalar_value_is_oneof_named_kind() -> None:
     oneof = common.ScalarValue.DESCRIPTOR.oneofs_by_name["kind"]
     kind_names = {field.name for field in oneof.fields}
-    assert {"sint64_value", "uint64_value", "double_value", "bool_value", "string_value", "bytes_value"} <= kind_names
+    assert {
+        "sint64_value",
+        "uint64_value",
+        "double_value",
+        "bool_value",
+        "string_value",
+        "bytes_value",
+    } <= kind_names
 
 
 def test_snapshot_scope_has_four_values() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -27,8 +28,8 @@ def _csv(tmp_path: Path, rows: list[str]) -> Path:
     return path
 
 
-async def _records(source: Path, start: datetime, end: datetime, **kwargs: object) -> list:
-    out: list = []
+async def _records(source: Path, start: datetime, end: datetime, **kwargs: Any) -> list[Any]:
+    out: list[Any] = []
     async for record in iter_records(source, start, end, point_types=POINT_TYPES, **kwargs):
         out.append(record)
     return out
@@ -37,7 +38,9 @@ async def _records(source: Path, start: datetime, end: datetime, **kwargs: objec
 def test_deadline_scales_elapsed_source_time_by_speed() -> None:
     # speed=2：2 秒源时间在墙钟上仅推进 1 秒。
     assert replay_deadline(T0, T0 + timedelta(seconds=2), 100.0, 2.0) == pytest.approx(101.0)
-    assert replay_deadline(T0 + timedelta(seconds=10), T0 + timedelta(seconds=13), 0.0, 1.0) == pytest.approx(3.0)
+    assert replay_deadline(
+        T0 + timedelta(seconds=10), T0 + timedelta(seconds=13), 0.0, 1.0
+    ) == pytest.approx(3.0)
 
 
 def test_deadline_rejects_non_positive_speed() -> None:
@@ -46,10 +49,7 @@ def test_deadline_rejects_non_positive_speed() -> None:
 
 
 async def test_equal_timestamps_ordered_by_source_line(tmp_path: Path) -> None:
-    rows = [
-        f"GW02,p,2026-01-01T00:00:00Z,{i + 0.5},GOOD,{1000 + i}"
-        for i in range(5)
-    ]
+    rows = [f"GW02,p,2026-01-01T00:00:00Z,{i + 0.5},GOOD,{1000 + i}" for i in range(5)]
     source = _csv(tmp_path, rows)
     records = await _records(source, T0, T0 + timedelta(hours=1))
     assert [record.line_number for record in records] == [2, 3, 4, 5, 6]
@@ -74,13 +74,10 @@ async def test_window_is_half_open_and_ordered(tmp_path: Path) -> None:
 
 async def test_pagination_keeps_total_order(tmp_path: Path) -> None:
     rows = [
-        f"GW02,p,2026-01-01T00:00:{second:02d}Z,{second},GOOD,id-{second}"
-        for second in range(5)
+        f"GW02,p,2026-01-01T00:00:{second:02d}Z,{second},GOOD,id-{second}" for second in range(5)
     ]
     source = _csv(tmp_path, rows)
-    records = await _records(
-        source, T0, T0 + timedelta(hours=1), read_batch_size=2
-    )
+    records = await _records(source, T0, T0 + timedelta(hours=1), read_batch_size=2)
     assert [record.record_id for record in records] == [
         "id-0",
         "id-1",
@@ -109,14 +106,9 @@ async def test_invalid_window_rejected(tmp_path: Path) -> None:
 
 
 async def test_exact_max_records_accepted_but_one_more_rejected(tmp_path: Path) -> None:
-    rows = [
-        f"GW02,p,2026-01-01T00:00:{i:02d}Z,1,GOOD,r{i}"
-        for i in range(4)
-    ]
+    rows = [f"GW02,p,2026-01-01T00:00:{i:02d}Z,1,GOOD,r{i}" for i in range(4)]
     source = _csv(tmp_path, rows)
-    records = await _records(
-        source, T0, T0 + timedelta(hours=1), max_records=4
-    )
+    records = await _records(source, T0, T0 + timedelta(hours=1), max_records=4)
     assert len(records) == 4
     with pytest.raises(GeneratorError, match="capacity exceeded"):
         await _records(source, T0, T0 + timedelta(hours=1), max_records=3)

@@ -16,7 +16,7 @@ from data_generator.domain.model import DataBatch, DeliveryResult, OutputTarget
 from data_generator.infrastructure.config import load_settings
 from data_generator.infrastructure.snapshots import recover_transaction
 
-from ..conftest import ship_scenarios_document, write_history
+from ..conftest import ship_scenarios_document
 
 pytestmark = [pytest.mark.component, pytest.mark.reliability, pytest.mark.lifecycle]
 
@@ -61,7 +61,9 @@ def _settings(service_path):  # noqa: ANN001, ANN202
 
 async def test_start_unknown_scenario_and_version_mismatch(configs_root) -> None:  # noqa: ANN001
     service_path = configs_root(
-        scenarios=ship_scenarios_document({"gw-test": "127.0.0.1:59999"}, mappings=[("gw-test", "GW01.pitch_angle")]),
+        scenarios=ship_scenarios_document(
+            {"gw-test": "127.0.0.1:59999"}, mappings=[("gw-test", "GW01.pitch_angle")]
+        ),
         bind="127.0.0.1:0",
     )
     runtime = Runtime(_settings(service_path), FakeWriter())
@@ -73,7 +75,9 @@ async def test_start_unknown_scenario_and_version_mismatch(configs_root) -> None
 
 async def test_revision_mismatch_rejects_start(configs_root) -> None:  # noqa: ANN001
     service_path = configs_root(
-        scenarios=ship_scenarios_document({"gw-test": "127.0.0.1:59999"}, mappings=[("gw-test", "GW01.pitch_angle")]),
+        scenarios=ship_scenarios_document(
+            {"gw-test": "127.0.0.1:59999"}, mappings=[("gw-test", "GW01.pitch_angle")]
+        ),
         bind="127.0.0.1:0",
     )
     runtime = Runtime(_settings(service_path), FakeWriter())
@@ -100,14 +104,19 @@ async def test_single_active_generation_and_completion(configs_root) -> None:  #
                         "speed": 1000.0,
                         "loop": False,
                     },
-                    "devices": [{"device_id": "GW02", "points": [{"point_id": "a02_dm_pitchangle1"}]}],
+                    "devices": [
+                        {"device_id": "GW02", "points": [{"point_id": "a02_dm_pitchangle1"}]}
+                    ],
                     "gateways": [
                         {
                             "gateway_id": "gw-test",
                             "endpoint": "127.0.0.1:59999",
                             "feedback_mapping": [
-                                {"device_id": "GW02", "point_id": "a02_dm_pitchangle1",
-                                 "variable_id": "GW02.pitch_angle"}
+                                {
+                                    "device_id": "GW02",
+                                    "point_id": "a02_dm_pitchangle1",
+                                    "variable_id": "GW02.pitch_angle",
+                                }
                             ],
                         }
                     ],
@@ -139,6 +148,7 @@ async def test_single_active_generation_and_completion(configs_root) -> None:  #
         settled = await runtime.get_generation(first.generation_id)
         if settled is not None and settled.actual_state == "COMPLETED":
             break
+    assert settled is not None
     assert settled.actual_state == "COMPLETED"
     assert writer.sent == 3
     # 源回收后允许新实例。
@@ -164,6 +174,7 @@ async def test_failed_output_marks_generation_failed(configs_root) -> None:  # n
         state = await runtime.get_generation(generation.generation_id)
         if state is not None and state.actual_state == "FAILED":
             break
+    assert state is not None
     assert state.actual_state == "FAILED"
     assert "forced output failure" in state.last_error
 
