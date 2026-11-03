@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections import deque
+from datetime import datetime
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -59,6 +61,9 @@ class DeliveryRegistry:
         self._role = process_role
         self._revision = snapshot.revision
         self._entries: dict[str, _Entry] = {}
+        self._retired_counters: dict[str, float] = {}
+        self._retired_latencies: deque[tuple[datetime, float]] = deque(maxlen=50000)
+        self._retired_overflow: datetime | None = None
         self._lock = asyncio.Lock()
 
     async def apply_configuration(
@@ -126,6 +131,7 @@ class DeliveryRegistry:
                         entry.view, actual_state=ActualState.FAILED, last_error=str(exc)
                     )
                     continue
+                self._retire(entry)
                 del self._entries[identifier]
                 changed.append(identifier)
             # Drain all changed users of a shared Sink before rebinding any.
@@ -141,6 +147,7 @@ class DeliveryRegistry:
                         entry.view, actual_state=ActualState.FAILED, last_error=str(exc)
                     )
                     continue
+                self._retire(entry)
                 del self._entries[identifier]
                 changed.append(identifier)
             for identifier, definition in definitions.items():
@@ -248,16 +255,50 @@ class DeliveryRegistry:
             )
         return view
 
+    def _retire(self, entry: _Entry) -> None:
+        """Preserve monotonic counters when a Delivery binding is replaced."""
+        for name, value in getattr(entry.port, 'metrics', {}).items():
+            if name.endswith('_total'):
+                self._retired_counters[name] = (
+                    self._retired_counters.get(name, 0.0) + float(value)
+                )
+        for item in getattr(entry.port, 'latency_samples', ()):
+            if len(self._retired_latencies) == self._retired_latencies.maxlen:
+                self._retired_overflow = item[0]
+            self._retired_latencies.append(item)
+        overflow = getattr(entry.port, 'latency_overflow_at', None)
+        if overflow is not None and (
+            self._retired_overflow is None or overflow > self._retired_overflow
+        ):
+            self._retired_overflow = overflow
+
     def counters(self) -> dict[str, float]:
-        """Aggregate observed Delivery counters without exposing mutable ports."""
-        result: dict[str, float] = {}
+        """Aggregate cumulative Delivery counters and current gauges."""
+        result = dict(self._retired_counters)
         for entry in self._entries.values():
-            values = getattr(entry.port, "metrics", {})
-            for name, value in values.items():
-                key = f"delivery_{name}"
-                result[key] = result.get(key, 0.0) + float(value)
+            for name, value in getattr(entry.port, 'metrics', {}).items():
+                result[name] = result.get(name, 0.0) + float(value)
+        for name in (
+            'received_total', 'delivered_total', 'failed_total',
+            'dropped_total', 'dead_letter_total', 'write_success_total',
+        ):
+            result.setdefault(name, 0.0)
+        result.setdefault('io_inflight', 0.0)
         return result
 
+    def latency_observations(self) -> tuple[tuple[datetime, float], ...]:
+        values = list(self._retired_latencies)
+        for entry in self._entries.values():
+            values.extend(getattr(entry.port, 'latency_samples', ()))
+        return tuple(values)
+
+    def latency_overflow_at(self) -> datetime | None:
+        times = [self._retired_overflow]
+        times.extend(
+            getattr(entry.port, 'latency_overflow_at', None)
+            for entry in self._entries.values()
+        )
+        return max((value for value in times if value is not None), default=None)
     def list(self, channel: str = "") -> tuple[DeliveryView, ...]:
         if channel and channel != self._role:
             return ()
