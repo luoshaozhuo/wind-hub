@@ -236,9 +236,10 @@ class KafkaOutput:
         self._producer = producer
 
     async def close(self) -> None:
-        producer, self._producer = self._producer, None
+        producer = self._producer
         if producer is not None:
             await producer.stop()
+            self._producer = None
 
     async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         async with self._lock:
@@ -447,9 +448,10 @@ class ModbusOutput:
         self._server = server
 
     async def close(self) -> None:
-        server, self._server = self._server, None
+        server = self._server
         if server is not None:
             await server.shutdown()
+            self._server = None
 
     async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         return self._image.update(samples)
