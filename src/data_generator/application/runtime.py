@@ -432,6 +432,18 @@ class Runtime:
         else:
             status = "FAILED"
         self.last_batch_status = status
-        if status not in ("SUCCESS",):
-            self.record("WARNING", generation.generation_id, "BATCH_" + status, str(sequence))
+        logger.info(
+            "delivery batch %s confirmed=%d failed=%d unknown=%d",
+            status, confirmed, failed, unknown,
+            extra={
+                "source_id": generation.generation_id,
+                "batch_sequence": sequence,
+                "stage": "gateway_delivery",
+            },
+        )
+        if status != "SUCCESS":
+            self.record(
+                "WARNING", generation.generation_id,
+                "BATCH_" + status, str(sequence),
+            )
         return status
