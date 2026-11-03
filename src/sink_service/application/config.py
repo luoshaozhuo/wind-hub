@@ -222,27 +222,15 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     service_files = [path for path in docs if path.startswith("configs/services/")]
     if len(service_files) != 2:
         raise ConfigurationError("shared snapshot requires realtime and reliable Service files")
-    if set(service_files) != {
-        "configs/services/sink-realtime.yaml",
-        "configs/services/sink-reliable.yaml",
-    }:
-        raise ConfigurationError("unexpected Service file in Sink configuration snapshot")
     services = [docs[path] for path in service_files]
-    if (
-        docs['configs/services/sink-realtime.yaml']['process_role'] != 'realtime'
-        or docs['configs/services/sink-reliable.yaml']['process_role'] != 'reliable'
-        or not docs['configs/services/sink-realtime.yaml']['config_writer']
-        or docs['configs/services/sink-reliable.yaml']['config_writer']
-    ):
-        raise ConfigurationError(
-            'Sink Service role and Writer ownership must match explicit Service pathname'
-        )
     for service_doc in services:
         validate_service(service_doc)
     if {doc["process_role"] for doc in services} != {"realtime", "reliable"}:
         raise ConfigurationError("Service processes must have distinct roles")
     if sum(doc["config_writer"] for doc in services) != 1:
         raise ConfigurationError("configuration domain requires exactly one Writer")
+    if any(doc['config_writer'] != (doc['process_role'] == 'realtime') for doc in services):
+        raise ConfigurationError('realtime Service must be the sole Writer')
     if len({(doc["grpc"]["listen_host"], doc["grpc"]["listen_port"]) for doc in services}) != 2:
         raise ConfigurationError("Service gRPC ports must be distinct")
     if len({doc["config_root"] for doc in services}) != 1:
