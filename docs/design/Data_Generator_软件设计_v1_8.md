@@ -1725,7 +1725,7 @@ flowchart TB
 
 ## 6.2 运行生命周期
 
-服务启动必须从外部提供的服务配置绝对路径定位配置根目录，先校验 `services/data-generator-service.yaml`、`instances/data-generator.yaml`、`instances/site.yaml`、`instances/devices.yaml` 和全部被引用的公共模板，再进入就绪状态；`Apply` 只热更新实例/模板相关生效内容，服务级配置变更须重启（详见 §11.1、§11.5）。
+服务启动通过指定的服务配置绝对路径读取 `configuration` 引用，逐一校验显式声明的三个实例文件、模板根目录、单位/业务点目录文件以及实际引用的版本化模板，再进入就绪状态；`Apply` 只热更新实例/模板相关生效内容，服务级配置变更须重启（详见 §11.1、§11.5）。
 
 
 `DataGeneratorService.StartGeneration` 与 `StopGeneration` 是当前 Proto 已有的业务运行控制入口；`GetGeneration` 返回权威生成实例状态。它们不同于外部进程管理器启动/停止服务进程。按 `scenario_id` 选择已配置场景、绑定 `scenario_version` 后产生服务端 `generation_id`；合法停止必须保护未安全收敛的底层 I/O。场景编辑/删除不属于当前接口范围。
@@ -1876,7 +1876,7 @@ flowchart LR
 ```
 <p class="figure-caption">图 8-1 Data Generator 部署与通信依赖</p>
 
-部署中的 `CFG` 指同一配置根下的 `services/data-generator-service.yaml`、`instances/data-generator.yaml`、公共 `instances/site.yaml`、`instances/devices.yaml` 与共享 `templates/`，其目录结构及启动绝对路径规则见 §11.1；生产环境可将根目录部署在 `/etc/wind-hub/`。
+部署中的 `CFG` 以服务 YAML 的 `configuration` 显式指定的实例文档、模板根目录及其引用图为准，不在运行代码中固定推导 `instances` 文件名或 `templates/` 路径，详见 §11.1；生产环境可将根目录部署在 `/etc/wind-hub/`。
 
 <p class="table-caption">表 8-1 节点、依赖、故障域</p>
 
@@ -2071,7 +2071,9 @@ configs/
 | `instances/data-generator.yaml` | 场景及版本、数据来源、随机/静态参数、CSV 重放和 Gateway 映射 | Data Generator 独立校验并拥有运行行为 |
 | `services/data-generator-service.yaml` | 配置来源路径、gRPC、输出、缓冲、诊断与 Metrics 限额 | 显式声明共享/私有实例文件及模板根目录；重启生效 |
 
-**服务级路径契约**：`configuration` 必填；`instances.site`、`instances.devices`、`instances.scenarios`、`templates.root`、`templates.units`、`templates.business_points` 六个字段必须齐全，不允许隐式回退。模板根目录用于解析版本化的设备型号、点表和协议模板，`units` 与 `business_points` 必须位于该根目录内。路径选择属于服务配置，修改后需要重启；新文件集必须重新完成引用校验。服务文件允许引用同一 `configs/` 根下的其他实际文件名，但必须通过相对路径明确指定。\n\n**公共版本契约**：Core `validate_document_version` 规定 `schema_version: 1`（整数）、`file_version: MAJOR.MINOR.PATCH`（字符串）；版本化模板另需 `template_id`。设备实例的 `model: {id, version}` 必须精确引用 `device_models/<id>_<version>.yaml`。型号模板再引用 `protocols/` 与 `point_tables/`；其解析次序为实例覆盖 > 型号参数 > 协议模板默认值 > Core 默认值。`tasks/`、`deliveries/` 仍按 Core 规定的独立版本目录解析；本模块不得为这些类别生成虚构引用。
+**服务级路径契约**：`configuration` 必填；`instances.site`、`instances.devices`、`instances.scenarios`、`templates.root`、`templates.units`、`templates.business_points` 六个字段必须齐全，不允许隐式回退。模板根目录用于解析版本化的设备型号、点表和协议模板，`units` 与 `business_points` 必须位于该根目录内。路径选择属于服务配置，修改后需要重启；新文件集必须重新完成引用校验。服务文件允许引用同一 `configs/` 根下的其他实际文件名，但必须通过相对路径明确指定。
+
+**公共版本契约**：Core `validate_document_version` 规定 `schema_version: 1`（整数）、`file_version: MAJOR.MINOR.PATCH`（字符串）；版本化模板另需 `template_id`。设备实例的 `model: {id, version}` 必须精确引用 `device_models/<id>_<version>.yaml`。型号模板再引用 `protocols/` 与 `point_tables/`；其解析次序为实例覆盖 > 型号参数 > 协议模板默认值 > Core 默认值。`tasks/`、`deliveries/` 仍按 Core 规定的独立版本目录解析；本模块不得为这些类别生成虚构引用。
 
 **共享能力边界**：`SharedDocumentLoader(SharedConfigPaths(...))` 负责公共文档、引用和基础校验；`build_shared_snapshot()` 生成不可变业务域快照。它们**不实现 Data Generator 私有 Scenario 校验、配置快照 RPC、候选持久化或文件集事务**；这些职责保留在本模块适配层，且须复用现有 Core 通用文件/版本/安全设施，不宣称 Core 已提供完整 Get/Push/Apply 服务。
 
