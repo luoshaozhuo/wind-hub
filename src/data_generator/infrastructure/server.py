@@ -82,9 +82,13 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
         for state in self.runtime.generations.values():
             if state.actual_state in ("STARTING", "RUNNING", "STOPPING"):
                 for device_id in state.scenario.devices:
-                    if device_id in devices:
-                        devices[device_id].generation_id = state.generation_id
-                        devices[device_id].actual_state = state.actual_state
+                    if device_id not in devices:
+                        # Existing Generation retains its original configuration binding.
+                        devices[device_id] = dg.Device(
+                            device_id=device_id, protocol="virtual",
+                        )
+                    devices[device_id].generation_id = state.generation_id
+                    devices[device_id].actual_state = state.actual_state
         return devices
 
     async def ListDevices(
