@@ -68,16 +68,34 @@ class GenerationStore:
         checked = validate_snapshot(snapshot.files)
         if checked.revision != snapshot.revision:
             raise ConfigurationError("snapshot was modified after validation")
+        # The active snapshot contains only referenced templates. Removing a
+        # reference does not delete its immutable record in older generations.
+        current_templates = {
+            item.path: item.content
+            for item in checked.files
+            if item.path.startswith("configs/templates/")
+        }
         if old is not None:
-            previous = {item.path: item.content for item in old.files}
-            current = {item.path: item.content for item in checked.files}
-            for old_path, old_content in previous.items():
-                if not old_path.startswith("configs/templates/"):
+            previous = {
+                item.path: item.content
+                for item in old.files
+                if item.path.startswith("configs/templates/")
+            }
+            for path in previous.keys() & current_templates.keys():
+                if previous[path] != current_templates[path]:
+                    raise ConfigurationError(f"immutable template version modified: {path}")
+        # A previously published version must never be reintroduced with
+        # different bytes, even after it was unreferenced for several revisions.
+        if self._generations.exists():
+            for generation in self._generations.iterdir():
+                if not generation.is_dir() or len(generation.name) != 64:
                     continue
-                if old_path not in current:
-                    raise ConfigurationError(f"published template version deleted: {old_path}")
-                if current[old_path] != old_content:
-                    raise ConfigurationError(f"immutable template version modified: {old_path}")
+                for path, content in current_templates.items():
+                    published = generation / path
+                    if published.is_file() and published.read_bytes() != content:
+                        raise ConfigurationError(
+                            f"immutable published template version modified: {path}"
+                        )
         target = self._generation(checked.revision)
         self._generations.mkdir(parents=True, exist_ok=True)
         if not target.exists():
