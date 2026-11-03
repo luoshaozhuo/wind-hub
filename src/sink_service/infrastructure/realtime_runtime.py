@@ -17,7 +17,7 @@ from nats.aio.subscription import Subscription
 
 from sink_service.application.config import template_path
 from sink_service.application.delivery_definition import DeliveryDefinition
-from sink_service.application.realtime import RealtimeEngine
+from sink_service.application.realtime import BatchOutcome, RealtimeEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, config_sources
 from sink_service.infrastructure.realtime_adapters import (
     KafkaOutput,
@@ -119,12 +119,34 @@ class _SinkOutput:
         self.references = 0
 
 
+class _QuotaWriter:
+    """Hold the process-wide in-flight quota until native write settles."""
+
+    def __init__(
+        self, adapter: Any, quota: asyncio.Semaphore, timeout_ms: int,
+    ) -> None:
+        self._adapter = adapter
+        self._quota = quota
+        self._timeout = timeout_ms / 1000
+
+    async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
+        try:
+            await asyncio.wait_for(self._quota.acquire(), timeout=self._timeout)
+        except TimeoutError:
+            return BatchOutcome((), (), "realtime global I/O quota wait timeout")
+        try:
+            return await self._adapter.write_batch(samples)
+        finally:
+            self._quota.release()
+
+
 class SinkOutputPool:
     """Share one physical Sink between multiple Delivery owners in one process."""
 
     def __init__(self) -> None:
         self._entries: dict[str, _SinkOutput] = {}
         self._lock = asyncio.Lock()
+        self._quota: asyncio.Semaphore | None = None
 
     @staticmethod
     def _build(sink_id: str, snapshot: ValidatedSnapshot) -> tuple[Any, str]:
@@ -200,7 +222,15 @@ class SinkOutputPool:
                     f"Sink {sink_id} still in use with a different binding"
                 )
             current.references += 1
-            return current.adapter
+            if self._quota is None:
+                self._quota = asyncio.Semaphore(
+                    snapshot.service["runtime"]["max_inflight_global"]
+                )
+            return _QuotaWriter(
+                current.adapter,
+                self._quota,
+                snapshot.service["runtime"]["io_wait_timeout_ms"],
+            )
 
     async def release(self, sink_id: str) -> None:
         async with self._lock:
