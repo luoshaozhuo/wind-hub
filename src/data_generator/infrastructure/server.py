@@ -188,18 +188,37 @@ class CommonService(common_rpc.CommonServiceServicer):
             protocols=["grpc"], features=["simulation", "replay_csv", "gateway_update"],
         )
 
-    async def GetConfigSnapshot(self, request: common.GetConfigSnapshotRequest,
-                                context: Any) -> common.GetConfigSnapshotResponse:
-        name = common.SnapshotScope.Name(request.scope).removeprefix("SNAPSHOT_SCOPE_")
-        try:
-            files = self.snapshots.get(name, request.candidate_id)
-        except GeneratorError as exc:
-            await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
-            raise RuntimeError("unreachable") from exc
+    async def GetConfigSnapshot(
+        self, request: common.GetConfigSnapshotRequest, context: Any,
+    ) -> common.GetConfigSnapshotResponse:
+        scope = common.SnapshotScope.Name(request.scope).removeprefix("SNAPSHOT_SCOPE_")
+        async with self._config_lock:
+            try:
+                files = await asyncio.to_thread(
+                    self.snapshots.get, scope, request.candidate_id,
+                )
+            except (GeneratorError, OSError, ValueError) as exc:
+                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+                raise RuntimeError("gRPC abort returned") from exc
+            revision = (
+                self.runtime.settings.revision if scope == "RUNTIME"
+                else self.snapshots.settings.revision
+            )
+            snapshot_id = (
+                request.candidate_id if scope == "CANDIDATE" else revision
+            )
         return common.GetConfigSnapshotResponse(
-            revision=self.runtime.settings.revision,
-            files=[common.SnapshotFile(relative_path=f.path, content=f.data,
-                    size_bytes=len(f.data), sha256=file_sha256(f.data)) for f in files],
+            snapshot_id=snapshot_id,
+            revision=revision,
+            files=[
+                common.SnapshotFile(
+                    relative_path=item.path,
+                    content=item.data,
+                    size_bytes=len(item.data),
+                    sha256=file_sha256(item.data),
+                )
+                for item in files
+            ],
         )
 
     async def PushConfigSnapshot(
@@ -222,11 +241,12 @@ class CommonService(common_rpc.CommonServiceServicer):
                     valid=False, validation=[common.ValidationIssue(
                         path="snapshot", code="INVALID", message=str(exc),
                     )],
-                    base_revision=self.runtime.settings.revision,
+                    base_revision=self.snapshots.settings.revision,
                 )
         return common.PushConfigSnapshotResponse(
-            candidate_id=candidate, valid=True,
-            base_revision=self.runtime.settings.revision,
+            candidate_id=candidate,
+            valid=True,
+            base_revision=self.snapshots.settings.revision,
         )
 
     async def ApplyConfigSnapshot(
@@ -247,22 +267,26 @@ class CommonService(common_rpc.CommonServiceServicer):
                         object_id="config", status="FAILED",
                         error_code="APPLY_FAILED", message=str(exc),
                     )],
-                    effective_revision=self.runtime.settings.revision,
+                    effective_revision=self.snapshots.settings.revision,
                 )
             self.diagnostics = Diagnostics(self.runtime.settings)
             self.runtime.record("INFO", "config", "APPLIED", settings.revision)
             return common.ApplyConfigSnapshotResponse(
-                file_commit="COMMITTED", effective_revision=settings.revision,
+                file_commit="COMMITTED",
+                effective_revision=self.runtime.settings.revision,
                 restart_required=restart_required,
                 application_id=request.candidate_id,
                 apply_results=[
                     common.ApplicationResult(
                         object_id=scenario_id,
-                        status="BOUND_OLD_VERSION" if any(
-                            g.scenario.scenario_id == scenario_id
-                            and g.actual_state in ("STARTING", "RUNNING", "STOPPING")
-                            for g in self.runtime.generations.values()
-                        ) else "APPLIED",
+                        status=(
+                            "RESTART_REQUIRED" if restart_required
+                            else "BOUND_OLD_VERSION" if any(
+                                state.scenario.scenario_id == scenario_id
+                                and state.actual_state in ("STARTING", "RUNNING", "STOPPING")
+                                for state in self.runtime.generations.values()
+                            ) else "APPLIED"
+                        ),
                     )
                     for scenario_id in settings.scenarios
                 ],
