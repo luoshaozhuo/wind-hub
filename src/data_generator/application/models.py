@@ -98,3 +98,42 @@ def static_value(params: Mapping[str, object], inputs: Mapping[str, Scalar]) -> 
             raise GeneratorError("fractional static result cannot be encoded as integer")
         return validate_scalar(int(y), kind)
     return validate_scalar(y, kind)
+
+
+def generate_values(
+    seed: int,
+    step: int,
+    points: Mapping[tuple[str, str], Mapping[str, object]],
+) -> dict[tuple[str, str], Scalar]:
+    """Evaluate one non-reentrant period in dependency order."""
+    calculated: dict[tuple[str, str], Scalar] = {}
+    pending = dict(points)
+    while pending:
+        ready = [
+            (key, point)
+            for key, point in pending.items()
+            if point.get("model", {}).get("kind") != "static"
+            or (key[0], point["model"].get("input_point")) in calculated
+        ]
+        if not ready:
+            raise GeneratorError("unresolvable static model dependency")
+        for (device_id, point_id), point in ready:
+            model = point.get("model", {})
+            kind = model.get("kind")
+            data_type = str(point["data_type"])
+            if kind == "random":
+                value = random_value(
+                    seed, device_id, point_id, step,
+                    {**model, "data_type": data_type},
+                )
+            elif kind == "static":
+                value = static_value(
+                    {**model, "data_type": data_type},
+                    {name: result for (device, name), result in calculated.items()
+                     if device == device_id},
+                )
+            else:
+                raise GeneratorError(f"unsupported model kind: {kind}")
+            calculated[(device_id, point_id)] = validate_scalar(value, data_type)
+            del pending[(device_id, point_id)]
+    return calculated
