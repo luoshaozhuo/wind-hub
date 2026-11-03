@@ -284,7 +284,9 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         if kind != "modbus_tcp":
             continue
         sink = sink_instances[sink_id]
-        template = _template(docs, template_root, "sinks", sink["template_id"], sink["template_version"])
+        template = _template(
+            docs, template_root, "sinks", sink["template_id"], sink["template_version"]
+        )
         output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
         if output.get("value_encoding") != "float32_be":
             raise ConfigurationError(f"sinks.{sink_id}: unsupported value encoding")
