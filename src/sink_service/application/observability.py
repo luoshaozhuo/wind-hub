@@ -30,7 +30,7 @@ class Observability:
             raise ValueError("max_events must be positive")
         self._events: deque[RuntimeEvent] = deque(maxlen=max_events)
         self._counts: dict[str, float] = {}
-        self._samples: deque[tuple[datetime, dict[str, float]]] = deque(maxlen=3602)
+        self._samples: deque[tuple[datetime, dict[str, float]]] = deque(maxlen=36002)
         self.started_at = datetime.now(UTC)
         self._window_ms = window_ms
         self._computed: dict[str, float] = {'metrics_snapshot_ready': 0.0}
@@ -73,7 +73,11 @@ class Observability:
             self._samples[1][0].timestamp() <= cutoff
         ):
             self._samples.popleft()
-        previous = self._samples[0][1]
+        previous = (
+            {}
+            if cutoff <= self.started_at.timestamp()
+            else self._samples[0][1]
+        )
         covered_ms = min(
             float(self._window_ms), max(0.0, (now - self.started_at).total_seconds() * 1000)
         )
