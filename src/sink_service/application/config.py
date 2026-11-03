@@ -205,6 +205,19 @@ def _validate_delivery(
             raise ConfigurationError(f"deliveries.{delivery_id}: mismatched DLQ subject")
 
 
+def _source_overlap(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Empty selectors mean all devices/points, not an empty output set."""
+    if (
+        left['wind_farm_id'] != right['wind_farm_id']
+        or left['collector_id'] != right['collector_id']
+    ):
+        return False
+    for field in ('devices', 'points'):
+        lhs, rhs = set(left[field]), set(right[field])
+        if lhs and rhs and lhs.isdisjoint(rhs):
+            return False
+    return True
+
 def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     """Resolve all cross-file template references before accepting a snapshot."""
     if not files:
@@ -262,6 +275,38 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     }
     for delivery_id, definition in delivery_instances.items():
         _validate_delivery(delivery_id, definition, docs, sinks, service, template_root)
+    # Two Delivery source selectors may share one physical Sink only when
+    # they cannot write the same logical point. Empty selectors are wildcards.
+    # The check also covers distinct Redis/Kafka Sink IDs with identical
+    # declared physical output endpoints.
+    outputs: dict[tuple[object, ...], list[tuple[str, dict[str, Any]]]] = {}
+    for delivery_id, delivery in delivery_instances.items():
+        sink_id = delivery['sink_id']
+        kind, _ = sinks[sink_id]
+        if kind == 'modbus_tcp':
+            continue  # The register closure below validates Modbus explicitly.
+        sink = sink_instances[sink_id]
+        conn = sink['connection']
+        template = _template(
+            docs, template_root, 'sinks', sink['template_id'], sink['template_version']
+        )
+        output = template['output']
+        if kind == 'redis':
+            address: tuple[object, ...] = (
+                kind, conn['host'], conn['port'], output['namespace']
+            )
+        else:
+            address = (
+                kind, tuple(sorted(conn['bootstrap_servers'])), output['topic']
+            )
+        existing = outputs.setdefault(address, [])
+        for previous_id, previous_source in existing:
+            if _source_overlap(delivery['source'], previous_source):
+                raise ConfigurationError(
+                    f'deliveries.{delivery_id}: output point overlaps '
+                    f'deliveries.{previous_id} at the same {kind} target'
+                )
+        existing.append((delivery_id, delivery['source']))
     addresses: set[tuple[str, int]] = set()
     for sink_id, (kind, _caps) in sinks.items():
         if kind != "modbus_tcp":
