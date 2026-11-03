@@ -294,34 +294,54 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
 
 
 def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
-    """Read only expected YAML files, rejecting symlink escapes."""
+    """Read explicit Instance paths and only the referenced template versions."""
     root = root.resolve(strict=True)
-    service_path = service_path.resolve(strict=True)
-    if not service_path.is_relative_to(root):
+    selected = service_path.resolve(strict=True)
+    if not selected.is_relative_to(root):
         raise ConfigurationError("Service path escapes configuration root")
-    managed = (
-        "services/sink-realtime.yaml",
-        "services/sink-reliable.yaml",
-        "instances/sinks.yaml",
-        "instances/deliveries.yaml",
-    )
-    paths = [root / relative for relative in managed]
-    if service_path not in paths:
-        raise ConfigurationError("selected Service is not a Sink Service configuration")
-    for family in ("sinks", "deliveries"):
-        directory = root / "templates" / family
-        if directory.exists():
-            paths.extend(directory.rglob("*.yaml"))
-    files: list[SnapshotFile] = []
-    for path in paths:
-        if path.is_symlink() or any(
-            parent.is_symlink() for parent in path.parents if parent != root
+    relative = selected.relative_to(root).as_posix()
+    if relative not in (
+        "configs/services/sink-realtime.yaml",
+        "configs/services/sink-reliable.yaml",
+    ):
+        raise ConfigurationError("selected Service is not a declared Sink process")
+
+    def safe_file(pathname: str) -> SnapshotFile:
+        target = root / pathname
+        if target.is_symlink() or any(
+            parent.is_symlink() for parent in target.parents if parent != root
         ):
-            raise ConfigurationError(f"symbolic-link configuration path: {path}")
-        resolved = path.resolve(strict=True)
+            raise ConfigurationError(f"symbolic-link configuration path: {pathname}")
+        resolved = target.resolve(strict=True)
         if not resolved.is_relative_to(root) or not resolved.is_file():
-            raise ConfigurationError(f"unsafe configuration file: {path}")
-        files.append(SnapshotFile(resolved.relative_to(root).as_posix(), resolved.read_bytes()))
+            raise ConfigurationError(f"unsafe configuration file: {pathname}")
+        return SnapshotFile(pathname, resolved.read_bytes())
+
+    service_paths = (
+        "configs/services/sink-realtime.yaml",
+        "configs/services/sink-reliable.yaml",
+    )
+    files = [safe_file(path) for path in service_paths]
+    services = [_yaml_doc(item) for item in files]
+    for service in services:
+        validate_service(service)
+    if services[0]["config_sources"] != services[1]["config_sources"]:
+        raise ConfigurationError("Writer/Reader config_sources must match")
+    instance_paths, template_root = config_sources(services[0])
+    files.extend(safe_file(path) for path in instance_paths.values())
+    docs = {item.path: _yaml_doc(item) for item in files}
+    required: set[str] = set()
+    for family, pathname in instance_paths.items():
+        entries = _instances(docs, family, pathname)
+        for identifier, value in entries.items():
+            name = expect_nonempty_str(
+                value.get("template_id"), f"{family}.{identifier}.template_id"
+            )
+            version = expect_nonempty_str(
+                value.get("template_version"), f"{family}.{identifier}.template_version"
+            )
+            required.add(template_path(template_root, family, name, version))
+    files.extend(safe_file(path) for path in sorted(required))
     return validate_snapshot(tuple(files))
 
 
