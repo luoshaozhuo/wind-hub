@@ -273,11 +273,19 @@ class DeliveryRegistry:
             self._retired_overflow = overflow
 
     def counters(self) -> dict[str, float]:
-        """Aggregate cumulative Delivery counters and current gauges."""
+        """Aggregate counters and only gauges verified for all active owners."""
         result = dict(self._retired_counters)
+        reliable_count = 0
+        backlog_count = 0
         for entry in self._entries.values():
-            for name, value in getattr(entry.port, 'metrics', {}).items():
+            values = getattr(entry.port, 'metrics', {})
+            if entry.view.channel == 'reliable' and entry.view.desired_state == 'START':
+                reliable_count += 1
+                backlog_count += int('backlog_messages' in values)
+            for name, value in values.items():
                 result[name] = result.get(name, 0.0) + float(value)
+        if reliable_count != backlog_count:
+            result.pop('backlog_messages', None)
         for name in (
             'received_total', 'delivered_total', 'failed_total',
             'dropped_total', 'dead_letter_total', 'write_success_total',
@@ -285,7 +293,6 @@ class DeliveryRegistry:
             result.setdefault(name, 0.0)
         result.setdefault('io_inflight', 0.0)
         return result
-
     def latency_observations(self) -> tuple[tuple[datetime, float], ...]:
         values = list(self._retired_latencies)
         for entry in self._entries.values():
