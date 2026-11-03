@@ -104,6 +104,7 @@ async def serve_control_plane(
     server: grpc.aio.Server | None = None
     poll_task: asyncio.Task[None] | None = None
     recovery_task: asyncio.Task[None] | None = None
+    metrics_task: asyncio.Task[None] | None = None
     try:
         if lease is not None:
             lease.acquire()
@@ -139,6 +140,41 @@ async def serve_control_plane(
                     continue
 
         recovery_task = asyncio.create_task(recover_running())
+
+        async def collect_metrics() -> None:
+            previous_states: dict[str, tuple[str, str]] = {}
+            interval = service['metrics']['metrics_compute_interval_ms'] / 1000
+            while not stop.is_set():
+                views = registry.list()
+                counters = registry.counters()
+                counters['delivery_total'] = float(len(views))
+                counters['delivery_running'] = float(
+                    sum(view.actual_state == 'RUNNING' for view in views)
+                )
+                counters['delivery_failed'] = float(
+                    sum(view.actual_state == 'FAILED' for view in views)
+                )
+                counters['delivery_stopped'] = float(
+                    sum(view.actual_state == 'STOPPED' for view in views)
+                )
+                telemetry.sample(counters)
+                states = {
+                    view.delivery_id: (view.actual_state, view.last_error)
+                    for view in views
+                }
+                for identifier, state in states.items():
+                    if previous_states.get(identifier) != state:
+                        telemetry.event(
+                            'ERROR' if state[0] == 'FAILED' else 'INFO',
+                            identifier, 'DELIVERY_STATE', f'{state[0]}: {state[1]}',
+                        )
+                previous_states = states
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=interval)
+                except TimeoutError:
+                    continue
+
+        metrics_task = asyncio.create_task(collect_metrics())
         if not writer:
             sync = service["config_sync"]
             reader = ConfigReader(
@@ -155,6 +191,8 @@ async def serve_control_plane(
             await poll_task
         if recovery_task is not None:
             await recovery_task
+        if metrics_task is not None:
+            await metrics_task
         if server is not None:
             await server.stop(grace=float(service["shutdown"]["grace_seconds"]))
         # The Writer lease must be released even if an Adapter shutdown fails.
