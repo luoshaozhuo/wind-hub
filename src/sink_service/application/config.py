@@ -108,6 +108,8 @@ def _validate_sink(
     reference = connection.get("credential_ref", "")
     if not isinstance(reference, str):
         raise ConfigurationError(f"sinks.{sink_id}: credential_ref must be a string")
+    if reference and not reference.startswith("env:"):
+        raise ConfigurationError(f"sinks.{sink_id}: unsupported Secret reference type")
     if kind == "redis":
         expect_nonempty_str(connection.get("host"), f"sinks.{sink_id}.host")
         expect_positive_int(connection.get("port"), f"sinks.{sink_id}.port", 65535)
