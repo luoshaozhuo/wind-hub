@@ -267,6 +267,8 @@ class SnapshotManager:
         # Recovery journal restores the prior complete private snapshot after
         # an interrupted commit. Direct filesystem readers are not isolated.
         journal = root / ".dg_transaction"
+        if (journal / "committed.json").exists():
+            recover_transaction(root)
         if journal.exists():
             raise GeneratorError("unfinished file transaction; recover on restart")
         journal.mkdir()
