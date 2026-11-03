@@ -229,8 +229,6 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         raise ConfigurationError("Service processes must have distinct roles")
     if sum(doc["config_writer"] for doc in services) != 1:
         raise ConfigurationError("configuration domain requires exactly one Writer")
-    if any(doc['config_writer'] != (doc['process_role'] == 'realtime') for doc in services):
-        raise ConfigurationError('realtime Service must be the sole Writer')
     if len({(doc["grpc"]["listen_host"], doc["grpc"]["listen_port"]) for doc in services}) != 2:
         raise ConfigurationError("Service gRPC ports must be distinct")
     if len({doc["config_root"] for doc in services}) != 1:
