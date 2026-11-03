@@ -25,7 +25,7 @@ SRC_ROOT = REPO_ROOT / "src"
 _ALLOWED_PB2_PREFIXES = (
     "contracts/",
     "core/infrastructure/rpc/",
-    "seahorse/infrastructure/grpc_",
+    "data_generator/infrastructure/",
     "cli/",
     "web_server/",
     "collector/infrastructure/grpc/",
@@ -44,6 +44,8 @@ _NO_PB2_PREFIXES = (
     "commander/domain/",
     "industrial_gateway/application/",
     "industrial_gateway/domain/",
+    "data_generator/application/",
+    "data_generator/domain/",
     "sink_service/application/",
     "sink_service/domain/",
 )
