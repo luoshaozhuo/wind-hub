@@ -20,6 +20,20 @@ from data_generator.infrastructure.snapshots import FileContent, SnapshotManager
 from data_generator.domain.model import GeneratorError
 
 
+def config_error_code(error: Exception) -> str:
+    """Preserve actionable configuration failure categories in RPC responses."""
+    detail = str(error).lower()
+    if "revision" in detail or "candidate changed" in detail:
+        return "REVISION_CONFLICT"
+    if "only update owned" in detail or "outside data generator" in detail:
+        return "OWNERSHIP_DENIED"
+    if "path" in detail or "escapes" in detail:
+        return "INVALID_PATH"
+    if "transaction" in detail or "recovery" in detail:
+        return "FILE_COMMIT_FAILED"
+    return "CONFIG_VALIDATION_FAILED"
+
+
 def stamp(moment: datetime | None = None) -> Timestamp:
     result = Timestamp()
     result.FromDatetime(moment or datetime.now(timezone.utc))
@@ -265,7 +279,7 @@ class CommonService(common_rpc.CommonServiceServicer):
             except (GeneratorError, OSError, ValueError) as exc:
                 return common.PushConfigSnapshotResponse(
                     valid=False, validation=[common.ValidationIssue(
-                        path="snapshot", code="INVALID", message=str(exc),
+                        path="snapshot", code=config_error_code(exc), message=str(exc),
                     )],
                     base_revision=self.snapshots.settings.revision,
                 )
@@ -299,7 +313,7 @@ class CommonService(common_rpc.CommonServiceServicer):
                     file_commit="FAILED",
                     apply_results=[common.ApplicationResult(
                         object_id="config", status="FAILED",
-                        error_code="APPLY_FAILED", message=str(exc),
+                        error_code=config_error_code(exc), message=str(exc),
                     )],
                     effective_revision=self.snapshots.settings.revision,
                 )
