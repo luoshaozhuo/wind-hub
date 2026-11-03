@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import hashlib
 import json
 import logging
@@ -328,6 +329,9 @@ class RealtimeDeliveryPort:
         self._engine: RealtimeEngine | None = None
         self._writer: _QuotaWriter | None = None
         self._stopping = False
+        self._retained: dict[str, float] = {}
+        self._retained_latency: deque[tuple[datetime, float]] = deque(maxlen=50000)
+        self._retained_overflow: datetime | None = None
 
     def inspect(self) -> dict[str, str]:
         """Return cached, non-invasive transport and ownership evidence."""
@@ -342,27 +346,35 @@ class RealtimeDeliveryPort:
         }
     @property
     def metrics(self) -> dict[str, float]:
-        if self._engine is None:
-            return {}
-        return {
-            'received_total': float(self._engine.received_total),
-            'dropped_total': float(self._engine.dropped_total),
-            'delivered_total': float(self._engine.delivered_total),
-            'failed_total': float(self._engine.failed_total),
-            'write_success_total': float(self._engine.write_success_total),
-            'io_inflight': float(
-                self._writer.io_inflight if self._writer is not None else False
-            ),
-        }
+        totals = dict(self._retained)
+        engine = self._engine
+        if engine is not None:
+            for name, value in (
+                ('received_total', engine.received_total),
+                ('dropped_total', engine.dropped_total),
+                ('delivered_total', engine.delivered_total),
+                ('failed_total', engine.failed_total),
+                ('write_success_total', engine.write_success_total),
+            ):
+                totals[name] = totals.get(name, 0.0) + float(value)
+        totals['io_inflight'] = float(
+            self._writer.io_inflight if self._writer is not None else False
+        )
+        return totals
 
     @property
     def latency_samples(self) -> tuple[tuple[datetime, float], ...]:
-        return tuple(self._engine.latency_samples) if self._engine is not None else ()
+        active = self._engine
+        return tuple(self._retained_latency) + (
+            tuple(active.latency_samples) if active is not None else ()
+        )
 
     @property
     def latency_overflow_at(self) -> datetime | None:
-        return self._engine.latency_overflow_at if self._engine is not None else None
-
+        candidates = [self._retained_overflow]
+        if self._engine is not None:
+            candidates.append(self._engine.latency_overflow_at)
+        return max((time for time in candidates if time is not None), default=None)
     @property
     def last_error(self) -> str:
         if self._engine is None:
@@ -419,6 +431,24 @@ class RealtimeDeliveryPort:
         if self._writer is not None:
             await self._writer.settle()
         await self._pool.release(self._sink_id)
+        for name, value in (
+            ('received_total', engine.received_total),
+            ('dropped_total', engine.dropped_total),
+            ('delivered_total', engine.delivered_total),
+            ('failed_total', engine.failed_total),
+            ('write_success_total', engine.write_success_total),
+        ):
+            self._retained[name] = self._retained.get(name, 0.0) + float(value)
+        for item in engine.latency_samples:
+            if len(self._retained_latency) == self._retained_latency.maxlen:
+                self._retained_overflow = item[0]
+            self._retained_latency.append(item)
+        if engine.latency_overflow_at is not None:
+            if (
+                self._retained_overflow is None
+                or engine.latency_overflow_at > self._retained_overflow
+            ):
+                self._retained_overflow = engine.latency_overflow_at
         self._engine = None
         self._writer = None
         self._stopping = False
