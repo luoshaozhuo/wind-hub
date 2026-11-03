@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from data_generator.application.config import Scenario, Settings, resolve_history
 from data_generator.application.models import random_value, static_value
-from data_generator.application.replay import load_records, replay_deadline
+from data_generator.application.replay import iter_records, replay_deadline
 from data_generator.domain.model import DataBatch, DataPoint, GeneratorError, validate_scalar
 from data_generator.infrastructure.gateway import GatewayWriter
 
@@ -162,19 +162,33 @@ class Runtime:
         source = scenario.source
         start = datetime.fromisoformat(source["start_time"].replace("Z", "+00:00"))
         end = datetime.fromisoformat(source["end_time"].replace("Z", "+00:00"))
-        records = load_records(resolve_history(self.settings.root, source["file"]), start, end)
-        if not records:
-            return
         speed = float(source["speed"])
-        origin = time.monotonic()
-        for index, record in enumerate(records, 1):
-            deadline = replay_deadline(records[0].source_time, record.source_time,
-                                       origin, speed)
-            await asyncio.sleep(max(0, deadline-time.monotonic()))
+        replay_config = self.settings.service.get("replay", {})
+        seq = 0
+        first_time: datetime | None = None
+        origin = 0.0
+        async for record in iter_records(
+            resolve_history(self.settings.root, source["file"]), start, end,
+            read_batch_size=int(replay_config.get("read_batch_size", 1000)),
+            max_file_bytes=int(replay_config.get("max_file_bytes", 268435456)),
+            max_records=int(replay_config.get("max_records", 1000000)),
+        ):
+            if generation.desired_state != "RUNNING":
+                return
+            seq += 1
+            if first_time is None:
+                first_time = record.source_time
+                origin = time.monotonic()
+            deadline = replay_deadline(first_time, record.source_time, origin, speed)
+            await asyncio.sleep(max(0.0, deadline - time.monotonic()))
             key = (record.device_id, record.point_id)
+            if key not in scenario.points:
+                raise GeneratorError(f"CSV references unknown point: {key}")
             point = scenario.points[key]
             kind = point["data_type"]
             if kind == "bool":
+                if record.value.lower() not in ("true", "false"):
+                    raise GeneratorError("invalid CSV bool")
                 value = record.value.lower() == "true"
             elif kind.startswith(("int", "uint")):
                 value = int(record.value)
@@ -182,8 +196,10 @@ class Runtime:
                 value = float(record.value)
             else:
                 value = record.value
-            await self._emit(generation, index, record.source_time,
-                             {key: validate_scalar(value, kind)})
+            await self._emit(
+                generation, seq, record.source_time,
+                {key: validate_scalar(value, kind)},
+            )
 
     async def _emit(self, generation: GenerationState, sequence: int,
                     timestamp: datetime, values: dict[tuple[str, str], object]) -> None:
