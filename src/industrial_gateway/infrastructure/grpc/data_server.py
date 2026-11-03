@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from ipaddress import ip_address
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
@@ -196,6 +197,27 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
     async def UpdateVariables(
         self, request: gateway.UpdateVariablesRequest, context: grpc.aio.ServicerContext,
     ) -> gateway.UpdateVariablesResponse:
+        # This service is currently loopback-only. Enforce the configured
+        # data-writer IP allowlist in addition to the network bind restriction.
+        peer = context.peer()
+        address = ""
+        if peer.startswith("ipv4:"):
+            address = peer[5:].rsplit(":", 1)[0]
+        elif peer.startswith("ipv6:"):
+            address = peer[5:].rsplit(":", 1)[0].strip("[]")
+        try:
+            authorized = ip_address(address) in {
+                ip_address(value)
+                for value in self._config.control.access.data_writers
+            }
+        except ValueError:
+            authorized = False
+        if not authorized:
+            await context.abort(
+                grpc.StatusCode.PERMISSION_DENIED,
+                "Gateway data writer is not authorized",
+            )
+            raise RuntimeError("gRPC abort returned")
         catalog = await self._require_catalog(request.gateway_id, context)
         if not 0 < len(request.values) <= 5000:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "batch size must be 1..5000")
