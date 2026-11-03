@@ -148,93 +148,86 @@ class RedisOutput:
     async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         if not samples:
             return BatchOutcome((), ())
+        if len(samples) > 500:
+            raise ConfigurationError('Redis output batch exceeds 500 points')
         async with self._lock:
             if self._writer is None:
                 await self._connect()
-            delivered: list[int] = []
-            settled: list[int] = []
-            success_attempts = 0
-            failed_attempts = 0
-            latencies: list[float] = []
+            writer = self._writer
+            if writer is None:
+                raise ConnectionError('Redis output is disconnected')
             try:
-                commands: list[bytes] = []
+                keys: list[str] = []
+                arguments: list[str] = []
                 for sample in samples:
-                    key = ":".join(
-                        (
-                            self._namespace,
-                            sample.wind_farm_id,
-                            sample.collector_id,
-                            sample.device_id,
-                            sample.point_id,
-                        )
-                    )
+                    keys.append(':'.join((
+                        self._namespace, sample.wind_farm_id,
+                        sample.collector_id, sample.device_id, sample.point_id,
+                    )))
                     timestamp = sample.sample_time.astimezone(UTC).isoformat(
-                        timespec="microseconds"
+                        timespec='microseconds'
                     )
                     payload = sample.model_dump(
-                        mode="json",
+                        mode='json',
                         include={
-                            "sample_id", "value", "quality", "sample_time", "publish_time",
-                            "collector_id", "device_id", "point_id", "wind_farm_id",
+                            'sample_id', 'value', 'quality', 'sample_time',
+                            'publish_time', 'collector_id', 'device_id',
+                            'point_id', 'wind_farm_id',
                         },
                     )
-                    payload["sample_time"] = timestamp
+                    payload['sample_time'] = timestamp
                     encoded = json.dumps(
-                        payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False,
+                        payload, ensure_ascii=False,
+                        separators=(',', ':'), allow_nan=False,
                     )
                     expiry = (
                         str(
                             int(sample.sample_time.timestamp() * 1000)
                             + sample.max_staleness_ms
                         )
-                        if sample.max_staleness_ms is not None
-                        else ""
+                        if sample.max_staleness_ms is not None else ''
                     )
-                    commands.append(
-                        _redis_command(
-                            "EVAL", _REDIS_CAS, "1", key, encoded,
-                            timestamp, sample.sample_id, expiry,
-                        )
-                    )
-                start_time = time.perf_counter()
-                self._writer.write(b"".join(commands))
-                await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
-                errors: list[str] = []
-                for index in range(len(samples)):
-                    result = await self._integer()
-                    if result in (0, 1, 2):
-                        settled.append(index)
-                        success_attempts += 1
-                        latencies.append((time.perf_counter() - start_time) * 1000)
-                        if result in (1, 2):
-                            # Code 2 proves the target still holds the same sample.
-                            # It is a valid confirmed periodic/heartbeat output.
-                            delivered.append(index)
-                    else:
-                        failed_attempts += 1
-                        errors.append(f'Redis CAS conflict at sample {index}')
+                    arguments.extend((encoded, timestamp, sample.sample_id, expiry))
+                command = _redis_command(
+                    'EVAL', _REDIS_BATCH_CAS, str(len(keys)), *keys, *arguments
+                )
+                started = time.perf_counter()
+                writer.write(command)
+                await asyncio.wait_for(writer.drain(), timeout=self._timeout)
+                results = await self._integer_array(len(samples))
+                latency_ms = (time.perf_counter() - started) * 1000
+                settled = tuple(
+                    index for index, status in enumerate(results)
+                    if status in (0, 1, 2)
+                )
+                delivered = tuple(
+                    index for index, status in enumerate(results)
+                    if status in (1, 2)
+                )
+                conflicts = [
+                    index for index, status in enumerate(results)
+                    if status not in (0, 1, 2)
+                ]
+                error = (
+                    f'Redis CAS conflicts at samples {conflicts}'
+                    if conflicts else ''
+                )
                 return BatchOutcome(
-                    delivered=tuple(delivered),
-                    settled=tuple(settled),
-                    error="; ".join(errors),
-                    successful_attempts=success_attempts,
-                    failed_attempts=failed_attempts,
-                    successful_latencies_ms=tuple(latencies),
+                    delivered=delivered,
+                    settled=settled,
+                    error=error,
+                    successful_attempts=0 if conflicts else 1,
+                    failed_attempts=1 if conflicts else 0,
+                    successful_latencies_ms=() if conflicts else (latency_ms,),
                 )
             except Exception as exc:
-                # In-flight commands may have executed; retry by stable sample ID.
-                writer, self._writer = self._writer, None
+                # The script may have executed before its reply was lost.
+                # Stable sample IDs and versions protect a subsequent retry.
+                self._writer = None
                 self._reader = None
-                if writer is not None:
-                    writer.close()
-                    await writer.wait_closed()
-                return BatchOutcome(
-                    delivered=tuple(delivered), settled=tuple(settled), error=str(exc),
-                    successful_attempts=success_attempts,
-                    failed_attempts=failed_attempts,
-                    successful_latencies_ms=tuple(latencies),
-                )
-
+                writer.close()
+                await writer.wait_closed()
+                return BatchOutcome((), (), error=str(exc))
 
 class KafkaOutput:
     """Broker-confirmed messages, using the unchanged upstream SampleMessage JSON."""
