@@ -224,9 +224,13 @@ class KafkaOutput:
                 secret = json.loads(credential)
             except json.JSONDecodeError as exc:
                 raise ConfigurationError("Kafka Secret must contain a JSON object") from exc
-            if not isinstance(secret, dict) or not {
-                "username", "password",
-            }.issubset(secret):
+            if (
+                not isinstance(secret, dict)
+                or not isinstance(secret.get("username"), str)
+                or not isinstance(secret.get("password"), str)
+                or not secret["username"]
+                or not secret["password"]
+            ):
                 raise ConfigurationError("Kafka Secret requires username and password")
             options.update(
                 security_protocol="SASL_SSL",
