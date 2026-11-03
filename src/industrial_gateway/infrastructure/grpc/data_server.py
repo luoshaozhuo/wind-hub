@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
@@ -39,6 +40,9 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
     ) -> None:
         self._store = store
         self._config = config
+        self._revision = hashlib.sha256(
+            config.model_dump_json().encode("utf-8")
+        ).hexdigest()
         self._start = start
         self._stop = stop
         self._is_running = is_running
@@ -74,6 +78,7 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
         return gateway.Gateway(
             gateway_id=gateway_id, endpoint=self._config.data_grpc_bind or "",
             mapping_summary=f"{len(members)} virtual devices",
+            revision=self._revision,
             desired_state="RUNNING" if self._is_running(gateway_id) else "STOPPED",
             actual_state="RUNNING" if self._is_running(gateway_id) else "STOPPED",
         )
@@ -107,6 +112,12 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
         action: LifecycleAction, desired: str,
     ) -> common.OperationResult:
         await self._require_catalog(request.id, context)
+        if request.expected_revision and request.expected_revision != self._revision:
+            return common.OperationResult(
+                accepted=False, revision=self._revision,
+                desired_state=desired, actual_state="CONFLICT",
+                error_code="REVISION_CONFLICT",
+            )
         try:
             changed = await action(request.id)
         except (OSError, RuntimeError, ValueError) as exc:
@@ -115,7 +126,7 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
                 error_code="LIFECYCLE_FAILED", message=str(exc),
             )
         return common.OperationResult(
-            accepted=True, desired_state=desired,
+            accepted=True, desired_state=desired, revision=self._revision,
             actual_state="RUNNING" if self._is_running(request.id) else "STOPPED",
             message="changed" if changed else "already in requested state",
         )
