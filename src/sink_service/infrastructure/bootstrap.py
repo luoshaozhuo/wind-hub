@@ -78,9 +78,16 @@ async def serve_control_plane(
     if (config_root / "CURRENT").exists():
         initial = store.load(service_file, peer_service_file)
     else:
-        initial = read_snapshot(
+        # Reader must never run from uncommitted loose YAML files.
+        proposed = read_snapshot(
             config_root, config_root / service_file, config_root / peer_service_file
         )
+        local = service_configuration(proposed, service_file)
+        if not local["config_writer"]:
+            raise ConfigurationError(
+                "Reader requires the Writer's first committed CURRENT generation"
+            )
+        initial = proposed
     service = service_configuration(initial, service_file)
     # Validation covers both Services, but each OS process must carry its
     # own authoritative runtime Service view, never the Writer's by default.
