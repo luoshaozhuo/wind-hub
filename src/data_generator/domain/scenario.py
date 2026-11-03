@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from data_generator.domain.model import GeneratorError, OutputMapping
+
 if TYPE_CHECKING:
     from core.infrastructure.config.shared_snapshot import SharedDomainSnapshot
-from data_generator.domain.model import GeneratorError, OutputMapping
 
 
 @dataclass(frozen=True, slots=True)

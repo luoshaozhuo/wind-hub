@@ -266,7 +266,6 @@ def load_settings(service_path: Path) -> Settings:
     if not isinstance(raw_scenarios, list) or not raw_scenarios:
         raise GeneratorError("at least one scenario required")
     scenarios: dict[str, Scenario] = {}
-    seen_devices: dict[str, str] = {}
     for raw in raw_scenarios:
         if not isinstance(raw, dict):
             raise GeneratorError("invalid scenario")
@@ -279,13 +278,6 @@ def load_settings(service_path: Path) -> Settings:
         if not isinstance(source, dict):
             raise GeneratorError("invalid scenario source")
         devices, points = _resolve_points(raw, shared)
-        for device_id in devices:
-            owner = seen_devices.get(device_id)
-            if owner is not None and owner != scenario_id:
-                raise GeneratorError(
-                    f"device {device_id} shared between scenarios: {owner}, {scenario_id}"
-                )
-            seen_devices[device_id] = scenario_id
         _validate_models(source, points)
         gateways: dict[str, str] = {}
         mappings: list[OutputMapping] = []
