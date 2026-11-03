@@ -99,6 +99,10 @@ class SnapshotManager:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._runtime_files = self._read_disk()
+        self._disk_private = {
+            file.path: file.data
+            for file in self._runtime_files if file.path in self._owned()
+        }
         self._candidate: tuple[str, tuple[FileContent, ...], str, Settings] | None = None
         self.max_files = 2
         self.max_bytes = 8 * 1024 * 1024
@@ -146,16 +150,27 @@ class SnapshotManager:
             return self._runtime_files
         raise GeneratorError(f"unsupported snapshot scope: {scope}")
 
+    def disk_revision(self) -> str:
+        return load_settings(self.settings.service_file).revision
+
     def _assert_unchanged(self) -> Settings:
         latest = load_settings(self.settings.service_file)
         if latest.revision != self.settings.revision:
-            raise GeneratorError("disk or shared configuration revision drift")
+            raise GeneratorError("configuration changed since Push; resubmit candidate")
         return latest
 
+    def _adopt_authoritative_shared(self) -> None:
+        """Refresh Core-owned data without accepting externally edited private files."""
+        current = load_settings(self.settings.service_file)
+        for relative, original in self._disk_private.items():
+            if _safe_target(self.settings.root, relative).read_bytes() != original:
+                raise GeneratorError("private configuration changed outside Data Generator")
+        self.settings = current
+
     def push(self, files: tuple[FileContent, ...], expected: str) -> str:
+        self._adopt_authoritative_shared()
         if not expected or expected != self.settings.revision:
             raise GeneratorError("expected_revision mismatch")
-        self._assert_unchanged()
         if len(files) != self.max_files:
             raise GeneratorError("snapshot must include exactly two private files")
         if sum(len(f.data) for f in files) > self.max_bytes:
@@ -212,12 +227,9 @@ class SnapshotManager:
             self._candidate = None
             return self.settings, False
 
-        # Readers outside this service cannot observe an atomic two-file rename.
-        # Restrict each commit to one changed file rather than falsely claim
-        # cross-file atomicity. Multiple changes require separate Push/Apply.
-        if len(changed) > 1:
-            raise GeneratorError("multi-file atomic update not supported; split commits")
-
+        # The API lock hides the multi-file update from service clients.
+        # Recovery journal restores the prior complete private snapshot after
+        # an interrupted commit. Direct filesystem readers are not isolated.
         journal = root / ".dg_transaction"
         if journal.exists():
             raise GeneratorError("unfinished file transaction; recover on restart")
@@ -248,8 +260,11 @@ class SnapshotManager:
         else:
             shutil.rmtree(journal)
             _sync_dir(root)
+            self.settings = new_settings
+            self._disk_private = {
+                file.path: proposed[file.path] for file in candidate[1]
+            }
             if not restart:
                 self._runtime_files = self._read_disk()
-            self.settings = new_settings
             self._candidate = None
             return new_settings, restart
