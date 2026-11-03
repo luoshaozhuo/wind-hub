@@ -65,6 +65,10 @@ class DeliveryRegistry:
         self._retired_latencies: deque[tuple[datetime, float]] = deque(maxlen=50000)
         self._retired_overflow: datetime | None = None
         self._lock = asyncio.Lock()
+        self._pending_snapshot = snapshot
+        self._pending_factory: Callable[
+            [DeliveryDefinition, ValidatedSnapshot], DeliveryPort
+        ] | None = None
 
     async def apply_configuration(
         self,
@@ -127,6 +131,8 @@ class DeliveryRegistry:
             ).hexdigest()
         changed: list[str] = []
         async with self._lock:
+            self._pending_snapshot = snapshot
+            self._pending_factory = factory
             for identifier in sorted(set(self._entries) - set(definitions)):
                 entry = self._entries[identifier]
                 entry.view = self._replace(
@@ -400,11 +406,23 @@ class DeliveryRegistry:
                 raise BaseExceptionGroup("Delivery shutdown failed", failures)
 
     async def reconcile_all(self) -> None:
-        """Retry failed START intent; never resurrect an operator STOP."""
+        """Retry STOP/retirement first, then reconcile only desired START."""
+        retired = False
         async with self._lock:
-            for entry in self._entries.values():
+            for identifier, entry in tuple(self._entries.items()):
                 if entry.removing:
-                    # A Delivery pending removal must never be resurrected.
+                    # A retiring port must settle before its binding can change.
+                    try:
+                        await entry.port.stop()
+                    except Exception as exc:
+                        entry.view = self._replace(
+                            entry.view, actual_state=ActualState.FAILED,
+                            last_error=str(exc),
+                        )
+                        continue
+                    self._retire(entry)
+                    del self._entries[identifier]
+                    retired = True
                     continue
                 if entry.view.desired_state != 'START':
                     continue
@@ -412,29 +430,31 @@ class DeliveryRegistry:
                     entry.view.actual_state == ActualState.RUNNING
                     and getattr(entry.port, 'last_error', '')
                 ):
-                    # An asynchronously failed Delivery still owns its native
-                    # resources. Stop and settle them before a guarded restart.
                     try:
                         await entry.port.stop()
                         entry.view = self._replace(
-                            entry.view, actual_state=ActualState.STOPPED, last_error=''
+                            entry.view, actual_state=ActualState.STOPPED,
+                            last_error='',
                         )
                     except Exception as exc:
                         entry.view = self._replace(
-                            entry.view, actual_state=ActualState.FAILED, last_error=str(exc)
+                            entry.view, actual_state=ActualState.FAILED,
+                            last_error=str(exc),
                         )
                         continue
                 if entry.view.actual_state not in (
-                    ActualState.STOPPED,
-                    ActualState.FAILED,
+                    ActualState.STOPPED, ActualState.FAILED
                 ):
                     continue
                 try:
                     await self._reconcile(entry)
                 except Exception:
-                    # Keep other Deliveries recoverable if one adapter fails.
                     continue
-
+        if retired and self._pending_factory is not None:
+            # Rebuild only definitions present in the latest committed view.
+            await self.apply_configuration(
+                self._pending_snapshot, self._pending_factory
+            )
     async def _reconcile(self, entry: _Entry) -> None:
         old = entry.view
         running = old.desired_state == "START"
