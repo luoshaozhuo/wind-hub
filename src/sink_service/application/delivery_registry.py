@@ -10,8 +10,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
+from sink_service.application.config import template_path
 from sink_service.application.delivery_definition import DeliveryDefinition, delivery_definitions
-from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
+from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, config_sources
 
 
 class ActualState(StrEnum):
@@ -76,12 +77,19 @@ class DeliveryRegistry:
             if item.channel == self._role
         }
         signatures: dict[str, str] = {}
+        _, template_root = config_sources(snapshot.service)
         for identifier, item in definitions.items():
+            delivery = snapshot.deliveries[identifier]
+            sink = snapshot.sinks[item.sink_id]
             template_paths = {
-                f"templates/deliveries/{snapshot.deliveries[identifier]['template_id']}/"
-                f"{snapshot.deliveries[identifier]['template_version']}.yaml",
-                f"templates/sinks/{snapshot.sinks[item.sink_id]['template_id']}/"
-                f"{snapshot.sinks[item.sink_id]['template_version']}.yaml",
+                template_path(
+                    template_root, "deliveries",
+                    delivery["template_id"], delivery["template_version"],
+                ),
+                template_path(
+                    template_root, "sinks",
+                    sink["template_id"], sink["template_version"],
+                ),
             }
             raw = {
                 "templates": {
