@@ -10,31 +10,12 @@ from pathlib import Path
 
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_registry import DeliveryPort
-from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
+from sink_service.domain.config import ValidatedSnapshot
 from sink_service.infrastructure.bootstrap import serve_control_plane
 from sink_service.infrastructure.realtime_runtime import RealtimeFactory
+from sink_service.infrastructure.reliable_runtime import ReliableFactory
 
 logger = logging.getLogger(__name__)
-
-
-class _PendingDataPlane:
-    """Fail closed until a real Delivery adapter is wired in stage two/three."""
-
-    def __init__(self, delivery_id: str) -> None:
-        self._delivery_id = delivery_id
-
-    async def start(self) -> None:
-        raise ConfigurationError(
-            f"Delivery {self._delivery_id}: data-plane factory is not implemented"
-        )
-
-    async def stop(self) -> None:
-        return
-
-
-def _stage_one_factory(definition: DeliveryDefinition, snapshot: ValidatedSnapshot) -> DeliveryPort:
-    """Keep reliable output fail-closed until JetStream stage three."""
-    return _PendingDataPlane(definition.delivery_id)
 
 
 async def run_sink_service(config_root: Path, service_file: str) -> None:
@@ -47,11 +28,12 @@ async def run_sink_service(config_root: Path, service_file: str) -> None:
         except NotImplementedError:
             logger.warning("Signal handlers are unavailable on this platform")
     realtime_factory = RealtimeFactory()
+    reliable_factory = ReliableFactory()
 
     def factory(definition: DeliveryDefinition, snapshot: ValidatedSnapshot) -> DeliveryPort:
         if definition.channel == "realtime":
             return realtime_factory(definition, snapshot)
-        return _stage_one_factory(definition, snapshot)
+        return reliable_factory(definition, snapshot)
 
     await serve_control_plane(config_root, service_file, factory, stop)
 
