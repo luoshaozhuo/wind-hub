@@ -7,7 +7,7 @@ import hashlib
 import json
 from collections import deque
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -61,6 +61,7 @@ class DeliveryRegistry:
         self._role = process_role
         self._revision = snapshot.revision
         self._entries: dict[str, _Entry] = {}
+        self._delivery_epochs: dict[str, datetime] = {}
         self._retired_counters: dict[str, float] = {}
         self._retired_by_delivery: dict[str, dict[str, float]] = {}
         self._retired_latency_by_delivery: dict[
@@ -197,6 +198,7 @@ class DeliveryRegistry:
                 # A failed old port retains ownership until a later retry.
                 if existing is not None:
                     continue
+                self._delivery_epochs.setdefault(identifier, datetime.now(UTC))
                 replacement = factory(definition, snapshot)
                 self._entries[identifier] = _Entry(
                     port=replacement,
@@ -255,6 +257,7 @@ class DeliveryRegistry:
             revision=self._revision,
             last_error="",
         )
+        self._delivery_epochs.setdefault(delivery_id, datetime.now(UTC))
         self._entries[delivery_id] = _Entry(port=port, view=view)
 
     @staticmethod
@@ -329,6 +332,13 @@ class DeliveryRegistry:
             result.setdefault(name, 0.0)
         result.setdefault('io_inflight', 0.0)
         return result
+    def delivery_epochs(self) -> dict[str, datetime]:
+        """Return stable metric epochs for active Delivery identities."""
+        return {
+            identifier: self._delivery_epochs[identifier]
+            for identifier in self._entries
+        }
+
     def delivery_observations(
         self,
     ) -> tuple[
@@ -365,6 +375,7 @@ class DeliveryRegistry:
                 self._retired_by_delivery.pop(identifier, None)
                 self._retired_latency_by_delivery.pop(identifier, None)
                 self._retired_overflow_by_delivery.pop(identifier, None)
+                self._delivery_epochs.pop(identifier, None)
         return counters, histories, overflows
     def latency_observations(self) -> tuple[tuple[datetime, float], ...]:
         values = list(self._retired_latencies)
