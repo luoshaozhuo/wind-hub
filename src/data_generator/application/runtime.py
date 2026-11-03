@@ -7,7 +7,7 @@ import math
 import time
 import uuid
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
 from data_generator.domain.scenario import Scenario, Settings, resolve_history
@@ -60,6 +60,15 @@ class Runtime:
         unsafe = self.writer.unsafe_gateways
         return any(mapping.target.gateway_id in unsafe
                    for mapping in generation.scenario.mappings)
+
+    async def apply_settings(self, changed: Settings, restart_required: bool) -> None:
+        """Activate scenario definitions while preserving bound generations and service limits."""
+        async with self._lock:
+            previous = self.settings
+            self.settings = (
+                replace(changed, service=previous.service)
+                if restart_required else changed
+            )
 
     async def start(self, scenario_id: str, version: str | None,
                     revision: str) -> GenerationState:
