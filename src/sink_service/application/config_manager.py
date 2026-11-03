@@ -174,15 +174,14 @@ class ConfigManager:
             if self._reconcile is not None and not restart_required:
                 try:
                     applied = await self._reconcile(snapshot)
-                    if not restart_required:
-                        # This revision is effective only when every affected
-                        # object has successfully converged.
-                        if not (set(changed) - set(applied)):
-                            self._runtime = snapshot
-                            self._last_error = ""
-                        else:
-                            error = "one or more Deliveries are not converged"
-                            self._last_error = error
+                    # This revision is effective only after every affected
+                    # local object has converged.
+                    if not (set(changed) - set(applied)):
+                        self._runtime = snapshot
+                        self._last_error = ""
+                    else:
+                        error = "one or more Deliveries are not converged"
+                        self._last_error = error
                 except Exception as exc:
                     # Disk is already committed; report actual pending convergence.
                     error = str(exc)
