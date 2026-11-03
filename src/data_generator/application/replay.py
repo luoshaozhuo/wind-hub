@@ -1,4 +1,4 @@
-"""Bounded, stable CSV replay with temporary on-disk sort and monotonic timing."""
+"""Bounded CSV replay with stable source-line ordering and monotonic deadlines."""
 
 from __future__ import annotations
 
@@ -23,75 +23,78 @@ class ReplayRecord:
     value: str
     quality: str
     record_id: str
+    line_number: int
 
 
 FIELDS = ("device_id", "point_id", "source_timestamp", "value", "quality", "record_id")
 
 
 def _index_csv(
-    source: Path, database: Path, start: datetime, end: datetime, max_records: int,
+    source: Path,
+    database: Path,
+    start: datetime,
+    end: datetime,
+    max_records: int,
 ) -> None:
-    if not start < end or start.tzinfo is None or end.tzinfo is None:
+    """Index every input line; repeated values and record IDs are never deduplicated."""
+    if start.tzinfo is None or end.tzinfo is None or not start < end:
         raise GeneratorError("invalid replay time window")
     with sqlite3.connect(database) as connection:
         connection.execute(
-            "CREATE TABLE records (record_id TEXT PRIMARY KEY, ts TEXT NOT NULL,"
+            "CREATE TABLE records (line_no INTEGER PRIMARY KEY, ts TEXT NOT NULL,"
             " device_id TEXT NOT NULL, point_id TEXT NOT NULL, value TEXT NOT NULL,"
-            " quality TEXT NOT NULL)"
+            " quality TEXT NOT NULL, record_id TEXT NOT NULL)"
         )
-        connection.execute("CREATE INDEX replay_order ON records(ts, record_id)")
+        connection.execute("CREATE INDEX replay_order ON records(ts, line_no)")
         with source.open("r", encoding="utf-8", newline="") as stream:
             reader = csv.DictReader(stream)
             if tuple(reader.fieldnames or ()) != FIELDS:
                 raise GeneratorError("unexpected replay CSV header")
-            for line, row in enumerate(reader, 2):
-                if line > max_records + 1:
+            for line, row in enumerate(reader, start=2):
+                if line - 1 > max_records:
                     raise GeneratorError("CSV record capacity exceeded")
                 try:
-                    if None in row.values() or not all(
-                        row.get(field) for field in FIELDS
-                    ):
-                        raise ValueError("missing field")
+                    if not all(isinstance(row.get(name), str) and row[name] for name in FIELDS):
+                        raise ValueError("empty or missing field")
+                    if None in row:
+                        raise ValueError("unexpected additional columns")
                     stamp = datetime.fromisoformat(
                         row["source_timestamp"].replace("Z", "+00:00")
                     )
                     if stamp.tzinfo is None:
                         raise ValueError("timestamp missing timezone")
-                    stamp = stamp.astimezone(timezone.utc)
-                    normalized = stamp.isoformat(timespec="microseconds")
-                    # Unique record ID is enforced across the entire source file.
-                    connection.execute(
-                        "INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)",
-                        (row["record_id"], normalized, row["device_id"],
-                         row["point_id"], row["value"], row["quality"]),
+                    normalized = stamp.astimezone(timezone.utc).isoformat(
+                        timespec="microseconds"
                     )
-                except (ValueError, KeyError, TypeError, sqlite3.IntegrityError) as exc:
+                    connection.execute(
+                        "INSERT INTO records VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (line, normalized, row["device_id"], row["point_id"],
+                         row["value"], row["quality"], row["record_id"]),
+                    )
+                except (KeyError, TypeError, ValueError, sqlite3.Error) as exc:
                     raise GeneratorError(f"invalid CSV line {line}: {exc}") from exc
 
 
 def _next_batch(
-    database: Path, start: datetime, end: datetime,
-    after: tuple[str, str] | None, size: int,
-) -> list[tuple[str, str, str, str, str, str]]:
-    start_s = start.astimezone(timezone.utc).isoformat(timespec="microseconds")
-    end_s = end.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    database: Path,
+    start: datetime,
+    end: datetime,
+    after: tuple[str, int] | None,
+    size: int,
+) -> list[tuple[int, str, str, str, str, str, str]]:
+    beginning = start.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    ending = end.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    sql = (
+        "SELECT line_no, ts, device_id, point_id, value, quality, record_id"
+        " FROM records WHERE ts >= ? AND ts < ?"
+    )
+    parameters: tuple[object, ...] = (beginning, ending)
+    if after is not None:
+        sql += " AND (ts, line_no) > (?, ?)"
+        parameters += after
+    sql += " ORDER BY ts, line_no LIMIT ?"
     with sqlite3.connect(database) as connection:
-        if after is None:
-            query = (
-                "SELECT record_id, ts, device_id, point_id, value, quality"
-                " FROM records WHERE ts >= ? AND ts < ?"
-                " ORDER BY ts, record_id LIMIT ?"
-            )
-            params: tuple[object, ...] = (start_s, end_s, size)
-        else:
-            query = (
-                "SELECT record_id, ts, device_id, point_id, value, quality"
-                " FROM records WHERE ts >= ? AND ts < ?"
-                " AND (ts, record_id) > (?, ?)"
-                " ORDER BY ts, record_id LIMIT ?"
-            )
-            params = (start_s, end_s, after[0], after[1], size)
-        return list(connection.execute(query, params))
+        return list(connection.execute(sql, (*parameters, size)))
 
 
 async def iter_records(
@@ -103,31 +106,36 @@ async def iter_records(
     max_file_bytes: int = 256 * 1024 * 1024,
     max_records: int = 1_000_000,
 ) -> AsyncIterator[ReplayRecord]:
-    """Index on disk, then stream in timestamp/record-ID order with fixed-size reads."""
-    if not 1 <= read_batch_size <= 100_000:
-        raise GeneratorError("invalid replay read batch size")
+    """Bounded temporary disk index, then stable timestamp and source-line reads."""
+    if not 1 <= read_batch_size <= 100_000 or max_records < 1 or max_file_bytes < 1:
+        raise GeneratorError("invalid replay resource limit")
     if source.stat().st_size > max_file_bytes:
-        raise GeneratorError("history file exceeds capacity")
+        raise GeneratorError("history file exceeds configured byte limit")
     with tempfile.TemporaryDirectory(prefix="windhub-replay-") as temporary:
-        database = Path(temporary) / "records.sqlite3"
-        await asyncio.to_thread(_index_csv, source, database, start, end, max_records)
-        cursor: tuple[str, str] | None = None
+        database = Path(temporary) / "replay.sqlite3"
+        await asyncio.to_thread(
+            _index_csv, source, database, start, end, max_records,
+        )
+        cursor: tuple[str, int] | None = None
         while True:
             rows = await asyncio.to_thread(
                 _next_batch, database, start, end, cursor, read_batch_size,
             )
             if not rows:
                 return
-            for record_id, ts, device_id, point_id, value, quality in rows:
-                cursor = (ts, record_id)
+            for line_no, ts, device, point, value, quality, record_id in rows:
+                cursor = (ts, line_no)
                 yield ReplayRecord(
-                    device_id, point_id, datetime.fromisoformat(ts),
-                    value, quality, record_id,
+                    device, point, datetime.fromisoformat(ts),
+                    value, quality, record_id, line_no,
                 )
 
 
 def replay_deadline(
-    first: datetime, current: datetime, monotonic_start: float, speed: float,
+    first: datetime,
+    current: datetime,
+    monotonic_start: float,
+    speed: float,
 ) -> float:
     if not math.isfinite(speed) or speed <= 0:
         raise GeneratorError("invalid replay speed")
