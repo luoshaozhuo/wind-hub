@@ -323,6 +323,16 @@ class RealtimeDeliveryPort:
         self._stopping = False
 
     @property
+    def metrics(self) -> dict[str, float]:
+        if self._engine is None:
+            return {}
+        return {
+            "received_total": float(self._engine.received_total),
+            "dropped_total": float(self._engine.dropped_total),
+            "delivered_total": float(self._engine.delivered_total),
+        }
+
+    @property
     def last_error(self) -> str:
         if self._engine is None:
             return ""
