@@ -445,7 +445,10 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                     elif any(value in {'FAILED', 'DISCONNECTED'} for _, value in observations):
                         status = 'FAILED'
                         message = 'Observed failure in process-owned state'
-                    elif any(value in {'NOT_ATTACHED', 'NOT_BOUND', 'STOPPED'} for _, value in observations):
+                    elif any(
+                        value in {'NOT_ATTACHED', 'NOT_BOUND', 'STOPPED'}
+                        for _, value in observations
+                    ):
                         status = 'UNKNOWN'
                         message = 'Target is not currently bound or active'
                         limitations.append(f'{stage}: incomplete active evidence')
