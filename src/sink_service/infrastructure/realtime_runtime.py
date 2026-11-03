@@ -329,6 +329,17 @@ class RealtimeDeliveryPort:
         self._writer: _QuotaWriter | None = None
         self._stopping = False
 
+    def inspect(self) -> dict[str, str]:
+        """Return cached, non-invasive transport and ownership evidence."""
+        return {
+            'source': 'CONNECTED' if self._ingress.connected else 'DISCONNECTED',
+            'delivery': 'RUNNING' if self._engine is not None else 'STOPPED',
+            'sink': 'OWNED' if self._writer is not None else 'NOT_ATTACHED',
+            'io_inflight': str(
+                self._writer.io_inflight if self._writer is not None else False
+            ),
+            'target': 'NOT_PROBED',
+        }
     @property
     def metrics(self) -> dict[str, float]:
         if self._engine is None:
