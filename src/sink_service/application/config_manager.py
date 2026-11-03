@@ -20,6 +20,7 @@ from sink_service.domain.config import (
     SnapshotFile,
     ValidatedSnapshot,
     WriterRequiredError,
+    config_sources,
 )
 
 
@@ -149,7 +150,7 @@ class ConfigManager:
             previous_services = {
                 item.path: item.content
                 for item in self._runtime.files
-                if item.path.startswith("services/")
+                if item.path.startswith("configs/services/")
             }
             current_services = {
                 item.path: item.content
@@ -216,7 +217,8 @@ class ConfigManager:
                 raise KeyError(f"unknown Delivery: {delivery_id}")
             updated: list[SnapshotFile] = []
             for item in self._disk.files:
-                if item.path != "instances/deliveries.yaml":
+                source_paths, _ = config_sources(self._disk.service)
+                if item.path != source_paths["deliveries"]:
                     updated.append(item)
                     continue
                 doc = yaml.safe_load(item.content)
