@@ -62,7 +62,6 @@ def _safe_target(root: Path, relative: str) -> Path:
         or item.is_absolute()
         or ".." in item.parts
         or item.suffix != ".yaml"
-        or item.parts[0] not in ("services", "instances", "templates")
     ):
         raise GeneratorError(f"invalid configuration path: {relative}")
     target = (root / item).resolve()
@@ -72,26 +71,28 @@ def _safe_target(root: Path, relative: str) -> Path:
 
 
 def _stage_readonly_tree(root: Path, destination: Path) -> None:
-    """Copy bounded YAML sources for candidate validation without following links."""
+    """Copy bounded YAML sources from any configured root-relative subtree."""
     count = 0
     size = 0
-    for name in ("services", "instances", "templates"):
-        directory = root / name
-        if not directory.is_dir() or directory.is_symlink():
-            raise GeneratorError(f"configuration directory unavailable: {name}")
-        for source in directory.rglob("*"):
-            if source.is_symlink():
-                raise GeneratorError(f"symbolic link in configuration tree: {source}")
-            if not source.is_file() or source.suffix != ".yaml":
-                continue
-            count += 1
-            size += source.stat().st_size
-            if count > 4096 or size > 64 * 1024 * 1024:
-                raise GeneratorError("configuration staging resource limit exceeded")
-            relative = source.relative_to(root).as_posix()
-            target = _safe_target(destination, relative)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, target)
+    traversed = 0
+    for source in root.rglob("*"):
+        if ".dg_transaction" in source.relative_to(root).parts:
+            continue
+        traversed += 1
+        if traversed > 20000:
+            raise GeneratorError("configuration tree entry limit exceeded")
+        if source.is_symlink():
+            raise GeneratorError(f"symbolic link in configuration tree: {source}")
+        if not source.is_file() or source.suffix != ".yaml":
+            continue
+        count += 1
+        size += source.stat().st_size
+        if count > 4096 or size > 64 * 1024 * 1024:
+            raise GeneratorError("configuration staging resource limit exceeded")
+        relative = source.relative_to(root).as_posix()
+        target = _safe_target(destination, relative)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
 
 
 def recover_transaction(root: Path) -> None:
