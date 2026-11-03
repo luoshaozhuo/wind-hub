@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections import deque
 import hashlib
 import json
 import logging
+from collections import deque
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,7 +27,9 @@ from sink_service.infrastructure.realtime_runtime import SinkOutputPool
 logger = logging.getLogger(__name__)
 
 
-def _template(snapshot: ValidatedSnapshot, family: str, identifier: str, version: str) -> dict[str, Any]:
+def _template(
+    snapshot: ValidatedSnapshot, family: str, identifier: str, version: str
+) -> dict[str, Any]:
     _, root = config_sources(snapshot.service)
     path = template_path(root, family, identifier, version)
     for file in snapshot.files:
