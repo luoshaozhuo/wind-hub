@@ -196,6 +196,15 @@ def validate_service(service: dict[str, Any]) -> None:
     reliable = expect_mapping(service.get("reliable"), "service.reliable")
     if reliable.get("max_inflight_per_delivery") != 1:
         raise ConfigurationError("reliable.max_inflight_per_delivery must be 1")
+    if reliable.get('replay_max_inflight') != 1:
+        raise ConfigurationError('reliable.replay_max_inflight must be 1')
+    for key in (
+        'ack_wait_seconds', 'retry_base_ms', 'retry_max_ms',
+        'replay_max_rate_per_second', 'replay_starvation_alarm_seconds',
+    ):
+        expect_positive_int(reliable.get(key), f'reliable.{key}')
+    if reliable['retry_max_ms'] < reliable['retry_base_ms']:
+        raise ConfigurationError('reliable.retry_max_ms below retry_base_ms')
     if reliable.get("transient_retry_policy") != "continuous":
         raise ConfigurationError("reliable.transient_retry_policy must be continuous")
     if reliable.get("permanent_error_action") != "dlq":
@@ -222,6 +231,8 @@ def validate_service(service: dict[str, Any]) -> None:
         raise ConfigurationError("nats.servers contains an invalid NATS URL")
     if nats.get("realtime_subject") != "wh.rt":
         raise ConfigurationError("realtime NATS subject must match the SampleMessage contract")
+    for key in ('dlq_max_bytes', 'dlq_max_age_seconds'):
+        expect_positive_int(nats.get(key), f'nats.{key}')
     for field in ("history_storage", "dlq_storage"):
         if nats.get(field) != "file":
             raise ConfigurationError(f"nats.{field} must be file")
