@@ -1,8 +1,9 @@
 """Data Generator 验收测试共享 fixture。
 
 铁律：成功路径一律走真实组件——真实 Core configs 树（site/devices/模板）、
-真实 ``assemble_gateway`` 协议栈与正式 ``IndustrialGatewayService``（7 个 RPC，
-含 ``UpdateVariables``）、真实 gRPC Server/Client、真实 CSV+SQLite。
+真实 ``assemble_gateway`` 协议栈与正式 ``IndustrialGatewayService``（8 个 RPC，
+含 ``UpdateVariables`` 与 ``ClaimTargets`` 租约围栏）、真实 gRPC Server/Client、
+真实 CSV+SQLite。
 故障注入仅用于无法用真实环境稳定构造的超时/挂起，且实现冻结的正式 Proto，
 不得替代正式接口。
 """
@@ -34,6 +35,7 @@ from data_generator.infrastructure.config import load_settings
 from data_generator.infrastructure.gateway import GatewayWriter
 from data_generator.infrastructure.server import make_server
 from data_generator.infrastructure.snapshots import file_sha256, recover_transaction
+from industrial_gateway.application.target_leases import TargetLeaseRegistry
 from industrial_gateway.assembly import GatewayApplication, assemble_gateway
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
 
@@ -75,6 +77,7 @@ def write_service_yaml(
     output_timeout: float = 2.0,
     max_inflight: int = 16,
     diagnose_concurrent: int = 4,
+    diagnose_wait: float | None = None,
     metrics_max_series: int = 2000,
 ) -> Path:
     """生成服务配置（直接路径契约：相对 configs 根，禁止绝对路径与 ..）。"""
@@ -93,7 +96,11 @@ def write_service_yaml(
         "output": {"max_inflight": max_inflight, "grpc_timeout_seconds": output_timeout},
         "buffer": {"max_batches": 128, "max_points_per_batch": 1000},
         "replay": {"read_batch_size": 1000},
-        "diagnose": {"max_concurrent": diagnose_concurrent, "timeout_seconds": 10.0},
+        "diagnose": {
+            "max_concurrent": diagnose_concurrent,
+            "timeout_seconds": 10.0,
+            **({"permit_wait_seconds": diagnose_wait} if diagnose_wait is not None else {}),
+        },
         "metrics": {
             "sample_seconds": 1.0,
             "window_seconds": 60,
@@ -137,6 +144,7 @@ def configs_root(tmp_path: Path) -> Callable[..., Path]:
         output_timeout: float = 2.0,
         max_inflight: int = 16,
         diagnose_concurrent: int = 4,
+        diagnose_wait: float | None = None,
         metrics_max_series: int = 2000,
         history: dict[str, Sequence[str]] | None = None,
     ) -> Path:
@@ -154,6 +162,7 @@ def configs_root(tmp_path: Path) -> Callable[..., Path]:
             output_timeout=output_timeout,
             max_inflight=max_inflight,
             diagnose_concurrent=diagnose_concurrent,
+            diagnose_wait=diagnose_wait,
             metrics_max_series=metrics_max_series,
         )
         return service_path
@@ -305,7 +314,7 @@ def replay_document(
 
 
 # --------------------------------------------------------------------------- #
-# 正式 Proto 故障注入网关（实现冻结的 IndustrialGatewayService 七 RPC 契约；
+# 正式 Proto 故障注入网关（实现冻结的 IndustrialGatewayService 八 RPC 契约；
 # 仅用于超时/挂起/拒绝等真实 Gateway 无法稳定构造的故障，成功路径禁止使用）
 # --------------------------------------------------------------------------- #
 
@@ -332,6 +341,11 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         self._behaviors = behaviors or {}
         self.update_calls: dict[str, list[list[str]]] = {gateway_id: [] for gateway_id in catalog}
         self.list_calls: dict[str, int] = {gateway_id: 0 for gateway_id in catalog}
+        # 复用生产租约注册表：故障服务的所有权判定与正式 IndustrialGatewayService 同源。
+        self.leases = TargetLeaseRegistry()
+        self.claim_calls: dict[str, list[dict[str, Any]]] = {
+            gateway_id: [] for gateway_id in catalog
+        }
         self.store: dict[str, dict[str, Any]] = {gateway_id: {} for gateway_id in catalog}
 
     def _variables(self, gateway_id: str, flt: str) -> list[gw.Variable]:
@@ -373,11 +387,56 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
             variables=self._variables(request.gateway_id, request.filter)
         )
 
+    async def ClaimTargets(self, request, context):  # noqa: ANN001, ANN202, N802
+        """与正式 data_server.ClaimTargets 同语义：复用生产 TargetLeaseRegistry。"""
+        behavior = self._behaviors.get(request.gateway_id, {})
+        ids = list(request.variable_ids)
+        self.claim_calls.setdefault(request.gateway_id, []).append(
+            {
+                "action": request.action,
+                "owner_id": request.owner_id,
+                "token": request.lease_token,
+                "variables": ids,
+                "lease_ms": request.lease_ms,
+            }
+        )
+        abort_by_action = behavior.get("claim_abort", {})
+        abort_status = abort_by_action.get(request.action) or behavior.get("claim_abort_all")
+        gate = behavior.get("claim_gate")
+        if gate is not None:
+            gate_map = behavior.get("claim_gate_actions")
+            if gate_map is None or request.action in gate_map:
+                await gate.wait()
+        delay = behavior.get("claim_delay", 0.0)
+        if delay:
+            await asyncio.sleep(delay)
+        if abort_status is not None:
+            await context.abort(abort_status, "injected claim failure")
+        catalog_ids = {
+            name for name, _dtype, writable in self._catalog.get(request.gateway_id, ()) if writable
+        }
+        if not ids or len(set(ids)) != len(ids) or any(name not in catalog_ids for name in ids):
+            return gw.ClaimTargetsResponse(accepted=False, error_code="INVALID_TARGETS")
+        async with self.leases.lock:
+            accepted, token, error = self.leases.claim(
+                request.gateway_id,
+                request.owner_id,
+                set(ids),
+                request.action,
+                request.lease_token,
+                request.lease_ms,
+            )
+        self.claim_calls[request.gateway_id][-1]["response_token"] = token
+        return gw.ClaimTargetsResponse(accepted=accepted, lease_token=token, error_code=error)
+
     async def UpdateVariables(self, request, context):  # noqa: ANN001, ANN202, N802
         behavior = self._behaviors.get(request.gateway_id, {})
-        self.update_calls.setdefault(request.gateway_id, []).append(
-            [item.variable_id for item in request.values]
-        )
+        ids = [item.variable_id for item in request.values]
+        # 服务端强制租约围栏：无令牌/过期/他主令牌在写入前一律 FAILED_PRECONDITION。
+        async with self.leases.lock:
+            if not self.leases.authorize(request.gateway_id, set(ids), request.lease_token):
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "LEASE_LOST")
+        self.update_calls.setdefault(request.gateway_id, []).append(ids)
         FaultGatewayService.global_active += 1
         FaultGatewayService.global_max_active = max(
             FaultGatewayService.global_max_active, FaultGatewayService.global_active

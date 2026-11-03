@@ -100,15 +100,46 @@ def test_snapshot_scope_has_four_values() -> None:
 
 
 def test_gateway_update_variables_contract_fields() -> None:
-    request_fields = {field.name for field in gw.UpdateVariablesRequest.DESCRIPTOR.fields}
-    assert request_fields == {"gateway_id", "values"}
+    request_fields = {
+        field.name: (field.number, field.type)
+        for field in gw.UpdateVariablesRequest.DESCRIPTOR.fields
+    }
+    # v1_10：lease_token 为 string（FieldDescriptor.TYPE_STRING=9），字段号 3。
+    assert set(request_fields) == {"gateway_id", "values", "lease_token"}
+    assert request_fields["lease_token"] == (3, 9)
     update_fields = {field.name for field in gw.VariableUpdate.DESCRIPTOR.fields}
     assert update_fields == {"variable_id", "value"}
     result_fields = {field.name for field in gw.VariableUpdateResult.DESCRIPTOR.fields}
     assert result_fields == {"variable_id", "success", "error_code", "message"}
 
 
-def test_industrial_gateway_service_has_seven_unary_methods() -> None:
+def test_claim_targets_contract_fields() -> None:
+    request_fields = {
+        field.name: (field.number, field.type, field.label)  # type: ignore[attr-defined]
+        for field in gw.ClaimTargetsRequest.DESCRIPTOR.fields
+    }
+    # variable_ids 为 repeated string（label REPEATED=3，type STRING=9）。
+    assert request_fields == {
+        "gateway_id": (1, 9, 1),
+        "owner_id": (2, 9, 1),
+        "variable_ids": (3, 9, 3),
+        "action": (4, 9, 1),
+        "lease_token": (5, 9, 1),
+        "lease_ms": (6, 13, 1),
+    }
+    response_fields = {
+        field.name: (field.number, field.type)
+        for field in gw.ClaimTargetsResponse.DESCRIPTOR.fields
+    }
+    assert response_fields == {
+        "accepted": (1, 8),
+        "lease_token": (2, 9),
+        "error_code": (3, 9),
+        "message": (4, 9),
+    }
+
+
+def test_industrial_gateway_service_has_eight_unary_methods() -> None:
     service = gw.DESCRIPTOR.services_by_name["IndustrialGatewayService"]
     assert {method.name for method in service.methods} == {
         "ListGateways",
@@ -118,7 +149,9 @@ def test_industrial_gateway_service_has_seven_unary_methods() -> None:
         "ListVariables",
         "ReadVariables",
         "UpdateVariables",
+        "ClaimTargets",
     }
+    assert len(service.methods) == 8
     assert all(
         not method.client_streaming and not method.server_streaming for method in service.methods
     )

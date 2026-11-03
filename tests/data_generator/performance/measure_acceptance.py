@@ -140,6 +140,17 @@ async def measure_direct_rtt(runs: int = 2000, warmup: int = 200) -> dict[str, f
         async with grpc.aio.insecure_channel(bind) as channel:
             await channel.channel_ready()
             stub = gw_rpc.IndustrialGatewayServiceStub(channel)
+            # v1_10：写入需先 ClaimTargets；60s 租约覆盖整个短测量窗口。
+            lease = await stub.ClaimTargets(
+                gw.ClaimTargetsRequest(
+                    gateway_id="gw-a",
+                    owner_id="perf-direct-rtt",
+                    variable_ids=[VARIABLE],
+                    action="ACQUIRE",
+                    lease_ms=60_000,
+                )
+            )
+            assert lease.accepted, lease.error_code
             for i in range(warmup + runs):
                 update = gw.VariableUpdate(
                     variable_id=VARIABLE,
@@ -147,7 +158,11 @@ async def measure_direct_rtt(runs: int = 2000, warmup: int = 200) -> dict[str, f
                 )
                 began = time.perf_counter()
                 await stub.UpdateVariables(
-                    gw.UpdateVariablesRequest(gateway_id="gw-a", values=[update])
+                    gw.UpdateVariablesRequest(
+                        gateway_id="gw-a",
+                        lease_token=lease.lease_token,
+                        values=[update],
+                    )
                 )
                 elapsed = time.perf_counter() - began
                 if i >= warmup:

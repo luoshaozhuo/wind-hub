@@ -22,6 +22,7 @@ class FakeWriter:
     rpc_durations: deque[tuple[float, str, float]] = field(
         default_factory=lambda: deque(maxlen=4096)
     )
+    native_started: dict[str, int] = field(default_factory=dict)
 
 
 def _runtime(window_seconds: int = 60, max_series: int = 2000) -> Any:
@@ -104,9 +105,18 @@ def test_scope_filters_gateway_dimensions() -> None:
         snapshot(runtime, "gateway:", 0)
 
 
-def test_series_capacity_silently_bounds_output() -> None:
+def test_series_capacity_reports_explicit_truncation_marker() -> None:
+    # P2-3 整改：达到 max_series 后有界输出，且必须显式上报 metrics_truncated。
     runtime = _runtime(max_series=5)
     runtime.counters = {f"counter_{i}": i for i in range(20)}
     response = snapshot(runtime, "", 0)
-    # 当前实现：达到 max_series 后静默丢弃（无溢出计数）——记录既有行为。
     assert len(response.metrics) == 5
+    marker = {m.name: m.value for m in response.metrics}["data_generator.metrics_truncated"]
+    assert marker == 1.0
+
+
+def test_series_capacity_no_marker_without_truncation() -> None:
+    runtime = _runtime(max_series=2000)
+    runtime.counters = {"generated": 1}
+    response = snapshot(runtime, "", 0)
+    assert not any(m.name == "data_generator.metrics_truncated" for m in response.metrics)

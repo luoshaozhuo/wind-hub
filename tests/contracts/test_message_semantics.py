@@ -411,7 +411,7 @@ def test_gateway_update_variables_batch_wire_roundtrip() -> None:
 
 
 def test_gateway_update_variables_field_numbers_and_types_frozen() -> None:
-    """四个新消息字段名/编号/类型冻结；VariableUpdate 复用 common.ScalarValue。"""
+    """v1_10 消息字段名/编号/类型冻结；UpdateVariablesRequest.lease_token=3 为围栏凭证。"""
     proto = FieldDescriptorProto
 
     def fields(
@@ -442,6 +442,21 @@ def test_gateway_update_variables_field_numbers_and_types_frozen() -> None:
             "repeated",
             "windhub.gateway.v1.VariableUpdate",
         ),
+        (3, "lease_token", proto.TYPE_STRING, "singular", None),
+    ]
+    assert fields("ClaimTargetsRequest") == [
+        (1, "gateway_id", proto.TYPE_STRING, "singular", None),
+        (2, "owner_id", proto.TYPE_STRING, "singular", None),
+        (3, "variable_ids", proto.TYPE_STRING, "repeated", None),
+        (4, "action", proto.TYPE_STRING, "singular", None),
+        (5, "lease_token", proto.TYPE_STRING, "singular", None),
+        (6, "lease_ms", proto.TYPE_UINT32, "singular", None),
+    ]
+    assert fields("ClaimTargetsResponse") == [
+        (1, "accepted", proto.TYPE_BOOL, "singular", None),
+        (2, "lease_token", proto.TYPE_STRING, "singular", None),
+        (3, "error_code", proto.TYPE_STRING, "singular", None),
+        (4, "message", proto.TYPE_STRING, "singular", None),
     ]
     assert fields("VariableUpdateResult") == [
         (1, "variable_id", proto.TYPE_STRING, "singular", None),

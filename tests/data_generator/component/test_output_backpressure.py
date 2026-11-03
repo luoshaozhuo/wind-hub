@@ -17,6 +17,7 @@ from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from data_generator.domain.model import DataBatch, DataPoint, OutputTarget
 from data_generator.domain.scenario import Scenario
 from data_generator.infrastructure.gateway import GatewayWriter
+from industrial_gateway.application.target_leases import TargetLeaseRegistry
 
 pytestmark = [
     pytest.mark.component,
@@ -42,6 +43,7 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         self.omit = omit
         self.abort = abort
         self.calls: list[list[str]] = []
+        self.leases = TargetLeaseRegistry()
 
     async def GetGateway(self, request, context):  # noqa: ANN001, ANN202, N802
         await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by data generator")
@@ -57,6 +59,19 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
             gateways=[gw.Gateway(gateway_id="gw-a", actual_state="RUNNING")]
         )
 
+    async def ClaimTargets(self, request, context):  # noqa: ANN001, ANN202, N802
+        ids = list(request.variable_ids)
+        async with self.leases.lock:
+            accepted, token, error = self.leases.claim(
+                request.gateway_id,
+                request.owner_id,
+                set(ids),
+                request.action,
+                request.lease_token,
+                request.lease_ms,
+            )
+        return gw.ClaimTargetsResponse(accepted=accepted, lease_token=token, error_code=error)
+
     async def ListVariables(self, request, context):  # noqa: ANN001, N802
         return gw.ListVariablesResponse(
             variables=[
@@ -70,7 +85,11 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         )
 
     async def UpdateVariables(self, request, context):  # noqa: ANN001, N802
-        self.calls.append([item.variable_id for item in request.values])
+        ids = [item.variable_id for item in request.values]
+        async with self.leases.lock:
+            if not self.leases.authorize(request.gateway_id, set(ids), request.lease_token):
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "LEASE_LOST")
+        self.calls.append(ids)
         if self.abort is not None:
             await context.abort(self.abort, "injected")
         if self.gate is not None:
@@ -141,6 +160,7 @@ async def test_logical_timeout_is_unknown_and_quarantines_gateway() -> None:
     try:
         scenario = _scenario(bind)
         await writer.validate(scenario)
+        await writer.claim(scenario, "gen-1")
         results = await writer.send(scenario, _batch())
         assert {result.state for result in results} == {"UNKNOWN"}
         assert all(result.error_code == "RPC_TIMEOUT" for result in results)
@@ -149,6 +169,7 @@ async def test_logical_timeout_is_unknown_and_quarantines_gateway() -> None:
         results_again = await writer.send(scenario, _batch())
         assert {result.error_code for result in results_again} == {"TARGET_QUARANTINED"}
     finally:
+        await writer.release(scenario, "gen-1")
         await server.stop(grace=0)
         await writer.close()
 
@@ -161,10 +182,12 @@ async def test_clear_rejection_is_failed_without_quarantine() -> None:
     try:
         scenario = _scenario(bind)
         await writer.validate(scenario)
+        await writer.claim(scenario, "gen-1")
         results = await writer.send(scenario, _batch())
         assert {result.state for result in results} == {"FAILED"}
         assert "g1" not in writer.unsafe_gateways
     finally:
+        await writer.release(scenario, "gen-1")
         await server.stop(grace=0)
         await writer.close()
 
@@ -175,10 +198,12 @@ async def test_per_item_failure_and_missing_ack_classification() -> None:
     try:
         scenario = _scenario(bind)
         await writer.validate(scenario)
+        await writer.claim(scenario, "gen-1")
         results = await writer.send(scenario, _batch())
         states = {result.target.variable_id: result.state for result in results}
         assert states == {"GW01.a": "SUCCESS", "GW01.b": "FAILED"}
     finally:
+        await writer.release(scenario, "gen-1")
         await server.stop(grace=0)
         await writer.close()
 
@@ -186,12 +211,15 @@ async def test_per_item_failure_and_missing_ack_classification() -> None:
     writer = GatewayWriter(timeout=1.0, max_inflight=4)
     try:
         scenario = _scenario(bind)
+        await writer.validate(scenario)
+        await writer.claim(scenario, "gen-1")
         results = await writer.send(scenario, _batch())
         # 缺 ACK 属于不可信应答：整批保守标记 UNKNOWN/INVALID_ACK，并隔离 Gateway。
         assert {result.state for result in results} == {"UNKNOWN"}
         assert all(result.error_code == "INVALID_ACK" for result in results)
         assert "g1" in writer.unsafe_gateways
     finally:
+        await writer.release(scenario, "gen-1")
         await server.stop(grace=0)
         await writer.close()
 
@@ -223,6 +251,7 @@ async def test_global_inflight_saturation_causes_bounded_backpressure() -> None:
     )
     try:
         await writer.validate(scenario)
+        await writer.claim(scenario, "gen-1")
         first = asyncio.ensure_future(writer.send(scenario, _batch()))
         await asyncio.sleep(0.15)
         second = await writer.send(scenario, _batch())
@@ -236,6 +265,7 @@ async def test_global_inflight_saturation_causes_bounded_backpressure() -> None:
     finally:
         gate_a.set()
         gate_b.set()
+        await writer.release(scenario, "gen-1")
         await server_a.stop(grace=0)
         await server_b.stop(grace=0)
         await writer.close()

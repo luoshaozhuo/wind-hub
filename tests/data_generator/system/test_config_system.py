@@ -246,6 +246,11 @@ async def test_restart_required(
         )
         committed_revision = disk_after.revision
         assert committed_revision != revision
+        # P2-4：ApplicationResult.message 必须同时给出磁盘修订与当前生效修订。
+        messages = [result.message for result in applied.apply_results if result.message]
+        assert messages, applied
+        assert any(f"disk_revision={committed_revision}" in text for text in messages), messages
+        assert any(f"effective_revision={revision}" in text for text in messages), messages
     finally:
         await channel.close()
 

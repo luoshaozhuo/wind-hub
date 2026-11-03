@@ -422,12 +422,24 @@ async def test_crash_unknown_delivery(
         await asyncio.sleep(0.5)
         assert len(fault.service.update_calls["gw-a"]) == calls_before_kill + 0  # 仅崩溃前批次
 
-        # 新任务作为全新纪元正常运行。
+        # 新任务作为全新纪元正常运行。P1-07：死者持有 fencing 租约，B 必须等其
+        # TTL（lease_ms=max(10s, timeout*6)=10s，每 1/3 租期续租）自然到期后才能取得。
         revision_2 = await _revision(common_2)
-        restarted = await dg_stub_2.StartGeneration(
-            dg.StartGenerationRequest(scenario_id="demo-random", expected_revision=revision_2)
-        )
-        assert restarted.accepted, restarted.message
+        acquire_started = asyncio.get_running_loop().time()
+        restarted = None
+        deadline = asyncio.get_running_loop().time() + 13.0
+        while asyncio.get_running_loop().time() < deadline:
+            response = await dg_stub_2.StartGeneration(
+                dg.StartGenerationRequest(scenario_id="demo-random", expected_revision=revision_2)
+            )
+            if response.accepted:
+                restarted = response
+                break
+            assert response.error_code == "RESOURCE_BUSY", response.error_code
+            await asyncio.sleep(0.25)
+        lease_recovery = asyncio.get_running_loop().time() - acquire_started
+        assert restarted is not None, "lease never expired after SIGKILL within 13s"
+        assert 0.0 < lease_recovery <= 12.0, lease_recovery
         await asyncio.sleep(0.5)
         assert len(fault.service.update_calls["gw-a"]) > calls_before_kill
     finally:

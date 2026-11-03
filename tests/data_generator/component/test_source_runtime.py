@@ -26,9 +26,21 @@ class FakeWriter:
         self.unsafe_gateways: frozenset[str] = frozenset()
         self.unsettled_gateways: frozenset[str] = frozenset()
         self.rpc_durations: deque[tuple[float, str, float]] = deque(maxlen=1024)
+        self.native_started: dict[str, int] = {}
+        self.owners: set[str] = set()
         self.sent = 0
         self._fail = fail
         self._block = block
+
+    def has_claims(self, owner_id: str) -> bool:
+        return owner_id in self.owners
+
+    async def claim(self, scenario, owner_id: str) -> None:  # noqa: ANN001
+        self.owners.add(owner_id)
+
+    async def release(self, scenario, owner_id: str) -> bool:  # noqa: ANN001
+        self.owners.discard(owner_id)
+        return True
 
     async def validate(self, scenario) -> None:  # noqa: ANN001
         return None

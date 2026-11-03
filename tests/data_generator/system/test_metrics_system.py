@@ -135,7 +135,7 @@ async def test_series_capacity(
     configs_root,
     dg_subprocess,  # noqa: ANN001
 ) -> None:
-    """UC-06-S03：标签序列有界；验收实测超限静默截断（无溢出计数），记录 P2。"""
+    """UC-06-S03：标签序列有界；P2-3 整改后截断必须显式上报 metrics_truncated。"""
     catalog = {"gw-a": [("GW01.pitch_angle", "float32", True)]}
     fault = await start_fault_gateway(catalog)
     service_path = configs_root(
@@ -157,9 +157,9 @@ async def test_series_capacity(
         await asyncio.sleep(0.8)
         response = await common_stub.GetMetrics(common.GetMetricsRequest(window_ms=60_000))
         assert len(response.metrics) == 5
-        # 验收实测：不存在任何丢弃/溢出指示序列。
-        names = {metric.name for metric in response.metrics}
-        assert not any("dropped" in name or "truncat" in name for name in names)
+        # P2-3：截断时以 data_generator.metrics_truncated=1 明确降级。
+        markers = {m.name: m.value for m in response.metrics if "truncat" in m.name}
+        assert markers == {"data_generator.metrics_truncated": 1.0}
     finally:
         await channel.close()
 

@@ -74,13 +74,54 @@ async def gw_list(stub, gateway_id: str, variable_id: str) -> gw.Variable:  # no
     return item
 
 
+async def _claim(
+    stub,
+    gateway_id: str,
+    owner_id: str,
+    variable_ids: list[str],
+    *,
+    action: str = "ACQUIRE",
+    token: str = "",
+    lease_ms: int = 10000,
+) -> gw.ClaimTargetsResponse:  # noqa: ANN001
+    response: gw.ClaimTargetsResponse = await stub.ClaimTargets(
+        gw.ClaimTargetsRequest(
+            gateway_id=gateway_id,
+            owner_id=owner_id,
+            variable_ids=variable_ids,
+            action=action,
+            lease_token=token,
+            lease_ms=lease_ms,
+        )
+    )
+    return response
+
+
 async def test_update_then_read_roundtrip(start_real_gateway) -> None:  # noqa: ANN001
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
     channel, stub = await _stub(gateway.data_bind)
     try:
+        # v1_10：旧的无令牌写入路径必须在服务端被拒绝，不存在兼容旁路。
+        with pytest.raises(grpc.RpcError) as fenced:
+            await stub.UpdateVariables(
+                gw.UpdateVariablesRequest(
+                    gateway_id="gw-a",
+                    values=[
+                        gw.VariableUpdate(
+                            variable_id="GW01.pitch_angle",
+                            value=common.ScalarValue(double_value=8.75),
+                        )
+                    ],
+                )
+            )
+        assert fenced.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+
+        claim = await _claim(stub, "gw-a", "owner-a", ["GW01.pitch_angle"])
+        assert claim.accepted and claim.lease_token
         response = await stub.UpdateVariables(
             gw.UpdateVariablesRequest(
                 gateway_id="gw-a",
+                lease_token=claim.lease_token,
                 values=[
                     gw.VariableUpdate(
                         variable_id="GW01.pitch_angle",
@@ -97,6 +138,30 @@ async def test_update_then_read_roundtrip(start_real_gateway) -> None:  # noqa: 
         assert read.values[0].quality == "GOOD"
         assert read.values[0].HasField("value")
         assert read.values[0].value.double_value == pytest.approx(8.75)
+        release = await _claim(
+            stub,
+            "gw-a",
+            "owner-a",
+            ["GW01.pitch_angle"],
+            action="RELEASE",
+            token=claim.lease_token,
+        )
+        assert release.accepted
+        # 释放后同一令牌立即失效。
+        with pytest.raises(grpc.RpcError) as after_release:
+            await stub.UpdateVariables(
+                gw.UpdateVariablesRequest(
+                    gateway_id="gw-a",
+                    lease_token=claim.lease_token,
+                    values=[
+                        gw.VariableUpdate(
+                            variable_id="GW01.pitch_angle",
+                            value=common.ScalarValue(double_value=9.0),
+                        )
+                    ],
+                )
+            )
+        assert after_release.value.code() == grpc.StatusCode.FAILED_PRECONDITION
     finally:
         await channel.close()
 
@@ -105,43 +170,70 @@ async def test_per_item_results_and_duplicate_target(start_real_gateway) -> None
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
     channel, stub = await _stub(gateway.data_bind)
     try:
+        # 命令点不是 feedback：申请阶段即被 INVALID_TARGETS 拒绝（整组原子）。
+        claim_command = await _claim(stub, "gw-a", "owner-a", ["GW01.cmd_uint"])
+        assert not claim_command.accepted
+        assert claim_command.error_code == "INVALID_TARGETS"
+        claim = await _claim(stub, "gw-a", "owner-a", ["GW01.pitch_angle", "GW01.pitch_copy"])
+        assert claim.accepted
         response = await stub.UpdateVariables(
             gw.UpdateVariablesRequest(
                 gateway_id="gw-a",
+                lease_token=claim.lease_token,
                 values=[
                     gw.VariableUpdate(
                         variable_id="GW01.pitch_angle",
                         value=common.ScalarValue(double_value=1.0),
                     ),
                     gw.VariableUpdate(
-                        variable_id="GW01.unknown",
-                        value=common.ScalarValue(double_value=1.0),
-                    ),
-                    gw.VariableUpdate(
-                        variable_id="GW01.cmd_uint",
-                        value=common.ScalarValue(uint64_value=1),
-                    ),
-                    gw.VariableUpdate(
-                        variable_id="GW01.pitch_angle",
+                        variable_id="GW01.pitch_copy",
                         value=common.ScalarValue(double_value=2.0),
                     ),
                 ],
             )
         )
-        result_by_id = {
-            item.variable_id: item
-            for item in response.results
-            if item.variable_id in {"GW01.unknown", "GW01.cmd_uint"}
+        assert {item.variable_id: item.success for item in response.results} == {
+            "GW01.pitch_angle": True,
+            "GW01.pitch_copy": True,
         }
-        assert not result_by_id["GW01.unknown"].success
-        assert result_by_id["GW01.unknown"].error_code == "INVALID_VARIABLE"
-        assert not result_by_id["GW01.cmd_uint"].success
-        # 同批重复目标第一次成功、第二次失败（逐项结果，不用 dict 折叠）。
-        duplicate_results = [
-            item for item in response.results if item.variable_id == "GW01.pitch_angle"
-        ]
-        assert len(duplicate_results) == 2
-        assert [item.success for item in duplicate_results] == [True, False]
+        # 租约外未知点混入已租约批次：服务端整批围栏拒绝，不产生任何写入。
+        with pytest.raises(grpc.RpcError) as unknown:
+            await stub.UpdateVariables(
+                gw.UpdateVariablesRequest(
+                    gateway_id="gw-a",
+                    lease_token=claim.lease_token,
+                    values=[
+                        gw.VariableUpdate(
+                            variable_id="GW01.pitch_angle",
+                            value=common.ScalarValue(double_value=3.0),
+                        ),
+                        gw.VariableUpdate(
+                            variable_id="GW01.unknown",
+                            value=common.ScalarValue(double_value=1.0),
+                        ),
+                    ],
+                )
+            )
+        assert unknown.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+        # v1_10 服务端对同批重复目标整批 INVALID_ARGUMENT 拒绝（原子批，不逐项折叠）。
+        with pytest.raises(grpc.RpcError) as duplicate:
+            await stub.UpdateVariables(
+                gw.UpdateVariablesRequest(
+                    gateway_id="gw-a",
+                    lease_token=claim.lease_token,
+                    values=[
+                        gw.VariableUpdate(
+                            variable_id="GW01.pitch_angle",
+                            value=common.ScalarValue(double_value=1.0),
+                        ),
+                        gw.VariableUpdate(
+                            variable_id="GW01.pitch_angle",
+                            value=common.ScalarValue(double_value=2.0),
+                        ),
+                    ],
+                )
+            )
+        assert duplicate.value.code() == grpc.StatusCode.INVALID_ARGUMENT
     finally:
         await channel.close()
 
@@ -177,6 +269,10 @@ async def test_ip_allowlist_denies_unauthorized_writer(start_real_gateway) -> No
     try:
         listed = await stub.ListVariables(gw.ListVariablesRequest(gateway_id="gw-a"))
         assert listed.variables
+        # 非白名单连租约申请都必须拒绝：安全边界在 ClaimTargets，而非只靠写入端自觉。
+        with pytest.raises(grpc.RpcError) as claim_denied:
+            await _claim(stub, "gw-a", "owner-x", ["GW01.pitch_angle"])
+        assert claim_denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
         with pytest.raises(grpc.RpcError) as info:
             await stub.UpdateVariables(
                 gw.UpdateVariablesRequest(
@@ -236,6 +332,7 @@ async def test_dg_writer_uses_formal_update_rpc_end_to_end(
     writer = GatewayWriter(timeout=3.0, max_inflight=4)
     try:
         await writer.validate(scenario)
+        await writer.claim(scenario, "gen-x")
         now = datetime.now(UTC)
         batch = DataBatch(
             "gen-x",
@@ -247,6 +344,7 @@ async def test_dg_writer_uses_formal_update_rpc_end_to_end(
         assert len(results) == 1
         assert results[0].state == "SUCCESS"
     finally:
+        await writer.release(scenario, "gen-x")
         assert await writer.close()
 
     channel, stub = await _stub(gateway.data_bind)

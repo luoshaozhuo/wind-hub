@@ -8,13 +8,23 @@ test_grpc_rejection / test_no_write_and_cancel。
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
+import sys
 
 import grpc
 import pytest
+import yaml
 
 from contracts import common_pb2 as common
 
-from ..conftest import dg_stubs, replay_document, ship_scenarios_document
+from ..conftest import (
+    REPO_ROOT,
+    SRC_PATH,
+    dg_stubs,
+    replay_document,
+    ship_scenarios_document,
+)
 
 pytestmark = [pytest.mark.system, pytest.mark.reliability]
 
@@ -149,13 +159,16 @@ async def test_no_write_and_cancel(
     configs_root,
     dg_subprocess,  # noqa: ANN001
 ) -> None:
-    """UC-05-S03：诊断不扰动业务源；客户端取消/超时不泄露容量；write 阶段不落笔。"""
+    """P2-2：默认 permit_wait=0.5s 有界等待，超时 RESOURCE_EXHAUSTED；取消不泄露许可。
+
+    同时保留首轮铁律：客户端截止为 DEADLINE_EXCEEDED；诊断全程零写入、write 恒 SKIPPED。
+    """
     gate = asyncio.Event()
     catalog = {"gw-a": [(VARIABLE, "float32", True)]}
     fault = await start_fault_gateway(catalog, {"gw-a": {"list_gate": gate, "list_delay": 0.6}})
     service_path = configs_root(
         scenarios=ship_scenarios_document({"gw-a": fault.bind}, mappings=[("gw-a", VARIABLE)]),
-        diagnose_concurrent=1,
+        diagnose_concurrent=1,  # 未配置 permit_wait_seconds => 生产默认 0.5s
     )
     bind, _process = await dg_subprocess(service_path)
     channel, _dg_stub, common_stub = await dg_stubs(bind)
@@ -171,31 +184,26 @@ async def test_no_write_and_cancel(
             )
         assert deadline.value.code() == grpc.StatusCode.DEADLINE_EXCEEDED
         gate.set()
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(1.0)
 
-        # 2) 验收实测 P2：许可获取超时硬编码 0.001s（max_concurrent=1 时），
-        #    在途诊断挂起期间任何并发诊断都被 RESOURCE_EXHAUSTED 立即拒绝；
-        #    排队等待能力实际不可用。
+        # 2) P2-2：在途诊断占用唯一许可；第二个诊断排队 ~0.5s 后被有界拒绝，
+        #    既不立即拒绝（等待真实发生）也不无界排队。
         gate2 = asyncio.Event()
         fault.service._behaviors = {"gw-a": {"list_gate": gate2}}  # noqa: SLF001
-        calls = [
-            asyncio.ensure_future(
-                common_stub.Diagnose(
-                    common.DiagnoseRequest(target_id="demo-random", stages=["grpc"])
-                )
+        holder = asyncio.ensure_future(
+            common_stub.Diagnose(common.DiagnoseRequest(target_id="demo-random", stages=["grpc"]))
+        )
+        await asyncio.sleep(0.2)  # 确保 holder 已取得许可
+        began = asyncio.get_running_loop().time()
+        with pytest.raises(grpc.RpcError) as exhausted:
+            await common_stub.Diagnose(
+                common.DiagnoseRequest(target_id="demo-random", stages=["grpc"])
             )
-            for _ in range(3)
-        ]
-        done, pending = await asyncio.wait(calls, timeout=1.0)
-        codes = []
-        for task in done:
-            exc = task.exception()
-            codes.append(exc.code() if isinstance(exc, grpc.RpcError) else "OK")
-        for task in pending:
-            task.cancel()
-        assert grpc.StatusCode.RESOURCE_EXHAUSTED in codes, codes
+        waited = asyncio.get_running_loop().time() - began
+        assert exhausted.value.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
+        assert 0.4 <= waited <= 1.2, waited
         gate2.set()
-        await asyncio.sleep(1.0)
+        await holder
 
         # 3) 释放后容量恢复、诊断可成功；全程零写入。
         recovered = await common_stub.Diagnose(
@@ -206,3 +214,104 @@ async def test_no_write_and_cancel(
         assert fault.service.update_calls["gw-a"] == []
     finally:
         await channel.close()
+
+
+@pytest.mark.safety
+async def test_permit_wait_allows_bounded_queueing(
+    start_fault_gateway,
+    configs_root,
+    dg_subprocess,  # noqa: ANN001
+) -> None:
+    """P2-2：许可在等待窗口内释放时，排队诊断成功，不被 RESOURCE_EXHAUSTED 误杀。"""
+    catalog = {"gw-a": [(VARIABLE, "float32", True)]}
+    # 首个诊断 grpc 阶段耗时 ~0.35s（list_delay），第二个在 2s 窗口内排队后成功。
+    fault = await start_fault_gateway(catalog, {"gw-a": {"list_delay": 0.35}})
+    service_path = configs_root(
+        scenarios=ship_scenarios_document({"gw-a": fault.bind}, mappings=[("gw-a", VARIABLE)]),
+        diagnose_concurrent=1,
+        diagnose_wait=2.0,
+    )
+    bind, _process = await dg_subprocess(service_path)
+    channel, _dg_stub, common_stub = await dg_stubs(bind)
+    try:
+        first, second = await asyncio.gather(
+            common_stub.Diagnose(common.DiagnoseRequest(target_id="demo-random", stages=["grpc"])),
+            common_stub.Diagnose(common.DiagnoseRequest(target_id="demo-random", stages=["grpc"])),
+        )
+        assert first.overall_status == "PASS"
+        assert second.overall_status == "PASS"
+    finally:
+        await channel.close()
+
+
+@pytest.mark.safety
+async def test_cancelled_waiter_does_not_leak_permit(
+    start_fault_gateway,
+    configs_root,
+    dg_subprocess,  # noqa: ANN001
+) -> None:
+    """P2-2：排队等待方被客户端取消后，许可不泄漏，后续诊断立即可用。"""
+    gate = asyncio.Event()
+    catalog = {"gw-a": [(VARIABLE, "float32", True)]}
+    fault = await start_fault_gateway(catalog, {"gw-a": {"list_gate": gate}})
+    service_path = configs_root(
+        scenarios=ship_scenarios_document({"gw-a": fault.bind}, mappings=[("gw-a", VARIABLE)]),
+        diagnose_concurrent=1,
+        diagnose_wait=5.0,
+    )
+    bind, _process = await dg_subprocess(service_path)
+    channel, _dg_stub, common_stub = await dg_stubs(bind)
+    try:
+        holder = asyncio.ensure_future(
+            common_stub.Diagnose(common.DiagnoseRequest(target_id="demo-random", stages=["grpc"]))
+        )
+        await asyncio.sleep(0.25)  # holder 已占用唯一许可并挂在目录检查上
+        waiter = asyncio.ensure_future(
+            common_stub.Diagnose(common.DiagnoseRequest(target_id="demo-random", stages=["grpc"]))
+        )
+        await asyncio.sleep(0.25)  # waiter 已进入许可等待
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        gate.set()
+        await holder
+        # 若取消的等待方吞掉过许可，这里会永久等待直到 RESOURCE_EXHAUSTED。
+        next_response = await common_stub.Diagnose(
+            common.DiagnoseRequest(target_id="demo-random", stages=ALL_STAGES)
+        )
+        assert _stages_map(next_response)["write"].status == "SKIPPED"
+        assert fault.service.update_calls["gw-a"] == []
+    finally:
+        await channel.close()
+
+
+@pytest.mark.safety
+async def test_invalid_permit_wait_rejected_at_startup(configs_root) -> None:
+    """P2-2：permit_wait_seconds 越界（合法 0.01..10.0）进程 --check 非零退出。"""
+    service_path = configs_root(
+        scenarios=ship_scenarios_document({"gw-a": "127.0.0.1:9"}, mappings=[("gw-a", VARIABLE)])
+    )
+    for bad_value in (0.0, 0.005, 10.5):
+        document = yaml.safe_load(service_path.read_text(encoding="utf-8"))
+        document["diagnose"]["permit_wait_seconds"] = bad_value
+        service_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(SRC_PATH) + os.pathsep + env.get("PYTHONPATH", "")
+        check = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "data_generator.main",
+                "--config",
+                str(service_path),
+                "--check",
+            ],
+            cwd=str(REPO_ROOT),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=30,
+            check=False,
+        )
+        assert check.returncode != 0, bad_value
+        assert b"permit_wait_seconds" in check.stdout, check.stdout

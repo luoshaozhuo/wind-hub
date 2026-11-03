@@ -399,9 +399,8 @@ async def test_bad_gateway_mapping(
             dg.StartGenerationRequest(scenario_id="demo-random", expected_revision=revision)
         )
         assert rejected.accepted is False
-        # 验收实测：预检类型不匹配被归为通用 INVALID_STATE（消息正确）；
-        # 错误码未细分到 GATEWAY_UNAVAILABLE，记录为验收 P2-分类粒度。
-        assert rejected.error_code in {"GATEWAY_UNAVAILABLE", "INVALID_STATE"}
+        # P2-1 整改：预检类型不匹配归类为 TARGET_VALIDATION_FAILED，消息保留细节。
+        assert rejected.error_code == "TARGET_VALIDATION_FAILED"
         assert "expected writable float32" in rejected.message
         sample = await read_gateway_variable(gateway.data_bind, "gw-a", "GW01.bool_pt")
         assert sample.quality == "UNKNOWN"
@@ -479,20 +478,12 @@ async def test_fanout_multiple_gateways_and_variables(
 
 @pytest.mark.safety
 @pytest.mark.conflict
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "验收实测 P1：所有权仅有进程内锁，两个独立服务实例争用同一"
-        " (gateway_id, variable_id) 时第二实例被接受并并发写入；"
-        "需跨实例所有权仲裁，见 docs/data-generator-v1-independent-acceptance.md"
-    ),
-)
 async def test_conflicting_target_ownership(
     start_real_gateway,
     configs_root,
     dg_subprocess,  # noqa: ANN001
 ) -> None:
-    """UC-03-S02：两个独立服务实例争用同一 (gateway_id, variable_id) 必须有一方被拒。"""
+    """P1-02/P1-06：两个独立 DG 进程争同一目标，第二方拒绝；A 收敛释放后 B 可取得。"""
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=ONE_FLOAT_DEVICE)
     doc = ship_scenarios_document(
         {"gw-a": gateway.data_bind},
@@ -516,10 +507,37 @@ async def test_conflicting_target_ownership(
         second = await dg_b.StartGeneration(
             dg.StartGenerationRequest(scenario_id="demo-random", expected_revision=revision_b)
         )
-        assert (
-            second.accepted is False
-        ), "跨实例没有任何目标所有权仲裁：第二个实例被接受并向同一目标并发写入"
-        assert second.error_code in {"RESOURCE_BUSY", "GATEWAY_UNAVAILABLE"}
+        # v1_10：Gateway 端租约仲裁，B 整组拒绝且错误码精确为 RESOURCE_BUSY。
+        assert second.accepted is False
+        assert second.error_code == "RESOURCE_BUSY", second.error_code
+        # B 被拒后其进程仍可立即用正确修订号服务其他请求（无部分占用残留）。
+        assert (await common_b.GetServiceStatus(common.Empty())).health in {
+            "HEALTHY",
+            "DEGRADED",
+        }
+
+        # A 停止且 I/O 收敛后租约显式释放，B 立即取得所有权（无须等 TTL）。
+        stopped = await dg_a.StopGeneration(
+            dg.StopGenerationRequest(
+                generation_id=first.generation_id, expected_revision=revision_a
+            )
+        )
+        assert stopped.accepted
+        state = ""
+        deadline = asyncio.get_running_loop().time() + 8.0
+        while asyncio.get_running_loop().time() < deadline:
+            detail = await dg_a.GetGeneration(common.ObjectId(id=first.generation_id))
+            state = detail.generation.actual_state
+            if state == "STOPPED":
+                break
+            await asyncio.sleep(0.1)
+        assert state == "STOPPED", state
+        revision_b = await _runtime_revision(common_b)
+        takeover = await dg_b.StartGeneration(
+            dg.StartGenerationRequest(scenario_id="demo-random", expected_revision=revision_b)
+        )
+        assert takeover.accepted, takeover.message
+        await _wait_changing_value(gateway.data_bind, "gw-a", "GW01.pitch_angle", samples=1)
     finally:
         await channel_a.close()
         await channel_b.close()
