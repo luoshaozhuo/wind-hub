@@ -70,6 +70,19 @@ class ReliableDeliveryPort:
         self.dlq_total = 0
         self._started_at = datetime.now(UTC)
 
+    def inspect(self) -> dict[str, str]:
+        """Report known JetStream and target state without a new probe."""
+        return {
+            'source': (
+                'CONNECTED' if self._client is not None and self._client.is_connected
+                else 'DISCONNECTED'
+            ),
+            'consumer': 'BOUND' if self._subscription is not None else 'NOT_BOUND',
+            'delivery': 'RUNNING' if self._task is not None else 'STOPPED',
+            'sink': 'OWNED' if self._adapter is not None else 'NOT_ATTACHED',
+            'io_inflight': str(self._active_io),
+            'target': 'NOT_PROBED',
+        }
     @property
     def metrics(self) -> dict[str, float]:
         values = {
