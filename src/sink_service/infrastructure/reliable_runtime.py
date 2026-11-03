@@ -112,17 +112,23 @@ class ReliableDeliveryPort:
         template = _template(
             self._snapshot, 'sinks', sink['template_id'], sink['template_version']
         )
-        if not template['capabilities']['reliable']:
-            raise ConfigurationError('Sink does not support reliable delivery')
-        if template['kind'] != 'kafka':
-            raise ConfigurationError('Reliable Adapter requires an explicit supported policy')
-        policy = template['output']['business_duplicate_policy']
-        if policy != 'allow_at_least_once':
-            raise ConfigurationError(
-                'Reliable Kafka requires explicit allow_at_least_once; '
-                'require_dedup has no verified downstream owner'
-            )
-
+        caps = template['capabilities']
+        if not caps['reliable']:
+            raise ConfigurationError('Sink does not declare Reliable capability')
+        kind = template['kind']
+        if kind == 'redis':
+            if not caps['idempotent']:
+                raise ConfigurationError(
+                    'Reliable Redis must declare atomic idempotent version protection'
+                )
+        elif kind == 'kafka':
+            policy = template['output']['business_duplicate_policy']
+            if policy != 'allow_at_least_once':
+                raise ConfigurationError(
+                    'Reliable Kafka require_dedup lacks verified downstream owner'
+                )
+        else:
+            raise ConfigurationError('unsupported Reliable Sink Adapter')
     @staticmethod
     def _durable_id(snapshot: ValidatedSnapshot, delivery_id: str) -> str:
         seed = f"{snapshot.service['deployment_id']}:{delivery_id}".encode("utf-8")
