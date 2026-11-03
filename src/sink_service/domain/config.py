@@ -55,7 +55,7 @@ class SnapshotFile:
         ):
             raise ConfigurationError(f"unsafe relative configuration path: {self.path!r}")
         if not (
-            self.path.startswith(("services/", "templates/", "instances/"))
+            self.path.startswith("configs/")
             and self.path.endswith(".yaml")
         ):
             raise ConfigurationError(f"unsupported configuration path: {self.path!r}")
