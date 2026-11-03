@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
 from contracts.sample_message import SampleMessage
 
 
+@dataclass(frozen=True, slots=True)
+class BatchOutcome:
+    """Zero-based per-sample indexes: delivered has confirmed business updates."""
+    delivered: tuple[int, ...]
+    settled: tuple[int, ...]
+    error: str = ""
+
+
 class BatchWriter(Protocol):
-    async def write_batch(self, samples: tuple[SampleMessage, ...]) -> None: ...
+    async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome: ...
 
 
 class RealtimeEngine:
@@ -163,12 +171,25 @@ class RealtimeEngine:
             for index in range(0, len(items), 500):
                 batch = tuple(items[index : index + 500])
                 try:
-                    await self._writer.write_batch(batch)
+                    outcome = await self._writer.write_batch(batch)
+                    if not isinstance(outcome, BatchOutcome):
+                        raise RuntimeError("Adapter returned an invalid batch result")
+                    delivered = set(outcome.delivered)
+                    settled = set(outcome.settled)
+                    if (
+                        not delivered.issubset(settled)
+                        or any(not 0 <= offset < len(batch) for offset in settled)
+                        or len(settled) != len(outcome.settled)
+                    ):
+                        raise RuntimeError("Adapter returned invalid sample indexes")
                 except Exception as exc:
                     self.last_error = str(exc)
-                    # Next fixed-rate tick retries the last unconfirmed values.
                     break
-                for sample in batch:
+                for offset in settled:
+                    sample = batch[offset]
                     self._sent[self._key(sample)] = sample
-                self.delivered_total += len(batch)
-                self.last_error = ""
+                self.delivered_total += len(delivered)
+                self.last_error = outcome.error
+                if outcome.error:
+                    # Unconfirmed samples remain pending for the next cycle.
+                    break
