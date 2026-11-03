@@ -160,6 +160,7 @@ class ReliableDeliveryPort:
                 or actual.config.filter_subject != subject
             ):
                 raise ConfigurationError("existing JetStream Durable configuration mismatch")
+            self._backlog = actual.num_pending + actual.num_ack_pending
             self._stop.clear()
             self._task = asyncio.create_task(self._run())
         except BaseException:
@@ -285,6 +286,8 @@ class ReliableDeliveryPort:
             for message in messages:
                 if self._stop.is_set():
                     return
+                metadata = message.metadata
+                self._backlog = metadata.num_pending + 1
                 try:
                     sample = SampleMessage.decode(message.data, "reliable")
                     if message.subject != sample.subject("reliable"):
@@ -304,12 +307,25 @@ class ReliableDeliveryPort:
                 if not self._matches(sample):
                     await message.ack_sync(timeout=5)
                     continue
+                self.received_total += 1
+                if metadata.num_pending > 0:
+                    rate = config['replay_max_rate_per_second']
+                    now = asyncio.get_running_loop().time()
+                    delay = self._last_backlog_output + 1 / rate - now
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    self._last_backlog_output = asyncio.get_running_loop().time()
                 try:
                     assert self._adapter is not None
-                    result = await self._write_with_heartbeat(message, sample)
+                    self._active_io = True
+                    try:
+                        result = await self._write_with_heartbeat(message, sample)
+                    finally:
+                        self._active_io = False
                     if 0 in result.delivered or (not result.error and 0 in result.settled):
                         await message.ack_sync(timeout=5)
                         self.delivered_total += int(0 in result.delivered)
+                        self._backlog = metadata.num_pending
                         self.last_error = ""
                         backoff = config["retry_base_ms"] / 1000
                         continue
@@ -317,7 +333,7 @@ class ReliableDeliveryPort:
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
-                    self.failed_total += 1
+                    # UNKNOWN is not a definitively failed target I/O attempt.
                     self.retry_total += 1
                     self.last_error = str(exc)
                     # Never ACK on transient/unsettled I/O. JS retains durable ownership.
