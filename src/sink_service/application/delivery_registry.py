@@ -311,6 +311,14 @@ class DeliveryRegistry:
             return ()
         return tuple(self._visible(self._entries[key]) for key in sorted(self._entries))
 
+    def inspect(self, delivery_id: str) -> dict[str, str]:
+        """Read bounded process-owned evidence without interacting with a target."""
+        entry = self._entries.get(delivery_id)
+        if entry is None:
+            raise KeyError(f'unknown Delivery: {delivery_id}')
+        method = getattr(entry.port, 'inspect', None)
+        return dict(method()) if callable(method) else {}
+
     def get(self, delivery_id: str) -> DeliveryView:
         try:
             return self._visible(self._entries[delivery_id])
