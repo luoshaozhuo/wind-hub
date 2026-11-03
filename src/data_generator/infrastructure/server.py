@@ -15,6 +15,7 @@ from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from data_generator.application.runtime import GenerationState, Runtime
 from data_generator.application.diagnostics import Diagnostics
+from data_generator.application.metrics import snapshot as metric_snapshot
 from data_generator.application.snapshots import FileContent, SnapshotManager, file_sha256
 from data_generator.domain.model import GeneratorError
 
@@ -223,14 +224,14 @@ class CommonService(common_rpc.CommonServiceServicer):
                 ) for scenario_id in settings.scenarios],
             )
 
-    async def GetMetrics(self, request: common.GetMetricsRequest,
-                         context: Any) -> common.GetMetricsResponse:
-        if request.scope not in ("", "service"):
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid metrics scope")
-        return common.GetMetricsResponse(metrics=[
-            common.Metric(name=key, value=float(value), unit="count", window_ms=0,
-                          sampled_at=stamp()) for key, value in self.runtime.counters.items()
-        ])
+    async def GetMetrics(
+        self, request: common.GetMetricsRequest, context: Any,
+    ) -> common.GetMetricsResponse:
+        try:
+            return metric_snapshot(self.runtime, request.scope, request.window_ms)
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("gRPC abort returned") from exc
 
     async def GetEvents(self, request: common.GetEventsRequest,
                         context: Any) -> common.GetEventsResponse:
