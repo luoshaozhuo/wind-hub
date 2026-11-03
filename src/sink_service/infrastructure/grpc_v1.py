@@ -299,11 +299,25 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "unsupported metrics scope")
             raise AssertionError("gRPC abort returned")
         data = self._observability.snapshot(request.window_ms)
-        stamp = _timestamp(datetime.now(UTC))
+        stamp = _timestamp(self._observability.computed_at or self._observability.started_at)
+        units = {
+            'received_total': 'samples',
+            'delivered_total': 'samples',
+            'failed_total': 'attempts',
+            'dropped_total': 'samples',
+            'dead_letter_total': 'samples',
+            'delivered_rate_per_second': 'samples/s',
+            'write_success_ratio': 'ratio',
+            'write_latency_ms_p99': 'ms',
+            'backlog_messages': 'messages',
+            'io_inflight': 'operations',
+            'metrics_snapshot_ready': 'bool',
+            'metrics_covered_ms': 'ms',
+        }
         return common_pb2.GetMetricsResponse(
             metrics=[
                 common_pb2.Metric(
-                    name=name, value=value, unit="count",
+                    name=name, value=value, unit=units.get(name, 'count'),
                     window_ms=request.window_ms, sampled_at=stamp,
                 )
                 for name, value in sorted(data.items())
