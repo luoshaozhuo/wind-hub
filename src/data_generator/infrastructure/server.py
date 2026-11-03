@@ -39,7 +39,11 @@ def config_error_code(error: Exception) -> str:
     detail = str(error).lower()
     if "revision" in detail or "candidate changed" in detail:
         return "REVISION_CONFLICT"
-    if "only update owned" in detail or "outside data generator" in detail:
+    if (
+        "only update owned" in detail
+        or "outside data generator" in detail
+        or "read-only" in detail
+    ):
         return "OWNERSHIP_DENIED"
     if "path" in detail or "escapes" in detail:
         return "INVALID_PATH"
