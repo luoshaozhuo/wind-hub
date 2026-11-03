@@ -13,6 +13,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from contracts import common_pb2, common_pb2_grpc, sink_service_pb2, sink_service_pb2_grpc
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.delivery_registry import DeliveryRegistry, DeliveryView
+from sink_service.application.observability import Observability
 from sink_service.domain.config import (
     CandidateNotFoundError,
     ConfigurationError,
@@ -98,7 +99,9 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         *,
         service_id: str,
         role: str,
+        observability: Observability,
     ) -> None:
+        self._observability = observability
         self._config = config
         self._registry = registry
         self._service_id = service_id
@@ -268,21 +271,107 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
     async def GetMetrics(
         self, request: common_pb2.GetMetricsRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> common_pb2.GetMetricsResponse:
-        await _abort(context, grpc.StatusCode.UNIMPLEMENTED, "metrics belong to stage four")
-        raise AssertionError("gRPC abort returned")
+        settings = self._config.runtime.service["metrics"]
+        supported = settings["supported_window_ms"]
+        if request.window_ms not in supported:
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "unsupported metrics window")
+            raise AssertionError("gRPC abort returned")
+        if request.scope not in ("", "service", "delivery"):
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "unsupported metrics scope")
+            raise AssertionError("gRPC abort returned")
+        views = self._registry.list()
+        data = {
+            "delivery_running": float(sum(v.actual_state == "RUNNING" for v in views)),
+            "delivery_failed": float(sum(v.actual_state == "FAILED" for v in views)),
+            "delivery_stopped": float(sum(v.actual_state == "STOPPED" for v in views)),
+            "delivery_total": float(len(views)),
+        }
+        data.update(self._observability.snapshot())
+        stamp = _timestamp(datetime.now(UTC))
+        return common_pb2.GetMetricsResponse(
+            metrics=[
+                common_pb2.Metric(
+                    name=name, value=value, unit="count",
+                    window_ms=request.window_ms, sampled_at=stamp,
+                )
+                for name, value in sorted(data.items())
+            ]
+        )
 
     async def GetEvents(
         self, request: common_pb2.GetEventsRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> common_pb2.GetEventsResponse:
-        await _abort(context, grpc.StatusCode.UNIMPLEMENTED, "events belong to stage four")
-        raise AssertionError("gRPC abort returned")
+        try:
+            offset = int(request.page_token) if request.page_token else 0
+            if offset < 0 or (request.page_token and str(offset) != request.page_token):
+                raise ValueError("invalid event page token")
+        except ValueError as exc:
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise AssertionError("gRPC abort returned") from exc
+        limit = request.page_size or 100
+        if limit > 500:
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "page size exceeds 500")
+            raise AssertionError("gRPC abort returned")
+        start = request.from_time.ToDatetime(tzinfo=UTC) if request.HasField("from_time") else None
+        end = request.to_time.ToDatetime(tzinfo=UTC) if request.HasField("to_time") else None
+        if start is not None and end is not None and start > end:
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "invalid event time range")
+            raise AssertionError("gRPC abort returned")
+        values, token = self._observability.list_events(
+            start=start, end=end, query=request.filter, offset=offset, count=limit,
+        )
+        return common_pb2.GetEventsResponse(
+            events=[
+                common_pb2.Event(
+                    event_id=item.event_id, timestamp=_timestamp(item.timestamp),
+                    severity=item.severity, source=item.source,
+                    error_code=item.error_code, message=item.message,
+                )
+                for item in values
+            ],
+            next_page_token=token,
+        )
 
     async def Diagnose(
         self, request: common_pb2.DiagnoseRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> common_pb2.DiagnoseResponse:
-        await _abort(context, grpc.StatusCode.UNIMPLEMENTED, "diagnostics belong to stage four")
-        raise AssertionError("gRPC abort returned")
-
+        allowed = {"configuration", "delivery", "transport"}
+        requested = list(request.stages) or sorted(allowed)
+        if any(stage not in allowed for stage in requested):
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "unsupported diagnosis stage")
+            raise AssertionError("gRPC abort returned")
+        views = self._registry.list()
+        if request.target_id:
+            views = tuple(view for view in views if view.delivery_id == request.target_id)
+            if not views:
+                await _abort(context, grpc.StatusCode.NOT_FOUND, "unknown Delivery")
+                raise AssertionError("gRPC abort returned")
+        failed = [view for view in views if view.actual_state == "FAILED"]
+        stages = []
+        for stage in requested:
+            if stage == "configuration":
+                status = "SUCCESS" if not self._config.last_error else "FAILED"
+                message = self._config.last_error
+            elif stage == "delivery":
+                status = "SUCCESS" if not failed else "FAILED"
+                message = ", ".join(view.delivery_id for view in failed)
+            else:
+                status = "LIMITED"
+                message = "transport reachability is inferred from Delivery state only"
+            stages.append(
+                common_pb2.DiagnosticStage(
+                    stage=stage, status=status, message=message,
+                    observed_at=_timestamp(datetime.now(UTC)), source=self._service_id,
+                )
+            )
+        overall = "FAILED" if any(item.status == "FAILED" for item in stages) else (
+            "LIMITED" if any(item.status == "LIMITED" for item in stages) else "SUCCESS"
+        )
+        return common_pb2.DiagnoseResponse(
+            overall_status=overall,
+            stages=stages,
+            limitations=["No network probe performed; transport state is an observation only."],
+        )
 
 class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
     """Delivery queries and operator commands through a single Writer."""
@@ -396,6 +485,7 @@ def build_v1_server(
     max_active_rpcs: int,
     max_request_bytes: int,
     callers: object,
+    observability: Observability,
 ) -> grpc.aio.Server:
     server = grpc.aio.server(
         interceptors=[PeerAuthorization(callers)],
@@ -403,7 +493,10 @@ def build_v1_server(
         options=[("grpc.max_receive_message_length", max_request_bytes)],
     )
     common_pb2_grpc.add_CommonServiceServicer_to_server(
-        CommonServiceServer(config, registry, service_id=service_id, role=role), server
+        CommonServiceServer(
+            config, registry, service_id=service_id, role=role,
+            observability=observability,
+        ), server
     )
     sink_service_pb2_grpc.add_SinkServiceServicer_to_server(
         SinkServiceServer(registry, config), server
