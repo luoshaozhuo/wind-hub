@@ -1,4 +1,4 @@
-"""Validated configuration snapshots with crash-recoverable file transaction."""
+"""Data Generator private snapshots with validated, recoverable file commits."""
 
 from __future__ import annotations
 
@@ -11,9 +11,10 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.infrastructure.config.shared_documents import SharedConfigPaths, SharedDocumentLoader
+from data_generator.domain.model import GeneratorError
 from data_generator.domain.scenario import Settings
 from data_generator.infrastructure.config import load_settings
-from data_generator.domain.model import GeneratorError
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,231 +27,229 @@ def file_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _sync_dir(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
+def _sync_dir(directory: Path) -> None:
+    fd = os.open(directory, os.O_RDONLY)
     try:
         os.fsync(fd)
     finally:
         os.close(fd)
 
 
-def _write_durable(path: Path, data: bytes) -> None:
+def _durable_write(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as stream:
-        stream.write(data)
+        stream.write(content)
         stream.flush()
         os.fsync(stream.fileno())
     _sync_dir(path.parent)
 
 
-def _validate_path(path: str) -> None:
-    if not path or "\\\\" in path or Path(path).is_absolute() or "//" in path:
-        raise GeneratorError("invalid snapshot path")
-    parts = Path(path).parts
-    if any(part in (".", "..") for part in parts):
-        raise GeneratorError("snapshot path traversal")
-    if len(parts) < 2 or parts[0] not in ("services", "instances", "templates"):
-        raise GeneratorError(f"unmanaged snapshot path: {path}")
-    if not path.endswith(".yaml"):
-        raise GeneratorError("snapshot only accepts YAML configuration documents")
+def _relative(root: Path, path: Path) -> str:
+    root = root.resolve()
+    candidate = path.resolve()
+    if not candidate.is_relative_to(root):
+        raise GeneratorError("configuration path escapes root")
+    return candidate.relative_to(root).as_posix()
 
 
-def _check_file_path(root: Path, relative: str) -> Path:
-    _validate_path(relative)
-    target = (root / relative).resolve()
+def _safe_target(root: Path, relative: str) -> Path:
+    item = Path(relative)
+    if (
+        not relative
+        or "\\" in relative
+        or item.is_absolute()
+        or ".." in item.parts
+        or item.suffix != ".yaml"
+        or item.parts[0] not in ("services", "instances", "templates")
+    ):
+        raise GeneratorError(f"invalid configuration path: {relative}")
+    target = (root / item).resolve()
     if not target.is_relative_to(root.resolve()):
-        raise GeneratorError(f"snapshot path escaped root: {relative}")
+        raise GeneratorError("configuration path escape through symlink")
     return target
 
 
 def recover_transaction(root: Path) -> None:
-    """Rollback any interrupted file-set commit before loading configuration."""
+    """Recover an interrupted private-file commit before reading service settings."""
+    root = root.resolve()
     journal = root / ".dg_transaction"
     marker = journal / "active.json"
     if marker.exists():
         state = json.loads(marker.read_text(encoding="utf-8"))
-        for relative in state["new_files"]:
-            target = _check_file_path(root, relative)
+        for relative in state["changed"]:
+            target = _safe_target(root, relative)
             backup = journal / "backup" / relative
-            if relative in state["old_files"]:
+            if relative in state["existing"]:
                 if not backup.is_file():
-                    raise GeneratorError(f"missing recovery backup: {relative}")
-                temporary = target.with_name(f".{target.name}.dg-recover")
-                _write_durable(temporary, backup.read_bytes())
-                os.replace(temporary, target)
-                _sync_dir(target.parent)
+                    raise GeneratorError(f"missing durable recovery backup: {relative}")
+                restore = target.with_name(f".{target.name}.dg-restore")
+                _durable_write(restore, backup.read_bytes())
+                os.replace(restore, target)
             elif target.exists():
                 target.unlink()
-                _sync_dir(target.parent)
+            _sync_dir(target.parent)
     if journal.exists():
         shutil.rmtree(journal)
         _sync_dir(root)
 
 
 class SnapshotManager:
-    """Owns the in-memory candidate and authoritative disk snapshot boundary."""
+    """Core references are readable but never writable by Data Generator."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._runtime_files = self._read_disk()
         self._candidate: tuple[str, tuple[FileContent, ...], str, Settings] | None = None
-        self.max_files = 128
+        self.max_files = 2
         self.max_bytes = 8 * 1024 * 1024
 
-    def _read_disk(self) -> tuple[FileContent, ...]:
-        root = self.settings.root
-        paths = {
-            self.settings.service_file,
-            self.settings.scenario_file,
-            self.settings.site_file,
-            self.settings.devices_file,
-            self.settings.units_file,
-            self.settings.business_points_file,
+    def _owned(self) -> set[str]:
+        return {
+            _relative(self.settings.root, self.settings.service_file),
+            _relative(self.settings.root, self.settings.scenario_file),
         }
-        paths.update(self.settings.templates_root.rglob("*.yaml"))
-        return tuple(
-            FileContent(
-                path.relative_to(root).as_posix(),
-                _check_file_path(root, path.relative_to(root).as_posix()).read_bytes(),
+
+    def _read_disk(self) -> tuple[FileContent, ...]:
+        settings = self.settings
+        paths = {
+            settings.service_file, settings.scenario_file,
+            settings.site_file, settings.devices_file,
+            settings.units_file, settings.business_points_file,
+        }
+        documents = SharedDocumentLoader(
+            SharedConfigPaths(
+                instances=settings.site_file.parent,
+                templates=settings.templates_root,
+                site_file=settings.site_file,
+                devices_file=settings.devices_file,
             )
-            for path in sorted(paths)
+        ).load()
+        for device in documents.devices.values():
+            refs = device.templates
+            paths.update((
+                refs.model.path, refs.protocol.path, refs.point_table.path,
+                *(item.path for item in refs.inherited_tables),
+            ))
+        return tuple(
+            FileContent(_relative(settings.root, item), item.read_bytes())
+            for item in sorted(paths)
         )
 
     def get(self, scope: str, candidate_id: str = "") -> tuple[FileContent, ...]:
         if scope == "CANDIDATE":
-            if self._candidate is None or candidate_id != self._candidate[0]:
+            if self._candidate is None or self._candidate[0] != candidate_id:
                 raise GeneratorError("candidate not found")
             return self._candidate[1]
         if scope == "DISK":
             return self._read_disk()
         if scope == "RUNTIME":
             return self._runtime_files
-        raise GeneratorError("unknown snapshot scope")
+        raise GeneratorError(f"unsupported snapshot scope: {scope}")
+
+    def _assert_unchanged(self) -> Settings:
+        latest = load_settings(self.settings.service_file)
+        if latest.revision != self.settings.revision:
+            raise GeneratorError("disk or shared configuration revision drift")
+        return latest
 
     def push(self, files: tuple[FileContent, ...], expected: str) -> str:
-        if expected and expected != self.settings.revision:
-            raise GeneratorError("snapshot revision conflict")
-        if not files or len(files) > self.max_files:
-            raise GeneratorError("snapshot file count exceeded")
-        if sum(len(file.data) for file in files) > self.max_bytes:
-            raise GeneratorError("snapshot byte capacity exceeded")
-        paths: set[str] = set()
+        if not expected or expected != self.settings.revision:
+            raise GeneratorError("expected_revision mismatch")
+        self._assert_unchanged()
+        if len(files) != self.max_files:
+            raise GeneratorError("snapshot must include exactly two private files")
+        if sum(len(f.data) for f in files) > self.max_bytes:
+            raise GeneratorError("snapshot size limit exceeded")
+        supplied = {f.path for f in files}
+        if len(supplied) != len(files) or supplied != self._owned():
+            raise GeneratorError("snapshot may only update owned service and scenario files")
+        if any(not f.data for f in files):
+            raise GeneratorError("empty private configuration document")
+
+        # Stage against the complete *read-only* Core tree, never publish it.
         root = self.settings.root
-        mutable_sources = {
-            item.relative_to(root).as_posix()
-            for item in (
-                self.settings.service_file,
-                self.settings.scenario_file,
-                self.settings.site_file,
-                self.settings.devices_file,
-                self.settings.units_file,
-                self.settings.business_points_file,
-            )
-        }
-        for file in files:
-            if file.path in paths or not file.data:
-                raise GeneratorError("duplicate path or empty snapshot content")
-            paths.add(file.path)
-            target = _check_file_path(root, file.path)
-            if (
-                file.path not in mutable_sources
-                and not target.is_relative_to(self.settings.templates_root)
-            ):
-                raise GeneratorError(
-                    f"snapshot includes unreferenced configuration file: {file.path}"
-                )
-        required = {
-            path.relative_to(root).as_posix()
-            for path in (
-                self.settings.service_file,
-                self.settings.scenario_file,
-                self.settings.site_file,
-                self.settings.devices_file,
-                self.settings.units_file,
-                self.settings.business_points_file,
-            )
-        }
-        if not required <= paths:
-            raise GeneratorError("snapshot missing declared configuration documents")
-        with tempfile.TemporaryDirectory(prefix="dg-validate-") as location:
-            staged = Path(location)
+        with tempfile.TemporaryDirectory(prefix="dg-config-") as scratch:
+            stage = Path(scratch) / "configs"
+            for top in ("services", "instances", "templates"):
+                source = root / top
+                if source.exists():
+                    shutil.copytree(
+                        source, stage / top, symlinks=False,
+                        ignore=shutil.ignore_patterns(".dg_transaction"),
+                    )
             for file in files:
-                target = _check_file_path(staged, file.path)
-                _write_durable(target, file.data)
-            staged_settings = load_settings(
-                staged / self.settings.service_file.relative_to(self.settings.root)
+                target = _safe_target(stage, file.path)
+                _durable_write(target, file.data)
+            staged = load_settings(
+                stage / _relative(root, self.settings.service_file)
             )
-        for scenario_id, previous in self.settings.scenarios.items():
-            changed = staged_settings.scenarios.get(scenario_id)
+
+        for name, previous in self.settings.scenarios.items():
+            changed = staged.scenarios.get(name)
             if changed is not None and changed.version == previous.version and changed != previous:
                 raise GeneratorError(
-                    f"scenario version {scenario_id}@{previous.version} cannot be overwritten"
+                    f"immutable scenario version changed: {name}@{previous.version}"
                 )
-        original = {item.path: item.data for item in self._read_disk()}
-        for item in files:
-            if item.path.startswith("templates/") and item.path in original:
-                if item.data != original[item.path]:
-                    raise GeneratorError(
-                        f"published template is immutable: {item.path}"
-                    )
         candidate_id = str(uuid.uuid4())
-        self._candidate = (candidate_id, files, self.settings.revision, staged_settings)
+        self._candidate = (candidate_id, files, self.settings.revision, staged)
         return candidate_id
 
     def apply(self, candidate_id: str, expected: str) -> tuple[Settings, bool]:
-        if self._candidate is None or self._candidate[0] != candidate_id:
+        candidate = self._candidate
+        if candidate is None or candidate_id != candidate[0]:
             raise GeneratorError("candidate not found")
-        _, files, base_revision, _ = self._candidate
-        if expected and expected != base_revision:
-            raise GeneratorError("snapshot revision conflict")
-        if base_revision != self.settings.revision:
-            raise GeneratorError("candidate baseline is stale")
+        if not expected or expected != candidate[2]:
+            raise GeneratorError("expected_revision mismatch")
+        self._assert_unchanged()
         root = self.settings.root
+        original = {
+            f.path: f.data for f in self._read_disk()
+            if f.path in self._owned()
+        }
+        proposed = {f.path: f.data for f in candidate[1]}
+        changed = [name for name in sorted(proposed) if proposed[name] != original[name]]
+        if not changed:
+            self._candidate = None
+            return self.settings, False
+
+        # Readers outside this service cannot observe an atomic two-file rename.
+        # Restrict each commit to one changed file rather than falsely claim
+        # cross-file atomicity. Multiple changes require separate Push/Apply.
+        if len(changed) > 1:
+            raise GeneratorError("multi-file atomic update not supported; split commits")
+
         journal = root / ".dg_transaction"
         if journal.exists():
-            raise GeneratorError("unfinished transaction: restart for recovery")
-        original = {file.path: file.data for file in self._read_disk()}
-        proposed = {file.path: file.data for file in files}
-        if set(original) - set(proposed):
-            raise GeneratorError("snapshot cannot remove existing config documents")
+            raise GeneratorError("unfinished file transaction; recover on restart")
         journal.mkdir()
         try:
-            for relative, data in original.items():
-                _write_durable(journal / "backup" / relative, data)
-            for relative, data in proposed.items():
-                _write_durable(journal / "new" / relative, data)
-            state = {"old_files": sorted(original), "new_files": sorted(proposed)}
-            _write_durable(journal / "active.json", json.dumps(state).encode())
-            _sync_dir(journal)
-            for relative in sorted(proposed):
-                target = _check_file_path(root, relative)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                temporary = journal / "new" / relative
-                os.replace(temporary, target)
-                _sync_dir(target.parent)
-            new_settings = load_settings(
-                self.settings.service_file
+            for name in changed:
+                _durable_write(journal / "backup" / name, original[name])
+                _durable_write(journal / "new" / name, proposed[name])
+            _durable_write(
+                journal / "active.json",
+                json.dumps({"existing": changed, "changed": changed}).encode(),
             )
-            service_key = self.settings.service_file.relative_to(root).as_posix()
-            new_service = proposed[service_key]
-            old_service = original[service_key]
-            restart_required = new_service != old_service
+            _sync_dir(journal)
+            for name in changed:
+                target = _safe_target(root, name)
+                os.replace(journal / "new" / name, target)
+                _sync_dir(target.parent)
+            new_settings = load_settings(self.settings.service_file)
+            restart = (
+                proposed[_relative(root, self.settings.service_file)]
+                != original[_relative(root, self.settings.service_file)]
+            )
             (journal / "active.json").unlink()
             _sync_dir(journal)
-        except Exception:
+        except BaseException:
             recover_transaction(root)
             raise
         else:
             shutil.rmtree(journal)
+            _sync_dir(root)
+            if not restart:
+                self._runtime_files = self._read_disk()
             self.settings = new_settings
-            if not restart_required:
-                self._runtime_files = files
-            else:
-                old_runtime = {file.path: file.data for file in self._runtime_files}
-                for file in files:
-                    if file.path != service_key:
-                        old_runtime[file.path] = file.data
-                self._runtime_files = tuple(FileContent(p, data)
-                                            for p, data in sorted(old_runtime.items()))
             self._candidate = None
-            return new_settings, restart_required
+            return new_settings, restart
