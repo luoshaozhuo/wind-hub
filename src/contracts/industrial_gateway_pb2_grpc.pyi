@@ -105,7 +105,9 @@ class IndustrialGatewayServiceServicer(metaclass=_abc_1.ABCMeta):
 
     @_abc_1.abstractmethod
     def ClaimTargets(
-        self, request: _industrial_gateway_pb2.ClaimTargetsRequest, context: _ServicerContext,
+        self,
+        request: _industrial_gateway_pb2.ClaimTargetsRequest,
+        context: _ServicerContext,
     ) -> _typing.Union[_industrial_gateway_pb2.ClaimTargetsResponse, _abc.Awaitable[_industrial_gateway_pb2.ClaimTargetsResponse]]: ...
 
 def add_IndustrialGatewayServiceServicer_to_server(servicer: IndustrialGatewayServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...

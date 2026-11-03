@@ -70,12 +70,12 @@ class IndustrialGatewayServiceStub:
                 request_serializer=contracts_dot_industrial__gateway__pb2.UpdateVariablesRequest.SerializeToString,
                 response_deserializer=contracts_dot_industrial__gateway__pb2.UpdateVariablesResponse.FromString,
                 _registered_method=True)
-
         self.ClaimTargets = channel.unary_unary(
                 '/windhub.gateway.v1.IndustrialGatewayService/ClaimTargets',
                 request_serializer=contracts_dot_industrial__gateway__pb2.ClaimTargetsRequest.SerializeToString,
                 response_deserializer=contracts_dot_industrial__gateway__pb2.ClaimTargetsResponse.FromString,
                 _registered_method=True)
+
 
 class IndustrialGatewayServiceServicer:
     """Missing associated documentation comment in .proto file."""
@@ -122,11 +122,12 @@ class IndustrialGatewayServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-
     def ClaimTargets(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
+
 
 def add_IndustrialGatewayServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -371,14 +372,28 @@ class IndustrialGatewayService:
             _registered_method=True)
 
     @staticmethod
-    def ClaimTargets(request, target, options=(), channel_credentials=None,
-            call_credentials=None, insecure=False, compression=None,
-            wait_for_ready=None, timeout=None, metadata=None):
+    def ClaimTargets(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
         return grpc.experimental.unary_unary(
-            request, target,
+            request,
+            target,
             '/windhub.gateway.v1.IndustrialGatewayService/ClaimTargets',
             contracts_dot_industrial__gateway__pb2.ClaimTargetsRequest.SerializeToString,
             contracts_dot_industrial__gateway__pb2.ClaimTargetsResponse.FromString,
-            options, channel_credentials, insecure, call_credentials,
-            compression, wait_for_ready, timeout, metadata,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
             _registered_method=True)
