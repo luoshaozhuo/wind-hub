@@ -7,6 +7,7 @@ import base64
 import hashlib
 import json
 import logging
+import time
 from collections import deque
 from datetime import UTC, datetime
 from typing import Any
@@ -72,7 +73,31 @@ class ReliableDeliveryPort:
         self.retry_total = 0
         self.dlq_total = 0
         self._started_at = datetime.now(UTC)
+        self._capacity_alarm = ''
+        self._last_capacity_check = 0.0
+        self._last_backlog_progress = time.monotonic()
 
+    @property
+    def last_error(self) -> str:
+        task = self._task
+        if task is not None and not task.done() and (
+            self._client is None or not self._client.is_connected
+        ):
+            return 'JetStream source disconnected'
+        if self._capacity_alarm:
+            return self._capacity_alarm
+        if (
+            task is not None and not task.done() and self._backlog is not None
+            and self._backlog > 0
+            and time.monotonic() - self._last_backlog_progress
+            >= self._snapshot.service['reliable']['replay_starvation_alarm_seconds']
+        ):
+            return 'REPLAY_STARVATION: backlog did not progress'
+        return self._last_error
+
+    @last_error.setter
+    def last_error(self, value: str) -> None:
+        self._last_error = value
     def inspect(self) -> dict[str, str]:
         """Report known JetStream and target state without a new probe."""
         return {
