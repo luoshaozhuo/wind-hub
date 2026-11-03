@@ -261,6 +261,9 @@ class SnapshotManager:
         proposed = {f.path: f.data for f in candidate[1]}
         changed = [name for name in sorted(proposed) if proposed[name] != original[name]]
         if not changed:
+            if not self._restart_pending:
+                # A no-op private Apply can still adopt newer Core-owned metadata.
+                self._runtime_files = self._read_disk()
             self._candidate = None
             return self.settings, self._restart_pending
 
