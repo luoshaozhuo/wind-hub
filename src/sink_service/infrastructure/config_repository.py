@@ -34,7 +34,7 @@ class GenerationStore:
     def load(self, service_path: str) -> ValidatedSnapshot:
         """Read a complete committed generation through a single pointer."""
         if (
-            not service_path.startswith("services/")
+            not service_path.startswith("configs/services/")
             or any(part in ("", ".", "..") for part in service_path.split("/"))
             or not service_path.endswith(".yaml")
         ):
@@ -72,7 +72,7 @@ class GenerationStore:
             previous = {item.path: item.content for item in old.files}
             current = {item.path: item.content for item in checked.files}
             for old_path, old_content in previous.items():
-                if not old_path.startswith("templates/"):
+                if not old_path.startswith("configs/templates/"):
                     continue
                 if old_path not in current:
                     raise ConfigurationError(f"published template version deleted: {old_path}")
@@ -111,7 +111,7 @@ class GenerationStore:
             / next(
                 item.path
                 for item in checked.files
-                if item.path.startswith("services/") and item.path.endswith(".yaml")
+                if item.path.startswith("configs/services/") and item.path.endswith(".yaml")
             ),
         )
         if committed.revision != checked.revision:
