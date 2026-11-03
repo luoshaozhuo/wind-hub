@@ -100,7 +100,34 @@ def _validate_sink(
         output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
         if output.get("business_duplicate_policy") not in ("require_dedup", "allow_at_least_once"):
             raise ConfigurationError(f"sinks.{sink_id}: missing Kafka duplicate policy")
-    expect_mapping(sink.get("connection"), f"sinks.{sink_id}.connection")
+    connection = expect_mapping(sink.get("connection"), f"sinks.{sink_id}.connection")
+    output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
+    expect_positive_int(
+        output.get("write_timeout_ms"), f"sinks.{sink_id}.write_timeout_ms", 30000
+    )
+    reference = connection.get("credential_ref", "")
+    if not isinstance(reference, str):
+        raise ConfigurationError(f"sinks.{sink_id}: credential_ref must be a string")
+    if kind == "redis":
+        expect_nonempty_str(connection.get("host"), f"sinks.{sink_id}.host")
+        expect_positive_int(connection.get("port"), f"sinks.{sink_id}.port", 65535)
+        namespace = expect_nonempty_str(output.get("namespace"), f"sinks.{sink_id}.namespace")
+        if any(char.isspace() for char in namespace):
+            raise ConfigurationError(f"sinks.{sink_id}: invalid Redis namespace")
+    elif kind == "kafka":
+        brokers = connection.get("bootstrap_servers")
+        if (
+            not isinstance(brokers, list)
+            or not brokers
+            or any(not isinstance(server, str) or not server for server in brokers)
+        ):
+            raise ConfigurationError(f"sinks.{sink_id}: invalid Kafka brokers")
+        expect_nonempty_str(output.get("topic"), f"sinks.{sink_id}.topic")
+        if output.get("acks") != "all" or output.get("enable_idempotence") is not True:
+            raise ConfigurationError(f"sinks.{sink_id}: Kafka broker ACK contract mismatch")
+    elif kind == "modbus_tcp":
+        expect_nonempty_str(connection.get("listen_host"), f"sinks.{sink_id}.listen_host")
+        expect_positive_int(connection.get("port"), f"sinks.{sink_id}.port", 65535)
     expect_mapping(sink.get("overrides"), f"sinks.{sink_id}.overrides")
     if sink["overrides"]:
         raise ConfigurationError(f"sinks.{sink_id}: undeclared overrides are not allowed")
