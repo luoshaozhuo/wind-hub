@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import struct
+from importlib import import_module
 from datetime import UTC
 from typing import Any
 
@@ -180,25 +181,43 @@ class KafkaOutput:
 
     def __init__(
         self, *, servers: list[str], topic: str, timeout_ms: int,
+        credential_ref: str = "",
     ) -> None:
         if not servers or not topic:
             raise ConfigurationError("Kafka brokers and topic must be configured")
         self._servers, self._topic = servers, topic
         self._timeout_ms = timeout_ms
+        self._credential_ref = credential_ref
         self._producer: Any = None
         self._lock = asyncio.Lock()
 
     async def open(self) -> None:
         if self._producer is not None:
             return
-        from aiokafka import AIOKafkaProducer
-
-        producer = AIOKafkaProducer(
-            bootstrap_servers=self._servers,
-            acks="all",
-            enable_idempotence=True,
-            request_timeout_ms=self._timeout_ms,
-        )
+        producer_class = import_module("aiokafka").AIOKafkaProducer
+        options: dict[str, Any] = {
+            "bootstrap_servers": self._servers,
+            "acks": "all",
+            "enable_idempotence": True,
+            "request_timeout_ms": self._timeout_ms,
+        }
+        credential = resolve_secret(self._credential_ref)
+        if credential is not None:
+            try:
+                secret = json.loads(credential)
+            except json.JSONDecodeError as exc:
+                raise ConfigurationError("Kafka Secret must contain a JSON object") from exc
+            if not isinstance(secret, dict) or not {
+                "username", "password",
+            }.issubset(secret):
+                raise ConfigurationError("Kafka Secret requires username and password")
+            options.update(
+                security_protocol="SASL_SSL",
+                sasl_mechanism="PLAIN",
+                sasl_plain_username=secret["username"],
+                sasl_plain_password=secret["password"],
+            )
+        producer = producer_class(**options)
         await producer.start()
         self._producer = producer
 
