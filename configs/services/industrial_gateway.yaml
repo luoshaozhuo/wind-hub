@@ -1,7 +1,7 @@
-# Industrial Gateway：Collector 写反馈，DC-EMS 读反馈并写命令。
-# 对 DC-EMS 使用 Modbus TCP；对 Collector/Seahorse 使用本机 gRPC WriteMany。
+# Industrial Gateway：Data Generator 通过公开 gRPC 更新反馈变量，工业客户端读取。
+# 对工业客户端提供 Modbus TCP；对生成客户端提供 IndustrialGatewayService.UpdateVariables。
 # 注意：control.enabled 默认 false，不要直接用示例启用现场控制。
-# 独立 gRPC 数据入口（仅回环地址），不提供任何控制写接口。
+# 独立 gRPC 数据入口（仅回环地址）；UpdateVariables 仅允许反馈点，不转发控制。
 data_grpc_bind: "127.0.0.1:50073"
 
 endpoints:
