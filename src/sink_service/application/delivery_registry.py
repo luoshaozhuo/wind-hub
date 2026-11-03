@@ -248,6 +248,16 @@ class DeliveryRegistry:
             )
         return view
 
+    def counters(self) -> dict[str, float]:
+        """Aggregate observed Delivery counters without exposing mutable ports."""
+        result: dict[str, float] = {}
+        for entry in self._entries.values():
+            values = getattr(entry.port, "metrics", {})
+            for name, value in values.items():
+                key = f"delivery_{name}"
+                result[key] = result.get(key, 0.0) + float(value)
+        return result
+
     def list(self, channel: str = "") -> tuple[DeliveryView, ...]:
         if channel and channel != self._role:
             return ()
