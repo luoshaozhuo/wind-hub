@@ -127,10 +127,14 @@ def config_sources(service: dict[str, Any]) -> tuple[dict[str, str], str]:
     }
     if len(set(paths.values())) != len(paths):
         raise ConfigurationError("config_sources Instance paths must differ")
+    if any(not path.startswith("configs/instances/") for path in paths.values()):
+        raise ConfigurationError("Instance pathname must reside under configs/instances/")
     templates = expect_mapping(sources["templates"], "config_sources.templates")
     if set(templates) != {"root"}:
         raise ConfigurationError("config_sources.templates requires root")
     root = managed_path(templates["root"], "config_sources.templates.root", directory=True)
+    if not (root == "configs/templates" or root.startswith("configs/templates/")):
+        raise ConfigurationError("Template root must reside under configs/templates/")
     if root in paths.values() or any(path.startswith(root + "/") for path in paths.values()):
         raise ConfigurationError("config_sources Instance path overlaps Template root")
     return paths, root
