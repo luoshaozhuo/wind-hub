@@ -125,11 +125,13 @@ async def serve_control_plane(
         )
         await server.start()
 
+        watchdog_seconds = service["runtime"].get("watchdog_interval_ms", 5000) / 1000
+
         async def recover_running() -> None:
             while not stop.is_set():
                 await registry.reconcile_all()
                 try:
-                    await asyncio.wait_for(stop.wait(), timeout=5.0)
+                    await asyncio.wait_for(stop.wait(), timeout=watchdog_seconds)
                 except TimeoutError:
                     continue
 
