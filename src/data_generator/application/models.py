@@ -1,4 +1,4 @@
-"""Deterministic per-point random and stateless static model evaluation."""
+"""Deterministic random and stateless interpolation model evaluation."""
 
 from __future__ import annotations
 
@@ -11,66 +11,90 @@ from data_generator.domain.model import GeneratorError, Scalar, validate_scalar
 
 
 def random_value(
-    seed: int, device_id: str, point_id: str, step: int, params: Mapping[str, object],
+    seed: int,
+    device_id: str,
+    point_id: str,
+    step: int,
+    params: Mapping[str, object],
 ) -> Scalar:
-    """Independent PRNG streams preserve samples when unrelated points are added."""
+    """Independent point/step PRNG streams are stable under device reordering."""
     if step < 1:
         raise GeneratorError("step must be positive")
-    raw = f"{seed}:{device_id}:{point_id}:{step}".encode()
-    point_seed = int.from_bytes(hashlib.sha256(raw).digest()[:8], "big")
+    key = f"{seed}:{device_id}:{point_id}:{step}".encode("utf-8")
+    point_seed = int.from_bytes(hashlib.sha256(key).digest()[:8], "big")
     rng = random.Random(point_seed)
-    result = rng.random()
     kind = str(params.get("data_type", "float64"))
     lower = params.get("minimum", 0)
     upper = params.get("maximum", 1)
-    if not isinstance(lower, (float, int)) or not isinstance(upper, (float, int)):
-        raise GeneratorError("invalid bounds")
-    if not math.isfinite(float(lower)) or not math.isfinite(float(upper)) or lower > upper:
-        raise GeneratorError("invalid random bounds")
+    if type(lower) not in (float, int) or type(upper) not in (float, int):
+        raise GeneratorError("random bounds must be numeric")
+    if not math.isfinite(float(lower)) or not math.isfinite(float(upper)):
+        raise GeneratorError("random bounds must be finite")
+    if lower > upper:
+        raise GeneratorError("random minimum exceeds maximum")
     if params.get("distribution", "uniform") != "uniform":
         raise GeneratorError("unsupported random distribution")
     if kind == "bool":
-        value: Scalar = result >= 0.5
+        value: Scalar = rng.random() >= 0.5
     elif kind.startswith(("int", "uint")):
         if type(lower) is not int or type(upper) is not int:
-            raise GeneratorError("integer random bounds must be integers")
+            raise GeneratorError("integer bounds must be exact integers")
         value = rng.randint(lower, upper)
     elif kind in ("float32", "float64"):
-        value = float(lower) + (float(upper) - float(lower)) * result
+        value = float(lower) + (float(upper) - float(lower)) * rng.random()
     else:
-        raise GeneratorError(f"unsupported random scalar: {kind}")
+        raise GeneratorError(f"random generation does not support {kind}")
     return validate_scalar(value, kind)
 
 
-def static_value(params: Mapping[str, object], inputs: Mapping[str, Scalar]) -> Scalar:
-    """Linear interpolation; no dynamic evaluation of user-defined expressions."""
+def interpolation_table(params: Mapping[str, object]) -> tuple[tuple[float, float], ...]:
+    """Validate full static model input table, even before model execution."""
     if params.get("function") != "linear_table":
-        raise GeneratorError("unsupported static function")
-    source = str(params.get("input_point", ""))
-    raw = inputs.get(source)
-    if raw is None or type(raw) not in (float, int) or not math.isfinite(float(raw)):
-        raise GeneratorError("missing or invalid static model input")
-    x = float(raw)
+        raise GeneratorError("unsupported static model function")
+    source = params.get("input_point")
+    if not isinstance(source, str) or not source:
+        raise GeneratorError("static model requires input_point")
     values = params.get("values")
-    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)) or len(values) < 2:
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
         raise GeneratorError("invalid interpolation table")
-    points: list[tuple[float, float]] = []
-    for item in values:
-        if not isinstance(item, Sequence) or len(item) != 2:
+    if len(values) < 2:
+        raise GeneratorError("interpolation needs two or more rows")
+    table: list[tuple[float, float]] = []
+    for entry in values:
+        if not isinstance(entry, Sequence) or isinstance(entry, (str, bytes)):
             raise GeneratorError("invalid interpolation row")
-        a, b = float(item[0]), float(item[1])
-        if not math.isfinite(a) or not math.isfinite(b) or (points and a <= points[-1][0]):
-            raise GeneratorError("unordered or non-finite interpolation table")
-        points.append((a, b))
-    policy = params.get("out_of_range", "reject")
-    if policy not in ("reject", "clamp"):
-        raise GeneratorError("unsupported interpolation boundary policy")
-    if x < points[0][0] or x > points[-1][0]:
-        if policy != "clamp":
-            raise GeneratorError("input outside interpolation domain")
-        x = max(points[0][0], min(points[-1][0], x))
-    for (left, low), (right, high) in zip(points, points[1:]):
+        if len(entry) != 2 or any(type(value) not in (int, float) for value in entry):
+            raise GeneratorError("interpolation row must contain two numeric values")
+        x, y = float(entry[0]), float(entry[1])
+        if not math.isfinite(x) or not math.isfinite(y):
+            raise GeneratorError("interpolation values must be finite")
+        if table and x <= table[-1][0]:
+            raise GeneratorError("interpolation abscissa must strictly increase")
+        table.append((x, y))
+    if params.get("out_of_range", "reject") not in ("reject", "clamp"):
+        raise GeneratorError("invalid interpolation boundary policy")
+    return tuple(table)
+
+
+def static_value(params: Mapping[str, object], inputs: Mapping[str, Scalar]) -> Scalar:
+    """Calculate a table-based physical relation without state integration."""
+    table = interpolation_table(params)
+    raw = inputs.get(str(params["input_point"]))
+    if type(raw) not in (int, float) or not math.isfinite(float(raw)):
+        raise GeneratorError("static model input missing or not finite")
+    x = float(raw)
+    if x < table[0][0] or x > table[-1][0]:
+        if params.get("out_of_range", "reject") == "reject":
+            raise GeneratorError("static input outside defined range")
+        x = min(max(x, table[0][0]), table[-1][0])
+    y = table[-1][1]
+    for (left, low), (right, high) in zip(table, table[1:]):
         if x <= right:
-            return validate_scalar(low + (high-low)*(x-left)/(right-left),
-                                   str(params.get("data_type", "float64")))
-    return validate_scalar(points[-1][1], str(params.get("data_type", "float64")))
+            y = low + (high - low) * (x - left) / (right - left)
+            break
+    kind = str(params.get("data_type", "float64"))
+    if kind.startswith(("int", "uint")):
+        if not y.is_integer():
+            raise GeneratorError("fractional static result cannot be encoded as integer")
+        return validate_scalar(int(y), kind)
+    return validate_scalar(y, kind)
