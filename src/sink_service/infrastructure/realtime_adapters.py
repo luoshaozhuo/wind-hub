@@ -227,9 +227,11 @@ class _RegisterImage:
         self._value_start, self._quality_start = value_start, quality_start
         self._width = len(points)
 
-    def update(self, samples: tuple[SampleMessage, ...]) -> None:
+    def update(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         pending: dict[int, int] = {}
-        for sample in samples:
+        delivered: list[int] = []
+        errors: list[str] = []
+        for offset, sample in enumerate(samples):
             key = (
                 sample.wind_farm_id,
                 sample.collector_id,
@@ -238,22 +240,35 @@ class _RegisterImage:
             )
             index = self._positions.get(key)
             if index is None:
-                raise ConfigurationError(f"Modbus sample is not mapped: {key}")
-            if isinstance(sample.value, bool) or not isinstance(sample.value, (int, float)):
-                raise ConfigurationError(f"Modbus float32 requires numeric sample: {key}")
+                errors.append(f"Modbus point not mapped: {key}")
+                continue
+            if isinstance(sample.value, bool) or not isinstance(
+                sample.value, (int, float)
+            ):
+                errors.append(f"Modbus float32 requires numeric sample: {key}")
+                continue
             try:
                 binary = struct.pack(">f", sample.value)
             except (ValueError, OverflowError, struct.error) as exc:
-                raise ConfigurationError(f"Modbus float32 overflow: {key}") from exc
+                errors.append(f"Modbus float32 invalid at {key}: {exc}")
+                continue
             high, low = struct.unpack(">HH", binary)
-            offset = self._value_start + index * 2
-            pending[offset] = high
-            pending[offset + 1] = low
+            value_address = self._value_start + index * 2
+            pending[value_address] = high
+            pending[value_address + 1] = low
             pending[self._quality_start + index] = {
-                "good": 0, "bad": 1, "uncertain": 2,
+                "good": 0,
+                "bad": 1,
+                "uncertain": 2,
             }[sample.quality]
+            delivered.append(offset)
+        # No await within the register image update: readers see one entire batch.
         self._values.update(pending)
         self._valid.update(pending)
+        confirmed = tuple(delivered)
+        return BatchOutcome(
+            delivered=confirmed, settled=confirmed, error="; ".join(errors)
+        )
 
     def read(self, address: int, count: int) -> list[int] | None:
         if count <= 0 or not (
@@ -338,5 +353,5 @@ class ModbusOutput:
         if server is not None:
             await server.shutdown()
 
-    async def write_batch(self, samples: tuple[SampleMessage, ...]) -> None:
-        self._image.update(samples)
+    async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
+        return self._image.update(samples)
