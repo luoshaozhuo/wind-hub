@@ -64,7 +64,21 @@ class RedisOutput:
         try:
             credential = resolve_secret(self._credential_ref)
             if credential is not None:
-                self._writer.write(_redis_command("AUTH", credential))
+                try:
+                    identity = json.loads(credential)
+                except json.JSONDecodeError:
+                    identity = credential
+                if isinstance(identity, str):
+                    arguments = ("AUTH", identity)
+                elif (
+                    isinstance(identity, dict)
+                    and isinstance(identity.get("username"), str)
+                    and isinstance(identity.get("password"), str)
+                ):
+                    arguments = ("AUTH", identity["username"], identity["password"])
+                else:
+                    raise ConfigurationError("Redis Secret must be password or ACL JSON")
+                self._writer.write(_redis_command(*arguments))
                 await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
                 assert self._reader is not None
                 answer = await asyncio.wait_for(
