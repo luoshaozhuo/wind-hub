@@ -85,8 +85,8 @@ def _index_csv(
                     stamp = datetime.fromisoformat(
                         row["source_timestamp"].replace("Z", "+00:00")
                     )
-                    if stamp.tzinfo is None:
-                        raise ValueError("timestamp missing timezone")
+                    if stamp.tzinfo is None or stamp.utcoffset() != timezone.utc.utcoffset(stamp):
+                        raise ValueError("source_timestamp must be UTC")
                     key = (row["device_id"], row["point_id"])
                     data_type = point_types.get(key)
                     if data_type is None:

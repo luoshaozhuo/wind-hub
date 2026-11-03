@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -137,8 +137,12 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
             last = datetime.fromisoformat(source["end_time"].replace("Z", "+00:00"))
         except (KeyError, AttributeError, ValueError) as exc:
             raise GeneratorError("invalid replay time range") from exc
-        if first.tzinfo is None or last.tzinfo is None or first >= last:
-            raise GeneratorError("invalid replay UTC time range")
+        if (
+            first.tzinfo is None or last.tzinfo is None or first >= last
+            or first.utcoffset() != last.utcoffset()
+            or first.utcoffset() != timedelta(0)
+        ):
+            raise GeneratorError("replay window must be valid UTC")
     else:
         raise GeneratorError("unsupported source kind")
 

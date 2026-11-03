@@ -346,7 +346,10 @@ class Runtime:
         )
         if len(results) != expected or expected == 0:
             raise GeneratorError("Gateway delivery results incomplete")
-        self.counters["attempted"] += len(results)
+        not_sent = {"TARGET_QUARANTINED", "TARGET_BUSY", "BACKPRESSURE_TIMEOUT"}
+        self.counters["attempted"] += sum(
+            result.error_code not in not_sent for result in results
+        )
         confirmed = 0
         failed = 0
         unknown = 0
