@@ -14,6 +14,7 @@ from sink_service.application.config import read_snapshot
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_registry import DeliveryPort, DeliveryRegistry
+from sink_service.application.observability import Observability
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, validate_service
 from sink_service.infrastructure.config_repository import GenerationStore
 from sink_service.infrastructure.config_sync import ConfigReader
@@ -79,6 +80,7 @@ async def serve_control_plane(
     writer = service["config_writer"]
     role = service["process_role"]
     registry = DeliveryRegistry(role, initial)
+    telemetry = Observability(service['runtime']['max_event_records'])
 
     async def reconcile(snapshot: ValidatedSnapshot) -> tuple[str, ...]:
         return await registry.apply_configuration(snapshot, port_factory)
@@ -122,6 +124,7 @@ async def serve_control_plane(
             max_active_rpcs=grpc_config["max_active_rpcs"],
             max_request_bytes=grpc_config["max_request_bytes"],
             callers=service["security"]["callers"],
+            observability=telemetry,
         )
         await server.start()
 
