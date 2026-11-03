@@ -1,0 +1,38 @@
+# Isolated Gateway A for Data Generator end-to-end verification.
+# Start with: python -m industrial_gateway.main --config <this absolute path>
+data_grpc_bind: "127.0.0.1:50051"
+endpoints:
+  gw-test:
+    protocol: modbus
+    host: 127.0.0.1
+    port: 15101
+    protocol_options:
+      mode: tcp
+point_tables:
+  pitch_feedback:
+    protocol: modbus
+    points:
+      pitch_angle:
+        role: feedback
+        data_type: float32
+        address: {register_type: holding, address: 100}
+      pitch_angle_copy:
+        role: feedback
+        data_type: float32
+        address: {register_type: holding, address: 102}
+devices:
+  GW01:
+    endpoint_id: gw-test
+    point_table_id: pitch_feedback
+    protocol_address: {unit_id: 1}
+  GW02:
+    endpoint_id: gw-test
+    point_table_id: pitch_feedback
+    protocol_address: {unit_id: 2}
+control:
+  enabled: false
+  commander: {endpoint: "127.0.0.1:50052", command_timeout: 3.0, rpc_timeout: 4.0}
+  journal_path: "/tmp/wind-hub-demo-gateway-a.json"
+  access:
+    data_writers: ["127.0.0.1"]
+    command_writers: []
