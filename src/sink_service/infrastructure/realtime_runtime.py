@@ -177,14 +177,15 @@ class _QuotaWriter:
         except TimeoutError:
             return BatchOutcome((), (), "Sink I/O result uncertain; waiting for settlement")
 
-    async def settle(self) -> None:
-        """Do not release a shared Sink while an issued operation is unresolved."""
+    async def settle(self) -> BatchOutcome | None:
+        """Wait for native settlement even after the caller's observation timeout."""
         task = self._pending
-        if task is not None:
-            try:
-                await asyncio.shield(task)
-            except Exception:
-                pass
+        if task is None:
+            return None
+        try:
+            return await asyncio.shield(task)
+        except Exception as exc:
+            return BatchOutcome((), (), f'underlying I/O failed: {exc}')
 
 
 def template_capabilities(snapshot: ValidatedSnapshot, sink_id: str) -> dict[str, Any]:
