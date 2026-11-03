@@ -39,6 +39,7 @@ class Observability:
             str, deque[tuple[datetime, dict[str, float]]]
         ] = {}
         self._delivery_computed: dict[str, dict[str, float]] = {}
+        self._delivery_started_at: dict[str, datetime] = {}
 
     def count(self, metric: str, delta: float = 1.0) -> None:
         self._counts[metric] = self._counts.get(metric, 0.0) + delta
@@ -145,7 +146,8 @@ class Observability:
             observations = (delivery_latencies or {}).get(identifier, ())
             overflow = (delivery_overflows or {}).get(identifier)
             result = self._compute_window(
-                now, history[0][0], history, snapshot, observations, overflow,
+                now, self._delivery_started_at.setdefault(identifier, now),
+                history, snapshot, observations, overflow,
             )
             # Readiness and window coverage are process-level contract metrics.
             result.pop('metrics_snapshot_ready', None)
@@ -154,6 +156,7 @@ class Observability:
         for identifier in tuple(self._delivery_samples):
             if identifier not in details:
                 del self._delivery_samples[identifier]
+                self._delivery_started_at.pop(identifier, None)
         self._delivery_computed = details
         self._computed = process
         self.computed_at = now
