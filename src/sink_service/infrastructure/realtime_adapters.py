@@ -8,8 +8,8 @@ from __future__ import annotations
 import asyncio
 import json
 import struct
-from importlib import import_module
 from datetime import UTC, datetime
+from importlib import import_module
 from typing import Any
 
 from pymodbus.datastore import ModbusServerContext
@@ -298,14 +298,14 @@ class _RegisterImage:
             raise ConfigurationError("duplicate Modbus source point")
         self._values: dict[int, int] = {}
         self._valid: set[int] = set()
-        self._last: dict[int, tuple[Any, str]] = {}
+        self._last: dict[int, tuple[datetime, str]] = {}
         self._expires: dict[int, float] = {}
         self._value_start, self._quality_start = value_start, quality_start
         self._width = len(points)
 
     def update(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         pending: dict[int, int] = {}
-        confirmed_versions: dict[int, tuple[Any, str]] = {}
+        confirmed_versions: dict[int, tuple[datetime, str]] = {}
         expiration_times: dict[int, float] = {}
         delivered: list[int] = []
         settled: list[int] = []
