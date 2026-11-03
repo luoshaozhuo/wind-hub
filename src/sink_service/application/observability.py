@@ -34,6 +34,7 @@ class Observability:
         self.started_at = datetime.now(UTC)
         self._window_ms = window_ms
         self._computed: dict[str, float] = {'metrics_snapshot_ready': 0.0}
+        self.computed_at: datetime | None = None
 
     def count(self, metric: str, delta: float = 1.0) -> None:
         self._counts[metric] = self._counts.get(metric, 0.0) + delta
@@ -116,6 +117,7 @@ class Observability:
             if values:
                 result['write_latency_ms_p99'] = values[ceil(len(values) * 0.99) - 1]
         self._computed = result
+        self.computed_at = now
 
     def snapshot(self, window_ms: int) -> dict[str, float]:
         """Read only the last completed periodic snapshot."""
