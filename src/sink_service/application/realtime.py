@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
@@ -71,6 +72,10 @@ class RealtimeEngine:
         self.received_total = 0
         self.dropped_total = 0
         self.delivered_total = 0
+        self.failed_total = 0
+        self.write_success_total = 0
+        self.latency_samples: deque[tuple[datetime, float]] = deque(maxlen=50000)
+        self.latency_overflow_at: datetime | None = None
 
     @property
     def source_identity(self) -> tuple[str, str]:
@@ -249,6 +254,13 @@ class RealtimeEngine:
                         # A stale/duplicate target-side CAS skip is not a new success.
                         self._skipped[key] = sample.sample_id
                 self.delivered_total += len(delivered)
+                self.write_success_total += outcome.successful_attempts
+                self.failed_total += outcome.failed_attempts
+                for value in outcome.successful_latencies_ms:
+                    timestamp = datetime.now(UTC)
+                    if len(self.latency_samples) == self.latency_samples.maxlen:
+                        self.latency_overflow_at = timestamp
+                    self.latency_samples.append((timestamp, value))
                 self.last_error = outcome.error
                 if outcome.error:
                     # Unconfirmed samples remain pending for the next cycle.
