@@ -195,52 +195,51 @@ def validate_service_limits(service: dict[str, Any]) -> None:
 
 
 def resolve_source(service_file: Path, value: object, *, directory: bool = False) -> Path:
-    """Resolve an explicit service-owned path within the configuration root."""
+    """Resolve an explicitly declared path relative to configs/, never services/."""
     if not isinstance(value, str) or not value.strip():
-        raise GeneratorError("service configuration source path must be a nonempty string")
-    if Path(value).is_absolute():
-        raise GeneratorError("config references must be relative to the service file")
+        raise GeneratorError("configuration source path must be a nonempty string")
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts or "\\" in value:
+        raise GeneratorError("configuration path must be configs-relative without traversal")
     root = service_file.parent.parent.resolve()
-    resolved = (service_file.parent / value).resolve()
-    if not resolved.is_relative_to(root):
-        raise GeneratorError("config reference escapes the configured root")
-    if directory and not resolved.is_dir():
-        raise GeneratorError(f"template directory not found: {resolved}")
-    if not directory and not resolved.is_file():
-        raise GeneratorError(f"configuration document not found: {resolved}")
-    return resolved
+    target = (root / relative).resolve()
+    if not target.is_relative_to(root):
+        raise GeneratorError("configuration path escapes configs root")
+    if directory:
+        if not target.is_dir():
+            raise GeneratorError(f"template directory not found: {target}")
+    elif not target.is_file():
+        raise GeneratorError(f"configuration document not found: {target}")
+    return target
 
 
 def config_sources(service_file: Path, service: dict[str, Any]) -> dict[str, Path]:
-    raw = service.get("configuration")
-    if not isinstance(raw, dict) or set(raw) != {"instances", "templates"}:
+    configuration = service.get("configuration")
+    if not isinstance(configuration, dict) or set(configuration) != {
+        "instances", "templates",
+    }:
         raise GeneratorError("service.configuration requires instances and templates")
-    instances = raw["instances"]
-    templates = raw["templates"]
+    instances = configuration["instances"]
+    templates = configuration["templates"]
     if not isinstance(instances, dict) or set(instances) != {
         "site", "devices", "scenarios",
     }:
         raise GeneratorError("instances requires site, devices and scenarios paths")
-    if not isinstance(templates, dict) or set(templates) != {
-        "root", "units", "business_points",
-    }:
-        raise GeneratorError("templates requires root, units, business_points paths")
+    if not isinstance(templates, dict) or set(templates) != {"root"}:
+        raise GeneratorError("templates requires only root")
     resolved = {
         key: resolve_source(service_file, instances[key])
         for key in ("site", "devices", "scenarios")
     }
-    resolved.update({
-        key: resolve_source(service_file, templates[key])
-        for key in ("units", "business_points")
-    })
     resolved["templates_root"] = resolve_source(
         service_file, templates["root"], directory=True,
     )
-    if not all(
-        resolved[key].is_relative_to(resolved["templates_root"])
-        for key in ("units", "business_points")
-    ):
-        raise GeneratorError("shared template catalogs must be inside templates.root")
+    resolved["units"] = resolved["templates_root"] / "units.yaml"
+    resolved["business_points"] = resolved["templates_root"] / "business_points.yaml"
+    # Catalog files are Core's indirect dependencies, not service declarations.
+    for name in ("units", "business_points"):
+        if not resolved[name].is_file():
+            raise GeneratorError(f"required Core catalog absent: {resolved[name]}")
     return resolved
 
 
