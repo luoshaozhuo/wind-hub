@@ -9,7 +9,7 @@ import asyncio
 import json
 import struct
 from importlib import import_module
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from pymodbus.datastore import ModbusServerContext
@@ -291,12 +291,14 @@ class _RegisterImage:
         self._values: dict[int, int] = {}
         self._valid: set[int] = set()
         self._last: dict[int, tuple[Any, str]] = {}
+        self._expires: dict[int, float] = {}
         self._value_start, self._quality_start = value_start, quality_start
         self._width = len(points)
 
     def update(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         pending: dict[int, int] = {}
         confirmed_versions: dict[int, tuple[Any, str]] = {}
+        expiration_times: dict[int, float] = {}
         delivered: list[int] = []
         settled: list[int] = []
         errors: list[str] = []
@@ -343,12 +345,16 @@ class _RegisterImage:
                 "uncertain": 2,
             }[sample.quality]
             confirmed_versions[index] = (sample.sample_time, sample.sample_id)
+            expiration_times[index] = (
+                sample.sample_time.timestamp() + (sample.max_staleness_ms or 1) / 1000
+            )
             delivered.append(offset)
             settled.append(offset)
         # No await within the register image update: readers see one entire batch.
         self._values.update(pending)
         self._valid.update(pending)
         self._last.update(confirmed_versions)
+        self._expires.update(expiration_times)
         confirmed = tuple(delivered)
         return BatchOutcome(
             delivered=confirmed, settled=tuple(settled), error="; ".join(errors)
