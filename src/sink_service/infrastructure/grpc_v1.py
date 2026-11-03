@@ -66,6 +66,17 @@ def _status_for(exc: ConfigurationError) -> grpc.StatusCode:
     return grpc.StatusCode.FAILED_PRECONDITION
 
 
+def _peer_identity(context: grpc.aio.ServicerContext[Any, Any]) -> str:
+    """Use only the mTLS certificate SAN; never a self-declared request field."""
+    identities = (context.auth_context() or {}).get(
+        'x509_subject_alternative_name', ()
+    )
+    for raw in identities:
+        identity = raw.decode('utf-8', errors='strict')
+        if identity.startswith('spiffe://'):
+            return identity
+    return 'unknown-authenticated-peer'
+
 def _delivery(
     value: DeliveryView, configuration: dict[str, Any] | None = None
 ) -> sink_service_pb2.Delivery:
@@ -253,6 +264,11 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         except ConfigurationError as exc:
             await _abort(context, _status_for(exc), str(exc))
             raise AssertionError('gRPC abort returned') from exc
+        self._observability.event(
+            'INFO', 'configuration', 'CONFIG_PUSH',
+            f'caller={_peer_identity(context)} candidate={candidate_id} '
+            f'base_revision={self._config.disk.revision}',
+        )
         return common_pb2.PushConfigSnapshotResponse(
             candidate_id=candidate_id,
             valid=True,
@@ -269,6 +285,13 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         except ConfigurationError as exc:
             await _abort(context, _status_for(exc), str(exc))
             raise AssertionError("gRPC abort returned") from exc
+        self._observability.event(
+            'INFO' if not applied.error else 'ERROR',
+            'configuration', 'CONFIG_APPLY',
+            f'caller={_peer_identity(context)} application={applied.application_id} '
+            f'file_commit={applied.file_commit} restart_required={applied.restart_required} '
+            f'error={applied.error}',
+        )
         return common_pb2.ApplyConfigSnapshotResponse(
             file_commit=applied.file_commit,
             effective_revision=applied.effective_revision,
@@ -447,7 +470,10 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
 class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
     """Delivery queries and operator commands through a single Writer."""
 
-    def __init__(self, registry: DeliveryRegistry, config: ConfigManager) -> None:
+    def __init__(
+        self, registry: DeliveryRegistry, config: ConfigManager, observability: Observability
+    ) -> None:
+        self._observability = observability
         self._registry = registry
         self._config = config
 
@@ -513,6 +539,10 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
             raise AssertionError("gRPC abort returned") from exc
 
         desired = "START" if start else "STOP"
+        self._observability.event(
+            'INFO', request.id, 'DELIVERY_INTENT',
+            f'caller={_peer_identity(context)} desired={desired} revision={snapshot.revision}',
+        )
         try:
             view = self._registry.get(request.id)
         except KeyError:
@@ -570,7 +600,7 @@ def build_v1_server(
         ), server
     )
     sink_service_pb2_grpc.add_SinkServiceServicer_to_server(
-        SinkServiceServer(registry, config), server
+        SinkServiceServer(registry, config, observability), server
     )
     if server.add_secure_port(address, credentials) == 0:
         raise ConfigurationError(f"cannot bind secure gRPC endpoint: {address}")
