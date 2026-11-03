@@ -14,9 +14,9 @@ from contracts import common_pb2_grpc as common_rpc
 from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from data_generator.application.runtime import GenerationState, Runtime
-from data_generator.application.diagnostics import Diagnostics
-from data_generator.application.metrics import snapshot as metric_snapshot
-from data_generator.application.snapshots import FileContent, SnapshotManager, file_sha256
+from data_generator.infrastructure.diagnostics import Diagnostics
+from data_generator.infrastructure.metrics import snapshot as metric_snapshot
+from data_generator.infrastructure.snapshots import FileContent, SnapshotManager, file_sha256
 from data_generator.domain.model import GeneratorError
 
 

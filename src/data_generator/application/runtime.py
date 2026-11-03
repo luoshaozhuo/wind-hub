@@ -10,7 +10,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from data_generator.application.config import Scenario, Settings, resolve_history
+from data_generator.domain.scenario import Scenario, Settings, resolve_history
 from data_generator.application.models import random_value, static_value
 from data_generator.application.replay import iter_records, replay_deadline
 from data_generator.domain.model import DataBatch, DataPoint, GeneratorError, Scalar, validate_scalar

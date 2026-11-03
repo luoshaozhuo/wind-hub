@@ -11,7 +11,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from data_generator.application.config import Settings, load_settings
+from data_generator.domain.scenario import Settings
+from data_generator.infrastructure.config import load_settings
 from data_generator.domain.model import GeneratorError
 
 

@@ -6,7 +6,6 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,30 +22,11 @@ from core.infrastructure.config.shared_snapshot import (
 )
 from data_generator.application.models import interpolation_table, random_value
 from data_generator.domain.model import GeneratorError, OutputMapping, OutputTarget
+from data_generator.domain.scenario import Scenario, Settings
 
 
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
-
-@dataclass(frozen=True, slots=True)
-class Scenario:
-    scenario_id: str
-    version: str
-    description: str
-    source: dict[str, Any]
-    devices: tuple[str, ...]
-    points: dict[tuple[str, str], dict[str, Any]]
-    mappings: tuple[OutputMapping, ...]
-    gateways: dict[str, str]
-
-
-@dataclass(frozen=True, slots=True)
-class Settings:
-    root: Path
-    service: dict[str, Any]
-    scenarios: dict[str, Scenario]
-    revision: str
-    shared: SharedDomainSnapshot
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -62,15 +42,6 @@ def load_yaml(path: Path) -> dict[str, Any]:
         raise GeneratorError(f"{path}: expected MAJOR.MINOR.PATCH file_version")
     return data
 
-
-def resolve_history(root: Path, relative: str) -> Path:
-    if not relative or Path(relative).is_absolute():
-        raise GeneratorError("history path must be relative")
-    base = (root / "history").resolve()
-    candidate = (root / relative).resolve()
-    if not candidate.is_relative_to(base):
-        raise GeneratorError("history path escapes authorized history directory")
-    return candidate
 
 
 def _resolve_points(

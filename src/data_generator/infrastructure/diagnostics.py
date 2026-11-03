@@ -12,7 +12,7 @@ import grpc
 from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as gateway
 from contracts import industrial_gateway_pb2_grpc as gateway_rpc
-from data_generator.application.config import Settings, resolve_history
+from data_generator.domain.scenario import Settings, resolve_history
 
 
 class Diagnostics:
