@@ -13,6 +13,7 @@ from contracts import common_pb2_grpc as common_rpc
 from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from data_generator.application.runtime import GenerationState, Runtime
+from data_generator.application.diagnostics import Diagnostics
 from data_generator.application.snapshots import FileContent, SnapshotManager, file_sha256
 from data_generator.domain.model import GeneratorError
 
@@ -127,6 +128,7 @@ class CommonService(common_rpc.CommonServiceServicer):
     def __init__(self, runtime: Runtime) -> None:
         self.runtime = runtime
         self.snapshots = SnapshotManager(runtime.settings)
+        self.diagnostics = Diagnostics(runtime.settings)
         self.started = datetime.now(timezone.utc)
 
     async def GetServiceInfo(self, request: common.Empty, context: Any) -> common.GetServiceInfoResponse:
@@ -231,18 +233,7 @@ class CommonService(common_rpc.CommonServiceServicer):
 
     async def Diagnose(self, request: common.DiagnoseRequest,
                        context: Any) -> common.DiagnoseResponse:
-        stages = []
-        for name in (request.stages or ("source", "mapping", "network", "grpc", "write")):
-            if name in ("source", "mapping"):
-                status, code = "PASS", ""
-            else:
-                status, code = "SKIPPED", "NOT_VERIFIED"
-            stages.append(common.DiagnosticStage(
-                stage=name, status=status, error_code=code,
-                source="data_generator", observed_at=stamp(),
-            ))
-        return common.DiagnoseResponse(overall_status="UNKNOWN", stages=stages,
-                                       limitations=["Gateway data delivery not actively verified"])
+        return await self.diagnostics.run(request)
 
 
 def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
