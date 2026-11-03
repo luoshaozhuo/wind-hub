@@ -7,6 +7,7 @@ import math
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
@@ -61,14 +62,18 @@ class Runtime:
         return any(mapping.target.gateway_id in unsafe
                    for mapping in generation.scenario.mappings)
 
-    async def apply_settings(self, changed: Settings, restart_required: bool) -> None:
-        """Activate scenario definitions while preserving bound generations and service limits."""
+    async def commit_configuration(
+        self, commit: Callable[[], tuple[Settings, bool]],
+    ) -> tuple[Settings, bool]:
+        """Keep StartGeneration and configuration disk/active switch serialized."""
         async with self._lock:
+            changed, restart_required = await asyncio.to_thread(commit)
             previous = self.settings
             self.settings = (
                 replace(changed, service=previous.service)
                 if restart_required else changed
             )
+            return changed, restart_required
 
     async def start(self, scenario_id: str, version: str | None,
                     revision: str) -> GenerationState:
