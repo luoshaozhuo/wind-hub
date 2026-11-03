@@ -146,6 +146,8 @@ class CommonService(common_rpc.CommonServiceServicer):
         self.runtime = runtime
         self.snapshots = SnapshotManager(runtime.settings)
         self.diagnostics = Diagnostics(runtime.settings)
+        limit = int(runtime.settings.service.get("diagnose", {}).get("max_concurrent", 2))
+        self._diagnostics_permits = asyncio.Semaphore(limit)
         self.started = datetime.now(timezone.utc)
         self._config_lock = asyncio.Lock()
 
@@ -286,9 +288,18 @@ class CommonService(common_rpc.CommonServiceServicer):
             next_page_token=str(offset + limit) if offset + limit < len(events) else "",
         )
 
-    async def Diagnose(self, request: common.DiagnoseRequest,
-                       context: Any) -> common.DiagnoseResponse:
-        return await self.diagnostics.run(request)
+    async def Diagnose(
+        self, request: common.DiagnoseRequest, context: Any,
+    ) -> common.DiagnoseResponse:
+        try:
+            await asyncio.wait_for(self._diagnostics_permits.acquire(), timeout=0.001)
+        except TimeoutError:
+            await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, "diagnostics capacity reached")
+            raise RuntimeError("gRPC abort returned") from None
+        try:
+            return await self.diagnostics.run(request)
+        finally:
+            self._diagnostics_permits.release()
 
 
 def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
