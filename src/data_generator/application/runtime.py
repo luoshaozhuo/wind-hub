@@ -65,6 +65,9 @@ class Runtime:
             lambda: {"SUCCESS": 0, "FAILED": 0, "UNKNOWN": 0}
         )
         self.last_batch_status = "NONE"
+        self.observations: deque[tuple[float, str, float]] = deque(maxlen=4096)
+        self.latest_replay_timestamp: datetime | None = None
+        self.replay_speed: float | None = None
         self.counters: dict[str, int] = {
             "generated": 0, "batches": 0, "replay_read": 0,
             "attempted": 0, "confirmed": 0, "failed": 0,
@@ -271,13 +274,28 @@ class Runtime:
                     "SKIPPED_PERIOD", str(skipped),
                 )
             sequence = next_step
-            await asyncio.sleep(max(0.0, epoch + sequence * interval - now))
+            planned = epoch + sequence * interval
+            await asyncio.sleep(max(0.0, planned - now))
             if generation.desired_state != "RUNNING":
                 return
-            values = generate_values(seed, sequence, scenario.points)
-            await self._emit(
-                generation, sequence, datetime.now(timezone.utc), values,
-            )
+            began = time.monotonic()
+            lag = max(0.0, began - planned)
+            try:
+                values = generate_values(seed, sequence, scenario.points)
+                await self._emit(
+                    generation, sequence, datetime.now(timezone.utc), values,
+                )
+            except Exception:
+                self.counters.setdefault("failed_periods", 0)
+                self.counters["failed_periods"] += 1
+                raise
+            finally:
+                self.observations.append(
+                    (time.monotonic(), "simulation_duration_seconds", time.monotonic() - began)
+                )
+                self.observations.append(
+                    (time.monotonic(), "schedule_lag_seconds", lag)
+                )
 
     async def _replay(self, generation: GenerationState) -> None:
         scenario = generation.scenario
@@ -286,6 +304,7 @@ class Runtime:
         start = datetime.fromisoformat(source["start_time"].replace("Z", "+00:00"))
         end = datetime.fromisoformat(source["end_time"].replace("Z", "+00:00"))
         speed = float(source["speed"])
+        self.replay_speed = speed
         limits = bound.service.get("replay", {})
         sequence = 0
         first_time: datetime | None = None
@@ -303,11 +322,15 @@ class Runtime:
             if generation.desired_state != "RUNNING":
                 return
             self.counters["replay_read"] += 1
+            self.latest_replay_timestamp = record.source_time
             if first_time is None:
                 first_time = record.source_time
                 epoch = time.monotonic()
             deadline = replay_deadline(first_time, record.source_time, epoch, speed)
             await asyncio.sleep(max(0.0, deadline - time.monotonic()))
+            self.observations.append(
+                (time.monotonic(), "replay_lag_seconds", max(0.0, time.monotonic() - deadline))
+            )
             if generation.desired_state != "RUNNING":
                 return
             key = (record.device_id, record.point_id)
@@ -319,6 +342,8 @@ class Runtime:
             status = await self._emit(
                 generation, sequence, record.source_time, {key: checked},
             )
+            self.counters.setdefault("replay_submitted", 0)
+            self.counters["replay_submitted"] += 1
             if status != "SUCCESS":
                 raise GeneratorError(
                     f"CSV line {record.line_number}: output {status}; replay halted"
