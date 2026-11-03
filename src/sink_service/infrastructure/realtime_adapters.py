@@ -8,10 +8,10 @@ from __future__ import annotations
 import asyncio
 import json
 import struct
-from collections.abc import Mapping
-from datetime import UTC, timedelta
+from datetime import UTC
 from typing import Any
 
+from pymodbus.datastore import ModbusServerContext
 from contracts.sample_message import SampleMessage
 from sink_service.domain.config import ConfigurationError
 
@@ -31,7 +31,7 @@ _REDIS_CAS = (
     "if old.sample_time==ARGV[2] then "
     "if old.sample_id==ARGV[3] then return 0 end;"
     "return -1 end end;"
-    "redis.call('SET',KEYS[1],ARGV[1]);return 1"
+    "redis.call('SET',KEYS[1],ARGV[1],'PXAT',ARGV[4]);return 1"
 )
 
 
@@ -81,7 +81,10 @@ class RedisOutput:
             return
         async with self._lock:
             if self._writer is None:
-                raise ConnectionError("Redis output is not connected")
+                self._reader, self._writer = await asyncio.wait_for(
+                    asyncio.open_connection(self._host, self._port),
+                    timeout=self._timeout,
+                )
             try:
                 commands: list[bytes] = []
                 for sample in samples:
@@ -230,7 +233,7 @@ class _RegisterImage:
         return [self._values[offset] for offset in range(address, address + count)]
 
 
-class _ModbusContext:
+class _ModbusContext(ModbusServerContext):
     """A pymodbus-compatible context that refuses every external write."""
 
     def __init__(self, image: _RegisterImage, unit_id: int) -> None:
