@@ -219,6 +219,7 @@ async def serve_control_plane(
                     delivery_counters=delivery_counts,
                     delivery_latencies=delivery_latencies,
                     delivery_overflows=delivery_overflows,
+                    delivery_origins=registry.delivery_epochs(),
                 )
                 states = {
                     view.delivery_id: (view.actual_state, view.last_error)
