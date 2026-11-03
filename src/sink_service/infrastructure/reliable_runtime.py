@@ -327,16 +327,18 @@ class ReliableDeliveryPort:
                         result = await self._write_with_heartbeat(message, sample)
                     finally:
                         self._active_io = False
+                    # Target evidence is an execution fact independent of JS ACK.
+                    self.write_success_total += result.successful_attempts
+                    self.failed_total += result.failed_attempts
+                    for latency in result.successful_latencies_ms:
+                        timestamp = datetime.now(UTC)
+                        if len(self.latency_samples) == self.latency_samples.maxlen:
+                            self.latency_overflow_at = timestamp
+                        self.latency_samples.append((timestamp, latency))
+                    if 0 in result.delivered:
+                        self.delivered_total += 1
                     if 0 in result.delivered or (not result.error and 0 in result.settled):
                         await message.ack_sync(timeout=5)
-                        self.delivered_total += int(0 in result.delivered)
-                        self.write_success_total += result.successful_attempts
-                        self.failed_total += result.failed_attempts
-                        for latency in result.successful_latencies_ms:
-                            timestamp = datetime.now(UTC)
-                            if len(self.latency_samples) == self.latency_samples.maxlen:
-                                self.latency_overflow_at = timestamp
-                            self.latency_samples.append((timestamp, latency))
                         self._backlog = metadata.num_pending
                         self.last_error = ""
                         backoff = config["retry_base_ms"] / 1000
