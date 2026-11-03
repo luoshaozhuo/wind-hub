@@ -233,7 +233,7 @@ class RealtimeDeliveryPort:
             return ""
         if not self._ingress.connected:
             return "NATS realtime source disconnected"
-        return self._engine.last_error or self._ingress.last_error
+        return self._engine.last_error
 
     async def start(self) -> None:
         if self._engine is not None:
