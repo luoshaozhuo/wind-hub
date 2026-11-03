@@ -179,6 +179,12 @@ class _QuotaWriter:
                 pass
 
 
+def template_capabilities(snapshot: ValidatedSnapshot, sink_id: str) -> dict[str, Any]:
+    sink = snapshot.sinks[sink_id]
+    template = _template(snapshot, "sinks", sink["template_id"], sink["template_version"])
+    return template["capabilities"]
+
+
 class SinkOutputPool:
     """Share one physical Sink between multiple Delivery owners in one process."""
 
@@ -254,7 +260,14 @@ class SinkOutputPool:
             current = self._entries.get(sink_id)
             if current is None:
                 await adapter.open()
-                current = _SinkOutput(adapter, signature)
+                capabilities = template_capabilities(snapshot, sink_id)
+                limit = min(
+                    snapshot.service["runtime"]["max_inflight_per_sink"],
+                    capabilities["max_safe_inflight"],
+                )
+                if not capabilities["supports_concurrent_write"]:
+                    limit = 1
+                current = _SinkOutput(adapter, signature, limit)
                 self._entries[sink_id] = current
             elif current.signature != signature:
                 raise ConfigurationError(
@@ -268,6 +281,7 @@ class SinkOutputPool:
             return _QuotaWriter(
                 current.adapter,
                 self._quota,
+                current.quota,
                 snapshot.service["runtime"]["io_wait_timeout_ms"],
             )
 
