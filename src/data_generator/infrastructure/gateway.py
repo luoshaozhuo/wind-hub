@@ -167,16 +167,22 @@ class GatewayWriter:
                     continue
                 endpoint = scenario.gateways[gateway_id]
                 stub = self._stub(endpoint)
-                response = await asyncio.wait_for(
-                    stub.ClaimTargets(
-                        industrial_gateway_pb2.ClaimTargetsRequest(
-                            gateway_id=gateway_id, owner_id=owner_id,
-                            variable_ids=names, action="ACQUIRE", lease_ms=self._lease_ms,
+                try:
+                    response = await asyncio.wait_for(
+                        stub.ClaimTargets(
+                            industrial_gateway_pb2.ClaimTargetsRequest(
+                                gateway_id=gateway_id, owner_id=owner_id,
+                                variable_ids=names, action="ACQUIRE",
+                                lease_ms=self._lease_ms,
+                            ),
+                            timeout=self._timeout,
                         ),
                         timeout=self._timeout,
-                    ),
-                    timeout=self._timeout,
-                )
+                    )
+                except (grpc.RpcError, TimeoutError) as exc:
+                    raise GeneratorError(
+                        f"Gateway {gateway_id} target lease acquisition unavailable"
+                    ) from exc
                 if not response.accepted:
                     raise GeneratorError(
                         f"target ownership conflict {gateway_id}: {response.error_code}"
@@ -265,6 +271,11 @@ class GatewayWriter:
             self._unsafe.add(gateway_id)
             return False
         if not reply.accepted:
+            if reply.error_code == "LEASE_LOST":
+                # Old token is definitively fenced by the Gateway.
+                self._claims.pop(gateway_id, None)
+                self._unsafe.discard(gateway_id)
+                return True
             self._unsafe.add(gateway_id)
             return False
         self._claims.pop(gateway_id, None)
