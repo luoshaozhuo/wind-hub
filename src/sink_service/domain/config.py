@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import PurePosixPath
+import re
 from typing import Any
 
 
@@ -90,7 +91,9 @@ def expect_nonempty_str(value: object, location: str) -> str:
 def require_version(doc: dict[str, Any], location: str) -> None:
     if type(doc.get("schema_version")) is not int or doc["schema_version"] != 1:
         raise ConfigurationError(f"{location}: unsupported schema_version")
-    expect_nonempty_str(doc.get("file_version"), f"{location}.file_version")
+    version = expect_nonempty_str(doc.get("file_version"), f"{location}.file_version")
+    if re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+", version) is None:
+        raise ConfigurationError(f"{location}: invalid file_version")
 
 
 def validate_service(service: dict[str, Any]) -> None:
@@ -108,6 +111,11 @@ def validate_service(service: dict[str, Any]) -> None:
     expect_positive_int(grpc.get("max_request_bytes"), "grpc.max_request_bytes", 2 * 1024**2)
     expect_positive_int(grpc.get("default_deadline_ms"), "grpc.default_deadline_ms", 5000)
     runtime = expect_mapping(service.get("runtime"), "service.runtime")
+    watchdog_interval = runtime.get("watchdog_interval_ms", 5000)
+    if not 500 <= expect_positive_int(
+        watchdog_interval, "runtime.watchdog_interval_ms", 60000
+    ):
+        raise ConfigurationError("runtime.watchdog_interval_ms must be >= 500")
     global_limit = expect_positive_int(
         runtime.get("max_inflight_global"), "runtime.max_inflight_global"
     )
