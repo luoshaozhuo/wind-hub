@@ -42,6 +42,7 @@ class GatewayWriter:
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._pending: set[asyncio.Future[Any]] = set()
         self._unsettled: dict[str, asyncio.Future[Any]] = {}
+        self._settled_callbacks: set[str] = set()
         self._unsafe: set[str] = set()
         self.rpc_durations: deque[tuple[float, str, float]] = deque(maxlen=4096)
         self.last_native_results: dict[OutputTarget, DeliveryResult] = {}
@@ -55,7 +56,8 @@ class GatewayWriter:
     def unsettled_gateways(self) -> frozenset[str]:
         """Native calls still in progress, including those that timed out logically."""
         return frozenset(
-            name for name, task in self._unsettled.items() if not task.done()
+            name for name, task in self._unsettled.items()
+            if not task.done() or name not in self._settled_callbacks
         )
 
     async def wait_settled(self, gateway_ids: frozenset[str], timeout: float) -> bool:
@@ -165,10 +167,13 @@ class GatewayWriter:
                 return [DeliveryResult(target, "FAILED", "TARGET_QUARANTINED")
                         for target, _ in entries]
             prior = self._unsettled.get(gateway_id)
-            if prior is not None and not prior.done():
+            if prior is not None and (
+                not prior.done() or gateway_id not in self._settled_callbacks
+            ):
                 return [DeliveryResult(target, "FAILED", "TARGET_BUSY")
                         for target, _ in entries]
             self._unsettled.pop(gateway_id, None)
+            self._settled_callbacks.discard(gateway_id)
             try:
                 await asyncio.wait_for(self._available.acquire(), timeout=self._timeout)
             except TimeoutError:
@@ -244,7 +249,7 @@ class GatewayWriter:
                                 target, "UNKNOWN", "INVALID_ACK",
                             )
                         )
-
+            self._settled_callbacks.add(gateway_id)
             task.add_done_callback(on_complete)
             try:
                 response = await asyncio.wait_for(asyncio.shield(task), self._timeout)
