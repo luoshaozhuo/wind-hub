@@ -239,7 +239,11 @@ class KafkaOutput:
                 sasl_plain_password=secret["password"],
             )
         producer = producer_class(**options)
-        await producer.start()
+        try:
+            await producer.start()
+        except BaseException:
+            await producer.stop()
+            raise
         self._producer = producer
 
     async def close(self) -> None:
