@@ -135,8 +135,10 @@ class CommonService(common_rpc.CommonServiceServicer):
                                              started_at=stamp(self.started))
 
     async def GetServiceStatus(self, request: common.Empty, context: Any) -> common.GetServiceStatusResponse:
-        return common.GetServiceStatusResponse(health="HEALTHY",
-                                               observed_at=stamp())
+        failed = any(state.actual_state == "FAILED"
+                     for state in self.runtime.generations.values())
+        return common.GetServiceStatusResponse(
+            health="DEGRADED" if failed else "HEALTHY", observed_at=stamp())
 
     async def GetCapabilities(self, request: common.Empty, context: Any) -> common.GetCapabilitiesResponse:
         return common.GetCapabilitiesResponse(
@@ -200,7 +202,32 @@ class CommonService(common_rpc.CommonServiceServicer):
 
     async def GetEvents(self, request: common.GetEventsRequest,
                         context: Any) -> common.GetEventsResponse:
-        return common.GetEventsResponse()
+        try:
+            offset = int(request.page_token or "0")
+            if offset < 0:
+                raise ValueError("negative offset")
+        except ValueError:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid page token")
+            raise RuntimeError("unreachable") from None
+        events = list(self.runtime.events)
+        if request.HasField("from_time"):
+            start = request.from_time.ToDatetime(tzinfo=timezone.utc)
+            events = [event for event in events if event.timestamp >= start]
+        if request.HasField("to_time"):
+            end = request.to_time.ToDatetime(tzinfo=timezone.utc)
+            events = [event for event in events if event.timestamp < end]
+        if request.filter:
+            events = [event for event in events if request.filter in event.source
+                      or request.filter in event.error_code]
+        limit = min(request.page_size or 100, 1000)
+        selection = events[offset:offset + limit]
+        return common.GetEventsResponse(
+            events=[common.Event(
+                event_id=e.event_id, timestamp=stamp(e.timestamp), severity=e.severity,
+                source=e.source, error_code=e.error_code, message=e.message,
+            ) for e in selection],
+            next_page_token=str(offset + limit) if offset + limit < len(events) else "",
+        )
 
     async def Diagnose(self, request: common.DiagnoseRequest,
                        context: Any) -> common.DiagnoseResponse:
