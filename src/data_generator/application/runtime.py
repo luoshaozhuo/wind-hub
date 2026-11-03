@@ -138,6 +138,7 @@ class Runtime:
             )
             if unsafe:
                 raise GeneratorError(f"unsettled Gateway targets: {sorted(unsafe)}")
+            await self.writer.validate(scenario)
             state = GenerationState(
                 str(uuid.uuid4()), scenario, self.settings,
                 started_at=datetime.now(timezone.utc),

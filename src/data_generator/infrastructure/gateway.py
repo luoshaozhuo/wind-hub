@@ -13,7 +13,7 @@ import grpc
 
 from contracts import industrial_gateway_pb2, industrial_gateway_pb2_grpc
 from core.infrastructure.rpc.scalar_codec import encode_scalar
-from data_generator.domain.model import DataBatch, DeliveryResult, OutputTarget, Scalar
+from data_generator.domain.model import DataBatch, DeliveryResult, GeneratorError, OutputTarget, Scalar
 from data_generator.domain.scenario import Scenario
 
 _CLEAR_REJECTION_CODES = frozenset({
@@ -69,6 +69,67 @@ class GatewayWriter:
                 return False
         # A settled transport error remains quarantined without a trusted ACK.
         return not bool(gateway_ids.intersection(self._unsafe))
+
+    async def validate(self, scenario: Scenario) -> None:
+        """Read the real Gateway catalog; never send data before target validation."""
+        expected: dict[str, dict[str, str]] = defaultdict(dict)
+        for mapping in scenario.mappings:
+            key = (mapping.device_id, mapping.point_id)
+            expected[mapping.target.gateway_id][mapping.target.variable_id] = str(
+                scenario.points[key]["data_type"]
+            )
+
+        async def check(gateway_id: str, expected_types: dict[str, str]) -> None:
+            endpoint = scenario.gateways[gateway_id]
+            channel = self._channels.get(endpoint)
+            if channel is None:
+                channel = grpc.aio.insecure_channel(endpoint)
+                self._channels[endpoint] = channel
+            stub = industrial_gateway_pb2_grpc.IndustrialGatewayServiceStub(channel)
+            found: set[str] = set()
+            token = ""
+            for _ in range(100):
+                try:
+                    response = await asyncio.wait_for(
+                        stub.ListVariables(
+                            industrial_gateway_pb2.ListVariablesRequest(
+                                gateway_id=gateway_id, page_token=token, page_size=1000,
+                            ),
+                        ),
+                        timeout=self._timeout,
+                    )
+                except (grpc.RpcError, TimeoutError) as exc:
+                    raise GeneratorError(
+                        f"Gateway {gateway_id} variable preflight failed: {exc}"
+                    ) from exc
+                for item in response.variables:
+                    required = expected_types.get(item.variable_id)
+                    if required is None:
+                        continue
+                    if item.variable_id in found:
+                        raise GeneratorError(
+                            f"Gateway {gateway_id} repeated target {item.variable_id}"
+                        )
+                    if not item.writable or item.data_type != required:
+                        raise GeneratorError(
+                            f"Gateway {gateway_id} target {item.variable_id}: "
+                            f"expected writable {required}, found {item.data_type}"
+                        )
+                    found.add(item.variable_id)
+                token = response.next_page_token
+                if not token:
+                    break
+            else:
+                raise GeneratorError(f"Gateway {gateway_id} catalog page limit")
+            missing = set(expected_types) - found
+            if missing:
+                raise GeneratorError(
+                    f"Gateway {gateway_id} missing targets: {sorted(missing)}"
+                )
+
+        await asyncio.gather(
+            *(check(name, points) for name, points in expected.items())
+        )
 
     async def send(self, scenario: Scenario, batch: DataBatch) -> list[DeliveryResult]:
         values = {(point.device_id, point.point_id): point.value for point in batch.points}
