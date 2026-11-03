@@ -65,6 +65,8 @@ async def serve_control_plane(
     service_file: str,
     port_factory: DeliveryFactory,
     stop: asyncio.Event,
+    *,
+    peer_service_file: str | None = None,
 ) -> None:
     """Run the control plane; data-plane implementation is injected by assembly."""
     if not _safe_managed_path(service_file):
@@ -73,7 +75,13 @@ async def serve_control_plane(
     if (config_root / "CURRENT").exists():
         initial = store.load(service_file)
     else:
-        initial = read_snapshot(config_root, config_root / service_file)
+        if peer_service_file is None or not _safe_managed_path(peer_service_file):
+            raise ConfigurationError(
+                'initial configuration requires explicit --peer-service-file'
+            )
+        initial = read_snapshot(
+            config_root, config_root / service_file, config_root / peer_service_file
+        )
     service = service_configuration(initial, service_file)
     if Path(service["config_root"]).resolve() != config_root.resolve():
         raise ConfigurationError("Service config_root differs from runtime path")
