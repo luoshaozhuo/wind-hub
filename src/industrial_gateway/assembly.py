@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ipaddress import ip_address
 
 import grpc
@@ -31,19 +32,51 @@ class GatewayApplication:
     commander_channel: grpc.aio.Channel | None = None
     data_server: grpc.aio.Server | None = None
     data_grpc_bind: str | None = None
+    config: GatewayConfig | None = None
+    endpoint_ids: tuple[str, ...] = ()
+    _active: set[str] = field(default_factory=set)
+    _operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    def is_running(self, gateway_id: str) -> bool:
+        return gateway_id in self._active
+
+    async def start_gateway(self, gateway_id: str) -> bool:
+        async with self._operation_lock:
+            if gateway_id in self._active:
+                return False
+            try:
+                index = self.endpoint_ids.index(gateway_id)
+            except ValueError as exc:
+                raise ValueError(f"unknown Gateway: {gateway_id}") from exc
+            await self.servers[index].start()
+            self._active.add(gateway_id)
+            return True
+
+    async def stop_gateway(self, gateway_id: str) -> bool:
+        async with self._operation_lock:
+            if gateway_id not in self._active:
+                return False
+            index = self.endpoint_ids.index(gateway_id)
+            await self.servers[index].stop()
+            self._active.remove(gateway_id)
+            return True
 
     async def start(self) -> None:
-        started: list[PymodbusGatewayServer] = []
         try:
             if self.data_grpc_bind is not None:
-                self.data_server = create_grpc_server(self.store, self.data_grpc_bind)
+                if self.config is None:
+                    raise RuntimeError("Gateway config missing for gRPC service")
+                self.data_server = create_grpc_server(
+                    self.store, self.data_grpc_bind, self.config,
+                    self.start_gateway, self.stop_gateway, self.is_running,
+                )
                 await self.data_server.start()
-            for server in self.servers:
-                await server.start()
-                started.append(server)
+            for gateway_id in self.endpoint_ids:
+                await self.start_gateway(gateway_id)
         except BaseException:
-            for server in reversed(started):
-                await server.stop()
+            for gateway_id in reversed(self.endpoint_ids):
+                if gateway_id in self._active:
+                    await self.stop_gateway(gateway_id)
             if self.data_server is not None:
                 await self.data_server.stop(grace=0)
             raise
@@ -51,8 +84,9 @@ class GatewayApplication:
     async def stop(self) -> None:
         if self.data_server is not None:
             await self.data_server.stop(grace=0)
-        for server in reversed(self.servers):
-            await server.stop()
+        for gateway_id in reversed(self.endpoint_ids):
+            if gateway_id in self._active:
+                await self.stop_gateway(gateway_id)
         if self.commander_channel is not None:
             await self.commander_channel.close()
 
@@ -137,4 +171,6 @@ def assemble_gateway(config: GatewayConfig) -> GatewayApplication:
         servers=servers,
         commander_channel=commander_channel,
         data_grpc_bind=config.data_grpc_bind,
+        config=config,
+        endpoint_ids=tuple(config.endpoints),
     )
