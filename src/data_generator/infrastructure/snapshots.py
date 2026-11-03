@@ -239,7 +239,7 @@ class SnapshotManager:
         changed = [name for name in sorted(proposed) if proposed[name] != original[name]]
         if not changed:
             self._candidate = None
-            return self.settings, False
+            return self.settings, self._restart_pending
 
         # The API lock hides the multi-file update from service clients.
         # Recovery journal restores the prior complete private snapshot after

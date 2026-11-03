@@ -202,7 +202,7 @@ class CommonService(common_rpc.CommonServiceServicer):
                 raise RuntimeError("gRPC abort returned") from exc
             revision = (
                 self.runtime.settings.revision if scope == "RUNTIME"
-                else self.snapshots.settings.revision
+                else await asyncio.to_thread(self.snapshots.disk_revision)
             )
             snapshot_id = (
                 request.candidate_id if scope == "CANDIDATE" else revision
