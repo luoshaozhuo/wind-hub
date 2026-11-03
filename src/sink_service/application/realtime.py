@@ -68,6 +68,11 @@ class RealtimeEngine:
         self.dropped_total = 0
         self.delivered_total = 0
 
+    @property
+    def source_identity(self) -> tuple[str, str]:
+        """Index subscriptions by immutable wind-farm and Collector identities."""
+        return self._wind_farm_id, self._collector_id
+
     @staticmethod
     def _key(sample: SampleMessage) -> tuple[str, str]:
         return sample.device_id, sample.point_id
