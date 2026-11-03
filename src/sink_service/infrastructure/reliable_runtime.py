@@ -294,6 +294,13 @@ class ReliableDeliveryPort:
             raise RuntimeError('JetStream ACK deadline extension failed') from progress_error
         return result
 
+    async def _retry_pause(self, seconds: float) -> None:
+        """A STOP must not wait for the full transient backoff."""
+        try:
+            await asyncio.wait_for(self._stop.wait(), timeout=seconds)
+        except TimeoutError:
+            pass
+
     async def _run(self) -> None:
         assert self._subscription is not None
         config = self._snapshot.service["reliable"]
@@ -309,7 +316,7 @@ class ReliableDeliveryPort:
             except Exception as exc:
                 self.last_error = str(exc)
                 self.retry_total += 1
-                await asyncio.sleep(min(backoff, max_backoff))
+                await self._retry_pause(min(backoff, max_backoff))
                 backoff = min(backoff * 2, max_backoff)
                 continue
             for message in messages:
@@ -327,7 +334,11 @@ class ReliableDeliveryPort:
                         await message.ack_sync(timeout=5)
                     except Exception as inner:
                         self.last_error = f"DLQ publication not confirmed: {inner}"
-                        await message.nak(delay=backoff)
+                        try:
+                            await message.nak(delay=min(backoff, max_backoff))
+                        except Exception as nak_error:
+                            self.last_error = f'DLQ_BLOCKED; NAK unresolved: {nak_error}'
+                        await self._retry_pause(min(backoff, max_backoff))
                     continue
                 replay_owner = (message.headers or {}).get('Wh-Replay-Delivery', '')
                 if replay_owner and replay_owner != self._definition.delivery_id:
@@ -375,7 +386,11 @@ class ReliableDeliveryPort:
                     self.retry_total += 1
                     self.last_error = str(exc)
                     # Never ACK on transient/unsettled I/O. JS retains durable ownership.
-                    await message.nak(delay=min(backoff, max_backoff))
+                    try:
+                        await message.nak(delay=min(backoff, max_backoff))
+                    except Exception as nak_error:
+                        self.last_error = f'{exc}; NAK unresolved: {nak_error}'
+                        await self._retry_pause(min(backoff, max_backoff))
                     backoff = min(backoff * 2, max_backoff)
 
 
