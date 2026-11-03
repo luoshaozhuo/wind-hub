@@ -7,6 +7,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from core.infrastructure.config.shared_snapshot import (
     SharedDomainSnapshot,
     build_shared_snapshot,
 )
+from data_generator.application.models import interpolation_table, random_value
 from data_generator.domain.model import GeneratorError, OutputMapping, OutputTarget
 
 
@@ -127,12 +129,11 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
             if not isinstance(model, dict) or model.get("kind") not in ("random", "static"):
                 raise GeneratorError(f"{key}: invalid simulation model")
             if model["kind"] == "random":
-                if model.get("distribution", "uniform") != "uniform":
-                    raise GeneratorError("unsupported distribution")
+                random_value(0, key[0], key[1], 1,
+                             {**model, "data_type": point["data_type"]})
                 dependencies[key] = None
             else:
-                if model.get("function") != "linear_table":
-                    raise GeneratorError("unsupported static function")
+                interpolation_table(model)
                 dependency = (key[0], model.get("input_point"))
                 if dependency not in points:
                     raise GeneratorError("missing static input point")
@@ -151,6 +152,15 @@ def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[
         speed = source.get("speed")
         if type(speed) not in (float, int) or not math.isfinite(speed) or speed <= 0:
             raise GeneratorError("invalid replay speed")
+        if not isinstance(source.get("file"), str) or not source["file"]:
+            raise GeneratorError("replay requires CSV path")
+        try:
+            first = datetime.fromisoformat(source["start_time"].replace("Z", "+00:00"))
+            last = datetime.fromisoformat(source["end_time"].replace("Z", "+00:00"))
+        except (KeyError, AttributeError, ValueError) as exc:
+            raise GeneratorError("invalid replay time range") from exc
+        if first.tzinfo is None or last.tzinfo is None or first >= last:
+            raise GeneratorError("invalid replay UTC time range")
     else:
         raise GeneratorError("unsupported source kind")
 
