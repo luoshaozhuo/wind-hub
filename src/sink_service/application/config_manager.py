@@ -180,13 +180,21 @@ class ConfigManager:
             self._disk = snapshot
             restart_required = previous_services != current_services
             previous_deliveries = self._runtime.deliveries
-            changed = tuple(
-                sorted(
-                    key
-                    for key in previous_deliveries.keys() | snapshot.deliveries.keys()
-                    if previous_deliveries.get(key) != snapshot.deliveries.get(key)
-                )
-            )
+            # Include indirect Sink edits: a Delivery can need rebinding even
+            # when its own Instance YAML is byte-for-byte unchanged.
+            affected: set[str] = set()
+            for identifier in previous_deliveries.keys() | snapshot.deliveries.keys():
+                before_delivery = previous_deliveries.get(identifier)
+                after_delivery = snapshot.deliveries.get(identifier)
+                if before_delivery != after_delivery:
+                    affected.add(identifier)
+                    continue
+                if before_delivery is None or after_delivery is None:
+                    continue
+                sink_id = before_delivery['sink_id']
+                if self._runtime.sinks.get(sink_id) != snapshot.sinks.get(sink_id):
+                    affected.add(identifier)
+            changed = tuple(sorted(affected))
             # Remote Reader Deliveries remain pending until independently observed.
             role = self._runtime.service['process_role']
             before = {
@@ -197,8 +205,12 @@ class ConfigManager:
                 item.delivery_id: item.channel
                 for item in delivery_definitions(snapshot)
             }
+            # The reconciler returns every locally converged binding, including
+            # signature-preserving entries. Requiring all local identities
+            # prevents a failed indirect template/Sink rebinding from being
+            # hidden behind a narrowly calculated file diff.
             local_changed = {
-                identifier for identifier in changed
+                identifier for identifier in before.keys() | after.keys()
                 if before.get(identifier) == role or after.get(identifier) == role
             }
             applied: tuple[str, ...] = ()
