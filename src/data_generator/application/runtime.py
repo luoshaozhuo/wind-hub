@@ -113,7 +113,9 @@ class Runtime:
 
     def _blocked(self, generation: GenerationState) -> bool:
         keys = self._gateway_keys(generation)
-        return bool(keys & (self.writer.unsafe_gateways | self.writer.unsettled_gateways))
+        return self.writer.has_claims(generation.generation_id) or bool(
+            keys & (self.writer.unsafe_gateways | self.writer.unsettled_gateways)
+        )
 
     def _reconcile_locked(self) -> None:
         """Release all reserved keys only after safe source and native I/O settlement."""
@@ -186,6 +188,7 @@ class Runtime:
                 self.settings,
                 started_at=datetime.now(UTC),
             )
+            await self.writer.claim(scenario, state.generation_id)
             self.generations[state.generation_id] = state
             self._active = state.generation_id
             self._task = asyncio.create_task(self._run(state))
@@ -207,7 +210,9 @@ class Runtime:
             * 2
         )
         try:
-            await self.writer.wait_settled(self._gateway_keys(generation), timeout)
+            safe = await self.writer.wait_settled(self._gateway_keys(generation), timeout)
+            if safe:
+                await self.writer.release(generation.scenario, generation.generation_id)
         except (OSError, RuntimeError, ValueError) as exc:
             self.record(
                 "WARNING",
@@ -245,6 +250,8 @@ class Runtime:
             await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
         keys = self._gateway_keys(generation)
         settled = await self.writer.wait_settled(keys, timeout=timeout)
+        if settled and task.done():
+            settled = await self.writer.release(generation.scenario, generation.generation_id)
         async with self._lock:
             if settled:
                 self._reconcile_locked()
@@ -460,6 +467,8 @@ class Runtime:
                     f"{result.target.gateway_id}:{result.target.variable_id}"
                     f" {result.error_code}",
                 )
+        if any(result.error_code in {"LEASE_LOST", "LEASE_NOT_HELD"} for result in results):
+            raise GeneratorError("Gateway target lease lost; refusing further output")
         if unknown:
             status = "UNKNOWN"
             self.counters["unknown_batches"] += 1
