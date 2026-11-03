@@ -62,6 +62,8 @@ class RealtimeEngine:
         self._absolute = absolute_threshold
         self._relative = relative_threshold
         self._latest: dict[tuple[str, str], SampleMessage] = {}
+        self._authorities: dict[tuple[str, str], str] = {}
+        self._conflicted: set[tuple[str, str]] = set()
         self._sent: dict[tuple[str, str], SampleMessage] = {}
         self._sent_at: dict[tuple[str, str], float] = {}
         self._skipped: dict[tuple[str, str], str] = {}
@@ -134,6 +136,17 @@ class RealtimeEngine:
             self.dropped_total += 1
             return False
         key = self._key(sample)
+        authority = self._authorities.get(key)
+        if key in self._conflicted:
+            return False
+        if authority is not None and authority != sample.task_id:
+            self._conflicted.add(key)
+            self.last_error = (
+                f'conflicting task authorities for {sample.device_id}:{sample.point_id}'
+            )
+            return False
+        if authority is None:
+            self._authorities[key] = sample.task_id
         prior = self._latest.get(key)
         if prior is not None and (
             sample.sample_time < prior.sample_time
