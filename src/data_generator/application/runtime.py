@@ -123,6 +123,12 @@ class Runtime:
             self._reconcile_locked()
             return changed, restart_required
 
+    async def get_generation(self, generation_id: str) -> GenerationState | None:
+        """Reconcile settled ownership before reporting the authoritative state."""
+        async with self._lock:
+            self._reconcile_locked()
+            return self.generations.get(generation_id)
+
     async def start(
         self, scenario_id: str, version: str | None, revision: str,
     ) -> GenerationState:
