@@ -296,8 +296,19 @@ class GatewayWriter:
         if self._pending:
             await asyncio.gather(*tuple(self._pending), return_exceptions=True)
 
-    async def close(self) -> None:
-        await self.drain()
+    async def close(self) -> bool:
+        """Bound shutdown; an unresolved native call is never reported as confirmed."""
+        settled = True
+        if self._pending:
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(asyncio.gather(*tuple(self._pending), return_exceptions=True)),
+                    timeout=self._timeout * 2,
+                )
+            except TimeoutError:
+                settled = False
+                self._unsafe.update(self.unsettled_gateways)
         for channel in self._channels.values():
             await channel.close()
         self._channels.clear()
+        return settled and not self._unsafe

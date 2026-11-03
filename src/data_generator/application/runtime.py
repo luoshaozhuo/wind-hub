@@ -238,7 +238,12 @@ class Runtime:
         if self._active is not None:
             await self.stop(self._active, "")
         # The adapter must retain native ownership until its own transport settles.
-        await self.writer.close()
+        settled = await self.writer.close()
+        if not settled:
+            self.record(
+                "WARNING", "runtime", "UNSETTLED_IO_ON_SHUTDOWN",
+                "native Gateway updates unresolved at shutdown deadline",
+            )
 
     async def _run(self, generation: GenerationState) -> None:
         generation.actual_state = "RUNNING"
