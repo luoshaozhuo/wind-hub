@@ -51,9 +51,9 @@ class Observability:
                 event_id=secrets.token_hex(12),
                 timestamp=datetime.now(UTC),
                 severity=severity,
-                source=source,
-                error_code=error_code,
-                message=message,
+                source=source[:128],
+                error_code=error_code[:128],
+                message=message[:1024],
             )
         )
         self.count("events_total")
