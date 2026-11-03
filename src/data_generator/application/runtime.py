@@ -129,6 +129,8 @@ class Runtime:
             else:
                 await self._replay(generation)
             generation.actual_state = "COMPLETED"
+            self.record("INFO", generation.generation_id, "COMPLETED",
+                        "generation finished")
         except asyncio.CancelledError:
             raise
         except Exception as exc:
