@@ -258,8 +258,6 @@ def load_settings(service_path: Path) -> Settings:
             templates=paths["templates_root"],
             site_file=paths["site"],
             devices_file=paths["devices"],
-            units_file=paths["units"],
-            business_points_file=paths["business_points"],
         )).load()
         shared = build_shared_snapshot(documents)
     except (OSError, KeyError, TypeError, ValueError) as exc:

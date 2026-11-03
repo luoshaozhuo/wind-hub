@@ -27,8 +27,6 @@ class SharedConfigPaths:
     templates: Path
     site_file: Path | None = None
     devices_file: Path | None = None
-    units_file: Path | None = None
-    business_points_file: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,10 +86,8 @@ class SharedDocumentLoader:
     def load(self) -> SharedDocuments:
         site = _read(self._paths.site_file or self._paths.instances / "site.yaml")
         device_doc = _read(self._paths.devices_file or self._paths.instances / "devices.yaml")
-        units = _read(self._paths.units_file or self._paths.templates / "units.yaml")
-        business_points = _read(
-            self._paths.business_points_file or self._paths.templates / "business_points.yaml"
-        )
+        units = _read(self._paths.templates / "units.yaml")
+        business_points = _read(self._paths.templates / "business_points.yaml")
         _keys(
             site,
             frozenset({"schema_version", "file_version", "site_id", "name"}),

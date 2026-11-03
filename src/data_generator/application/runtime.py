@@ -8,7 +8,7 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from data_generator.domain.scenario import Scenario, Settings, resolve_history
@@ -69,10 +69,9 @@ class Runtime:
         async with self._lock:
             changed, restart_required = await asyncio.to_thread(commit)
             previous = self.settings
-            self.settings = (
-                replace(changed, service=previous.service)
-                if restart_required else changed
-            )
+            # Service config (including its source paths) is restart-only.
+            # Never mix new scenario/point bindings into the old service epoch.
+            self.settings = previous if restart_required else changed
             return changed, restart_required
 
     async def start(self, scenario_id: str, version: str | None,
