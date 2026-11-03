@@ -34,7 +34,10 @@ def runtime_error_code(error: GeneratorError) -> str:
         or "missing targets" in detail or "repeated target" in detail
     ):
         return "TARGET_VALIDATION_FAILED"
-    if "preflight" in detail or "catalog page limit" in detail:
+    if (
+        "preflight" in detail or "catalog page limit" in detail
+        or "lease acquisition unavailable" in detail
+    ):
         return "GATEWAY_UNAVAILABLE"
     return "INVALID_STATE"
 
