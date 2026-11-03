@@ -56,7 +56,11 @@ class ReliableDeliveryPort:
         self._subscription: Any = None
         self._adapter: Any = None
         self.last_error = ""
+        self.received_total = 0
         self.delivered_total = 0
+        self._backlog: int | None = None
+        self._active_io = False
+        self._last_backlog_output = 0.0
         self.failed_total = 0
         self.retry_total = 0
         self.dlq_total = 0
@@ -64,12 +68,20 @@ class ReliableDeliveryPort:
 
     @property
     def metrics(self) -> dict[str, float]:
-        return {
-            "delivered_total": float(self.delivered_total),
-            "failed_total": float(self.failed_total),
-            "retry_total": float(self.retry_total),
-            "dlq_total": float(self.dlq_total),
+        values = {
+            'received_total': float(self.received_total),
+            'delivered_total': float(self.delivered_total),
+            'failed_total': float(self.failed_total),
+            'dead_letter_total': float(self.dlq_total),
+            'retry_total': float(self.retry_total),
+            'io_inflight': float(self._active_io),
         }
+        if (
+            self._backlog is not None and self._client is not None
+            and self._client.is_connected
+        ):
+            values['backlog_messages'] = float(self._backlog)
+        return values
 
     def _validate_target(self) -> None:
         sink = self._snapshot.sinks[self._definition.sink_id]
