@@ -81,7 +81,10 @@ class ReliableDeliveryPort:
                 else 'DISCONNECTED'
             ),
             'consumer': 'BOUND' if self._subscription is not None else 'NOT_BOUND',
-            'delivery': 'RUNNING' if self._task is not None else 'STOPPED',
+            'delivery': (
+                'RUNNING' if self._task is not None and not self._task.done()
+                else 'STOPPED'
+            ),
             'sink': 'OWNED' if self._adapter is not None else 'NOT_ATTACHED',
             'io_inflight': str(self._active_io),
             'target': 'NOT_PROBED',
@@ -127,6 +130,8 @@ class ReliableDeliveryPort:
 
     async def start(self) -> None:
         if self._task is not None:
+            if self._task.done():
+                raise ConfigurationError('prior Reliable consumer needs safe STOP before START')
             return
         self._validate_target()
         adapter = await self._pool.acquire(self._definition.sink_id, self._snapshot)
@@ -200,6 +205,7 @@ class ReliableDeliveryPort:
             ):
                 raise ConfigurationError("existing JetStream Durable configuration mismatch")
             self._backlog = actual.num_pending + actual.num_ack_pending
+            self.last_error = ''
             self._stop.clear()
             task = asyncio.create_task(self._run())
             task.add_done_callback(self._on_task_finished)
