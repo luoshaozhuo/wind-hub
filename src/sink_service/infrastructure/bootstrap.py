@@ -67,19 +67,17 @@ async def serve_control_plane(
     port_factory: DeliveryFactory,
     stop: asyncio.Event,
     *,
-    peer_service_file: str | None = None,
+    peer_service_file: str,
 ) -> None:
     """Run the control plane; data-plane implementation is injected by assembly."""
     if not _safe_managed_path(service_file):
         raise ConfigurationError("invalid Service relative path")
+    if not _safe_managed_path(peer_service_file) or peer_service_file == service_file:
+        raise ConfigurationError('invalid distinct peer Service relative path')
     store = GenerationStore(config_root)
     if (config_root / "CURRENT").exists():
-        initial = store.load(service_file)
+        initial = store.load(service_file, peer_service_file)
     else:
-        if peer_service_file is None or not _safe_managed_path(peer_service_file):
-            raise ConfigurationError(
-                'initial configuration requires explicit --peer-service-file'
-            )
         initial = read_snapshot(
             config_root, config_root / service_file, config_root / peer_service_file
         )
@@ -198,6 +196,7 @@ async def serve_control_plane(
             reader = ConfigReader(
                 config_root,
                 service_file,
+                peer_service_file,
                 apply_reader_snapshot,
                 poll_interval_ms=sync["poll_interval_ms"],
             )
