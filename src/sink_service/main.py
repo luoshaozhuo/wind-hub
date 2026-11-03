@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 async def run_sink_service(
-    config_root: Path, service_file: str, peer_service_file: str | None = None
+    config_root: Path, service_file: str, peer_service_file: str
 ) -> None:
     """Run one process; role and Writer ownership come exclusively from Service YAML."""
     stop = asyncio.Event()
@@ -49,7 +49,8 @@ def main() -> None:
     parser.add_argument("--service-file", required=True)
     parser.add_argument(
         "--peer-service-file",
-        help="Explicit second Service file, required only for initial generation",
+        required=True,
+        help="Explicit peer Service path for startup and subsequent generation reads",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
