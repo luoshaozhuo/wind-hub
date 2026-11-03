@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 
+from core.domain import DeviceId
 from core.infrastructure.config.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
@@ -55,7 +56,7 @@ def _resolve_points(
         device_id = device.get("device_id")
         if not isinstance(device_id, str) or not device_id or device_id in devices:
             raise GeneratorError("duplicate or invalid device ID")
-        shared_device = shared.site.devices.get(device_id)
+        shared_device = shared.site.devices.get(DeviceId(device_id))
         if shared_device is None or not shared_device.enabled:
             raise GeneratorError(f"unknown or disabled shared device: {device_id}")
         model = shared.device_models[shared_device.device_model_id]
