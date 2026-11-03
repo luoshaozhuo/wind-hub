@@ -118,18 +118,21 @@ class RealtimeEngine:
         return a != b
 
     def offer(self, sample: SampleMessage) -> bool:
-        """Called in the NATS subscription callback; never blocks on target I/O."""
+        """Route first, then count received, expired, overwritten and rejected samples."""
+        if self._stop.is_set():
+            return False
         if (
-            self._stop.is_set()
-            or sample.wind_farm_id != self._wind_farm_id
+            sample.wind_farm_id != self._wind_farm_id
             or sample.collector_id != self._collector_id
             or (self._devices and sample.device_id not in self._devices)
             or (self._points and sample.point_id not in self._points)
-            or not self._fresh(sample, datetime.now(UTC))
         ):
-            self.dropped_total += 1
+            # A sample outside the declared source is not a dropped sample.
             return False
         self.received_total += 1
+        if not self._fresh(sample, datetime.now(UTC)):
+            self.dropped_total += 1
+            return False
         key = self._key(sample)
         prior = self._latest.get(key)
         if prior is not None and (
