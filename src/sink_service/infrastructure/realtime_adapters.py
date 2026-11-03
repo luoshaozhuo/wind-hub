@@ -12,7 +12,9 @@ from datetime import UTC
 from typing import Any
 
 from pymodbus.datastore import ModbusServerContext
+
 from contracts.sample_message import SampleMessage
+from sink_service.application.realtime import BatchOutcome
 from sink_service.domain.config import ConfigurationError
 
 
@@ -76,15 +78,17 @@ class RedisOutput:
             raise ConnectionError("unexpected Redis response type")
         return int(response[1:-2])
 
-    async def write_batch(self, samples: tuple[SampleMessage, ...]) -> None:
+    async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         if not samples:
-            return
+            return BatchOutcome((), ())
         async with self._lock:
             if self._writer is None:
                 self._reader, self._writer = await asyncio.wait_for(
                     asyncio.open_connection(self._host, self._port),
                     timeout=self._timeout,
                 )
+            delivered: list[int] = []
+            settled: list[int] = []
             try:
                 commands: list[bytes] = []
                 for sample in samples:
@@ -97,6 +101,9 @@ class RedisOutput:
                             sample.point_id,
                         )
                     )
+                    timestamp = sample.sample_time.astimezone(UTC).isoformat(
+                        timespec="microseconds"
+                    )
                     payload = sample.model_dump(
                         mode="json",
                         include={
@@ -104,12 +111,9 @@ class RedisOutput:
                             "collector_id", "device_id", "point_id", "wind_farm_id",
                         },
                     )
-                    timestamp = sample.sample_time.astimezone(UTC).isoformat(
-                        timespec="microseconds"
-                    )
                     payload["sample_time"] = timestamp
-                    data = json.dumps(
-                        payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                    encoded = json.dumps(
+                        payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False,
                     )
                     expiry_ms = (
                         int(sample.sample_time.timestamp() * 1000)
@@ -117,22 +121,36 @@ class RedisOutput:
                     )
                     commands.append(
                         _redis_command(
-                            "EVAL", _REDIS_CAS, "1", key, data,
+                            "EVAL", _REDIS_CAS, "1", key, encoded,
                             timestamp, sample.sample_id, str(expiry_ms),
                         )
                     )
                 self._writer.write(b"".join(commands))
                 await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
-                results = [await self._integer() for _ in samples]
-                if any(code == -1 for code in results):
-                    raise ConnectionError("Redis equal-time conflicting sample identities")
-                if any(code not in (0, 1) for code in results):
-                    raise ConnectionError("unexpected Redis write result")
-            except Exception:
-                self._writer.close()
-                self._writer = None
+                errors: list[str] = []
+                for index in range(len(samples)):
+                    result = await self._integer()
+                    if result == 1:
+                        delivered.append(index)
+                        settled.append(index)
+                    elif result == 0:
+                        settled.append(index)
+                    else:
+                        errors.append(f"Redis CAS conflict at sample {index}")
+                return BatchOutcome(
+                    delivered=tuple(delivered),
+                    settled=tuple(settled),
+                    error="; ".join(errors),
+                )
+            except Exception as exc:
+                # In-flight commands may have executed; retry by stable sample ID.
+                writer, self._writer = self._writer, None
                 self._reader = None
-                raise
+                if writer is not None:
+                    writer.close()
+                return BatchOutcome(
+                    delivered=tuple(delivered), settled=tuple(settled), error=str(exc),
+                )
 
 
 class KafkaOutput:
