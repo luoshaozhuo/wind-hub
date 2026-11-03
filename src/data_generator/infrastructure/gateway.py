@@ -44,6 +44,7 @@ class GatewayWriter:
         self._unsettled: dict[str, asyncio.Future[Any]] = {}
         self._unsafe: set[str] = set()
         self.rpc_durations: deque[tuple[float, str, float]] = deque(maxlen=4096)
+        self.last_native_results: dict[OutputTarget, DeliveryResult] = {}
 
     @property
     def unsafe_gateways(self) -> frozenset[str]:
@@ -209,16 +210,40 @@ class GatewayWriter:
                 try:
                     reply = completed.result()
                 except grpc.RpcError as error:
-                    if error.code() in _CLEAR_REJECTION_CODES:
-                        self._unsafe.discard(gateway_id)
-                except BaseException:
-                    pass
-                else:
-                    returned = {item.variable_id for item in reply.results}
-                    if len(returned) == len(reply.results) and returned == expected:
+                    confirmed_rejection = error.code() in _CLEAR_REJECTION_CODES
+                    if confirmed_rejection:
                         self._unsafe.discard(gateway_id)
                     else:
                         self._unsafe.add(gateway_id)
+                    for target, _ in entries:
+                        self.last_native_results[target] = DeliveryResult(
+                            target, "FAILED" if confirmed_rejection else "UNKNOWN",
+                            str(error.code()),
+                        )
+                except BaseException:
+                    self._unsafe.add(gateway_id)
+                    for target, _ in entries:
+                        self.last_native_results[target] = DeliveryResult(
+                            target, "UNKNOWN", "NATIVE_CALL_UNSETTLED",
+                        )
+                else:
+                    received = {item.variable_id: item for item in reply.results}
+                    valid = len(received) == len(reply.results) and set(received) == expected
+                    if valid:
+                        self._unsafe.discard(gateway_id)
+                    else:
+                        self._unsafe.add(gateway_id)
+                    for target, _ in entries:
+                        item = received.get(target.variable_id) if valid else None
+                        self.last_native_results[target] = (
+                            DeliveryResult(
+                                target, "SUCCESS" if item.success else "FAILED",
+                                item.error_code, item.message,
+                            )
+                            if item is not None else DeliveryResult(
+                                target, "UNKNOWN", "INVALID_ACK",
+                            )
+                        )
 
             task.add_done_callback(on_complete)
             try:
