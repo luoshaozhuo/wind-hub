@@ -10,10 +10,11 @@ from typing import Any
 
 import nats
 import yaml
-from contracts.sample_message import SampleMessage
 from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.aio.subscription import Subscription
+
+from contracts.sample_message import SampleMessage
 
 from sink_service.application.config import template_path
 from sink_service.application.delivery_definition import DeliveryDefinition
