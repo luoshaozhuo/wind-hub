@@ -279,14 +279,7 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         if request.scope not in ("", "service", "delivery"):
             await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "unsupported metrics scope")
             raise AssertionError("gRPC abort returned")
-        views = self._registry.list()
-        data = {
-            "delivery_running": float(sum(v.actual_state == "RUNNING" for v in views)),
-            "delivery_failed": float(sum(v.actual_state == "FAILED" for v in views)),
-            "delivery_stopped": float(sum(v.actual_state == "STOPPED" for v in views)),
-            "delivery_total": float(len(views)),
-        }
-        data.update(self._observability.snapshot())
+        data = self._observability.snapshot(request.window_ms)
         stamp = _timestamp(datetime.now(UTC))
         return common_pb2.GetMetricsResponse(
             metrics=[
