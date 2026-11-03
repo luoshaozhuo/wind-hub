@@ -149,6 +149,9 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                 "GetConfigSnapshot",
                 "PushConfigSnapshot",
                 "ApplyConfigSnapshot",
+                "GetMetrics",
+                "GetEvents",
+                "Diagnose",
                 "ListDeliveries",
                 "GetDelivery",
                 "StartDelivery",
@@ -157,7 +160,7 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             protocols=(
                 ["nats_core", "redis", "kafka", "modbus_tcp"]
                 if self._role == "realtime"
-                else []
+                else ["jetstream", "kafka"]
             ),
             features=(
                 [
@@ -167,7 +170,8 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                     "realtime_batch_output",
                 ]
                 if self._role == "realtime"
-                else ["full_snapshot_configuration", "per_delivery_lifecycle"]
+                else ["full_snapshot_configuration", "per_delivery_lifecycle",
+                      "durable_jetstream_consumer", "dlq_puback_before_ack"]
             ),
         )
 
