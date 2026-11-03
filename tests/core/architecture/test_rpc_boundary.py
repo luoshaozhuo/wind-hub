@@ -20,8 +20,8 @@ SRC_ROOT = REPO_ROOT / "src"
 
 # generated protobuf 允许出现的前缀（相对 src/）：
 # grpc inbound/outbound adapter、core rpc codec 与生成物自身、
-# cli / web_server 两个出站 RPC client 边界、sink_service 的 gRPC 管理与
-# gRPC 下行 sink adapter 及其管理 CLI。
+# cli / web_server 两个出站 RPC client 边界、sink_service 的正式 v1 gRPC
+# 控制面边界、gRPC 管理与 gRPC 下行 sink adapter 及其管理 CLI。
 _ALLOWED_PB2_PREFIXES = (
     "contracts/",
     "core/infrastructure/rpc/",
@@ -31,6 +31,7 @@ _ALLOWED_PB2_PREFIXES = (
     "collector/infrastructure/grpc/",
     "commander/infrastructure/grpc/",
     "industrial_gateway/infrastructure/grpc/",
+    "sink_service/infrastructure/grpc_v1.py",
     "sink_service/management_cli.py",
     "sink_service/infrastructure/grpc_management.py",
     "sink_service/infrastructure/adapters/grpc_sink.py",
