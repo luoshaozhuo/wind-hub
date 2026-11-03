@@ -177,4 +177,18 @@ main（origin/main）更是收集期 ImportError（gateway_pb2 退役重构中�
 - Proto 以权威重生成，无旧无令牌写入路径残留；
 - 唯一生产改动为任务书授权范围内的小修复，重大设计问题零发现、零擅自重设计。
 
-（提交 SHA 与推送结果在提交完成后补注于此节末尾。）
+## 提交清单与推送状态
+
+本轮 4 个分类提交（基于 b540b7a1，测试代码与生产修复分开提交）：
+
+| SHA | 内容 |
+|---|---|
+| `8ff12bc8` | chore(contracts)：正式脚本重生成 Proto 产物 |
+| `7f1f62b9` | fix(data-generator)：QUARANTINED 分类小修 + 3 文件纯格式化 |
+| `364cb73c` | test：P1/P2/OBS 专项、夹具迁移、共用调用方契约同步 |
+| `bda77440` | docs：本报告 |
+
+**推送阻断（本地提交已保留）**：`git push origin feat/data-generator-v1` 失败——
+HTTPS 远端无可用凭据（`fatal: could not read Username for 'https://github.com'`），
+SSH 通道无公钥（`Permission denied (publickey)`，`~/.ssh` 无 .pub）。
+未 rebase、未 force push、未创建 PR；需在有凭据环境执行推送。
