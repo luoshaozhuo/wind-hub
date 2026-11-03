@@ -64,9 +64,12 @@ class RedisOutput:
         try:
             credential = resolve_secret(self._credential_ref)
             if credential is not None:
-                try:
-                    identity = json.loads(credential)
-                except json.JSONDecodeError:
+                if credential.lstrip().startswith("{"):
+                    try:
+                        identity = json.loads(credential)
+                    except json.JSONDecodeError as exc:
+                        raise ConfigurationError("invalid Redis ACL Secret JSON") from exc
+                else:
                     identity = credential
                 if isinstance(identity, str):
                     arguments = ("AUTH", identity)
