@@ -223,12 +223,14 @@ class ReliableDeliveryPort:
         self._stop.set()
         task = self._task
         if task is not None:
-            try:
-                await task
-            except Exception as exc:
-                # The consumer failed, but cleanup must still release its
-                # settled connections; the failure remains observable.
-                self.last_error = f'Reliable consumer terminated: {exc}'
+            if task.cancelled():
+                self.last_error = 'Reliable consumer task was cancelled'
+            else:
+                try:
+                    # Caller cancellation must not disown a running consumer.
+                    await asyncio.shield(task)
+                except Exception as exc:
+                    self.last_error = f'Reliable consumer terminated: {exc}'
             self._task = None
         client = self._client
         if client is not None:
