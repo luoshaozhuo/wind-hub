@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from data_generator.domain.scenario import Scenario, Settings, resolve_history
-from data_generator.application.models import random_value, static_value
+from data_generator.application.models import generate_values
 from data_generator.application.replay import iter_records, replay_deadline
 from data_generator.domain.model import DataBatch, DataPoint, GeneratorError, Scalar, validate_scalar
 from data_generator.ports.output import OutputPort
@@ -150,28 +150,7 @@ class Runtime:
             seq = next_step
             await asyncio.sleep(max(0.0, epoch + seq * interval - now))
             stamp = datetime.now(timezone.utc)
-            values: dict[tuple[str, str], Scalar] = {}
-            pending = dict(scenario.points)
-            while pending:
-                ready = [(key, point) for key, point in pending.items()
-                         if point.get("model", {}).get("kind") != "static"
-                         or (key[0], point["model"].get("input_point")) in values]
-                if not ready:
-                    raise GeneratorError("unresolvable static model dependency")
-                for (device_id, point_id), point in ready:
-                    model = point.get("model", {})
-                    kind = model.get("kind")
-                    if kind == "random":
-                        value = random_value(seed, device_id, point_id, seq,
-                                             {**model, "data_type": point["data_type"]})
-                    elif kind == "static":
-                        value = static_value({**model, "data_type": point["data_type"]},
-                                             {key[1]: val for key, val in values.items()
-                                              if key[0] == device_id})
-                    else:
-                        raise GeneratorError(f"unsupported model: {kind}")
-                    values[(device_id, point_id)] = validate_scalar(value, point["data_type"])
-                    del pending[(device_id, point_id)]
+            values = generate_values(seed, seq, scenario.points)
             await self._emit(generation, seq, stamp, values)
 
     async def _replay(self, generation: GenerationState) -> None:
