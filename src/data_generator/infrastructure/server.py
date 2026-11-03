@@ -30,12 +30,15 @@ def runtime_error_code(error: GeneratorError) -> str:
     if "ownership" in detail or "unsettled" in detail or "conflict" in detail:
         return "RESOURCE_BUSY"
     if (
-        "expected writable" in detail or "type mismatch" in detail
-        or "missing targets" in detail or "repeated target" in detail
+        "expected writable" in detail
+        or "type mismatch" in detail
+        or "missing targets" in detail
+        or "repeated target" in detail
     ):
         return "TARGET_VALIDATION_FAILED"
     if (
-        "preflight" in detail or "catalog page limit" in detail
+        "preflight" in detail
+        or "catalog page limit" in detail
         or "lease acquisition unavailable" in detail
     ):
         return "GATEWAY_UNAVAILABLE"
@@ -502,7 +505,8 @@ class CommonService(common_rpc.CommonServiceServicer):
     ) -> common.DiagnoseResponse:
         try:
             await asyncio.wait_for(
-                self._diagnostics_permits.acquire(), timeout=self._diagnostics_wait,
+                self._diagnostics_permits.acquire(),
+                timeout=self._diagnostics_wait,
             )
         except TimeoutError:
             await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, "diagnostics capacity reached")

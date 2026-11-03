@@ -159,11 +159,13 @@ class GatewayWriter:
         acquired: list[str] = []
         try:
             for gateway_id in sorted(scenario.gateways):
-                names = tuple(sorted(
-                    mapping.target.variable_id
-                    for mapping in scenario.mappings
-                    if mapping.target.gateway_id == gateway_id
-                ))
+                names = tuple(
+                    sorted(
+                        mapping.target.variable_id
+                        for mapping in scenario.mappings
+                        if mapping.target.gateway_id == gateway_id
+                    )
+                )
                 if not names:
                     continue
                 endpoint = scenario.gateways[gateway_id]
@@ -172,8 +174,10 @@ class GatewayWriter:
                     response = await asyncio.wait_for(
                         stub.ClaimTargets(
                             industrial_gateway_pb2.ClaimTargetsRequest(
-                                gateway_id=gateway_id, owner_id=owner_id,
-                                variable_ids=names, action="ACQUIRE",
+                                gateway_id=gateway_id,
+                                owner_id=owner_id,
+                                variable_ids=names,
+                                action="ACQUIRE",
                                 lease_ms=self._lease_ms,
                             ),
                             timeout=self._timeout,
@@ -189,21 +193,23 @@ class GatewayWriter:
                         f"target ownership conflict {gateway_id}: {response.error_code}"
                     )
                 self._claims[gateway_id] = (
-                    owner_id, response.lease_token, names, endpoint,
+                    owner_id,
+                    response.lease_token,
+                    names,
+                    endpoint,
                 )
                 acquired.append(gateway_id)
                 # Start renewal immediately: acquiring later Gateway groups
                 # must not let an earlier reservation expire.
-                self._renewers[gateway_id] = asyncio.create_task(
-                    self._renew(gateway_id)
-                )
+                self._renewers[gateway_id] = asyncio.create_task(self._renew(gateway_id))
         except BaseException:
             for gateway_id in acquired:
                 await self._release_one(gateway_id)
             raise
 
     def _stub(
-        self, endpoint: str,
+        self,
+        endpoint: str,
     ) -> industrial_gateway_pb2_grpc.IndustrialGatewayServiceStub:
         channel = self._channels.get(endpoint)
         if channel is None:
@@ -223,9 +229,12 @@ class GatewayWriter:
                     reply = await asyncio.wait_for(
                         self._stub(endpoint).ClaimTargets(
                             industrial_gateway_pb2.ClaimTargetsRequest(
-                                gateway_id=gateway_id, owner_id=owner_id,
-                                variable_ids=names, action="RENEW",
-                                lease_token=token, lease_ms=self._lease_ms,
+                                gateway_id=gateway_id,
+                                owner_id=owner_id,
+                                variable_ids=names,
+                                action="RENEW",
+                                lease_token=token,
+                                lease_ms=self._lease_ms,
                             ),
                             timeout=self._timeout,
                         ),
@@ -262,8 +271,11 @@ class GatewayWriter:
             reply = await asyncio.wait_for(
                 self._stub(endpoint).ClaimTargets(
                     industrial_gateway_pb2.ClaimTargetsRequest(
-                        gateway_id=gateway_id, owner_id=owner_id,
-                        variable_ids=names, action="RELEASE", lease_token=token,
+                        gateway_id=gateway_id,
+                        owner_id=owner_id,
+                        variable_ids=names,
+                        action="RELEASE",
+                        lease_token=token,
                     ),
                     timeout=self._timeout,
                 ),
@@ -442,8 +454,10 @@ class GatewayWriter:
                         self._unsafe.add(gateway_id)
                     return [
                         DeliveryResult(
-                            target, "FAILED",
-                            "LEASE_LOST" if code == grpc.StatusCode.FAILED_PRECONDITION
+                            target,
+                            "FAILED",
+                            "LEASE_LOST"
+                            if code == grpc.StatusCode.FAILED_PRECONDITION
                             else str(code),
                             str(error),
                         )

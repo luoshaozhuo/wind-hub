@@ -467,12 +467,9 @@ class Runtime:
                     f"{result.target.gateway_id}:{result.target.variable_id}"
                     f" {result.error_code}",
                 )
-        if any(
-            result.error_code in {
-                "LEASE_LOST", "LEASE_NOT_HELD", "TARGET_QUARANTINED",
-            }
-            for result in results
-        ):
+        # 仅服务端权威围栏（FAILED_PRECONDITION→LEASE_LOST）或本地无租约可致命；
+        # TARGET_QUARANTINED 是"结果未知"的本地安全态，按 §9.3.2 由受控 RENEW 探测定生死。
+        if any(result.error_code in {"LEASE_LOST", "LEASE_NOT_HELD"} for result in results):
             raise GeneratorError("Gateway target lease lost; refusing further output")
         if unknown:
             status = "UNKNOWN"

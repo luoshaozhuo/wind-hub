@@ -249,7 +249,9 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
             raise RuntimeError("gRPC abort returned")
 
     async def ClaimTargets(
-        self, request: gateway.ClaimTargetsRequest, context: grpc.aio.ServicerContext,
+        self,
+        request: gateway.ClaimTargetsRequest,
+        context: grpc.aio.ServicerContext,
     ) -> gateway.ClaimTargetsResponse:
         await self._authorize_writer(context)
         catalog = await self._require_catalog(request.gateway_id, context)
@@ -258,18 +260,23 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
             not 0 < len(ids) <= 5000
             or len(set(ids)) != len(ids)
             or any(
-                name not in catalog or catalog[name][3] is not PointRole.FEEDBACK
-                for name in ids
+                name not in catalog or catalog[name][3] is not PointRole.FEEDBACK for name in ids
             )
         ):
             return gateway.ClaimTargetsResponse(accepted=False, error_code="INVALID_TARGETS")
         async with self._leases.lock:
             accepted, token, error = self._leases.claim(
-                request.gateway_id, request.owner_id, set(ids),
-                request.action, request.lease_token, request.lease_ms,
+                request.gateway_id,
+                request.owner_id,
+                set(ids),
+                request.action,
+                request.lease_token,
+                request.lease_ms,
             )
         return gateway.ClaimTargetsResponse(
-            accepted=accepted, lease_token=token, error_code=error,
+            accepted=accepted,
+            lease_token=token,
+            error_code=error,
         )
 
     async def UpdateVariables(
@@ -289,7 +296,9 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
         results: list[gateway.VariableUpdateResult] = []
         async with self._leases.lock:
             if not self._leases.authorize(
-                request.gateway_id, set(ids), request.lease_token,
+                request.gateway_id,
+                set(ids),
+                request.lease_token,
             ):
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "LEASE_LOST")
                 raise RuntimeError("gRPC abort returned")
@@ -312,7 +321,9 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
                 results.append(
                     gateway.VariableUpdateResult(
                         variable_id=item.variable_id,
-                        success=not code, error_code=code, message=message,
+                        success=not code,
+                        error_code=code,
+                        message=message,
                     )
                 )
         return gateway.UpdateVariablesResponse(results=results)
