@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any
@@ -107,6 +109,7 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         self._service_id = service_id
         self._role = role
         self._started_at = datetime.now(UTC)
+        self._diagnose_slots = asyncio.Semaphore(4)
 
     async def GetServiceInfo(
         self, request: common_pb2.Empty, context: grpc.aio.ServicerContext[Any, Any]
@@ -361,43 +364,85 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
     async def Diagnose(
         self, request: common_pb2.DiagnoseRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> common_pb2.DiagnoseResponse:
-        allowed = {"configuration", "delivery", "transport"}
+        allowed = {'configuration', 'source', 'consumer', 'delivery', 'sink', 'target'}
         requested = list(request.stages) or sorted(allowed)
-        if any(stage not in allowed for stage in requested):
-            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "unsupported diagnosis stage")
-            raise AssertionError("gRPC abort returned")
+        budget_ms = request.timeout_ms or 5000
+        if not 1 <= budget_ms <= 5000 or len(requested) > len(allowed):
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, 'invalid diagnostic bounds')
+            raise AssertionError('gRPC abort returned')
+        if any(name not in allowed for name in requested):
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, 'unknown diagnostic stage')
+            raise AssertionError('gRPC abort returned')
         views = self._registry.list()
         if request.target_id:
             views = tuple(view for view in views if view.delivery_id == request.target_id)
             if not views:
-                await _abort(context, grpc.StatusCode.NOT_FOUND, "unknown Delivery")
-                raise AssertionError("gRPC abort returned")
-        failed = [view for view in views if view.actual_state == "FAILED"]
-        stages = []
-        for stage in requested:
-            if stage == "configuration":
-                status = "SUCCESS" if not self._config.last_error else "FAILED"
-                message = self._config.last_error
-            elif stage == "delivery":
-                status = "SUCCESS" if not failed else "FAILED"
-                message = ", ".join(view.delivery_id for view in failed)
-            else:
-                status = "LIMITED"
-                message = "transport reachability is inferred from Delivery state only"
-            stages.append(
-                common_pb2.DiagnosticStage(
-                    stage=stage, status=status, message=message,
-                    observed_at=_timestamp(datetime.now(UTC)), source=self._service_id,
+                await _abort(context, grpc.StatusCode.NOT_FOUND, 'unknown Delivery')
+                raise AssertionError('gRPC abort returned')
+        try:
+            await asyncio.wait_for(self._diagnose_slots.acquire(), timeout=budget_ms / 1000)
+        except TimeoutError as exc:
+            await _abort(context, grpc.StatusCode.RESOURCE_EXHAUSTED, 'diagnostic capacity')
+            raise AssertionError('gRPC abort returned') from exc
+        try:
+            results: list[common_pb2.DiagnosticStage] = []
+            limitations: list[str] = []
+            for stage in requested:
+                began = time.perf_counter()
+                observations: list[tuple[str, str]] = []
+                if stage == 'configuration':
+                    error = self._config.last_error
+                    status = 'FAILED' if error else 'SUCCESS'
+                    observations.append(('active_revision', self._config.runtime.revision))
+                    message = error
+                elif stage == 'target':
+                    status = 'NOT_SUPPORTED'
+                    message = 'No side-effect-free target protocol probe configured'
+                    limitations.append(message)
+                else:
+                    for view in views:
+                        evidence = self._registry.inspect(view.delivery_id)
+                        if stage == 'delivery':
+                            state = view.actual_state
+                            observations.append((view.delivery_id, state))
+                        elif stage in evidence:
+                            observations.append((view.delivery_id, evidence[stage]))
+                    if not observations:
+                        status = 'UNKNOWN'
+                        message = 'No authoritative process-owned evidence'
+                        limitations.append(f'{stage}: no observation')
+                    elif any(value in {'FAILED', 'DISCONNECTED'} for _, value in observations):
+                        status = 'FAILED'
+                        message = 'Observed failure in process-owned state'
+                    elif any(value in {'NOT_ATTACHED', 'NOT_BOUND', 'STOPPED'} for _, value in observations):
+                        status = 'UNKNOWN'
+                        message = 'Target is not currently bound or active'
+                        limitations.append(f'{stage}: incomplete active evidence')
+                    else:
+                        status = 'SUCCESS'
+                        message = 'Confirmed process-local observation only'
+                results.append(
+                    common_pb2.DiagnosticStage(
+                        stage=stage, status=status, message=message,
+                        duration_ms=int((time.perf_counter() - began) * 1000),
+                        source=self._service_id,
+                        evidence=[
+                            common_pb2.Evidence(name=key, value=value)
+                            for key, value in observations
+                        ],
+                        observed_at=_timestamp(datetime.now(UTC)),
+                    )
                 )
+            overall = (
+                'FAILED' if any(s.status == 'FAILED' for s in results)
+                else 'PARTIAL' if any(s.status != 'SUCCESS' for s in results)
+                else 'SUCCESS'
             )
-        overall = "FAILED" if any(item.status == "FAILED" for item in stages) else (
-            "LIMITED" if any(item.status == "LIMITED" for item in stages) else "SUCCESS"
-        )
-        return common_pb2.DiagnoseResponse(
-            overall_status=overall,
-            stages=stages,
-            limitations=["No network probe performed; transport state is an observation only."],
-        )
+            return common_pb2.DiagnoseResponse(
+                overall_status=overall, stages=results, limitations=limitations,
+            )
+        finally:
+            self._diagnose_slots.release()
 
 class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
     """Delivery queries and operator commands through a single Writer."""
