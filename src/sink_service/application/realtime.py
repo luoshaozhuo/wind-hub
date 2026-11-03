@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Protocol
@@ -52,7 +51,6 @@ class RealtimeEngine:
         self._relative = relative_threshold
         self._latest: dict[tuple[str, str], SampleMessage] = {}
         self._sent: dict[tuple[str, str], SampleMessage] = {}
-        self._wakeup = asyncio.Event()
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self.last_error = ""
@@ -118,8 +116,6 @@ class RealtimeEngine:
             self.last_error = "realtime latest-value cache at capacity"
             return False
         self._latest[key] = sample
-        if self._policy != "periodic" and self._changed(sample, self._sent.get(key)):
-            self._wakeup.set()
         return True
 
     async def start(self) -> None:
@@ -130,45 +126,35 @@ class RealtimeEngine:
 
     async def stop(self) -> None:
         self._stop.set()
-        self._wakeup.set()
         task, self._task = self._task, None
         if task is not None:
             await task
 
     async def _run(self) -> None:
+        """At most one serial output cycle per configured interval."""
         loop = asyncio.get_running_loop()
-        next_period = loop.time() + self._interval
+        next_tick = loop.time() + self._interval
         while not self._stop.is_set():
-            delay = max(0.0, next_period - loop.time())
-            if self._policy == "periodic":
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=delay)
-                except TimeoutError:
-                    pass
-            else:
-                try:
-                    await asyncio.wait_for(self._wakeup.wait(), timeout=delay)
-                except TimeoutError:
-                    pass
-                self._wakeup.clear()
+            try:
+                await asyncio.wait_for(
+                    self._stop.wait(), timeout=max(0.0, next_tick - loop.time())
+                )
+            except TimeoutError:
+                pass
             if self._stop.is_set():
                 return
             now_mono = loop.time()
-            periodic_due = now_mono >= next_period
-            if periodic_due:
-                next_period += max(1, math.floor((now_mono - next_period) / self._interval) + 1) * self._interval
+            next_tick += (
+                max(1, int((now_mono - next_tick) / self._interval) + 1)
+                * self._interval
+            )
             now = datetime.now(UTC)
-            # Discard expired cache entries even if no further sample arrives.
             for key, sample in tuple(self._latest.items()):
                 if not self._fresh(sample, now):
                     self._latest.pop(key, None)
                     self._sent.pop(key, None)
                     self.dropped_total += 1
-            periodic = self._policy == "periodic" or (
-                self._policy == "change_with_heartbeat" and periodic_due
-            )
-            if self._policy == "periodic" and not periodic_due:
-                continue
+            periodic = self._policy in {"periodic", "change_with_heartbeat"}
             items = [
                 sample
                 for key, sample in sorted(self._latest.items())
@@ -180,11 +166,9 @@ class RealtimeEngine:
                     await self._writer.write_batch(batch)
                 except Exception as exc:
                     self.last_error = str(exc)
-                    # Retry failed work on the next bounded cycle, no unbounded tasks.
-                    self._wakeup.set()
+                    # Next fixed-rate tick retries the last unconfirmed values.
                     break
-                else:
-                    for sample in batch:
-                        self._sent[self._key(sample)] = sample
-                    self.delivered_total += len(batch)
-                    self.last_error = ""
+                for sample in batch:
+                    self._sent[self._key(sample)] = sample
+                self.delivered_total += len(batch)
+                self.last_error = ""
