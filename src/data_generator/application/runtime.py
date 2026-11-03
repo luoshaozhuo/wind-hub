@@ -35,6 +35,7 @@ class GenerationState:
     desired_state: str = "RUNNING"
     last_error: str = ""
     started_at: datetime | None = None
+    terminal_state: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +103,8 @@ class Runtime:
             return
         if generation.desired_state == "STOPPED":
             generation.actual_state = "STOPPED"
+        elif generation.terminal_state is not None:
+            generation.actual_state = generation.terminal_state
         self._active = None
         self._task = None
 
@@ -150,8 +153,27 @@ class Runtime:
             self.generations[state.generation_id] = state
             self._active = state.generation_id
             self._task = asyncio.create_task(self._run(state))
+            self._task.add_done_callback(
+                lambda _: asyncio.create_task(self._finish_when_settled(state))
+            )
             self.record("INFO", state.generation_id, "STARTED", scenario_id)
             return state
+
+    async def _finish_when_settled(self, generation: GenerationState) -> None:
+        """Reap completed source ownership when native I/O becomes trustworthy."""
+        timeout = float(generation.bound_settings.service.get(
+            "output", {},
+        ).get("grpc_timeout_seconds", 3.0)) * 2
+        try:
+            await self.writer.wait_settled(self._gateway_keys(generation), timeout)
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.record(
+                "WARNING", generation.generation_id,
+                "SETTLEMENT_ERROR", str(exc),
+            )
+        async with self._lock:
+            if self._active == generation.generation_id:
+                self._reconcile_locked()
 
     async def stop(self, generation_id: str, revision: str) -> GenerationState:
         async with self._lock:
@@ -206,12 +228,14 @@ class Runtime:
             else:
                 await self._replay(generation)
             generation.actual_state = "COMPLETED"
+            generation.terminal_state = "COMPLETED"
             self.record("INFO", generation.generation_id, "COMPLETED", "source exhausted")
         except asyncio.CancelledError:
             generation.actual_state = "STOPPING"
             raise
         except (GeneratorError, OSError, ValueError, TypeError) as exc:
             generation.actual_state = "FAILED"
+            generation.terminal_state = "FAILED"
             generation.last_error = str(exc)
             self.record("ERROR", generation.generation_id, "FAILED", str(exc))
         finally:
