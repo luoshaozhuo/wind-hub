@@ -134,9 +134,10 @@ class RealtimeEngine:
 
     async def stop(self) -> None:
         self._stop.set()
-        task, self._task = self._task, None
+        task = self._task
         if task is not None:
             await task
+            self._task = None
 
     async def _run(self) -> None:
         """At most one serial output cycle per configured interval."""
