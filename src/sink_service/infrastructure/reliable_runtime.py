@@ -21,7 +21,7 @@ from sink_service.application.config import template_path
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.realtime import BatchOutcome
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, config_sources
-from sink_service.infrastructure.realtime_adapters import KafkaOutput, RedisOutput
+from sink_service.infrastructure.realtime_runtime import SinkOutputPool
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,9 @@ class ReliableDeliveryPort:
         self,
         definition: DeliveryDefinition,
         snapshot: ValidatedSnapshot,
+        pool: SinkOutputPool,
     ) -> None:
+        self._pool = pool
         self._definition = definition
         self._snapshot = snapshot
         self._stop = asyncio.Event()
@@ -69,37 +71,21 @@ class ReliableDeliveryPort:
             "dlq_total": float(self.dlq_total),
         }
 
-    def _create_adapter(self) -> Any:
+    def _validate_target(self) -> None:
         sink = self._snapshot.sinks[self._definition.sink_id]
         template = _template(
-            self._snapshot, "sinks", sink["template_id"], sink["template_version"]
+            self._snapshot, 'sinks', sink['template_id'], sink['template_version']
         )
-        caps = template["capabilities"]
-        if not caps["reliable"]:
-            raise ConfigurationError("Sink does not support reliable delivery")
-        connection = sink["connection"]
-        output = template["output"]
-        if template["kind"] == "kafka":
-            if output["business_duplicate_policy"] not in ("allow_at_least_once", "require_dedup"):
-                raise ConfigurationError("Kafka reliable target requires a duplicate policy")
-            if output["business_duplicate_policy"] == "require_dedup":
-                # No independently verified downstream business deduplicator is configured.
-                raise ConfigurationError("require_dedup has no verified downstream owner")
-            return KafkaOutput(
-                servers=list(connection["bootstrap_servers"]),
-                topic=output["topic"],
-                timeout_ms=output["write_timeout_ms"],
-                credential_ref=connection.get("credential_ref", ""),
+        if not template['capabilities']['reliable']:
+            raise ConfigurationError('Sink does not support reliable delivery')
+        if template['kind'] != 'kafka':
+            raise ConfigurationError('Reliable Adapter requires an explicit supported policy')
+        policy = template['output']['business_duplicate_policy']
+        if policy != 'allow_at_least_once':
+            raise ConfigurationError(
+                'Reliable Kafka requires explicit allow_at_least_once; '
+                'require_dedup has no verified downstream owner'
             )
-        if template["kind"] == "redis" and caps["reliable"] and caps["idempotent"]:
-            return RedisOutput(
-                host=connection["host"],
-                port=connection["port"],
-                namespace=output["namespace"],
-                timeout_ms=output["write_timeout_ms"],
-                credential_ref=connection.get("credential_ref", ""),
-            )
-        raise ConfigurationError("Reliable Sink kind or idempotence policy unsupported")
 
     @staticmethod
     def _durable_id(snapshot: ValidatedSnapshot, delivery_id: str) -> str:
@@ -109,8 +95,8 @@ class ReliableDeliveryPort:
     async def start(self) -> None:
         if self._task is not None:
             return
-        adapter = self._create_adapter()
-        await adapter.open()
+        self._validate_target()
+        adapter = await self._pool.acquire(self._definition.sink_id, self._snapshot)
         self._adapter = adapter
         config = self._snapshot.service
         nats_config = config["nats"]
@@ -168,7 +154,7 @@ class ReliableDeliveryPort:
             if self._client is not None:
                 await self._client.close()
                 self._client = None
-            await adapter.close()
+            await self._pool.release(self._definition.sink_id)
             self._adapter = None
             raise
 
@@ -184,7 +170,8 @@ class ReliableDeliveryPort:
             self._client = None
         adapter = self._adapter
         if adapter is not None:
-            await adapter.close()
+            await adapter.settle()
+            await self._pool.release(self._definition.sink_id)
             self._adapter = None
 
     def _matches(self, sample: SampleMessage) -> bool:
@@ -241,7 +228,14 @@ class ReliableDeliveryPort:
     ) -> BatchOutcome:
         """Keep native target I/O owned even if the AckWait renewal fails."""
         assert self._adapter is not None
-        task = asyncio.create_task(self._adapter.write_batch((sample,)))
+        async def native_write() -> BatchOutcome:
+            result: BatchOutcome = await self._adapter.write_batch((sample,))
+            if result.error == 'Sink I/O result uncertain; waiting for settlement':
+                settled = await self._adapter.settle()
+                return settled if settled is not None else result
+            return result
+
+        task = asyncio.create_task(native_write())
         interval = max(0.5, self._snapshot.service['reliable']['ack_wait_seconds'] / 3)
         progress_error: Exception | None = None
         while not task.done():
@@ -320,11 +314,14 @@ class ReliableDeliveryPort:
 
 
 class ReliableFactory:
-    """Construct process-local Reliable ports, with stable Durable identity."""
+    """Share one physical target across process-local Durable Delivery owners."""
+
+    def __init__(self) -> None:
+        self._pool = SinkOutputPool()
 
     def __call__(
         self, definition: DeliveryDefinition, snapshot: ValidatedSnapshot
     ) -> ReliableDeliveryPort:
         if definition.channel != "reliable":
             raise ConfigurationError("ReliableFactory cannot own realtime Delivery")
-        return ReliableDeliveryPort(definition, snapshot)
+        return ReliableDeliveryPort(definition, snapshot, self._pool)
