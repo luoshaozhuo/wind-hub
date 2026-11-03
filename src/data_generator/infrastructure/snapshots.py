@@ -135,12 +135,30 @@ class SnapshotManager:
         if sum(len(file.data) for file in files) > self.max_bytes:
             raise GeneratorError("snapshot byte capacity exceeded")
         paths: set[str] = set()
+        root = self.settings.root
+        mutable_sources = {
+            item.relative_to(root).as_posix()
+            for item in (
+                self.settings.service_file,
+                self.settings.scenario_file,
+                self.settings.site_file,
+                self.settings.devices_file,
+                self.settings.units_file,
+                self.settings.business_points_file,
+            )
+        }
         for file in files:
             if file.path in paths or not file.data:
                 raise GeneratorError("duplicate path or empty snapshot content")
             paths.add(file.path)
-            _check_file_path(self.settings.root, file.path)
-        root = self.settings.root
+            target = _check_file_path(root, file.path)
+            if (
+                file.path not in mutable_sources
+                and not target.is_relative_to(self.settings.templates_root)
+            ):
+                raise GeneratorError(
+                    f"snapshot includes unreferenced configuration file: {file.path}"
+                )
         required = {
             path.relative_to(root).as_posix()
             for path in (
