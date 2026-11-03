@@ -188,6 +188,7 @@ class RedisOutput:
                 self._reader = None
                 if writer is not None:
                     writer.close()
+                    await writer.wait_closed()
                 return BatchOutcome(
                     delivered=tuple(delivered), settled=tuple(settled), error=str(exc),
                 )
