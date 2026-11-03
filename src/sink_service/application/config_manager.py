@@ -12,6 +12,7 @@ from typing import Protocol
 import yaml
 
 from sink_service.application.config import snapshot_from_wire, validate_snapshot
+from sink_service.application.delivery_definition import delivery_definitions
 from sink_service.domain.config import (
     CandidateNotFoundError,
     ConfigurationError,
@@ -120,6 +121,25 @@ class ConfigManager:
                 snapshot = snapshot_from_wire(files)
             except ConfigurationError as exc:
                 raise InvalidConfigurationError(str(exc)) from exc
+            # Historical Durable ownership is not transferable by merely
+            # editing the current filter. No old backlog may be ACKed under
+            # a new source responsibility without a controlled migration.
+            previous_reliable = {
+                item.delivery_id for item in delivery_definitions(self._disk)
+                if item.channel == 'reliable'
+            }
+            next_reliable = {
+                item.delivery_id for item in delivery_definitions(snapshot)
+                if item.channel == 'reliable'
+            }
+            for identifier in previous_reliable & next_reliable:
+                old_source = self._disk.deliveries[identifier].get('source')
+                new_source = snapshot.deliveries[identifier].get('source')
+                if old_source != new_source:
+                    raise InvalidConfigurationError(
+                        f'deliveries.{identifier}.source: Reliable source change '
+                        'requires a separately audited Durable migration'
+                    )
             now = datetime.now(UTC)
             self._candidates = {
                 key: value for key, value in self._candidates.items() if value.expires_at > now
