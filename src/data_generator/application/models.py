@@ -14,13 +14,11 @@ def random_value(
     seed: int, device_id: str, point_id: str, step: int, params: Mapping[str, object],
 ) -> Scalar:
     """Independent PRNG streams preserve samples when unrelated points are added."""
-    raw = f"{seed}:{device_id}:{point_id}".encode()
-    point_seed = int.from_bytes(hashlib.sha256(raw).digest()[:8], "big")
-    rng = random.Random(point_seed)
     if step < 1:
         raise GeneratorError("step must be positive")
-    rng.seed(int.from_bytes(hashlib.sha256(
-        f"{point_seed}:{step}".encode()).digest()[:8], "big"))
+    raw = f"{seed}:{device_id}:{point_id}:{step}".encode()
+    point_seed = int.from_bytes(hashlib.sha256(raw).digest()[:8], "big")
+    rng = random.Random(point_seed)
     result = rng.random()
     kind = str(params.get("data_type", "float64"))
     lower = params.get("minimum", 0)
@@ -34,9 +32,13 @@ def random_value(
     if kind == "bool":
         value: Scalar = result >= 0.5
     elif kind.startswith(("int", "uint")):
-        value = rng.randint(int(lower), int(upper))
-    else:
+        if type(lower) is not int or type(upper) is not int:
+            raise GeneratorError("integer random bounds must be integers")
+        value = rng.randint(lower, upper)
+    elif kind in ("float32", "float64"):
         value = float(lower) + (float(upper) - float(lower)) * result
+    else:
+        raise GeneratorError(f"unsupported random scalar: {kind}")
     return validate_scalar(value, kind)
 
 
@@ -60,8 +62,11 @@ def static_value(params: Mapping[str, object], inputs: Mapping[str, Scalar]) -> 
         if not math.isfinite(a) or not math.isfinite(b) or (points and a <= points[-1][0]):
             raise GeneratorError("unordered or non-finite interpolation table")
         points.append((a, b))
+    policy = params.get("out_of_range", "reject")
+    if policy not in ("reject", "clamp"):
+        raise GeneratorError("unsupported interpolation boundary policy")
     if x < points[0][0] or x > points[-1][0]:
-        if params.get("out_of_range", "reject") != "clamp":
+        if policy != "clamp":
             raise GeneratorError("input outside interpolation domain")
         x = max(points[0][0], min(points[-1][0], x))
     for (left, low), (right, high) in zip(points, points[1:]):
