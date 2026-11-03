@@ -65,6 +65,7 @@ class RealtimeEngine:
         self._sent: dict[tuple[str, str], SampleMessage] = {}
         self._sent_at: dict[tuple[str, str], float] = {}
         self._skipped: dict[tuple[str, str], str] = {}
+        self._retry_pending = False
         self._wakeup = asyncio.Event()
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
@@ -207,7 +208,11 @@ class RealtimeEngine:
                     self.dropped_total += 1
             if self._policy == 'periodic' and not periodic_due:
                 continue
-            if self._policy == 'on_change' and not event_fired:
+            if (
+                self._policy == 'on_change'
+                and not event_fired
+                and not (periodic_due and self._retry_pending)
+            ):
                 continue
             items = [
                 sample
@@ -226,6 +231,7 @@ class RealtimeEngine:
                     )
                 )
             ]
+            self._retry_pending = False
             for index in range(0, len(items), 500):
                 batch = tuple(items[index : index + 500])
                 try:
@@ -242,6 +248,7 @@ class RealtimeEngine:
                         raise RuntimeError("Adapter returned invalid sample indexes")
                 except Exception as exc:
                     self.last_error = str(exc)
+                    self._retry_pending = True
                     break
                 for offset in settled:
                     sample = batch[offset]
@@ -263,5 +270,5 @@ class RealtimeEngine:
                     self.latency_samples.append((timestamp, value))
                 self.last_error = outcome.error
                 if outcome.error:
-                    # Unconfirmed samples remain pending for the next cycle.
+                    self._retry_pending = True
                     break
