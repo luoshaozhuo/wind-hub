@@ -12,8 +12,8 @@ from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_registry import DeliveryPort
 from sink_service.domain.config import ValidatedSnapshot
 from sink_service.infrastructure.bootstrap import serve_control_plane
-from sink_service.infrastructure.realtime_runtime import RealtimeFactory
 from sink_service.infrastructure.reliable_runtime import ReliableFactory
+from sink_service.infrastructure.realtime_runtime import RealtimeFactory
 
 logger = logging.getLogger(__name__)
 
