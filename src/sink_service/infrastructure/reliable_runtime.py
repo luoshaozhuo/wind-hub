@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from collections import deque
 import hashlib
 import json
 import logging
@@ -62,6 +63,9 @@ class ReliableDeliveryPort:
         self._active_io = False
         self._last_backlog_output = 0.0
         self.failed_total = 0
+        self.write_success_total = 0
+        self.latency_samples: deque[tuple[datetime, float]] = deque(maxlen=50000)
+        self.latency_overflow_at: datetime | None = None
         self.retry_total = 0
         self.dlq_total = 0
         self._started_at = datetime.now(UTC)
@@ -72,6 +76,7 @@ class ReliableDeliveryPort:
             'received_total': float(self.received_total),
             'delivered_total': float(self.delivered_total),
             'failed_total': float(self.failed_total),
+            'write_success_total': float(self.write_success_total),
             'dead_letter_total': float(self.dlq_total),
             'retry_total': float(self.retry_total),
             'io_inflight': float(self._active_io),
@@ -325,6 +330,13 @@ class ReliableDeliveryPort:
                     if 0 in result.delivered or (not result.error and 0 in result.settled):
                         await message.ack_sync(timeout=5)
                         self.delivered_total += int(0 in result.delivered)
+                        self.write_success_total += result.successful_attempts
+                        self.failed_total += result.failed_attempts
+                        for latency in result.successful_latencies_ms:
+                            timestamp = datetime.now(UTC)
+                            if len(self.latency_samples) == self.latency_samples.maxlen:
+                                self.latency_overflow_at = timestamp
+                            self.latency_samples.append((timestamp, latency))
                         self._backlog = metadata.num_pending
                         self.last_error = ""
                         backoff = config["retry_base_ms"] / 1000
