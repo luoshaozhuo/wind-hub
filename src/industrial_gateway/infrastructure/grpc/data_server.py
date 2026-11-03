@@ -15,6 +15,7 @@ from contracts import industrial_gateway_pb2 as gateway
 from contracts import industrial_gateway_pb2_grpc as gateway_rpc
 from core.infrastructure.rpc.scalar_codec import decode_scalar, encode_scalar
 from industrial_gateway.application.point_store import PointStore
+from industrial_gateway.application.target_leases import TargetLeaseRegistry
 from industrial_gateway.domain.point import PointRole
 from industrial_gateway.infrastructure.config.loader import GatewayConfig
 
@@ -45,6 +46,7 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
         self._start = start
         self._stop = stop
         self._is_running = is_running
+        self._leases = TargetLeaseRegistry()
         self._definitions: dict[str, dict[str, tuple[str, str, str, PointRole]]] = {}
         for gateway_id in config.endpoints:
             self._definitions[gateway_id] = {}
@@ -228,13 +230,8 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
             values=samples,
         )
 
-    async def UpdateVariables(
-        self,
-        request: gateway.UpdateVariablesRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> gateway.UpdateVariablesResponse:
-        # This service is currently loopback-only. Enforce the configured
-        # data-writer IP allowlist in addition to the network bind restriction.
+    async def _authorize_writer(self, context: grpc.aio.ServicerContext) -> None:
+        """Loopback IP restriction is an additional guard, not a TLS identity."""
         peer = context.peer()
         address = ""
         if peer.startswith("ipv4:"):
@@ -248,44 +245,76 @@ class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
         except ValueError:
             authorized = False
         if not authorized:
-            await context.abort(
-                grpc.StatusCode.PERMISSION_DENIED,
-                "Gateway data writer is not authorized",
-            )
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "unauthorized data writer")
             raise RuntimeError("gRPC abort returned")
+
+    async def ClaimTargets(
+        self, request: gateway.ClaimTargetsRequest, context: grpc.aio.ServicerContext,
+    ) -> gateway.ClaimTargetsResponse:
+        await self._authorize_writer(context)
+        catalog = await self._require_catalog(request.gateway_id, context)
+        ids = list(request.variable_ids)
+        if (
+            not 0 < len(ids) <= 5000
+            or len(set(ids)) != len(ids)
+            or any(
+                name not in catalog or catalog[name][3] is not PointRole.FEEDBACK
+                for name in ids
+            )
+        ):
+            return gateway.ClaimTargetsResponse(accepted=False, error_code="INVALID_TARGETS")
+        async with self._leases.lock:
+            accepted, token, error = self._leases.claim(
+                request.gateway_id, request.owner_id, set(ids),
+                request.action, request.lease_token, request.lease_ms,
+            )
+        return gateway.ClaimTargetsResponse(
+            accepted=accepted, lease_token=token, error_code=error,
+        )
+
+    async def UpdateVariables(
+        self,
+        request: gateway.UpdateVariablesRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> gateway.UpdateVariablesResponse:
+        await self._authorize_writer(context)
         catalog = await self._require_catalog(request.gateway_id, context)
         if not 0 < len(request.values) <= 5000:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "batch size must be 1..5000")
             raise RuntimeError("gRPC abort returned")
-        seen: set[str] = set()
+        ids = [item.variable_id for item in request.values]
+        if len(set(ids)) != len(ids):
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "duplicate target")
+            raise RuntimeError("gRPC abort returned")
         results: list[gateway.VariableUpdateResult] = []
-        for item in request.values:
-            code = ""
-            message = ""
-            try:
-                if item.variable_id in seen:
-                    raise ValueError("duplicate target in request")
-                seen.add(item.variable_id)
-                if item.variable_id not in catalog:
-                    raise KeyError("unknown target variable")
-                device_id, point_id, _, role = catalog[item.variable_id]
-                if role is not PointRole.FEEDBACK:
-                    raise PermissionError("cannot modify a command or parameter variable")
-                if not item.HasField("value") or item.value.WhichOneof("kind") is None:
-                    raise ValueError("missing scalar value")
-                value = decode_scalar(item.value)
-                await self._store.update_feedback(device_id, point_id, value)
-            except (ValueError, KeyError, TypeError, PermissionError) as exc:
-                code = "INVALID_VARIABLE"
-                message = str(exc)
-            results.append(
-                gateway.VariableUpdateResult(
-                    variable_id=item.variable_id,
-                    success=not code,
-                    error_code=code,
-                    message=message,
+        async with self._leases.lock:
+            if not self._leases.authorize(
+                request.gateway_id, set(ids), request.lease_token,
+            ):
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "LEASE_LOST")
+                raise RuntimeError("gRPC abort returned")
+            for item in request.values:
+                code = ""
+                message = ""
+                try:
+                    if item.variable_id not in catalog:
+                        raise KeyError("unknown target variable")
+                    device_id, point_id, _, role = catalog[item.variable_id]
+                    if role is not PointRole.FEEDBACK:
+                        raise PermissionError("not a feedback variable")
+                    if not item.HasField("value") or item.value.WhichOneof("kind") is None:
+                        raise ValueError("missing scalar value")
+                    value = decode_scalar(item.value)
+                    await self._store.update_feedback(device_id, point_id, value)
+                except (ValueError, KeyError, TypeError, PermissionError) as exc:
+                    code = "INVALID_VARIABLE"
+                    message = str(exc)
+                results.append(
+                    gateway.VariableUpdateResult(
+                        variable_id=item.variable_id,
+                        success=not code, error_code=code, message=message,
+                    )
                 )
-            )
         return gateway.UpdateVariablesResponse(results=results)
 
 
