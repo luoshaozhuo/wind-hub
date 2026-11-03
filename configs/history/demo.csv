@@ -1,0 +1,4 @@
+device_id,point_id,source_timestamp,value,quality,record_id
+GW02,a02_dm_pitchangle1,2026-01-01T00:00:00Z,5.5,GOOD,0001
+GW02,a02_dm_pitchangle1,2026-01-01T00:00:01Z,6.0,GOOD,0002
+GW02,a02_dm_pitchangle1,2026-01-01T00:00:02Z,7.5,GOOD,0003

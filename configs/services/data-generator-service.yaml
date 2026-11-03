@@ -1,0 +1,22 @@
+# Data Generator service configuration; restart required after modification.
+schema_version: 1
+file_version: "1.0.0"
+service:
+  grpc_bind: "127.0.0.1:50061"
+output:
+  max_inflight: 1
+  grpc_timeout_seconds: 3.0
+buffer:
+  max_batches: 128
+  max_points_per_batch: 1000
+replay:
+  read_batch_size: 1000
+diagnose:
+  max_concurrent: 2
+  timeout_seconds: 10.0
+metrics:
+  enabled: true
+  sample_seconds: 1.0
+  window_seconds: 60
+  retain_seconds: 3600
+  max_series: 2000
