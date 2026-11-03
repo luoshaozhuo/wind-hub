@@ -57,6 +57,9 @@ class GatewayWriter:
         self._unsafe: set[str] = set()
         self.rpc_durations: deque[tuple[float, str, float]] = deque(maxlen=4096)
         self.last_native_results: dict[OutputTarget, DeliveryResult] = {}
+        self._claims: dict[str, tuple[str, str, tuple[str, ...], str]] = {}
+        self._renewers: dict[str, asyncio.Task[None]] = {}
+        self._lease_ms = min(60000, max(10000, math.ceil(timeout * 6000)))
 
     @property
     def unsafe_gateways(self) -> frozenset[str]:
@@ -145,6 +148,132 @@ class GatewayWriter:
 
         await asyncio.gather(*(check(name, points) for name, points in expected.items()))
 
+    def has_claims(self, owner_id: str) -> bool:
+        """Never release in-process ownership while a Gateway still holds our claim."""
+        return any(claim[0] == owner_id for claim in self._claims.values())
+
+    async def claim(self, scenario: Scenario, owner_id: str) -> None:
+        """Acquire all Gateway groups or roll back every acknowledged group."""
+        acquired: list[str] = []
+        try:
+            for gateway_id in sorted(scenario.gateways):
+                names = tuple(sorted(
+                    mapping.target.variable_id
+                    for mapping in scenario.mappings
+                    if mapping.target.gateway_id == gateway_id
+                ))
+                if not names:
+                    continue
+                endpoint = scenario.gateways[gateway_id]
+                stub = self._stub(endpoint)
+                response = await asyncio.wait_for(
+                    stub.ClaimTargets(
+                        industrial_gateway_pb2.ClaimTargetsRequest(
+                            gateway_id=gateway_id, owner_id=owner_id,
+                            variable_ids=names, action="ACQUIRE", lease_ms=self._lease_ms,
+                        ),
+                        timeout=self._timeout,
+                    ),
+                    timeout=self._timeout,
+                )
+                if not response.accepted:
+                    raise GeneratorError(
+                        f"target ownership conflict {gateway_id}: {response.error_code}"
+                    )
+                self._claims[gateway_id] = (
+                    owner_id, response.lease_token, names, endpoint,
+                )
+                acquired.append(gateway_id)
+            for gateway_id in acquired:
+                self._renewers[gateway_id] = asyncio.create_task(
+                    self._renew(gateway_id)
+                )
+        except BaseException:
+            for gateway_id in acquired:
+                await self._release_one(gateway_id)
+            raise
+
+    def _stub(
+        self, endpoint: str,
+    ) -> industrial_gateway_pb2_grpc.IndustrialGatewayServiceStub:
+        channel = self._channels.get(endpoint)
+        if channel is None:
+            channel = grpc.aio.insecure_channel(endpoint)
+            self._channels[endpoint] = channel
+        return industrial_gateway_pb2_grpc.IndustrialGatewayServiceStub(channel)
+
+    async def _renew(self, gateway_id: str) -> None:
+        try:
+            while gateway_id in self._claims:
+                await asyncio.sleep(self._lease_ms / 3000)
+                claim = self._claims.get(gateway_id)
+                if claim is None:
+                    return
+                owner_id, token, names, endpoint = claim
+                try:
+                    reply = await asyncio.wait_for(
+                        self._stub(endpoint).ClaimTargets(
+                            industrial_gateway_pb2.ClaimTargetsRequest(
+                                gateway_id=gateway_id, owner_id=owner_id,
+                                variable_ids=names, action="RENEW",
+                                lease_token=token, lease_ms=self._lease_ms,
+                            ),
+                            timeout=self._timeout,
+                        ),
+                        timeout=self._timeout,
+                    )
+                    if not reply.accepted:
+                        self._unsafe.add(gateway_id)
+                        return
+                except (grpc.RpcError, TimeoutError):
+                    # A missed renewal is unsafe until a new acquisition.
+                    self._unsafe.add(gateway_id)
+                    return
+        except asyncio.CancelledError:
+            raise
+
+    async def _release_one(self, gateway_id: str) -> bool:
+        claim = self._claims.get(gateway_id)
+        if claim is None:
+            return True
+        renewer = self._renewers.pop(gateway_id, None)
+        if renewer is not None:
+            renewer.cancel()
+            await asyncio.gather(renewer, return_exceptions=True)
+        owner_id, token, names, endpoint = claim
+        if gateway_id in self.unsettled_gateways:
+            self._unsafe.add(gateway_id)
+            return False
+        try:
+            reply = await asyncio.wait_for(
+                self._stub(endpoint).ClaimTargets(
+                    industrial_gateway_pb2.ClaimTargetsRequest(
+                        gateway_id=gateway_id, owner_id=owner_id,
+                        variable_ids=names, action="RELEASE", lease_token=token,
+                    ),
+                    timeout=self._timeout,
+                ),
+                timeout=self._timeout,
+            )
+        except (grpc.RpcError, TimeoutError):
+            self._unsafe.add(gateway_id)
+            return False
+        if not reply.accepted:
+            self._unsafe.add(gateway_id)
+            return False
+        self._claims.pop(gateway_id, None)
+        self._unsafe.discard(gateway_id)
+        return True
+
+    async def release(self, scenario: Scenario, owner_id: str) -> bool:
+        """Release only after source and native I/O settle; fail closed."""
+        success = True
+        for gateway_id in sorted(scenario.gateways):
+            claim = self._claims.get(gateway_id)
+            if claim is not None and claim[0] == owner_id:
+                success = await self._release_one(gateway_id) and success
+        return success
+
     async def send(self, scenario: Scenario, batch: DataBatch) -> list[DeliveryResult]:
         values = {(point.device_id, point.point_id): point.value for point in batch.points}
         groups: dict[str, list[tuple[OutputTarget, Scalar]]] = defaultdict(list)
@@ -183,6 +312,9 @@ class GatewayWriter:
                 return [
                     DeliveryResult(target, "FAILED", "TARGET_QUARANTINED") for target, _ in entries
                 ]
+            claim = self._claims.get(gateway_id)
+            if claim is None:
+                return [DeliveryResult(target, "FAILED", "LEASE_NOT_HELD") for target, _ in entries]
             prior = self._unsettled.get(gateway_id)
             if prior is not None and (
                 not prior.done() or gateway_id not in self._settled_callbacks
@@ -206,6 +338,7 @@ class GatewayWriter:
                 )
                 request = industrial_gateway_pb2.UpdateVariablesRequest(
                     gateway_id=gateway_id,
+                    lease_token=claim[1],
                     values=[
                         industrial_gateway_pb2.VariableUpdate(
                             variable_id=target.variable_id,
@@ -337,6 +470,11 @@ class GatewayWriter:
             except TimeoutError:
                 settled = False
                 self._unsafe.update(self.unsettled_gateways)
+        for renewer in self._renewers.values():
+            renewer.cancel()
+        if self._renewers:
+            await asyncio.gather(*self._renewers.values(), return_exceptions=True)
+        self._renewers.clear()
         for channel in self._channels.values():
             await channel.close()
         self._channels.clear()
