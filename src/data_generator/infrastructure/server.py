@@ -157,10 +157,28 @@ class CommonService(common_rpc.CommonServiceServicer):
                                              started_at=stamp(self.started))
 
     async def GetServiceStatus(self, request: common.Empty, context: Any) -> common.GetServiceStatusResponse:
-        failed = any(state.actual_state == "FAILED"
-                     for state in self.runtime.generations.values())
+        failed = any(
+            state.actual_state == "FAILED"
+            for state in self.runtime.generations.values()
+        )
+        unsafe = self.runtime.writer.unsafe_gateways
+        gateways = {
+            gateway_id for scenario in self.runtime.settings.scenarios.values()
+            for gateway_id in scenario.gateways
+        }
         return common.GetServiceStatusResponse(
-            health="DEGRADED" if failed else "HEALTHY", observed_at=stamp())
+            health="DEGRADED" if failed or unsafe else "HEALTHY",
+            dependencies=[
+                common.DependencyHealth(
+                    name=f"gateway:{gateway_id}",
+                    health="DEGRADED" if gateway_id in unsafe else "UNKNOWN",
+                    detail="unsettled output" if gateway_id in unsafe
+                    else "no active health probe",
+                )
+                for gateway_id in sorted(gateways)
+            ],
+            observed_at=stamp(),
+        )
 
     async def GetCapabilities(self, request: common.Empty, context: Any) -> common.GetCapabilitiesResponse:
         return common.GetCapabilitiesResponse(
