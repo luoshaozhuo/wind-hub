@@ -16,6 +16,7 @@ from pymodbus.datastore import ModbusServerContext
 from contracts.sample_message import SampleMessage
 from sink_service.application.realtime import BatchOutcome
 from sink_service.domain.config import ConfigurationError
+from sink_service.infrastructure.secrets import resolve_secret
 
 
 def _redis_command(*parts: str) -> bytes:
@@ -40,23 +41,47 @@ _REDIS_CAS = (
 class RedisOutput:
     """One serial RESP2 connection with atomic per-point monotonic writes."""
 
-    def __init__(self, *, host: str, port: int, namespace: str, timeout_ms: int) -> None:
+    def __init__(
+        self, *, host: str, port: int, namespace: str, timeout_ms: int,
+        credential_ref: str = "",
+    ) -> None:
         if not namespace or any(char.isspace() for char in namespace):
             raise ConfigurationError("invalid Redis namespace")
         self._host, self._port = host, port
         self._namespace = namespace
+        self._credential_ref = credential_ref
         self._timeout = timeout_ms / 1000
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
 
+    async def _connect(self) -> None:
+        self._reader, self._writer = await asyncio.wait_for(
+            asyncio.open_connection(self._host, self._port),
+            timeout=self._timeout,
+        )
+        try:
+            credential = resolve_secret(self._credential_ref)
+            if credential is not None:
+                self._writer.write(_redis_command("AUTH", credential))
+                await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
+                assert self._reader is not None
+                answer = await asyncio.wait_for(
+                    self._reader.readline(), timeout=self._timeout
+                )
+                if answer != b"+OK\\r\\n":
+                    raise ConnectionError("Redis authentication failed")
+        except BaseException:
+            writer, self._writer = self._writer, None
+            self._reader = None
+            if writer is not None:
+                writer.close()
+            raise
+
     async def open(self) -> None:
         async with self._lock:
             if self._writer is None:
-                self._reader, self._writer = await asyncio.wait_for(
-                    asyncio.open_connection(self._host, self._port),
-                    timeout=self._timeout,
-                )
+                await self._connect()
 
     async def close(self) -> None:
         async with self._lock:
@@ -83,10 +108,7 @@ class RedisOutput:
             return BatchOutcome((), ())
         async with self._lock:
             if self._writer is None:
-                self._reader, self._writer = await asyncio.wait_for(
-                    asyncio.open_connection(self._host, self._port),
-                    timeout=self._timeout,
-                )
+                await self._connect()
             delivered: list[int] = []
             settled: list[int] = []
             try:
