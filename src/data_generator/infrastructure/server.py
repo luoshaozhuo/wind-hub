@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -130,6 +131,7 @@ class CommonService(common_rpc.CommonServiceServicer):
         self.snapshots = SnapshotManager(runtime.settings)
         self.diagnostics = Diagnostics(runtime.settings)
         self.started = datetime.now(timezone.utc)
+        self._config_lock = asyncio.Lock()
 
     async def GetServiceInfo(self, request: common.Empty, context: Any) -> common.GetServiceInfoResponse:
         return common.GetServiceInfoResponse(service_id="data_generator", process_role="generator",
@@ -164,34 +166,62 @@ class CommonService(common_rpc.CommonServiceServicer):
                     size_bytes=len(f.data), sha256=file_sha256(f.data)) for f in files],
         )
 
-    async def PushConfigSnapshot(self, request: common.PushConfigSnapshotRequest,
-                                 context: Any) -> common.PushConfigSnapshotResponse:
-        try:
-            candidate = self.snapshots.push(
-                tuple(FileContent(f.relative_path, bytes(f.content)) for f in request.files),
-                request.expected_revision,
-            )
-        except GeneratorError as exc:
-            return common.PushConfigSnapshotResponse(
-                valid=False, validation=[common.ValidationIssue(
-                    path="snapshot", code="INVALID", message=str(exc))],
-                base_revision=self.runtime.settings.revision,
-            )
-        return common.PushConfigSnapshotResponse(candidate_id=candidate, valid=True,
-                                                 base_revision=self.runtime.settings.revision)
+    async def PushConfigSnapshot(
+        self, request: common.PushConfigSnapshotRequest, context: Any,
+    ) -> common.PushConfigSnapshotResponse:
+        async with self._config_lock:
+            try:
+                files = tuple(FileContent(f.relative_path, bytes(f.content))
+                              for f in request.files)
+                for original, item in zip(request.files, files):
+                    if original.size_bytes != len(item.data):
+                        raise GeneratorError("snapshot size mismatch")
+                    if original.sha256 and original.sha256 != file_sha256(item.data):
+                        raise GeneratorError("snapshot SHA-256 mismatch")
+                candidate = await asyncio.to_thread(
+                    self.snapshots.push, files, request.expected_revision,
+                )
+            except (GeneratorError, OSError, ValueError) as exc:
+                return common.PushConfigSnapshotResponse(
+                    valid=False, validation=[common.ValidationIssue(
+                        path="snapshot", code="INVALID", message=str(exc),
+                    )],
+                    base_revision=self.runtime.settings.revision,
+                )
+        return common.PushConfigSnapshotResponse(
+            candidate_id=candidate, valid=True,
+            base_revision=self.runtime.settings.revision,
+        )
 
-    async def ApplyConfigSnapshot(self, request: common.ApplyConfigSnapshotRequest,
-                                  context: Any) -> common.ApplyConfigSnapshotResponse:
-        try:
-            self.snapshots.apply(request.candidate_id, request.expected_revision)
-        except GeneratorError as exc:
+    async def ApplyConfigSnapshot(
+        self, request: common.ApplyConfigSnapshotRequest, context: Any,
+    ) -> common.ApplyConfigSnapshotResponse:
+        async with self._config_lock:
+            try:
+                settings, restart_required = await asyncio.to_thread(
+                    self.snapshots.apply, request.candidate_id, request.expected_revision,
+                )
+            except (GeneratorError, OSError, ValueError) as exc:
+                self.runtime.record("ERROR", "config", "APPLY_FAILED", str(exc))
+                return common.ApplyConfigSnapshotResponse(
+                    file_commit="FAILED",
+                    apply_results=[common.ApplicationResult(
+                        object_id="config", status="FAILED",
+                        error_code="APPLY_FAILED", message=str(exc),
+                    )],
+                    effective_revision=self.runtime.settings.revision,
+                )
+            self.runtime.settings = settings
+            self.diagnostics = Diagnostics(settings)
+            self.runtime.record("INFO", "config", "APPLIED", settings.revision)
             return common.ApplyConfigSnapshotResponse(
-                file_commit="FAILED",
-                apply_results=[common.ApplicationResult(object_id="config",
-                              status="FAILED", error_code="APPLY_FAILED", message=str(exc))],
-                effective_revision=self.runtime.settings.revision,
+                file_commit="COMMITTED", effective_revision=settings.revision,
+                restart_required=restart_required,
+                application_id=request.candidate_id,
+                apply_results=[common.ApplicationResult(
+                    object_id=scenario_id, status="APPLIED",
+                ) for scenario_id in settings.scenarios],
             )
-        raise RuntimeError("unreachable")
 
     async def GetMetrics(self, request: common.GetMetricsRequest,
                          context: Any) -> common.GetMetricsResponse:
