@@ -44,6 +44,23 @@ def template_path(template_root: str, family: str, name: str, version: str) -> s
     return f"{template_root}/{family}/{name}_{version}.yaml"
 
 
+def template_document(
+    snapshot: ValidatedSnapshot, family: str, name: str, version: str
+) -> dict[str, Any]:
+    """Load one validated snapshot template by exact identity and version."""
+    _, template_root = config_sources(snapshot.service)
+    path = template_path(template_root, family, name, version)
+    for item in snapshot.files:
+        if item.path == path:
+            document = _yaml_doc(item)
+            if (
+                document.get('template_id') != name
+                or document.get('file_version') != version
+            ):
+                raise ConfigurationError(f'{path}: template identity mismatch')
+            return document
+    raise ConfigurationError(f'missing referenced template: {path}')
+
 def _template(
     docs: dict[str, dict[str, Any]],
     template_root: str,
