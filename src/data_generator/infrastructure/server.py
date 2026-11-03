@@ -44,35 +44,50 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
     def __init__(self, runtime: Runtime) -> None:
         self.runtime = runtime
 
-    async def ListDevices(self, request: dg.ListDevicesRequest, context: Any) -> dg.ListDevicesResponse:
-        items = {}
+    def _devices(self) -> dict[str, dg.Device]:
+        devices: dict[str, dg.Device] = {}
         for scenario in self.runtime.settings.scenarios.values():
             for device_id in scenario.devices:
-                items[device_id] = dg.Device(
-                    device_id=device_id, protocol="virtual",
-                    actual_state="STOPPED",
+                devices[device_id] = dg.Device(
+                    device_id=device_id, protocol="virtual", actual_state="STOPPED",
                 )
-        for generation in self.runtime.generations.values():
-            if generation.actual_state in ("STARTING", "RUNNING", "STOPPING"):
-                for device_id in generation.scenario.devices:
-                    items[device_id].generation_id = generation.generation_id
-                    items[device_id].actual_state = generation.actual_state
-        filtered = [item for key, item in sorted(items.items()) if request.filter in key]
-        offset = int(request.page_token or "0")
-        if offset < 0 or offset > len(filtered):
+        for state in self.runtime.generations.values():
+            if state.actual_state in ("STARTING", "RUNNING", "STOPPING"):
+                for device_id in state.scenario.devices:
+                    if device_id in devices:
+                        devices[device_id].generation_id = state.generation_id
+                        devices[device_id].actual_state = state.actual_state
+        return devices
+
+    async def ListDevices(
+        self, request: dg.ListDevicesRequest, context: Any,
+    ) -> dg.ListDevicesResponse:
+        filtered = [
+            device for device_id, device in sorted(self._devices().items())
+            if request.filter in device_id
+        ]
+        try:
+            offset = int(request.page_token or "0")
+            if offset < 0 or offset > len(filtered):
+                raise ValueError("invalid offset")
+        except ValueError:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid page token")
+            raise RuntimeError("gRPC abort returned") from None
         size = min(request.page_size or 100, 1000)
         end = offset + size
-        return dg.ListDevicesResponse(devices=filtered[offset:end],
-                                      next_page_token=str(end) if end < len(filtered) else "")
+        return dg.ListDevicesResponse(
+            devices=filtered[offset:end],
+            next_page_token=str(end) if end < len(filtered) else "",
+        )
 
-    async def GetDevice(self, request: common.ObjectId, context: Any) -> dg.GetDeviceResponse:
-        result = await self.ListDevices(dg.ListDevicesRequest(), context)
-        for device in result.devices:
-            if device.device_id == request.id:
-                return dg.GetDeviceResponse(device=device)
-        await context.abort(grpc.StatusCode.NOT_FOUND, "device not found")
-        raise RuntimeError("unreachable")
+    async def GetDevice(
+        self, request: common.ObjectId, context: Any,
+    ) -> dg.GetDeviceResponse:
+        device = self._devices().get(request.id)
+        if device is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "device not found")
+            raise RuntimeError("gRPC abort returned")
+        return dg.GetDeviceResponse(device=device)
 
     async def ListScenarios(self, request: dg.ListScenariosRequest,
                             context: Any) -> dg.ListScenariosResponse:
