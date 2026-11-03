@@ -214,8 +214,10 @@ class CommonService(common_rpc.CommonServiceServicer):
     ) -> common.ApplyConfigSnapshotResponse:
         async with self._config_lock:
             try:
-                settings, restart_required = await asyncio.to_thread(
-                    self.snapshots.apply, request.candidate_id, request.expected_revision,
+                settings, restart_required = await self.runtime.commit_configuration(
+                    lambda: self.snapshots.apply(
+                        request.candidate_id, request.expected_revision,
+                    ),
                 )
             except (GeneratorError, OSError, ValueError) as exc:
                 self.runtime.record("ERROR", "config", "APPLY_FAILED", str(exc))
@@ -227,16 +229,23 @@ class CommonService(common_rpc.CommonServiceServicer):
                     )],
                     effective_revision=self.runtime.settings.revision,
                 )
-            self.runtime.settings = settings
-            self.diagnostics = Diagnostics(settings)
+            self.diagnostics = Diagnostics(self.runtime.settings)
             self.runtime.record("INFO", "config", "APPLIED", settings.revision)
             return common.ApplyConfigSnapshotResponse(
                 file_commit="COMMITTED", effective_revision=settings.revision,
                 restart_required=restart_required,
                 application_id=request.candidate_id,
-                apply_results=[common.ApplicationResult(
-                    object_id=scenario_id, status="APPLIED",
-                ) for scenario_id in settings.scenarios],
+                apply_results=[
+                    common.ApplicationResult(
+                        object_id=scenario_id,
+                        status="BOUND_OLD_VERSION" if any(
+                            g.scenario.scenario_id == scenario_id
+                            and g.actual_state in ("STARTING", "RUNNING", "STOPPING")
+                            for g in self.runtime.generations.values()
+                        ) else "APPLIED",
+                    )
+                    for scenario_id in settings.scenarios
+                ],
             )
 
     async def GetMetrics(
