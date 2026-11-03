@@ -298,6 +298,7 @@ class _RegisterImage:
         pending: dict[int, int] = {}
         confirmed_versions: dict[int, tuple[Any, str]] = {}
         delivered: list[int] = []
+        settled: list[int] = []
         errors: list[str] = []
         for offset, sample in enumerate(samples):
             key = (
@@ -317,6 +318,7 @@ class _RegisterImage:
                     sample.sample_time == old_time and sample.sample_id == old_id
                 ):
                     # An older or already confirmed sample must not roll back the image.
+                    settled.append(offset)
                     continue
                 if sample.sample_time == old_time:
                     errors.append(f"Modbus conflicting identity for sample time: {key}")
@@ -342,13 +344,14 @@ class _RegisterImage:
             }[sample.quality]
             confirmed_versions[index] = (sample.sample_time, sample.sample_id)
             delivered.append(offset)
+            settled.append(offset)
         # No await within the register image update: readers see one entire batch.
         self._values.update(pending)
         self._valid.update(pending)
         self._last.update(confirmed_versions)
         confirmed = tuple(delivered)
         return BatchOutcome(
-            delivered=confirmed, settled=confirmed, error="; ".join(errors)
+            delivered=confirmed, settled=tuple(settled), error="; ".join(errors)
         )
 
     def read(self, address: int, count: int) -> list[int] | None:
