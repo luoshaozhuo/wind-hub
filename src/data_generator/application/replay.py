@@ -7,7 +7,8 @@ import csv
 import math
 import sqlite3
 import tempfile
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
+from typing import TypeVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,20 @@ class ReplayRecord:
 
 
 FIELDS = ("device_id", "point_id", "source_timestamp", "value", "quality", "record_id")
+
+
+_T = TypeVar("_T")
+
+
+async def _owned_thread(function: Callable[..., _T], *args: object) -> _T:
+    """Retain a worker's lifetime after caller cancellation before removing its files."""
+    task = asyncio.create_task(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # Stop may report pending while the source retains this worker's ownership.
+        await asyncio.shield(task)
+        raise
 
 
 def decode_value(raw: str, kind: str) -> Scalar:
@@ -143,12 +158,12 @@ async def iter_records(
         raise GeneratorError("history file exceeds configured byte limit")
     with tempfile.TemporaryDirectory(prefix="windhub-replay-") as temporary:
         database = Path(temporary) / "replay.sqlite3"
-        await asyncio.to_thread(
+        await _owned_thread(
             _index_csv, source, database, start, end, max_records, point_types,
         )
         cursor: tuple[str, int] | None = None
         while True:
-            rows = await asyncio.to_thread(
+            rows = await _owned_thread(
                 _next_batch, database, start, end, cursor, read_batch_size,
             )
             if not rows:
