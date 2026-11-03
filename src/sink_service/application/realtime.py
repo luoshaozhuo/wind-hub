@@ -145,8 +145,6 @@ class RealtimeEngine:
                 f'conflicting task authorities for {sample.device_id}:{sample.point_id}'
             )
             return False
-        if authority is None:
-            self._authorities[key] = sample.task_id
         prior = self._latest.get(key)
         if prior is not None and (
             sample.sample_time < prior.sample_time
@@ -168,6 +166,7 @@ class RealtimeEngine:
             if confirmed is None or confirmed.sample_id != prior.sample_id:
                 self.dropped_total += 1
         self._latest[key] = sample
+        self._authorities[key] = sample.task_id
         if self._policy != 'periodic' and self._changed(sample, self._sent.get(key)):
             self._wakeup.set()
         return True
@@ -238,6 +237,8 @@ class RealtimeEngine:
                     if confirmed is None or confirmed.sample_id != sample.sample_id:
                         self.dropped_total += 1
                     self._latest.pop(key, None)
+                    self._authorities.pop(key, None)
+                    self._conflicted.discard(key)
                     self._sent.pop(key, None)
                     self._sent_at.pop(key, None)
                     self._skipped.pop(key, None)
