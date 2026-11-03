@@ -176,16 +176,33 @@ class RealtimeEngine:
         if self._task is not None:
             return
         self._stop.clear()
-        self._task = asyncio.create_task(self._run())
+        task = asyncio.create_task(self._run())
+        task.add_done_callback(self._on_task_finished)
+        self._task = task
+
+    def _on_task_finished(self, task: asyncio.Task[None]) -> None:
+        if task.cancelled():
+            self.last_error = 'Realtime scheduler was cancelled unexpectedly'
+            return
+        failure = task.exception()
+        if failure is not None:
+            self.last_error = f'Realtime scheduler terminated: {failure}'
+        elif not self._stop.is_set():
+            self.last_error = 'Realtime scheduler exited without STOP'
 
     async def stop(self) -> None:
         self._stop.set()
         self._wakeup.set()
         task = self._task
         if task is not None:
-            await task
+            if task.cancelled():
+                self.last_error = 'Realtime scheduler was cancelled'
+            else:
+                try:
+                    await asyncio.shield(task)
+                except Exception as exc:
+                    self.last_error = f'Realtime scheduler terminated: {exc}'
             self._task = None
-
     async def _run(self) -> None:
         """At most one serial output cycle per configured interval."""
         loop = asyncio.get_running_loop()
