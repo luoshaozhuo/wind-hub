@@ -8,6 +8,8 @@ import os
 import shutil
 import tempfile
 import uuid
+
+import yaml
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -104,6 +106,7 @@ class SnapshotManager:
             for file in self._runtime_files if file.path in self._owned()
         }
         self._candidate: tuple[str, tuple[FileContent, ...], str, Settings] | None = None
+        self._restart_pending = False
         self.max_files = 2
         self.max_bytes = 8 * 1024 * 1024
 
@@ -198,12 +201,23 @@ class SnapshotManager:
             staged = load_settings(
                 stage / _relative(root, self.settings.service_file)
             )
-
-        for name, previous in self.settings.scenarios.items():
-            changed = staged.scenarios.get(name)
-            if changed is not None and changed.version == previous.version and changed != previous:
+            candidate_document = yaml.safe_load(staged.scenario_file.read_text(encoding="utf-8"))
+        old_document = yaml.safe_load(
+            self.settings.scenario_file.read_text(encoding="utf-8")
+        )
+        existing = {
+            item["scenario_id"]: item for item in old_document["scenarios"]
+        }
+        for item in candidate_document["scenarios"]:
+            before = existing.get(item["scenario_id"])
+            if (
+                before is not None
+                and before["version"] == item["version"]
+                and before != item
+            ):
                 raise GeneratorError(
-                    f"immutable scenario version changed: {name}@{previous.version}"
+                    "immutable scenario version changed: "
+                    f"{item['scenario_id']}@{item['version']}"
                 )
         candidate_id = str(uuid.uuid4())
         self._candidate = (candidate_id, files, self.settings.revision, staged)
@@ -262,9 +276,11 @@ class SnapshotManager:
             _sync_dir(root)
             self.settings = new_settings
             self._disk_private = {
-                file.path: proposed[file.path] for file in candidate[1]
+                file.path: file.data for file in self._read_disk()
+                if file.path in self._owned()
             }
-            if not restart:
+            self._restart_pending = self._restart_pending or restart
+            if not self._restart_pending:
                 self._runtime_files = self._read_disk()
             self._candidate = None
-            return new_settings, restart
+            return new_settings, self._restart_pending
