@@ -99,7 +99,8 @@ class Runtime:
         generation = self.generations[self._active]
         if self._blocked(generation):
             generation.actual_state = "STOPPING"
-            generation.last_error = "UNSETTLED_GATEWAY_OUTPUT"
+            if not generation.last_error:
+                generation.last_error = "UNSETTLED_GATEWAY_OUTPUT"
             return
         if generation.desired_state == "STOPPED":
             generation.actual_state = "STOPPED"
@@ -207,7 +208,8 @@ class Runtime:
                 self._reconcile_locked()
             else:
                 generation.actual_state = "STOPPING"
-                generation.last_error = "UNSETTLED_GATEWAY_OUTPUT"
+                if not generation.last_error:
+                    generation.last_error = "UNSETTLED_GATEWAY_OUTPUT"
                 self.record(
                     "WARNING", generation_id, "STOP_PENDING_IO",
                     "Gateway I/O did not safely settle before stop deadline",
@@ -233,7 +235,8 @@ class Runtime:
         except asyncio.CancelledError:
             generation.actual_state = "STOPPING"
             raise
-        except (GeneratorError, OSError, ValueError, TypeError) as exc:
+        except Exception as exc:
+            # Top-level source-task boundary: never leave a failed task in RUNNING.
             generation.actual_state = "FAILED"
             generation.terminal_state = "FAILED"
             generation.last_error = str(exc)
@@ -244,7 +247,8 @@ class Runtime:
                 # its done-callback will make the reservation reapable later.
                 if self._blocked(generation):
                     generation.actual_state = "STOPPING"
-                    generation.last_error = "UNSETTLED_GATEWAY_OUTPUT"
+                    if not generation.last_error:
+                        generation.last_error = "UNSETTLED_GATEWAY_OUTPUT"
                 elif generation.desired_state == "STOPPED":
                     generation.actual_state = "STOPPED"
 
