@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from data_generator.application.models import generate_values
-from data_generator.application.replay import iter_records, replay_deadline
+from data_generator.application.replay import decode_value, iter_records, replay_deadline
 from data_generator.domain.model import (
     DataBatch,
     DataPoint,
@@ -263,6 +263,10 @@ class Runtime:
             read_batch_size=int(limits.get("read_batch_size", 1000)),
             max_file_bytes=int(limits.get("max_file_bytes", 268435456)),
             max_records=int(limits.get("max_records", 1000000)),
+            point_types={
+                key: str(point["data_type"])
+                for key, point in scenario.points.items()
+            },
         ):
             if generation.desired_state != "RUNNING":
                 return
@@ -277,25 +281,8 @@ class Runtime:
             key = (record.device_id, record.point_id)
             if key not in scenario.points:
                 raise GeneratorError(f"CSV line {record.line_number}: unknown point {key}")
-            kind = scenario.points[key]["data_type"]
-            try:
-                if kind == "bool":
-                    if record.value.lower() not in ("true", "false"):
-                        raise GeneratorError("invalid boolean")
-                    value: Scalar = record.value.lower() == "true"
-                elif kind.startswith(("int", "uint")):
-                    value = int(record.value)
-                elif kind.startswith("float"):
-                    value = float(record.value)
-                elif kind == "bytes":
-                    value = record.value.encode("utf-8")
-                else:
-                    value = record.value
-                checked = validate_scalar(value, kind)
-            except (ValueError, TypeError) as exc:
-                raise GeneratorError(
-                    f"CSV line {record.line_number}: invalid {kind} value"
-                ) from exc
+            kind = str(scenario.points[key]["data_type"])
+            checked = decode_value(record.value, kind)
             sequence += 1
             status = await self._emit(
                 generation, sequence, record.source_time, {key: checked},
@@ -303,7 +290,9 @@ class Runtime:
             if status != "SUCCESS":
                 raise GeneratorError(
                     f"CSV line {record.line_number}: output {status}; replay halted"
-                )
+                )        if sequence == 0:
+            raise GeneratorError("EMPTY_REPLAY_WINDOW: no source records in time range")
+
 
     async def _emit(
         self,
