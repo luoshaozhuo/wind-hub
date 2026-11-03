@@ -19,7 +19,6 @@ from nats.errors import TimeoutError as NatsTimeoutError
 from nats.js.api import AckPolicy, ConsumerConfig
 
 from contracts.sample_message import SampleMessage
-
 from sink_service.application.config import template_path
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.realtime import BatchOutcome
