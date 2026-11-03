@@ -204,11 +204,13 @@ class RealtimeEngine:
             now = datetime.now(UTC)
             for key, sample in tuple(self._latest.items()):
                 if not self._fresh(sample, now):
+                    confirmed = self._sent.get(key)
+                    if confirmed is None or confirmed.sample_id != sample.sample_id:
+                        self.dropped_total += 1
                     self._latest.pop(key, None)
                     self._sent.pop(key, None)
                     self._sent_at.pop(key, None)
                     self._skipped.pop(key, None)
-                    self.dropped_total += 1
             if self._policy == 'periodic' and not periodic_due:
                 continue
             if (
