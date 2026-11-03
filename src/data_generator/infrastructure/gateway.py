@@ -11,10 +11,10 @@ from typing import Any
 
 import grpc
 
-from contracts import common_pb2, industrial_gateway_pb2, industrial_gateway_pb2_grpc
+from contracts import industrial_gateway_pb2, industrial_gateway_pb2_grpc
 from core.infrastructure.rpc.scalar_codec import encode_scalar
-from data_generator.domain.scenario import Scenario
 from data_generator.domain.model import DataBatch, DeliveryResult, OutputTarget, Scalar
+from data_generator.domain.scenario import Scenario
 
 _CLEAR_REJECTION_CODES = frozenset({
     grpc.StatusCode.INVALID_ARGUMENT,
@@ -47,8 +47,28 @@ class GatewayWriter:
 
     @property
     def unsafe_gateways(self) -> frozenset[str]:
-        """Gateway IDs with unresolved side effects requiring explicit isolation."""
+        """Quarantined Gateway IDs for which completion cannot prove safe release."""
         return frozenset(self._unsafe)
+
+    @property
+    def unsettled_gateways(self) -> frozenset[str]:
+        """Native calls still in progress, including those that timed out logically."""
+        return frozenset(
+            name for name, task in self._unsettled.items() if not task.done()
+        )
+
+    async def wait_settled(self, gateway_ids: frozenset[str], timeout: float) -> bool:
+        """Wait no longer than the stop deadline; do not cancel native calls."""
+        tasks = [
+            task for name, task in self._unsettled.items()
+            if name in gateway_ids and not task.done()
+        ]
+        if tasks:
+            _, pending = await asyncio.wait(tasks, timeout=timeout)
+            if pending:
+                return False
+        # A settled transport error remains quarantined without a trusted ACK.
+        return not bool(gateway_ids.intersection(self._unsafe))
 
     async def send(self, scenario: Scenario, batch: DataBatch) -> list[DeliveryResult]:
         values = {(point.device_id, point.point_id): point.value for point in batch.points}
@@ -80,11 +100,11 @@ class GatewayWriter:
     ) -> list[DeliveryResult]:
         async with self._locks[gateway_id]:
             if gateway_id in self._unsafe:
-                return [DeliveryResult(target, "UNKNOWN", "UNSETTLED_OUTPUT")
+                return [DeliveryResult(target, "FAILED", "TARGET_QUARANTINED")
                         for target, _ in entries]
             prior = self._unsettled.get(gateway_id)
             if prior is not None and not prior.done():
-                return [DeliveryResult(target, "UNKNOWN", "UNSETTLED_IO")
+                return [DeliveryResult(target, "FAILED", "TARGET_BUSY")
                         for target, _ in entries]
             self._unsettled.pop(gateway_id, None)
             try:
@@ -134,8 +154,10 @@ class GatewayWriter:
                     pass
                 else:
                     returned = {item.variable_id for item in reply.results}
-                    if returned == expected:
+                    if len(returned) == len(reply.results) and returned == expected:
                         self._unsafe.discard(gateway_id)
+                    else:
+                        self._unsafe.add(gateway_id)
 
             task.add_done_callback(on_complete)
             try:
