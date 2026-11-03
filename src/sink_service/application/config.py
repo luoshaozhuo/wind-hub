@@ -180,6 +180,21 @@ def _validate_delivery(
         if output.get("policy") not in ("periodic", "on_change", "change_with_heartbeat"):
             raise ConfigurationError(f"deliveries.{delivery_id}: unknown output policy")
         expect_positive_int(output.get("period_ms"), f"deliveries.{delivery_id}.period_ms")
+        for threshold in ("absolute_threshold", "relative_threshold"):
+            value = output.get(threshold, 0.0)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not 0 <= value < float("inf")
+            ):
+                raise ConfigurationError(f"deliveries.{delivery_id}: invalid {threshold}")
+        staleness = expect_mapping(
+            template.get("staleness", {}), f"deliveries.{delivery_id}.staleness"
+        )
+        if "max_age_ms" in staleness:
+            expect_positive_int(
+                staleness["max_age_ms"], f"deliveries.{delivery_id}.max_age_ms",
+            )
     if mode == "reliable":
         reliable = expect_mapping(template.get("reliable"), f"deliveries.{delivery_id}.reliable")
         if reliable.get("max_deliver") != -1:
