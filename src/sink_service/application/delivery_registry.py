@@ -108,6 +108,15 @@ class DeliveryRegistry:
                     if key != "desired_state"
                 },
                 "sink": snapshot.sinks[item.sink_id],
+                "shared_modbus_mapping": (
+                    {
+                        name: value['source']
+                        for name, value in sorted(snapshot.deliveries.items())
+                        if value['sink_id'] == item.sink_id
+                    }
+                    if sink['template_id'] == 'modbus_registers'
+                    else {}
+                ),
                 "delivery_template": (
                     snapshot.deliveries[identifier]["template_id"],
                     snapshot.deliveries[identifier]["template_version"],
