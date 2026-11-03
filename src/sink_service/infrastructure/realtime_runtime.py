@@ -6,8 +6,6 @@ import asyncio
 import hashlib
 import json
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 import nats
@@ -53,6 +51,10 @@ class NatsRealtimeIngress:
         self._engines: dict[str, RealtimeEngine] = {}
         self._lock = asyncio.Lock()
         self.last_error = ""
+
+    @property
+    def connected(self) -> bool:
+        return self._client is not None and self._client.is_connected
 
     async def add(self, delivery_id: str, engine: RealtimeEngine) -> None:
         async with self._lock:
@@ -225,6 +227,14 @@ class RealtimeDeliveryPort:
         self._ingress = ingress
         self._engine: RealtimeEngine | None = None
 
+    @property
+    def last_error(self) -> str:
+        if self._engine is None:
+            return ""
+        if not self._ingress.connected:
+            return "NATS realtime source disconnected"
+        return self._engine.last_error or self._ingress.last_error
+
     async def start(self) -> None:
         if self._engine is not None:
             return
@@ -260,14 +270,14 @@ class RealtimeDeliveryPort:
         self._engine = engine
 
     async def stop(self) -> None:
-        engine, self._engine = self._engine, None
+        engine = self._engine
         if engine is None:
             return
-        try:
-            await self._ingress.remove(self._id)
-            await engine.stop()
-        finally:
-            await self._pool.release(self._sink_id)
+        # Keep ownership until all work and the physical connection are settled.
+        await self._ingress.remove(self._id)
+        await engine.stop()
+        await self._pool.release(self._sink_id)
+        self._engine = None
 
 
 class RealtimeFactory:
