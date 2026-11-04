@@ -445,7 +445,7 @@ class RealtimeDeliveryPort:
 
 
 class RealtimeFactory:
-    """Process-level assembler; reliable ports remain fail-closed until stage three."""
+    """Process-local assembler for Realtime Delivery ports."""
 
     def __init__(self) -> None:
         self._pool = SinkOutputPool()
@@ -455,7 +455,7 @@ class RealtimeFactory:
         self, definition: DeliveryDefinition, snapshot: ValidatedSnapshot,
     ) -> RealtimeDeliveryPort:
         if definition.channel != "realtime":
-            raise ConfigurationError("reliable data plane is reserved for stage three")
+            raise ConfigurationError("RealtimeFactory cannot own reliable Delivery")
         if self._ingress is None:
             nats_config = snapshot.service["nats"]
             self._ingress = NatsRealtimeIngress(
