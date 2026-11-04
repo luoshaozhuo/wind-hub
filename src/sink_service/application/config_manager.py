@@ -298,10 +298,6 @@ class ConfigManager:
             if self._reconcile is not None:
                 try:
                     applied = await self._reconcile(snapshot)
-                    owner = next(
-                        item.channel for item in delivery_definitions(snapshot)
-                        if item.delivery_id == delivery_id
-                    )
                     # A remote intent is only locally committed; the Reader
                     # independently owns actual RUNNING/STOPPED convergence.
                     # Nevertheless, the Writer's runtime revision must not
