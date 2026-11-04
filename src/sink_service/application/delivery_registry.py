@@ -177,7 +177,11 @@ class DeliveryRegistry:
             for identifier, definition in definitions.items():
                 existing = self._entries.get(identifier)
                 signature = signatures[identifier]
-                if existing is not None and existing.signature == signature:
+                if (
+                    existing is not None
+                    and existing.signature == signature
+                    and not existing.removing
+                ):
                     old = existing.view
                     existing.view = DeliveryView(
                         delivery_id=old.delivery_id,
@@ -559,6 +563,10 @@ class DeliveryRegistry:
             else:
                 await entry.port.stop()
         except BaseException as exc:
+            if not running:
+                # A failed STOP may still own native I/O. Never START this
+                # binding again before it has been safely retired.
+                entry.removing = True
             entry.view = self._replace(
                 entry.view, actual_state=ActualState.FAILED, last_error=str(exc)
             )
