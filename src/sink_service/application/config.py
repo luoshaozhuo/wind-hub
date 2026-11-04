@@ -115,8 +115,20 @@ def _validate_sink(
         raise ConfigurationError(f"sinks.{sink_id}: Modbus Server cannot be reliable")
     if kind == "kafka" and caps["reliable"]:
         output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
-        if output.get("business_duplicate_policy") not in ("require_dedup", "allow_at_least_once"):
+        policy = output.get("business_duplicate_policy")
+        if policy not in ("require_dedup", "allow_at_least_once"):
             raise ConfigurationError(f"sinks.{sink_id}: missing Kafka duplicate policy")
+        if policy == "require_dedup":
+            identity = output.get("dedup_identity_fields")
+            if (
+                not isinstance(identity, list)
+                or len(identity) != 2
+                or set(identity) != {"delivery_id", "sample_id"}
+            ):
+                raise ConfigurationError(
+                    f"sinks.{sink_id}: Kafka downstream dedup identity must "
+                    "contain delivery_id and sample_id"
+                )
     connection = expect_mapping(sink.get("connection"), f"sinks.{sink_id}.connection")
     output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
     expect_positive_int(
