@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
@@ -21,6 +22,8 @@ from sink_service.infrastructure.config_repository import GenerationStore
 from sink_service.infrastructure.config_sync import ConfigReader
 from sink_service.infrastructure.grpc_v1 import build_v1_server
 from sink_service.infrastructure.writer_lease import WriterLease
+
+logger = logging.getLogger(__name__)
 
 DeliveryFactory = Callable[[DeliveryDefinition, ValidatedSnapshot], DeliveryPort]
 
@@ -167,24 +170,29 @@ async def serve_control_plane(
 
         async def recover_running() -> None:
             while not stop.is_set():
-                await registry.reconcile_all()
-                if writer and manager.runtime.revision != manager.disk.revision:
-                    pending = manager.disk
-                    current_service = service_configuration(pending, service_file)
-                    old_services = {
-                        item.path: item.content for item in manager.runtime.files
-                        if item.path.startswith('configs/services/')
-                    }
-                    new_services = {
-                        item.path: item.content for item in pending.files
-                        if item.path.startswith('configs/services/')
-                    }
-                    if (
-                        current_service == service
-                        and old_services == new_services
-                        and local_converged(pending)
-                    ):
-                        await manager.mark_active(pending)
+                try:
+                    await registry.reconcile_all()
+                    if writer and manager.runtime.revision != manager.disk.revision:
+                        pending = manager.disk
+                        current_service = service_configuration(pending, service_file)
+                        old_services = {
+                            item.path: item.content for item in manager.runtime.files
+                            if item.path.startswith('configs/services/')
+                        }
+                        new_services = {
+                            item.path: item.content for item in pending.files
+                            if item.path.startswith('configs/services/')
+                        }
+                        if (
+                            current_service == service
+                            and old_services == new_services
+                            and local_converged(pending)
+                        ):
+                            await manager.mark_active(pending)
+                except Exception:
+                    # Keep the supervisor alive after an unexpected reconcile
+                    # failure. The next cycle retries the committed intent.
+                    logger.exception("Sink Delivery watchdog reconciliation failed")
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=watchdog_seconds)
                 except TimeoutError:
@@ -246,17 +254,21 @@ async def serve_control_plane(
         await stop.wait()
     finally:
         stop.set()
-        if poll_task is not None:
-            await poll_task
-        if recovery_task is not None:
-            await recovery_task
-        if metrics_task is not None:
-            await metrics_task
-        if server is not None:
-            await server.stop(grace=float(service["shutdown"]["grace_seconds"]))
-        # The Writer lease must be released even if an Adapter shutdown fails.
+        supervisors = [
+            task for task in (poll_task, recovery_task, metrics_task)
+            if task is not None
+        ]
+        results = await asyncio.gather(*supervisors, return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.error("Sink supervisor terminated with error: %r", result)
         try:
-            await registry.shutdown()
+            if server is not None:
+                await server.stop(grace=float(service["shutdown"]["grace_seconds"]))
         finally:
-            if lease is not None:
-                lease.release()
+            # Never retain the Writer lease after an Adapter or gRPC failure.
+            try:
+                await registry.shutdown()
+            finally:
+                if lease is not None:
+                    lease.release()
