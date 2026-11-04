@@ -351,7 +351,14 @@ class ReliableDeliveryPort:
                 continue
         result: BatchOutcome = await asyncio.shield(task)
         if progress_error is not None:
-            raise RuntimeError('JetStream ACK deadline extension failed') from progress_error
+            # A failed InProgress signal does not invalidate a settled target
+            # write. Attempt the source ACK using that actual result; Broker
+            # redelivery remains possible if the consumer lease was lost.
+            logger.warning(
+                "JetStream ACK extension failed for Delivery %s: %s",
+                self._definition.delivery_id,
+                progress_error,
+            )
         return result
 
     async def _retry_pause(self, seconds: float) -> None:
