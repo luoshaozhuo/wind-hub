@@ -432,8 +432,11 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         if not 1 <= budget_ms <= 5000 or len(requested) > len(allowed):
             await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, 'invalid diagnostic bounds')
             raise AssertionError('gRPC abort returned')
-        if any(name not in allowed for name in requested):
-            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, 'unknown diagnostic stage')
+        if any(name not in allowed for name in requested) or len(set(requested)) != len(requested):
+            await _abort(
+                context, grpc.StatusCode.INVALID_ARGUMENT,
+                'unknown or duplicate diagnostic stage',
+            )
             raise AssertionError('gRPC abort returned')
         views = self._registry.list()
         if request.target_id:
@@ -542,6 +545,9 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
         except ValueError as exc:
             await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             raise AssertionError("gRPC abort returned") from exc
+        if request.channel not in ("", "realtime", "reliable"):
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "invalid Delivery channel")
+            raise AssertionError("gRPC abort returned")
         values = self._registry.list(request.channel)
         limit = request.page_size or 100
         if limit > 500:
