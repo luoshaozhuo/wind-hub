@@ -204,6 +204,10 @@ class RedisOutput:
                 # A deterministic same-timestamp identity conflict is
                 # settled (not retryable) but never a successful delivery.
                 # Reliable uses the error to transfer it to DLQ.
+                if any(status not in (-1, 0, 1, 2) for status in results):
+                    # An unexpected script result is not proof of a permanent
+                    # business conflict; never send such a message to DLQ.
+                    raise ConnectionError("unexpected Redis CAS result code")
                 settled = tuple(
                     index for index, status in enumerate(results)
                     if status in (-1, 0, 1, 2)
@@ -214,7 +218,7 @@ class RedisOutput:
                 )
                 conflicts = [
                     index for index, status in enumerate(results)
-                    if status not in (0, 1, 2)
+                    if status == -1
                 ]
                 error = (
                     f'Redis CAS conflicts at samples {conflicts}'
