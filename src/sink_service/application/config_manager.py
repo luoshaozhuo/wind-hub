@@ -304,11 +304,20 @@ class ConfigManager:
                     )
                     # A remote intent is only locally committed; the Reader
                     # independently owns actual RUNNING/STOPPED convergence.
-                    if owner != self._runtime.service['process_role'] or delivery_id in applied:
+                    # Nevertheless, the Writer's runtime revision must not
+                    # advance while any of its own bindings are unconverged.
+                    local_ids = {
+                        item.delivery_id
+                        for item in delivery_definitions(snapshot)
+                        if item.channel == self._runtime.service["process_role"]
+                    }
+                    if local_ids.issubset(set(applied)):
                         self._runtime = snapshot
                         self._last_error = ""
                     else:
-                        self._last_error = "Delivery did not reach requested state"
+                        self._last_error = (
+                            "one or more local Deliveries are not converged"
+                        )
                 except Exception as exc:
                     # The desired state has already been committed to disk.
                     self._last_error = str(exc)
