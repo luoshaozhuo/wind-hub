@@ -23,6 +23,7 @@ class ConfigReader:
         apply: ApplyCallback,
         *,
         poll_interval_ms: int,
+        report_error: Callable[[str], None] | None = None,
     ) -> None:
         if poll_interval_ms <= 0:
             raise ConfigurationError("poll interval must be positive")
@@ -31,6 +32,7 @@ class ConfigReader:
         self._peer_service_file = peer_service_file
         self._apply = apply
         self._interval = poll_interval_ms / 1000
+        self._report_error = report_error
         self._last_revision = ""
         self._last_error = ""
 
@@ -68,9 +70,13 @@ class ConfigReader:
             # exception must not permanently kill Reader synchronization.
             # asyncio cancellation remains independently propagated.
             self._last_error = f"{type(exc).__name__}: {exc}"
+            if self._report_error is not None:
+                self._report_error(self._last_error)
             return False
         self._last_revision = snapshot.revision
         self._last_error = ""
+        if self._report_error is not None:
+            self._report_error("")
         return True
 
     async def run(self, stop: asyncio.Event) -> None:
