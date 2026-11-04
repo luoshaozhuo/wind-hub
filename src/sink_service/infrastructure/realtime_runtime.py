@@ -397,6 +397,14 @@ class RealtimeDeliveryPort:
                 max_age_ms=staleness.get('max_age_ms'),
                 absolute_threshold=output.get('absolute_threshold', 0.0),
                 relative_threshold=output.get('relative_threshold', 0.0),
+                preserve_upstream_sample=(
+                    _template(
+                        self._snapshot,
+                        "sinks",
+                        self._snapshot.sinks[self._sink_id]["template_id"],
+                        self._snapshot.sinks[self._sink_id]["template_version"],
+                    )["kind"] == "kafka"
+                ),
             )
             await engine.start()
             await self._ingress.add(self._id, engine)
