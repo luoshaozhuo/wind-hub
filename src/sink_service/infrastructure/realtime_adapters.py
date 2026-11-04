@@ -201,9 +201,12 @@ class RedisOutput:
                 await asyncio.wait_for(writer.drain(), timeout=self._timeout)
                 results = await self._integer_array(len(samples))
                 latency_ms = (time.perf_counter() - started) * 1000
+                # A deterministic same-timestamp identity conflict is
+                # settled (not retryable) but never a successful delivery.
+                # Reliable uses the error to transfer it to DLQ.
                 settled = tuple(
                     index for index, status in enumerate(results)
-                    if status in (0, 1, 2)
+                    if status in (-1, 0, 1, 2)
                 )
                 delivered = tuple(
                     index for index, status in enumerate(results)
@@ -221,9 +224,11 @@ class RedisOutput:
                     delivered=delivered,
                     settled=settled,
                     error=error,
-                    successful_attempts=0 if conflicts else 1,
-                    failed_attempts=1 if conflicts else 0,
-                    successful_latencies_ms=() if conflicts else (latency_ms,),
+                    # Lua EVAL was acknowledged even when individual CAS
+                    # comparisons rejected a business version.
+                    successful_attempts=1,
+                    failed_attempts=0,
+                    successful_latencies_ms=(latency_ms,),
                 )
             except Exception as exc:
                 # The script may have executed before its reply was lost.
