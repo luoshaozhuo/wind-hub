@@ -140,6 +140,7 @@ class ReliableDeliveryPort:
                 if (
                     not isinstance(identity, list)
                     or len(identity) != 2
+                    or any(not isinstance(field, str) for field in identity)
                     or set(identity) != {'delivery_id', 'sample_id'}
                 ):
                     raise ConfigurationError(
