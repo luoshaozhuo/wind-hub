@@ -388,9 +388,10 @@ class _RegisterImage:
                     settled.append(offset)
                     continue
                 if sample.sample_time == old_time and sample.sample_id == old_id:
-                    # An identical already-exposed image is confirmed again at the
-                    # periodic/heartbeat boundary; no register rewrite is needed.
-                    delivered.append(offset)
+                    # A duplicate is confirmed only while the register image
+                    # is still readable. Never count an expired image as output.
+                    if datetime.now(UTC).timestamp() < self._expires.get(index, 0.0):
+                        delivered.append(offset)
                     settled.append(offset)
                     continue
                 if sample.sample_time == old_time:
@@ -405,6 +406,13 @@ class _RegisterImage:
                 binary = struct.pack('>f', sample.value)
             except (ValueError, OverflowError, struct.error) as exc:
                 errors.append(f'Modbus float32 invalid at {key}: {exc}')
+                continue
+            if (
+                sample.max_staleness_ms is not None
+                and datetime.now(UTC).timestamp()
+                >= sample.sample_time.timestamp() + sample.max_staleness_ms / 1000
+            ):
+                settled.append(offset)
                 continue
             high, low = struct.unpack('>HH', binary)
             value_address = self._value_start + index * 2
