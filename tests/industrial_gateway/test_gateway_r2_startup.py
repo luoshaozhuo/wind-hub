@@ -18,7 +18,7 @@ import pytest
 from pymodbus.client import AsyncModbusTcpClient
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-FACTORY_CONFIG = REPO_ROOT / "configs" / "industrial_gateway.yaml"
+FACTORY_CONFIG = REPO_ROOT / "configs" / "services" / "industrial_gateway.yaml"
 LISTEN_PORT = 15020
 
 pytestmark = [pytest.mark.integration, pytest.mark.modbus, pytest.mark.real_service]

@@ -25,6 +25,8 @@ from .yaml import read_yaml_mapping
 class SharedConfigPaths:
     instances: Path
     templates: Path
+    site_file: Path | None = None
+    devices_file: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,8 +84,8 @@ class SharedDocumentLoader:
         self._repository = VersionedTemplateRepository(paths.templates)
 
     def load(self) -> SharedDocuments:
-        site = _read(self._paths.instances / "site.yaml")
-        device_doc = _read(self._paths.instances / "devices.yaml")
+        site = _read(self._paths.site_file or self._paths.instances / "site.yaml")
+        device_doc = _read(self._paths.devices_file or self._paths.instances / "devices.yaml")
         units = _read(self._paths.templates / "units.yaml")
         business_points = _read(self._paths.templates / "business_points.yaml")
         _keys(

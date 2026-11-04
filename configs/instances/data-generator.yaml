@@ -1,0 +1,50 @@
+# Data Generator private scenarios; point metadata is resolved from shared Core templates.
+schema_version: 1
+file_version: "1.0.0"
+scenarios:
+  - scenario_id: demo-random
+    version: "1.0.0"
+    description: "ADS virtual pitch signal"
+    source:
+      kind: simulation
+      interval_seconds: 1.0
+      seed: 42
+    devices:
+      - device_id: GW01
+        points:
+          - point_id: a02_dm_pitchangle1
+            model:
+              kind: random
+              distribution: uniform
+              minimum: 3.0
+              maximum: 15.0
+    gateways:
+      - gateway_id: gw-test
+        endpoint: "127.0.0.1:50051"
+        feedback_mapping:
+          - {device_id: GW01, point_id: a02_dm_pitchangle1, variable_id: GW01.pitch_angle}
+          - {device_id: GW01, point_id: a02_dm_pitchangle1, variable_id: GW01.pitch_angle_copy}
+      - gateway_id: gw-test-2
+        endpoint: "127.0.0.1:50052"
+        feedback_mapping:
+          - {device_id: GW01, point_id: a02_dm_pitchangle1, variable_id: turbine.pitch}
+  - scenario_id: demo-replay
+    version: "1.0.0"
+    description: "Replay pitch signal from CSV"
+    source:
+      kind: replay
+      history_reader: csv
+      file: "history/demo.csv"
+      start_time: "2026-01-01T00:00:00Z"
+      end_time: "2026-01-01T01:00:00Z"
+      speed: 1.0
+      loop: false
+    devices:
+      - device_id: GW02
+        points:
+          - point_id: a02_dm_pitchangle1
+    gateways:
+      - gateway_id: gw-test
+        endpoint: "127.0.0.1:50051"
+        feedback_mapping:
+          - {device_id: GW02, point_id: a02_dm_pitchangle1, variable_id: GW02.pitch_angle}

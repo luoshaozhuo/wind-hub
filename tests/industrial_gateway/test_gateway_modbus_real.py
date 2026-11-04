@@ -237,6 +237,6 @@ async def test_concurrent_unit_and_identity_no_crosstalk(harness) -> None:
 
 
 def test_shipped_config_loads() -> None:
-    config = load_config(Path("configs/industrial_gateway.yaml"))
+    config = load_config(Path("configs/services/industrial_gateway.yaml"))
     assert config.control.enabled is False
     assert [dev.protocol_address.unit_id for dev in config.devices.values()] == [1, 2]

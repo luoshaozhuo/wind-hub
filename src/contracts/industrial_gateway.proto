@@ -41,6 +41,26 @@ message VariableUpdate {
 message UpdateVariablesRequest {
   string gateway_id = 1;
   repeated VariableUpdate values = 2;
+  // Required per-Generation fencing token, issued by ClaimTargets.
+  string lease_token = 3;
+}
+
+// ACQUIRE atomically claims all named targets in one Gateway.
+// RENEW and RELEASE require the original token and exact owner identity.
+// Lease TTL is bounded server-side; a stale token never authorizes writes.
+message ClaimTargetsRequest {
+  string gateway_id = 1;
+  string owner_id = 2;
+  repeated string variable_ids = 3;
+  string action = 4;
+  string lease_token = 5;
+  uint32 lease_ms = 6;
+}
+message ClaimTargetsResponse {
+  bool accepted = 1;
+  string lease_token = 2;
+  string error_code = 3;
+  string message = 4;
 }
 message VariableUpdateResult {
   string variable_id = 1;
@@ -60,4 +80,5 @@ service IndustrialGatewayService {
   rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
   rpc ReadVariables(ReadVariablesRequest) returns (ReadVariablesResponse);
   rpc UpdateVariables(UpdateVariablesRequest) returns (UpdateVariablesResponse);
+  rpc ClaimTargets(ClaimTargetsRequest) returns (ClaimTargetsResponse);
 }

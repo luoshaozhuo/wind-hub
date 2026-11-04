@@ -39,6 +39,7 @@ class IndustrialGatewayServiceStub:
     ListVariables: _grpc.UnaryUnaryMultiCallable[_industrial_gateway_pb2.ListVariablesRequest, _industrial_gateway_pb2.ListVariablesResponse]
     ReadVariables: _grpc.UnaryUnaryMultiCallable[_industrial_gateway_pb2.ReadVariablesRequest, _industrial_gateway_pb2.ReadVariablesResponse]
     UpdateVariables: _grpc.UnaryUnaryMultiCallable[_industrial_gateway_pb2.UpdateVariablesRequest, _industrial_gateway_pb2.UpdateVariablesResponse]
+    ClaimTargets: _grpc.UnaryUnaryMultiCallable[_industrial_gateway_pb2.ClaimTargetsRequest, _industrial_gateway_pb2.ClaimTargetsResponse]
 
 @_typing.type_check_only
 class IndustrialGatewayServiceAsyncStub(IndustrialGatewayServiceStub):
@@ -50,6 +51,7 @@ class IndustrialGatewayServiceAsyncStub(IndustrialGatewayServiceStub):
     ListVariables: _aio.UnaryUnaryMultiCallable[_industrial_gateway_pb2.ListVariablesRequest, _industrial_gateway_pb2.ListVariablesResponse]  # type: ignore[assignment]
     ReadVariables: _aio.UnaryUnaryMultiCallable[_industrial_gateway_pb2.ReadVariablesRequest, _industrial_gateway_pb2.ReadVariablesResponse]  # type: ignore[assignment]
     UpdateVariables: _aio.UnaryUnaryMultiCallable[_industrial_gateway_pb2.UpdateVariablesRequest, _industrial_gateway_pb2.UpdateVariablesResponse]  # type: ignore[assignment]
+    ClaimTargets: _aio.UnaryUnaryMultiCallable[_industrial_gateway_pb2.ClaimTargetsRequest, _industrial_gateway_pb2.ClaimTargetsResponse]  # type: ignore[assignment]
 
 class IndustrialGatewayServiceServicer(metaclass=_abc_1.ABCMeta):
     @_abc_1.abstractmethod
@@ -100,5 +102,12 @@ class IndustrialGatewayServiceServicer(metaclass=_abc_1.ABCMeta):
         request: _industrial_gateway_pb2.UpdateVariablesRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_industrial_gateway_pb2.UpdateVariablesResponse, _abc.Awaitable[_industrial_gateway_pb2.UpdateVariablesResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ClaimTargets(
+        self,
+        request: _industrial_gateway_pb2.ClaimTargetsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_industrial_gateway_pb2.ClaimTargetsResponse, _abc.Awaitable[_industrial_gateway_pb2.ClaimTargetsResponse]]: ...
 
 def add_IndustrialGatewayServiceServicer_to_server(servicer: IndustrialGatewayServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...

@@ -1,0 +1,29 @@
+# Isolated Gateway B for Data Generator one-to-many fan-out verification.
+data_grpc_bind: "127.0.0.1:50052"
+endpoints:
+  gw-test-2:
+    protocol: modbus
+    host: 127.0.0.1
+    port: 15102
+    protocol_options:
+      mode: tcp
+point_tables:
+  pitch_feedback:
+    protocol: modbus
+    points:
+      pitch:
+        role: feedback
+        data_type: float32
+        address: {register_type: holding, address: 100}
+devices:
+  turbine:
+    endpoint_id: gw-test-2
+    point_table_id: pitch_feedback
+    protocol_address: {unit_id: 1}
+control:
+  enabled: false
+  commander: {endpoint: "127.0.0.1:50054", command_timeout: 3.0, rpc_timeout: 4.0}
+  journal_path: "/tmp/wind-hub-demo-gateway-b.json"
+  access:
+    data_writers: ["127.0.0.1"]
+    command_writers: []

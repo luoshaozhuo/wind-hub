@@ -1,4 +1,4 @@
-"""42 个 RPC 的 Service Descriptor 矩阵（设计书 9.2-9.7 逐条核对）。"""
+"""43 个 RPC 的 Service Descriptor 矩阵（v1_10：Gateway 新增 ClaimTargets）。"""
 
 from __future__ import annotations
 
@@ -162,6 +162,11 @@ EXPECTED: dict[ModuleType, tuple[str, str, list[tuple[str, str, str]]]] = {
                 "windhub.gateway.v1.UpdateVariablesRequest",
                 "windhub.gateway.v1.UpdateVariablesResponse",
             ),
+            (
+                "ClaimTargets",
+                "windhub.gateway.v1.ClaimTargetsRequest",
+                "windhub.gateway.v1.ClaimTargetsResponse",
+            ),
         ],
     ),
     data_generator_pb2: (
@@ -218,9 +223,9 @@ def test_each_proto_declares_exactly_one_service_with_expected_package() -> None
         assert set(descriptor.services_by_name) == {service_name}
 
 
-def test_rpc_total_is_42() -> None:
-    assert sum(len(rpcs) for _, _, rpcs in EXPECTED.values()) == 42
-    assert len(_all_methods()) == 42
+def test_rpc_total_is_43() -> None:
+    assert sum(len(rpcs) for _, _, rpcs in EXPECTED.values()) == 43
+    assert len(_all_methods()) == 43
 
 
 @pytest.mark.parametrize(
@@ -232,7 +237,7 @@ def test_rpc_name_io_types_and_unary(method: MethodDescriptor) -> None:
     input_name, output_name = EXPECTED_RPCS[method.full_name]
     assert method.input_type.full_name == input_name
     assert method.output_type.full_name == output_name
-    # 设计书 9.2-9.7：42 个接口全部为 Unary，无 streaming。
+    # v1_10：43 个接口全部为 Unary，无 streaming。
     assert method.client_streaming is False
     assert method.server_streaming is False
 
