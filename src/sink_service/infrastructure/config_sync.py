@@ -47,11 +47,14 @@ class ConfigReader:
         if len(pointer) != 64 or any(d not in "0123456789abcdef" for d in pointer):
             raise ConfigurationError("invalid committed generation pointer")
         generation = self._root / ".generations" / pointer
-        return read_snapshot(
+        snapshot = read_snapshot(
             generation,
             generation / self._service_file,
             generation / self._peer_service_file,
         )
+        if snapshot.revision != pointer:
+            raise ConfigurationError("committed generation content hash mismatch")
+        return snapshot
 
     async def refresh(self) -> bool:
         """A failed application never advances the Reader's effective revision."""
