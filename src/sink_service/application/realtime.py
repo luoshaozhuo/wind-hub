@@ -43,6 +43,7 @@ class RealtimeEngine:
         max_age_ms: int | None,
         absolute_threshold: float,
         relative_threshold: float,
+        preserve_upstream_sample: bool = False,
     ) -> None:
         if policy not in {"periodic", "on_change", "change_with_heartbeat"}:
             raise ValueError("unknown realtime output policy")
@@ -61,6 +62,7 @@ class RealtimeEngine:
         self._max_age_ms = max_age_ms
         self._absolute = absolute_threshold
         self._relative = relative_threshold
+        self._preserve_upstream_sample = preserve_upstream_sample
         self._latest: dict[tuple[str, str], SampleMessage] = {}
         self._authorities: dict[tuple[str, str], str] = {}
         self._conflicted: set[tuple[str, str]] = set()
@@ -279,7 +281,8 @@ class RealtimeEngine:
                         }
                     )
                     if (
-                        self._max_age_ms is not None
+                        not self._preserve_upstream_sample
+                        and self._max_age_ms is not None
                         and sample.max_staleness_ms is not None
                     )
                     else sample
