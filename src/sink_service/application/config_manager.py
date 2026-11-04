@@ -343,6 +343,13 @@ class ConfigManager:
                     self._last_error = str(exc)
             return snapshot, committed
 
+    async def observe_reader_disk(self, snapshot: ValidatedSnapshot) -> None:
+        """Expose the latest committed generation even if Reader apply fails."""
+        if self._writer:
+            raise WriterRequiredError("Writer already owns its committed revision")
+        async with self._lock:
+            self._disk = snapshot
+
     async def mark_active(self, snapshot: ValidatedSnapshot) -> None:
         """Reader accepts a validated committed revision after successful apply."""
         async with self._lock:
