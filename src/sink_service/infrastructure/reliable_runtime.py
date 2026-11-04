@@ -241,6 +241,9 @@ class ReliableDeliveryPort:
         failure = task.exception()
         if failure is not None:
             self.last_error = f'Reliable consumer task stopped unexpectedly: {failure}'
+        elif not self._stop.is_set():
+            self.last_error = 'Reliable consumer exited without STOP'
+
     async def stop(self) -> None:
         self._stop.set()
         task = self._task
