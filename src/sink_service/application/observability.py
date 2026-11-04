@@ -183,12 +183,21 @@ class Observability:
         start: datetime | None,
         end: datetime | None,
         query: str,
-        offset: int,
+        after_id: str,
         count: int,
     ) -> tuple[tuple[RuntimeEvent, ...], str]:
+        events = tuple(self._events)
+        offset = 0
+        if after_id:
+            for index, item in enumerate(events):
+                if item.event_id == after_id:
+                    offset = index + 1
+                    break
+            else:
+                raise ValueError("event page cursor expired or invalid")
         values = [
             item
-            for item in self._events
+            for item in events[offset:]
             if (start is None or item.timestamp >= start)
             and (end is None or item.timestamp <= end)
             and (
@@ -198,6 +207,6 @@ class Observability:
                 or query in item.message
             )
         ]
-        page = tuple(values[offset : offset + count])
-        next_token = str(offset + count) if offset + count < len(values) else ""
+        page = tuple(values[:count])
+        next_token = page[-1].event_id if len(values) > count else ""
         return page, next_token
