@@ -129,9 +129,12 @@ async def serve_control_plane(
 
     async def apply_reader_snapshot(snapshot: ValidatedSnapshot) -> None:
         local_service = service_configuration(snapshot, service_file)
+        snapshot = replace(snapshot, service=local_service)
+        # DISK is the committed CURRENT generation, not merely the last
+        # successfully activated Reader revision.
+        await manager.observe_reader_disk(snapshot)
         if local_service != service:
             raise ConfigurationError('RESTART_REQUIRED: Reader Service changed')
-        snapshot = replace(snapshot, service=local_service)
         await reconcile(snapshot)
         if not local_converged(snapshot):
             raise ConfigurationError('Reader Deliveries not fully converged')
