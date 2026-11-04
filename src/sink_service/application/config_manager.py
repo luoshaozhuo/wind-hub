@@ -262,6 +262,21 @@ class ConfigManager:
                 raise RevisionConflictError("configuration revision conflict")
             if delivery_id not in self._disk.deliveries:
                 raise KeyError(f"unknown Delivery: {delivery_id}")
+            runtime_services = {
+                item.path: item.content
+                for item in self._runtime.files
+                if item.path.startswith("configs/services/")
+            }
+            committed_services = {
+                item.path: item.content
+                for item in self._disk.files
+                if item.path.startswith("configs/services/")
+            }
+            if runtime_services != committed_services:
+                raise ConfigurationError(
+                    "Service configuration changed; restart is required "
+                    "before further Delivery operations"
+                )
             updated: list[SnapshotFile] = []
             source_paths, _ = config_sources(self._disk.service)
             found = False
