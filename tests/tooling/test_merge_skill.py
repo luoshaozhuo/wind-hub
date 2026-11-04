@@ -33,8 +33,15 @@ def test_direct_squash_without_pr_or_gate(monkeypatch: pytest.MonkeyPatch) -> No
         ("git", "rev-parse", "refs/remotes/origin/feat/example"): "head",
         ("git", "rev-parse", "refs/remotes/origin/main"): "squash",
         ("git", "rev-parse", "head^{tree}"): "tree",
-        ("git", "commit-tree", "tree", "-p", "base", "-m",
-         "feat: squash merge feat/example into main"): "squash",
+        (
+            "git",
+            "commit-tree",
+            "tree",
+            "-p",
+            "base",
+            "-m",
+            "feat: squash merge feat/example into main",
+        ): "squash",
         ("git", "worktree", "list", "--porcelain"): "",
         ("git", "rev-parse", "refs/heads/main"): "base",
     }
@@ -96,8 +103,15 @@ def test_server_rejection_preserves_source_branch(monkeypatch: pytest.MonkeyPatc
         ("git", "rev-parse", "refs/remotes/origin/feat/example"): "head",
         ("git", "rev-parse", "refs/remotes/origin/main"): "base",
         ("git", "rev-parse", "head^{tree}"): "tree",
-        ("git", "commit-tree", "tree", "-p", "base", "-m",
-         "feat: squash merge feat/example into main"): "squash",
+        (
+            "git",
+            "commit-tree",
+            "tree",
+            "-p",
+            "base",
+            "-m",
+            "feat: squash merge feat/example into main",
+        ): "squash",
     }
 
     def fake_run(*args: str) -> str:
