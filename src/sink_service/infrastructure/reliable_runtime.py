@@ -227,11 +227,16 @@ class ReliableDeliveryPort:
             task.add_done_callback(self._on_task_finished)
             self._task = task
         except BaseException:
-            if self._client is not None:
-                await self._client.close()
+            try:
+                if self._client is not None:
+                    await self._client.close()
+            finally:
                 self._client = None
-            await self._pool.release(self._definition.sink_id)
-            self._adapter = None
+                self._subscription = None
+                try:
+                    await self._pool.release(self._definition.sink_id)
+                finally:
+                    self._adapter = None
             raise
 
     def _on_task_finished(self, task: asyncio.Task[None]) -> None:
@@ -261,6 +266,7 @@ class ReliableDeliveryPort:
         if client is not None:
             await client.close()
             self._client = None
+            self._subscription = None
         adapter = self._adapter
         if adapter is not None:
             await adapter.settle()
