@@ -302,10 +302,12 @@ class ConfigManager:
                     # independently owns actual RUNNING/STOPPED convergence.
                     # Nevertheless, the Writer's runtime revision must not
                     # advance while any of its own bindings are unconverged.
+                    local_role = self._runtime.service["process_role"]
                     local_ids = {
                         item.delivery_id
-                        for item in delivery_definitions(snapshot)
-                        if item.channel == self._runtime.service["process_role"]
+                        for source in (self._runtime, snapshot)
+                        for item in delivery_definitions(source)
+                        if item.channel == local_role
                     }
                     if local_ids.issubset(set(applied)):
                         self._runtime = snapshot
