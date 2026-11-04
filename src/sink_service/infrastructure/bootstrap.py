@@ -249,6 +249,7 @@ async def serve_control_plane(
                 peer_service_file,
                 apply_reader_snapshot,
                 poll_interval_ms=sync["poll_interval_ms"],
+                report_error=manager.record_reader_sync_error,
             )
             poll_task = asyncio.create_task(reader.run(stop))
         await stop.wait()
