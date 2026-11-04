@@ -392,13 +392,6 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
     async def GetEvents(
         self, request: common_pb2.GetEventsRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> common_pb2.GetEventsResponse:
-        try:
-            offset = int(request.page_token) if request.page_token else 0
-            if offset < 0 or (request.page_token and str(offset) != request.page_token):
-                raise ValueError("invalid event page token")
-        except ValueError as exc:
-            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise AssertionError("gRPC abort returned") from exc
         limit = request.page_size or 100
         if limit > 500:
             await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "page size exceeds 500")
@@ -408,9 +401,17 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         if start is not None and end is not None and start > end:
             await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "invalid event time range")
             raise AssertionError("gRPC abort returned")
-        values, token = self._observability.list_events(
-            start=start, end=end, query=request.filter, offset=offset, count=limit,
-        )
+        try:
+            values, token = self._observability.list_events(
+                start=start,
+                end=end,
+                query=request.filter,
+                after_id=request.page_token,
+                count=limit,
+            )
+        except ValueError as exc:
+            await _abort(context, grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            raise AssertionError("gRPC abort returned") from exc
         return common_pb2.GetEventsResponse(
             events=[
                 common_pb2.Event(
