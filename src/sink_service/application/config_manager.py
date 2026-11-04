@@ -232,7 +232,9 @@ class ConfigManager:
                     # Disk is already committed; report actual pending convergence.
                     error = str(exc)
                     self._last_error = error
-            pending = tuple(item for item in changed if item not in applied)
+            # An unchanged local Delivery may still be unconverged. Include
+            # every such object in the Apply result, not only file-diff IDs.
+            pending = tuple(sorted((set(changed) | local_changed) - set(applied)))
             application_id = secrets.token_urlsafe(24)
             application = Application(
                 application_id=application_id,
