@@ -131,11 +131,22 @@ class ReliableDeliveryPort:
                     'Reliable Redis must declare atomic idempotent version protection'
                 )
         elif kind == 'kafka':
-            policy = template['output']['business_duplicate_policy']
-            if policy != 'allow_at_least_once':
-                raise ConfigurationError(
-                    'Reliable Kafka require_dedup lacks verified downstream owner'
-                )
+            output = template['output']
+            policy = output['business_duplicate_policy']
+            if policy not in ('require_dedup', 'allow_at_least_once'):
+                raise ConfigurationError('Reliable Kafka duplicate policy missing')
+            if policy == 'require_dedup':
+                identity = output.get('dedup_identity_fields')
+                if (
+                    not isinstance(identity, list)
+                    or len(identity) != 2
+                    or set(identity) != {'delivery_id', 'sample_id'}
+                ):
+                    raise ConfigurationError(
+                        'Reliable Kafka require_dedup needs delivery_id + sample_id'
+                    )
+                # This validates the declared downstream responsibility only.
+                # Kafka Producer ACK does not prove consumer-side deduplication.
         else:
             raise ConfigurationError('unsupported Reliable Sink Adapter')
     @staticmethod
