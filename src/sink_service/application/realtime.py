@@ -269,7 +269,22 @@ class RealtimeEngine:
             ]
             self._retry_pending = False
             for index in range(0, len(items), 500):
-                batch = tuple(items[index : index + 500])
+                batch = tuple(
+                    sample.model_copy(
+                        update={
+                            "max_staleness_ms": min(
+                                sample.max_staleness_ms,
+                                self._max_age_ms,
+                            )
+                        }
+                    )
+                    if (
+                        self._max_age_ms is not None
+                        and sample.max_staleness_ms is not None
+                    )
+                    else sample
+                    for sample in items[index : index + 500]
+                )
                 try:
                     outcome = await self._writer.write_batch(batch)
                     if not isinstance(outcome, BatchOutcome):
