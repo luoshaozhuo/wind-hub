@@ -137,17 +137,36 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         self, request: common_pb2.Empty, context: grpc.aio.ServicerContext[Any, Any]
     ) -> common_pb2.GetServiceStatusResponse:
         views = self._registry.list()
-        failed = [view.delivery_id for view in views if view.actual_state == "FAILED"]
-        health = "DEGRADED" if failed or self._config.last_error else "HEALTHY"
+        degraded = any(
+            view.actual_state
+            != ("RUNNING" if view.desired_state == "START" else "STOPPED")
+            or bool(view.last_error)
+            for view in views
+        )
+        configuration_pending = (
+            self._config.disk.revision != self._config.runtime.revision
+        )
+        health = (
+            "DEGRADED"
+            if degraded or self._config.last_error or configuration_pending
+            else "HEALTHY"
+        )
         return common_pb2.GetServiceStatusResponse(
             health=health,
             dependencies=[
                 common_pb2.DependencyHealth(
-                    name=view.delivery_id,
-                    health="FAILED" if view.delivery_id in failed else view.actual_state,
-                    detail=view.last_error,
-                )
-                for view in views
+                    name="configuration",
+                    health="PENDING" if configuration_pending else "RUNNING",
+                    detail=self._config.last_error,
+                ),
+                *[
+                    common_pb2.DependencyHealth(
+                        name=view.delivery_id,
+                        health=view.actual_state,
+                        detail=view.last_error,
+                    )
+                    for view in views
+                ],
             ],
             observed_at=_timestamp(datetime.now(UTC)),
         )
@@ -435,9 +454,20 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                 observations: list[tuple[str, str]] = []
                 if stage == 'configuration':
                     error = self._config.last_error
-                    status = 'FAILED' if error else 'SUCCESS'
-                    observations.append(('active_revision', self._config.runtime.revision))
-                    message = error
+                    active = self._config.runtime.revision
+                    committed = self._config.disk.revision
+                    observations.append(('active_revision', active))
+                    observations.append(('committed_revision', committed))
+                    if error:
+                        status = 'FAILED'
+                        message = error
+                    elif active != committed:
+                        status = 'UNKNOWN'
+                        message = 'Committed configuration is not fully active'
+                        limitations.append(message)
+                    else:
+                        status = 'SUCCESS'
+                        message = ''
                 elif stage == 'target':
                     status = 'NOT_SUPPORTED'
                     message = 'No side-effect-free target protocol probe configured'
