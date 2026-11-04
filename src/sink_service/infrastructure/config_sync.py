@@ -60,8 +60,11 @@ class ConfigReader:
             if snapshot.revision == self._last_revision:
                 return False
             await self._apply(snapshot)
-        except (OSError, ConfigurationError, ValueError, RuntimeError) as exc:
-            self._last_error = str(exc)
+        except Exception as exc:
+            # A malformed generation, failing adapter or unexpected apply
+            # exception must not permanently kill Reader synchronization.
+            # asyncio cancellation remains independently propagated.
+            self._last_error = f"{type(exc).__name__}: {exc}"
             return False
         self._last_revision = snapshot.revision
         self._last_error = ""
