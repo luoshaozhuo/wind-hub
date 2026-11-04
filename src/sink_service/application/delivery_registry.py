@@ -227,8 +227,20 @@ class DeliveryRegistry:
         return tuple(
             identifier
             for identifier in changed
-            if identifier not in self._entries
-            or self._entries[identifier].view.actual_state != ActualState.FAILED
+            if (
+                identifier not in self._entries
+                or (
+                    not self._entries[identifier].removing
+                    and self._entries[identifier].view.revision == snapshot.revision
+                    and self._entries[identifier].view.actual_state
+                    == (
+                        ActualState.RUNNING
+                        if self._entries[identifier].view.desired_state == "START"
+                        else ActualState.STOPPED
+                    )
+                    and not getattr(self._entries[identifier].port, "last_error", "")
+                )
+            )
         )
 
     @property
@@ -496,7 +508,12 @@ class DeliveryRegistry:
                     del self._entries[identifier]
                     retired = True
                     continue
-                if entry.view.desired_state != 'START':
+                if entry.view.desired_state == "STOP":
+                    if entry.view.actual_state != ActualState.STOPPED:
+                        try:
+                            await self._reconcile(entry)
+                        except Exception:
+                            continue
                     continue
                 if (
                     entry.view.actual_state == ActualState.RUNNING
