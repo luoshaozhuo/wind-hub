@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import shutil
 from pathlib import Path
 
 from sink_service.application.config import read_snapshot, validate_snapshot
@@ -121,7 +122,10 @@ class GenerationStore:
                 os.rename(stage, target)
                 self._sync_dir(self._generations)
             except BaseException:
-                # A failed stage is not reachable through CURRENT.
+                # Failed or interrupted staging must not accumulate unbounded
+                # directories; CURRENT never points to an incomplete stage.
+                if stage.exists():
+                    shutil.rmtree(stage)
                 raise
         # Never point CURRENT at an existing corrupt or partial generation.
         # This also validates a generation reused after an interrupted Apply.
