@@ -42,9 +42,12 @@ class GenerationStore:
             raise ConfigurationError("invalid Service relative path")
         identifier = self._current.read_text(encoding="ascii").strip()
         directory = self._generation(identifier)
-        return read_snapshot(
+        snapshot = read_snapshot(
             directory, directory / service_path, directory / peer_service_path
         )
+        if snapshot.revision != identifier:
+            raise ConfigurationError("committed generation content hash mismatch")
+        return snapshot
 
     @staticmethod
     def _sync_dir(path: Path) -> None:
