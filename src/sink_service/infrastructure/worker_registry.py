@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 from dataclasses import asdict
 
 from sink_service.application.delivery_definition import delivery_definitions
@@ -90,3 +91,49 @@ class WorkerRegistryView:
         applied = await self.supervisor.apply(snapshot.revision)
         await self.refresh()
         return applied
+
+    async def collect_metrics(
+        self,
+    ) -> tuple[
+        dict[str, float],
+        dict[str, dict[str, float]],
+        tuple[tuple[datetime, float], ...],
+        bool,
+    ] | None:
+        """Aggregate both worker reports only when both generations are valid."""
+        replies = await asyncio.gather(
+            *(
+                self.supervisor.request(role, "GET_METRICS", self.snapshot.revision)
+                for role in ROLES
+            ),
+            return_exceptions=True,
+        )
+        aggregate: dict[str, float] = {}
+        deliveries: dict[str, dict[str, float]] = {}
+        latencies: list[tuple[datetime, float]] = []
+        incomplete = False
+        for reply in replies:
+            if isinstance(reply, BaseException) or reply.status != "APPLIED":
+                return None
+            try:
+                if reply.evidence["active_generation"] != self.snapshot.revision:
+                    return None
+                values = json.loads(reply.evidence["counters"])
+                delivery_values = json.loads(reply.evidence["delivery_counters"])
+                for name, value in values.items():
+                    aggregate[name] = aggregate.get(name, 0.0) + float(value)
+                for identifier, values in delivery_values.items():
+                    if identifier in deliveries:
+                        return None
+                    deliveries[identifier] = {
+                        name: float(value) for name, value in values.items()
+                    }
+                if reply.evidence.get("latency_incomplete") == "true":
+                    incomplete = True
+                for timestamp, value in json.loads(
+                    reply.evidence.get("latencies", "[]")
+                ):
+                    latencies.append((datetime.fromisoformat(timestamp), float(value)))
+            except (KeyError, TypeError, ValueError, OverflowError):
+                return None
+        return aggregate, deliveries, tuple(latencies), incomplete
