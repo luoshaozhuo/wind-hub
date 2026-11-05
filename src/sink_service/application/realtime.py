@@ -129,11 +129,17 @@ class RealtimeEngine:
             and (not self._points or point_id in self._points)
         )
 
-    def offer(self, sample: SampleMessage, *, now: datetime | None = None) -> bool:
+    def offer(
+        self,
+        sample: SampleMessage,
+        *,
+        now: datetime | None = None,
+        routed: bool = False,
+    ) -> bool:
         """Route first, then count received, expired, overwritten and rejected samples."""
         if self._stop.is_set():
             return False
-        if (
+        if not routed and (
             sample.wind_farm_id != self._wind_farm_id
             or sample.collector_id != self._collector_id
             or not self.accepts(sample.device_id, sample.point_id)
