@@ -130,8 +130,8 @@ class _GatewayRequestHandler(ServerRequestHandler):
             _request_ip.reset(token)
 
     def callback_disconnected(self, exc: Exception | None) -> None:
-        # 不再处理断开连接的排队请求；在途控制被取消时由 CommanderProxy
-        # 将结果标记 UNKNOWN 并持久闭锁，不能静默继续执行队列。
+        # 断开连接时取消尚未处理的请求；已经捕获的工业控制写事件
+        # 由独立 Commander 转发器持有，已提交但无回执时标记 UNKNOWN。
         if self._worker is not None:
             self._worker.cancel()
             self._worker = None

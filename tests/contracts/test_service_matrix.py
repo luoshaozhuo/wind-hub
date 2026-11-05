@@ -1,4 +1,4 @@
-"""43 个 RPC 的 Service Descriptor 矩阵（v1_10：Gateway 新增 ClaimTargets）。"""
+"""43 个 RPC 的 Service Descriptor 矩阵（设计书 9.2-9.7 逐条核对；v1_10 Gateway ClaimTargets）。"""
 
 from __future__ import annotations
 
@@ -29,7 +29,11 @@ EXPECTED: dict[ModuleType, tuple[str, str, list[tuple[str, str, str]]]] = {
             ("GetServiceInfo", f"{C}Empty", f"{C}GetServiceInfoResponse"),
             ("GetServiceStatus", f"{C}Empty", f"{C}GetServiceStatusResponse"),
             ("GetCapabilities", f"{C}Empty", f"{C}GetCapabilitiesResponse"),
-            ("GetConfigSnapshot", f"{C}GetConfigSnapshotRequest", f"{C}GetConfigSnapshotResponse"),
+            (
+                "GetConfigSnapshot",
+                f"{C}GetConfigSnapshotRequest",
+                f"{C}GetConfigSnapshotResponse",
+            ),
             (
                 "PushConfigSnapshot",
                 f"{C}PushConfigSnapshotRequest",
@@ -178,13 +182,21 @@ EXPECTED: dict[ModuleType, tuple[str, str, list[tuple[str, str, str]]]] = {
                 "windhub.data_generator.v1.ListDevicesRequest",
                 "windhub.data_generator.v1.ListDevicesResponse",
             ),
-            ("GetDevice", f"{C}ObjectId", "windhub.data_generator.v1.GetDeviceResponse"),
+            (
+                "GetDevice",
+                f"{C}ObjectId",
+                "windhub.data_generator.v1.GetDeviceResponse",
+            ),
             (
                 "ListScenarios",
                 "windhub.data_generator.v1.ListScenariosRequest",
                 "windhub.data_generator.v1.ListScenariosResponse",
             ),
-            ("GetGeneration", f"{C}ObjectId", "windhub.data_generator.v1.GetGenerationResponse"),
+            (
+                "GetGeneration",
+                f"{C}ObjectId",
+                "windhub.data_generator.v1.GetGenerationResponse",
+            ),
             (
                 "StartGeneration",
                 "windhub.data_generator.v1.StartGenerationRequest",
@@ -237,7 +249,7 @@ def test_rpc_name_io_types_and_unary(method: MethodDescriptor) -> None:
     input_name, output_name = EXPECTED_RPCS[method.full_name]
     assert method.input_type.full_name == input_name
     assert method.output_type.full_name == output_name
-    # v1_10：43 个接口全部为 Unary，无 streaming。
+    # 设计书 9.2-9.7 / v1_10：43 个接口全部为 Unary，无 streaming。
     assert method.client_streaming is False
     assert method.server_streaming is False
 

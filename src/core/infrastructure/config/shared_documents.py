@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -84,21 +84,47 @@ class SharedDocumentLoader:
         self._repository = VersionedTemplateRepository(paths.templates)
 
     def load(self) -> SharedDocuments:
-        site = _read(self._paths.site_file or self._paths.instances / "site.yaml")
-        device_doc = _read(self._paths.devices_file or self._paths.instances / "devices.yaml")
+        """Load the conventional site catalog for existing site-aware consumers."""
+        site_path = self._paths.site_file or self._paths.instances / "site.yaml"
+        devices_path = self._paths.devices_file or self._paths.instances / "devices.yaml"
+        site = _read(site_path)
+        return self._load_documents(site, devices_path)
+
+    def load_devices(
+        self,
+        devices_path: str | Path,
+        *,
+        selected_device_ids: Collection[str] | None = None,
+    ) -> SharedDocuments:
+        """Resolve only explicitly selected devices and their versioned templates.
+
+        Existing site-aware loaders retain their original full-catalog semantics.
+        """
+        selected = None if selected_device_ids is None else frozenset(selected_device_ids)
+        return self._load_documents({}, Path(devices_path), selected_device_ids=selected)
+
+    def _load_documents(
+        self,
+        site: Mapping[str, Any],
+        devices_path: Path,
+        *,
+        selected_device_ids: frozenset[str] | None = None,
+    ) -> SharedDocuments:
+        device_doc = _read(devices_path)
         units = _read(self._paths.templates / "units.yaml")
         business_points = _read(self._paths.templates / "business_points.yaml")
-        _keys(
-            site,
-            frozenset({"schema_version", "file_version", "site_id", "name"}),
-            "site.yaml",
-        )
+        if site:
+            _keys(
+                site,
+                frozenset({"schema_version", "file_version", "site_id", "name"}),
+                "site.yaml",
+            )
         _keys(
             device_doc,
             frozenset({"schema_version", "file_version", "devices"}),
             "devices.yaml",
         )
-        if not isinstance(site.get("site_id"), str) or not site["site_id"].strip():
+        if site and (not isinstance(site.get("site_id"), str) or not site["site_id"].strip()):
             raise ConfigError("site.yaml requires non-empty site_id")
         unit_catalog = parse_unit_catalog(
             {
@@ -116,7 +142,14 @@ class SharedDocumentLoader:
             unit_catalog,
         )
         devices: dict[str, SharedDeviceDefinition] = {}
-        for device_id, value in _mapping(device_doc.get("devices"), "devices").items():
+        all_devices = _mapping(device_doc.get("devices"), "devices")
+        if selected_device_ids is not None:
+            missing = selected_device_ids - all_devices.keys()
+            if missing:
+                raise ConfigError(f"configured device IDs not found: {sorted(missing)}")
+        for device_id, value in all_devices.items():
+            if selected_device_ids is not None and device_id not in selected_device_ids:
+                continue
             if not device_id.strip() or device_id != device_id.strip():
                 raise ConfigError(f"invalid device ID: {device_id!r}")
             raw = _mapping(value, f"device {device_id}")
@@ -135,7 +168,10 @@ class SharedDocumentLoader:
                 type(endpoint["port"]) is not int or not 1 <= endpoint["port"] <= 65535
             ):
                 raise ConfigError(f"device {device_id}: invalid endpoint.port")
-            overrides = _mapping(raw.get("overrides", {}), f"device {device_id}.overrides")
+            overrides = _mapping(
+                raw.get("overrides", {}),
+                f"device {device_id}.overrides",
+            )
             options = _mapping(
                 overrides.get("protocol_options", {}),
                 f"device {device_id}.overrides.protocol_options",
@@ -162,7 +198,20 @@ class SharedDocumentLoader:
             revision=config_hash(
                 {
                     "site": site,
-                    "devices": device_doc,
+                    "devices": (
+                        device_doc
+                        if selected_device_ids is None
+                        else {
+                            **{
+                                name: value
+                                for name, value in device_doc.items()
+                                if name != "devices"
+                            },
+                            "devices": {
+                                name: all_devices[name] for name in sorted(selected_device_ids)
+                            },
+                        }
+                    ),
                     "units": units,
                     "business_points": business_points,
                     "dependencies": {

@@ -1,66 +1,39 @@
-# Industrial Gateway：Data Generator 通过公开 gRPC 更新反馈变量，工业客户端读取。
-# 对工业客户端提供 Modbus TCP；对生成客户端提供 IndustrialGatewayService.UpdateVariables。
-# 注意：control.enabled 默认 false，不要直接用示例启用现场控制。
-# 独立 gRPC 数据入口（仅回环地址）；UpdateVariables 仅允许反馈点，不转发控制。
-data_grpc_bind: "127.0.0.1:50073"
+# Industrial Gateway v1 service-only configuration.
+# All devices, protocol parameters and point tables are read from shared documents.
+schema_version: 1
+file_version: "1.0.0"
 
-endpoints:
-  modbus_main:
-    protocol: modbus
-    host: 127.0.0.1
-    port: 15020
-    protocol_options:
-      mode: tcp
+config_sources:
+  instances:
+    devices: configs/instances/devices.yaml
+  templates:
+    root: configs/templates
 
-point_tables:
-  turbine_modbus:
-    protocol: modbus
-    points:
-      active_power:
-        role: feedback
-        data_type: float32
-        address:
-          register_type: holding
-          address: 100
-          word_order: big_endian
-        max_age_seconds: 3.0
-      power_setpoint:
-        role: command
-        data_type: float32
-        address:
-          register_type: holding
-          address: 200
-          word_order: big_endian
+grpc:
+  listen_host: "127.0.0.1"
+  listen_port: 50073
+  max_active_rpcs: 64
+  request_max_bytes: 2097152
+  tls:
+    enabled: false
 
-devices:
-  turbine_001:
-    endpoint_id: modbus_main
-    point_table_id: turbine_modbus
-    protocol_address:
-      unit_id: 1
-    commands:
-      power_setpoint:
-        device_id: turbine_001
-        point_id: power_setpoint
-
-  turbine_002:
-    endpoint_id: modbus_main
-    point_table_id: turbine_modbus
-    protocol_address:
-      unit_id: 2
-    commands:
-      power_setpoint:
-        device_id: turbine_002
-        point_id: power_setpoint
+servers:
+  - server_id: gateway-tz01
+    device_id: TZ01
+    listen_host: "127.0.0.1"
+    listen_port: 15020
+    desired_state: START
+    control_enabled: false
+    command_mappings:
+      - variable_id: power_demand
+        commander_point_id: power_demand
 
 control:
-  enabled: false
-  commander:
-    endpoint: 127.0.0.1:50052
-    command_timeout: 3.0
-    rpc_timeout: 4.0
-  journal_path: /var/lib/wind-hub/gateway/commands.json
-  access:
-    data_writers:
-      - 127.0.0.1
-    command_writers: []
+  commander_endpoint: "127.0.0.1:50052"
+  forward_queue_capacity: 1024
+  max_forward_inflight: 16
+  submit_deadline_ms: 5000
+
+metrics:
+  window_seconds: 60
+  collect_interval_ms: 1000

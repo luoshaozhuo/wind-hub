@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 
 import grpc
 
-from contracts import gateway_pb2 as pb
-from contracts import gateway_pb2_grpc as rpc
+from contracts import industrial_gateway_pb2 as pb
+from contracts import industrial_gateway_pb2_grpc as rpc
 from core.application import ConnectionHealth
-from core.application.sink_contract import GrpcSinkAddress, ResolvedSink, ResolvedSinkPoint
+from core.application.sink_contract import (
+    GrpcSinkAddress,
+    ResolvedSink,
+    ResolvedSinkPoint,
+)
 from core.domain.point_value import PointValue
 from core.domain.sample_value import Quality
 from core.infrastructure.config.sink_schema import GrpcSinkConnection
@@ -21,7 +26,7 @@ class GrpcSink:
     def __init__(self, config: ResolvedSink) -> None:
         self._settings = GrpcSinkConnection.model_validate(dict(config.connection))
         self._channel: grpc.aio.Channel | None = None
-        self._write_many: rpc.GatewayDataServiceStub | None = None
+        self._stub: rpc.IndustrialGatewayServiceAsyncStub | None = None
         points = [ResolvedSinkPoint.model_validate(dict(item)) for item in config.points]
         self._routes: dict[tuple[str, str], tuple[str, str]] = {}
         self._exporter = SinkReferenceExporter(points)
@@ -37,14 +42,20 @@ class GrpcSink:
     async def open(self) -> None:
         if self._channel is not None:
             return
-        self._channel = grpc.aio.insecure_channel(self._settings.endpoint)
-        self._write_many = rpc.GatewayDataServiceStub(self._channel)
+        channel = grpc.aio.insecure_channel(self._settings.endpoint)
+        self._channel = channel
+        # AsyncStub exists only in the mypy-protobuf .pyi; the string forward
+        # reference keeps the async contract without a runtime attribute lookup.
+        self._stub = cast(
+            "rpc.IndustrialGatewayServiceAsyncStub",
+            rpc.IndustrialGatewayServiceStub(channel),
+        )
 
     async def close(self) -> None:
         if self._channel is not None:
             await self._channel.close()
             self._channel = None
-            self._write_many = None
+            self._stub = None
 
     async def write(self, batch: list[PointValue]) -> None:
         if not batch:
@@ -62,23 +73,37 @@ class GrpcSink:
             values[key] = point.value
         if not values:
             return
-        if self._write_many is None:
+        if self._stub is None:
             raise RuntimeError("GrpcSink is closed")
-        reply = await self._write_many.WriteMany(
-            pb.WriteManyRequest(
-                points=[
-                    pb.FeedbackPoint(
-                        device_id=device_id, point_id=point_id, value=encode_scalar(value)
-                    )
-                    for (device_id, point_id), value in values.items()
-                ]
-            ),
-            timeout=self._settings.timeout,
-        )
-        if reply.updated != len(values):
-            raise RuntimeError(
-                f"gRPC partial write: confirmed {reply.updated} of {len(values)} points"
+        grouped: dict[str, list[pb.VariableUpdate]] = {}
+        for (gateway_id, variable_id), value in values.items():
+            grouped.setdefault(gateway_id, []).append(
+                pb.VariableUpdate(
+                    variable_id=variable_id,
+                    value=encode_scalar(value),
+                )
             )
+        # Gateway UpdateVariables is not an atomic multi-Gateway transaction.
+        # Each batch has independent per-variable acknowledgments.
+        for gateway_id, updates in grouped.items():
+            for start in range(0, len(updates), 500):
+                portion = updates[start : start + 500]
+                reply = await self._stub.UpdateVariables(
+                    pb.UpdateVariablesRequest(
+                        gateway_id=gateway_id,
+                        values=portion,
+                    ),
+                    timeout=self._settings.timeout,
+                )
+                if len(reply.results) != len(portion):
+                    raise RuntimeError("Gateway returned incomplete UpdateVariables results")
+                for expected, result in zip(portion, reply.results, strict=True):
+                    if result.variable_id != expected.variable_id or not result.success:
+                        raise RuntimeError(
+                            "Gateway variable update failed: "
+                            f"{gateway_id}.{expected.variable_id}: "
+                            f"{result.error_code} {result.message}"
+                        )
 
     async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
         allowed = set(self._task_sources.get(task_id, ()))

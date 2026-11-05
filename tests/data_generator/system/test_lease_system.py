@@ -226,7 +226,8 @@ async def test_p1_04_group_rejected_without_partial_occupancy(
         assert rejected.error_code == "RESOURCE_BUSY", rejected.error_code
         # 整组原子：被拒方一个变量都不得留下占用。VAR_A 仍忙、VAR_B 必须立即可得。
         busy = await _claim(raw, "gw-a", "probe", [VAR_A])
-        assert not busy.accepted and busy.error_code == "TARGET_BUSY"
+        # v1 租约词表：目标已被占用返回 TARGET_CLAIMED（整组原子拒绝语义不变）。
+        assert not busy.accepted and busy.error_code == "TARGET_CLAIMED"
         free = await _claim(raw, "gw-a", "probe", [VAR_B])
         assert free.accepted, free.error_code
         await _claim(raw, "gw-a", "probe", [VAR_B], action="RELEASE", token=free.lease_token)
@@ -513,9 +514,9 @@ async def test_p1_13_concurrent_claim_storm_single_owner(start_real_gateway) -> 
             winners = [reply for reply in replies if reply.accepted]
             assert len(winners) == 1
             winner = winners[0]
-            # 占用期间任何新申请精确失败为 TARGET_BUSY，无双重所有权。
+            # 占用期间任何新申请精确失败为 TARGET_CLAIMED，无双重所有权。
             busy = await _claim(stub, "gw-a", f"outsider-{cycle}", [VAR_A])
-            assert not busy.accepted and busy.error_code == "TARGET_BUSY"
+            assert not busy.accepted and busy.error_code == "TARGET_CLAIMED"
             # 无 token 不得续租；赢家显式 RELEASE 后下一轮必须立即可得（无死锁）。
             bogus_renew = await _claim(stub, "gw-a", f"owner-{cycle}-0", [VAR_A], action="RENEW")
             assert not bogus_renew.accepted

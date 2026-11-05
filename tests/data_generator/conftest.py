@@ -19,7 +19,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import grpc
 import pytest
@@ -36,12 +36,20 @@ from data_generator.infrastructure.gateway import GatewayWriter
 from data_generator.infrastructure.server import make_server
 from data_generator.infrastructure.snapshots import file_sha256, recover_transaction
 from industrial_gateway.application.target_leases import TargetLeaseRegistry
-from industrial_gateway.assembly import GatewayApplication, assemble_gateway
-from industrial_gateway.infrastructure.config.loader import GatewayConfig
+from industrial_gateway.assembly import assemble_gateway
+from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
+from industrial_gateway.infrastructure.config.v1_resolution import load_gateway_v1
+from industrial_gateway.infrastructure.grpc.data_server import create_gateway_grpc_server
+from tests.support.gateway_v1 import FakeCommanderService, write_mtls_pki
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_CONFIGS = REPO_ROOT / "configs"
 SRC_PATH = REPO_ROOT / "src"
+
+
+def _dump(path: Path, document: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
 
 def reserve_port() -> int:
@@ -415,8 +423,11 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         catalog_ids = {
             name for name, _dtype, writable in self._catalog.get(request.gateway_id, ()) if writable
         }
-        if not ids or len(set(ids)) != len(ids) or any(name not in catalog_ids for name in ids):
-            return gw.ClaimTargetsResponse(accepted=False, error_code="INVALID_TARGETS")
+        # 与 v1 variable_leases 词表对齐：空批/重复为 INVALID_CLAIM，目录外目标为 INVALID_TARGET。
+        if not ids or len(set(ids)) != len(ids):
+            return gw.ClaimTargetsResponse(accepted=False, error_code="INVALID_CLAIM")
+        if any(name not in catalog_ids for name in ids):
+            return gw.ClaimTargetsResponse(accepted=False, error_code="INVALID_TARGET")
         async with self.leases.lock:
             accepted, token, error = self.leases.claim(
                 request.gateway_id,
@@ -475,8 +486,12 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         for variable_id in request.variable_ids:
             raw = self.store.get(request.gateway_id, {}).get(variable_id)
             if raw is None:
+                # v1 未初始化样本契约：UNKNOWN/UNINITIALIZED、空错误码、无值。
                 sample = common.Sample(
-                    point_id=variable_id, quality="UNKNOWN", error_code="NO_VALUE"
+                    point_id=variable_id,
+                    quality="UNKNOWN",
+                    freshness="UNINITIALIZED",
+                    error_code="",
                 )
             else:
                 sample = common.Sample(point_id=variable_id, quality="GOOD", value=raw)
@@ -517,115 +532,256 @@ async def start_fault_gateway() -> AsyncIterator[Callable[..., Awaitable[FaultGa
 
 
 # --------------------------------------------------------------------------- #
-# 真实 Industrial Gateway
+# 真实 Industrial Gateway v1（service-only 配置树 + GatewayRuntime 全栈）
+#
+# v1 架构下一个设备对应一个 Modbus Server；Data Generator 历史用例均为单设备
+# 夹具，单设备时 server_id 即 endpoint_id，gRPC gateway_id 契约保持不变。
+# 变量 ID 保留「设备.点」字面命名（v1 点 ID 为无字符限制的非空字符串），
+# 因此 Data Generator 的目录预检与映射契约零改动。
 # --------------------------------------------------------------------------- #
 
 
-def build_data_gateway_config(
+def _v1_gateway_tree(
+    root: Path,
     *,
     endpoint_id: str,
-    data_bind: str,
     devices: dict[str, Sequence[tuple[str, str, str]]],
-    data_writers: Sequence[str] = ("127.0.0.1",),
-    journal_path: Path | None = None,
-    control_enabled: bool = False,
-    commander_endpoint: str = "127.0.0.1:9",
-) -> GatewayConfig:
-    """仅含 feedback 虚拟点的真实 Gateway 配置；变量名=设备.点。
-
-    devices: 逻辑设备名 -> [(point_id, data_type, role), ...]
-    """
-    modbus_port = reserve_port()
-    unique_points = sorted({point for points in devices.values() for point in points})
-    points_table: dict[str, dict[str, Any]] = {}
-    holding_cursor = 100
-    coil_cursor = 0
-    for point_id, data_type, role in unique_points:
-        if data_type == "bool":
-            address = {"register_type": "coil", "address": coil_cursor}
-            coil_cursor += 1
-        else:
-            address = {"register_type": "holding", "address": holding_cursor}
-            holding_cursor += 2 if data_type == "float32" else 1
-        points_table[point_id] = {
-            "role": role,
-            "data_type": data_type,
-            "address": address,
-            **({"max_age_seconds": 30.0} if role == "feedback" else {}),
-        }
-    table = {"protocol": "modbus", "points": points_table}
-    config: dict[str, Any] = {
-        "data_grpc_bind": data_bind,
-        "endpoints": {
-            endpoint_id: {
+    data_bind: str,
+    commander_endpoint: str,
+    permissions: dict[str, Sequence[str]] | None = None,
+    mtls_enabled: bool = False,
+) -> Path:
+    """写出自洽的 v1 配置树，返回 Service 文件路径。"""
+    grpc_host, grpc_port_text = data_bind.rsplit(":", 1)
+    devices_document: dict[str, Any] = {}
+    servers: list[dict[str, Any]] = []
+    single = len(devices) == 1
+    for device_id, points in sorted(devices.items()):
+        modbus_port = reserve_port()
+        model_id = f"dg_model_{device_id.lower()}"
+        table_id = f"dg_points_{device_id.lower()}"
+        point_table: dict[str, dict[str, Any]] = {}
+        holding_cursor = 100
+        coil_cursor = 0
+        for point_id, data_type, _role in points:
+            variable_id = f"{device_id}.{point_id}"
+            if data_type == "bool":
+                address = {"register_type": "coil", "address": coil_cursor}
+                coil_cursor += 1
+            else:
+                address = {"register_type": "holding", "address": holding_cursor}
+                holding_cursor += 2 if data_type == "float32" else 1
+            point_table[variable_id] = {"data_type": data_type, "address": address}
+        _dump(
+            root / "templates" / "point_tables" / f"{table_id}_1.0.0.yaml",
+            {
+                "schema_version": 1,
+                "template_id": table_id,
+                "file_version": "1.0.0",
                 "protocol": "modbus",
-                "host": "127.0.0.1",
-                "port": modbus_port,
-                "protocol_options": {"mode": "tcp"},
+                "points": point_table,
+            },
+        )
+        _dump(
+            root / "templates" / "device_models" / f"{model_id}_1.0.0.yaml",
+            {
+                "schema_version": 1,
+                "template_id": model_id,
+                "file_version": "1.0.0",
+                "name": f"Data Generator 模拟设备 {device_id}",
+                "device_type_id": "dg_feedback",
+                "protocol": {"id": "dg_modbus", "version": "1.0.0"},
+                "point_table": {"id": table_id, "version": "1.0.0"},
+            },
+        )
+        devices_document[device_id] = {
+            "name": f"模拟设备 {device_id}",
+            "enabled": True,
+            "model": {"id": model_id, "version": "1.0.0"},
+            "endpoint": {"host": "127.0.0.1", "port": modbus_port},
+            "overrides": {"protocol_options": {"slave_id": 1}},
+        }
+        servers.append(
+            {
+                "server_id": endpoint_id if single else f"{endpoint_id}-{device_id}",
+                "device_id": device_id,
+                "listen_host": "127.0.0.1",
+                "listen_port": modbus_port,
+                "desired_state": "START",
+                "control_enabled": False,
+                "command_mappings": [],
             }
+        )
+
+    _dump(
+        root / "instances" / "devices.yaml",
+        {"schema_version": 1, "file_version": "1.0.0", "devices": devices_document},
+    )
+    _dump(
+        root / "instances" / "site.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "site_id": "data-generator-gateway-site",
+            "name": "Data Generator 网关验收现场",
         },
-        "point_tables": {"dg_points": table},
-        "devices": {
-            device_id: {
-                "endpoint_id": endpoint_id,
-                "point_table_id": "dg_points",
-                "protocol_address": {"unit_id": 1},
-                "commands": {
-                    point_id: {"device_id": f"phys-{device_id}", "point_id": point_id}
-                    for point_id, _data_type, role in points
-                    if role == "command"
-                },
-            }
-            for device_id, points in devices.items()
+    )
+    _dump(
+        root / "templates" / "units.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "quantities": {"dimensionless": {"base_unit": "1"}},
+            "units": {"1": {"symbol": "1", "quantity": "dimensionless"}},
         },
-        "control": {
-            "enabled": control_enabled,
-            "commander": {"endpoint": commander_endpoint},
-            "journal_path": str(journal_path or Path("/tmp/dg-acceptance-journal.json")),
-            "access": {
-                "data_writers": list(data_writers),
-                "command_writers": [],
+    )
+    _dump(
+        root / "templates" / "business_points.yaml",
+        {"schema_version": 1, "file_version": "1.0.0", "business_points": {}},
+    )
+    _dump(
+        root / "templates" / "protocols" / "dg_modbus_1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "template_id": "dg_modbus",
+            "file_version": "1.0.0",
+            "protocol": "modbus",
+            "protocol_options": {
+                "mode": "tcp",
+                "slave_id": 1,
+                "timeout": 5.0,
+                "word_order": "big_endian",
+                "health_point_id": None,
             },
         },
+    )
+    service: dict[str, Any] = {
+        "schema_version": 1,
+        "file_version": "1.0.0",
+        "config_sources": {
+            "instances": {"devices": "instances/devices.yaml"},
+            "templates": {"root": "templates"},
+        },
+        "grpc": {
+            "listen_host": grpc_host,
+            "listen_port": int(grpc_port_text),
+            "max_active_rpcs": 64,
+            "request_max_bytes": 2097152,
+            "tls": (
+                {
+                    "enabled": True,
+                    "cert_file": "certs/server.crt",
+                    "key_file": "certs/server.key",
+                    "ca_file": "certs/ca.crt",
+                }
+                if mtls_enabled
+                else {"enabled": False}
+            ),
+            **(
+                {"permissions": {name: list(rights) for name, rights in permissions.items()}}
+                if permissions
+                else {}
+            ),
+        },
+        "servers": servers,
+        "control": {
+            "commander_endpoint": commander_endpoint,
+            "forward_queue_capacity": 1024,
+            "max_forward_inflight": 16,
+            "submit_deadline_ms": 5000,
+        },
+        "metrics": {"window_seconds": 60, "collect_interval_ms": 1000},
     }
-    return GatewayConfig.model_validate(config)
+    service_path = root / "service.yaml"
+    _dump(service_path, service)
+    return service_path
 
 
 @dataclass(slots=True)
 class RealGateway:
-    application: GatewayApplication
+    runtime: Any
+    gateway_server: Any
+    commander_server: Any
     endpoint_id: str
     data_bind: str
+    pki: dict[str, Any] | None = None
+
+    def mtls_channel(self, client_name: str) -> grpc.aio.Channel:
+        """以指定 CN 的真实客户端证书打开独立 mTLS 通道（调用方负责关闭）。"""
+        if self.pki is None:
+            raise RuntimeError("PKI was not generated for this real gateway")
+        ca_path = cast(Path, self.pki["ca"])
+        cert_path, key_path = cast(dict[str, tuple[Path, Path]], self.pki["clients"])[client_name]
+        credentials = grpc.ssl_channel_credentials(
+            root_certificates=ca_path.read_bytes(),
+            private_key=key_path.read_bytes(),
+            certificate_chain=cert_path.read_bytes(),
+        )
+        return grpc.aio.secure_channel(
+            self.data_bind,
+            credentials,
+            options=(("grpc.ssl_target_name_override", "localhost"),),
+        )
 
     async def stop(self) -> None:
-        await self.application.stop()
+        await self.runtime.stop()
+        await self.gateway_server.stop(grace=0)
+        await self.commander_server.stop(grace=0)
 
 
 @pytest.fixture
-async def start_real_gateway() -> AsyncIterator[Callable[..., Awaitable[RealGateway]]]:
+async def start_real_gateway(
+    tmp_path: Path,
+) -> AsyncIterator[Callable[..., Awaitable[RealGateway]]]:
     running: list[RealGateway] = []
+    from contracts import commander_pb2_grpc as crpc
 
     async def factory(
         *,
         endpoint_id: str,
         devices: dict[str, Sequence[tuple[str, str, str]]] | None = None,
         data_bind: str | None = None,
-        data_writers: Sequence[str] = ("127.0.0.1",),
-        journal_path: Path | None = None,
+        permissions: dict[str, Sequence[str]] | None = None,
+        client_names: Sequence[str] = (),
     ) -> RealGateway:
-        bind = data_bind or f"127.0.0.1:{reserve_port()}"
+        """启动真实 v1 Gateway 全栈（runtime + 正式 gRPC 服务 + 真实 Commander 对端）。
+
+        permissions 非空时启用真实 mTLS；client_names 额外签发仅持有证书、
+        无任何权限的客户端身份，用于安全边界测试。
+        """
         if devices is None:
             devices = {"GW01": [("pitch_angle", "float32", "feedback")]}
-        config = build_data_gateway_config(
+        bind = data_bind or f"127.0.0.1:{reserve_port()}"
+        root = tmp_path / f"real-gateway-{len(running)}"
+        root.mkdir(parents=True)
+        commander = FakeCommanderService()
+        commander_server = grpc.aio.server()
+        crpc.add_CommanderServiceServicer_to_server(commander, commander_server)
+        commander_port = reserve_port()
+        commander_server.add_insecure_port(f"127.0.0.1:{commander_port}")
+        await commander_server.start()
+
+        mtls_enabled = permissions is not None
+        pki: dict[str, Any] | None = None
+        if mtls_enabled:
+            names = set(permissions or ()) | set(client_names)
+            pki = write_mtls_pki(root, tuple(names))
+        service_path = _v1_gateway_tree(
+            root,
             endpoint_id=endpoint_id,
-            data_bind=bind,
             devices=devices,
-            data_writers=data_writers,
-            journal_path=journal_path,
+            data_bind=bind,
+            commander_endpoint=f"127.0.0.1:{commander_port}",
+            permissions=permissions,
+            mtls_enabled=mtls_enabled,
         )
-        application = assemble_gateway(config)
-        await application.start()
-        gateway = RealGateway(application, endpoint_id, bind)
+        config = load_gateway_v1(service_path, project_root=root)
+        runtime = assemble_gateway(config)
+        snapshots = ConfigSnapshots(runtime, service_path, root)
+        gateway_server = create_gateway_grpc_server(runtime, snapshots)
+        await gateway_server.start()
+        await runtime.start()
+        gateway = RealGateway(runtime, gateway_server, commander_server, endpoint_id, bind, pki)
         running.append(gateway)
         return gateway
 

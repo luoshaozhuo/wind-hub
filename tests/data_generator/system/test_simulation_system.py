@@ -368,8 +368,11 @@ async def test_gateway_feedback(
         await _wait_changing_value(gateway.data_bind, "gw-a", "GW01.pitch_angle", samples=2)
         for _ in range(5):
             unmapped = await read_gateway_variable(gateway.data_bind, "gw-a", "GW01.pitch_rate")
+            # v1 未初始化样本：quality=UNKNOWN、freshness=UNINITIALIZED、无错误码与值。
             assert unmapped.quality == "UNKNOWN"
-            assert unmapped.error_code == "NO_VALUE"
+            assert unmapped.freshness == "UNINITIALIZED"
+            assert unmapped.error_code == ""
+            assert not unmapped.HasField("value")
             await asyncio.sleep(0.1)
     finally:
         await channel.close()

@@ -183,7 +183,10 @@ def test_snapshot_messages_express_design_outputs() -> None:
         application_id="app-1",
         apply_results=[
             common_pb2.ApplicationResult(
-                object_id="task-1", status="FAILED", error_code="RELOAD_DENIED", message="x"
+                object_id="task-1",
+                status="FAILED",
+                error_code="RELOAD_DENIED",
+                message="x",
             )
         ],
         last_error="task-1 rejected",
@@ -372,6 +375,7 @@ def test_gateway_update_variables_batch_wire_roundtrip() -> None:
     """One Gateway request may report partial success without losing input order."""
     request = industrial_gateway_pb2.UpdateVariablesRequest(
         gateway_id="gateway-1",
+        lease_token="lease-42",
         values=[
             industrial_gateway_pb2.VariableUpdate(
                 variable_id="wind_power",
@@ -385,6 +389,7 @@ def test_gateway_update_variables_batch_wire_roundtrip() -> None:
     )
     restored = industrial_gateway_pb2.UpdateVariablesRequest.FromString(request.SerializeToString())
     assert restored.gateway_id == "gateway-1"
+    assert restored.lease_token == "lease-42"
     assert [item.variable_id for item in restored.values] == ["wind_power", "missing"]
     assert restored.values[0].value.WhichOneof("kind") == "double_value"
     assert restored.values[1].value.WhichOneof("kind") == "bool_value"
@@ -424,7 +429,7 @@ def test_gateway_update_variables_field_numbers_and_types_frozen() -> None:
                 field.name,
                 field.type,
                 "repeated" if field.is_repeated else "singular",
-                field.message_type.full_name if field.message_type is not None else None,
+                (field.message_type.full_name if field.message_type is not None else None),
             )
             for field in message.fields
         ]
@@ -484,3 +489,31 @@ def test_gateway_update_variables_shares_variable_id_semantics() -> None:
     assert listed.type == updated.type == FieldDescriptorProto.TYPE_STRING
     assert read.type == FieldDescriptorProto.TYPE_STRING
     assert read.is_repeated
+
+
+def test_gateway_claim_targets_wire_roundtrip() -> None:
+    """A source may reserve several variables using one opaque token."""
+    request = industrial_gateway_pb2.ClaimTargetsRequest(
+        gateway_id="gateway-1",
+        owner_id="generation-42",
+        variable_ids=["p1", "p2"],
+        action="RENEW",
+        lease_token="secret-token",
+        lease_ms=10000,
+    )
+    restored = industrial_gateway_pb2.ClaimTargetsRequest.FromString(request.SerializeToString())
+    assert restored.gateway_id == request.gateway_id
+    assert restored.owner_id == request.owner_id
+    assert list(restored.variable_ids) == ["p1", "p2"]
+    assert restored.action == "RENEW"
+    assert restored.lease_token == "secret-token"
+    response = industrial_gateway_pb2.ClaimTargetsResponse(
+        accepted=True,
+        lease_token="new-token",
+    )
+    assert (
+        industrial_gateway_pb2.ClaimTargetsResponse.FromString(
+            response.SerializeToString()
+        ).lease_token
+        == "new-token"
+    )

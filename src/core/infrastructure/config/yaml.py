@@ -35,6 +35,19 @@ _UniqueKeyLoader.add_constructor(
 )
 
 
+def parse_yaml_mapping(content: str | bytes) -> dict[str, Any]:
+    """Parse candidate YAML with the same duplicate-key guard as disk loading."""
+    try:
+        data = cast(Any, yaml.load(content, Loader=_UniqueKeyLoader))
+    except ConfigError:
+        raise
+    except (yaml.YAMLError, UnicodeError) as exc:
+        raise ConfigError(f"Invalid YAML candidate: {exc}") from exc
+    if not isinstance(data, dict) or not data:
+        raise ConfigError("YAML root must be a nonempty mapping")
+    return data
+
+
 def read_yaml_mapping(path: str | Path) -> dict[str, Any]:
     """安全读取 YAML 根映射，拒绝重复 Key，保留既有配置异常语义。"""
     source = Path(path)

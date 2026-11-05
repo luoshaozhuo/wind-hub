@@ -1,349 +1,596 @@
-"""Industrial Gateway public RPC: virtual variable storage and lifecycle."""
+"""IndustrialGatewayService v1: device management and independent variable updates."""
 
 from __future__ import annotations
 
-import hashlib
-from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from ipaddress import ip_address
+from time import perf_counter
+from typing import Any
+from uuid import uuid4
 
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from contracts import common_pb2 as common
-from contracts import industrial_gateway_pb2 as gateway
-from contracts import industrial_gateway_pb2_grpc as gateway_rpc
+from contracts import common_pb2_grpc as common_rpc
+from contracts import industrial_gateway_pb2 as pb
+from contracts import industrial_gateway_pb2_grpc as rpc
+from core.application.errors import ConfigError
 from core.infrastructure.rpc.scalar_codec import decode_scalar, encode_scalar
-from industrial_gateway.application.point_store import PointStore
-from industrial_gateway.application.target_leases import TargetLeaseRegistry
-from industrial_gateway.domain.point import PointRole
-from industrial_gateway.infrastructure.config.loader import GatewayConfig
+from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
+from industrial_gateway.infrastructure.config.v1_schema import service_path
+from industrial_gateway.infrastructure.diagnostics import GatewayDiagnostics
+from industrial_gateway.infrastructure.runtime import GatewayInstance, GatewayRuntime
+from industrial_gateway.infrastructure.variable_leases import LeaseError
 
-LifecycleAction = Callable[[str], Awaitable[bool]]
-IsRunning = Callable[[str], bool]
-
-
-def _time_now() -> Timestamp:
-    value = Timestamp()
-    value.FromDatetime(datetime.now(UTC))
-    return value
+_PAGE_LIMIT = 500
 
 
-class IndustrialGatewayService(gateway_rpc.IndustrialGatewayServiceServicer):
-    """One externally visible Gateway per configured industrial protocol endpoint."""
+async def _authorize(
+    context: grpc.aio.ServicerContext[Any, Any],
+    runtime: GatewayRuntime,
+    permission: str,
+) -> None:
+    """Enforce mTLS identity permissions or explicitly local-only development."""
+    policy = runtime.config.service.grpc
+    if not policy.tls.enabled:
+        if context.peer().startswith(("ipv4:127.0.0.1:", "ipv6:[::1]:")):
+            return
+        await context.abort(grpc.StatusCode.PERMISSION_DENIED, "loopback-only deployment")
+        return
+    common_names = context.auth_context().get("x509_common_name", ())
+    identity = common_names[0].decode("utf-8") if common_names else ""
+    rights = policy.permissions.get(identity, ())
+    if permission not in rights:
+        await context.abort(
+            grpc.StatusCode.PERMISSION_DENIED,
+            "caller identity has insufficient permissions",
+        )
 
-    def __init__(
-        self,
-        store: PointStore,
-        config: GatewayConfig,
-        start: LifecycleAction,
-        stop: LifecycleAction,
-        is_running: IsRunning,
-    ) -> None:
-        self._store = store
-        self._config = config
-        self._revision = hashlib.sha256(config.model_dump_json().encode("utf-8")).hexdigest()
-        self._start = start
-        self._stop = stop
-        self._is_running = is_running
-        self._leases = TargetLeaseRegistry()
-        self._definitions: dict[str, dict[str, tuple[str, str, str, PointRole]]] = {}
-        for gateway_id in config.endpoints:
-            self._definitions[gateway_id] = {}
-        for device_id, device in config.devices.items():
-            target = self._definitions[device.endpoint_id]
-            point_table = config.point_tables[device.point_table_id]
-            for point_id, point in point_table.points.items():
-                target[f"{device_id}.{point_id}"] = (
-                    device_id,
-                    point_id,
-                    point.data_type,
-                    PointRole(point.role),
-                )
 
-    def _catalog(self, gateway_id: str) -> dict[str, tuple[str, str, str, PointRole]]:
+def _trusted_identity(
+    context: grpc.aio.ServicerContext[Any, Any],
+    runtime: GatewayRuntime,
+) -> str:
+    """Use authenticated client certificate CN, never client-supplied metadata."""
+    if not runtime.config.service.grpc.tls.enabled:
+        return "local-loopback"
+    identities = context.auth_context().get("x509_common_name", ())
+    return identities[0].decode("utf-8") if identities else "unidentified"
+
+
+def _timestamp(value: datetime) -> Timestamp:
+    result = Timestamp()
+    result.FromDatetime(value)
+    return result
+
+
+def _page(keys: list[str], page_size: int, page_token: str) -> tuple[list[str], str]:
+    if page_token:
         try:
-            return self._definitions[gateway_id]
-        except KeyError as exc:
-            raise ValueError(f"unknown gateway: {gateway_id}") from exc
-
-    async def _require_catalog(
-        self,
-        gateway_id: str,
-        context: grpc.aio.ServicerContext,
-    ) -> dict[str, tuple[str, str, str, PointRole]]:
-        try:
-            return self._catalog(gateway_id)
+            start = int(page_token)
         except ValueError as exc:
-            await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
-            raise RuntimeError("gRPC abort returned") from exc
+            raise ValueError("page_token must be an integer offset") from exc
+    else:
+        start = 0
+    if start < 0 or start > len(keys):
+        raise ValueError("page_token out of range")
+    limit = min(page_size or 100, _PAGE_LIMIT)
+    end = min(start + limit, len(keys))
+    return keys[start:end], str(end) if end < len(keys) else ""
 
-    def _gateway(self, gateway_id: str) -> gateway.Gateway:
-        members = [
-            name
-            for name, device in self._config.devices.items()
-            if device.endpoint_id == gateway_id
-        ]
-        return gateway.Gateway(
+
+class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
+    """The eight canonical RPCs defined in industrial_gateway.proto."""
+
+    def __init__(self, runtime: GatewayRuntime) -> None:
+        self._runtime = runtime
+
+    async def _instance(
+        self, gateway_id: str, context: grpc.aio.ServicerContext[Any, Any]
+    ) -> GatewayInstance:
+        instance = self._runtime.instances.get(gateway_id)
+        if instance is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "unknown gateway_id")
+            raise RuntimeError("abort unexpectedly returned") from None
+        return instance
+
+    def _gateway(self, gateway_id: str, instance: GatewayInstance) -> pb.Gateway:
+        config = instance.config
+        status = instance.lifecycle.status
+        return pb.Gateway(
             gateway_id=gateway_id,
-            endpoint=self._config.data_grpc_bind or "",
-            mapping_summary=f"{len(members)} virtual devices",
-            revision=self._revision,
-            desired_state="RUNNING" if self._is_running(gateway_id) else "STOPPED",
-            actual_state="RUNNING" if self._is_running(gateway_id) else "STOPPED",
+            endpoint=(f"{config.settings.listen_host}:{config.settings.listen_port}"),
+            mapping_summary=f"{len(config.variables)} variables",
+            desired_state=status.desired.value,
+            actual_state=status.actual.value,
+            revision=self._runtime.config.revision,
+            last_error=status.last_error,
         )
 
     async def ListGateways(
         self,
-        request: gateway.ListGatewaysRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> gateway.ListGatewaysResponse:
-        names = [name for name in sorted(self._definitions) if request.filter in name]
+        request: pb.ListGatewaysRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> pb.ListGatewaysResponse:
+        await _authorize(context, self._runtime, "read")
+        ids = sorted(
+            gateway_id
+            for gateway_id in self._runtime.instances
+            if not request.filter or request.filter in gateway_id
+        )
         try:
-            offset = int(request.page_token or "0")
-            if offset < 0 or offset > len(names):
-                raise ValueError("out of range")
+            selected, next_token = _page(ids, request.page_size, request.page_token)
         except ValueError as exc:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid page token")
-            raise RuntimeError("gRPC abort returned") from exc
-        size = min(request.page_size or 100, 1000)
-        end = offset + size
-        return gateway.ListGatewaysResponse(
-            gateways=[self._gateway(name) for name in names[offset:end]],
-            next_page_token=str(end) if end < len(names) else "",
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
+        return pb.ListGatewaysResponse(
+            gateways=[self._gateway(key, self._runtime.instances[key]) for key in selected],
+            next_page_token=next_token,
         )
 
     async def GetGateway(
         self,
         request: common.ObjectId,
-        context: grpc.aio.ServicerContext,
-    ) -> gateway.GetGatewayResponse:
-        await self._require_catalog(request.id, context)
-        return gateway.GetGatewayResponse(gateway=self._gateway(request.id))
-
-    async def _lifecycle(
-        self,
-        request: common.OperationRequest,
-        context: grpc.aio.ServicerContext,
-        action: LifecycleAction,
-        desired: str,
-    ) -> common.OperationResult:
-        await self._require_catalog(request.id, context)
-        if request.expected_revision and request.expected_revision != self._revision:
-            return common.OperationResult(
-                accepted=False,
-                revision=self._revision,
-                desired_state=desired,
-                actual_state="CONFLICT",
-                error_code="REVISION_CONFLICT",
-            )
-        try:
-            changed = await action(request.id)
-        except (OSError, RuntimeError, ValueError) as exc:
-            return common.OperationResult(
-                accepted=False,
-                actual_state="FAILED",
-                desired_state=desired,
-                error_code="LIFECYCLE_FAILED",
-                message=str(exc),
-            )
-        return common.OperationResult(
-            accepted=True,
-            desired_state=desired,
-            revision=self._revision,
-            actual_state="RUNNING" if self._is_running(request.id) else "STOPPED",
-            message="changed" if changed else "already in requested state",
-        )
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> pb.GetGatewayResponse:
+        await _authorize(context, self._runtime, "read")
+        instance = await self._instance(request.id, context)
+        return pb.GetGatewayResponse(gateway=self._gateway(request.id, instance))
 
     async def StartGateway(
         self,
         request: common.OperationRequest,
-        context: grpc.aio.ServicerContext,
+        context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.OperationResult:
-        return await self._lifecycle(request, context, self._start, "RUNNING")
+        await _authorize(context, self._runtime, "lifecycle")
+        instance = await self._instance(request.id, context)
+        if not request.expected_revision:
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "expected_revision is required",
+            )
+        if request.expected_revision != self._runtime.config.revision:
+            await context.abort(grpc.StatusCode.ABORTED, "revision mismatch")
+        try:
+            await self._runtime.start_requested(request.id, request.expected_revision)
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.ABORTED, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
+        except (RuntimeError, OSError) as exc:
+            return common.OperationResult(
+                operation_id=uuid4().hex,
+                accepted=False,
+                desired_state=instance.lifecycle.status.desired.value,
+                actual_state=instance.lifecycle.status.actual.value,
+                revision=self._runtime.config.revision,
+                error_code="START_FAILED",
+                message=str(exc),
+            )
+        return common.OperationResult(
+            operation_id=uuid4().hex,
+            accepted=True,
+            desired_state=instance.lifecycle.status.desired.value,
+            actual_state=instance.lifecycle.status.actual.value,
+            revision=self._runtime.config.revision,
+        )
 
     async def StopGateway(
         self,
         request: common.OperationRequest,
-        context: grpc.aio.ServicerContext,
+        context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.OperationResult:
-        return await self._lifecycle(request, context, self._stop, "STOPPED")
+        await _authorize(context, self._runtime, "lifecycle")
+        instance = await self._instance(request.id, context)
+        if not request.expected_revision:
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "expected_revision is required",
+            )
+        if request.expected_revision != self._runtime.config.revision:
+            await context.abort(grpc.StatusCode.ABORTED, "revision mismatch")
+        try:
+            await self._runtime.stop_requested(request.id, request.expected_revision)
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.ABORTED, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
+        except (RuntimeError, OSError) as exc:
+            return common.OperationResult(
+                operation_id=uuid4().hex,
+                accepted=False,
+                desired_state=instance.lifecycle.status.desired.value,
+                actual_state=instance.lifecycle.status.actual.value,
+                revision=self._runtime.config.revision,
+                error_code="STOP_FAILED",
+                message=str(exc),
+            )
+        return common.OperationResult(
+            operation_id=uuid4().hex,
+            accepted=True,
+            desired_state=instance.lifecycle.status.desired.value,
+            actual_state=instance.lifecycle.status.actual.value,
+            revision=self._runtime.config.revision,
+        )
 
     async def ListVariables(
         self,
-        request: gateway.ListVariablesRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> gateway.ListVariablesResponse:
-        catalog = await self._require_catalog(request.gateway_id, context)
-        names = [name for name in sorted(catalog) if request.filter in name]
+        request: pb.ListVariablesRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> pb.ListVariablesResponse:
+        await _authorize(context, self._runtime, "read")
+        instance = await self._instance(request.gateway_id, context)
+        ids = sorted(
+            variable_id
+            for variable_id in instance.config.variables
+            if not request.filter or request.filter in variable_id
+        )
         try:
-            offset = int(request.page_token or "0")
-            if offset < 0 or offset > len(names):
-                raise ValueError("out of range")
+            selected, next_token = _page(ids, request.page_size, request.page_token)
         except ValueError as exc:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid page token")
-            raise RuntimeError("gRPC abort returned") from exc
-        size = min(request.page_size or 100, 1000)
-        end = offset + size
-        variables = [
-            gateway.Variable(
-                variable_id=name,
-                name=name,
-                data_type=catalog[name][2],
-                readable=True,
-                writable=catalog[name][3] is PointRole.FEEDBACK,
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
+        variables: list[pb.Variable] = []
+        for variable_id in selected:
+            variable = instance.config.variables[variable_id]
+            # writable describes gRPC injection, not industrial protocol FC writes.
+            writable = True
+            variables.append(
+                pb.Variable(
+                    variable_id=variable_id,
+                    name=variable_id,
+                    data_type=variable.data_type,
+                    readable=True,
+                    writable=writable,
+                    address=[
+                        common.AddressField(key=key, value=encode_scalar(value))
+                        for key, value in variable.address.items()
+                        if value is not None
+                    ],
+                )
             )
-            for name in names[offset:end]
-        ]
-        return gateway.ListVariablesResponse(
+        return pb.ListVariablesResponse(
             variables=variables,
-            next_page_token=str(end) if end < len(names) else "",
+            next_page_token=next_token,
         )
 
     async def ReadVariables(
         self,
-        request: gateway.ReadVariablesRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> gateway.ReadVariablesResponse:
-        catalog = await self._require_catalog(request.gateway_id, context)
-        names = request.variable_ids or tuple(sorted(catalog))
+        request: pb.ReadVariablesRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> pb.ReadVariablesResponse:
+        await _authorize(context, self._runtime, "read")
+        instance = await self._instance(request.gateway_id, context)
+        ids = list(request.variable_ids) or list(instance.config.variables)
+        queried_at = _timestamp(datetime.now(UTC))
         samples: list[common.Sample] = []
-        for name in names:
-            if name not in catalog:
-                await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown variable: {name}")
-                raise RuntimeError("gRPC abort returned")
-            device_id, point_id, _, _ = catalog[name]
-            state = self._store.read(device_id, point_id)
+        for variable_id in ids:
+            try:
+                snapshot = instance.store.read(variable_id)
+            except KeyError:
+                samples.append(
+                    common.Sample(
+                        point_id=variable_id,
+                        quality="BAD",
+                        freshness="UNKNOWN",
+                        error_code="NOT_FOUND",
+                        error_message="unknown variable",
+                        queried_at=queried_at,
+                    )
+                )
+                continue
             sample = common.Sample(
-                point_id=name,
-                quality="GOOD" if state.value is not None else "UNKNOWN",
-                freshness="CURRENT" if state.value is not None else "UNAVAILABLE",
-                queried_at=_time_now(),
+                point_id=variable_id,
+                quality="GOOD" if snapshot.value is not None else "UNKNOWN",
+                freshness="CURRENT" if snapshot.value is not None else "UNINITIALIZED",
+                queried_at=queried_at,
             )
-            if state.value is not None:
-                sample.value.CopyFrom(encode_scalar(state.value))
-            else:
-                sample.error_code = "NO_VALUE"
+            if snapshot.value is not None:
+                sample.value.CopyFrom(encode_scalar(snapshot.value))
+            if snapshot.updated_at is not None:
+                sample.sample_timestamp.CopyFrom(_timestamp(snapshot.updated_at))
             samples.append(sample)
-        return gateway.ReadVariablesResponse(
+        return pb.ReadVariablesResponse(
             gateway_id=request.gateway_id,
             values=samples,
         )
 
-    async def _authorize_writer(self, context: grpc.aio.ServicerContext) -> None:
-        """Loopback IP restriction is an additional guard, not a TLS identity."""
-        peer = context.peer()
-        address = ""
-        if peer.startswith("ipv4:"):
-            address = peer[5:].rsplit(":", 1)[0]
-        elif peer.startswith("ipv6:"):
-            address = peer[5:].rsplit(":", 1)[0].strip("[]")
-        try:
-            authorized = ip_address(address) in {
-                ip_address(value) for value in self._config.control.access.data_writers
-            }
-        except ValueError:
-            authorized = False
-        if not authorized:
-            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "unauthorized data writer")
-            raise RuntimeError("gRPC abort returned")
-
     async def ClaimTargets(
         self,
-        request: gateway.ClaimTargetsRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> gateway.ClaimTargetsResponse:
-        await self._authorize_writer(context)
-        catalog = await self._require_catalog(request.gateway_id, context)
-        ids = list(request.variable_ids)
-        if (
-            not 0 < len(ids) <= 5000
-            or len(set(ids)) != len(ids)
-            or any(
-                name not in catalog or catalog[name][3] is not PointRole.FEEDBACK for name in ids
-            )
-        ):
-            return gateway.ClaimTargetsResponse(accepted=False, error_code="INVALID_TARGETS")
-        async with self._leases.lock:
-            accepted, token, error = self._leases.claim(
-                request.gateway_id,
-                request.owner_id,
-                set(ids),
-                request.action,
-                request.lease_token,
-                request.lease_ms,
-            )
-        return gateway.ClaimTargetsResponse(
-            accepted=accepted,
-            lease_token=token,
-            error_code=error,
-        )
+        request: pb.ClaimTargetsRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> pb.ClaimTargetsResponse:
+        """Acquire, renew, or release source target ownership without PLC I/O."""
+        await _authorize(context, self._runtime, "inject")
+        await self._instance(request.gateway_id, context)
+        try:
+            return await self._runtime.claim_targets(request)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "Gateway no longer exists")
+            raise RuntimeError("abort unexpectedly returned") from None
 
     async def UpdateVariables(
         self,
-        request: gateway.UpdateVariablesRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> gateway.UpdateVariablesResponse:
-        await self._authorize_writer(context)
-        catalog = await self._require_catalog(request.gateway_id, context)
-        if not 0 < len(request.values) <= 5000:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "batch size must be 1..5000")
-            raise RuntimeError("gRPC abort returned")
-        ids = [item.variable_id for item in request.values]
-        if len(set(ids)) != len(ids):
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "duplicate target")
-            raise RuntimeError("gRPC abort returned")
-        results: list[gateway.VariableUpdateResult] = []
-        async with self._leases.lock:
-            if not self._leases.authorize(
+        request: pb.UpdateVariablesRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> pb.UpdateVariablesResponse:
+        await _authorize(context, self._runtime, "inject")
+        await self._instance(request.gateway_id, context)
+        start = perf_counter()
+        values = [
+            (
+                item.variable_id,
+                decode_scalar(item.value)
+                if item.HasField("value") and item.value.WhichOneof("kind") is not None
+                else None,
+            )
+            for item in request.values
+        ]
+        try:
+            outcomes = await self._runtime.update_variables(
+                request.gateway_id, values, request.lease_token
+            )
+        except LeaseError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "Gateway no longer exists")
+            raise RuntimeError("abort unexpectedly returned") from None
+        results = [
+            pb.VariableUpdateResult(
+                variable_id=item.variable_id,
+                success=item.success,
+                error_code=item.error_code,
+                message=item.message,
+            )
+            for item in outcomes
+        ]
+        observations = self._runtime.observability
+        observations.record(request.gateway_id, "update_batches_total")
+        failed = sum(not item.success for item in results)
+        if failed:
+            observations.event(
                 request.gateway_id,
-                set(ids),
-                request.lease_token,
-            ):
-                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "LEASE_LOST")
-                raise RuntimeError("gRPC abort returned")
-            for item in request.values:
-                code = ""
-                message = ""
-                try:
-                    if item.variable_id not in catalog:
-                        raise KeyError("unknown target variable")
-                    device_id, point_id, _, role = catalog[item.variable_id]
-                    if role is not PointRole.FEEDBACK:
-                        raise PermissionError("not a feedback variable")
-                    if not item.HasField("value") or item.value.WhichOneof("kind") is None:
-                        raise ValueError("missing scalar value")
-                    value = decode_scalar(item.value)
-                    await self._store.update_feedback(device_id, point_id, value)
-                except (ValueError, KeyError, TypeError, PermissionError) as exc:
-                    code = "INVALID_VARIABLE"
-                    message = str(exc)
-                results.append(
-                    gateway.VariableUpdateResult(
-                        variable_id=item.variable_id,
-                        success=not code,
-                        error_code=code,
-                        message=message,
-                    )
+                f"UpdateVariables completed with {failed} failed items",
+                severity="WARNING",
+                error_code="PARTIAL_UPDATE_FAILED",
+            )
+        successes = sum(item.success for item in results)
+        if successes:
+            observations.record(request.gateway_id, "updated_variables_total", successes)
+        observations.latency(request.gateway_id, (perf_counter() - start) * 1000)
+        return pb.UpdateVariablesResponse(results=results)
+
+
+class GatewayCommonService(common_rpc.CommonServiceServicer):
+    """Expose the canonical CommonService surface without invented RPC fields."""
+
+    def __init__(self, snapshots: ConfigSnapshots) -> None:
+        self._snapshots = snapshots
+        self._runtime = snapshots.runtime
+        self._diagnostics = GatewayDiagnostics(self._runtime)
+        self._started_at = datetime.now(UTC)
+
+    async def GetConfigSnapshot(
+        self,
+        request: common.GetConfigSnapshotRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetConfigSnapshotResponse:
+        await _authorize(context, self._runtime, "config_read")
+        try:
+            return await self._snapshots.get(request.scope, request.candidate_id)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "candidate not found")
+            raise RuntimeError("abort unexpectedly returned") from None
+        except (ConfigError, ValueError) as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
+
+    async def PushConfigSnapshot(
+        self,
+        request: common.PushConfigSnapshotRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.PushConfigSnapshotResponse:
+        await _authorize(context, self._runtime, "config_write")
+        return await self._snapshots.push(
+            list(request.files),
+            request.expected_revision,
+        )
+
+    async def ApplyConfigSnapshot(
+        self,
+        request: common.ApplyConfigSnapshotRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.ApplyConfigSnapshotResponse:
+        await _authorize(context, self._runtime, "config_write")
+        try:
+            return await self._snapshots.apply(
+                request.candidate_id,
+                request.expected_revision,
+                operator=_trusted_identity(context, self._runtime),
+            )
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "candidate not found")
+            raise RuntimeError("abort unexpectedly returned") from None
+        except (ConfigError, ValueError) as exc:
+            await context.abort(grpc.StatusCode.ABORTED, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
+
+    async def GetServiceInfo(
+        self,
+        request: common.Empty,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetServiceInfoResponse:
+        await _authorize(context, self._runtime, "read")
+        response = common.GetServiceInfoResponse(
+            service_id="industrial_gateway",
+            process_role="gateway",
+            software_version="0.1.0",
+            contract_version="v1",
+        )
+        response.started_at.FromDatetime(self._started_at)
+        return response
+
+    async def GetServiceStatus(
+        self,
+        request: common.Empty,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetServiceStatusResponse:
+        await _authorize(context, self._runtime, "read")
+        from industrial_gateway.application.server_lifecycle import ActualState
+
+        dependencies: list[common.DependencyHealth] = []
+        unhealthy = False
+        for gateway_id, instance in self._runtime.instances.items():
+            state = instance.lifecycle.status
+            ok = (
+                state.actual is ActualState.RUNNING
+                if state.desired.value == "START"
+                else state.actual is ActualState.STOPPED
+            )
+            unhealthy |= not ok
+            dependencies.append(
+                common.DependencyHealth(
+                    name=gateway_id,
+                    health="HEALTHY" if ok else "UNHEALTHY",
+                    detail=(
+                        f"{state.actual.value}; "
+                        f"restart_count={state.restart_count}; "
+                        f"last_failure_at={state.last_failure_at}"
+                    ),
                 )
-        return gateway.UpdateVariablesResponse(results=results)
+            )
+        ready = self._runtime.observability.ready
+        dependencies.append(
+            common.DependencyHealth(
+                name="metrics",
+                health="HEALTHY" if ready else "NOT_READY",
+                detail="periodic snapshot ready" if ready else "first sample pending",
+            )
+        )
+        status = common.GetServiceStatusResponse(
+            health="DEGRADED" if unhealthy else "HEALTHY",
+            dependencies=dependencies,
+        )
+        status.observed_at.FromDatetime(datetime.now(UTC))
+        return status
+
+    async def GetCapabilities(
+        self,
+        request: common.Empty,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetCapabilitiesResponse:
+        await _authorize(context, self._runtime, "read")
+        return common.GetCapabilitiesResponse(
+            rpc_names=[
+                "CommonService.GetServiceInfo",
+                "CommonService.GetServiceStatus",
+                "CommonService.GetCapabilities",
+                "CommonService.GetConfigSnapshot",
+                "CommonService.PushConfigSnapshot",
+                "CommonService.ApplyConfigSnapshot",
+                "CommonService.GetMetrics",
+                "CommonService.GetEvents",
+                "CommonService.Diagnose",
+                "IndustrialGatewayService.ListGateways",
+                "IndustrialGatewayService.GetGateway",
+                "IndustrialGatewayService.StartGateway",
+                "IndustrialGatewayService.StopGateway",
+                "IndustrialGatewayService.ListVariables",
+                "IndustrialGatewayService.ReadVariables",
+                "IndustrialGatewayService.UpdateVariables",
+                "IndustrialGatewayService.ClaimTargets",
+            ],
+            protocols=["modbus_tcp"],
+            features=[
+                "single_device_server",
+                "grpc_independent_variable_updates",
+                "request_level_modbus_write_capture",
+                "best_effort_commander_forwarding",
+                "service_only_configuration_snapshots",
+                "passive_diagnostics",
+                "periodic_metrics",
+            ],
+        )
+
+    async def GetMetrics(
+        self,
+        request: common.GetMetricsRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetMetricsResponse:
+        await _authorize(context, self._runtime, "read")
+        if request.scope and request.scope not in self._runtime.instances:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "unknown metric scope")
+        try:
+            return self._runtime.observability.metrics(request.scope, request.window_ms)
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
+
+    async def GetEvents(
+        self,
+        request: common.GetEventsRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetEventsResponse:
+        await _authorize(context, self._runtime, "read")
+        try:
+            return self._runtime.observability.query_events(request)
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
+
+    async def Diagnose(
+        self,
+        request: common.DiagnoseRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.DiagnoseResponse:
+        await _authorize(context, self._runtime, "diagnose")
+        try:
+            return await self._diagnostics.diagnose(request)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "unknown target")
+            raise RuntimeError("abort unexpectedly returned") from None
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("abort unexpectedly returned") from exc
 
 
-def create_grpc_server(
-    store: PointStore,
-    bind: str,
-    config: GatewayConfig,
-    start: LifecycleAction,
-    stop: LifecycleAction,
-    is_running: IsRunning,
+def create_gateway_grpc_server(
+    runtime: GatewayRuntime, snapshots: ConfigSnapshots
 ) -> grpc.aio.Server:
-    if not bind.startswith(("127.0.0.1:", "[::1]:")):
-        raise ValueError("unauthenticated Gateway gRPC must bind loopback")
-    server = grpc.aio.server()
-    gateway_rpc.add_IndustrialGatewayServiceServicer_to_server(
-        IndustrialGatewayService(store, config, start, stop, is_running),
-        server,
+    """Bind the v1 gRPC service with an explicit secure listener policy."""
+    config = runtime.config.service.grpc
+    server = grpc.aio.server(
+        maximum_concurrent_rpcs=config.max_active_rpcs,
+        options=[
+            ("grpc.max_receive_message_length", config.request_max_bytes),
+        ],
     )
-    if server.add_insecure_port(bind) == 0:
-        raise RuntimeError("unable to bind Gateway gRPC listener")
+    rpc.add_IndustrialGatewayServiceServicer_to_server(GatewayGrpcService(runtime), server)
+    common_rpc.add_CommonServiceServicer_to_server(GatewayCommonService(snapshots), server)
+    host = config.listen_host
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    bind = f"{host}:{config.listen_port}"
+    if config.tls.enabled:
+        if not all((config.tls.cert_file, config.tls.key_file, config.tls.ca_file)):
+            raise ValueError("mTLS certificate files are required")
+        assert config.tls.cert_file is not None
+        assert config.tls.key_file is not None
+        assert config.tls.ca_file is not None
+        root = runtime.config.project_root
+        key = service_path(root, config.tls.key_file).read_bytes()
+        cert = service_path(root, config.tls.cert_file).read_bytes()
+        ca = service_path(root, config.tls.ca_file).read_bytes()
+        credentials = grpc.ssl_server_credentials(
+            [(key, cert)],
+            root_certificates=ca,
+            require_client_auth=True,
+        )
+        bound = server.add_secure_port(bind, credentials)
+    else:
+        bound = server.add_insecure_port(bind)
+    if bound == 0:
+        raise RuntimeError(f"unable to bind Gateway gRPC: {bind}")
     return server

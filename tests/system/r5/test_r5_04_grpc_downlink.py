@@ -1,10 +1,4 @@
-"""R5-4：NATS → Sink Service → gRPC Gateway 下行真实链路。
-
-测试侧实现真实的 ``GatewayDataService`` gRPC 服务（loopback 动态端口），
-生产 ``GrpcSink`` 作为客户端发起 WriteMany。覆盖：单/多点写与标量编码、
-部分写（updated < 请求点数）必须拒绝并使 Sink failed、RPC 超时传播、
-对端重启后 supervisor 恢复续写。
-"""
+"""Real NATS -> Sink -> IndustrialGatewayService.UpdateVariables link."""
 
 from __future__ import annotations
 
@@ -14,8 +8,8 @@ from typing import Any
 import grpc
 import pytest
 
-from contracts import gateway_pb2 as gw_pb
-from contracts import gateway_pb2_grpc as gw_rpc
+from contracts import industrial_gateway_pb2 as gw_pb
+from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from core.infrastructure.rpc.scalar_codec import decode_scalar
 from tests.support.process import free_port
 from tests.support.wait import wait_until
@@ -25,30 +19,46 @@ from tests.system.r5.r5_config import DEVICE_ID, TASK_ID, write_r5_config
 pytestmark = [pytest.mark.system, pytest.mark.real_service]
 
 
-class _RecordingGateway(gw_rpc.GatewayDataServiceServicer):
-    """真实 gRPC 服务端：记录每次 WriteMany 的解码后标量。"""
+class _RecordingGateway(gw_rpc.IndustrialGatewayServiceServicer):
+    """Capture real gRPC UpdateVariables requests and return per-item results."""
 
-    def __init__(self, *, updated_override: int | None = None, delay: float = 0.0) -> None:
+    def __init__(self, *, rejected_index: int | None = None, delay: float = 0.0) -> None:
         self.received: list[tuple[str, str, Any]] = []
         self.calls = 0
-        self._updated_override = updated_override
+        self._rejected_index = rejected_index
         self._delay = delay
 
-    async def WriteMany(  # noqa: N802 - 方法名由 protobuf servicer 契约强制
-        self, request: gw_pb.WriteManyRequest, context: Any
-    ) -> gw_pb.WriteManyResponse:
+    async def UpdateVariables(  # noqa: N802
+        self, request: gw_pb.UpdateVariablesRequest, context: Any
+    ) -> gw_pb.UpdateVariablesResponse:
         self.calls += 1
         if self._delay:
             await asyncio.sleep(self._delay)
-        for point in request.points:
-            self.received.append((point.device_id, point.point_id, decode_scalar(point.value)))
-        updated = len(request.points) if self._updated_override is None else self._updated_override
-        return gw_pb.WriteManyResponse(updated=updated)
+        for point in request.values:
+            self.received.append(
+                (
+                    request.gateway_id,
+                    point.variable_id,
+                    decode_scalar(point.value),
+                )
+            )
+        return gw_pb.UpdateVariablesResponse(
+            results=[
+                gw_pb.VariableUpdateResult(
+                    variable_id=point.variable_id,
+                    success=index != self._rejected_index,
+                    error_code=("INVALID_VALUE" if index == self._rejected_index else ""),
+                )
+                for index, point in enumerate(request.values)
+            ]
+        )
 
 
-async def _start_gateway(servicer: _RecordingGateway) -> tuple[Any, grpc.aio.Server, int]:
+async def _start_gateway(
+    servicer: _RecordingGateway,
+) -> tuple[Any, grpc.aio.Server, int]:
     server = grpc.aio.server()
-    gw_rpc.add_GatewayDataServiceServicer_to_server(servicer, server)
+    gw_rpc.add_IndustrialGatewayServiceServicer_to_server(servicer, server)
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
     return servicer, server, port
@@ -63,7 +73,10 @@ def _grpc_config(nats_url: str, endpoint: str, *, timeout: float = 3.0) -> dict[
                 TASK_ID: {
                     "points": [
                         {
-                            "source": {"device_id": DEVICE_ID, "point_id": "rotor_speed"},
+                            "source": {
+                                "device_id": DEVICE_ID,
+                                "point_id": "rotor_speed",
+                            },
                             "address": {"device_id": "gw-1", "point_id": "speed"},
                         },
                         {
@@ -91,8 +104,16 @@ async def test_single_and_multi_point_writes_with_scalar_encoding(
         sink = await r5_sink_factory(config_dir, realtime_sinks=("grpc_sink",))
         await wait_state(sink, "grpc_sink", "running")
 
-        await publish(r5_stack, make_sample("rotor_speed", 12.5, sample_id="r5g-1"), "realtime")
-        await publish(r5_stack, make_sample("gen_power", 300, sample_id="r5g-2"), "realtime")
+        await publish(
+            r5_stack,
+            make_sample("rotor_speed", 12.5, sample_id="r5g-1"),
+            "realtime",
+        )
+        await publish(
+            r5_stack,
+            make_sample("gen_power", 300, sample_id="r5g-2"),
+            "realtime",
+        )
 
         async def _both() -> list[tuple[str, str, Any]] | None:
             keys = {(d, p) for d, p, _ in gateway.received}
@@ -112,7 +133,7 @@ async def test_single_and_multi_point_writes_with_scalar_encoding(
 
 
 async def test_partial_write_is_rejected_at_adapter(r5_stack, tmp_path) -> None:
-    """多点同批 WriteMany 只确认部分时，生产 adapter 必须整体拒绝。
+    """Gateway per-item rejection propagates as an adapter failure.
 
     NATS realtime 每消息一个采样，partial write 不会经消息链路出现，因此
     这里直接驱动生产 GrpcSink.write_task 发真实 gRPC 请求（服务端真实、
@@ -125,7 +146,7 @@ async def test_partial_write_is_rejected_at_adapter(r5_stack, tmp_path) -> None:
     from sink_service.infrastructure.adapters import GrpcSink
     from sink_service.infrastructure.config import _resolve_sinks
 
-    gateway, server, port = await _start_gateway(_RecordingGateway(updated_override=1))
+    gateway, server, port = await _start_gateway(_RecordingGateway(rejected_index=1))
     try:
         config_dir = write_r5_config(
             tmp_path / "cfg",
@@ -153,9 +174,9 @@ async def test_partial_write_is_rejected_at_adapter(r5_stack, tmp_path) -> None:
                 task_id=TASK_ID,
             ),
         ]
-        with pytest.raises(RuntimeError, match="partial write"):
+        with pytest.raises(RuntimeError, match="INVALID_VALUE"):
             await adapter.write_task(TASK_ID, batch)
-        # 服务端真实收到了两点请求（拒绝发生在确认计数核对阶段）。
+        # Both items reached the real service; second item was rejected.
         assert gateway.calls >= 1
         assert len(gateway.received) == 2
         await adapter.close()
@@ -177,7 +198,11 @@ async def test_rpc_timeout_propagates_and_recovers_after_peer_restart(
         sink = await r5_sink_factory(config_dir, realtime_sinks=("grpc_sink",))
         await wait_state(sink, "grpc_sink", "running")
 
-        await publish(r5_stack, make_sample("rotor_speed", 8.0, sample_id="r5g-slow"), "realtime")
+        await publish(
+            r5_stack,
+            make_sample("rotor_speed", 8.0, sample_id="r5g-slow"),
+            "realtime",
+        )
 
         async def _failed() -> dict[str, Any] | None:
             status = await mgmt(sink, "GetSinkStatus", "grpc_sink")
@@ -199,14 +224,16 @@ async def test_rpc_timeout_propagates_and_recovers_after_peer_restart(
     # 新通道续写成功。
     server2 = grpc.aio.server()
     gw2 = _RecordingGateway()
-    gw_rpc.add_GatewayDataServiceServicer_to_server(gw2, server2)
+    gw_rpc.add_IndustrialGatewayServiceServicer_to_server(gw2, server2)
     bound = server2.add_insecure_port(f"127.0.0.1:{port}")
     assert bound == port
     await server2.start()
     try:
         await wait_state(sink, "grpc_sink", "running", timeout=60.0)
         await publish(
-            r5_stack, make_sample("rotor_speed", 9.0, sample_id="r5g-recovered"), "realtime"
+            r5_stack,
+            make_sample("rotor_speed", 9.0, sample_id="r5g-recovered"),
+            "realtime",
         )
 
         async def _recovered() -> tuple[str, str, Any] | None:
@@ -215,7 +242,12 @@ async def test_rpc_timeout_propagates_and_recovers_after_peer_restart(
                     return device, point, value
             return None
 
-        await wait_until(_recovered, timeout=30.0, interval=0.25, description="post-restart write")
+        await wait_until(
+            _recovered,
+            timeout=30.0,
+            interval=0.25,
+            description="post-restart write",
+        )
         status = await mgmt(sink, "GetSinkStatus", "grpc_sink")
         assert status["failure"] is None
     finally:

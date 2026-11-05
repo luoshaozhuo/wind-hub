@@ -101,7 +101,24 @@ async def test_update_then_read_roundtrip(start_real_gateway) -> None:  # noqa: 
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
     channel, stub = await _stub(gateway.data_bind)
     try:
-        # v1_10：旧的无令牌写入路径必须在服务端被拒绝，不存在兼容旁路。
+        # v1 语义：无任何活跃租约时，无令牌写入是受支持的本地注入路径；
+        # 一旦该目标被租约占用，无令牌写入必须被 FAILED_PRECONDITION 围栏拒绝。
+        unclaimed = await stub.UpdateVariables(
+            gw.UpdateVariablesRequest(
+                gateway_id="gw-a",
+                values=[
+                    gw.VariableUpdate(
+                        variable_id="GW01.pitch_angle",
+                        value=common.ScalarValue(double_value=7.25),
+                    )
+                ],
+            )
+        )
+        assert unclaimed.results[0].success
+
+        claim = await _claim(stub, "gw-a", "owner-a", ["GW01.pitch_angle"])
+        assert claim.accepted and claim.lease_token
+        # 租约生效后，无令牌写入同目标必须被整批围栏拒绝，不存在兼容旁路。
         with pytest.raises(grpc.RpcError) as fenced:
             await stub.UpdateVariables(
                 gw.UpdateVariablesRequest(
@@ -109,15 +126,12 @@ async def test_update_then_read_roundtrip(start_real_gateway) -> None:  # noqa: 
                     values=[
                         gw.VariableUpdate(
                             variable_id="GW01.pitch_angle",
-                            value=common.ScalarValue(double_value=8.75),
+                            value=common.ScalarValue(double_value=7.5),
                         )
                     ],
                 )
             )
         assert fenced.value.code() == grpc.StatusCode.FAILED_PRECONDITION
-
-        claim = await _claim(stub, "gw-a", "owner-a", ["GW01.pitch_angle"])
-        assert claim.accepted and claim.lease_token
         response = await stub.UpdateVariables(
             gw.UpdateVariablesRequest(
                 gateway_id="gw-a",
@@ -170,10 +184,10 @@ async def test_per_item_results_and_duplicate_target(start_real_gateway) -> None
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
     channel, stub = await _stub(gateway.data_bind)
     try:
-        # 命令点不是 feedback：申请阶段即被 INVALID_TARGETS 拒绝（整组原子）。
-        claim_command = await _claim(stub, "gw-a", "owner-a", ["GW01.cmd_uint"])
+        # v1 租约在申请阶段即拒绝目录外目标（整组原子，错误码 INVALID_TARGET）。
+        claim_command = await _claim(stub, "gw-a", "owner-a", ["GW01.unknown"])
         assert not claim_command.accepted
-        assert claim_command.error_code == "INVALID_TARGETS"
+        assert claim_command.error_code == "INVALID_TARGET"
         claim = await _claim(stub, "gw-a", "owner-a", ["GW01.pitch_angle", "GW01.pitch_copy"])
         assert claim.accepted
         response = await stub.UpdateVariables(
@@ -238,43 +252,65 @@ async def test_per_item_results_and_duplicate_target(start_real_gateway) -> None
         await channel.close()
 
 
-async def test_batch_size_limits_abort(start_real_gateway) -> None:  # noqa: ANN001
+async def test_batch_shape_and_claim_size_limits(start_real_gateway) -> None:  # noqa: ANN001
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
     channel, stub = await _stub(gateway.data_bind)
     try:
-        for values in (
-            [],
-            [
-                gw.VariableUpdate(
-                    variable_id="GW01.pitch_angle",
-                    value=common.ScalarValue(double_value=1.0),
+        # v1 空批是合法无操作：返回空结果集，不伪造错误。
+        empty = await stub.UpdateVariables(gw.UpdateVariablesRequest(gateway_id="gw-a", values=[]))
+        assert empty.results == []
+        # 租约申请的 5000 目标上限：超限整组 INVALID_CLAIM 拒绝，不产生租约。
+        oversized = await _claim(
+            stub,
+            "gw-a",
+            "owner-oversize",
+            [f"GW01.var_{index}" for index in range(5001)],
+        )
+        assert not oversized.accepted
+        assert oversized.error_code == "INVALID_CLAIM"
+        # 同批重复目标在任何写入前被 INVALID_ARGUMENT 整批拒绝。
+        with pytest.raises(grpc.RpcError) as info:
+            await stub.UpdateVariables(
+                gw.UpdateVariablesRequest(
+                    gateway_id="gw-a",
+                    values=[
+                        gw.VariableUpdate(
+                            variable_id="GW01.pitch_angle",
+                            value=common.ScalarValue(double_value=1.0),
+                        ),
+                        gw.VariableUpdate(
+                            variable_id="GW01.pitch_angle",
+                            value=common.ScalarValue(double_value=2.0),
+                        ),
+                    ],
                 )
-                for _ in range(5001)
-            ],
-        ):
-            with pytest.raises(grpc.RpcError) as info:
-                await stub.UpdateVariables(
-                    gw.UpdateVariablesRequest(gateway_id="gw-a", values=values)
-                )
-            assert info.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+            )
+        assert info.value.code() == grpc.StatusCode.INVALID_ARGUMENT
     finally:
         await channel.close()
 
 
-async def test_ip_allowlist_denies_unauthorized_writer(start_real_gateway) -> None:  # noqa: ANN001
+async def test_mtls_denies_unauthorized_writer(start_real_gateway) -> None:  # noqa: ANN001
+    # v1 安全模型：明文仅限 loopback；跨网络写入必须 mTLS，授权边界是服务端按
+    # 客户端证书 CN 配置的权限集。无权限身份在读取/租约/写入三个入口一律拒绝。
     gateway = await start_real_gateway(
-        endpoint_id="gw-a", devices=GW_DEVICES, data_writers=("127.0.0.2",)
+        endpoint_id="gw-a",
+        devices=GW_DEVICES,
+        permissions={"generator-a": ["read", "inject"]},
+        client_names=("stranger",),
     )
-    channel, stub = await _stub(gateway.data_bind)
+    denied_channel = gateway.mtls_channel("stranger")
+    denied_stub = gw_rpc.IndustrialGatewayServiceStub(denied_channel)
     try:
-        listed = await stub.ListVariables(gw.ListVariablesRequest(gateway_id="gw-a"))
-        assert listed.variables
-        # 非白名单连租约申请都必须拒绝：安全边界在 ClaimTargets，而非只靠写入端自觉。
+        with pytest.raises(grpc.RpcError) as read_denied:
+            await denied_stub.ListVariables(gw.ListVariablesRequest(gateway_id="gw-a"))
+        assert read_denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        # 安全边界在 ClaimTargets，而非只靠写入端自觉。
         with pytest.raises(grpc.RpcError) as claim_denied:
-            await _claim(stub, "gw-a", "owner-x", ["GW01.pitch_angle"])
+            await _claim(denied_stub, "gw-a", "owner-x", ["GW01.pitch_angle"])
         assert claim_denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
         with pytest.raises(grpc.RpcError) as info:
-            await stub.UpdateVariables(
+            await denied_stub.UpdateVariables(
                 gw.UpdateVariablesRequest(
                     gateway_id="gw-a",
                     values=[
@@ -287,7 +323,18 @@ async def test_ip_allowlist_denies_unauthorized_writer(start_real_gateway) -> No
             )
         assert info.value.code() == grpc.StatusCode.PERMISSION_DENIED
     finally:
-        await channel.close()
+        await denied_channel.close()
+
+    # 正面对照：持有 inject 权限的身份可正常申请租约，证明拒绝来自权限而非链路故障。
+    authorized_channel = gateway.mtls_channel("generator-a")
+    authorized_stub = gw_rpc.IndustrialGatewayServiceStub(authorized_channel)
+    try:
+        listed = await authorized_stub.ListVariables(gw.ListVariablesRequest(gateway_id="gw-a"))
+        assert listed.variables
+        claim = await _claim(authorized_stub, "gw-a", "owner-a", ["GW01.pitch_angle"])
+        assert claim.accepted
+    finally:
+        await authorized_channel.close()
 
 
 async def test_gateway_lifecycle_rpc_and_revision_conflict(start_real_gateway) -> None:  # noqa: ANN001
@@ -296,15 +343,23 @@ async def test_gateway_lifecycle_rpc_and_revision_conflict(start_real_gateway) -
     try:
         info = await stub.GetGateway(common.ObjectId(id="gw-a"))
         assert info.gateway.actual_state == "RUNNING"
-        conflict = await stub.StopGateway(
-            common.OperationRequest(id="gw-a", expected_revision="deadbeef")
+        revision = info.gateway.revision
+        assert revision
+        # v1 强制 expected_revision：缺失 INVALID_ARGUMENT，错误版本 ABORTED。
+        with pytest.raises(grpc.RpcError) as missing_revision:
+            await stub.StopGateway(common.OperationRequest(id="gw-a"))
+        assert missing_revision.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+        with pytest.raises(grpc.RpcError) as conflict:
+            await stub.StopGateway(common.OperationRequest(id="gw-a", expected_revision="deadbeef"))
+        assert conflict.value.code() == grpc.StatusCode.ABORTED
+        stopped = await stub.StopGateway(
+            common.OperationRequest(id="gw-a", expected_revision=revision)
         )
-        assert conflict.accepted is False
-        assert conflict.actual_state == "CONFLICT"
-        stopped = await stub.StopGateway(common.OperationRequest(id="gw-a"))
         assert stopped.accepted
         assert stopped.actual_state == "STOPPED"
-        restarted = await stub.StartGateway(common.OperationRequest(id="gw-a"))
+        restarted = await stub.StartGateway(
+            common.OperationRequest(id="gw-a", expected_revision=revision)
+        )
         assert restarted.actual_state == "RUNNING"
         with pytest.raises(grpc.RpcError) as missing:
             await stub.GetGateway(common.ObjectId(id="nope"))
