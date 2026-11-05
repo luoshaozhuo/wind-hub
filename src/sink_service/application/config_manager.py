@@ -200,23 +200,10 @@ class ConfigManager:
                 if self._runtime.sinks.get(sink_id) != snapshot.sinks.get(sink_id):
                     affected.add(identifier)
             changed = tuple(sorted(affected))
-            # Remote Reader Deliveries remain pending until independently observed.
-            role = self._runtime.service['process_role']
-            before = {
-                item.delivery_id: item.channel
-                for item in delivery_definitions(self._runtime)
-            }
-            after = {
-                item.delivery_id: item.channel
-                for item in delivery_definitions(snapshot)
-            }
-            # The reconciler returns every locally converged binding, including
-            # signature-preserving entries. Requiring all local identities
-            # prevents a failed indirect template/Sink rebinding from being
-            # hidden behind a narrowly calculated file diff.
-            local_changed = {
-                identifier for identifier in before.keys() | after.keys()
-                if before.get(identifier) == role or after.get(identifier) == role
+            all_ids = {
+                item.delivery_id
+                for source in (self._runtime, snapshot)
+                for item in delivery_definitions(source)
             }
             applied: tuple[str, ...] = ()
             error = ""
@@ -227,7 +214,7 @@ class ConfigManager:
                     applied = await self._reconcile(snapshot)
                     # This revision is effective only after every affected
                     # local object has converged.
-                    if local_changed.issubset(set(applied)):
+                    if all_ids.issubset(set(applied)):
                         self._runtime = snapshot
                         self._last_error = ""
                     else:
@@ -239,7 +226,7 @@ class ConfigManager:
                     self._last_error = error
             # An unchanged local Delivery may still be unconverged. Include
             # every such object in the Apply result, not only file-diff IDs.
-            pending = tuple(sorted((set(changed) | local_changed) - set(applied)))
+            pending = tuple(sorted((set(changed) | all_ids) - set(applied)))
             application_id = secrets.token_urlsafe(24)
             application = Application(
                 application_id=application_id,
