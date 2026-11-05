@@ -197,8 +197,7 @@ class WorkerControlClient:
                 ):
                     raise IpcProtocolError("IPC reply correlation mismatch")
                 return reply
-            except (TimeoutError, ConnectionError, OSError, EOFError,
-                    asyncio.IncompleteReadError, IpcProtocolError):
+            except (TimeoutError, OSError, asyncio.IncompleteReadError, IpcProtocolError):
                 # The remote command may already have executed. Never consume
                 # an old reply as if it belonged to a later request.
                 self._broken = True
