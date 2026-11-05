@@ -73,7 +73,10 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                         [asdict(item) for item in registry.list()]
                     )
                 elif request.operation == "GET_METRICS":
-                    evidence["counters"] = json.dumps(registry.counters())
+                    counters = registry.counters()
+                    if role == "realtime":
+                        counters.update(factory.ingress_counters())
+                    evidence["counters"] = json.dumps(counters)
                 elif request.operation == "DIAGNOSE":
                     evidence["details"] = json.dumps(
                         registry.inspect(request.delivery_id)
