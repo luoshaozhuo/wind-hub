@@ -65,7 +65,9 @@ class WorkerSupervisor:
 
     async def _spawn(self, role: str) -> None:
         self._ready[role].clear()
-        self._clients.pop(role, None)
+        old_client = self._clients.pop(role, None)
+        if old_client is not None:
+            await old_client.close()
         process = multiprocessing.get_context("spawn").Process(
             target=worker_main,
             args=(role, str(self._root), self._service_file, self._socket_path),
@@ -146,6 +148,11 @@ class WorkerSupervisor:
             if process.is_alive():
                 process.terminate()
                 await asyncio.to_thread(process.join, 3)
+        await asyncio.gather(
+            *(client.close() for client in self._clients.values()),
+            return_exceptions=True,
+        )
+        self._clients.clear()
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
