@@ -66,7 +66,7 @@ class SampleBatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[2] = BATCH_SCHEMA_VERSION
+    schema_version: Literal[2] = 2
     batch_id: str
     mode: DeliveryMode
     wind_farm_id: str
