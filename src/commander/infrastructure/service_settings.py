@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,62 @@ def _positive(raw: object, name: str, *, integer: bool = False) -> float | int:
     return float(raw)
 
 
+def validate_transport_settings(raw: dict[str, Any]) -> None:
+    """Validate the service transport contract without opening network resources."""
+    if "grpc" not in raw and "security" not in raw:
+        return
+    grpc = _mapping(raw.get("grpc"), "grpc")
+    security = _mapping(raw.get("security"), "security")
+    _keys(grpc, {"listen_host", "listen_port", "max_active_rpcs"}, "grpc")
+    _keys(
+        security,
+        {"ca_cert", "server_cert", "server_key", "callers"},
+        "security",
+    )
+    host = grpc.get("listen_host")
+    port = grpc.get("listen_port")
+    max_rpcs = grpc.get("max_active_rpcs")
+    if not isinstance(host, str) or not host.strip():
+        raise ValueError("grpc.listen_host is required")
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("grpc.listen_port must be in 1..65535")
+    if type(max_rpcs) is not int or max_rpcs < 1:
+        raise ValueError("grpc.max_active_rpcs must be positive")
+    for name in ("ca_cert", "server_cert", "server_key"):
+        value = security.get(name)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"security.{name} pathname is required")
+    callers = security.get("callers")
+    if not isinstance(callers, list) or not callers:
+        raise ValueError("security.callers must be a nonempty list")
+    seen_ids: set[str] = set()
+    seen_certificates: set[str] = set()
+    for index, candidate in enumerate(callers):
+        caller = _mapping(candidate, f"security.callers[{index}]")
+        _keys(caller, {"caller_id", "certificate_identity", "permissions"}, "caller")
+        identity = caller.get("certificate_identity")
+        caller_id = caller.get("caller_id")
+        permissions = caller.get("permissions")
+        if not isinstance(identity, str) or not identity.strip():
+            raise ValueError("caller certificate_identity is required")
+        if not isinstance(caller_id, str) or not caller_id.strip():
+            raise ValueError("caller_id is required")
+        if identity in seen_certificates or caller_id in seen_ids:
+            raise ValueError("duplicate caller identity or caller_id")
+        if (
+            not isinstance(permissions, list)
+            or not permissions
+            or any(
+                not isinstance(scope, str) or scope not in {"query", "control", "reload"}
+                for scope in permissions
+            )
+            or len(permissions) != len(set(permissions))
+        ):
+            raise ValueError("invalid caller permissions")
+        seen_certificates.add(identity)
+        seen_ids.add(caller_id)
+
+
 def load_service_settings(path: str | Path) -> ServiceSettings:
     """Validate the v1_1 Commander service configuration; never hot-apply it."""
     raw = read_yaml_mapping(Path(path))
@@ -41,6 +98,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         {
             "schema_version",
             "file_version",
+            "config_sources",
             "grpc",
             "security",
             "dispatcher",
@@ -51,8 +109,42 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         },
         "commander service",
     )
-    if raw.get("schema_version") != 1 or type(raw.get("file_version")) is not int:
-        raise ValueError("unsupported Commander service schema/file version")
+    if type(raw.get("schema_version")) is not int or raw["schema_version"] != 1:
+        raise ValueError("unsupported Commander service schema_version")
+    file_version = raw.get("file_version")
+    if file_version is not None and (
+        not isinstance(file_version, str)
+        or re.fullmatch(r"(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)", file_version)
+        is None
+    ):
+        raise ValueError("commander file_version must be MAJOR.MINOR.PATCH")
+    sources = _mapping(raw.get("config_sources"), "config_sources")
+    _keys(sources, {"instances", "templates"}, "config_sources")
+    instances = _mapping(sources.get("instances"), "config_sources.instances")
+    templates = _mapping(sources.get("templates"), "config_sources.templates")
+    _keys(instances, {"devices"}, "config_sources.instances")
+    _keys(templates, {"root"}, "config_sources.templates")
+
+    def source_path(value: object, name: str, *, directory: bool) -> Path:
+        if not isinstance(value, str) or not value.strip() or value.strip() != value:
+            raise ValueError(f"{name}: nonempty pathname required")
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            candidate = Path(path).resolve().parent / candidate
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError as exc:
+            raise ValueError(f"{name}: source unavailable: {candidate}") from exc
+        if not (resolved.is_dir() if directory else resolved.is_file()):
+            raise ValueError(f"{name}: incorrect source kind: {resolved}")
+        return resolved
+
+    devices_path = source_path(
+        instances.get("devices"), "config_sources.instances.devices", directory=False
+    )
+    templates_root = source_path(
+        templates.get("root"), "config_sources.templates.root", directory=True
+    )
     dispatch = _mapping(raw.get("dispatcher", {}), "dispatcher")
     timeouts = _mapping(raw.get("timeouts", {}), "timeouts")
     repository = _mapping(raw.get("repository"), "repository")
@@ -106,6 +198,10 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"{label} required")
     assert isinstance(sqlite_path, str)
+    sqlite_file = Path(sqlite_path)
+    if not sqlite_file.is_absolute():
+        sqlite_file = Path(path).resolve().parent / sqlite_file
+    sqlite_file = sqlite_file.resolve()
     assert isinstance(stream, str)
     assert isinstance(subject, str)
     max_storage = int(
@@ -142,11 +238,12 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
     retry_max = float(_positive(audit.get("retry_max_ms", 5000), "retry_max_ms")) / 1000
     if retry_max < retry_base:
         raise ValueError("audit retry_max_ms must be >= retry_base_ms")
-    for section in ("grpc", "security"):
-        if section in raw:
-            _mapping(raw[section], section)
+    validate_transport_settings(raw)
     return ServiceSettings(
-        file_version=raw["file_version"],
+        file_version=file_version,
+        devices_path=devices_path,
+        coordination_root=Path(path).resolve().parent.parent,
+        templates_root=templates_root,
         queue_timeout=(
             float(_positive(timeouts.get("queue_default_ms", 1000), "queue_default_ms")) / 1000
         ),
@@ -176,7 +273,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         max_batch_points=int(
             _positive(dispatch.get("max_batch_size", 10), "max_batch_size", integer=True)
         ),
-        sqlite_path=Path(sqlite_path),
+        sqlite_path=sqlite_file,
         max_storage_bytes=max_storage,
         reserved_storage_bytes=reserved,
         admission_stop_ratio=float(stop_ratio),

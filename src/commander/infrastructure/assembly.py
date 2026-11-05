@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from commander.application.service_lifecycle import CommanderService
+from commander.infrastructure.config_commit import recover_config_commit
 from commander.infrastructure.event_repository import EventRepository
 from commander.infrastructure.nats_audit import NatsAuditTransport
 from commander.infrastructure.service_settings import load_service_settings
@@ -13,27 +14,25 @@ from core.application.protocol_registry import ProtocolRegistry
 
 def build_commander(
     *,
-    config_root: Path,
     service_config: Path,
     protocol_registry: ProtocolRegistry,
 ) -> CommanderService:
-    """Build an inert service; start() performs validation and recovery."""
-    settings = load_service_settings(service_config)
+    """Build an inert service after recovering interrupted configuration commits."""
+    config_path = service_config.resolve(strict=True)
+    recover_config_commit(config_path.parent.parent)
+    settings = load_service_settings(config_path)
     audit_transport = NatsAuditTransport(
         settings.nats_servers,
         stream=settings.audit_stream,
         subject=settings.audit_subject,
     )
     return CommanderService(
-        config_root=config_root,
         protocol_registry=protocol_registry,
         audit_transport=audit_transport,
-        settings_loader=lambda: load_service_settings(service_config),
+        settings_loader=lambda: load_service_settings(config_path),
         journal_factory=lambda current: EventRepository(
             current.sqlite_path,
             max_storage_bytes=current.max_storage_bytes,
-            reserved_storage_bytes=current.reserved_storage_bytes,
-            admission_stop_ratio=current.admission_stop_ratio,
             retention_seconds=current.retention_seconds,
         ),
     )

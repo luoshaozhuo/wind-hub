@@ -1,0 +1,59 @@
+# Commander 专属服务配置；共享依赖仅声明直接配置入口
+schema_version: 1
+file_version: 1.0.0
+
+config_sources:
+  instances:
+    devices: ../instances/devices.yaml
+  templates:
+    root: ../templates
+
+grpc:
+  listen_host: "0.0.0.0"
+  listen_port: 50052
+  max_active_rpcs: 256
+
+security:
+  ca_cert: "/etc/wind-hub/certs/ca.pem"
+  server_cert: "/etc/wind-hub/certs/commander.pem"
+  server_key: "/etc/wind-hub/certs/commander.key"
+  callers:
+    - caller_id: ems
+      certificate_identity: "spiffe://wind-hub/ems"
+      permissions: [control, query]
+    - caller_id: maintenance
+      certificate_identity: "spiffe://wind-hub/maintenance"
+      permissions: [query, reload]
+
+dispatcher:
+  max_concurrency: 100
+  max_pending_per_device: 10
+  max_pending_global: 1000
+  max_batch_size: 10
+
+repository:
+  sqlite_path: "/var/lib/wind-hub/commander/events.db"
+  max_storage_bytes: 68719476736
+  reserved_storage_bytes: 6871947674
+  retention_seconds: 1800
+  cleanup_interval_seconds: 60
+  storage_warning_ratio: 0.80
+  admission_stop_ratio: 0.90
+  persistence_interval_ms: 50
+  persistence_batch_size: 500
+  persistence_max_events: 100000
+
+audit:
+  nats_servers: ["nats://127.0.0.1:4222"]
+  stream: COMMAND_AUDIT
+  subject: windhub.commander.audit
+  retry_base_ms: 100
+  retry_max_ms: 5000
+
+timeouts:
+  queue_default_ms: 1000
+  write_default_ms: 500
+  connect_ms: 3000
+
+shutdown:
+  grace_seconds: 10

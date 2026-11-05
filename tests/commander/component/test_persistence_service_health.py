@@ -66,7 +66,9 @@ def _service(
 
     def load_settings() -> ServiceSettings:
         return ServiceSettings(
-            file_version=1,
+            file_version="1.0.0",
+            devices_path=root / "instances" / "devices.yaml",
+            templates_root=root / "templates",
             queue_timeout=1.0,
             connect_timeout=3.0,
             write_timeout=3.0,
@@ -94,7 +96,6 @@ def _service(
         )
 
     return CommanderService(
-        config_root=root,
         protocol_registry=ProtocolRegistry(),
         audit_transport=_MemoryTransport(),
         settings_loader=load_settings,

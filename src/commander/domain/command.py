@@ -141,6 +141,7 @@ class CommandResult:
     error_code: str | None
     error_message: str | None
     completed_at: datetime | None
+    updated_at: datetime | None = None
 
 
 def utc_now() -> datetime:

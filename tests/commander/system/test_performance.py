@@ -205,6 +205,16 @@ async def test_dispatch_throughput_100_devices_real_sqlite(tmp_path) -> None:
     assert p99 <= 200.0
 
 
+async def test_nominal_load(tmp_path) -> None:
+    """§14.4 表 14-2 规定标识：100 设备 / 10Hz / 批量 10 标称负载场景。
+
+    与 test_dispatch_throughput_100_devices_real_sqlite 为同一负载、同一
+    统计口径与同一防回归地板；此处不另设阈值、不改变负载（验收§3.3）。
+    UR-04/UR-05/UR-08 行中的外部批量 RPC 仍为 Contracts GAP，不计 PASS。
+    """
+    await test_dispatch_throughput_100_devices_real_sqlite(tmp_path)
+
+
 async def test_dispatch_throughput_survives_full_sqlite_outage_then_drains(tmp_path) -> None:
     """故障矩阵性能口径：现场阶段 SQLite 全程不可用，恢复后批量补齐、无丢失。
 

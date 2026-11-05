@@ -44,7 +44,12 @@ business_points:
 
 _SERVICE_YAML = """\
 schema_version: 1
-file_version: 1
+file_version: 1.0.0
+config_sources:
+  instances:
+    devices: config/instances/devices.yaml
+  templates:
+    root: config/templates
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
@@ -116,7 +121,6 @@ def _manager(root: Path, service_yaml: Path) -> CommanderConfigManager:
         return frozenset()
 
     manager = CommanderConfigManager(
-        root,
         quiesce=_no_quiesce,
         settings_loader=lambda: load_service_settings(service_yaml),
     )

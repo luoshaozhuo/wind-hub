@@ -24,6 +24,7 @@ from commander.infrastructure.event_repository import EventRepository
 from commander.infrastructure.nats_audit import NatsAuditTransport
 from tests.support.process import free_port
 
+from ..seed_events import seed_accept, seed_transition
 from .test_nats_jetstream_real import _connect, _fetch_all
 
 pytestmark = [pytest.mark.integration, pytest.mark.real_service, pytest.mark.docker]
@@ -111,10 +112,11 @@ async def _stream(url: str) -> tuple[Any, str, str]:
 
 
 def _full_chain(repo: EventRepository, value: float) -> None:
-    command = repo.accept([CommandSpec("WT01", "p", value, "ref-v1")], caller_id="ops")[0]
-    repo.transition(command.command_id, CommandState.CONNECTING)
-    repo.transition(command.command_id, CommandState.EXECUTING)
-    repo.transition(
+    command = seed_accept(repo, [CommandSpec("WT01", "p", value, "ref-v1")], caller_id="ops")[0]
+    seed_transition(repo, command.command_id, CommandState.CONNECTING)
+    seed_transition(repo, command.command_id, CommandState.EXECUTING)
+    seed_transition(
+        repo,
         command.command_id,
         CommandState.SUCCEEDED,
         outcome=CommandOutcome.CONFIRMED_SUCCESS,

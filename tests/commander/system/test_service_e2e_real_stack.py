@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 from nats.aio.client import Client as NatsClient
 
+from commander.application.persistence import BufferedJournal
 from commander.application.service_lifecycle import CommanderService, ServiceState
 from commander.domain.command import CommandSpec, CommandState
 from commander.infrastructure.assembly import build_commander
@@ -77,7 +78,6 @@ async def _start_service(
     await bootstrap.drain()
     # 组合根注入 settings_loader / journal_factory，与生产装配完全一致。
     service = build_commander(
-        config_root=root,
         service_config=yaml_path,
         protocol_registry=_registry(),
     )
@@ -183,13 +183,15 @@ async def test_restart_recovers_executing_command_as_unknown(
     # 模拟进程在 T2 之后崩溃：直接用真实 SQLite 留下 EXECUTING 命令。
     journal = EventRepository(db_path)
     try:
-        accepted = journal.accept(
+        buffer = BufferedJournal()
+        accepted = buffer.accept(
             [CommandSpec("WT01", "setpoint_power", 10.0, fingerprint)],
             caller_id="ops-console",
         )
         command_id = accepted[0].command_id
-        journal.transition(command_id, CommandState.CONNECTING)
-        journal.transition(command_id, CommandState.EXECUTING)
+        buffer.transition(command_id, CommandState.CONNECTING)
+        buffer.transition(command_id, CommandState.EXECUTING)
+        journal.append_events(buffer.snapshot(100))
     finally:
         journal.close()
 

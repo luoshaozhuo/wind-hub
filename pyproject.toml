@@ -73,6 +73,7 @@ wind-hub-sink-service = "sink_service.main:main"
 wind-hub-sink-diagnostic = "sink_service.diagnostic_cli:main"
 wind-hub-sink = "sink_service.management_cli:main"
 wind-hub-collector = "collector.main:main"
+wind-hub-commander = "commander.__main__:main"
 wind-hub = "cli.main:main"
 wind-hub-server = "web_server.main:main"
 wind-hub-gateway = "industrial_gateway.main:main"
@@ -217,6 +218,12 @@ markers = [
     "root: 需要 root 权限",
     "slow: 慢速测试",
     "fast: 快速测试（默认集合）",
+    # Commander 专题与场景 marker（保留 main 其它模块注册）
+    "security: 认证、授权、身份映射与权限边界（Commander v1_10 §14.2 专题 marker）",
+    "normal: 主路径/正常场景",
+    "exception: 关键分支与异常输入",
+    "storage: 本地存储容量、保留期与清理",
+    "field: 授权现场窗口下的真实设备测试",
 ]
 
 [tool.importlinter]

@@ -133,9 +133,13 @@ class QueuedExecutor:
         self._native_by_device: dict[str, set[asyncio.Task[Any]]] = defaultdict(set)
         self._isolation_tasks: dict[str, asyncio.Task[None]] = {}
         self._retained_permits: dict[str, int] = defaultdict(int)
+        self._pending_unknown: dict[str, set[str]] = defaultdict(set)
+        self._settled_unknown: set[str] = set()
+        self._settled_unknown_order: deque[str] = deque()
         self._auto_recovery: set[asyncio.Task[bool]] = set()
         self._closed = False
         self._fatal = False
+        self._storage_admission_open = True
 
     async def accept(
         self,
@@ -147,6 +151,8 @@ class QueuedExecutor:
         async with self._admission_lock:
             if self._closed or self._fatal:
                 raise RuntimeError("dispatcher unavailable")
+            if not self._storage_admission_open:
+                raise OverflowError("SQLite admission capacity exhausted")
             if len(commands) > self._max_batch_points:
                 raise OverflowError("batch point limit exceeded")
             counts: dict[str, int] = defaultdict(int)
@@ -169,20 +175,10 @@ class QueuedExecutor:
                 raise OverflowError("global pending batch capacity exceeded")
             loop = asyncio.get_running_loop()
             started = time.monotonic()
-            admission = asyncio.create_task(self._control.accept(commands, caller_id=caller_id))
-            try:
-                accepted = await asyncio.shield(admission)
-            except asyncio.CancelledError:
-                # Resolve admission ownership before propagating cancellation.
-                accepted = await admission
-                for command in accepted:
-                    await self._control.complete(
-                        command.command_id,
-                        CommandState.INTERRUPTED,
-                        outcome=CommandOutcome.NOT_SENT,
-                        error_code="ADMISSION_CANCELLED",
-                    )
-                raise
+            # CommandControl.accept only mutates the event-loop-owned memory journal.
+            # No I/O or suspension occurs between T1 and queue registration:
+            # cancellation of the calling RPC must not revoke an accepted control.
+            accepted = await self._control.accept(commands, caller_id=caller_id)
             for command in accepted:
                 entry = _Entry(
                     command=command,
@@ -283,6 +279,14 @@ class QueuedExecutor:
         finally:
             self._reloading.difference_update(device_ids)
 
+    def set_storage_admission(self, open_for_new_commands: bool) -> None:
+        """Close new admissions at storage stop threshold; do not cancel accepted I/O."""
+        self._storage_admission_open = open_for_new_commands
+
+    @property
+    def accepting_commands(self) -> bool:
+        return self.operational and self._storage_admission_open
+
     @property
     def operational(self) -> bool:
         return not self._closed and not self._fatal
@@ -290,11 +294,62 @@ class QueuedExecutor:
     def pending_commands(self) -> int:
         return sum(len(queue) for queue in self._queues.values())
 
+    def device_queue_depth(self, device_id: str) -> int:
+        return len(self._queues.get(device_id, ()))
+
     def in_flight_native(self) -> int:
         return len(self._native) + sum(self._retained_permits.values())
 
     def blocked_devices(self) -> frozenset[str]:
         return frozenset(self._blocked)
+
+    def inspect_existing_session(self, device_id: str) -> tuple[str, tuple[str, ...]]:
+        """Read-only protocol capability observation; never create or poll a session."""
+        if device_id in self._blocked:
+            return "BLOCKED", ()
+        session = self._sessions.get(device_id)
+        if session is None:
+            return "NOT_CONNECTED", ()
+        if device_id in self._idle_closing or device_id in self._isolation_tasks:
+            return "CLOSING", ()
+        return (
+            "CONNECTED" if session.is_open() else "DISCONNECTED",
+            tuple(sorted(capability.value for capability in session.capabilities())),
+        )
+
+    def io_settled(self, command_id: str, state: CommandState, error_code: str | None) -> bool:
+        """Use positive isolation evidence for uncertain write/connect I/O."""
+        if state is CommandState.UNKNOWN or error_code in {"CONNECT_TIMEOUT", "CONNECT_FAILED"}:
+            return command_id in self._settled_unknown
+        return state in (
+            CommandState.SUCCEEDED,
+            CommandState.FAILED,
+            CommandState.INTERRUPTED,
+            CommandState.EXPIRED,
+            CommandState.CANCELLED,
+        )
+
+    def _track_unknown(
+        self,
+        device_id: str,
+        changes: tuple[tuple[str, CommandState, CommandOutcome, str | None], ...],
+    ) -> None:
+        for command_id, state, _, _ in changes:
+            if state is CommandState.UNKNOWN:
+                self._pending_unknown[device_id].add(command_id)
+
+    def _record_io_settled(self, command_id: str) -> None:
+        if command_id not in self._settled_unknown:
+            self._settled_unknown.add(command_id)
+            self._settled_unknown_order.append(command_id)
+        # Eviction loses evidence conservatively; it cannot create false success.
+        while len(self._settled_unknown_order) > 100_000:
+            expired = self._settled_unknown_order.popleft()
+            self._settled_unknown.discard(expired)
+
+    def _confirm_unknown_settled(self, device_id: str) -> None:
+        for command_id in self._pending_unknown.pop(device_id, set()):
+            self._record_io_settled(command_id)
 
     def _ensure_worker(self, device_id: str) -> None:
         task = self._workers.get(device_id)
@@ -508,32 +563,34 @@ class QueuedExecutor:
                 except (TimeoutError, asyncio.CancelledError):
                     self._block_late(device_id, native)
                     owns_gate = False
-                    await self._control.complete_many(
-                        self._serial_terminal_changes(
-                            group, tuple(progress), "WRITE_TIMEOUT", unsettled=True
-                        )
+                    changes = self._serial_terminal_changes(
+                        group, tuple(progress), "WRITE_TIMEOUT", unsettled=True
                     )
+                    self._track_unknown(device_id, changes)
+                    await self._control.complete_many(changes)
                 except _SerialWriteError as exc:
                     self._blocked.add(device_id)
                     self._retain_gate(device_id)
                     owns_gate = False
-                    await self._control.complete_many(
-                        self._serial_terminal_changes(
-                            group,
-                            exc.results,
-                            type(exc.cause).__name__,
-                            unsettled=False,
-                            current_unconfirmed=exc.current_unconfirmed,
-                        )
+                    changes = self._serial_terminal_changes(
+                        group,
+                        exc.results,
+                        type(exc.cause).__name__,
+                        unsettled=False,
+                        current_unconfirmed=exc.current_unconfirmed,
                     )
+                    self._track_unknown(device_id, changes)
+                    await self._control.complete_many(changes)
                     self._schedule_auto_isolation(device_id)
                 except Exception as exc:
                     self._blocked.add(device_id)
                     self._retain_gate(device_id)
                     owns_gate = False
-                    await self._control.complete_many(
-                        self._serial_terminal_changes(group, (), type(exc).__name__, unsettled=True)
+                    changes = self._serial_terminal_changes(
+                        group, (), type(exc).__name__, unsettled=True
                     )
+                    self._track_unknown(device_id, changes)
+                    await self._control.complete_many(changes)
                     self._schedule_auto_isolation(device_id)
                 else:
                     results = result if isinstance(result, tuple) else (result,)
@@ -545,17 +602,17 @@ class QueuedExecutor:
                         self._blocked.add(device_id)
                         self._retain_gate(device_id)
                         owns_gate = False
-                        await self._control.complete_many(
-                            tuple(
-                                (
-                                    member.command.command_id,
-                                    CommandState.UNKNOWN,
-                                    CommandOutcome.UNKNOWN,
-                                    "WRITE_RESULT_MISMATCH",
-                                )
-                                for member in group
+                        changes = tuple(
+                            (
+                                member.command.command_id,
+                                CommandState.UNKNOWN,
+                                CommandOutcome.UNKNOWN,
+                                "WRITE_RESULT_MISMATCH",
                             )
+                            for member in group
                         )
+                        self._track_unknown(device_id, changes)
+                        await self._control.complete_many(changes)
                         self._schedule_auto_isolation(device_id)
                     else:
                         uncertain = any(
@@ -595,6 +652,8 @@ class QueuedExecutor:
                         )
                         if uncertain:
                             self._blocked.add(device_id)
+                        if uncertain:
+                            self._track_unknown(device_id, changes)
                         await self._control.complete_many(changes)
                         if uncertain:
                             self._retain_gate(device_id)
@@ -714,6 +773,7 @@ class QueuedExecutor:
         try:
             await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
         except (TimeoutError, asyncio.CancelledError):
+            self._pending_unknown[device_id].add(command_id)
             self._block_late(device_id, task)
             await self._unsent(command_id, CommandState.FAILED, "CONNECT_TIMEOUT")
             return False, False
@@ -724,13 +784,16 @@ class QueuedExecutor:
             try:
                 await asyncio.wait_for(asyncio.shield(closing), timeout=self._connect_timeout)
             except TimeoutError:
+                self._pending_unknown[device_id].add(command_id)
                 self._block_late(device_id, closing)
                 return False, False
             except Exception:
+                self._pending_unknown[device_id].add(command_id)
                 self._blocked.add(device_id)
                 self._retain_gate(device_id)
                 return False, False
             self._sessions.pop(device_id, None)
+            self._record_io_settled(command_id)
             return False, True
         return True, True
 
@@ -792,6 +855,7 @@ class QueuedExecutor:
             if session is None:
                 self._blocked.discard(device_id)
                 self._release_retained(device_id)
+                self._confirm_unknown_settled(device_id)
                 return True
             existing = asyncio.create_task(session.close())
             self._isolation_tasks[device_id] = existing
@@ -807,6 +871,7 @@ class QueuedExecutor:
         self._sessions.pop(device_id, None)
         self._blocked.discard(device_id)
         self._release_retained(device_id)
+        self._confirm_unknown_settled(device_id)
         return True
 
     def _release_retained(self, device_id: str) -> None:

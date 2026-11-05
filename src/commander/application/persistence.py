@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from commander.application.journal_port import JournalPort
+from commander.application.metrics import CommandMetrics
 from commander.domain.command import (
     TERMINAL_STATES,
     AcceptedCommand,
@@ -43,10 +44,12 @@ class BufferedJournal:
         *,
         maximum_events: int = 100_000,
         initial_sequence: int = 0,
+        metrics: CommandMetrics | None = None,
     ) -> None:
         if maximum_events <= 0 or initial_sequence < 0:
             raise ValueError("invalid buffer capacity or receive sequence")
         self._maximum = maximum_events
+        self._metrics = metrics
         self._sequence = initial_sequence
         self._pending: deque[PendingEvent] = deque()
         self._pending_counts: dict[str, int] = defaultdict(int)
@@ -107,7 +110,7 @@ class BufferedJournal:
             self._reserved[command.command_id] = 4
             self._reserved_total += 4
             self._results[command.command_id] = CommandResult(
-                command, CommandState.ACCEPTED, None, None, None, None
+                command, CommandState.ACCEPTED, None, None, None, None, now
             )
             self._requests[request_id].append(command.command_id)
             self._add(
@@ -132,6 +135,8 @@ class BufferedJournal:
                 }
             )
             accepted.append(command)
+        if self._metrics is not None:
+            self._metrics.accepted(len(accepted))
         return tuple(accepted)
 
     def transition(
@@ -175,6 +180,7 @@ class BufferedJournal:
                 error_code,
                 message,
                 now if state in TERMINAL_STATES else None,
+                now,
             )
             self._add(
                 {
@@ -189,6 +195,8 @@ class BufferedJournal:
                 }
             )
             if state in TERMINAL_STATES:
+                if self._metrics is not None and outcome is not None:
+                    self._metrics.completed(outcome.value)
                 self._reserved_total -= self._reserved.pop(command_id, 0)
 
     def get_cached(self, command_id: str) -> CommandResult | None:

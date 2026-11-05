@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+import fcntl
+import os
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,8 @@ class SharedConfigPaths:
     templates: Path
     site_file: Path | None = None
     devices_file: Path | None = None
+    load_site: bool = True
+    coordination_root: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +50,7 @@ class SharedDocuments:
     units: Mapping[str, Any]
     business_points: Mapping[str, Any]
     revision: str
+    devices_file_version: str
 
 
 def _mapping(value: object, context: str) -> dict[str, Any]:
@@ -84,11 +89,8 @@ class SharedDocumentLoader:
         self._repository = VersionedTemplateRepository(paths.templates)
 
     def load(self) -> SharedDocuments:
-        """Load the conventional site catalog for existing site-aware consumers."""
-        site_path = self._paths.site_file or self._paths.instances / "site.yaml"
-        devices_path = self._paths.devices_file or self._paths.instances / "devices.yaml"
-        site = _read(site_path)
-        return self._load_documents(site, devices_path)
+        """Read a complete shared configuration while excluding concurrent commits."""
+        return self._with_shared_lock(self._load_locked)
 
     def load_devices(
         self,
@@ -99,9 +101,37 @@ class SharedDocumentLoader:
         """Resolve only explicitly selected devices and their versioned templates.
 
         Existing site-aware loaders retain their original full-catalog semantics.
+        The same cooperative read lock guards the subset read so concurrent
+        commits can never expose an intermediate file set.
         """
         selected = None if selected_device_ids is None else frozenset(selected_device_ids)
-        return self._load_documents({}, Path(devices_path), selected_device_ids=selected)
+        return self._with_shared_lock(
+            lambda: self._load_documents({}, Path(devices_path), selected_device_ids=selected)
+        )
+
+    def _with_shared_lock(self, read: Callable[[], SharedDocuments]) -> SharedDocuments:
+        """Hold a cooperative shared lock for one complete document read."""
+        directory = self._paths.coordination_root or self._paths.templates.parent
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_SH)
+            return read()
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
+    def _load_locked(self) -> SharedDocuments:
+        """Load the conventional site catalog for existing site-aware consumers."""
+        site_path = self._paths.site_file or self._paths.instances / "site.yaml"
+        devices_path = (
+            self._paths.devices_file
+            if self._paths.devices_file is not None
+            else self._paths.instances / "devices.yaml"
+        )
+        site = (
+            _read(site_path) if self._paths.load_site else {"site_id": "shared", "name": "Shared"}
+        )
+        return self._load_documents(site, devices_path)
 
     def _load_documents(
         self,
@@ -192,6 +222,7 @@ class SharedDocumentLoader:
             )
         return SharedDocuments(
             site=site,
+            devices_file_version=str(device_doc["file_version"]),
             devices=devices,
             units=units,
             business_points=business_points,

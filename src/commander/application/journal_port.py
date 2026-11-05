@@ -6,13 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from commander.domain.command import (
-    AcceptedCommand,
-    CommandOutcome,
-    CommandResult,
-    CommandSpec,
-    CommandState,
-)
+from commander.domain.command import CommandResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,30 +21,6 @@ class JournalMetrics:
 class JournalPort(Protocol):
     @property
     def operational(self) -> bool: ...
-
-    def accept(
-        self,
-        specs: Sequence[CommandSpec],
-        *,
-        caller_id: str,
-        operator_id: str | None = None,
-        trace_id: str | None = None,
-    ) -> tuple[AcceptedCommand, ...]: ...
-
-    def transition(
-        self,
-        command_id: str,
-        state: CommandState,
-        *,
-        outcome: CommandOutcome | None = None,
-        error_code: str | None = None,
-        error_message: str | None = None,
-    ) -> None: ...
-
-    def transition_many(
-        self,
-        changes: Sequence[tuple[str, CommandState, CommandOutcome | None, str | None]],
-    ) -> None: ...
 
     def get(self, command_id: str) -> CommandResult | None: ...
 

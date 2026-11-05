@@ -8,7 +8,6 @@ import json
 import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Protocol
 
 from commander.application.settings import ServiceSettings
@@ -119,12 +118,10 @@ class CommanderConfigManager:
 
     def __init__(
         self,
-        root: Path,
         *,
         quiesce: Callable[[frozenset[str]], Awaitable[frozenset[str]]],
         settings_loader: SettingsLoader,
     ) -> None:
-        self._root = root
         self._settings_loader = settings_loader
         self._quiesce = quiesce
         self._lock = asyncio.Lock()
@@ -134,28 +131,25 @@ class CommanderConfigManager:
         self._fingerprints: dict[str, str] = {}
         self._disabled: set[str] = set()
 
-    def _load(self) -> SharedDocuments:
-        docs = SharedDocumentLoader(
-            SharedConfigPaths(
-                instances=self._root / "instances",
-                templates=self._root / "templates",
-            )
-        ).load()
+    def _load(self, settings: ServiceSettings) -> SharedDocuments:
+        paths = SharedConfigPaths(
+            instances=settings.devices_path.parent,
+            templates=settings.templates_root,
+            devices_file=settings.devices_path,
+            load_site=False,
+            coordination_root=settings.coordination_root,
+        )
+        docs = SharedDocumentLoader(paths).load()
         build_shared_snapshot(docs)
         # Refuse a candidate read across concurrent file replacement.
-        verify = SharedDocumentLoader(
-            SharedConfigPaths(
-                instances=self._root / "instances",
-                templates=self._root / "templates",
-            )
-        ).load()
+        verify = SharedDocumentLoader(paths).load()
         if verify.revision != docs.revision:
             raise RuntimeError("shared configuration changed during validation")
         return docs
 
     def start(self) -> ServiceSettings:
         settings = self._settings_loader()
-        docs = self._load()
+        docs = self._load(settings)
         self._settings = settings
         self._documents = docs
         self._snapshot = build_shared_snapshot(docs)
@@ -164,6 +158,24 @@ class CommanderConfigManager:
             device: _device_fingerprint(definition) for device, definition in docs.devices.items()
         }
         return settings
+
+    @property
+    def active_settings(self) -> ServiceSettings:
+        if self._settings is None:
+            raise RuntimeError("Commander service settings are not initialized")
+        return self._settings
+
+    @property
+    def snapshot(self) -> SharedDomainSnapshot:
+        if self._snapshot is None:
+            raise RuntimeError("Commander configuration is not initialized")
+        return self._snapshot
+
+    @property
+    def documents(self) -> SharedDocuments:
+        if self._documents is None:
+            raise RuntimeError("Commander configuration is not initialized")
+        return self._documents
 
     @property
     def revision(self) -> str:
@@ -232,8 +244,8 @@ class CommanderConfigManager:
         async with self._lock:
             if self._documents is None or self._settings is None:
                 raise RuntimeError("config manager not started")
-            candidate = self._load()
             service_candidate = self._settings_loader()
+            candidate = self._load(self._settings)
             restart_required = service_candidate != self._settings
             new_fp = {name: _device_fingerprint(value) for name, value in candidate.devices.items()}
             # Compare source documents at the same representation and grain.
@@ -292,6 +304,11 @@ class CommanderConfigManager:
                 units=effective_units,
                 business_points=effective_business,
                 revision=applied_revision,
+                devices_file_version=(
+                    candidate.devices_file_version
+                    if not blocked
+                    else self._documents.devices_file_version
+                ),
             )
             effective_snapshot = build_shared_snapshot(applied)
             _validate_unique_connections(effective_snapshot)

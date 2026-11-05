@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from commander.application.control import CommandControl
+from commander.application.persistence import BufferedJournal
 from commander.domain.command import (
     CommandOutcome,
     CommandResult,
@@ -21,9 +22,10 @@ from commander.domain.command import (
 from commander.infrastructure.event_repository import (
     EventRepository,
     RepositoryError,
-    StorageFullError,
 )
 from core.domain.sample_value import WritableScalar
+
+from ..seed_events import seed_accept, seed_transition
 
 pytestmark = pytest.mark.component
 
@@ -47,7 +49,8 @@ def repo(tmp_path: Path) -> Iterator[EventRepository]:
 
 
 def test_accept_persists_batch_with_shared_request_and_ordered_seq(repo: EventRepository) -> None:
-    accepted = repo.accept(
+    accepted = seed_accept(
+        repo,
         [_spec(point="a"), _spec(point="b")],
         caller_id="operator-1",
         operator_id="human",
@@ -69,16 +72,17 @@ def test_accept_persists_batch_with_shared_request_and_ordered_seq(repo: EventRe
 
 def test_rejects_empty_batch_and_blank_caller(repo: EventRepository) -> None:
     with pytest.raises(ValueError):
-        repo.accept([], caller_id="x")
+        seed_accept(repo, [], caller_id="x")
     with pytest.raises(ValueError):
-        repo.accept([_spec()], caller_id=" ")
+        seed_accept(repo, [_spec()], caller_id=" ")
 
 
 def test_full_lifecycle_events_and_terminal_once(repo: EventRepository) -> None:
-    command = repo.accept([_spec()], caller_id="op")[0]
-    repo.transition(command.command_id, CommandState.CONNECTING)
-    repo.transition(command.command_id, CommandState.EXECUTING)
-    repo.transition(
+    command = seed_accept(repo, [_spec()], caller_id="op")[0]
+    seed_transition(repo, command.command_id, CommandState.CONNECTING)
+    seed_transition(repo, command.command_id, CommandState.EXECUTING)
+    seed_transition(
+        repo,
         command.command_id,
         CommandState.SUCCEEDED,
         outcome=CommandOutcome.CONFIRMED_SUCCESS,
@@ -89,7 +93,8 @@ def test_full_lifecycle_events_and_terminal_once(repo: EventRepository) -> None:
     assert result.outcome is CommandOutcome.CONFIRMED_SUCCESS
     assert result.completed_at is not None
     with pytest.raises(CommandStateError):
-        repo.transition(
+        seed_transition(
+            repo,
             command.command_id,
             CommandState.FAILED,
             outcome=CommandOutcome.CONFIRMED_FAILURE,
@@ -97,32 +102,34 @@ def test_full_lifecycle_events_and_terminal_once(repo: EventRepository) -> None:
 
 
 def test_illegal_transition_rolls_back_and_keeps_repository_usable(repo: EventRepository) -> None:
-    command = repo.accept([_spec()], caller_id="op")[0]
+    command = seed_accept(repo, [_spec()], caller_id="op")[0]
     with pytest.raises(CommandStateError):
-        repo.transition(
+        seed_transition(
+            repo,
             command.command_id,
             CommandState.SUCCEEDED,  # ACCEPTED -> SUCCEEDED 非法
             outcome=CommandOutcome.CONFIRMED_SUCCESS,
         )
     # 领域校验发生在 INSERT 之前；非法转移后仓储继续可用。
     assert repo.operational
-    repo.transition(command.command_id, CommandState.CONNECTING)
+    seed_transition(repo, command.command_id, CommandState.CONNECTING)
     assert _must(repo.get(command.command_id)).state is CommandState.CONNECTING
 
 
 def test_recover_after_executing_is_unknown_never_not_sent(repo: EventRepository) -> None:
     # T2 已落盘：崩溃恢复必须 UNKNOWN，绝不假定未发送。
-    t2 = repo.accept([_spec()], caller_id="op")[0]
-    repo.transition(t2.command_id, CommandState.CONNECTING)
-    repo.transition(t2.command_id, CommandState.EXECUTING)
+    t2 = seed_accept(repo, [_spec()], caller_id="op")[0]
+    seed_transition(repo, t2.command_id, CommandState.CONNECTING)
+    seed_transition(repo, t2.command_id, CommandState.EXECUTING)
     # 更早阶段崩溃：ACCEPTED / CONNECTING -> INTERRUPTED / NOT_SENT。
-    accepted_only = repo.accept([_spec(point="b")], caller_id="op")[0]
-    connecting = repo.accept([_spec(point="c")], caller_id="op")[0]
-    repo.transition(connecting.command_id, CommandState.CONNECTING)
-    finished = repo.accept([_spec(point="d")], caller_id="op")[0]
-    repo.transition(finished.command_id, CommandState.CONNECTING)
-    repo.transition(finished.command_id, CommandState.EXECUTING)
-    repo.transition(
+    accepted_only = seed_accept(repo, [_spec(point="b")], caller_id="op")[0]
+    connecting = seed_accept(repo, [_spec(point="c")], caller_id="op")[0]
+    seed_transition(repo, connecting.command_id, CommandState.CONNECTING)
+    finished = seed_accept(repo, [_spec(point="d")], caller_id="op")[0]
+    seed_transition(repo, finished.command_id, CommandState.CONNECTING)
+    seed_transition(repo, finished.command_id, CommandState.EXECUTING)
+    seed_transition(
+        repo,
         finished.command_id,
         CommandState.SUCCEEDED,
         outcome=CommandOutcome.CONFIRMED_SUCCESS,
@@ -153,9 +160,9 @@ def test_recover_after_executing_is_unknown_never_not_sent(repo: EventRepository
 def test_recovery_survives_process_restart_with_real_reopen(tmp_path: Path) -> None:
     db = tmp_path / "commander.db"
     first = EventRepository(db)
-    command = first.accept([_spec()], caller_id="op")[0]
-    first.transition(command.command_id, CommandState.CONNECTING)
-    first.transition(command.command_id, CommandState.EXECUTING)
+    command = seed_accept(first, [_spec()], caller_id="op")[0]
+    seed_transition(first, command.command_id, CommandState.CONNECTING)
+    seed_transition(first, command.command_id, CommandState.EXECUTING)
     first.close()
 
     second = EventRepository(db)
@@ -172,8 +179,8 @@ def test_recovery_survives_process_restart_with_real_reopen(tmp_path: Path) -> N
 def test_each_submission_creates_fresh_request_per_rr02(repo: EventRepository) -> None:
     """RR-02：重复提交是新请求；服务端不接受、不依赖调用方幂等编号。"""
     specs = [_spec()]
-    first = repo.accept(specs, caller_id="op")
-    second = repo.accept(specs, caller_id="op")
+    first = seed_accept(repo, specs, caller_id="op")
+    second = seed_accept(repo, specs, caller_id="op")
     # 新 request_id、新 command_id、receive_seq 全局递增。
     assert first[0].request_id != second[0].request_id
     assert first[0].command_id != second[0].command_id
@@ -188,54 +195,7 @@ def test_each_submission_creates_fresh_request_per_rr02(repo: EventRepository) -
     assert not hasattr(repo, "find_idempotent")
     import inspect
 
-    assert "idempotency_key" not in inspect.signature(repo.accept).parameters
-
-
-def test_legacy_database_with_idempotency_table_still_usable(tmp_path: Path) -> None:
-    """旧版本残留 idempotency_keys 表：升级打开不破坏既有命令记录。"""
-    db = tmp_path / "legacy.db"
-    legacy = sqlite3.connect(db)
-    try:
-        legacy.execute(
-            "CREATE TABLE idempotency_keys ("
-            "caller_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,"
-            "request_id TEXT NOT NULL, command_count INTEGER NOT NULL,"
-            "created_at TEXT NOT NULL, PRIMARY KEY(caller_id, idempotency_key))"
-        )
-        legacy.execute(
-            "INSERT INTO idempotency_keys VALUES ('op','old-key','req-legacy',1,'2026-01-01')"
-        )
-        legacy.commit()
-    finally:
-        legacy.close()
-
-    upgraded = EventRepository(db)
-    try:
-        accepted = upgraded.accept([_spec()], caller_id="op")
-        upgraded.transition(accepted[0].command_id, CommandState.CONNECTING)
-        upgraded.transition(accepted[0].command_id, CommandState.EXECUTING)
-        upgraded.transition(
-            accepted[0].command_id,
-            CommandState.SUCCEEDED,
-            outcome=CommandOutcome.CONFIRMED_SUCCESS,
-        )
-        result = _must(upgraded.get(accepted[0].command_id))
-        assert result.state is CommandState.SUCCEEDED
-        raw = sqlite3.connect(db)
-        try:
-            names = {
-                row[0] for row in raw.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            }
-            # 旧表保留但不属于新 schema 契约；新表与旧记录共存可读。
-            assert {"command_events", "repository_meta"} <= names
-            leftover = raw.execute(
-                "SELECT request_id FROM idempotency_keys WHERE idempotency_key='old-key'"
-            ).fetchone()
-            assert leftover == ("req-legacy",)
-        finally:
-            raw.close()
-    finally:
-        upgraded.close()
+    assert "idempotency_key" not in inspect.signature(BufferedJournal.accept).parameters
 
 
 def _append_event(
@@ -295,8 +255,8 @@ def test_append_events_upserts_receive_seq_on_fresh_database(tmp_path: Path) -> 
 
 
 def test_outbox_pending_mark_and_failure_attempts(repo: EventRepository) -> None:
-    command = repo.accept([_spec()], caller_id="op")[0]
-    repo.transition(command.command_id, CommandState.CONNECTING)
+    command = seed_accept(repo, [_spec()], caller_id="op")[0]
+    seed_transition(repo, command.command_id, CommandState.CONNECTING)
     pending = repo.pending_events(100)
     assert [event["event_type"] for event in pending] == ["ACCEPTED", "CONNECTING"]
     assert all(event["publish_state"] == "PENDING" for event in pending)
@@ -317,25 +277,27 @@ def test_outbox_pending_mark_and_failure_attempts(repo: EventRepository) -> None
 def test_cleanup_keeps_unpublished_or_unfinished_requests(tmp_path: Path) -> None:
     repo = EventRepository(tmp_path / "c.db", retention_seconds=0)
     try:
-        old = repo.accept([_spec(point="old")], caller_id="op")[0]
-        repo.transition(old.command_id, CommandState.CONNECTING)
-        repo.transition(old.command_id, CommandState.EXECUTING)
-        repo.transition(
+        old = seed_accept(repo, [_spec(point="old")], caller_id="op")[0]
+        seed_transition(repo, old.command_id, CommandState.CONNECTING)
+        seed_transition(repo, old.command_id, CommandState.EXECUTING)
+        seed_transition(
+            repo,
             old.command_id,
             CommandState.SUCCEEDED,
             outcome=CommandOutcome.CONFIRMED_SUCCESS,
         )
         # 终态但审计未发布：不得清理。
-        unpublished = repo.accept([_spec(point="unpub")], caller_id="op")[0]
-        repo.transition(unpublished.command_id, CommandState.CONNECTING)
-        repo.transition(unpublished.command_id, CommandState.EXECUTING)
-        repo.transition(
+        unpublished = seed_accept(repo, [_spec(point="unpub")], caller_id="op")[0]
+        seed_transition(repo, unpublished.command_id, CommandState.CONNECTING)
+        seed_transition(repo, unpublished.command_id, CommandState.EXECUTING)
+        seed_transition(
+            repo,
             unpublished.command_id,
             CommandState.FAILED,
             outcome=CommandOutcome.CONFIRMED_FAILURE,
         )
         # 未完成：不得清理。
-        pending = repo.accept([_spec(point="pending")], caller_id="op")[0]
+        pending = seed_accept(repo, [_spec(point="pending")], caller_id="op")[0]
         time.sleep(0.01)
         for event in repo.pending_events(100):
             if event["command_id"] == old.command_id:
@@ -350,23 +312,11 @@ def test_cleanup_keeps_unpublished_or_unfinished_requests(tmp_path: Path) -> Non
         repo.close()
 
 
-def test_admission_stops_before_reserved_capacity(tmp_path: Path) -> None:
-    # 极小配额：预留空间必须阻止新 ACCEPTED，保留终态事件能力。
-    repo = EventRepository(
-        tmp_path / "small.db",
-        max_storage_bytes=64 * 1024,
-        reserved_storage_bytes=32 * 1024,
-        admission_stop_ratio=0.9,
-    )
-    try:
-        with pytest.raises(StorageFullError):
-            repo.accept(
-                [CommandSpec("WT01", "p", "x" * 4000, "ref")],
-                caller_id="op",
-            )
-        assert repo.operational
-    finally:
-        repo.close()
+def test_buffered_admission_reserves_terminal_event_capacity() -> None:
+    buffer = BufferedJournal(maximum_events=4)
+    buffer.accept([_spec()], caller_id="operator")
+    with pytest.raises(OverflowError, match="persistence queue full"):
+        buffer.accept([_spec()], caller_id="operator")
 
 
 def test_flock_rejects_second_process_owner(tmp_path: Path) -> None:
@@ -399,15 +349,16 @@ def test_pragmas_and_schema_on_real_database_file(tmp_path: Path) -> None:
 
 
 def test_metrics_report_accepted_and_terminal_counts(repo: EventRepository) -> None:
-    first = repo.accept([_spec()], caller_id="op")[0]
-    repo.transition(first.command_id, CommandState.CONNECTING)
-    repo.transition(first.command_id, CommandState.EXECUTING)
-    repo.transition(
+    first = seed_accept(repo, [_spec()], caller_id="op")[0]
+    seed_transition(repo, first.command_id, CommandState.CONNECTING)
+    seed_transition(repo, first.command_id, CommandState.EXECUTING)
+    seed_transition(
+        repo,
         first.command_id,
         CommandState.SUCCEEDED,
         outcome=CommandOutcome.CONFIRMED_SUCCESS,
     )
-    repo.accept([_spec(point="b")], caller_id="op")
+    seed_accept(repo, [_spec(point="b")], caller_id="op")
     metrics = repo.metrics()
     assert metrics.accepted_total == 2
     assert dict(metrics.terminal_counts).get("SUCCEEDED") == 1

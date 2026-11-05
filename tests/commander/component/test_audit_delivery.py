@@ -23,6 +23,8 @@ from commander.domain.command import (
 )
 from commander.infrastructure.event_repository import EventRepository
 
+from ..seed_events import seed_accept, seed_transition
+
 pytestmark = pytest.mark.component
 
 
@@ -77,10 +79,11 @@ def repo(db_path: Path, sqlite_writer: ThreadPoolExecutor) -> Iterator[EventRepo
 
 def _four_events(repo: EventRepository, writer: ThreadPoolExecutor) -> list[str]:
     def write() -> list[str]:
-        command = repo.accept([CommandSpec("WT01", "p", 1.0, "ref")], caller_id="op")[0]
-        repo.transition(command.command_id, CommandState.CONNECTING)
-        repo.transition(command.command_id, CommandState.EXECUTING)
-        repo.transition(
+        command = seed_accept(repo, [CommandSpec("WT01", "p", 1.0, "ref")], caller_id="op")[0]
+        seed_transition(repo, command.command_id, CommandState.CONNECTING)
+        seed_transition(repo, command.command_id, CommandState.EXECUTING)
+        seed_transition(
+            repo,
             command.command_id,
             CommandState.SUCCEEDED,
             outcome=CommandOutcome.CONFIRMED_SUCCESS,
@@ -200,10 +203,11 @@ async def test_tail_events_inserted_during_stop_are_drained(
 
         # 在途期间再写一条完整命令链（模拟终态事件与停机并发）。
         def write_tail() -> list[str]:
-            tail = repo.accept([CommandSpec("WT01", "p", 2.0, "ref")], caller_id="op")[0]
-            repo.transition(tail.command_id, CommandState.CONNECTING)
-            repo.transition(tail.command_id, CommandState.EXECUTING)
-            repo.transition(
+            tail = seed_accept(repo, [CommandSpec("WT01", "p", 2.0, "ref")], caller_id="op")[0]
+            seed_transition(repo, tail.command_id, CommandState.CONNECTING)
+            seed_transition(repo, tail.command_id, CommandState.EXECUTING)
+            seed_transition(
+                repo,
                 tail.command_id,
                 CommandState.SUCCEEDED,
                 outcome=CommandOutcome.CONFIRMED_SUCCESS,
@@ -265,7 +269,7 @@ async def test_transient_outage_recovers_within_stop_budget(
     assert len(flapping.published) == 4
 
 
-async def test_invalid_retry_construction_rejected(
+async def test_invalid_backoff_construction_rejected(
     repo: EventRepository, sqlite_writer: ThreadPoolExecutor
 ) -> None:
     with pytest.raises(ValueError):

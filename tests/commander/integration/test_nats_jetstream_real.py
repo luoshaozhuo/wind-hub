@@ -31,6 +31,8 @@ from commander.infrastructure.event_repository import EventRepository
 from commander.infrastructure.nats_audit import NatsAuditTransport
 from tests.support.process import free_port
 
+from ..seed_events import seed_accept, seed_transition
+
 pytestmark = [pytest.mark.integration, pytest.mark.real_service, pytest.mark.docker]
 
 
@@ -171,10 +173,11 @@ async def test_audit_delivery_over_real_jetstream_drains_outbox_in_order(
     delivery = AuditDelivery(repo, transport, writer, retry_base=0.1, retry_max=1.0)
 
     def seed() -> None:
-        command = repo.accept([CommandSpec("WT01", "p", 3.5, "ref-v1")], caller_id="ops")[0]
-        repo.transition(command.command_id, CommandState.CONNECTING)
-        repo.transition(command.command_id, CommandState.EXECUTING)
-        repo.transition(
+        command = seed_accept(repo, [CommandSpec("WT01", "p", 3.5, "ref-v1")], caller_id="ops")[0]
+        seed_transition(repo, command.command_id, CommandState.CONNECTING)
+        seed_transition(repo, command.command_id, CommandState.EXECUTING)
+        seed_transition(
+            repo,
             command.command_id,
             CommandState.SUCCEEDED,
             outcome=CommandOutcome.CONFIRMED_SUCCESS,

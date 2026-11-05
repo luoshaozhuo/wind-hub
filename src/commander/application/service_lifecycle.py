@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from functools import partial
-from pathlib import Path
+from uuid import uuid4
 
 from commander.application.audit import AuditDelivery, AuditTransport
 from commander.application.config_manager import (
@@ -18,6 +20,7 @@ from commander.application.config_manager import (
 )
 from commander.application.control import CommandControl
 from commander.application.journal_port import JournalMetrics, JournalPort
+from commander.application.metrics import CommandMetrics
 from commander.application.persistence import BufferedJournal, PersistenceWorker
 from commander.application.queued_executor import QueuedExecutor
 from commander.application.settings import ServiceSettings
@@ -52,6 +55,20 @@ class RuntimeHealth:
     audit_oldest_age_ms: float
     control_accepted_total: int
     control_terminal_counts: tuple[tuple[str, int], ...]
+    persistence_operational: bool
+    audit_operational: bool
+    journal_operational: bool
+    dispatcher_operational: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeEvent:
+    event_id: str
+    timestamp: datetime
+    severity: str
+    source: str
+    error_code: str
+    message: str
 
 
 class CommanderService:
@@ -64,19 +81,18 @@ class CommanderService:
     def __init__(
         self,
         *,
-        config_root: Path,
         protocol_registry: ProtocolRegistry,
         audit_transport: AuditTransport,
         settings_loader: Callable[[], ServiceSettings],
         journal_factory: Callable[[ServiceSettings], JournalPort],
     ) -> None:
-        self._config_root = config_root
         self._registry = protocol_registry
         self._audit_transport = audit_transport
         self._settings_loader = settings_loader
         self._journal_factory = journal_factory
         self._audit: AuditDelivery | None = None
         self._state = ServiceState.STOPPED
+        self._started_at: datetime | None = None
         self._journal: JournalPort | None = None
         self._buffer: BufferedJournal | None = None
         self._persistence: PersistenceWorker | None = None
@@ -89,8 +105,44 @@ class CommanderService:
         self._recovered = 0
         self._restart_required = False
         self._cleanup_interval = 60.0
+        self._storage_admission_limit = 0.0
         self._shutdown_grace = 10.0
         self._lifecycle_lock = asyncio.Lock()
+        self._metrics = CommandMetrics()
+        self._events: deque[RuntimeEvent] = deque(maxlen=1000)
+
+    def _event(self, severity: str, message: str, error_code: str = "") -> None:
+        self._events.append(
+            RuntimeEvent(
+                event_id=str(uuid4()),
+                timestamp=datetime.now(UTC),
+                severity=severity,
+                source="commander",
+                error_code=error_code,
+                message=message,
+            )
+        )
+
+    def events(self) -> tuple[RuntimeEvent, ...]:
+        return tuple(self._events)
+
+    @property
+    def started_at(self) -> datetime | None:
+        return self._started_at
+
+    @property
+    def metrics(self) -> CommandMetrics:
+        return self._metrics
+
+    @property
+    def supported_protocols(self) -> tuple[str, ...]:
+        return self._registry.registered_names()
+
+    @property
+    def config_manager(self) -> CommanderConfigManager:
+        if self._config is None:
+            raise RuntimeError("config manager unavailable")
+        return self._config
 
     @property
     def control(self) -> CommandControl:
@@ -123,7 +175,6 @@ class CommanderService:
         try:
             # Parse and validate the entire candidate before enabling any write.
             manager = CommanderConfigManager(
-                self._config_root,
                 quiesce=self._quiesce,
                 settings_loader=self._settings_loader,
             )
@@ -134,6 +185,7 @@ class CommanderService:
             buffer = BufferedJournal(
                 initial_sequence=initial_sequence,
                 maximum_events=settings.persistence_max_events,
+                metrics=self._metrics,
             )
             persistence = PersistenceWorker(
                 buffer,
@@ -175,15 +227,25 @@ class CommanderService:
             self._config = manager
             self._recovered = len(recovered)
             self._journal_stats = await loop.run_in_executor(writer, journal.metrics)
+            self._storage_admission_limit = min(
+                settings.max_storage_bytes * settings.admission_stop_ratio,
+                settings.max_storage_bytes - settings.reserved_storage_bytes,
+            )
+            executor.set_storage_admission(
+                self._journal_stats.used_bytes < self._storage_admission_limit
+            )
             self._cleanup_interval = settings.cleanup_interval_seconds
             self._shutdown_grace = settings.shutdown_grace_seconds
             self._state = ServiceState.READY
+            self._started_at = datetime.now(UTC)
+            self._event("INFO", "Commander ready")
             self._watchdog = asyncio.create_task(
                 self._run_watchdog(settings.watchdog_interval),
                 name="commander:watchdog",
             )
         except BaseException:
             self._state = ServiceState.FAILED
+            self._event("ERROR", "Commander startup failed", "STARTUP_FAILED")
             if self._persistence is not None:
                 await self._persistence.stop(timeout=5.0)
                 self._persistence = None
@@ -215,6 +277,7 @@ class CommanderService:
             raise RuntimeError("service not ready")
         report = await self._config.reload()
         self._restart_required = report.restart_required
+        self._event("INFO", f"Config applied: {report.revision}")
         self._state = (
             ServiceState.DEGRADED
             if report.blocked or (self._executor and self._executor.blocked_devices())
@@ -239,6 +302,8 @@ class CommanderService:
                 self._state is ServiceState.READY
                 and not blocked
                 and operational
+                and self._executor is not None
+                and self._executor.accepting_commands
                 and audit_operational
                 and journal_operational
                 and (
@@ -261,6 +326,14 @@ class CommanderService:
             audit_oldest_age_ms=stats.oldest_pending_age_ms if stats else 0.0,
             control_accepted_total=stats.accepted_total if stats else 0,
             control_terminal_counts=stats.terminal_counts if stats else (),
+            persistence_operational=(
+                self._persistence is not None
+                and self._persistence.operational
+                and self._persistence.failure is None
+            ),
+            audit_operational=audit_operational,
+            journal_operational=journal_operational,
+            dispatcher_operational=operational,
         )
 
     async def _run_watchdog(self, interval: float) -> None:
@@ -282,6 +355,10 @@ class CommanderService:
                     self._journal_stats = await asyncio.get_running_loop().run_in_executor(
                         self._writer, self._journal.metrics
                     )
+                    if self._executor is not None:
+                        self._executor.set_storage_admission(
+                            self._journal_stats.used_bytes < self._storage_admission_limit
+                        )
                 except Exception:
                     self._state = ServiceState.DEGRADED
                     logger.exception("Commander journal metrics unavailable")
@@ -308,6 +385,7 @@ class CommanderService:
                 logger.error("Commander audit delivery stopped unexpectedly")
             elif (
                 blocked
+                or not self._executor.accepting_commands
                 or (
                     self._persistence is not None
                     and (not self._persistence.operational or self._persistence.failure is not None)
@@ -365,4 +443,5 @@ class CommanderService:
             self._buffer.close()
             self._buffer = None
         self._state = ServiceState.STOPPED
+        self._event("INFO", "Commander stopped")
         return blocked

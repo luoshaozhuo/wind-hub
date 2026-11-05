@@ -8,7 +8,9 @@ from pathlib import Path
 
 @dataclass(frozen=True, slots=True)
 class ServiceSettings:
-    file_version: int
+    file_version: str | None
+    devices_path: Path
+    templates_root: Path
     queue_timeout: float
     connect_timeout: float
     write_timeout: float
@@ -33,3 +35,4 @@ class ServiceSettings:
     persistence_interval_seconds: float = 0.05
     persistence_batch_size: int = 500
     persistence_max_events: int = 100_000
+    coordination_root: Path | None = None

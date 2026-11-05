@@ -1,6 +1,6 @@
 <h1 class="title">Commander 软件设计</h1>
 
-<p class="subtitle">v1_9 · 20261103</p>
+<p class="subtitle">v1_10 · 20261103</p>
 
 <style>
 body {
@@ -152,20 +152,20 @@ pre code {
 
 ## 目录
 
-1. [文档约定](#1-文档约定)  
-2. [软件设计指导原则与编制方法](#2-软件设计指导原则与编制方法)  
-3. [软件需求](#3-软件需求)  
-4. [用例视图](#4-用例视图)  
-5. [逻辑视图](#5-逻辑视图)  
-6. [进程视图](#6-进程视图)  
-7. [开发视图](#7-开发视图)  
-8. [物理视图（部署视图）](#8-物理视图部署视图)  
-9. [gRPC Server 适配设计](#9-grpc-server-适配设计契约待定)  
-10. [内存命令状态、SQLite 后台持久化与恢复](#10-内存命令状态sqlite-后台持久化与恢复)  
-11. [配置与动态生效](#11-配置与动态生效)  
-12. [命令审计与 JetStream 可靠发布](#12-命令审计与-jetstream-可靠发布)  
-13. [安全、可观测性与运行指标](#13-安全可观测性与运行指标)  
-14. [测试体系、物理组织与验收](#14-测试体系物理组织与验收)  
+1. [文档约定](#1-文档约定)
+2. [软件设计指导原则与编制方法](#2-软件设计指导原则与编制方法)
+3. [软件需求](#3-软件需求)
+4. [用例视图](#4-用例视图)
+5. [逻辑视图](#5-逻辑视图)
+6. [进程视图](#6-进程视图)
+7. [开发视图](#7-开发视图)
+8. [物理视图（部署视图）](#8-物理视图部署视图)
+9. [对外接口与通信契约](#9-对外接口与通信契约)
+10. [核心技术与数据契约](#10-核心技术与数据契约)
+11. [配置与动态生效](#11-配置与动态生效)
+12. [外部适配与集成契约](#12-外部适配与集成契约)
+13. [安全、可观测性与运行指标](#13-安全可观测性与运行指标)
+14. [测试体系、物理组织与验收](#14-测试体系物理组织与验收)
 
 ---
 
@@ -1168,7 +1168,7 @@ flowchart TD
 
 #### 3.1.11.4 关键约束
 
-不允许热重载时更换正在执行命令使用的设备、点位或连接语义；删除设备必须待在途 I/O 安全结束并处置待执行命令；新增设备校验通过才开放准入；逐设备真实生效版本独立可见，不使用全局 revision；候选配置与已生效配置必须可区分。
+不允许热重载时更换正在执行命令使用的设备、点位或连接语义；删除设备必须待在途 I/O 安全结束并处置待执行命令；新增设备校验通过才开放准入；逐设备真实生效版本独立可见，遵循 CommonService 快照 revision 契约；候选配置与已生效配置必须可区分。
 
 ### 3.1.12 UR-12 查询配置状态
 
@@ -1200,7 +1200,7 @@ flowchart TD
 
 #### 3.1.12.3 业务规则
 
-以文件标识、schema_version 及适用的 file_version 展示候选与实际生效配置；部分失败时如实展示设备差异及是否需要重启，不使用全局 revision
+以文件标识、schema_version 及适用的 file_version 展示候选与实际生效配置；部分失败时如实展示设备差异及是否需要重启，遵循 CommonService 快照 revision 契约
 
 #### 3.1.12.4 关键约束
 
@@ -1332,7 +1332,7 @@ Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全�
 | FR-07 | 设备列表查询 | 返回已配置设备、状态摘要、筛选与分页结果；不主动连接现场设备 | UR-09 |
 | FR-08 | 设备详情查询 | 按 device_id 返回设备连接、执行、阻塞、错误及配置状态；列出当前生效点表中全部配置为可写的点标识、类型及写入约束；排除只读和仅查询点 | UR-10 |
 | FR-09 | 设备配置热重载（由 CommonService 快照 RPC 承载） | 允许设备实例增删、连接参数、可写点表/约束及模板引用逐设备热更新；受影响设备在旧 I/O 安全结束或隔离后切换，失败保持旧版本或阻塞；commander.yaml 必须重启；不保留操作历史或命令审计 | UR-11 |
-| FR-10 | 配置状态查询（由 CommonService.GetConfigSnapshot 承载） | 返回磁盘候选和当前生效的配置文件标识、schema_version 及适用的 file_version，逐设备显示应用结果、差异及是否需要重启；不使用全局 revision | UR-12 |
+| FR-10 | 配置状态查询（由 CommonService.GetConfigSnapshot 承载） | 返回磁盘候选和当前生效的配置文件标识、schema_version 及适用的 file_version，逐设备显示应用结果、差异及是否需要重启；遵循 CommonService 快照 revision 契约 | UR-12 |
 | FR-11 | 本地命令记录管理 | 内存原子追加已接受命令的首次事件，随后后台落盘，并以增量事件记录状态和结果；仅保留控制命令及其审计事件，供查询和恢复；按安全清理规则有限留存 | UR-04、UR-05、UR-06、UR-13 |
 | FR-12 | 命令审计发布 | 直接将本地追加的命令事件（接受、状态变化和终结）按命令顺序向 JetStream 发布，并维护发布确认及待补发状态 | UR-13、UR-14 |
 | FR-13 | 异常退出后恢复 | 重载配置并核对本地存储，恢复命令和待发布事件；未开始写入者按规则终结，可能已发送者终结为 UNKNOWN，不自动重发旧命令 | UR-15 |
@@ -1415,7 +1415,7 @@ Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全�
 | CR-01 | 命令审计内容 | 仅控制命令的接受、状态变化和终结产生业务审计，包含 request_id、command_id、目标设备/点、目标值、状态、结果及时间；启动、关闭、热重载不产生该类事件 | UR-01、UR-02、UR-04、UR-05、UR-11、UR-13 |
 | CR-02 | 审计投递与追踪 | 在统一命令事件记录中保存稳定事件标识、待投递状态及确认结果；向 JetStream 发布命令增量事件，支持重投去重及积压监测；下游负责长期保存 | UR-08、UR-13、UR-14、UR-15 |
 | CR-03 | 运行状态与诊断 | 提供进程存活、业务就绪、阻塞设备数、在途 I/O、队列积压、存储水位与预留、未确认事件数及最老积压时长、恢复结果和错误原因；日志与命令通过 request_id、command_id 关联 | UR-01、UR-03、UR-04、UR-06、UR-08、UR-13、UR-15 |
-| CR-04 | 配置文件版本可追踪 | 展示每个实际生效依赖文件的标识、schema_version 及适用的 file_version；对候选文件及逐设备热重载结果单独报告，不使用全局 revision，不持久化热重载请求历史 | UR-03、UR-07、UR-11、UR-12 |
+| CR-04 | 配置文件版本可追踪 | 展示每个实际生效依赖文件的标识、schema_version 及适用的 file_version；对候选文件及逐设备热重载结果单独报告，遵循 CommonService 快照 revision 契约，不持久化热重载请求历史 | UR-03、UR-07、UR-11、UR-12 |
 | CR-05 | 非侵入式实现 | 日志、审计投递、指标等通用机制在边界或专用组件实现；业务逻辑只声明必需的业务事件和失败策略，不在每个业务路径重复投递与监控逻辑 | UR-04、UR-05、UR-08、UR-13、UR-14 |
 
 ## 3.7 总—分一致性检查结果
@@ -1450,7 +1450,7 @@ Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全�
 | 热重载边界 | 不热重载 commander.yaml；不记录热重载请求历史、不生成命令业务审计 |
 | 设备详情点表 | 仅返回当前生效配置中的可写点及其写入约束，无只读/查询点 |
 | 审计与存储 | 本地有限留存供查询/恢复/补发；JetStream 负责可靠投递，下游负责长期保存 |
-| 配置版本 | 以各文件 schema_version 及适用的 file_version 标识当前生效版本，不使用全局 revision |
+| 配置版本 | 以各文件 schema_version 及适用的 file_version 标识当前生效版本，遵循 CommonService 快照 revision 契约 |
 | 设计负载 | 100 台、每台 10 Hz、每批最多 10 点，目标 1000 批/s、10000 点/s；历史第七轮实测 1160–1192 批/s（本版未复测） |
 | 数值目标与验证状态 | 历史第七轮验收曾报告 144 passed 及静态检查通过；本版配置契约更新后尚未重新验收，真实 PLC、root netem 和长稳 soak 仍需独立验证 |
 
@@ -2002,7 +2002,7 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
-  A["Terminal 启动或重启进程"] --> B["读取全部配置并复用 Core 校验"]
+  A["Terminal 启动或重启进程"] --> B["按启动参数读取 commander.yaml，按声明 pathname 加载直接实例与模板根并复用 Core 校验"]
   B --> C{"配置、证书及关键依赖有效?"}
   C -->|否| X["恢复失败 / 不进入 READY"]
   C -->|是| D["打开 SQLite 并恢复事件"]
@@ -2304,9 +2304,9 @@ flowchart LR
 | JetStream | 可访问目标 stream/subject；下游可靠消费自行部署 | Publisher 获得 PubAck 才标记确认；不宣称下游已永久存储 |
 | 停机/接管 | 操作系统服务管理与现场隔离规程 | 强制终止或跨主机接管必须重新确认控制权，禁止盲目写入 |
 
-# 9. gRPC Server 实现设计（以 Contracts 为唯一契约）
+# 9. 对外接口与通信契约
 
-## 9.1 职责、来源与基本约束
+## 9.1 接口全集与业务归属
 
 本章根据 `main@0dfee3bbbc864eae364fb214e447dea0a447820b` 的 `src/contracts/common.proto` 和 `src/contracts/commander.proto` 编制。两个文件是唯一对外契约源；Commander 负责实现 Server，不修改 Proto、不复制一套独立字段定义，也不增加兼容 RPC。
 
@@ -2316,7 +2316,11 @@ flowchart LR
 - Infrastructure 实现 Protobuf 到 Application 的映射；Domain/Application 不依赖生成的 Protobuf 类型。gRPC mTLS、权限、限流、截止时间和错误映射由边界统一执行。
 - 现有 Proto 字段不足以表达的业务信息不得伪装在 `message`、`revision`、`error_code` 等无关字段中；必须登记契约缺口并协调 Contracts 维护方。
 
-## 9.2 CommonService：全部接口实现
+## 9.2 数据字段、错误与版本语义
+
+具体字段及错误语义按 `src/contracts/common.proto`、`src/contracts/commander.proto`，本节附全部接口的业务映射，不重定义 Proto。
+
+### 9.2.1 CommonService：全部接口实现
 
 <p class="table-caption">表 9-1 CommonService 接口与 Commander 实现责任</p>
 
@@ -2334,7 +2338,7 @@ flowchart LR
 
 配置快照的 `revision`/`expected_revision` 是 CommonService 的乐观并发字段，与设备模板的 `file_version` 分属不同概念。应由共享配置管理层维护确定性的快照修订值；不能因为旧设计不使用“全局 revision”而拒绝实现正式契约字段。
 
-## 9.3 CommanderService：全部接口实现
+### 9.2.2 CommanderService：全部接口实现
 
 <p class="table-caption">表 9-2 CommanderService 接口与 Commander 实现责任</p>
 
@@ -2348,7 +2352,7 @@ flowchart LR
 
 `ScalarValue` 的 `oneof kind` 只允许 `bool/sint64/uint64/double/string/bytes` 六种具体分支；未设置分支属于缺少控制值，须拒绝。数值类型、量程及目标点版本约束仍由 Core 配置与 Commander 业务校验共同保障。`expires_at` 是绝对时间，`expected_revision` 是对目标当前配置版本的前置校验字段，不得当作请求去重键。
 
-## 9.4 需求覆盖、差异及契约协调
+## 9.3 服务端映射、权限与契约差异
 
 <p class="table-caption">表 9-3 第 3 章需求与当前正式接口的差异</p>
 
@@ -2366,22 +2370,64 @@ flowchart LR
 
 **契约缺口裁决**：当前正式对外接口无法完整实现 UR-05 及 UR-06 的 request_id 批次查询语义。Commander 不得修改 Contracts；应提交差异供统一契约维护方决定修订需求或升级 Proto。在决策前，不得认定第 3 章所有对外控制需求均已实现。
 
-## 9.5 传输错误、认证与测试要求
+### 9.3.1 传输错误、认证与测试要求
 
 - 认证失败、授权不足、非法参数、目标不存在、修订冲突、容量不足、服务不可用应分别映射合适的 gRPC 状态；业务逻辑结果保留 Proto 规定的 `state/outcome/error_code`，不可将业务 UNKNOWN 误报为 gRPC 传输失败。
 - `GetServiceInfo/GetServiceStatus/GetCapabilities/GetConfigSnapshot/GetMetrics/GetEvents/Diagnose` 等通用操作适用 query 权限；`PushConfigSnapshot/ApplyConfigSnapshot` 适用 reload；`SubmitCommand` 适用 control。设备/点表查询和命令结果查询适用 query。
 - 验证两个 Service 共 14 个 RPC 全部注册、可调用；逐项覆盖空值/边界、`oneof`、`optional`、`Timestamp`、分页、候选快照冲突、mTLS、取消与 Deadline、UNKNOWN 与 `io_settled` 分离。
 - System Test 必须包含配置快照三阶段（Get/Push/Apply）、通用指标/事件/诊断以及 Commander 单点控制完整链路；对现有契约不支持的批量控制和 request_id 查询登记为缺口，不得标成 PASS。
 
-# 10. 内存命令状态、SQLite 后台持久化与恢复
+## 9.4 接口协作时序
 
-## 10.1 内存事件模型及队列
+```mermaid
+%%{init: {"sequence": {"useMaxWidth": true}}}%%
+sequenceDiagram
+  participant C as 控制客户端
+  participant R as Commander RPC
+  participant A as 命令应用服务
+  participant P as 工业协议适配器
+  C->>R: SubmitCommand
+  R->>A: 校验、容量预留并受理
+  A-->>R: command_id 与受理状态
+  R-->>C: SubmitCommandResponse
+  A->>P: 在满足调度条件后写入
+  P-->>A: 确定结果或 I/O 未收敛
+  C->>R: GetCommandResult(command_id)
+  R->>A: 查询命令最新状态
+  A-->>R: state/outcome/io_settled
+  R-->>C: GetCommandResultResponse
+```
+
+<p class="figure-caption">图 9-1 单点受理、现场写入与结果查询时序</p>
+
+```mermaid
+%%{init: {"sequence": {"useMaxWidth": true}}}%%
+sequenceDiagram
+  participant C as 配置客户端
+  participant R as CommonService
+  participant M as 配置管理器
+  C->>R: GetConfigSnapshot(DISK/RUNTIME)
+  R->>M: 读取快照与修订
+  M-->>C: 快照结果（经 RPC）
+  C->>R: PushConfigSnapshot(files, expected_revision)
+  R->>M: 校验直接源及引用闭包
+  M-->>C: candidate_id/validation（经 RPC）
+  C->>R: ApplyConfigSnapshot(candidate_id, expected_revision)
+  R->>M: 提交文件并按设备安全应用
+  M-->>C: apply_results/restart_required（经 RPC）
+```
+
+<p class="figure-caption">图 9-2 配置快照读取、推送与应用时序</p>
+
+# 10. 核心技术与数据契约
+
+## 10.1 数据模型、身份与来源权威
 
 运行时由 BufferedJournal 保存命令的最新状态、服务端生成的 request_id / command_id、接收顺序及待落盘事件；查询优先命中内存，再回退 SQLite 已持久化历史。T1 ACCEPTED、T2 EXECUTING、T3 最终结果均先在内存记录，不再建立 SQL COMMIT 前置屏障。
 
 内存队列有固定上限。整批入队前必须预留其后 CONNECTING、EXECUTING、COMPLETED 等必要事件容量，确保已接收命令有空间记录终态。达到容量上限拒绝新命令；已终结、已落盘的缓存可回收。内存中的事件尚未落盘时，进程异常退出允许丢失。
 
-## 10.2 PersistenceWorker、SQLite 与查询
+## 10.2 核心业务算法与确定性规则
 
 单个 PersistenceWorker 在主 Event Loop 中定期/定量提取事件快照，交由 SQLite 唯一 Writer 线程在同一事务内批量追加；事务成功后才从待落盘队列确认移除；失败保留原 event_id 及事件序列并重试。批次按生成顺序落盘，依靠 event_id 唯一约束和 INSERT OR IGNORE 等幂等策略避免重复追加。
 
@@ -2394,13 +2440,13 @@ flowchart LR
 | T3 终态 | 按物理执行证据生成 SUCCEEDED/FAILED/UNKNOWN 等终态并支持即时查询 | 后台批量落盘 |
 | JetStream 审计 | 不读取尚未落盘的事件 | 仅读取已落盘 PENDING，PubAck 后标记 PUBLISHED |
 
-## 10.3 容量、重试与正常关闭
+## 10.3 数据处理、通信与可靠性
 
 默认持久化周期 50 ms，每次最多 500 事件，待持久化队列容量默认 100000 事件，均属于 commander.yaml 服务级配置，修改需重启。完整命令组在全部终结、审计事件确认发布、保留期届满后按既有规则清理。SQLite 不可用期间允许已受理命令继续执行并更新内存；后台重试和运行状态报警，达到内存容量上限后拒绝新准入。
 
 正常停止先停止准入并安全处置在途命令，再在有界期限内排空 PersistenceWorker，随后排空审计并关闭连接、数据库。排空失败时返回明确失败及剩余事件数量，不得报告成功停止。强制退出或突然断电不能保证内存事件保存。
 
-## 10.4 异常恢复及保守执行原则
+## 10.4 一致性与故障边界
 
 重启只根据已经成功写入 SQLite 的记录恢复。已落盘 EXECUTING 且未终结命令恢复为 UNKNOWN；仅有 ACCEPTED/CONNECTING 的命令恢复为 INTERRUPTED/NOT_SENT；**这些恢复结果不是对实际物理执行情况的绝对证明**：若崩溃前内存 T2 与 PLC 写入已发生但未落盘，SQLite 无法获知事实。无论恢复为何状态，禁止自动重新下发旧命令。
 
@@ -2408,175 +2454,208 @@ flowchart LR
 
 # 11. 配置与动态生效
 
-## 11.1 配置文件与引用契约
+## 11.1 配置文件或配置源体系
 
-以 GitHub `luoshaozhuo/wind-hub` 的 `main` 提交 `0dfee3bbbc864eae364fb214e447dea0a447820b`（2026-11-02）为配置基线。`services` 为服务专属，`instances`、`templates` 为各服务共享；不得在 Commander 专属目录复制设备模板、协议模板或实例。
+Commander 专属服务配置为 `configs/services/commander.yaml`。服务配置只指定**直接依赖**的实例配置文件 pathname 与模板定位 pathname，不列出由设备实例、设备型号、协议模板或点表等**间接引用**的文件。共享配置不复制到 Commander 私有目录。
 
-<p class="table-caption">表 11-1 Commander 配置文件及所有权</p>
+<p class="table-caption">表 11-1 配置源与所有权</p>
 
-| 配置路径 | 所有权与用途 | 生效方式 |
+| 配置源 | 类别和用途 | 装载来源及生效 |
 |---|---|---|
-| `configs/services/commander.yaml` | Commander 专属：gRPC、mTLS、调度、超时、内存队列、SQLite、审计及关闭 | 启动/重启 |
-| `configs/instances/devices.yaml` | Core 共享：设备身份、型号引用、`endpoint`、实例覆盖项 | 受影响设备安全热更新 |
-| `configs/templates/device_models/<id>_<version>.yaml` | Core 共享：协议、点表、任务模板的版本引用 | 通过设备引用版本变更生效 |
-| `configs/templates/protocols/<id>_<version>.yaml` | Core 共享：ADS / IEC104 / Modbus TCP 协议参数 | 通过型号引用版本变更生效 |
-| `configs/templates/point_tables/<id>_<version>.yaml` | Core 共享：点 ID、协议地址、数据类型及写入语义 | 通过型号引用版本变更生效 |
-| `configs/templates/business_points.yaml`、`configs/templates/units.yaml` | Core 共享：业务点语义及工程单位 | 由 Core 统一校验及装配 |
+| `commander.yaml` | 服务专属：网络、安全、调度、SQLite、审计及配置入口 | 启动参数明确传入服务配置路径；服务级变更需要重启 |
+| `config_sources.instances.devices` | 直接依赖的共享设备实例文件 | 显式 pathname；设备级安全热更新 |
+| `config_sources.templates.root` | 直接依赖的共享模板定位根目录 | 显式 pathname；作为实例引用的解析边界 |
+| 设备型号、协议、点表、业务点和单位模板 | 通过实例和模板引用链到达的间接依赖 | 仅按引用 ID、精确版本及 Core 规则解析，不重复声明路径 |
 
-当前 `devices.yaml` 使用顶层 `schema_version: 1`、`file_version: 1.0.0`、`devices` 字典；每个设备以 `model: {id, version}` 引用型号，以 `endpoint.host/port` 指定连接地址，可选 `enabled` 和 `overrides.protocol_options`。型号模板以 `protocol.id/version`、`point_table.id/version` 引用其他模板；`task.id/version` 是共享型号的采集关联，Commander 不执行采集任务。文件版本固定引用，不能隐式取最新。
+设备实例 `model: {id, version}` 指向设备型号；型号引用 `protocol` 和 `point_table` 等版本化模板。Commander 只消费控制所需的协议、点表和设备信息，不执行采集任务；间接加载的文件必须属于已声明模板根目录，不得搜索隐式默认目录或回退为“最新版”。
 
-实际基线示例：`TZ01` → `wtg_tz2mw@1.0.0` → `modbus_tcp@1.0.0` + `modbus_wtg_tz2mw@1.0.0`；地址位于实例，寄存器位于点表，协议默认参数位于协议模板。该点表的 `power_demand`、`reactive_power_demand`、`start_stop_command` 位于 holding 寄存器，实际控制编码、工程单位和现场写权限仍需现场核实，不能仅凭配置的可写结构授权生产控制。
+**直接配置入口封闭原则：**当前 Commander 对设备控制需要 `devices` 和模板根目录；未实际使用的 `site.yaml` 不列入。新增直接依赖必须先修改服务配置契约和实现，再增加对应测试。相对 pathname 按 `commander.yaml` 所在目录解析，绝对 pathname 保持原值；不依赖进程工作目录，禁止越过声明的模板根目录解析版本化模板。服务启动命令必须显式给定服务配置 pathname，不隐式读取 `configs/services/commander.yaml`。
 
-`schema_version` 是整数结构版本，共享实例与模板 `file_version` 为 `MAJOR.MINOR.PATCH`。当前 `configs/services/collector.yaml` 只有 `schema_version`、不含 `file_version`，故 Commander 的服务级文件不得被强制要求具有共享模板的版本字段。截至基线 `0dfee3bb`，`main` 未提供已确认的 `configs/services/commander.yaml` 文件；下节为**拟新增的 Commander 服务契约**，需要在代码落地时由专属解析器验证，而不是冒充现有 Core schema。
+## 11.2 完整配置示例
 
-## 11.2 `configs/services/commander.yaml` 设计示例
-
-此 YAML 是拟实施服务配置，包含服务专属字段、示例值与约束；具体证书、路径和网络地址需部署时替换。
+以下是拟实施的 Commander 服务配置结构。`config_sources` 指明直接依赖；间接依赖从共享配置中的版本引用解析，不另行列出。示例相对路径以本文件所在的 `configs/services/` 为基准。
 
 ```yaml
-# Commander 专属服务配置。修改任一服务级字段后需重启。
-schema_version: 1             # 整数；本设计规定 1
+# Commander 服务专属配置；服务字段变更后重启生效
+schema_version: 1                      # 整数；当前版本为 1
+
+config_sources:
+  instances:
+    devices: ../instances/devices.yaml # 必填：直接使用的设备实例文件 pathname
+  templates:
+    root: ../templates                 # 必填：模板解析根目录 pathname
 
 grpc:
-  listen_host: "0.0.0.0"     # IP 或合法主机绑定地址
-  listen_port: 50052          # 1..65535
-  max_active_rpcs: 256        # 正整数
+  listen_host: "0.0.0.0"               # 监听地址
+  listen_port: 50052                   # 1..65535
+  max_active_rpcs: 256                 # 正整数
 
 security:
-  ca_cert: "/etc/wind-hub/certs/ca.pem"  # 客户端 CA 证书
-  server_cert: "/etc/wind-hub/certs/commander.pem" # 服务端证书
-  server_key: "/etc/wind-hub/certs/commander.key" # 服务端私钥
-  callers:                    # 调用方身份不能重复；权限 control/query/reload
+  ca_cert: "/etc/wind-hub/certs/ca.pem"
+  server_cert: "/etc/wind-hub/certs/commander.pem"
+  server_key: "/etc/wind-hub/certs/commander.key"
+  callers:                             # 证书 URI SAN 不允许重复
     - caller_id: ems
-      certificate_identity: "spiffe://wind-hub/ems" # URI SAN 精确匹配
-      permissions: [control, query]
+      certificate_identity: "spiffe://wind-hub/ems"
+      permissions: [control, query]    # control / query / reload
     - caller_id: maintenance
       certificate_identity: "spiffe://wind-hub/maintenance"
       permissions: [query, reload]
 
 dispatcher:
-  max_concurrency: 100        # 正整数，含超时未收敛 I/O
-  max_pending_per_device: 10  # 单设备最大排队批数
-  max_pending_global: 1000    # 全局最大排队批数
-  max_batch_size: 10          # 单请求点数上限
+  max_concurrency: 100                 # 正整数；未收敛 I/O 仍占额度
+  max_pending_per_device: 10          # 正整数；单设备排队上限
+  max_pending_global: 1000            # 正整数；全局排队上限
+  max_batch_size: 10                  # 内部批量编排上限；非现有 gRPC 批量接口
 
 repository:
   sqlite_path: "/var/lib/wind-hub/commander/events.db"
-  max_storage_bytes: 68719476736       # 64 GiB
-  reserved_storage_bytes: 6871947674   # 约 6.4 GiB；小于 max_storage_bytes
-  retention_seconds: 1800              # 终态历史保留时间
-  cleanup_interval_seconds: 60         # 清理周期
-  storage_warning_ratio: 0.80          # 0 < warning < admission < 1
+  max_storage_bytes: 68719476736      # 64 GiB
+  reserved_storage_bytes: 6871947674  # 正整数，须小于 max_storage_bytes
+  retention_seconds: 1800             # 正整数
+  cleanup_interval_seconds: 60        # 正整数
+  storage_warning_ratio: 0.80         # 0 < warning < stop < 1
   admission_stop_ratio: 0.90
-  persistence_interval_ms: 50          # 后台批写间隔，正整数
-  persistence_batch_size: 500          # 单批事件上限，正整数
-  persistence_max_events: 100000       # 有界内存事件及预留容量上限
+  persistence_interval_ms: 50         # 正整数
+  persistence_batch_size: 500         # 正整数
+  persistence_max_events: 100000      # 正整数，有界内存事件容量
 
 audit:
-  nats_servers: ["nats://127.0.0.1:4222"] # 至少一个地址
-  stream: COMMAND_AUDIT       # 预建 JetStream stream
-  subject: windhub.commander.audit # 须被 stream 覆盖
-  retry_base_ms: 100          # > 0
-  retry_max_ms: 5000          # >= retry_base_ms
+  nats_servers: ["nats://127.0.0.1:4222"]
+  stream: COMMAND_AUDIT               # 预先创建的 JetStream Stream
+  subject: windhub.commander.audit    # 须落在 Stream 的 subject 范围内
+  retry_base_ms: 100                  # 正整数
+  retry_max_ms: 5000                  # >= retry_base_ms
 
 timeouts:
-  queue_default_ms: 1000      # 包括设备 FIFO 与全局额度等待
-  write_default_ms: 500       # 写入业务期限，不代表 I/O 已安全结束
-  connect_ms: 3000            # 连接期限，正整数
+  queue_default_ms: 1000              # 设备 FIFO + 全局额度共享期限
+  write_default_ms: 500               # 业务写入期限不等于 I/O 安全结束
+  connect_ms: 3000                    # 正整数
 
 shutdown:
-  grace_seconds: 10           # 有界排空；超限不能虚报安全终止
+  grace_seconds: 10                   # 正整数；排空超时必须报告失败
 ```
 
-## 11.3 配置加载、校验、热更新与冲突裁决
+以上参数为本设计的拟定默认值；实际已在 Core 注册的服务级 Schema 需另行校验一致。没有显式声明 `config_sources.instances.devices` 或 `config_sources.templates.root` 时直接拒绝启动，不能使用回退值。共享实例与模板使用 `schema_version`、`file_version`、版本引用关系；服务配置不据此自动添加未使用的共享文件。
 
-启动先校验服务配置，再由 Core 装配 `instances` 与引用的 `templates`，完成设备协议和可写点表解析；引用文件缺失、`template_id`/版本不匹配、地址冲突或配置无效则不开放对应控制。协议默认参数优先级依 Core 约定：设备实例覆盖 > 设备型号 > 协议模板 > Core 默认。
+## 11.3 配置读取、修改与应用
 
-Reload 重新读取候选文件，计算按设备的差异；受影响设备暂停新执行，等待旧 I/O 安全结束或可信隔离，原子替换生效快照；未受影响设备持续运行。服务级配置变化只报告 `restart_required`，不热应用。新增/删除设备、模板引用切换均按设备级结果报告；失败保留旧生效配置或阻塞，不能误报整体成功。所有查询区分磁盘候选和实际生效版本，不使用全局 revision。
+1. 启动入口显式接收 `commander.yaml` pathname，读取并校验服务配置及全部直接配置源路径；对空值、不可读文件、路径逃逸或引用缺失返回带路径的明确错误。
+2. Core 根据 `devices.yaml` 中的型号版本引用，在**声明的模板根目录内**递归解析需要的型号、协议、点表及其有效引用闭包。间接加载不是对目录的全量扫描；不加载无引用的共享文件。
+3. 校验类型、点地址、权限、引用版本及覆盖项；引用解析失败不得回退至其他目录、默认模板或最新版本。
+4. `GetConfigSnapshot` 区分 `DISK`、`RUNTIME`、`CANDIDATE`；`PushConfigSnapshot` 校验候选及其引用闭包；`ApplyConfigSnapshot` 检查 `expected_revision` 并提交文件，再对受影响设备安全生效。
+5. `expected_revision` 和 `revision` 是正式 CommonService 的快照并发语义；使用稳定修订值保证提交条件，不能以“遵循 CommonService 快照 revision 契约”为由省略。磁盘已提交版本、候选与运行版本可能不同，响应必须准确报告。
 
-## 11.4 配置测试与验收要求
+## 11.4 生效范围与异常处理
 
-系统测试必须覆盖：`TZ01` 的引用链与真实解析、ADS `target_net_id` 实例覆盖、Modbus holding 控制点可写性与 input 只读限制、模板版本失配、候选文件半写入、服务配置修改需重启、受影响设备与未受影响设备隔离、旧 I/O 未结束时禁止版本切换。生产控制前对现场类型、单位、编码、读写权限与联锁单独验收。
+<p class="table-caption">表 11-2 配置变更生效及故障裁决</p>
 
-# 12. 命令审计与 JetStream 可靠发布
-
-## 12.1 审计事件最小信息
-
-审计是命令增量事件的外部传播，而不是另一套命令记录。首个 `ACCEPTED` 保存可信 `caller_id`、服务端生成的 `request_id`/`command_id`、设备及可写点 ID、下发值和时间；状态事件只记变化内容。设备名称、变量名称、数据类型、单位、地址等可从配置得到的信息不重复写入。历史配置不可检索时，不得宣称审计可还原当时的名称、工程单位或协议地址。
-
-<p class="table-caption">表 12-1 审计字段的最小要求</p>
-
-| 事件类型 | 必要信息 | 不重复的信息 |
+| 变更或异常 | 生效方式 | 失败或边界处理 |
 |---|---|---|
-| ACCEPTED | `event_id/event_seq`、`request_id/command_id`、可信 `caller_id`、`device_id/point_id`、设定值、接受时间 | 配置中已有设备名称、点名称、协议地址 |
-| CONNECTING/EXECUTING | `event_id/event_seq`、`command_id`、状态和时间 | 完整复制首次控制目标 |
-| COMPLETED | `event_id/event_seq`、`command_id`、结果（成功、失败、UNKNOWN）、错误信息、结束时间 | 已记录的静态请求字段 |
-| 投递元数据 | `publish_state`、`published_at`、`attempts` | 不作为新审计事实，不允许修改历史事件载荷 |
+| `grpc/security/dispatcher/repository/audit/timeouts/shutdown/config_sources` | 服务重启 | `ApplyConfigSnapshot.restart_required=true`；不热替换直接源路径 |
+| `devices.yaml` 设备条目、实例覆盖项 | 受影响设备热更新 | 旧命令按已绑定修订处理；未收敛 I/O 不解除阻塞 |
+| 版本化型号/协议/点表 | 通过设备实例引用版本切换间接生效 | 未引用的模板文件改变不触发无关设备 Reload |
+| 路径不存在、文件不可读、版本引用缺失、越界引用 | 不生效 | 返回具体配置源或引用路径；不使用默认路径代替 |
+| 候选与磁盘修订冲突 | 不提交 | 返回冲突并保留当前运行快照 |
+| 部分设备应用失败 | 按逐对象结果报告 | 未受影响设备继续运行；失败设备不采用未确认的新配置 |
 
-## 12.2 发布、去重与积压
+变更模板根目录、实例 pathname 是**服务级配置变化**，只能经重启加载；Reload 不得自行发现磁盘上其他实例文件。设备引用切换前必须核实未结束 I/O 资源安全结束或可信隔离。
 
-<p class="figure-caption">图 12-1 本地事件发布和确认闭环</p>
+## 11.5 配置安全与访问权限
+
+服务配置和共享文件须按部署身份限定读权限，证书私钥仅 Commander 服务身份可读；配置快照接口执行 `query/reload` 授权，并避免将私钥载荷向无权限客户端输出。拒绝非预期绝对路径、符号链接逃逸及模板解析根目录越界，错误日志可报告安全的相对路径但不得输出凭据。配置推送、应用和失败均记录调用方、修订和对象级结果；配置变更不能绕过受控控制域安全边界。
+
+# 12. 外部适配与集成契约
+
+## 12.1 外部依赖与适配能力
+
+<p class="table-caption">表 12-1 依赖及适配边界</p>
+
+| 外部依赖或协议 | 用途 | 能力与限制 | 确认及错误语义 |
+|---|---|---|---|
+| Modbus TCP | 控制可写寄存器或线圈 | 点表地址、功能码和数量以共享配置为准；不得向只读 Input Register 写入 | 仅协议响应成功可判协议层写入完成，不代表物理效果已验证 |
+| ADS | 向配置设备写入符号或地址 | 连接身份、数据类型及地址由协议与点表映射确定 | 返回 ADS 错误须区分确定拒绝与写入后 I/O 不确定 |
+| IEC 60870-5-104 | 对受支持的遥控点下发命令 | 具体命令类型、选择/执行语义及确认由适配器能力与点表决定 | 负确认与超时分别裁决，不以发送成功代替设备确认 |
+| SQLite | 缓冲命令事件持久化与 Outbox | 单 Writer、事务批处理、WAL/FULL | 内存接受不承诺断电可恢复；事务提交后才有落盘保证 |
+| NATS JetStream | 可靠发布命令审计事件 | 只发布已持久化的事件 | PubAck 代表流接收，不代表下游永久存储 |
+
+## 12.2 数据/控制映射与冲突规则
+
+由已生效共享点表的 `point_id` 定位协议地址和数据类型；再用共享协议参数与设备实例 `endpoint/overrides` 组装实际写入请求。`ScalarValue` 仅接受 Contracts 的六类分支，具体范围、比例和编码由点表与协议适配器确认；未经验证的点表声明不得自动赋予现场控制权。已接受命令绑定当前配置修订；执行前复核权限和版本，不能在热更新后对旧地址重新解释同一控制。拒绝不可写点、无有效映射、编码越界或写入方式不被适配器支持的目标。
+
+## 12.3 资源与连接生命周期
+
+每设备写入严格 FIFO，设备间在全局额度内并发；连接按需建立、可复用，连接身份唯一。连接建立和写入均受独立期限约束；逻辑超时后，若底层任务未有可信安全结束证据，继续保留 I/O 所有权和必要额度，设备进入阻塞，不自动重试已尝试的写入。只有确认安全结束或可信隔离后才能释放冲突资源，不能以 Task 取消、RPC 返回、TCP 连接关闭本身作为唯一证据。配置生效和服务关闭同样遵守该约束。
+
+# 13. 安全、可观测性与运行指标
+
+## 13.1 身份认证、授权与安全边界
+
+gRPC 强制 mTLS；以已验证客户端证书 URI SAN 映射 `caller_id` 并检查 `control/query/reload` 权限。未认证返回 `UNAUTHENTICATED`，已认证无权限返回 `PERMISSION_DENIED`；客户端 metadata 中的身份、`operator_id` 或 `trace_id` 不能替代可信身份。设备/点表控制需通过当前已生效白名单、类型、范围及修订校验；对失效权限的排队命令在写前复核。跨主机不能仅凭 SQLite 文件锁证明控制权独占；无法确认旧活动实例及在途 I/O 已安全隔离时，新实例不得开放控制写入。
+
+## 13.2 审计、日志与事件
+
+审计是命令状态事件的可靠传播，不以普通运行日志替代。接受事件记录稳定 `event_id/event_seq`、系统生成的 `request_id/command_id`、可信 `caller_id`、设备/点 ID、设定值和时间；执行和完成事件记录状态、结果、错误及时间。发布元数据（状态、尝试数、发布时间）不改变业务事件载荷。日志使用 `timestamp/level/component/event/command_id/device_id/error_code`，可保留可信 `caller_id/trace_id`，不得记录私钥和敏感凭据。
+
+<p class="table-caption">表 13-1 审计事件与持久化裁决</p>
+
+| 事件与情况 | 必要信息或行为 |
+|---|---|
+| `ACCEPTED` | 调用身份、命令身份、目标和值、接受时间 |
+| `CONNECTING/EXECUTING` | 相同命令及稳定事件身份、状态变更时间 |
+| `COMPLETED` | 最终业务结果、错误信息、时间及 I/O 状态证据 |
+| SQLite 暂时故障 | 仅内存受理的事件不可承诺断电保存；恢复后后台批量提交 |
+| NATS/PubAck 失败 | 已落盘 PENDING 保留并重试同一事件 ID；下游以 event_id 去重 |
+| 长时间积压 | 保留待发布数量及最老等待时间；达到持久化容量门禁拒绝新的控制 |
 
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart LR
-  A["SQLite 已持久化事件"] -->|读取 PENDING 事件| B["AuditPublisher"]
-  B -->|稳定 event_id / 按序| C["JetStream"]
-  C -->|PubAck| D["SQLite 更新发布确认"]
-  B -->|断链或无 PubAck| E["退避后重试同一 event_id"]
+  A["SQLite 已提交审计事件"] --> B["AuditPublisher"]
+  B --> C["NATS JetStream"]
+  C -->|PubAck| D["SQLite 标记已发布"]
+  B -->|失败 / 超时| E["保留 PENDING 并重试同一事件 ID"]
   E --> B
-  C -->|下游订阅| F["长期审计存储"]
 ```
 
-<p class="table-caption">表 12-2 发布失败的处理契约</p>
+<p class="figure-caption">图 13-1 审计持久化事件与 JetStream 发布闭环</p>
 
-| 故障 | 处理 |
-|---|---|
-| NATS 连接失败/超时 | 保留 PENDING，按有界退避重试，不阻塞已接受命令的现场执行 |
-| PubAck 丢失或数据库确认更新失败 | 原 `event_id` 原载荷可重复投递；下游必须据稳定 ID 去重 |
-| 同一命令的事件顺序 | 首先确保 ACCEPTED 事件具备可恢复的发布顺序，再发布后续事件；不同命令可并发发布但须有界 |
-| 长时间积压 | 提供待发布数量、最老等待时间、存储水位告警；达容量门禁拒绝新控制 |
-| 下游长期存储失败 | 不将 JetStream PubAck 宣称为下游永久落库；下游自身负责消费确认与保留 |
+## 13.3 运行指标、窗口及失效语义
 
-审计事件只包括控制命令的接收和状态变化；启动、关闭和热重载等流程使用运行日志，不产生命令业务审计。
+最小必选指标按下表封闭定义；传输结构按 `common.proto` 的 `Metric`，额外状态优先通过 `GetServiceStatus` 或事件表达，不能臆造 `Metric` 的可用性字段。
 
-# 13. 安全、可观测性与运行指标
+<p class="table-caption">表 13-2 运行指标清单</p>
 
-## 13.1 身份认证和最小权限
+| 指标 | 类型及单位 | 作用域及来源 | 口径、窗口及缺失处理 |
+|---|---|---|---|
+| `control_accepted_total` | Counter，次 | 服务级；原子受理成功事件 | 进程启动归零；窗口计数需按时间裁剪，无样本返回 0 |
+| `control_completed_total` | Counter，次 | 服务级；业务终态事件 | 按 outcome 分类报告，UNKNOWN 独立；同一命令只计一次 |
+| `control_accept_latency_ms` | Histogram，ms | gRPC 受理路径 | 从进入入口到完成受理响应；无样本不返回 P99 值 |
+| `result_query_latency_ms` | Histogram，ms | GetCommandResult | 从入口至返回；无样本不返回 P99 |
+| `device_queue_depth` | Gauge，条 | 设备 FIFO | 当前排队数量；设备不存在不返回该设备项 |
+| `pending_global` | Gauge，条 | 全局调度 | 当前在等待的数量；启动初始为 0 |
+| `io_inflight` | Gauge，个 | 适配器及 I/O Owner | 包含逻辑超时但底层未安全结束的 I/O |
+| `blocked_devices` | Gauge，台 | 设备状态 | 按当前 BLOCKED 设备计数 |
+| `repository_used_bytes` | Gauge，B | SQLite 文件及 WAL | 不可读时不返回伪 0，并提供依赖降级状态 |
+| `repository_writable` | Gauge，布尔（0/1） | SQLite Writer | 1 表示探测确认可写，0 表示确认不可写；未知不造值 |
+| `audit_pending_count` | Gauge，条 | SQLite Outbox | 已落盘尚未发布确认的审计事件 |
+| `audit_oldest_age_ms` | Gauge，ms | SQLite Outbox | 无待发布事件时为 0；仓库不可读时不返回 |
+| `config_apply_failures` | Counter，次 | 配置应用 | 失败的应用操作计数，重启归零 |
+| `service_ready` | Gauge，布尔（0/1） | 运行状态 | 是否满足业务 READY，进程存活不等于业务就绪 |
 
-gRPC 强制 mTLS；使用已验证客户端证书身份（URI SAN）精确映射 `commander.yaml` 的 `caller_id`，再检查 `control/query/reload` 权限。不得把客户端自行填写的 metadata、`operator_id` 或 `trace_id` 当作合法身份。认证失败或证书身份未获映射返回 UNAUTHENTICATED；已认证但权限不足返回 PERMISSION_DENIED。授权变化需重启生效；敏感设备地址和证书私钥不得在无权限的查询或日志中泄露。
+窗口指标由 `GetMetricsRequest.window_ms` 指定；累计 Counter 的基础值按进程生命周期计，窗口模式以窗口内事件时间裁剪，Histogram 百分位采用可复核的最近秩法。重启不跨进程续算易失指标；无数据时不捏造分位值。`sampled_at` 为采样时刻，`window_ms` 为指标实际窗口。指标名称按最终代码统一登记并由测试验证字段完整性。
 
-## 13.2 控制操作安全
+## 13.4 链路诊断、健康与证据边界
 
-写入必须位于当前已生效可写点表，符合配置范围和类型约束；已排队命令在执行前复核写权限与配置代，禁止热重载后按错误的旧点表解释控制值。无法确认结果时使用 UNKNOWN；设备阻塞条件只能凭安全结束或可信隔离证据解除。操作超时不等于底层 I/O 结束。
-
-## 13.3 结构化观测与容量指标
-
-<p class="table-caption">表 13-1 最小监控指标及意义</p>
-
-| 指标 | 含义与告警用途 |
-|---|---|
-| `control_accepted_total`、终态分类计数 | 控制请求接受速率与成功、失败、UNKNOWN 的数量 |
-| `control_accept_latency_ms`、`result_query_latency_ms` | 以 P99 对照第 3.3 节目标；区分接收与实际写入时延 |
-| `device_queue_depth`、`pending_global` | 单设备及全局排队压力；超出门限前告警 |
-| `io_inflight`、`blocked_devices` | 包括超时后未安全结束的 I/O；检测额度长期占用 |
-| `repository_used_bytes`、`repository_writable` | SQLite 主库、WAL 及相关空间；80% 告警、90% 准入限制 |
-| `audit_pending_count`、`audit_oldest_age_ms` | JetStream 积压量和年龄，识别不可持续发布 |
-| `config_apply_failures`、`service_ready` | 设备配置热重载失败和业务就绪状态，不能以进程存活代替业务就绪 |
-
-日志使用结构化字段 `timestamp/level/component/event/command_id/device_id/error_code`；可记录有可信来源的 `caller_id`、`trace_id`，不得记录私钥或未脱敏凭据。指标、日志、追踪由统一边界组件实现，业务状态仍以事件仓储和实际 I/O 为权威。
-
-## 13.4 现场控制权边界
-
-单活动实例要求控制域仅有一个可写 Commander：同机应通过单实例服务管理与数据库锁避免并存，跨主机切换必须具备独立的控制权隔离手段。没有跨主机控制域仲裁条件时，不设计自动接管；运维确认旧实例已停止、旧在途 I/O 不再可能对相同目标造成冲突后才允许新实例进入 READY。无法确认时恢复失败而不是降级开放写入。
-
-SQLite 文件独占不能证明其他主机没有控制同一 PLC。现场需要单活动实例及可验证的接管/隔离流程；不可证明时禁止对相同控制域重新开放写入。该限制是部署安全前提，不得用内存锁、`Task.done()` 或连接关闭推断其已经满足。
+`CommonService.Diagnose` 为只读诊断：根据目标与请求阶段检查 Commander 配置解析状态、设备连接/协议能力、SQLite 写入健康、JetStream 审计连接及队列积压。每阶段填入 `stage/status/duration_ms/error_code/message/evidence/observed_at/source`；超时列出局限，阶段不支持时明确报告，不应返回虚假的成功。诊断不得隐式对 PLC 写控制量。`GetServiceStatus` 负责依赖健康与业务就绪；`GetMetrics` 负责定量运行数据；`GetEvents` 提供运行事件，三者不得混作同一审计凭证。失去关键持久化服务或无法证明控制权安全时，业务健康应反映受限准入或停止，而不是仅报告进程仍存活。
 
 # 14. 测试体系、物理组织与验收
 
 ## 14.1 测试依据与裁定
 
 依据 §2.4，以第 3 章 UR、第四章 UC 和第 5～13 章技术契约为测试依据。每项验收分别记录覆盖状态（COVERED / GAP）、执行状态（EXECUTED / NOT_RUN / SKIP）及执行结果（PASS / FAIL）；尚未执行的设计测试一律为 NOT_RUN，不得将 Mock 通过视为真实协议、真实 SQLite、真实 NATS JetStream 或独立进程链路通过。System Test 必须覆盖全部 UC 的主路径、关键分支、边界、异常及恢复。现场写入测试只在授权的隔离环境执行；协议模拟器不得替代对真实现场 PLC 的最终验收。性能按第 3.3 节规定的负载、分位值和测量边界报告实测数据。
+
+第 11 章显式 pathname 及引用闭包规则属于 System Test 必测范围；路径缺失时不能默默加载默认目录。
 
 当前下列矩阵均为**目标测试设计**，不表示测试文件已存在或测试已执行。当前 `src/contracts/commander.proto` 不包含批量提交及按 `request_id` 查询接口，相关 gRPC 端到端覆盖标记为 GAP，待统一 Contracts 决策，不得以应用层测试冒充正式 RPC 覆盖。
 
@@ -2629,6 +2708,8 @@ tests/
 | `test_common_service.py` | `integration` | `security` | `normal`、`exception` | CommonService 9 个 RPC 的请求响应、认证、配置快照版本冲突与分页 |
 | `test_commander_service.py` | `integration` | `security` | `normal`、`exception` | CommanderService 5 个 RPC、ScalarValue 六类型、版本/时限、结果状态映射 |
 | `test_grpc_end_to_end.py` | `system` | `reliability` | `normal`、`exception`、`recovery` | 14 RPC 完整注册；配置 Get/Push/Apply，设备/点表，单点控制、结果查询、指标/事件/诊断 |
+
+补充配置源测试要求：直接源缺失、空 pathname、`../` 相对路径解析、工作目录改变、模板根目录逃逸、间接引用缺失及版本不匹配、未引用模板不加载、变更直接 pathname 必须重启、热更新只影响引用设备。上述场景应归入现有配置测试文件和相应 `system`/`integration` 测试项，不单设新目录。
 
 ## 14.4 System Test 用例及场景追溯矩阵
 

@@ -97,21 +97,12 @@ class EventRepository:
         path: str | Path,
         *,
         max_storage_bytes: int = 64 * 1024**3,
-        reserved_storage_bytes: int = 6871947674,
-        admission_stop_ratio: float = 0.90,
         retention_seconds: int = 1800,
     ) -> None:
-        if (
-            max_storage_bytes <= 0
-            or not 0 < reserved_storage_bytes < max_storage_bytes
-            or not 0 < admission_stop_ratio <= 1
-            or retention_seconds < 0
-        ):
+        if max_storage_bytes <= 0 or retention_seconds < 0:
             raise ValueError("invalid storage limits")
         self._path = Path(path)
         self._max_bytes = max_storage_bytes
-        self._reserve = reserved_storage_bytes
-        self._stop_ratio = admission_stop_ratio
         self._retention = retention_seconds
         self._closed = False
         self._unavailable = False
@@ -197,16 +188,17 @@ class EventRepository:
             if p.exists()
         )
 
-    def _admit(self) -> None:
-        available = min(
-            self._max_bytes * self._stop_ratio,
-            self._max_bytes - self._reserve,
-        )
-        if self._occupied() >= available:
-            raise StorageFullError("SQLite capacity reserved for completion and recovery")
-        stat = os.statvfs(self._path.parent)
-        if stat.f_bavail * stat.f_frsize < min(self._reserve, self._max_bytes):
-            raise StorageFullError("insufficient filesystem space for command completion")
+    def _allow_write_behind_flush(self) -> None:
+        """Flush already accepted events using the completion-space reserve.
+
+        The admission stop ratio applies to NEW controls, not to events already
+        accepted into bounded memory. Otherwise the outbox can deadlock.
+        """
+        if self._occupied() >= self._max_bytes:
+            raise StorageFullError("SQLite hard capacity exceeded")
+        filesystem = os.statvfs(self._path.parent)
+        if filesystem.f_bavail * filesystem.f_frsize < 4096:
+            raise StorageFullError("filesystem has no space for outstanding command events")
 
     def _transaction(self, operation: Callable[[], _T]) -> _T:
         with self._lock:
@@ -218,8 +210,6 @@ class EventRepository:
                 self._db.execute("COMMIT")
                 return result
             except BaseException as exc:
-                if isinstance(exc, sqlite3.Error):
-                    self._unavailable = True
                 if self._db.in_transaction:
                     try:
                         self._db.execute("ROLLBACK")
@@ -229,7 +219,9 @@ class EventRepository:
                             "rollback failed; repository unusable"
                         ) from rollback_error
                 if isinstance(exc, sqlite3.Error):
-                    raise RepositoryError("SQLite transaction failed; restart required") from exc
+                    # A successful rollback preserves the SQLite connection for
+                    # bounded write-behind retry after transient disk failure.
+                    raise RepositoryError("SQLite transaction failed; retryable") from exc
                 raise
 
     def latest_receive_seq(self) -> int:
@@ -264,13 +256,15 @@ class EventRepository:
             "detail_json",
         )
         placeholders = ",".join("?" for _ in columns)
+        # ON CONFLICT DO NOTHING 仅吞掉唯一约束冲突（worker 重试/乱序批次的
+        # 幂等重放）；NOT NULL/CHECK 违约仍须抛出并整批回滚，避免静默丢事件。
         statement = (
-            f"INSERT OR IGNORE INTO command_events ({','.join(columns)}) "
-            f"VALUES ({placeholders})"
+            f"INSERT INTO command_events ({','.join(columns)}) "
+            f"VALUES ({placeholders}) ON CONFLICT DO NOTHING"
         )
 
         def write() -> None:
-            self._admit()
+            self._allow_write_behind_flush()
             self._db.executemany(
                 statement,
                 [tuple(event.get(column) for column in columns) for event in events],
@@ -288,74 +282,6 @@ class EventRepository:
 
         self._transaction(write)
 
-    def accept(
-        self,
-        specs: Sequence[CommandSpec],
-        *,
-        caller_id: str,
-        operator_id: str | None = None,
-        trace_id: str | None = None,
-    ) -> tuple[AcceptedCommand, ...]:
-        if not specs or not caller_id.strip():
-            raise ValueError("nonempty batch and caller_id required")
-        # Serialize before the transaction so unsupported objects reject the entire batch.
-        encoded = [
-            json.dumps(spec.value, allow_nan=False, separators=(",", ":")).encode("utf-8")
-            for spec in specs
-        ]
-        request_id = str(uuid4())
-        now = utc_now()
-
-        def insert() -> tuple[AcceptedCommand, ...]:
-            self._admit()
-            if self._occupied() + sum(len(value) for value in encoded) + len(specs) * 4096 >= min(
-                self._max_bytes * self._stop_ratio, self._max_bytes - self._reserve
-            ):
-                raise StorageFullError("batch exceeds admission capacity")
-            row = self._db.execute(
-                "SELECT value FROM repository_meta WHERE key='receive_seq'"
-            ).fetchone()
-            seq = int(row[0]) if row else 0
-            accepted: list[AcceptedCommand] = []
-            for spec, value in zip(specs, encoded, strict=True):
-                seq += 1
-                command_id = str(uuid4())
-                self._db.execute(
-                    """INSERT INTO command_events (
-                        event_id,command_id,event_type,occurred_at,request_id,
-                        caller_id,operator_id,trace_id,device_id,point_id,
-                        requested_value,config_reference,receive_seq,state,detail_json
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        str(uuid4()),
-                        command_id,
-                        "ACCEPTED",
-                        now.isoformat(),
-                        request_id,
-                        caller_id,
-                        operator_id,
-                        trace_id,
-                        spec.device_id,
-                        spec.point_id,
-                        value,
-                        spec.config_reference,
-                        seq,
-                        CommandState.ACCEPTED.value,
-                        json.dumps(
-                            {"expires_at": spec.expires_at.isoformat() if spec.expires_at else None}
-                        ),
-                    ),
-                )
-                accepted.append(AcceptedCommand(command_id, request_id, caller_id, spec, now, seq))
-            self._db.execute(
-                "INSERT INTO repository_meta(key,value) VALUES('receive_seq',?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (str(seq),),
-            )
-            return tuple(accepted)
-
-        return self._transaction(insert)
-
     def _current_state(self, command_id: str) -> CommandState:
         row = self._db.execute(
             "SELECT state FROM command_events WHERE command_id=? "
@@ -365,77 +291,6 @@ class EventRepository:
         if row is None:
             raise KeyError(command_id)
         return CommandState(row[0])
-
-    def transition_many(
-        self,
-        changes: Sequence[tuple[str, CommandState, CommandOutcome | None, str | None]],
-    ) -> None:
-        """Atomically persist a batch's phase boundary in one fsync."""
-        if not changes:
-            raise ValueError("transition batch must not be empty")
-        if len({item[0] for item in changes}) != len(changes):
-            raise ValueError("duplicate command in transition batch")
-
-        def insert() -> None:
-            for command_id, state, outcome, error_code in changes:
-                previous = self._current_state(command_id)
-                validate_transition(previous, state, outcome)
-                event_type = "COMPLETED" if state in TERMINAL_STATES else state.value
-                self._db.execute(
-                    """INSERT INTO command_events(
-                        event_id,command_id,event_type,occurred_at,state,outcome,
-                        error_code,publish_state
-                    ) VALUES(?,?,?,?,?,?,?,?)""",
-                    (
-                        str(uuid4()),
-                        command_id,
-                        event_type,
-                        utc_now().isoformat(),
-                        state.value,
-                        outcome.value if outcome is not None else None,
-                        error_code,
-                        "PENDING",
-                    ),
-                )
-
-        self._transaction(insert)
-
-    def transition(
-        self,
-        command_id: str,
-        state: CommandState,
-        *,
-        outcome: CommandOutcome | None = None,
-        error_code: str | None = None,
-        error_message: str | None = None,
-    ) -> None:
-        if error_message is not None:
-
-            def insert() -> None:
-                previous = self._current_state(command_id)
-                validate_transition(previous, state, outcome)
-                event_type = "COMPLETED" if state in TERMINAL_STATES else state.value
-                self._db.execute(
-                    """INSERT INTO command_events(
-                        event_id,command_id,event_type,occurred_at,state,outcome,
-                        error_code,error_message,publish_state
-                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
-                    (
-                        str(uuid4()),
-                        command_id,
-                        event_type,
-                        utc_now().isoformat(),
-                        state.value,
-                        outcome.value if outcome is not None else None,
-                        error_code,
-                        error_message,
-                        "PENDING",
-                    ),
-                )
-
-            self._transaction(insert)
-            return
-        self.transition_many(((command_id, state, outcome, error_code),))
 
     def get(self, command_id: str) -> CommandResult | None:
         with self._lock:
@@ -479,6 +334,7 @@ class EventRepository:
             last[11],
             last[12],
             datetime.fromisoformat(last[1]) if state in TERMINAL_STATES else None,
+            datetime.fromisoformat(last[1]),
         )
 
     def get_request(self, request_id: str) -> tuple[CommandResult, ...]:

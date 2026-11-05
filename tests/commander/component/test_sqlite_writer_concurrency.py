@@ -33,7 +33,7 @@ from commander.domain.command import (
     CommandSpec,
     CommandState,
 )
-from commander.infrastructure.event_repository import EventRepository
+from commander.infrastructure.event_repository import EventRepository, RepositoryError
 from core.application.protocol_contract import (
     ProtocolCapability,
     ProtocolWrite,
@@ -42,6 +42,7 @@ from core.application.protocol_contract import (
 )
 
 from ..conftest import flush_buffer
+from ..seed_events import seed_accept, seed_transition
 from .conftest import FakeSession, build_executor, make_spec, wait_for_result
 
 pytestmark = pytest.mark.component
@@ -217,29 +218,31 @@ def test_buffer_transition_batch_atomic_when_one_member_illegal(buffer) -> None:
     assert buffer.pending_count == pending_before + 1
 
 
-def test_repository_transition_many_atomic_rollback_when_one_member_illegal(
-    repository, sqlite_writer
+def test_repository_append_events_atomic_rollback_on_invalid_event(
+    repository, sqlite_writer, buffer
 ) -> None:
-    """仓储级直接批量事务：一个成员非法，整批 ROLLBACK，无部分落盘。"""
-
-    def seed() -> tuple[str, str]:
-        accepted = repository.accept([make_spec("p1"), make_spec("p2")], caller_id="op")
-        repository.transition(accepted[0].command_id, CommandState.CONNECTING)
-        return accepted[0].command_id, accepted[1].command_id
-
-    c1, c2 = sqlite_writer.submit(seed).result()
-    with pytest.raises(Exception):  # noqa: B017, BLE001
-        sqlite_writer.submit(
-            repository.transition_many,
-            (
-                (c1, CommandState.EXECUTING, None, None),
-                (c2, CommandState.SUCCEEDED, CommandOutcome.CONFIRMED_SUCCESS, None),
-            ),
-        ).result()
-    result = sqlite_writer.submit(repository.get, c1).result()
-    assert result is not None and result.state is CommandState.CONNECTING
-    result = sqlite_writer.submit(repository.get, c2).result()
-    assert result is not None and result.state is CommandState.ACCEPTED
+    """Write-behind batch rolls back completely if a later event violates SQLite schema."""
+    accepted = buffer.accept([make_spec("p1"), make_spec("p2")], caller_id="op")
+    sqlite_writer.submit(repository.append_events, buffer.snapshot(100)).result()
+    valid = {
+        "event_id": "valid-connecting-event",
+        "command_id": accepted[0].command_id,
+        "event_type": "CONNECTING",
+        "occurred_at": accepted[0].received_at.isoformat(),
+        "state": CommandState.CONNECTING.value,
+    }
+    invalid = {
+        **valid,
+        "event_id": "invalid-event-type",
+        "event_type": "NOT_AN_EVENT",
+        "command_id": accepted[1].command_id,
+    }
+    with pytest.raises(RepositoryError):
+        sqlite_writer.submit(repository.append_events, (valid, invalid)).result()
+    first = sqlite_writer.submit(repository.get, accepted[0].command_id).result()
+    second = sqlite_writer.submit(repository.get, accepted[1].command_id).result()
+    assert first is not None and first.state is CommandState.ACCEPTED
+    assert second is not None and second.state is CommandState.ACCEPTED
 
 
 class _ObservingManySession(FakeSession):
@@ -807,16 +810,16 @@ async def test_serial_batch_returned_unknown_outcome_suffix_is_not_sent(
 
 
 def _seed_durable_chain(repo: EventRepository, *, executing: bool) -> str:
-    accepted = repo.accept([make_spec("p1")], caller_id="op")
+    accepted = seed_accept(repo, [make_spec("p1")], caller_id="op")
     command_id = accepted[0].command_id
-    repo.transition(command_id, CommandState.CONNECTING)
+    seed_transition(repo, command_id, CommandState.CONNECTING)
     if executing:
-        repo.transition(command_id, CommandState.EXECUTING)
+        seed_transition(repo, command_id, CommandState.EXECUTING)
     return command_id
 
 
 def _seed_accepted_only(repo: EventRepository) -> str:
-    return repo.accept([make_spec("p2")], caller_id="op")[0].command_id
+    return seed_accept(repo, [make_spec("p2")], caller_id="op")[0].command_id
 
 
 async def test_recover_executing_is_unknown_and_accepted_only_is_interrupted(
