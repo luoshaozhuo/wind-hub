@@ -115,6 +115,14 @@ class WorkerSupervisor:
         """Restart only a terminated worker, never duplicate a live role."""
         while not stop.is_set():
             for role, process in tuple(self._processes.items()):
+                client = self._clients.get(role)
+                if process.is_alive() and client is not None and client.broken:
+                    logger.error("worker %s IPC broken; isolating its old PID", role)
+                    process.terminate()
+                    await asyncio.to_thread(process.join, 3)
+                    if process.is_alive():
+                        process.kill()
+                        await asyncio.to_thread(process.join, 3)
                 if process.is_alive():
                     continue
                 process.join(timeout=0)
