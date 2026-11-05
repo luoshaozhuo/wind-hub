@@ -366,34 +366,54 @@ class ReliableDeliveryPort:
                 ),),
             ).encode()
         observed_at = datetime.now(UTC).isoformat()
-        record = {
-            'dead_letter_id': dead_letter_id,
-            'delivery_id': self._definition.delivery_id,
-            'sample_id': sample_id if isinstance(sample_id, str) else '',
-            'config_revision': self._snapshot.revision,
-            'subject': message.subject,
-            'source_stream': metadata.stream,
-            'consumer': metadata.consumer,
-            'source_sequence': metadata.sequence.stream,
-            'source_timestamp': metadata.timestamp.astimezone(UTC).isoformat(),
-            'payload_base64': base64.b64encode(payload).decode('ascii'),
-            'failed_sample': (
-                sample.model_dump(mode='json') if sample is not None else None
-            ),
-            'classification': 'PERMANENT',
-            'reason': reason,
-            'first_failed_at': observed_at,
-            'last_failed_at': observed_at,
-        }
-        payload = json.dumps(record, ensure_ascii=False, allow_nan=False).encode('utf-8')
-        ack = await js.publish(
-            config['dead_letter_subject'],
-            payload,
-            headers={'Nats-Msg-Id': dead_letter_id},
-        )
-        if ack.stream != config['dead_letter_stream']:
-            raise ConfigurationError('DLQ PubAck confirms an unexpected Stream')
-        if not getattr(ack, 'duplicate', False):
+        # Invalid source batches can approach NATS MaxPayload. Split into
+        # independently acknowledged DLQ records; source ACK follows ALL parts.
+        chunk_size = 256 * 1024
+        chunks = [
+            payload[offset : offset + chunk_size]
+            for offset in range(0, len(payload), chunk_size)
+        ] or [b""]
+        new_record = False
+        for index, chunk in enumerate(chunks):
+            part_id = hashlib.sha256(
+                f"{dead_letter_id}:{index}".encode("ascii")
+            ).hexdigest()
+            record = {
+                "dead_letter_id": dead_letter_id,
+                "part_id": part_id,
+                "part_index": index,
+                "part_count": len(chunks),
+                "delivery_id": self._definition.delivery_id,
+                "sample_id": sample_id if isinstance(sample_id, str) else "",
+                "config_revision": self._snapshot.revision,
+                "subject": message.subject,
+                "source_stream": metadata.stream,
+                "consumer": metadata.consumer,
+                "source_sequence": metadata.sequence.stream,
+                "source_timestamp": metadata.timestamp.astimezone(UTC).isoformat(),
+                "payload_base64": base64.b64encode(chunk).decode("ascii"),
+                "failed_sample": (
+                    sample.model_dump(mode="json") if sample is not None else None
+                ),
+                "classification": "PERMANENT",
+                "reason": reason,
+                "first_failed_at": observed_at,
+                "last_failed_at": observed_at,
+            }
+            encoded = json.dumps(
+                record, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+            ).encode("utf-8")
+            ack = await js.publish(
+                config["dead_letter_subject"],
+                encoded,
+                headers={"Nats-Msg-Id": part_id},
+                timeout=5,
+            )
+            if ack.stream != config["dead_letter_stream"]:
+                raise ConfigurationError("DLQ PubAck confirms unexpected Stream")
+            if not getattr(ack, "duplicate", False):
+                new_record = True
+        if new_record:
             self.dlq_total += 1
 
     async def _write_with_heartbeat(
