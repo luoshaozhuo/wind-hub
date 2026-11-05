@@ -12,7 +12,8 @@ from typing import Any
 import nats
 from nats.aio.client import Client
 
-from contracts.sample_message import DeliveryMode, SampleMessage
+from contracts.sample_batch import SampleBatch
+from contracts.sample_message import DeliveryMode
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +60,16 @@ class NatsPublisher:
                 logger.exception("NATS connection failed; retrying")
                 await asyncio.sleep(1)
 
-    async def publish(self, message: SampleMessage) -> bool:
+    async def publish(self, message: SampleBatch) -> bool:
         """Confirm Core NATS enqueue or JetStream PubAck without local spooling."""
         client = self._client
         if self._stopping or client is None or not client.is_connected:
-            logger.error("NATS unavailable; sample dropped: %s", message.sample_id)
+            logger.error("NATS unavailable; sample dropped: %s", message.batch_id)
             return False
         try:
-            subject = message.subject(self._delivery)
+            if message.mode != self._delivery:
+                raise ValueError("batch mode does not match publisher channel")
+            subject = message.subject()
             payload = message.encode()
             if self._delivery == "reliable":
                 await asyncio.wait_for(
