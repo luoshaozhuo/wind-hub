@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sink_service.application.delivery_definition import delivery_definitions
 from sink_service.application.delivery_registry import DeliveryView
@@ -25,6 +25,7 @@ class WorkerRegistryView:
         self.worker_health: dict[str, str] = {role: "UNKNOWN" for role in ROLES}
         self.worker_pid: dict[str, str] = {}
         self.epoch_changed = False
+        self.observed_at = datetime.now(UTC)
         self.reset(snapshot)
 
     def reset(self, snapshot: ValidatedSnapshot) -> None:
@@ -66,6 +67,7 @@ class WorkerRegistryView:
               for role in ROLES),
             return_exceptions=True,
         )
+        self.observed_at = datetime.now(UTC)
         for role, reply in zip(ROLES, replies, strict=True):
             try:
                 if isinstance(reply, BaseException) or reply.status != "APPLIED":
