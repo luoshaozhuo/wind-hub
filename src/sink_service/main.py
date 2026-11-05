@@ -111,6 +111,7 @@ async def _poll_workers(
     next_tick = loop.time() + period
     previous_health: dict[str, str] = {}
     previous_deliveries: dict[str, tuple[str, str]] = {}
+    metrics_ready = False
     while not stop.is_set():
         try:
             await asyncio.wait_for(
@@ -151,7 +152,11 @@ async def _poll_workers(
             metrics = await registry.collect_metrics()
             if metrics is None:
                 telemetry.mark_unavailable()
+                metrics_ready = False
                 continue
+            if not metrics_ready:
+                telemetry.reset_epoch()
+                metrics_ready = True
             totals, deliveries, latencies, delivery_latencies, incomplete = metrics
             telemetry.sample(
                 totals,
@@ -163,6 +168,7 @@ async def _poll_workers(
         except Exception:
             logger.exception("worker metrics cycle failed")
             telemetry.mark_unavailable()
+            metrics_ready = False
 
 
 def main() -> None:
