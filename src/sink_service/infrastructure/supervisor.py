@@ -8,7 +8,6 @@ import logging
 import multiprocessing
 import tempfile
 from pathlib import Path
-from typing import Any
 
 from sink_service.infrastructure.ipc import (
     ControlOperation, ControlReply, WorkerControlClient, read_frame,
