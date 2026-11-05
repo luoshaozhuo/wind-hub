@@ -55,16 +55,16 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                         raise ValueError("generation mismatch")
                     if updated.service != snapshot.service:
                         raise ValueError("RESTART_REQUIRED")
-                    await registry.apply_configuration(updated, factory)
+                    reconciled = await registry.apply_configuration(updated, factory)
                     snapshot = updated
                     views = registry.list()
-                    applied = tuple(
+                    applied = tuple(sorted(set(reconciled) | {
                         item.delivery_id for item in views
                         if item.revision == updated.revision
                         and item.actual_state == (
                             "RUNNING" if item.desired_state == "START" else "STOPPED"
                         ) and not item.last_error
-                    )
+                    }))
                     evidence["applied_ids"] = json.dumps(applied)
                     if len(applied) != len(views):
                         status = "PENDING"
