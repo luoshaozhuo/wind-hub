@@ -119,6 +119,10 @@ async def _poll_workers(
         next_tick += max(1, int((now - next_tick) / period) + 1) * period
         try:
             await registry.refresh()
+            if registry.epoch_changed:
+                registry.epoch_changed = False
+                telemetry.reset_epoch()
+                telemetry.event("INFO", "service", "METRICS_EPOCH_RESET", "worker restarted")
             if manager.runtime.revision != manager.disk.revision:
                 await manager.reconcile_committed()
             for role, state in registry.worker_health.items():
