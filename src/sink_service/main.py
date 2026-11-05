@@ -11,7 +11,7 @@ from pathlib import Path
 from sink_service.application.config import read_snapshot
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.observability import Observability
-from sink_service.infrastructure.bootstrap import _credentials
+from sink_service.infrastructure.grpc_credentials import server_credentials
 from sink_service.infrastructure.config_repository import GenerationStore
 from sink_service.infrastructure.grpc_v1 import build_v1_server
 from sink_service.infrastructure.supervisor import WorkerSupervisor
@@ -59,7 +59,7 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         server = build_v1_server(
             config=manager, registry=registry,
             service_id=service["service_id"], role="main",
-            credentials=_credentials(service["security"]),
+            credentials=server_credentials(service["security"]),
             address=f"{grpc_config['listen_host']}:{grpc_config['listen_port']}",
             max_active_rpcs=grpc_config["max_active_rpcs"],
             max_request_bytes=grpc_config["max_request_bytes"],
