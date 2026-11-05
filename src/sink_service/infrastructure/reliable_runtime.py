@@ -17,7 +17,7 @@ from nats.aio.client import Client
 from nats.errors import TimeoutError as NatsTimeoutError
 from nats.js.api import AckPolicy, ConsumerConfig
 
-from contracts.sample_batch import SampleBatch
+from contracts.sample_batch import BatchSample, SampleBatch
 from contracts.sample_message import SampleMessage
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
@@ -346,6 +346,25 @@ class ReliableDeliveryPort:
             sample_id = ''
         if sample is not None:
             sample_id = sample.sample_id
+        payload = message.data
+        if sample is not None:
+            payload = SampleBatch(
+                batch_id=sample.sample_id,
+                mode="reliable",
+                wind_farm_id=sample.wind_farm_id,
+                collector_id=sample.collector_id,
+                task_id=sample.task_id,
+                device_id=sample.device_id,
+                publish_time=sample.publish_time,
+                samples=(BatchSample(
+                    point_id=sample.point_id,
+                    sample_id=sample.sample_id,
+                    value=sample.value,
+                    quality=sample.quality,
+                    sample_time=sample.sample_time,
+                    receive_time=sample.receive_time,
+                ),),
+            ).encode()
         observed_at = datetime.now(UTC).isoformat()
         record = {
             'dead_letter_id': dead_letter_id,
@@ -357,7 +376,7 @@ class ReliableDeliveryPort:
             'consumer': metadata.consumer,
             'source_sequence': metadata.sequence.stream,
             'source_timestamp': metadata.timestamp.astimezone(UTC).isoformat(),
-            'payload_base64': base64.b64encode(message.data).decode('ascii'),
+            'payload_base64': base64.b64encode(payload).decode('ascii'),
             'failed_sample': (
                 sample.model_dump(mode='json') if sample is not None else None
             ),
