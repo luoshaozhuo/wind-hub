@@ -77,7 +77,20 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                     counters = registry.counters()
                     if isinstance(factory, RealtimeFactory):
                         counters.update(factory.ingress_counters())
+                    deliveries, _, _ = registry.delivery_observations()
                     evidence["counters"] = json.dumps(counters)
+                    evidence["delivery_counters"] = json.dumps(
+                        deliveries, separators=(",", ":")
+                    )
+                    latencies = registry.latency_observations()
+                    # Never fabricate a P99 from a truncated history.
+                    if len(latencies) <= 512 and registry.latency_overflow_at() is None:
+                        evidence["latencies"] = json.dumps([
+                            [stamp.isoformat(), value]
+                            for stamp, value in latencies
+                        ], separators=(",", ":"))
+                    else:
+                        evidence["latency_incomplete"] = "true"
                 elif request.operation == "DIAGNOSE":
                     evidence["details"] = json.dumps(
                         registry.inspect(request.delivery_id)
