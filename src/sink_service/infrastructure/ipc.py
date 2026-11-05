@@ -159,6 +159,7 @@ class WorkerControlClient:
         self._reader = reader
         self._writer = writer
         self._lock = asyncio.Lock()
+        self._broken = False
 
     async def request(
         self,
@@ -170,6 +171,8 @@ class WorkerControlClient:
     ) -> ControlReply:
         if timeout_seconds <= 0:
             raise ValueError("IPC timeout must be positive")
+        if self._broken:
+            raise ConnectionError("IPC connection cannot be reused after failed correlation")
         request = ControlRequest(
             request_id=uuid.uuid4().hex,
             operation=operation,
