@@ -132,6 +132,7 @@ class WorkerRegistryView:
         dict[str, dict[str, float]],
         tuple[tuple[datetime, float], ...],
         dict[str, tuple[tuple[datetime, float], ...]],
+        dict[str, float],
         bool,
     ] | None:
         replies = await asyncio.gather(
