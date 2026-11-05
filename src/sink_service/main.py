@@ -70,6 +70,11 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         background.append(asyncio.create_task(supervisor.supervise(stop)))
         await stop.wait()
     finally:
+        stop.set()
+        for task in background:
+            task.cancel()
+        if background:
+            await asyncio.gather(*background, return_exceptions=True)
         if server is not None:
             await server.stop(grace=3)
         try:
