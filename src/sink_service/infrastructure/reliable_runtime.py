@@ -501,19 +501,19 @@ class ReliableDeliveryPort:
         return not unresolved
 
     async def _run(self) -> None:
+        """Process one durable source batch at a time; never ACK partial results."""
         assert self._subscription is not None
         config = self._snapshot.service["reliable"]
-        backoff = config["retry_base_ms"] / 1000
+        base_backoff = config["retry_base_ms"] / 1000
         max_backoff = config["retry_max_ms"] / 1000
+        backoff = base_backoff
         while not self._stop.is_set():
             now = time.monotonic()
             if now - self._last_capacity_check >= 10:
                 self._last_capacity_check = now
                 await self._check_capacity()
             try:
-                messages = await self._subscription.fetch(
-                    batch=1, timeout=1.0
-                )
+                messages = await self._subscription.fetch(batch=1, timeout=1.0)
             except (TimeoutError, NatsTimeoutError):
                 continue
             except Exception as exc:
@@ -522,95 +522,71 @@ class ReliableDeliveryPort:
                 await self._retry_pause(min(backoff, max_backoff))
                 backoff = min(backoff * 2, max_backoff)
                 continue
+
             for message in messages:
                 if self._stop.is_set():
                     return
                 metadata = message.metadata
                 self._backlog = metadata.num_pending + 1
+                self.received_batches_total += 1
                 try:
-                    sample = SampleMessage.decode(message.data, "reliable")
-                    if message.subject != sample.subject("reliable"):
-                        raise ValueError("JetStream subject and sample identity mismatch")
+                    batch = SampleBatch.decode(
+                        message.data, mode="reliable", subject=message.subject
+                    )
                 except (ValueError, UnicodeError) as exc:
+                    self.rejected_batches_total += 1
                     try:
                         await self._dead_letter(message, str(exc))
+                        await message.ack_sync(timeout=5)
+                        self.acknowledged_batches_total += 1
+                        self._backlog = metadata.num_pending
+                        self._last_backlog_progress = time.monotonic()
                     except Exception as failure:
-                        self.last_error = f'DLQ_BLOCKED: PubAck unavailable: {failure}'
+                        self.last_error = f"DLQ_BLOCKED: {failure}"
+                        self.retry_total += 1
                         try:
                             await message.nak(delay=min(backoff, max_backoff))
-                        except Exception as nak_error:
-                            self.last_error = (
-                                f'DLQ_BLOCKED: NAK unresolved: {nak_error}'
-                            )
+                        except Exception:
+                            logger.warning("NAK after blocked DLQ failed", exc_info=True)
                         await self._retry_pause(min(backoff, max_backoff))
-                        continue
-                    try:
-                        await message.ack_sync(timeout=5)
-                    except Exception as failure:
-                        # The original remains the Broker's responsibility;
-                        # the DLQ message is already durably published.
-                        self.last_error = f'DLQ transferred; source ACK uncertain: {failure}'
                     continue
-                replay_owner = (message.headers or {}).get('Wh-Replay-Delivery', '')
+
+                self.input_values_total += len(batch.samples)
+                replay_owner = (message.headers or {}).get("Wh-Replay-Delivery", "")
                 if replay_owner and replay_owner != self._definition.delivery_id:
                     await message.ack_sync(timeout=5)
+                    self.acknowledged_batches_total += 1
                     continue
-                if not self._matches(sample):
-                    await message.ack_sync(timeout=5)
-                    continue
-                self.received_total += 1
                 if metadata.num_pending > 0:
-                    rate = config['replay_max_rate_per_second']
+                    rate = config["replay_max_rate_per_second"]
                     now = asyncio.get_running_loop().time()
                     delay = self._last_backlog_output + 1 / rate - now
                     if delay > 0:
-                        await asyncio.sleep(delay)
+                        await self._retry_pause(delay)
                     self._last_backlog_output = asyncio.get_running_loop().time()
+                if self._stop.is_set():
+                    return
                 try:
-                    assert self._adapter is not None
-                    self._active_io = True
-                    try:
-                        result = await self._write_with_heartbeat(message, sample)
-                    finally:
-                        self._active_io = False
-                    # Target evidence is an execution fact independent of JS ACK.
-                    self.write_success_total += result.successful_attempts
-                    self.failed_total += result.failed_attempts
-                    for latency in result.successful_latencies_ms:
-                        timestamp = datetime.now(UTC)
-                        if len(self.latency_samples) == self.latency_samples.maxlen:
-                            self.latency_overflow_at = timestamp
-                        self.latency_samples.append((timestamp, latency))
-                    if 0 in result.delivered:
-                        self.delivered_total += 1
-                    if result.error.startswith('Redis CAS conflicts at samples'):
-                        # The target explicitly rejected a same-time conflicting
-                        # identity. Repeating it cannot make it a valid version.
-                        await self._dead_letter(message, result.error)
-                        await message.ack_sync(timeout=5)
-                        self._backlog = metadata.num_pending
-                        self.last_error = ''
-                        backoff = config['retry_base_ms'] / 1000
-                        continue
-                    if 0 in result.delivered or (not result.error and 0 in result.settled):
-                        await message.ack_sync(timeout=5)
-                        self._backlog = metadata.num_pending
-                        self._last_backlog_progress = time.monotonic()
-                        self.last_error = ""
-                        backoff = config["retry_base_ms"] / 1000
-                        continue
-                    raise RuntimeError(result.error or "target result remains unconfirmed")
+                    terminal = await self._deliver_batch(message, batch)
+                    if not terminal:
+                        raise RuntimeError("source batch contains unconfirmed points")
+                    await message.ack_sync(timeout=5)
+                    self.acknowledged_batches_total += 1
+                    self._backlog = metadata.num_pending
+                    self._last_backlog_progress = time.monotonic()
+                    self.last_error = ""
+                    backoff = base_backoff
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
-                    # UNKNOWN is not a definitively failed target I/O attempt.
+                    # Durable redelivery is the only recovery path. Confirmed
+                    # subsets must be idempotent downstream on replay.
                     self.retry_total += 1
                     self.last_error = str(exc)
-                    # Never ACK on transient/unsettled I/O. JS retains durable ownership.
                     try:
                         await message.nak(delay=min(backoff, max_backoff))
                     except Exception as nak_error:
-                        self.last_error = f'{exc}; NAK unresolved: {nak_error}'
+                        self.last_error = f"{exc}; NAK unresolved: {nak_error}"
                         await self._retry_pause(min(backoff, max_backoff))
                     backoff = min(backoff * 2, max_backoff)
 
