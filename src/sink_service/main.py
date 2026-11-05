@@ -68,6 +68,7 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         )
         await server.start()
         background.append(asyncio.create_task(supervisor.supervise(stop)))
+        background.append(asyncio.create_task(_poll_workers(registry, stop)))
         await stop.wait()
     finally:
         stop.set()
@@ -83,6 +84,15 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
             )
         finally:
             lease.release()
+
+
+async def _poll_workers(registry: WorkerRegistryView, stop: asyncio.Event) -> None:
+    while not stop.is_set():
+        await registry.refresh()
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=1.0)
+        except TimeoutError:
+            pass
 
 
 def main() -> None:
