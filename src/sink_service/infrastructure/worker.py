@@ -70,8 +70,13 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                         status = "PENDING"
                 elif request.operation == "GET_STATUS":
                     evidence["active_generation"] = snapshot.revision
+                    views = registry.list()
                     evidence["deliveries"] = json.dumps(
-                        [asdict(item) for item in registry.list()]
+                        [asdict(item) for item in views], separators=(",", ":")
+                    )
+                    evidence["inspections"] = json.dumps(
+                        {item.delivery_id: registry.inspect(item.delivery_id)
+                         for item in views}, separators=(",", ":")
                     )
                 elif request.operation == "GET_METRICS":
                     evidence["active_generation"] = snapshot.revision
