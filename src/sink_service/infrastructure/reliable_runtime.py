@@ -98,6 +98,12 @@ class ReliableDeliveryPort:
     @last_error.setter
     def last_error(self, value: str) -> None:
         self._last_error = value
+    @property
+    def io_inflight(self) -> bool:
+        return self._active_io or bool(
+            self._adapter is not None and self._adapter.io_inflight
+        )
+
     def inspect(self) -> dict[str, str]:
         """Report known JetStream and target state without a new probe."""
         return {
@@ -111,7 +117,7 @@ class ReliableDeliveryPort:
                 else 'STOPPED'
             ),
             'sink': 'OWNED' if self._adapter is not None else 'NOT_ATTACHED',
-            'io_inflight': str(self._active_io),
+            'io_inflight': str(self.io_inflight),
             'target': 'NOT_PROBED',
         }
     @property
@@ -128,7 +134,7 @@ class ReliableDeliveryPort:
             'dead_letter_total': float(self.dlq_total),
             'dead_letter_invalid_batches_total': float(self.dlq_invalid_batches_total),
             'retry_total': float(self.retry_total),
-            'io_inflight': float(self._active_io),
+            'io_inflight': float(self.io_inflight),
         }
         if (
             self._backlog is not None and self._client is not None
