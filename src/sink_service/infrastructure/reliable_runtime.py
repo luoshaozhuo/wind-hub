@@ -515,6 +515,11 @@ class ReliableDeliveryPort:
         assert self._adapter is not None
         unresolved = False
         for start in range(0, len(samples), 500):
+            if start:
+                try:
+                    await message.in_progress()
+                except Exception:
+                    logger.warning("source ACK extension between subbatches failed", exc_info=True)
             if self._stop.is_set():
                 return False
             chunk = samples[start : start + 500]
