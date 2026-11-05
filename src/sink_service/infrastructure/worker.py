@@ -74,6 +74,7 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                         [asdict(item) for item in registry.list()]
                     )
                 elif request.operation == "GET_METRICS":
+                    evidence["active_generation"] = snapshot.revision
                     counters = registry.counters()
                     if isinstance(factory, RealtimeFactory):
                         counters.update(factory.ingress_counters())
