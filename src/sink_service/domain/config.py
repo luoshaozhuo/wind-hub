@@ -145,10 +145,8 @@ def validate_service(service: dict[str, Any]) -> None:
     for field in ("service_id", "wind_farm_id", "deployment_id", "config_root"):
         expect_nonempty_str(service.get(field), f"service.{field}")
     config_sources(service)
-    if service.get("process_role") not in ("realtime", "reliable"):
-        raise ConfigurationError("service.process_role: expected realtime or reliable")
-    if type(service.get("config_writer")) is not bool:
-        raise ConfigurationError("service.config_writer: expected boolean")
+    if "process_role" in service or "config_writer" in service:
+        raise ConfigurationError("Main owns both data processes and configuration")
     grpc = expect_mapping(service.get("grpc"), "service.grpc")
     expect_nonempty_str(grpc.get("listen_host"), "grpc.listen_host")
     expect_positive_int(grpc.get("listen_port"), "grpc.listen_port", 65535)
