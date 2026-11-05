@@ -366,12 +366,12 @@ class ReliableDeliveryPort:
             self.dlq_total += 1
 
     async def _write_with_heartbeat(
-        self, message: Any, sample: SampleMessage
+        self, message: Any, samples: tuple[SampleMessage, ...]
     ) -> BatchOutcome:
         """Keep native target I/O owned even if the AckWait renewal fails."""
         assert self._adapter is not None
         async def native_write() -> BatchOutcome:
-            result: BatchOutcome = await self._adapter.write_batch((sample,))
+            result: BatchOutcome = await self._adapter.write_batch(samples)
             if result.error == 'Sink I/O result uncertain; waiting for settlement':
                 settled = await self._adapter.settle()
                 return settled if settled is not None else result
