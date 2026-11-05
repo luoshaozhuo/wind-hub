@@ -21,6 +21,7 @@ class BatchOutcome:
     successful_attempts: int = 0
     failed_attempts: int = 0
     successful_latencies_ms: tuple[float, ...] = ()
+    permanent: tuple[int, ...] = ()
 
 
 class BatchWriter(Protocol):
