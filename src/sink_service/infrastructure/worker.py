@@ -22,13 +22,13 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
     snapshot = store.load(service_file)
     registry = DeliveryRegistry(role, snapshot)
     factory = RealtimeFactory() if role == "realtime" else ReliableFactory()
+    await registry.apply_configuration(snapshot, factory)
     reader, writer = await asyncio.open_unix_connection(socket_path)
     await write_frame(writer, ControlReply(
         request_id="BOOT", generation=snapshot.revision,
         status="APPLIED", evidence={"role": role},
     ).to_wire())
     try:
-        await registry.apply_configuration(snapshot, factory)
         while True:
             request = ControlRequest.from_wire(await read_frame(reader))
             status = "APPLIED"
