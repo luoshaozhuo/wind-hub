@@ -79,6 +79,12 @@ class WorkerSupervisor:
             await asyncio.wait_for(self._ready[role].wait(), timeout=10)
         except TimeoutError:
             logger.error("worker %s failed to become ready", role)
+            if process.is_alive():
+                process.terminate()
+                await asyncio.to_thread(process.join, 3)
+                if process.is_alive():
+                    process.kill()
+                    await asyncio.to_thread(process.join, 3)
 
     async def request(
         self, role: str, operation: ControlOperation, generation: str, *,
