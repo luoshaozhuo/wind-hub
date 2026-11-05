@@ -165,6 +165,12 @@ class Observability:
         self._computed = process
         self.computed_at = now
 
+    def mark_unavailable(self) -> None:
+        """Do not expose stale or fabricated values when a worker is unreachable."""
+        self._computed = {"metrics_snapshot_ready": 0.0}
+        self._delivery_computed = {}
+        self.computed_at = datetime.now(UTC)
+
     def snapshot(self, window_ms: int) -> dict[str, float]:
         """Read the last process snapshot, without recalculating metrics."""
         if window_ms != self._window_ms:
