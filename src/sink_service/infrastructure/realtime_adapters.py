@@ -233,6 +233,10 @@ class RedisOutput:
                     successful_attempts=1,
                     failed_attempts=0,
                     successful_latencies_ms=(latency_ms,),
+                    permanent=tuple(
+                        index for index, status in enumerate(results)
+                        if status in (-1, 0)
+                    ),
                 )
             except Exception as exc:
                 # The script may have executed before its reply was lost.
