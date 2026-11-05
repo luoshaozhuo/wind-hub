@@ -49,6 +49,8 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
             evidence: dict[str, str] = {}
             try:
                 if request.operation == "SHUTDOWN":
+                    recovery.cancel()
+                    await asyncio.gather(recovery, return_exceptions=True)
                     await registry.shutdown()
                 elif request.operation in {"APPLY", "START", "STOP"}:
                     updated = store.load(service_file)
