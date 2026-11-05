@@ -11,7 +11,7 @@ import json
 import struct
 import uuid
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 MAX_IPC_FRAME_BYTES = 65_536
 
@@ -70,7 +70,7 @@ class ControlRequest:
             raise IpcProtocolError("invalid IPC operation")
         return cls(
             request_id=raw["request_id"],
-            operation=raw["operation"],
+            operation=cast(ControlOperation, raw["operation"]),
             generation=raw["generation"],
             delivery_id=raw["delivery_id"],
         )
@@ -115,7 +115,7 @@ class ControlReply:
         return cls(
             request_id=raw["request_id"],
             generation=raw["generation"],
-            status=raw["status"],
+            status=cast(Literal["APPLIED", "PENDING", "FAILED", "UNKNOWN"], raw["status"]),
             evidence=raw["evidence"],
         )
 
