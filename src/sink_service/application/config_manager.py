@@ -85,11 +85,6 @@ class ConfigManager:
     def last_error(self) -> str:
         return self._last_error
 
-    def record_reader_sync_error(self, error: str) -> None:
-        """Expose Reader polling failures through existing health/diagnose RPCs."""
-        if not self._writer:
-            self._last_error = error
-
     @property
     def disk(self) -> ValidatedSnapshot:
         return self._disk
