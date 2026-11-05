@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 from collections import deque
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import nats
@@ -39,6 +39,9 @@ class NatsRealtimeIngress:
         self._subscription: Subscription | None = None
         self._engines: dict[str, RealtimeEngine] = {}
         self._routes: dict[tuple[str, str], dict[str, RealtimeEngine]] = {}
+        self._target_cache: dict[
+            tuple[str, str, str, str], tuple[RealtimeEngine, ...]
+        ] = {}
         self._lock = asyncio.Lock()
         self.last_error = ""
 
@@ -73,6 +76,7 @@ class NatsRealtimeIngress:
                 self._subscription = subscription
             self._engines[delivery_id] = engine
             self._routes.setdefault(engine.source_identity, {})[delivery_id] = engine
+            self._target_cache.clear()
 
     async def remove(self, delivery_id: str) -> None:
         async with self._lock:
@@ -82,6 +86,7 @@ class NatsRealtimeIngress:
                 route.pop(delivery_id)
                 if not route:
                     del self._routes[engine.source_identity]
+                self._target_cache.clear()
             if self._engines:
                 return
             client, self._client = self._client, None
@@ -102,9 +107,27 @@ class NatsRealtimeIngress:
             self.last_error = str(exc)
             logger.warning("Sink realtime message rejected: %s", exc)
             return
-        source = (sample.wind_farm_id, sample.collector_id)
-        for engine in tuple(self._routes.get(source, {}).values()):
-            engine.offer(sample)
+        identity = (
+            sample.wind_farm_id,
+            sample.collector_id,
+            sample.device_id,
+            sample.point_id,
+        )
+        targets = self._target_cache.get(identity)
+        if targets is None:
+            source = (sample.wind_farm_id, sample.collector_id)
+            targets = tuple(
+                engine
+                for engine in self._routes.get(source, {}).values()
+                if engine.accepts(sample.device_id, sample.point_id)
+            )
+            if len(self._target_cache) >= 8192:
+                self._target_cache.clear()
+            self._target_cache[identity] = targets
+        if targets:
+            now = datetime.now(UTC)
+            for engine in targets:
+                engine.offer(sample, now=now)
 
 
 class _SinkOutput:
