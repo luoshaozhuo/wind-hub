@@ -400,7 +400,7 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
 
 
 def read_snapshot(
-    root: Path, service_path: Path, peer_service_path: Path
+    root: Path, service_path: Path
 ) -> ValidatedSnapshot:
     """Load two explicitly named Services and their referenced configuration closure."""
     root = root.resolve(strict=True)
