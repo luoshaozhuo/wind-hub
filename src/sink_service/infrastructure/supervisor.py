@@ -6,6 +6,9 @@ import asyncio
 import json
 import logging
 import multiprocessing
+import os
+import socket
+import struct
 import tempfile
 from pathlib import Path
 
@@ -42,6 +45,15 @@ class WorkerSupervisor:
             role = hello.evidence.get("role", "")
             if hello.request_id != "BOOT" or role not in ROLES:
                 raise ValueError("invalid worker handshake")
+            transport = writer.get_extra_info("socket")
+            if transport is None:
+                raise ValueError("missing Unix peer credentials")
+            pid, uid, _gid = struct.unpack(
+                "3i", transport.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+            )
+            process = self._processes.get(role)
+            if process is None or process.pid != pid or uid != os.getuid():
+                raise ValueError("worker IPC peer PID/UID mismatch")
             if role in self._clients:
                 raise ValueError("duplicate worker connection")
             self._clients[role] = WorkerControlClient(reader, writer)
@@ -59,6 +71,7 @@ class WorkerSupervisor:
         self._server = await asyncio.start_unix_server(
             self._accept, path=self._socket_path
         )
+        os.chmod(self._socket_path, 0o600)
         for role in ROLES:
             await self._spawn(role)
 
