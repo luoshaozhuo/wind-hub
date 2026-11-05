@@ -17,6 +17,7 @@ from nats.aio.client import Client
 from nats.errors import TimeoutError as NatsTimeoutError
 from nats.js.api import AckPolicy, ConsumerConfig
 
+from contracts.sample_batch import SampleBatch
 from contracts.sample_message import SampleMessage
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
@@ -56,6 +57,10 @@ class ReliableDeliveryPort:
         self._adapter: Any = None
         self.last_error = ""
         self.received_total = 0
+        self.received_batches_total = 0
+        self.acknowledged_batches_total = 0
+        self.rejected_batches_total = 0
+        self.input_values_total = 0
         self.delivered_total = 0
         self._backlog: int | None = None
         self._active_io = False
@@ -112,6 +117,10 @@ class ReliableDeliveryPort:
     def metrics(self) -> dict[str, float]:
         values = {
             'received_total': float(self.received_total),
+            'input_batches_total': float(self.received_batches_total),
+            'input_values_total': float(self.input_values_total),
+            'acknowledged_batches_total': float(self.acknowledged_batches_total),
+            'rejected_batches_total': float(self.rejected_batches_total),
             'delivered_total': float(self.delivered_total),
             'failed_total': float(self.failed_total),
             'write_success_total': float(self.write_success_total),
