@@ -223,7 +223,7 @@ def validate_service(service: dict[str, Any]) -> None:
         raise ConfigurationError("nats.servers must be a non-empty list")
     if any(not isinstance(url, str) or not url.startswith("nats://") for url in nats["servers"]):
         raise ConfigurationError("nats.servers contains an invalid NATS URL")
-    if nats.get("realtime_subject") != "wh.rt":
+    if nats.get("realtime_subject") != "wh.batch.rt":
         raise ConfigurationError("realtime NATS subject must match the SampleMessage contract")
     for key in ('dlq_max_bytes', 'dlq_max_age_seconds'):
         expect_positive_int(nats.get(key), f'nats.{key}')
