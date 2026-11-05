@@ -89,7 +89,7 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
             await server.stop(grace=grace)
         try:
             await supervisor.close(
-                manager.disk.revision if "manager" in locals() else ""
+                manager.disk.revision if "manager" in locals() else "UNINITIALIZED"
             )
         finally:
             lease.release()
