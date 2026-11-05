@@ -405,7 +405,7 @@ def read_snapshot(
     """Load two explicitly named Services and their referenced configuration closure."""
     root = root.resolve(strict=True)
     selected: list[str] = []
-    for path in (service_path, peer_service_path):
+    for path in (service_path,):
         resolved = path.resolve(strict=True)
         if not resolved.is_relative_to(root):
             raise ConfigurationError('Service path escapes configuration root')
@@ -413,8 +413,8 @@ def read_snapshot(
         if not relative.startswith('configs/services/') or not relative.endswith('.yaml'):
             raise ConfigurationError('Service must be an explicit Service pathname')
         selected.append(relative)
-    if len(set(selected)) != 2:
-        raise ConfigurationError('two distinct Service pathnames are required')
+    if selected != ['configs/services/sink_service.yaml']:
+        raise ConfigurationError('canonical Service pathname required')
     def safe_file(pathname: str) -> SnapshotFile:
         target = root / pathname
         if target.is_symlink() or any(
