@@ -1,4 +1,4 @@
-"""Typed, immutable configuration identity and validation for Sink Service v1."""
+"""Typed, immutable configuration identity and validation for Sink Service."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class RevisionConflictError(ConfigurationError):
 
 
 class WriterRequiredError(ConfigurationError):
-    """A mutating call reached a Reader process; maps to PERMISSION_DENIED."""
+    """A mutating call reached a non-writer context; maps to PERMISSION_DENIED."""
 
 
 class CandidateNotFoundError(ConfigurationError):
