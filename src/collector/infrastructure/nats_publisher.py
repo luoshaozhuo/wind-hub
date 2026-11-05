@@ -76,7 +76,7 @@ class NatsPublisher:
                     client.jetstream().publish(
                         subject,
                         payload,
-                        headers={"Nats-Msg-Id": message.sample_id},
+                        headers={"Nats-Msg-Id": message.batch_id},
                         timeout=1.0,
                     ),
                     timeout=1.5,
