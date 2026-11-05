@@ -368,6 +368,14 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         )
         units = {
             'received_total': 'samples',
+            'input_batches_total': 'batches',
+            'input_values_total': 'samples',
+            'received_batches_total': 'batches',
+            'acknowledged_batches_total': 'batches',
+            'rejected_batches_total': 'batches',
+            'routed_values_total': 'samples',
+            'retry_total': 'attempts',
+            'dead_letter_invalid_batches_total': 'batches',
             'delivered_total': 'samples',
             'failed_total': 'attempts',
             'dropped_total': 'samples',
