@@ -121,6 +121,18 @@ class WorkerRegistryView:
         bool,
     ] | None:
         """Aggregate both worker reports only when both generations are valid."""
+        async with self._lock:
+            return await self._collect_metrics_locked()
+
+    async def _collect_metrics_locked(
+        self,
+    ) -> tuple[
+        dict[str, float],
+        dict[str, dict[str, float]],
+        tuple[tuple[datetime, float], ...],
+        dict[str, tuple[tuple[datetime, float], ...]],
+        bool,
+    ] | None:
         replies = await asyncio.gather(
             *(
                 self.supervisor.request(role, "GET_METRICS", self.snapshot.revision)
