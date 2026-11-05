@@ -213,13 +213,9 @@ def validate_service(service: dict[str, Any]) -> None:
     for field in ("ca_cert", "server_cert", "server_key"):
         expect_nonempty_str(security.get(field), f"security.{field}")
     sync = expect_mapping(service.get("config_sync"), "service.config_sync")
-    expect_positive_int(sync.get("poll_interval_ms"), "config_sync.poll_interval_ms")
     expect_positive_int(sync.get("apply_timeout_ms"), "config_sync.apply_timeout_ms")
-    if service["config_writer"]:
-        if sync.get("writer_endpoint") not in ("", None):
-            raise ConfigurationError("Writer must not forward config operations")
-    else:
-        expect_nonempty_str(sync.get("writer_endpoint"), "config_sync.writer_endpoint")
+    if set(sync) != {"apply_timeout_ms"}:
+        raise ConfigurationError("unsupported config_sync fields")
     shutdown = expect_mapping(service.get("shutdown"), "service.shutdown")
     expect_positive_int(shutdown.get("grace_seconds"), "shutdown.grace_seconds")
     nats = expect_mapping(service.get("nats"), "service.nats")
