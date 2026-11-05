@@ -620,7 +620,8 @@ class ReliableDeliveryPort:
                             await message.nak(delay=min(backoff, max_backoff))
                         except Exception:
                             logger.warning("NAK after blocked DLQ failed", exc_info=True)
-                        await self._retry_pause(min(backoff, max_backoff))
+                            await self._retry_pause(min(backoff, max_backoff))
+                        backoff = min(backoff * 2, max_backoff)
                     continue
 
                 self.input_values_total += len(batch.samples)
