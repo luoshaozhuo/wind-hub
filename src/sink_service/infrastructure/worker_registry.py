@@ -20,11 +20,13 @@ class WorkerRegistryView:
         self.supervisor = supervisor
         self.snapshot = snapshot
         self.views: dict[str, DeliveryView] = {}
+        self.inspections: dict[str, dict[str, str]] = {}
         self.worker_health: dict[str, str] = {role: "UNKNOWN" for role in ROLES}
         self.reset(snapshot)
 
     def reset(self, snapshot: ValidatedSnapshot) -> None:
         self.snapshot = snapshot
+        self.inspections.clear()
         self.views = {
             entry.delivery_id: DeliveryView(
                 delivery_id=entry.delivery_id,
@@ -49,7 +51,7 @@ class WorkerRegistryView:
         return self.views[delivery_id]
 
     def inspect(self, delivery_id: str) -> dict[str, str]:
-        return {"delivery": self.get(delivery_id).actual_state}
+        return dict(self.inspections.get(delivery_id, {}))
 
     def counters(self) -> dict[str, float]:
         return {}
@@ -67,6 +69,7 @@ class WorkerRegistryView:
                 if reply.evidence["active_generation"] != self.snapshot.revision:
                     raise ValueError("worker active generation is stale")
                 reports = json.loads(reply.evidence["deliveries"])
+                inspected = json.loads(reply.evidence["inspections"])
                 self.worker_health[role] = "RUNNING"
                 by_id = {entry["delivery_id"]: entry for entry in reports}
                 for key, old in tuple(self.views.items()):
@@ -77,6 +80,7 @@ class WorkerRegistryView:
                         if candidate.revision != self.snapshot.revision:
                             raise ValueError("worker reports stale configuration generation")
                         self.views[key] = candidate
+                        self.inspections[key] = inspected.get(key, {})
             except (ValueError, KeyError, TypeError):
                 self.worker_health[role] = "UNKNOWN"
                 for key, old in tuple(self.views.items()):
@@ -85,6 +89,7 @@ class WorkerRegistryView:
                         values["actual_state"] = "UNKNOWN"
                         values["last_error"] = "worker unavailable"
                         self.views[key] = DeliveryView(**values)
+                        self.inspections.pop(key, None)
 
     async def apply_configuration(self, snapshot: ValidatedSnapshot) -> tuple[str, ...]:
         self.reset(snapshot)
