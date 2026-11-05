@@ -338,12 +338,13 @@ class ReliableDeliveryPort:
         except (UnicodeError, ValueError):
             sample_id = ''
         batch_id = source.get('batch_id', '') if isinstance(source, dict) else ''
+        batch_id = source.get("batch_id", "") if isinstance(source, dict) else ""
         if sample is not None:
             sample_id = sample.sample_id
         payload = message.data
         if sample is not None:
             payload = SampleBatch(
-                batch_id=sample.sample_id,
+                batch_id=batch_id if isinstance(batch_id, str) and batch_id else sample.sample_id,
                 mode="reliable",
                 wind_farm_id=sample.wind_farm_id,
                 collector_id=sample.collector_id,
