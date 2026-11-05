@@ -121,20 +121,26 @@ class RealtimeEngine:
             return absolute_hit or relative_hit
         return a != b
 
-    def offer(self, sample: SampleMessage) -> bool:
+    def accepts(self, device_id: str, point_id: str) -> bool:
+        """Return whether this Delivery owns the source point identity."""
+        return (
+            (not self._devices or device_id in self._devices)
+            and (not self._points or point_id in self._points)
+        )
+
+    def offer(self, sample: SampleMessage, *, now: datetime | None = None) -> bool:
         """Route first, then count received, expired, overwritten and rejected samples."""
         if self._stop.is_set():
             return False
         if (
             sample.wind_farm_id != self._wind_farm_id
             or sample.collector_id != self._collector_id
-            or (self._devices and sample.device_id not in self._devices)
-            or (self._points and sample.point_id not in self._points)
+            or not self.accepts(sample.device_id, sample.point_id)
         ):
             # A sample outside the declared source is not a dropped sample.
             return False
         self.received_total += 1
-        if not self._fresh(sample, datetime.now(UTC)):
+        if not self._fresh(sample, now if now is not None else datetime.now(UTC)):
             self.dropped_total += 1
             return False
         key = self._key(sample)
@@ -169,7 +175,11 @@ class RealtimeEngine:
                 self.dropped_total += 1
         self._latest[key] = sample
         self._authorities[key] = sample.task_id
-        if self._policy != 'periodic' and self._changed(sample, self._sent.get(key)):
+        if (
+            self._policy != "periodic"
+            and not self._wakeup.is_set()
+            and self._changed(sample, self._sent.get(key))
+        ):
             self._wakeup.set()
         return True
 
@@ -225,6 +235,13 @@ class RealtimeEngine:
                 self._wakeup.clear()
             if self._stop.is_set():
                 return
+            if event_fired:
+                # A bounded microbatch lets a high-rate change burst coalesce
+                # into 500-point writes without waiting for the heartbeat tick.
+                await asyncio.sleep(min(0.005, self._interval / 20))
+                if self._stop.is_set():
+                    return
+                self._wakeup.clear()
             now_mono = loop.time()
             periodic_due = now_mono >= next_tick
             if periodic_due:
