@@ -127,7 +127,7 @@ class NatsRealtimeIngress:
         if targets:
             now = datetime.now(UTC)
             for engine in targets:
-                engine.offer(sample, now=now)
+                engine.offer(sample, now=now, routed=True)
 
 
 class _SinkOutput:
