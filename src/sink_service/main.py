@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import logging
 import signal
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sink_service.application.config import read_snapshot
@@ -70,7 +71,9 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         await supervisor.start()
         await registry.refresh()
         background.append(asyncio.create_task(supervisor.supervise(stop)))
-        background.append(asyncio.create_task(_poll_workers(registry, stop)))
+        background.append(asyncio.create_task(
+            _poll_workers(registry, telemetry, stop, service["metrics"]["metrics_compute_interval_ms"])
+        ))
         await stop.wait()
     finally:
         stop.set()
@@ -88,16 +91,51 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
             lease.release()
 
 
-async def _poll_workers(registry: WorkerRegistryView, stop: asyncio.Event) -> None:
+async def _poll_workers(
+    registry: WorkerRegistryView,
+    telemetry: Observability,
+    stop: asyncio.Event,
+    interval_ms: int,
+) -> None:
+    """Bounded periodic metrics cycle; gRPC only reads precomputed snapshots."""
+    loop = asyncio.get_running_loop()
+    period = interval_ms / 1000
+    next_tick = loop.time() + period
+    previous_health: dict[str, str] = {}
     while not stop.is_set():
         try:
-            await registry.refresh()
-        except Exception:
-            logger.exception("worker status refresh failed")
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=1.0)
+            await asyncio.wait_for(
+                stop.wait(), timeout=max(0.0, next_tick - loop.time())
+            )
         except TimeoutError:
             pass
+        if stop.is_set():
+            return
+        now = loop.time()
+        next_tick += max(1, int((now - next_tick) / period) + 1) * period
+        try:
+            await registry.refresh()
+            for role, state in registry.worker_health.items():
+                if previous_health.get(role) != state:
+                    telemetry.event(
+                        "ERROR" if state != "RUNNING" else "INFO",
+                        role, "WORKER_STATE", state,
+                    )
+            previous_health = dict(registry.worker_health)
+            metrics = await registry.collect_metrics()
+            if metrics is None:
+                telemetry.mark_unavailable()
+                continue
+            totals, deliveries, latencies, incomplete = metrics
+            telemetry.sample(
+                totals,
+                latency_observations=latencies,
+                latency_overflow_at=datetime.now(UTC) if incomplete else None,
+                delivery_counters=deliveries,
+            )
+        except Exception:
+            logger.exception("worker metrics cycle failed")
+            telemetry.mark_unavailable()
 
 
 def main() -> None:
