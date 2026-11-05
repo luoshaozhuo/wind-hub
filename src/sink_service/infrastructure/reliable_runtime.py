@@ -549,21 +549,22 @@ class ReliableDeliveryPort:
                 if len(self.latency_samples) == self.latency_samples.maxlen:
                     self.latency_overflow_at = timestamp
                 self.latency_samples.append((timestamp, latency))
-            # A successful CAS-skip is not a confirmed business write.
-            permanent = (
-                outcome.error.startswith("Redis CAS conflicts at samples")
-                or (not outcome.error and settled != delivered)
-            )
-            if permanent:
-                for index in sorted(settled - delivered):
-                    await self._dlq_with_heartbeat(
-                        message,
-                        outcome.error or "target permanently skipped sample",
-                        sample=chunk[index],
-                    )
-            if not permanent and settled != delivered:
-                unresolved = True
-            if len(settled) != len(chunk):
+            # Adapter-owned, index-based permanent evidence only. An
+            # arbitrary error string or an unresolved I/O must never
+            # classify a point as DLQ-safe.
+            permanent = set(outcome.permanent)
+            if (
+                len(permanent) != len(outcome.permanent)
+                or not permanent.issubset(settled - delivered)
+            ):
+                raise RuntimeError("Adapter returned invalid permanent indexes")
+            for index in sorted(permanent):
+                await self._dlq_with_heartbeat(
+                    message,
+                    outcome.error or "permanent target business rejection",
+                    sample=chunk[index],
+                )
+            if len(delivered | permanent) != len(chunk):
                 unresolved = True
             if outcome.error and not permanent:
                 unresolved = True
