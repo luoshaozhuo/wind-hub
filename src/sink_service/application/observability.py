@@ -132,6 +132,7 @@ class Observability:
         ] | None = None,
         delivery_overflows: Mapping[str, datetime | None] | None = None,
         delivery_origins: Mapping[str, datetime] | None = None,
+        delivery_p99: Mapping[str, float] | None = None,
     ) -> None:
         """Publish one periodic process + Delivery scope snapshot atomically."""
         now = datetime.now(UTC)
@@ -160,6 +161,10 @@ class Observability:
             # Readiness and window coverage are process-level contract metrics.
             result.pop('metrics_snapshot_ready', None)
             result.pop('metrics_covered_ms', None)
+            if delivery_p99 is not None:
+                result.pop("write_latency_ms_p99", None)
+                if identifier in delivery_p99:
+                    result["write_latency_ms_p99"] = delivery_p99[identifier]
             details[identifier] = result
         for identifier in tuple(self._delivery_samples):
             if identifier not in details:
