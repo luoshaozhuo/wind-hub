@@ -180,21 +180,27 @@ class WorkerControlClient:
             delivery_id=delivery_id,
         )
         async with self._lock:
-            await asyncio.wait_for(
-                write_frame(self._writer, request.to_wire()),
-                timeout=timeout_seconds,
-            )
+            if self._broken:
+                raise ConnectionError("IPC request channel is unavailable")
             try:
+                await asyncio.wait_for(
+                    write_frame(self._writer, request.to_wire()),
+                    timeout=timeout_seconds,
+                )
                 raw = await asyncio.wait_for(
                     read_frame(self._reader), timeout=timeout_seconds
                 )
-            except TimeoutError:
-                # The command may have run. Caller must reconcile via status.
+                reply = ControlReply.from_wire(raw)
+                if (
+                    reply.request_id != request.request_id
+                    or reply.generation != generation
+                ):
+                    raise IpcProtocolError("IPC reply correlation mismatch")
+                return reply
+            except (TimeoutError, ConnectionError, OSError, EOFError,
+                    asyncio.IncompleteReadError, IpcProtocolError):
+                # The remote command may already have executed. Never consume
+                # an old reply as if it belonged to a later request.
+                self._broken = True
+                self._writer.close()
                 raise
-            reply = ControlReply.from_wire(raw)
-            if (
-                reply.request_id != request.request_id
-                or reply.generation != generation
-            ):
-                raise IpcProtocolError("IPC reply correlation mismatch")
-            return reply
