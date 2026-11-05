@@ -165,6 +165,11 @@ class WorkerControlClient:
     def broken(self) -> bool:
         return self._broken
 
+    async def close(self) -> None:
+        self._broken = True
+        self._writer.close()
+        await self._writer.wait_closed()
+
     async def request(
         self,
         operation: ControlOperation,
