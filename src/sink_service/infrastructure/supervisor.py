@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from sink_service.infrastructure.ipc import (
-    ControlReply, WorkerControlClient, read_frame,
+    ControlOperation, ControlReply, WorkerControlClient, read_frame,
 )
 from sink_service.infrastructure.worker import worker_main
 
@@ -80,7 +80,7 @@ class WorkerSupervisor:
             logger.error("worker %s failed to become ready", role)
 
     async def request(
-        self, role: str, operation: str, generation: str, *,
+        self, role: str, operation: ControlOperation, generation: str, *,
         delivery_id: str = "", timeout_seconds: float = 5.0,
     ) -> ControlReply:
         client = self._clients.get(role)
