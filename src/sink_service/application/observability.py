@@ -85,6 +85,10 @@ class Observability:
             for name in (
                 'received_total', 'delivered_total', 'failed_total',
                 'dropped_total', 'dead_letter_total', 'io_inflight',
+                'input_batches_total', 'input_values_total',
+                'received_batches_total', 'acknowledged_batches_total',
+                'rejected_batches_total', 'routed_values_total',
+                'retry_total', 'dead_letter_invalid_batches_total',
             )
         }
         if 'backlog_messages' in counters:
