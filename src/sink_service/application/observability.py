@@ -165,6 +165,16 @@ class Observability:
         self._computed = process
         self.computed_at = now
 
+    def reset_epoch(self) -> None:
+        """Do not calculate window deltas across restarted worker processes."""
+        self.started_at = datetime.now(UTC)
+        self._samples.clear()
+        self._delivery_samples.clear()
+        self._delivery_started_at.clear()
+        self._delivery_computed = {}
+        self._computed = {"metrics_snapshot_ready": 0.0}
+        self.computed_at = None
+
     def mark_unavailable(self) -> None:
         """Do not expose stale or fabricated values when a worker is unreachable."""
         self._computed = {"metrics_snapshot_ready": 0.0}
