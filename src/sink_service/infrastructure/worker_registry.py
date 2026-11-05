@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
 from dataclasses import asdict
+from datetime import datetime
 
 from sink_service.application.delivery_definition import delivery_definitions
 from sink_service.application.delivery_registry import DeliveryView
