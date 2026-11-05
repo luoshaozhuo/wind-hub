@@ -106,6 +106,7 @@ async def _poll_workers(
     period = interval_ms / 1000
     next_tick = loop.time() + period
     previous_health: dict[str, str] = {}
+    previous_deliveries: dict[str, tuple[str, str]] = {}
     while not stop.is_set():
         try:
             await asyncio.wait_for(
@@ -132,6 +133,17 @@ async def _poll_workers(
                         role, "WORKER_STATE", state,
                     )
             previous_health = dict(registry.worker_health)
+            current_deliveries = {
+                item.delivery_id: (item.actual_state, item.last_error)
+                for item in registry.list()
+            }
+            for identifier, state in current_deliveries.items():
+                if previous_deliveries.get(identifier) != state:
+                    telemetry.event(
+                        "ERROR" if state[0] in {"UNKNOWN", "FAILED"} else "INFO",
+                        identifier, "DELIVERY_STATE", f"{state[0]}: {state[1]}",
+                    )
+            previous_deliveries = current_deliveries
             metrics = await registry.collect_metrics()
             if metrics is None:
                 telemetry.mark_unavailable()
