@@ -71,7 +71,10 @@ class WorkerRegistryView:
                     if old.channel == role:
                         if key not in by_id:
                             raise ValueError("worker did not report Delivery")
-                        self.views[key] = DeliveryView(**by_id[key])
+                        candidate = DeliveryView(**by_id[key])
+                        if candidate.revision != self.snapshot.revision:
+                            raise ValueError("worker reports stale configuration generation")
+                        self.views[key] = candidate
             except (ValueError, KeyError, TypeError):
                 self.worker_health[role] = "UNKNOWN"
                 for key, old in tuple(self.views.items()):
