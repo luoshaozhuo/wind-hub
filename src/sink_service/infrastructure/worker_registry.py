@@ -95,6 +95,8 @@ class WorkerRegistryView:
         self.reset(snapshot)
         applied = await self.supervisor.apply(snapshot.revision)
         await self.refresh()
+        if any(state != "RUNNING" for state in self.worker_health.values()):
+            raise RuntimeError("one or more worker generations are not converged")
         return applied
 
     async def collect_metrics(
