@@ -17,6 +17,7 @@ class WorkerRegistryView:
     """Read-only snapshots supplied by worker IPC."""
 
     def __init__(self, supervisor: WorkerSupervisor, snapshot: ValidatedSnapshot) -> None:
+        self._lock = asyncio.Lock()
         self.supervisor = supervisor
         self.snapshot = snapshot
         self.views: dict[str, DeliveryView] = {}
@@ -59,6 +60,10 @@ class WorkerRegistryView:
         return {}
 
     async def refresh(self) -> None:
+        async with self._lock:
+            await self._refresh_locked()
+
+    async def _refresh_locked(self) -> None:
         replies = await asyncio.gather(
             *(self.supervisor.request(role, "GET_STATUS", self.snapshot.revision)
               for role in ROLES),
@@ -99,12 +104,13 @@ class WorkerRegistryView:
                         self.inspections.pop(key, None)
 
     async def apply_configuration(self, snapshot: ValidatedSnapshot) -> tuple[str, ...]:
-        self.reset(snapshot)
-        applied = await self.supervisor.apply(snapshot.revision)
-        await self.refresh()
-        if any(state != "RUNNING" for state in self.worker_health.values()):
-            raise RuntimeError("one or more worker generations are not converged")
-        return applied
+        async with self._lock:
+            self.reset(snapshot)
+            applied = await self.supervisor.apply(snapshot.revision)
+            await self._refresh_locked()
+            if any(state != "RUNNING" for state in self.worker_health.values()):
+                raise RuntimeError("one or more worker generations are not converged")
+            return applied
 
     async def collect_metrics(
         self,
