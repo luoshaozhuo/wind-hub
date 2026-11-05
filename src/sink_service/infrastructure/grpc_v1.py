@@ -163,6 +163,10 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                     detail=self._config.last_error,
                 ),
                 *[
+                    common_pb2.DependencyHealth(name=f"worker.{role}", health=state)
+                    for role, state in sorted(workers.items())
+                ],
+                *[
                     common_pb2.DependencyHealth(
                         name=view.delivery_id,
                         health=view.actual_state,
@@ -584,8 +588,7 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
         start: bool,
     ) -> common_pb2.OperationResult:
         try:
-            # The Writer owns intent for both roles, even when the Reader runs
-            # the actual reliable Delivery.
+            # Main persists intent; each worker owns only its data channel.
             snapshot, _commit = await self._config.set_delivery_desired(
                 request.id,
                 running=start,
@@ -610,7 +613,7 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
         try:
             view = self._registry.get(request.id)
         except KeyError:
-            # The other process will reconcile the newly committed revision.
+            # The worker has not yet confirmed the committed revision.
             return common_pb2.OperationResult(
                 operation_id=snapshot.revision,
                 accepted=True,
