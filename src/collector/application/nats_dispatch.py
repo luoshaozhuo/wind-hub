@@ -8,7 +8,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Protocol
 
-from contracts.sample_batch import BatchSample, SampleBatch, MAX_SAMPLES_PER_BATCH
+from contracts.sample_batch import MAX_SAMPLES_PER_BATCH, BatchSample, SampleBatch
 from contracts.sample_message import DeliveryMode
 from core.domain.point_value import PointValue
 
@@ -149,8 +149,6 @@ class SamplePublisher:
                         publish_time=datetime.now(UTC),
                         samples=tuple(entries),
                     )
-                    # Validate the serialized size before queue acceptance.
-                    batch.encode()
                     self._queue.put_nowait(batch)
                 except (ValueError, TypeError, asyncio.QueueFull):
                     logger.warning(
