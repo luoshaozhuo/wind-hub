@@ -555,7 +555,11 @@ class ReliableDeliveryPort:
                     await message.ack_sync(timeout=5)
                     self.acknowledged_batches_total += 1
                     continue
-                if metadata.num_pending > 0:
+                historical = (
+                    metadata.num_delivered > 1
+                    or (datetime.now(UTC) - metadata.timestamp).total_seconds() > 5
+                )
+                if historical:
                     rate = config["replay_max_rate_per_second"]
                     now = asyncio.get_running_loop().time()
                     delay = self._last_backlog_output + 1 / rate - now
