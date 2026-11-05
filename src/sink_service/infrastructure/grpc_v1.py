@@ -14,7 +14,8 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 from contracts import common_pb2, common_pb2_grpc, sink_service_pb2, sink_service_pb2_grpc
 from sink_service.application.config_manager import ConfigManager
-from sink_service.application.delivery_registry import DeliveryRegistry, DeliveryView
+from sink_service.application.delivery_registry import DeliveryRegistry
+from sink_service.infrastructure.worker_registry import WorkerRegistryView, DeliveryView
 from sink_service.application.observability import Observability
 from sink_service.domain.config import (
     CandidateNotFoundError,
@@ -108,7 +109,7 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
     def __init__(
         self,
         config: ConfigManager,
-        registry: DeliveryRegistry,
+        registry: DeliveryRegistry | WorkerRegistryView,
         *,
         service_id: str,
         role: str,
@@ -522,7 +523,7 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
     """Delivery queries and operator commands through a single Writer."""
 
     def __init__(
-        self, registry: DeliveryRegistry, config: ConfigManager, observability: Observability
+        self, registry: DeliveryRegistry | WorkerRegistryView, config: ConfigManager, observability: Observability
     ) -> None:
         self._observability = observability
         self._registry = registry
@@ -636,7 +637,7 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
 def build_v1_server(
     *,
     config: ConfigManager,
-    registry: DeliveryRegistry,
+    registry: DeliveryRegistry | WorkerRegistryView,
     service_id: str,
     role: str,
     credentials: grpc.ServerCredentials,
