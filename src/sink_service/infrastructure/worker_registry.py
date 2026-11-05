@@ -130,7 +130,6 @@ class WorkerRegistryView:
         dict[str, float],
         dict[str, dict[str, float]],
         tuple[tuple[datetime, float], ...],
-        dict[str, tuple[tuple[datetime, float], ...]],
         dict[str, float],
         bool,
     ] | None:
