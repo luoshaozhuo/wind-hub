@@ -130,6 +130,7 @@ class NatsRealtimeIngress:
         if not routes:
             return
         now = datetime.now(UTC)
+        cache_limit = max(16384, len(self._engines) * 4096)
         for sample in batch.to_samples():
             identity = (
                 batch.wind_farm_id,
@@ -143,7 +144,6 @@ class NatsRealtimeIngress:
                     engine for engine in routes.values()
                     if engine.accepts(batch.device_id, sample.point_id)
                 )
-                cache_limit = max(16384, len(self._engines) * 4096)
                 if len(self._target_cache) >= cache_limit:
                     self._target_cache.popitem(last=False)
                 self._target_cache[identity] = targets
