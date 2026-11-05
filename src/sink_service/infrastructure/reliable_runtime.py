@@ -306,15 +306,6 @@ class ReliableDeliveryPort:
             await self._pool.release(self._definition.sink_id)
             self._adapter = None
 
-    def _matches(self, sample: SampleMessage) -> bool:
-        source = self._snapshot.deliveries[self._definition.delivery_id]["source"]
-        return (
-            sample.wind_farm_id == source["wind_farm_id"]
-            and sample.collector_id == source["collector_id"]
-            and (not source["devices"] or sample.device_id in source["devices"])
-            and (not source["points"] or sample.point_id in source["points"])
-        )
-
     async def _dead_letter(
         self,
         message: Any,
@@ -513,7 +504,15 @@ class ReliableDeliveryPort:
         self, message: Any, batch: SampleBatch
     ) -> bool:
         """Return true only after all matched points reach a durable terminal state."""
-        samples = tuple(sample for sample in batch.to_samples() if self._matches(sample))
+        selector = self._snapshot.deliveries[self._definition.delivery_id]["source"]
+        if (
+            batch.wind_farm_id != selector["wind_farm_id"]
+            or batch.collector_id != selector["collector_id"]
+            or (selector["devices"] and batch.device_id not in selector["devices"])
+        ):
+            return True
+        point_ids = frozenset(selector["points"]) if selector["points"] else None
+        samples = batch.to_samples(point_ids=point_ids)
         if not samples:
             return True
         self.received_total += len(samples)
