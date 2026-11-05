@@ -66,7 +66,7 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                         ) and not item.last_error
                     }))
                     evidence["applied_ids"] = json.dumps(applied)
-                    if len(applied) != len(views):
+                    if any(item.delivery_id not in applied for item in views):
                         status = "PENDING"
                 elif request.operation == "GET_STATUS":
                     evidence["deliveries"] = json.dumps(
