@@ -53,7 +53,11 @@ async def replay(
                 print(f"SKIP multipart malformed source sequence={sequence}; manual repair required")
                 continue
             payload = base64.b64decode(record["payload_base64"], validate=True)
-            SampleBatch.decode(payload, mode="reliable", subject=subject)
+            try:
+                SampleBatch.decode(payload, mode="reliable", subject=subject)
+            except ValueError:
+                print(f"SKIP non-replayable invalid batch sequence={sequence}; manual repair required")
+                continue
             if execute:
                 stable_id = hashlib.sha256(
                     f"{dlq_stream}:{sequence}:{delivery_id}".encode("utf-8")
