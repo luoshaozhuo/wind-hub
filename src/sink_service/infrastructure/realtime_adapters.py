@@ -31,6 +31,8 @@ def _redis_command(*parts: str) -> bytes:
 
 _REDIS_BATCH_CAS = (
     "local result={};"
+    "local clock=redis.call('TIME');"
+    "local now=clock[1]*1000+math.floor(clock[2]/1000);"
     "for i=1,#KEYS do "
     "local base=(i-1)*4;"
     "local code=1;"
@@ -42,8 +44,6 @@ _REDIS_BATCH_CAS = (
     "if old.sample_id==ARGV[base+3] then code=2;else code=-1;end;"
     "end;end;"
     "if code==1 and ARGV[base+4]~='' then "
-    "local clock=redis.call('TIME');"
-    "local now=clock[1]*1000+math.floor(clock[2]/1000);"
     "if tonumber(ARGV[base+4])<=now then code=0;end;"
     "end;"
     "if code==1 then "
