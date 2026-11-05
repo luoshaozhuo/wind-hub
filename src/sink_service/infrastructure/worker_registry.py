@@ -5,13 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import asdict
-from dataclasses import asdict
-
-from sink_service.application.delivery_registry import DeliveryView
-from sink_service.infrastructure.supervisor import ROLES, WorkerSupervisor
 
 from sink_service.application.delivery_definition import delivery_definitions
+from sink_service.application.delivery_registry import DeliveryView
 from sink_service.domain.config import ValidatedSnapshot
+from sink_service.infrastructure.supervisor import ROLES, WorkerSupervisor
 
 
 class WorkerRegistryView:
@@ -21,6 +19,7 @@ class WorkerRegistryView:
         self.supervisor = supervisor
         self.snapshot = snapshot
         self.views: dict[str, DeliveryView] = {}
+        self.worker_health: dict[str, str] = {role: "UNKNOWN" for role in ROLES}
         self.reset(snapshot)
 
     def reset(self, snapshot: ValidatedSnapshot) -> None:
@@ -66,6 +65,7 @@ class WorkerRegistryView:
                 if isinstance(reply, BaseException) or reply.status != "APPLIED":
                     raise ValueError("worker not available")
                 reports = json.loads(reply.evidence["deliveries"])
+                self.worker_health[role] = "RUNNING"
                 by_id = {entry["delivery_id"]: entry for entry in reports}
                 for key, old in tuple(self.views.items()):
                     if old.channel == role:
@@ -73,6 +73,7 @@ class WorkerRegistryView:
                             raise ValueError("worker did not report Delivery")
                         self.views[key] = DeliveryView(**by_id[key])
             except (ValueError, KeyError, TypeError):
+                self.worker_health[role] = "UNKNOWN"
                 for key, old in tuple(self.views.items()):
                     if old.channel == role:
                         values = asdict(old)
