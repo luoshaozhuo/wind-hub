@@ -428,12 +428,9 @@ def read_snapshot(
 
     service_paths = tuple(selected)
     files = [safe_file(path) for path in service_paths]
-    services = [_yaml_doc(item) for item in files]
-    for service in services:
-        validate_service(service)
-    if services[0]["config_sources"] != services[1]["config_sources"]:
-        raise ConfigurationError("Writer/Reader config_sources must match")
-    instance_paths, template_root = config_sources(services[0])
+    service = _yaml_doc(files[0])
+    validate_service(service)
+    instance_paths, template_root = config_sources(service)
     files.extend(safe_file(path) for path in instance_paths.values())
     docs = {item.path: _yaml_doc(item) for item in files}
     required: set[str] = set()
