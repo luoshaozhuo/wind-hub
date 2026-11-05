@@ -99,11 +99,12 @@ class NatsRealtimeIngress:
                 route.pop(delivery_id)
                 if not route:
                     del self._routes[engine.source_identity]
+                    subscription = self._subscriptions.pop(engine.source_identity)
+                    await subscription.unsubscribe()
                 self._target_cache.clear()
             if self._engines:
                 return
             client, self._client = self._client, None
-            self._subscription = None
             if client is not None:
                 try:
                     await asyncio.wait_for(client.drain(), timeout=3)
