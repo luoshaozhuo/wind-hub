@@ -442,6 +442,64 @@ class ReliableDeliveryPort:
             self._capacity_alarm = '; '.join(alarms)
         except Exception as exc:
             self._capacity_alarm = f'SOURCE_CAPACITY_UNKNOWN: {exc}'
+    async def _deliver_batch(
+        self, message: Any, batch: SampleBatch
+    ) -> bool:
+        """Return true only after all matched points reach a durable terminal state."""
+        samples = tuple(sample for sample in batch.to_samples() if self._matches(sample))
+        if not samples:
+            return True
+        self.received_total += len(samples)
+        self._last_batch_count = len(samples)
+        assert self._adapter is not None
+        unresolved = False
+        for start in range(0, len(samples), 500):
+            if self._stop.is_set():
+                return False
+            chunk = samples[start : start + 500]
+            self._active_io = True
+            try:
+                outcome = await self._write_with_heartbeat(message, chunk)
+            finally:
+                self._active_io = False
+            settled = set(outcome.settled)
+            delivered = set(outcome.delivered)
+            if (
+                not delivered.issubset(settled)
+                or len(settled) != len(outcome.settled)
+                or any(not 0 <= i < len(chunk) for i in settled)
+            ):
+                raise RuntimeError("Adapter returned invalid batch indexes")
+            self.write_success_total += outcome.successful_attempts
+            self.failed_total += outcome.failed_attempts
+            self.delivered_total += len(delivered)
+            for latency in outcome.successful_latencies_ms:
+                timestamp = datetime.now(UTC)
+                if len(self.latency_samples) == self.latency_samples.maxlen:
+                    self.latency_overflow_at = timestamp
+                self.latency_samples.append((timestamp, latency))
+            # A successful CAS-skip is not a confirmed business write.
+            permanent = (
+                outcome.error.startswith("Redis CAS conflicts at samples")
+                or (not outcome.error and settled != delivered)
+            )
+            if permanent:
+                for index in sorted(settled - delivered):
+                    await self._dead_letter(
+                        message,
+                        outcome.error or "target permanently skipped sample",
+                        sample=chunk[index],
+                    )
+            if not permanent and settled != delivered:
+                unresolved = True
+            if len(settled) != len(chunk):
+                unresolved = True
+            if outcome.error and not permanent:
+                unresolved = True
+            if unresolved:
+                break
+        return not unresolved
+
     async def _run(self) -> None:
         assert self._subscription is not None
         config = self._snapshot.service["reliable"]
