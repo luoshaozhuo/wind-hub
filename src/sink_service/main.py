@@ -90,7 +90,10 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
 
 async def _poll_workers(registry: WorkerRegistryView, stop: asyncio.Event) -> None:
     while not stop.is_set():
-        await registry.refresh()
+        try:
+            await registry.refresh()
+        except Exception:
+            logger.exception("worker status refresh failed")
         try:
             await asyncio.wait_for(stop.wait(), timeout=1.0)
         except TimeoutError:
