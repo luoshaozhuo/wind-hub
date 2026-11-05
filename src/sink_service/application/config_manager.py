@@ -356,11 +356,13 @@ class ConfigManager:
             self._last_error = ""
             application = self._latest_application.get(self._disk.revision)
             if application is not None:
-                self._latest_application[self._disk.revision] = replace(
+                confirmed = replace(
                     application,
                     effective_revision=self._disk.revision,
                     applied=tuple(sorted(applied)),
                     pending=(),
                     error="",
                 )
+                self._latest_application[self._disk.revision] = confirmed
+                self._applications[confirmed.application_id] = confirmed
             return True
