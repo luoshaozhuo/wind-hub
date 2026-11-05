@@ -71,6 +71,7 @@ class ReliableDeliveryPort:
         self.latency_overflow_at: datetime | None = None
         self.retry_total = 0
         self.dlq_total = 0
+        self.dlq_invalid_batches_total = 0
         self._started_at = datetime.now(UTC)
         self._capacity_alarm = ''
         self._last_capacity_check = 0.0
@@ -125,6 +126,7 @@ class ReliableDeliveryPort:
             'failed_total': float(self.failed_total),
             'write_success_total': float(self.write_success_total),
             'dead_letter_total': float(self.dlq_total),
+            'dead_letter_invalid_batches_total': float(self.dlq_invalid_batches_total),
             'retry_total': float(self.retry_total),
             'io_inflight': float(self._active_io),
         }
@@ -414,7 +416,10 @@ class ReliableDeliveryPort:
             if not getattr(ack, "duplicate", False):
                 new_record = True
         if new_record:
-            self.dlq_total += 1
+            if sample is None:
+                self.dlq_invalid_batches_total += 1
+            else:
+                self.dlq_total += 1
 
     async def _dlq_with_heartbeat(
         self,
