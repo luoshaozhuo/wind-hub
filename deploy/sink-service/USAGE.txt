@@ -1,45 +1,65 @@
-wind-hub Sink Service deployment
-================================
+wind-hub Sink Service v2 batch deployment
+=========================================
 
-Prerequisites
+Process model
 -------------
-1. Provision NATS and JetStream with nats-init. Stream WH_HISTORY
-   subscribes only to wh.hist.>; realtime stays on Core NATS.
-2. Configure one Collector instance per delivery in system.yaml:
-   delivery: realtime or delivery: reliable, never both in one Collector.
-3. Assign every enabled Sink to exactly one Sink Service process.
-4. Ensure the Sink Service container can reach Redis/TDengine/Gateway targets.
-   127.0.0.1 inside a container is the container itself. Override target host.
-5. For reliable TDengine output, deploy a compatible schema with a persisted
-   sample_id deduplication key before enabling writes.
+One container starts exactly three OS processes: Main, Realtime, Reliable.
+Only Main exposes a gRPC/mTLS endpoint. Both workers have independent
+asyncio loops and connect directly to NATS or JetStream for samples.
+IPC conveys commands, status and metrics, never sample data.
 
-Single process
---------------
-cd deploy/sink-service
-WIND_HUB_SITE_ID=my_site docker compose --profile single up --build
-Web Server: WIND_HUB_SINK_GRPC_TARGETS=127.0.0.1:50074
+Prepare a writable persistent configuration root containing:
+  configs/services/sink_service.yaml
+  configs/instances/sinks.yaml
+  configs/instances/deliveries.yaml
+  configs/templates/sinks/<name>_<version>.yaml
+  configs/templates/deliveries/<name>_<version>.yaml
+  tls/ca.crt, tls/sink.crt, tls/sink.key (or adjusted security paths)
 
-Split processes
----------------
-cd deploy/sink-service
-WIND_HUB_SITE_ID=my_site docker compose --profile split up --build
-Web Server: WIND_HUB_SINK_GRPC_TARGETS=127.0.0.1:50074,127.0.0.1:50075
+Ensure service.config_root and the paths in security match the mounted
+runtime filesystem. The volume must be writable by UID 65532; Main
+durably stores configuration revisions in .generations/ and CURRENT.
+Service file must explicitly specify instance paths and template root.
 
-The profiles must not be launched concurrently. A Sink ID must not be assigned
-to both workers; duplicate Durable Consumers violate per-Sink ownership.
-NATS URLs and Site IDs in each deployment must match the Collector publishers.
+NATS prerequisites
+------------------
+Provision a file-backed JetStream WH_HISTORY with subject
+  wh.batch.hist.>
+and a file-backed WH_DLQ with subject
+  wh.dlq
+Both require Limits retention, DiscardNew, positive MaxBytes and MaxAge.
+Reliable uses stable Durable Consumers per Delivery. A source message is
+ACKed only after all matched measurements were confirmed delivered or
+durably copied to DLQ. DLQ overflow blocks ACK.
+Realtime uses NATS Core subject
+  wh.batch.rt.>
+and never writes the source to JetStream.
 
-Configuration lifetime
-----------------------
-Sink output mappings are loaded on Sink Service process startup. The current
-service does not apply sinks.yaml changes live: restart the relevant Sink
-Service process after applying a new configuration. Collector must reload
-its own acquisition configuration separately.
+Set NATS URLs in configs/services/sink_service.yaml to reachable broker
+addresses (127.0.0.1 from within Docker means the container itself).
+Provide TLS certificates as configured and authorize external gRPC clients.
 
-Stop and Clear
---------------
-StopSink persists the stop request in the Sink Service state directory.
-Restarting the process does not silently reactivate that Sink.
-ClearSink requires a stopped Sink. Reliable Clear skips only that Sink's
-Durable Consumer backlog and does not purge the shared JetStream or target data.
-Realtime Clear invalidates the Sink-local cached latest values.
+Run
+---
+export WIND_HUB_SINK_CONFIG_ROOT=/srv/wind-hub/sink
+docker compose -f deploy/sink-service/compose.yaml up --build
+
+Web/CLI gRPC target: 127.0.0.1:50061 by default, using mTLS.
+One container has one gRPC endpoint; do not run separate realtime/reliable
+containers or a second instance against the same Durable and Sink ownership.
+
+Configuration changes
+---------------------
+Main is the only configuration Writer. Service-level changes require
+restart. Instance/Template changes can be applied incrementally where safe.
+Reliable Durable source selector changes are rejected without separately
+audited migration. STOP persists and is not automatically undone.
+A worker restart restores only desired START Deliveries.
+
+DLQ replay
+----------
+Manual, authorized replay only:
+python scripts/sink_dlq_replay.py --server nats://broker:4222 \
+  --dlq-stream WH_DLQ --delivery-id <id> --limit 100
+Add --execute only after reviewing the dry-run. Malformed split DLQ parts
+require manual reconstruction and repair; never auto-replay invalid payloads.
