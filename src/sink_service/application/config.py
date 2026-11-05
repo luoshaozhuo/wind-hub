@@ -402,7 +402,7 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
 def read_snapshot(
     root: Path, service_path: Path
 ) -> ValidatedSnapshot:
-    """Load two explicitly named Services and their referenced configuration closure."""
+    """Load the canonical Main Service and its referenced configuration closure."""
     root = root.resolve(strict=True)
     selected: list[str] = []
     for path in (service_path,):
