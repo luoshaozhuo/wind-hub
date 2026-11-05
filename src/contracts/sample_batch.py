@@ -147,7 +147,9 @@ class SampleBatch(BaseModel):
             raise ValueError("batch subject/source mismatch")
         return batch
 
-    def to_samples(self) -> tuple[SampleMessage, ...]:
+    def to_samples(
+        self, *, point_ids: frozenset[str] | None = None
+    ) -> tuple[SampleMessage, ...]:
         """Materialize validated point envelopes for existing Adapter contracts.
 
         model_construct is safe here: SampleBatch validation has already
@@ -170,4 +172,5 @@ class SampleBatch(BaseModel):
                 max_staleness_ms=item.max_staleness_ms,
             )
             for item in self.samples
+            if point_ids is None or item.point_id in point_ids
         )
