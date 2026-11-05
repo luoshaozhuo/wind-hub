@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from contracts.sample_message import DeliveryMode, validate_subject_token
+from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
 
 BATCH_SCHEMA_VERSION = 2
 MAX_SAMPLES_PER_BATCH = 1024
@@ -146,3 +146,28 @@ class SampleBatch(BaseModel):
         if subject is not None and batch.subject() != subject:
             raise ValueError("batch subject/source mismatch")
         return batch
+
+    def to_samples(self) -> tuple[SampleMessage, ...]:
+        """Materialize validated point envelopes for existing Adapter contracts.
+
+        model_construct is safe here: SampleBatch validation has already
+        enforced every value, identity, timestamp, and channel constraint.
+        """
+        return tuple(
+            SampleMessage.model_construct(
+                schema_version=1,
+                wind_farm_id=self.wind_farm_id,
+                collector_id=self.collector_id,
+                task_id=self.task_id,
+                device_id=self.device_id,
+                point_id=item.point_id,
+                sample_id=item.sample_id,
+                value=item.value,
+                quality=item.quality,
+                sample_time=item.sample_time,
+                receive_time=item.receive_time,
+                publish_time=self.publish_time,
+                max_staleness_ms=item.max_staleness_ms,
+            )
+            for item in self.samples
+        )
