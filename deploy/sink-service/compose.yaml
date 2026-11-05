@@ -7,7 +7,6 @@ services:
       context: ../..
       dockerfile: deploy/sink-service/Dockerfile
     image: wind-hub-sink-service:dev
-    init: true
     command:
       - --config-root
       - /etc/wind-hub
