@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
@@ -356,8 +356,6 @@ class ConfigManager:
             self._last_error = ""
             application = self._latest_application.get(self._disk.revision)
             if application is not None:
-                from dataclasses import replace
-
                 self._latest_application[self._disk.revision] = replace(
                     application,
                     effective_revision=self._disk.revision,
