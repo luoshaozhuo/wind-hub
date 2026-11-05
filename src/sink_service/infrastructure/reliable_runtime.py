@@ -551,10 +551,6 @@ class ReliableDeliveryPort:
 
                 self.input_values_total += len(batch.samples)
                 replay_owner = (message.headers or {}).get("Wh-Replay-Delivery", "")
-                if replay_owner and replay_owner != self._definition.delivery_id:
-                    await message.ack_sync(timeout=5)
-                    self.acknowledged_batches_total += 1
-                    continue
                 historical = (
                     metadata.num_delivered > 1
                     or (datetime.now(UTC) - metadata.timestamp).total_seconds() > 5
@@ -569,7 +565,10 @@ class ReliableDeliveryPort:
                 if self._stop.is_set():
                     return
                 try:
-                    terminal = await self._deliver_batch(message, batch)
+                    terminal = (
+                        True if replay_owner and replay_owner != self._definition.delivery_id
+                        else await self._deliver_batch(message, batch)
+                    )
                     if not terminal:
                         raise RuntimeError("source batch contains unconfirmed points")
                     await message.ack_sync(timeout=5)
