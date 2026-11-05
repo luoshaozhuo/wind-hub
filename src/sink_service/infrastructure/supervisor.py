@@ -66,7 +66,10 @@ class WorkerSupervisor:
         self._ready[role].clear()
         old_client = self._clients.pop(role, None)
         if old_client is not None:
-            await old_client.close()
+            try:
+                await asyncio.wait_for(old_client.close(), timeout=1)
+            except (TimeoutError, OSError):
+                logger.warning("old worker IPC failed to close cleanly: %s", role)
         process = multiprocessing.get_context("spawn").Process(
             target=worker_main,
             args=(role, str(self._root), self._service_file, self._socket_path),
