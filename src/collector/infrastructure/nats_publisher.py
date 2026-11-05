@@ -85,7 +85,7 @@ class NatsPublisher:
                 await asyncio.wait_for(client.publish(subject, payload), timeout=0.5)
             return True
         except Exception:
-            logger.exception("NATS publication not confirmed: sample=%s", message.sample_id)
+            logger.exception("NATS batch publication not confirmed: batch=%s", message.batch_id)
             return False
 
     async def publish_metrics(self, subject: str, payload: Mapping[str, Any]) -> bool:
