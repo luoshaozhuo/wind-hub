@@ -44,6 +44,8 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         else:
             snapshot = read_snapshot(config_root, config_root / service_file)
             store.commit(snapshot, "", old=None)
+        if Path(snapshot.service["config_root"]).resolve() != config_root.resolve():
+            raise ValueError("configured config_root differs from runtime")
         await supervisor.start()
         registry = WorkerRegistryView(supervisor, snapshot)
         await registry.refresh()
