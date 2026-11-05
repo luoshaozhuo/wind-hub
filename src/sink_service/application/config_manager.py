@@ -323,3 +323,46 @@ class ConfigManager:
                     # The desired state has already been committed to disk.
                     self._last_error = str(exc)
             return snapshot, committed
+
+    async def reconcile_committed(self) -> bool:
+        """Retry a committed, hot-applicable generation after worker recovery."""
+        async with self._lock:
+            if self._disk.revision == self._runtime.revision:
+                return True
+            active_services = {
+                item.path: item.content for item in self._runtime.files
+                if item.path.startswith("configs/services/")
+            }
+            stored_services = {
+                item.path: item.content for item in self._disk.files
+                if item.path.startswith("configs/services/")
+            }
+            if active_services != stored_services or self._reconcile is None:
+                return False
+            expected = {
+                item.delivery_id
+                for state in (self._runtime, self._disk)
+                for item in delivery_definitions(state)
+            }
+            try:
+                applied = set(await self._reconcile(self._disk))
+            except Exception as exc:
+                self._last_error = str(exc)
+                return False
+            if not expected.issubset(applied):
+                self._last_error = "one or more Deliveries are not converged"
+                return False
+            self._runtime = self._disk
+            self._last_error = ""
+            application = self._latest_application.get(self._disk.revision)
+            if application is not None:
+                from dataclasses import replace
+
+                self._latest_application[self._disk.revision] = replace(
+                    application,
+                    effective_revision=self._disk.revision,
+                    applied=tuple(sorted(applied)),
+                    pending=(),
+                    error="",
+                )
+            return True
