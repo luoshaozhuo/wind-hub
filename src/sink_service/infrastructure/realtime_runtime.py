@@ -81,12 +81,20 @@ class NatsRealtimeIngress:
             if source not in self._subscriptions:
                 assert self._client is not None
                 subject = f"{self._subject_prefix}.{source[0]}.{source[1]}.>"
-                self._subscriptions[source] = await self._client.subscribe(
-                    subject,
-                    cb=self._on_message,
-                    pending_msgs_limit=8192,
-                    pending_bytes_limit=4 * 1024 * 1024,
-                )
+                try:
+                    subscription = await self._client.subscribe(
+                        subject,
+                        cb=self._on_message,
+                        pending_msgs_limit=8192,
+                        pending_bytes_limit=4 * 1024 * 1024,
+                    )
+                except BaseException:
+                    if not self._engines:
+                        orphan, self._client = self._client, None
+                        if orphan is not None:
+                            await orphan.close()
+                    raise
+                self._subscriptions[source] = subscription
             self._engines[delivery_id] = engine
             self._routes.setdefault(engine.source_identity, {})[delivery_id] = engine
             self._target_cache.clear()
