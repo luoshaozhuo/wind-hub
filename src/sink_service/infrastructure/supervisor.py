@@ -13,7 +13,10 @@ import tempfile
 from pathlib import Path
 
 from sink_service.infrastructure.ipc import (
-    ControlOperation, ControlReply, WorkerControlClient, read_frame,
+    ControlOperation,
+    ControlReply,
+    WorkerControlClient,
+    read_frame,
 )
 from sink_service.infrastructure.worker import worker_main
 
