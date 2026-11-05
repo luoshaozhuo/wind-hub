@@ -50,6 +50,15 @@ class NatsRealtimeIngress:
         self.rejected_batches_total = 0
         self.routed_values_total = 0
 
+    def counters(self) -> dict[str, float]:
+        """Return process-local ingress counts, not Delivery fan-out counts."""
+        return {
+            "input_batches_total": float(self.received_batches_total),
+            "input_values_total": float(self.received_values_total),
+            "rejected_batches_total": float(self.rejected_batches_total),
+            "routed_values_total": float(self.routed_values_total),
+        }
+
     @property
     def connected(self) -> bool:
         return self._client is not None and self._client.is_connected
@@ -496,6 +505,10 @@ class RealtimeFactory:
     def __init__(self) -> None:
         self._pool = SinkOutputPool()
         self._ingress: NatsRealtimeIngress | None = None
+
+    def ingress_counters(self) -> dict[str, float]:
+        ingress = self._ingress
+        return ingress.counters() if ingress is not None else {}
 
     def __call__(
         self, definition: DeliveryDefinition, snapshot: ValidatedSnapshot,
