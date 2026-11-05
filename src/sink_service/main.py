@@ -46,9 +46,7 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
             store.commit(snapshot, "", old=None)
         if Path(snapshot.service["config_root"]).resolve() != config_root.resolve():
             raise ValueError("configured config_root differs from runtime")
-        await supervisor.start()
         registry = WorkerRegistryView(supervisor, snapshot)
-        await registry.refresh()
         manager = ConfigManager(
             store, snapshot, writer=True, reconcile=registry.apply_configuration
         )
@@ -69,6 +67,8 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
             observability=telemetry,
         )
         await server.start()
+        await supervisor.start()
+        await registry.refresh()
         background.append(asyncio.create_task(supervisor.supervise(stop)))
         background.append(asyncio.create_task(_poll_workers(registry, stop)))
         await stop.wait()
