@@ -80,12 +80,13 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         await stop.wait()
     finally:
         stop.set()
-        for task in background:
-            task.cancel()
+        # Let bounded IPC requests finish; cancelling a request invalidates
+        # its reply channel and would prevent graceful worker shutdown.
         if background:
             await asyncio.gather(*background, return_exceptions=True)
         if server is not None:
-            await server.stop(grace=3)
+            grace = service["shutdown"]["grace_seconds"] if "service" in locals() else 3
+            await server.stop(grace=grace)
         try:
             await supervisor.close(
                 manager.disk.revision if "manager" in locals() else ""
