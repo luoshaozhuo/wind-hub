@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -228,25 +229,19 @@ class RealtimeEngine:
         while not self._stop.is_set():
             delay = max(0.0, next_tick - loop.time())
             if self._policy == 'periodic':
-                try:
+                with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._stop.wait(), timeout=delay)
-                except TimeoutError:
-                    pass
                 event_fired = False
             else:
                 if self._policy == "change_with_heartbeat" and self._saturated:
                     # While new changes arrive during target I/O, bound the
                     # following write cycle to the configured heartbeat tick.
                     # An isolated change still uses the immediate path.
-                    try:
+                    with contextlib.suppress(TimeoutError):
                         await asyncio.wait_for(self._stop.wait(), timeout=delay)
-                    except TimeoutError:
-                        pass
                 else:
-                    try:
+                    with contextlib.suppress(TimeoutError):
                         await asyncio.wait_for(self._wakeup.wait(), timeout=delay)
-                    except TimeoutError:
-                        pass
                 event_fired = self._wakeup.is_set()
                 self._wakeup.clear()
             if self._stop.is_set():

@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_0 · 20261101</p>
+<p class="subtitle">v1_1 · 20261102</p>
 
 <style>
 body {
@@ -737,8 +737,8 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 输入（Input） | Service、对象类型、ID、查询过滤与分页参数；受支持的管理动作及预期版本 |
 | 反馈（Response） | 对象列表、详情、状态、变更受理及执行结果 |
 | 目标方（Destination） | 对应业务 Service gRPC Server |
-| 业务输出（Output） | 列表/详情查询与任务启停等业务管理 RPC |
-| 业务规则（Business Rules） | 业务对象及运行期望状态由 Service 维护；CLI 只发出操作请求，读取权威结果；请求超时不等于后台任务已经停止 |
+| 业务输出（Output） | 列表/详情查询、任务启停、Gateway 变量发现/批量更新/读回确认等业务管理 RPC |
+| 业务规则（Business Rules） | 业务对象及运行期望状态由 Service 维护；CLI 只发出操作请求，读取权威结果；Gateway 的 `ListVariables`、`UpdateVariables`、`ReadVariables` 使用同一变量标识，形成发现→更新→结果反馈→读回确认闭环；变量更新仅修改 Gateway 内部变量存储，不触发现场控制；请求超时不等于后台操作未执行 |
 | 约束（Constraints） | 分页、权限、并发冲突保护；对有副作用操作由 Service 审计 |
 
 ### 3.1.8 UR-07 机组实时数据监视
@@ -820,11 +820,11 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 编号 | 可核验要求 | 来源 |
 |---|---|---|
 | FR-01 | 统一支持单次命令和交互式 Shell，输出结果、错误与退出码 | UR-01 |
-| FR-02 | 通过 containerd、iSulad 或 systemd 管理 Service 启停与重启，查询就绪结果；containerd 带外部 FIFO stdio 的 Task 不支持原位重建，必须在 Kill/Delete 前安全拒绝 | UR-02 |
+| FR-02 | 通过 containerd、iSulad 或 systemd 管理 Service 启停与重启，查询就绪结果 | UR-02 |
 | FR-03 | 查询 Service 身份、状态、健康及能力信息 | UR-03 |
 | FR-04 | 对完整 Service 配置执行 Get/Push/Apply，Push 不生效，Apply 报告磁盘和运行态结果 | UR-04 |
 | FR-05 | 使用两个显式本地目录递归比较整个 `configs/`：文件数、总字节数、增删改及文本 Diff | UR-05 |
-| FR-06 | 经 Service 查询设备、点、任务等对象并执行其提供的业务管理操作 | UR-06 |
+| FR-06 | 经 Service 查询设备、点、任务等对象并执行其提供的业务管理操作；Gateway 支持通过 `ListVariables`、`UpdateVariables`、`ReadVariables` 完成批量变量读写及读回确认 | UR-06 |
 | FR-07 | 从 Collector 缓存一次性查询指定机组测点数据；连续监视由 CLI 周期调用 Unary ReadPoints 实现，不触发现场读取 | UR-07 |
 | FR-08 | 经 Service 执行远程通信/业务诊断并显示结果，CLI 编排跨服务诊断及导出报告 | UR-08 |
 | FR-09 | 通过 Commander 下发现场控制命令并查询权威执行结果 | UR-09 |
@@ -1026,7 +1026,7 @@ flowchart TD
 | 关联需求 | UR-02 |
 | UC-02-S01 主流程 | 状态查询及启停重启 |
 | UC-02-S02 关键边界 | 重复操作；延迟就绪 |
-| UC-02-S03 异常与恢复 | 权限；不可达；超时及异常退出；containerd 外部 FIFO Task 重启在任何 Kill/Delete 之前拒绝，原 Task/PID 保持不变 |
+| UC-02-S03 异常与恢复 | 权限；不可达；超时及异常退出 |
 
 ## 4.4 UC-03 查询服务身份、健康与能力
 
@@ -1256,6 +1256,10 @@ flowchart TD
     B --> C{"操作类型?"}
     C -->|read| D["ReadVariables 读取内存变量当前值"]
     D --> E["逐项显示值、质量和错误"]
+    C -->|update| I["UpdateVariables 批量更新授权变量"]
+    I --> J["逐变量返回写入结果"]
+    J --> K["ReadVariables 读回确认当前状态"]
+    K --> E
     C -->|start/stop| F["变更业务网关实例状态"]
     F --> G["显示期望与实际状态"]
     C -->|query| H["显示实例与变量列表"]
@@ -1268,14 +1272,14 @@ flowchart TD
 | 要素 | 内容 |
 |---|---|
 | 参与者 | 运维人员 |
-| 业务目标 | 查询和控制 Industrial Gateway |
+| 业务目标 | 发现 Gateway 全部变量，批量更新授权变量，读取结果确认，并管理 Gateway 运行状态 |
 | 前置条件 | Gateway Server 可用 |
-| 主要异常 | 网关无效、变量不存在/不可读、值过期、部分变量错误、配置冲突 |
-| 后置条件 | 只读取 Gateway Protocol Server 当前变量，不主动读取真实 PLC；不混淆容器启停 |
+| 主要异常 | 网关无效、变量不存在/不可读/不可通过 gRPC 更新、类型不匹配、重复 ID、值过期、部分变量失败、配置冲突、RPC 超时结果未知 |
+| 后置条件 | 更新 Gateway 权威变量存储并供协议 Server 读取，不自动转发现场控制；`ReadVariables` 只读 Gateway 当前变量、不主动读取真实 PLC；写入结果与读回值分别呈现，不混淆容器启停 |
 | 关联需求 | UR-06 |
-| UC-10-S01 主流程 | 实例及变量查询 |
-| UC-10-S02 关键边界 | 批量值与质量 |
-| UC-10-S03 异常与恢复 | 部分失败；网关未就绪 |
+| UC-10-S01 主流程 | `ListVariables` 分页列出全部变量→`UpdateVariables` 批量更新→逐项检查结果→`ReadVariables` 读回确认 |
+| UC-10-S02 关键边界 | 多变量批量、只读工业协议变量允许内部更新但不触发现场写入、更新权限与协议写权限分离、读回值和更新值对照 |
+| UC-10-S03 异常与恢复 | 变量不存在、类型不符、重复 ID、禁止更新、部分成功、网关未就绪；RPC 超时标记结果未知，读回而不盲目重试 |
 
 ## 4.12 UC-11 查询与控制 Data Generator
 
@@ -1821,6 +1825,7 @@ Realtime 和 Reliable 作为独立进程分别报告实际状态；配置变更�
 | `StopGateway` | Unary | 停用指定网关实例，不停止服务进程。 |
 | `ListVariables` | Unary | 查询当前 Gateway Protocol Server 的变量列表及属性。 |
 | `ReadVariables` | Unary | 一次性读取 Gateway Protocol Server 内部的变量当前值，不向真实 PLC 发起读取。 |
+| `UpdateVariables` | Unary | 通用批量变量写入：更新 Gateway 权威变量存储，逐项返回成功/失败，不触发现场指令。 |
 
 ### 9.6.2 输入、输出契约
 
@@ -1832,6 +1837,48 @@ Realtime 和 Reliable 作为独立进程分别报告实际状态；配置变更�
 | `StopGateway` | `gateway_id`、`expected_revision` | 受理结果、网关期望/实际状态及错误。 |
 | `ListVariables` | `gateway_id`、筛选及分页参数 | 变量 ID、名称、地址、类型、读写属性及分页信息。 |
 | `ReadVariables` | `gateway_id`、非空 `variable_ids[]` | 逐变量当前值、质量、时间戳、逐项错误；不触发现场读取。 |
+| `UpdateVariables` | `gateway_id`、非空 `values[]`（`variable_id`、`ScalarValue value`） | `results[]` 按请求顺序返回 `variable_id`、`success`、`error_code`、`message`，允许部分成功；不触发现场控制。 |
+
+### 9.6.3 `UpdateVariables` 的 Proto 增量契约
+
+保持 `IndustrialGatewayService` 原有 6 个 RPC 的方法名、输入及输出不变，仅新增 1 个 Unary RPC。三个变量访问 RPC 使用相同的 `gateway_id + variable_id` 命名空间；`variable_id` 在指定 Gateway 内唯一，Gateway 负责将其映射到内部逻辑变量。`UpdateVariables` 不要求调用方知道底层设备/测点的存储键或协议地址。
+
+```protobuf
+message VariableUpdate {
+  string variable_id = 1;
+  windhub.common.v1.ScalarValue value = 2;
+}
+
+message UpdateVariablesRequest {
+  string gateway_id = 1;
+  repeated VariableUpdate values = 2;
+}
+
+message VariableUpdateResult {
+  string variable_id = 1;
+  bool success = 2;
+  string error_code = 3;
+  string message = 4;
+}
+
+message UpdateVariablesResponse {
+  repeated VariableUpdateResult results = 1;
+}
+
+// 在既有 IndustrialGatewayService 中追加：
+rpc UpdateVariables(UpdateVariablesRequest)
+    returns (UpdateVariablesResponse);
+```
+
+### 9.6.4 写入语义与边界
+
+1. **统一变量空间**：`ListVariables` 列出可发现变量；`UpdateVariables` 更新同一个 `variable_id`；`ReadVariables` 读回同一个 `variable_id`。完整列表经分页取得。请求 `gateway_id`、变量 ID 和 `ScalarValue` 均须有效。
+2. **通用授权更新**：允许获得独立 gRPC 更新权限的客户端使用，包括 Data Generator 和 CLI；是否允许经 gRPC 更新由 Gateway 配置和服务端授权决定，**不能直接用 `Variable.writable`（工业协议写权限）代替**。禁止借此触发 Commander 或现场控制转发。
+3. **更新路径**：Gateway Server 校验后写入权威共享变量存储，协议 Server 通过该存储提供后续读取；不直接操纵各协议 Server 的私有状态；成功表示 Gateway 内部更新已提交，不表示远端工业客户端已读取。
+4. **逐项隔离**：同一批中的非法 ID、类型不匹配、权限不足、重复变量 ID 等逐项失败，不影响其他有效变量。`results[]` 数量与请求 `values[]` 相同，顺序一致。推荐稳定错误码：`NOT_FOUND`、`TYPE_MISMATCH`、`UPDATE_FORBIDDEN`、`INVALID_VALUE`、`DUPLICATE_ID`。
+5. **容量和并发**：请求变量数 1～1000；服务端限制消息大小、同时处理的 RPC 数及处理时限；超限或身份校验失败属于 RPC 整体错误。客户端设置 deadline，不能对未知结果自动重放同一批写入。
+6. **写后确认**：客户端可调用 `ReadVariables` 读回；并发更新时读回不必等于先前写入值，应分别显示更新结果与读回结果，不将读回不一致误判成 RPC 未提交。
+7. **最小消息字段**：本版 `VariableUpdate` 只包含变量 ID 和 `ScalarValue`；不为写入请求额外引入时间戳和质量字段。读取侧保留现有 `Sample` 结构，不改变其字段语义。
 
 ## 9.7 Data Generator gRPC 契约
 
@@ -1863,7 +1910,7 @@ Realtime 和 Reliable 作为独立进程分别报告实际状态；配置变更�
 
 | 管理器 | 类型 | 要求及说明 |
 |---|---|---|
-| containerd | 本机管理 API | 真实 Daemon、namespace、container/task；支持 start、stop、status；restart 仅支持可安全重建且无需外部 FIFO stdio relay 的 Task（如 null-io）。对使用外部 FIFO 的 Task，必须在 Kill/Delete 前明确拒绝，保留原 Task 及 PID，不自动重试；不得声称具备完整 FIFO 重启能力。 |
+| containerd | 本机管理 API | 真实 Daemon、namespace、container/task；支持 start、stop、restart、status。 |
 | iSulad | 本机 `isula` CLI（受控 subprocess，使用参数数组、固定可执行文件路径和命令白名单，不通过 Shell） | 真实 Daemon 与容器；支持 start、stop、restart、status；适配安装版本。 |
 | systemd | System Bus D-Bus | 系统级 Unit 的 start、stop、restart、status。 |
 
@@ -1874,7 +1921,7 @@ Realtime 和 Reliable 作为独立进程分别报告实际状态；配置变更�
 | `status` | 运行时类型、受管目标 ID | 管理器状态、业务 gRPC 就绪状态、时间及错误。 |
 | `start` | 运行时类型、受管目标 ID、超时 | 接受情况、进程状态、就绪状态及错误。 |
 | `stop` | 运行时类型、受管目标 ID、超时 | 进程状态、停止结果及错误。 |
-| `restart` | 运行时类型、受管目标 ID、超时 | 重启各阶段结果、进程状态、就绪状态及错误；停止未确认不得继续启动；containerd 原 Task 使用外部 FIFO 时必须预检拒绝且不执行 Kill/Delete。 |
+| `restart` | 运行时类型、受管目标 ID、超时 | 重启各阶段结果、进程状态、就绪状态及错误；停止未确认不得继续启动。 |
 
 CLI 仅管理 `cli.yaml` 白名单对象；容器或 Unit 运行不代表 gRPC Ready。真实基础设施验收允许容器内部运行模拟业务组件，禁止用 Mock Daemon 替代 containerd、iSulad 或 systemd。
 
@@ -1918,7 +1965,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
   collector  devices | device | points | point | tasks | task | start | stop | latest | watch | metrics | events | publishing
   commander  devices | points | write | result | metrics | events
   sink       deliveries | delivery | start | stop | metrics | events
-  gateway    list | status | variables | read | start | stop | metrics
+  gateway    list | status | variables | read | update | start | stop | metrics
   data-generator  devices | scenarios | start | stop | status
   diagnose   collector (device|pipeline|gi) | commander | sink | gateway | data-generator | pipeline
   net        scan | industrial | tcp
@@ -1949,7 +1996,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `sink deliveries/delivery` | [ID]/ID | Sink Delivery 查询 | 配置与运行状态 |
 | `sink start/stop` | DELIVERY_ID | Sink Delivery 控制 | 修改期望状态 |
 | `sink metrics/events` | 可选筛选 | Sink 指标/事件 | 消费及交付 |
-| `gateway list/status/variables/read/start/stop/metrics` | 可选 GATEWAY_ID | Gateway 目标 RPC | 依据 9.6 目标 RPC 实现；未实现验收失败 |
+| `gateway list/status/variables/read/update/start/stop/metrics` | `update`：GATEWAY_ID、变量值集合；其他同前 | Gateway `ListVariables`/`ReadVariables`/`UpdateVariables` 等 | CLI 支持变量发现→授权批量更新→逐项结果→读回确认；RPC 不触发现场控制；未实现验收失败 |
 | `data-generator devices/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.7 必需 RPC 实现 |
 | `data-generator start/stop/status` | 场景/任务标识 | StartGeneration / StopGeneration / GetGeneration | start 传 scenario_id、stop/status 传 generation_id；无故障注入命令 |
 | `diagnose collector/commander/sink/gateway/data-generator` | 目标对象及可选范围 | 对应 Service 诊断 RPC | 统一显示阶段证据 |
@@ -2170,6 +2217,19 @@ Gateway : edge-01
 State   : ONLINE
 Traffic : 120 messages/s
 
+wind-hub> gateway update edge-01 --values updates.json --yes
+VARIABLE      SUCCESS  ERROR_CODE
+──────────────────────────────────
+wind_power    true     -
+wind_speed    true     -
+bad_variable  false    NOT_FOUND
+
+wind-hub> gateway read edge-01 wind_power wind_speed
+VARIABLE      VALUE
+──────────────────────
+wind_power    1200
+wind_speed    8.5
+
 wind-hub> data-generator devices
 DEVICE      PROTOCOL    STATE
 ────────────────────────────────
@@ -2182,6 +2242,8 @@ SCENARIO      STATUS
 normal-wind   READY
 
 ```
+
+`gateway update GATEWAY_ID --values PATH --yes` 的 `PATH` 为 UTF-8 JSON 数组，元素仅含 `variable_id` 与 `value`；`value` 为 JSON 标量（布尔、整数、有限浮点数或字符串），由 CLI 按 `ScalarValue` 类型编码。CLI 不接受原始工业协议地址作为更新目标，不以 `Variable.writable` 自行推断 gRPC 更新权限；由 Gateway 返回逐项结果。需要确认实际状态时显式执行 `gateway read`，不可将提交成功和读回一致性混为一项保证。
 
 ## 10.8 远程诊断与跨服务链路输出
 
@@ -2538,12 +2600,6 @@ flowchart TD
 | `test_systemd_real.py` | integration | reliability | real_process | 真实 systemd Unit |
 | `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC、mTLS、错误映射 |
 
-### 14.1.1 首版运行时验收边界（2026-11-02 裁定）
-
-1. containerd：null-io 等可安全重建 Task 的 restart 应在真实 Daemon 上完成预检→停止→删除→创建→启动→RUNNING 复核。使用外部 FIFO 的 Task 仅验收预检拒绝、原 Task 仍 RUNNING 且 PID 不变、无 Kill/Delete、无自动重试；不能将此安全验收视为 FIFO 重启功能 PASS。
-2. iSulad：仍在设计支持范围，必须使用真实 iSulad Daemon 和 isula 测试 start/stop/restart/status、重复操作、超时及权限拒绝；未执行统一记为 NOT_RUN，不能宣称三管理器完整验收 PASS。
-3. 发布约束：iSulad 真机验收完成前，只允许对已验证的 systemd/containerd 子集作受限验收结论。原 48 场景矩阵不删除、不折算、不伪造通过。
-
 ## 14.2 System Test：全 UC 与场景追溯矩阵
 
 每项 `UC-xx-S01/S02/S03` 必须有可定位 System Test；一个文件可容纳多个测试函数，但场景不得遗漏。以下为**待实现的测试计划，不表示已经存在或通过**。每行场景必须实现可定位的独立测试函数或参数化 ID；行内多个操作和故障类型应分别参数化验证，不能只执行其中一个。测试输入、断言及环境记录在测试代码和验收报告中。
@@ -2579,9 +2635,9 @@ flowchart TD
 | UR-06 | UC-09-S01 | 9.5；10 | `test_sink_e2e.py` / `test_uc_09_s01` | `system` | `contract` | `normal` | 查询和启停；断言查询Delivery配置与状态；启停只改变目标Delivery |
 | UR-06 | UC-09-S02 | 9.5；10 | `test_sink_e2e.py` / `test_uc_09_s02` | `system` | `contract` | `boundary` | 双进程、部分故障；断言Realtime/Reliable状态互不混淆，单侧故障不假报另一侧 |
 | UR-06 | UC-09-S03 | 9.5；10 | `test_sink_e2e.py` / `test_uc_09_s03` | `system` | `reliability` | `failure` | 版本冲突、手动停止；断言冲突不更新配置；手动停止不被自动恢复 |
-| UR-06 | UC-10-S01 | 9.6；10 | `test_gateway_e2e.py` / `test_uc_10_s01` | `system` | `contract` | `normal` | 实例及变量查询；断言变量列表与读取值匹配；PLC读取计数不因ReadVariables增加 |
-| UR-06 | UC-10-S02 | 9.6；10 | `test_gateway_e2e.py` / `test_uc_10_s02` | `system` | `contract` | `boundary` | 批量值与质量；断言多个变量逐项关联质量/时间戳，缺失值不替为0 |
-| UR-06 | UC-10-S03 | 9.6；10 | `test_gateway_e2e.py` / `test_uc_10_s03` | `system` | `reliability` | `failure` | 部分失败、网关未就绪；断言逐变量失败保留其他成功项；网关未就绪不虚报有效值 |
+| UR-06 | UC-10-S01 | 9.6；10 | `test_gateway_e2e.py` / `test_uc_10_s01` | `system` | `contract` | `normal` | 分页获取全部变量→UpdateVariables 批量更新→逐项返回成功→ReadVariables 读回；断言变量 ID 一致、存储值可见、无现场 PLC 读写或 Commander 下发 |
+| UR-06 | UC-10-S02 | 9.6；10 | `test_gateway_e2e.py` / `test_uc_10_s02` | `system` | `contract` | `boundary` | 批量更新多个变量、工业协议只读与 gRPC 授权更新权限独立；断言响应按请求顺序一一对应，读回仍含质量/时间戳，写操作不触发现场控制 |
+| UR-06 | UC-10-S03 | 9.6；10 | `test_gateway_e2e.py` / `test_uc_10_s03` | `system` | `reliability` | `failure` | 不存在、重复 ID、非法类型/值、未授权、容量超限、网关未就绪、超时；断言逐变量部分成功、整体错误分离、未知写入不自动重试，读回不冒充写入确认 |
 | UR-06 | UC-11-S01 | 9.7；10 | `test_data_generator_e2e.py` / `test_uc_11_s01` | `system` | `contract` | `normal` | 设备场景及启停；断言场景列表含版本；启动返回generation_id；停止目标实例 |
 | UR-06 | UC-11-S02 | 9.7；10 | `test_data_generator_e2e.py` / `test_uc_11_s02` | `system` | `contract` | `boundary` | 重复操作；断言重复start/stop结果明确且不影响其他generation_id |
 | UR-06 | UC-11-S03 | 9.7；10 | `test_data_generator_e2e.py` / `test_uc_11_s03` | `system` | `reliability` | `failure` | 冲突、停止失败；断言配置冲突无副作用；失败保留错误与可查询状态 |
@@ -2610,6 +2666,7 @@ flowchart TD
 | `test_mtls_permissions_e2e.py` | system | security | real_service | 9.1、13：mTLS、越权、身份与审计边界 |
 | `test_timeout_unknown_e2e.py` | system | reliability | timeout | 6.4、9.1：RPC 超时不推断远端副作用、不盲目重发 |
 | `test_config_apply_partial_e2e.py` | system | reliability | partial | 9.2：文件提交与运行生效分别返回，部分成功退出码 4 |
+| `test_gateway_variable_update_real.py` | system | contract | real_service | 9.6：真实 Data Generator→Gateway 调用、变量发现→批量写入→读回闭环；请求顺序、部分成功、写权限隔离、拒绝控制转发、未知结果不重试 |
 | `test_poll_load_e2e.py` | system | performance | polling | 6.3、12.3：慢响应不重入、请求有界、无积压 |
 | `test_runtime_cleanup_e2e.py` | system | reliability | recovery | 9.8、13：异常退出后无错误目标清理及进程误杀 |
 
@@ -2678,5 +2735,5 @@ lint-imports
 
 第 4 章定义 16 项 UC，每项包含主流程、边界、异常/恢复三个规定场景（共 48 个场景标识）。第 14 章逐项提供测试归属和独立技术约束补充。所有 UC、接口、命令变更必须同步更新本追溯表和 System Test。命令、RPC 与 Proto 属于目标开发契约，不表示当前生产代码已实现或真实环境验收通过。
 
-**版本**：`CLI_软件设计_v1_0.md`。此版仅为设计修订，不代表已执行测试或提交代码。
+**版本**：`CLI_软件设计_v1_1.md`。本次新增 Gateway `UpdateVariables` 通用变量写入契约；原有 6 个 Gateway RPC 不变。此版仅为设计修订，不代表 Proto、Server、Client 已编码或通过测试。
 

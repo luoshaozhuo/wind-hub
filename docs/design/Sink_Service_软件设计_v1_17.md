@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_16 · 20261103</p>
+<p class="subtitle">v1_17 · 20261103</p>
 
 <style>
 body {
@@ -2574,19 +2574,37 @@ flowchart TD
 
 # 11. 配置与热重载
 
-## 11.1 文件体系及版本
+## 11.1 文件体系、显式来源与版本
 
-Sink Service 仍使用三类配置，但部署文件明确为：`services/sink-realtime.yaml`（Writer）与 `services/sink-reliable.yaml`（Reader）；`instances/sinks.yaml`、`instances/deliveries.yaml`；`templates/sinks/{template_id}/{file_version}.yaml`、`templates/deliveries/{template_id}/{file_version}.yaml`。以上专属文件与共享 Core 配置同处一个 `configs` 根目录，**共享 Core 文件不归 Sink Writer 所有，不得在 Sink 快照 Apply 中删除或重写**。
+Sink Service 使用 Service、Instance、Template 三类配置。每个进程以**启动参数显式指定的 Service 文件**作为唯一入口；Service 的 `config_sources` **直接指定**所使用的 Instance 文件 pathname 和 Template 根目录。这里的 `config_root` 为路径解析基准目录，例如 `/etc/wind-hub`；`config_sources` 中的 `configs/...` 相对 `config_root` 解析，禁止与配置根目录再重复拼接一层 `configs`。
 
-共享 Core 配置为 `instances/site.yaml`、`instances/devices.yaml`、`templates/units.yaml`、`templates/business_points.yaml` 及其精确引用的 `templates/protocols/{id}_{version}.yaml`、`templates/device_models/{id}_{version}.yaml`、`templates/point_tables/{id}_{version}.yaml`；这些文件由 Core 现有 `SharedDocumentLoader`、`VersionedTemplateRepository` 解析，Sink 只消费所需解析结果，不复制解析规则。Core 模板中 `protocols`、`device_models`、`point_tables` 使用扁平文件名；`deliveries` 属于分层版本目录。Sink 自有 `sinks` 类别须由 Sink 层增加同构解析规则，**不得擅自假设现有 Core `TemplateRef` 已支持 `sinks`**。
+```yaml
+config_root: "/etc/wind-hub"
+config_sources:
+  instances:
+    sinks: "configs/instances/sinks.yaml"
+    deliveries: "configs/instances/deliveries.yaml"
+  templates:
+    root: "configs/templates"
+```
 
-所有受管 YAML 使用 `schema_version: 1`、语义版本字符串 `file_version`，其格式与 Core `validate_document_version` 一致。模板身份使用 `template_id + file_version`；实例可以继续以当前设计字段 `template_id + template_version` 引用模板，但 `template_version` 必须与模板的 `file_version` 一致。**取消模板中的 `object_version` 冗余字段**。`revision` 单独用于完整快照 CAS，不替代 `file_version`，不得将模板文件名版本与实例并发 revision 混同。版本报告区分 `stored_revision`、`active_revision` 和逐 Delivery 实际生效版本。
+**依赖闭包规则：**Service 只声明直接配置来源，不重复列出间接使用的具体 Template 文件。`instances.sinks` 内每个 Sink 引用 `template_id + template_version`，由 `config_sources.templates.root` 解析为 `sinks/{template_id}_{template_version}.yaml`；`instances.deliveries` 类同，解析为 `deliveries/{template_id}_{template_version}.yaml`。示例路径分别为 `configs/templates/sinks/redis_realtime_1.0.0.yaml` 和 `configs/templates/deliveries/realtime_power_1.0.0.yaml`。不扫描目录、不按名称猜测 Instance 文件、不按“最新版本”回退、不支持旧的分层模板文件名。
+
+同一个配置域中的 Realtime Writer 和 Reliable Reader 使用相同的 `config_root` 和 `config_sources`；角色、TLS、RPC 监听等进程专属字段各自配置。Service 文件分别为 `configs/services/sink-realtime.yaml` 与 `configs/services/sink-reliable.yaml`，由各自启动参数显式给定；初始原子配置代必须显式提供两份 Service 文件，不能通过目录扫描或硬编码另一进程文件名补齐。Reader 只能读取已提交的完整配置代，且不得修改 Writer 所拥有的文件。
+
+Sink Writer 的受管范围仅为这两份 Service 文件、明确引用的两份 Instance 文件，以及沿 `Instance → Template` **精确解析且纳入候选快照的模板依赖闭包**；无关模板及 Core 共享文件不属于 Sink 管理域。未引用模板不能仅因位于 Template 根目录内就被纳入快照或删除。提交新的版本化 Template 时，候选必须包含新版本文件及使用它的 Instance 引用。Template 根目录仅用于确定路径，不表示递归加载整棵目录。完整候选替换、删除范围与已发布模板版本不可变约束分别按 §11.3、§11.5 执行。
+
+Core 共享配置仍由 Core 自己的 `SharedDocumentLoader`、`VersionedTemplateRepository` 读取和校验；Sink 不负责写入 `configs/instances/site.yaml`、`devices.yaml`、`configs/templates/units.yaml`、`business_points.yaml` 和 Core 协议/点表/设备型号模板。Core 通用模板使用 `{template_id}_{file_version}.yaml`，Sink/Delivery 模板也统一该扁平命名，业务校验仍由各自所属模块负责。
+
+受管 YAML 使用 `schema_version: 1`、语义版本字符串 `file_version`，与 Core 文档版本规则一致。模板身份采用 `template_id + file_version`；Instance 的 `template_version` 必须匹配被引用 Template 的 `file_version`。不设置冗余 `object_version`。`revision` 是完整快照 CAS/内容修订标识，不等同于模板 `file_version`。对外须区分 `stored_revision`、`active_revision` 和各 Delivery 实际运行状态。
+
+**路径与变更规则：**`config_root`、`config_sources` 仅在 Service 级配置；所有相对 pathname 必须校验普通文件、允许范围、符号链接与越界访问。修改任一 Service 配置来源是 Service 变更，Apply 后应提示 `RESTART_REQUIRED`，运行中的进程不得悄然切换来源；仅修改 Instance 的模板引用及新增版本文件属于可以增量热更新的内容。若新版本引用的文件缺失或未进入一致快照，Push 必须拒绝。
 
 ## 11.2 完整配置示例
 
 以下给出本版本的目标配置示例。仅本版三种 Adapter 属于有效配置范围；旧版其它 Adapter 模板须删除或拒绝加载。字段旁注释说明含义、值域与是否可热更新；现场地址、证书路径和容量数值是示例默认提议而非已测量事实。
 
-### 11.2.1 services/sink-realtime.yaml（Reader 对应 sink-reliable.yaml）
+### 11.2.1 configs/services/sink-realtime.yaml（Reader 对应 sink-reliable.yaml）
 
 ```yaml
 schema_version: 1            # 固定结构版本 1；不支持其它版本时拒绝
@@ -2596,7 +2614,13 @@ wind_farm_id: "farm-a"          # 风场标识：必须与消息身份匹配
 deployment_id: "prod-a"     # 部署身份：用于稳定消费命名
 process_role: "realtime"   # realtime | reliable；两个进程分别配置
 config_writer: true        # true | false；同一共享配置域仅一个 true
-config_root: "/etc/wind-hub/config"  # 三类配置文件的共享一致根目录
+config_root: "/etc/wind-hub"  # 路径基准，config_sources 使用 configs/... 相对路径
+config_sources:                # Service 对附属配置的直接依赖；两进程必须一致
+  instances:
+    sinks: "configs/instances/sinks.yaml"        # Sink 实例文件 pathname
+    deliveries: "configs/instances/deliveries.yaml" # Delivery 实例文件 pathname
+  templates:
+    root: "configs/templates"  # 模板根目录；仅按 Instance 引用读取精确版本
 
 grpc:
   listen_host: "127.0.0.1"      # 绑定 IP；可指定网卡地址
@@ -2635,7 +2659,6 @@ runtime:
   max_inflight_per_sink: 8      # 正整数 <= 全局上限；可由 Sink 模板收紧
   max_pending_points: 10000    # 每 Delivery 实时缓存点数上限；一个点存一份最新样本
   io_wait_timeout_ms: 3000     # 正整数；仅限定等待，不证明 I/O 已结束
-  watchdog_interval_ms: 5000   # 500..60000 ms；可省略，默认 5000；只恢复 desired=START 的故障 Delivery
   max_event_records: 10000     # 1..10000；事件内存窗口条数
 
 reliable:
@@ -2667,9 +2690,9 @@ shutdown:
   grace_seconds: 10           # >0；未收敛 I/O 不强制安全释放
 ```
 
-两个进程使用相同的服务字段约束但分别有 `process_role`、`grpc.listen_port`、`config_writer`；Reader 的 `config_writer=false`，`writer_endpoint` 指向 Writer。共享配置提交路径只在 Writer 侧可写，Reader 不得借其它 API 绕过权限。
+两个进程使用相同的 `config_root` 和 `config_sources`，但分别设置 `process_role`、`grpc.listen_port`、`config_writer`；Reader 的 `config_writer=false`，`writer_endpoint` 指向 Writer。两个 Service 文件均须显式包含相同的 `config_sources` 段，不允许依赖默认实例文件名或默认模板目录。共享配置提交路径只在 Writer 侧可写，Reader 不得借其它 API 绕过权限。
 
-### 11.2.2 templates/sinks/redis_realtime/1.0.0.yaml
+### 11.2.2 configs/templates/sinks/redis_realtime_1.0.0.yaml
 
 ```yaml
 schema_version: 1
@@ -2689,7 +2712,7 @@ output:
   write_timeout_ms: 2000        # 正整数；超时仍需追踪 I/O
 ```
 
-### 11.2.3 templates/deliveries/realtime_power/1.0.0.yaml
+### 11.2.3 configs/templates/deliveries/realtime_power_1.0.0.yaml
 
 ```yaml
 schema_version: 1
@@ -2706,7 +2729,7 @@ staleness:
   max_age_ms: 3000               # 正数；仅作为附加更严格约束，不覆盖来源 max_staleness_ms；到期即丢弃
 ```
 
-### 11.2.4 templates/deliveries/reliable_history/1.0.0.yaml
+### 11.2.4 configs/templates/deliveries/reliable_history_1.0.0.yaml
 
 ```yaml
 schema_version: 1
@@ -2721,7 +2744,7 @@ reliable:
   dead_letter_subject: "wh.dlq" # 死信 Subject
 ```
 
-### 11.2.5 templates/sinks/kafka_history/1.0.0.yaml
+### 11.2.5 configs/templates/sinks/kafka_history_1.0.0.yaml
 
 ```yaml
 schema_version: 1
@@ -2749,7 +2772,7 @@ output:
 
 此模板只保证 Kafka Producer 的提交确认边界，Broker 接收成功不代表下游最终处理成功；使用 Reliable 时必须明确选择下游业务级去重或允许至少一次重复，不得把 Producer 幂等误认为端到端去重。具体点表与质量标志映射遵守第 12 章。
 
-### 11.2.6 templates/sinks/modbus_registers/1.0.0.yaml
+### 11.2.6 configs/templates/sinks/modbus_registers_1.0.0.yaml
 
 Modbus TCP Server 是**被读取的寄存器服务端**，并非对外写寄存器的客户端。一次成功派发只表示内部寄存器镜像更新完成，不表示第三方已读取。
 
@@ -2779,7 +2802,7 @@ output:
 
 约束：点到寄存器地址必须稳定且无重叠；`value_encoding`、字节序、`quality_codes`、地址范围、最多可映射点数均须在 Push 阶段验证。一个 `float32` 占两个 16 位寄存器，质量另占一个寄存器；超出地址空间或与其他实例监听地址冲突直接拒绝，不得部分映射。质量标志必须可以由客户端按寄存器表读取。
 
-### 11.2.7 instances/sinks.yaml
+### 11.2.7 configs/instances/sinks.yaml
 
 ```yaml
 schema_version: 1
@@ -2812,7 +2835,7 @@ sinks:
 
 `history_kafka` 引用前述不可变 Kafka Sink 模板；部署时校验 Broker ACK、`business_duplicate_policy` 以及受控下游对重复样本的处理声明；未配置该策略时拒绝 Reliable 配置。`allow_at_least_once` 表示明确接受重复，不得声称端到端恰好一次。
 
-### 11.2.8 instances/deliveries.yaml
+### 11.2.8 configs/instances/deliveries.yaml
 
 ```yaml
 schema_version: 1
@@ -2858,6 +2881,7 @@ deliveries:
 
 | 维度 | 必须执行的校验 | 失败处理 |
 |---|---|---|
+| 配置来源及模板命名 | 两份 Service 的 `config_sources` 一致；Instance pathname 为明确 YAML 文件；Template 根目录明确；精确引用 `{template_id}_{template_version}.yaml`；禁止默认文件名、目录扫描和旧分层路径 | Push 拒绝缺项、路径越界、引用缺失、版本不一致和额外文件；不自动回退 |
 | 服务与 RPC | `max_active_rpcs` 为 1～64、请求体至多 2 MiB、默认 deadline 至多 5000 ms；监听端口不重复 | Push 拒绝并指出文件路径、字段及允许范围 |
 | 统计 | 计算周期 100～60000 ms、窗口 1000～3600000 ms、时间桶 1～3600；`supported_window_ms` 非空且均不超过 `metrics_window_ms`；时间桶容量足够覆盖窗口 | 不允许静默扩大窗口、改写公式或降级精度 |
 | 进程与 Writer | 同一配置域恰好一个 Writer；双进程 `process_role` 和监听端口互不冲突 | 冲突直接拒绝 |
@@ -2889,28 +2913,26 @@ deliveries:
 - 模板标识与实例引用均在单次完整快照中闭合；示例 Kafka 的 `allow_at_least_once` 仅说明重复接收策略，不表示已实测 Kafka 端到端去重。
 - 两个进程的 Service 配置需各有独立的启动路径；在使用同一共享正式配置域时，Get/Push/Apply 的受管文件范围必须明确保留各角色配置，不能由单角色快照删除另一角色的服务配置。该规则的文件命名及打包清单必须由部署配置明确并纳入 Push 校验。
 
-### 11.2.12 最新 main 的配置归属与迁移矩阵（v1_15 新增）
+### 11.2.12 最新 main 的配置归属与迁移矩阵（v1_17）
 
-| 资源/规则 | 权威实现或目录 | Sink Service 的处理 | 阶段 |
+| 对象 | 唯一路径/来源规则 | 生产代码责任 | 实施阶段 |
 |---|---|---|---|
-| 协议模板 | `core.infrastructure.config.versioned_templates`；`templates/protocols/{id}_{version}.yaml` | 只读消费 Core 解析结果；不复制路径解析器 | 一、二 |
-| 型号与点表 | `templates/device_models/{id}_{version}.yaml`、`templates/point_tables/{id}_{version}.yaml` | 通过 Core 共享快照解析设备、点、单位和引用关系 | 二 |
-| 业务点/单位 | `templates/business_points.yaml`、`templates/units.yaml` | 按 Core 的已有校验器解析，不加入 Sink Writer 可替换文件集 | 二 |
-| Sink 模板 | `templates/sinks/{id}/{version}.yaml` | Sink 专有严格验证；Core 目前不支持 `sinks` 类别，不能直接构造该类别的 `TemplateRef` | 一 |
-| Delivery 模板 | `templates/deliveries/{id}/{version}.yaml` | 文件布局与 Core `deliveries` 类型一致，业务字段仍由 Sink 验证 | 一 |
-| Sink 实例及意图 | `instances/sinks.yaml`、`instances/deliveries.yaml` | Sink Writer 的 CAS 与生命周期权威来源 | 一 |
-| 两个进程的 Service | `services/sink-realtime.yaml`、`services/sink-reliable.yaml` | 同一 Sink 配置域内必须成对保留，且恰好一个 Writer | 一 |
-| 全量 Get/Push/Apply | Sink 自有管理 API 和原子配置代仓储 | 只管理 Sink 专属受管文件集合；共享 Core 目录只读验证引用，不覆盖或删除其它 Service 文件 | 一 |
+| Service 入口 | 两个进程分别显式传入 `configs/services/sink-realtime.yaml`、`configs/services/sink-reliable.yaml` | 启动器按给定 pathname 加载，禁止猜测另一个 Service 文件 | 阶段二前置整改 |
+| Sink Instance | Service 的 `config_sources.instances.sinks` | 只读取该字段所指明的 YAML | 阶段二前置整改 |
+| Delivery Instance | Service 的 `config_sources.instances.deliveries` | 状态更新、CAS、快照均使用该字段解析的 pathname | 阶段二前置整改 |
+| Sink Template | `config_sources.templates.root` + `sinks/{template_id}_{template_version}.yaml` | 按 Instance 引用加载，不扫描、不兼容旧版分层路径 | 阶段二前置整改 |
+| Delivery Template | `config_sources.templates.root` + `deliveries/{template_id}_{template_version}.yaml` | 同上；版本和身份精确验证 | 阶段二前置整改 |
+| Core 共享文件 | Core SharedDocumentLoader / VersionedTemplateRepository | 仅消费 Core 解析结果；不由 Sink 快照覆盖 | 阶段二 |
+| 全量 Get/Push/Apply | 两份显式 Service + 两份显式 Instance + 精确引用的 Template 闭包 | 原子代提交；检查来源变更需重启、引用缺失拒绝 | 阶段二前置整改 |
+| 测试与部署 | `tests/sink_service/{unit,component,integration,system}/` | 覆盖显式来源、路径安全、跨进程一致性与不可变版本 | 阶段四验收 |
 
-**兼容边界**：如果代码仍按 `object_version` 比较 Sink 模板版本，或者将 `configs/templates/protocols/{id}/{version}.yaml` 当成 Core 协议模板路径，均为当前实现缺陷，不得通过支持两套路径的兼容层掩盖。模板实例字段 `template_version` 为 Sink 业务引用属性，可保留，但必须精确引用目标模板的 `file_version`。每个 `file_version` 发布后内容不可变；同版本重新提交相同字节允许，变更字节拒绝。
+**迁移边界：**移除 `templates/sinks/<id>/<version>.yaml`、`templates/deliveries/<id>/<version>.yaml` 等旧路径及默认文件名读取逻辑；不得为旧版结构保留兼容分支。`config_sources` 属于 Service 契约，`template_id + template_version` 属于 Instance 契约，`file_version` 属于 Template 自身身份，三者分别校验。
 
-**原子快照所有权**：Sink Writer 的完整候选集包含两个 Sink Service 文件、Sink/Delivery 实例和 Sink/Delivery 模板，不包含全局 `site/devices/units/business_points` 以及其他服务的配置。Reader 校验同一已提交配置代；引用共享 Core 文件时通过独立的共享配置读取路径加载，避免把 Core 的并发修改当作 Sink Writer 的 CAS 事务。若实际部署要求两者跨域原子更新，应提升到独立的全局配置协调机制，本版不得假装 Sink Writer 已提供该能力。
-
-**提交前审查点**：比对 Core 模板的实际类别集合、主分支配置加载器导出 API、Sink 快照的受管路径白名单、Proto 中 Get/Push/Apply 的 `files[]` 语义和 CLI 调用方。变更任何字段须同步调整生产代码、示例配置、文档和测试矩阵。
+**原子快照所有权：**Sink Writer 的候选文件集严格由两份显式 Service、两份 `config_sources.instances` 文件以及精确解析的已引用 Template 闭包组成。`config_sources.templates.root` 不是目录扫描许可；同目录内不相关文件及 Core 文件不纳入本次快照的替换/删除范围。Writer/Reader 以相同的 `config_sources` 和已提交 revision 核对来源，发现偏差应报配置不一致，不得自动切换路径。
 
 ## 11.3 完整配置快照 Get / Push / Apply
 
-本节规定 CLI 已确认的外部配置行为，不自行定义 Proto 字段。**Get** 读取指定作用域的完整文件快照与 revision；**Push** 校验完整候选文件集合（路径安全、Schema、文件版本、模板引用、实例引用、Sink 能力及冲突），只暂存候选及标识，**不得**改变正式文件或运行配置；**Apply** 检查候选标识和预期 revision，原子提交正式文件集合，再对 Instance/Template 引用变更进行受影响对象增量应用。Service 配置变更仅提交文件并明确提示需要重启。
+本节规定 CLI 已确认的外部配置行为，不自行定义 Proto 字段。**Get** 按当前 Service 的 `config_sources` 与 Instance→Template 精确引用闭包读取指定作用域的完整文件快照及 revision；**Push** 校验完整候选文件集合（路径安全、Schema、文件版本、模板引用、实例引用、Sink 能力及冲突），只暂存候选及标识，**不得**改变正式文件或运行配置；**Apply** 检查候选标识和预期 revision，原子提交正式文件集合，再对 Instance/Template 引用变更进行受影响对象增量应用。Service 配置变更仅提交文件并明确提示需要重启。
 
 | 阶段 | 成功条件 | 失败处理与反馈 |
 |---|---|---|
@@ -2926,8 +2948,8 @@ deliveries:
 
 | 对象 | 编码前必须确定的行为 |
 |---|---|
-| 全量文件集 | `files[]` 表示被管辖的 Sink Service 配置树的完整替换集合；未包含的旧受管文件视为待删除。不得触碰其他 Service 的配置树。 |
-| 路径安全 | `relative_path` 必须位于受管根目录内；拒绝绝对路径、`..`、符号链接、重复路径、非普通文件；提交前后均核验。 |
+| 全量文件集 | `files[]` 仅表示两份显式 Service、两份显式 Instance 以及精确引用的模板闭包；不得扫描 `templates.root` 生成候选。对于旧代已受管、现已解除引用的 Sink 模板版本仍须遵守已发布模板不可变/不可删约束，不把未引用的外部共享文件视为待删除。 |
+| 路径安全 | `relative_path` 与 `config_sources` 必须相对于 `config_root` 在允许的 `configs` 子树内安全解析；拒绝绝对路径、`..`、符号链接、重复路径、非普通文件及越界访问；不允许隐式默认路径。 |
 | 文件完整性 | 校验 `size_bytes` 和 SHA-256 与实际 `content` 一致；未知 Schema、版本或失效引用拒绝 Push。 |
 | 版本不可变 | 既有 Template 版本内容一旦提交不得原地覆盖；更新需创建新版本并修改 Instance 引用。 |
 | 候选生命周期 | 绑定 `base_revision`、不可变内容摘要与唯一 `candidate_id`；过期、失效、重复应用须显式拒绝或按已完成结果安全响应，不得悄然覆盖较新正式版本。 |
@@ -2941,7 +2963,7 @@ deliveries:
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
- A["Push 完整候选文件集合"] --> B["校验 schema、版本、引用、能力和路径"]
+ A["Push 显式来源及引用闭包的候选文件集"] --> B["校验路径、schema、版本、引用、能力"]
  B --> C{"校验通过?"}
  C -->|否| X["拒绝候选，不改变正式文件和 Runtime"]
  C -->|是| D["暂存不可变候选与基线 revision"]
@@ -2959,11 +2981,11 @@ flowchart TD
 
 ## 11.5 热更新中的竞态和不可变边界
 
-只允许通过 Writer 对实例文件进行 revision CAS 更新；对外通过 Get/Push/Apply 处理完整快照；服务内部针对单个 Delivery 的期望状态更新使用相同 revision CAS 与原子文件提交机制，不额外暴露旧的 Update/Replace 接口。模板版本不可修改，发布新版本后仅修改实例引用才影响运行。Service 参数保存后标记 `RESTART_REQUIRED`，不混入当前实际生效版本。受影响 Sink 连接切换前先停止新交付，旧 I/O 未安全结束则维持旧 active_revision 和资源所有权，并把新 stored_revision 记录为待收敛。Reader 以 `revision + content_hash` 确认全量候选快照，不信任部分写入的文件；通知可以丢失，定期轮询保证最终发现。Writer 只对已收到 Reader 生效确认的对象标记 APPLIED；Reader 故障时不启动第二 Writer。历史来源过滤变更必须遵守第 10.4 节的积压责任边界。
+只允许通过 Writer 对 `config_sources.instances` 所指明的实例文件进行 revision CAS 更新；对外通过 Get/Push/Apply 处理完整快照；服务内部针对单个 Delivery 的期望状态更新使用相同 revision CAS 与原子文件提交机制，不额外暴露旧的 Update/Replace 接口。模板版本不可修改，发布新版本后仅修改实例引用才影响运行。Service 参数保存后标记 `RESTART_REQUIRED`，不混入当前实际生效版本。受影响 Sink 连接切换前先停止新交付，旧 I/O 未安全结束则维持旧 active_revision 和资源所有权，并把新 stored_revision 记录为待收敛。Reader 以 `revision + content_hash` 确认全量候选快照，不信任部分写入的文件；通知可以丢失，定期轮询保证最终发现。Writer 只对已收到 Reader 生效确认的对象标记 APPLIED；Reader 故障时不启动第二 Writer。历史来源过滤变更必须遵守第 10.4 节的积压责任边界。
 
 ## 11.6 配置安全性与身份来源
 
-凭据通过 Secret 引用解析，示例采用 `env:` 或部署支持的安全 Secret 后端；Secret 明文不写入 YAML，也不通过 GetConfig 返回。配置文件必须限定目录、符号链接及路径遍历访问；原子提交须采用完整目录代与原子清单指针切换；每个临时文件持久化后 fsync 文件与目录，并在切换时确保 Reader 只看见一个已提交代。Writer 无法验证配置文件内容哈希时拒绝同步，不能报告已经生效。
+凭据通过 Secret 引用解析，示例采用 `env:` 或部署支持的安全 Secret 后端；Secret 明文不写入 YAML，也不通过 GetConfig 返回。`config_sources` 必须显式、完整、两进程一致；配置文件必须限定目录、符号链接及路径遍历访问；原子提交须采用完整目录代与原子清单指针切换；每个临时文件持久化后 fsync 文件与目录，并在切换时确保 Reader 只看见一个已提交代。Writer 无法验证配置文件内容哈希时拒绝同步，不能报告已经生效。
 
 周期统计配置仅在各进程的 `services/sink-realtime.yaml` 或 `services/sink-reliable.yaml` 的 `metrics` 段定义，不得在 `runtime` 或实例配置中重复声明；热更新与重启遵守 UR-04 的窗口重建规则。`GetMetricsRequest.window_ms` 必须属于 `supported_window_ms`，否则明确返回不支持的窗口错误。
 
@@ -3102,6 +3124,7 @@ tests/sink_service/
 | `test_delivery_runtime.py` | component | reliability | concurrency | Sink 共享、独立 Consumer、停止收敛 |
 | `test_realtime_cache.py` | component | performance | load | 有界合并、丢弃、最新值与重启清空 |
 | `test_config_snapshot.py` | component | contract | normal、exception | Get/Push/Apply 校验、候选、冲突及版本 |
+| `test_config_sources.py` | integration | contract、security | normal、exception、recovery | 两个 Service 显式 Instance pathname；Template 根目录与扁平文件名；缺失/越界/旧版目录/默认路径回退拒绝；切换配置来源需重启 |
 | `test_writer_reader.py` | component | reliability | recovery、timeout | Writer/Reader 版本及部分收敛 |
 | `test_metrics.py` | component | contract | exception | 初始化、时间窗口、周期计算、跳周期、延迟分位数及快照不可用 |
 | `test_diagnose.py` | component | security | exception、timeout | 诊断分阶段证据、无副作用、限流 |
@@ -3287,12 +3310,13 @@ lint-imports
 | Modbus TCP Server | 1 个 float32+质量寄存器、500 点、地址冲突、Reliable 模式 | 值与质量同时可读；正确连续映射；冲突及 Reliable 拒绝 |
 | 并发能力 | 单写入 Adapter 配 `max_safe_inflight=2` | Push 拒绝；已在途 I/O 超时不提前回收额度 |
 | 双进程优先级 | 实时和补发共用目标、分别具有/没有物理隔离或目标侧配额 | 有保障时实测实时优先；无保障不允许声称优先级成立 |
+| 配置来源 | 同配置域两 Service 指向同一路径、不同 pathname、缺失实例、目录扫描诱饵、旧式分层模板、Template 未引用 | 仅匹配显式文件和精确引用闭包；不同来源/缺失/旧路径拒绝；未引用模板不被读取或删除；变更来源提示重启 |
 | 完整快照 | Template 缺失、版本原地覆盖、Writer 冲突、CAS 冲突 | 完整候选原子拒绝；正式文件和 active_revision 均不被错误改变 |
 | 容量性能 | 20 Sink × 10 Hz × 500 float32，持续 10 分钟 | 确实输出 ≥200 批/s、≥100000 数值/s；记录 P99、错误、背压与资源；未实测不得标 PASS |
 
 上述测试是原有 UC→System Test 矩阵的专项细化，不替代原场景覆盖；每个配置拒绝分支须记录错误码、字段路径及可复现输入。
 
-## 14.9 v1_15 设计审查与未验证事项
+## 14.9 设计审查与未验证事项
 
 本节为设计检查结果，不是实际软件验收。
 
@@ -3307,3 +3331,10 @@ lint-imports
 - **已核对代码（2026-11-03）**：`main` HEAD `0dfee3bbbc864eae364fb214e447dea0a447820b`；`VersionedTemplateRepository` 支持 `protocols`、`device_models`、`point_tables`、`tasks`、`deliveries`，不支持 `sinks`；前 3 类采用扁平文件名，其余支持类别采用分层文件名。`validate_document_version` 要求 `schema_version == 1` 且 `file_version` 符合 `X.Y.Z`。
 - **本版修订**：明确两份 Sink Service 配置文件、Sink 管辖范围与共享 Core 文件的只读边界；删除 Sink/Delivery 示例中的冗余 `object_version`；补充版本引用的单一权威和阶段一、二迁移矩阵。
 - **未完成的代码验证**：当前开发分支是否已实现此新契约、CLI 是否处理两个 Service 文件的快照边界，以及本地 Claude Code 的 Ruff/Mypy/Import Linter、System 验收，均不得据此设计修订宣称 PASS。
+
+### 14.9.2 v1_17 配置路径设计修订及待验证项
+
+- Service 增加 `config_sources`，实例文件路径和模板根目录由 Service 明确指定；间接引用的模板由实例 ID/版本解析，Service 不逐项列举。
+- Sink、Delivery 模板统一扁平命名 `{template_id}_{file_version}.yaml`；不再支持旧的 `templates/{family}/{id}/{version}.yaml`。
+- 启动、候选快照、原子代提交、Reader 同步、Delivery desired-state 更新均需按显式路径改造，不允许以默认 `instances/deliveries.yaml` 或递归扫描补救。
+- 本次为**设计修订**，不代表开发分支实现或独立测试已通过；尚待生产代码与测试矩阵同步，并由本地 Claude Code 在阶段四后独立验收。

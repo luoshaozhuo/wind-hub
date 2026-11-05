@@ -1,4 +1,10 @@
-"""Shared builders for Sink Service stage-one configuration snapshots."""
+"""Shared builders for Sink Service stage-one configuration snapshots.
+
+The v1 rewrite stores every snapshot pathname under ``configs/``: two explicit
+Service files, flat exact-version templates and two Instance files. The exact
+layout mirrors the production ``config_sources`` / ``template_path`` contract so
+the fixtures cannot drift into a layout the Writer/Reader would reject.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +17,21 @@ import yaml
 
 from sink_service.domain.config import SnapshotFile
 
+# Canonical config-root-relative pathnames shared by the whole stage-one suite.
+REALTIME_SERVICE = "configs/services/sink-realtime.yaml"
+RELIABLE_SERVICE = "configs/services/sink-reliable.yaml"
+SINKS_INSTANCE = "configs/instances/sinks.yaml"
+DELIVERIES_INSTANCE = "configs/instances/deliveries.yaml"
+TEMPLATE_ROOT = "configs/templates"
+
+_CONFIG_SOURCES = {
+    "instances": {
+        "sinks": SINKS_INSTANCE,
+        "deliveries": DELIVERIES_INSTANCE,
+    },
+    "templates": {"root": TEMPLATE_ROOT},
+}
+
 _BASE_SERVICE: dict[str, Any] = {
     "schema_version": 1,
     "file_version": "1.0.0",
@@ -18,6 +39,7 @@ _BASE_SERVICE: dict[str, Any] = {
     "wind_farm_id": "farm-a",
     "deployment_id": "prod-a",
     "config_root": "/var/lib/wind-hub/config",
+    "config_sources": copy.deepcopy(_CONFIG_SOURCES),
     "grpc": {
         "listen_host": "127.0.0.1",
         "listen_port": 50061,
@@ -44,12 +66,15 @@ _BASE_SERVICE: dict[str, Any] = {
         "reliable_stream": "WH_HISTORY",
         "dead_letter_stream": "WH_DLQ",
         "dead_letter_subject": "wh.dlq",
+        "dlq_max_bytes": 1024 * 1024 * 1024,
+        "dlq_max_age_seconds": 86400,
         "history_storage": "file",
         "dlq_storage": "file",
         "history_discard": "new",
         "dlq_discard": "new",
     },
     "runtime": {
+        "watchdog_interval_ms": 5000,
         "max_inflight_global": 128,
         "max_inflight_per_sink": 8,
         "max_pending_points": 10000,
@@ -139,7 +164,13 @@ _KAFKA_TEMPLATE = {
         "max_safe_inflight": 1,
     },
     "connection": {"bootstrap_servers": ["127.0.0.1:9092"]},
-    "output": {"topic": "wh.history", "business_duplicate_policy": "allow_at_least_once"},
+    "output": {
+        "topic": "wh.history",
+        "write_timeout_ms": 5000,
+        "acks": "all",
+        "enable_idempotence": True,
+        "business_duplicate_policy": "allow_at_least_once",
+    },
 }
 
 _REALTIME_DELIVERY_TEMPLATE = {
@@ -177,6 +208,17 @@ def template_doc(name: str) -> dict[str, Any]:
         "reliable_history": _RELIABLE_DELIVERY_TEMPLATE,
     }
     return copy.deepcopy(mapping[name])
+
+
+def template_path(name: str, version: str = "1.0.0") -> str:
+    """Production layout: ``configs/templates/<family>/<name>_<version>.yaml``."""
+    family = {
+        "redis_realtime": "sinks",
+        "kafka_history": "sinks",
+        "realtime_power": "deliveries",
+        "reliable_history": "deliveries",
+    }[name]
+    return f"{TEMPLATE_ROOT}/{family}/{name}_{version}.yaml"
 
 
 def _delivery_instance(
@@ -220,14 +262,14 @@ def snapshot_docs(
     """Return path -> YAML document for a complete valid shared snapshot."""
     realtime_callers = callers
     docs = {
-        "services/sink-realtime.yaml": service_document(
+        REALTIME_SERVICE: service_document(
             role="realtime",
             writer=True,
             port=writer_port,
             config_root=config_root,
             callers=realtime_callers,
         ),
-        "services/sink-reliable.yaml": service_document(
+        RELIABLE_SERVICE: service_document(
             role="reliable",
             writer=False,
             port=reader_port,
@@ -235,15 +277,9 @@ def snapshot_docs(
             callers=callers,
         ),
     }
-    family = {
-        "redis_realtime": "sinks",
-        "kafka_history": "sinks",
-        "realtime_power": "deliveries",
-        "reliable_history": "deliveries",
-    }
     for name in include_templates:
         doc = template_doc(name)
-        docs[f"templates/{family[name]}/{name}/1.0.0.yaml"] = doc
+        docs[template_path(name)] = doc
     default_sinks = {
         "ems_redis": {
             "template_id": "redis_realtime",
@@ -258,7 +294,7 @@ def snapshot_docs(
             "overrides": {},
         },
     }
-    docs["instances/sinks.yaml"] = {
+    docs[SINKS_INSTANCE] = {
         "schema_version": 1,
         "file_version": "1.0.0",
         "revision": "sinks-r1",
@@ -270,7 +306,7 @@ def snapshot_docs(
             "power_history", template="reliable_history", sink="history_kafka"
         ),
     }
-    docs["instances/deliveries.yaml"] = {
+    docs[DELIVERIES_INSTANCE] = {
         "schema_version": 1,
         "file_version": "1.0.0",
         "revision": "deliveries-r1",

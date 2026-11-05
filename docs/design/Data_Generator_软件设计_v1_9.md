@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_3 · 20261101</p>
+<p class="subtitle">v1_9 · 20261103</p>
 
 <style>
 body {
@@ -259,6 +259,15 @@ $$
 ```html
 <p class="formula-caption">式（8-1）实体判断逻辑</p>
 ```
+
+### 1.3.1 中文文字与 LaTeX 公式混排和渲染
+
+1. 数学量、指标计算式、分段定义与不等式使用 LaTeX；符号的字体、上下标及几何量/阵列类型遵从规范性参考文献《符号体系.md》。业务字段名使用行内代码表示；数学变量与业务字段之间必须建立明确映射，不能把标量、向量、张量混用。
+2. 简短符号可使用行内 `$...$`，完整指标定义、分式、求和、分段函数及多行等式应使用独立的 `$$...$$`；独立公式定界符必须独占一行，公式块前后各留一个空行。不得把独立公式置于 Markdown 表格单元、列表行、HTML 标签内部或围栏代码块中。
+3. 中文解释写在公式外的自然段或独立列表项中。数学环境中仅为短标签使用 `\text{...}`；不把长段中文及中文标点塞入公式，不让 `$` 跨越换行或 Markdown 表格列界。
+4. 表格单元格仅放简短行内变量或公式；含 `|`、分段、多行、复杂上下标、分式的定义一律移到表格外。若一条规则包含先决条件、数学定义和异常处理，采用“文字定义 → 独立公式 → 文字边界说明”布局。
+5. 所有数学符号必须在第一次出现处定义，包括物理/业务含义、类型、单位、取值域、采样或统计时刻；公式运算中单位必须一致，必要时写出秒与毫秒之间的换算。
+6. 必须在最终 Markdown 渲染器中检查中文与行内公式、独立公式与列表边界、下标、上下标、百分位、分式、转义字符和 Mermaid/HTML 混排。静态代码围栏检查不能替代实际渲染验收。若渲染器不支持某类语法，应先调整表达方式，不得以不可渲染公式交付。
 
 ## 1.4 代码约定
 
@@ -1716,7 +1725,7 @@ flowchart TB
 
 ## 6.2 运行生命周期
 
-服务启动必须从外部提供的服务配置绝对路径定位配置根目录，先校验 `services/data-generator-service.yaml`、`instances/data-generator.yaml` 和实际引用的模板文件，再进入就绪状态；`Apply` 只热更新实例/模板相关生效内容，服务级配置变更须重启（详见 §11.1、§11.5）。
+服务启动通过指定的服务配置绝对路径定位 `configs/`，逐一校验三个直接引用的实例文件、模板根目录及 Core 解析的间接模板，再进入就绪状态；`Apply` 只热更新实例/模板相关生效内容，服务级配置变更须重启（详见 §11.1、§11.5）。
 
 
 `DataGeneratorService.StartGeneration` 与 `StopGeneration` 是当前 Proto 已有的业务运行控制入口；`GetGeneration` 返回权威生成实例状态。它们不同于外部进程管理器启动/停止服务进程。按 `scenario_id` 选择已配置场景、绑定 `scenario_version` 后产生服务端 `generation_id`；合法停止必须保护未安全收敛的底层 I/O。场景编辑/删除不属于当前接口范围。
@@ -1867,7 +1876,7 @@ flowchart LR
 ```
 <p class="figure-caption">图 8-1 Data Generator 部署与通信依赖</p>
 
-部署中的 `CFG` 指同一配置根下的 `services/data-generator-service.yaml`、`instances/data-generator.yaml` 与可选 `templates/data_generator/*.yaml`，其目录结构及启动绝对路径规则见 §11.1；生产环境可将根目录部署在 `/etc/wind-hub/`。
+部署中的 `CFG` 以服务 YAML 相对 `configs/` 指定的四项直接路径及 Core 的间接引用图为准，不在运行代码中固定推导 `instances` 文件名或 `templates/` 路径，详见 §11.1；生产环境可将根目录部署在 `/etc/wind-hub/`。
 
 <p class="table-caption">表 8-1 节点、依赖、故障域</p>
 
@@ -1988,7 +1997,6 @@ flowchart LR
 | 插值 | 指定有序数据点及区间内插值；超出区间默认拒绝或采用显式配置的截断规则 |
 | 合法性 | 防止除零、溢出、NaN/Inf、非法单位与超功率约束 |
 | 安全 | 禁止配置任意 Python 表达式或动态加载未经信任代码 |
-
 例如简单静态功率曲线可采用明确表格输入 `(wind_speed, power_kw)`，对相邻有效点线性插值，区间外按配置拒绝或夹紧。该示例只是算法范式，不把厂家曲线或装机参数当作已知事实。
 
 ## 10.3 历史数据重放
@@ -2029,30 +2037,49 @@ flowchart TB
 
 ## 11.1 文件目录、命名、职责与生效原则
 
-配置根目录统一为 `configs/`，分为 **`services/`、`instances/`、`templates/` 三层**；不得使用此前的 `configs/data_generator/` 平铺目录，也不得将服务配置与实例配置命名为相同文件。开发与生产只允许改变根目录位置，不改变根目录内部的相对结构。
+**依据**：`main@0dfee3bbbc864eae364fb214e447dea0a447820b` 的 `SharedDocumentLoader`、`VersionedTemplateRepository`、`SharedDomainSnapshot` 与 `configs/`。公共配置和 Data Generator 私有运行配置采用同一根目录，但职责分离，禁止重复定义公共设备及模板。
 
 ```text
 configs/
 ├── services/
-│   └── data-generator-service.yaml   # 服务级配置（重启生效）
+│   └── data-generator-service.yaml       # Data Generator 服务级，重启生效
 ├── instances/
-│   └── data-generator.yaml           # Scenario/Device/模型/输出映射（Apply 热更新）
+│   ├── site.yaml                         # Core 共享站点
+│   ├── devices.yaml                      # Core 共享设备实例
+│   └── data-generator.yaml               # Scenario/模型/重放/输出映射
 └── templates/
-    └── data_generator/
-        └── *.yaml                    # 可选的版本化模板
+    ├── device_models/
+    │   └── <template_id>_<version>.yaml
+    ├── point_tables/
+    │   └── <template_id>_<version>.yaml
+    ├── protocols/
+    │   └── <template_id>_<version>.yaml
+    ├── business_points.yaml
+    └── units.yaml
 ```
 
-<p class="table-caption">表 11-1 三类配置文件、职责与生效规则</p>
+<p class="table-caption">表 11-1 共享与私有配置权威来源</p>
 
-| 相对配置路径 | 权威内容 | 更新与生效规则 |
+| 文件/目录 | 权威职责 | Data Generator 处理方式 |
 |---|---|---|
-| `services/data-generator-service.yaml` | gRPC 监听地址、资源额度、缓冲、诊断、Metrics 等服务级参数 | `Apply` 可提交文件，但正在运行的服务不热更；返回 `restart_required=true`，重启后生效 |
-| `instances/data-generator.yaml` | Scenario 及版本、Device/测点、数据源与模型配置、Gateway 列表及输出映射；模板引用 | `Apply` 校验后热更新未运行场景；已有 Generation 保持绑定原 Scenario 版本，遵照 §11.5 |
-| `templates/data_generator/*.yaml`（可选） | 复用的设备点表或模型参数模板，按模板身份和版本不可变 | 新模板/新版本随完整快照提交；只有实例配置显式改用该版本且通过 `Apply` 后才对新 Generation 生效 |
+| `instances/site.yaml` | 站点标识/名称 | 通过 Core 共享加载器只读获取 |
+| `instances/devices.yaml` | 全局设备 ID、设备型号引用、端点、覆盖参数和启用状态 | 不在 Scenario 内重复声明设备型号、协议地址和测点元数据 |
+| `templates/device_models/` | 设备型号及协议/点表版本引用 | 精确版本解析，不回退最新版 |
+| `templates/point_tables/` | 协议测点、类型、工程单位及地址 | 以实际解析后的点表校验 Scenario 引用；不复制点表内容 |
+| `templates/protocols/` | Modbus TCP、ADS、IEC104 等协议参数 | 仅复用元数据，不使 Generator 持有工业协议 Server |
+| `templates/business_points.yaml`、`units.yaml` | 业务物理量、工程单位与换算 | 通过共享快照验证标量/单位 |
+| `instances/data-generator.yaml` | 场景及版本、数据来源、随机/静态参数、CSV 重放和 Gateway 映射 | Data Generator 独立校验并拥有运行行为 |
+| `services/data-generator-service.yaml` | 配置来源路径、gRPC、输出、缓冲、诊断与 Metrics 限额 | 显式声明共享/私有实例文件及模板根目录；重启生效 |
 
-**启动路径解析**：部署方必须向进程明确提供 `services/data-generator-service.yaml` 的**绝对文件路径**（具体启动参数由部署入口实现，本文不预设现有 CLI 选项）。该文件的父目录必须为 `services/`；其父目录即唯一配置根目录。其余配置均从该根目录解析，**不得依赖当前工作目录（CWD）**。开发环境可使用仓库根目录下的 `configs/`；生产环境可部署至 `/etc/wind-hub/`（推荐路径，不强制）。启动时缺失服务配置或实例配置应明确报错，不隐式生成默认文件。模板目录仅在存在模板引用时要求相应文件。
+**服务级路径契约**：`configuration` 必填，且仅包含四项直接依赖：`instances.site`、`instances.devices`、`instances.scenarios`、`templates.root`。四项路径均以 `configs/` 为基准，不使用 `../`，不得使用绝对路径、路径越界或默认值回退。实例可选择不同的实际文件名。Core 依据指定的 `templates.root` 读取 `units.yaml`、`business_points.yaml`，并根据设备型号模板中的 ID/版本逐级引用协议、点表和型号文件。这些间接依赖无需、也不得在 Data Generator 专属配置中重复声明。修改四项直接路径属于服务级配置变更，重启后生效。
 
-各文件至少包含 `schema_version` 与 `file_version`；模板的逻辑身份、版本及内容不可混淆，已发布版本不可覆盖修改。**Generation 是 `StartGeneration` 创建的运行对象，而非配置文件；禁止按每次启动另建一个 Generation YAML。** 模板是可选机制，不为没有复用需求的场景强制创建模板。
+**公共版本契约**：Core `validate_document_version` 规定 `schema_version: 1`（整数）、`file_version: MAJOR.MINOR.PATCH`（字符串）；版本化模板另需 `template_id`。设备实例的 `model: {id, version}` 必须精确引用 `device_models/<id>_<version>.yaml`。型号模板再引用 `protocols/` 与 `point_tables/`；其解析次序为实例覆盖 > 型号参数 > 协议模板默认值 > Core 默认值。`tasks/`、`deliveries/` 仍按 Core 规定的独立版本目录解析；本模块不得为这些类别生成虚构引用。
+
+**共享能力边界**：`SharedDocumentLoader(SharedConfigPaths(...))` 负责公共文档、引用和基础校验；`build_shared_snapshot()` 生成不可变业务域快照。它们**不实现 Data Generator 私有 Scenario 校验、配置快照 RPC、候选持久化或文件集事务**；这些职责保留在本模块适配层，且须复用现有 Core 通用文件/版本/安全设施，不宣称 Core 已提供完整 Get/Push/Apply 服务。
+
+**启动定位及配置来源**：服务启动参数传入服务 YAML 的绝对路径，该文件应位于 `configs/services/`；通过其父目录 `services/` 的上一级确定 `configs/` 根目录。只解析 `configuration.instances.{site,devices,scenarios}` 以及 `configuration.templates.root`，不按默认文件名选择实例或模板根。四项引用以 `configs/` 为根解析，与当前工作目录无关；禁止绝对路径、`../`、符号链接越界。Core 负责解析单位、业务点和版本化模板的间接依赖，缺失或不合法时拒绝启动。
+
+**版本与执行快照**：运行实例绑定 Scenario 不可变版本和当时解析的公共点表/设备元数据快照。公共设备或模板升级不能隐式修改正在运行的 Generation；涉及点类型、端点或输出映射变化时由 Apply 进行变更影响核对。
 
 ## 11.2 Get / Push / Apply 规则
 
@@ -2063,8 +2090,8 @@ configs/
 
 | 操作 | 输入 | 输出与生效语义 |
 |---|---|---|
-| Get | 选定 `DISK`/`RUNTIME`/`CANDIDATE` 作用域 | 按 Proto 返回对应完整文件字节、版本、校验结果；有权访问者得到原始字节而非脱敏后的伪快照 |
-| Push | 候选完整文件集、预期版本 | 校验三类路径布局、完整文件集、Schema、版本和模板引用、模型、点表、Gateway 映射；仅暂存候选，不更改正式文件或运行态 |
+| Get | 选定 `DISK`/`RUNTIME`/`CANDIDATE` 作用域 | 文件集按服务 YAML 显式引用的三个实例文件、模板根目录及 Core 解析的间接依赖确定；返回对应文件字节、版本和校验结果 |
+| Push | 候选完整文件集、预期版本 | 依服务 YAML 中声明的四项直接路径校验实例、模板根目录、Schema、版本及引用、模型、点表、Gateway 映射；不得从固定路径补全缺失文件；仅暂存候选，不更改正式文件或运行态 |
 | Apply | 已校验候选标识、预期版本 | 校验版本并安全提交正式文件，对可热更新部分安全切换；服务配置变化报告 `RESTART_REQUIRED` |
 | 查询应用状态 | 配置状态查询 | 候选、正式、运行三份状态及受影响对象结果；部分失败不得标记全局成功 |
 
@@ -2072,132 +2099,127 @@ configs/
 
 ## 11.3 服务配置示例
 
-以下为 `services/data-generator-service.yaml` 完整示例。配置根目录由 §11.1 定义的启动定位规则决定；服务配置自身不再设置 `config_dir`，避免循环定位或工作目录歧义。
+以下为本模块**拟实现**的服务级 Schema，不代表 Core 已支持这些私有字段。版本与 Core 共享文档一致使用语义版本字符串；字段边界由 §6.3、§12 定义。
 
 ```yaml
-schema_version: 1               # 支持的结构版本；不兼容则拒绝启动
-file_version: 1                 # 文件内容版本；用于配置追踪
+schema_version: 1
+file_version: "1.0.0"
+configuration:
+  instances:
+    site: instances/site.yaml               # Core 共享站点
+    devices: instances/devices.yaml         # Core 共享设备
+    scenarios: instances/data-generator.yaml # Generator 场景
+  templates:
+    root: templates                         # 版本化公共模板根目录
 service:
-  grpc_bind: "127.0.0.1:50061" # 示例监听地址；实际按 contracts/部署选择
-  # 配置根目录由启动时提供的 services/ 文件绝对路径推导，不能写成相对 CWD 路径
+  grpc_bind: "127.0.0.1:50061"
 output:
-  max_inflight: 1                # >=1，首版要求同目标顺序
-  grpc_timeout_seconds: 3.0     # >0，结果不确定须报告 UNKNOWN
+  max_inflight: 1                  # >= 1；每 Gateway 默认串行
+  grpc_timeout_seconds: 3.0       # > 0
 buffer:
-  max_batches: 128              # >=1，有界批缓存
-  max_points_per_batch: 1000    # >=1，每批最大点数
+  max_batches: 128                # >= 1
+  max_points_per_batch: 1000      # >= 1
 replay:
-  read_batch_size: 1000         # >=1，历史分批读取上限
+  read_batch_size: 1000           # >= 1
 diagnose:
-  max_concurrent: 2             # >=1，主动诊断并发上限
-  timeout_seconds: 10.0         # >0，每项诊断受期限保护
+  max_concurrent: 2               # >= 1
+  timeout_seconds: 10.0           # > 0
 metrics:
   enabled: true
-  sample_seconds: 1.0           # >0，统计采样周期
-  window_seconds: 60           # >=采样周期
-  retain_seconds: 3600         # >=统计窗口
-  max_series: 2000             # >=1，标签基数上限
+  sample_seconds: 1.0             # > 0
+  window_seconds: 60              # >= sample_seconds
+  retain_seconds: 3600            # >= window_seconds
+  max_series: 2000                # >= 1
 ```
+
+路径安全、配置大小上限及服务端鉴权必须在实现中确定且测试可验证。未在本设计中定义的运行容量硬上限不得声称已由 Core 提供。
 
 ## 11.4 场景与实例配置规范
 
-以下 YAML 保存为 `instances/data-generator.yaml`。若使用模板，应通过实例中的明确模板身份与版本引用 `templates/data_generator/`，不得把模板路径误当作服务配置路径。
-
-`DataGeneratorService.ListScenarios/StartGeneration` 使 `scenario_id` 成为必需业务标识。原 v0_12 配置只含单个 `source` 而没有 `scenario_id`，会导致 RPC 无法选择运行对象，本版改为显式 `scenarios[]`，其版本与绑定规则如下。
+场景引用 `instances/devices.yaml` 已定义的全局 `device_id`；测点 ID 必须是对应设备型号解析后点表中的真实 ID。本例以 `main` 已有 `GW01` / `GW02` 和 `ads_wtg_gw2mw_1.0.0.yaml` 的 `a02_dm_pitchangle1` 为依据。**Gateway 变量 ID 和 endpoint 仅是目标配置示例**，需在运行前向真实 Gateway `ListVariables`/相关契约核对；不能将 Core 设备的 PLC endpoint 误当 Gateway endpoint。
 
 ```yaml
-schema_version: 1                 # 正整数；不支持的版本拒绝
-file_version: 1                   # 正整数；正式提交时单调递增
+schema_version: 1
+file_version: "1.0.0"
 scenarios:
-  - scenario_id: demo-random      # 非空；配置文件内唯一
-    version: "1"                  # 非空；发布后版本内容不可原地修改
-    description: "随机及静态物理数据"
+  - scenario_id: demo-random
+    version: "1.0.0"
+    description: "模拟风机桨距角"
     source:
-      kind: simulation            # simulation | replay
-      interval_seconds: 1.0      # >0；仅 simulation 有效
-      seed: 42                   # 整数；仅 simulation 有效
+      kind: simulation                 # simulation | replay
+      interval_seconds: 1.0           # > 0
+      seed: 42
     devices:
-      - device_id: WT001         # 场景内唯一
-        protocol: virtual       # 仅业务显示，非实体 PLC 通信驱动
+      - device_id: GW01                # 引用 instances/devices.yaml
         points:
-          - point_id: wind_speed
-            data_type: float64
+          - point_id: a02_dm_pitchangle1
             model:
-              kind: random      # random | static
+              kind: random            # random | static
               distribution: uniform
               minimum: 3.0
               maximum: 15.0
-          - point_id: power_kw
-            data_type: float64
-            model:
-              kind: static
-              function: linear_table
-              input_point: wind_speed
-              values: [[0.0, 0.0], [3.0, 0.0], [12.0, 2000.0], [25.0, 0.0]]
-              out_of_range: reject # reject | clamp
-    gateways:                     # 至少一个目标；同一源点可扇出多个目标
-      - gateway_id: gw-test
-        endpoint: "127.0.0.1:50051"
-        feedback_mapping:
-          - {device_id: WT001, point_id: wind_speed, variable_id: WT001.wind_speed}
-          - {device_id: WT001, point_id: power_kw, variable_id: WT001.power_kw}
-          - {device_id: WT001, point_id: wind_speed, variable_id: WT001.wind_speed_copy}
-      - gateway_id: gw-test-2
-        endpoint: "127.0.0.1:50052"
-        feedback_mapping:
-          - {device_id: WT001, point_id: wind_speed, variable_id: turbine.wind}
-          - {device_id: WT001, point_id: power_kw, variable_id: turbine.power}
-  - scenario_id: demo-replay
-    version: "1"
-    description: "历史数据重放"
-    source:
-      kind: replay
-      history_reader: csv         # 首版标准历史格式：csv；其他 Reader 属扩展
-      file: "history/demo.csv"   # 仅允许位于配置授权的数据目录内
-      start_time: "2026-01-01T00:00:00Z"
-      end_time: "2026-01-01T01:00:00Z" # 起始包含，结束不包含
-      speed: 1.0                  # >0；1 为原速
-      loop: false                 # 首版只能 false
-    devices:
-      - device_id: WT002
-        protocol: virtual
-        points:
-          - {point_id: wind_speed, data_type: float64}
     gateways:
       - gateway_id: gw-test
         endpoint: "127.0.0.1:50051"
         feedback_mapping:
-          - {device_id: WT002, point_id: wind_speed, variable_id: WT002.wind_speed}
+          - {device_id: GW01, point_id: a02_dm_pitchangle1, variable_id: GW01.pitch_angle}
+          - {device_id: GW01, point_id: a02_dm_pitchangle1, variable_id: GW01.pitch_angle_copy}
+      - gateway_id: gw-test-2
+        endpoint: "127.0.0.1:50052"
+        feedback_mapping:
+          - {device_id: GW01, point_id: a02_dm_pitchangle1, variable_id: turbine.pitch}
+  - scenario_id: demo-replay
+    version: "1.0.0"
+    description: "CSV 历史重放"
+    source:
+      kind: replay
+      history_reader: csv
+      file: "history/demo.csv"
+      start_time: "2026-01-01T00:00:00Z"
+      end_time: "2026-01-01T01:00:00Z"
+      speed: 1.0
+      loop: false
+    devices:
+      - device_id: GW02
+        points:
+          - point_id: a02_dm_pitchangle1
+    gateways:
+      - gateway_id: gw-test
+        endpoint: "127.0.0.1:50051"
+        feedback_mapping:
+          - {device_id: GW02, point_id: a02_dm_pitchangle1, variable_id: GW02.pitch_angle}
 ```
 
-<p class="table-caption">表 11-3 场景、版本、历史与映射校验规则</p>
+<p class="table-caption">表 11-3 场景配置与公共模板引用校验</p>
 
-| 对象 | 强制规则 | 不满足时 |
+| 对象 | 强制校验 | 失败结果 |
 |---|---|---|
-| 场景 | `scenario_id` 唯一且非空；每场景恰一个来源；`version` 唯一、不可原地修改 | Push 无效，不产生候选运行状态 |
-| 设备/测点 | `device_id` 在整个服务的各 Scenario 间唯一（同一 Scenario 不同版本可以沿用）；每个 Scenario 版本内不重复，点 ID 在设备内唯一；类型属于支持的标量 | 拒绝配置 |
-| 模型依赖 | 静态 `input_point` 必须存在，同一周期内按拓扑序计算，不允许循环依赖 | 拒绝配置 |
-| 历史文件 | UTF-8 CSV 首行固定 `device_id,point_id,source_timestamp,value,quality,record_id`；`record_id` 在文件内唯一；时间 RFC3339 UTC；值按点类型解码 | 拒绝启动该重放；不跳过坏记录 |
-| 历史排序 | `(source_timestamp,record_id)` 稳定升序；同时间戳按 `record_id` 字典序；范围为 `[start_time,end_time)` | 拒绝无唯一记录标识或时间无效的输入 |
-| 映射 | 一个源点可映射多个 `(gateway_id,variable_id)`；每个场景版本中 `gateway_id` 唯一，展开全部映射后的每个 `(gateway_id,variable_id)` 恰出现一次（不允许不同源测点汇入同一目标），类型兼容；活动/未收敛实例间完整目标集合不得相交 | 拒绝启动或应用 |
-| 文件路径 | 相对目录归一化后必须位于授权根目录内，禁绝对路径、`..` 逃逸和符号链接越界 | 拒绝配置 |
-| 版本 | `ListScenarios.active_version` 来源于已生效实例配置；运行中的 `generation.scenario_version` 固定不变 | 版本变化不能隐式更改运行中实例 |
+| 公共设备 | `device_id` 存在于共享快照且 `enabled=true`；其设备型号/点表/协议引用由 Core 完整解析 | 拒绝受影响场景启动或候选 |
+| 场景版本 | `scenario_id` 非空且唯一；`version` 为不可变的 `MAJOR.MINOR.PATCH` 字符串；运行引用不可静默改写 | 拒绝覆盖已发布版本 |
+| 模拟点 | `point_id` 存在于解析后的公共点表；计算输出需兼容点表类型、单位和边界 | 拒绝配置或该周期失败 |
+| 静态模型 | `input_point` 在该场景可访问，依赖 DAG 无环；允许内置代数/查表/线性插值，禁止 `eval` | 拒绝配置 |
+| 重放 CSV | UTF-8，列 `device_id,point_id,source_timestamp,value,quality,record_id`；时间 RFC3339 UTC；`record_id` 唯一；排序与区间遵从 §10.3 | 拒绝非法记录，不静默跳过 |
+| Gateway 输出 | 全量展开后 `(gateway_id,variable_id)` 在单场景版本内不重复；每个启用输出点至少一目标，目标标量类型须兼容 | 拒绝无效候选或启动 |
+| 运行互斥 | 同一 Device 不得归属两个活动 Generation；跨活动/未安全收敛 Generation 目标键不相交 | 整次 Start 拒绝，不部分预留 |
+| 文件路径 | 历史文件必须在已授权数据根内；拒绝绝对路径、`..`、符号链接越界 | 拒绝配置 |
 
-本例是**目标配置格式**，而非当前仓库已实现的解析器能力；Gateway 的 `UpdateVariables` 已在正式 Proto 定义，实际 Gateway Server 运行行为仍须联调验证。
+**适配原则**：公共 `SharedDomainSnapshot` 中设备和点表为权威元数据；场景内 `devices[].points[].model` 只声明生成方法及参数，不重复 `protocol`、`endpoint`、`data_type`、`unit` 或协议地址。`Gateway` 是另一个服务的虚拟变量目标，不能从公共 PLC 设备端点推定。若需要不属于公共设备清单的纯虚拟设备，应先明确扩展共享设备模型并修改设计，不可由解析器暗中接受第二套独立设备定义。
 
 ## 11.5 配置提交与运行实例的裁决
 
-1. 快照文件路径全部采用相对于配置根目录的规范化路径（`services/...`、`instances/...`、`templates/data_generator/...`）；拒绝绝对路径、`..` 越界、重复路径及未知目录实体。`GetConfigSnapshot(DISK)` 返回正式文件的完整原始字节、正确 SHA-256；`RUNTIME` 返回本进程实际使用的已生效配置；`CANDIDATE` 需凭候选 ID 和权限读取。禁止把脱敏内容伪装成原文件的相同 hash。
-2. `Push` 严格核对三类目录布局、唯一服务/实例文件、相对路径、重复文件、文件数/总大小限额、Schema、模板引用、场景版本、跨场景 Device 全局唯一性、场景内输出目标复合键无重复及映射，并用 `expected_revision` 与正式快照执行乐观并发校验；候选不可影响正在运行的生成实例。
-3. `Apply` 以单写入方串行化，先将新文件完整落盘并持久化，再原子切换正式快照指针；跨文件集合不可只用单文件 `rename` 假装原子。失败时正式快照仍指向旧版本。
-4. Apply 应在单写入方边界内校验所有活动及未安全收敛 Generation 的目标占用，不能通过改配置暗中转让已有输出目标；若新版本将导致当前运行目标冲突，明确拒绝相关应用，不允许部分目标生效。Apply 对**未运行**场景可以立即更新其激活版本；对**正在运行**场景不得静默改变绑定配置。旧实例保持绑定旧版本并继续运行，若该版本被配置删除则该版本内容必须保留至旧实例退出；新启动引用新版本。`services/data-generator-service.yaml` 修改仅 `restart_required=true`，运行实例继续遵守原有服务配置。
-5. `file_commit` 反映正式文件提交结果，`apply_results[]` 反映各场景实际运行影响；不可将某个对象未生效报告为整个运行配置已经完成。持久化后的服务崩溃恢复以正式指针为准，候选丢失可报告明确状态。
+1. **权限与所有权**：Data Generator 只负责 `services/data-generator-service.yaml` 与 `instances/data-generator.yaml` 的候选/正式文件更新。`site.yaml`、`devices.yaml`、公共模板及目录由共享配置所有者管理；`Get` 可以读取授权范围内的公共文件，`Push/Apply` 不得直接改写公共文档或跨服务配置。公共文档更新由其权威配置写入方提交，Data Generator 在下一次合法 Apply/重启时重新加载共享快照。
+2. **Get**：`DISK` 返回当前正式文件真实字节及准确哈希；`RUNTIME` 返回运行中实际生效的解析版本并标记公共快照修订；`CANDIDATE` 返回唯一已暂存候选。不得把重新解析的公共最新状态伪称运行中已绑定状态。
+3. **Push**：只接纳本模块拥有的完整私有文件集合及 `expected_revision`；用 Core `validate_document_version`、`VersionedTemplateRepository`、`SharedDocumentLoader` 和 `build_shared_snapshot` 校验引用、版本和点表，之后执行场景模型/映射校验。公共模板文件不得包含在本模块可改写候选中。失败时正式文件、运行态均不变。
+4. **Apply**：在串行单写入边界核对正式/候选版本和公共快照修订，拒绝 TOCTOU 造成的模板引用漂移；以安全落盘及原子正式指针或等效事务提交本模块文件，再应用未运行场景的新版本。服务配置变化只设置 `restart_required`。文件提交成功不代表全部运行对象已热更新；按 Proto 分别返回 `file_commit` 和 `apply_results`。
+5. **活动实例保护**：运行中的 Generation 绑定场景版本和启动时公共快照；公共模板文件变更、候选替换不得改变已绑定测点类型/模型/目标占用。新增实例与当前仍执行或 I/O 未安全收敛的实例冲突时全量拒绝；Stop 仅在安全结束/可信隔离后释放 Device 和目标键。
+6. **并发及恢复**：配置单写入方串行；候选最多一份。对同一被管理文件的并发改动执行 revision 校验；进程崩溃后依据落盘的正式指针恢复文件状态，不自动恢复 Generation。公共配置独立修改不构成本模块文件事务的一部分，发现修订漂移时明确拒绝并要求重新 Push。
+7. **契约界限**：当前 `SharedDocumentLoader` 和 `build_shared_snapshot` 仅提供公共配置读取、解析及语义快照，不提供完整快照候选/原子提交机制。Data Generator 的 RPC 必须实现自身业务适配，禁止将未实现的公共配置写入功能描述为现成能力。
 
 # 12. 安全、诊断、Metrics 与运行技术契约
 
 ## 12.1 诊断的层级与真实边界
 
-外部调用 `CommonService.Diagnose(DiagnoseRequest)`；必须返回 `overall_status`、逐阶段 `DiagnosticStage`（含 `Evidence`）和 `limitations`。当前 Gateway 无数据写入 RPC，所以“写入可验证”阶段必须标注未执行，不得返回 PASS。
+外部调用 `CommonService.Diagnose(DiagnoseRequest)`；必须返回 `overall_status`、逐阶段 `DiagnosticStage`（含 `Evidence`）和 `limitations`。当前 Gateway Proto 已定义 `UpdateVariables`。主动写入诊断仅在授权隔离目标且真实 Gateway 实现可用时执行；未执行须标记 NOT_RUN / SKIPPED，不得返回 PASS。
 
 
 <p class="table-caption">表 12-1 Diagnose 阶段与 PASS 口径</p>
@@ -2208,7 +2230,7 @@ scenarios:
 | D2 数据合法性 | 类型、数值、时间、映射与编码检查 | 样本可以被本地编码 | Gateway 已接收 |
 | D3 网络可达 | DNS/TCP 等连接检查 | 网络/端口可建立 | gRPC 方法可用 |
 | D4 gRPC 通信 | 真实 Gateway 方法/握手及状态检查（按 Proto） | 受支持接口可调用 | 业务写入已成功 |
-| D5 有授权测试写入 | 使用未来补齐的受控 Gateway 写入 RPC（现阶段不可执行） | Gateway 对测试值给出明确确认 | 下游上位机实际消费 |
+| D5 有授权测试写入 | 使用已定义的 Gateway `UpdateVariables`（仅授权隔离测试目标；真实服务实现必须核验） | Gateway 对测试值给出明确确认 | 下游上位机实际消费 |
 
 无可执行目标：`UNKNOWN` / `NO_DIAGNOSTIC_TARGETS`、检查数 0，不伪造检查步骤。结果至少区分 PASS、FAIL、UNKNOWN、SKIPPED/NOT_RUN；整体 PASS 仅代表已执行且范围明确的全部检查通过。主动测试需要显式选择隔离目标；无授权时执行只读检查并报告写入验证未覆盖。诊断 Task 不能直接修改运行来源的模型随机状态，应使用独立模型实例或只读快照。
 
@@ -2239,7 +2261,9 @@ scenarios:
 
 # 13. 测试方法及运行基线
 
-测试文件按 `tests/unit/data_generator/`、`tests/component/data_generator/`、`tests/integration/data_generator/`、`tests/system/data_generator/` 组织，层级 Marker 分别为 `unit`、`component`、`integration`、`system`；专题与场景 Marker 可叠加且必须在 pytest 配置登记。真实 Gateway、历史数据源、独立进程与故障注入由 Fixture 管理；测试不能凭 mock 结果冒充 System 验收。
+本章测试物理目录按照《软件设计模板_v1_1》§14.2 调整为模块优先、测试层级次之；层级 Marker、专题 Marker、场景 Marker 的含义与验收覆盖要求保持不变。
+
+测试文件按 `tests/data_generator/unit/`、`tests/data_generator/component/`、`tests/data_generator/integration/`、`tests/data_generator/system/` 组织，层级 Marker 分别为 `unit`、`component`、`integration`、`system`；专题与场景 Marker 可叠加且必须在 pytest 配置登记。真实 Gateway、历史数据源、独立进程与故障注入由 Fixture 管理；测试不能凭 mock 结果冒充 System 验收。
 
 <p class="table-caption">表 13-1 测试文件、层级与 Marker 矩阵</p>
 
@@ -2256,7 +2280,7 @@ scenarios:
 | `test_metrics.py` | component | performance | no_samples | UC-06：窗口、P99、缺样本、标签限额 |
 | `test_proto_descriptor.py` | integration | reliability | contract | `DataGeneratorService` 六方法 + `CommonService` 九方法逐项 Descriptor、类型及存在性断言 |
 | `test_grpc_server.py` | integration | safety | timeout | UC-07：真实 Proto RPC、错误映射和取消 |
-| `test_gateway_integration.py` | integration | reliability | network_failure | UC-03：真实 Gateway gRPC（待写入契约补齐） |
+| `test_gateway_integration.py` | integration | reliability | network_failure | UC-03：真实 Gateway gRPC（契约已具备，真实 Gateway 实现待核验） |
 | `test_history_reader.py` | integration | reliability | invalid_records | UC-02：真实历史 Reader 和异常数据 |
 | `test_simulation_system.py` | system | reliability | end_to_end | UC-01/03：独立 Data Generator 和 Gateway |
 | `test_replay_system.py` | system | reliability | end_to_end | UC-02/03：历史记录→Gateway 的真实链路 |
@@ -2268,15 +2292,15 @@ scenarios:
 
 ## 13.2 验收执行
 
-必须新增 Descriptor 逐方法断言：DataGeneratorService 6 项、CommonService 9 项均为 Unary，检验真实返回类型、optional 字段存在性与启动后可调用性。Gateway 输出相关验收在公共写入 Proto 补齐前保持 BLOCKED/NOT_RUN。
+必须新增 Descriptor 逐方法断言：DataGeneratorService 6 项、CommonService 9 项均为 Unary，检验真实返回类型、optional 字段存在性与启动后可调用性。Gateway 输出相关验收应核实实际 Gateway Server 已实现 `UpdateVariables`；未联调的场景保持 NOT_RUN。
 
 
 ```bash
-pytest tests/unit/data_generator -m unit
-pytest tests/component/data_generator -m component
-pytest tests/integration/data_generator -m integration
-pytest tests/system/data_generator -m system
-pytest tests/system/data_generator -m 'system and reliability'
+pytest tests/data_generator/unit -m unit
+pytest tests/data_generator/component -m component
+pytest tests/data_generator/integration -m integration
+pytest tests/data_generator/system -m system
+pytest tests/data_generator/system -m 'system and reliability'
 ```
 
 上述是**目标测试组织**，执行前须完成目录与 Marker 注册，不能作为当前已通过的测试证据。System Test 要求完整覆盖第 4 章 UC 的主流程、重要边界、异常与恢复，详细场景见第 14 章。性能目标须根据机器规模、设备/点数、实际 Gateway 和历史源测量制定；不以任意预估值代替实测。
@@ -2388,3 +2412,20 @@ pytest tests/system/data_generator -m 'system and reliability'
 
 本版本定义**可以启动 Data Generator 模块内部编码**的设计基线，但并非声明所有跨服务接口已具备，更不构成已通过正式系统验收的证明。Gateway 注入依赖关闭前，不得宣布 UR-03、UC-03 或涉及真正写入的系统场景验收完成。
 
+
+
+## 14.5 公共配置适配审查（v1_6 基线，2026-11-03）
+
+<p class="table-caption">表 14-5 最新 main 的配置适配结论</p>
+
+| 编号 | 验证对象 | 当前结论 | 编码/验收门禁 |
+|---|---|---|---|
+| CFG-01 | Core 共享文件 | `site.yaml`、`devices.yaml`、`units.yaml`、`business_points.yaml` 由 `SharedDocumentLoader` 解析 | 真实调用共享加载器，不重复解析及发明第二套设备配置 |
+| CFG-02 | 模板文件结构 | `device_models/`、`point_tables/`、`protocols/` 为扁平 `<id>_<semver>.yaml` | 精确版本、合法 ID、模板引用和哈希均须测试 |
+| CFG-03 | 元数据版本 | Core `schema_version=1`，`file_version=MAJOR.MINOR.PATCH` | 原整数版本示例已更正；Schema 负例测试 |
+| CFG-04 | 场景对象 | Data Generator 运行专属，未由 Core 公共快照提供 | 实现独立 Scenario schema + 快照 revision 绑定 |
+| CFG-05 | 模板读写所有权 | Core 共享加载器为只读解析，无统一写事务的已核实证据 | 禁止 Data Generator Apply 改写跨服务公共配置 |
+| CFG-06 | Proto、System | 15 个 Server RPC 不变，Gateway Client 仍为 `UpdateVariables` | 按实际 Descriptor 和 Gateway Server 复核；UC-01～08 System 保持全覆盖 |
+| CFG-07 | 静态语义一致性 | §11 以公共点表为唯一源，Scenario 只声明模型参数和输出映射 | 验证设备/点引用、类型、单位、目标冲突及热更新 |
+
+**审查边界**：本次已核对 `main@0dfee3bb` 所示 Core 加载器、版本模板及公开配置实例；未运行仓库代码、Proto 编译和 System Test。`services/data-generator-service.yaml`、`instances/data-generator.yaml` 仍为本模块目标 Schema，非已实现事实。文档可作为编码目标，但真实配置快照事务及外部服务联调须以实测验收结果裁定。
