@@ -117,7 +117,6 @@ class WorkerRegistryView:
         dict[str, float],
         dict[str, dict[str, float]],
         tuple[tuple[datetime, float], ...],
-        dict[str, tuple[tuple[datetime, float], ...]],
         dict[str, float],
         bool,
     ] | None:
@@ -145,7 +144,6 @@ class WorkerRegistryView:
         aggregate: dict[str, float] = {}
         deliveries: dict[str, dict[str, float]] = {}
         latencies: list[tuple[datetime, float]] = []
-        delivery_latencies: dict[str, tuple[tuple[datetime, float], ...]] = {}
         delivery_p99: dict[str, float] = {}
         incomplete = False
         for reply in replies:
@@ -164,13 +162,6 @@ class WorkerRegistryView:
                     deliveries[identifier] = {
                         name: float(value) for name, value in values.items()
                     }
-                for identifier, values in json.loads(
-                    reply.evidence.get("delivery_latencies", "{}")
-                ).items():
-                    delivery_latencies[identifier] = tuple(
-                        (datetime.fromisoformat(stamp), float(value))
-                        for stamp, value in values
-                    )
                 delivery_p99.update({
                     identifier: float(value)
                     for identifier, value in json.loads(
@@ -186,6 +177,5 @@ class WorkerRegistryView:
             except (KeyError, TypeError, ValueError, OverflowError):
                 return None
         return (
-            aggregate, deliveries, tuple(latencies), delivery_latencies,
-            delivery_p99, incomplete,
+            aggregate, deliveries, tuple(latencies), delivery_p99, incomplete,
         )
