@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 async def run_worker(role: str, root: Path, service_file: str, socket_path: str) -> None:
+    if role not in ("realtime", "reliable"):
+        raise ValueError("invalid worker process role")
     store = GenerationStore(root)
     snapshot = store.load(service_file)
     registry = DeliveryRegistry(role, snapshot)
