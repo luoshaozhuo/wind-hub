@@ -525,7 +525,10 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
     """Delivery queries and operator commands through a single Writer."""
 
     def __init__(
-        self, registry: DeliveryRegistry | WorkerRegistryView, config: ConfigManager, observability: Observability
+        self,
+        registry: DeliveryRegistry | WorkerRegistryView,
+        config: ConfigManager,
+        observability: Observability,
     ) -> None:
         self._observability = observability
         self._registry = registry
