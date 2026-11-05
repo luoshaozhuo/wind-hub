@@ -34,6 +34,7 @@ async def replay(
     client = await nats.connect(servers=servers)
     scanned = 0
     published = 0
+    seen_ids: set[str] = set()
     try:
         js = client.jetstream()
         stream = await js.stream_info(dlq_stream)
@@ -48,6 +49,13 @@ async def replay(
             record = json.loads(raw.data.decode("utf-8"))
             if record.get("delivery_id") != delivery_id:
                 continue
+            dead_letter_id = record.get("dead_letter_id")
+            if not isinstance(dead_letter_id, str) or not dead_letter_id:
+                print(f"SKIP DLQ record={sequence}; missing stable identity")
+                continue
+            if dead_letter_id in seen_ids:
+                continue
+            seen_ids.add(dead_letter_id)
             subject = record["subject"]
             if record.get("part_count", 1) != 1:
                 print(f"SKIP multipart source={sequence}; manual repair required")
@@ -60,7 +68,7 @@ async def replay(
                 continue
             if execute:
                 stable_id = hashlib.sha256(
-                    f"{dlq_stream}:{sequence}:{delivery_id}".encode("utf-8")
+                    f"{dlq_stream}:{dead_letter_id}:{delivery_id}".encode("utf-8")
                 ).hexdigest()
                 await js.publish(
                     subject,
