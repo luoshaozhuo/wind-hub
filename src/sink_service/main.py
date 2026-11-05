@@ -37,6 +37,7 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
     lease.acquire()
     supervisor = WorkerSupervisor(config_root, service_file)
     server = None
+    background: list[asyncio.Task[None]] = []
     try:
         if (config_root / "CURRENT").exists():
             snapshot = store.load(service_file)
