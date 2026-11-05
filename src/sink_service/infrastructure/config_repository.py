@@ -32,7 +32,7 @@ class GenerationStore:
             raise ConfigurationError("invalid generation identifier")
         return self._generations / identifier
 
-    def load(self, service_path: str, peer_service_path: str) -> ValidatedSnapshot:
+    def load(self, service_path: str) -> ValidatedSnapshot:
         """Read a complete committed generation through a single pointer."""
         if (
             not service_path.startswith("configs/services/")
@@ -43,7 +43,7 @@ class GenerationStore:
         identifier = self._current.read_text(encoding="ascii").strip()
         directory = self._generation(identifier)
         snapshot = read_snapshot(
-            directory, directory / service_path, directory / peer_service_path
+            directory, directory / service_path
         )
         if snapshot.revision != identifier:
             raise ConfigurationError("committed generation content hash mismatch")
