@@ -161,6 +161,10 @@ class WorkerControlClient:
         self._lock = asyncio.Lock()
         self._broken = False
 
+    @property
+    def broken(self) -> bool:
+        return self._broken
+
     async def request(
         self,
         operation: ControlOperation,
