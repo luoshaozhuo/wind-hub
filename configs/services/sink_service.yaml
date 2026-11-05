@@ -1,0 +1,78 @@
+schema_version: 1
+file_version: 1.0.0
+service_id: sink-west
+wind_farm_id: farm-a
+deployment_id: prod-a
+config_root: /etc/wind-hub
+config_sources:
+  instances:
+    sinks: configs/instances/sinks.yaml
+    deliveries: configs/instances/deliveries.yaml
+  templates:
+    root: configs/templates
+
+grpc:
+  listen_host: 0.0.0.0
+  listen_port: 50061
+  max_active_rpcs: 64
+  max_request_bytes: 2097152
+  default_deadline_ms: 5000
+
+security:
+  ca_cert: /etc/wind-hub/tls/ca.crt
+  server_cert: /etc/wind-hub/tls/sink.crt
+  server_key: /etc/wind-hub/tls/sink.key
+  callers:
+    - caller_id: maintenance
+      certificate_identity: spiffe://wind-hub/maintenance
+      permissions: [query, control, config]
+
+nats:
+  servers: [nats://127.0.0.1:4222]
+  realtime_subject: wh.batch.rt
+  reliable_subject: wh.batch.hist
+  reliable_stream: WH_HISTORY
+  dead_letter_stream: WH_DLQ
+  dead_letter_subject: wh.dlq
+  history_storage: file
+  dlq_storage: file
+  history_discard: new
+  dlq_discard: new
+  dlq_max_bytes: 1073741824
+  dlq_max_age_seconds: 2592000
+  connect_timeout_ms: 2000
+  max_reconnect_interval_ms: 5000
+
+runtime:
+  max_inflight_global: 128
+  max_inflight_per_sink: 8
+  max_pending_points: 10000
+  io_wait_timeout_ms: 3000
+  max_event_records: 10000
+  watchdog_interval_ms: 5000
+
+reliable:
+  max_deliver: -1
+  ack_wait_seconds: 30
+  retry_base_ms: 1000
+  retry_max_ms: 60000
+  max_inflight_per_delivery: 1
+  transient_retry_policy: continuous
+  permanent_error_action: dlq
+  replay_max_inflight: 1
+  replay_max_rate_per_second: 50
+  replay_starvation_alarm_seconds: 300
+  dedup_key: sample_id
+
+metrics:
+  metrics_compute_interval_ms: 1000
+  metrics_window_ms: 60000
+  supported_window_ms: [60000]
+  max_time_buckets: 120
+  overrun_policy: skip
+
+config_sync:
+  apply_timeout_ms: 10000
+
+shutdown:
+  grace_seconds: 10
