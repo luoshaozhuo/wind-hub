@@ -344,6 +344,7 @@ class ReliableDeliveryPort:
             sample_id = source.get('sample_id', '') if isinstance(source, dict) else ''
         except (UnicodeError, ValueError):
             sample_id = ''
+        batch_id = source.get('batch_id', '') if isinstance(source, dict) else ''
         if sample is not None:
             sample_id = sample.sample_id
         payload = message.data
@@ -385,6 +386,8 @@ class ReliableDeliveryPort:
                 "part_count": len(chunks),
                 "delivery_id": self._definition.delivery_id,
                 "sample_id": sample_id if isinstance(sample_id, str) else "",
+                "batch_id": batch_id if isinstance(batch_id, str) else "",
+                "payload_sha256": hashlib.sha256(payload).hexdigest(),
                 "config_revision": self._snapshot.revision,
                 "subject": message.subject,
                 "source_stream": metadata.stream,
@@ -393,7 +396,7 @@ class ReliableDeliveryPort:
                 "source_timestamp": metadata.timestamp.astimezone(UTC).isoformat(),
                 "payload_base64": base64.b64encode(chunk).decode("ascii"),
                 "classification": "PERMANENT",
-                "reason": reason,
+                "reason": reason[:1024],
                 "first_failed_at": observed_at,
                 "last_failed_at": observed_at,
             }
