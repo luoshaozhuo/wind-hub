@@ -112,6 +112,7 @@ async def _poll_workers(
     previous_health: dict[str, str] = {}
     previous_deliveries: dict[str, tuple[str, str]] = {}
     metrics_ready = False
+    metrics_revision = registry.snapshot.revision
     while not stop.is_set():
         try:
             await asyncio.wait_for(
@@ -125,6 +126,11 @@ async def _poll_workers(
         next_tick += max(1, int((now - next_tick) / period) + 1) * period
         try:
             await registry.refresh()
+            if metrics_revision != registry.snapshot.revision:
+                metrics_revision = registry.snapshot.revision
+                telemetry.reset_epoch()
+                metrics_ready = False
+                telemetry.event("INFO", "service", "METRICS_CONFIG_EPOCH", metrics_revision)
             if registry.epoch_changed:
                 registry.epoch_changed = False
                 telemetry.reset_epoch()
