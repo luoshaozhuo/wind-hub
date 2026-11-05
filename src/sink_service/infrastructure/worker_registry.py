@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import asdict
+from dataclasses import asdict
 
 from sink_service.application.delivery_registry import DeliveryView
 from sink_service.infrastructure.supervisor import ROLES, WorkerSupervisor
