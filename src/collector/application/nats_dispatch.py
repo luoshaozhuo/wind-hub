@@ -8,7 +8,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Protocol
 
-from contracts.sample_message import DeliveryMode, SampleMessage
+from contracts.sample_batch import BatchSample, SampleBatch, MAX_SAMPLES_PER_BATCH
+from contracts.sample_message import DeliveryMode
 from core.domain.point_value import PointValue
 
 from .identity import CollectorIdentity
@@ -30,13 +31,13 @@ class PublisherPort(Protocol):
         """Release NATS resources."""
         ...
 
-    async def publish(self, message: SampleMessage) -> bool:
+    async def publish(self, message: SampleBatch) -> bool:
         """Return whether publication was accepted."""
         ...
 
 
 class SamplePublisher:
-    """Convert acquired point values into single-sample messages."""
+    """Convert one device acquisition cycle into bounded batch messages."""
 
     def __init__(
         self,
@@ -57,7 +58,7 @@ class SamplePublisher:
         self._max_staleness_ms = max_staleness_ms if delivery == "realtime" else None
         if queue_capacity <= 0:
             raise ValueError("queue_capacity must be positive")
-        self._queue: asyncio.Queue[SampleMessage] = asyncio.Queue(maxsize=queue_capacity)
+        self._queue: asyncio.Queue[SampleBatch] = asyncio.Queue(maxsize=queue_capacity)
         self._worker: asyncio.Task[None] | None = None
         self._sequence = 0
         self._points_published = 0
@@ -98,39 +99,65 @@ class SamplePublisher:
                     delivered = False
                     logger.exception("NATS sample dispatch failed")
                 if delivered:
-                    self._points_published += 1
+                    self._points_published += len(message.samples)
                 else:
-                    self._points_dropped += 1
+                    self._points_dropped += len(message.samples)
             finally:
                 self._queue.task_done()
 
     async def dispatch(self, task_id: str, values: list[PointValue]) -> None:
-        """Publish each sample independently; failures never abort acquisition."""
+        """Queue device-scoped batches; never split or mix source identities."""
+        grouped: dict[str, list[PointValue]] = {}
         for value in values:
-            self._sequence += 1
-            try:
-                message = SampleMessage(
-                    wind_farm_id=self._wind_farm_id,
-                    collector_id=self._identity.collector_id,
-                    task_id=task_id,
-                    device_id=value.device_id,
-                    point_id=value.point_id,
-                    sample_id=f"{self._identity.collector_id}:{self._identity.boot_id}:{self._sequence}",
-                    value=value.value,
-                    quality=value.quality.value,
-                    sample_time=value.timestamp,
-                    receive_time=value.receive_time,
-                    publish_time=datetime.now(UTC),
-                    max_staleness_ms=self._max_staleness_ms,
-                )
-            except Exception:
-                logger.exception("Invalid sample task=%s point=%s", task_id, value.point_id)
-                self._points_dropped += 1
-                continue
-            try:
-                self._queue.put_nowait(message)
-            except asyncio.QueueFull:
-                self._points_dropped += 1
+            grouped.setdefault(value.device_id, []).append(value)
+        for device_id, group in grouped.items():
+            for offset in range(0, len(group), MAX_SAMPLES_PER_BATCH):
+                chunk = group[offset : offset + MAX_SAMPLES_PER_BATCH]
+                entries: list[BatchSample] = []
+                for value in chunk:
+                    self._sequence += 1
+                    try:
+                        entries.append(
+                            BatchSample(
+                                point_id=value.point_id,
+                                sample_id=(
+                                    f"{self._identity.collector_id}:"
+                                    f"{self._identity.boot_id}:{self._sequence}"
+                                ),
+                                value=value.value,
+                                quality=value.quality.value,
+                                sample_time=value.timestamp,
+                                receive_time=value.receive_time,
+                                max_staleness_ms=self._max_staleness_ms,
+                            )
+                        )
+                    except (ValueError, TypeError):
+                        logger.exception(
+                            "Invalid sample task=%s point=%s", task_id, value.point_id
+                        )
+                        self._points_dropped += 1
+                if not entries:
+                    continue
+                try:
+                    batch = SampleBatch(
+                        batch_id=entries[0].sample_id,
+                        mode=self._delivery,
+                        wind_farm_id=self._wind_farm_id,
+                        collector_id=self._identity.collector_id,
+                        task_id=task_id,
+                        device_id=device_id,
+                        publish_time=datetime.now(UTC),
+                        samples=tuple(entries),
+                    )
+                    # Validate the serialized size before queue acceptance.
+                    batch.encode()
+                    self._queue.put_nowait(batch)
+                except (ValueError, TypeError, asyncio.QueueFull):
+                    logger.warning(
+                        "Batch rejected task=%s device=%s count=%d",
+                        task_id, device_id, len(entries),
+                    )
+                    self._points_dropped += len(entries)
 
     @property
     def points_published(self) -> int:
