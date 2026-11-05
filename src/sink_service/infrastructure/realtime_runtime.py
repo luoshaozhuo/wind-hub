@@ -45,6 +45,10 @@ class NatsRealtimeIngress:
         ] = OrderedDict()
         self._lock = asyncio.Lock()
         self.last_error = ""
+        self.received_batches_total = 0
+        self.received_values_total = 0
+        self.rejected_batches_total = 0
+        self.routed_values_total = 0
 
     @property
     def connected(self) -> bool:
@@ -106,9 +110,12 @@ class NatsRealtimeIngress:
             )
         except (ValueError, UnicodeError) as exc:
             self.last_error = str(exc)
+            self.rejected_batches_total += 1
             logger.warning("Sink realtime batch rejected: %s", exc)
             return
 
+        self.received_batches_total += 1
+        self.received_values_total += len(batch.samples)
         source = (batch.wind_farm_id, batch.collector_id)
         routes = self._routes.get(source)
         if not routes:
@@ -134,7 +141,8 @@ class NatsRealtimeIngress:
             else:
                 self._target_cache.move_to_end(identity)
             for engine in targets:
-                engine.offer(sample, now=now, routed=True)
+                if engine.offer(sample, now=now, routed=True):
+                    self.routed_values_total += 1
 
 
 class _SinkOutput:
