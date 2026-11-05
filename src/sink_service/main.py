@@ -67,6 +67,7 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
             observability=telemetry,
         )
         await server.start()
+        background.append(asyncio.create_task(supervisor.supervise(stop)))
         await stop.wait()
     finally:
         if server is not None:
