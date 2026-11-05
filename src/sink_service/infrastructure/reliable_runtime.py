@@ -71,7 +71,6 @@ class ReliableDeliveryPort:
         self.latency_overflow_at: datetime | None = None
         self.retry_total = 0
         self.dlq_total = 0
-        self._last_batch_count = 1
         self._started_at = datetime.now(UTC)
         self._capacity_alarm = ''
         self._last_capacity_check = 0.0
@@ -376,7 +375,7 @@ class ReliableDeliveryPort:
         if ack.stream != config['dead_letter_stream']:
             raise ConfigurationError('DLQ PubAck confirms an unexpected Stream')
         if not getattr(ack, 'duplicate', False):
-            self.dlq_total += 1 if sample is not None else max(1, self._last_batch_count)
+            self.dlq_total += 1
 
     async def _write_with_heartbeat(
         self, message: Any, samples: tuple[SampleMessage, ...]
@@ -450,7 +449,6 @@ class ReliableDeliveryPort:
         if not samples:
             return True
         self.received_total += len(samples)
-        self._last_batch_count = len(samples)
         assert self._adapter is not None
         unresolved = False
         for start in range(0, len(samples), 500):
