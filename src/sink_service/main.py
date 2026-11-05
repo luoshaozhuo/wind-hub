@@ -72,7 +72,10 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         await registry.refresh()
         background.append(asyncio.create_task(supervisor.supervise(stop)))
         background.append(asyncio.create_task(
-            _poll_workers(registry, telemetry, stop, service["metrics"]["metrics_compute_interval_ms"])
+            _poll_workers(
+                registry, manager, telemetry, stop,
+                service["metrics"]["metrics_compute_interval_ms"],
+            )
         ))
         await stop.wait()
     finally:
@@ -93,6 +96,7 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
 
 async def _poll_workers(
     registry: WorkerRegistryView,
+    manager: ConfigManager,
     telemetry: Observability,
     stop: asyncio.Event,
     interval_ms: int,
@@ -115,6 +119,8 @@ async def _poll_workers(
         next_tick += max(1, int((now - next_tick) / period) + 1) * period
         try:
             await registry.refresh()
+            if manager.runtime.revision != manager.disk.revision:
+                await manager.reconcile_committed()
             for role, state in registry.worker_health.items():
                 if previous_health.get(role) != state:
                     telemetry.event(
