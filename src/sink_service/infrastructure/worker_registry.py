@@ -32,8 +32,14 @@ class WorkerRegistryView:
                 sink_id=entry.sink_id,
                 process_role=entry.channel,
                 desired_state=entry.desired_state,
-                actual_state=previous[entry.delivery_id].actual_state if entry.delivery_id in previous else "UNKNOWN",
-                revision=previous[entry.delivery_id].revision if entry.delivery_id in previous else "",
+                actual_state=(
+                    previous[entry.delivery_id].actual_state
+                    if entry.delivery_id in previous else "UNKNOWN"
+                ),
+                revision=(
+                    previous[entry.delivery_id].revision
+                    if entry.delivery_id in previous else ""
+                ),
                 last_error="worker evidence pending",
             )
             for entry in delivery_definitions(snapshot)
