@@ -36,6 +36,7 @@ class WorkerSupervisor:
         }
         self._stopping = False
         self._socket_path = ""
+        self.apply_timeout_seconds = 10.0
 
     async def _accept(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -121,7 +122,13 @@ class WorkerSupervisor:
     async def apply(self, generation: str) -> tuple[str, ...]:
         """Return converged delivery IDs only when both workers confirm."""
         replies = await asyncio.gather(
-            *(self.request(role, "APPLY", generation) for role in ROLES),
+            *(
+                self.request(
+                    role, "APPLY", generation,
+                    timeout_seconds=self.apply_timeout_seconds,
+                )
+                for role in ROLES
+            ),
             return_exceptions=True,
         )
         applied: list[str] = []
