@@ -118,6 +118,7 @@ class WorkerRegistryView:
         dict[str, dict[str, float]],
         tuple[tuple[datetime, float], ...],
         dict[str, tuple[tuple[datetime, float], ...]],
+        dict[str, float],
         bool,
     ] | None:
         """Aggregate both worker reports only when both generations are valid."""
@@ -144,6 +145,7 @@ class WorkerRegistryView:
         deliveries: dict[str, dict[str, float]] = {}
         latencies: list[tuple[datetime, float]] = []
         delivery_latencies: dict[str, tuple[tuple[datetime, float], ...]] = {}
+        delivery_p99: dict[str, float] = {}
         incomplete = False
         for reply in replies:
             if isinstance(reply, BaseException) or reply.status != "APPLIED":
@@ -168,6 +170,12 @@ class WorkerRegistryView:
                         (datetime.fromisoformat(stamp), float(value))
                         for stamp, value in values
                     )
+                delivery_p99.update({
+                    identifier: float(value)
+                    for identifier, value in json.loads(
+                        reply.evidence.get("delivery_latency_p99", "{}")
+                    ).items()
+                })
                 if reply.evidence.get("latency_incomplete") == "true":
                     incomplete = True
                 for timestamp, value in json.loads(
@@ -176,4 +184,7 @@ class WorkerRegistryView:
                     latencies.append((datetime.fromisoformat(timestamp), float(value)))
             except (KeyError, TypeError, ValueError, OverflowError):
                 return None
-        return aggregate, deliveries, tuple(latencies), delivery_latencies, incomplete
+        return (
+            aggregate, deliveries, tuple(latencies), delivery_latencies,
+            delivery_p99, incomplete,
+        )
