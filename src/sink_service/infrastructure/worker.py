@@ -8,6 +8,7 @@ import logging
 import os
 from dataclasses import asdict
 from pathlib import Path
+from typing import Literal
 
 from sink_service.application.delivery_registry import DeliveryRegistry
 from sink_service.infrastructure.config_repository import GenerationStore
@@ -45,7 +46,7 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
     try:
         while True:
             request = ControlRequest.from_wire(await read_frame(reader))
-            status = "APPLIED"
+            status: Literal["APPLIED", "PENDING", "FAILED", "UNKNOWN"] = "APPLIED"
             evidence: dict[str, str] = {}
             try:
                 if request.operation == "SHUTDOWN":
