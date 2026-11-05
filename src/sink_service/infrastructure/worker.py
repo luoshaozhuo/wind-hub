@@ -69,6 +69,7 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                     if any(item.delivery_id not in applied for item in views):
                         status = "PENDING"
                 elif request.operation == "GET_STATUS":
+                    evidence["active_generation"] = snapshot.revision
                     evidence["deliveries"] = json.dumps(
                         [asdict(item) for item in registry.list()]
                     )
