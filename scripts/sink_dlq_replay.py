@@ -15,7 +15,7 @@ import json
 import nats
 from nats.js.errors import NotFoundError
 
-from contracts.sample_message import SampleMessage
+from contracts.sample_batch import SampleBatch
 
 
 async def replay(
@@ -49,10 +49,11 @@ async def replay(
             if record.get("delivery_id") != delivery_id:
                 continue
             subject = record["subject"]
+            if record.get("part_count", 1) != 1:
+                print(f"SKIP multipart malformed source sequence={sequence}; manual repair required")
+                continue
             payload = base64.b64decode(record["payload_base64"], validate=True)
-            sample = SampleMessage.decode(payload, "reliable")
-            if sample.subject("reliable") != subject:
-                raise ValueError(f"DLQ record {sequence} has a mismatched source subject")
+            SampleBatch.decode(payload, mode="reliable", subject=subject)
             if execute:
                 stable_id = hashlib.sha256(
                     f"{dlq_stream}:{sequence}:{delivery_id}".encode("utf-8")
