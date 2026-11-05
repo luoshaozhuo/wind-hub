@@ -416,6 +416,30 @@ class ReliableDeliveryPort:
         if new_record:
             self.dlq_total += 1
 
+    async def _dlq_with_heartbeat(
+        self,
+        message: Any,
+        reason: str,
+        *,
+        sample: SampleMessage | None = None,
+    ) -> None:
+        """Keep the source consumer lease alive during slow durable DLQ transfer."""
+        transfer = asyncio.create_task(
+            self._dead_letter(message, reason, sample=sample)
+        )
+        interval = max(
+            0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3
+        )
+        while not transfer.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(transfer), timeout=interval)
+            except TimeoutError:
+                try:
+                    await message.in_progress()
+                except Exception:
+                    logger.warning("DLQ source ACK extension failed", exc_info=True)
+        await asyncio.shield(transfer)
+
     async def _write_with_heartbeat(
         self, message: Any, samples: tuple[SampleMessage, ...]
     ) -> BatchOutcome:
@@ -522,7 +546,7 @@ class ReliableDeliveryPort:
             )
             if permanent:
                 for index in sorted(settled - delivered):
-                    await self._dead_letter(
+                    await self._dlq_with_heartbeat(
                         message,
                         outcome.error or "target permanently skipped sample",
                         sample=chunk[index],
@@ -573,7 +597,7 @@ class ReliableDeliveryPort:
                 except (ValueError, UnicodeError) as exc:
                     self.rejected_batches_total += 1
                     try:
-                        await self._dead_letter(message, str(exc))
+                        await self._dlq_with_heartbeat(message, str(exc))
                         await message.ack_sync(timeout=5)
                         self.acknowledged_batches_total += 1
                         self._backlog = metadata.num_pending
