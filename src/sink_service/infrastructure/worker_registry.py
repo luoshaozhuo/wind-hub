@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+from dataclasses import asdict
+
 from sink_service.application.delivery_registry import DeliveryView
+from sink_service.infrastructure.supervisor import ROLES, WorkerSupervisor
 
 from sink_service.application.delivery_definition import delivery_definitions
 from sink_service.domain.config import ValidatedSnapshot
@@ -11,11 +16,15 @@ from sink_service.domain.config import ValidatedSnapshot
 class WorkerRegistryView:
     """Read-only snapshots supplied by worker IPC."""
 
-    def __init__(self, snapshot: ValidatedSnapshot) -> None:
+    def __init__(self, supervisor: WorkerSupervisor, snapshot: ValidatedSnapshot) -> None:
+        self.supervisor = supervisor
+        self.snapshot = snapshot
         self.views: dict[str, DeliveryView] = {}
         self.reset(snapshot)
 
     def reset(self, snapshot: ValidatedSnapshot) -> None:
+        self.snapshot = snapshot
+        previous = self.views
         self.views = {
             entry.delivery_id: DeliveryView(
                 delivery_id=entry.delivery_id,
@@ -23,8 +32,8 @@ class WorkerRegistryView:
                 sink_id=entry.sink_id,
                 process_role=entry.channel,
                 desired_state=entry.desired_state,
-                actual_state="UNKNOWN",
-                revision="",
+                actual_state=previous[entry.delivery_id].actual_state if entry.delivery_id in previous else "UNKNOWN",
+                revision=previous[entry.delivery_id].revision if entry.delivery_id in previous else "",
                 last_error="worker evidence pending",
             )
             for entry in delivery_definitions(snapshot)
