@@ -7,6 +7,8 @@ import json
 import logging
 import os
 from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
+from math import ceil
 from pathlib import Path
 from typing import Literal
 
@@ -89,6 +91,22 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                     if isinstance(factory, RealtimeFactory):
                         counters.update(factory.ingress_counters())
                     deliveries, histories, overflows = registry.delivery_observations()
+                    instant = datetime.now(UTC)
+                    cutoff = instant - timedelta(
+                        milliseconds=snapshot.service["metrics"]["metrics_window_ms"]
+                    )
+                    p99: dict[str, float] = {}
+                    for identifier, records in histories.items():
+                        overflow = overflows.get(identifier)
+                        if overflow is not None and overflow > cutoff:
+                            continue
+                        values = sorted(
+                            latency for stamp, latency in records
+                            if cutoff < stamp <= instant
+                        )
+                        if values:
+                            p99[identifier] = values[ceil(len(values) * 0.99) - 1]
+                    evidence["delivery_latency_p99"] = json.dumps(p99)
                     evidence["counters"] = json.dumps(counters)
                     evidence["delivery_counters"] = json.dumps(
                         deliveries, separators=(",", ":")
