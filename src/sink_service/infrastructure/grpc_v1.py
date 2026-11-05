@@ -175,7 +175,9 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                     for view in views
                 ],
             ],
-            observed_at=_timestamp(datetime.now(UTC)),
+            observed_at=_timestamp(
+                getattr(self._registry, "observed_at", datetime.now(UTC))
+            ),
         )
 
     async def GetCapabilities(
