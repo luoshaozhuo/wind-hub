@@ -22,6 +22,8 @@ class WorkerRegistryView:
         self.views: dict[str, DeliveryView] = {}
         self.inspections: dict[str, dict[str, str]] = {}
         self.worker_health: dict[str, str] = {role: "UNKNOWN" for role in ROLES}
+        self.worker_pid: dict[str, str] = {}
+        self.epoch_changed = False
         self.reset(snapshot)
 
     def reset(self, snapshot: ValidatedSnapshot) -> None:
@@ -68,6 +70,11 @@ class WorkerRegistryView:
                     raise ValueError("worker not available")
                 if reply.evidence["active_generation"] != self.snapshot.revision:
                     raise ValueError("worker active generation is stale")
+                current_pid = reply.evidence["pid"]
+                previous_pid = self.worker_pid.get(role)
+                if previous_pid is not None and previous_pid != current_pid:
+                    self.epoch_changed = True
+                self.worker_pid[role] = current_pid
                 reports = json.loads(reply.evidence["deliveries"])
                 inspected = json.loads(reply.evidence["inspections"])
                 self.worker_health[role] = "RUNNING"
