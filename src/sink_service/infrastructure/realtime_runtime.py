@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
-from collections import deque
+from collections import OrderedDict, deque
 from datetime import UTC, datetime
 from typing import Any
 
@@ -40,9 +40,9 @@ class NatsRealtimeIngress:
         self._subscription: Subscription | None = None
         self._engines: dict[str, RealtimeEngine] = {}
         self._routes: dict[tuple[str, str], dict[str, RealtimeEngine]] = {}
-        self._target_cache: dict[
+        self._target_cache: OrderedDict[
             tuple[str, str, str, str], tuple[RealtimeEngine, ...]
-        ] = {}
+        ] = OrderedDict()
         self._lock = asyncio.Lock()
         self.last_error = ""
 
@@ -127,7 +127,12 @@ class NatsRealtimeIngress:
                     engine for engine in routes.values()
                     if engine.accepts(batch.device_id, sample.point_id)
                 )
+                cache_limit = max(16384, len(self._engines) * 4096)
+                if len(self._target_cache) >= cache_limit:
+                    self._target_cache.popitem(last=False)
                 self._target_cache[identity] = targets
+            else:
+                self._target_cache.move_to_end(identity)
             for engine in targets:
                 engine.offer(sample, now=now, routed=True)
 
