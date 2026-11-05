@@ -64,6 +64,8 @@ class WorkerRegistryView:
             try:
                 if isinstance(reply, BaseException) or reply.status != "APPLIED":
                     raise ValueError("worker not available")
+                if reply.evidence["active_generation"] != self.snapshot.revision:
+                    raise ValueError("worker active generation is stale")
                 reports = json.loads(reply.evidence["deliveries"])
                 self.worker_health[role] = "RUNNING"
                 by_id = {entry["delivery_id"]: entry for entry in reports}
