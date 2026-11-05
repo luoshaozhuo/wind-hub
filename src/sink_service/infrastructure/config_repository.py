@@ -136,11 +136,9 @@ class GenerationStore:
             file.path for file in checked.files
             if file.path.startswith('configs/services/')
         )
-        if len(service_paths) != 2:
-            raise ConfigurationError('validated snapshot must contain two Services')
-        committed = read_snapshot(
-            target, target / service_paths[0], target / service_paths[1]
-        )
+        if service_paths != ['configs/services/sink_service.yaml']:
+            raise ConfigurationError('validated snapshot requires one canonical Service')
+        committed = read_snapshot(target, target / service_paths[0])
         if committed.revision != checked.revision:
             raise ConfigurationError("existing committed generation differs from candidate")
         temporary = self._root / f".CURRENT-{secrets.token_hex(12)}"
