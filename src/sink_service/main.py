@@ -47,6 +47,9 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
             store.commit(snapshot, "", old=None)
         if Path(snapshot.service["config_root"]).resolve() != config_root.resolve():
             raise ValueError("configured config_root differs from runtime")
+        supervisor.apply_timeout_seconds = (
+            snapshot.service["config_sync"]["apply_timeout_ms"] / 1000
+        )
         registry = WorkerRegistryView(supervisor, snapshot)
         manager = ConfigManager(
             store, snapshot, writer=True, reconcile=registry.apply_configuration
