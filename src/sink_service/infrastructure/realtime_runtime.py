@@ -15,6 +15,7 @@ from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.aio.subscription import Subscription
 
+from contracts.sample_batch import SampleBatch
 from contracts.sample_message import SampleMessage
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
@@ -98,34 +99,35 @@ class NatsRealtimeIngress:
                     await client.close()
 
     async def _on_message(self, msg: Msg) -> None:
+        """Decode one source batch, then route only matching measurement points."""
         try:
-            sample = SampleMessage.decode(msg.data, "realtime")
-            if msg.subject != sample.subject("realtime"):
-                self.last_error = "NATS subject/source identity mismatch"
-                return
+            batch = SampleBatch.decode(
+                msg.data, mode="realtime", subject=msg.subject
+            )
         except (ValueError, UnicodeError) as exc:
             self.last_error = str(exc)
-            logger.warning("Sink realtime message rejected: %s", exc)
+            logger.warning("Sink realtime batch rejected: %s", exc)
             return
-        identity = (
-            sample.wind_farm_id,
-            sample.collector_id,
-            sample.device_id,
-            sample.point_id,
-        )
-        targets = self._target_cache.get(identity)
-        if targets is None:
-            source = (sample.wind_farm_id, sample.collector_id)
-            targets = tuple(
-                engine
-                for engine in self._routes.get(source, {}).values()
-                if engine.accepts(sample.device_id, sample.point_id)
+
+        source = (batch.wind_farm_id, batch.collector_id)
+        routes = self._routes.get(source)
+        if not routes:
+            return
+        now = datetime.now(UTC)
+        for sample in batch.to_samples():
+            identity = (
+                batch.wind_farm_id,
+                batch.collector_id,
+                batch.device_id,
+                sample.point_id,
             )
-            if len(self._target_cache) >= 8192:
-                self._target_cache.clear()
-            self._target_cache[identity] = targets
-        if targets:
-            now = datetime.now(UTC)
+            targets = self._target_cache.get(identity)
+            if targets is None:
+                targets = tuple(
+                    engine for engine in routes.values()
+                    if engine.accepts(batch.device_id, sample.point_id)
+                )
+                self._target_cache[identity] = targets
             for engine in targets:
                 engine.offer(sample, now=now, routed=True)
 
