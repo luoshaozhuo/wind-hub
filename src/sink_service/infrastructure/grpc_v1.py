@@ -14,8 +14,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 from contracts import common_pb2, common_pb2_grpc, sink_service_pb2, sink_service_pb2_grpc
 from sink_service.application.config_manager import ConfigManager
-from sink_service.application.delivery_registry import DeliveryRegistry
-from sink_service.infrastructure.worker_registry import WorkerRegistryView, DeliveryView
+from sink_service.application.delivery_registry import DeliveryRegistry, DeliveryView
 from sink_service.application.observability import Observability
 from sink_service.domain.config import (
     CandidateNotFoundError,
@@ -26,6 +25,7 @@ from sink_service.domain.config import (
     WriterRequiredError,
 )
 from sink_service.infrastructure.grpc_auth import PeerAuthorization
+from sink_service.infrastructure.worker_registry import WorkerRegistryView
 
 
 def _timestamp(now: datetime) -> Timestamp:
