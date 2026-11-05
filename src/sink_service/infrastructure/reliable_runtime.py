@@ -27,6 +27,16 @@ from sink_service.infrastructure.realtime_runtime import SinkOutputPool
 logger = logging.getLogger(__name__)
 
 
+def _js_name(value: Any) -> str:
+    """Normalize NATS JetStream config values represented by str or Enum."""
+    if isinstance(value, str):
+        return value.lower()
+    name = getattr(value, "name", None)
+    if isinstance(name, str):
+        return name.lower()
+    raise ConfigurationError("unrecognized JetStream configuration value")
+
+
 class ReliableDeliveryPort:
     """One durable JetStream Consumer and one in-flight target write per Delivery."""
 
@@ -181,12 +191,12 @@ class ReliableDeliveryPort:
                 for subject in stream.config.subjects
             ):
                 raise ConfigurationError("history Stream does not cover sample subjects")
-            if stream.config.storage.name.lower() != "file":
+            if _js_name(stream.config.storage) != "file":
                 raise ConfigurationError("history Stream must use file storage")
-            if stream.config.discard.name.lower() != "new":
+            if _js_name(stream.config.discard) != "new":
                 raise ConfigurationError("history Stream must reject overflow")
             if (
-                stream.config.retention.name.lower() != 'limits'
+                _js_name(stream.config.retention) != 'limits'
                 or stream.config.max_bytes <= 0
                 or stream.config.max_age <= 0
             ):
@@ -195,9 +205,9 @@ class ReliableDeliveryPort:
             if nats_config['dead_letter_subject'] not in dead.config.subjects:
                 raise ConfigurationError('DLQ Stream subject is not configured')
             if (
-                dead.config.storage.name.lower() != 'file'
-                or dead.config.retention.name.lower() != 'limits'
-                or dead.config.discard.name.lower() != 'new'
+                _js_name(dead.config.storage) != 'file'
+                or _js_name(dead.config.retention) != 'limits'
+                or _js_name(dead.config.discard) != 'new'
                 or dead.config.max_bytes <= 0
                 or dead.config.max_bytes < nats_config['dlq_max_bytes']
                 or dead.config.max_age < nats_config['dlq_max_age_seconds']
@@ -303,9 +313,9 @@ class ReliableDeliveryPort:
         stream = await js.stream_info(config["dead_letter_stream"])
         if config["dead_letter_subject"] not in stream.config.subjects:
             raise ConfigurationError("DLQ Stream does not cover dead-letter subject")
-        if stream.config.storage.name.lower() != "file":
+        if _js_name(stream.config.storage) != "file":
             raise ConfigurationError("DLQ Stream must use file storage")
-        if stream.config.discard.name.lower() != "new":
+        if _js_name(stream.config.discard) != "new":
             raise ConfigurationError("DLQ Stream must reject overflow")
         metadata = message.metadata
         identity = (
