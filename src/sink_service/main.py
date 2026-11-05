@@ -148,12 +148,13 @@ async def _poll_workers(
             if metrics is None:
                 telemetry.mark_unavailable()
                 continue
-            totals, deliveries, latencies, incomplete = metrics
+            totals, deliveries, latencies, delivery_latencies, incomplete = metrics
             telemetry.sample(
                 totals,
                 latency_observations=latencies,
                 latency_overflow_at=datetime.now(UTC) if incomplete else None,
                 delivery_counters=deliveries,
+                delivery_latencies=delivery_latencies,
             )
         except Exception:
             logger.exception("worker metrics cycle failed")
