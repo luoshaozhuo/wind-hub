@@ -164,11 +164,18 @@ class WorkerSupervisor:
             *(self.request(role, "SHUTDOWN", generation) for role in ROLES),
             return_exceptions=True,
         )
-        for process in self._processes.values():
+        for role, process in self._processes.items():
             await asyncio.to_thread(process.join, 10)
             if process.is_alive():
+                logger.error(
+                    "UNSETTLED_WORKER_SHUTDOWN role=%s pid=%s; "
+                    "native I/O completion is not confirmed", role, process.pid,
+                )
                 process.terminate()
                 await asyncio.to_thread(process.join, 3)
+                if process.is_alive():
+                    process.kill()
+                    await asyncio.to_thread(process.join, 3)
         await asyncio.gather(
             *(client.close() for client in self._clients.values()),
             return_exceptions=True,
