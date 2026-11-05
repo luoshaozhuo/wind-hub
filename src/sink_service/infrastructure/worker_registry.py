@@ -56,9 +56,6 @@ class WorkerRegistryView:
     def inspect(self, delivery_id: str) -> dict[str, str]:
         return dict(self.inspections.get(delivery_id, {}))
 
-    def counters(self) -> dict[str, float]:
-        return {}
-
     async def refresh(self) -> None:
         async with self._lock:
             await self._refresh_locked()
