@@ -74,7 +74,7 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                     )
                 elif request.operation == "GET_METRICS":
                     counters = registry.counters()
-                    if role == "realtime":
+                    if isinstance(factory, RealtimeFactory):
                         counters.update(factory.ingress_counters())
                     evidence["counters"] = json.dumps(counters)
                 elif request.operation == "DIAGNOSE":
