@@ -70,6 +70,7 @@ class RealtimeEngine:
         self._sent_at: dict[tuple[str, str], float] = {}
         self._skipped: dict[tuple[str, str], str] = {}
         self._retry_pending = False
+        self._saturated = False
         self._wakeup = asyncio.Event()
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
@@ -227,10 +228,19 @@ class RealtimeEngine:
                     pass
                 event_fired = False
             else:
-                try:
-                    await asyncio.wait_for(self._wakeup.wait(), timeout=delay)
-                except TimeoutError:
-                    pass
+                if self._policy == "change_with_heartbeat" and self._saturated:
+                    # While new changes arrive during target I/O, bound the
+                    # following write cycle to the configured heartbeat tick.
+                    # An isolated change still uses the immediate path.
+                    try:
+                        await asyncio.wait_for(self._stop.wait(), timeout=delay)
+                    except TimeoutError:
+                        pass
+                else:
+                    try:
+                        await asyncio.wait_for(self._wakeup.wait(), timeout=delay)
+                    except TimeoutError:
+                        pass
                 event_fired = self._wakeup.is_set()
                 self._wakeup.clear()
             if self._stop.is_set():
@@ -343,3 +353,8 @@ class RealtimeEngine:
                 if outcome.error:
                     self._retry_pending = True
                     break
+            if self._policy == "change_with_heartbeat":
+                # Persistent changes while a write was in flight signal that
+                # event-by-event EVAL would be wasteful; coalesce until next
+                # configured tick, then resume prompt triggering once quiet.
+                self._saturated = self._wakeup.is_set()
