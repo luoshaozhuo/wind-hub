@@ -53,3 +53,34 @@ class WorkerRegistryView:
 
     def counters(self) -> dict[str, float]:
         return {}
+
+    async def refresh(self) -> None:
+        replies = await asyncio.gather(
+            *(self.supervisor.request(role, "GET_STATUS", self.snapshot.revision)
+              for role in ROLES),
+            return_exceptions=True,
+        )
+        for role, reply in zip(ROLES, replies, strict=True):
+            try:
+                if isinstance(reply, BaseException) or reply.status != "APPLIED":
+                    raise ValueError("worker not available")
+                reports = json.loads(reply.evidence["deliveries"])
+                by_id = {entry["delivery_id"]: entry for entry in reports}
+                for key, old in tuple(self.views.items()):
+                    if old.channel == role:
+                        if key not in by_id:
+                            raise ValueError("worker did not report Delivery")
+                        self.views[key] = DeliveryView(**by_id[key])
+            except (ValueError, KeyError, TypeError):
+                for key, old in tuple(self.views.items()):
+                    if old.channel == role:
+                        values = asdict(old)
+                        values["actual_state"] = "UNKNOWN"
+                        values["last_error"] = "worker unavailable"
+                        self.views[key] = DeliveryView(**values)
+
+    async def apply_configuration(self, snapshot: ValidatedSnapshot) -> tuple[str, ...]:
+        self.reset(snapshot)
+        applied = await self.supervisor.apply(snapshot.revision)
+        await self.refresh()
+        return applied
