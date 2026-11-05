@@ -35,9 +35,9 @@ class NatsRealtimeIngress:
 
     def __init__(self, *, servers: list[str], subject_prefix: str) -> None:
         self._servers = servers
-        self._subject = subject_prefix.rstrip(".") + ".>"
+        self._subject_prefix = subject_prefix.rstrip(".")
         self._client: Client | None = None
-        self._subscription: Subscription | None = None
+        self._subscriptions: dict[tuple[str, str], Subscription] = {}
         self._engines: dict[str, RealtimeEngine] = {}
         self._routes: dict[tuple[str, str], dict[str, RealtimeEngine]] = {}
         self._target_cache: OrderedDict[
