@@ -76,18 +76,17 @@ class NatsRealtimeIngress:
                     reconnect_time_wait=1,
                     pending_size=1024 * 1024,
                 )
-                try:
-                    subscription = await client.subscribe(
-                        self._subject,
-                        cb=self._on_message,
-                        pending_msgs_limit=8192,
-                        pending_bytes_limit=4 * 1024 * 1024,
-                    )
-                except Exception:
-                    await client.close()
-                    raise
                 self._client = client
-                self._subscription = subscription
+            source = engine.source_identity
+            if source not in self._subscriptions:
+                assert self._client is not None
+                subject = f"{self._subject_prefix}.{source[0]}.{source[1]}.>"
+                self._subscriptions[source] = await self._client.subscribe(
+                    subject,
+                    cb=self._on_message,
+                    pending_msgs_limit=8192,
+                    pending_bytes_limit=4 * 1024 * 1024,
+                )
             self._engines[delivery_id] = engine
             self._routes.setdefault(engine.source_identity, {})[delivery_id] = engine
             self._target_cache.clear()
