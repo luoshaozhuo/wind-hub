@@ -224,7 +224,9 @@ def validate_service(service: dict[str, Any]) -> None:
     if any(not isinstance(url, str) or not url.startswith("nats://") for url in nats["servers"]):
         raise ConfigurationError("nats.servers contains an invalid NATS URL")
     if nats.get("realtime_subject") != "wh.batch.rt":
-        raise ConfigurationError("realtime NATS subject must match the SampleMessage contract")
+        raise ConfigurationError("realtime NATS subject must match the v2 batch contract")
+    if nats.get("reliable_subject") != "wh.batch.hist":
+        raise ConfigurationError("reliable NATS subject must match the v2 batch contract")
     for key in ('dlq_max_bytes', 'dlq_max_age_seconds'):
         expect_positive_int(nats.get(key), f'nats.{key}')
     for field in ("history_storage", "dlq_storage"):
