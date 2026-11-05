@@ -71,6 +71,7 @@ class ReliableDeliveryPort:
         self.latency_overflow_at: datetime | None = None
         self.retry_total = 0
         self.dlq_total = 0
+        self._last_batch_count = 1
         self._started_at = datetime.now(UTC)
         self._capacity_alarm = ''
         self._last_capacity_check = 0.0
@@ -313,7 +314,13 @@ class ReliableDeliveryPort:
             and (not source["points"] or sample.point_id in source["points"])
         )
 
-    async def _dead_letter(self, message: Any, reason: str) -> None:
+    async def _dead_letter(
+        self,
+        message: Any,
+        reason: str,
+        *,
+        sample: SampleMessage | None = None,
+    ) -> None:
         client = self._client
         if client is None:
             raise RuntimeError("JetStream disconnected")
@@ -329,7 +336,8 @@ class ReliableDeliveryPort:
         metadata = message.metadata
         identity = (
             f'{self._definition.delivery_id}:{metadata.stream}:'
-            f'{metadata.consumer}:{metadata.sequence.stream}'
+            f'{metadata.consumer}:{metadata.sequence.stream}:'
+            f'{sample.sample_id if sample is not None else "invalid-batch"}'
         ).encode('utf-8')
         dead_letter_id = hashlib.sha256(identity).hexdigest()
         try:
@@ -337,6 +345,8 @@ class ReliableDeliveryPort:
             sample_id = source.get('sample_id', '') if isinstance(source, dict) else ''
         except (UnicodeError, ValueError):
             sample_id = ''
+        if sample is not None:
+            sample_id = sample.sample_id
         observed_at = datetime.now(UTC).isoformat()
         record = {
             'dead_letter_id': dead_letter_id,
@@ -349,6 +359,9 @@ class ReliableDeliveryPort:
             'source_sequence': metadata.sequence.stream,
             'source_timestamp': metadata.timestamp.astimezone(UTC).isoformat(),
             'payload_base64': base64.b64encode(message.data).decode('ascii'),
+            'failed_sample': (
+                sample.model_dump(mode='json') if sample is not None else None
+            ),
             'classification': 'PERMANENT',
             'reason': reason,
             'first_failed_at': observed_at,
@@ -363,7 +376,7 @@ class ReliableDeliveryPort:
         if ack.stream != config['dead_letter_stream']:
             raise ConfigurationError('DLQ PubAck confirms an unexpected Stream')
         if not getattr(ack, 'duplicate', False):
-            self.dlq_total += 1
+            self.dlq_total += 1 if sample is not None else max(1, self._last_batch_count)
 
     async def _write_with_heartbeat(
         self, message: Any, samples: tuple[SampleMessage, ...]
