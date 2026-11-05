@@ -392,9 +392,6 @@ class ReliableDeliveryPort:
                 "source_sequence": metadata.sequence.stream,
                 "source_timestamp": metadata.timestamp.astimezone(UTC).isoformat(),
                 "payload_base64": base64.b64encode(chunk).decode("ascii"),
-                "failed_sample": (
-                    sample.model_dump(mode="json") if sample is not None else None
-                ),
                 "classification": "PERMANENT",
                 "reason": reason,
                 "first_failed_at": observed_at,
