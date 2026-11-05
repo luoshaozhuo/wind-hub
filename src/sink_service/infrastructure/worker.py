@@ -28,6 +28,17 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
         request_id="BOOT", generation=snapshot.revision,
         status="APPLIED", evidence={"role": role},
     ).to_wire())
+    async def watchdog() -> None:
+        while True:
+            await asyncio.sleep(
+                snapshot.service["runtime"].get("watchdog_interval_ms", 5000) / 1000
+            )
+            try:
+                await registry.reconcile_all()
+            except Exception:
+                logger.exception("worker watchdog reconciliation failed")
+
+    recovery = asyncio.create_task(watchdog())
     try:
         while True:
             request = ControlRequest.from_wire(await read_frame(reader))
@@ -70,6 +81,8 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
             if request.operation == "SHUTDOWN":
                 break
     finally:
+        recovery.cancel()
+        await asyncio.gather(recovery, return_exceptions=True)
         await registry.shutdown()
         writer.close()
         await writer.wait_closed()
