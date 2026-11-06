@@ -13,7 +13,7 @@ from pymodbus.datastore import ModbusServerContext
 from pymodbus.server import ModbusTcpServer
 
 from core.application import ConnectionHealth
-from core.infrastructure.config.sink_schema import ModbusSinkConnection
+from sink_service.infrastructure.sink_schema import ModbusSinkConnection
 from sink_service.infrastructure.adapters.modbus.pipeline import ModbusSinkDataPath
 from sink_service.infrastructure.adapters.modbus.store import ModbusSinkStore
 

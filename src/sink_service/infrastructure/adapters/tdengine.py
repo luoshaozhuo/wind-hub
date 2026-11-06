@@ -13,7 +13,7 @@ from urllib.error import HTTPError, URLError
 
 from core.application.protocol_contract import ConnectionHealth
 from sink_service.application.sink_contract import ResolvedSink
-from core.infrastructure.config.sink_schema import TDengineSinkConnection
+from sink_service.infrastructure.sink_schema import TDengineSinkConnection
 from sink_service.application.point_value import SinkPointValue
 from sink_service.application.error import SinkError
 

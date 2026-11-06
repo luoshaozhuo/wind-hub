@@ -16,7 +16,7 @@ from sink_service.application.sink_contract import (
     ResolvedSinkPoint,
 )
 from core.domain.sample_value import Quality
-from core.infrastructure.config.sink_schema import GrpcSinkConnection
+from sink_service.infrastructure.sink_schema import GrpcSinkConnection
 from core.infrastructure.rpc.scalar_codec import encode_scalar
 from sink_service.application.point_value import SinkPointValue
 from sink_service.application.export import SinkReferenceExporter

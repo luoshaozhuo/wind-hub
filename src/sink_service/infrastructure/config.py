@@ -12,7 +12,7 @@ from sink_service.application.sink_contract import (
 )
 from core.domain import DeviceId
 from configuration.task import Task
-from core.infrastructure.config.sink_schema import MODBUS_WORD_WIDTH, SINK_NUMERIC_DATA_TYPES
+from sink_service.infrastructure.sink_schema import MODBUS_WORD_WIDTH, SINK_NUMERIC_DATA_TYPES
 
 
 def _task_group_sources(snapshot: ConfigSnapshot, task: Task) -> tuple[tuple[str, str], ...]:
