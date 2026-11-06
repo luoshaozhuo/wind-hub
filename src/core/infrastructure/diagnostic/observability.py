@@ -217,6 +217,13 @@ class _Recorder:
             # Optional metrics must not affect device I/O.
             pass
 
+    @property
+    def record_drop_callback(self) -> Callable[[], None]:
+        """有界日志队列丢弃回调，避免 Optional 记录器逃逸到闭包。"""
+        from functools import partial
+
+        return partial(self.record_drop, "logging", "queue_full")
+
     def record_drop(self, channel: str, reason: str) -> None:
         try:
             self.dropped.labels(channel, reason).inc()
@@ -449,8 +456,9 @@ class ObservabilityHandle:
                 targets, capacity=settings.logging.queue_capacity,
                 process_name=service_name,
                 on_drop=(
-                    (lambda recorder=self._recorder: recorder.record_drop("logging", "queue_full"))
-                    if self._recorder is not None else None
+                    self._recorder.record_drop_callback
+                    if self._recorder is not None
+                    else None
                 ),
             )
             handler.setLevel(logging._nameToLevel[settings.logging.level])
