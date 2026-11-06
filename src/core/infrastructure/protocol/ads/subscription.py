@@ -245,7 +245,8 @@ class ADSSubscription:
             self._prepared_handles.remove(token)
         self._retired_handles.extend(self._handles)
         self._handles = list(candidate.handles)
-        self._callbacks.extend(candidate.callbacks)
+        # Candidate callbacks were retained at prepare time and must not
+        # accumulate duplicate strong references on each live table update.
         self._blocks = list(candidate.blocks)
         self.point_ids = frozenset(point.point_id for point in candidate.points)
         self._generation = candidate.generation
@@ -274,7 +275,6 @@ class ADSSubscription:
         for token in candidate.handles:
             self._prepared_handles.remove(token)
         self._retired_handles.extend(candidate.handles)
-        self._callbacks.extend(candidate.callbacks)
         return await self.cleanup_retired()
 
     def _begin_stop(self) -> asyncio.Task[None]:
