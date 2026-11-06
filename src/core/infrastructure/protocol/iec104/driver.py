@@ -184,7 +184,7 @@ class IEC104Driver:
                 active_version=self._active_version,
                 point_errors=point_errors,
                 message=message,
-                resource_state=state,
+                resource_state=(state if self.is_open() or state != "READY" else "FAULTED"),
                 unverified_points=unverified,
                 residual_resources=residual,
             )
