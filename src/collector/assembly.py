@@ -19,8 +19,7 @@ from contracts.sample_message import validate_subject_token
 from core.application import ProtocolRegistry
 from core.application.settings import ADSLocalConfig, LogSettings
 from core.domain import Device, PointTable
-from core.infrastructure.config import CollectorDocumentLoader, ConfigPaths
-from core.infrastructure.config.collector_snapshot import build_collector_snapshot
+from core.infrastructure.config import build_shared_snapshot
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
 from .application.config import CollectorConfig
@@ -34,7 +33,8 @@ from .application.session import CollectorDeviceSession
 from .domain.acquisition import AcquisitionEngine
 from .infrastructure.config.admin import CollectorConfigAdmin
 from .infrastructure.config.desired_state_store import DesiredStateStore
-from .infrastructure.config.loader import config_from_snapshot_and_documents, load_collector_config
+from .infrastructure.config.documents import CollectorDocumentLoader, CollectorPaths
+from .infrastructure.config.loader import collector_config_from_documents, load_collector_config
 from .infrastructure.config.transactions import CollectorConfigTransactions
 from .infrastructure.nats_publisher import NatsPublisher
 
@@ -71,7 +71,7 @@ class CollectorApp:
     config: CollectorConfigService
     config_admin: CollectorConfigAdmin
     config_file: Path
-    config_paths: ConfigPaths
+    config_paths: CollectorPaths
     site_id: str
     config_hash: str
     metrics: CollectorMetricsState
@@ -173,12 +173,11 @@ def assemble_collector(
         ConfigError: 配置非法。
     """
     config_path = Path(config_file)
-    config_source = CollectorDocumentLoader(
-        ConfigPaths(config_path, Path(instances), Path(templates))
-    )
+    config_paths = CollectorPaths(config_path, Path(instances), Path(templates))
+    config_source = CollectorDocumentLoader(config_paths)
     documents = config_source.load()
-    snapshot = build_collector_snapshot(documents)
-    config = config_from_snapshot_and_documents(snapshot, documents)
+    snapshot = build_shared_snapshot(documents.shared)
+    config = collector_config_from_documents(documents)
     config_hash = documents.revision
 
     protocol_registry = build_protocol_registry()
@@ -270,7 +269,7 @@ def assemble_collector(
 
     config_admin = CollectorConfigAdmin(
         CollectorConfigTransactions(
-            ConfigPaths(config_path, Path(instances), Path(templates)),
+            config_paths,
             documents,
         ),
         config_service,
@@ -283,7 +282,7 @@ def assemble_collector(
         config=config_service,
         config_admin=config_admin,
         config_file=config_path,
-        config_paths=ConfigPaths(config_path, Path(instances), Path(templates)),
+        config_paths=config_paths,
         site_id=snapshot.site.site_id,
         config_hash=config_hash,
         metrics=metrics,
@@ -294,7 +293,7 @@ def assemble_collector(
         latest_values=latest_values,
         identity=identity,
         ads_local=config.ads_local,
-        log_settings=snapshot.system.logs,
+        log_settings=LogSettings(**documents.service.get("logs", {})),
     )
 
 
