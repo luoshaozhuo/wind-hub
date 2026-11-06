@@ -6,8 +6,8 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
-
 from sink_service.application.point_value import SinkPointValue as PointValue
+
 
 
 class RedisKeyOptions(Protocol):

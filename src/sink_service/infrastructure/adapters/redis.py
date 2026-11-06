@@ -9,8 +9,8 @@ from contextlib import suppress
 
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
-from sink_service.application.point_value import SinkPointValue as PointValue
 from core.infrastructure.config.sink_schema import RedisSinkConnection
+from sink_service.application.point_value import SinkPointValue as PointValue
 from sink_service.application.error import SinkError
 from sink_service.infrastructure.adapters.redis_record import encode_redis_record
 
