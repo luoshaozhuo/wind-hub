@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
 import logging
 import math
 from collections.abc import Sequence
@@ -320,46 +319,48 @@ class IEC104Driver:
         )
 
     async def connect(self) -> None:
-        async with self._lifecycle:
-            if self.is_open():
-                return
-            if self._state is ProtocolLifecycleState.FAULTED:
-                raise ProtocolConnectionError("IEC104 driver requires successful cleanup")
-            if self._session is not None:
-                raise ProtocolConnectionError("IEC104 previous session must close first")
-            self._state = ProtocolLifecycleState.CONNECTING
-            c = self._config
-            session: _IEC104Session | None = None
-            try:
-                session = _IEC104Session(
-                    c.host,
-                    c.port,
-                    t1=c.t1,
-                    t2=c.t2,
-                    t3=c.t3,
-                    k=c.k,
-                    w=c.w,
-                    on_message=lambda msg: self._dispatch(session, msg),
-                    on_disconnect=lambda exc: self._disconnect(session, exc),
-                )
-                self._session = session
-                await asyncio.wait_for(session.open(), timeout=c.t0)
-                if not session.is_open:
-                    raise ProtocolConnectionError("IEC104 session lost during STARTDT")
-            except BaseException as exc:
-                await self._close_locked()
-                if isinstance(exc, OSError | TimeoutError):
-                    raise ProtocolConnectionError(
-                        f"IEC104 connection failed: {exc or type(exc).__name__}"
-                    ) from exc
-                raise
-            self._state = ProtocolLifecycleState.CONNECTED
-            if self._active_version is None:
-                self._active_version = 1
+        async with self._mapping_barrier.write():
+            async with self._lifecycle:
+                if self.is_open():
+                    return
+                if self._state is ProtocolLifecycleState.FAULTED:
+                    raise ProtocolConnectionError("IEC104 driver requires successful cleanup")
+                if self._session is not None:
+                    raise ProtocolConnectionError("IEC104 previous session must close first")
+                self._state = ProtocolLifecycleState.CONNECTING
+                c = self._config
+                session: _IEC104Session | None = None
+                try:
+                    session = _IEC104Session(
+                        c.host,
+                        c.port,
+                        t1=c.t1,
+                        t2=c.t2,
+                        t3=c.t3,
+                        k=c.k,
+                        w=c.w,
+                        on_message=lambda msg: self._dispatch(session, msg),
+                        on_disconnect=lambda exc: self._disconnect(session, exc),
+                    )
+                    self._session = session
+                    await asyncio.wait_for(session.open(), timeout=c.t0)
+                    if not session.is_open:
+                        raise ProtocolConnectionError("IEC104 session lost during STARTDT")
+                except BaseException as exc:
+                    await self._close_locked()
+                    if isinstance(exc, OSError | TimeoutError):
+                        raise ProtocolConnectionError(
+                            f"IEC104 connection failed: {exc or type(exc).__name__}"
+                        ) from exc
+                    raise
+                self._state = ProtocolLifecycleState.CONNECTED
+                if self._active_version is None:
+                    self._active_version = 1
 
     async def close(self) -> None:
-        async with self._lifecycle:
-            await self._close_locked()
+        async with self._mapping_barrier.write():
+            async with self._lifecycle:
+                await self._close_locked()
 
     async def _close_locked(self) -> None:
         """Release the owned session; caller holds the lifecycle lock."""

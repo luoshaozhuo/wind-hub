@@ -230,24 +230,26 @@ class ModbusDriver:
             return result(PointTableUpdateStatus.TIMEOUT, "Modbus update deadline expired")
 
     async def connect(self) -> None:
-        async with self._lifecycle:
-            if self.is_open():
-                return
-            previous = self._session
-            if previous is not None:
-                await previous.close()
-                self._session = None
-            session = _ModbusSession(self._config)
-            self._session = session
-            await session.open()
+        async with self._mapping_barrier.write():
+            async with self._lifecycle:
+                if self.is_open():
+                    return
+                previous = self._session
+                if previous is not None:
+                    await previous.close()
+                    self._session = None
+                session = _ModbusSession(self._config)
+                self._session = session
+                await session.open()
 
     async def close(self) -> None:
-        async with self._lifecycle:
-            session = self._session
-            if session is None:
-                return
-            await session.close()
-            self._session = None
+        async with self._mapping_barrier.write():
+            async with self._lifecycle:
+                session = self._session
+                if session is None:
+                    return
+                await session.close()
+                self._session = None
 
     def is_open(self) -> bool:
         session = self._session
