@@ -69,18 +69,20 @@ class CollectorDocumentLoader:
             service = read_yaml_mapping(self._paths.service)
         if service.get("schema_version") != 1:
             raise ConfigError("Collector Service schema_version must be 1")
+        device_path = (self._paths.instances / "devices.yaml").resolve()
+        raw_devices = self._candidates.get(device_path)
+        if raw_devices is None:
+            raw_devices = read_yaml_mapping(device_path)
+        # Resolve shared entities and Collector-owned task intents from exactly
+        # the same device document even during an external atomic replacement.
+        documents = {**self._candidates, device_path: raw_devices}
         shared = SharedDocumentLoader(
             SharedConfigPaths(self._paths.instances, self._paths.templates),
-            candidates=self._candidates,
+            candidates=documents,
         ).load()
         repository = VersionedTemplateRepository(
-            self._paths.templates, candidates=self._candidates
+            self._paths.templates, candidates=documents
         )
-        raw_devices = self._candidates.get(
-            (self._paths.instances / "devices.yaml").resolve()
-        )
-        if raw_devices is None:
-            raw_devices = read_yaml_mapping(self._paths.instances / "devices.yaml")
         raw_instances = raw_devices.get("devices")
         if not isinstance(raw_instances, dict):
             raise ConfigError("Collector devices must be a mapping")
