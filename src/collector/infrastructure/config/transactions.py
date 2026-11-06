@@ -111,7 +111,7 @@ class CollectorConfigTransactions:
                         "TEMPLATE",
                         reference.category,
                         reference.template_id,
-                        reference.template_version,
+                        reference.file_version,
                     )
                 )
 
@@ -309,38 +309,26 @@ class CollectorConfigTransactions:
             raise ConfigError("delivery template requires delivery mapping")
 
     def _validate_candidate(self, selector: ConfigSelector, document: dict[str, Any]) -> None:
-        from core.infrastructure.config.collector_documents import _schema
+        """Check metadata and the complete effective candidate without committing."""
+        from core.infrastructure.config.document_version import validate_document_version
 
-        _schema(document, self._path(selector))
+        if selector.scope == "SERVICE":
+            if document.get("schema_version") != 1:
+                raise ConfigError("Collector Service schema_version must be 1")
+        else:
+            validate_document_version(document, self._path(selector))
         if selector.scope == "TEMPLATE":
-            if selector.name in {"units", "business_points"}:
-                self._validate_effective_candidate(selector, document)
-            else:
+            if selector.name not in {"units", "business_points"}:
                 if document.get("template_id") != selector.template_id:
                     raise ConfigError("template ID mismatch")
-                if str(document.get("template_version")) != selector.template_version:
+                if document.get("file_version") != selector.template_version:
                     raise ConfigError("template version mismatch")
                 self._validate_template_payload(selector, document)
-        elif selector.scope == "SERVICE":
-            from core.infrastructure.config.collector_service_schema import (
-                validate_messaging,
-                validate_metrics,
-                validate_sections,
-                validate_service,
-                validate_timeouts,
-            )
-
-            validate_service(document)
-            validate_sections(document)
-            validate_metrics(document)
-            validate_messaging(document)
-            validate_timeouts(document)
-        elif (
-            selector.scope == "INSTANCE"
-            and selector.name == "devices"
-            and not isinstance(document.get("devices"), dict)
-        ):
-            raise ConfigError("devices must be a mapping")
+            else:
+                self._validate_effective_candidate(selector, document)
+        elif selector.scope == "INSTANCE" and selector.name == "devices":
+            if not isinstance(document.get("devices"), dict):
+                raise ConfigError("devices must be a mapping")
         if selector.scope in {"SERVICE", "INSTANCE"}:
             self._validate_effective_candidate(selector, document)
 
