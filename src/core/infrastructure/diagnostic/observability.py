@@ -421,7 +421,8 @@ class ObservabilityHandle:
         if self._leases > 1:
             self._leases -= 1
             return
-        self._closed = True
+        # A failed close remains retryable: retaining the logging worker/provider
+        # is safer than claiming successful release while resources still exist.
         deadline = asyncio.get_running_loop().time() + timeout
         failures: list[str] = []
         if self._handler is not None:
@@ -448,6 +449,7 @@ class ObservabilityHandle:
                     self._provider = None
         if failures:
             raise TimeoutError("; ".join(failures))
+        self._closed = True
 
 
 
