@@ -16,9 +16,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
-from core.application.config_diff import ConfigSnapshotDiff, diff_config_snapshots
-from core.application.config_snapshot import ConfigSnapshot
-from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
+from configuration.diff import ConfigSnapshotDiff, diff_config_snapshots
+from configuration.snapshot import ConfigSnapshot
+from configuration.digest import config_dir_digest
+from core.infrastructure.config import YamlConfigAdapter
 from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.worker import (
     CommanderPort,

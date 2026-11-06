@@ -10,7 +10,8 @@ from sink_service.application.sink_contract import (
     ResolvedSink,
     ResolvedSinkPoint,
 )
-from core.domain import DeviceId, Task
+from core.domain import DeviceId
+from configuration.task import Task
 from core.infrastructure.config.sink_schema import MODBUS_WORD_WIDTH, SINK_NUMERIC_DATA_TYPES
 
 

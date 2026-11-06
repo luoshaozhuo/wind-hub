@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from core.domain.sink import Sink
+from configuration.sink import Sink
 from core.infrastructure.config.yaml import yaml_plain
 from web_server.application.config.files import ConfigApplyResult, ConfigFileService
 from web_server.application.config.service import ConfigService

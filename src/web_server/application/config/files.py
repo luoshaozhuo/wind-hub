@@ -17,8 +17,8 @@ from typing import Any, cast
 import yaml
 from pydantic import BaseModel, Field
 
-from core.application.config_diff import ConfigSnapshotDiff, diff_config_snapshots
-from core.application.config_snapshot import ConfigSnapshot
+from configuration.diff import ConfigSnapshotDiff, diff_config_snapshots
+from configuration.snapshot import ConfigSnapshot
 from web_server.application.config.service import ConfigService
 
 CONFIG_FILES = (

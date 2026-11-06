@@ -13,7 +13,7 @@ import signal
 import uvicorn
 from uvicorn.config import LOG_LEVELS
 
-from core.application.config_snapshot import ConfigSnapshot
+from configuration.snapshot import ConfigSnapshot
 from core.infrastructure.diagnostic.log_setup import configure_process_logging
 from web_server.adapter.inbound.webapi.app import build_api
 from web_server.application.config.service import ConfigService

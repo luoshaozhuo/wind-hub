@@ -4,7 +4,7 @@
 外部地址（Stream/Modbus）以及完成 source 引用解析后的运行时点定义
 （ResolvedSinkPoint）。这些类型只依赖领域类型与框架级校验，不感知
 YAML/文件细节，也不创建任何运行时资源；sinks.yaml 的原始配置模型与
-解析逻辑位于 ``core.infrastructure.config.sink_schema``，由后者组合
+解析逻辑位于 ``sink_service.infrastructure.sink_schema``，由后者组合
 本模块类型完成原始点到 ResolvedSinkPoint 的解析。
 """
 
@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from core.application.errors import ConfigError
 from core.domain import DataType
-from core.domain.sink import Sink, freeze_sink_value
+from configuration.sink import Sink, freeze_sink_value
 
 
 @dataclass(frozen=True, slots=True)
