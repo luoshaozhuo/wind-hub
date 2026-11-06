@@ -1,6 +1,6 @@
 """Modbus TCP Server 型 Sink。
 
-Runtime 通过标准 SinkPort.write 投递 PointValue；内部数据路径负责
+Runtime 通过标准 SinkPort.write 投递 SinkPointValue；内部数据路径负责
 export/scale/encode/store，TCP Server 只读暴露同一份 ModbusSinkStore。
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 from core.application import ConfigError, ConnectionHealth
 from sink_service.application.sink_contract import ModbusSinkAddress, ResolvedSink, ResolvedSinkPoint
 from core.infrastructure.config.sink_schema import ModbusSinkConnection
-from sink_service.application.point_value import SinkPointValue as PointValue
+from sink_service.application.point_value import SinkPointValue
 from sink_service.application.point_port import LegacyPointSinkPort
 from sink_service.infrastructure.adapters.modbus.pipeline import ModbusSinkDataPath
 from sink_service.infrastructure.adapters.modbus.server import ModbusTcpSinkServer
@@ -54,13 +54,13 @@ class ModbusSink(LegacyPointSinkPort):
         """停止监听并释放端口。"""
         await self._server.stop()
 
-    async def write(self, batch: list[PointValue]) -> None:
+    async def write(self, batch: list[SinkPointValue]) -> None:
         """把 Runtime 点值批次更新到 Modbus datastore。"""
         if not batch:
             return
         self._data_path.update(batch)
 
-    async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
+    async def write_task(self, task_id: str, batch: list[SinkPointValue]) -> None:
         """Task 批次只允许更新本 Task 声明的共享寄存器映射。"""
         allowed = self._task_sources.get(task_id, set())
         if not allowed:

@@ -10,7 +10,7 @@ from contextlib import suppress
 from core.application.protocol_contract import ConnectionHealth
 from sink_service.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
 from core.infrastructure.config.sink_schema import RedisSinkConnection
-from sink_service.application.point_value import SinkPointValue as PointValue
+from sink_service.application.point_value import SinkPointValue
 from sink_service.application.error import SinkError
 from sink_service.infrastructure.adapters.redis_record import encode_redis_record
 
@@ -95,9 +95,9 @@ class RedisSink:
         return int(value)
 
     @staticmethod
-    def _dropped_non_finite(batch: list[PointValue]) -> list[PointValue]:
+    def _dropped_non_finite(batch: list[SinkPointValue]) -> list[SinkPointValue]:
         """剔除非有限浮点（NaN/Inf）——strict JSON 无法表示，否则整批失败。"""
-        finite: list[PointValue] = []
+        finite: list[SinkPointValue] = []
         for point in batch:
             if isinstance(point.value, float) and not math.isfinite(point.value):
                 logger.warning(
@@ -154,10 +154,10 @@ class RedisSink:
                 return
             await self._connect()
 
-    async def write(self, batch: list[PointValue]) -> None:
+    async def write(self, batch: list[SinkPointValue]) -> None:
         await self.write_task("", batch)
 
-    async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
+    async def write_task(self, task_id: str, batch: list[SinkPointValue]) -> None:
         if not batch:
             return
         if task_id:

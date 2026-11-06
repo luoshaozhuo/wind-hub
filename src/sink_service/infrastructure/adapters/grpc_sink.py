@@ -18,7 +18,7 @@ from sink_service.application.sink_contract import (
 from core.domain.sample_value import Quality
 from core.infrastructure.config.sink_schema import GrpcSinkConnection
 from core.infrastructure.rpc.scalar_codec import encode_scalar
-from sink_service.application.point_value import SinkPointValue as PointValue
+from sink_service.application.point_value import SinkPointValue
 from sink_service.application.export import SinkReferenceExporter
 
 
@@ -57,7 +57,7 @@ class GrpcSink:
             self._channel = None
             self._stub = None
 
-    async def write(self, batch: list[PointValue]) -> None:
+    async def write(self, batch: list[SinkPointValue]) -> None:
         if not batch:
             return
         values: dict[tuple[str, str], bool | int | float] = {}
@@ -105,7 +105,7 @@ class GrpcSink:
                             f"{result.error_code} {result.message}"
                         )
 
-    async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
+    async def write_task(self, task_id: str, batch: list[SinkPointValue]) -> None:
         allowed = set(self._task_sources.get(task_id, ()))
         await self.write([point for point in batch if (point.device_id, point.point_id) in allowed])
 

@@ -1,6 +1,6 @@
 """Modbus Sink 数据路径。
 
-负责把 Runtime 的 PointValue 批次依次经过 SinkReferenceExporter、Modbus 编码器
+负责把 Runtime 的 SinkPointValue 批次依次经过 SinkReferenceExporter、Modbus 编码器
 和 ModbusSinkStore。该层仍不创建 TCP Server。
 """
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from core.application import Quality
 from sink_service.application.sink_contract import ResolvedSinkPoint
-from sink_service.application.point_value import SinkPointValue as PointValue
+from sink_service.application.point_value import SinkPointValue
 from sink_service.application.export import ExportedSinkPointValue, SinkReferenceExporter
 from sink_service.infrastructure.adapters.modbus.codec import encode_modbus_value
 from sink_service.infrastructure.adapters.modbus.store import ModbusSinkStore
@@ -26,7 +26,7 @@ class ModbusSinkDataPath:
         """返回当前内存数据区。"""
         return self._store
 
-    def update(self, batch: list[PointValue]) -> int:
+    def update(self, batch: list[SinkPointValue]) -> int:
         """把有效点值写入 datastore，返回实际更新的外部点数量。
 
         Modbus 寄存器本身没有统一的数据质量通道，因此 BAD/UNCERTAIN 或 None
@@ -34,7 +34,7 @@ class ModbusSinkDataPath:
         """
         return self._write_exported(self._exporter.export(batch))
 
-    def update_selected(self, batch: list[PointValue], points: list[ResolvedSinkPoint]) -> int:
+    def update_selected(self, batch: list[SinkPointValue], points: list[ResolvedSinkPoint]) -> int:
         return self._write_exported(SinkReferenceExporter(points).export(batch))
 
     def _write_exported(self, exported_points: list[ExportedSinkPointValue]) -> int:

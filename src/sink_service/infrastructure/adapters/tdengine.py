@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from core.application.protocol_contract import ConnectionHealth
 from sink_service.application.sink_contract import ResolvedSink
 from core.infrastructure.config.sink_schema import TDengineSinkConnection
-from sink_service.application.point_value import SinkPointValue as PointValue
+from sink_service.application.point_value import SinkPointValue
 from sink_service.application.error import SinkError
 
 
@@ -118,10 +118,10 @@ class TDengineSink:
             self._opened = True
             self._error = None
 
-    async def write(self, batch: list[PointValue]) -> None:
+    async def write(self, batch: list[SinkPointValue]) -> None:
         await self.write_task("", batch)
 
-    async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
+    async def write_task(self, task_id: str, batch: list[SinkPointValue]) -> None:
         if task_id:
             allowed = self._task_sources.get(task_id, set())
             batch = [point for point in batch if (point.device_id, point.point_id) in allowed]
