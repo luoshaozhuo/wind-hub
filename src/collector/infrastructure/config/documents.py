@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core.application.errors import ConfigError
+from core.application.settings import LogSettings
 from core.infrastructure.config.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
@@ -72,8 +73,6 @@ def _validate_service_sections(service: Mapping[str, Any]) -> None:
         value = metrics.get(key, default)
         if type(value) is not int or value <= 0:
             raise ConfigError(f"Collector metrics.{key} must be a positive integer")
-    from core.application.settings import LogSettings
-
     logs = service.get("logs", {})
     if not isinstance(logs, dict):
         raise ConfigError("Collector logs must be a mapping")
@@ -91,8 +90,7 @@ class CollectorDocumentLoader:
     ) -> None:
         self._paths = paths
         self._candidates = {
-            path.resolve(): dict(document)
-            for path, document in (candidates or {}).items()
+            path.resolve(): dict(document) for path, document in (candidates or {}).items()
         }
 
     def load(self) -> CollectorDocuments:
@@ -113,9 +111,7 @@ class CollectorDocumentLoader:
             SharedConfigPaths(self._paths.instances, self._paths.templates),
             candidates=documents,
         ).load()
-        repository = VersionedTemplateRepository(
-            self._paths.templates, candidates=documents
-        )
+        repository = VersionedTemplateRepository(self._paths.templates, candidates=documents)
         raw_instances = raw_devices.get("devices")
         if not isinstance(raw_instances, dict):
             raise ConfigError("Collector devices must be a mapping")
@@ -150,15 +146,17 @@ class CollectorDocumentLoader:
                 desired_state=desired_state,
                 enabled=definition.enabled,
             )
-        revision = config_hash({
-            "service": service,
-            "shared_revision": shared.revision,
-            "task_templates": {
-                key: value.templates["task"].content_hash
-                for key, value in devices.items()
-            },
-            "desired_states": {
-                key: value.desired_state for key, value in devices.items()
-            },
-        })
+        revision = config_hash(
+            {
+                "service": service,
+                "shared_revision": shared.revision,
+                "task_templates": {
+                    key: value.templates["task"].content_hash
+                    for key, value in devices.items()
+                },
+                "desired_states": {
+                    key: value.desired_state for key, value in devices.items()
+                },
+            }
+        )
         return CollectorDocuments(service, shared, devices, revision)
