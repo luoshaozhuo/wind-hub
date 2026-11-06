@@ -73,6 +73,8 @@ def _peer_identity(context: grpc.aio.ServicerContext[Any, Any]) -> str:
         'x509_subject_alternative_name', ()
     )
     for raw in identities:
+        if not isinstance(raw, bytes):
+            continue
         identity = raw.decode('utf-8', errors='strict')
         if identity.startswith('spiffe://'):
             return identity
