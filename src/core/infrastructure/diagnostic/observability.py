@@ -202,8 +202,8 @@ class _Recorder:
                 self.service_name, method, outcome
             ).observe(seconds)
         except Exception:
-            # An exporter/registry problem must not replace the business result.
-            logging.getLogger(__name__).exception("Metrics observation failed")
+            # Do not recursively log telemetry failures or mutate business outcomes.
+            pass
 
     def record_protocol(
         self, protocol: str, operation: str, outcome: str, seconds: float
