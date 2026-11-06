@@ -31,6 +31,9 @@ class DeliveryPort(Protocol):
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
 
+    @property
+    def last_error(self) -> str: ...
+
 
 @dataclass(frozen=True, slots=True)
 class DeliveryView:
@@ -163,7 +166,9 @@ class DeliveryRegistry:
             # Drain all changed users of a shared Sink before rebinding any.
             for identifier in sorted(definitions):
                 entry = self._entries.get(identifier)
-                if entry is None or entry.signature == signatures[identifier]:
+                if entry is None:
+                    continue
+                if entry.signature == signatures[identifier]:
                     continue
                 try:
                     await entry.port.stop()
@@ -244,7 +249,7 @@ class DeliveryRegistry:
                         if self._entries[identifier].view.desired_state == "START"
                         else ActualState.STOPPED
                     )
-                    and not getattr(self._entries[identifier].port, "last_error", "")
+                    and not self._entries[identifier].port.last_error
                 )
             )
         )
@@ -285,7 +290,7 @@ class DeliveryRegistry:
     def _visible(entry: _Entry) -> DeliveryView:
         """Surface asynchronous output degradation without releasing ownership."""
         view = entry.view
-        error = getattr(entry.port, "last_error", "")
+        error = entry.port.last_error
         if error and view.actual_state == ActualState.RUNNING:
             return DeliveryView(
                 delivery_id=view.delivery_id,
