@@ -18,6 +18,8 @@ import pyads  # type: ignore[import-untyped]
 from core.application.port.protocol import ProtocolSampleCallback
 from core.application.protocol_contract import ProtocolSample, Quality
 
+from core.infrastructure.protocol.mapping_barrier import MappingBarrier
+
 from .codec import NotificationBlock, compile_notification_blocks
 from .mapping import ADSPoint
 from .session import ADSCommandNotSentError, _AdsSession
@@ -47,6 +49,7 @@ class ADSSubscription:
         max_block_bytes: int,
         max_delay: float,
         queue_capacity: int,
+        barrier: MappingBarrier,
         on_stopped: Callable[[ADSSubscription], None] | None = None,
     ) -> None:
         if not math.isfinite(interval) or interval <= 0:
@@ -54,6 +57,7 @@ class ADSSubscription:
         if queue_capacity <= 0:
             raise ValueError("ADS notification queue capacity must be positive")
         self._session = session
+        self._barrier = barrier
         self.point_ids = frozenset(point.point_id for point in points)
         self._generation = 0
         self.delivery_lock = asyncio.Lock()
@@ -186,7 +190,8 @@ class ADSSubscription:
             try:
                 async with self.delivery_lock:
                     if not self._stopping and generation == self._generation:
-                        await self._callback(batch)
+                        with self._barrier.callback_scope():
+                            await self._callback(batch)
             except Exception:
                 logger.exception("ADS notification delivery callback failed")
 

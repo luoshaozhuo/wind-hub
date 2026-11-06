@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
+from collections.abc import Iterator
+
+from core.application.errors import ProtocolError
+
+
+_IN_CALLBACK: ContextVar[object | None] = ContextVar("protocol_callback_barrier", default=None)
 
 
 class MappingBarrier:
@@ -19,9 +26,20 @@ class MappingBarrier:
         self._writer_active = False
         self._writers_waiting = 0
 
+    @contextmanager
+    def callback_scope(self) -> Iterator[None]:
+        """标识回调上下文，用于阻止其与更新/关闭屏障互相等待。"""
+        token = _IN_CALLBACK.set(self)
+        try:
+            yield
+        finally:
+            _IN_CALLBACK.reset(token)
+
     @asynccontextmanager
     async def read(self) -> AsyncIterator[None]:
         async with self._condition:
+            if _IN_CALLBACK.get() is self and (self._writer_active or self._writers_waiting):
+                raise ProtocolError("protocol callback cannot start I/O while a mapping writer is pending")
             await self._condition.wait_for(
                 lambda: not self._writer_active and self._writers_waiting == 0
             )
@@ -36,6 +54,8 @@ class MappingBarrier:
 
     @asynccontextmanager
     async def write(self) -> AsyncIterator[None]:
+        if _IN_CALLBACK.get() is self:
+            raise ProtocolError("mapping updates or close are forbidden inside protocol callbacks")
         async with self._condition:
             self._writers_waiting += 1
             try:

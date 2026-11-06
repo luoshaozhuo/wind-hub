@@ -708,6 +708,7 @@ class ADSDriver:
             max_block_bytes=self._config.max_block_bytes,
             max_delay=self._config.max_delay,
             queue_capacity=self._config.notification_queue_capacity,
+            barrier=self._mapping_barrier,
             on_stopped=self._subscriptions.discard,
         )
         self._subscriptions.add(subscription)

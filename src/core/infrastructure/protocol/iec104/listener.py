@@ -57,7 +57,8 @@ class _Listener(ListenHandle):
                     if generation == self.generation:
                         fresh = tuple(x for x in batch if x.point_id in self.point_ids)
                         if fresh:
-                            await self.callback(fresh)
+                            with self.owner._mapping_barrier.callback_scope():
+                                await self.callback(fresh)
             except asyncio.CancelledError:
                 raise
             except Exception:
