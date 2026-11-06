@@ -7,8 +7,8 @@ from sink_service.application.point_value import SinkPointValue
 
 
 
-class LegacyPointSinkPort(Protocol):
-    """Internal interface: new transport uses SinkPort instead."""
+class PointSinkPort(Protocol):
+    """负责目标写入的本地端口，与 NATS Consumer 分离。"""
 
     async def open(self) -> None:
         """Open the target."""

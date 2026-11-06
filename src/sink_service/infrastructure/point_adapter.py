@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from sink_service.application.point_value import SinkPointValue
-from sink_service.application.point_port import LegacyPointSinkPort
+from sink_service.application.point_port import PointSinkPort
 
 
 class PointValueSinkAdapter:
     """Keep Sink Service's public port independent of output technology."""
 
-    def __init__(self, target: LegacyPointSinkPort) -> None:
+    def __init__(self, target: PointSinkPort) -> None:
         self._target = target
 
     async def open(self) -> None:

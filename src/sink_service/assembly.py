@@ -10,7 +10,7 @@ from pathlib import Path
 from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
 from sink_service.application.sink_contract import ResolvedSink
 from core.infrastructure.config import YamlConfigAdapter
-from sink_service.application.point_port import LegacyPointSinkPort
+from sink_service.application.point_port import PointSinkPort
 from sink_service.application.runtime import SinkRuntime
 from sink_service.infrastructure.adapters import (
     GrpcSink,
@@ -24,7 +24,7 @@ from sink_service.infrastructure.intent import SinkIntentStore
 from sink_service.infrastructure.nats_consumer import NatsSinkConsumer
 from sink_service.infrastructure.point_adapter import PointValueSinkAdapter
 
-_TARGETS: dict[str, Callable[[ResolvedSink], LegacyPointSinkPort]] = {
+_TARGETS: dict[str, Callable[[ResolvedSink], PointSinkPort]] = {
     "redis": RedisSink,
     "tdengine": TDengineSink,
     "modbus": ModbusSink,
