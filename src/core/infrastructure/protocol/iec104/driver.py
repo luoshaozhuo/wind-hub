@@ -267,6 +267,11 @@ class IEC104Driver:
                                 ])
                                 await asyncio.wait_for(future, timeout=self._config.read_timeout)
                             except (ProtocolError, ProtocolConnectionError, OSError, TimeoutError) as exc:
+                                # 无响应的 C_RD 可能稍后到达；旧 Session 不再允许
+                                # 复用相同 CA/IOA 关联新读请求，必须先安全 close。
+                                if isinstance(exc, (TimeoutError, ProtocolConnectionError, OSError)):
+                                    self._state = ProtocolLifecycleState.FAULTED
+                                    state = "FAULTED"
                                 point_errors = (
                                     PointTableIssue(
                                         point_id=point_id,
@@ -309,7 +314,15 @@ class IEC104Driver:
                             for listener in reversed(locked):
                                 listener.delivery_lock.release()
                         return result(PointTableUpdateStatus.SUCCESS, "IEC104 point table applied")
+        except asyncio.CancelledError:
+            # 取消时 C_RD 可能已发送，禁止直接重用旧关联。
+            if self._read:
+                self._state = ProtocolLifecycleState.FAULTED
+            raise
         except TimeoutError:
+            if self._read:
+                self._state = ProtocolLifecycleState.FAULTED
+                state = "FAULTED"
             return result(PointTableUpdateStatus.TIMEOUT, "IEC104 update deadline expired")
 
     def is_open(self) -> bool:
