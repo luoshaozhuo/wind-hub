@@ -223,8 +223,10 @@ class ADSSubscription:
                     user_handle=None,
                 )
                 handles.append(token)
-        except BaseException:
-            # 原生操作返回不确定时保留潜在资源所有权，必须隔离 Session。
+        except BaseException as exc:
+            # 非“确认未发送”的失败不能证明没有注册成功的 Native Handle。
+            if not isinstance(exc, ADSCommandNotSentError):
+                self._registration_uncertain = True
             self._retired_handles.extend(handles)
             self._callbacks.extend(callbacks)
             raise

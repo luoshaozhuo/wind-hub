@@ -268,12 +268,17 @@ class ADSDriver:
                             leftovers: list[str] = []
                             for subscription, candidate in prepared:
                                 leftovers.extend(await subscription.abandon_prepared(candidate))
-                            if leftovers or any(
+                            uncertain = tuple(
+                                f"ADS subscription:{index}:registration-unconfirmed"
+                                for index, subscription in enumerate(affected)
+                                if subscription._registration_uncertain
+                            )
+                            if leftovers or uncertain or any(
                                 subscription._retired_handles for subscription in affected
                             ):
                                 self._state = ProtocolLifecycleState.FAULTED
                                 state = "FAULTED"
-                                residual = tuple(leftovers)
+                                residual = (*leftovers, *uncertain)
                             return result(
                                 PointTableUpdateStatus.APPLY_FAILED,
                                 f"ADS candidate preparation failed: {type(exc).__name__}",
@@ -312,7 +317,8 @@ class ADSDriver:
             # 外部取消不能证明 Native 注册/删除已经收敛；保留句柄所有权，
             # 必须先 close() 确认，再允许后续 connect()。
             if applied or any(
-                subscription._retired_handles for subscription in self._subscriptions
+                subscription._retired_handles or subscription._registration_uncertain
+                for subscription in self._subscriptions
             ):
                 state = "FAULTED"
                 self._state = ProtocolLifecycleState.FAULTED
@@ -321,7 +327,10 @@ class ADSDriver:
             if applied:
                 state = "FAULTED"
                 self._state = ProtocolLifecycleState.FAULTED
-            if any(subscription._retired_handles for subscription in self._subscriptions):
+            if any(
+                subscription._retired_handles or subscription._registration_uncertain
+                for subscription in self._subscriptions
+            ):
                 state = "FAULTED"
                 self._state = ProtocolLifecycleState.FAULTED
                 residual = tuple(
