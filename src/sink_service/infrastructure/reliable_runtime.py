@@ -205,7 +205,7 @@ class ReliableDeliveryPort:
             stream = await js.stream_info(nats_config["reliable_stream"])
             if not any(
                 subject == nats_config["reliable_subject"] + ".>"
-                for subject in stream.config.subjects
+                for subject in (stream.config.subjects or [])
             ):
                 raise ConfigurationError("history Stream does not cover sample subjects")
             if _js_name(stream.config.storage) != "file":
@@ -214,19 +214,23 @@ class ReliableDeliveryPort:
                 raise ConfigurationError("history Stream must reject overflow")
             if (
                 _js_name(stream.config.retention) != 'limits'
+                or stream.config.max_bytes is None
                 or stream.config.max_bytes <= 0
+                or stream.config.max_age is None
                 or stream.config.max_age <= 0
             ):
                 raise ConfigurationError('history Stream requires finite Limits retention')
             dead = await js.stream_info(nats_config['dead_letter_stream'])
-            if nats_config['dead_letter_subject'] not in dead.config.subjects:
+            if nats_config['dead_letter_subject'] not in (dead.config.subjects or []):
                 raise ConfigurationError('DLQ Stream subject is not configured')
             if (
                 _js_name(dead.config.storage) != 'file'
                 or _js_name(dead.config.retention) != 'limits'
                 or _js_name(dead.config.discard) != 'new'
+                or dead.config.max_bytes is None
                 or dead.config.max_bytes <= 0
                 or dead.config.max_bytes < nats_config['dlq_max_bytes']
+                or dead.config.max_age is None
                 or dead.config.max_age < nats_config['dlq_max_age_seconds']
             ):
                 raise ConfigurationError('DLQ Stream retention/capacity is unsafe')
@@ -325,7 +329,7 @@ class ReliableDeliveryPort:
         config = self._snapshot.service["nats"]
         js = client.jetstream()
         stream = await js.stream_info(config["dead_letter_stream"])
-        if config["dead_letter_subject"] not in stream.config.subjects:
+        if config["dead_letter_subject"] not in (stream.config.subjects or []):
             raise ConfigurationError("DLQ Stream does not cover dead-letter subject")
         if _js_name(stream.config.storage) != "file":
             raise ConfigurationError("DLQ Stream must use file storage")
@@ -503,7 +507,7 @@ class ReliableDeliveryPort:
             alarms: list[str] = []
             for label, stream in (('SOURCE', source), ('DLQ', dead_letter)):
                 cap = stream.config.max_bytes
-                if cap <= 0:
+                if cap is None or cap <= 0:
                     alarms.append(f'{label}_CAPACITY_UNKNOWN: no finite MaxBytes')
                 elif stream.state.bytes >= cap * 0.9:
                     alarms.append(f'{label}_CAPACITY_RISK: >=90% of MaxBytes')
