@@ -24,7 +24,7 @@ from core.domain.unit import UnitCatalog
 from .sink import Sink
 from .task import Task
 
-from .settings import SystemSettings
+from core.application.settings import SystemSettings
 
 
 @dataclass(frozen=True, slots=True)

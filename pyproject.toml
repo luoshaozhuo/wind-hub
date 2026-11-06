@@ -7,6 +7,7 @@ readme = "README.md"
 license = "MIT"
 packages = [
     { include = "core", from = "src" },
+    { include = "configuration", from = "src" },
     { include = "contracts", from = "src" },
     { include = "collector", from = "src" },
     { include = "sink_service", from = "src" },
@@ -233,6 +234,7 @@ markers = [
 [tool.importlinter]
 root_packages = [
     "core",
+    "configuration",
     "collector",
     "commander",
     "cli",
