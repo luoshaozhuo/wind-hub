@@ -11,7 +11,7 @@ import struct
 import time
 from datetime import UTC, datetime
 from importlib import import_module
-from typing import Any
+from typing import Any, Protocol, cast
 
 from pymodbus.datastore import ModbusServerContext
 
@@ -94,6 +94,7 @@ class RedisOutput:
                         raise ConfigurationError("invalid Redis ACL Secret JSON") from exc
                 else:
                     identity = credential
+                arguments: tuple[str, ...]
                 if isinstance(identity, str):
                     arguments = ("AUTH", identity)
                 elif (
@@ -104,10 +105,13 @@ class RedisOutput:
                     arguments = ("AUTH", identity["username"], identity["password"])
                 else:
                     raise ConfigurationError("Redis Secret must be password or ACL JSON")
-                self._writer.write(_redis_command(*arguments))
-                await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
-                assert self._reader is not None
-                answer = await asyncio.wait_for(self._reader.readline(), timeout=self._timeout)
+                writer = self._writer
+                reader = self._reader
+                if writer is None or reader is None:
+                    raise ConnectionError("Redis authentication channel unavailable")
+                writer.write(_redis_command(*arguments))
+                await asyncio.wait_for(writer.drain(), timeout=self._timeout)
+                answer = await asyncio.wait_for(reader.readline(), timeout=self._timeout)
                 if answer != b"+OK\r\n":
                     raise ConnectionError("Redis authentication failed")
         except BaseException:
@@ -502,7 +506,7 @@ class _ModbusContext(ModbusServerContext):
         device_id: int,
         func_code: int,
         address: int,
-        values: list[int],
+        values: list[int] | list[bool],
     ) -> Any:
         from pymodbus.constants import ExcCodes
 
@@ -510,6 +514,13 @@ class _ModbusContext(ModbusServerContext):
 
     def device_ids(self) -> list[int]:
         return [self._unit_id]
+
+
+class _ModbusServerPort(Protocol):
+    """Typed boundary for the supported pymodbus async server lifecycle."""
+
+    async def serve_forever(self, *, background: bool) -> None: ...
+    async def shutdown(self) -> None: ...
 
 
 class ModbusOutput:
@@ -532,14 +543,17 @@ class ModbusOutput:
             quality_start=quality_start,
         )
         self._context = _ModbusContext(self._image, unit_id)
-        self._server: Any = None
+        self._server: _ModbusServerPort | None = None
 
     async def open(self) -> None:
         if self._server is not None:
             return
         from pymodbus.server import ModbusTcpServer
 
-        server = ModbusTcpServer(self._context, address=self._address)
+        server = cast(
+            _ModbusServerPort,
+            ModbusTcpServer(self._context, address=self._address),
+        )
         try:
             await server.serve_forever(background=True)
         except Exception:
