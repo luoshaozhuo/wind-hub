@@ -77,15 +77,33 @@ def _read(path: Path) -> dict[str, Any]:
 class SharedDocumentLoader:
     """Validate shared documents without reading service configuration."""
 
-    def __init__(self, paths: SharedConfigPaths) -> None:
+    def __init__(
+        self,
+        paths: SharedConfigPaths,
+        *,
+        candidates: Mapping[Path, Mapping[str, Any]] | None = None,
+    ) -> None:
         self._paths = paths
-        self._repository = VersionedTemplateRepository(paths.templates)
+        self._candidates = {
+            path.resolve(): dict(document)
+            for path, document in (candidates or {}).items()
+        }
+        self._repository = VersionedTemplateRepository(
+            paths.templates, candidates=self._candidates
+        )
+
+    def _load_document(self, path: Path) -> dict[str, Any]:
+        candidate = self._candidates.get(path.resolve())
+        if candidate is None:
+            return _read(path)
+        validate_document_version(candidate, path)
+        return candidate
 
     def load(self) -> SharedDocuments:
-        site = _read(self._paths.instances / "site.yaml")
-        device_doc = _read(self._paths.instances / "devices.yaml")
-        units = _read(self._paths.templates / "units.yaml")
-        business_points = _read(self._paths.templates / "business_points.yaml")
+        site = self._load_document(self._paths.instances / "site.yaml")
+        device_doc = self._load_document(self._paths.instances / "devices.yaml")
+        units = self._load_document(self._paths.templates / "units.yaml")
+        business_points = self._load_document(self._paths.templates / "business_points.yaml")
         _keys(
             site,
             frozenset({"schema_version", "file_version", "site_id", "name"}),
