@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import struct
 from collections import OrderedDict
 from collections.abc import Sequence
@@ -23,6 +24,9 @@ from core.application.protocol_contract import (
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
+    PointTableUpdateResult,
+    PointTableUpdateStatus,
+    PointTableIssue,
     Quality,
     WriteOutcome,
 )
@@ -56,7 +60,7 @@ class ModbusDriver:
         )
         self._session: _ModbusSession | None = None
         self._lifecycle = asyncio.Lock()
-        self.update_point_table(point_table)
+        self._install_point_table(point_table)
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         return frozenset(
@@ -67,7 +71,9 @@ class ModbusDriver:
             }
         )
 
-    def update_point_table(self, point_table: PointTable) -> None:
+    def _compile_point_table(
+        self, point_table: PointTable
+    ) -> tuple[dict[str, ModbusPoint], frozenset[str], frozenset[str], str, str | None]:
         if point_table.protocol.name != "modbus":
             raise ConfigError("Modbus driver requires a Modbus point table")
         points = {
@@ -108,12 +114,116 @@ class ModbusDriver:
         if configured is not None and configured not in readable:
             raise ConfigError(f"Modbus health point '{configured}' is not readable")
         first_readable = next((key for key in points if key in readable), None)
+        return points, readable, writable, point_table.point_table_id, configured or first_readable
+
+
+    def _install_point_table(self, point_table: PointTable) -> None:
+        points, readable, writable, table_id, health = self._compile_point_table(point_table)
         self._points = points
         self._readable = readable
         self._writable = writable
-        self._point_table_id = point_table.point_table_id
-        self._health_point_id = configured or first_readable
+        self._point_table_id = table_id
+        self._health_point_id = health
+        self._point_table = point_table
+        self._active_version = 1
         self._read_plan_cache.clear()
+
+    async def update_point_table(
+        self, point_table: PointTable, *, timeout: float
+    ) -> PointTableUpdateResult:
+        """在现有 Session 内验证改变的可读点；不写 PLC，也不重建连接。"""
+        if not isinstance(point_table, PointTable):
+            raise TypeError("point_table must be PointTable")
+        if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+            raise ValueError("timeout must be a positive finite number")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be a positive finite number")
+
+        def result(
+            status: PointTableUpdateStatus,
+            message: str,
+            *,
+            applied: bool = False,
+            issues: tuple[PointTableIssue, ...] = (),
+            unverified: tuple[str, ...] = (),
+        ) -> PointTableUpdateResult:
+            return PointTableUpdateResult(
+                status=status,
+                applied=applied,
+                active_version=self._active_version,
+                point_errors=issues,
+                message=message,
+                resource_state="READY" if self.is_open() else "FAULTED",
+                unverified_points=unverified,
+            )
+
+        try:
+            async with asyncio.timeout(timeout):
+                async with self._lifecycle:
+                    if not self.is_open():
+                        return result(PointTableUpdateStatus.NOT_READY, "Modbus session is not ready")
+                    if point_table == self._point_table:
+                        return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
+                    try:
+                        points, readable, writable, table_id, health = (
+                            self._compile_point_table(point_table)
+                        )
+                    except (ConfigError, ValueError) as exc:
+                        return result(
+                            PointTableUpdateStatus.VALIDATION_FAILED, str(exc)
+                        )
+
+                    changed = frozenset(
+                        point_id
+                        for point_id in self._points.keys() | points.keys()
+                        if self._points.get(point_id) != points.get(point_id)
+                        or (point_id in readable) != (point_id in self._readable)
+                        or (point_id in writable) != (point_id in self._writable)
+                    )
+                    session = self._require_session()
+                    unverified: list[str] = []
+                    try:
+                        for point_id in sorted(changed & points.keys()):
+                            if point_id not in readable:
+                                unverified.append(point_id)
+                                continue
+                            point = points[point_id]
+                            await session.read(
+                                point.register_type, point.address, point.count, point.slave_id
+                            )
+                    except (ProtocolError, OSError, TimeoutError, ValueError) as exc:
+                        return result(
+                            PointTableUpdateStatus.VERIFICATION_FAILED,
+                            f"Modbus verification failed: {type(exc).__name__}",
+                            issues=(
+                                PointTableIssue(
+                                    point_id=point_id,
+                                    code=type(exc).__name__,
+                                    message="online read verification failed",
+                                    phase="verification",
+                                ),
+                            ),
+                            unverified=tuple(unverified),
+                        )
+
+                    self._points = points
+                    self._readable = readable
+                    self._writable = writable
+                    self._point_table_id = table_id
+                    self._health_point_id = health
+                    self._point_table = point_table
+                    self._active_version += 1
+                    for key in tuple(self._read_plan_cache):
+                        if any(point_id in changed for point_id in key):
+                            del self._read_plan_cache[key]
+                    return result(
+                        PointTableUpdateStatus.SUCCESS,
+                        "point table applied",
+                        applied=True,
+                        unverified=tuple(unverified),
+                    )
+        except TimeoutError:
+            return result(PointTableUpdateStatus.TIMEOUT, "Modbus update deadline expired")
 
     async def connect(self) -> None:
         async with self._lifecycle:

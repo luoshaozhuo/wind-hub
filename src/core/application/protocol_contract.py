@@ -79,6 +79,38 @@ class ProtocolWriteResult:
         object.__setattr__(self, "point_id", point_id)
 
 
+class PointTableUpdateStatus(StrEnum):
+    """一次点表在线事务的结果状态。"""
+
+    SUCCESS = "SUCCESS"
+    UNCHANGED = "UNCHANGED"
+    VALIDATION_FAILED = "VALIDATION_FAILED"
+    VERIFICATION_FAILED = "VERIFICATION_FAILED"
+    NOT_READY = "NOT_READY"
+    TIMEOUT = "TIMEOUT"
+    APPLY_FAILED = "APPLY_FAILED"
+
+
+@dataclass(frozen=True, slots=True)
+class PointTableIssue:
+    point_id: str
+    code: str
+    message: str
+    phase: Literal["validation", "verification", "prepare", "commit", "cleanup"]
+
+
+@dataclass(frozen=True, slots=True)
+class PointTableUpdateResult:
+    status: PointTableUpdateStatus
+    applied: bool
+    active_version: int | None
+    point_errors: tuple[PointTableIssue, ...]
+    message: str
+    resource_state: Literal["READY", "DEGRADED", "FAULTED"]
+    unverified_points: tuple[str, ...] = ()
+    residual_resources: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class InterrogationRequest:
     """IEC104 站/组召唤或计数器只读召唤。"""
@@ -203,6 +235,9 @@ __all__ = [
     "ProtocolPoint",
     "ProtocolWrite",
     "ProtocolWriteResult",
+    "PointTableUpdateStatus",
+    "PointTableIssue",
+    "PointTableUpdateResult",
     "ProtocolCapability",
     "ProtocolSample",
     "InterrogationRequest",

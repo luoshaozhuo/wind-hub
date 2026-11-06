@@ -25,6 +25,7 @@ from ..protocol_contract import (
     ProtocolCapability,
     ProtocolPoint,
     ProtocolSample,
+    PointTableUpdateResult,
     ProtocolWrite,
     ProtocolWriteResult,
 )
@@ -101,12 +102,13 @@ class ProtocolPort(Protocol[TPoint]):
         writes: Sequence[ProtocolWrite[TPoint]],
     ) -> tuple[ProtocolWriteResult, ...]: ...
 
-    def update_point_table(self, point_table: PointTable) -> None:
-        """用热重载后的点表重建协议寻址映射（纯内存操作，不断开连接）。
+    async def update_point_table(
+        self, point_table: PointTable, *, timeout: float
+    ) -> PointTableUpdateResult:
+        """当前 Ready Session 内增量校验并原子切换完整点表。
 
-        点表内容（地址/数据类型/字序）或绑定变化时由会话层调用。实现方
-        必须同步失效依赖旧寻址的缓存（读取分组、地址解析等）；推送类
-        Driver 的句柄由上层重启采集后按新映射重建。
+        timeout 是覆盖排队、验证及资源协调的整体单调截止时间；
+        结果必须真实报告映射是否已经提交。
         """
         ...
 
