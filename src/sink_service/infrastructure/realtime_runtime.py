@@ -239,7 +239,10 @@ class _QuotaWriter:
 def template_capabilities(snapshot: ValidatedSnapshot, sink_id: str) -> dict[str, Any]:
     sink = snapshot.sinks[sink_id]
     template = _template(snapshot, "sinks", sink["template_id"], sink["template_version"])
-    return template["capabilities"]
+    capabilities = template["capabilities"]
+    if not isinstance(capabilities, dict):
+        raise ConfigurationError("Sink capabilities must be a mapping")
+    return capabilities
 
 
 class SinkOutputPool:
@@ -262,6 +265,7 @@ class SinkOutputPool:
         config_signature: dict[str, Any] = {
             "sink": sink, "template": template,
         }
+        adapter: RedisOutput | KafkaOutput | ModbusOutput
         if kind == "redis":
             adapter = RedisOutput(
                 host=connection["host"],
