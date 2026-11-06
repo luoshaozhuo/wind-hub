@@ -8,6 +8,7 @@ import logging
 import math
 import struct
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from ctypes import c_ubyte
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -22,6 +23,15 @@ from .mapping import ADSPoint
 from .session import ADSCommandNotSentError, _AdsSession
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedSubscription:
+    points: tuple[ADSPoint, ...]
+    blocks: tuple[NotificationBlock, ...]
+    generation: int
+    handles: tuple[tuple[Any, Any], ...]
+    callbacks: tuple[Callable[..., None], ...]
 
 
 class ADSSubscription:
@@ -45,7 +55,11 @@ class ADSSubscription:
             raise ValueError("ADS notification queue capacity must be positive")
         self._session = session
         self.point_ids = frozenset(point.point_id for point in points)
+        self._generation = 0
+        self.delivery_lock = asyncio.Lock()
+        self._retired_handles: list[tuple[Any, Any]] = []
         self._on_stopped = on_stopped
+        self._max_block_bytes = max_block_bytes
         self._blocks = compile_notification_blocks(points, max_bytes=max_block_bytes)
         self._callback = callback
         self._interval = interval
@@ -84,7 +98,7 @@ class ADSSubscription:
                     max_delay=self._max_delay * 1000,
                 )
                 callback = self._session.notification(c_ubyte * block.size)(
-                    self._notification_callback(block)
+                    self._notification_callback(block, self._generation)
                 )
                 self._callbacks.append(callback)
                 try:
@@ -109,7 +123,9 @@ class ADSSubscription:
             self._begin_stop()
             raise
 
-    def _notification_callback(self, block: NotificationBlock) -> Callable[..., None]:
+    def _notification_callback(
+        self, block: NotificationBlock, generation: int
+    ) -> Callable[..., None]:
         def receive(_handle: Any, _address: Any, timestamp: Any, value: Any) -> None:
             if self._stopping:
                 return
@@ -145,15 +161,17 @@ class ADSSubscription:
                     )
                 )
             try:
-                self._loop.call_soon_threadsafe(self._enqueue, tuple(samples))
+                self._loop.call_soon_threadsafe(self._enqueue, generation, tuple(samples))
             except RuntimeError:
                 # 事件循环结束时的迟到原生回调：不可跨线程再次提交。
                 return
 
         return receive
 
-    def _enqueue(self, samples: tuple[ProtocolSample, ...]) -> None:
-        if self._stopping:
+    def _enqueue(
+        self, generation: int, samples: tuple[ProtocolSample, ...]
+    ) -> None:
+        if self._stopping or generation != self._generation:
             return
         if self._queue.full():
             self._queue.get_nowait()
@@ -163,9 +181,90 @@ class ADSSubscription:
         while True:
             batch = await self._queue.get()
             try:
-                await self._callback(batch)
+                async with self.delivery_lock:
+                    if not self._stopping:
+                        await self._callback(batch)
             except Exception:
                 logger.exception("ADS notification delivery callback failed")
+
+    async def prepare_update(
+        self, points: Sequence[ADSPoint]
+    ) -> _PreparedSubscription:
+        """暂存新原生句柄；当前交付代次保持不变。"""
+        if self._stopping:
+            raise RuntimeError("ADS subscription is stopping")
+        blocks = tuple(compile_notification_blocks(points, max_bytes=self._max_block_bytes))
+        generation = self._generation + 1
+        # start 尚未被调用时无需远端预注册。
+        if self._start_task is None:
+            return _PreparedSubscription(tuple(points), blocks, generation, (), ())
+        await asyncio.shield(self._start_task)
+        handles: list[tuple[Any, Any]] = []
+        callbacks: list[Callable[..., None]] = []
+        try:
+            for block in blocks:
+                attribute = pyads.NotificationAttrib(
+                    block.size,
+                    trans_mode=pyads.ADSTRANS_SERVERCYCLE,
+                    cycle_time=self._interval * 1000,
+                    max_delay=self._max_delay * 1000,
+                )
+                callback = self._session.notification(c_ubyte * block.size)(
+                    self._notification_callback(block, generation)
+                )
+                callbacks.append(callback)
+                token = await self._session.execute(
+                    operation="add_device_notification",
+                    data=(block.group, block.offset),
+                    attr=attribute,
+                    callback=callback,
+                    user_handle=None,
+                )
+                handles.append(token)
+        except BaseException:
+            # 原生操作返回不确定时保留潜在资源所有权，必须隔离 Session。
+            self._retired_handles.extend(handles)
+            self._callbacks.extend(callbacks)
+            raise
+        return _PreparedSubscription(
+            tuple(points), blocks, generation, tuple(handles), tuple(callbacks)
+        )
+
+    def commit_update(self, candidate: _PreparedSubscription) -> None:
+        """必须由 Driver 在持有 delivery_lock 时与映射引用同步提交。"""
+        self._retired_handles.extend(self._handles)
+        self._handles = list(candidate.handles)
+        self._callbacks.extend(candidate.callbacks)
+        self._blocks = list(candidate.blocks)
+        self.point_ids = frozenset(point.point_id for point in candidate.points)
+        self._generation = candidate.generation
+        while not self._queue.empty():
+            self._queue.get_nowait()
+
+    async def cleanup_retired(self) -> tuple[str, ...]:
+        """清理旧代次 Native Handles，失败者保留给 stop/close 再处理。"""
+        pending = list(self._retired_handles)
+        remaining: list[tuple[Any, Any]] = []
+        for token in pending:
+            try:
+                await self._session.execute(
+                    operation="del_device_notification",
+                    notification_handle=token[0],
+                    user_handle=token[1],
+                )
+            except Exception:
+                remaining.append(token)
+        self._retired_handles = remaining
+        if not remaining:
+            # Native 源已经收敛后可释放旧代次回调引用。
+            self._callbacks = self._callbacks[-len(self._blocks):] if self._blocks else []
+        return tuple(f"ADS notification:{index}" for index in range(len(remaining)))
+
+    async def abandon_prepared(self, candidate: _PreparedSubscription) -> tuple[str, ...]:
+        """预提交失败时只撤销候选资源，不触碰旧可用句柄。"""
+        self._retired_handles.extend(candidate.handles)
+        self._callbacks.extend(candidate.callbacks)
+        return await self.cleanup_retired()
 
     def _begin_stop(self) -> asyncio.Task[None]:
         if self._stop_task is None or (
@@ -187,7 +286,7 @@ class ADSSubscription:
         errors: list[Exception] = []
         self._cleanup_retryable = True
         remaining: list[tuple[Any, Any]] = []
-        for token in reversed(self._handles):
+        for token in reversed([*self._handles, *self._retired_handles]):
             try:
                 # notification_handle/user_handle: 注册时返回的通知与用户句柄。
                 await self._session.execute(
@@ -201,6 +300,7 @@ class ADSSubscription:
                 errors.append(exc)
                 remaining.append(token)
         self._handles = list(reversed(remaining))
+        self._retired_handles.clear()
         if self._worker is not None:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
