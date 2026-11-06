@@ -38,10 +38,14 @@ aiokafka = { version = "^0.14", optional = true }
 asyncpg = { version = "^0.31", optional = true }
 influxdb-client = { version = "^1.48", optional = true }
 aiofiles = "^25.1.0"
+opentelemetry-api = { version = "^1.30", optional = true }
+opentelemetry-sdk = { version = "^1.30", optional = true }
+opentelemetry-exporter-otlp-proto-grpc = { version = "^1.30", optional = true }
 
 [tool.poetry.extras]
 kafka = ["aiokafka"]
 db = ["asyncpg", "influxdb-client"]
+tracing = ["opentelemetry-api", "opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-grpc"]
 all = [
     "aiokafka",
     "asyncpg",
