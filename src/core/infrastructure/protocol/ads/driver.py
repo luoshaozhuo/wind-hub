@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import struct
 import sys
 from collections.abc import Sequence
@@ -24,6 +25,9 @@ from core.application.protocol_contract import (
     ProtocolCapability,
     ProtocolLifecycleState,
     ProtocolSample,
+    PointTableIssue,
+    PointTableUpdateResult,
+    PointTableUpdateStatus,
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
@@ -77,7 +81,9 @@ class ADSDriver:
         self._subscriptions: set[ADSSubscription] = set()
         self._configured_points: dict[str, ADSPoint] = {}
         self._points: dict[str, ADSPoint] = {}
-        self.update_point_table(point_table)
+        self._install_point_table(point_table)
+        self._point_table = point_table
+        self._active_version: int | None = None
 
     @classmethod
     async def initialize_local(cls, config: ADSLocalConfig) -> None:
@@ -126,14 +132,123 @@ class ADSDriver:
             }
         )
 
-    def update_point_table(self, point_table: PointTable) -> None:
+    def _install_point_table(self, point_table: PointTable) -> None:
         if point_table.protocol.name != "ads":
             raise ConfigError("ADS point table protocol mismatch")
         mapped = {point.point_id: parse_ads_point(point) for point in point_table.points.values()}
-        if self.is_open() and any(item.symbol for item in mapped.values()):
-            raise ConfigError("symbol mapping changes require reconnect")
         self._configured_points = mapped
         self._points = mapped
+
+    async def update_point_table(
+        self, point_table: PointTable, *, timeout: float
+    ) -> PointTableUpdateResult:
+        """保持当前 ADS Session，增量核对 Symbol 后提交整份映射。"""
+        if not isinstance(point_table, PointTable):
+            raise TypeError("point_table must be PointTable")
+        if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+            raise ValueError("timeout must be a positive finite number")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be a positive finite number")
+
+        applied = False
+        state = "READY"
+        unverified: tuple[str, ...] = ()
+        residual: tuple[str, ...] = ()
+
+        def result(
+            status: PointTableUpdateStatus,
+            message: str,
+            *,
+            errors: tuple[PointTableIssue, ...] = (),
+        ) -> PointTableUpdateResult:
+            return PointTableUpdateResult(
+                status=status,
+                applied=applied,
+                active_version=self._active_version,
+                point_errors=errors,
+                message=message,
+                resource_state=state,
+                unverified_points=unverified,
+                residual_resources=residual,
+            )
+
+        try:
+            async with asyncio.timeout(timeout):
+                async with self._lifecycle:
+                    if not self.is_open() or self._session is None:
+                        return result(PointTableUpdateStatus.NOT_READY, "ADS session is not ready")
+                    if point_table == self._point_table:
+                        return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
+                    try:
+                        configured = {
+                            point.point_id: parse_ads_point(point)
+                            for point in point_table.points.values()
+                        }
+                    except (ConfigError, ValueError) as exc:
+                        return result(PointTableUpdateStatus.VALIDATION_FAILED, str(exc))
+
+                    changed = frozenset(
+                        point_id
+                        for point_id in self._configured_points.keys() | configured.keys()
+                        if self._configured_points.get(point_id) != configured.get(point_id)
+                    )
+                    resolved = {
+                        point_id: self._points[point_id]
+                        for point_id in configured.keys() - changed
+                    }
+                    session = self._session
+                    try:
+                        for point_id in sorted(changed & configured.keys()):
+                            point = configured[point_id]
+                            info = await session.execute(operation="get_symbol", name=point.symbol)
+                            group, offset = symbol_index_address(point.symbol, info)
+                            if point.address_resolved and (
+                                point.group, point.offset
+                            ) != (group, offset):
+                                raise ConfigError("ADS configured symbol address mismatch")
+                            resolved[point_id] = point.resolved(
+                                index_group=group, index_offset=offset
+                            )
+                    except Exception as exc:
+                        return result(
+                            PointTableUpdateStatus.VERIFICATION_FAILED,
+                            "ADS symbol verification failed",
+                            errors=(
+                                PointTableIssue(
+                                    point_id=point_id,
+                                    code=type(exc).__name__,
+                                    message="symbol resolution or address verification failed",
+                                    phase="verification",
+                                ),
+                            ),
+                        )
+
+                    affected = [
+                        subscription
+                        for subscription in tuple(self._subscriptions)
+                        if subscription.point_ids & changed
+                    ]
+                    for subscription in affected:
+                        try:
+                            await subscription.stop()
+                        except Exception as exc:
+                            self._state = ProtocolLifecycleState.FAULTED
+                            state = "FAULTED"
+                            residual = tuple(sorted(subscription.point_ids))
+                            return result(
+                                PointTableUpdateStatus.APPLY_FAILED,
+                                f"ADS subscription cleanup failed: {type(exc).__name__}",
+                            )
+                    self._configured_points = configured
+                    self._points = resolved
+                    self._point_table = point_table
+                    self._active_version = (self._active_version or 0) + 1
+                    applied = True
+                    if affected:
+                        state = "DEGRADED"
+                    return result(PointTableUpdateStatus.SUCCESS, "point table applied")
+        except TimeoutError:
+            return result(PointTableUpdateStatus.TIMEOUT, "ADS update deadline expired")
 
     async def connect(self) -> None:
         """Open the PLC and verify every configured point before becoming ready."""
@@ -219,6 +334,8 @@ class ADSDriver:
                             self._session = None
                         raise
                     self._points = points
+                    if self._active_version is None:
+                        self._active_version = 1
                     self._state = ProtocolLifecycleState.CONNECTED
                     return
             except BaseException:

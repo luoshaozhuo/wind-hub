@@ -44,6 +44,7 @@ class ADSSubscription:
         if queue_capacity <= 0:
             raise ValueError("ADS notification queue capacity must be positive")
         self._session = session
+        self.point_ids = frozenset(point.point_id for point in points)
         self._on_stopped = on_stopped
         self._blocks = compile_notification_blocks(points, max_bytes=max_block_bytes)
         self._callback = callback
