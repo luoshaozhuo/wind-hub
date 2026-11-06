@@ -23,6 +23,8 @@ from core.infrastructure.diagnostic.correlation import (
     normalize_request_id,
 )
 from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
+from core.infrastructure.rpc.client_correlation import client_interceptors
+from core.infrastructure.diagnostic.tracing import TraceServerInterceptor, create_tracer_provider
 
 _DEFAULT_BUCKETS = (0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0)
 
@@ -135,10 +137,12 @@ class RequestIdASGIMiddleware:
         *,
         correlation: bool = True,
         recorder: _Recorder | None = None,
+        tracer: Any | None = None,
     ) -> None:
         self.app = app
         self.correlation = correlation
         self.recorder = recorder
+        self.tracer = tracer
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope.get("type") != "http":
@@ -169,11 +173,20 @@ class RequestIdASGIMiddleware:
             await send(message)
 
         try:
-            if self.correlation:
-                with bind_request_id(request_id):
-                    await self.app(scope, receive, send_with_id)
+            if self.tracer is not None:
+                from opentelemetry import propagate
+                from opentelemetry.trace import SpanKind
+                carrier = {
+                    k.decode("ascii", "replace"): v.decode("ascii", "replace")
+                    for k, v in headers
+                }
+                parent = propagate.extract(carrier)
+                with self.tracer.start_as_current_span(
+                    f"HTTP {method}", context=parent, kind=SpanKind.SERVER
+                ):
+                    await self._invoke(request_id, scope, receive, send_with_id)
             else:
-                await self.app(scope, receive, send_with_id)
+                await self._invoke(request_id, scope, receive, send_with_id)
         finally:
             if self.recorder is not None:
                 self.recorder.record(
@@ -181,6 +194,19 @@ class RequestIdASGIMiddleware:
                     "success" if status < 500 else "failure",
                     time.monotonic() - started,
                 )
+
+    async def _invoke(
+        self,
+        request_id: str,
+        scope: dict[str, Any],
+        receive: Any,
+        send: Any,
+    ) -> None:
+        if self.correlation:
+            with bind_request_id(request_id):
+                await self.app(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)
 
 
 class MetricsServerInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc]
@@ -258,8 +284,17 @@ class ObservabilityHandle:
             _Recorder(service_name, settings.metrics) if settings.metrics.enabled else None
         )
         self._closed = False
+        self._provider: Any | None = None
+        self._tracer: Any | None = None
+        if settings.tracing.enabled:
+            self._provider = create_tracer_provider(
+                service_name,
+                endpoint=settings.tracing.otlp_endpoint or "",
+                sample_ratio=settings.tracing.sample_ratio,
+            )
+            self._tracer = self._provider.get_tracer("wind-hub-core")
         self._apps: set[int] = set()
-        self._logger = logging.getLogger(f"wind_hub.observability.{service_name}")
+        self._logger = logging.getLogger()
         self._handler: logging.Handler | None = None
         if settings.logging.console:
             handler = logging.StreamHandler()
@@ -277,8 +312,14 @@ class ObservabilityHandle:
             interceptors.append(RequestIdServerInterceptor())
         if self._recorder is not None:
             interceptors.append(MetricsServerInterceptor(self._recorder))
+        if self._tracer is not None:
+            interceptors.append(TraceServerInterceptor(self._tracer))
         self.grpc_server_interceptors = tuple(interceptors)
-        self.grpc_client_interceptors: tuple[object, ...] = ()
+        self.grpc_client_interceptors = (
+            client_interceptors(tracing=settings.tracing.enabled)
+            if settings.correlation.enabled or settings.tracing.enabled
+            else ()
+        )
 
     @property
     def registry(self) -> Any | None:
@@ -294,6 +335,7 @@ class ObservabilityHandle:
             RequestIdASGIMiddleware,
             correlation=self.settings.correlation.enabled,
             recorder=self._recorder,
+            tracer=self._tracer,
         )
         self._apps.add(identity)
 
@@ -308,6 +350,9 @@ class ObservabilityHandle:
             self._handler.flush()
             self._handler.close()
             self._handler = None
+        if self._provider is not None:
+            await asyncio.wait_for(asyncio.to_thread(self._provider.shutdown), timeout=timeout)
+            self._provider = None
 
 
 _ACTIVE: dict[str, ObservabilityHandle] = {}
