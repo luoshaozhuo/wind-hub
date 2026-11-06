@@ -14,6 +14,9 @@ from typing import Any
 
 import grpc
 
+from core.application.settings import LogSettings
+from core.infrastructure.diagnostic.async_log import BoundedAsyncHandler
+from core.infrastructure.diagnostic.log_setup import _DailySizeFileHandler
 from core.infrastructure.diagnostic.correlation import (
     REQUEST_ID_HEADER,
     RequestIdFilter,
@@ -30,10 +33,19 @@ _DEFAULT_BUCKETS = (0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0)
 
 
 @dataclass(frozen=True, slots=True)
+class LogFileSettings:
+    enabled: bool = False
+    path: str | None = None
+    max_size_mb: int = 100
+    retention_days: int = 7
+
+
+@dataclass(frozen=True, slots=True)
 class LoggingSettings:
     level: str = "INFO"
     format: str = "jsonl"
     console: bool = True
+    file: LogFileSettings = field(default_factory=LogFileSettings)
     queue_capacity: int = 10000
 
 
@@ -68,8 +80,17 @@ class ObservabilitySettings:
             logging._nameToLevel[log.level], int
         ):
             raise ValueError("unknown logging level")
-        if log.format not in {"jsonl", "text"} or log.queue_capacity <= 0:
+        if log.format not in {"jsonl", "text"} or (
+            type(log.queue_capacity) is not int or log.queue_capacity <= 0
+        ):
             raise ValueError("invalid logging format or queue capacity")
+        file = log.file
+        if file.enabled and not file.path:
+            raise ValueError("logging file requires an explicit path")
+        if type(file.max_size_mb) is not int or file.max_size_mb <= 0:
+            raise ValueError("logging.file.max_size_mb must be a positive integer")
+        if type(file.retention_days) is not int or file.retention_days <= 0:
+            raise ValueError("logging.file.retention_days must be a positive integer")
         buckets = self.metrics.buckets_seconds
         if not buckets or any(
             not math.isfinite(value) or value <= 0 for value in buckets
@@ -284,6 +305,7 @@ class ObservabilityHandle:
             _Recorder(service_name, settings.metrics) if settings.metrics.enabled else None
         )
         self._closed = False
+        self._leases = 1
         self._provider: Any | None = None
         self._tracer: Any | None = None
         if settings.tracing.enabled:
@@ -295,16 +317,40 @@ class ObservabilityHandle:
             self._tracer = self._provider.get_tracer("wind-hub-core")
         self._apps: set[int] = set()
         self._logger = logging.getLogger()
-        self._handler: logging.Handler | None = None
+        self._handler: BoundedAsyncHandler | None = None
+        targets: list[logging.Handler] = []
+        formatter: logging.Formatter = (
+            JsonFormatter()
+            if settings.logging.format == "jsonl"
+            else logging.Formatter("%(levelname)s [%(request_id)s] %(message)s")
+        )
         if settings.logging.console:
-            handler = logging.StreamHandler()
+            targets.append(logging.StreamHandler())
+        file_config = settings.logging.file
+        if file_config.enabled:
+            targets.append(
+                _DailySizeFileHandler(
+                    LogSettings(
+                        level=settings.logging.level,
+                        path=file_config.path or "",
+                        console=False,
+                        max_size_mb=float(file_config.max_size_mb),
+                        retention_days=file_config.retention_days,
+                    ),
+                    service_name,
+                )
+            )
+        if targets:
+            for target in targets:
+                target.setLevel(logging._nameToLevel[settings.logging.level])
+                target.addFilter(RequestIdFilter())
+                target.setFormatter(formatter)
+            handler = BoundedAsyncHandler(
+                targets, capacity=settings.logging.queue_capacity,
+                process_name=service_name,
+            )
             handler.setLevel(logging._nameToLevel[settings.logging.level])
             handler.addFilter(RequestIdFilter())
-            handler.setFormatter(
-                JsonFormatter()
-                if settings.logging.format == "jsonl"
-                else logging.Formatter("%(levelname)s [%(request_id)s] %(message)s")
-            )
             self._logger.addHandler(handler)
             self._handler = handler
         interceptors: list[grpc.aio.ServerInterceptor] = []
@@ -344,15 +390,36 @@ class ObservabilityHandle:
             raise ValueError("timeout must be a positive finite number")
         if self._closed:
             return
+        if self._leases > 1:
+            self._leases -= 1
+            return
         self._closed = True
+        deadline = asyncio.get_running_loop().time() + timeout
+        failures: list[str] = []
         if self._handler is not None:
             self._logger.removeHandler(self._handler)
-            self._handler.flush()
-            self._handler.close()
-            self._handler = None
+            remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+            settled = await asyncio.to_thread(self._handler.stop, timeout=remaining)
+            if not settled:
+                failures.append("logging thread did not settle")
+            else:
+                self._handler = None
         if self._provider is not None:
-            await asyncio.wait_for(asyncio.to_thread(self._provider.shutdown), timeout=timeout)
-            self._provider = None
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                failures.append("tracing shutdown deadline exhausted")
+            else:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self._provider.shutdown),
+                        timeout=remaining,
+                    )
+                except TimeoutError:
+                    failures.append("tracing provider shutdown timed out")
+                else:
+                    self._provider = None
+        if failures:
+            raise TimeoutError("; ".join(failures))
 
 
 _ACTIVE: dict[str, ObservabilityHandle] = {}
@@ -362,12 +429,15 @@ def configure_observability(
     settings: ObservabilitySettings, *, service_name: str
 ) -> ObservabilityHandle:
     """相同服务同配置复用句柄；配置冲突立即拒绝。"""
-    if not service_name.strip():
+    if not service_name.strip() or not all(
+        ch.isascii() and (ch.isalnum() or ch in "-_") for ch in service_name
+    ):
         raise ValueError("service_name must not be empty")
     previous = _ACTIVE.get(service_name)
     if previous is not None and not previous._closed:
         if previous.settings != settings:
             raise ValueError("observability already configured with different settings")
+        previous._leases += 1
         return previous
     handle = ObservabilityHandle(settings, service_name)
     _ACTIVE[service_name] = handle
