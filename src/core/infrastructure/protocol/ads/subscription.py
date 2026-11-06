@@ -255,9 +255,7 @@ class ADSSubscription:
             except Exception:
                 remaining.append(token)
         self._retired_handles = remaining
-        if not remaining:
-            # Native 源已经收敛后可释放旧代次回调引用。
-            self._callbacks = self._callbacks[-len(self._blocks):] if self._blocks else []
+        # 回调 C 指针在 Session 最终关闭前保持强引用，避免迟到原生回调悬空。
         return tuple(f"ADS notification:{index}" for index in range(len(remaining)))
 
     async def abandon_prepared(self, candidate: _PreparedSubscription) -> tuple[str, ...]:
