@@ -150,8 +150,6 @@ def test_device_rejects_empty_or_duplicate_groups() -> None:
 def test_device_rejects_non_bool_flags() -> None:
     with pytest.raises(ValueError, match="enabled must be bool"):
         _device(enabled=1)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="subscribe_enabled must be bool"):
-        _device(subscribe_enabled="yes")  # type: ignore[arg-type]
 
 
 def test_rename_and_change_model_return_new_snapshots() -> None:

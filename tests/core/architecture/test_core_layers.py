@@ -136,19 +136,19 @@ def test_point_does_not_define_protocol_specific_fields() -> None:
 
 
 def test_domain_config_is_compact() -> None:
-    """Shared Domain 配置收敛为 VO（含按业务 ID 粒度的 diff）与一致性规则。"""
+    """Shared Domain 配置收敛到独立 configuration 包；core.domain 不承载配置规则。"""
     config_dir = _CORE / "domain" / "config"
 
     assert not config_dir.exists()
-    assert (_CORE / "domain" / "validation.py").is_file()
+    assert not (_CORE / "domain" / "validation.py").exists()
 
 
 def test_core_has_no_process_config_adapters_or_use_cases() -> None:
-    """配置加载、保存与事务编排由 Collector、Commander、Server 各自拥有。"""
-    assert (_CORE / "infrastructure" / "config" / "yaml.py").is_file()
+    """配置加载、保存与事务编排由 configuration 包与各进程各自拥有。"""
+    assert (_CORE / "infrastructure" / "config" / "generic_yaml.py").is_file()
     assert not (_CORE / "application" / "config").exists()
     assert not (_CORE / "application" / "config_usecase.py").exists()
-    assert (_CORE / "application" / "port" / "config.py").is_file()
+    assert not (_CORE / "application" / "port" / "config.py").exists()
 
 
 def test_application_does_not_own_config_domain_model() -> None:

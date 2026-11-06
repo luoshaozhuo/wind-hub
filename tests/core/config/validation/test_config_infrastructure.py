@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from configuration.validation import validate_core_config
 from core.domain import (
     BusinessPoint,
     ConnectionEndpoint,
@@ -18,7 +19,6 @@ from core.domain import (
     Protocol,
     Quantity,
     Unit,
-    validate_core_config,
 )
 from core.domain.identities import (
     BusinessPointId,

@@ -11,8 +11,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from web_server.application.device.command_model import Command, CommandResult
 from core.application.protocol_contract import WriteOutcome
+from web_server.application.device.command_model import Command, CommandResult
 
 
 @pytest.mark.parametrize("value", [True, 42, -7, 3.14, "reset"])

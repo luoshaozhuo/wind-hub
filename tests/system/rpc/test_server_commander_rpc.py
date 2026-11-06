@@ -13,12 +13,12 @@ from uuid import uuid4
 import grpc
 import pytest
 
-from web_server.application.device.command_model import Command
+from configuration.digest import config_dir_digest
 from core.application.protocol_contract import WriteOutcome
-from core.infrastructure.config import config_dir_digest
 from tests.support.functional_config import update_yaml, write_functional_config
 from tests.support.process import CollectorProcess
 from web_server.adapter.outbound.grpc.commander import CommanderGrpcClient
+from web_server.application.device.command_model import Command
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 

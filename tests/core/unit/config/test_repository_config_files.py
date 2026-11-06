@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.infrastructure.config.document_version import validate_document_version
-from core.infrastructure.config.versioned_templates import (
+from configuration.document_version import validate_document_version
+from configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )
-from core.infrastructure.config.yaml import read_yaml_mapping
+from core.infrastructure.config import read_yaml as read_yaml_mapping
 
 _CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 
@@ -17,7 +17,7 @@ _CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 def test_shared_instance_and_catalog_versions() -> None:
     expected_versions = {
         "instances/site.yaml": "1.0.0",
-        "instances/devices.yaml": "1.0.0",
+        "instances/devices.yaml": "1.1.0",
         "templates/units.yaml": "1.1.0",
         "templates/business_points.yaml": "1.2.0",
     }

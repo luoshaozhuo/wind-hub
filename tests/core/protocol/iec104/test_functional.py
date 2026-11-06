@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 from hat.drivers.iec101 import common as iec101
 
 from core.application.errors import ConfigError
-from core.application.protocol_contract import Quality
+from core.application.protocol_contract import ProtocolLifecycleState, ProtocolSample, Quality
 from core.domain import Point, PointAccess
 from core.domain.identities import BusinessPointId
 from core.infrastructure.protocol.iec104.codec import build_command, decode_quality
@@ -19,6 +21,9 @@ from core.infrastructure.protocol.iec104.mapping import (
     validate_iec104_write_type,
 )
 from tests.support.units import NONE_UNIT
+
+if TYPE_CHECKING:
+    from core.infrastructure.protocol.iec104 import IEC104Driver
 
 
 def _point(
@@ -164,8 +169,31 @@ def test_monitoring_quality_precedence() -> None:
     assert decode_quality(SimpleNamespace(invalid=True, blocked=True)) is Quality.BAD
 
 
-def test_connected_point_table_update_reuses_locks_and_changes_mapping() -> None:
+class _FakeConnectedSession:
+    """立即完成 pending C_RD 的在线验证替身；不发起任何真实网络 I/O。"""
+
+    is_open = True
+
+    def __init__(self, driver: IEC104Driver) -> None:
+        self._driver = driver
+        self.sent: list[object] = []
+
+    async def send(self, messages: list[object]) -> None:
+        self.sent.extend(messages)
+        for pending in list(self._driver._read.values()):
+            if not pending.result.done():
+                pending.result.set_result(
+                    ProtocolSample(
+                        point_id=pending.point.point_id,
+                        value=0,
+                        timestamp=datetime.now(UTC),
+                    )
+                )
+
+
+async def test_connected_point_table_update_reuses_locks_and_changes_mapping() -> None:
     """点表热更新不拆会话，同地址保留锁，新地址获得独立锁。"""
+    from core.application.protocol_contract import PointTableUpdateStatus
     from core.domain import ConnectionEndpoint
     from core.infrastructure.protocol.iec104 import IEC104Driver
     from tests.core.protocol.conftest import make_table
@@ -179,16 +207,24 @@ def test_connected_point_table_update_reuses_locks_and_changes_mapping() -> None
     )
     locked = driver._locks[(1, 100)]
     station_lock = driver._station_locks[1]
-    driver._state = driver._state.__class__.CONNECTED
-    driver.update_point_table(make_table("iec104", old, new))
+    driver._state = ProtocolLifecycleState.CONNECTED
+    driver._session = _FakeConnectedSession(driver)
+
+    result = await driver.update_point_table(make_table("iec104", old, new), timeout=5.0)
+
+    assert result.status is PointTableUpdateStatus.SUCCESS
+    assert result.applied is True
+    assert result.active_version == 1
     assert driver._locks[(1, 100)] is locked
     assert driver._station_locks[1] is station_lock
     assert (1, 200) in driver._locks
     assert driver._by_address[(1, 200)].point_id == "b"
-    assert driver._state.name == "CONNECTED"
+    assert driver._state is ProtocolLifecycleState.CONNECTED
 
 
-def test_invalid_connected_table_update_keeps_original_snapshot() -> None:
+async def test_invalid_connected_table_update_keeps_original_snapshot() -> None:
+    """重复地址在线校验失败时返回 VALIDATION_FAILED，原映射与代次保持不变。"""
+    from core.application.protocol_contract import PointTableUpdateStatus
     from core.domain import ConnectionEndpoint
     from core.infrastructure.protocol.iec104 import IEC104Driver
     from tests.core.protocol.conftest import make_table
@@ -200,8 +236,13 @@ def test_invalid_connected_table_update_keeps_original_snapshot() -> None:
         make_table("iec104", old),
         {},
     )
-    driver._state = driver._state.__class__.CONNECTED
+    driver._state = ProtocolLifecycleState.CONNECTED
+    driver._session = _FakeConnectedSession(driver)
     original = driver._by_address
-    with pytest.raises(ConfigError, match="duplicate address"):
-        driver.update_point_table(make_table("iec104", old, duplicate))
+
+    result = await driver.update_point_table(make_table("iec104", old, duplicate), timeout=5.0)
+
+    assert result.status is PointTableUpdateStatus.VALIDATION_FAILED
+    assert "duplicate address" in result.message
+    assert result.applied is False
     assert driver._by_address is original

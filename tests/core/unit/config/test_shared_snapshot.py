@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.domain import DeviceId
-from core.infrastructure.config.shared_documents import (
+from configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
 )
-from core.infrastructure.config.shared_snapshot import build_shared_snapshot
+from configuration.shared_snapshot import build_shared_snapshot
+from core.domain import DeviceId
 
 _CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 

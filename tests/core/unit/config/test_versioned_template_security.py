@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from core.application.errors import ConfigError
-from core.infrastructure.config.template_graph import validate_point_table_chain
-from core.infrastructure.config.versioned_templates import (
+from configuration.template_graph import validate_point_table_chain
+from configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )
+from core.application.errors import ConfigError
 
 _CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 
@@ -46,7 +46,7 @@ def test_template_ref_rejects_unknown_category() -> None:
 
 def test_resolve_missing_flat_file_raises_not_found(tmp_path: Path) -> None:
     repository = VersionedTemplateRepository(tmp_path)
-    with pytest.raises(ConfigError, match="not found"):
+    with pytest.raises(ConfigError, match="NOT_FOUND"):
         repository.resolve(TemplateRef("protocols", "missing", "1.0.0"))
 
 

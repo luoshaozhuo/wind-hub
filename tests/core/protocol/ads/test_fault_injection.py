@@ -14,6 +14,7 @@ from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.ads import ADSDriver
 from core.infrastructure.protocol.ads.mapping import ADSPoint
 from core.infrastructure.protocol.ads.subscription import ADSSubscription
+from core.infrastructure.protocol.mapping_barrier import MappingBarrier
 from tests.core.protocol.conftest import make_point, make_table
 
 
@@ -69,6 +70,8 @@ def _subscription(session: FakeAdsSession) -> ADSSubscription:
         interval=0.1,
         max_block_bytes=20,
         max_delay=0.01,
+        queue_capacity=1000,
+        barrier=MappingBarrier(),
     )
 
 

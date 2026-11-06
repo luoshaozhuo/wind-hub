@@ -16,6 +16,11 @@ from collector.application.acquisition import (
     DevicePlan,
     DeviceWorker,
 )
+from configuration import (
+    SharedConfigPaths,
+    SharedDocumentLoader,
+    build_shared_snapshot,
+)
 from core.application import (
     ConnectionHealth,
     InterrogationRequest,
@@ -24,11 +29,6 @@ from core.application import (
     ProtocolSample,
 )
 from core.domain import Device, DeviceId, PointTable
-from core.infrastructure.config import (
-    SharedConfigPaths,
-    SharedDocumentLoader,
-    build_shared_snapshot,
-)
 
 pytestmark = [pytest.mark.component, pytest.mark.mock_service]
 CONFIG = Path(__file__).resolve().parents[3] / "configs"

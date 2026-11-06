@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from configuration.units import dump_unit_catalog, parse_unit_catalog
 from core.application import ConfigError
 from core.domain.unit import DIMENSIONLESS, Quantity, Unit, UnitCatalog, convert_value
-from core.infrastructure.config.units import dump_unit_catalog, parse_unit_catalog
 from tests.support.units import MINIMAL_UNITS_DOCUMENT, minimal_unit_catalog
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[3] / "configs"
@@ -151,7 +151,7 @@ def test_parse_rejects_missing_sections() -> None:
 
 
 def test_template_units_yaml_is_complete_catalog() -> None:
-    from core.infrastructure.config.yaml import read_yaml_mapping
+    from core.infrastructure.config import read_yaml as read_yaml_mapping
 
     # units 目录现位于 templates/ 并带文件版本头，解析前剥离版本元数据。
     document = {

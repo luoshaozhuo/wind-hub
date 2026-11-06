@@ -2,9 +2,9 @@
 
 import pytest
 
+from configuration.business_points import parse_business_points
 from core.application.errors import ConfigError
 from core.domain import BusinessPointId, DataType
-from core.infrastructure.config.business_points import parse_business_points
 from tests.support.units import minimal_unit_catalog
 
 

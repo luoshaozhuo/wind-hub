@@ -9,13 +9,9 @@ from typing import Any
 
 import pytest
 
-from core.domain import (
-    DeviceGroup,
-    Task,
-    devices_for_task,
-    validate_core_config,
-    validate_task_references,
-)
+from configuration import Task, devices_for_task, validate_task_references
+from configuration.validation import validate_core_config
+from core.domain import DeviceGroup
 from core.domain.identities import DeviceGroupId
 from tests.support.units import minimal_unit_catalog
 

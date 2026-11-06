@@ -7,11 +7,11 @@ from shutil import copytree
 
 import pytest
 
-from core.application.errors import ConfigError
-from core.infrastructure.config.shared_documents import (
+from configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
 )
+from core.application.errors import ConfigError
 
 _CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 
@@ -42,7 +42,7 @@ def test_shared_loader_requires_instances(tmp_path: Path) -> None:
             templates=_CONFIGS / "templates",
         )
     )
-    with pytest.raises(ConfigError, match="not found"):
+    with pytest.raises(ConfigError, match="NOT_FOUND"):
         loader.load()
 
 

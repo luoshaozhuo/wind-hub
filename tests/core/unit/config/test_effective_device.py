@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from configuration.effective import resolve_effective_device
 from core.domain import (
     ConnectionEndpoint,
     Device,
@@ -12,7 +13,6 @@ from core.domain import (
     DeviceTypeId,
     PointTableId,
 )
-from core.infrastructure.config.effective import resolve_effective_device
 
 
 def _model(

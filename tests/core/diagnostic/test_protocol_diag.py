@@ -2,22 +2,28 @@
 
 关键不变量：
 - 只执行 connect/health/(read_one|read_many)，绝不写入/订阅/总召；
-- 每次诊断使用独立 driver 实例，诊断结束必关闭，关闭失败不覆盖结果；
-- 不健康、连接失败、读取超时、能力缺失、未知设备均转 FAIL 结果；
+- 每次诊断使用调用方提供的独立 driver 实例，诊断结束必关闭，关闭失败不覆盖结果；
+- 不健康、连接失败、读取超时、能力缺失均转显式结果（FAIL/SKIPPED）；
 - benchmark 串行、只读、有上限。
+
+v1_20 起 driver 构造由宿主装配层负责，``check_protocol`` / ``benchmark_protocol``
+直接接收已构造的 ProtocolPort；旧的 ``_driver(config, device_id)`` 工厂及其
+配置分发测试已随该职责迁出 core（替代覆盖见 tests/cli 的 diagnose 套件）。
 """
 
 from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from core.application.diagnostic import DiagnosticStatus
-from core.application.protocol_contract import ConnectionHealth, ProtocolCapability, ProtocolSample
+from core.application.protocol_contract import (
+    ConnectionHealth,
+    ProtocolCapability,
+    ProtocolSample,
+)
 from core.domain.sample_value import Quality
 from core.infrastructure.diagnostic import protocol
 
@@ -47,6 +53,10 @@ class FakeDriver:
         self._close_raises = close_raises
         self.calls: list[str] = []
         self.closed = False
+        self._open = False
+
+    def is_open(self) -> bool:
+        return self._open
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         return self._capabilities
@@ -57,6 +67,7 @@ class FakeDriver:
             await asyncio.sleep(self._delay)
         if self._connect_raises:
             raise self._connect_raises
+        self._open = True
 
     async def health(self) -> ConnectionHealth:
         self.calls.append("health")
@@ -88,6 +99,7 @@ class FakeDriver:
     async def close(self) -> None:
         self.calls.append("close")
         self.closed = True
+        self._open = False
         if self._close_raises:
             raise self._close_raises
 
@@ -105,113 +117,81 @@ class FakeDriver:
         raise AssertionError("diagnostic must never interrogate")
 
 
-@pytest.fixture
-def patched_driver(monkeypatch: pytest.MonkeyPatch):
-    holder: dict[str, FakeDriver] = {}
+async def test_check_pass_connects_healthchecks_and_closes() -> None:
+    driver = FakeDriver()
 
-    def factory(driver: FakeDriver) -> FakeDriver:
-        def _fake_driver(config: str | Path, device_id: str) -> FakeDriver:
-            holder["device"] = driver
-            return driver
-
-        monkeypatch.setattr(protocol, "_driver", _fake_driver)
-        return driver
-
-    return holder, factory
-
-
-async def test_check_pass_connects_healthchecks_and_closes(patched_driver) -> None:
-    holder, install = patched_driver
-    driver = install(FakeDriver())
-
-    result = await protocol.check_protocol("config.yaml", "dev-1")
+    result = await protocol.check_protocol(driver)
 
     assert result.status is DiagnosticStatus.PASS
     assert result.findings[0].code == "PROTOCOL_OK"
     assert result.evidence == {"connected": True, "healthy": True}
-    assert result.target == "dev-1"
+    assert result.target == "FakeDriver"
     assert driver.calls == ["connect", "health", "close"]
     assert driver.closed
 
 
-async def test_check_with_point_records_value_without_write(patched_driver) -> None:
-    _, install = patched_driver
-    driver = install(FakeDriver())
+async def test_check_with_point_records_value_without_write() -> None:
+    driver = FakeDriver()
 
-    result = await protocol.check_protocol("config.yaml", "dev-1", point_id="grid_freq")
+    result = await protocol.check_protocol(driver, point_id="grid_freq")
 
     assert result.status is DiagnosticStatus.PASS
     point = result.evidence["point"]
     assert point["point_id"] == "grid_freq"
-    assert point["value"] == 35000.0
     assert point["quality"] == "good"
     assert "T" in point["timestamp"]
     assert driver.calls == ["connect", "health", "read_one:grid_freq", "close"]
 
 
-async def test_unhealthy_driver_is_fail_and_still_closed(patched_driver) -> None:
-    _, install = patched_driver
-    driver = install(FakeDriver(healthy=False, health_message="protocol stalled"))
+async def test_unhealthy_driver_is_fail_and_still_closed() -> None:
+    driver = FakeDriver(healthy=False, health_message="protocol stalled")
 
-    result = await protocol.check_protocol("config.yaml", "dev-1")
+    result = await protocol.check_protocol(driver)
 
     assert result.status is DiagnosticStatus.FAIL
     assert "protocol stalled" in result.findings[0].message
     assert driver.closed
 
 
-async def test_connect_failure_is_fail_and_still_closed(patched_driver) -> None:
-    _, install = patched_driver
-    driver = install(FakeDriver(connect_raises=ConnectionError("refused")))
+async def test_connect_failure_is_fail_and_still_closed() -> None:
+    driver = FakeDriver(connect_raises=ConnectionError("refused"))
 
-    result = await protocol.check_protocol("config.yaml", "dev-1")
+    result = await protocol.check_protocol(driver)
 
     assert result.status is DiagnosticStatus.FAIL
     assert "ConnectionError" in result.findings[0].message
     assert driver.closed
 
 
-async def test_missing_read_capability_is_fail(patched_driver) -> None:
-    _, install = patched_driver
-    driver = install(FakeDriver(capabilities=frozenset()))
+async def test_missing_read_capability_is_skipped() -> None:
+    driver = FakeDriver(capabilities=frozenset())
 
-    result = await protocol.check_protocol("config.yaml", "dev-1", point_id="p")
+    result = await protocol.check_protocol(driver, point_id="p")
 
-    assert result.status is DiagnosticStatus.FAIL
-    assert "read" in result.findings[0].message
+    assert result.status is DiagnosticStatus.SKIPPED
+    assert result.findings[0].code == "READ_UNSUPPORTED"
     assert driver.closed
 
 
-async def test_close_failure_does_not_override_pass(patched_driver) -> None:
-    _, install = patched_driver
-    install(FakeDriver(close_raises=OSError("fd gone")))
+async def test_close_failure_degrades_pass_to_unknown() -> None:
+    """关闭无法确认时不得虚报 PASS：探测成功也降级为 UNKNOWN 并附 CLOSE_FAILED。"""
+    driver = FakeDriver(close_raises=OSError("fd gone"))
 
-    result = await protocol.check_protocol("config.yaml", "dev-1")
+    result = await protocol.check_protocol(driver)
 
-    assert result.status is DiagnosticStatus.PASS
+    assert result.status is DiagnosticStatus.UNKNOWN
+    assert result.findings[0].code == "PROTOCOL_OK"
+    assert result.findings[-1].code == "CLOSE_FAILED"
 
 
-async def test_timeout_aborts_and_closes(patched_driver) -> None:
-    _, install = patched_driver
-    driver = install(FakeDriver(delay=1.0))
+async def test_timeout_aborts_and_closes() -> None:
+    driver = FakeDriver(delay=1.0)
 
-    result = await protocol.check_protocol("config.yaml", "dev-1", timeout=0.05)
+    result = await protocol.check_protocol(driver, timeout=0.05)
 
     assert result.status is DiagnosticStatus.FAIL
-    assert "TimeoutError" in result.findings[0].message
+    assert result.findings[0].code == "DIAGNOSTIC_TIMEOUT"
     assert driver.closed
-
-
-async def test_unknown_device_from_driver_constructor_is_fail(monkeypatch) -> None:
-    def boom(config: str | Path, device_id: str) -> FakeDriver:
-        raise ValueError(f"unknown device: {device_id}")
-
-    monkeypatch.setattr(protocol, "_driver", boom)
-
-    result = await protocol.check_protocol("config.yaml", "ghost")
-
-    assert result.status is DiagnosticStatus.FAIL
-    assert "ghost" in result.findings[0].message
 
 
 # --------------------------------------------------------------------------
@@ -219,13 +199,10 @@ async def test_unknown_device_from_driver_constructor_is_fail(monkeypatch) -> No
 # --------------------------------------------------------------------------
 
 
-async def test_benchmark_single_point_uses_read_one(patched_driver) -> None:
-    _, install = patched_driver
-    driver = install(FakeDriver())
+async def test_benchmark_single_point_uses_read_one() -> None:
+    driver = FakeDriver()
 
-    result = await protocol.benchmark_protocol(
-        "config.yaml", "dev-1", ["p1"], samples=4, interval=0, timeout=5
-    )
+    result = await protocol.benchmark_protocol(driver, ["p1"], samples=4, interval=0, timeout=5)
 
     assert result.status is DiagnosticStatus.PASS
     assert result.measurements["successes"] == 4
@@ -234,21 +211,23 @@ async def test_benchmark_single_point_uses_read_one(patched_driver) -> None:
     assert driver.closed
 
 
-async def test_benchmark_multiple_points_requires_read_many(patched_driver) -> None:
-    _, install = patched_driver
-    driver = install(FakeDriver(capabilities=frozenset({ProtocolCapability.READ})))
+async def test_benchmark_multiple_points_requires_read_many() -> None:
+    driver = FakeDriver(capabilities=frozenset({ProtocolCapability.READ}))
 
-    with pytest.raises(ValueError, match="read_many"):
-        await protocol.benchmark_protocol("config.yaml", "dev-1", ["p1", "p2"])
+    result = await protocol.benchmark_protocol(driver, ["p1", "p2"])
+
+    assert result.status is DiagnosticStatus.FAIL
+    assert "ValueError" in result.findings[0].message
     assert driver.closed
 
 
-async def test_benchmark_single_point_requires_read(patched_driver) -> None:
-    _, install = patched_driver
-    driver = install(FakeDriver(capabilities=frozenset({ProtocolCapability.READ_MANY})))
+async def test_benchmark_single_point_requires_read() -> None:
+    driver = FakeDriver(capabilities=frozenset({ProtocolCapability.READ_MANY}))
 
-    with pytest.raises(ValueError, match="read_one"):
-        await protocol.benchmark_protocol("config.yaml", "dev-1", ["p1"])
+    result = await protocol.benchmark_protocol(driver, ["p1"])
+
+    assert result.status is DiagnosticStatus.FAIL
+    assert "ValueError" in result.findings[0].message
     assert driver.closed
 
 
@@ -256,15 +235,14 @@ async def test_benchmark_single_point_requires_read(patched_driver) -> None:
     "points",
     [(), ("a", "a"), tuple(str(i) for i in range(201))],
 )
-async def test_benchmark_point_list_bounds(patched_driver, points) -> None:
-    _, install = patched_driver
-    install(FakeDriver())
+async def test_benchmark_point_list_bounds(points) -> None:
+    driver = FakeDriver()
 
     with pytest.raises(ValueError, match="1..200 unique"):
-        await protocol.benchmark_protocol("config.yaml", "dev-1", list(points))
+        await protocol.benchmark_protocol(driver, list(points))
 
 
-async def test_benchmark_read_failure_yields_warning_not_retried(patched_driver) -> None:
+async def test_benchmark_read_failure_yields_warning_not_retried() -> None:
     class FlakyDriver(FakeDriver):
         def __init__(self) -> None:
             super().__init__()
@@ -277,105 +255,19 @@ async def test_benchmark_read_failure_yields_warning_not_retried(patched_driver)
                 raise TimeoutError("slow device")
             return await super().read_one(point_id)
 
-    _, install = patched_driver
-    driver = install(FlakyDriver())
+    driver = FlakyDriver()
 
-    result = await protocol.benchmark_protocol("config.yaml", "dev-1", ["p"], samples=3, interval=0)
+    result = await protocol.benchmark_protocol(driver, ["p"], samples=3, interval=0)
 
     assert result.status.value == "WARNING"
     assert result.measurements["failures"] == 1
     assert driver.calls.count("read_one") == 3
 
 
-# --------------------------------------------------------------------------
-# _driver：真实配置驱动的协议选择（不发起任何连接）
-# --------------------------------------------------------------------------
+async def test_benchmark_multiple_points_uses_read_many() -> None:
+    driver = FakeDriver()
 
-
-def test_driver_selects_modbus_from_shared_config() -> None:
-    config = Path(__file__).resolve().parents[3] / "configs"
-    driver = protocol._driver(config, "TZ01")
-
-    from core.infrastructure.protocol.modbus.driver import ModbusDriver
-
-    assert isinstance(driver, ModbusDriver)
-
-
-def test_driver_unknown_device_raises() -> None:
-    config = Path(__file__).resolve().parents[3] / "configs"
-    with pytest.raises(ValueError, match="unknown device"):
-        protocol._driver(config, "no-such-device")
-
-
-@pytest.mark.parametrize(
-    ("protocol_name", "module", "driver_name"),
-    [
-        ("ads", "core.infrastructure.protocol.ads.driver", "ADSDriver"),
-        ("modbus", "core.infrastructure.protocol.modbus.driver", "ModbusDriver"),
-        ("iec104", "core.infrastructure.protocol.iec104.driver", "IEC104Driver"),
-    ],
-)
-def test_driver_dispatches_by_protocol(
-    monkeypatch: pytest.MonkeyPatch,
-    protocol_name: str,
-    module: str,
-    driver_name: str,
-) -> None:
-    import importlib
-
-    marker = object()
-    table = SimpleNamespace(protocol=SimpleNamespace(name=protocol_name))
-    snapshot = SimpleNamespace(
-        site=SimpleNamespace(devices={"d": SimpleNamespace(device_model_id="m")}),
-        device_models={"m": SimpleNamespace(point_table_id="t")},
-        point_tables={"t": table},
-    )
-    monkeypatch.setattr(
-        protocol,
-        "SharedDocumentLoader",
-        lambda paths: SimpleNamespace(load=lambda: object()),
-    )
-    monkeypatch.setattr(protocol, "build_shared_snapshot", lambda documents: snapshot)
-    monkeypatch.setattr(
-        protocol,
-        "resolve_effective_device",
-        lambda device, model, name: (SimpleNamespace(endpoint="endpoint"), {}),
-    )
-    imported = importlib.import_module(module)
-    monkeypatch.setattr(imported, driver_name, lambda *args: marker)
-
-    assert protocol._driver("ignored", "d") is marker
-
-
-def test_driver_unsupported_protocol_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    table = SimpleNamespace(protocol=SimpleNamespace(name="s7"))
-    snapshot = SimpleNamespace(
-        site=SimpleNamespace(devices={"d": SimpleNamespace(device_model_id="m")}),
-        device_models={"m": SimpleNamespace(point_table_id="t")},
-        point_tables={"t": table},
-    )
-    monkeypatch.setattr(
-        protocol,
-        "SharedDocumentLoader",
-        lambda paths: SimpleNamespace(load=lambda: object()),
-    )
-    monkeypatch.setattr(protocol, "build_shared_snapshot", lambda documents: snapshot)
-    monkeypatch.setattr(
-        protocol,
-        "resolve_effective_device",
-        lambda device, model, name: (SimpleNamespace(endpoint="endpoint"), {}),
-    )
-    with pytest.raises(ValueError, match="unsupported protocol"):
-        protocol._driver("ignored", "d")
-
-
-async def test_benchmark_multiple_points_uses_read_many(patched_driver) -> None:
-    _, install = patched_driver
-    driver = install(FakeDriver())
-
-    result = await protocol.benchmark_protocol(
-        "config.yaml", "dev-1", ["p1", "p2"], samples=3, interval=0
-    )
+    result = await protocol.benchmark_protocol(driver, ["p1", "p2"], samples=3, interval=0)
 
     assert result.status is DiagnosticStatus.PASS
     assert result.measurements["points"] == 6

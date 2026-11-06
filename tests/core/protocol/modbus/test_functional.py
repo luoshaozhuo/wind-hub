@@ -136,10 +136,9 @@ def test_decoding_requires_exact_register_count() -> None:
 
 
 @pytest.mark.asyncio
-async def test_modbus_read_plan_cache_reuse_eviction_and_reload(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """同样测点 ID 序列复用分组，缓存有界且点表更新清空。"""
+async def test_modbus_read_plan_cache_reuse_eviction_and_reload() -> None:
+    """同样测点 ID 序列复用分组，缓存有界；点表更新后仅淘汰受影响计划。"""
+    from core.application.protocol_contract import PointTableUpdateStatus
     from core.domain import ConnectionEndpoint, PointTable, Protocol
     from core.domain.identities import PointTableId
     from core.infrastructure.protocol.modbus.driver import ModbusDriver
@@ -149,6 +148,9 @@ async def test_modbus_read_plan_cache_reuse_eviction_and_reload(
     driver = ModbusDriver(ConnectionEndpoint("127.0.0.1", 502), table, {})
 
     class ReadSession:
+        def is_open(self) -> bool:
+            return True
+
         async def read(
             self, register_type: str, address: int, count: int, slave_id: int
         ) -> list[int]:
@@ -156,7 +158,8 @@ async def test_modbus_read_plan_cache_reuse_eviction_and_reload(
             assert slave_id == 1
             return [address + i for i in range(count)]
 
-    monkeypatch.setattr(driver, "_require_session", lambda: ReadSession())
+    session = ReadSession()
+    driver._session = session
     assert [v.value for v in await driver.read_many(["p1", "p2"])] == [1, 2]
     key = ("p1", "p2")
     cached = driver._read_plan_cache[key]
@@ -167,5 +170,23 @@ async def test_modbus_read_plan_cache_reuse_eviction_and_reload(
         await driver.read_many([f"p{i}"])
     assert len(driver._read_plan_cache) <= 32
 
-    driver.update_point_table(table)
-    assert driver._read_plan_cache == {}
+    # 重新载入未受影响计划与一个将被变更点的计划，验证差异化淘汰。
+    await driver.read_many(list(key))
+    assert driver._read_plan_cache[key] == cached
+    await driver.read_many(["p39"])
+    assert ("p39",) in driver._read_plan_cache
+
+    # 新点表：p39 改地址并新增 p40；其余点不变。
+    new_points = dict(points)
+    new_points["p39"] = _point("p39", address=1000)
+    new_points["p40"] = _point("p40", address=40)
+    new_table = PointTable(PointTableId("cache-2"), Protocol("modbus"), new_points)
+
+    result = await driver.update_point_table(new_table, timeout=5.0)
+    assert result.status is PointTableUpdateStatus.SUCCESS
+    assert result.applied is True
+    assert result.active_version == 2
+    # 未受影响的计划保留复用；受 p39/p40 影响的计划被淘汰。
+    assert driver._read_plan_cache.get(key) == cached
+    assert ("p39",) not in driver._read_plan_cache
+    assert all("p40" not in plan_key for plan_key in driver._read_plan_cache)
