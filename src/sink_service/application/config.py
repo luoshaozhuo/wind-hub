@@ -327,10 +327,10 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     for sink_id, (kind, _caps) in sinks.items():
         if kind != "modbus_tcp":
             continue
-        address = sink_instances[sink_id]["connection"]
+        connection = sink_instances[sink_id]["connection"]
         key = (
-            expect_nonempty_str(address.get("listen_host"), f"sinks.{sink_id}.listen_host"),
-            expect_positive_int(address.get("port"), f"sinks.{sink_id}.port", 65535),
+            expect_nonempty_str(connection.get("listen_host"), f"sinks.{sink_id}.listen_host"),
+            expect_positive_int(connection.get("port"), f"sinks.{sink_id}.port", 65535),
         )
         if key in addresses:
             raise ConfigurationError(f"sinks.{sink_id}: duplicate Modbus listen address")
