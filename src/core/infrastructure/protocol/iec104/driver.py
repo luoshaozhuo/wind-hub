@@ -299,6 +299,7 @@ class IEC104Driver:
                             self._active_version = (self._active_version or 0) + 1
                             applied = True
                             for listener in affected:
+                                listener.generation += 1
                                 listener.point_ids = frozenset(
                                     listener.point_ids & next_by_id.keys()
                                 )

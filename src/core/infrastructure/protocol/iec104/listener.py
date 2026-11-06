@@ -28,7 +28,10 @@ class _Listener(ListenHandle):
         self.point_ids = point_ids
         self.callback = callback
         self.delivery_lock = asyncio.Lock()
-        self.queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=queue_capacity)
+        self.generation = 0
+        self.queue: asyncio.Queue[tuple[int, tuple[ProtocolSample, ...]]] = asyncio.Queue(
+            maxsize=queue_capacity
+        )
         self.task = asyncio.create_task(self._run(), name="iec104-listener")
         self.failed = False
 
@@ -39,7 +42,7 @@ class _Listener(ListenHandle):
         if not filtered:
             return
         try:
-            self.queue.put_nowait(filtered)
+            self.queue.put_nowait((self.generation, filtered))
         except asyncio.QueueFull:
             self.failed = True
             self.owner._listener_fault = True
@@ -49,12 +52,12 @@ class _Listener(ListenHandle):
     async def _run(self) -> None:
         while True:
             try:
-                batch = await self.queue.get()
+                generation, batch = await self.queue.get()
                 async with self.delivery_lock:
-                    # 切换代次后，排队期间取出的旧批次不得重新投递。
-                    fresh = tuple(x for x in batch if x.point_id in self.point_ids)
-                    if fresh:
-                        await self.callback(fresh)
+                    if generation == self.generation:
+                        fresh = tuple(x for x in batch if x.point_id in self.point_ids)
+                        if fresh:
+                            await self.callback(fresh)
             except asyncio.CancelledError:
                 raise
             except Exception:
