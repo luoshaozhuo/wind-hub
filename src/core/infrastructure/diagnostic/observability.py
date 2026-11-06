@@ -362,8 +362,16 @@ class ObservabilityHandle:
             interceptors.append(TraceServerInterceptor(self._tracer))
         self.grpc_server_interceptors = tuple(interceptors)
         self.grpc_client_interceptors = (
-            client_interceptors(tracing=settings.tracing.enabled)
-            if settings.correlation.enabled or settings.tracing.enabled
+            client_interceptors(
+                correlation=settings.correlation.enabled,
+                recorder=self._recorder,
+                tracer=self._tracer,
+            )
+            if (
+                settings.correlation.enabled
+                or settings.metrics.enabled
+                or settings.tracing.enabled
+            )
             else ()
         )
 
