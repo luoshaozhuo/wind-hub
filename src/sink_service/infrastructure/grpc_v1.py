@@ -71,6 +71,8 @@ def _peer_identity(context: grpc.aio.ServicerContext[Any, Any]) -> str:
     """Use only the mTLS certificate SAN; never a self-declared request field."""
     identities = (context.auth_context() or {}).get("x509_subject_alternative_name", ())
     for raw in identities:
+        if not isinstance(raw, bytes):
+            continue
         identity = raw.decode("utf-8", errors="strict")
         if identity.startswith("spiffe://"):
             return identity
