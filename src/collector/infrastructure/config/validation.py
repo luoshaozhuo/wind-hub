@@ -13,19 +13,15 @@ from collector.application.lifecycle import ConfiguredRuntime
 from contracts.sample_message import validate_subject_token
 from core.application.errors import ConfigError
 from core.domain import DeviceId
-from core.infrastructure.config import (
-    SharedConfigPaths,
-    SharedDocumentLoader,
-    build_shared_snapshot,
-    read_yaml_mapping,
-)
-from core.infrastructure.config.document_version import validate_document_version
-from core.infrastructure.config.effective import resolve_effective_device
-from core.infrastructure.config.template_graph import (
+from configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
+from core.infrastructure.config.yaml import read_yaml_mapping
+from configuration.document_version import validate_document_version
+from configuration.effective import resolve_effective_device
+from configuration.template_graph import (
     resolve_model_templates,
     validate_point_table_chain,
 )
-from core.infrastructure.config.versioned_templates import (
+from configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )

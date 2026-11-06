@@ -13,11 +13,11 @@ from typing import Any
 import yaml
 
 from core.domain import DeviceId
-from core.infrastructure.config.shared_documents import (
+from configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
 )
-from core.infrastructure.config.shared_snapshot import (
+from configuration.shared_snapshot import (
     SharedDomainSnapshot,
     build_shared_snapshot,
 )

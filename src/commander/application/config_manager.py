@@ -17,13 +17,13 @@ from core.application.protocol_contract import ProtocolWrite
 from core.application.protocol_registry import ProtocolRegistry
 from core.domain import DeviceId, DeviceModelId, PointAccess, PointTableId, convert_value
 from core.domain.point import raw_write_value
-from core.infrastructure.config.effective import resolve_effective_device
-from core.infrastructure.config.shared_documents import (
+from configuration.effective import resolve_effective_device
+from configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
     SharedDocuments,
 )
-from core.infrastructure.config.shared_snapshot import (
+from configuration.shared_snapshot import (
     SharedDomainSnapshot,
     build_shared_snapshot,
 )

@@ -11,7 +11,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 
-from core.infrastructure.config import config_dir_digest
+from configuration.digest import config_dir_digest
 from sink_service.application.management import SinkManager
 from sink_service.application.runtime import SinkRuntime, SinkState
 from sink_service.assembly import assemble_sinks
