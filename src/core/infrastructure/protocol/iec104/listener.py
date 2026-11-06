@@ -27,6 +27,7 @@ class _Listener(ListenHandle):
         self.owner = owner
         self.point_ids = point_ids
         self.callback = callback
+        self.delivery_lock = asyncio.Lock()
         self.queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=queue_capacity)
         self.task = asyncio.create_task(self._run(), name="iec104-listener")
         self.failed = False
@@ -48,7 +49,12 @@ class _Listener(ListenHandle):
     async def _run(self) -> None:
         while True:
             try:
-                await self.callback(await self.queue.get())
+                batch = await self.queue.get()
+                async with self.delivery_lock:
+                    # 切换代次后，排队期间取出的旧批次不得重新投递。
+                    fresh = tuple(x for x in batch if x.point_id in self.point_ids)
+                    if fresh:
+                        await self.callback(fresh)
             except asyncio.CancelledError:
                 raise
             except Exception:

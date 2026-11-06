@@ -28,6 +28,7 @@ from core.application.protocol_contract import (
     ProtocolLifecycleState,
     ProtocolSample,
     PointTableUpdateResult,
+    PointTableIssue,
     PointTableUpdateStatus,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -174,13 +175,14 @@ class IEC104Driver:
         state = "READY"
         unverified: tuple[str, ...] = ()
         residual: tuple[str, ...] = ()
+        point_errors: tuple[PointTableIssue, ...] = ()
 
         def result(status: PointTableUpdateStatus, message: str) -> PointTableUpdateResult:
             return PointTableUpdateResult(
                 status=status,
                 applied=applied,
                 active_version=self._active_version,
-                point_errors=(),
+                point_errors=point_errors,
                 message=message,
                 resource_state=state,
                 unverified_points=unverified,
@@ -238,33 +240,75 @@ class IEC104Driver:
                             for address in affected_addresses
                         ):
                             await asyncio.sleep(0.01)
-                        affected = [
-                            listener
-                            for listener in tuple(self._listeners)
-                            if listener.point_ids & changed
-                        ]
-                        for listener in affected:
-                            try:
-                                await listener.close()
-                            except Exception as exc:
-                                self._state = ProtocolLifecycleState.FAULTED
-                                state = "FAULTED"
-                                residual = tuple(sorted(listener.point_ids))
-                                return result(
-                                    PointTableUpdateStatus.APPLY_FAILED,
-                                    f"IEC104 listener cleanup failed: {type(exc).__name__}",
-                                )
+                        # 监视点使用已存在的 C_RD 请求关联，不执行控制写入。
+                    session = self._require_session()
+                    unverified = tuple(sorted(
+                        point_id
+                        for point_id in changed & next_by_id.keys()
+                        if next_by_id[point_id].type_id is None
+                        or not next_by_id[point_id].type_id.startswith("M_")
+                    ))
+                    for point_id in sorted(changed & next_by_id.keys()):
+                        point = next_by_id[point_id]
+                        if point.type_id is None or not point.type_id.startswith("M_"):
+                            continue
+                        key = (point.common_address, point.ioa)
+                        future: asyncio.Future[ProtocolSample] = asyncio.get_running_loop().create_future()
+                        pending = _Read(point, future)
+                        self._read[key] = pending
+                        try:
+                            await session.send([
+                                iec104.ReadMsg(
+                                    is_test=False,
+                                    originator_address=0,
+                                    asdu_address=point.common_address,
+                                    io_address=point.ioa,
+                                    cause=iec104.ReadReqCause.REQUEST,
+                                ),
+                            ])
+                            await asyncio.wait_for(future, timeout=self._config.read_timeout)
+                        except (ProtocolError, ProtocolConnectionError, OSError, TimeoutError) as exc:
+                            point_errors = (
+                                PointTableIssue(
+                                    point_id=point_id,
+                                    code=type(exc).__name__,
+                                    message="IEC104 online read verification was not confirmed",
+                                    phase="verification",
+                                ),
+                            )
+                            return result(
+                                PointTableUpdateStatus.VERIFICATION_FAILED,
+                                "IEC104 monitoring point verification was inconclusive",
+                            )
+                        finally:
+                            if self._read.get(key) is pending:
+                                self._read.pop(key, None)
 
-                        # 当前协议没有不改变设备状态的通用地址探测能力。
-                        # 不将静态校验伪装成在线确认。
-                        unverified = tuple(sorted(changed & next_by_id.keys()))
+                    affected = [
+                        listener
+                        for listener in tuple(self._listeners)
+                        if listener.point_ids & changed
+                    ]
+                    # 等待已经执行中的回调，不在提交后交付旧映射批次。
+                    locked: list[_Listener] = []
+                    try:
+                        for listener in affected:
+                            await listener.delivery_lock.acquire()
+                            locked.append(listener)
                         self._install_point_table(point_table)
                         self._point_table = point_table
                         self._active_version = (self._active_version or 0) + 1
                         applied = True
-                        if affected:
-                            state = "DEGRADED"
-                        return result(PointTableUpdateStatus.SUCCESS, "IEC104 point table applied")
+                        for listener in affected:
+                            listener.point_ids = frozenset(
+                                listener.point_ids & next_by_id.keys()
+                            )
+                            while not listener.queue.empty():
+                                listener.queue.get_nowait()
+                    finally:
+                        for listener in reversed(locked):
+                            listener.delivery_lock.release()
+                    return result(PointTableUpdateStatus.SUCCESS, "IEC104 point table applied")
         except TimeoutError:
             return result(PointTableUpdateStatus.TIMEOUT, "IEC104 update deadline expired")
 
