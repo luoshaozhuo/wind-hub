@@ -44,6 +44,8 @@ from .codec import (
 )
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point, symbol_index_address
+from core.infrastructure.protocol.mapping_barrier import MappingBarrier
+
 from .session import ADSCommandNotSentError, _AdsSession
 from .subscription import ADSSubscription
 
@@ -77,6 +79,7 @@ class ADSDriver:
             raise ConfigError("ADS target_net_id is required")
         self._state = ProtocolLifecycleState.DISCONNECTED
         self._lifecycle = asyncio.Lock()
+        self._mapping_barrier = MappingBarrier()
         self._session: _AdsSession | None = None
         self._subscriptions: set[ADSSubscription] = set()
         self._configured_points: dict[str, ADSPoint] = {}
@@ -175,90 +178,91 @@ class ADSDriver:
         try:
             async with asyncio.timeout(timeout):
                 async with self._lifecycle:
-                    if not self.is_open() or self._session is None:
-                        return result(PointTableUpdateStatus.NOT_READY, "ADS session is not ready")
-                    if point_table == self._point_table:
-                        return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
-                    if point_table.protocol.name != "ads":
-                        return result(
-                            PointTableUpdateStatus.VALIDATION_FAILED,
-                            "ADS point table protocol mismatch",
-                        )
-                    try:
-                        configured = {
-                            point.point_id: parse_ads_point(point)
-                            for point in point_table.points.values()
-                        }
-                    except (ConfigError, ValueError) as exc:
-                        return result(PointTableUpdateStatus.VALIDATION_FAILED, str(exc))
-
-                    changed = frozenset(
-                        point_id
-                        for point_id in self._configured_points.keys() | configured.keys()
-                        if self._configured_points.get(point_id) != configured.get(point_id)
-                    )
-                    unverified = tuple(
-                        sorted(
-                            point_id
-                            for point_id in changed & configured.keys()
-                            if point_table.points[point_id].access is PointAccess.WRITE
-                        )
-                    )
-                    resolved = {
-                        point_id: self._points[point_id]
-                        for point_id in configured.keys() - changed
-                    }
-                    session = self._session
-                    try:
-                        for point_id in sorted(changed & configured.keys()):
-                            point = configured[point_id]
-                            info = await session.execute(operation="get_symbol", name=point.symbol)
-                            group, offset = symbol_index_address(point.symbol, info)
-                            if point.address_resolved and (
-                                point.group, point.offset
-                            ) != (group, offset):
-                                raise ConfigError("ADS configured symbol address mismatch")
-                            resolved[point_id] = point.resolved(
-                                index_group=group, index_offset=offset
-                            )
-                    except Exception as exc:
-                        return result(
-                            PointTableUpdateStatus.VERIFICATION_FAILED,
-                            "ADS symbol verification failed",
-                            errors=(
-                                PointTableIssue(
-                                    point_id=point_id,
-                                    code=type(exc).__name__,
-                                    message="symbol resolution or address verification failed",
-                                    phase="verification",
-                                ),
-                            ),
-                        )
-
-                    affected = [
-                        subscription
-                        for subscription in tuple(self._subscriptions)
-                        if subscription.point_ids & changed
-                    ]
-                    for subscription in affected:
-                        try:
-                            await subscription.stop()
-                        except Exception as exc:
-                            self._state = ProtocolLifecycleState.FAULTED
-                            state = "FAULTED"
-                            residual = tuple(sorted(subscription.point_ids))
+                    async with self._mapping_barrier.write():
+                        if not self.is_open() or self._session is None:
+                            return result(PointTableUpdateStatus.NOT_READY, "ADS session is not ready")
+                        if point_table == self._point_table:
+                            return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
+                        if point_table.protocol.name != "ads":
                             return result(
-                                PointTableUpdateStatus.APPLY_FAILED,
-                                f"ADS subscription cleanup failed: {type(exc).__name__}",
+                                PointTableUpdateStatus.VALIDATION_FAILED,
+                                "ADS point table protocol mismatch",
                             )
-                    self._configured_points = configured
-                    self._points = resolved
-                    self._point_table = point_table
-                    self._active_version = (self._active_version or 0) + 1
-                    applied = True
-                    if affected:
-                        state = "DEGRADED"
-                    return result(PointTableUpdateStatus.SUCCESS, "point table applied")
+                        try:
+                            configured = {
+                                point.point_id: parse_ads_point(point)
+                                for point in point_table.points.values()
+                            }
+                        except (ConfigError, ValueError) as exc:
+                            return result(PointTableUpdateStatus.VALIDATION_FAILED, str(exc))
+
+                        changed = frozenset(
+                            point_id
+                            for point_id in self._configured_points.keys() | configured.keys()
+                            if self._configured_points.get(point_id) != configured.get(point_id)
+                        )
+                        unverified = tuple(
+                            sorted(
+                                point_id
+                                for point_id in changed & configured.keys()
+                                if point_table.points[point_id].access is PointAccess.WRITE
+                            )
+                        )
+                        resolved = {
+                            point_id: self._points[point_id]
+                            for point_id in configured.keys() - changed
+                        }
+                        session = self._session
+                        try:
+                            for point_id in sorted(changed & configured.keys()):
+                                point = configured[point_id]
+                                info = await session.execute(operation="get_symbol", name=point.symbol)
+                                group, offset = symbol_index_address(point.symbol, info)
+                                if point.address_resolved and (
+                                    point.group, point.offset
+                                ) != (group, offset):
+                                    raise ConfigError("ADS configured symbol address mismatch")
+                                resolved[point_id] = point.resolved(
+                                    index_group=group, index_offset=offset
+                                )
+                        except Exception as exc:
+                            return result(
+                                PointTableUpdateStatus.VERIFICATION_FAILED,
+                                "ADS symbol verification failed",
+                                errors=(
+                                    PointTableIssue(
+                                        point_id=point_id,
+                                        code=type(exc).__name__,
+                                        message="symbol resolution or address verification failed",
+                                        phase="verification",
+                                    ),
+                                ),
+                            )
+
+                        affected = [
+                            subscription
+                            for subscription in tuple(self._subscriptions)
+                            if subscription.point_ids & changed
+                        ]
+                        for subscription in affected:
+                            try:
+                                await subscription.stop()
+                            except Exception as exc:
+                                self._state = ProtocolLifecycleState.FAULTED
+                                state = "FAULTED"
+                                residual = tuple(sorted(subscription.point_ids))
+                                return result(
+                                    PointTableUpdateStatus.APPLY_FAILED,
+                                    f"ADS subscription cleanup failed: {type(exc).__name__}",
+                                )
+                        self._configured_points = configured
+                        self._points = resolved
+                        self._point_table = point_table
+                        self._active_version = (self._active_version or 0) + 1
+                        applied = True
+                        if affected:
+                            state = "DEGRADED"
+                        return result(PointTableUpdateStatus.SUCCESS, "point table applied")
         except TimeoutError:
             return result(PointTableUpdateStatus.TIMEOUT, "ADS update deadline expired")
 
@@ -439,169 +443,173 @@ class ADSDriver:
             raise ProtocolError(f"Unknown ADS point: {exc}") from exc
 
     async def read_one(self, point_id: str) -> ProtocolSample:
-        session = self._require_session()
-        point = self._mapped((point_id,))[0]
-        # index_group/index_offset: PLC 点地址；plc_datatype: 读取字节数。
-        raw = await session.execute(
-            operation="read",
-            index_group=point.group,
-            index_offset=point.offset,
-            plc_datatype=pyads.PLCTYPE_BYTE * point.size,
-            return_ctypes=False,
-            check_length=True,
-        )
-        received_at = datetime.now(UTC)
-        try:
-            value = point.decoder(bytes(raw), 0)
-            quality = Quality.GOOD
-        except (ValueError, TypeError, UnicodeDecodeError, struct.error):
-            value = None
-            quality = Quality.BAD
-        return ProtocolSample(
-            point_id=point_id,
-            value=value,
-            quality=quality,
-            timestamp=received_at,
-            receive_time=received_at,
-        )
-
-    async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
-        if not point_ids:
-            return ()
-        session = self._require_session()
-        mapped = self._mapped(point_ids)
-        values: list[tuple[Any, Quality]] = []
-        limit = self._config.max_subs_per_sum
-        for start in range(0, len(mapped), limit):
-            chunk = mapped[start : start + limit]
-            request = (_SumReadItem * len(chunk))(
-                *(_SumReadItem(p.group, p.offset, p.size) for p in chunk)
-            )
-            # index_group: Sum Read 命令；index_offset: 子请求数。
-            # plc_read_datatype: 错误码与数据的响应缓冲区；
-            # value/plc_write_datatype: 各点地址描述符。
-            expected = 4 * len(chunk) + sum(point.size for point in chunk)
-            reply = await session.execute(
-                operation="read_write",
-                index_group=ADSIGRP_SUMUP_READ,
-                index_offset=len(chunk),
-                plc_read_datatype=pyads.PLCTYPE_BYTE * expected,
-                value=request,
-                plc_write_datatype=_SumReadItem * len(chunk),
+        async with self._mapping_barrier.read():
+            session = self._require_session()
+            point = self._mapped((point_id,))[0]
+            # index_group/index_offset: PLC 点地址；plc_datatype: 读取字节数。
+            raw = await session.execute(
+                operation="read",
+                index_group=point.group,
+                index_offset=point.offset,
+                plc_datatype=pyads.PLCTYPE_BYTE * point.size,
                 return_ctypes=False,
                 check_length=True,
             )
-            raw = bytes(reply)
-            if len(raw) != expected:
-                raise ProtocolError("ADS Sum Read response length mismatch")
-            errors = struct.unpack_from(f"<{len(chunk)}I", raw)
-            offset = 4 * len(chunk)
-            for point, error in zip(chunk, errors, strict=True):
-                if error:
-                    values.append((None, Quality.BAD))
-                else:
-                    try:
-                        values.append((point.decoder(raw, offset), Quality.GOOD))
-                    except (ValueError, TypeError, UnicodeDecodeError, struct.error):
-                        values.append((None, Quality.BAD))
-                offset += point.size
-        received_at = datetime.now(UTC)
-        return tuple(
-            ProtocolSample(
+            received_at = datetime.now(UTC)
+            try:
+                value = point.decoder(bytes(raw), 0)
+                quality = Quality.GOOD
+            except (ValueError, TypeError, UnicodeDecodeError, struct.error):
+                value = None
+                quality = Quality.BAD
+            return ProtocolSample(
                 point_id=point_id,
                 value=value,
                 quality=quality,
                 timestamp=received_at,
                 receive_time=received_at,
             )
-            for point_id, (value, quality) in zip(point_ids, values, strict=True)
-        )
+
+    async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
+        async with self._mapping_barrier.read():
+            if not point_ids:
+                return ()
+            session = self._require_session()
+            mapped = self._mapped(point_ids)
+            values: list[tuple[Any, Quality]] = []
+            limit = self._config.max_subs_per_sum
+            for start in range(0, len(mapped), limit):
+                chunk = mapped[start : start + limit]
+                request = (_SumReadItem * len(chunk))(
+                    *(_SumReadItem(p.group, p.offset, p.size) for p in chunk)
+                )
+                # index_group: Sum Read 命令；index_offset: 子请求数。
+                # plc_read_datatype: 错误码与数据的响应缓冲区；
+                # value/plc_write_datatype: 各点地址描述符。
+                expected = 4 * len(chunk) + sum(point.size for point in chunk)
+                reply = await session.execute(
+                    operation="read_write",
+                    index_group=ADSIGRP_SUMUP_READ,
+                    index_offset=len(chunk),
+                    plc_read_datatype=pyads.PLCTYPE_BYTE * expected,
+                    value=request,
+                    plc_write_datatype=_SumReadItem * len(chunk),
+                    return_ctypes=False,
+                    check_length=True,
+                )
+                raw = bytes(reply)
+                if len(raw) != expected:
+                    raise ProtocolError("ADS Sum Read response length mismatch")
+                errors = struct.unpack_from(f"<{len(chunk)}I", raw)
+                offset = 4 * len(chunk)
+                for point, error in zip(chunk, errors, strict=True):
+                    if error:
+                        values.append((None, Quality.BAD))
+                    else:
+                        try:
+                            values.append((point.decoder(raw, offset), Quality.GOOD))
+                        except (ValueError, TypeError, UnicodeDecodeError, struct.error):
+                            values.append((None, Quality.BAD))
+                    offset += point.size
+            received_at = datetime.now(UTC)
+            return tuple(
+                ProtocolSample(
+                    point_id=point_id,
+                    value=value,
+                    quality=quality,
+                    timestamp=received_at,
+                    receive_time=received_at,
+                )
+                for point_id, (value, quality) in zip(point_ids, values, strict=True)
+            )
 
     async def write_one(self, write: ProtocolWrite[Any]) -> ProtocolWriteResult:
-        session = self._require_session()
-        point = self._mapped((write.point,))[0]
-        try:
-            value = _coerce_write_value(write.value, point.data_type)
-            raw = _encode_value(value, point)
-        except (TypeError, ValueError, ConfigError, OverflowError) as exc:
-            return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc))
-        try:
-            # index_group/index_offset: PLC 点地址；value/plc_datatype: 写入字节及类型。
-            await session.execute(
-                operation="write",
-                index_group=point.group,
-                index_offset=point.offset,
-                value=(pyads.PLCTYPE_BYTE * len(raw)).from_buffer_copy(raw),
-                plc_datatype=pyads.PLCTYPE_BYTE * len(raw),
-            )
-        except ADSCommandNotSentError as exc:
-            return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc))
-        except Exception as exc:
-            return ProtocolWriteResult(write.point, WriteOutcome.UNKNOWN, str(exc))
-        return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_SUCCESS)
+        async with self._mapping_barrier.read():
+            session = self._require_session()
+            point = self._mapped((write.point,))[0]
+            try:
+                value = _coerce_write_value(write.value, point.data_type)
+                raw = _encode_value(value, point)
+            except (TypeError, ValueError, ConfigError, OverflowError) as exc:
+                return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc))
+            try:
+                # index_group/index_offset: PLC 点地址；value/plc_datatype: 写入字节及类型。
+                await session.execute(
+                    operation="write",
+                    index_group=point.group,
+                    index_offset=point.offset,
+                    value=(pyads.PLCTYPE_BYTE * len(raw)).from_buffer_copy(raw),
+                    plc_datatype=pyads.PLCTYPE_BYTE * len(raw),
+                )
+            except ADSCommandNotSentError as exc:
+                return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc))
+            except Exception as exc:
+                return ProtocolWriteResult(write.point, WriteOutcome.UNKNOWN, str(exc))
+            return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_SUCCESS)
 
     async def write_many(
         self, writes: Sequence[ProtocolWrite[Any]]
     ) -> tuple[ProtocolWriteResult, ...]:
-        if not writes:
-            return ()
-        session = self._require_session()
-        mapped = self._mapped([item.point for item in writes])
-        results: list[ProtocolWriteResult | None] = [None] * len(writes)
-        prepared: list[tuple[int, ADSPoint, bytes]] = []
-        for index, (write, point) in enumerate(zip(writes, mapped, strict=True)):
-            try:
-                value = _coerce_write_value(write.value, point.data_type)
-                prepared.append((index, point, _encode_value(value, point)))
-            except (TypeError, ValueError, ConfigError, OverflowError) as exc:
-                results[index] = ProtocolWriteResult(
-                    write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc)
-                )
-        limit = self._config.max_subs_per_sum
-        for start in range(0, len(prepared), limit):
-            chunk = prepared[start : start + limit]
-            try:
-                payload = encode_sum_write(chunk)
-                request_type = pyads.PLCTYPE_BYTE * len(payload)
-                # index_group: Sum Write 命令；index_offset: 子请求数。
-                # plc_read_datatype: 每点错误码；value/plc_write_datatype: 地址头和写入数据。
-                reply = await session.execute(
-                    operation="read_write",
-                    index_group=ADSIGRP_SUMUP_WRITE,
-                    index_offset=len(chunk),
-                    plc_read_datatype=pyads.PLCTYPE_BYTE * (4 * len(chunk)),
-                    value=request_type.from_buffer_copy(payload),
-                    plc_write_datatype=request_type,
-                    return_ctypes=False,
-                    check_length=True,
-                )
-                errors = _decode_sum_write_errors(reply, len(chunk))
-            except Exception as exc:
-                outcome = (
-                    WriteOutcome.CONFIRMED_FAILURE
-                    if isinstance(exc, ADSCommandNotSentError)
-                    else WriteOutcome.UNKNOWN
-                )
-                for index, point, _ in chunk:
-                    results[index] = ProtocolWriteResult(point.point_id, outcome, str(exc))
-                for index, point, _ in prepared[start + len(chunk) :]:
+        async with self._mapping_barrier.read():
+            if not writes:
+                return ()
+            session = self._require_session()
+            mapped = self._mapped([item.point for item in writes])
+            results: list[ProtocolWriteResult | None] = [None] * len(writes)
+            prepared: list[tuple[int, ADSPoint, bytes]] = []
+            for index, (write, point) in enumerate(zip(writes, mapped, strict=True)):
+                try:
+                    value = _coerce_write_value(write.value, point.data_type)
+                    prepared.append((index, point, _encode_value(value, point)))
+                except (TypeError, ValueError, ConfigError, OverflowError) as exc:
                     results[index] = ProtocolWriteResult(
-                        point.point_id, WriteOutcome.CONFIRMED_FAILURE, "not sent"
+                        write.point, WriteOutcome.CONFIRMED_FAILURE, str(exc)
                     )
-                break
-            for (index, point, _), error in zip(chunk, errors, strict=True):
-                results[index] = ProtocolWriteResult(
-                    point.point_id,
-                    (
-                        WriteOutcome.CONFIRMED_SUCCESS
-                        if error == 0
-                        else WriteOutcome.CONFIRMED_FAILURE
-                    ),
-                    None if error == 0 else f"ADS error {error}",
-                )
-        if any(result is None for result in results):
-            raise ProtocolError("ADS write result incomplete")
-        return tuple(result for result in results if result is not None)
+            limit = self._config.max_subs_per_sum
+            for start in range(0, len(prepared), limit):
+                chunk = prepared[start : start + limit]
+                try:
+                    payload = encode_sum_write(chunk)
+                    request_type = pyads.PLCTYPE_BYTE * len(payload)
+                    # index_group: Sum Write 命令；index_offset: 子请求数。
+                    # plc_read_datatype: 每点错误码；value/plc_write_datatype: 地址头和写入数据。
+                    reply = await session.execute(
+                        operation="read_write",
+                        index_group=ADSIGRP_SUMUP_WRITE,
+                        index_offset=len(chunk),
+                        plc_read_datatype=pyads.PLCTYPE_BYTE * (4 * len(chunk)),
+                        value=request_type.from_buffer_copy(payload),
+                        plc_write_datatype=request_type,
+                        return_ctypes=False,
+                        check_length=True,
+                    )
+                    errors = _decode_sum_write_errors(reply, len(chunk))
+                except Exception as exc:
+                    outcome = (
+                        WriteOutcome.CONFIRMED_FAILURE
+                        if isinstance(exc, ADSCommandNotSentError)
+                        else WriteOutcome.UNKNOWN
+                    )
+                    for index, point, _ in chunk:
+                        results[index] = ProtocolWriteResult(point.point_id, outcome, str(exc))
+                    for index, point, _ in prepared[start + len(chunk) :]:
+                        results[index] = ProtocolWriteResult(
+                            point.point_id, WriteOutcome.CONFIRMED_FAILURE, "not sent"
+                        )
+                    break
+                for (index, point, _), error in zip(chunk, errors, strict=True):
+                    results[index] = ProtocolWriteResult(
+                        point.point_id,
+                        (
+                            WriteOutcome.CONFIRMED_SUCCESS
+                            if error == 0
+                            else WriteOutcome.CONFIRMED_FAILURE
+                        ),
+                        None if error == 0 else f"ADS error {error}",
+                    )
+            if any(result is None for result in results):
+                raise ProtocolError("ADS write result incomplete")
+            return tuple(result for result in results if result is not None)
 
     def subscribe(
         self,

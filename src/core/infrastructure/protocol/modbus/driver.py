@@ -35,6 +35,8 @@ from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolOpt
 from .codec import _encode_coil, _encode_registers, decode
 from .config import parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
+from core.infrastructure.protocol.mapping_barrier import MappingBarrier
+
 from .session import _ModbusSession
 
 _READ_ONLY = frozenset({"discrete_input", "input"})
@@ -60,6 +62,7 @@ class ModbusDriver:
         )
         self._session: _ModbusSession | None = None
         self._lifecycle = asyncio.Lock()
+        self._mapping_barrier = MappingBarrier()
         self._install_point_table(point_table)
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
@@ -160,68 +163,69 @@ class ModbusDriver:
         try:
             async with asyncio.timeout(timeout):
                 async with self._lifecycle:
-                    if not self.is_open():
-                        return result(PointTableUpdateStatus.NOT_READY, "Modbus session is not ready")
-                    if point_table == self._point_table:
-                        return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
-                    try:
-                        points, readable, writable, table_id, health = (
-                            self._compile_point_table(point_table)
-                        )
-                    except (ConfigError, ValueError) as exc:
-                        return result(
-                            PointTableUpdateStatus.VALIDATION_FAILED, str(exc)
-                        )
-
-                    changed = frozenset(
-                        point_id
-                        for point_id in self._points.keys() | points.keys()
-                        if self._points.get(point_id) != points.get(point_id)
-                        or (point_id in readable) != (point_id in self._readable)
-                        or (point_id in writable) != (point_id in self._writable)
-                    )
-                    session = self._require_session()
-                    unverified: list[str] = []
-                    try:
-                        for point_id in sorted(changed & points.keys()):
-                            if point_id not in readable:
-                                unverified.append(point_id)
-                                continue
-                            point = points[point_id]
-                            await session.read(
-                                point.register_type, point.address, point.count, point.slave_id
+                    async with self._mapping_barrier.write():
+                        if not self.is_open():
+                            return result(PointTableUpdateStatus.NOT_READY, "Modbus session is not ready")
+                        if point_table == self._point_table:
+                            return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
+                        try:
+                            points, readable, writable, table_id, health = (
+                                self._compile_point_table(point_table)
                             )
-                    except (ProtocolError, OSError, TimeoutError, ValueError) as exc:
-                        return result(
-                            PointTableUpdateStatus.VERIFICATION_FAILED,
-                            f"Modbus verification failed: {type(exc).__name__}",
-                            issues=(
-                                PointTableIssue(
-                                    point_id=point_id,
-                                    code=type(exc).__name__,
-                                    message="online read verification failed",
-                                    phase="verification",
+                        except (ConfigError, ValueError) as exc:
+                            return result(
+                                PointTableUpdateStatus.VALIDATION_FAILED, str(exc)
+                            )
+
+                        changed = frozenset(
+                            point_id
+                            for point_id in self._points.keys() | points.keys()
+                            if self._points.get(point_id) != points.get(point_id)
+                            or (point_id in readable) != (point_id in self._readable)
+                            or (point_id in writable) != (point_id in self._writable)
+                        )
+                        session = self._require_session()
+                        unverified: list[str] = []
+                        try:
+                            for point_id in sorted(changed & points.keys()):
+                                if point_id not in readable:
+                                    unverified.append(point_id)
+                                    continue
+                                point = points[point_id]
+                                await session.read(
+                                    point.register_type, point.address, point.count, point.slave_id
+                                )
+                        except (ProtocolError, OSError, TimeoutError, ValueError) as exc:
+                            return result(
+                                PointTableUpdateStatus.VERIFICATION_FAILED,
+                                f"Modbus verification failed: {type(exc).__name__}",
+                                issues=(
+                                    PointTableIssue(
+                                        point_id=point_id,
+                                        code=type(exc).__name__,
+                                        message="online read verification failed",
+                                        phase="verification",
+                                    ),
                                 ),
-                            ),
+                                unverified=tuple(unverified),
+                            )
+
+                        self._points = points
+                        self._readable = readable
+                        self._writable = writable
+                        self._point_table_id = table_id
+                        self._health_point_id = health
+                        self._point_table = point_table
+                        self._active_version += 1
+                        for key in tuple(self._read_plan_cache):
+                            if any(point_id in changed for point_id in key):
+                                del self._read_plan_cache[key]
+                        return result(
+                            PointTableUpdateStatus.SUCCESS,
+                            "point table applied",
+                            applied=True,
                             unverified=tuple(unverified),
                         )
-
-                    self._points = points
-                    self._readable = readable
-                    self._writable = writable
-                    self._point_table_id = table_id
-                    self._health_point_id = health
-                    self._point_table = point_table
-                    self._active_version += 1
-                    for key in tuple(self._read_plan_cache):
-                        if any(point_id in changed for point_id in key):
-                            del self._read_plan_cache[key]
-                    return result(
-                        PointTableUpdateStatus.SUCCESS,
-                        "point table applied",
-                        applied=True,
-                        unverified=tuple(unverified),
-                    )
         except TimeoutError:
             return result(PointTableUpdateStatus.TIMEOUT, "Modbus update deadline expired")
 
@@ -278,74 +282,77 @@ class ModbusDriver:
         )
 
     async def read_one(self, point_id: str) -> ProtocolSample:
-        point = self._point(point_id)
-        if point_id not in self._readable:
-            raise ConfigError(f"Modbus point '{point_id}' is not readable")
-        session = self._require_session()
-        raw = await session.read(point.register_type, point.address, point.count, point.slave_id)
-        return _sample(point, raw)
+        async with self._mapping_barrier.read():
+            point = self._point(point_id)
+            if point_id not in self._readable:
+                raise ConfigError(f"Modbus point '{point_id}' is not readable")
+            session = self._require_session()
+            raw = await session.read(point.register_type, point.address, point.count, point.slave_id)
+            return _sample(point, raw)
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
-        if not point_ids:
-            return ()
-        points = tuple(self._point(point_id) for point_id in point_ids)
-        if any(point.point_id not in self._readable for point in points):
-            raise ConfigError("Modbus read_many contains a write-only point")
-        session = self._require_session()
-        key = tuple(point_ids)
-        groups = self._read_plan_cache.get(key)
-        if groups is None:
-            # 同一测点只执行一次物理读取，结果仍按请求序列恢复重复位置。
-            unique_points = tuple(dict.fromkeys(points))
-            groups = tuple(
-                tuple(group)
-                for group in group_consecutive_reads(
-                    unique_points, max_gap=self._config.read_merge_max_gap
+        async with self._mapping_barrier.read():
+            if not point_ids:
+                return ()
+            points = tuple(self._point(point_id) for point_id in point_ids)
+            if any(point.point_id not in self._readable for point in points):
+                raise ConfigError("Modbus read_many contains a write-only point")
+            session = self._require_session()
+            key = tuple(point_ids)
+            groups = self._read_plan_cache.get(key)
+            if groups is None:
+                # 同一测点只执行一次物理读取，结果仍按请求序列恢复重复位置。
+                unique_points = tuple(dict.fromkeys(points))
+                groups = tuple(
+                    tuple(group)
+                    for group in group_consecutive_reads(
+                        unique_points, max_gap=self._config.read_merge_max_gap
+                    )
                 )
-            )
-            if self._config.read_plan_cache_size > 0:
-                self._read_plan_cache[key] = groups
-                if len(self._read_plan_cache) > self._config.read_plan_cache_size:
-                    self._read_plan_cache.popitem(last=False)
-        else:
-            self._read_plan_cache.move_to_end(key)
-        samples: dict[ModbusPoint, ProtocolSample] = {}
-        for group in groups:
-            first = group[0]
-            start = min(p.address for p in group)
-            count = max(p.address + p.count for p in group) - start
-            raw = await session.read(first.register_type, start, count, first.slave_id)
-            received_at = datetime.now(UTC)
-            for point in group:
-                offset = point.address - start
-                samples[point] = _sample(point, raw[offset : offset + point.count], received_at)
-        return tuple(samples[point] for point in points)
+                if self._config.read_plan_cache_size > 0:
+                    self._read_plan_cache[key] = groups
+                    if len(self._read_plan_cache) > self._config.read_plan_cache_size:
+                        self._read_plan_cache.popitem(last=False)
+            else:
+                self._read_plan_cache.move_to_end(key)
+            samples: dict[ModbusPoint, ProtocolSample] = {}
+            for group in groups:
+                first = group[0]
+                start = min(p.address for p in group)
+                count = max(p.address + p.count for p in group) - start
+                raw = await session.read(first.register_type, start, count, first.slave_id)
+                received_at = datetime.now(UTC)
+                for point in group:
+                    offset = point.address - start
+                    samples[point] = _sample(point, raw[offset : offset + point.count], received_at)
+            return tuple(samples[point] for point in points)
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
-        """编码单个测点并执行一次 Modbus 写事务。"""
-        point = self._point(write.point)
-        if point.point_id not in self._writable:
-            return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, "point not writable")
-        try:
-            if point.register_type in _READ_ONLY:
-                raise ValueError(f"{point.register_type} is read-only")
-            if point.register_type == "coil":
-                values: tuple[int | bool, ...] = (_encode_coil(write.value, point.data_type),)
-            else:
-                values = tuple(_encode_registers(write.value, point.data_type, point.word_order))
-            if len(values) != point.count:
-                raise ValueError("write encoder length does not match point span")
-        except (TypeError, ValueError, struct.error) as exc:
-            return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, str(exc))
+        async with self._mapping_barrier.read():
+            """编码单个测点并执行一次 Modbus 写事务。"""
+            point = self._point(write.point)
+            if point.point_id not in self._writable:
+                return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, "point not writable")
+            try:
+                if point.register_type in _READ_ONLY:
+                    raise ValueError(f"{point.register_type} is read-only")
+                if point.register_type == "coil":
+                    values: tuple[int | bool, ...] = (_encode_coil(write.value, point.data_type),)
+                else:
+                    values = tuple(_encode_registers(write.value, point.data_type, point.word_order))
+                if len(values) != point.count:
+                    raise ValueError("write encoder length does not match point span")
+            except (TypeError, ValueError, struct.error) as exc:
+                return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, str(exc))
 
-        try:
-            session = self._require_session()
-        except ProtocolConnectionError as exc:
-            return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, str(exc))
-        outcome, message = await session.write(
-            point.register_type, point.address, values, point.slave_id
-        )
-        return _result(point.point_id, outcome, message)
+            try:
+                session = self._require_session()
+            except ProtocolConnectionError as exc:
+                return _result(point.point_id, WriteOutcome.CONFIRMED_FAILURE, str(exc))
+            outcome, message = await session.write(
+                point.register_type, point.address, values, point.slave_id
+            )
+            return _result(point.point_id, outcome, message)
 
     async def write_many(self, writes: Sequence[ProtocolWrite]) -> tuple[ProtocolWriteResult, ...]:
         """不支持多逻辑测点批量写入；单测点可使用 FC16。"""
