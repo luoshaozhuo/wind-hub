@@ -12,7 +12,7 @@ from typing import Any
 
 from core.application import Quality
 from core.application.sink_contract import ResolvedSinkPoint
-from core.domain.point_value import PointValue
+from sink_service.application.point_value import SinkPointValue as PointValue
 
 
 @dataclass(frozen=True, slots=True)

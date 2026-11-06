@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.domain.point_value import PointValue
+from sink_service.application.point_value import SinkPointValue as PointValue
 from sink_service.application.point_port import LegacyPointSinkPort
 
 

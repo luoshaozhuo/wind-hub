@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from core.domain.point_value import PointValue
+from sink_service.application.point_value import SinkPointValue as PointValue
 
 
 class LegacyPointSinkPort(Protocol):
