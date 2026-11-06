@@ -343,7 +343,7 @@ class ObservabilityHandle:
         if targets:
             for target in targets:
                 target.setLevel(logging._nameToLevel[settings.logging.level])
-                target.addFilter(RequestIdFilter())
+                # RequestId 在生产线程入队前绑定，消费线程不能再次读取 contextvar。
                 target.setFormatter(formatter)
             handler = BoundedAsyncHandler(
                 targets, capacity=settings.logging.queue_capacity,
