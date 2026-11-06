@@ -185,10 +185,18 @@ class ModbusDriver:
         key = tuple(point_ids)
         groups = self._read_plan_cache.get(key)
         if groups is None:
-            groups = tuple(tuple(group) for group in group_consecutive_reads(points))
-            self._read_plan_cache[key] = groups
-            if len(self._read_plan_cache) > 32:
-                self._read_plan_cache.popitem(last=False)
+            # 同一测点只执行一次物理读取，结果仍按请求序列恢复重复位置。
+            unique_points = tuple(dict.fromkeys(points))
+            groups = tuple(
+                tuple(group)
+                for group in group_consecutive_reads(
+                    unique_points, max_gap=self._config.read_merge_max_gap
+                )
+            )
+            if self._config.read_plan_cache_size > 0:
+                self._read_plan_cache[key] = groups
+                if len(self._read_plan_cache) > self._config.read_plan_cache_size:
+                    self._read_plan_cache.popitem(last=False)
         else:
             self._read_plan_cache.move_to_end(key)
         samples: dict[ModbusPoint, ProtocolSample] = {}

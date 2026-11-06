@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from core.application.errors import ConfigError
@@ -9,7 +10,7 @@ from core.domain import ConnectionEndpoint, ProtocolOptions
 
 _VALID_MODES = frozenset({"tcp"})
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
-_ALLOWED_OPTIONS = frozenset({"mode", "slave_id", "timeout", "word_order", "health_point_id"})
+_ALLOWED_OPTIONS = frozenset({"mode", "slave_id", "timeout", "word_order", "health_point_id", "read_merge_max_gap", "read_plan_cache_size"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,8 @@ class ModbusConfig:
     timeout: float = 5.0
     word_order: str = "little_endian"
     health_point_id: str | None = None
+    read_merge_max_gap: int = 8
+    read_plan_cache_size: int = 32
 
 
 def parse_modbus_config(
@@ -48,7 +51,7 @@ def parse_modbus_config(
         raise ConfigError(f"connection '{endpoint}': slave_id must be in 0..255")
 
     timeout = _float_option(options.get("timeout"), "timeout", default=5.0)
-    if timeout <= 0:
+    if not math.isfinite(timeout) or timeout <= 0:
         raise ConfigError(f"connection '{endpoint}': timeout must be > 0")
 
     word_order = _string_option(
@@ -63,6 +66,15 @@ def parse_modbus_config(
     if health_point_id is not None:
         health_point_id = _string_option(health_point_id, "health_point_id", default="")
 
+    read_merge_max_gap = _int_option(
+        options.get("read_merge_max_gap"), "read_merge_max_gap", default=8
+    )
+    read_plan_cache_size = _int_option(
+        options.get("read_plan_cache_size"), "read_plan_cache_size", default=32
+    )
+    if read_merge_max_gap < 0 or read_plan_cache_size < 0:
+        raise ConfigError("Modbus read_merge_max_gap and read_plan_cache_size must be >= 0")
+
     return ModbusConfig(
         host=endpoint.host,
         port=endpoint.port or 502,
@@ -71,6 +83,8 @@ def parse_modbus_config(
         timeout=timeout,
         word_order=word_order,
         health_point_id=health_point_id,
+        read_merge_max_gap=read_merge_max_gap,
+        read_plan_cache_size=read_plan_cache_size,
     )
 
 
