@@ -71,8 +71,17 @@ class ResolvedTemplate:
 class VersionedTemplateRepository:
     """仅访问预定义类别下的精确版本文件，绝不回退到最新版。"""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        candidates: Mapping[Path, Mapping[str, Any]] | None = None,
+    ) -> None:
         self._root = Path(root).resolve()
+        self._candidates = {
+            path.resolve(): dict(document)
+            for path, document in (candidates or {}).items()
+        }
 
     def path_for(self, reference: TemplateRef) -> Path:
         # 协议、点表和设备型号使用统一的扁平版本文件名。
@@ -95,7 +104,9 @@ class VersionedTemplateRepository:
 
     def resolve(self, reference: TemplateRef) -> ResolvedTemplate:
         path = self.path_for(reference)
-        document = read_yaml_mapping(path)
+        document = self._candidates.get(path)
+        if document is None:
+            document = read_yaml_mapping(path)
         metadata = validate_document_version(document, path)
         if document.get("template_id") != reference.template_id:
             raise ConfigError(f"{path}: template_id mismatch")
