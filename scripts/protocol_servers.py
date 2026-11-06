@@ -1,6 +1,6 @@
 """按 Core 配置启动真实 Modbus/ADS/IEC104 虚拟设备，周期更新随机点值。
 
-手工验收：python scripts/protocol_servers.py --config configs/e2e_site --interval 1
+手工验收：python scripts/protocol_servers.py --config configs --interval 1
 自动测试：通过 run_fleet() 上下文共享同一批真实协议服务。
 
 安全原则：配置中的 host/port 就是实际 bind 地址；绝不暗中重映射。默认
@@ -36,9 +36,9 @@ from pymodbus.constants import ExcCodes
 from pymodbus.datastore import ModbusServerContext
 from pymodbus.server import ModbusTcpServer
 
-from core.application.config_snapshot import ConfigSnapshot
+from configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
+from configuration.shared_snapshot import SharedDomainSnapshot
 from core.domain import DataType, Point
-from core.infrastructure.config import YamlConfigAdapter
 
 LOG = logging.getLogger("protocol-servers")
 _ADS_TCP_PORT = 48898
@@ -98,7 +98,7 @@ class EndpointPlan:
 
 
 def plan_devices(
-    snapshot: ConfigSnapshot,
+    snapshot: SharedDomainSnapshot,
     *,
     include_disabled: bool = False,
     allow_nonloopback: bool = False,
@@ -452,7 +452,12 @@ async def run_fleet(
     """按配置启动服务并周期更新；任何启动/运行错误均导致整组关闭。"""
     if not 0.01 <= interval <= 3600:
         raise ValueError("interval must be between 0.01 and 3600 seconds")
-    snapshot = YamlConfigAdapter(config).load()
+    root = Path(config)
+    snapshot = build_shared_snapshot(
+        SharedDocumentLoader(
+            SharedConfigPaths(instances=root / "instances", templates=root / "templates")
+        ).load()
+    )
     plans = plan_devices(
         snapshot,
         include_disabled=include_disabled,
