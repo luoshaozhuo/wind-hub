@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 
 class BoundedAsyncHandler(logging.Handler):
@@ -17,6 +17,7 @@ class BoundedAsyncHandler(logging.Handler):
         *,
         capacity: int,
         process_name: str,
+        on_drop: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
         if capacity <= 0:
@@ -24,6 +25,7 @@ class BoundedAsyncHandler(logging.Handler):
         if not targets:
             raise ValueError("logging requires an output handler")
         self._targets = tuple(targets)
+        self._on_drop = on_drop
         self._queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=capacity)
         self._stop = threading.Event()
         self._worker = threading.Thread(
@@ -44,6 +46,11 @@ class BoundedAsyncHandler(logging.Handler):
             self._queue.put_nowait(record)
         except queue.Full:
             self._dropped += 1
+            if self._on_drop is not None:
+                try:
+                    self._on_drop()
+                except Exception:
+                    pass
 
     def _run(self) -> None:
         while not self._stop.is_set() or not self._queue.empty():

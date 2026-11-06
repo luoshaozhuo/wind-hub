@@ -162,20 +162,26 @@ class _Recorder:
 
     def record(self, transport: str, operation: str, outcome: str, seconds: float) -> None:
         try:
-            if transport == "protocol":
-                self.protocol_calls.labels(self.service_name, operation, outcome).inc()
-                self.protocol_duration.labels(
-                    self.service_name, operation, outcome
-                ).observe(seconds)
-            else:
-                method = f"{transport}:{operation}" if transport != "grpc" else operation
-                self.rpc_calls.labels(self.service_name, method, outcome).inc()
-                self.rpc_duration.labels(
-                    self.service_name, method, outcome
-                ).observe(seconds)
+            method = f"{transport}:{operation}" if transport != "grpc" else operation
+            self.rpc_calls.labels(self.service_name, method, outcome).inc()
+            self.rpc_duration.labels(
+                self.service_name, method, outcome
+            ).observe(seconds)
         except Exception:
             # An exporter/registry problem must not replace the business result.
             logging.getLogger(__name__).exception("Metrics observation failed")
+
+    def record_protocol(
+        self, protocol: str, operation: str, outcome: str, seconds: float
+    ) -> None:
+        try:
+            self.protocol_calls.labels(protocol, operation, outcome).inc()
+            self.protocol_duration.labels(
+                protocol, operation, outcome
+            ).observe(seconds)
+        except Exception:
+            # Optional metrics must not affect device I/O.
+            pass
 
     def record_drop(self, channel: str, reason: str) -> None:
         try:
@@ -404,6 +410,10 @@ class ObservabilityHandle:
             handler = BoundedAsyncHandler(
                 targets, capacity=settings.logging.queue_capacity,
                 process_name=service_name,
+                on_drop=(
+                    (lambda: self._recorder.record_drop("logging", "queue_full"))
+                    if self._recorder is not None else None
+                ),
             )
             handler.setLevel(logging._nameToLevel[settings.logging.level])
             handler.addFilter(RequestIdFilter())
@@ -434,6 +444,18 @@ class ObservabilityHandle:
     @property
     def registry(self) -> Any | None:
         return self._recorder.registry if self._recorder is not None else None
+
+    def observe_protocol(self, driver: Any, *, protocol: str) -> Any:
+        """在宿主装配阶段显式包装；指标关闭时保持原始端口。"""
+        if self._closed:
+            raise RuntimeError("observability is closed")
+        if self._recorder is None:
+            return driver
+        from core.infrastructure.diagnostic.observed_protocol import ObservedProtocolPort
+
+        return ObservedProtocolPort(
+            driver, protocol=protocol, record=self._recorder.record_protocol
+        )
 
     def instrument_asgi(self, app: Any) -> None:
         if self._closed:
