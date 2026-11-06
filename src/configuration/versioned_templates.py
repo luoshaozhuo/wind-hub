@@ -13,7 +13,7 @@ from typing import Any
 from core.application.errors import ConfigError
 
 from .document_version import validate_document_version
-from core.infrastructure.config import read_yaml
+from core.infrastructure.config import ConfigOperationError, read_yaml
 
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -96,7 +96,10 @@ class VersionedTemplateRepository:
 
     def resolve(self, reference: TemplateRef) -> ResolvedTemplate:
         path = self.path_for(reference)
-        document = read_yaml(path)
+        try:
+            document = read_yaml(path)
+        except ConfigOperationError as exc:
+            raise ConfigError(f"{path}: template read failed ({exc.code.value})") from exc
         metadata = validate_document_version(document, path)
         if document.get("template_id") != reference.template_id:
             raise ConfigError(f"{path}: template_id mismatch")

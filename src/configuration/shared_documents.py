@@ -20,7 +20,7 @@ from .versioned_templates import (
     VersionedTemplateRepository,
     config_hash,
 )
-from core.infrastructure.config import read_yaml
+from core.infrastructure.config import ConfigOperationError, read_yaml
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +76,10 @@ def _reference(raw: object, context: str) -> TemplateRef:
 
 
 def _read(path: Path) -> dict[str, Any]:
-    document = read_yaml(path)
+    try:
+        document = read_yaml(path)
+    except ConfigOperationError as exc:
+        raise ConfigError(f"{path}: configuration read failed ({exc.code.value})") from exc
     validate_document_version(document, path)
     return document
 
