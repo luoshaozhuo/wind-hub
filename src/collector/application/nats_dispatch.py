@@ -132,9 +132,7 @@ class SamplePublisher:
                             )
                         )
                     except (ValueError, TypeError):
-                        logger.exception(
-                            "Invalid sample task=%s point=%s", task_id, value.point_id
-                        )
+                        logger.exception("Invalid sample task=%s point=%s", task_id, value.point_id)
                         self._points_dropped += 1
                 if not entries:
                     continue
@@ -153,7 +151,9 @@ class SamplePublisher:
                 except (ValueError, TypeError, asyncio.QueueFull):
                     logger.warning(
                         "Batch rejected task=%s device=%s count=%d",
-                        task_id, device_id, len(entries),
+                        task_id,
+                        device_id,
+                        len(entries),
                     )
                     self._points_dropped += len(entries)
 

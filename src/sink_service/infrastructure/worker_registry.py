@@ -47,8 +47,7 @@ class WorkerRegistryView:
 
     def list(self, channel: str = "") -> tuple[DeliveryView, ...]:
         return tuple(
-            view for _, view in sorted(self.views.items())
-            if not channel or view.channel == channel
+            view for _, view in sorted(self.views.items()) if not channel or view.channel == channel
         )
 
     def get(self, delivery_id: str) -> DeliveryView:
@@ -63,8 +62,10 @@ class WorkerRegistryView:
 
     async def _refresh_locked(self) -> None:
         replies = await asyncio.gather(
-            *(self.supervisor.request(role, "GET_STATUS", self.snapshot.revision)
-              for role in ROLES),
+            *(
+                self.supervisor.request(role, "GET_STATUS", self.snapshot.revision)
+                for role in ROLES
+            ),
             return_exceptions=True,
         )
         self.observed_at = datetime.now(UTC)
@@ -113,26 +114,32 @@ class WorkerRegistryView:
 
     async def collect_metrics(
         self,
-    ) -> tuple[
-        dict[str, float],
-        dict[str, dict[str, float]],
-        tuple[tuple[datetime, float], ...],
-        dict[str, float],
-        bool,
-    ] | None:
+    ) -> (
+        tuple[
+            dict[str, float],
+            dict[str, dict[str, float]],
+            tuple[tuple[datetime, float], ...],
+            dict[str, float],
+            bool,
+        ]
+        | None
+    ):
         """Aggregate both worker reports only when both generations are valid."""
         async with self._lock:
             return await self._collect_metrics_locked()
 
     async def _collect_metrics_locked(
         self,
-    ) -> tuple[
-        dict[str, float],
-        dict[str, dict[str, float]],
-        tuple[tuple[datetime, float], ...],
-        dict[str, float],
-        bool,
-    ] | None:
+    ) -> (
+        tuple[
+            dict[str, float],
+            dict[str, dict[str, float]],
+            tuple[tuple[datetime, float], ...],
+            dict[str, float],
+            bool,
+        ]
+        | None
+    ):
         replies = await asyncio.gather(
             *(
                 self.supervisor.request(role, "GET_METRICS", self.snapshot.revision)
@@ -158,23 +165,25 @@ class WorkerRegistryView:
                 for identifier, values in delivery_values.items():
                     if identifier in deliveries:
                         return None
-                    deliveries[identifier] = {
-                        name: float(value) for name, value in values.items()
+                    deliveries[identifier] = {name: float(value) for name, value in values.items()}
+                delivery_p99.update(
+                    {
+                        identifier: float(value)
+                        for identifier, value in json.loads(
+                            reply.evidence.get("delivery_latency_p99", "{}")
+                        ).items()
                     }
-                delivery_p99.update({
-                    identifier: float(value)
-                    for identifier, value in json.loads(
-                        reply.evidence.get("delivery_latency_p99", "{}")
-                    ).items()
-                })
+                )
                 if reply.evidence.get("latency_incomplete") == "true":
                     incomplete = True
-                for timestamp, value in json.loads(
-                    reply.evidence.get("latencies", "[]")
-                ):
+                for timestamp, value in json.loads(reply.evidence.get("latencies", "[]")):
                     latencies.append((datetime.fromisoformat(timestamp), float(value)))
             except (KeyError, TypeError, ValueError, OverflowError):
                 return None
         return (
-            aggregate, deliveries, tuple(latencies), delivery_p99, incomplete,
+            aggregate,
+            deliveries,
+            tuple(latencies),
+            delivery_p99,
+            incomplete,
         )

@@ -30,10 +30,16 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
     factory = RealtimeFactory() if role == "realtime" else ReliableFactory()
     await registry.apply_configuration(snapshot, factory)
     reader, writer = await asyncio.open_unix_connection(socket_path)
-    await write_frame(writer, ControlReply(
-        request_id="BOOT", generation=snapshot.revision,
-        status="APPLIED", evidence={"role": role},
-    ).to_wire())
+    await write_frame(
+        writer,
+        ControlReply(
+            request_id="BOOT",
+            generation=snapshot.revision,
+            status="APPLIED",
+            evidence={"role": role},
+        ).to_wire(),
+    )
+
     async def watchdog() -> None:
         while True:
             await asyncio.sleep(
@@ -64,13 +70,19 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                     reconciled = await registry.apply_configuration(updated, factory)
                     snapshot = updated
                     views = registry.list()
-                    applied = tuple(sorted(set(reconciled) | {
-                        item.delivery_id for item in views
-                        if item.revision == updated.revision
-                        and item.actual_state == (
-                            "RUNNING" if item.desired_state == "START" else "STOPPED"
-                        ) and not item.last_error
-                    }))
+                    applied = tuple(
+                        sorted(
+                            set(reconciled)
+                            | {
+                                item.delivery_id
+                                for item in views
+                                if item.revision == updated.revision
+                                and item.actual_state
+                                == ("RUNNING" if item.desired_state == "START" else "STOPPED")
+                                and not item.last_error
+                            }
+                        )
+                    )
                     evidence["applied_ids"] = json.dumps(applied)
                     if any(item.delivery_id not in applied for item in views):
                         status = "PENDING"
@@ -82,8 +94,8 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                         [asdict(item) for item in views], separators=(",", ":")
                     )
                     evidence["inspections"] = json.dumps(
-                        {item.delivery_id: registry.inspect(item.delivery_id)
-                         for item in views}, separators=(",", ":")
+                        {item.delivery_id: registry.inspect(item.delivery_id) for item in views},
+                        separators=(",", ":"),
                     )
                 elif request.operation == "GET_METRICS":
                     evidence["active_generation"] = snapshot.revision
@@ -101,38 +113,39 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                         if overflow is not None and overflow > cutoff:
                             continue
                         values = sorted(
-                            latency for stamp, latency in records
-                            if cutoff < stamp <= instant
+                            latency for stamp, latency in records if cutoff < stamp <= instant
                         )
                         if values:
                             p99[identifier] = values[ceil(len(values) * 0.99) - 1]
                     evidence["delivery_latency_p99"] = json.dumps(p99)
                     evidence["counters"] = json.dumps(counters)
-                    evidence["delivery_counters"] = json.dumps(
-                        deliveries, separators=(",", ":")
-                    )
+                    evidence["delivery_counters"] = json.dumps(deliveries, separators=(",", ":"))
                     latencies = registry.latency_observations()
                     # Never fabricate a P99 from a truncated history.
                     if len(latencies) <= 512 and registry.latency_overflow_at() is None:
-                        evidence["latencies"] = json.dumps([
-                            [stamp.isoformat(), value]
-                            for stamp, value in latencies
-                        ], separators=(",", ":"))
+                        evidence["latencies"] = json.dumps(
+                            [[stamp.isoformat(), value] for stamp, value in latencies],
+                            separators=(",", ":"),
+                        )
                     else:
                         evidence["latency_incomplete"] = "true"
                 elif request.operation == "DIAGNOSE":
                     evidence["details"] = json.dumps(
-                        registry.inspect(request.delivery_id)
-                        if request.delivery_id else {}
+                        registry.inspect(request.delivery_id) if request.delivery_id else {}
                     )
             except Exception as exc:
                 logger.exception("worker command failed")
                 status = "FAILED"
                 evidence["error"] = str(exc)
-            await write_frame(writer, ControlReply(
-                request_id=request.request_id, generation=request.generation,
-                status=status, evidence=evidence,
-            ).to_wire())
+            await write_frame(
+                writer,
+                ControlReply(
+                    request_id=request.request_id,
+                    generation=request.generation,
+                    status=status,
+                    evidence=evidence,
+                ).to_wire(),
+            )
             if request.operation == "SHUTDOWN":
                 break
     finally:

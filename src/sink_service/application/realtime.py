@@ -15,6 +15,7 @@ from contracts.sample_message import SampleMessage
 @dataclass(frozen=True, slots=True)
 class BatchOutcome:
     """Zero-based per-sample indexes: delivered has confirmed business updates."""
+
     delivered: tuple[int, ...]
     settled: tuple[int, ...]
     error: str = ""
@@ -51,7 +52,7 @@ class RealtimeEngine:
             raise ValueError("unknown realtime output policy")
         if period_ms <= 0 or max_points <= 0:
             raise ValueError("invalid realtime interval or point capacity")
-        if not 0 <= absolute_threshold or not 0 <= relative_threshold:
+        if not absolute_threshold >= 0 or not relative_threshold >= 0:
             raise ValueError("negative change threshold")
         self._writer = writer
         self._wind_farm_id = wind_farm_id
@@ -111,24 +112,19 @@ class RealtimeEngine:
             return a != b
         if isinstance(a, bool) or isinstance(b, bool):
             return a != b
-        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if isinstance(a, int | float) and isinstance(b, int | float):
             difference = abs(a - b)
             if self._absolute == 0 and self._relative == 0:
                 return difference > 0
             absolute_hit = self._absolute > 0 and difference >= self._absolute
-            relative_hit = (
-                self._relative > 0
-                and b != 0
-                and difference / abs(b) >= self._relative
-            )
+            relative_hit = self._relative > 0 and b != 0 and difference / abs(b) >= self._relative
             return absolute_hit or relative_hit
         return a != b
 
     def accepts(self, device_id: str, point_id: str) -> bool:
         """Return whether this Delivery owns the source point identity."""
-        return (
-            (not self._devices or device_id in self._devices)
-            and (not self._points or point_id in self._points)
+        return (not self._devices or device_id in self._devices) and (
+            not self._points or point_id in self._points
         )
 
     def offer(
@@ -159,16 +155,13 @@ class RealtimeEngine:
         if authority is not None and authority != sample.task_id:
             self._conflicted.add(key)
             self.last_error = (
-                f'conflicting task authorities for {sample.device_id}:{sample.point_id}'
+                f"conflicting task authorities for {sample.device_id}:{sample.point_id}"
             )
             return False
         prior = self._latest.get(key)
         if prior is not None and (
             sample.sample_time < prior.sample_time
-            or (
-                sample.sample_time == prior.sample_time
-                and sample.sample_id != prior.sample_id
-            )
+            or (sample.sample_time == prior.sample_time and sample.sample_id != prior.sample_id)
         ):
             self.dropped_total += 1
             return False
@@ -202,13 +195,13 @@ class RealtimeEngine:
 
     def _on_task_finished(self, task: asyncio.Task[None]) -> None:
         if task.cancelled():
-            self.last_error = 'Realtime scheduler was cancelled unexpectedly'
+            self.last_error = "Realtime scheduler was cancelled unexpectedly"
             return
         failure = task.exception()
         if failure is not None:
-            self.last_error = f'Realtime scheduler terminated: {failure}'
+            self.last_error = f"Realtime scheduler terminated: {failure}"
         elif not self._stop.is_set():
-            self.last_error = 'Realtime scheduler exited without STOP'
+            self.last_error = "Realtime scheduler exited without STOP"
 
     async def stop(self) -> None:
         self._stop.set()
@@ -216,20 +209,21 @@ class RealtimeEngine:
         task = self._task
         if task is not None:
             if task.cancelled():
-                self.last_error = 'Realtime scheduler was cancelled'
+                self.last_error = "Realtime scheduler was cancelled"
             else:
                 try:
                     await asyncio.shield(task)
                 except Exception as exc:
-                    self.last_error = f'Realtime scheduler terminated: {exc}'
+                    self.last_error = f"Realtime scheduler terminated: {exc}"
             self._task = None
+
     async def _run(self) -> None:
         """At most one serial output cycle per configured interval."""
         loop = asyncio.get_running_loop()
         next_tick = loop.time() + self._interval
         while not self._stop.is_set():
             delay = max(0.0, next_tick - loop.time())
-            if self._policy == 'periodic':
+            if self._policy == "periodic":
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._stop.wait(), timeout=delay)
                 event_fired = False
@@ -258,8 +252,7 @@ class RealtimeEngine:
             periodic_due = now_mono >= next_tick
             if periodic_due:
                 next_tick += (
-                    max(1, int((now_mono - next_tick) / self._interval) + 1)
-                    * self._interval
+                    max(1, int((now_mono - next_tick) / self._interval) + 1) * self._interval
                 )
             now = datetime.now(UTC)
             for key, sample in tuple(self._latest.items()):
@@ -273,10 +266,10 @@ class RealtimeEngine:
                     self._sent.pop(key, None)
                     self._sent_at.pop(key, None)
                     self._skipped.pop(key, None)
-            if self._policy == 'periodic' and not periodic_due:
+            if self._policy == "periodic" and not periodic_due:
                 continue
             if (
-                self._policy == 'on_change'
+                self._policy == "on_change"
                 and not event_fired
                 and not (periodic_due and self._retry_pending)
             ):
@@ -287,13 +280,12 @@ class RealtimeEngine:
                 if (
                     self._skipped.get(key) != sample.sample_id
                     and (
-                        (self._policy == 'periodic' and periodic_due)
+                        (self._policy == "periodic" and periodic_due)
                         or self._changed(sample, self._sent.get(key))
                         or (
-                            self._policy == 'change_with_heartbeat'
+                            self._policy == "change_with_heartbeat"
                             and periodic_due
-                            and now_mono - self._sent_at.get(key, float('-inf'))
-                            >= self._interval
+                            and now_mono - self._sent_at.get(key, float("-inf")) >= self._interval
                         )
                     )
                 )

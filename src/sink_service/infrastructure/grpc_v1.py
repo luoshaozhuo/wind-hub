@@ -69,16 +69,13 @@ def _status_for(exc: ConfigurationError) -> grpc.StatusCode:
 
 def _peer_identity(context: grpc.aio.ServicerContext[Any, Any]) -> str:
     """Use only the mTLS certificate SAN; never a self-declared request field."""
-    identities = (context.auth_context() or {}).get(
-        'x509_subject_alternative_name', ()
-    )
+    identities = (context.auth_context() or {}).get("x509_subject_alternative_name", ())
     for raw in identities:
-        if not isinstance(raw, bytes):
-            continue
-        identity = raw.decode('utf-8', errors='strict')
-        if identity.startswith('spiffe://'):
+        identity = raw.decode("utf-8", errors="strict")
+        if identity.startswith("spiffe://"):
             return identity
-    return 'unknown-authenticated-peer'
+    return "unknown-authenticated-peer"
+
 
 def _delivery(
     value: DeliveryView, configuration: dict[str, Any] | None = None
@@ -141,16 +138,13 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
     ) -> common_pb2.GetServiceStatusResponse:
         views = self._registry.list()
         degraded = any(
-            view.actual_state
-            != ("RUNNING" if view.desired_state == "START" else "STOPPED")
+            view.actual_state != ("RUNNING" if view.desired_state == "START" else "STOPPED")
             or bool(view.last_error)
             for view in views
         )
         workers = getattr(self._registry, "worker_health", {})
         worker_unavailable = any(value != "RUNNING" for value in workers.values())
-        configuration_pending = (
-            self._config.disk.revision != self._config.runtime.revision
-        )
+        configuration_pending = self._config.disk.revision != self._config.runtime.revision
         health = (
             "DEGRADED"
             if degraded or worker_unavailable or self._config.last_error or configuration_pending
@@ -177,9 +171,7 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                     for view in views
                 ],
             ],
-            observed_at=_timestamp(
-                getattr(self._registry, "observed_at", datetime.now(UTC))
-            ),
+            observed_at=_timestamp(getattr(self._registry, "observed_at", datetime.now(UTC))),
         )
 
     async def GetCapabilities(
@@ -272,34 +264,40 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             )
         except InvalidConfigurationError as exc:
             self._observability.event(
-                'ERROR', 'configuration', 'CONFIG_PUSH_REJECTED',
-                f'caller={_peer_identity(context)} reason={exc}',
+                "ERROR",
+                "configuration",
+                "CONFIG_PUSH_REJECTED",
+                f"caller={_peer_identity(context)} reason={exc}",
             )
             reason = str(exc)
-            path, separator, message = reason.partition(':')
+            path, separator, message = reason.partition(":")
             return common_pb2.PushConfigSnapshotResponse(
-                candidate_id='',
+                candidate_id="",
                 valid=False,
                 base_revision=self._config.disk.revision,
                 validation=[
                     common_pb2.ValidationIssue(
-                        path=path if separator else '',
-                        code='INVALID_CONFIGURATION',
+                        path=path if separator else "",
+                        code="INVALID_CONFIGURATION",
                         message=message.strip() if separator else reason,
                     )
                 ],
             )
         except ConfigurationError as exc:
             self._observability.event(
-                'ERROR', 'configuration', 'CONFIG_PUSH_REJECTED',
-                f'caller={_peer_identity(context)} reason={exc}',
+                "ERROR",
+                "configuration",
+                "CONFIG_PUSH_REJECTED",
+                f"caller={_peer_identity(context)} reason={exc}",
             )
             await _abort(context, _status_for(exc), str(exc))
-            raise AssertionError('gRPC abort returned') from exc
+            raise AssertionError("gRPC abort returned") from exc
         self._observability.event(
-            'INFO', 'configuration', 'CONFIG_PUSH',
-            f'caller={_peer_identity(context)} candidate={candidate_id} '
-            f'base_revision={self._config.disk.revision}',
+            "INFO",
+            "configuration",
+            "CONFIG_PUSH",
+            f"caller={_peer_identity(context)} candidate={candidate_id} "
+            f"base_revision={self._config.disk.revision}",
         )
         return common_pb2.PushConfigSnapshotResponse(
             candidate_id=candidate_id,
@@ -318,11 +316,12 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             await _abort(context, _status_for(exc), str(exc))
             raise AssertionError("gRPC abort returned") from exc
         self._observability.event(
-            'INFO' if not applied.error else 'ERROR',
-            'configuration', 'CONFIG_APPLY',
-            f'caller={_peer_identity(context)} application={applied.application_id} '
-            f'file_commit={applied.file_commit} restart_required={applied.restart_required} '
-            f'error={applied.error}',
+            "INFO" if not applied.error else "ERROR",
+            "configuration",
+            "CONFIG_APPLY",
+            f"caller={_peer_identity(context)} application={applied.application_id} "
+            f"file_commit={applied.file_commit} restart_required={applied.restart_required} "
+            f"error={applied.error}",
         )
         return common_pb2.ApplyConfigSnapshotResponse(
             file_commit=applied.file_commit,
@@ -365,30 +364,28 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             }
         else:
             data = self._observability.snapshot(request.window_ms)
-        stamp = _timestamp(
-            self._observability.computed_at or self._observability.started_at
-        )
+        stamp = _timestamp(self._observability.computed_at or self._observability.started_at)
         units = {
-            'received_total': 'samples',
-            'input_batches_total': 'batches',
-            'input_values_total': 'samples',
-            'received_batches_total': 'batches',
-            'acknowledged_batches_total': 'batches',
-            'rejected_batches_total': 'batches',
-            'routed_values_total': 'samples',
-            'retry_total': 'attempts',
-            'dead_letter_invalid_batches_total': 'batches',
-            'delivered_total': 'samples',
-            'failed_total': 'attempts',
-            'dropped_total': 'samples',
-            'dead_letter_total': 'samples',
-            'delivered_rate_per_second': 'samples/s',
-            'write_success_ratio': 'ratio',
-            'write_latency_ms_p99': 'ms',
-            'backlog_messages': 'messages',
-            'io_inflight': 'operations',
-            'metrics_snapshot_ready': 'bool',
-            'metrics_covered_ms': 'ms',
+            "received_total": "samples",
+            "input_batches_total": "batches",
+            "input_values_total": "samples",
+            "received_batches_total": "batches",
+            "acknowledged_batches_total": "batches",
+            "rejected_batches_total": "batches",
+            "routed_values_total": "samples",
+            "retry_total": "attempts",
+            "dead_letter_invalid_batches_total": "batches",
+            "delivered_total": "samples",
+            "failed_total": "attempts",
+            "dropped_total": "samples",
+            "dead_letter_total": "samples",
+            "delivered_rate_per_second": "samples/s",
+            "write_success_ratio": "ratio",
+            "write_latency_ms_p99": "ms",
+            "backlog_messages": "messages",
+            "io_inflight": "operations",
+            "metrics_snapshot_ready": "bool",
+            "metrics_covered_ms": "ms",
         }
         return common_pb2.GetMetricsResponse(
             metrics=[
@@ -396,7 +393,8 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                     name=name,
                     value=value,
                     unit=units.get(name.rsplit(".", 1)[-1], "count"),
-                    window_ms=request.window_ms, sampled_at=stamp,
+                    window_ms=request.window_ms,
+                    sampled_at=stamp,
                 )
                 for name, value in sorted(data.items())
             ]
@@ -428,9 +426,12 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         return common_pb2.GetEventsResponse(
             events=[
                 common_pb2.Event(
-                    event_id=item.event_id, timestamp=_timestamp(item.timestamp),
-                    severity=item.severity, source=item.source,
-                    error_code=item.error_code, message=item.message,
+                    event_id=item.event_id,
+                    timestamp=_timestamp(item.timestamp),
+                    severity=item.severity,
+                    source=item.source,
+                    error_code=item.error_code,
+                    message=item.message,
                 )
                 for item in values
             ],
@@ -440,83 +441,86 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
     async def Diagnose(
         self, request: common_pb2.DiagnoseRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> common_pb2.DiagnoseResponse:
-        allowed = {'configuration', 'source', 'consumer', 'delivery', 'sink', 'target'}
+        allowed = {"configuration", "source", "consumer", "delivery", "sink", "target"}
         requested = list(request.stages) or sorted(allowed)
         budget_ms = request.timeout_ms or 5000
         if not 1 <= budget_ms <= 5000 or len(requested) > len(allowed):
-            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, 'invalid diagnostic bounds')
-            raise AssertionError('gRPC abort returned')
+            await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "invalid diagnostic bounds")
+            raise AssertionError("gRPC abort returned")
         if any(name not in allowed for name in requested) or len(set(requested)) != len(requested):
             await _abort(
-                context, grpc.StatusCode.INVALID_ARGUMENT,
-                'unknown or duplicate diagnostic stage',
+                context,
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "unknown or duplicate diagnostic stage",
             )
-            raise AssertionError('gRPC abort returned')
+            raise AssertionError("gRPC abort returned")
         views = self._registry.list()
         if request.target_id:
             views = tuple(view for view in views if view.delivery_id == request.target_id)
             if not views:
-                await _abort(context, grpc.StatusCode.NOT_FOUND, 'unknown Delivery')
-                raise AssertionError('gRPC abort returned')
+                await _abort(context, grpc.StatusCode.NOT_FOUND, "unknown Delivery")
+                raise AssertionError("gRPC abort returned")
         try:
             await asyncio.wait_for(self._diagnose_slots.acquire(), timeout=budget_ms / 1000)
         except TimeoutError as exc:
-            await _abort(context, grpc.StatusCode.RESOURCE_EXHAUSTED, 'diagnostic capacity')
-            raise AssertionError('gRPC abort returned') from exc
+            await _abort(context, grpc.StatusCode.RESOURCE_EXHAUSTED, "diagnostic capacity")
+            raise AssertionError("gRPC abort returned") from exc
         try:
             results: list[common_pb2.DiagnosticStage] = []
             limitations: list[str] = []
             for stage in requested:
                 began = time.perf_counter()
                 observations: list[tuple[str, str]] = []
-                if stage == 'configuration':
+                if stage == "configuration":
                     error = self._config.last_error
                     active = self._config.runtime.revision
                     committed = self._config.disk.revision
-                    observations.append(('active_revision', active))
-                    observations.append(('committed_revision', committed))
+                    observations.append(("active_revision", active))
+                    observations.append(("committed_revision", committed))
                     if error:
-                        status = 'FAILED'
+                        status = "FAILED"
                         message = error
                     elif active != committed:
-                        status = 'UNKNOWN'
-                        message = 'Committed configuration is not fully active'
+                        status = "UNKNOWN"
+                        message = "Committed configuration is not fully active"
                         limitations.append(message)
                     else:
-                        status = 'SUCCESS'
-                        message = ''
-                elif stage == 'target':
-                    status = 'NOT_SUPPORTED'
-                    message = 'No side-effect-free target protocol probe configured'
+                        status = "SUCCESS"
+                        message = ""
+                elif stage == "target":
+                    status = "NOT_SUPPORTED"
+                    message = "No side-effect-free target protocol probe configured"
                     limitations.append(message)
                 else:
                     for view in views:
                         evidence = self._registry.inspect(view.delivery_id)
-                        if stage == 'delivery':
+                        if stage == "delivery":
                             state = view.actual_state
                             observations.append((view.delivery_id, state))
                         elif stage in evidence:
                             observations.append((view.delivery_id, evidence[stage]))
                     if not observations:
-                        status = 'UNKNOWN'
-                        message = 'No authoritative process-owned evidence'
-                        limitations.append(f'{stage}: no observation')
-                    elif any(value in {'FAILED', 'DISCONNECTED'} for _, value in observations):
-                        status = 'FAILED'
-                        message = 'Observed failure in process-owned state'
+                        status = "UNKNOWN"
+                        message = "No authoritative process-owned evidence"
+                        limitations.append(f"{stage}: no observation")
+                    elif any(value in {"FAILED", "DISCONNECTED"} for _, value in observations):
+                        status = "FAILED"
+                        message = "Observed failure in process-owned state"
                     elif any(
-                        value in {'NOT_ATTACHED', 'NOT_BOUND', 'STOPPED'}
+                        value in {"NOT_ATTACHED", "NOT_BOUND", "STOPPED"}
                         for _, value in observations
                     ):
-                        status = 'UNKNOWN'
-                        message = 'Target is not currently bound or active'
-                        limitations.append(f'{stage}: incomplete active evidence')
+                        status = "UNKNOWN"
+                        message = "Target is not currently bound or active"
+                        limitations.append(f"{stage}: incomplete active evidence")
                     else:
-                        status = 'SUCCESS'
-                        message = 'Confirmed process-local observation only'
+                        status = "SUCCESS"
+                        message = "Confirmed process-local observation only"
                 results.append(
                     common_pb2.DiagnosticStage(
-                        stage=stage, status=status, message=message,
+                        stage=stage,
+                        status=status,
+                        message=message,
                         duration_ms=int((time.perf_counter() - began) * 1000),
                         source=self._service_id,
                         evidence=[
@@ -527,15 +531,20 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                     )
                 )
             overall = (
-                'FAILED' if any(s.status == 'FAILED' for s in results)
-                else 'PARTIAL' if any(s.status != 'SUCCESS' for s in results)
-                else 'SUCCESS'
+                "FAILED"
+                if any(s.status == "FAILED" for s in results)
+                else "PARTIAL"
+                if any(s.status != "SUCCESS" for s in results)
+                else "SUCCESS"
             )
             return common_pb2.DiagnoseResponse(
-                overall_status=overall, stages=results, limitations=limitations,
+                overall_status=overall,
+                stages=results,
+                limitations=limitations,
             )
         finally:
             self._diagnose_slots.release()
+
 
 class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
     """Delivery queries and operator commands through a single Writer."""
@@ -611,16 +620,20 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
             raise AssertionError("gRPC abort returned") from exc
         except ConfigurationError as exc:
             self._observability.event(
-                'ERROR', request.id, 'DELIVERY_INTENT_REJECTED',
-                f'caller={_peer_identity(context)} reason={exc}',
+                "ERROR",
+                request.id,
+                "DELIVERY_INTENT_REJECTED",
+                f"caller={_peer_identity(context)} reason={exc}",
             )
             await _abort(context, _status_for(exc), str(exc))
             raise AssertionError("gRPC abort returned") from exc
 
         desired = "START" if start else "STOP"
         self._observability.event(
-            'INFO', request.id, 'DELIVERY_INTENT',
-            f'caller={_peer_identity(context)} desired={desired} revision={snapshot.revision}',
+            "INFO",
+            request.id,
+            "DELIVERY_INTENT",
+            f"caller={_peer_identity(context)} desired={desired} revision={snapshot.revision}",
         )
         try:
             view = self._registry.get(request.id)
@@ -674,9 +687,13 @@ def build_v1_server(
     )
     common_pb2_grpc.add_CommonServiceServicer_to_server(
         CommonServiceServer(
-            config, registry, service_id=service_id, role=role,
+            config,
+            registry,
+            service_id=service_id,
+            role=role,
             observability=observability,
-        ), server
+        ),
+        server,
     )
     sink_service_pb2_grpc.add_SinkServiceServicer_to_server(
         SinkServiceServer(registry, config, observability), server

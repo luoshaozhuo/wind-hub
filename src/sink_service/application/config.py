@@ -53,13 +53,11 @@ def template_document(
     for item in snapshot.files:
         if item.path == path:
             document = _yaml_doc(item)
-            if (
-                document.get('template_id') != name
-                or document.get('file_version') != version
-            ):
-                raise ConfigurationError(f'{path}: template identity mismatch')
+            if document.get("template_id") != name or document.get("file_version") != version:
+                raise ConfigurationError(f"{path}: template identity mismatch")
             return document
-    raise ConfigurationError(f'missing referenced template: {path}')
+    raise ConfigurationError(f"missing referenced template: {path}")
+
 
 def _template(
     docs: dict[str, dict[str, Any]],
@@ -86,8 +84,7 @@ def _instances(
     expect_nonempty_str(container.get("revision"), f"{path}.revision")
     instances = expect_mapping(container.get(family), f"{path}.{family}")
     return {
-        key: expect_mapping(value, f"{path}.{family}.{key}")
-        for key, value in instances.items()
+        key: expect_mapping(value, f"{path}.{family}.{key}") for key, value in instances.items()
     }
 
 
@@ -132,9 +129,7 @@ def _validate_sink(
                 )
     connection = expect_mapping(sink.get("connection"), f"sinks.{sink_id}.connection")
     output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
-    expect_positive_int(
-        output.get("write_timeout_ms"), f"sinks.{sink_id}.write_timeout_ms", 30000
-    )
+    expect_positive_int(output.get("write_timeout_ms"), f"sinks.{sink_id}.write_timeout_ms", 30000)
     reference = connection.get("credential_ref", "")
     if not isinstance(reference, str):
         raise ConfigurationError(f"sinks.{sink_id}: credential_ref must be a string")
@@ -216,7 +211,7 @@ def _validate_delivery(
             value = output.get(threshold, 0.0)
             if (
                 isinstance(value, bool)
-                or not isinstance(value, (int, float))
+                or not isinstance(value, int | float)
                 or not 0 <= value < float("inf")
             ):
                 raise ConfigurationError(f"deliveries.{delivery_id}: invalid {threshold}")
@@ -225,7 +220,8 @@ def _validate_delivery(
         )
         if "max_age_ms" in staleness:
             expect_positive_int(
-                staleness["max_age_ms"], f"deliveries.{delivery_id}.max_age_ms",
+                staleness["max_age_ms"],
+                f"deliveries.{delivery_id}.max_age_ms",
             )
     if mode == "reliable":
         reliable = expect_mapping(template.get("reliable"), f"deliveries.{delivery_id}.reliable")
@@ -238,15 +234,16 @@ def _validate_delivery(
 def _source_overlap(left: dict[str, Any], right: dict[str, Any]) -> bool:
     """Empty selectors mean all devices/points, not an empty output set."""
     if (
-        left['wind_farm_id'] != right['wind_farm_id']
-        or left['collector_id'] != right['collector_id']
+        left["wind_farm_id"] != right["wind_farm_id"]
+        or left["collector_id"] != right["collector_id"]
     ):
         return False
-    for field in ('devices', 'points'):
+    for field in ("devices", "points"):
         lhs, rhs = set(left[field]), set(right[field])
         if lhs and rhs and lhs.isdisjoint(rhs):
             return False
     return True
+
 
 def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     """Resolve all cross-file template references before accepting a snapshot."""
@@ -297,32 +294,28 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     # declared physical output endpoints.
     outputs: dict[tuple[object, ...], list[tuple[str, dict[str, Any]]]] = {}
     for delivery_id, delivery in delivery_instances.items():
-        sink_id = delivery['sink_id']
+        sink_id = delivery["sink_id"]
         kind, _ = sinks[sink_id]
-        if kind == 'modbus_tcp':
+        if kind == "modbus_tcp":
             continue  # The register closure below validates Modbus explicitly.
         sink = sink_instances[sink_id]
-        conn = sink['connection']
+        conn = sink["connection"]
         template = _template(
-            docs, template_root, 'sinks', sink['template_id'], sink['template_version']
+            docs, template_root, "sinks", sink["template_id"], sink["template_version"]
         )
-        output = template['output']
-        if kind == 'redis':
-            address: tuple[object, ...] = (
-                kind, conn['host'], conn['port'], output['namespace']
-            )
+        output = template["output"]
+        if kind == "redis":
+            address: tuple[object, ...] = (kind, conn["host"], conn["port"], output["namespace"])
         else:
-            address = (
-                kind, tuple(sorted(conn['bootstrap_servers'])), output['topic']
-            )
+            address = (kind, tuple(sorted(conn["bootstrap_servers"])), output["topic"])
         existing = outputs.setdefault(address, [])
         for previous_id, previous_source in existing:
-            if _source_overlap(delivery['source'], previous_source):
+            if _source_overlap(delivery["source"], previous_source):
                 raise ConfigurationError(
-                    f'deliveries.{delivery_id}: output point overlaps '
-                    f'deliveries.{previous_id} at the same {kind} target'
+                    f"deliveries.{delivery_id}: output point overlaps "
+                    f"deliveries.{previous_id} at the same {kind} target"
                 )
-        existing.append((delivery_id, delivery['source']))
+        existing.append((delivery_id, delivery["source"]))
     addresses: set[tuple[str, int]] = set()
     for sink_id, (kind, _caps) in sinks.items():
         if kind != "modbus_tcp":
@@ -399,22 +392,21 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     )
 
 
-def read_snapshot(
-    root: Path, service_path: Path
-) -> ValidatedSnapshot:
+def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     """Load the canonical Main Service and its referenced configuration closure."""
     root = root.resolve(strict=True)
     selected: list[str] = []
     for path in (service_path,):
         resolved = path.resolve(strict=True)
         if not resolved.is_relative_to(root):
-            raise ConfigurationError('Service path escapes configuration root')
+            raise ConfigurationError("Service path escapes configuration root")
         relative = resolved.relative_to(root).as_posix()
-        if not relative.startswith('configs/services/') or not relative.endswith('.yaml'):
-            raise ConfigurationError('Service must be an explicit Service pathname')
+        if not relative.startswith("configs/services/") or not relative.endswith(".yaml"):
+            raise ConfigurationError("Service must be an explicit Service pathname")
         selected.append(relative)
-    if selected != ['configs/services/sink_service.yaml']:
-        raise ConfigurationError('canonical Service pathname required')
+    if selected != ["configs/services/sink_service.yaml"]:
+        raise ConfigurationError("canonical Service pathname required")
+
     def safe_file(pathname: str) -> SnapshotFile:
         target = root / pathname
         if target.is_symlink() or any(

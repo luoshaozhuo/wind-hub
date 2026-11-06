@@ -74,9 +74,7 @@ class SampleBatch(BaseModel):
     task_id: str
     device_id: str
     publish_time: datetime
-    samples: tuple[BatchSample, ...] = Field(
-        min_length=1, max_length=MAX_SAMPLES_PER_BATCH
-    )
+    samples: tuple[BatchSample, ...] = Field(min_length=1, max_length=MAX_SAMPLES_PER_BATCH)
 
     @field_validator("wind_farm_id", "collector_id", "task_id", "device_id")
     @classmethod
@@ -114,13 +112,8 @@ class SampleBatch(BaseModel):
 
     def subject(self) -> str:
         """Keep v2 batch subjects distinct from the v1 single-point subjects."""
-        prefix = (
-            REALTIME_BATCH_PREFIX if self.mode == "realtime"
-            else RELIABLE_BATCH_PREFIX
-        )
-        return (
-            f"{prefix}.{self.wind_farm_id}.{self.collector_id}.{self.device_id}"
-        )
+        prefix = REALTIME_BATCH_PREFIX if self.mode == "realtime" else RELIABLE_BATCH_PREFIX
+        return f"{prefix}.{self.wind_farm_id}.{self.collector_id}.{self.device_id}"
 
     def encode(self) -> bytes:
         payload = json.dumps(
@@ -147,9 +140,7 @@ class SampleBatch(BaseModel):
             raise ValueError("batch subject/source mismatch")
         return batch
 
-    def to_samples(
-        self, *, point_ids: frozenset[str] | None = None
-    ) -> tuple[SampleMessage, ...]:
+    def to_samples(self, *, point_ids: frozenset[str] | None = None) -> tuple[SampleMessage, ...]:
         """Materialize validated point envelopes for existing Adapter contracts.
 
         model_construct is safe here: SampleBatch validation has already

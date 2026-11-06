@@ -42,9 +42,7 @@ class GenerationStore:
             raise ConfigurationError("invalid Service relative path")
         identifier = self._current.read_text(encoding="ascii").strip()
         directory = self._generation(identifier)
-        snapshot = read_snapshot(
-            directory, directory / service_path
-        )
+        snapshot = read_snapshot(directory, directory / service_path)
         if snapshot.revision != identifier:
             raise ConfigurationError("committed generation content hash mismatch")
         return snapshot
@@ -133,11 +131,10 @@ class GenerationStore:
         # Never point CURRENT at an existing corrupt or partial generation.
         # This also validates a generation reused after an interrupted Apply.
         service_paths = sorted(
-            file.path for file in checked.files
-            if file.path.startswith('configs/services/')
+            file.path for file in checked.files if file.path.startswith("configs/services/")
         )
-        if service_paths != ['configs/services/sink_service.yaml']:
-            raise ConfigurationError('validated snapshot requires one canonical Service')
+        if service_paths != ["configs/services/sink_service.yaml"]:
+            raise ConfigurationError("validated snapshot requires one canonical Service")
         committed = read_snapshot(target, target / service_paths[0])
         if committed.revision != checked.revision:
             raise ConfigurationError("existing committed generation differs from candidate")

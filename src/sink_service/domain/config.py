@@ -54,10 +54,7 @@ class SnapshotFile:
             or path.as_posix() != self.path
         ):
             raise ConfigurationError(f"unsafe relative configuration path: {self.path!r}")
-        if not (
-            self.path.startswith("configs/")
-            and self.path.endswith(".yaml")
-        ):
+        if not (self.path.startswith("configs/") and self.path.endswith(".yaml")):
             raise ConfigurationError(f"unsupported configuration path: {self.path!r}")
 
 
@@ -155,9 +152,7 @@ def validate_service(service: dict[str, Any]) -> None:
     expect_positive_int(grpc.get("default_deadline_ms"), "grpc.default_deadline_ms", 5000)
     runtime = expect_mapping(service.get("runtime"), "service.runtime")
     watchdog_interval = runtime.get("watchdog_interval_ms", 5000)
-    if not 500 <= expect_positive_int(
-        watchdog_interval, "runtime.watchdog_interval_ms", 60000
-    ):
+    if not expect_positive_int(watchdog_interval, "runtime.watchdog_interval_ms", 60000) >= 500:
         raise ConfigurationError("runtime.watchdog_interval_ms must be >= 500")
     global_limit = expect_positive_int(
         runtime.get("max_inflight_global"), "runtime.max_inflight_global"
@@ -194,15 +189,18 @@ def validate_service(service: dict[str, Any]) -> None:
     reliable = expect_mapping(service.get("reliable"), "service.reliable")
     if reliable.get("max_inflight_per_delivery") != 1:
         raise ConfigurationError("reliable.max_inflight_per_delivery must be 1")
-    if reliable.get('replay_max_inflight') != 1:
-        raise ConfigurationError('reliable.replay_max_inflight must be 1')
+    if reliable.get("replay_max_inflight") != 1:
+        raise ConfigurationError("reliable.replay_max_inflight must be 1")
     for key in (
-        'ack_wait_seconds', 'retry_base_ms', 'retry_max_ms',
-        'replay_max_rate_per_second', 'replay_starvation_alarm_seconds',
+        "ack_wait_seconds",
+        "retry_base_ms",
+        "retry_max_ms",
+        "replay_max_rate_per_second",
+        "replay_starvation_alarm_seconds",
     ):
-        expect_positive_int(reliable.get(key), f'reliable.{key}')
-    if reliable['retry_max_ms'] < reliable['retry_base_ms']:
-        raise ConfigurationError('reliable.retry_max_ms below retry_base_ms')
+        expect_positive_int(reliable.get(key), f"reliable.{key}")
+    if reliable["retry_max_ms"] < reliable["retry_base_ms"]:
+        raise ConfigurationError("reliable.retry_max_ms below retry_base_ms")
     if reliable.get("transient_retry_policy") != "continuous":
         raise ConfigurationError("reliable.transient_retry_policy must be continuous")
     if reliable.get("permanent_error_action") != "dlq":
@@ -227,8 +225,8 @@ def validate_service(service: dict[str, Any]) -> None:
         raise ConfigurationError("realtime NATS subject must match the v2 batch contract")
     if nats.get("reliable_subject") != "wh.batch.hist":
         raise ConfigurationError("reliable NATS subject must match the v2 batch contract")
-    for key in ('dlq_max_bytes', 'dlq_max_age_seconds'):
-        expect_positive_int(nats.get(key), f'nats.{key}')
+    for key in ("dlq_max_bytes", "dlq_max_age_seconds"):
+        expect_positive_int(nats.get(key), f"nats.{key}")
     for field in ("history_storage", "dlq_storage"):
         if nats.get(field) != "file":
             raise ConfigurationError(f"nats.{field} must be file")

@@ -88,8 +88,10 @@ class ControlReply:
             raise IpcProtocolError("IPC reply identity is required")
         if self.status not in {"APPLIED", "PENDING", "FAILED", "UNKNOWN"}:
             raise IpcProtocolError("unsupported IPC reply status")
-        if any(not isinstance(key, str) or not isinstance(value, str)
-               for key, value in self.evidence.items()):
+        if any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in self.evidence.items()
+        ):
             raise IpcProtocolError("IPC evidence must be string to string")
 
     def to_wire(self) -> dict[str, Any]:
@@ -106,8 +108,7 @@ class ControlReply:
         if set(raw) != {"kind", "request_id", "generation", "status", "evidence"}:
             raise IpcProtocolError("invalid reply fields")
         if raw["kind"] != "reply" or any(
-            not isinstance(raw[key], str)
-            for key in ("request_id", "generation", "status")
+            not isinstance(raw[key], str) for key in ("request_id", "generation", "status")
         ):
             raise IpcProtocolError("invalid reply identity")
         if not isinstance(raw["evidence"], dict):
@@ -135,15 +136,13 @@ async def read_frame(reader: asyncio.StreamReader) -> dict[str, Any]:
     return payload
 
 
-async def write_frame(
-    writer: asyncio.StreamWriter, payload: dict[str, Any]
-) -> None:
+async def write_frame(writer: asyncio.StreamWriter, payload: dict[str, Any]) -> None:
     """Write only bounded management messages; no arbitrary sample payload."""
     if "samples" in payload:
         raise IpcProtocolError("sample data must not be sent through IPC")
-    data = json.dumps(
-        payload, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    ).encode("utf-8")
+    data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode(
+        "utf-8"
+    )
     if not 0 < len(data) <= MAX_IPC_FRAME_BYTES:
         raise IpcProtocolError("IPC frame exceeds maximum length")
     writer.write(_HEADER.pack(len(data)) + data)
@@ -153,9 +152,7 @@ async def write_frame(
 class WorkerControlClient:
     """Single outstanding mutation per worker connection, with correlation."""
 
-    def __init__(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._reader = reader
         self._writer = writer
         self._lock = asyncio.Lock()
@@ -196,14 +193,9 @@ class WorkerControlClient:
                     write_frame(self._writer, request.to_wire()),
                     timeout=timeout_seconds,
                 )
-                raw = await asyncio.wait_for(
-                    read_frame(self._reader), timeout=timeout_seconds
-                )
+                raw = await asyncio.wait_for(read_frame(self._reader), timeout=timeout_seconds)
                 reply = ControlReply.from_wire(raw)
-                if (
-                    reply.request_id != request.request_id
-                    or reply.generation != generation
-                ):
+                if reply.request_id != request.request_id or reply.generation != generation:
                     raise IpcProtocolError("IPC reply correlation mismatch")
                 return reply
             except (

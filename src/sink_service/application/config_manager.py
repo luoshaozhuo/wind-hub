@@ -125,20 +125,22 @@ class ConfigManager:
             # editing the current filter. No old backlog may be ACKed under
             # a new source responsibility without a controlled migration.
             previous_reliable = {
-                item.delivery_id for item in delivery_definitions(self._disk)
-                if item.channel == 'reliable'
+                item.delivery_id
+                for item in delivery_definitions(self._disk)
+                if item.channel == "reliable"
             }
             next_reliable = {
-                item.delivery_id for item in delivery_definitions(snapshot)
-                if item.channel == 'reliable'
+                item.delivery_id
+                for item in delivery_definitions(snapshot)
+                if item.channel == "reliable"
             }
             for identifier in previous_reliable & next_reliable:
-                old_source = self._disk.deliveries[identifier].get('source')
-                new_source = snapshot.deliveries[identifier].get('source')
+                old_source = self._disk.deliveries[identifier].get("source")
+                new_source = snapshot.deliveries[identifier].get("source")
                 if old_source != new_source:
                     raise InvalidConfigurationError(
-                        f'deliveries.{identifier}.source: Reliable source change '
-                        'requires a separately audited Durable migration'
+                        f"deliveries.{identifier}.source: Reliable source change "
+                        "requires a separately audited Durable migration"
                     )
             now = datetime.now(UTC)
             self._candidates = {
@@ -191,7 +193,7 @@ class ConfigManager:
                     continue
                 if before_delivery is None or after_delivery is None:
                     continue
-                sink_id = before_delivery['sink_id']
+                sink_id = before_delivery["sink_id"]
                 if self._runtime.sinks.get(sink_id) != snapshot.sinks.get(sink_id):
                     affected.add(identifier)
             changed = tuple(sorted(affected))
@@ -311,9 +313,7 @@ class ConfigManager:
                         self._runtime = snapshot
                         self._last_error = ""
                     else:
-                        self._last_error = (
-                            "one or more local Deliveries are not converged"
-                        )
+                        self._last_error = "one or more local Deliveries are not converged"
                 except Exception as exc:
                     # The desired state has already been committed to disk.
                     self._last_error = str(exc)
@@ -325,11 +325,13 @@ class ConfigManager:
             if self._disk.revision == self._runtime.revision:
                 return True
             active_services = {
-                item.path: item.content for item in self._runtime.files
+                item.path: item.content
+                for item in self._runtime.files
                 if item.path.startswith("configs/services/")
             }
             stored_services = {
-                item.path: item.content for item in self._disk.files
+                item.path: item.content
+                for item in self._disk.files
                 if item.path.startswith("configs/services/")
             }
             if active_services != stored_services or self._reconcile is None:

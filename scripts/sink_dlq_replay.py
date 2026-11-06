@@ -68,7 +68,7 @@ async def replay(
                 continue
             if execute:
                 stable_id = hashlib.sha256(
-                    f"{dlq_stream}:{dead_letter_id}:{delivery_id}".encode("utf-8")
+                    f"{dlq_stream}:{dead_letter_id}:{delivery_id}".encode()
                 ).hexdigest()
                 await js.publish(
                     subject,

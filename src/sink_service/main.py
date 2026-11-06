@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import signal
 from datetime import UTC, datetime
@@ -61,8 +62,10 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         )
         grpc_config = service["grpc"]
         server = build_v1_server(
-            config=manager, registry=registry,
-            service_id=service["service_id"], role="main",
+            config=manager,
+            registry=registry,
+            service_id=service["service_id"],
+            role="main",
             credentials=server_credentials(service["security"]),
             address=f"{grpc_config['listen_host']}:{grpc_config['listen_port']}",
             max_active_rpcs=grpc_config["max_active_rpcs"],
@@ -74,12 +77,17 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         await supervisor.start()
         await registry.refresh()
         background.append(asyncio.create_task(supervisor.supervise(stop)))
-        background.append(asyncio.create_task(
-            _poll_workers(
-                registry, manager, telemetry, stop,
-                service["metrics"]["metrics_compute_interval_ms"],
+        background.append(
+            asyncio.create_task(
+                _poll_workers(
+                    registry,
+                    manager,
+                    telemetry,
+                    stop,
+                    service["metrics"]["metrics_compute_interval_ms"],
+                )
             )
-        ))
+        )
         await stop.wait()
     finally:
         stop.set()
@@ -114,12 +122,8 @@ async def _poll_workers(
     metrics_ready = False
     metrics_revision = registry.snapshot.revision
     while not stop.is_set():
-        try:
-            await asyncio.wait_for(
-                stop.wait(), timeout=max(0.0, next_tick - loop.time())
-            )
-        except TimeoutError:
-            pass
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=max(0.0, next_tick - loop.time()))
         if stop.is_set():
             return
         now = loop.time()
@@ -141,19 +145,21 @@ async def _poll_workers(
                 if previous_health.get(role) != state:
                     telemetry.event(
                         "ERROR" if state != "RUNNING" else "INFO",
-                        role, "WORKER_STATE", state,
+                        role,
+                        "WORKER_STATE",
+                        state,
                     )
             previous_health = dict(registry.worker_health)
             current_deliveries = {
-                item.delivery_id: (item.actual_state, item.last_error)
-                for item in registry.list()
+                item.delivery_id: (item.actual_state, item.last_error) for item in registry.list()
             }
-            for identifier, delivery_state in current_deliveries.items():
-                if previous_deliveries.get(identifier) != delivery_state:
+            for identifier, state in current_deliveries.items():
+                if previous_deliveries.get(identifier) != state:
                     telemetry.event(
-                        "ERROR" if delivery_state[0] in {"UNKNOWN", "FAILED"} else "INFO",
-                        identifier, "DELIVERY_STATE",
-                        f"{delivery_state[0]}: {delivery_state[1]}",
+                        "ERROR" if state[0] in {"UNKNOWN", "FAILED"} else "INFO",
+                        identifier,
+                        "DELIVERY_STATE",
+                        f"{state[0]}: {state[1]}",
                     )
             previous_deliveries = current_deliveries
             metrics = await registry.collect_metrics()
@@ -165,7 +171,11 @@ async def _poll_workers(
                 telemetry.reset_epoch()
                 metrics_ready = True
             (
-                totals, deliveries, latencies, delivery_p99, incomplete,
+                totals,
+                deliveries,
+                latencies,
+                delivery_p99,
+                incomplete,
             ) = metrics
             telemetry.sample(
                 totals,

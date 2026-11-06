@@ -23,9 +23,7 @@ class RuntimeEvent:
 class Observability:
     """Simple bounded counters and event ring; no persistent history is implied."""
 
-    def __init__(
-        self, max_events: int = 10000, *, window_ms: int = 60000
-    ) -> None:
+    def __init__(self, max_events: int = 10000, *, window_ms: int = 60000) -> None:
         if max_events < 1:
             raise ValueError("max_events must be positive")
         self._events: deque[RuntimeEvent] = deque(maxlen=max_events)
@@ -33,11 +31,9 @@ class Observability:
         self._samples: deque[tuple[datetime, dict[str, float]]] = deque(maxlen=36002)
         self.started_at = datetime.now(UTC)
         self._window_ms = window_ms
-        self._computed: dict[str, float] = {'metrics_snapshot_ready': 0.0}
+        self._computed: dict[str, float] = {"metrics_snapshot_ready": 0.0}
         self.computed_at: datetime | None = None
-        self._delivery_samples: dict[
-            str, deque[tuple[datetime, dict[str, float]]]
-        ] = {}
+        self._delivery_samples: dict[str, deque[tuple[datetime, dict[str, float]]]] = {}
         self._delivery_computed: dict[str, dict[str, float]] = {}
         self._delivery_started_at: dict[str, datetime] = {}
 
@@ -83,41 +79,50 @@ class Observability:
         result = {
             name: float(counters.get(name, 0.0))
             for name in (
-                'received_total', 'delivered_total', 'failed_total',
-                'dropped_total', 'dead_letter_total', 'io_inflight',
-                'input_batches_total', 'input_values_total',
-                'received_batches_total', 'acknowledged_batches_total',
-                'rejected_batches_total', 'routed_values_total',
-                'retry_total', 'dead_letter_invalid_batches_total',
+                "received_total",
+                "delivered_total",
+                "failed_total",
+                "dropped_total",
+                "dead_letter_total",
+                "io_inflight",
+                "input_batches_total",
+                "input_values_total",
+                "received_batches_total",
+                "acknowledged_batches_total",
+                "rejected_batches_total",
+                "routed_values_total",
+                "retry_total",
+                "dead_letter_invalid_batches_total",
             )
         }
-        if 'backlog_messages' in counters:
-            result['backlog_messages'] = float(counters['backlog_messages'])
-        result['metrics_snapshot_ready'] = 1.0
-        result['metrics_covered_ms'] = covered_ms
+        if "backlog_messages" in counters:
+            result["backlog_messages"] = float(counters["backlog_messages"])
+        result["metrics_snapshot_ready"] = 1.0
+        result["metrics_covered_ms"] = covered_ms
         if covered_ms > 0:
             delivered = max(
-                0.0, counters.get('delivered_total', 0.0)
-                - previous.get('delivered_total', 0.0),
+                0.0,
+                counters.get("delivered_total", 0.0) - previous.get("delivered_total", 0.0),
             )
-            result['delivered_rate_per_second'] = delivered / (covered_ms / 1000)
+            result["delivered_rate_per_second"] = delivered / (covered_ms / 1000)
         succeeded = max(
-            0.0, counters.get('write_success_total', 0.0)
-            - previous.get('write_success_total', 0.0),
+            0.0,
+            counters.get("write_success_total", 0.0) - previous.get("write_success_total", 0.0),
         )
         failed = max(
-            0.0, counters.get('failed_total', 0.0)
-            - previous.get('failed_total', 0.0),
+            0.0,
+            counters.get("failed_total", 0.0) - previous.get("failed_total", 0.0),
         )
         if succeeded + failed > 0:
-            result['write_success_ratio'] = succeeded / (succeeded + failed)
+            result["write_success_ratio"] = succeeded / (succeeded + failed)
         if latency_overflow_at is None or latency_overflow_at.timestamp() <= cutoff:
             values = sorted(
-                latency for timestamp, latency in latency_observations
+                latency
+                for timestamp, latency in latency_observations
                 if cutoff < timestamp.timestamp() <= now.timestamp()
             )
             if values:
-                result['write_latency_ms_p99'] = values[ceil(len(values) * 0.99) - 1]
+                result["write_latency_ms_p99"] = values[ceil(len(values) * 0.99) - 1]
         return result
 
     def sample(
@@ -127,9 +132,7 @@ class Observability:
         latency_observations: Sequence[tuple[datetime, float]] = (),
         latency_overflow_at: datetime | None = None,
         delivery_counters: Mapping[str, Mapping[str, float]] | None = None,
-        delivery_latencies: Mapping[
-            str, Sequence[tuple[datetime, float]]
-        ] | None = None,
+        delivery_latencies: Mapping[str, Sequence[tuple[datetime, float]]] | None = None,
         delivery_overflows: Mapping[str, datetime | None] | None = None,
         delivery_origins: Mapping[str, datetime] | None = None,
         delivery_p99: Mapping[str, float] | None = None,
@@ -139,14 +142,16 @@ class Observability:
         counters = {**self._counts, **current}
         self._samples.append((now, counters))
         process = self._compute_window(
-            now, self.started_at, self._samples, counters,
-            latency_observations, latency_overflow_at,
+            now,
+            self.started_at,
+            self._samples,
+            counters,
+            latency_observations,
+            latency_overflow_at,
         )
         details: dict[str, dict[str, float]] = {}
         for identifier, values in (delivery_counters or {}).items():
-            history = self._delivery_samples.setdefault(
-                identifier, deque(maxlen=36002)
-            )
+            history = self._delivery_samples.setdefault(identifier, deque(maxlen=36002))
             snapshot = dict(values)
             history.append((now, snapshot))
             observations = (delivery_latencies or {}).get(identifier, ())
@@ -156,11 +161,14 @@ class Observability:
                 self._delivery_started_at.setdefault(
                     identifier, (delivery_origins or {}).get(identifier, now)
                 ),
-                history, snapshot, observations, overflow,
+                history,
+                snapshot,
+                observations,
+                overflow,
             )
             # Readiness and window coverage are process-level contract metrics.
-            result.pop('metrics_snapshot_ready', None)
-            result.pop('metrics_covered_ms', None)
+            result.pop("metrics_snapshot_ready", None)
+            result.pop("metrics_covered_ms", None)
             if delivery_p99 is not None:
                 result.pop("write_latency_ms_p99", None)
                 if identifier in delivery_p99:
@@ -193,13 +201,13 @@ class Observability:
     def snapshot(self, window_ms: int) -> dict[str, float]:
         """Read the last process snapshot, without recalculating metrics."""
         if window_ms != self._window_ms:
-            raise ValueError('unsupported metrics window')
+            raise ValueError("unsupported metrics window")
         return dict(self._computed)
 
     def delivery_snapshot(self, window_ms: int) -> dict[str, dict[str, float]]:
         """Read the last atomically sampled per-Delivery metric collection."""
         if window_ms != self._window_ms:
-            raise ValueError('unsupported metrics window')
+            raise ValueError("unsupported metrics window")
         return {key: dict(value) for key, value in self._delivery_computed.items()}
 
     def list_events(

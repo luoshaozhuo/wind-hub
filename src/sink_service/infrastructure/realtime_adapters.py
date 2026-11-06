@@ -56,11 +56,17 @@ _REDIS_BATCH_CAS = (
     "end;return result"
 )
 
+
 class RedisOutput:
     """One serial RESP2 connection with atomic per-point monotonic writes."""
 
     def __init__(
-        self, *, host: str, port: int, namespace: str, timeout_ms: int,
+        self,
+        *,
+        host: str,
+        port: int,
+        namespace: str,
+        timeout_ms: int,
         credential_ref: str = "",
     ) -> None:
         if not namespace or any(char.isspace() for char in namespace):
@@ -88,7 +94,6 @@ class RedisOutput:
                         raise ConfigurationError("invalid Redis ACL Secret JSON") from exc
                 else:
                     identity = credential
-                arguments: tuple[str, ...]
                 if isinstance(identity, str):
                     arguments = ("AUTH", identity)
                 elif (
@@ -99,15 +104,10 @@ class RedisOutput:
                     arguments = ("AUTH", identity["username"], identity["password"])
                 else:
                     raise ConfigurationError("Redis Secret must be password or ACL JSON")
-                writer = self._writer
-                reader = self._reader
-                if writer is None or reader is None:
-                    raise ConnectionError("Redis authentication channel unavailable")
-                writer.write(_redis_command(*arguments))
-                await asyncio.wait_for(writer.drain(), timeout=self._timeout)
-                answer = await asyncio.wait_for(
-                    reader.readline(), timeout=self._timeout
-                )
+                self._writer.write(_redis_command(*arguments))
+                await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
+                assert self._reader is not None
+                answer = await asyncio.wait_for(self._reader.readline(), timeout=self._timeout)
                 if answer != b"+OK\r\n":
                     raise ConnectionError("Redis authentication failed")
         except BaseException:
@@ -145,60 +145,74 @@ class RedisOutput:
     async def _integer_array(self, count: int) -> list[int]:
         reader = self._reader
         if reader is None:
-            raise ConnectionError('Redis output is disconnected')
+            raise ConnectionError("Redis output is disconnected")
         header = await asyncio.wait_for(reader.readline(), timeout=self._timeout)
-        if header.startswith(b'-'):
-            raise ConnectionError('Redis batch script failed')
-        if not header.startswith(b'*') or not header.endswith(b'\r\n'):
-            raise ConnectionError('unexpected Redis batch response')
+        if header.startswith(b"-"):
+            raise ConnectionError("Redis batch script failed")
+        if not header.startswith(b"*") or not header.endswith(b"\r\n"):
+            raise ConnectionError("unexpected Redis batch response")
         if int(header[1:-2]) != count:
-            raise ConnectionError('Redis batch response length mismatch')
+            raise ConnectionError("Redis batch response length mismatch")
         return [await self._integer() for _ in range(count)]
+
     async def write_batch(self, samples: tuple[SampleMessage, ...]) -> BatchOutcome:
         if not samples:
             return BatchOutcome((), ())
         if len(samples) > 500:
-            raise ConfigurationError('Redis output batch exceeds 500 points')
+            raise ConfigurationError("Redis output batch exceeds 500 points")
         async with self._lock:
             if self._writer is None:
                 await self._connect()
             writer = self._writer
             if writer is None:
-                raise ConnectionError('Redis output is disconnected')
+                raise ConnectionError("Redis output is disconnected")
             try:
                 keys: list[str] = []
                 arguments: list[str] = []
                 for sample in samples:
-                    keys.append(':'.join((
-                        self._namespace, sample.wind_farm_id,
-                        sample.collector_id, sample.device_id, sample.point_id,
-                    )))
+                    keys.append(
+                        ":".join(
+                            (
+                                self._namespace,
+                                sample.wind_farm_id,
+                                sample.collector_id,
+                                sample.device_id,
+                                sample.point_id,
+                            )
+                        )
+                    )
                     timestamp = sample.sample_time.astimezone(UTC).isoformat(
-                        timespec='microseconds'
+                        timespec="microseconds"
                     )
                     payload = sample.model_dump(
-                        mode='json',
+                        mode="json",
                         include={
-                            'sample_id', 'value', 'quality', 'sample_time',
-                            'publish_time', 'collector_id', 'device_id',
-                            'point_id', 'wind_farm_id',
+                            "sample_id",
+                            "value",
+                            "quality",
+                            "sample_time",
+                            "publish_time",
+                            "collector_id",
+                            "device_id",
+                            "point_id",
+                            "wind_farm_id",
                         },
                     )
-                    payload['sample_time'] = timestamp
+                    payload["sample_time"] = timestamp
                     encoded = json.dumps(
-                        payload, ensure_ascii=False,
-                        separators=(',', ':'), allow_nan=False,
+                        payload,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        allow_nan=False,
                     )
                     expiry = (
-                        str(
-                            int(sample.sample_time.timestamp() * 1000)
-                            + sample.max_staleness_ms
-                        )
-                        if sample.max_staleness_ms is not None else ''
+                        str(int(sample.sample_time.timestamp() * 1000) + sample.max_staleness_ms)
+                        if sample.max_staleness_ms is not None
+                        else ""
                     )
                     arguments.extend((encoded, timestamp, sample.sample_id, expiry))
                 command = _redis_command(
-                    'EVAL', _REDIS_BATCH_CAS, str(len(keys)), *keys, *arguments
+                    "EVAL", _REDIS_BATCH_CAS, str(len(keys)), *keys, *arguments
                 )
                 started = time.perf_counter()
                 writer.write(command)
@@ -213,21 +227,11 @@ class RedisOutput:
                     # business conflict; never send such a message to DLQ.
                     raise ConnectionError("unexpected Redis CAS result code")
                 settled = tuple(
-                    index for index, status in enumerate(results)
-                    if status in (-1, 0, 1, 2)
+                    index for index, status in enumerate(results) if status in (-1, 0, 1, 2)
                 )
-                delivered = tuple(
-                    index for index, status in enumerate(results)
-                    if status in (1, 2)
-                )
-                conflicts = [
-                    index for index, status in enumerate(results)
-                    if status == -1
-                ]
-                error = (
-                    f'Redis CAS conflicts at samples {conflicts}'
-                    if conflicts else ''
-                )
+                delivered = tuple(index for index, status in enumerate(results) if status in (1, 2))
+                conflicts = [index for index, status in enumerate(results) if status == -1]
+                error = f"Redis CAS conflicts at samples {conflicts}" if conflicts else ""
                 return BatchOutcome(
                     delivered=delivered,
                     settled=settled,
@@ -238,8 +242,7 @@ class RedisOutput:
                     failed_attempts=0,
                     successful_latencies_ms=(latency_ms,),
                     permanent=tuple(
-                        index for index, status in enumerate(results)
-                        if status in (-1, 0)
+                        index for index, status in enumerate(results) if status in (-1, 0)
                     ),
                 )
             except Exception as exc:
@@ -251,11 +254,16 @@ class RedisOutput:
                 await writer.wait_closed()
                 return BatchOutcome((), (), error=str(exc))
 
+
 class KafkaOutput:
     """Broker-confirmed messages, using the unchanged upstream SampleMessage JSON."""
 
     def __init__(
-        self, *, servers: list[str], topic: str, timeout_ms: int,
+        self,
+        *,
+        servers: list[str],
+        topic: str,
+        timeout_ms: int,
         credential_ref: str = "",
     ) -> None:
         if not servers or not topic:
@@ -317,9 +325,9 @@ class KafkaOutput:
             pending: list[tuple[int, Any, float]] = []
             failures: list[str] = []
             for index, sample in enumerate(samples):
-                key = ":".join(
-                    (sample.wind_farm_id, sample.collector_id, sample.device_id)
-                ).encode("utf-8")
+                key = ":".join((sample.wind_farm_id, sample.collector_id, sample.device_id)).encode(
+                    "utf-8"
+                )
                 try:
                     started = time.perf_counter()
                     confirmation = await self._producer.send(
@@ -405,15 +413,13 @@ class _RegisterImage:
                 if sample.sample_time == old_time:
                     errors.append(f"Modbus conflicting identity for sample time: {key}")
                     continue
-            if isinstance(sample.value, bool) or not isinstance(
-                sample.value, (int, float)
-            ):
-                errors.append(f'Modbus float32 requires numeric sample: {key}')
+            if isinstance(sample.value, bool) or not isinstance(sample.value, int | float):
+                errors.append(f"Modbus float32 requires numeric sample: {key}")
                 continue
             try:
-                binary = struct.pack('>f', sample.value)
+                binary = struct.pack(">f", sample.value)
             except (ValueError, OverflowError, struct.error) as exc:
-                errors.append(f'Modbus float32 invalid at {key}: {exc}')
+                errors.append(f"Modbus float32 invalid at {key}: {exc}")
                 continue
             if (
                 sample.max_staleness_ms is not None
@@ -422,7 +428,7 @@ class _RegisterImage:
             ):
                 settled.append(offset)
                 continue
-            high, low = struct.unpack('>HH', binary)
+            high, low = struct.unpack(">HH", binary)
             value_address = self._value_start + index * 2
             pending[value_address] = high
             pending[value_address + 1] = low
@@ -443,9 +449,7 @@ class _RegisterImage:
         self._last.update(confirmed_versions)
         self._expires.update(expiration_times)
         confirmed = tuple(delivered)
-        return BatchOutcome(
-            delivered=confirmed, settled=tuple(settled), error="; ".join(errors)
-        )
+        return BatchOutcome(delivered=confirmed, settled=tuple(settled), error="; ".join(errors))
 
     def read(self, address: int, count: int) -> list[int] | None:
         if count <= 0 or not (
@@ -478,7 +482,11 @@ class _ModbusContext(ModbusServerContext):
         self._unit_id = unit_id
 
     async def async_getValues(
-        self, device_id: int, func_code: int, address: int, count: int = 1,
+        self,
+        device_id: int,
+        func_code: int,
+        address: int,
+        count: int = 1,
     ) -> Any:
         from pymodbus.constants import ExcCodes
 
@@ -490,8 +498,11 @@ class _ModbusContext(ModbusServerContext):
         return values if values is not None else ExcCodes.ILLEGAL_ADDRESS
 
     async def async_setValues(
-        self, device_id: int, func_code: int, address: int,
-        values: list[int] | list[bool],
+        self,
+        device_id: int,
+        func_code: int,
+        address: int,
+        values: list[int],
     ) -> Any:
         from pymodbus.constants import ExcCodes
 
@@ -516,7 +527,9 @@ class ModbusOutput:
     ) -> None:
         self._address = host, port
         self._image = _RegisterImage(
-            points=points, value_start=value_start, quality_start=quality_start,
+            points=points,
+            value_start=value_start,
+            quality_start=quality_start,
         )
         self._context = _ModbusContext(self._image, unit_id)
         self._server: Any = None
@@ -546,7 +559,9 @@ class ModbusOutput:
         if not result.delivered:
             return result
         return BatchOutcome(
-            delivered=result.delivered, settled=result.settled, error=result.error,
+            delivered=result.delivered,
+            settled=result.settled,
+            error=result.error,
             successful_attempts=1,
             successful_latencies_ms=((time.perf_counter() - started) * 1000,),
         )

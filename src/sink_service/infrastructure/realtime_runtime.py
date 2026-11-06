@@ -40,9 +40,9 @@ class NatsRealtimeIngress:
         self._subscriptions: dict[tuple[str, str], Subscription] = {}
         self._engines: dict[str, RealtimeEngine] = {}
         self._routes: dict[tuple[str, str], dict[str, RealtimeEngine]] = {}
-        self._target_cache: OrderedDict[
-            tuple[str, str, str, str], tuple[RealtimeEngine, ...]
-        ] = OrderedDict()
+        self._target_cache: OrderedDict[tuple[str, str, str, str], tuple[RealtimeEngine, ...]] = (
+            OrderedDict()
+        )
         self._lock = asyncio.Lock()
         self.last_error = ""
         self.received_batches_total = 0
@@ -122,9 +122,7 @@ class NatsRealtimeIngress:
     async def _on_message(self, msg: Msg) -> None:
         """Decode one source batch, then route only matching measurement points."""
         try:
-            batch = SampleBatch.decode(
-                msg.data, mode="realtime", subject=msg.subject
-            )
+            batch = SampleBatch.decode(msg.data, mode="realtime", subject=msg.subject)
         except (ValueError, UnicodeError) as exc:
             self.last_error = str(exc)
             self.rejected_batches_total += 1
@@ -149,7 +147,8 @@ class NatsRealtimeIngress:
             targets = self._target_cache.get(identity)
             if targets is None:
                 targets = tuple(
-                    engine for engine in routes.values()
+                    engine
+                    for engine in routes.values()
                     if engine.accepts(batch.device_id, sample.point_id)
                 )
                 if len(self._target_cache) >= cache_limit:
@@ -233,7 +232,7 @@ class _QuotaWriter:
         try:
             return await asyncio.shield(task)
         except Exception as exc:
-            return BatchOutcome((), (), f'underlying I/O failed: {exc}')
+            return BatchOutcome((), (), f"underlying I/O failed: {exc}")
 
 
 def template_capabilities(snapshot: ValidatedSnapshot, sink_id: str) -> dict[str, Any]:
@@ -256,14 +255,13 @@ class SinkOutputPool:
     @staticmethod
     def _build(sink_id: str, snapshot: ValidatedSnapshot) -> tuple[Any, str]:
         sink = snapshot.sinks[sink_id]
-        template = _template(
-            snapshot, "sinks", sink["template_id"], sink["template_version"]
-        )
+        template = _template(snapshot, "sinks", sink["template_id"], sink["template_version"])
         connection = sink["connection"]
         output = template["output"]
         kind = template["kind"]
         config_signature: dict[str, Any] = {
-            "sink": sink, "template": template,
+            "sink": sink,
+            "template": template,
         }
         adapter: RedisOutput | KafkaOutput | ModbusOutput
         if kind == "redis":
@@ -293,7 +291,10 @@ class SinkOutputPool:
                 for device_id in devices:
                     for point_id in names:
                         key = (
-                            source["wind_farm_id"], source["collector_id"], device_id, point_id,
+                            source["wind_farm_id"],
+                            source["collector_id"],
+                            device_id,
+                            point_id,
                         )
                         if key in points:
                             raise ConfigurationError(f"duplicate Modbus point {key}")
@@ -331,14 +332,10 @@ class SinkOutputPool:
                 current = _SinkOutput(adapter, signature, limit)
                 self._entries[sink_id] = current
             elif current.signature != signature:
-                raise ConfigurationError(
-                    f"Sink {sink_id} still in use with a different binding"
-                )
+                raise ConfigurationError(f"Sink {sink_id} still in use with a different binding")
             current.references += 1
             if self._quota is None:
-                self._quota = asyncio.Semaphore(
-                    snapshot.service["runtime"]["max_inflight_global"]
-                )
+                self._quota = asyncio.Semaphore(snapshot.service["runtime"]["max_inflight_global"])
             return _QuotaWriter(
                 current.adapter,
                 self._quota,
@@ -381,28 +378,27 @@ class RealtimeDeliveryPort:
     def inspect(self) -> dict[str, str]:
         """Return cached, non-invasive transport and ownership evidence."""
         return {
-            'source': 'CONNECTED' if self._ingress.connected else 'DISCONNECTED',
-            'delivery': 'RUNNING' if self._engine is not None else 'STOPPED',
-            'sink': 'OWNED' if self._writer is not None else 'NOT_ATTACHED',
-            'io_inflight': str(
-                self._writer.io_inflight if self._writer is not None else False
-            ),
-            'target': 'NOT_PROBED',
+            "source": "CONNECTED" if self._ingress.connected else "DISCONNECTED",
+            "delivery": "RUNNING" if self._engine is not None else "STOPPED",
+            "sink": "OWNED" if self._writer is not None else "NOT_ATTACHED",
+            "io_inflight": str(self._writer.io_inflight if self._writer is not None else False),
+            "target": "NOT_PROBED",
         }
+
     @property
     def metrics(self) -> dict[str, float]:
         totals = dict(self._retained)
         engine = self._engine
         if engine is not None:
             for name, value in (
-                ('received_total', engine.received_total),
-                ('dropped_total', engine.dropped_total),
-                ('delivered_total', engine.delivered_total),
-                ('failed_total', engine.failed_total),
-                ('write_success_total', engine.write_success_total),
+                ("received_total", engine.received_total),
+                ("dropped_total", engine.dropped_total),
+                ("delivered_total", engine.delivered_total),
+                ("failed_total", engine.failed_total),
+                ("write_success_total", engine.write_success_total),
             ):
                 totals[name] = totals.get(name, 0.0) + float(value)
-        totals['io_inflight'] = float(
+        totals["io_inflight"] = float(
             self._writer.io_inflight if self._writer is not None else False
         )
         return totals
@@ -420,6 +416,7 @@ class RealtimeDeliveryPort:
         if self._engine is not None:
             candidates.append(self._engine.latency_overflow_at)
         return max((time for time in candidates if time is not None), default=None)
+
     @property
     def last_error(self) -> str:
         if self._engine is None:
@@ -438,31 +435,34 @@ class RealtimeDeliveryPort:
         try:
             instance = self._snapshot.deliveries[self._id]
             template = _template(
-                self._snapshot, 'deliveries',
-                instance['template_id'], instance['template_version'],
+                self._snapshot,
+                "deliveries",
+                instance["template_id"],
+                instance["template_version"],
             )
-            output = template['output']
-            staleness = template.get('staleness', {})
-            source = instance['source']
+            output = template["output"]
+            staleness = template.get("staleness", {})
+            source = instance["source"]
             engine = RealtimeEngine(
                 writer=sink,
-                wind_farm_id=source['wind_farm_id'],
-                collector_id=source['collector_id'],
-                devices=frozenset(source['devices']),
-                points=frozenset(source['points']),
-                policy=output['policy'],
-                period_ms=output['period_ms'],
-                max_points=self._snapshot.service['runtime']['max_pending_points'],
-                max_age_ms=staleness.get('max_age_ms'),
-                absolute_threshold=output.get('absolute_threshold', 0.0),
-                relative_threshold=output.get('relative_threshold', 0.0),
+                wind_farm_id=source["wind_farm_id"],
+                collector_id=source["collector_id"],
+                devices=frozenset(source["devices"]),
+                points=frozenset(source["points"]),
+                policy=output["policy"],
+                period_ms=output["period_ms"],
+                max_points=self._snapshot.service["runtime"]["max_pending_points"],
+                max_age_ms=staleness.get("max_age_ms"),
+                absolute_threshold=output.get("absolute_threshold", 0.0),
+                relative_threshold=output.get("relative_threshold", 0.0),
                 preserve_upstream_sample=(
                     _template(
                         self._snapshot,
                         "sinks",
                         self._snapshot.sinks[self._sink_id]["template_id"],
                         self._snapshot.sinks[self._sink_id]["template_version"],
-                    )["kind"] == "kafka"
+                    )["kind"]
+                    == "kafka"
                 ),
             )
             await engine.start()
@@ -489,23 +489,21 @@ class RealtimeDeliveryPort:
             await self._writer.settle()
         await self._pool.release(self._sink_id)
         for name, value in (
-            ('received_total', engine.received_total),
-            ('dropped_total', engine.dropped_total),
-            ('delivered_total', engine.delivered_total),
-            ('failed_total', engine.failed_total),
-            ('write_success_total', engine.write_success_total),
+            ("received_total", engine.received_total),
+            ("dropped_total", engine.dropped_total),
+            ("delivered_total", engine.delivered_total),
+            ("failed_total", engine.failed_total),
+            ("write_success_total", engine.write_success_total),
         ):
             self._retained[name] = self._retained.get(name, 0.0) + float(value)
         for item in engine.latency_samples:
             if len(self._retained_latency) == self._retained_latency.maxlen:
                 self._retained_overflow = item[0]
             self._retained_latency.append(item)
-        if engine.latency_overflow_at is not None:
-            if (
-                self._retained_overflow is None
-                or engine.latency_overflow_at > self._retained_overflow
-            ):
-                self._retained_overflow = engine.latency_overflow_at
+        if engine.latency_overflow_at is not None and (
+            self._retained_overflow is None or engine.latency_overflow_at > self._retained_overflow
+        ):
+            self._retained_overflow = engine.latency_overflow_at
         self._engine = None
         self._writer = None
         self._stopping = False
@@ -523,7 +521,9 @@ class RealtimeFactory:
         return ingress.counters() if ingress is not None else {}
 
     def __call__(
-        self, definition: DeliveryDefinition, snapshot: ValidatedSnapshot,
+        self,
+        definition: DeliveryDefinition,
+        snapshot: ValidatedSnapshot,
     ) -> RealtimeDeliveryPort:
         if definition.channel != "realtime":
             raise ConfigurationError("RealtimeFactory cannot own reliable Delivery")

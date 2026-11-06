@@ -64,17 +64,15 @@ class DeliveryRegistry:
         self._delivery_epochs: dict[str, datetime] = {}
         self._retired_counters: dict[str, float] = {}
         self._retired_by_delivery: dict[str, dict[str, float]] = {}
-        self._retired_latency_by_delivery: dict[
-            str, deque[tuple[datetime, float]]
-        ] = {}
+        self._retired_latency_by_delivery: dict[str, deque[tuple[datetime, float]]] = {}
         self._retired_overflow_by_delivery: dict[str, datetime] = {}
         self._retired_latencies: deque[tuple[datetime, float]] = deque(maxlen=50000)
         self._retired_overflow: datetime | None = None
         self._lock = asyncio.Lock()
         self._pending_snapshot = snapshot
-        self._pending_factory: Callable[
-            [DeliveryDefinition, ValidatedSnapshot], DeliveryPort
-        ] | None = None
+        self._pending_factory: (
+            Callable[[DeliveryDefinition, ValidatedSnapshot], DeliveryPort] | None
+        ) = None
 
     async def apply_configuration(
         self,
@@ -98,12 +96,16 @@ class DeliveryRegistry:
             sink = snapshot.sinks[item.sink_id]
             template_paths = {
                 template_path(
-                    template_root, "deliveries",
-                    delivery["template_id"], delivery["template_version"],
+                    template_root,
+                    "deliveries",
+                    delivery["template_id"],
+                    delivery["template_version"],
                 ),
                 template_path(
-                    template_root, "sinks",
-                    sink["template_id"], sink["template_version"],
+                    template_root,
+                    "sinks",
+                    sink["template_id"],
+                    sink["template_version"],
                 ),
             }
             sink_kind = template_document(
@@ -123,11 +125,11 @@ class DeliveryRegistry:
                 "sink": snapshot.sinks[item.sink_id],
                 "shared_modbus_mapping": (
                     {
-                        name: value['source']
+                        name: value["source"]
                         for name, value in sorted(snapshot.deliveries.items())
-                        if value['sink_id'] == item.sink_id
+                        if value["sink_id"] == item.sink_id
                     }
-                    if sink_kind == 'modbus_tcp'
+                    if sink_kind == "modbus_tcp"
                     else {}
                 ),
                 "delivery_template": (
@@ -161,9 +163,7 @@ class DeliveryRegistry:
             # Drain all changed users of a shared Sink before rebinding any.
             for identifier in sorted(definitions):
                 entry = self._entries.get(identifier)
-                if entry is None:
-                    continue
-                if entry.signature == signatures[identifier]:
+                if entry is None or entry.signature == signatures[identifier]:
                     continue
                 try:
                     await entry.port.stop()
@@ -303,25 +303,21 @@ class DeliveryRegistry:
         """Preserve monotonic counters when a Delivery binding is replaced."""
         identifier = entry.view.delivery_id
         previous = self._retired_by_delivery.setdefault(identifier, {})
-        for name, value in getattr(entry.port, 'metrics', {}).items():
-            if name.endswith('_total'):
+        for name, value in getattr(entry.port, "metrics", {}).items():
+            if name.endswith("_total"):
                 previous[name] = previous.get(name, 0.0) + float(value)
-            if name.endswith('_total'):
-                self._retired_counters[name] = (
-                    self._retired_counters.get(name, 0.0) + float(value)
-                )
-        for item in getattr(entry.port, 'latency_samples', ()):
+            if name.endswith("_total"):
+                self._retired_counters[name] = self._retired_counters.get(name, 0.0) + float(value)
+        for item in getattr(entry.port, "latency_samples", ()):
             if len(self._retired_latencies) == self._retired_latencies.maxlen:
                 self._retired_overflow = item[0]
             self._retired_latencies.append(item)
-        history = self._retired_latency_by_delivery.setdefault(
-            identifier, deque(maxlen=50000)
-        )
-        for item in getattr(entry.port, 'latency_samples', ()):
+        history = self._retired_latency_by_delivery.setdefault(identifier, deque(maxlen=50000))
+        for item in getattr(entry.port, "latency_samples", ()):
             if len(history) == history.maxlen:
                 self._retired_overflow_by_delivery[identifier] = item[0]
             history.append(item)
-        overflow = getattr(entry.port, 'latency_overflow_at', None)
+        overflow = getattr(entry.port, "latency_overflow_at", None)
         if overflow is not None and (
             self._retired_overflow is None or overflow > self._retired_overflow
         ):
@@ -338,27 +334,29 @@ class DeliveryRegistry:
         reliable_count = 0
         backlog_count = 0
         for entry in self._entries.values():
-            values = getattr(entry.port, 'metrics', {})
-            if entry.view.channel == 'reliable' and entry.view.desired_state == 'START':
+            values = getattr(entry.port, "metrics", {})
+            if entry.view.channel == "reliable" and entry.view.desired_state == "START":
                 reliable_count += 1
-                backlog_count += int('backlog_messages' in values)
+                backlog_count += int("backlog_messages" in values)
             for name, value in values.items():
                 result[name] = result.get(name, 0.0) + float(value)
         if reliable_count != backlog_count:
-            result.pop('backlog_messages', None)
+            result.pop("backlog_messages", None)
         for name in (
-            'received_total', 'delivered_total', 'failed_total',
-            'dropped_total', 'dead_letter_total', 'write_success_total',
+            "received_total",
+            "delivered_total",
+            "failed_total",
+            "dropped_total",
+            "dead_letter_total",
+            "write_success_total",
         ):
             result.setdefault(name, 0.0)
-        result.setdefault('io_inflight', 0.0)
+        result.setdefault("io_inflight", 0.0)
         return result
+
     def delivery_epochs(self) -> dict[str, datetime]:
         """Return stable metric epochs for active Delivery identities."""
-        return {
-            identifier: self._delivery_epochs[identifier]
-            for identifier in self._entries
-        }
+        return {identifier: self._delivery_epochs[identifier] for identifier in self._entries}
 
     def delivery_observations(
         self,
@@ -373,18 +371,17 @@ class DeliveryRegistry:
         overflows: dict[str, datetime | None] = {}
         for identifier, entry in self._entries.items():
             values = dict(self._retired_by_delivery.get(identifier, {}))
-            for name, value in getattr(entry.port, 'metrics', {}).items():
-                if name.endswith('_total'):
+            for name, value in getattr(entry.port, "metrics", {}).items():
+                if name.endswith("_total"):
                     values[name] = values.get(name, 0.0) + float(value)
                 else:
                     values[name] = float(value)
             counters[identifier] = values
-            histories[identifier] = (
-                tuple(self._retired_latency_by_delivery.get(identifier, ()))
-                + tuple(getattr(entry.port, 'latency_samples', ()))
-            )
+            histories[identifier] = tuple(
+                self._retired_latency_by_delivery.get(identifier, ())
+            ) + tuple(getattr(entry.port, "latency_samples", ()))
             earlier = self._retired_overflow_by_delivery.get(identifier)
-            current = getattr(entry.port, 'latency_overflow_at', None)
+            current = getattr(entry.port, "latency_overflow_at", None)
             overflows[identifier] = max(
                 (point for point in (earlier, current) if point is not None),
                 default=None,
@@ -398,19 +395,20 @@ class DeliveryRegistry:
                 self._retired_overflow_by_delivery.pop(identifier, None)
                 self._delivery_epochs.pop(identifier, None)
         return counters, histories, overflows
+
     def latency_observations(self) -> tuple[tuple[datetime, float], ...]:
         values = list(self._retired_latencies)
         for entry in self._entries.values():
-            values.extend(getattr(entry.port, 'latency_samples', ()))
+            values.extend(getattr(entry.port, "latency_samples", ()))
         return tuple(values)
 
     def latency_overflow_at(self) -> datetime | None:
         times = [self._retired_overflow]
         times.extend(
-            getattr(entry.port, 'latency_overflow_at', None)
-            for entry in self._entries.values()
+            getattr(entry.port, "latency_overflow_at", None) for entry in self._entries.values()
         )
         return max((value for value in times if value is not None), default=None)
+
     def list(self, channel: str = "") -> tuple[DeliveryView, ...]:
         if channel and channel != self._role:
             return ()
@@ -420,8 +418,8 @@ class DeliveryRegistry:
         """Read bounded process-owned evidence without interacting with a target."""
         entry = self._entries.get(delivery_id)
         if entry is None:
-            raise KeyError(f'unknown Delivery: {delivery_id}')
-        method = getattr(entry.port, 'inspect', None)
+            raise KeyError(f"unknown Delivery: {delivery_id}")
+        method = getattr(entry.port, "inspect", None)
         return dict(method()) if callable(method) else {}
 
     def get(self, delivery_id: str) -> DeliveryView:
@@ -506,7 +504,8 @@ class DeliveryRegistry:
                         await entry.port.stop()
                     except Exception as exc:
                         entry.view = self._replace(
-                            entry.view, actual_state=ActualState.FAILED,
+                            entry.view,
+                            actual_state=ActualState.FAILED,
                             last_error=str(exc),
                         )
                         continue
@@ -521,25 +520,24 @@ class DeliveryRegistry:
                         except Exception:
                             continue
                     continue
-                if (
-                    entry.view.actual_state == ActualState.RUNNING
-                    and bool(getattr(entry.port, 'last_error', ''))
+                if entry.view.actual_state == ActualState.RUNNING and getattr(
+                    entry.port, "last_error", ""
                 ):
                     try:
                         await entry.port.stop()
                         entry.view = self._replace(
-                            entry.view, actual_state=ActualState.STOPPED,
-                            last_error='',
+                            entry.view,
+                            actual_state=ActualState.STOPPED,
+                            last_error="",
                         )
                     except Exception as exc:
                         entry.view = self._replace(
-                            entry.view, actual_state=ActualState.FAILED,
+                            entry.view,
+                            actual_state=ActualState.FAILED,
                             last_error=str(exc),
                         )
                         continue
-                if entry.view.actual_state not in (
-                    ActualState.STOPPED, ActualState.FAILED
-                ):
+                if entry.view.actual_state not in (ActualState.STOPPED, ActualState.FAILED):
                     continue
                 try:
                     await self._reconcile(entry)
@@ -547,9 +545,8 @@ class DeliveryRegistry:
                     continue
         if retired and self._pending_factory is not None:
             # Rebuild only definitions present in the latest committed view.
-            await self.apply_configuration(
-                self._pending_snapshot, self._pending_factory
-            )
+            await self.apply_configuration(self._pending_snapshot, self._pending_factory)
+
     async def _reconcile(self, entry: _Entry) -> None:
         old = entry.view
         running = old.desired_state == "START"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import multiprocessing
@@ -35,16 +36,12 @@ class WorkerSupervisor:
         self._server: asyncio.AbstractServer | None = None
         self._processes: dict[str, BaseProcess] = {}
         self._clients: dict[str, WorkerControlClient] = {}
-        self._ready: dict[str, asyncio.Event] = {
-            role: asyncio.Event() for role in ROLES
-        }
+        self._ready: dict[str, asyncio.Event] = {role: asyncio.Event() for role in ROLES}
         self._stopping = False
         self._socket_path = ""
         self.apply_timeout_seconds = 10.0
 
-    async def _accept(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             hello = ControlReply.from_wire(await asyncio.wait_for(read_frame(reader), 5))
             role = hello.evidence.get("role", "")
@@ -73,9 +70,7 @@ class WorkerSupervisor:
             raise RuntimeError("supervisor already started")
         self._folder = tempfile.TemporaryDirectory(prefix="windhub-sink-")
         self._socket_path = str(Path(self._folder.name) / "control.sock")
-        self._server = await asyncio.start_unix_server(
-            self._accept, path=self._socket_path
-        )
+        self._server = await asyncio.start_unix_server(self._accept, path=self._socket_path)
         os.chmod(self._socket_path, 0o600)
         for role in ROLES:
             await self._spawn(role)
@@ -108,18 +103,27 @@ class WorkerSupervisor:
                     await asyncio.to_thread(process.join, 3)
 
     async def request(
-        self, role: str, operation: ControlOperation, generation: str, *,
-        delivery_id: str = "", timeout_seconds: float = 5.0,
+        self,
+        role: str,
+        operation: ControlOperation,
+        generation: str,
+        *,
+        delivery_id: str = "",
+        timeout_seconds: float = 5.0,
     ) -> ControlReply:
         client = self._clients.get(role)
         process = self._processes.get(role)
         if client is None or process is None or not process.is_alive():
             return ControlReply(
-                request_id="UNAVAILABLE", generation=generation, status="UNKNOWN",
+                request_id="UNAVAILABLE",
+                generation=generation,
+                status="UNKNOWN",
                 evidence={"error": f"{role} worker unavailable"},
             )
         return await client.request(
-            operation, generation, delivery_id=delivery_id,
+            operation,
+            generation,
+            delivery_id=delivery_id,
             timeout_seconds=timeout_seconds,
         )
 
@@ -128,7 +132,9 @@ class WorkerSupervisor:
         replies = await asyncio.gather(
             *(
                 self.request(
-                    role, "APPLY", generation,
+                    role,
+                    "APPLY",
+                    generation,
                     timeout_seconds=self.apply_timeout_seconds,
                 )
                 for role in ROLES
@@ -164,10 +170,8 @@ class WorkerSupervisor:
                     continue
                 logger.error("worker %s exited with code %s", role, process.exitcode)
                 await self._spawn(role)
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=1)
-            except TimeoutError:
-                pass
 
     async def close(self, generation: str) -> None:
         self._stopping = True
@@ -180,7 +184,9 @@ class WorkerSupervisor:
             if process.is_alive():
                 logger.error(
                     "UNSETTLED_WORKER_SHUTDOWN role=%s pid=%s; "
-                    "native I/O completion is not confirmed", role, process.pid,
+                    "native I/O completion is not confirmed",
+                    role,
+                    process.pid,
                 )
                 process.terminate()
                 await asyncio.to_thread(process.join, 3)
