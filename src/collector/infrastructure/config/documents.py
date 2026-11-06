@@ -48,6 +48,38 @@ class CollectorDocuments:
     revision: str
 
 
+def _validate_service_sections(service: Mapping[str, Any]) -> None:
+    """Reject malformed Collector-only service fields before a config commit."""
+    metrics = service.get("metrics", {})
+    if not isinstance(metrics, dict):
+        raise ConfigError("Collector metrics must be a mapping")
+    enabled = metrics.get("enabled", True)
+    if type(enabled) is not bool:
+        raise ConfigError("Collector metrics.enabled must be boolean")
+    windows = metrics.get("windows", [60, 300, 3600])
+    if (
+        not isinstance(windows, list)
+        or not windows
+        or any(type(window) is not int or window <= 0 for window in windows)
+        or len(set(windows)) != len(windows)
+    ):
+        raise ConfigError("Collector metrics.windows must contain unique positive integers")
+    for key, default in (
+        ("pending_capacity", 2048),
+        ("event_capacity", 5000),
+        ("publish_interval", 60),
+    ):
+        value = metrics.get(key, default)
+        if type(value) is not int or value <= 0:
+            raise ConfigError(f"Collector metrics.{key} must be a positive integer")
+    from core.application.settings import LogSettings
+
+    logs = service.get("logs", {})
+    if not isinstance(logs, dict):
+        raise ConfigError("Collector logs must be a mapping")
+    LogSettings(**logs)
+
+
 class CollectorDocumentLoader:
     """Resolve Collector-specific Task/Service data without modifying Core."""
 
@@ -69,6 +101,7 @@ class CollectorDocumentLoader:
             service = read_yaml_mapping(self._paths.service)
         if service.get("schema_version") != 1:
             raise ConfigError("Collector Service schema_version must be 1")
+        _validate_service_sections(service)
         device_path = (self._paths.instances / "devices.yaml").resolve()
         raw_devices = self._candidates.get(device_path)
         if raw_devices is None:
