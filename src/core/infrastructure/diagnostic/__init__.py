@@ -4,22 +4,26 @@ from .observability import (
     CorrelationSettings,
     JsonFormatter,
     LoggingSettings,
+    LogFileSettings,
     MetricsSettings,
     ObservabilityHandle,
     ObservabilitySettings,
     RequestIdASGIMiddleware,
     TracingSettings,
     configure_observability,
+    parse_observability_settings,
 )
 
 __all__ = [
     "CorrelationSettings",
     "JsonFormatter",
     "LoggingSettings",
+    "LogFileSettings",
     "MetricsSettings",
     "ObservabilityHandle",
     "ObservabilitySettings",
     "RequestIdASGIMiddleware",
     "TracingSettings",
     "configure_observability",
+    "parse_observability_settings",
 ]

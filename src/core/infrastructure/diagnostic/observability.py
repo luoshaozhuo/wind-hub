@@ -422,6 +422,65 @@ class ObservabilityHandle:
             raise TimeoutError("; ".join(failures))
 
 
+
+def parse_observability_settings(raw: Mapping[str, Any]) -> ObservabilitySettings:
+    """严格解析宿主显式传入的 observability 子树，无固定路径或文件 I/O。"""
+    if not isinstance(raw, Mapping):
+        raise ValueError("observability must be a mapping")
+
+    def section(name: str, allowed: frozenset[str]) -> dict[str, Any]:
+        value = raw.get(name, {})
+        if not isinstance(value, Mapping):
+            raise ValueError(f"observability.{name} must be a mapping")
+        unexpected = set(value) - allowed
+        if unexpected:
+            raise ValueError(f"unknown observability.{name} fields: {sorted(unexpected)}")
+        return dict(value)
+
+    unknown = set(raw) - {"logging", "correlation", "metrics", "tracing"}
+    if unknown:
+        raise ValueError(f"unknown observability sections: {sorted(unknown)}")
+    log = section("logging", frozenset({
+        "level", "format", "console", "file", "queue_capacity",
+    }))
+    file_raw = log.pop("file", {})
+    if not isinstance(file_raw, Mapping):
+        raise ValueError("observability.logging.file must be a mapping")
+    unknown_file = set(file_raw) - {
+        "enabled", "path", "max_size_mb", "retention_days",
+    }
+    if unknown_file:
+        raise ValueError(f"unknown observability.logging.file fields: {sorted(unknown_file)}")
+    correlation = section("correlation", frozenset({"enabled"}))
+    metrics = section("metrics", frozenset({"enabled", "buckets_seconds"}))
+    tracing = section("tracing", frozenset({
+        "enabled", "sample_ratio", "otlp_endpoint",
+    }))
+    bool_fields = (
+        (log, "console"),
+        (file_raw, "enabled"),
+        (correlation, "enabled"),
+        (metrics, "enabled"),
+        (tracing, "enabled"),
+    )
+    if any(key in mapping and type(mapping[key]) is not bool for mapping, key in bool_fields):
+        raise ValueError("observability enabled/console fields must be boolean")
+    if "buckets_seconds" in metrics:
+        value = metrics["buckets_seconds"]
+        if type(value) is not list or any(type(x) not in (float, int) for x in value):
+            raise ValueError("metrics.buckets_seconds must be an array of finite numbers")
+        metrics["buckets_seconds"] = tuple(float(x) for x in value)
+    if "sample_ratio" in tracing:
+        if type(tracing["sample_ratio"]) not in (float, int):
+            raise ValueError("tracing.sample_ratio must be numeric")
+        tracing["sample_ratio"] = float(tracing["sample_ratio"])
+    return ObservabilitySettings(
+        logging=LoggingSettings(**log, file=LogFileSettings(**file_raw)),
+        correlation=CorrelationSettings(**correlation),
+        metrics=MetricsSettings(**metrics),
+        tracing=TracingSettings(**tracing),
+    )
+
 _ACTIVE: dict[str, ObservabilityHandle] = {}
 
 
