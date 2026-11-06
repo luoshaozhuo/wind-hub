@@ -30,7 +30,7 @@ def create_tracer_provider(
     return provider
 
 
-class TraceServerInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc]
+class TraceServerInterceptor(grpc.aio.ServerInterceptor):
     """按外部 traceparent 提取父 Span，四种 grpc.aio 流形态共享同一语义。"""
 
     def __init__(self, tracer: Any) -> None:

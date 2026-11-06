@@ -144,7 +144,7 @@ class _ClientObserver:
 
 
 class RequestIdUnaryUnaryClientInterceptor(
-    _ClientObserver, grpc.aio.UnaryUnaryClientInterceptor  # type: ignore[misc]
+    _ClientObserver, grpc.aio.UnaryUnaryClientInterceptor
 ):
     async def intercept_unary_unary(
         self, continuation: Any, client_call_details: grpc.aio.ClientCallDetails, request: Any
@@ -153,7 +153,7 @@ class RequestIdUnaryUnaryClientInterceptor(
 
 
 class RequestIdUnaryStreamClientInterceptor(
-    _ClientObserver, grpc.aio.UnaryStreamClientInterceptor  # type: ignore[misc]
+    _ClientObserver, grpc.aio.UnaryStreamClientInterceptor
 ):
     async def intercept_unary_stream(
         self, continuation: Any, client_call_details: grpc.aio.ClientCallDetails, request: Any
@@ -162,7 +162,7 @@ class RequestIdUnaryStreamClientInterceptor(
 
 
 class RequestIdStreamUnaryClientInterceptor(
-    _ClientObserver, grpc.aio.StreamUnaryClientInterceptor  # type: ignore[misc]
+    _ClientObserver, grpc.aio.StreamUnaryClientInterceptor
 ):
     async def intercept_stream_unary(
         self,
@@ -174,7 +174,7 @@ class RequestIdStreamUnaryClientInterceptor(
 
 
 class RequestIdStreamStreamClientInterceptor(
-    _ClientObserver, grpc.aio.StreamStreamClientInterceptor  # type: ignore[misc]
+    _ClientObserver, grpc.aio.StreamStreamClientInterceptor
 ):
     async def intercept_stream_stream(
         self,

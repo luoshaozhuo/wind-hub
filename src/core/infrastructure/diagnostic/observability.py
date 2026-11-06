@@ -309,7 +309,7 @@ class RequestIdASGIMiddleware:
             await self.app(scope, receive, send)
 
 
-class MetricsServerInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc]
+class MetricsServerInterceptor(grpc.aio.ServerInterceptor):
     """覆盖四种 gRPC 流模式，统计只包含固定方法与成功/失败结果。"""
 
     def __init__(self, recorder: _Recorder) -> None:
