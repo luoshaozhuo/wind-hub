@@ -109,9 +109,9 @@ class GenerationStore:
             stage.mkdir(mode=0o700)
             try:
                 for item in checked.files:
-                    path = stage / item.path
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    with path.open("xb") as stream:
+                    output_path = stage / item.path
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    with output_path.open("xb") as stream:
                         stream.write(item.content)
                         stream.flush()
                         os.fsync(stream.fileno())
