@@ -120,33 +120,68 @@ class JsonFormatter(logging.Formatter):
 
 
 class _Recorder:
-    """Bounded-label Prometheus registry owned by one service handle."""
+    """实例级 Registry；公开指标仅允许低基数固定维度。"""
 
-    def __init__(self, service_name: str, settings: MetricsSettings):
+    def __init__(self, service_name: str, settings: MetricsSettings) -> None:
         from prometheus_client import CollectorRegistry, Counter, Histogram
 
         self.registry = CollectorRegistry(auto_describe=True)
-        self.calls = Counter(
-            "wind_hub_boundary_calls_total",
-            "Boundary requests by transport, operation and coarse outcome",
-            ("service", "transport", "operation", "outcome"),
+        self.rpc_calls = Counter(
+            "windhub_rpc_requests_total",
+            "Completed RPC operations",
+            ("service", "method", "status"),
             registry=self.registry,
         )
-        self.duration = Histogram(
-            "wind_hub_boundary_duration_seconds",
-            "Time spent inside a technical boundary",
-            ("service", "transport", "operation"),
+        self.rpc_duration = Histogram(
+            "windhub_rpc_duration_seconds",
+            "Completed RPC operation latency",
+            ("service", "method", "status"),
             buckets=settings.buckets_seconds,
+            registry=self.registry,
+        )
+        self.protocol_calls = Counter(
+            "windhub_protocol_operations_total",
+            "Completed industrial protocol operations",
+            ("protocol", "operation", "status"),
+            registry=self.registry,
+        )
+        self.protocol_duration = Histogram(
+            "windhub_protocol_duration_seconds",
+            "Industrial protocol operation latency",
+            ("protocol", "operation", "status"),
+            buckets=settings.buckets_seconds,
+            registry=self.registry,
+        )
+        self.dropped = Counter(
+            "windhub_observability_dropped_total",
+            "Normal observability records dropped before export",
+            ("channel", "reason"),
             registry=self.registry,
         )
         self.service_name = service_name
 
     def record(self, transport: str, operation: str, outcome: str, seconds: float) -> None:
         try:
-            self.calls.labels(self.service_name, transport, operation, outcome).inc()
-            self.duration.labels(self.service_name, transport, operation).observe(seconds)
+            if transport == "protocol":
+                self.protocol_calls.labels(self.service_name, operation, outcome).inc()
+                self.protocol_duration.labels(
+                    self.service_name, operation, outcome
+                ).observe(seconds)
+            else:
+                method = f"{transport}:{operation}" if transport != "grpc" else operation
+                self.rpc_calls.labels(self.service_name, method, outcome).inc()
+                self.rpc_duration.labels(
+                    self.service_name, method, outcome
+                ).observe(seconds)
         except Exception:
-            logging.getLogger(__name__).exception("Metrics export failed")
+            # An exporter/registry problem must not replace the business result.
+            logging.getLogger(__name__).exception("Metrics observation failed")
+
+    def record_drop(self, channel: str, reason: str) -> None:
+        try:
+            self.dropped.labels(channel, reason).inc()
+        except Exception:
+            pass
 
 
 class RequestIdASGIMiddleware:
