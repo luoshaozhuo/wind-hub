@@ -104,19 +104,50 @@ class ObservabilitySettings:
 
 
 class JsonFormatter(logging.Formatter):
-    """基础 JSONL，控制字段不接受请求级任意字典覆盖。"""
+    """JSONL 公共字段由生产线程的观测 Filter 提供，不信任任意额外字段。"""
 
     def format(self, record: logging.LogRecord) -> str:
         values: dict[str, object] = {
-            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat().replace(
+                "+00:00", "Z"
+            ),
             "level": record.levelname,
+            "service": getattr(record, "service", None),
             "logger": record.name,
             "message": record.getMessage(),
-            "request_id": getattr(record, "request_id", "-"),
+            "request_id": getattr(record, "request_id", None),
+            "trace_id": getattr(record, "trace_id", None),
+            "span_id": getattr(record, "span_id", None),
+            "exception": self.formatException(record.exc_info) if record.exc_info else None,
+            "attributes": {},
         }
-        if record.exc_info:
-            values["exception"] = self.formatException(record.exc_info)
         return json.dumps(values, ensure_ascii=False, allow_nan=False)
+
+
+class _ContextLogFilter(logging.Filter):
+    """在入队前冻结 Service/Trace 信息，防止线程切换导致上下文丢失。"""
+
+    def __init__(self, service: str, *, tracing: bool) -> None:
+        super().__init__()
+        self._service = service
+        self._tracing = tracing
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.service = self._service
+        record.trace_id = None
+        record.span_id = None
+        if self._tracing:
+            try:
+                from opentelemetry import trace
+
+                context = trace.get_current_span().get_span_context()
+                if context.is_valid:
+                    record.trace_id = format(context.trace_id, "032x")
+                    record.span_id = format(context.span_id, "016x")
+            except Exception:
+                # An observability backend must not block normal application logging.
+                pass
+        return True
 
 
 class _Recorder:
@@ -417,6 +448,9 @@ class ObservabilityHandle:
             )
             handler.setLevel(logging._nameToLevel[settings.logging.level])
             handler.addFilter(RequestIdFilter())
+            handler.addFilter(
+                _ContextLogFilter(service_name, tracing=settings.tracing.enabled)
+            )
             self._logger.addHandler(handler)
             self._handler = handler
         interceptors: list[grpc.aio.ServerInterceptor] = []
