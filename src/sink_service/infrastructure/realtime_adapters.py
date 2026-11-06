@@ -88,6 +88,7 @@ class RedisOutput:
                         raise ConfigurationError("invalid Redis ACL Secret JSON") from exc
                 else:
                     identity = credential
+                arguments: tuple[str, ...]
                 if isinstance(identity, str):
                     arguments = ("AUTH", identity)
                 elif (
@@ -98,11 +99,14 @@ class RedisOutput:
                     arguments = ("AUTH", identity["username"], identity["password"])
                 else:
                     raise ConfigurationError("Redis Secret must be password or ACL JSON")
-                self._writer.write(_redis_command(*arguments))
-                await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
-                assert self._reader is not None
+                writer = self._writer
+                reader = self._reader
+                if writer is None or reader is None:
+                    raise ConnectionError("Redis authentication channel unavailable")
+                writer.write(_redis_command(*arguments))
+                await asyncio.wait_for(writer.drain(), timeout=self._timeout)
                 answer = await asyncio.wait_for(
-                    self._reader.readline(), timeout=self._timeout
+                    reader.readline(), timeout=self._timeout
                 )
                 if answer != b"+OK\r\n":
                     raise ConnectionError("Redis authentication failed")
@@ -486,7 +490,8 @@ class _ModbusContext(ModbusServerContext):
         return values if values is not None else ExcCodes.ILLEGAL_ADDRESS
 
     async def async_setValues(
-        self, device_id: int, func_code: int, address: int, values: list[int],
+        self, device_id: int, func_code: int, address: int,
+        values: list[int] | list[bool],
     ) -> Any:
         from pymodbus.constants import ExcCodes
 
