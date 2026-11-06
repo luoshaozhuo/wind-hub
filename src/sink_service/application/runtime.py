@@ -10,7 +10,7 @@ from typing import Protocol
 
 from contracts.sample_message import SampleMessage
 from core.domain.sample_value import Quality
-from sink_service.application.point_value import SinkPointValue as PointValue
+from sink_service.application.point_value import SinkPointValue
 from sink_service.application.port import SinkPort
 
 PointKey = tuple[str, str, str]
@@ -192,7 +192,7 @@ class SinkRuntime:
             try:
                 await self._sink.write(
                     [
-                        PointValue(
+                        SinkPointValue(
                             device_id=sample.device_id,
                             point_id=sample.point_id,
                             value=sample.value,

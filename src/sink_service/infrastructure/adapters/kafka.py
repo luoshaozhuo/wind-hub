@@ -11,7 +11,7 @@ from typing import Any
 from core.application.protocol_contract import ConnectionHealth
 from sink_service.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
 from core.infrastructure.config.sink_schema import KafkaSinkConnection
-from sink_service.application.point_value import SinkPointValue as PointValue
+from sink_service.application.point_value import SinkPointValue
 from sink_service.application.error import SinkError
 from sink_service.application.export import SinkReferenceExporter
 
@@ -58,7 +58,7 @@ class KafkaSink:
             self._producer = producer
             self._error = None
 
-    async def write(self, batch: list[PointValue]) -> None:
+    async def write(self, batch: list[SinkPointValue]) -> None:
         if not batch:
             return
         async with self._lock:
@@ -93,7 +93,7 @@ class KafkaSink:
                 ) from exc
             self._error = None
 
-    async def write_task(self, task_id: str, batch: list[PointValue]) -> None:
+    async def write_task(self, task_id: str, batch: list[SinkPointValue]) -> None:
         await self.write(batch)
 
     async def flush(self) -> None:

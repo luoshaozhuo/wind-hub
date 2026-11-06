@@ -1,6 +1,6 @@
 """Sink 外部引用导出。
 
-本模块只负责将内部 PointValue 按 ResolvedSinkPoint 映射为外部引用值，并执行
+本模块只负责将内部 SinkPointValue 按 ResolvedSinkPoint 映射为外部引用值，并执行
 Sink 层二次 scale/offset。协议编码、网络发送与背压不属于本模块。
 """
 
@@ -12,7 +12,7 @@ from typing import Any
 
 from core.application import Quality
 from sink_service.application.sink_contract import ResolvedSinkPoint
-from sink_service.application.point_value import SinkPointValue as PointValue
+from sink_service.application.point_value import SinkPointValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +39,7 @@ class ExportedSinkPointValue:
 
 
 class SinkReferenceExporter:
-    """按内部 (device_id, point_id) 将 PointValue 映射为外部 Sink 引用。"""
+    """按内部 (device_id, point_id) 将 SinkPointValue 映射为外部 Sink 引用。"""
 
     def __init__(self, points: list[ResolvedSinkPoint]) -> None:
         mapping: dict[tuple[str, str], list[ResolvedSinkPoint]] = {}
@@ -48,7 +48,7 @@ class SinkReferenceExporter:
             mapping.setdefault(key, []).append(point)
         self._mapping = mapping
 
-    def export(self, batch: list[PointValue]) -> list[ExportedSinkPointValue]:
+    def export(self, batch: list[SinkPointValue]) -> list[ExportedSinkPointValue]:
         """导出当前 Sink 显式定义的点；未映射输入点直接忽略。"""
         exported: list[ExportedSinkPointValue] = []
         for value in batch:
@@ -60,7 +60,7 @@ class SinkReferenceExporter:
     @staticmethod
     def _export_one(
         definition: ResolvedSinkPoint,
-        value: PointValue,
+        value: SinkPointValue,
     ) -> ExportedSinkPointValue:
         transformed = value.value
         if transformed is not None and (definition.scale != 1.0 or definition.offset != 0.0):

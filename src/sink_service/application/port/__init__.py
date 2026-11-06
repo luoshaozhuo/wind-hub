@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Protocol
-from sink_service.application.point_value import SinkPointValue as PointValue
+from sink_service.application.point_value import SinkPointValue
 
 
 
@@ -14,7 +14,7 @@ class SinkPort(Protocol):
         """Open the target connection."""
         ...
 
-    async def write(self, batch: list[PointValue]) -> None:
+    async def write(self, batch: list[SinkPointValue]) -> None:
         """Return only after all writes are confirmed, or raise."""
         ...
 

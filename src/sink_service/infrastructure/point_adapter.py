@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sink_service.application.point_value import SinkPointValue as PointValue
+from sink_service.application.point_value import SinkPointValue
 from sink_service.application.point_port import LegacyPointSinkPort
 
 
@@ -16,7 +16,7 @@ class PointValueSinkAdapter:
         """Open the target writer."""
         await self._target.open()
 
-    async def write(self, batch: list[PointValue]) -> None:
+    async def write(self, batch: list[SinkPointValue]) -> None:
         """Preserve each sample's Task mapping and target write confirmation."""
         for point in batch:
             if point.task_id is None:
