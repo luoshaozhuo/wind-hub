@@ -283,16 +283,16 @@ class MetricsServerInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc
                     raise
                 finally:
                     recorder.record(
-                            "grpc", operation,
-                            (
-                                "failure"
-                                if outcome == "failure" or (
-                                    context.code() not in (None, grpc.StatusCode.OK)
-                                )
-                                else "success"
-                            ),
-                            time.monotonic() - started,
-                        )
+                        "grpc",
+                        operation,
+                        (
+                            "failure"
+                            if outcome == "failure"
+                            or context.code() not in (None, grpc.StatusCode.OK)
+                            else "success"
+                        ),
+                        time.monotonic() - started,
+                    )
             return unary
 
         if handler.request_streaming:
