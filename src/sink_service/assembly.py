@@ -8,7 +8,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
-from core.application.sink_contract import ResolvedSink
+from sink_service.application.sink_contract import ResolvedSink
 from core.infrastructure.config import YamlConfigAdapter
 from sink_service.application.point_port import LegacyPointSinkPort
 from sink_service.application.runtime import SinkRuntime

@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 
 from core.application import Quality
-from core.application.sink_contract import ResolvedSinkPoint
+from sink_service.application.sink_contract import ResolvedSinkPoint
 from sink_service.application.point_value import SinkPointValue as PointValue
 
 

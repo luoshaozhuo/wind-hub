@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from core.application.protocol_contract import ConnectionHealth
-from core.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
+from sink_service.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
 from core.infrastructure.config.sink_schema import KafkaSinkConnection
 from sink_service.application.point_value import SinkPointValue as PointValue
 from sink_service.application.error import SinkError

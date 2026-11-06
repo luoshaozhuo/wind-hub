@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
-from core.application.sink_contract import (
+from sink_service.application.sink_contract import (
     GrpcSinkAddress,
     ModbusSinkAddress,
     ResolvedSink,
