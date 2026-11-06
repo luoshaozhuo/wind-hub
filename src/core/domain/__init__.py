@@ -24,11 +24,8 @@ from .point import (
     engineering_value,
     raw_write_value,
 )
-from .sink import Sink
 from .site import Site
-from .task import Task, devices_for_task, validate_task_references
 from .unit import DIMENSIONLESS, Quantity, Unit, UnitCatalog, convert_value
-from .validation import validate_core_config
 from .value_objects import ConnectionEndpoint, DataType, PointAccess, Protocol
 
 __all__ = [
@@ -37,10 +34,6 @@ __all__ = [
     "UnitCatalog",
     "Unit",
     "Site",
-    "Sink",
-    "Task",
-    "devices_for_task",
-    "validate_task_references",
     "convert_value",
     "BusinessPoint",
     "BusinessPointId",
@@ -64,5 +57,4 @@ __all__ = [
     "engineering_value",
     "raw_write_value",
     "freeze_protocol_options",
-    "validate_core_config",
 ]

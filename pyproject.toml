@@ -385,3 +385,17 @@ forbidden_modules = [
     "contracts.data_generator_pb2",
     "contracts.industrial_gateway_pb2",
 ]
+
+[[tool.importlinter.contracts]]
+name = "configuration 只依赖公共基础库，不依赖进程包"
+type = "forbidden"
+source_modules = ["configuration"]
+forbidden_modules = [
+    "collector",
+    "commander",
+    "cli",
+    "web_server",
+    "industrial_gateway",
+    "data_generator",
+    "sink_service",
+]

@@ -1,6 +1,5 @@
 """Shared Core Application ports。"""
 
-from .config import ConfigPort
 from .protocol import (
     ListenHandle,
     ProtocolPort,
@@ -9,7 +8,6 @@ from .protocol import (
 )
 
 __all__ = [
-    "ConfigPort",
     "ListenHandle",
     "ProtocolPort",
     "ProtocolSampleCallback",

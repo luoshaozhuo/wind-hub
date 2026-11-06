@@ -11,7 +11,6 @@ from .errors import (
     ProtocolError,
 )
 from .port import (
-    ConfigPort,
     ListenHandle,
     ProtocolPort,
     ProtocolSampleCallback,
@@ -39,7 +38,6 @@ from .watchdog import WatchdogUseCase
 
 __all__ = [
     "ConfigError",
-    "ConfigPort",
     "ConnectionHealth",
     "InterrogationRequest",
     "CoreError",

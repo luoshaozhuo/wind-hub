@@ -1,6 +1,5 @@
-"""可复用的外部配置适配器。"""
+"""Core 通用单文件 YAML 处理；项目模板装配由 configuration 拥有。"""
 
-from .digest import config_dir_digest
 from .generic_yaml import (
     ConfigDiff,
     ConfigDiffEntry,
@@ -13,9 +12,7 @@ from .generic_yaml import (
     read_yaml,
     save_yaml,
 )
-from .shared_documents import SharedConfigPaths, SharedDocumentLoader, SharedDocuments
-from .shared_snapshot import SharedDomainSnapshot, build_shared_snapshot
-from .yaml import read_yaml_mapping, write_yaml_mapping_atomic
+from .yaml import read_yaml_mapping, write_yaml_mapping_atomic, yaml_plain
 
 __all__ = [
     "ConfigDiff",
@@ -28,12 +25,7 @@ __all__ = [
     "parse_yaml",
     "read_yaml",
     "save_yaml",
-    "config_dir_digest",
-    "SharedConfigPaths",
-    "SharedDocumentLoader",
-    "SharedDocuments",
-    "SharedDomainSnapshot",
-    "build_shared_snapshot",
     "read_yaml_mapping",
     "write_yaml_mapping_atomic",
+    "yaml_plain",
 ]
