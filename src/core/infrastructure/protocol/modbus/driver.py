@@ -185,30 +185,39 @@ class ModbusDriver:
                             or (point_id in writable) != (point_id in self._writable)
                         )
                         session = self._require_session()
-                        unverified: list[str] = []
-                        try:
-                            for point_id in sorted(changed & points.keys()):
-                                if point_id not in readable:
-                                    unverified.append(point_id)
-                                    continue
-                                point = points[point_id]
+                        newly_changed = changed & points.keys()
+                        unverified = tuple(sorted(newly_changed - readable))
+                        candidates = tuple(
+                            points[point_id]
+                            for point_id in sorted(newly_changed & readable)
+                        )
+                        verification_groups = group_consecutive_reads(
+                            candidates,
+                            max_gap=self._config.read_merge_max_gap,
+                        )
+                        for group in verification_groups:
+                            first = group[0]
+                            address = first.address
+                            count = max(item.address + item.count for item in group) - address
+                            try:
                                 await session.read(
-                                    point.register_type, point.address, point.count, point.slave_id
+                                    first.register_type, address, count, first.slave_id
                                 )
-                        except (ProtocolError, OSError, TimeoutError, ValueError) as exc:
-                            return result(
-                                PointTableUpdateStatus.VERIFICATION_FAILED,
-                                f"Modbus verification failed: {type(exc).__name__}",
-                                issues=(
-                                    PointTableIssue(
-                                        point_id=point_id,
-                                        code=type(exc).__name__,
-                                        message="online read verification failed",
-                                        phase="verification",
+                            except (ProtocolError, OSError, TimeoutError, ValueError) as exc:
+                                return result(
+                                    PointTableUpdateStatus.VERIFICATION_FAILED,
+                                    f"Modbus online verification failed: {type(exc).__name__}",
+                                    issues=tuple(
+                                        PointTableIssue(
+                                            point_id=item.point_id,
+                                            code=type(exc).__name__,
+                                            message="grouped online read not confirmed",
+                                            phase="verification",
+                                        )
+                                        for item in group
                                     ),
-                                ),
-                                unverified=tuple(unverified),
-                            )
+                                    unverified=unverified,
+                                )
 
                         self._points = points
                         self._readable = readable
@@ -224,7 +233,7 @@ class ModbusDriver:
                             PointTableUpdateStatus.SUCCESS,
                             "point table applied",
                             applied=True,
-                            unverified=tuple(unverified),
+                            unverified=unverified,
                         )
         except TimeoutError:
             return result(PointTableUpdateStatus.TIMEOUT, "Modbus update deadline expired")
