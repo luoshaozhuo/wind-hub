@@ -18,9 +18,5 @@ protocol_options:
   # 健康检查测点 ID。null 表示不指定，由 Core 使用默认健康检查方式。
   # 若指定字符串，必须是当前设备点表中的可读测点 point_id。
   health_point_id: null
-  # 批读请求中允许跨越的最大地址空洞；0 表示仅连续地址合并。
-  read_merge_max_gap: 8
-  # 按完整 point_ids 序列缓存的读取计划数量；0 表示禁用缓存。
-  read_plan_cache_size: 32
 # endpoint.host 在设备实例中配置，不能为空。
 # endpoint.port 可在设备实例或型号中覆盖；Core 默认 TCP 端口 502。
