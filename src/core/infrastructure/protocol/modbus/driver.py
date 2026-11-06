@@ -162,8 +162,8 @@ class ModbusDriver:
 
         try:
             async with asyncio.timeout(timeout):
-                async with self._lifecycle:
-                    async with self._mapping_barrier.write():
+                async with self._mapping_barrier.write():
+                    async with self._lifecycle:
                         if not self.is_open():
                             return result(PointTableUpdateStatus.NOT_READY, "Modbus session is not ready")
                         if point_table == self._point_table:

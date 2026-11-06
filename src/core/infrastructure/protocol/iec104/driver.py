@@ -189,8 +189,8 @@ class IEC104Driver:
 
         try:
             async with asyncio.timeout(timeout):
-                async with self._lifecycle:
-                    async with self._mapping_barrier.write():
+                async with self._mapping_barrier.write():
+                    async with self._lifecycle:
                         if not self.is_open() or self._state is not ProtocolLifecycleState.CONNECTED:
                             return result(
                                 PointTableUpdateStatus.NOT_READY, "IEC104 session is not ready"
