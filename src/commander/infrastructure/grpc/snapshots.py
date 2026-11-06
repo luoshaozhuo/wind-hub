@@ -20,8 +20,8 @@ from commander.infrastructure.config_commit import commit_config_files, recover_
 from commander.infrastructure.service_settings import load_service_settings
 from contracts import common_pb2
 from core.application.errors import ConfigError
-from core.infrastructure.config.shared_documents import SharedConfigPaths, SharedDocumentLoader
-from core.infrastructure.config.shared_snapshot import build_shared_snapshot
+from configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
+from configuration.shared_snapshot import build_shared_snapshot
 
 
 @dataclass(frozen=True, slots=True)

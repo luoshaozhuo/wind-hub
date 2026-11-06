@@ -14,7 +14,7 @@ import yaml
 
 from contracts import common_pb2 as pb
 from core.application.errors import ConfigError
-from core.infrastructure.config.versioned_templates import config_hash
+from configuration.versioned_templates import config_hash
 from core.infrastructure.config.yaml import parse_yaml_mapping
 from industrial_gateway.infrastructure.config.v1_resolution import (
     ResolvedGateway,

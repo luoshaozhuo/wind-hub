@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.application.config_snapshot import ConfigSnapshot
+from configuration.snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from sink_service.application.sink_contract import (
     GrpcSinkAddress,

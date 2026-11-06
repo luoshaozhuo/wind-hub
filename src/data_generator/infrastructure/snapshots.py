@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from core.infrastructure.config.shared_documents import SharedConfigPaths, SharedDocumentLoader
+from configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
 from data_generator.domain.model import GeneratorError
 from data_generator.domain.scenario import Settings
 from data_generator.infrastructure.config import load_settings
