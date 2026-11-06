@@ -112,11 +112,11 @@ def _effective_devices(
         endpoint.update(device.endpoint)
         results[device_id] = {
             "model_id": device.model.reference.template_id,
-            "model_version": device.model.reference.template_version,
+            "model_version": device.model.reference.file_version,
             "endpoint": endpoint,
             "protocol": device.templates["protocol"].document["protocol"],
             "point_table_id": device.templates["point_table"].reference.template_id,
-            "point_table_version": device.templates["point_table"].reference.template_version,
+            "point_table_version": device.templates["point_table"].reference.file_version,
             "task": {
                 **{
                     key: value
@@ -132,7 +132,7 @@ def _effective_devices(
         for template in (device.model, *device.templates.values(), *device.inherited_tables):
             category = template.reference.category
             name = f"{category}/{template.reference.template_id}"
-            version = template.reference.template_version
+            version = template.reference.file_version
             refs[(name, version)] = pb.TemplateReference(name=name, version=version)
     return redact_config({"schema_version": 1, "devices": results}), list(refs.values())
 
@@ -170,7 +170,7 @@ def _affected_devices(
         if any(
             item.reference.category == selector.name
             and item.reference.template_id == selector.template_id
-            and item.reference.template_version == selector.template_version
+            and item.reference.file_version == selector.template_version
             for item in templates
         ):
             affected.append(device_id)
