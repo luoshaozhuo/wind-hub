@@ -354,9 +354,14 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
         point_table_id = snapshot.device_models[device.device_model_id].point_table_id
         point_table = snapshot.point_tables[point_table_id]
         protocol = point_table.protocol.name
+        subscribe_enabled = definition.protocol_options.get("subscribe_enabled", False)
+        if type(subscribe_enabled) is not bool or (
+            subscribe_enabled and protocol != "ads"
+        ):
+            raise ConfigError(f"{device.device_id}: invalid Collector subscribe_enabled")
         mode = (
             "subscribe"
-            if protocol == "ads" and device.subscribe_enabled
+            if protocol == "ads" and subscribe_enabled
             else ("listen" if protocol == "iec104" else "poll")
         )
         devices.append(

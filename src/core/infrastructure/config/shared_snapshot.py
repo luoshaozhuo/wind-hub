@@ -140,9 +140,8 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
         group_id = DeviceGroupId(device_id)
         groups[group_id] = DeviceGroup(group_id, device_id)
         options = dict(definition.protocol_options)
-        subscribe = options.pop("subscribe_enabled", False)
-        if type(subscribe) is not bool or (subscribe and protocol != "ads"):
-            raise ConfigError(f"{device_id}: invalid subscribe_enabled")
+        # Collector 的采集策略不进入 Core Device 或 Driver 协议选项。
+        options.pop("subscribe_enabled", None)
         endpoint = definition.endpoint
         devices[DeviceId(device_id)] = Device(
             device_id=DeviceId(device_id),
@@ -153,7 +152,6 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
                 port=endpoint.get("port"),
             ),
             protocol_options=options,
-            subscribe_enabled=subscribe,
             device_group_ids=(group_id,),
             enabled=definition.enabled,
         )
