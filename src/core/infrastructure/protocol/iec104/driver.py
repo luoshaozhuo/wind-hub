@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import logging
 import math
 from collections.abc import Sequence
@@ -26,6 +27,8 @@ from core.application.protocol_contract import (
     ProtocolCapability,
     ProtocolLifecycleState,
     ProtocolSample,
+    PointTableUpdateResult,
+    PointTableUpdateStatus,
     ProtocolWrite,
     ProtocolWriteResult,
     WriteOutcome,
@@ -93,7 +96,9 @@ class IEC104Driver:
         self._by_address: dict[Address, IEC104Point] = {}
         self._health_point_id: str | None = None
         self._state = ProtocolLifecycleState.DISCONNECTED
-        self.update_point_table(point_table)
+        self._install_point_table(point_table)
+        self._point_table = point_table
+        self._active_version: int | None = None
         self._lifecycle = asyncio.Lock()
         self._session: _IEC104Session | None = None
         self._read: dict[Address, _Read] = {}
@@ -117,7 +122,7 @@ class IEC104Driver:
             }
         )
 
-    def update_point_table(self, point_table: PointTable) -> None:
+    def _install_point_table(self, point_table: PointTable) -> None:
         if point_table.protocol.name != "iec104":
             raise ConfigError("IEC104 point table protocol mismatch")
         by_id, by_address = build_iec104_index(list(point_table.points.values()))
@@ -151,8 +156,115 @@ class IEC104Driver:
         self._by_id, self._by_address = by_id, by_address
         self._health_point_id = health_point_id
 
+    async def update_point_table(
+        self, point_table: PointTable, *, timeout: float
+    ) -> PointTableUpdateResult:
+        """保持现有 IEC104 Session，隔离相关在途地址后切换整份索引。"""
+        if not isinstance(point_table, PointTable):
+            raise TypeError("point_table must be PointTable")
+        if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+            raise ValueError("timeout must be a positive finite number")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be a positive finite number")
+
+        applied = False
+        state = "READY"
+        unverified: tuple[str, ...] = ()
+        residual: tuple[str, ...] = ()
+
+        def result(status: PointTableUpdateStatus, message: str) -> PointTableUpdateResult:
+            return PointTableUpdateResult(
+                status=status,
+                applied=applied,
+                active_version=self._active_version,
+                point_errors=(),
+                message=message,
+                resource_state=state,
+                unverified_points=unverified,
+                residual_resources=residual,
+            )
+
+        try:
+            async with asyncio.timeout(timeout):
+                async with self._lifecycle:
+                    if not self.is_open() or self._state is not ProtocolLifecycleState.CONNECTED:
+                        return result(
+                            PointTableUpdateStatus.NOT_READY, "IEC104 session is not ready"
+                        )
+                    if point_table == self._point_table:
+                        return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
+                    try:
+                        next_by_id, next_by_address = build_iec104_index(
+                            list(point_table.points.values())
+                        )
+                        if self._config.health_point is not None:
+                            health = next_by_id.get(self._config.health_point)
+                            if (
+                                health is None
+                                or health.type_id is None
+                                or not health.type_id.startswith("M_")
+                            ):
+                                raise ConfigError("IEC104 configured health point is not readable")
+                    except (ConfigError, ValueError) as exc:
+                        return result(PointTableUpdateStatus.VALIDATION_FAILED, str(exc))
+
+                    changed = frozenset(
+                        point_id
+                        for point_id in self._by_id.keys() | next_by_id.keys()
+                        if self._by_id.get(point_id) != next_by_id.get(point_id)
+                    )
+                    affected_addresses = {
+                        (point.common_address, point.ioa)
+                        for point_id in changed
+                        for point in (
+                            self._by_id.get(point_id), next_by_id.get(point_id)
+                        )
+                        if point is not None
+                    }
+                    # 等待受影响地址的在途操作完成；不得让旧响应错误交付新点。
+                    while any(
+                        address in self._read
+                        or address in self._control
+                        or address in self._unsettled_controls
+                        for address in affected_addresses
+                    ):
+                        await asyncio.sleep(0.01)
+                    affected = [
+                        listener
+                        for listener in tuple(self._listeners)
+                        if listener.point_ids & changed
+                    ]
+                    for listener in affected:
+                        try:
+                            await listener.close()
+                        except Exception as exc:
+                            self._state = ProtocolLifecycleState.FAULTED
+                            state = "FAULTED"
+                            residual = tuple(sorted(listener.point_ids))
+                            return result(
+                                PointTableUpdateStatus.APPLY_FAILED,
+                                f"IEC104 listener cleanup failed: {type(exc).__name__}",
+                            )
+
+                    # 当前协议没有不改变设备状态的通用地址探测能力。
+                    # 不将静态校验伪装成在线确认。
+                    unverified = tuple(sorted(changed & next_by_id.keys()))
+                    self._install_point_table(point_table)
+                    self._point_table = point_table
+                    self._active_version = (self._active_version or 0) + 1
+                    applied = True
+                    if affected:
+                        state = "DEGRADED"
+                    return result(PointTableUpdateStatus.SUCCESS, "IEC104 point table applied")
+        except TimeoutError:
+            return result(PointTableUpdateStatus.TIMEOUT, "IEC104 update deadline expired")
+
     def is_open(self) -> bool:
-        return self._session is not None and self._session.is_open
+        return (
+            self._state is ProtocolLifecycleState.CONNECTED
+            and self._session is not None
+            and self._session.is_open
+        )
 
     async def connect(self) -> None:
         async with self._lifecycle:
@@ -189,6 +301,8 @@ class IEC104Driver:
                     ) from exc
                 raise
             self._state = ProtocolLifecycleState.CONNECTED
+            if self._active_version is None:
+                self._active_version = 1
 
     async def close(self) -> None:
         async with self._lifecycle:
