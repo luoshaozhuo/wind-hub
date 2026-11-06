@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import struct
 from collections.abc import Callable, Sequence
 from ctypes import c_ubyte
@@ -35,10 +36,13 @@ class ADSSubscription:
         interval: float,
         max_block_bytes: int,
         max_delay: float,
+        queue_capacity: int,
         on_stopped: Callable[[ADSSubscription], None] | None = None,
     ) -> None:
-        if interval <= 0:
-            raise ValueError("ADS notification interval must be positive")
+        if not math.isfinite(interval) or interval <= 0:
+            raise ValueError("ADS notification interval must be positive and finite")
+        if queue_capacity <= 0:
+            raise ValueError("ADS notification queue capacity must be positive")
         self._session = session
         self._on_stopped = on_stopped
         self._blocks = compile_notification_blocks(points, max_bytes=max_block_bytes)
@@ -48,7 +52,7 @@ class ADSSubscription:
         self._loop = asyncio.get_running_loop()
         self._handles: list[tuple[Any, Any]] = []
         self._callbacks: list[Callable[..., None]] = []
-        self._queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=1000)
+        self._queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=queue_capacity)
         self._start_task: asyncio.Task[None] | None = None
         self._stop_task: asyncio.Task[None] | None = None
         self._worker: asyncio.Task[None] | None = None

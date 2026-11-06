@@ -487,9 +487,10 @@ class ADSDriver:
             session,
             mapped,
             callback,
-            interval=0.1 if interval is None else interval,
+            interval=self._config.notification_interval if interval is None else interval,
             max_block_bytes=self._config.max_block_bytes,
             max_delay=self._config.max_delay,
+            queue_capacity=self._config.notification_queue_capacity,
             on_stopped=self._subscriptions.discard,
         )
         self._subscriptions.add(subscription)

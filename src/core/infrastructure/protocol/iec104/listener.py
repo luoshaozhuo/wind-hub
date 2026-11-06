@@ -21,11 +21,13 @@ class _Listener(ListenHandle):
         owner: IEC104Driver,
         point_ids: frozenset[str],
         callback: ProtocolSampleCallback,
+        *,
+        queue_capacity: int,
     ):
         self.owner = owner
         self.point_ids = point_ids
         self.callback = callback
-        self.queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=256)
+        self.queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=queue_capacity)
         self.task = asyncio.create_task(self._run(), name="iec104-listener")
         self.failed = False
 

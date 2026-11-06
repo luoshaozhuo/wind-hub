@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from core.application.errors import ConfigError
@@ -15,6 +16,8 @@ _ALLOWED_OPTIONS = frozenset(
         "max_subs_per_sum",
         "max_block_bytes",
         "max_delay",
+        "notification_interval",
+        "notification_queue_capacity",
         "route_auto_add",
         "username",
         "password",
@@ -34,6 +37,8 @@ class ADSConfig:
     max_subs_per_sum: int = 500
     max_block_bytes: int = 1024
     max_delay: float = 0.06
+    notification_interval: float = 0.1
+    notification_queue_capacity: int = 1000
     route_auto_add: bool = False
     # 远程 PLC 路由注册凭据：wind-hub 应用层默认值，非 pyads 函数默认值。
     # 空密码只表示未提供有效密码，不保证远程 PLC 接受；
@@ -92,6 +97,17 @@ def parse_ads_config(
     if max_delay < 0:
         raise ConfigError(f"connection '{endpoint}': max_delay must be >= 0")
 
+    notification_interval = _float_option(
+        options.get("notification_interval"), "notification_interval", default=0.1
+    )
+    if not math.isfinite(notification_interval) or notification_interval <= 0:
+        raise ConfigError("ADS notification_interval must be a positive finite number")
+    notification_queue_capacity = _int_option(
+        options.get("notification_queue_capacity"), "notification_queue_capacity", default=1000
+    )
+    if notification_queue_capacity <= 0:
+        raise ConfigError("ADS notification_queue_capacity must be > 0")
+
     route_auto_add = options.get("route_auto_add", False)
     if type(route_auto_add) is not bool:
         raise ConfigError("ADS route_auto_add must be a boolean")
@@ -118,6 +134,8 @@ def parse_ads_config(
         max_subs_per_sum=max_subs,
         max_block_bytes=max_block_bytes,
         max_delay=max_delay,
+        notification_interval=notification_interval,
+        notification_queue_capacity=notification_queue_capacity,
         route_auto_add=route_auto_add,
         username=username,
         password=password,
@@ -159,4 +177,7 @@ def _float_option(value: object, name: str, *, default: float) -> float:
         return default
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ConfigError(f"ADS option '{name}' must be numeric")
-    return float(value)
+    result = float(value)
+    if not math.isfinite(result):
+        raise ConfigError(f"ADS option '{name}' must be finite")
+    return result

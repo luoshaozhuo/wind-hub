@@ -473,7 +473,9 @@ class IEC104Driver:
         selected = frozenset(point_ids or self._by_id)
         for point_id in selected:
             self._point(point_id)
-        listener = _Listener(self, selected, callback)
+        listener = _Listener(
+            self, selected, callback, queue_capacity=self._config.listener_queue_capacity
+        )
         self._listeners.add(listener)
         return listener
 

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -24,6 +25,7 @@ _ALLOWED_OPTIONS = frozenset(
         "read_timeout",
         "command_timeout",
         "interrogation_timeout",
+        "listener_queue_capacity",
     }
 )
 
@@ -57,6 +59,7 @@ class IEC104Config:
     read_timeout: float = 2.0
     command_timeout: float = 3.0
     interrogation_timeout: float = 5.0
+    listener_queue_capacity: int = 256
 
 
 def parse_iec104_config(
@@ -95,6 +98,10 @@ def parse_iec104_config(
     if t2 > t1:
         raise ConfigError(f"connection '{endpoint}': IEC104 t2 ({t2}) must not exceed t1 ({t1})")
 
+    listener_queue_capacity = _positive_int(
+        options.get("listener_queue_capacity"), "listener_queue_capacity", default=256
+    )
+
     return IEC104Config(
         host=endpoint.host,
         port=endpoint.port or 2404,
@@ -109,6 +116,7 @@ def parse_iec104_config(
         read_timeout=read_timeout,
         command_timeout=command_timeout,
         interrogation_timeout=interrogation_timeout,
+        listener_queue_capacity=listener_queue_capacity,
     )
 
 
@@ -136,6 +144,6 @@ def _positive_float(value: object, name: str, *, default: float) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ConfigError(f"IEC104 option '{name}' must be numeric")
     result = float(value)
-    if result <= 0:
+    if not math.isfinite(result) or result <= 0:
         raise ConfigError(f"IEC104 option '{name}' must be > 0")
     return result
