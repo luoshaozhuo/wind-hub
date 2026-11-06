@@ -1,100 +1,90 @@
-"""Collector 完整领域配置快照加载入口。"""
+"""Build Collector runtime settings and tasks from the shared Core graph."""
 
 from __future__ import annotations
 
-from dataclasses import replace
-
-from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
-from core.application.settings import MessagingSettings, RuntimeSettings
-from core.domain import Device, DeviceId
-from core.infrastructure.config.collector_documents import (
-    CollectorDocumentLoader,
-    CollectorDocuments,
-)
-from core.infrastructure.config.collector_snapshot import build_collector_snapshot
-from core.infrastructure.config.effective import resolve_effective_device
+from core.application.settings import ADSLocalConfig, MessagingSettings
+from core.domain import DeviceId, Task
+from core.infrastructure.config import build_shared_snapshot
 
 from ...application.config import CollectorConfig, RuntimeParams
+from .documents import CollectorDocumentLoader, CollectorDocuments
 
 
 def load_collector_config(source: CollectorDocumentLoader) -> CollectorConfig:
-    """Load a new complete Collector effective configuration."""
+    """Read and validate an entire Collector configuration revision."""
     return collector_config_from_documents(source.load())
 
 
 def collector_config_from_documents(documents: CollectorDocuments) -> CollectorConfig:
-    """Construct an effective Collector config including persisted task intent."""
-    snapshot = build_collector_snapshot(documents)
-    return config_from_snapshot_and_documents(snapshot, documents)
-
-
-def config_from_snapshot_and_documents(
-    snapshot: ConfigSnapshot, documents: CollectorDocuments
-) -> CollectorConfig:
-    base = collector_config_from_snapshot(snapshot)
-    return replace(
-        base,
-        desired_states={
-            DeviceId(device_id): definition.desired_state
-            for device_id, definition in documents.devices.items()
-            if definition.enabled
-        },
+    """Resolve tasks and service settings against validated shared entities."""
+    snapshot = build_shared_snapshot(documents.shared)
+    service = documents.service
+    runtime = service.get("runtime", {})
+    watchdog = service.get("watchdog", {})
+    messaging = service.get("messaging")
+    if not isinstance(runtime, dict) or not isinstance(watchdog, dict):
+        raise ConfigError("Collector runtime/watchdog must be mappings")
+    if not isinstance(messaging, dict):
+        raise ConfigError("Collector messaging must be configured")
+    servers = messaging.get("servers")
+    if not isinstance(servers, list) or not all(isinstance(x, str) for x in servers):
+        raise ConfigError("Collector messaging.servers must be a list of NATS URLs")
+    transport = MessagingSettings(
+        servers=tuple(servers),
+        delivery=messaging["delivery"],
+        max_staleness_ms=messaging.get("max_staleness_ms"),
     )
-
-
-def collector_config_from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
-    devices = snapshot.site.devices
-    settings = snapshot.system.runtime
-    effective_devices: dict[DeviceId, Device] = {}
-    for key, device in devices.items():
-        if not device.enabled:
+    thread_pool = runtime.get("thread_pool", {})
+    if not isinstance(thread_pool, dict):
+        raise ConfigError("Collector runtime.thread_pool must be a mapping")
+    params = RuntimeParams(
+        shutdown_timeout=runtime.get("shutdown_timeout", 10.0),
+        connect_timeout=runtime.get("connect_timeout", 1.0),
+        read_timeout=runtime.get("read_timeout", 1.0),
+        write_timeout=runtime.get("write_timeout", 1.0),
+        watchdog_interval=watchdog.get("interval", 5.0),
+        health_timeout=watchdog.get("health_timeout", 1.0),
+        thread_pool_max_workers=thread_pool.get("max_workers", 32),
+    )
+    ads = service.get("ads")
+    if ads is not None and not isinstance(ads, dict):
+        raise ConfigError("Collector ads must be a mapping")
+    ads_local = ADSLocalConfig(**ads) if ads is not None else None
+    tasks: dict[str, Task] = {}
+    desired: dict[DeviceId, str] = {}
+    for identifier, definition in documents.devices.items():
+        if not definition.enabled:
             continue
-        model = snapshot.device_models[device.device_model_id]
-        protocol = snapshot.point_tables[model.point_table_id].protocol.name
-        merged_device, _ = resolve_effective_device(
-            device,
-            model,
-            protocol,
+        task = definition.templates["task"].document
+        task_override = definition.overrides.get("task", {})
+        if not isinstance(task_override, dict):
+            raise ConfigError(f"invalid task override for {identifier}")
+        task_config = {**task, **task_override}
+        tasks[identifier] = Task(
+            task_id=identifier,
+            device_group_id=identifier,
+            point_group=task_config["point_group"],
+            interval=task_config["interval"],
         )
-        effective_devices[key] = merged_device
+        desired[DeviceId(identifier)] = definition.desired_state
+    devices = {key: value for key, value in snapshot.site.devices.items() if value.enabled}
     return CollectorConfig(
         units=snapshot.units,
-        devices=effective_devices,
+        messaging=transport,
+        devices=devices,
         device_models=snapshot.device_models,
         point_tables=snapshot.point_tables,
-        runtime=_runtime_params(settings),
-        ads_local=snapshot.system.ads,
-        messaging=_required_messaging(snapshot),
-        tasks=snapshot.tasks,
+        runtime=params,
+        ads_local=ads_local,
+        tasks=tasks,
+        desired_states=desired,
         disabled_devices=frozenset(
-            DeviceId(key) for key, device in devices.items() if not device.enabled
+            DeviceId(identifier)
+            for identifier, definition in documents.devices.items()
+            if not definition.enabled
         ),
     )
 
 
-def _required_messaging(snapshot: ConfigSnapshot) -> MessagingSettings:
-    """Require explicit NATS configuration for a Collector."""
-    messaging = snapshot.system.messaging
-    if messaging is None:
-        raise ConfigError("system.messaging is required")
-    return messaging
-
-
-def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
-    return RuntimeParams(
-        shutdown_timeout=(
-            settings.shutdown_timeout if settings.shutdown_timeout is not None else 10.0
-        ),
-        connect_timeout=settings.connect_timeout if settings.connect_timeout is not None else 1.0,
-        read_timeout=settings.read_timeout if settings.read_timeout is not None else 1.0,
-        write_timeout=settings.write_timeout if settings.write_timeout is not None else 1.0,
-        watchdog_interval=settings.watchdog_interval,
-        health_timeout=settings.health_timeout,
-        thread_pool_max_workers=(
-            settings.thread_pool.max_workers if settings.thread_pool is not None else 32
-        ),
-    )
-
-
-__all__ = ["load_collector_config", "collector_config_from_snapshot"]
+__all__ = ["load_collector_config", "collector_config_from_documents"]
