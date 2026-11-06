@@ -317,7 +317,7 @@ class ADSDriver:
             # 外部取消不能证明 Native 注册/删除已经收敛；保留句柄所有权，
             # 必须先 close() 确认，再允许后续 connect()。
             if applied or any(
-                subscription._retired_handles or subscription._registration_uncertain
+                (subscription._retired_handles or subscription._prepared_handles or subscription._registration_uncertain)
                 for subscription in self._subscriptions
             ):
                 state = "FAULTED"
@@ -328,7 +328,7 @@ class ADSDriver:
                 state = "FAULTED"
                 self._state = ProtocolLifecycleState.FAULTED
             if any(
-                subscription._retired_handles or subscription._registration_uncertain
+                (subscription._retired_handles or subscription._prepared_handles or subscription._registration_uncertain)
                 for subscription in self._subscriptions
             ):
                 state = "FAULTED"
@@ -338,7 +338,7 @@ class ADSDriver:
                     for index, subscription in enumerate(
                         sorted(self._subscriptions, key=lambda item: tuple(sorted(item.point_ids)))
                     )
-                    if subscription._retired_handles
+                    if subscription._retired_handles or subscription._prepared_handles or subscription._registration_uncertain
                 )
             return result(PointTableUpdateStatus.TIMEOUT, "ADS update deadline expired")
 
