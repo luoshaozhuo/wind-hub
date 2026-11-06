@@ -12,7 +12,6 @@ from .generic_yaml import (
     read_yaml,
     save_yaml,
 )
-from .yaml import yaml_plain
 
 __all__ = [
     "ConfigDiff",
@@ -25,5 +24,4 @@ __all__ = [
     "parse_yaml",
     "read_yaml",
     "save_yaml",
-    "yaml_plain",
 ]

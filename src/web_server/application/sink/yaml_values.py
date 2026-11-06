@@ -1,4 +1,4 @@
-"""辅助将业务配置对象展开为 YAML 基本数据类型。"""
+"""Web Server 专用配置值展开工具（不包含文件 I/O）。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pydantic import SecretStr
 
 
 def yaml_plain(value: Any) -> Any:
-    """把带类型的配置值（SecretStr/Enum/嵌套容器）还原为纯 YAML 标量结构。"""
+    """将业务配置的 SecretStr、Enum 和容器转换为基本 YAML 数据。"""
     if isinstance(value, SecretStr):
         return value.get_secret_value()
     if isinstance(value, Enum):
@@ -20,4 +20,3 @@ def yaml_plain(value: Any) -> Any:
     if isinstance(value, tuple | list):
         return [yaml_plain(item) for item in value]
     return value
-
