@@ -121,7 +121,7 @@ def _effective_devices(
                 **{
                     key: value
                     for key, value in device.templates["task"].document.items()
-                    if key not in {"schema_version", "template_id", "template_version"}
+                    if key not in {"schema_version", "file_version", "template_id"}
                 },
                 **device.overrides.get("task", {}),
                 "desired_state": device.desired_state,
