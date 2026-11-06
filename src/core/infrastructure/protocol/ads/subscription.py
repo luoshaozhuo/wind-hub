@@ -293,6 +293,10 @@ class ADSSubscription:
         return self._stop_task
 
     async def stop(self) -> None:
+        if asyncio.current_task() is self._worker:
+            # 通知回调内停止自身：不等待当前工作 Task 结束，交给独立清理 Task。
+            self._begin_stop()
+            return
         await asyncio.shield(self._begin_stop())
 
     async def _stop_once(self) -> None:

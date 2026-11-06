@@ -69,6 +69,11 @@ class _Listener(ListenHandle):
 
     async def close(self) -> None:
         self.failed = True
+        if asyncio.current_task() is self.task:
+            # Listener 回调内关闭自身，不能 await 自己；延后取消并移除路由。
+            self.owner._listeners.discard(self)
+            asyncio.get_running_loop().call_soon(self.task.cancel)
+            return
         if not self.task.done():
             self.task.cancel()
             try:
