@@ -13,11 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from core.application.errors import ConfigError
-from core.infrastructure.config.collector_documents import (
-    CollectorDocumentLoader,
-    CollectorDocuments,
-    ConfigPaths,
-)
 from core.infrastructure.config.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
@@ -26,6 +21,8 @@ from core.infrastructure.config.versioned_templates import (
 from core.infrastructure.config.yaml import read_yaml_mapping, write_yaml_mapping_atomic
 
 from .config_patches import ConfigPatch, apply_patches
+from .documents import CollectorDocumentLoader, CollectorDocuments, CollectorPaths
+from .loader import collector_config_from_documents
 
 
 class RevisionConflictError(ConfigError):
@@ -81,7 +78,7 @@ class ConfigMutationResult:
 class CollectorConfigTransactions:
     """Single-document optimistic concurrency, idempotency and audit boundary."""
 
-    def __init__(self, paths: ConfigPaths, documents: CollectorDocuments) -> None:
+    def __init__(self, paths: CollectorPaths, documents: CollectorDocuments) -> None:
         self._paths = paths
         self._templates = VersionedTemplateRepository(paths.templates)
         self._lock = asyncio.Lock()
@@ -257,15 +254,11 @@ class CollectorConfigTransactions:
         self, selector: ConfigSelector, document: dict[str, Any]
     ) -> None:
         """Resolve all referenced devices against the candidate in memory."""
-        from core.infrastructure.config.collector_snapshot import (
-            build_collector_snapshot,
-        )
-
         source = CollectorDocumentLoader(
             self._paths,
             candidates={self._path(selector): document},
         )
-        build_collector_snapshot(source.load())
+        collector_config_from_documents(source.load())
 
     def _validate_template_payload(
         self, selector: ConfigSelector, document: dict[str, Any]
