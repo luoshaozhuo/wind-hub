@@ -11,7 +11,9 @@ from collections.abc import Iterator
 from core.application.errors import ProtocolError
 
 
-_IN_CALLBACK: ContextVar[object | None] = ContextVar("protocol_callback_barrier", default=None)
+_IN_CALLBACK: ContextVar[tuple[object, asyncio.Task[object] | None] | None] = ContextVar(
+    "protocol_callback_barrier", default=None
+)
 
 
 class MappingBarrier:
@@ -29,16 +31,20 @@ class MappingBarrier:
     @contextmanager
     def callback_scope(self) -> Iterator[None]:
         """标识回调上下文，用于阻止其与更新/关闭屏障互相等待。"""
-        token = _IN_CALLBACK.set(self)
+        token = _IN_CALLBACK.set((self, asyncio.current_task()))
         try:
             yield
         finally:
             _IN_CALLBACK.reset(token)
 
+    def _callback_in_current_task(self) -> bool:
+        marker = _IN_CALLBACK.get()
+        return marker is not None and marker[0] is self and marker[1] is asyncio.current_task()
+
     @asynccontextmanager
     async def read(self) -> AsyncIterator[None]:
         async with self._condition:
-            if _IN_CALLBACK.get() is self and (self._writer_active or self._writers_waiting):
+            if self._callback_in_current_task() and (self._writer_active or self._writers_waiting):
                 raise ProtocolError("protocol callback cannot start I/O while a mapping writer is pending")
             await self._condition.wait_for(
                 lambda: not self._writer_active and self._writers_waiting == 0
@@ -54,7 +60,7 @@ class MappingBarrier:
 
     @asynccontextmanager
     async def write(self) -> AsyncIterator[None]:
-        if _IN_CALLBACK.get() is self:
+        if self._callback_in_current_task():
             raise ProtocolError("mapping updates or close are forbidden inside protocol callbacks")
         async with self._condition:
             self._writers_waiting += 1
