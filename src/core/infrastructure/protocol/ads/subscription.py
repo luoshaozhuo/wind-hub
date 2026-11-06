@@ -67,7 +67,9 @@ class ADSSubscription:
         self._loop = asyncio.get_running_loop()
         self._handles: list[tuple[Any, Any]] = []
         self._callbacks: list[Callable[..., None]] = []
-        self._queue: asyncio.Queue[tuple[ProtocolSample, ...]] = asyncio.Queue(maxsize=queue_capacity)
+        self._queue: asyncio.Queue[tuple[int, tuple[ProtocolSample, ...]]] = asyncio.Queue(
+            maxsize=queue_capacity
+        )
         self._start_task: asyncio.Task[None] | None = None
         self._stop_task: asyncio.Task[None] | None = None
         self._worker: asyncio.Task[None] | None = None
@@ -175,14 +177,14 @@ class ADSSubscription:
             return
         if self._queue.full():
             self._queue.get_nowait()
-        self._queue.put_nowait(samples)
+        self._queue.put_nowait((generation, samples))
 
     async def _consume(self) -> None:
         while True:
-            batch = await self._queue.get()
+            generation, batch = await self._queue.get()
             try:
                 async with self.delivery_lock:
-                    if not self._stopping:
+                    if not self._stopping and generation == self._generation:
                         await self._callback(batch)
             except Exception:
                 logger.exception("ADS notification delivery callback failed")

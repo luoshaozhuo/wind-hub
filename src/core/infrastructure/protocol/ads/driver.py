@@ -82,6 +82,7 @@ class ADSDriver:
         self._mapping_barrier = MappingBarrier()
         self._session: _AdsSession | None = None
         self._subscriptions: set[ADSSubscription] = set()
+        self._pending_table_updates = 0
         self._configured_points: dict[str, ADSPoint] = {}
         self._points: dict[str, ADSPoint] = {}
         self._install_point_table(point_table)
@@ -143,6 +144,15 @@ class ADSDriver:
         self._points = mapped
 
     async def update_point_table(
+        self, point_table: PointTable, *, timeout: float
+    ) -> PointTableUpdateResult:
+        self._pending_table_updates += 1
+        try:
+            return await self._update_point_table(point_table, timeout=timeout)
+        finally:
+            self._pending_table_updates -= 1
+
+    async def _update_point_table(
         self, point_table: PointTable, *, timeout: float
     ) -> PointTableUpdateResult:
         """保持当前 ADS Session，增量核对 Symbol 后提交整份映射。"""
@@ -303,8 +313,10 @@ class ADSDriver:
                 state = "FAULTED"
                 self._state = ProtocolLifecycleState.FAULTED
                 residual = tuple(
-                    f"ADS subscription:{id(subscription)}"
-                    for subscription in self._subscriptions
+                    f"ADS subscription:{index}"
+                    for index, subscription in enumerate(
+                        sorted(self._subscriptions, key=lambda item: tuple(sorted(item.point_ids)))
+                    )
                     if subscription._retired_handles
                 )
             return result(PointTableUpdateStatus.TIMEOUT, "ADS update deadline expired")
@@ -661,6 +673,8 @@ class ADSDriver:
         *,
         interval: float | None = None,
     ) -> ADSSubscription:
+        if self._pending_table_updates:
+            raise ProtocolError("ADS subscription creation is blocked during point table update")
         session = self._require_session()
         mapped = self._mapped(point_ids or tuple(self._points))
         subscription = ADSSubscription(
