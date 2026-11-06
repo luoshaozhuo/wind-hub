@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from typing import Literal
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -171,7 +172,7 @@ class IEC104Driver:
             raise ValueError("timeout must be a positive finite number")
 
         applied = False
-        state = "READY"
+        state: Literal["READY", "DEGRADED", "FAULTED"] = "READY"
         unverified: tuple[str, ...] = ()
         residual: tuple[str, ...] = ()
         point_errors: tuple[PointTableIssue, ...] = ()
@@ -184,7 +185,7 @@ class IEC104Driver:
                 active_version=self._active_version,
                 point_errors=point_errors,
                 message=message,
-                resource_state=(state if self.is_open() or state != "READY" else "FAULTED"),
+                resource_state=state if state != "READY" or self.is_open() else "FAULTED",
                 unverified_points=unverified,
                 residual_resources=residual,
             )
@@ -245,8 +246,10 @@ class IEC104Driver:
                         unverified = tuple(sorted(
                             point_id
                             for point_id in changed & next_by_id.keys()
-                            if next_by_id[point_id].type_id is None
-                            or not next_by_id[point_id].type_id.startswith("M_")
+                            if not (
+                                (type_id := next_by_id[point_id].type_id)
+                                and type_id.startswith("M_")
+                            )
                         ))
                         for point_id in sorted(changed & next_by_id.keys()):
                             point = next_by_id[point_id]

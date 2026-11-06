@@ -252,7 +252,7 @@ class ADSSubscription:
         self._handles = list(candidate.handles)
         # Candidate callbacks were retained at prepare time and must not
         # accumulate duplicate strong references on each live table update.
-        self._blocks = list(candidate.blocks)
+        self._blocks = tuple(candidate.blocks)
         self.point_ids = frozenset(point.point_id for point in candidate.points)
         self._generation = candidate.generation
         while not self._queue.empty():

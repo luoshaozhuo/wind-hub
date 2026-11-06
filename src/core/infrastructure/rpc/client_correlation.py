@@ -197,10 +197,17 @@ def client_interceptors(
     | grpc.aio.StreamStreamClientInterceptor,
     ...,
 ]:
-    params = {"correlation": correlation, "recorder": recorder, "tracer": tracer}
     return (
-        RequestIdUnaryUnaryClientInterceptor(**params),
-        RequestIdUnaryStreamClientInterceptor(**params),
-        RequestIdStreamUnaryClientInterceptor(**params),
-        RequestIdStreamStreamClientInterceptor(**params),
+        RequestIdUnaryUnaryClientInterceptor(
+            correlation=correlation, recorder=recorder, tracer=tracer
+        ),
+        RequestIdUnaryStreamClientInterceptor(
+            correlation=correlation, recorder=recorder, tracer=tracer
+        ),
+        RequestIdStreamUnaryClientInterceptor(
+            correlation=correlation, recorder=recorder, tracer=tracer
+        ),
+        RequestIdStreamStreamClientInterceptor(
+            correlation=correlation, recorder=recorder, tracer=tracer
+        ),
     )

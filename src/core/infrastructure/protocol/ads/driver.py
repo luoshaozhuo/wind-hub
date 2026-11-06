@@ -9,7 +9,7 @@ import sys
 from collections.abc import Sequence
 from ctypes import Structure, c_uint32
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import pyads  # type: ignore[import-untyped]
 from pyads.constants import ADSIGRP_SUMUP_READ, ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
@@ -164,7 +164,7 @@ class ADSDriver:
             raise ValueError("timeout must be a positive finite number")
 
         applied = False
-        state = "READY"
+        state: Literal["READY", "DEGRADED", "FAULTED"] = "READY"
         unverified: tuple[str, ...] = ()
         residual: tuple[str, ...] = ()
 
@@ -180,7 +180,7 @@ class ADSDriver:
                 active_version=self._active_version,
                 point_errors=errors,
                 message=message,
-                resource_state=(state if self.is_open() or state != "READY" else "FAULTED"),
+                resource_state=state if state != "READY" or self.is_open() else "FAULTED",
                 unverified_points=unverified,
                 residual_resources=residual,
             )

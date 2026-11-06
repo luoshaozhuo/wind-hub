@@ -117,7 +117,7 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
             "request_id": (
                 None if getattr(record, "request_id", None) in (None, "", "-")
-                else record.request_id
+                else getattr(record, "request_id", None)
             ),
             "trace_id": getattr(record, "trace_id", None),
             "span_id": getattr(record, "span_id", None),
@@ -449,7 +449,7 @@ class ObservabilityHandle:
                 targets, capacity=settings.logging.queue_capacity,
                 process_name=service_name,
                 on_drop=(
-                    (lambda: self._recorder.record_drop("logging", "queue_full"))
+                    (lambda recorder=self._recorder: recorder.record_drop("logging", "queue_full"))
                     if self._recorder is not None else None
                 ),
             )
