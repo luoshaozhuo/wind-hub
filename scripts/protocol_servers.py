@@ -547,7 +547,12 @@ def build_parser() -> argparse.ArgumentParser:
 async def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level))
-    snapshot = YamlConfigAdapter(args.config).load()
+    root = args.config
+    snapshot = build_shared_snapshot(
+        SharedDocumentLoader(
+            SharedConfigPaths(instances=root / "instances", templates=root / "templates")
+        ).load()
+    )
     plans = plan_devices(
         snapshot,
         include_disabled=args.include_disabled,
