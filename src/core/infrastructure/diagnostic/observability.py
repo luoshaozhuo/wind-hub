@@ -248,6 +248,18 @@ class MetricsServerInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc
         operation = str(details.method)
         recorder = self._recorder
 
+        def complete_outcome(context: Any, raised: bool) -> str:
+            if raised:
+                return "failure"
+            try:
+                status = context.code()
+            except Exception:
+                # Observability failure must never replace an application result.
+                return "unknown"
+            if status is None or status is grpc.StatusCode.OK:
+                return "success"
+            return "failure"
+
         def observe(behavior: Callable[..., Any], stream: bool) -> Callable[..., Any]:
             if stream:
                 async def streaming(req: Any, context: Any) -> Any:
@@ -262,13 +274,7 @@ class MetricsServerInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc
                     finally:
                         recorder.record(
                             "grpc", operation,
-                            (
-                                "failure"
-                                if outcome == "failure" or (
-                                    context.code() not in (None, grpc.StatusCode.OK)
-                                )
-                                else "success"
-                            ),
+                            complete_outcome(context, outcome == "failure"),
                             time.monotonic() - started,
                         )
                 return streaming
@@ -285,12 +291,7 @@ class MetricsServerInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc
                     recorder.record(
                         "grpc",
                         operation,
-                        (
-                            "failure"
-                            if outcome == "failure"
-                            or context.code() not in (None, grpc.StatusCode.OK)
-                            else "success"
-                        ),
+                        complete_outcome(context, outcome == "failure"),
                         time.monotonic() - started,
                     )
             return unary
