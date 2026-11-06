@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from core.application.sink_contract import ModbusSinkAddress, ResolvedSinkPoint
+from sink_service.application.sink_contract import ModbusSinkAddress, ResolvedSinkPoint
 from core.infrastructure.config.sink_schema import MODBUS_WORD_WIDTH
 from sink_service.infrastructure.adapters.modbus.codec import EncodedModbusValue
 

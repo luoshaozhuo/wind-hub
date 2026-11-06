@@ -10,7 +10,7 @@ import grpc
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as rpc
 from core.application import ConnectionHealth
-from core.application.sink_contract import (
+from sink_service.application.sink_contract import (
     GrpcSinkAddress,
     ResolvedSink,
     ResolvedSinkPoint,
