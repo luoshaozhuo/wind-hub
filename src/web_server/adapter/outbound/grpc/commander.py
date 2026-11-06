@@ -15,7 +15,7 @@ from google.protobuf import empty_pb2
 from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc as pb_grpc
 from contracts import common_pb2 as common_pb
-from core.application.command import Command, CommandResult
+from web_server.application.device.command_model import Command, CommandResult
 from core.application.protocol_contract import WriteOutcome
 from core.domain.sample_value import Quality
 from web_server.adapter.outbound.grpc.common import GrpcClientBase

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from core.application.command import CommandResult
+from web_server.application.device.command_model import CommandResult
 from core.application.protocol_contract import WriteOutcome
 from core.domain.sample_value import Quality
 from web_server.application.device.command import DeviceCommandService

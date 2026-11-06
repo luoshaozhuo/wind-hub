@@ -13,7 +13,7 @@ from uuid import uuid4
 import grpc
 import pytest
 
-from core.application.command import Command
+from web_server.application.device.command_model import Command
 from core.application.protocol_contract import WriteOutcome
 from core.infrastructure.config import config_dir_digest
 from tests.support.functional_config import update_yaml, write_functional_config

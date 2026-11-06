@@ -1,4 +1,4 @@
-"""跨进程共享的即时写命令模型。
+"""Web Server 设备写入边界 DTO。
 
 Command 的 ``command_id`` 是进程内幂等键；同一逻辑操作的重试必须复用
 相同 command_id，且命令内容（device/point/value）必须一致——Dispatcher

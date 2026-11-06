@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from core.application.command import Command, CommandResult
+from web_server.application.device.command_model import Command, CommandResult
 from core.application.protocol_contract import WriteOutcome
 
 

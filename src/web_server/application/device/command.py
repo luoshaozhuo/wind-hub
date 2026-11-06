@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from core.application.command import Command
+from web_server.application.device.command_model import Command
 from core.application.protocol_contract import WriteOutcome
 from web_server.application.port.point_store import TrendStore
 from web_server.application.port.worker import CommanderPort
