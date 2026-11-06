@@ -175,6 +175,7 @@ class IEC104Driver:
         unverified: tuple[str, ...] = ()
         residual: tuple[str, ...] = ()
         point_errors: tuple[PointTableIssue, ...] = ()
+        verification_issued = False
 
         def result(status: PointTableUpdateStatus, message: str) -> PointTableUpdateResult:
             return PointTableUpdateResult(
@@ -256,6 +257,7 @@ class IEC104Driver:
                             pending = _Read(point, future)
                             self._read[key] = pending
                             try:
+                                verification_issued = True
                                 await session.send([
                                     iec104.ReadMsg(
                                         is_test=False,
@@ -266,6 +268,7 @@ class IEC104Driver:
                                     ),
                                 ])
                                 await asyncio.wait_for(future, timeout=self._config.read_timeout)
+                                verification_issued = False
                             except (ProtocolError, ProtocolConnectionError, OSError, TimeoutError) as exc:
                                 # 无响应的 C_RD 可能稍后到达；旧 Session 不再允许
                                 # 复用相同 CA/IOA 关联新读请求，必须先安全 close。
@@ -316,11 +319,11 @@ class IEC104Driver:
                         return result(PointTableUpdateStatus.SUCCESS, "IEC104 point table applied")
         except asyncio.CancelledError:
             # 取消时 C_RD 可能已发送，禁止直接重用旧关联。
-            if self._read:
+            if verification_issued:
                 self._state = ProtocolLifecycleState.FAULTED
             raise
         except TimeoutError:
-            if self._read:
+            if verification_issued:
                 self._state = ProtocolLifecycleState.FAULTED
                 state = "FAULTED"
             return result(PointTableUpdateStatus.TIMEOUT, "IEC104 update deadline expired")
