@@ -34,7 +34,7 @@ from core.application.protocol_contract import (
     WriteOutcome,
 )
 from core.application.settings import ADSLocalConfig
-from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
+from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolOptions
 
 from .codec import (
     _coerce_write_value,
@@ -179,6 +179,11 @@ class ADSDriver:
                         return result(PointTableUpdateStatus.NOT_READY, "ADS session is not ready")
                     if point_table == self._point_table:
                         return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
+                    if point_table.protocol.name != "ads":
+                        return result(
+                            PointTableUpdateStatus.VALIDATION_FAILED,
+                            "ADS point table protocol mismatch",
+                        )
                     try:
                         configured = {
                             point.point_id: parse_ads_point(point)
@@ -191,6 +196,13 @@ class ADSDriver:
                         point_id
                         for point_id in self._configured_points.keys() | configured.keys()
                         if self._configured_points.get(point_id) != configured.get(point_id)
+                    )
+                    unverified = tuple(
+                        sorted(
+                            point_id
+                            for point_id in changed & configured.keys()
+                            if point_table.points[point_id].access is PointAccess.WRITE
+                        )
                     )
                     resolved = {
                         point_id: self._points[point_id]

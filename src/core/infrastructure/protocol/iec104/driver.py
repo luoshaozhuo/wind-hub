@@ -193,6 +193,11 @@ class IEC104Driver:
                         )
                     if point_table == self._point_table:
                         return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
+                    if point_table.protocol.name != "iec104":
+                        return result(
+                            PointTableUpdateStatus.VALIDATION_FAILED,
+                            "IEC104 point table protocol mismatch",
+                        )
                     try:
                         next_by_id, next_by_address = build_iec104_index(
                             list(point_table.points.values())
