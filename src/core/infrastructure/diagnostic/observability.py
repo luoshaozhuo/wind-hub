@@ -260,7 +260,17 @@ class MetricsServerInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc
                         outcome = "failure"
                         raise
                     finally:
-                        recorder.record("grpc", operation, outcome, time.monotonic() - started)
+                        recorder.record(
+                            "grpc", operation,
+                            (
+                                "failure"
+                                if outcome == "failure" or (
+                                    context.code() not in (None, grpc.StatusCode.OK)
+                                )
+                                else "success"
+                            ),
+                            time.monotonic() - started,
+                        )
                 return streaming
 
             async def unary(req: Any, context: Any) -> Any:
@@ -272,7 +282,17 @@ class MetricsServerInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc
                     outcome = "failure"
                     raise
                 finally:
-                    recorder.record("grpc", operation, outcome, time.monotonic() - started)
+                    recorder.record(
+                            "grpc", operation,
+                            (
+                                "failure"
+                                if outcome == "failure" or (
+                                    context.code() not in (None, grpc.StatusCode.OK)
+                                )
+                                else "success"
+                            ),
+                            time.monotonic() - started,
+                        )
             return unary
 
         if handler.request_streaming:
