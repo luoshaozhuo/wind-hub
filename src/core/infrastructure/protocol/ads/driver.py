@@ -308,7 +308,19 @@ class ADSDriver:
                                 "ADS new map active but old Notification handles remain",
                             )
                         return result(PointTableUpdateStatus.SUCCESS, "ADS point table applied")
+        except asyncio.CancelledError:
+            # 外部取消不能证明 Native 注册/删除已经收敛；保留句柄所有权，
+            # 必须先 close() 确认，再允许后续 connect()。
+            if applied or any(
+                subscription._retired_handles for subscription in self._subscriptions
+            ):
+                state = "FAULTED"
+                self._state = ProtocolLifecycleState.FAULTED
+            raise
         except TimeoutError:
+            if applied:
+                state = "FAULTED"
+                self._state = ProtocolLifecycleState.FAULTED
             if any(subscription._retired_handles for subscription in self._subscriptions):
                 state = "FAULTED"
                 self._state = ProtocolLifecycleState.FAULTED
