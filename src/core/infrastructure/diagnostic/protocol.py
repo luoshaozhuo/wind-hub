@@ -32,7 +32,7 @@ def _result_with_close(
     return DiagnosticResult(
         category=result.category,
         target=result.target,
-        status=DiagnosticStatus.UNKNOWN,
+        status=(DiagnosticStatus.FAIL if result.status is DiagnosticStatus.FAIL else DiagnosticStatus.UNKNOWN),
         findings=(
             *result.findings,
             _finding(
@@ -48,8 +48,9 @@ def _result_with_close(
 
 async def _close_owned(driver: ProtocolPort, deadline: float) -> Exception | None:
     remaining = deadline - asyncio.get_running_loop().time()
-    if remaining <= 0:
-        return TimeoutError("diagnostic deadline exhausted before close")
+    # 诊断超时后仍必须尝试释放已建立的连接；关闭阶段有独立的
+    # 最短有界预算，不把超时解释成资源已释放。
+    remaining = max(0.5, remaining)
     try:
         async with asyncio.timeout(remaining):
             await driver.close()
@@ -102,6 +103,14 @@ async def check_protocol(
                 findings.append(_finding(
                     "PROTOCOL_OK", DiagnosticStatus.PASS, "Protocol health verified"
                 ))
+    except asyncio.CancelledError:
+        # 业务调用者取消不放弃诊断 Driver 的 close 所有权。
+        cleanup = asyncio.create_task(_close_owned(driver, deadline))
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            pass
+        raise
     except TimeoutError:
         status = DiagnosticStatus.FAIL
         findings.append(_finding(
@@ -154,6 +163,13 @@ async def benchmark_protocol(
             result = await benchmark(
                 target, read, samples=samples, interval=interval
             )
+    except asyncio.CancelledError:
+        cleanup = asyncio.create_task(_close_owned(driver, deadline))
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            pass
+        raise
     except TimeoutError:
         result = DiagnosticResult(
             category="benchmark", target=target, status=DiagnosticStatus.FAIL,
