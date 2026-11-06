@@ -10,7 +10,7 @@ from typing import Any, cast
 from core.application.errors import ConfigError
 from core.domain import ConnectionEndpoint
 from configuration import SharedConfigPaths, SharedDocumentLoader
-from core.infrastructure.config.yaml import read_yaml_mapping
+from core.infrastructure.config import read_yaml
 from configuration.shared_documents import SharedDeviceDefinition
 from configuration.versioned_templates import config_hash
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
@@ -187,7 +187,7 @@ def load_gateway_v1(
     root = Path(project_root).resolve(strict=True)
     service_pathname = service_path(root, Path(service_file))
     service_document = (
-        read_yaml_mapping(service_pathname) if candidate_document is None else candidate_document
+        read_yaml(service_pathname) if candidate_document is None else candidate_document
     )
     service = GatewayServiceConfig.model_validate(service_document)
     device_file = service_path(root, service.config_sources.instances.devices)

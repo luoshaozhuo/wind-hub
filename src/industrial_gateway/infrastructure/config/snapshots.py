@@ -15,7 +15,7 @@ import yaml
 from contracts import common_pb2 as pb
 from core.application.errors import ConfigError
 from configuration.versioned_templates import config_hash
-from core.infrastructure.config.yaml import parse_yaml_mapping
+from core.infrastructure.config import parse_yaml
 from industrial_gateway.infrastructure.config.v1_resolution import (
     ResolvedGateway,
     load_gateway_v1,
@@ -57,7 +57,7 @@ class ConfigSnapshots:
 
     def disk(self) -> tuple[ResolvedGateway, bytes]:
         content = self.path.read_bytes()
-        document = parse_yaml_mapping(content)
+        document = parse_yaml(content.decode("utf-8"))
         config = load_gateway_v1(
             self.path,
             project_root=self.root,
@@ -147,7 +147,7 @@ class ConfigSnapshots:
                     ],
                 )
             try:
-                candidate_doc = parse_yaml_mapping(content)
+                candidate_doc = parse_yaml(content.decode("utf-8"))
                 resolved = load_gateway_v1(
                     self.path,
                     project_root=self.root,
@@ -207,8 +207,8 @@ class ConfigSnapshots:
     ) -> tuple[bytes, str]:
         if not restart_required:
             return self.path.read_bytes(), config.revision
-        old = parse_yaml_mapping(self.runtime_content)
-        candidate = parse_yaml_mapping(self.path.read_bytes())
+        old = parse_yaml(self.runtime_content.decode("utf-8"))
+        candidate = parse_yaml(self.path.read_bytes().decode("utf-8"))
         old["servers"] = candidate["servers"]
         old["config_sources"] = candidate["config_sources"]
         content = yaml.safe_dump(old, allow_unicode=True, sort_keys=False).encode("utf-8")
@@ -232,7 +232,7 @@ class ConfigSnapshots:
                 or candidate.base_revision != disk.revision
             ):
                 raise ValueError("stale candidate revision")
-            document = parse_yaml_mapping(candidate.content)
+            document = parse_yaml(candidate.content.decode("utf-8"))
             resolved = load_gateway_v1(
                 self.path,
                 project_root=self.root,

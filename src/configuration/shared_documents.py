@@ -20,7 +20,7 @@ from .versioned_templates import (
     VersionedTemplateRepository,
     config_hash,
 )
-from core.infrastructure.config.yaml import read_yaml_mapping
+from core.infrastructure.config import read_yaml
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +76,7 @@ def _reference(raw: object, context: str) -> TemplateRef:
 
 
 def _read(path: Path) -> dict[str, Any]:
-    document = read_yaml_mapping(path)
+    document = read_yaml(path)
     validate_document_version(document, path)
     return document
 

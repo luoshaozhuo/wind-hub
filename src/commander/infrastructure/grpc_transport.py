@@ -11,7 +11,7 @@ import grpc
 from commander.application.service_lifecycle import CommanderService
 from commander.infrastructure.grpc.server import register_services
 from commander.infrastructure.grpc.snapshots import ConfigSnapshots
-from core.infrastructure.config.yaml import read_yaml_mapping
+from core.infrastructure.config import read_yaml
 
 
 def _section(value: object, name: str) -> dict[str, Any]:
@@ -29,7 +29,7 @@ def _text(value: object, name: str) -> str:
 def _security_config(
     service_config: Path,
 ) -> tuple[str, int, int, grpc.ServerCredentials, dict[str, tuple[str, frozenset[str]]]]:
-    raw = read_yaml_mapping(service_config)
+    raw = read_yaml(service_config)
     grpc_settings = _section(raw.get("grpc"), "grpc")
     security = _section(raw.get("security"), "security")
     host = _text(grpc_settings.get("listen_host"), "grpc.listen_host")

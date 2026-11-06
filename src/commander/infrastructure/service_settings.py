@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from commander.application.settings import ServiceSettings
-from core.infrastructure.config.yaml import read_yaml_mapping
+from core.infrastructure.config import read_yaml
 
 
 def _mapping(raw: object, name: str) -> dict[str, Any]:
@@ -92,7 +92,7 @@ def validate_transport_settings(raw: dict[str, Any]) -> None:
 
 def load_service_settings(path: str | Path) -> ServiceSettings:
     """Validate the v1_1 Commander service configuration; never hot-apply it."""
-    raw = read_yaml_mapping(Path(path))
+    raw = read_yaml(Path(path))
     _keys(
         raw,
         {

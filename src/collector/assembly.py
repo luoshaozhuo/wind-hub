@@ -18,7 +18,7 @@ from contracts import collector_pb2_grpc, common_pb2_grpc
 from core.application import ProtocolPort, ProtocolRegistry
 from core.application.settings import ADSLocalConfig
 from core.domain import Device, PointTable
-from core.infrastructure.config import read_yaml_mapping
+from core.infrastructure.config import read_yaml
 from core.infrastructure.executor import configure_default_thread_pool
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
@@ -179,7 +179,7 @@ async def assemble_collector(
             expected_revision="",
             validate=validate_snapshot,
         )
-    service = read_yaml_mapping(repository.active_paths().service)
+    service = read_yaml(repository.active_paths().service)
     shared = await asyncio.to_thread(
         parse_collector_runtime,
         repository.active_paths(),

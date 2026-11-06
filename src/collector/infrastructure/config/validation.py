@@ -14,7 +14,7 @@ from contracts.sample_message import validate_subject_token
 from core.application.errors import ConfigError
 from core.domain import DeviceId
 from configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
-from core.infrastructure.config.yaml import read_yaml_mapping
+from core.infrastructure.config import read_yaml
 from configuration.document_version import validate_document_version
 from configuration.effective import resolve_effective_device
 from configuration.template_graph import (
@@ -39,7 +39,7 @@ def resolve_source_paths(config_file: Path) -> SnapshotPaths:
     config_root = service_file.parent.parent.resolve()
     if not service_file.is_file() or service_file.is_symlink() or service_file.parent.is_symlink():
         raise ConfigError("Collector service file is missing or unsafe")
-    service = read_yaml_mapping(service_file)
+    service = read_yaml(service_file)
     references = _configuration_references(service)
 
     def resolve(value: str, *, directory: bool) -> Path:
@@ -245,7 +245,7 @@ def _validate_all_templates(root: Path) -> None:
 
 def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | None = None) -> None:
     """Validate all common references and the Collector-owned service document."""
-    service = read_yaml_mapping(paths.service)
+    service = read_yaml(paths.service)
     validate_document_version(service, paths.service)
     if not isinstance(service, dict):
         raise ConfigError("Collector service configuration must be a mapping")
@@ -286,7 +286,7 @@ def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | Non
         for point_id in table.points:
             validate_subject_token(point_id)
     templates = VersionedTemplateRepository(paths.templates)
-    device_document = read_yaml_mapping(paths.instances / "devices.yaml")
+    device_document = read_yaml(paths.instances / "devices.yaml")
     _reject_unknown(
         device_document, {"schema_version", "file_version", "devices"}, "devices document"
     )
@@ -327,11 +327,11 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
         SharedConfigPaths(instances=paths.instances, templates=paths.templates)
     ).load()
     snapshot = build_shared_snapshot(documents)
-    raw_service = read_yaml_mapping(paths.service)
+    raw_service = read_yaml(paths.service)
     runtime = raw_service.get("runtime", {})
     watchdog = raw_service.get("watchdog", {})
     template_repo = VersionedTemplateRepository(paths.templates)
-    raw_instances = read_yaml_mapping(paths.instances / "devices.yaml")["devices"]
+    raw_instances = read_yaml(paths.instances / "devices.yaml")["devices"]
     devices: list[DevicePlan] = []
     for device_id, definition in documents.devices.items():
         if not definition.enabled:
