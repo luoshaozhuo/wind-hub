@@ -10,6 +10,7 @@ import os
 import socket
 import struct
 import tempfile
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 
 from sink_service.infrastructure.ipc import (
@@ -32,7 +33,7 @@ class WorkerSupervisor:
         self._service_file = service_file
         self._folder: tempfile.TemporaryDirectory[str] | None = None
         self._server: asyncio.AbstractServer | None = None
-        self._processes: dict[str, multiprocessing.Process] = {}
+        self._processes: dict[str, BaseProcess] = {}
         self._clients: dict[str, WorkerControlClient] = {}
         self._ready: dict[str, asyncio.Event] = {
             role: asyncio.Event() for role in ROLES
@@ -87,7 +88,7 @@ class WorkerSupervisor:
                 await asyncio.wait_for(old_client.close(), timeout=1)
             except (TimeoutError, OSError):
                 logger.warning("old worker IPC failed to close cleanly: %s", role)
-        process: multiprocessing.Process = multiprocessing.get_context("spawn").Process(
+        process: BaseProcess = multiprocessing.get_context("spawn").Process(
             target=worker_main,
             args=(role, str(self._root), self._service_file, self._socket_path),
             daemon=False,
