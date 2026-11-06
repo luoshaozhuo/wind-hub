@@ -153,13 +153,13 @@ async def _poll_workers(
             current_deliveries = {
                 item.delivery_id: (item.actual_state, item.last_error) for item in registry.list()
             }
-            for identifier, state in current_deliveries.items():
-                if previous_deliveries.get(identifier) != state:
+            for identifier, delivery_state in current_deliveries.items():
+                if previous_deliveries.get(identifier) != delivery_state:
                     telemetry.event(
-                        "ERROR" if state[0] in {"UNKNOWN", "FAILED"} else "INFO",
+                        "ERROR" if delivery_state[0] in {"UNKNOWN", "FAILED"} else "INFO",
                         identifier,
                         "DELIVERY_STATE",
-                        f"{state[0]}: {state[1]}",
+                        f"{delivery_state[0]}: {delivery_state[1]}",
                     )
             previous_deliveries = current_deliveries
             metrics = await registry.collect_metrics()
