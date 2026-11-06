@@ -58,6 +58,7 @@ class ADSSubscription:
         self._generation = 0
         self.delivery_lock = asyncio.Lock()
         self._retired_handles: list[tuple[Any, Any]] = []
+        self._prepared_handles: list[tuple[Any, Any]] = []
         self._on_stopped = on_stopped
         self._max_block_bytes = max_block_bytes
         self._blocks = compile_notification_blocks(points, max_bytes=max_block_bytes)
@@ -230,12 +231,18 @@ class ADSSubscription:
             self._retired_handles.extend(handles)
             self._callbacks.extend(callbacks)
             raise
+        # 从注册成功到 Driver 提交之间保持 Native Handle 所有权；
+        # 即使外层取消，stop() 仍能找到候选句柄。
+        self._prepared_handles.extend(handles)
+        self._callbacks.extend(callbacks)
         return _PreparedSubscription(
             tuple(points), blocks, generation, tuple(handles), tuple(callbacks)
         )
 
     def commit_update(self, candidate: _PreparedSubscription) -> None:
         """必须由 Driver 在持有 delivery_lock 时与映射引用同步提交。"""
+        for token in candidate.handles:
+            self._prepared_handles.remove(token)
         self._retired_handles.extend(self._handles)
         self._handles = list(candidate.handles)
         self._callbacks.extend(candidate.callbacks)
@@ -264,6 +271,8 @@ class ADSSubscription:
 
     async def abandon_prepared(self, candidate: _PreparedSubscription) -> tuple[str, ...]:
         """预提交失败时只撤销候选资源，不触碰旧可用句柄。"""
+        for token in candidate.handles:
+            self._prepared_handles.remove(token)
         self._retired_handles.extend(candidate.handles)
         self._callbacks.extend(candidate.callbacks)
         return await self.cleanup_retired()
@@ -288,7 +297,7 @@ class ADSSubscription:
         errors: list[Exception] = []
         self._cleanup_retryable = True
         remaining: list[tuple[Any, Any]] = []
-        for token in reversed([*self._handles, *self._retired_handles]):
+        for token in reversed([*self._handles, *self._retired_handles, *self._prepared_handles]):
             try:
                 # notification_handle/user_handle: 注册时返回的通知与用户句柄。
                 await self._session.execute(
@@ -303,6 +312,7 @@ class ADSSubscription:
                 remaining.append(token)
         self._handles = list(reversed(remaining))
         self._retired_handles.clear()
+        self._prepared_handles.clear()
         if self._worker is not None:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
