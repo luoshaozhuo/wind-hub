@@ -16,13 +16,13 @@ from google.protobuf.json_format import MessageToDict
 from contracts import collector_v2_pb2 as pb
 from contracts import collector_v2_pb2_grpc as pb_grpc
 from core.application.errors import ConfigError
-from core.infrastructure.config.collector_documents import CollectorDocumentLoader
 from core.infrastructure.config.versioned_templates import config_hash
 from core.infrastructure.config.yaml import _UniqueKeyLoader, read_yaml_mapping
 from core.infrastructure.rpc.scalar_codec import encode_scalar
 
 from ...application.services import CollectorQueryService
 from ...assembly import CollectorApp
+from ..config.documents import CollectorDocumentLoader
 from ..config.config_patches import ConfigPatch
 from ..config.transactions import (
     ConfigMutationResult,
