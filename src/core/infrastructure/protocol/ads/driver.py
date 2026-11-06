@@ -244,26 +244,69 @@ class ADSDriver:
                             for subscription in tuple(self._subscriptions)
                             if subscription.point_ids & changed
                         ]
-                        for subscription in affected:
-                            try:
-                                await subscription.stop()
-                            except Exception as exc:
+                        prepared = []
+                        try:
+                            for subscription in affected:
+                                selected = tuple(
+                                    resolved[point_id]
+                                    for point_id in sorted(subscription.point_ids & resolved.keys())
+                                )
+                                prepared.append(
+                                    (subscription, await subscription.prepare_update(selected))
+                                )
+                        except Exception as exc:
+                            leftovers: list[str] = []
+                            for subscription, candidate in prepared:
+                                leftovers.extend(await subscription.abandon_prepared(candidate))
+                            if leftovers or any(
+                                subscription._retired_handles for subscription in affected
+                            ):
                                 self._state = ProtocolLifecycleState.FAULTED
                                 state = "FAULTED"
-                                residual = tuple(sorted(subscription.point_ids))
-                                return result(
-                                    PointTableUpdateStatus.APPLY_FAILED,
-                                    f"ADS subscription cleanup failed: {type(exc).__name__}",
-                                )
-                        self._configured_points = configured
-                        self._points = resolved
-                        self._point_table = point_table
-                        self._active_version = (self._active_version or 0) + 1
-                        applied = True
-                        if affected:
-                            state = "DEGRADED"
-                        return result(PointTableUpdateStatus.SUCCESS, "point table applied")
+                                residual = tuple(leftovers)
+                            return result(
+                                PointTableUpdateStatus.APPLY_FAILED,
+                                f"ADS candidate preparation failed: {type(exc).__name__}",
+                            )
+
+                        # 新代次只在全部候选句柄准备好之后同步激活。
+                        locked: list[ADSSubscription] = []
+                        try:
+                            for subscription, _ in prepared:
+                                await subscription.delivery_lock.acquire()
+                                locked.append(subscription)
+                            self._configured_points = configured
+                            self._points = resolved
+                            self._point_table = point_table
+                            self._active_version = (self._active_version or 0) + 1
+                            applied = True
+                            for subscription, candidate in prepared:
+                                subscription.commit_update(candidate)
+                        finally:
+                            for subscription in reversed(locked):
+                                subscription.delivery_lock.release()
+
+                        leftovers = []
+                        for subscription, _ in prepared:
+                            leftovers.extend(await subscription.cleanup_retired())
+                        if leftovers:
+                            state = "FAULTED"
+                            residual = tuple(leftovers)
+                            self._state = ProtocolLifecycleState.FAULTED
+                            return result(
+                                PointTableUpdateStatus.APPLY_FAILED,
+                                "ADS new map active but old Notification handles remain",
+                            )
+                        return result(PointTableUpdateStatus.SUCCESS, "ADS point table applied")
         except TimeoutError:
+            if any(subscription._retired_handles for subscription in self._subscriptions):
+                state = "FAULTED"
+                self._state = ProtocolLifecycleState.FAULTED
+                residual = tuple(
+                    f"ADS subscription:{id(subscription)}"
+                    for subscription in self._subscriptions
+                    if subscription._retired_handles
+                )
             return result(PointTableUpdateStatus.TIMEOUT, "ADS update deadline expired")
 
     async def connect(self) -> None:
