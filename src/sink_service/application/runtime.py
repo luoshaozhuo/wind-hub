@@ -9,8 +9,8 @@ from enum import StrEnum
 from typing import Protocol
 
 from contracts.sample_message import SampleMessage
-from sink_service.application.point_value import SinkPointValue as PointValue
 from core.domain.sample_value import Quality
+from sink_service.application.point_value import SinkPointValue as PointValue
 from sink_service.application.port import SinkPort
 
 PointKey = tuple[str, str, str]
