@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -38,7 +39,7 @@ def normalize_request_id(value: str | None) -> str:
         return ""
     cleaned = value.strip()[:_MAX_LENGTH]
     # 头内容不得注入控制字符/换行，避免日志伪造。
-    if not cleaned or any(ord(char) < 0x20 for char in cleaned):
+    if not cleaned or any(unicodedata.category(char) == "Cc" for char in cleaned):
         return ""
     return cleaned
 

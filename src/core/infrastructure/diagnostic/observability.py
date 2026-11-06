@@ -115,7 +115,10 @@ class JsonFormatter(logging.Formatter):
             "service": getattr(record, "service", None),
             "logger": record.name,
             "message": record.getMessage(),
-            "request_id": getattr(record, "request_id", None),
+            "request_id": (
+                None if getattr(record, "request_id", None) in (None, "", "-")
+                else record.request_id
+            ),
             "trace_id": getattr(record, "trace_id", None),
             "span_id": getattr(record, "span_id", None),
             "exception": self.formatException(record.exc_info) if record.exc_info else None,
@@ -258,7 +261,11 @@ class RequestIdASGIMiddleware:
             if message.get("type") == "http.response.start":
                 status = int(message.get("status", 500))
                 if self.correlation:
-                    headers_out = list(message.get("headers", ()))
+                    headers_out = [
+                        (key, value)
+                        for key, value in message.get("headers", ())
+                        if key.lower() != REQUEST_ID_HEADER.encode("ascii")
+                    ]
                     headers_out.append(
                         (REQUEST_ID_HEADER.encode("ascii"), request_id.encode("ascii"))
                     )
