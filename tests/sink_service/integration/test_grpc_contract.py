@@ -23,7 +23,7 @@ from sink_service.domain.config import (
     RevisionConflictError,
     WriterRequiredError,
 )
-from sink_service.infrastructure.grpc_v1 import (
+from sink_service.infrastructure.grpc_server import (
     CommonServiceServer,
     SinkServiceServer,
     _status_for,

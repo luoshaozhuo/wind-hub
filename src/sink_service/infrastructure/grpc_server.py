@@ -669,7 +669,7 @@ class SinkServiceServer(sink_service_pb2_grpc.SinkServiceServicer):
         return await self._operate(request, context, start=False)
 
 
-def build_v1_server(
+def build_grpc_server(
     *,
     config: ConfigManager,
     registry: DeliveryRegistry | WorkerRegistryView,

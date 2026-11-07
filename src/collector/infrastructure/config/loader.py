@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from core.application.errors import ConfigError
 from core.application.settings import ADSLocalConfig, MessagingSettings
-from core.domain import DeviceId, Task
+from core.domain import DeviceGroupId, DeviceId, Task
 from core.infrastructure.config import build_shared_snapshot
 
 from ...application.config import CollectorConfig, RuntimeParams
@@ -63,7 +63,7 @@ def collector_config_from_documents(documents: CollectorDocuments) -> CollectorC
         task_config = {**task, **task_override}
         tasks[identifier] = Task(
             task_id=identifier,
-            device_group_id=identifier,
+            device_group_id=DeviceGroupId(identifier),
             point_group=task_config["point_group"],
             interval=task_config["interval"],
         )

@@ -15,7 +15,7 @@ from sink_service.application.config_manager import ConfigManager
 from sink_service.application.observability import Observability
 from sink_service.infrastructure.config_repository import GenerationStore
 from sink_service.infrastructure.grpc_credentials import server_credentials
-from sink_service.infrastructure.grpc_v1 import build_v1_server
+from sink_service.infrastructure.grpc_server import build_grpc_server
 from sink_service.infrastructure.supervisor import WorkerSupervisor
 from sink_service.infrastructure.worker_registry import WorkerRegistryView
 from sink_service.infrastructure.writer_lease import WriterLease
@@ -61,7 +61,7 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
             window_ms=service["metrics"]["metrics_window_ms"],
         )
         grpc_config = service["grpc"]
-        server = build_v1_server(
+        server = build_grpc_server(
             config=manager,
             registry=registry,
             service_id=service["service_id"],

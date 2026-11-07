@@ -165,9 +165,10 @@ class DeliveryRegistry:
                 changed.append(identifier)
             # Drain all changed users of a shared Sink before rebinding any.
             for identifier in sorted(definitions):
-                entry = self._entries.get(identifier)
-                if entry is None:
+                current_entry = self._entries.get(identifier)
+                if current_entry is None:
                     continue
+                entry = current_entry
                 if entry.signature == signatures[identifier]:
                     continue
                 try:
@@ -526,7 +527,7 @@ class DeliveryRegistry:
                             continue
                     continue
                 if entry.view.actual_state == ActualState.RUNNING and getattr(
-                    entry.port, "last_error", ""
+                    entry.port, "last_error"
                 ):
                     try:
                         await entry.port.stop()
