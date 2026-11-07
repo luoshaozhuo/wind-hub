@@ -17,14 +17,17 @@ pytestmark = [pytest.mark.integration, pytest.mark.safety]
 
 
 def _tree(root: Path) -> Path:
-    return write_config_tree(
-        root,
-        modbus_port=1502,
-        iec104_port=2404,
-        nats_servers=["nats://127.0.0.1:4222"],
-        site_ref="custom/site-A.yaml",
-        devices_ref="custom/devices-A.yaml",
-    ) / "collector.yaml"
+    return (
+        write_config_tree(
+            root,
+            modbus_port=1502,
+            iec104_port=2404,
+            nats_servers=["nats://127.0.0.1:4222"],
+            site_ref="custom/site-A.yaml",
+            devices_ref="custom/devices-A.yaml",
+        )
+        / "collector.yaml"
+    )
 
 
 def test_nondefault_source_files_are_used_by_full_validation(tmp_path: Path) -> None:
@@ -42,7 +45,7 @@ def test_no_fallback_to_valid_default_when_declared_file_invalid(
     service = _tree(tmp_path)
     custom = tmp_path / "custom"
     default = tmp_path / "instances"
-    default.mkdir()
+    default.mkdir(exist_ok=True)
     (default / "site.yaml").write_bytes((custom / "site-A.yaml").read_bytes())
     (default / "devices.yaml").write_bytes((custom / "devices-A.yaml").read_bytes())
     (custom / document).write_text("broken: [\n", encoding="utf-8")

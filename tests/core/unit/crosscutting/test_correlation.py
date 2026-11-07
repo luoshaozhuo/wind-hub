@@ -89,4 +89,5 @@ def restore_logging() -> object:
     yield None
     logging.basicConfig(handlers=saved_handlers, level=saved_level, force=True)
 
+
 pytestmark = pytest.mark.unit

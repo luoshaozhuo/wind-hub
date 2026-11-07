@@ -176,11 +176,12 @@ async def test_service_source_change_waits_for_restart(tmp_path: Path) -> None:
     )
     original = _files()
     original["services/collector.yaml"] = (
-        b"configuration:\n"
+        b"config_sources:\n"
         b"  instances:\n"
         b"    site: instances/site.yaml\n"
         b"    devices: instances/devices.yaml\n"
-        b"  templates: templates\n"
+        b"  templates:\n"
+        b"    root: templates\n"
     )
     candidate, _ = manager.push(original, expected_revision="")
     first = await manager.apply(candidate, expected_revision="")

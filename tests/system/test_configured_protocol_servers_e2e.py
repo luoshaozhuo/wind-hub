@@ -28,11 +28,20 @@ from web_server.application.config.service import ConfigService
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.asyncio]
 
 
+def _unique_free_ports(count: int) -> list[int]:
+    """连续分配去重端口，避免 free_port 释放后同进程重复抽到同一端口。"""
+    ports: set[int] = set()
+    while len(ports) < count:
+        ports.add(free_port())
+    return list(ports)
+
+
 @pytest.fixture
 def virtual_site(tmp_path: Path) -> Path:
     """纯地址规划，不预先 bind；实际 listener 必须由业务脚本启动。"""
-    modbus = [ModbusMockServer(port=free_port()) for _ in range(10)]
-    iec104 = [IEC104MockServer(port=free_port()) for _ in range(10)]
+    ports = _unique_free_ports(20)
+    modbus = [ModbusMockServer(port=port) for port in ports[:10]]
+    iec104 = [IEC104MockServer(port=port) for port in ports[10:]]
     ads_hosts = [f"127.0.1.{index + 11}" for index in range(10)]
     return build_fleet_config(
         tmp_path / "site",

@@ -81,21 +81,20 @@ class TestIEC104ConfigToWire:
             assert sample.quality is Quality.GOOD
             assert sample.timestamp.tzinfo is not None
 
-            # 本地监听：不向从站注册；随后显式总召，两个监测点经监听回调到达。
+            # 本地监听：不向从站注册。设计 §7.4.4/§7.4.5：总召 COT 20..41
+            # 只进入匹配的活动召唤，结果经 interrogate() 返回值交付，
+            # 绝不镜像到 Listener；Listener 只接收 COT 1/2/3 的自发上送。
             handle = await driver.listen((), on_sample)
-            await driver.interrogate(InterrogationRequest())
-
-            def _both_interrogated() -> dict[str, ProtocolSample] | None:
-                by_point = {s.point_id: s for s in samples}
-                return by_point if {"meas_power", "meas_freq"} <= set(by_point) else None
-
-            await wait_until(_both_interrogated, timeout=5.0)
-            by_point = {s.point_id: s for s in samples}
+            interrogated = await driver.interrogate(InterrogationRequest())
+            by_point = {s.point_id: s for s in interrogated}
+            assert {"meas_power", "meas_freq"} <= set(by_point)
             assert by_point["meas_power"].value == pytest.approx(1500.5, abs=1e-4)
             assert by_point["meas_freq"].value == pytest.approx(50.0, abs=1e-4)
             for delivered in by_point.values():
                 assert delivered.quality is Quality.GOOD
                 assert delivered.timestamp.tzinfo is not None
+            # 总召数据不得泄漏到监听旁路（COT 隔离合同）。
+            assert samples == []
 
             # 主动上报：对端改值后新样本到达监听者。
             received.clear()

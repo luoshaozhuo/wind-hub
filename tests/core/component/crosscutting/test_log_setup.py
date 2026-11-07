@@ -134,4 +134,5 @@ def test_handler_close_flushes_stream(tmp_path: Path) -> None:
     handler.close()
     assert stream.closed
 
+
 pytestmark = pytest.mark.component

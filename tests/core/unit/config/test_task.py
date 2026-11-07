@@ -108,4 +108,5 @@ def test_central_domain_validation_checks_tasks() -> None:
     }
     validate_core_config(**args)
 
+
 pytestmark = pytest.mark.unit

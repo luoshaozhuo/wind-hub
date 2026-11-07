@@ -64,7 +64,7 @@ def test_infrastructure_directories_respect_separation() -> None:
     crosscutting = {path.name for path in (_INFRA / "crosscutting").glob("*.py")}
     diagnostic = {path.name for path in (_INFRA / "diagnostic").glob("*.py")}
     rpc = {path.name for path in (_INFRA / "rpc").glob("*.py")}
-    assert _CROSSCUTTING <= crosscutting
+    assert crosscutting >= _CROSSCUTTING
     assert diagnostic == _ACTIVE_DIAGNOSTIC
     assert rpc == {"__init__.py", "scalar_codec.py"}
 
@@ -85,9 +85,7 @@ def test_no_production_imports_of_obsolete_crosscutting_paths() -> None:
                 ):
                     offenders.append(f"{path.relative_to(_ROOT)}:{node.lineno}")
             if any(
-                name == old or name.startswith(old + ".")
-                for name in names
-                for old in _OLD_IMPORTS
+                name == old or name.startswith(old + ".") for name in names for old in _OLD_IMPORTS
             ):
                 offenders.append(f"{path.relative_to(_ROOT)}:{node.lineno}")
     assert not offenders, "obsolete Core imports: " + ", ".join(sorted(set(offenders)))

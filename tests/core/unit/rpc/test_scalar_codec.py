@@ -66,4 +66,5 @@ def test_unsupported_type_rejected() -> None:
 def test_unset_scalar_decodes_to_none() -> None:
     assert decode_scalar(pb.ScalarValue()) is None
 
+
 pytestmark = pytest.mark.unit
