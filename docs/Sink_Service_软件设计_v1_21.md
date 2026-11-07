@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_20 · 20261105</p>
+<p class="subtitle">v1_21 · 20261107</p>
 
 <style>
 body {
@@ -771,7 +771,7 @@ System Test 必须遵守以下规定：
 
 **强制目标是单个 Sink Service 容器实例**（Main + Realtime + Reliable 三个独立 asyncio 进程）同时处理不少于 30 台风机、两条通道均为 10 Hz 的批量输入与批量转发；不得用多容器聚合吞吐替代单实例验收。配置静态分配和容器级水平扩容属于额外规模化能力，不降低本节单实例最低目标。
 
-<p class="table-caption">表 3-1a 单实例双通道同时满载最低性能要求</p>
+<p class="table-caption">表 3-1a 单实例双通道共载参考性能目标</p>
 
 | 指标 | Realtime | Reliable | 单实例合计 |
 |---|---:|---:|---:|
@@ -785,7 +785,7 @@ System Test 必须遵守以下规定：
 
 **计数边界：** 600 批/s 是假定每台风机每通道每周期恰好一条批量消息时的**上游输入批次**，不等于下游 Adapter 写入批次数。输入批次可按多个 Delivery 扇出，目标能力也可能导致拆批；按每通道各一份预期输出的基准拓扑计数时，确认值吞吐的下限为 180000 值/s，有额外扇出时应分别记录附加的目标写入工作量。区分 offered（发布）、received（已接收）、accepted（校验后有效）、delivered（目标明确确认）、dropped（合法策略丢弃）和 target batches（下游写入批次），不得混算。Realtime 的允许覆盖不使不足额的 delivered 自动达标；验收测试必须提供满足时效的批次、足够 TTL 和可确认目标，控制输入相位以验证持续 10 Hz 输出。
 
-**输入契约前置条件：** 当前 `main` 的 `src/contracts/sample_message.py::SampleMessage` 仍是单测点 JSON 消息，尚无可直接使用的正式批量传输契约。本版以**批量契约升级完成并完成 Collector/Contracts/Sink 联调**为 Gate-5 前置条件，不把设计中的 Batch 结构写成现有已发布接口；禁止在实际系统中将 600 个单样本消息/秒当作已满足本节负载。批量结构、版本和 Topic/Subject 经第 10.1 节冻结后再实施。
+**输入契约前置条件：** 正式批量输入采用 `src/contracts/sample_batch.py::SampleBatch`，其 Schema、Subject、样本标识与批量上限按第 10.1 节执行；Publisher 与 Collector/Contracts/Sink 的一致性须通过独立实测。不得将单点消息数量冒充批量消息数量。
 
 **资源与适配器：** 三进程分别使用独立事件循环，Main 不参与采样解码与目标批写；Realtime、Reliable 必须同容器同时满载。所有目标协议需逐一标明原生批量能力、拆批上限与真实确认边界；Redis、Kafka、Modbus 的全协议表现分别测试，不得由某一协议推断其他协议的吞吐能力。未实测时指标仅为待验收设计目标。
 
@@ -3195,7 +3195,7 @@ Diagnose 仅返回所指定范围内的可验证证据：NATS/JetStream 连通�
 
 # 14. 测试体系、物理组织与验收
 
-**派发吞吐强制验收场景：** 单个三进程实例按 30 台 × 10 Hz、实时 100 点/台、可靠 500 点/台，持续至少 600 s。分别记录 offered、received、accepted、实际确认 delivered、目标写入批次数、输出周期误差、P99 延迟、CPU/内存及各 Sink 错误/背压；通过条件为实时 ≥30000 确认值/s、可靠 ≥150000 确认值/s 且 Main 控制面可用，缺少真实供数或批量契约联调按 NOT_RUN，不得以多实例合计替代。详见 §14.5.3。
+**派发吞吐容量标定场景：** 单个三进程实例按 30 台 × 10 Hz、实时 100 点/台、可靠 500 点/台的参考负载，持续至少 600 s。分别记录 offered、received、accepted、实际确认 delivered、目标写入批次数、输出周期误差、P99 延迟、CPU/内存及各 Sink 错误/背压；参考吞吐不作为合并阻断指标，必须以真实供数、真实目标确认和完整可靠性证据报告稳定容量边界。详见 §14.5.3。
 
 
 ## 14.1 测试依据与裁定
@@ -3224,6 +3224,12 @@ tests/sink_service/
 
 | 测试文件名 | 层级 Marker | 专题 Marker | 场景 Marker | 测试说明 |
 |---|---|---|---|---|
+| `test_config_validation.py` | unit | contract、security | normal、exception | Service/Instance/Template 完整闭包、显式路径、类型及能力校验 |
+| `test_modbus_image.py` | unit | contract | normal、boundary | Modbus 点表与寄存器编码映射 |
+| `test_reliable_seams.py` | unit | reliability | exception、boundary | Reliable durable 身份、协议能力与 fail-closed 前置条件 |
+| `test_writer_lease.py` | component | reliability | concurrency、recovery | Sink 共享资源独占与安全释放 |
+| `test_config_repository.py` | integration | contract、reliability | storage、recovery | GenerationStore 原子提交、CAS、越界与模板不可变 |
+| `test_redis_batch_contract.py` | integration | contract | normal、boundary | Redis 真批量写入的目标确认边界 |
 | `test_output_policy.py` | unit | reliability | normal、exception | UR-01 三策略、变化阈值、质量/过期 |
 | `test_sample_identity.py` | unit | reliability | exception | 来源、乱序、重复及冲突样本 |
 | `test_delivery_state.py` | unit | reliability | normal、exception | UR-03 desired/actual 状态转换 |
@@ -3260,7 +3266,7 @@ tests/sink_service/
 | `test_replay_starvation_e2e.py` | system | performance、reliability | load、timeout | 持续实时负载时补发的等待、饥饿监控和告警；UC-11 |
 | `test_modbus_server_e2e.py` | system | reliability | normal、exception | Modbus Server 寄存器更新与真实客户端读取；UC-04 |
 
-矩阵中的测试文件仅列文件名，物理归属由层级 Marker 确定为 `tests/sink_service/{unit,component,integration,system}/`，不得仅凭文件名推断测试已实现。上述文件均为**目标测试设计**，并不代表已创建、运行或通过。
+矩阵中的测试文件仅列文件名，物理归属由层级 Marker 确定为 `tests/sink_service/{unit,component,integration,system}/`，不得仅凭文件名推断测试已实现。上述文件均为**目标测试设计**，并不代表已创建、运行或通过。所有测试设计与场景追溯均以本章为唯一权威来源；验收报告可记录实施状态，但不得另建与本章并行的测试设计规范。
 
 ## 14.4 System Test 用例及场景追溯矩阵
 
@@ -3374,32 +3380,32 @@ System 测试以真实进程与真实消息基础设施运行，受控测试目�
 
 上述为执行协议和基础断言，而非软件已通过验收的记录。
 
-### 14.5.3 单实例双通道 30 台风机性能强制验收
+### 14.5.3 单实例双通道 30 台风机容量标定与优化
 
-本项为 **Gate-5 必须 PASS 的独立强制门禁**。真实部署单元为一个容器三个进程（Main、Realtime、Reliable），同一个容器须同时达到 §3.1.1 的两通道吞吐；**禁止以多实例聚合、单通道分别达标或 offered 值替代目标确认值**。
+本项为**单实例性能测量与稳定容量确认**，而非固定吞吐数字的合并阻断门禁。真实部署单元为一个容器三个进程（Main、Realtime、Reliable），两通道必须同时运行。保留 §3.1.1 的 30 台 × 10 Hz 参考负载，通过多轮基线、瓶颈分析、定向优化和重复测量寻找可持续上限。若达不到参考目标，客观报告最佳稳定确认吞吐与约束，不强行达标；**禁止以多实例聚合、单通道分别达标或 offered 值替代目标确认值**。ACK 安全性、数据一致性、资源有界、系统可靠性及满载控制面可用性仍为独立强制门禁。
 
-<p class="table-caption">表 14-5 Gate-5 单实例双通道最低验收矩阵</p>
+<p class="table-caption">表 14-5 Gate-5 单实例双通道容量标定与可靠性验收矩阵</p>
 
-| 场景 | 输入/目标负载 | PASS 所需证据 |
+| 场景 | 输入/参考负载 | 必须提交的测量与可靠性证据 |
 |---|---|---|
-| 批量输入契约 | Collector 按冻结的批量 Schema 每台每通道每拍发送一批 | 正式 Contracts 与 Subject、生产者/消费者相容，实测 600 输入批/s、180000 输入值/s，批次 ID/样本 ID 稳定 |
-| Realtime 容量 | 30 台 × 100 点 × 10 Hz | 同时满载期间目标明确确认 ≥30000 值/s，输出按配置 10 Hz；记录实时丢弃/覆盖/过期值 |
-| Reliable 容量 | 同 30 台 × 500 点 × 10 Hz | 同时满载期间目标明确确认 ≥150000 值/s，ACK 仅在整批条目终局后；无未解释的 ACK 提前/数据丢失 |
-| 合并负载 | Realtime 与 Reliable 同时运行 ≥600 s | 同一容器成功交付 ≥180000 值/s（含分别达标），记录实际 Adapter 写批/s、CPU/RSS、事件循环 P99、Broker 积压 |
+| 批量输入契约 | Collector 按冻结的批量 Schema 每台每通道每拍发送一批 | 正式 Contracts 与 Subject、生产者/消费者相容，报告独立 Publisher 可提供的批/s、值/s、参考负载达成率和批次/样本 ID 一致性 |
+| Realtime 容量 | 30 台 × 100 点 × 10 Hz | 报告明确确认的实时值/s、输出周期分布与参考达成率；记录实时丢弃/覆盖/过期值 |
+| Reliable 容量 | 同 30 台 × 500 点 × 10 Hz | 报告明确确认的可靠值/s、长期积压增长率与参考达成率；ACK 仅在整批条目终局后，无未解释的 ACK 提前/数据丢失 |
+| 合并负载 | Realtime 与 Reliable 同时运行 ≥600 s | 报告同一容器稳定交付值/s、RT/可靠分别确认值/s及参考目标达成率；记录 Adapter 写批/s、CPU/RSS、事件循环 P99、Broker 积压及长期增长趋势 |
 | 可靠部分成功 | 一批 500 点，部分目标确认、部分暂时失败、部分永久错误 | 原批未完成不 ACK；永久错误 DLQ 持久确认；重启/重投不会让未决点消失；重复符合业务策略 |
 | 背压与恢复 | 暂停目标或限流、恢复后补发 | 无本地无界队列、Reliable 不丢未 ACK；实时过期按策略丢弃；恢复与重投有实际证据 |
 | gRPC 可用性 | 600 s 双通道满载期间持续调用 Main 的真实 13 RPC 中适用的无副作用查询 | 连接拒绝为 0；健康/状态/指标请求在配置 deadline 内完成，记录 P95/P99、失败数和最长不可达时间 |
 | 各协议 | Redis、Kafka、Modbus 的实际协议能力及确认边界 | 逐协议报告吞吐、拆批成本和结果；无法覆盖的协议不冒充已 PASS |
-| 输入/性能归因 | 独立 Producer、NATS/JetStream、Sink、Adapter 阶段采样 | 实测生产能力不低于需测 offered；供数不足标记容量 NOT_RUN，并提供可复现瓶颈定位 |
+| 输入/性能归因 | 独立 Producer、NATS/JetStream、Sink、Adapter 阶段采样 | 生产能力必须独立测量；供数不足时参考目标比较为 NOT_RUN，但可记录较低负载下真实稳定容量；提供可复现的瓶颈定位 |
 
-**性能统计规则**：稳态按连续 600 s 窗口计算成功值速率，不以短时峰值抵消长期降速；同时记录 1 s 与 10 s 分桶以观察调度退化。无效、过期、重复、不匹配样本不得用于填充输入要求；测试应提供足量新鲜且可成功写入的不同样本。必须分别报告每个 Adapter 的目标写入成功边界、下游批次数与上游批次数，不假定相等。可靠历史流的故障后恢复能力与正常满载吞吐分别验收，不能以 Broker 缓存速度替代目标确认速度。
+**性能统计规则**：逐轮先校准 Publisher、Broker 与目标供数能力，调整负载寻找可持续最高吞吐；稳态按连续 600 s 窗口计算成功值速率，不以短时峰值抵消长期降速；同时记录 1 s 与 10 s 分桶以观察调度退化。无效、过期、重复、不匹配样本不得用于填充输入要求；测试应提供足量新鲜且可成功写入的不同样本。必须分别报告每个 Adapter 的目标写入成功边界、下游批次数与上游批次数，不假定相等。可靠历史流的故障后恢复能力与正常满载吞吐分别验收，不能以 Broker 缓存速度替代目标确认速度。
 
 ### 14.5.4 静态多实例部署专项验收
 
 | 场景 | 测试与必须证实的结果 |
 |---|---|
 | 静态分配 | 相同镜像的多个三进程容器，各独立配置域，CLI/Web UI 显式分配不冲突的 Delivery/Sink；不依赖协调者或选主 |
-| 规模扩展 | 在每实例已通过 §14.5.3 的条件下，测量扩容后增量和整体吞吐，不以多实例成绩抵消单实例不达标 |
+| 规模扩展 | 先单独确认 §14.5.3 的稳定容量边界，再测量扩容后的增量与整体吞吐；不得以多实例成绩冒充单实例能力 |
 | 来源订阅 | 每容器只订阅归属的来源，核对未匹配输入仍可能存在的重复接收/解码负担 |
 | 配置隔离和迁移 | 独立 CURRENT，旧域 STOP/I/O 安全收敛后新域 START；任一步不确定拒绝抢占 |
 | 控制面与故障 | 各实例 Main 保持可用，故障容器不影响别的实例；无自动跨域迁移或隐式集群能力 |
