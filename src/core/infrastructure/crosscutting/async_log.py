@@ -29,6 +29,7 @@ class BoundedAsyncHandler(logging.Handler):
         self._on_drop = on_drop
         self._queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=capacity)
         self._stop = threading.Event()
+        self._stop_lock = threading.Lock()
         self._worker = threading.Thread(
             target=self._run, name=f"core-log-{process_name}", daemon=True
         )
@@ -68,16 +69,19 @@ class BoundedAsyncHandler(logging.Handler):
                 self._queue.task_done()
 
     def stop(self, *, timeout: float) -> bool:
-        """返回是否完全收敛；失败时不提前关闭工作线程拥有的输出资源。"""
-        self._stop.set()
-        self._worker.join(timeout=timeout)
-        if self._worker.is_alive():
-            return False
-        self._closed = True
-        for handler in self._targets:
-            try:
-                handler.flush()
-            finally:
-                handler.close()
-        super().close()
-        return True
+        """仅在工作线程收敛后关闭输出；并发 stop 不得重复释放资源。"""
+        with self._stop_lock:
+            if self._closed:
+                return True
+            self._stop.set()
+            self._worker.join(timeout=timeout)
+            if self._worker.is_alive():
+                return False
+            for handler in self._targets:
+                try:
+                    handler.flush()
+                finally:
+                    handler.close()
+            super().close()
+            self._closed = True
+            return True
