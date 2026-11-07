@@ -16,7 +16,7 @@ from collector.infrastructure.config.transactions import (
 )
 from core.infrastructure.config.collector_documents import CollectorDocumentLoader
 from core.infrastructure.config.yaml import read_yaml_mapping
-from tests.collector.config_v2.config_tree import ConfigTree  # noqa: E402
+from tests.collector.config.config_tree import ConfigTree  # noqa: E402
 
 pytestmark = pytest.mark.unit
 

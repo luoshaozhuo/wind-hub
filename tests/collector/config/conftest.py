@@ -16,7 +16,7 @@ from collector.infrastructure.grpc.v2_server import (
     CollectorTaskServiceV2,
 )
 from contracts import collector_v2_pb2_grpc as pb_grpc
-from tests.collector.config_v2.config_tree import ConfigTree, make_config_tree
+from tests.collector.config.config_tree import ConfigTree, make_config_tree
 
 ADMIN_TOKEN = "acceptance-token"
 ADMIN_METADATA = (("x-windhub-admin-token", ADMIN_TOKEN),)

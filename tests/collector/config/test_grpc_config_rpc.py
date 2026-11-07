@@ -18,8 +18,8 @@ from contracts import collector_v2_pb2 as pb
 from contracts import collector_v2_pb2_grpc as pb_grpc
 from core.infrastructure.config.versioned_templates import config_hash
 from core.infrastructure.config.yaml import read_yaml_mapping
-from tests.collector.config_v2.config_tree import ConfigTree  # noqa: E402
-from tests.collector.config_v2.conftest import ADMIN_METADATA
+from tests.collector.config.config_tree import ConfigTree  # noqa: E402
+from tests.collector.config.conftest import ADMIN_METADATA
 
 pytestmark = pytest.mark.component
 
