@@ -323,7 +323,7 @@ class MetricsServerInterceptor(grpc.aio.ServerInterceptor):
         self,
         continuation: Callable[[grpc.HandlerCallDetails], Any],
         details: grpc.HandlerCallDetails,
-    ) -> grpc.RpcMethodHandler | None:
+    ) -> grpc.RpcMethodHandler[Any, Any] | None:
         handler = await continuation(details)
         if handler is None:
             return None

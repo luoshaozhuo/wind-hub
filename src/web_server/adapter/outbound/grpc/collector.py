@@ -1,18 +1,17 @@
-"""Collector v2 gRPC client and Server-side application DTO mapping."""
+"""Collector v1 gRPC 出站适配器；仅使用当前正式 Collector/Common 契约。"""
 
 from __future__ import annotations
 
 import asyncio
 import os
 from datetime import UTC
-from typing import cast
-from uuid import uuid4
 
 import grpc
-from google.protobuf import empty_pb2
 
-from contracts import collector_v2_pb2 as pb
-from contracts import collector_v2_pb2_grpc as pb_grpc
+from contracts import collector_pb2 as pb
+from contracts import collector_pb2_grpc as pb_grpc
+from contracts import common_pb2 as common
+from contracts import common_pb2_grpc as common_grpc
 from web_server.adapter.outbound.grpc.common import GrpcClientBase
 from web_server.application.port.monitoring import (
     CounterSnapshot,
@@ -28,139 +27,145 @@ from web_server.application.port.worker import (
     DeviceRuntimeInfo,
 )
 
+_RUNNING = {"RUNNING"}
+_CONNECTED = {"RUNNING"}
+_FAILED = {"FAULTED", "ISOLATED", "BLOCKED"}
 
-def _task_summary(message: pb.TaskStatus) -> CollectorTaskSummary:
-    running = message.actual_state == pb.RUNNING
+
+def _task_summary(message: pb.Task) -> CollectorTaskSummary:
+    running = message.actual_state in _RUNNING
+    failed = message.actual_state in _FAILED
     return CollectorTaskSummary(
         task_id=message.task_id,
         device=message.device_id,
         device_group=None,
         point_group="",
-        interval=message.interval_ms / 1000 if message.HasField("interval_ms") else None,
+        interval=None,
         targets=[],
-        enabled=True,
-        runtime_state="running" if running else "stopped",
+        enabled=message.desired_state == "START",
+        runtime_state="failed" if failed else "running" if running else "stopped",
         instance_count=1,
         running_instances=int(running),
-        stopped_instances=int(not running),
-        failed_instances=0,
+        stopped_instances=int(not running and not failed),
+        failed_instances=int(failed),
     )
 
 
-def _task_instance(message: pb.TaskStatus) -> CollectorTaskInstance:
+def _task_instance(message: pb.Task) -> CollectorTaskInstance:
     return CollectorTaskInstance(
         instance_id=message.device_id,
         task_id=message.task_id,
         device_id=message.device_id,
         point_group="",
-        interval=message.interval_ms / 1000 if message.HasField("interval_ms") else None,
+        interval=None,
         targets=[],
-        state="running" if message.actual_state == pb.RUNNING else "stopped",
+        state=(
+            "failed"
+            if message.actual_state in _FAILED
+            else "running"
+            if message.actual_state in _RUNNING
+            else "stopped"
+        ),
     )
 
 
 class CollectorGrpcClient(GrpcClientBase):
-    """Collector v2 only; no placement or two-phase configuration RPCs."""
+    """Collector v1 只读快照和带磁盘修订号的任务控制。"""
 
     def __init__(self, target: str, *, default_timeout: float = 5.0) -> None:
         super().__init__(target, default_timeout=default_timeout)
-        self._runtime = pb_grpc.CollectorRuntimeServiceStub(self._channel)
-        self._tasks = pb_grpc.CollectorTaskServiceStub(self._channel)
-        self._config = pb_grpc.CollectorConfigServiceStub(self._channel)
-        self._metrics = pb_grpc.CollectorMetricsServiceStub(self._channel)
+        self._collector = pb_grpc.CollectorServiceStub(self._channel)
+        self._common = common_grpc.CommonServiceStub(self._channel)
+
+    @staticmethod
+    def _admin_metadata() -> tuple[tuple[str, str], ...]:
+        token = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
+        if not token:
+            raise PermissionError("Collector management RPC requires admin credentials")
+        return (("x-windhub-admin-token", token),)
 
     async def config_status(self) -> CollectorInfo:
-        """Read Collector identity and runtime readiness without device I/O."""
-        identity, runtime = await asyncio.gather(
-            self._runtime.GetCollectorInfo(empty_pb2.Empty(), timeout=self.default_timeout),
-            self._runtime.GetRuntimeStatus(empty_pb2.Empty(), timeout=self.default_timeout),
+        """服务实例标识由 Collector 的实际运行时身份提供。"""
+        info, status, config = await asyncio.gather(
+            self._common.GetServiceInfo(common.Empty(), timeout=self.default_timeout),
+            self._common.GetServiceStatus(common.Empty(), timeout=self.default_timeout),
+            self._common.GetConfigSnapshot(
+                common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_RUNTIME),
+                timeout=self.default_timeout,
+                metadata=self._admin_metadata(),
+            ),
         )
+        if info.process_role != "collector" or not info.service_id:
+            raise RuntimeError(f"unexpected service role: {info.process_role}")
         return CollectorInfo(
-            collector_id=identity.collector_id,
-            boot_id=identity.boot_id,
-            active_revision=identity.active_revision,
-            runtime_running=runtime.running,
+            collector_id=info.service_id,
+            boot_id="",
+            active_revision=config.revision,
+            runtime_running=status.health in {"HEALTHY", "DEGRADED"},
         )
 
     async def runtime_status(self) -> CollectorRuntimeStatus:
-        status, raw_metrics = await asyncio.gather(
-            self._runtime.GetRuntimeStatus(empty_pb2.Empty(), timeout=self.default_timeout),
-            self._metrics.GetMetrics(
-                pb.GetMetricsRequest(page_size=200),
+        status, devices, metrics = await asyncio.gather(
+            self._common.GetServiceStatus(common.Empty(), timeout=self.default_timeout),
+            self.list_devices(),
+            self._common.GetMetrics(
+                common.GetMetricsRequest(scope="service"),
                 timeout=self.default_timeout,
             ),
         )
-        counters = {
-            metric.name: int(metric.value)
-            for metric in raw_metrics.metrics
-            if not metric.HasField("device_id") and metric.valid
-        }
+        values = {metric.name: metric.value for metric in metrics.metrics}
         return CollectorRuntimeStatus(
-            running=status.running,
-            device_count=status.device_total,
-            devices_connected=status.device_connected,
-            points_collected=counters.get("points_total", 0),
-            points_routed=0,
-            points_dropped=0,
+            running=status.health in {"HEALTHY", "DEGRADED"},
+            device_count=len(devices),
+            devices_connected=sum(device.connected for device in devices),
+            points_collected=int(values.get("collector.points.collected", 0)),
+            points_routed=int(values.get("collector.publisher.published", 0)),
+            points_dropped=int(values.get("collector.publisher.dropped", 0)),
             acquisitions=[],
         )
 
     async def metrics_snapshot(self) -> MetricsSnapshot:
-        raw, raw_events = await asyncio.gather(
-            self._metrics.GetMetrics(
-                pb.GetMetricsRequest(page_size=200),
-                timeout=self.default_timeout,
-            ),
-            self._metrics.GetMetricsEvents(
-                pb.GetMetricsEventsRequest(limit=1000),
-                timeout=self.default_timeout,
-            ),
+        response = await self._common.GetMetrics(
+            common.GetMetricsRequest(scope="service"), timeout=self.default_timeout
         )
-        total = {
-            row.name: int(row.value)
-            for row in raw.metrics
-            if not row.HasField("device_id") and row.valid
-        }
-        device_failed: dict[str, int] = {}
-        device_reconnected: dict[str, int] = {}
-        for row in raw.metrics:
-            if not row.valid or not row.HasField("device_id"):
-                continue
-            if row.name == "device_connect_failures":
-                device_failed[row.device_id] = int(row.value)
-            elif row.name == "device_reconnects":
-                device_reconnected[row.device_id] = int(row.value)
-        return MetricsSnapshot(
-            counters=CounterSnapshot(
-                points_total=total.get("points_total", 0),
-                points_bad=total.get("points_bad", 0),
-                acquisition_runs=total.get("acquisition_runs", 0),
-                acquisition_failures=total.get("acquisition_failures", 0),
-                acquisition_partial=total.get("acquisition_partial", 0),
-                missed_cycles=total.get("missed_cycles", 0),
-                poll_overruns=total.get("poll_overruns", 0),
-                connect_failures=total.get("connect_failures", 0),
-                reconnects=total.get("reconnects", 0),
-            ),
-            device_connect_failures=device_failed,
-            device_reconnects=device_reconnected,
-            events=[
-                MonitoringEvent(
-                    timestamp=event.timestamp.ToDatetime(tzinfo=UTC),
-                    kind=event.event_type,
-                    object=event.device_id if event.HasField("device_id") else "",
-                    message=event.message,
+        values = {metric.name: metric.value for metric in response.metrics}
+        counters = CounterSnapshot(
+            points_total=int(values.get("collector.points.collected", 0)),
+            points_bad=int(values.get("collector.points.bad", 0)),
+            acquisition_runs=int(values.get("collector.poll.executions", 0)),
+            acquisition_failures=int(values.get("collector.poll.failed", 0)),
+            acquisition_partial=int(values.get("collector.poll.partial_success", 0)),
+            missed_cycles=int(values.get("collector.poll.skipped_slots", 0)),
+        )
+        events: list[MonitoringEvent] = []
+        token = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
+        if token:
+            page_token = ""
+            while len(events) < 1000:
+                result = await self._common.GetEvents(
+                    common.GetEventsRequest(page_size=200, page_token=page_token),
+                    timeout=self.default_timeout,
+                    metadata=(("x-windhub-admin-token", token),),
                 )
-                for event in raw_events.events
-            ],
-        )
+                events.extend(
+                    MonitoringEvent(
+                        timestamp=item.timestamp.ToDatetime(tzinfo=UTC),
+                        kind=item.severity,
+                        object=item.source,
+                        message=item.message,
+                    )
+                    for item in result.events
+                )
+                page_token = result.next_page_token
+                if not page_token:
+                    break
+        return MetricsSnapshot(counters=counters, events=events[:1000])
 
     async def list_devices(self) -> list[DeviceRuntimeInfo]:
-        """Read all device pages; never silently return only the first 200."""
         rows: list[DeviceRuntimeInfo] = []
         token = ""
         while True:
-            response = await self._runtime.ListDevices(
+            response = await self._collector.ListDevices(
                 pb.ListDevicesRequest(page_size=200, page_token=token),
                 timeout=self.default_timeout,
             )
@@ -168,14 +173,10 @@ class CollectorGrpcClient(GrpcClientBase):
                 DeviceRuntimeInfo(
                     device_id=item.device_id,
                     protocol=item.protocol,
-                    connected=item.connected,
-                    last_seen=(
-                        item.last_connected_at.ToJsonString()
-                        if item.HasField("last_connected_at")
-                        else None
-                    ),
-                    consecutive_failures=item.consecutive_failures,
-                    last_error=(item.last_error if item.HasField("last_error") else None),
+                    connected=item.actual_state in _CONNECTED,
+                    last_seen=None,
+                    consecutive_failures=0,
+                    last_error=None,
                 )
                 for item in response.devices
             )
@@ -183,11 +184,11 @@ class CollectorGrpcClient(GrpcClientBase):
             if not token:
                 return rows
 
-    async def _list_task_statuses(self) -> list[pb.TaskStatus]:
-        rows: list[pb.TaskStatus] = []
+    async def _list_tasks(self) -> list[pb.Task]:
+        rows: list[pb.Task] = []
         token = ""
         while True:
-            response = await self._tasks.ListTasks(
+            response = await self._collector.ListTasks(
                 pb.ListTasksRequest(page_size=200, page_token=token),
                 timeout=self.default_timeout,
             )
@@ -197,54 +198,32 @@ class CollectorGrpcClient(GrpcClientBase):
                 return rows
 
     async def list_tasks(self) -> list[CollectorTaskSummary]:
-        return [_task_summary(item) for item in await self._list_task_statuses()]
+        return [_task_summary(task) for task in await self._list_tasks()]
 
     async def list_task_instances(self) -> list[CollectorTaskInstance]:
-        return [_task_instance(item) for item in await self._list_task_statuses()]
+        return [_task_instance(task) for task in await self._list_tasks()]
 
-    @staticmethod
-    def _admin_metadata() -> tuple[tuple[str, str], ...]:
-        token = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
-        if not token:
-            raise PermissionError("Collector task control requires admin credentials")
-        return (("x-windhub-admin-token", token),)
-
-    async def _set_task(self, device_id: str, *, start: bool) -> pb.TaskStatus:
-        """Use Collector's revision transaction, not direct task handle mutation."""
-        metadata = self._admin_metadata()
-        status = await self._config.GetConfigStatus(
-            pb.GetConfigStatusRequest(
-                selectors=[pb.ConfigSelector(scope=pb.INSTANCE, name="devices")]
-            ),
-            timeout=self.default_timeout,
-            metadata=metadata,
+    async def _set_task(self, device_id: str, *, start: bool) -> pb.Task:
+        previous = await self._collector.GetTask(
+            common.ObjectId(id=device_id), timeout=self.default_timeout
         )
-        if not status.configs:
-            raise RuntimeError("Collector devices config revision unavailable")
-        revision = status.configs[0].stored_revision
-        request = pb.TaskChangeRequest(
-            device_id=device_id,
-            expected_revision=revision,
-            request_id=uuid4().hex,
-        )
-        operation = self._tasks.StartTask if start else self._tasks.StopTask
+        operation = self._collector.StartTask if start else self._collector.StopTask
         try:
-            await operation(request, timeout=self.default_timeout, metadata=metadata)
+            result = await operation(
+                common.OperationRequest(id=device_id, expected_revision=previous.task.revision),
+                timeout=self.default_timeout,
+                metadata=self._admin_metadata(),
+            )
         except grpc.aio.AioRpcError as exc:
-            if exc.code() in (
-                grpc.StatusCode.ABORTED,
-                grpc.StatusCode.FAILED_PRECONDITION,
-            ):
+            if exc.code() in (grpc.StatusCode.ABORTED, grpc.StatusCode.FAILED_PRECONDITION):
                 raise CollectorTaskConflictError(exc.details() or exc.code().name) from exc
             raise
-        # grpcio ships no type stubs, so generated stub calls resolve to Any.
-        return cast(
-            pb.TaskStatus,
-            await self._tasks.GetTask(
-                pb.DeviceIdRequest(device_id=device_id),
-                timeout=self.default_timeout,
-            ),
+        if not result.accepted:
+            raise CollectorTaskConflictError(result.message or result.error_code)
+        refreshed = await self._collector.GetTask(
+            common.ObjectId(id=device_id), timeout=self.default_timeout
         )
+        return refreshed.task
 
     async def start_task(self, device_id: str) -> CollectorTaskSummary:
         return _task_summary(await self._set_task(device_id, start=True))

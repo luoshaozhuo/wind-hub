@@ -18,6 +18,7 @@ from collector.application.acquisition import CollectorAcquisition
 from collector.application.configuration import CollectorConfigurationManager
 from collector.application.lifecycle import CollectorLifecycle, Lifecycle
 from collector.application.telemetry import CollectorTelemetry, RuntimeEvent
+from collector.infrastructure.publisher import CollectorPublisher
 from collector.infrastructure.config.snapshot_repository import SnapshotConflictError, SnapshotError
 from contracts import common_pb2 as pb
 from contracts import common_pb2_grpc as rpc
@@ -84,7 +85,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         lifecycle: CollectorLifecycle,
         acquisition: CollectorAcquisition,
         telemetry: CollectorTelemetry,
-        publisher: object,
+        publisher: CollectorPublisher,
     ) -> None:
         self._manager = manager
         self._lifecycle = lifecycle
@@ -101,7 +102,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
     ) -> pb.GetServiceInfoResponse:
         del request, context
         response = pb.GetServiceInfoResponse(
-            service_id="collector",
+            service_id=self._publisher.collector_id,
             process_role="collector",
             software_version="unknown",
             contract_version="windhub.common.v1",

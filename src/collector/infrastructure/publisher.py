@@ -60,6 +60,11 @@ class CollectorPublisher:
         self.client_submitted = 0
         self.pubacked = 0
 
+    @property
+    def collector_id(self) -> str:
+        """当前进程的唯一采集器实例 ID。"""
+        return self._collector_id
+
     def update_site(self, site_id: str) -> None:
         self._site_id = validate_subject_token(site_id)
 

@@ -118,15 +118,16 @@ extend-immutable-calls = [
 [tool.mypy]
 strict = true
 python_version = "3.11"
+mypy_path = "typings/grpc-stubs"
 
 # protobuf 生成的 *_pb2*.py 不是手写源码；类型信息由配套的
 # .pyi stub（mypy-protobuf 生成）提供，生成文件本身不做严格检查。
 exclude = "(_pb2\\.py|_pb2_grpc\\.py)$"
 
-# grpcio 未附带 py.typed，且当前环境无法安装 grpcio-stubs；
-# 将 grpc 视为动态类型模块（Any），边界类型安全由 pb2 .pyi stub 保证。
+# grpcio 的公开异步拦截器接口由仓库内首方 partial stub 声明。
+# grpc_tools 为生成期工具，不提供运行期类型信息。
 [[tool.mypy.overrides]]
-module = ["grpc", "grpc.*", "grpc_tools", "grpc_tools.*"]
+module = ["grpc_tools", "grpc_tools.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
 

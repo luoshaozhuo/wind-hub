@@ -35,7 +35,7 @@ def _metadata_request_id(metadata: Any) -> str:
 
 
 def _wrap_unary_unary(behavior: Callable[..., Any], request_id: str) -> Callable[..., Any]:
-    async def wrapper(request: Any, context: grpc.aio.ServicerContext) -> Any:
+    async def wrapper(request: Any, context: grpc.aio.ServicerContext[Any, Any]) -> Any:
         with bind_request_id(request_id):
             return await behavior(request, context)
 
@@ -43,7 +43,7 @@ def _wrap_unary_unary(behavior: Callable[..., Any], request_id: str) -> Callable
 
 
 def _wrap_unary_stream(behavior: Callable[..., Any], request_id: str) -> Callable[..., Any]:
-    async def wrapper(request: Any, context: grpc.aio.ServicerContext) -> AsyncIterator[Any]:
+    async def wrapper(request: Any, context: grpc.aio.ServicerContext[Any, Any]) -> AsyncIterator[Any]:
         with bind_request_id(request_id):
             async for response in behavior(request, context):
                 yield response
@@ -52,7 +52,7 @@ def _wrap_unary_stream(behavior: Callable[..., Any], request_id: str) -> Callabl
 
 
 def _wrap_stream_unary(behavior: Callable[..., Any], request_id: str) -> Callable[..., Any]:
-    async def wrapper(request_iterator: Any, context: grpc.aio.ServicerContext) -> Any:
+    async def wrapper(request_iterator: Any, context: grpc.aio.ServicerContext[Any, Any]) -> Any:
         with bind_request_id(request_id):
             return await behavior(request_iterator, context)
 
@@ -61,7 +61,7 @@ def _wrap_stream_unary(behavior: Callable[..., Any], request_id: str) -> Callabl
 
 def _wrap_stream_stream(behavior: Callable[..., Any], request_id: str) -> Callable[..., Any]:
     async def wrapper(
-        request_iterator: Any, context: grpc.aio.ServicerContext
+        request_iterator: Any, context: grpc.aio.ServicerContext[Any, Any]
     ) -> AsyncIterator[Any]:
         with bind_request_id(request_id):
             async for response in behavior(request_iterator, context):
@@ -70,19 +70,19 @@ def _wrap_stream_stream(behavior: Callable[..., Any], request_id: str) -> Callab
     return wrapper
 
 
-class RequestIdServerInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc]
+class RequestIdServerInterceptor(grpc.aio.ServerInterceptor):
     """包装四种流模式的 handler，在业务执行期间绑定 Request-ID。"""
 
     async def intercept_service(
         self,
         continuation: Callable[[grpc.HandlerCallDetails], Any],
         handler_call_details: grpc.HandlerCallDetails,
-    ) -> grpc.RpcMethodHandler | None:
+    ) -> grpc.RpcMethodHandler[Any, Any] | None:
         handler = await continuation(handler_call_details)
         if handler is None:
             return None
         request_id = _metadata_request_id(handler_call_details.invocation_metadata)
-        factory: Callable[..., grpc.RpcMethodHandler]
+        factory: Callable[..., grpc.RpcMethodHandler[Any, Any]]
         if handler.request_streaming:
             if handler.response_streaming:
                 factory = grpc.stream_stream_rpc_method_handler
