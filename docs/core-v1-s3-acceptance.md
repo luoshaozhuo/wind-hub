@@ -673,3 +673,288 @@ mypy src/core 剩余 6 项全部为 `Class cannot subclass ... (has type "Any")`
 - 两个目标缺陷（Modbus 逐点校验归因、IEC104 召唤/监听 COT 隔离）均已正确修复并经真实协议栈与负向路由用例独立证实；
 - 五项静态门禁 4 绿，唯一红项为三轮不变的 grpc-Any main 基线；Core 508/1 与全量收集 20 errors 的归因三轮稳定，无 RELATED 回归；
 - 限制项（不阻断本分支）：DEGRADED 合同状态仍无生产路径（设计/实现待对齐）；48 项 ST 形式 System 定位与历史树 Marker 结构债务维持第二轮登记；硬件与外部服务环境阻断依旧 NOT_RUN。
+
+---
+
+# 13. 第四轮集中独立验收（Core + Configs v1 长期稳定公共基础平台，2026-11-07）
+
+> 授权 HEAD：`298f701f572adef55d3803c4fcca8fa559959447`（分支 `refactor/core-v1`）。
+> 任务书指定设计基线 `Core_软件设计_v1_21.md`，但全仓检索（`find` + 内容 grep）证实该文档**不存在**，仓库内最高版本为 `docs/design/Core_软件设计_v1_20.md`；本轮以 v1_20（含 §14.6/§14.7 验收规则）为实际基线，该文档缺失本身登记为流程偏差（见 13.10）。
+> 本轮仅提交测试侧修改（一个 commit `b647091c`，12 文件），生产代码 `src/`、`configs/`、`pyproject.toml`、`poetry.lock` **零修改**。
+
+## 13.1 Git 基线、环境与变更边界
+
+| 项 | 值 |
+|---|---|
+| 授权 HEAD | `298f701f`（fetch + ff-only 后与 origin 一致，工作区起始干净） |
+| 本轮测试 commit | `b647091c`（HEAD 前移；生产树与授权 HEAD 完全相同，可经 `git diff 298f701f..b647091c -- src configs pyproject.toml poetry.lock` 验证为空） |
+| 环境 | WSL2 6.18.33.2，conda `wind-hub`，Python 3.14.7；`scripts/dev.py env` PASS |
+| 依赖版本 | grpcio 1.84.0（无 `py.typed`，实测）、protobuf 6.33.6、mypy 1.20.2、ruff 0.8.6、import-linter 2.15、pytest 8.4.2、pyads 3.6.0、pymodbus 3.15.0、hat-drivers 0.10.10、c104 2.2 |
+| 本轮环境补装 | `prompt-toolkit==3.0.53` + `wcwidth==0.9.4`（均为 poetry.lock 已锁版本，pip 安装成功），CLI 30 节点解锁；`dbus-next==0.2.3`（锁已含）安装被权限分类器拒绝，维持 NOT_RUN |
+| 未执行动作 | 无 PR、无 merge、无 rebase、无 force push、无 push（SHA 交用户手动推送） |
+
+## 13.2 静态门禁（原始日志 `/tmp/s3-r4/gate-*.log`）
+
+| 门禁 | 命令 | 退出码 | 结果 |
+|---|---|---|---|
+| Ruff Lint | `ruff check src tests scripts` | **1** | 测试侧修复后**仅剩 1 处生产错误**：`src/core/infrastructure/crosscutting/observability.py:3 I001`（import 排序，`ruff --fix` 可机械修复，diff 已人工预览无语义变化） |
+| Ruff Format | `ruff format --check src tests scripts` | **0** | 729 文件全部合规（8 个测试文件已在本轮格式化；生产文件 0 待格式化） |
+| Mypy Core | `mypy src/core` | **1** | 仅 6 个 grpc subclass-Any（tracing.py:30、observability.py:316、client_correlation.py:142/149/156/167），与第二/三轮基线逐行一致 |
+| Mypy Configuration | `mypy src/configuration` | 0 | 22 文件零问题 |
+| Mypy 全量 | `mypy src` | **1** | 31 errors/5 文件：6 个 grpc-Any + 25 个 web_server pb2（collector.py 2、commander.py 23）；prompt_toolkit 类 3 项随补装清零；两类剩余错误在 main 上同量存在（已逐文件 git 比对） |
+| Import Linter | `lint-imports` | 0 | 15 kept / 0 broken（369 文件 1961 依赖） |
+
+**门禁裁决：6 项中 3 项 PASS，不得报告静态门禁全绿。** 两处红项性质：① ruff I001 是第三轮全绿（HEAD `733b41a8`）之后由本分支 crosscutting 重构提交（`6d1d8080`/`c979509f`）引入的**新回归**，修复权在生产侧；② mypy 六连红为四轮稳定的 grpc 无 py.typed 基线。
+
+### 13.2.1 gRPC 正式类型 Stub 方案评估（任务书专项）
+
+- `grpcio-stubs`：PyPI **不存在该发行包**（`pip index` 实测 No matching distribution）。
+- `grpc-stubs`：PyPI 最新仅 `1.53.0.6`（对应 grpcio 1.53，2023 年），相对仓库 grpcio 1.84 落后约 30 个小版本，`grpc.aio` 拦截器面覆盖不完整，引入即可能产生失配类型，不建议作为正式方案。
+- 首方 PEP 561 stub 可行性实证：在 `/tmp/grpc-stub-poc/stubs/` 编写最小 `grpc/__init__.pyi` + `grpc/aio.pyi`，经 `MYPYPATH` 注入后 mypy 立即识别 stub 并开始按类型检查（6 个 misc 错误转为真实 attr-defined/name-defined 信号）。**机制成立、非伪造类型、非 ignore 扩容**；但同时证明薄 stub 会立刻暴露 33 个待补符号，正式落地需按 Core 实际使用面（实测 16 个 grpc 符号、全仓 76 个）编写完整 stub，并在 `pyproject.toml` 增 `mypy_path`（生产受控文件，须授权 ChatGPT 实施）。建议立项，禁止以 `# type: ignore` 或扩大 override 收口。
+
+## 13.3 Core / Configs 契约审查（出厂配置实证，非简化 fixture）
+
+1. **旧路径/兼容代理残留**：`YamlConfigAdapter`、`core.application.config_diff`、`application.usecase`、五个旧 UseCase 名在 `src/`、`scripts/`、`configs/` 全零命中（`cli/main.py:306` 的 `config_diff` 是 Typer 命令名，非已删模块）。
+2. **services 显式源**：collector/commander/industrial_gateway/data-generator 四份正式服务 YAML 均以 `config_sources` 显式声明 instances/templates 路径，声明路径全部存在；`src/` 内 grep 硬编码 `configs/` 加载路径零命中，各进程从服务文件位置推导根且拒绝逃逸（collector validation 拒 symlink、gateway 禁止 cwd 推导、generator 限定 services 布局）。
+3. **版本引用闭合**：devices.yaml 10 台设备（GW01-05/TZ01-05）→ 1.1.0 型号模板 → 协议模板 1.1.0 + 点表 1.0.0，全部精确版本匹配；版本仓库强制不回退最新版（`versioned_templates.py`）。1.0.0 旧模板保留且无设备引用，符合不可变模板策略。
+4. **三协议参数合同**：ADS 11 参数、Modbus 7 参数、IEC104 12 参数在出厂模板与 `test_protocol_template_contract.py` 等 38 个 contract 测试中对齐；默认值/范围/非法值拒绝随 Core 516 节点全量通过（除 1 个 UNRELATED 架构守护）。
+5. **快照/Apply/重启一致性**：`ConfigPort` 仅 load/save 全量快照；`CollectorConfigurationManager` 的「服务源变更只置 restart_pending、runtime 不热加载」合同由本轮修复后的 `test_service_source_change_waits_for_restart` 等组件测试守住，collector 包 140 passed。
+6. **不一致项（全部非阻断，登记移交）**：
+   - **C-1（UNRELATED，配置卫生）**：`configs/services/data-generator-gateway-a/b.example.yaml` 仍是已废止内嵌 schema（`data_grpc_bind/endpoints/...`，无 `config_sources`），严格加载器 `extra=forbid` 必然拒收；两文件与 main blob 完全相同、全仓无任何测试/脚本/部署引用。
+   - **C-2（结构观察）**：sink_service/web_server 经 `configuration.site_loader.load_domain` 消费旧扁平布局（system.yaml/device_models.yaml/points.yaml/sinks.yaml），与四进程的版本化 `SharedDocumentLoader` 双轨并存；扁平布局仅存在于 tests/fixtures，无出厂配置支撑。分支已将 main 上的 YamlConfigAdapter 调用迁移至此，属待收敛技术债而非新增缺陷。
+   - **C-3（孤立模板）**：`point_tables/ads_wtg_4xems_1.0.0.yaml` 全仓零引用；`iec104_wtg_1.0.0` 点表与 iec104 协议模板仅测试夹具引用，无出厂型号引用。
+   - **C-4（设计性待用）**：`templates/observability_1.0.0.yaml` 无服务消费；设计 v1_20 line 2610 明确其为推荐模板而非强制路径，Core 解析器不做文件 I/O。
+   - **C-5（维持第三轮观察 2）**：`resource_state` Literal 含 DEGRADED，但三协议驱动当前 HEAD 仍无任何 DEGRADED 赋值路径（grep 实证仅类型声明与 READY 默认值）。
+
+## 13.4 四层测试统计与 ST 覆盖
+
+### 13.4.1 收集与分层（`--strict-markers` 零 UnknownMarkWarning）
+
+| 口径 | 数值 |
+|---|---|
+| 全仓收集 | **1998 collected / 18 collection errors**（补装 prompt-toolkit 后由 20 降至 18；18 个全部为 `contracts.collector_v2_pb2` 缺失族，main 既存 D-10） |
+| tests/core + tests/src | 555 节点：unit 412 / component 18 / contract 38 / integration 22 / **system 39**；26 个历史节点无层级标记（第二/三轮登记的结构债，本轮数字一致） |
+| tests/src/system/st | 7 文件 39 节点，全部单 system 层级、函数级场景标记齐备，39/39 PASS |
+| 跨模块包收集 | collector 142、commander 258、industrial_gateway 168、data_generator 169、sink_service 20、cli 161（解锁后）、web_server 192（2 收集错误）、contracts 93、tooling 131、system 109（16 收集错误） |
+
+### 13.4.2 执行结果（修复后分袋复跑，全部带 `-rf` 原始证据）
+
+| 包/目录 | 结果 | 备注 |
+|---|---|---|
+| tests/core | 515 passed / 1 failed | 唯一失败 `test_pb2_only_in_allowed_zones`，7 处越界在 main 同证（D-08，UNRELATED） |
+| tests/src（ST 树） | 39 passed | 含 ST-04/05/20/26/30/40/45/47/53/54/55/56 |
+| collector | **140 passed / 2 skipped / 0 failed** | 本轮修复前为 137+3 failed |
+| commander | 255 passed / 2 failed / 1 skipped | 2 项均为 WSL2 性能地板（实测 242.5/230.3ms vs 200ms 阈值，ENVIRONMENT；分支对该包仅配置导入改动） |
+| industrial_gateway | 167 passed / 1 failed | FIFO 并发时序，main 既存环境时序项（D-12b 同项） |
+| data_generator | 168 passed / 1 failed | p1_09 重启租约，main 既存环境时序项（D-12b 同项） |
+| cli | 141 passed / 3 failed / 17 skipped | 2 项 dbus-next 缺失（ENVIRONMENT）；1 项 tcp_probe 见 13.6 |
+| web_server | 189 passed / 3 failed / 2 errors | 2 项 collector_v2_pb2（D-10）、1 项 py3.14 asyncio 调度既存（测试/目标与 main 零 diff） |
+| contracts / sink_service / tooling | 93 / 10+10skip / 131 | 全 PASS |
+| tests/system | 27 passed / 8 failed / 3 skipped / 84 errors（784.7s，junit `/tmp/s3-r4/system-junit.xml`） | 失败归因见 13.6，errors 归因见 13.7 |
+| 三协议真实回环栈 | **35 passed**（Modbus 14 / IEC104 18 / ADS 3） | `real_service and not hardware`，0 skip |
+| 进程内 soak | **7 passed**（21.97s，含长连接反复重连/Session 替换/通知规划浸泡） | 无需外部服务 |
+
+## 13.5 本轮发现并修复的测试侧问题（commit `b647091c`，生产零改动）
+
+| # | 位置 | 现象（可复现） | 根因与归类 | 修复 |
+|---|---|---|---|---|
+| F-1 | `tests/collector/integration/test_declared_source_validation.py` 2 参数 | `FileExistsError: .../instances`，预期 ConfigError 断言不可达 | **RELATED 测试缺陷**（HEAD `298f701f` 新增测试）：helper 已建 instances 目录，测试无 `exist_ok` 重复 mkdir | 加 `exist_ok=True`，修复后断言真实执行并通过 |
+| F-2 | `tests/collector/component/test_configuration_manager.py::test_service_source_change_waits_for_restart` | runtime 被热加载（calls 2==1 断言失败） | **RELATED 合同漂移**：生产 `35aae2cd` 已改读 `config_sources`，main 时代夹具仍构造旧 `configuration:` 键，导致 source_changed 恒 False | 夹具对齐新 schema；修复后重启隔离语义恢复，全文件通过 |
+| F-3 | `tests/system/e2e/core/test_iec104_config_to_wire.py` | 总召后 5s 超时（隔离复跑必现） | **RELATED 合同漂移**：第三轮生产修复 `733b41a8` 按设计 §7.4.4/§7.4.5 将 COT 20..41 与 Listener 隔离（main 旧实现双路镜像，已 git 取证），该系统测试漏迁移 | 总召结果改由 `interrogate()` 返回值断言，新增「总召不泄漏监听旁路」负向断言；自发上送（COT 3）监听证据保留，真实 c104 回环通过 |
+| F-4 | `tests/system/test_configured_protocol_servers_e2e.py` 2 节点 | 全量跑批中 `duplicate bind 127.0.0.1:<随机端口>`，隔离复跑偶发通过 | **UNRELATED 既有 flaky**（测试与 helper 与 main 零 diff）：`free_port()` TOCTOU，30 端点随机抽端口生日碰撞 | 20 端口统一去重分配；连续 4 次复跑 10/10 稳定通过 |
+| F-5 | 9 个测试文件 ruff I001/UP035/SIM300/format | 静态门禁红 | 机械修复，零断言放松、零 noqa/skip 新增 | 全部合规，ruff 测试侧清零 |
+
+## 13.6 修复后剩余失败逐项归因（RELATED = 0）
+
+| 用例 | 归因 | 证据 |
+|---|---|---|
+| core `test_pb2_only_in_allowed_zones` | UNRELATED（D-08） | 7 越界点 main 逐文件同证，分支未新增 `_pb2` 引用（diff 实证） |
+| commander 性能 ×2 | ENVIRONMENT | 242.5/230.3ms vs 200ms 地板；分支未触碰调度/SQLite 运行时 |
+| gateway FIFO / data_generator p1_09 | UNRELATED（环境时序） | 第二轮 3/3 确定性失败结论延续；分支对两包仅配置导入 |
+| cli systemd ×2 | ENVIRONMENT | dbus-next 锁已含但本机安装被拒；`ModuleNotFoundError` |
+| cli `test_tcp_probe_open_closed_timeout` | ENVIRONMENT | 裸 socket 实证 WSL2 对已关闭 loopback 端口仍接受连接（3/3）；测试与 `src/cli` 与 main 零 diff |
+| web_server 架构 ×2 | UNRELATED（D-10） | collector_v2_pb2 ImportError |
+| web_server diagnostic_cancel | UNRELATED | py3.14 asyncio 兼容，测试/目标与 main 零 diff，第三轮已登记 |
+| r6 tdengine 文档 ×1 | UNRELATED（D-12c） | 缺失文档在 main 同样不存在 |
+| soak ×4 | ENVIRONMENT | 1×NATS NoServers（4222 拒绝）、3×监听端口不可用 |
+
+## 13.7 180 个全量 errors 归因（junit + 日志交叉核对）
+
+collector_v2_pb2 级联 49（web fleet 进程启动 21 + grpc ready 超时 12 + 收集阻断 16）、docker compose 超时 25、wind-hub-* 进程二进制缺失 10，其余为上述根因的子进程级联；无独立新增缺陷。
+
+## 13.8 故障、资源生命周期与横切能力（第三关重点）
+
+- 横切目录 9 模块（async_log/client_correlation/correlation/grpc_correlation/log_setup/observability/observed_protocol/tracing + `__init__`），组件级生命周期测试覆盖：并发装配复用句柄与租约释放、shutdown 超时不重复关闭 provider、冲突配置不获取租约、并发 stop 目标只关一次、超时保留 target 至 worker 结束（`tests/core/component/crosscutting/`，全 PASS）。
+- 故障注入：Modbus 6 / IEC104 3 / ADS 4 项维持通过；UNKNOWN 写入不重放（`write_ack_lost_returns_unknown_without_replay`）真实栈通过。
+- ST-20/55/56 ADS 热更新（真实 AdsTestServer AMS/TCP）、ST-45 IEC104 满队列失效与隔离、ST-47 召唤隔离、ST-30 观测装配背压/出口故障/JSONL/幂等关闭均在 39 节点 ST 树内通过。
+- 后台线程/原生 I/O 收敛：进程内 7 soak 与并发套件无残留失败；系统级进程 kill/优雅退出套件（tests/system/recovery 10 文件）因 collector_v2_pb2 收集阻断整体 NOT_RUN，不能以模拟替代。
+
+## 13.9 长稳与性能（第五关）
+
+| 项 | 实测 | 裁决 |
+|---|---|---|
+| 进程内长稳 | 7 soak 全过（反复读 22s 级、Session 替换、重连风暴模拟、通知规划浸泡） | PASS（回环真实栈） |
+| 系统级 soak（100×10Hz/500×1Hz、200 设备、混合读写、reconnect storm） | NATS 不可达/监听端口不可用 | **NOT_RUN（ENVIRONMENT）** |
+| 性能压测（root + tc netem）、P95/P99、内存趋势 | 无 root/netem/NATS/Docker 前提，`scripts/run_benchmark.py` 不具备运行条件 | **NOT_RUN（ENVIRONMENT）** |
+| 附带数据 | commander SQLite WAL 地板测试实测 230–242ms（阈值 200ms），仅作 WSL2 调度噪声记录，不作为性能结论 | 环境数据 |
+
+## 13.10 NOT_RUN 清单与流程偏差
+
+1. 真实 PLC / TwinCAT / 现场网络（hardware 标记 2 节点为显式环境守卫）；ADS 证据仅 pyads AdsTestServer 回环。
+2. NATS、Docker（compose 25 超时）、systemd/dbus（dbus-next 安装被拒）、wind-hub-* 进程二进制（未构建入 PATH，10 errors）、root/netem 性能前提。
+3. tests/system/recovery 10 文件、tests/system/rpc collector 侧等共 18 模块因 main 既存 collector_v2_pb2 缺失整体不可收集。
+4. **流程偏差**：任务书指定的 v1_21 设计文档不在仓库，实际按 v1_20 验收；建议补充 v1_21 入库或修订任务书引用。
+5. 全仓 xfail 维持 0；skip 全部为显式环境守卫，无以 skip/mock 冒充 PASS。
+
+## 13.11 缺陷移交清单（生产侧，ChatGPT  Owner）
+
+| ID | 严重度 | 归类 | 内容与复现 |
+|---|---|---|---|
+| N-01 | P2 | **RELATED（新回归）** | `ruff check` 生产红项：`src/core/infrastructure/crosscutting/observability.py:3 I001`；复现 `python -m ruff check src`；修复＝对该文件执行 import 排序（机械，无语义） |
+| N-02 | P2（立项） | 四轮基线 | 6 个 grpc subclass-Any mypy 红项；按 13.2.1 评估实施首方 PEP 561 stub（需动 pyproject mypy_path），禁止 ignore 扩容 |
+| N-03 | P1 | UNRELATED（main 既存） | collector_v2_pb2/commander v2 RPC 生成物缺失：web_server 装配运行时 ImportError、18 测试模块收集阻断、mypy src 25 项；需补生成物或回退适配器 |
+| N-04 | P3 | UNRELATED | 两份 data-generator gateway example 为废止 schema，严格加载器拒收且无引用，建议更新或删除 |
+| N-05 | P3 | 结构债 | 配置双轨（load_domain 扁平布局 vs 版本化 SharedDocumentLoader）、孤立/待用模板 3 个、DEGRADED 无生产路径，建议设计对齐后收窄或实现 |
+| N-06 | P3 | ENVIRONMENT 阻断 | dbus-next 已锁未装（需用户授权外部源安装）；prompt-toolkit 本轮已按锁版本补齐 |
+
+## 13.12 最终裁决
+
+### 裁决：**PASS WITH LIMITATIONS（有条件通过）**
+
+依据：
+
+1. 授权 HEAD 下全量可执行测试中，所有 RELATED 失败已在本轮测试授权范围内闭环（F-1/F-2/F-3/F-5），修复后分袋复跑 **RELATED = 0**；剩余失败与 errors 全部具备 UNRELATED（main 同证）或 ENVIRONMENT 实证。
+2. Core 库自身 515/516 通过，唯一失败为 main 既存架构守护；三协议真实回环 35/35、ST 系统树 39/39、进程内 soak 7/7；无 skip/xfail 冒充、无断言放松、无生产代码改动。
+3. Configs 出厂配置版本引用闭合、显式源合同落地、旧键与兼容代理零残留；双轨/孤立模板等仅为登记项，不破坏在用合同。
+
+限制条件（合并前必须处理，故不判无条件 PASS）：
+
+- **L-1**：静态门禁 6 项中 2 项红。N-01 是本分支新引入的生产 ruff 回归，须由 ChatGPT 机械修复后复跑 `ruff check src tests scripts` 至 EXIT=0；N-02 维持基线但须有立项结论，门禁口径才能与「全绿」目标一致。
+- **L-2**：N-03 使 web_server 装配当前不可导入、18 个系统级模块不可收集，属 main 既存但实质削弱跨模块回归证据，须独立立项收口。
+- **L-3**：硬件/NATS/Docker/dbus/进程二进制/长稳压测按 13.9–13.10 维持 NOT_RUN，环境就绪后须复测；v1_21 设计文档缺失须补档。
+- 本轮测试 commit `b647091c` 未 push（按约定交用户手动推送）；生产树相对授权 HEAD `298f701f` 零差异。
+
+---
+
+# 14. 第五轮闭环复测（2026-11-07，HEAD e663a18a）
+
+## 14.1 Git 基线与工作区保护
+
+- 远端 `origin/refactor/core-v1` 与本地 HEAD 均为 `e663a18aba13bd7b4427fa2b44fe11cd24ec093a`（`git fetch` 后 `git rev-parse` 双向核对一致，无需 pull）。
+- `e663a18a` 相对上轮测试 commit `b647091c` 仅变更 1 个生产文件：`src/core/infrastructure/crosscutting/observability.py`（2+/2-，I001 导入顺序修复）。
+- 上轮 §13 报告为本地未提交修改（+160 行），拉取前已核对远端不触碰 `docs/`，报告完整保留，本轮以 docs-only commit 入库（见 14.10）。
+- 本轮未新建分支、未 rebase、未 force push、未创建 PR；生产代码零修改。
+
+## 14.2 静态门禁（证据目录 `/tmp/s3-r5/`）
+
+| 命令 | 退出码 | 结果 |
+|---|---|---|
+| `ruff check src tests scripts` | 0 | All checks passed |
+| `ruff format --check src tests scripts` | 0 | 729 files already formatted |
+| `mypy src/configuration` | 0 | Success: no issues found in 22 source files |
+| `lint-imports` | 0 | Contracts: 15 kept, 0 broken |
+| `mypy src/core` | 1 | 6 errors in 3 files（全部 grpc subclass-Any 基线，见 14.4） |
+| `mypy src` | 1 | 31 errors in 5 files（6 grpc + 25 web_server pb2） |
+
+**N-01 裁决：CLOSED。** `e663a18a` 修复后 Ruff Lint/Format 双绿，错误位置 `observability.py:3` 不再复现，且未引入任何新静态错误。
+
+`mypy src/core` 6 项残余与第四轮同文件、同消息、同错误码逐行一致：
+
+```text
+client_correlation.py  UnaryUnary/UnaryStream/StreamUnary/StreamStream ClientInterceptor subclass Any [misc] ×4
+observability.py:316   ServerInterceptor subclass Any [misc] ×1
+tracing.py:30          ServerInterceptor subclass Any [misc] ×1
+```
+
+## 14.3 web_server pb2 错误的 origin/main 同环境实测对照
+
+未采信历史报告，使用临时 git worktree（`git worktree add /tmp/wt-main origin/main`，同一 conda 环境、同一 mypy 配置）实测：
+
+| 范围 | origin/main | 本分支 e663a18a |
+|---|---|---|
+| `mypy src/web_server` | 28 errors / 3 files | 25 errors / 2 files |
+
+- 本分支 25 项是 main 28 项的**严格子集**（归一化行号后集合 diff：main 多出的 3 项为 `YamlConfigAdapter` 旧适配残留，本分支重构已消除）。
+- 25 项全部位于 `adapter/outbound/grpc/{commander,collector}`，全部为 protobuf 生成符号缺失（`collector_v2_pb2` 缺失级联、stub 请求/枚举/方法未生成），即 N-03。
+- 结论：N-03 为 main 既存的上游生成物缺口，UNRELATED，不以历史报告认定而以本轮同环境对照实测认定。
+
+## 14.4 gRPC 类型专项：正式方案验证与错误分类
+
+### 14.4.1 运行时事实（grpcio 1.84.0 内省）
+
+- 五个基类均为真实类，定义于 `grpc/aio/_interceptor.py`：`UnaryUnaryClientInterceptor`、`UnaryStreamClientInterceptor`、`StreamUnaryClientInterceptor`、`StreamStreamClientInterceptor`、`ServerInterceptor`；`ClientCallDetails` 为 tuple 子类，字段 `method/timeout/metadata/credentials/wait_for_ready`。
+- 拦截方法签名（内省原文）含完整泛型语义，如 `intercept_unary_unary(self, continuation: Callable[[ClientCallDetails, RequestType], UnaryUnaryCall], client_call_details, request) -> Union[UnaryUnaryCall, ResponseType]`；服务端 `intercept_service(...) -> RpcMethodHandler`（生产实际允许返回 `None`，stub 按真实合同声明为 `RpcMethodHandler | None`）。
+- 包内无 `py.typed`，全仓仅 `_cython/cygrpc.pyi` 一个 stub；PyPI 无 `grpcio-stubs`，`grpc-stubs` 停在 1.53 不适用。这是 mypy 将 `grpc.aio` 整体视为 Any、触发 subclass-Any 的唯一根因。
+
+### 14.4.2 首方 stub 验证（不修改生产树，MYPYPATH 隔离实验）
+
+验证产物位于 `/tmp/grpc-stub-v2/stubs/`（仓库外），布局 `grpc/__init__.pyi` + `grpc/aio/__init__.pyi`：
+
+- 请求/响应消息一律使用 `TypeVar`（与 `grpc/aio/_typing.py` 对齐），未用 Any 伪造消息类型；`ClientCallDetails` 按 NamedTuple 声明；四类 Call 按 `__await__`/`__anext__` 真实异步语义声明；五个拦截器基类方法签名与运行时内省一致。
+- 验证结果：**6 个 subclass-Any [misc] 错误全部消失**，stub 自身经两轮修正后零错误。
+
+### 14.4.3 POC 暴露错误的逐项分类
+
+| 分类 | 数量 | 明细 |
+|---|---|---|
+| 类型声明不准确（stub 自身） | 6→0 | 初版 Protocol 基类/协变问题，已在验证 stub 内修正，不属生产缺陷 |
+| 生产代码真实类型问题（strict） | 9 | 见下，全部为机械可修的裸泛型与失效 ignore |
+| 上游第三方类型缺失 | 1 根因 | grpcio 无 py.typed，由首方 stub 兜底，无新增 ignore/排除项 |
+
+9 项生产侧残余（stub 落地后才会显现，当前基线被 Any 掩盖）：
+
+1. `grpc_correlation.py:38/46/55/64`：`grpc.aio.ServicerContext` 裸用泛型 ×4，修复为 `ServicerContext[Any, Any]`（已用独立 probe 在严格 mypy 下验证该注解通过）。
+2. `grpc_correlation.py:80/85`、`tracing.py:40`、`observability.py:326`：`grpc.RpcMethodHandler` 裸用泛型 ×4，同法参数化；如需更严可将四个 wrapper 改为 TypeVar 泛型函数。
+3. `grpc_correlation.py:73`：既有 `# type: ignore[misc]` 在 stub 落地后变为 `unused-ignore`，必须随 stub 同批删除（这是仓库内现存唯一该类 ignore，非本轮新增）。
+
+### 14.4.4 落地形态与爆炸半径（给 ChatGPT 的整改清单）
+
+- 全量 shadow 实验：同一 stub 下 `mypy src` 产生 290 个错误（`experimental.unary_unary`、`ServicerContext.abort/code`、`server.start/stop` 等未声明符号），证明全量首方 grpc stub 是独立大工程，不建议本轮采用。
+- **推荐方案：PEP 561 部分 stub 包**。新建首方 `grpc-stubs` 分发包，METADATA 声明 `Partial-Type-Stub-Package: true`，只包含 `grpc/__init__.pyi`（本仓使用的约 40 个顶层符号：StatusCode 全枚举、RpcError、HandlerCallDetails、RpcMethodHandler、四个 `*_rpc_method_handler` 工厂）与 `grpc/aio/__init__.pyi`（本验证产物）；未覆盖子模块由 mypy 回退真实包（保持 Any 现状），爆炸半径限定在横切四文件。
+- 配套生产修改（须单独授权，ChatGPT 实施）：① `pyproject.toml` 增加 `mypy_path` 或安装该 stub 包；② 14.4.3 的 9 项机械参数化/删 ignore；③ 落地后复跑 `mypy src/core` 须 EXIT=0 且无 ignore 新增。建议补丁基线即 `/tmp/grpc-stub-v2/stubs/` 两个文件。
+- 约束复核：方案不含任何 `type: ignore`、mypy 排除项、`noqa` 或规则降级；Any 仅出现在消息类型不可知的合法参数化位置（与 grpc 上游官方 stub 同口径）。
+
+## 14.5 Core + Configs 定向回归
+
+| 测试范围 | 命令 | Passed | Failed | Skipped | 结论 |
+|---|---|---|---|---|---|
+| Core 架构/单元/组件 | `pytest tests/core/architecture tests/core/unit tests/core/component` | 111 | 1 | 0 | 失败为 D-08，见 14.6 |
+| 横切能力专项 | `pytest tests/core/component/crosscutting tests/core/unit/crosscutting` | 23 | 0 | 0 | 单实例装配/引用计数/关停拒租/Tracer 不重复 shutdown/Async Log 单次释放/观测开关不影响业务 全过 |
+| Core 协议层 | `pytest tests/core/protocol` | 209 | 0 | 0 | 三协议真实栈全过 |
+| Collector | `pytest tests/collector` | 140 | 0 | 2 | 含 F-1/F-2 修复后的 config_sources 与显式源校验 |
+| Commander | `pytest tests/commander` | 255 | 2 | 1 | 两项性能时序，见 14.6 |
+| Industrial Gateway | `pytest tests/industrial_gateway` | 167 | 1 | 0 | FIFO 时序 flaky，见 14.6 |
+| Data Generator | `pytest tests/data_generator` | 168 | 1 | 0 | p1_09 租约时序，见 14.6 |
+| ST 系统测试树 | `pytest tests/src` | 39 | 0 | 0 | 全过 |
+| 配置契约定向 | config 单元 + 显式源 + 配置管理 | 73 | 0 | 0 | 见 14.7 |
+
+## 14.6 失败项归因（全部 UNRELATED，RELATED=0）
+
+1. **D-08 `tests/core/architecture/test_rpc_boundary.py::test_pb2_only_in_allowed_zones`**：collector 7 个文件使用 `_pb2` 未进白名单。`origin/main` worktree 同环境同失败；分支与该测试及 collector 生产文件的差异不涉及该规则，main 既存白名单漂移。
+2. **Gateway FIFO `test_concurrent_same_point_writes_serialize_at_commander`**：4 路并发 Modbus 写要求到达序 `[10,20,30,40]`，实测乱序（如 `[30,10,20,40]`）；核心合同 `max_inflight == 1` 始终成立，仅附加顺序断言受 WSL2 loopback 调度影响。分支连跑 5 次 4 败 1 过，main 连跑 5 次 5 败；测试文件分支零差异。环境时序 flaky，非分支回归。
+3. **Commander 性能 ×2（`test_nominal_load`、`test_dispatch_throughput_100_devices_real_sqlite`）**：WSL2 调度延迟高于 200ms 地板；main worktree 同环境同败，测试文件分支零差异。
+4. **Data Generator `test_p1_09_gateway_restart_invalidates_all_tokens`**：租约失效时序，main worktree 同环境同败，测试文件分支零差异。
+
+复现步骤统一：`python -m pytest <nodeid> -q`；实际结果见 `/tmp/s3-r5/t-*.log`；预期结果为对应断言通过；建议修复方向为测试侧改用同步屏障/事件驱动替代裸时序假设（属测试整改，待后续轮次授权，本轮未改）。
+
+## 14.7 配置契约核查
+
+- `grep -r "configuration:" configs/ --include="*.yaml"` 命中 0：旧 `configuration:` 键在出厂配置中无复活路径。
+- `configs/services/` 四个正式服务文件（collector/commander/data-generator-service/industrial_gateway）全部含 `config_sources`，示例文件不参与装配。
+- 显式 site/devices 源、禁止默认目录回退、restart_pending 不冒充运行时激活：由 `tests/collector/integration/test_declared_source_validation.py` 与 `tests/collector/component/test_configuration_manager.py` 覆盖并全过。
+- 协议/型号/点表/实例版本引用闭包由 Core config 单测与 ST 系统树覆盖，本轮无 RELATED 偏离。
+
+## 14.8 NOT_RUN 登记（环境缺失，不以跳过冒充通过）
+
+真实 PLC/TwinCAT 链路；NATS（本机无服务，NoServers）；Docker（守护进程不可达）；systemd/dbus（`dbus-next==0.2.3` 安装仍待用户明确授权外部源）；wind-hub-* 服务二进制（未构建）；root/netem 网络损伤与长稳压测；设计文档 `Core_软件设计_v1_21.md` 仓库仍不存在（最高 v1_20）。
+
+## 14.9 冻结就绪评估
+
+- 已满足：Ruff Check/Format 全绿；Mypy Configuration 全绿；Import-linter 15/15；Core+Configs 契约无 RELATED 阻断；跨模块定向回归 RELATED=0；公共 API/配置路径/Schema 本轮零生产改动。
+- 未满足：Mypy Core/src 仍红，但 6 项 grpc 错误的正式修复方案已在本轮验证可行（14.4），25 项 pb2 为 main 既存 N-03；两者均已有明确整改路径，不构成新发现缺陷。
+- **本轮裁决：PASS WITH LIMITATIONS。** 建议 ChatGPT 按 14.4.4 实施首方 partial grpc-stubs 并立项 N-03 pb2 重生成；两项收口且复跑静态门禁全绿后，Core + Configs v1 可进入接口冻结。最终裁决权按任务书归 ChatGPT。
+
+## 14.10 提交与推送
+
+- 本轮唯一 commit 为 docs-only：收录 §13（第四轮）与本节 §14（第五轮），不含任何 `src/`、`configs/`、`pyproject.toml`、`poetry.lock` 变更。
+- 本机无 GitHub 凭据，按既有约定不执行 push，commit SHA 交用户手动推送至 `refactor/core-v1`。
