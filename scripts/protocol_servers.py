@@ -38,6 +38,8 @@ from pymodbus.server import ModbusTcpServer
 
 from configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
 from configuration.shared_snapshot import SharedDomainSnapshot
+from configuration.site_loader import load_domain
+from configuration.snapshot import ConfigSnapshot
 from core.domain import DataType, Point
 
 LOG = logging.getLogger("protocol-servers")
@@ -98,7 +100,7 @@ class EndpointPlan:
 
 
 def plan_devices(
-    snapshot: SharedDomainSnapshot,
+    snapshot: SharedDomainSnapshot | ConfigSnapshot,
     *,
     include_disabled: bool = False,
     allow_nonloopback: bool = False,
@@ -453,10 +455,14 @@ async def run_fleet(
     if not 0.01 <= interval <= 3600:
         raise ValueError("interval must be between 0.01 and 3600 seconds")
     root = Path(config)
-    snapshot = build_shared_snapshot(
-        SharedDocumentLoader(
-            SharedConfigPaths(instances=root / "instances", templates=root / "templates")
-        ).load()
+    snapshot = (
+        build_shared_snapshot(
+            SharedDocumentLoader(
+                SharedConfigPaths(instances=root / "instances", templates=root / "templates")
+            ).load()
+        )
+        if (root / "instances").is_dir() and (root / "templates").is_dir()
+        else load_domain(root)
     )
     plans = plan_devices(
         snapshot,
@@ -548,10 +554,14 @@ async def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level))
     root = args.config
-    snapshot = build_shared_snapshot(
-        SharedDocumentLoader(
-            SharedConfigPaths(instances=root / "instances", templates=root / "templates")
-        ).load()
+    snapshot = (
+        build_shared_snapshot(
+            SharedDocumentLoader(
+                SharedConfigPaths(instances=root / "instances", templates=root / "templates")
+            ).load()
+        )
+        if (root / "instances").is_dir() and (root / "templates").is_dir()
+        else load_domain(root)
     )
     plans = plan_devices(
         snapshot,

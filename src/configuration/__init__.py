@@ -5,6 +5,7 @@ from .effective import resolve_effective_device
 from .shared_documents import SharedConfigPaths, SharedDocumentLoader, SharedDocuments
 from .shared_snapshot import SharedDomainSnapshot, build_shared_snapshot
 from .sink import Sink, SinkOutput
+from .site_loader import load_domain
 from .snapshot import ConfigSnapshot
 from .task import Task, devices_for_task, validate_task_references
 from .versioned_templates import TemplateRef, VersionedTemplateRepository
@@ -18,6 +19,7 @@ __all__ = [
     "SharedDomainSnapshot",
     "Sink",
     "SinkOutput",
+    "load_domain",
     "Task",
     "TemplateRef",
     "VersionedTemplateRepository",

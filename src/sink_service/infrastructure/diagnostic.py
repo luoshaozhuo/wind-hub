@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 
 from core.application.diagnostic import DiagnosticFinding, DiagnosticResult, DiagnosticStatus
-from core.infrastructure.config.adapter import YamlConfigAdapter
+from configuration.site_loader import load_domain
 from sink_service.infrastructure.adapters.redis import RedisSink
 from sink_service.infrastructure.config import _resolve_sinks
 
@@ -21,7 +21,7 @@ async def check_sink(
     timeout: float = 5.0,
 ) -> DiagnosticResult:
     """只读诊断；不发送模拟业务点或启动 Modbus TCP Server。"""
-    snapshot = YamlConfigAdapter(config).load()
+    snapshot = load_domain(Path(config))
     sink = snapshot.sinks.get(sink_id)
     if sink is None:
         raise ValueError(f"unknown sink: {sink_id}")

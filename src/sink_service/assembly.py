@@ -9,7 +9,7 @@ from pathlib import Path
 
 from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
 from sink_service.application.sink_contract import ResolvedSink
-from core.infrastructure.config import YamlConfigAdapter
+from configuration.site_loader import load_domain
 from sink_service.application.point_port import PointSinkPort
 from sink_service.application.runtime import SinkRuntime
 from sink_service.infrastructure.adapters import (
@@ -46,7 +46,7 @@ def assemble_sinks(
     """Build one consumer per enabled target with independent acknowledgments."""
     validate_subject_token(wind_farm_id)
     validate_subject_token(deployment_id)
-    snapshot = YamlConfigAdapter(Path(config_dir)).load()
+    snapshot = load_domain(Path(config_dir))
     if snapshot.site.site_id != wind_farm_id:
         raise ValueError("wind_farm_id differs from site configuration")
     configs = _resolve_sinks(snapshot)

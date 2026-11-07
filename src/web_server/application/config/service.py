@@ -19,7 +19,7 @@ from uuid import uuid4
 from configuration.diff import ConfigSnapshotDiff, diff_config_snapshots
 from configuration.snapshot import ConfigSnapshot
 from configuration.digest import config_dir_digest
-from core.infrastructure.config import YamlConfigAdapter
+from configuration.site_loader import load_domain
 from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.worker import (
     CommanderPort,
@@ -119,11 +119,11 @@ class ConfigService:
     @staticmethod
     def load_directory(config_dir: str | Path) -> ConfigSnapshot:
         """完整加载并校验指定配置目录。"""
-        return YamlConfigAdapter(config_dir).load()
+        return load_domain(Path(config_dir))
 
     def load_disk(self) -> ConfigSnapshot:
         """加载当前 Server 管理的配置目录。"""
-        return YamlConfigAdapter(self._config_dir).load()
+        return load_domain(self._config_dir)
 
     def initialize_desired_revision(self) -> None:
         """基于当前稳定磁盘配置建立 bootstrap desired revision。"""

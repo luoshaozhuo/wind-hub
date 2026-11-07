@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from core.infrastructure.config import YamlConfigAdapter
+from configuration.site_loader import load_domain
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 #: 完整三协议风场以测试夹具中的 Modbus 示例站点为种子（configs/ 下的
@@ -199,7 +199,7 @@ def generate_site(
         _write(output, "sinks.yaml", sinks)
 
         # 拒绝留下不可由 Core 解析的半成品，和 Web Server/Collector 共用契约。
-        snapshot = YamlConfigAdapter(output).load()
+        snapshot = load_domain(output)
         if len(snapshot.site.devices) != 3 * count:
             raise RuntimeError("virtual site device count differs from generated config")
         return output
