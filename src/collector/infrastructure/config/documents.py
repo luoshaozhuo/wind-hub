@@ -128,9 +128,7 @@ class CollectorDocumentLoader:
                 raise ConfigError(f"invalid task overrides for {identifier}")
             templates = resolve_model_templates(repository, definition.templates.model)
             task = templates.task.document
-            desired_state = task_overrides.get(
-                "desired_state", task.get("desired_state", "STOP")
-            )
+            desired_state = task_overrides.get("desired_state", task.get("desired_state", "STOP"))
             if desired_state not in ("START", "STOP"):
                 raise ConfigError(f"invalid desired_state for {identifier}")
             devices[identifier] = CollectorDeviceDefinition(
@@ -151,12 +149,9 @@ class CollectorDocumentLoader:
                 "service": service,
                 "shared_revision": shared.revision,
                 "task_templates": {
-                    key: value.templates["task"].content_hash
-                    for key, value in devices.items()
+                    key: value.templates["task"].content_hash for key, value in devices.items()
                 },
-                "desired_states": {
-                    key: value.desired_state for key, value in devices.items()
-                },
+                "desired_states": {key: value.desired_state for key, value in devices.items()},
             }
         )
         return CollectorDocuments(service, shared, devices, revision)

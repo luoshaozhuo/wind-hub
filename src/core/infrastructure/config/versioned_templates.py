@@ -79,8 +79,7 @@ class VersionedTemplateRepository:
     ) -> None:
         self._root = Path(root).resolve()
         self._candidates = {
-            path.resolve(): dict(document)
-            for path, document in (candidates or {}).items()
+            path.resolve(): dict(document) for path, document in (candidates or {}).items()
         }
 
     def path_for(self, reference: TemplateRef) -> Path:

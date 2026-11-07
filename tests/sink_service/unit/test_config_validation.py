@@ -1,4 +1,10 @@
-"""Stage-one configuration contract validation (design sections 11.2.9, 11.3)."""
+"""Stage-one configuration contract validation (v1_20 sections 11.2.9, 11.3).
+
+The v1_20 snapshot is a single-Main-Service closure: exactly one
+``configs/services/sink_service.yaml`` plus the Instance files and exact-version
+templates it references. Legacy dual-process fields (``process_role``,
+``config_writer``, ``config_sync.writer_endpoint``) are rejected by production.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +14,15 @@ import pytest
 
 from sink_service.application.config import snapshot_from_wire, validate_snapshot
 from sink_service.domain.config import ConfigurationError, SnapshotFile
-from tests.sink_service._stage1_fixtures import snapshot_docs, snapshot_files, wire_files
+from tests.sink_service._stage1_fixtures import (
+    DELIVERIES_INSTANCE,
+    SERVICE_FILE,
+    SINKS_INSTANCE,
+    TEMPLATE_ROOT,
+    snapshot_docs,
+    snapshot_files,
+    wire_files,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
 
@@ -37,13 +51,13 @@ def test_digest_revision_is_content_addressed_and_order_independent() -> None:
         "",
         "/etc/passwd",
         "../escape.yaml",
-        "services/../evil.yaml",
-        "services/sub/../../evil.yaml",
-        "services/evil.txt",
+        "configs/services/../evil.yaml",
+        "configs/services/sub/../../evil.yaml",
+        "configs/services/evil.txt",
         "evil/x.yaml",
-        "services\\evil.yaml",
-        "services//evil.yaml",
-        "services/./evil.yaml",
+        "configs\\services\\evil.yaml",
+        "configs//services/evil.yaml",
+        "configs/./services/evil.yaml",
     ],
 )
 def test_snapshot_file_rejects_unsafe_paths(relative_path: str) -> None:
@@ -55,7 +69,7 @@ def test_empty_and_oversized_snapshots_rejected() -> None:
     with pytest.raises(ConfigurationError):
         validate_snapshot(())
     files = list(_valid_files())
-    big = SnapshotFile("templates/sinks/big/1.0.0.yaml", b"x: " + b"a" * (2 * 1024 * 1024))
+    big = SnapshotFile(f"{TEMPLATE_ROOT}/sinks/big_1.0.0.yaml", b"x: " + b"a" * (2 * 1024 * 1024))
     with pytest.raises(ConfigurationError):
         validate_snapshot(tuple(files + [big]))
 
@@ -73,54 +87,42 @@ def _docs_without(path: str) -> dict:
     return docs
 
 
-def test_snapshot_requires_both_service_files() -> None:
+def test_snapshot_requires_exactly_one_service_file() -> None:
+    # Removing the sole Service file breaks the closure.
     with pytest.raises(ConfigurationError):
-        validate_snapshot(snapshot_files(_docs_without("services/sink-reliable.yaml")))
-
-
-def test_roles_must_be_distinct() -> None:
+        validate_snapshot(snapshot_files(_docs_without(SERVICE_FILE)))
+    # A second Service file is rejected: Main owns the single Service document.
     docs = snapshot_docs()
-    docs["services/sink-reliable.yaml"]["process_role"] = "realtime"
-    with pytest.raises(ConfigurationError):
-        validate_snapshot(snapshot_files(docs))
-
-
-def test_exactly_one_writer_required() -> None:
-    docs = snapshot_docs()
-    docs["services/sink-reliable.yaml"]["config_writer"] = True
-    with pytest.raises(ConfigurationError):
-        validate_snapshot(snapshot_files(docs))
-    docs = snapshot_docs()
-    docs["services/sink-realtime.yaml"]["config_writer"] = False
-    docs["services/sink-reliable.yaml"]["config_writer"] = False
+    docs["configs/services/sink_other.yaml"] = copy.deepcopy(docs[SERVICE_FILE])
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
-def test_grpc_ports_must_be_distinct() -> None:
+def test_legacy_process_role_rejected() -> None:
     docs = snapshot_docs()
-    docs["services/sink-reliable.yaml"]["grpc"]["listen_port"] = 50061
+    docs[SERVICE_FILE]["process_role"] = "realtime"
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
-def test_config_root_must_match_across_processes() -> None:
+def test_legacy_config_writer_rejected() -> None:
     docs = snapshot_docs()
-    docs["services/sink-reliable.yaml"]["config_root"] = "/other/root"
+    docs[SERVICE_FILE]["config_writer"] = True
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
-def test_writer_must_not_forward_to_another_endpoint() -> None:
-    docs = snapshot_docs()
-    docs["services/sink-realtime.yaml"]["config_sync"]["writer_endpoint"] = "127.0.0.1:9999"
-    with pytest.raises(ConfigurationError):
-        validate_snapshot(snapshot_files(docs))
+def test_legacy_config_sync_forwarding_fields_rejected() -> None:
+    for legacy_field in ("writer_endpoint", "poll_interval_ms"):
+        docs = snapshot_docs()
+        docs[SERVICE_FILE]["config_sync"][legacy_field] = "127.0.0.1:9999"
+        with pytest.raises(ConfigurationError):
+            validate_snapshot(snapshot_files(docs))
 
 
-def test_reader_requires_writer_endpoint() -> None:
+def test_service_config_root_must_be_nonempty() -> None:
     docs = snapshot_docs()
-    docs["services/sink-reliable.yaml"]["config_sync"]["writer_endpoint"] = ""
+    docs[SERVICE_FILE]["config_root"] = ""
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
@@ -128,6 +130,7 @@ def test_reader_requires_writer_endpoint() -> None:
 @pytest.mark.parametrize(
     ("section", "field", "bad"),
     [
+        ("grpc", "listen_port", 70000),
         ("grpc", "max_active_rpcs", 65),
         ("grpc", "max_request_bytes", 2 * 1024**2 + 1),
         ("grpc", "default_deadline_ms", 5001),
@@ -138,49 +141,51 @@ def test_reader_requires_writer_endpoint() -> None:
 )
 def test_service_value_ranges_enforced(section: str, field: str, bad: int) -> None:
     docs = snapshot_docs()
-    docs["services/sink-realtime.yaml"][section][field] = bad
+    docs[SERVICE_FILE][section][field] = bad
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
 def test_missing_template_reference_rejected() -> None:
-    docs = _docs_without("templates/sinks/redis_realtime/1.0.0.yaml")
+    docs = _docs_without(f"{TEMPLATE_ROOT}/sinks/redis_realtime_1.0.0.yaml")
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
 def test_template_identity_must_match_reference() -> None:
     docs = snapshot_docs()
-    docs["templates/sinks/redis_realtime/1.0.0.yaml"]["template_id"] = "other"
+    docs[f"{TEMPLATE_ROOT}/sinks/redis_realtime_1.0.0.yaml"]["template_id"] = "other"
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
 def test_unknown_sink_reference_rejected() -> None:
     docs = snapshot_docs()
-    docs["instances/deliveries.yaml"]["deliveries"]["ems_power"]["sink_id"] = "ghost"
+    docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]["sink_id"] = "ghost"
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
 def test_incompatible_sink_capability_rejected() -> None:
     docs = snapshot_docs()
-    # Redis template declares reliable=false.
-    docs["instances/deliveries.yaml"]["deliveries"]["power_history"]["sink_id"] = "ems_redis"
+    # Redis template declares reliable=false; a reliable Delivery cannot use it.
+    docs[DELIVERIES_INSTANCE]["deliveries"]["power_history"]["sink_id"] = "ems_redis"
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
 def test_kafka_reliable_requires_duplicate_policy() -> None:
     docs = snapshot_docs()
-    del docs["templates/sinks/kafka_history/1.0.0.yaml"]["output"]["business_duplicate_policy"]
+    del docs[f"{TEMPLATE_ROOT}/sinks/kafka_history_1.0.0.yaml"]["output"][
+        "business_duplicate_policy"
+    ]
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
 def test_non_concurrent_adapter_requires_inflight_one() -> None:
     docs = snapshot_docs()
-    caps = docs["templates/sinks/kafka_history/1.0.0.yaml"]["capabilities"]
+    caps = docs[f"{TEMPLATE_ROOT}/sinks/kafka_history_1.0.0.yaml"]["capabilities"]
     caps["supports_concurrent_write"] = False
     caps["max_safe_inflight"] = 2
     with pytest.raises(ConfigurationError):
@@ -189,16 +194,14 @@ def test_non_concurrent_adapter_requires_inflight_one() -> None:
 
 def test_wind_farm_identity_must_match_service() -> None:
     docs = snapshot_docs()
-    docs["instances/deliveries.yaml"]["deliveries"]["ems_power"]["source"]["wind_farm_id"] = (
-        "farm-b"
-    )
+    docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]["source"]["wind_farm_id"] = "farm-b"
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
 def test_invalid_desired_state_rejected() -> None:
     docs = snapshot_docs()
-    docs["instances/deliveries.yaml"]["deliveries"]["ems_power"]["desired_state"] = "RUN"
+    docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]["desired_state"] = "RUN"
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
@@ -215,7 +218,7 @@ def test_wire_metadata_size_and_hash_validated() -> None:
 def test_mutating_document_changes_revision() -> None:
     before = validate_snapshot(_valid_files()).revision
     docs = snapshot_docs()
-    docs["instances/deliveries.yaml"]["deliveries"]["ems_power"]["desired_state"] = "STOP"
+    docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]["desired_state"] = "STOP"
     after = validate_snapshot(snapshot_files(docs)).revision
     assert before != after
 
@@ -230,7 +233,7 @@ def test_snapshot_returns_independent_file_tuples() -> None:
 
 def test_missing_required_instance_file_rejected() -> None:
     docs = snapshot_docs()
-    docs.pop("instances/sinks.yaml")
+    docs.pop(SINKS_INSTANCE)
     # A stray sink template without the instance file must not pass.
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
@@ -238,7 +241,7 @@ def test_missing_required_instance_file_rejected() -> None:
 
 def test_copy_helper_is_deep() -> None:
     docs = snapshot_docs()
-    docs["services/sink-realtime.yaml"]["grpc"]["listen_port"] = 55555
+    docs[SERVICE_FILE]["grpc"]["listen_port"] = 55555
     fresh = snapshot_docs()
-    assert fresh["services/sink-realtime.yaml"]["grpc"]["listen_port"] == 50061
+    assert fresh[SERVICE_FILE]["grpc"]["listen_port"] == 50061
     _ = copy.copy(fresh)

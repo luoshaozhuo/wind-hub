@@ -9,7 +9,7 @@ import pytest
 from sink_service.domain.config import ConfigurationError
 from sink_service.infrastructure.writer_lease import WriterLease
 
-pytestmark = [pytest.mark.unit, pytest.mark.reliability]
+pytestmark = [pytest.mark.component, pytest.mark.reliability]
 
 
 def test_second_writer_is_rejected(tmp_path: Path) -> None:

@@ -20,10 +20,11 @@ import pytest
 
 from sink_service.application.observability import Observability
 
-pytestmark = [pytest.mark.unit, pytest.mark.contract]
+pytestmark = [pytest.mark.component, pytest.mark.contract]
 
 WINDOW_MS = 60000
-# The exact R04 process metric vocabulary (design R04 / section 9.3.2).
+# The exact process metric vocabulary: twelve R04 names (design R04 / 9.3.2)
+# plus the eight batch-v2 counters emitted by the Realtime/Reliable workers.
 R04_METRICS = {
     "received_total",
     "delivered_total",
@@ -37,6 +38,14 @@ R04_METRICS = {
     "io_inflight",
     "metrics_snapshot_ready",
     "metrics_covered_ms",
+    "input_batches_total",
+    "input_values_total",
+    "received_batches_total",
+    "acknowledged_batches_total",
+    "rejected_batches_total",
+    "routed_values_total",
+    "retry_total",
+    "dead_letter_invalid_batches_total",
 }
 
 

@@ -317,15 +317,17 @@ class CollectorConfigTransactions:
                 raise ConfigError("Collector Service schema_version must be 1")
         else:
             validate_document_version(document, self._path(selector))
-        if selector.scope == "TEMPLATE":
-            if selector.name not in {"units", "business_points"}:
-                if document.get("template_id") != selector.template_id:
-                    raise ConfigError("template ID mismatch")
-                if document.get("file_version") != selector.template_version:
-                    raise ConfigError("template version mismatch")
-                self._validate_template_payload(selector, document)
-            else:
-                self._validate_effective_candidate(selector, document)
+        if selector.scope == "TEMPLATE" and selector.name not in {
+            "units",
+            "business_points",
+        }:
+            if document.get("template_id") != selector.template_id:
+                raise ConfigError("template ID mismatch")
+            if document.get("file_version") != selector.template_version:
+                raise ConfigError("template version mismatch")
+            self._validate_template_payload(selector, document)
+        elif selector.scope == "TEMPLATE":
+            self._validate_effective_candidate(selector, document)
         elif selector.scope == "INSTANCE" and selector.name == "devices":
             if not isinstance(document.get("devices"), dict):
                 raise ConfigError("devices must be a mapping")

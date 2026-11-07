@@ -30,7 +30,7 @@ from sink_service.infrastructure.grpc_v1 import (
 )
 from tests.sink_service._stage1_fixtures import snapshot_docs, snapshot_files
 
-pytestmark = [pytest.mark.unit, pytest.mark.contract]
+pytestmark = [pytest.mark.integration, pytest.mark.contract]
 
 
 class _GrpcAbortError(Exception):
@@ -84,7 +84,14 @@ async def test_service_info_and_role_specific_capabilities(
     caps = await common.GetCapabilities(common_pb2.Empty(), FakeContext())
     assert len(caps.rpc_names) == 13
     assert "StopDelivery" in caps.rpc_names
-    assert set(caps.protocols) == {"nats_core", "redis", "kafka", "modbus_tcp"}
+    # v1_20 pins JetStream as a distinct reliable protocol alongside NATS Core.
+    assert set(caps.protocols) == {
+        "nats_core",
+        "jetstream",
+        "redis",
+        "kafka",
+        "modbus_tcp",
+    }
     assert "realtime_latest_value" in caps.features
 
 

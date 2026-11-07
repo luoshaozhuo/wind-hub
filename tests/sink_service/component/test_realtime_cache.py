@@ -4,7 +4,7 @@ Tests 1-8 are deterministic unit/component tests with no broker:
 
 1. single and multi-Delivery fanout routing
 2. source / device / point filtering with negative caching
-3. point-route cache rebuild at the 8192 identity capacity
+3. point-route LRU cache FIFO eviction at the 16384 identity capacity floor
 4. no stale routes after Delivery removal and hot-update re-registration
 5. isolated change keeps the low-latency immediate output path
 6. sustained saturation coalesces writes to the configured heartbeat tick
@@ -22,11 +22,12 @@ from datetime import UTC, datetime
 
 import pytest
 
+from contracts.sample_batch import BatchSample, SampleBatch
 from contracts.sample_message import SampleMessage
 from sink_service.application.realtime import BatchOutcome, RealtimeEngine
 from sink_service.infrastructure.realtime_runtime import NatsRealtimeIngress
 
-pytestmark = [pytest.mark.unit, pytest.mark.component]
+pytestmark = [pytest.mark.component, pytest.mark.performance]
 
 FARM = "farm-a"
 COLLECTOR = "collector-1"
@@ -60,9 +61,43 @@ def _sample(
 
 
 class _Msg:
-    def __init__(self, sample: SampleMessage) -> None:
-        self.data = sample.encode()
-        self.subject = sample.subject("realtime")
+    def __init__(self, batch: SampleBatch) -> None:
+        self.data = batch.encode()
+        self.subject = batch.subject()
+
+
+def _batch_msg(
+    sample_id: str,
+    *,
+    value: float = 1.0,
+    device: str = "WT001",
+    point: str = "active_power",
+    task: str = "task-1",
+    farm: str = FARM,
+    collector: str = COLLECTOR,
+    staleness: int | None = 5000,
+) -> _Msg:
+    now = datetime.now(UTC)
+    batch = SampleBatch(
+        batch_id=f"b-{sample_id}",
+        mode="realtime",
+        wind_farm_id=farm,
+        collector_id=collector,
+        task_id=task,
+        device_id=device,
+        publish_time=now,
+        samples=(
+            BatchSample(
+                point_id=point,
+                sample_id=sample_id,
+                value=value,
+                quality="good",
+                sample_time=now,
+                max_staleness_ms=staleness,
+            ),
+        ),
+    )
+    return _Msg(batch)
 
 
 class FakeEngine:
@@ -104,13 +139,29 @@ def _ingress() -> NatsRealtimeIngress:
     # use remove(), whose NATS teardown is skipped while no client exists.
     return NatsRealtimeIngress(
         servers=["nats://127.0.0.1:1"],
-        subject_prefix="wh.rt",
+        subject_prefix="wh.batch.rt",
     )
 
 
+class _FakeSubscription:
+    """Stands in for the NATS subscription torn down by remove()."""
+
+    def __init__(self) -> None:
+        self.unsubscribed = 0
+
+    async def unsubscribe(self) -> None:
+        self.unsubscribed += 1
+
+
 def _register(ingress: NatsRealtimeIngress, engine: FakeEngine) -> None:
+    # Mirrors NatsRealtimeIngress() bookkeeping without a broker: the route map
+    # and subscription registry must stay aligned so remove() can pop both.
     ingress._engines[engine.delivery_id] = engine
-    ingress._routes.setdefault(engine.source_identity, {})[engine.delivery_id] = engine
+    source = engine.source_identity
+    ingress._routes.setdefault(source, {})[engine.delivery_id] = engine
+    ingress._subscriptions.setdefault(source, _FakeSubscription())
+    # add() invalidates every cached route decision on topology change.
+    ingress._target_cache.clear()
 
 
 # --- Tests 1-4: point-route cache (commits 571f99ea, fee9596e, 41fff0aa) ----
@@ -123,8 +174,8 @@ async def test_ingress_routes_single_and_multi_delivery_fanout() -> None:
     _register(ingress, wide)
     _register(ingress, narrow)
 
-    sample = _sample("s-1", device="WT001")
-    await ingress._on_message(_Msg(sample))
+    sample = _batch_msg("s-1", device="WT001")
+    await ingress._on_message(sample)
 
     assert [engine for engine in (wide, narrow) if engine.offers] == [wide, narrow]
     assert wide.offers[0][0].sample_id == "s-1"
@@ -135,8 +186,8 @@ async def test_ingress_routes_single_and_multi_delivery_fanout() -> None:
     assert wide.offers[0][2] is True
 
     # Second delivery rejects a device it does not own; the wide one still gets it.
-    other = _sample("s-2", device="WT002")
-    await ingress._on_message(_Msg(other))
+    other = _batch_msg("s-2", device="WT002")
+    await ingress._on_message(other)
     assert len(wide.offers) == 2
     assert len(narrow.offers) == 1
     cached = ingress._target_cache[(FARM, COLLECTOR, "WT002", "active_power")]
@@ -146,7 +197,7 @@ async def test_ingress_routes_single_and_multi_delivery_fanout() -> None:
     solo = _ingress()
     only = FakeEngine("d-only")
     _register(solo, only)
-    await solo._on_message(_Msg(_sample("s-3")))
+    await solo._on_message(_batch_msg("s-3"))
     assert len(only.offers) == 1
     assert solo._target_cache[(FARM, COLLECTOR, "WT001", "active_power")] == (only,)
 
@@ -160,74 +211,93 @@ async def test_ingress_filters_source_device_and_point_and_negative_caches() -> 
     )
     _register(ingress, engine)
 
-    # Foreign wind farm / collector is not a match for the source route table.
-    await ingress._on_message(_Msg(_sample("foreign", farm="farm-b")))
+    # Foreign wind farm / collector has no route entry: the ingress returns
+    # before the point cache and must not fabricate a negative record.
+    await ingress._on_message(_batch_msg("foreign", farm="farm-b"))
     assert engine.offers == []
     foreign_key = ("farm-b", COLLECTOR, "WT001", "active_power")
-    assert ingress._target_cache[foreign_key] == ()
+    assert foreign_key not in ingress._target_cache
 
-    # Rejected device identity is negative-cached: even after a compatible
-    # engine appears, the cached empty tuple must be invalidated explicitly
-    # (topology change clears the cache) rather than silently re-resolved.
-    await ingress._on_message(_Msg(_sample("other-device", device="WT009")))
+    # Rejected device identity is negative-cached: while the topology is
+    # unchanged, repeated arrivals reuse the empty tuple instead of
+    # re-evaluating every engine.
+    await ingress._on_message(_batch_msg("other-device", device="WT009"))
     assert engine.offers == []
+    assert ingress._target_cache[(FARM, COLLECTOR, "WT009", "active_power")] == ()
+    await ingress._on_message(_batch_msg("other-device-repeat", device="WT009"))
+    assert engine.offers == []
+
+    # A topology change (add) invalidates the whole cache: the new engine
+    # owning WT009 picks the identity up on re-resolution.
     late = FakeEngine("d-late", devices=frozenset({"WT009"}))
     _register(ingress, late)
-    await ingress._on_message(_Msg(_sample("other-device-2", device="WT009")))
-    assert late.offers == []
-    # A fresh identity is unaffected by the unrelated negative entry.
-    await ingress._on_message(_Msg(_sample("allowed", device="WT001")))
+    assert ingress._target_cache == {}
+    await ingress._on_message(_batch_msg("other-device-2", device="WT009"))
+    assert len(late.offers) == 1
+    assert late.offers[0][0].sample_id == "other-device-2"
+    # A fresh identity is unaffected by the evicted negative entry.
+    await ingress._on_message(_batch_msg("allowed", device="WT001"))
     assert len(engine.offers) == 1
     assert engine.offers[0][0].sample_id == "allowed"
 
-    point_filtered = _sample("bad-point", device="WT001", point="wind_speed")
-    await ingress._on_message(_Msg(point_filtered))
+    point_filtered = _batch_msg("bad-point", device="WT001", point="wind_speed")
+    await ingress._on_message(point_filtered)
     assert len(engine.offers) == 1
     assert ingress._target_cache[(FARM, COLLECTOR, "WT001", "wind_speed")] == ()
 
 
-async def test_target_cache_rebuilds_after_8192_identity_capacity() -> None:
+async def test_target_cache_evicts_oldest_identity_at_lru_capacity() -> None:
     ingress = _ingress()
     engine = FakeEngine("d-1")
     _register(ingress, engine)
 
-    for index in range(8192):
-        await ingress._on_message(_Msg(_sample(f"cap-{index}", device=f"WT{index:05d}")))
-    assert len(ingress._target_cache) == 8192
+    limit = max(16384, len(ingress._engines) * 4096)
+    assert limit == 16384  # one engine: the floor, not the per-engine 4096
 
-    # The 8193rd distinct identity triggers a full flush followed by rebuild.
-    await ingress._on_message(_Msg(_sample("cap-overflow", device="WT81920")))
-    assert len(ingress._target_cache) == 1
-    rebuilt_key = (FARM, COLLECTOR, "WT81920", "active_power")
-    assert ingress._target_cache[rebuilt_key] == (engine,)
-    assert len(engine.offers) == 8193
+    for index in range(limit):
+        await ingress._on_message(_batch_msg(f"cap-{index}", device=f"WT{index:05d}"))
+    assert len(ingress._target_cache) == limit
+    oldest_key = (FARM, COLLECTOR, "WT00000", "active_power")
+    assert ingress._target_cache[oldest_key] == (engine,)
 
-    # An identity resolved before the flush is re-resolved correctly afterwards.
-    await ingress._on_message(_Msg(_sample("cap-0-repeat", device="WT00000")))
-    assert ingress._target_cache[(FARM, COLLECTOR, "WT00000", "active_power")] == (engine,)
-    assert len(engine.offers) == 8194
+    # The (limit+1)th distinct identity evicts only the oldest FIFO entry;
+    # the pre-fix behaviour was a full flush of every cached route.
+    overflow_device = f"WT{limit:05d}"
+    await ingress._on_message(_batch_msg("cap-overflow", device=overflow_device))
+    assert len(ingress._target_cache) == limit
+    assert oldest_key not in ingress._target_cache
+    overflow_key = (FARM, COLLECTOR, overflow_device, "active_power")
+    assert ingress._target_cache[overflow_key] == (engine,)
+    assert len(engine.offers) == limit + 1
+
+    # An identity evicted by FIFO pressure is re-resolved on its next arrival.
+    await ingress._on_message(_batch_msg("cap-0-repeat", device="WT00000"))
+    assert ingress._target_cache[oldest_key] == (engine,)
+    assert len(engine.offers) == limit + 2
 
 
 async def test_cache_has_no_stale_routes_after_remove_and_hot_update() -> None:
     ingress = _ingress()
     wide = FakeEngine("d-wide")
     _register(ingress, wide)
-    await ingress._on_message(_Msg(_sample("before", device="WT009")))
+    await ingress._on_message(_batch_msg("before", device="WT009"))
     assert len(wide.offers) == 1
     assert (FARM, COLLECTOR, "WT009", "active_power") in ingress._target_cache
 
-    # Production removal path must invalidate every cached route decision.
+    # Production removal path must invalidate every cached route decision and
+    # tear the source subscription down once the last engine leaves.
     await ingress.remove("d-wide")
     assert ingress._target_cache == {}
     assert ingress._routes == {}
     assert ingress._engines == {}
+    assert ingress._subscriptions == {}
 
     # Hot update: a narrower Delivery takes over the same source identity.
     narrow = FakeEngine("d-narrow", devices=frozenset({"WT001"}))
     _register(ingress, narrow)
-    await ingress._on_message(_Msg(_sample("after-reject", device="WT009")))
+    await ingress._on_message(_batch_msg("after-reject", device="WT009"))
     assert narrow.offers == []
-    await ingress._on_message(_Msg(_sample("after-accept", device="WT001")))
+    await ingress._on_message(_batch_msg("after-accept", device="WT001"))
     assert len(narrow.offers) == 1
     assert narrow.offers[0][0].sample_id == "after-accept"
 

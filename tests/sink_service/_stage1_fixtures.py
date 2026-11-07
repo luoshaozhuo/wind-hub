@@ -1,9 +1,14 @@
-"""Shared builders for Sink Service stage-one configuration snapshots.
+"""Shared builders for Sink Service v1_20 single-Service configuration snapshots.
 
-The v1 rewrite stores every snapshot pathname under ``configs/``: two explicit
-Service files, flat exact-version templates and two Instance files. The exact
-layout mirrors the production ``config_sources`` / ``template_path`` contract so
-the fixtures cannot drift into a layout the Writer/Reader would reject.
+v1_20 stores every snapshot pathname under ``configs/``: exactly one
+``services/sink_service.yaml`` owned by Main, two explicit Instance files and
+flat exact-version templates. The layout mirrors the production
+``config_sources`` / ``template_path`` contract so the fixtures cannot drift
+into a layout the validator would reject.
+
+The legacy dual-process layout (two Service files with ``process_role`` /
+``config_writer``) is intentionally unsupported: production ``validate_service``
+rejects those fields because Main owns both data processes and configuration.
 """
 
 from __future__ import annotations
@@ -17,9 +22,8 @@ import yaml
 
 from sink_service.domain.config import SnapshotFile
 
-# Canonical config-root-relative pathnames shared by the whole stage-one suite.
-REALTIME_SERVICE = "configs/services/sink-realtime.yaml"
-RELIABLE_SERVICE = "configs/services/sink-reliable.yaml"
+# Canonical config-root-relative pathnames shared by the whole suite.
+SERVICE_FILE = "configs/services/sink_service.yaml"
 SINKS_INSTANCE = "configs/instances/sinks.yaml"
 DELIVERIES_INSTANCE = "configs/instances/deliveries.yaml"
 TEMPLATE_ROOT = "configs/templates"
@@ -61,8 +65,8 @@ _BASE_SERVICE: dict[str, Any] = {
     },
     "nats": {
         "servers": ["nats://127.0.0.1:4222"],
-        "realtime_subject": "wh.rt",
-        "reliable_subject": "wh.hist",
+        "realtime_subject": "wh.batch.rt",
+        "reliable_subject": "wh.batch.hist",
         "reliable_stream": "WH_HISTORY",
         "dead_letter_stream": "WH_DLQ",
         "dead_letter_subject": "wh.dlq",
@@ -72,6 +76,8 @@ _BASE_SERVICE: dict[str, Any] = {
         "dlq_storage": "file",
         "history_discard": "new",
         "dlq_discard": "new",
+        "connect_timeout_ms": 2000,
+        "max_reconnect_interval_ms": 5000,
     },
     "runtime": {
         "watchdog_interval_ms": 5000,
@@ -101,31 +107,22 @@ _BASE_SERVICE: dict[str, Any] = {
         "max_time_buckets": 120,
         "overrun_policy": "skip",
     },
-    "config_sync": {
-        "poll_interval_ms": 50,
-        "apply_timeout_ms": 10000,
-        "writer_endpoint": "",
-    },
-    "shutdown": {"grace_seconds": 1},
+    "config_sync": {"apply_timeout_ms": 10000},
+    "shutdown": {"grace_seconds": 10},
 }
 
 
 def service_document(
     *,
-    role: str = "realtime",
-    writer: bool = True,
     port: int = 50061,
     config_root: str = "/var/lib/wind-hub/config",
     callers: list[dict[str, Any]] | None = None,
     overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Return the single Main-owned Service document."""
     doc = copy.deepcopy(_BASE_SERVICE)
-    doc["process_role"] = role
-    doc["config_writer"] = writer
     doc["grpc"]["listen_port"] = port
     doc["config_root"] = config_root
-    if not writer:
-        doc["config_sync"]["writer_endpoint"] = f"127.0.0.1:{50061 if port == 50062 else port - 1}"
     if callers is not None:
         doc["security"]["callers"] = callers
     if overrides:
@@ -137,7 +134,6 @@ _REDIS_TEMPLATE = {
     "schema_version": 1,
     "file_version": "1.0.0",
     "template_id": "redis_realtime",
-    "object_version": "1.0.0",
     "kind": "redis",
     "capabilities": {
         "realtime": True,
@@ -154,22 +150,23 @@ _KAFKA_TEMPLATE = {
     "schema_version": 1,
     "file_version": "1.0.0",
     "template_id": "kafka_history",
-    "object_version": "1.0.0",
     "kind": "kafka",
     "capabilities": {
         "realtime": False,
         "reliable": True,
-        "idempotent": True,
-        "supports_concurrent_write": True,
+        "idempotent": False,
+        "supports_concurrent_write": False,
         "max_safe_inflight": 1,
     },
     "connection": {"bootstrap_servers": ["127.0.0.1:9092"]},
     "output": {
         "topic": "wh.history",
-        "write_timeout_ms": 5000,
-        "acks": "all",
-        "enable_idempotence": True,
+        "key_field": "device_id",
         "business_duplicate_policy": "allow_at_least_once",
+        "dedup_identity_fields": ["delivery_id", "sample_id"],
+        "enable_idempotence": True,
+        "acks": "all",
+        "write_timeout_ms": 5000,
     },
 }
 
@@ -177,23 +174,21 @@ _REALTIME_DELIVERY_TEMPLATE = {
     "schema_version": 1,
     "file_version": "1.0.0",
     "template_id": "realtime_power",
-    "object_version": "1.0.0",
     "delivery_mode": "realtime",
     "source_filter": {},
     "output": {
-        "policy": "change_with_heartbeat",
+        "policy": "periodic",
         "period_ms": 100,
         "absolute_threshold": 1.0,
         "relative_threshold": 0.01,
     },
-    "staleness": {"max_age_ms": 3000},
+    "staleness": {"max_age_ms": 60000},
 }
 
 _RELIABLE_DELIVERY_TEMPLATE = {
     "schema_version": 1,
     "file_version": "1.0.0",
     "template_id": "reliable_history",
-    "object_version": "1.0.0",
     "delivery_mode": "reliable",
     "source_filter": {},
     "reliable": {"max_deliver": -1, "dead_letter_subject": "wh.dlq"},
@@ -246,8 +241,7 @@ def _delivery_instance(
 
 def snapshot_docs(
     *,
-    writer_port: int = 50061,
-    reader_port: int = 50062,
+    port: int = 50061,
     config_root: str = "/var/lib/wind-hub/config",
     callers: list[dict[str, Any]] | None = None,
     deliveries: dict[str, dict[str, Any]] | None = None,
@@ -259,20 +253,10 @@ def snapshot_docs(
         "reliable_history",
     ),
 ) -> dict[str, dict[str, Any]]:
-    """Return path -> YAML document for a complete valid shared snapshot."""
-    realtime_callers = callers
+    """Return path -> YAML document for a complete valid single-Service snapshot."""
     docs = {
-        REALTIME_SERVICE: service_document(
-            role="realtime",
-            writer=True,
-            port=writer_port,
-            config_root=config_root,
-            callers=realtime_callers,
-        ),
-        RELIABLE_SERVICE: service_document(
-            role="reliable",
-            writer=False,
-            port=reader_port,
+        SERVICE_FILE: service_document(
+            port=port,
             config_root=config_root,
             callers=callers,
         ),

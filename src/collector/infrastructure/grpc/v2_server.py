@@ -22,8 +22,8 @@ from core.infrastructure.rpc.scalar_codec import encode_scalar
 
 from ...application.services import CollectorQueryService
 from ...assembly import CollectorApp
-from ..config.documents import CollectorDocumentLoader
 from ..config.config_patches import ConfigPatch
+from ..config.documents import CollectorDocumentLoader
 from ..config.transactions import (
     ConfigMutationResult,
     ConfigSelector,

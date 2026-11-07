@@ -9,16 +9,18 @@ filtering and the cold observability surface.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import pytest
 
-from contracts.sample_message import SampleMessage
 from sink_service.application.config import validate_snapshot
 from sink_service.application.delivery_definition import DeliveryDefinition
+from sink_service.application.realtime import RealtimeEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
-from tests.sink_service._stage1_fixtures import snapshot_docs, snapshot_files
+from tests.sink_service._stage1_fixtures import (
+    SERVICE_FILE,
+    snapshot_docs,
+    snapshot_files,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
 
@@ -130,37 +132,31 @@ def test_durable_identity_is_deterministic_and_deployment_scoped() -> None:
     # A different delivery or deployment yields an isolated durable consumer.
     assert ReliableDeliveryPort._durable_id(snapshot, "other_delivery") != first
     renamed = snapshot_docs()
-    renamed["configs/services/sink-realtime.yaml"]["deployment_id"] = "prod-b"
-    renamed["configs/services/sink-reliable.yaml"]["deployment_id"] = "prod-b"
+    renamed[SERVICE_FILE]["deployment_id"] = "prod-b"
     other_snapshot = validate_snapshot(snapshot_files(renamed))
     assert ReliableDeliveryPort._durable_id(other_snapshot, "power_history") != first
 
 
-def _sample(**overrides: object) -> SampleMessage:
-    now = datetime.now(UTC)
-    params: dict[str, object] = {
-        "wind_farm_id": "farm-a",
-        "collector_id": "collector-1",
-        "task_id": "task-1",
-        "device_id": "WT001",
-        "point_id": "active_power",
-        "sample_id": "s1",
-        "value": 1.0,
-        "quality": "good",
-        "sample_time": now,
-        "publish_time": now,
-    }
-    params.update(overrides)
-    return SampleMessage(**params)  # type: ignore[arg-type]
-
-
-def test_matches_honours_declared_source_filter() -> None:
-    port = _port()
-    assert port._matches(_sample()) is True
-    assert port._matches(_sample(device_id="WT999")) is False
-    assert port._matches(_sample(point_id="other_point")) is False
-    assert port._matches(_sample(wind_farm_id="farm-b")) is False
-    assert port._matches(_sample(collector_id="collector-2")) is False
+def test_source_selector_honours_declared_filter() -> None:
+    # Per-point source selection moved out of ReliableDeliveryPort: reliable
+    # routing is JetStream subject-scoped and the point selector lives in
+    # RealtimeEngine.accepts (design 6.x source closure).
+    engine = RealtimeEngine(
+        writer=object(),  # accepts() never touches the writer
+        wind_farm_id="farm-a",
+        collector_id="collector-1",
+        devices=frozenset({"WT001", "WT002"}),
+        points=frozenset({"active_power"}),
+        policy="periodic",
+        period_ms=100,
+        max_points=1000,
+        max_age_ms=3000,
+        absolute_threshold=1.0,
+        relative_threshold=0.01,
+    )
+    assert engine.accepts("WT001", "active_power") is True
+    assert engine.accepts("WT999", "active_power") is False
+    assert engine.accepts("WT001", "other_point") is False
 
 
 def test_cold_observability_surface_is_honest() -> None:

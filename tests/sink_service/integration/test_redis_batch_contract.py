@@ -29,7 +29,7 @@ from tests.fixtures.services.r5_stack import (
     up_stack,
 )
 
-pytestmark = [pytest.mark.system, pytest.mark.integration]
+pytestmark = [pytest.mark.integration]
 
 FARM = "farm-a"
 COLLECTOR = "collector-1"

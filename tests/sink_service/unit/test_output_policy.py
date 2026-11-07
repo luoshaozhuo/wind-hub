@@ -15,7 +15,7 @@ import pytest
 from contracts.sample_message import SampleMessage
 from sink_service.application.realtime import BatchOutcome, RealtimeEngine
 
-pytestmark = [pytest.mark.unit, pytest.mark.component]
+pytestmark = [pytest.mark.unit, pytest.mark.reliability]
 
 FARM = "farm-a"
 COLLECTOR = "collector-1"

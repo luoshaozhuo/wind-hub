@@ -85,12 +85,9 @@ class SharedDocumentLoader:
     ) -> None:
         self._paths = paths
         self._candidates = {
-            path.resolve(): dict(document)
-            for path, document in (candidates or {}).items()
+            path.resolve(): dict(document) for path, document in (candidates or {}).items()
         }
-        self._repository = VersionedTemplateRepository(
-            paths.templates, candidates=self._candidates
-        )
+        self._repository = VersionedTemplateRepository(paths.templates, candidates=self._candidates)
 
     def _load_document(self, path: Path) -> dict[str, Any]:
         candidate = self._candidates.get(path.resolve())

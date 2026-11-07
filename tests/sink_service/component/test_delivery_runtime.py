@@ -8,7 +8,13 @@ from sink_service.application.config import validate_snapshot
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_registry import DeliveryPort, DeliveryRegistry
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
-from tests.sink_service._stage1_fixtures import snapshot_docs, snapshot_files
+from tests.sink_service._stage1_fixtures import (
+    DELIVERIES_INSTANCE,
+    SINKS_INSTANCE,
+    TEMPLATE_ROOT,
+    snapshot_docs,
+    snapshot_files,
+)
 
 pytestmark = [pytest.mark.component, pytest.mark.reliability]
 
@@ -42,7 +48,7 @@ def _snapshot(desired: dict[str, str] | None = None) -> ValidatedSnapshot:
     docs = snapshot_docs()
     if desired is not None:
         for delivery_id, state in desired.items():
-            docs["instances/deliveries.yaml"]["deliveries"][delivery_id]["desired_state"] = state
+            docs[DELIVERIES_INSTANCE]["deliveries"][delivery_id]["desired_state"] = state
     return validate_snapshot(snapshot_files(docs))
 
 
@@ -107,7 +113,7 @@ async def test_watchdog_never_revives_manual_stop() -> None:
     await registry.apply_configuration(first, factory)
     assert created["ems_power"].started == 1
 
-    docs["instances/deliveries.yaml"]["deliveries"]["ems_power"]["desired_state"] = "STOP"
+    docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]["desired_state"] = "STOP"
     stopped = validate_snapshot(snapshot_files(docs))
     applied = await registry.apply_configuration(stopped, factory)
     assert "ems_power" in applied
@@ -137,7 +143,7 @@ async def test_changed_binding_closes_old_port_before_replacement_runs() -> None
     await registry.apply_configuration(first, factory)
     old_port = created["ems_power"]
 
-    docs["templates/deliveries/realtime_power/1.0.0.yaml"]["output"]["period_ms"] = 200
+    docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_1.0.0.yaml"]["output"]["period_ms"] = 200
     changed = validate_snapshot(snapshot_files(docs))
     await registry.apply_configuration(changed, factory)
     assert old_port.stopped == 1
@@ -152,10 +158,12 @@ async def test_removed_delivery_stops_and_releases_ownership() -> None:
     factory, created = _factory()
     await registry.apply_configuration(first, factory)
 
-    del docs["instances/deliveries.yaml"]["deliveries"]["ems_power"]
-    # A referenced template for the removed delivery must also disappear from
-    # the complete set; emulate by repurposing: keep template but change nothing
-    # else in the file set (unused templates are allowed in a snapshot).
+    del docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]
+    # Exact-closure rule: the removed Delivery takes its unreferenced Sink and
+    # both private templates out of the snapshot.
+    del docs[SINKS_INSTANCE]["sinks"]["ems_redis"]
+    del docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_1.0.0.yaml"]
+    del docs[f"{TEMPLATE_ROOT}/sinks/redis_realtime_1.0.0.yaml"]
     changed = validate_snapshot(snapshot_files(docs))
     applied = await registry.apply_configuration(changed, factory)
     assert "ems_power" in applied
@@ -171,23 +179,29 @@ async def test_failed_removal_retains_ownership_and_watchdog_does_not_restart() 
     factory, created = _factory(fail_stop={"ems_power"})
     await registry.apply_configuration(first, factory)
 
-    del docs["instances/deliveries.yaml"]["deliveries"]["ems_power"]
+    del docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]
+    del docs[SINKS_INSTANCE]["sinks"]["ems_redis"]
+    del docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_1.0.0.yaml"]
+    del docs[f"{TEMPLATE_ROOT}/sinks/redis_realtime_1.0.0.yaml"]
     changed = validate_snapshot(snapshot_files(docs))
     applied = await registry.apply_configuration(changed, factory)
     assert "ems_power" not in applied  # still FAILED, ownership retained
     assert registry.get("ems_power").actual_state == "FAILED"
     stopped_once = created["ems_power"].stopped
 
-    # Watchdog must not resurrect a delivery that is being removed.
+    # Watchdog retries the failed stop but must never resurrect the removal:
+    # no START is issued while STOP keeps failing.
     await registry.reconcile_all()
     assert created["ems_power"].started == 1
+    assert created["ems_power"].stopped >= stopped_once
 
     # Next reconciliation retries stop and releases ownership once it succeeds.
     created["ems_power"].stop_fails = False
     await registry.apply_configuration(changed, factory)
     with pytest.raises(KeyError):
         registry.get("ems_power")
-    assert created["ems_power"].stopped == stopped_once + 1
+    assert created["ems_power"].stopped > stopped_once
+    assert created["ems_power"].started == 1
 
 
 async def test_shutdown_closes_all_ports_and_aggregates_failures() -> None:
@@ -214,7 +228,7 @@ async def test_failed_start_not_revived_when_desired_stop() -> None:
     assert registry.get("ems_power").actual_state == "FAILED"
 
     docs = snapshot_docs()
-    docs["instances/deliveries.yaml"]["deliveries"]["ems_power"]["desired_state"] = "STOP"
+    docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]["desired_state"] = "STOP"
     stopped = validate_snapshot(snapshot_files(docs))
     applied = await registry.apply_configuration(stopped, factory)
     assert "ems_power" in applied
