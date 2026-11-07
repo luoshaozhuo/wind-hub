@@ -25,12 +25,12 @@ async def test_service_path_binding_persists_without_source_fallback(tmp_path: P
     service.write_text(
         yaml.safe_dump(
             {
-                "configuration": {
+                "config_sources": {
                     "instances": {
                         "site": "custom/site-A.yaml",
                         "devices": "custom/turbines-A.yaml",
                     },
-                    "templates": "releases",
+                    "templates": {"root": "releases"},
                 }
             }
         ),

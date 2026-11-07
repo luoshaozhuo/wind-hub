@@ -4,9 +4,9 @@ file_version: 1.0.0
 
 config_sources:
   instances:
-    devices: ../instances/devices.yaml
+    devices: configs/instances/devices.yaml
   templates:
-    root: ../templates
+    root: configs/templates
 
 grpc:
   listen_host: "0.0.0.0"

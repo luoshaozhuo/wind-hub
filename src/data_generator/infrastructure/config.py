@@ -206,7 +206,10 @@ def resolve_source(service_file: Path, value: object, *, directory: bool = False
     if relative.is_absolute() or ".." in relative.parts or "\\" in value:
         raise GeneratorError("configuration path must be configs-relative without traversal")
     root = service_file.parent.parent.resolve()
-    target = (root / relative).resolve()
+    if relative.parts and relative.parts[0] == "configs":
+        target = root.joinpath(*relative.parts[1:]).resolve()
+    else:
+        target = (root / relative).resolve()
     if not target.is_relative_to(root):
         raise GeneratorError("configuration path escapes configs root")
     if directory:
@@ -218,12 +221,12 @@ def resolve_source(service_file: Path, value: object, *, directory: bool = False
 
 
 def config_sources(service_file: Path, service: dict[str, Any]) -> dict[str, Path]:
-    configuration = service.get("configuration")
+    configuration = service.get("config_sources")
     if not isinstance(configuration, dict) or set(configuration) != {
         "instances",
         "templates",
     }:
-        raise GeneratorError("service.configuration requires instances and templates")
+        raise GeneratorError("service.config_sources requires instances and templates")
     instances = configuration["instances"]
     templates = configuration["templates"]
     if not isinstance(instances, dict) or set(instances) != {

@@ -1,9 +1,10 @@
 schema_version: 1
-configuration:
+config_sources:
   instances:
-    site: instances/site.yaml
-    devices: instances/devices.yaml
-  templates: templates
+    site: configs/instances/site.yaml
+    devices: configs/instances/devices.yaml
+  templates:
+    root: configs/templates
 file_version: 1.0.0
 runtime:
   shutdown_timeout: 30

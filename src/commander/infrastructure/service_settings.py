@@ -129,8 +129,15 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         if not isinstance(value, str) or not value.strip() or value.strip() != value:
             raise ValueError(f"{name}: nonempty pathname required")
         candidate = Path(value)
+        if ".." in candidate.parts or "\\" in value:
+            raise ValueError(f"{name}: path traversal is not allowed")
         if not candidate.is_absolute():
-            candidate = Path(path).resolve().parent / candidate
+            service_dir = Path(path).resolve().parent
+            candidate = (
+                service_dir.parent.joinpath(*candidate.parts[1:])
+                if candidate.parts and candidate.parts[0] == "configs"
+                else service_dir / candidate
+            )
         try:
             resolved = candidate.resolve(strict=True)
         except OSError as exc:

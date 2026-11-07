@@ -1,8 +1,7 @@
 """Build complete, schema-valid Collector configuration trees for real processes.
 
 Every YAML document carries ``file_version`` (the shipped
-``configs/services/collector.yaml`` does not; that defect is tested separately
-and must not be silently repaired here for the formal config). Trees follow
+``configs/services/collector.yaml`` does too; this fixture uses isolated file versions). Trees follow
 the §11 Template/Service/Instance separation and are consumed by a real
 ``collector.main`` process, never by in-process fakes.
 """
@@ -49,9 +48,9 @@ def write_config_tree(
 
     service = {
         **_HEADER,
-        "configuration": {
+        "config_sources": {
             "instances": {"site": site_ref, "devices": devices_ref},
-            "templates": templates_ref,
+            "templates": {"root": templates_ref},
         },
         "runtime": {
             "shutdown_timeout": shutdown_timeout,

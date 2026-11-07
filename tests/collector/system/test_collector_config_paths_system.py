@@ -60,13 +60,13 @@ async def test_cfg_path_01_custom_source_paths(
         },
         {
             "instances": {"site": "../outside.yaml", "devices": "instances/devices.yaml"},
-            "templates": "templates",
+            "templates": {"root": "templates"},
         },
         {
             "instances": {"site": "missing/site.yaml", "devices": "instances/devices.yaml"},
-            "templates": "templates",
+            "templates": {"root": "templates"},
         },
-        {"instances": {"site": "instances/site.yaml"}, "templates": "templates"},
+        {"instances": {"site": "instances/site.yaml"}, "templates": {"root": "templates"}},
     ],
 )
 async def test_cfg_path_02_03_08_reject_invalid_sources(
@@ -75,7 +75,7 @@ async def test_cfg_path_02_03_08_reject_invalid_sources(
     handle = await collector()
     service = handle.services / "collector.yaml"
     document = yaml.safe_load(service.read_text(encoding="utf-8"))
-    document["configuration"] = bad_reference
+    document["config_sources"] = bad_reference
     service.write_text(yaml.safe_dump(document), encoding="utf-8")
     result = _check(service)
     assert result.returncode != 0
@@ -90,7 +90,7 @@ async def test_cfg_path_05_service_references_switch_only_after_restart(
     files = await snapshot_files(client)
     new_files = dict(files)
     service = yaml.safe_load(new_files["services/collector.yaml"])
-    service["configuration"]["instances"]["site"] = "other/site.yaml"
+    service["config_sources"]["instances"]["site"] = "other/site.yaml"
     new_files["services/collector.yaml"] = yaml.safe_dump(service).encode("utf-8")
     push = await client.PushConfigSnapshot(
         pb.PushConfigSnapshotRequest(
@@ -119,7 +119,7 @@ async def test_cfg_path_05_service_references_switch_only_after_restart(
     runtime_service = next(
         item.content for item in runtime.files if item.relative_path == "services/collector.yaml"
     )
-    assert yaml.safe_load(runtime_service)["configuration"]["instances"]["site"] == (
+    assert yaml.safe_load(runtime_service)["config_sources"]["instances"]["site"] == (
         "instances/site.yaml"
     )
 

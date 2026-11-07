@@ -92,7 +92,7 @@ def write_service_yaml(
     service = {
         "schema_version": 1,
         "file_version": "1.0.0",
-        "configuration": {
+        "config_sources": {
             "instances": {
                 "site": "instances/site.yaml",
                 "devices": "instances/devices.yaml",

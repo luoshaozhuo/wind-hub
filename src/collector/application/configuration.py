@@ -159,8 +159,8 @@ class CollectorConfigurationManager:
             # before its Service source selection takes effect on restart.
             source_changed = bool(
                 current_service is not None
-                and yaml.safe_load(current_service).get("configuration")
-                != yaml.safe_load(next_service).get("configuration")
+                and yaml.safe_load(current_service).get("config_sources")
+                != yaml.safe_load(next_service).get("config_sources")
             )
             if source_changed:
                 self._restart_pending = True

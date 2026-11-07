@@ -40,11 +40,16 @@ def resolve_source_paths(config_file: Path) -> SnapshotPaths:
     if not service_file.is_file() or service_file.is_symlink() or service_file.parent.is_symlink():
         raise ConfigError("Collector service file is missing or unsafe")
     service = read_yaml(service_file)
-    references = _configuration_references(service)
+    references = _source_references(service)
 
     def resolve(value: str, *, directory: bool) -> Path:
         requested = Path(value)
-        candidate = requested if requested.is_absolute() else config_root / requested
+        if requested.is_absolute():
+            candidate = requested
+        elif requested.parts and requested.parts[0] == "configs":
+            candidate = config_root.joinpath(*requested.parts[1:])
+        else:
+            candidate = config_root / requested
         # Do not allow a symlink in any existing path segment.
         current = candidate
         while current != config_root and current != current.parent:
@@ -73,24 +78,27 @@ def resolve_source_paths(config_file: Path) -> SnapshotPaths:
     )
 
 
-def _configuration_references(service: Mapping[str, object]) -> tuple[str, str, str]:
-    configuration = _section(service, "configuration")
-    if set(configuration) != {"instances", "templates"}:
-        raise ConfigError("configuration requires exactly instances and templates")
-    instances = configuration["instances"]
+def _source_references(service: Mapping[str, object]) -> tuple[str, str, str]:
+    sources = _section(service, "config_sources")
+    if set(sources) != {"instances", "templates"}:
+        raise ConfigError("config_sources requires exactly instances and templates")
+    instances = sources["instances"]
     if not isinstance(instances, dict) or set(instances) != {"site", "devices"}:
-        raise ConfigError("configuration.instances requires exactly site and devices")
+        raise ConfigError("config_sources.instances requires exactly site and devices")
+    templates = sources["templates"]
+    if not isinstance(templates, dict) or set(templates) != {"root"}:
+        raise ConfigError("config_sources.templates requires exactly root")
     site = instances["site"]
     devices = instances["devices"]
-    templates = configuration["templates"]
-    if not (isinstance(site, str) and isinstance(devices, str) and isinstance(templates, str)):
-        raise ConfigError("configuration paths must be strings")
+    template_root = templates["root"]
+    if not all(isinstance(value, str) for value in (site, devices, template_root)):
+        raise ConfigError("config_sources paths must be strings")
     if any(
         not value.strip() or chr(0) in value or chr(92) in value or ".." in Path(value).parts
-        for value in (site, devices, templates)
+        for value in (site, devices, template_root)
     ):
-        raise ConfigError("configuration paths must be safe, nonempty strings")
-    return site, devices, templates
+        raise ConfigError("config_sources paths must be safe, nonempty strings")
+    return site, devices, template_root
 
 
 def _positive(value: object, field: str) -> float:
@@ -260,12 +268,12 @@ def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | Non
         "ads",
         "logs",
         "identity",
-        "configuration",
+        "config_sources",
     }
     unknown = set(service) - allowed
     if unknown:
         raise ConfigError(f"unknown Collector service fields: {sorted(unknown)}")
-    references = _configuration_references(service)
+    references = _source_references(service)
     if source_root is not None:
         authorized_root = source_root.resolve()
         for value in references:
@@ -275,7 +283,12 @@ def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | Non
     validate_service_settings(service)
     _validate_all_templates(paths.templates)
     shared = SharedDocumentLoader(
-        SharedConfigPaths(instances=paths.instances, templates=paths.templates)
+        SharedConfigPaths(
+            instances=paths.instances,
+            templates=paths.templates,
+            site_file=paths.site,
+            devices_file=paths.devices,
+        )
     ).load()
     snapshot = build_shared_snapshot(shared)
     validate_subject_token(str(snapshot.site.site_id))
@@ -286,7 +299,7 @@ def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | Non
         for point_id in table.points:
             validate_subject_token(point_id)
     templates = VersionedTemplateRepository(paths.templates)
-    device_document = read_yaml(paths.instances / "devices.yaml")
+    device_document = read_yaml(paths.devices or paths.instances / "devices.yaml")
     _reject_unknown(
         device_document, {"schema_version", "file_version", "devices"}, "devices document"
     )
@@ -324,14 +337,19 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
     """Resolve Collector configuration and concrete per-device acquisition plans."""
     validate_collector_snapshot(paths)
     documents = SharedDocumentLoader(
-        SharedConfigPaths(instances=paths.instances, templates=paths.templates)
+        SharedConfigPaths(
+            instances=paths.instances,
+            templates=paths.templates,
+            site_file=paths.site,
+            devices_file=paths.devices,
+        )
     ).load()
     snapshot = build_shared_snapshot(documents)
     raw_service = read_yaml(paths.service)
     runtime = raw_service.get("runtime", {})
     watchdog = raw_service.get("watchdog", {})
     template_repo = VersionedTemplateRepository(paths.templates)
-    raw_instances = read_yaml(paths.instances / "devices.yaml")["devices"]
+    raw_instances = read_yaml(paths.devices or paths.instances / "devices.yaml")["devices"]
     devices: list[DevicePlan] = []
     for device_id, definition in documents.devices.items():
         if not definition.enabled:

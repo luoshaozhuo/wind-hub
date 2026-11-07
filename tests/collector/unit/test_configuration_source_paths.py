@@ -18,7 +18,7 @@ def _service(root: Path, references: object) -> Path:
     services.mkdir(parents=True, exist_ok=True)
     service_file = services / "collector.yaml"
     service_file.write_text(
-        yaml.safe_dump({"schema_version": 1, "file_version": "1.0.0", "configuration": references}),
+        yaml.safe_dump({"schema_version": 1, "file_version": "1.0.0", "config_sources": references}),
         encoding="utf-8",
     )
     return service_file
@@ -40,7 +40,7 @@ def test_resolves_custom_instance_files_and_template_root(tmp_path: Path) -> Non
                 "site": "alternative/station-a.yaml",
                 "devices": "alternative/turbines-a.yaml",
             },
-            "templates": "custom_templates",
+            "templates": {"root": "custom_templates"},
         },
     )
     paths = resolve_source_paths(config)
@@ -62,7 +62,7 @@ def test_accepts_absolute_reference_within_config_root(tmp_path: Path) -> None:
         tmp_path,
         {
             "instances": {"site": str(site), "devices": str(devices)},
-            "templates": str(templates),
+            "templates": {"root": str(templates)},
         },
     )
     paths = resolve_source_paths(config)
@@ -85,12 +85,12 @@ def test_rejects_absolute_reference_outside_config_root(tmp_path: Path) -> None:
             {
                 "schema_version": 1,
                 "file_version": "1.0.0",
-                "configuration": {
+                "config_sources": {
                     "instances": {
                         "site": str(foreign),
                         "devices": "instances/devices.yaml",
                     },
-                    "templates": "templates",
+                    "templates": {"root": "templates"},
                 },
             }
         ),
@@ -105,14 +105,14 @@ def test_rejects_absolute_reference_outside_config_root(tmp_path: Path) -> None:
     [
         {},
         {"instances": {"site": "instances/site.yaml", "devices": "instances/devices.yaml"}},
-        {"instances": {"site": "instances/site.yaml"}, "templates": "templates"},
+        {"instances": {"site": "instances/site.yaml"}, "templates": {"root": "templates"}},
         {
             "instances": {"site": "instances/site.yaml", "devices": "instances/devices.yaml"},
             "templates": {"pathname": "templates"},
         },
         {
             "instances": {"site": "../outside.yaml", "devices": "instances/devices.yaml"},
-            "templates": "templates",
+            "templates": {"root": "templates"},
         },
     ],
 )
@@ -133,7 +133,7 @@ def test_no_fallback_to_existing_default_files(tmp_path: Path) -> None:
         tmp_path,
         {
             "instances": {"site": "other/site.yaml", "devices": "other/devices.yaml"},
-            "templates": "templates",
+            "templates": {"root": "templates"},
         },
     )
     with pytest.raises(ConfigError, match="missing or invalid"):
@@ -151,7 +151,7 @@ def test_rejects_symlink_source_reference(tmp_path: Path) -> None:
         tmp_path,
         {
             "instances": {"site": "instances/link.yaml", "devices": "instances/devices.yaml"},
-            "templates": "templates",
+            "templates": {"root": "templates"},
         },
     )
     with pytest.raises(ConfigError, match="symlink"):
