@@ -27,7 +27,7 @@ from tests.support.functional_config import realtime_messaging
 from tests.support.process import CollectorProcess, free_port
 from tests.support.recovery_helpers import DEVICE_ID, telemetry_task, wait_status
 from tests.support.redis_client import point_key
-from tests.support.v2_config import emit_v2_tree_from_flat_site
+from tests.support.config import emit_tree_from_flat_site
 from tests.support.wait import wait_redis_value, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
@@ -112,7 +112,7 @@ class TestWatchdogRecovery:
         server = ModbusMockServer(port=port)
         flat_dir = _write_fast_config(tmp_path / "cfg", port, redis_service, nats_service)
         await sink_service_factory(flat_dir)
-        v2_tree = emit_v2_tree_from_flat_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
+        v2_tree = emit_tree_from_flat_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
         proc: CollectorProcess = await collector_factory(v2_tree)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 

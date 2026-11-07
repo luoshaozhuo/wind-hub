@@ -36,7 +36,7 @@ from tests.support.recovery_helpers import (
     write_modbus_redis_config,
 )
 from tests.support.redis_client import point_key
-from tests.support.v2_config import emit_v2_tree_from_flat_site
+from tests.support.config import emit_tree_from_flat_site
 from tests.support.wait import wait_redis_value
 
 pytestmark = [pytest.mark.redis, pytest.mark.real_service]
@@ -177,7 +177,7 @@ class TestPointTablePublishedWhileDisconnected:
             tmp_path / "cfg", iec104_server.port, redis_service, nats_service
         )
         await sink_service_factory(flat_dir, deployment_id="restart-iec104-sink")
-        v2_tree = emit_v2_tree_from_flat_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
+        v2_tree = emit_tree_from_flat_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
         proc: CollectorProcess = await collector_factory(
             v2_tree, env_extra=dict(TEMPLATE_PUBLISH_ENV)
         )

@@ -148,7 +148,7 @@ def start_collector(
 
     Args:
         config_tree: v2 配置树根，须含 ``services/collector.yaml``、
-            ``instances/``、``templates/``（见 tests.support.v2_config）。
+            ``instances/``、``templates/``（见 tests.support.config）。
         grpc_port: gRPC 端口；None 时自动分配空闲端口。
         collector_id: Collector 标识。
         shutdown_timeout: 传入进程的优雅停机硬超时（秒）。

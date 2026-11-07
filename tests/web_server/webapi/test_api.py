@@ -34,7 +34,7 @@ def _client(ctx: AppContext) -> TestClient:
 
 
 def _task_summary(task_id: str = "t1", *, enabled: bool = True) -> TaskSummary:
-    """构造 V1 Task 聚合快照。"""
+    """构造 Task 聚合快照。"""
     return TaskSummary(
         task_id=task_id,
         assigned_worker_id="collector-a",
@@ -52,8 +52,8 @@ def _task_summary(task_id: str = "t1", *, enabled: bool = True) -> TaskSummary:
     )
 
 
-def test_v1_overview_returns_aggregate_snapshot() -> None:
-    """Overview V1 应直接暴露聚合 Read Model。"""
+def test_overview_returns_aggregate_snapshot() -> None:
+    """Overview 应直接暴露聚合 Read Model。"""
     overview = MagicMock()
     overview.snapshot.return_value = OverviewSnapshot(
         site_id="farm-a",
@@ -83,7 +83,7 @@ def test_v1_overview_returns_aggregate_snapshot() -> None:
     assert response.json()["task_instances_failed"] == 1
 
 
-def test_v1_devices_search_then_paginate() -> None:
+def test_devices_search_then_paginate() -> None:
     """设备搜索应先作用完整结果集，再执行分页。"""
     devices = MagicMock()
     devices.list_devices.return_value = [
@@ -116,7 +116,7 @@ def test_v1_devices_search_then_paginate() -> None:
     devices.list_devices.assert_called_once_with("wtg")
 
 
-def test_v1_task_start_and_disabled_conflict() -> None:
+def test_task_start_and_disabled_conflict() -> None:
     """Task 级启停返回聚合状态；禁用冲突映射为 409。"""
     tasks = AsyncMock()
     tasks.start_task.return_value = _task_summary("t1")
@@ -133,7 +133,7 @@ def test_v1_task_start_and_disabled_conflict() -> None:
     assert response.json()["error"]["code"] == "TASK_DISABLED"
 
 
-def test_v1_operation_query() -> None:
+def test_operation_query() -> None:
     """Operation 查询应返回统一生命周期状态。"""
     operations = OperationRegistry()
     created = operations.create("devices.verify_all", total=48)
@@ -146,7 +146,7 @@ def test_v1_operation_query() -> None:
     assert response.json()["state"] == "running"
 
 
-def test_v1_unknown_operation_returns_404() -> None:
+def test_unknown_operation_returns_404() -> None:
     """未知 Operation 必须返回稳定 NOT_FOUND。"""
     client = _client(AppContext(operations=OperationRegistry()))
 
@@ -156,7 +156,7 @@ def test_v1_unknown_operation_returns_404() -> None:
     assert response.json()["error"]["code"] == "NOT_FOUND"
 
 
-def test_v1_device_data_is_paginated_cache_view() -> None:
+def test_device_data_is_paginated_cache_view() -> None:
     data = AsyncMock()
     data.list_data.return_value = [
         DeviceDataItem(
@@ -178,7 +178,7 @@ def test_v1_device_data_is_paginated_cache_view() -> None:
     assert response.json()["items"][0]["value"] == 1.5
 
 
-def test_v1_device_trend_returns_samples() -> None:
+def test_device_trend_returns_samples() -> None:
     data = AsyncMock()
     data.trend.return_value = [
         TrendSeries(
@@ -204,7 +204,7 @@ def test_v1_device_trend_returns_samples() -> None:
     assert response.json()[0]["samples"][0]["value"] == 2.5
 
 
-def test_v1_device_command_returns_readback_contract() -> None:
+def test_device_command_returns_readback_contract() -> None:
     control = AsyncMock()
     now = datetime.now(UTC)
     control.send.return_value = DeviceCommandResult(
@@ -230,7 +230,7 @@ def test_v1_device_command_returns_readback_contract() -> None:
     control.send.assert_awaited_once_with("d1", "limit", 80.0, timeout=5.0, command_id="c1")
 
 
-def test_v1_phase5_quality_endpoint() -> None:
+def test_phase5_quality_endpoint() -> None:
     quality = AsyncMock()  # QualityService.snapshot 是 async
     from datetime import UTC, datetime
 
@@ -257,7 +257,7 @@ def test_v1_phase5_quality_endpoint() -> None:
     assert response.json()["window"] == "24h"
 
 
-def test_v1_phase5_logs_endpoint() -> None:
+def test_phase5_logs_endpoint() -> None:
     logs = MagicMock()
     from web_server.application.monitoring.logs import LogPage
 
@@ -270,7 +270,7 @@ def test_v1_phase5_logs_endpoint() -> None:
     assert response.json()["page"]["total"] == 0
 
 
-def test_v1_phase5_system_health_endpoint() -> None:
+def test_phase5_system_health_endpoint() -> None:
     health = MagicMock()
     from datetime import UTC, datetime
 
@@ -307,7 +307,7 @@ def test_v1_phase5_system_health_endpoint() -> None:
     assert response.json()["cpu_count"] == 4
 
 
-def test_v1_sinks_exposes_unified_connection_without_sink_points() -> None:
+def test_sinks_exposes_unified_connection_without_sink_points() -> None:
     """新契约：点属于 Task outputs，/sinks 不再暴露 sink 级 points。"""
     sinks = MagicMock()
     sinks.list_sinks.return_value = [
@@ -334,7 +334,7 @@ def test_v1_sinks_exposes_unified_connection_without_sink_points() -> None:
     assert "params" not in row
 
 
-def test_v1_admin_state_atomic_apply() -> None:
+def test_admin_state_atomic_apply() -> None:
     from web_server.application.config.files import ConfigApplyResult
 
     admin_state = AsyncMock()
@@ -378,7 +378,7 @@ def _empty_admin_state_payload() -> dict[str, object]:
     }
 
 
-def test_v1_admin_state_validation_failure_maps_to_422() -> None:
+def test_admin_state_validation_failure_maps_to_422() -> None:
     from web_server.application.config.files import ConfigApplyResult
 
     admin_state = AsyncMock()
@@ -393,7 +393,7 @@ def test_v1_admin_state_validation_failure_maps_to_422() -> None:
     assert response.json()["error"]["code"] == "VALIDATION_FAILED"
 
 
-def test_v1_admin_state_rollback_failure_stays_200() -> None:
+def test_admin_state_rollback_failure_stays_200() -> None:
     """写盘后 reload 失败且已回滚：live 未变，保留 200 + success=false 语义。"""
     from web_server.application.config.files import ConfigApplyResult
 
@@ -413,7 +413,7 @@ def test_v1_admin_state_rollback_failure_stays_200() -> None:
     assert body["rollback_performed"] is True
 
 
-def test_v1_request_validation_uses_422_envelope() -> None:
+def test_request_validation_uses_422_envelope() -> None:
     client = _client(AppContext())
 
     response = client.post(
@@ -425,7 +425,7 @@ def test_v1_request_validation_uses_422_envelope() -> None:
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_v1_admin_tasks_reject_legacy_device_scope_as_422() -> None:
+def test_admin_tasks_reject_legacy_device_scope_as_422() -> None:
     """旧 device 直绑 Task 是死路径：请求边界 422，不允许穿透成 500。"""
     client = _client(AppContext())
 
@@ -456,7 +456,7 @@ def test_v1_admin_tasks_reject_legacy_device_scope_as_422() -> None:
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_v1_admin_tasks_reject_ambiguous_selector() -> None:
+def test_admin_tasks_reject_ambiguous_selector() -> None:
     client = _client(AppContext())
 
     response = client.put(

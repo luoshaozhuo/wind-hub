@@ -31,7 +31,7 @@ from tests.support.netem import NetemController, NetemScenario
 from tests.support.perf_servers import ModbusServerHandle
 from tests.support.soak.metrics import SoakMetrics, SoakMetricsCollector
 from tests.support.soak.recorder import NatsSampleRecorder, percentile
-from tests.support.v2_config import emit_v2_tree_from_flat_site
+from tests.support.config import emit_tree_from_flat_site
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +277,7 @@ async def run_soak(
                 if netem_scenario is not None:
                     c.apply(netem_scenario)
 
-            v2_tree = emit_v2_tree_from_flat_site(Path(tmp) / "v2", config_dir, nats_url=nats_url)
+            v2_tree = emit_tree_from_flat_site(Path(tmp) / "v2", config_dir, nats_url=nats_url)
             app = assemble_collector(
                 v2_tree / "services" / "collector.yaml",
                 v2_tree / "instances",

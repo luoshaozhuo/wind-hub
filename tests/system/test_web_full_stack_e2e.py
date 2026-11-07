@@ -1,7 +1,7 @@
 """真实全链路：三协议各十台 → Collector(v2)/Commander → Web Server HTTP。
 
 本套件不使用 MSW/fake gRPC，所有控制服务为独立进程。Collector 消费 v2
-三路径配置树（由扁平虚拟站点派生，见 tests.support.v2_config），
+三路径配置树（由扁平虚拟站点派生，见 tests.support.config），
 Commander / 协议从站 / Web Server 仍消费扁平 Core 站点。离线执行即可；
 每个用例独立目录、监听端口和故障隔离，结束后优雅关闭全部进程与虚拟从站。
 """
@@ -30,7 +30,7 @@ from tests.support.process import (
     start_commander,
     start_web_server,
 )
-from tests.support.v2_config import SYSTEM_ADMIN_TOKEN, emit_v2_tree_from_flat_site
+from tests.support.config import SYSTEM_ADMIN_TOKEN, emit_tree_from_flat_site
 from tests.support.wait import wait_commander_ready, wait_grpc_ready, wait_until
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.asyncio]
@@ -66,7 +66,7 @@ async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
         modbus_base_port=modbus_port,
         iec104_base_port=iec104_port,
     )
-    v2_tree = emit_v2_tree_from_flat_site(tmp_path / "collector", config)
+    v2_tree = emit_tree_from_flat_site(tmp_path / "collector", config)
     processes: list[CollectorProcess] = []
     async with run_fleet(config, interval=0.25, seed=123):
         try:

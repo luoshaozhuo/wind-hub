@@ -26,7 +26,7 @@ from tests.support.process import (
     start_sink_service,
     start_web_server,
 )
-from tests.support.v2_config import SYSTEM_ADMIN_TOKEN, write_v2_modbus_tree
+from tests.support.config import SYSTEM_ADMIN_TOKEN, write_modbus_tree
 from tests.support.wait import wait_tcp_port, wait_until
 
 #: full_stack 现场的稳定身份：collector_id 由本 fixture 显式指定，
@@ -141,7 +141,7 @@ async def full_stack(
     HTTP 端口启动，REST 客户端确认就绪；结束后先关客户端再优雅停机。
     """
     config_dir = write_functional_config(tmp_path / "cfg", modbus_server.port)
-    v2_tree = write_v2_modbus_tree(tmp_path / "v2cfg", modbus_server.port)
+    v2_tree = write_modbus_tree(tmp_path / "v2cfg", modbus_server.port)
     collector = await collector_factory(v2_tree, collector_id="collector")
     commander = await commander_factory(config_dir)
 

@@ -50,7 +50,7 @@ def _empty_tree(base: Path) -> Path:
     return root
 
 
-def write_v2_modbus_tree(
+def write_modbus_tree(
     base: Path,
     port: int,
     *,
@@ -96,7 +96,7 @@ def write_v2_modbus_tree(
     return root
 
 
-def emit_v2_tree_from_flat_site(
+def emit_tree_from_flat_site(
     base: Path,
     flat_site: Path,
     *,
@@ -250,7 +250,7 @@ def emit_v2_tree_from_flat_site(
         },
     )
 
-    v2_devices: dict[str, Any] = {}
+    config_devices: dict[str, Any] = {}
     for device_id, device in devices_doc["devices"].items():
         entry: dict[str, Any] = {
             "model": {"id": device["model_id"], "version": "1.0.0"},
@@ -260,8 +260,8 @@ def emit_v2_tree_from_flat_site(
             entry["overrides"] = {"protocol_options": dict(device["protocol_options"])}
         if device.get("enabled") is False:
             entry["enabled"] = False
-        v2_devices[device_id] = entry
-    _dump(root / "instances" / "devices.yaml", {"schema_version": 1, "devices": v2_devices})
+        config_devices[device_id] = entry
+    _dump(root / "instances" / "devices.yaml", {"schema_version": 1, "devices": config_devices})
 
     service = _load(root / "services" / "collector.yaml")
     messaging = system_doc.get("messaging")
@@ -358,7 +358,7 @@ def _business_points(point_tables: dict[str, Any]) -> dict[str, Any]:
     return {"schema_version": 1, "business_points": business}
 
 
-def write_v2_component_tree(
+def write_component_tree(
     base: Path,
     *,
     devices: dict[str, dict[str, Any]],
@@ -469,7 +469,7 @@ def write_v2_component_tree(
         root / "instances" / "site.yaml",
         {"schema_version": 1, "site_id": site_id, "name": f"Component {site_id}"},
     )
-    v2_devices: dict[str, Any] = {}
+    config_devices: dict[str, Any] = {}
     for device_id, raw in devices.items():
         entry = dict(raw)
         if "model" not in entry:
@@ -478,8 +478,8 @@ def write_v2_component_tree(
             entry["model"] = {"id": next(iter(models_spec)), "version": "1.0.0"}
         elif isinstance(entry["model"], str):
             entry["model"] = {"id": entry["model"], "version": "1.0.0"}
-        v2_devices[device_id] = entry
-    _dump(root / "instances" / "devices.yaml", {"schema_version": 1, "devices": v2_devices})
+        config_devices[device_id] = entry
+    _dump(root / "instances" / "devices.yaml", {"schema_version": 1, "devices": config_devices})
 
     service_doc = dict(DEFAULT_SERVICE_DOC)
     if service:

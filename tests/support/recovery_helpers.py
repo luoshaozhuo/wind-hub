@@ -17,7 +17,7 @@ from tests.support.control import runtime_status_snapshot
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import point_key
-from tests.support.v2_config import emit_v2_tree_from_flat_site
+from tests.support.config import emit_tree_from_flat_site
 from tests.support.wait import (
     WaitTimeoutError,
     read_redis_value,
@@ -81,7 +81,7 @@ def recovery_collector_tree(
     nats_url: str = "nats://127.0.0.1:4222",
 ) -> Path:
     """从扁平 recovery 站点派生 Collector v2 三路径树（Sink 仍读扁平目录）。"""
-    return emit_v2_tree_from_flat_site(tree_base, flat_dir, nats_url=nats_url)
+    return emit_tree_from_flat_site(tree_base, flat_dir, nats_url=nats_url)
 
 
 async def wait_telemetry_value(
