@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from types import SimpleNamespace
 from typing import Any
 
 import grpc
 
-from core.infrastructure.diagnostic.correlation import get_request_id
-from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
+from core.infrastructure.crosscutting.correlation import get_request_id
+from core.infrastructure.crosscutting.grpc_correlation import RequestIdServerInterceptor
 
 
 def _details(metadata: Any) -> SimpleNamespace:
@@ -138,3 +140,5 @@ async def test_stream_stream_binds_request_id() -> None:
         out.append(value)
     assert out == [2, 4]
     assert seen["id"] == "ss-5"
+
+pytestmark = pytest.mark.component

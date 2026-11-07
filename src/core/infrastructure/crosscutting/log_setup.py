@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TextIO
 
 from core.application.settings import LogSettings
-from core.infrastructure.diagnostic.correlation import RequestIdFilter
+from core.infrastructure.crosscutting.correlation import RequestIdFilter
 
 _FORMAT = "%(asctime)sZ %(levelname)s [%(request_id)s] %(name)s: %(message)s"
 _DATEFMT = "%Y-%m-%dT%H:%M:%S"

@@ -7,7 +7,7 @@ import threading
 from collections import deque
 from datetime import UTC, datetime
 
-from core.infrastructure.diagnostic.correlation import get_request_id
+from core.infrastructure.crosscutting.correlation import get_request_id
 from web_server.application.port.log_store import LogEntry
 
 

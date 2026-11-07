@@ -18,8 +18,8 @@ from pathlib import Path
 import pytest
 
 from core.application.settings import LogSettings
-from core.infrastructure.diagnostic.correlation import bind_request_id
-from core.infrastructure.diagnostic.log_setup import (
+from core.infrastructure.crosscutting.correlation import bind_request_id
+from core.infrastructure.crosscutting.log_setup import (
     _DailySizeFileHandler,
     configure_logging,
     configure_process_logging,
@@ -133,3 +133,5 @@ def test_handler_close_flushes_stream(tmp_path: Path) -> None:
     handler._stream = stream  # type: ignore[assignment]
     handler.close()
     assert stream.closed
+
+pytestmark = pytest.mark.component

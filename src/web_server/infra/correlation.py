@@ -1,6 +1,6 @@
 """Request-ID 关联：HTTP 入口 → 日志 → gRPC 出站的统一链路。
 
-- contextvar、过滤器与规整逻辑由 ``core.infrastructure.diagnostic.correlation``
+- contextvar、过滤器与规整逻辑由 ``core.infrastructure.crosscutting.correlation``
   统一持有（Collector/Commander 入站拦截器共用同一实现），本模块做再导出
   与 HTTP/gRPC 客户端传输适配。
 - ``RequestIdMiddleware`` 在 HTTP 边界接收/生成 Request-ID，写入响应头。
@@ -18,7 +18,7 @@ from typing import Any
 import grpc
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from core.infrastructure.diagnostic.correlation import (
+from core.infrastructure.crosscutting.correlation import (
     REQUEST_ID_HEADER,
     RequestIdFilter,
     get_request_id,

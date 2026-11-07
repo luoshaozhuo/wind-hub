@@ -7,7 +7,7 @@ import logging
 
 import pytest
 
-from core.infrastructure.diagnostic.correlation import (
+from core.infrastructure.crosscutting.correlation import (
     RequestIdFilter,
     bind_request_id,
     get_request_id,
@@ -15,7 +15,7 @@ from core.infrastructure.diagnostic.correlation import (
     normalize_request_id,
     request_id_var,
 )
-from core.infrastructure.diagnostic.log_setup import configure_logging
+from core.infrastructure.crosscutting.log_setup import configure_logging
 
 
 def test_normalize_strips_truncates_and_rejects_headers() -> None:
@@ -88,3 +88,5 @@ def restore_logging() -> object:
     saved_level = root.level
     yield None
     logging.basicConfig(handlers=saved_handlers, level=saved_level, force=True)
+
+pytestmark = pytest.mark.unit

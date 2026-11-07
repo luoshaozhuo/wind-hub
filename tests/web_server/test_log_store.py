@@ -23,7 +23,7 @@ def test_log_store_filters_and_bounds() -> None:
 
 
 def test_log_store_captures_request_id_from_context() -> None:
-    from core.infrastructure.diagnostic.correlation import bind_request_id
+    from core.infrastructure.crosscutting.correlation import bind_request_id
 
     store = LogStore(capacity=5)
     logger = logging.getLogger("web_server.test.rid")

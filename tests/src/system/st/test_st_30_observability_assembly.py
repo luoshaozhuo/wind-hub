@@ -26,8 +26,8 @@ from core.application.protocol_contract import (
     ProtocolCapability,
     ProtocolSample,
 )
-from core.infrastructure.diagnostic.async_log import BoundedAsyncHandler
-from core.infrastructure.diagnostic.observability import (
+from core.infrastructure.crosscutting.async_log import BoundedAsyncHandler
+from core.infrastructure.crosscutting.observability import (
     CorrelationSettings,
     JsonFormatter,
     LoggingSettings,
@@ -36,7 +36,7 @@ from core.infrastructure.diagnostic.observability import (
     ObservabilitySettings,
     TracingSettings,
 )
-from core.infrastructure.diagnostic.observed_protocol import ObservedProtocolPort
+from core.infrastructure.crosscutting.observed_protocol import ObservedProtocolPort
 
 pytestmark = [pytest.mark.system, pytest.mark.reliability, pytest.mark.overload]
 

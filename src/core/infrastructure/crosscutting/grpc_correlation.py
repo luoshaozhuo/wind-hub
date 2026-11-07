@@ -16,7 +16,7 @@ from typing import Any
 
 import grpc
 
-from core.infrastructure.diagnostic.correlation import (
+from core.infrastructure.crosscutting.correlation import (
     REQUEST_ID_HEADER,
     bind_request_id,
     new_request_id,
