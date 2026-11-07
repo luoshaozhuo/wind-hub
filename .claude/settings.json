@@ -43,7 +43,9 @@
       "Bash(docker compose * ps)",
       "Bash(docker compose * logs *)",
       "Bash(command -v *)",
-      "Bash(poetry run *)"
+      "Bash(poetry run *)",
+      "Bash(python3 -u /tmp/qa_sink/s3_08_outage_replay.py /tmp/qa_sink/s3_08_run2 > /tmp/qa_sink/s3_08_run2_evidence.json 2>/tmp/qa_sink/s3_08_run2_stderr.log)",
+      "Bash(python3 -u /tmp/qa_sink/s3_08_dedicated_kafka.py /tmp/qa_sink/s3_08_run3 > /tmp/qa_sink/s3_08_run3_evidence.json 2>/tmp/qa_sink/s3_08_run3_stderr.log)"
     ],
     "deny": [
       "Read(./.env)",
@@ -57,6 +59,9 @@
       "Bash(git clean *)",
       "Bash(sudo *)",
       "Bash(chmod -R 777 *)"
+    ],
+    "additionalDirectories": [
+      "/tmp/qa_sink"
     ]
   },
   "hooks": {
