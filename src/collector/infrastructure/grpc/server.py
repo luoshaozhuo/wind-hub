@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
+import os
 from datetime import UTC, datetime
 
 import grpc
@@ -33,21 +35,6 @@ def _page(items: list[str], size: int, token: str) -> tuple[list[str], str]:
     selected = items[start : start + limit]
     next_token = selected[-1] if start + limit < len(items) else ""
     return selected, next_token
-
-
-def _sample(item: object, *, queried_at: datetime) -> common_pb2.Sample:
-    point_id = str(getattr(item, "point_id"))
-    message = common_pb2.Sample(
-        point_id=point_id,
-        quality=str(getattr(item, "quality")),
-        freshness="FRESH",
-    )
-    value = getattr(item, "value")
-    if value is not None:
-        message.value.CopyFrom(encode_scalar(value))
-    message.sample_timestamp.FromDatetime(getattr(item, "timestamp"))
-    message.queried_at.FromDatetime(queried_at)
-    return message
 
 
 class CollectorGrpcServer:
@@ -89,9 +76,6 @@ class CollectorService(pb_grpc.CollectorServiceServicer):
             writable=access in {PointAccess.WRITE, PointAccess.READ_WRITE},
             revision=self._app.config.active_revision,
         )
-        model = self._app.config.current_config.device_models[session.device.device_model_id]
-        business_point = self._app.config.current_config.units
-        del model, business_point
         for name, value in sorted(point.ext.items()):
             if value is not None:
                 entry = message.address.add(key=name)
@@ -237,6 +221,10 @@ class CollectorService(pb_grpc.CollectorServiceServicer):
 
     async def _change_task(self, request: common_pb2.OperationRequest, context: grpc.aio.ServicerContext, *, start: bool) -> common_pb2.OperationResult:
         try:
+            expected_token = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
+            token = dict(context.invocation_metadata()).get("x-windhub-admin-token", "")
+            if not expected_token or not hmac.compare_digest(token, expected_token):
+                raise PermissionError("Collector task control requires admin credentials")
             if not request.expected_revision:
                 raise ValueError("expected_revision is required")
             if request.expected_revision != self._app.config.active_revision:
