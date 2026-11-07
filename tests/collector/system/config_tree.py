@@ -1,8 +1,8 @@
 """Build complete, schema-valid Collector configuration trees for real processes.
 
-Every YAML document carries ``file_version`` (the shipped
-``configs/services/collector.yaml`` does too; this fixture uses isolated file versions). Trees follow
-the §11 Template/Service/Instance separation and are consumed by a real
+Every YAML document carries ``file_version``, including the shipped
+``configs/services/collector.yaml``. This fixture uses isolated versions.
+The §11 Template/Service/Instance tree is consumed by a real
 ``collector.main`` process, never by in-process fakes.
 """
 

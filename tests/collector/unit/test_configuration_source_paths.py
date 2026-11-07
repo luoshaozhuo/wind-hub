@@ -18,7 +18,13 @@ def _service(root: Path, references: object) -> Path:
     services.mkdir(parents=True, exist_ok=True)
     service_file = services / "collector.yaml"
     service_file.write_text(
-        yaml.safe_dump({"schema_version": 1, "file_version": "1.0.0", "config_sources": references}),
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "config_sources": references,
+            }
+        ),
         encoding="utf-8",
     )
     return service_file
