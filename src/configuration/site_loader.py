@@ -224,7 +224,7 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
             close_timeout_ms=values.get("close_timeout_ms", 3000),
         )
     # system.yaml 顶层允许透传非托管段（如 interfaces）：域模型不解析，
-    # 保存时由 YamlConfigAdapter 原样合并写回。已知段在上方各自严格校验。
+    # Web Server 负责外部段的写回；此处只解析已知领域配置。
     logs_raw = _map(raw.get("logs", {}), "system.logs")
     _keys(logs_raw, set(LogSettings.__dataclass_fields__), "system.logs")
     logs = LogSettings(**logs_raw)
