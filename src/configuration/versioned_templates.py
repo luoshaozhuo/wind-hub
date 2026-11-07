@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from core.application.errors import ConfigError
+from core.infrastructure.config import ConfigOperationError, read_yaml
 
 from .document_version import validate_document_version
-from core.infrastructure.config import ConfigOperationError, read_yaml
 
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")

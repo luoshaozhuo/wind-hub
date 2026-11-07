@@ -12,8 +12,8 @@ from pymodbus.constants import ExcCodes
 from pymodbus.datastore import ModbusServerContext
 from pymodbus.server import ModbusTcpServer
 
-from core.application import ConnectionHealth
 from configuration.sink_schema import ModbusSinkConnection
+from core.application import ConnectionHealth
 from sink_service.infrastructure.adapters.modbus.pipeline import ModbusSinkDataPath
 from sink_service.infrastructure.adapters.modbus.store import ModbusSinkStore
 

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from typing import Protocol
-from sink_service.application.point_value import SinkPointValue
 
+from sink_service.application.point_value import SinkPointValue
 
 
 class SinkPort(Protocol):

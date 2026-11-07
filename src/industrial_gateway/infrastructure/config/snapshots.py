@@ -12,9 +12,9 @@ from uuid import uuid4
 
 import yaml
 
+from configuration.versioned_templates import config_hash
 from contracts import common_pb2 as pb
 from core.application.errors import ConfigError
-from configuration.versioned_templates import config_hash
 from core.infrastructure.config import parse_yaml
 from industrial_gateway.infrastructure.config.v1_resolution import (
     ResolvedGateway,

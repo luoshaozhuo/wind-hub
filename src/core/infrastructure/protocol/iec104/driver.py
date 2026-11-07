@@ -24,24 +24,23 @@ from core.application.port.protocol import ListenHandle, ProtocolSampleCallback,
 from core.application.protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
+    PointTableIssue,
+    PointTableUpdateResult,
+    PointTableUpdateStatus,
     ProtocolCapability,
     ProtocolLifecycleState,
     ProtocolSample,
-    PointTableUpdateResult,
-    PointTableIssue,
-    PointTableUpdateStatus,
     ProtocolWrite,
     ProtocolWriteResult,
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
+from core.infrastructure.protocol.mapping_barrier import MappingBarrier
 
 from .codec import build_command, decode_sample, matches_monitoring_type
 from .config import parse_iec104_config
 from .listener import _Listener
 from .mapping import IEC104Point, build_iec104_index, validate_iec104_write_type
-from core.infrastructure.protocol.mapping_barrier import MappingBarrier
-
 from .session import _IEC104Session
 
 logger = logging.getLogger(__name__)
@@ -194,7 +193,10 @@ class IEC104Driver:
             async with asyncio.timeout(timeout):
                 async with self._mapping_barrier.write():
                     async with self._lifecycle:
-                        if not self.is_open() or self._state is not ProtocolLifecycleState.CONNECTED:
+                        if (
+                            not self.is_open()
+                            or self._state is not ProtocolLifecycleState.CONNECTED
+                        ):
                             return result(
                                 PointTableUpdateStatus.NOT_READY, "IEC104 session is not ready"
                             )
@@ -216,7 +218,9 @@ class IEC104Driver:
                                     or health.type_id is None
                                     or not health.type_id.startswith("M_")
                                 ):
-                                    raise ConfigError("IEC104 configured health point is not readable")
+                                    raise ConfigError(
+                                        "IEC104 configured health point is not readable"
+                                    )
                         except (ConfigError, ValueError) as exc:
                             return result(PointTableUpdateStatus.VALIDATION_FAILED, str(exc))
 
@@ -228,9 +232,7 @@ class IEC104Driver:
                         affected_addresses = {
                             (point.common_address, point.ioa)
                             for point_id in changed
-                            for point in (
-                                self._by_id.get(point_id), next_by_id.get(point_id)
-                            )
+                            for point in (self._by_id.get(point_id), next_by_id.get(point_id))
                             if point is not None
                         }
                         # 等待受影响地址的在途操作完成；不得让旧响应错误交付新点。
@@ -243,39 +245,53 @@ class IEC104Driver:
                             await asyncio.sleep(0.01)
                         # 监视点使用已存在的 C_RD 请求关联，不执行控制写入。
                         session = self._require_session()
-                        unverified = tuple(sorted(
-                            point_id
-                            for point_id in changed & next_by_id.keys()
-                            if not (
-                                (type_id := next_by_id[point_id].type_id)
-                                and type_id.startswith("M_")
+                        unverified = tuple(
+                            sorted(
+                                point_id
+                                for point_id in changed & next_by_id.keys()
+                                if not (
+                                    (type_id := next_by_id[point_id].type_id)
+                                    and type_id.startswith("M_")
+                                )
                             )
-                        ))
+                        )
                         for point_id in sorted(changed & next_by_id.keys()):
                             point = next_by_id[point_id]
                             if point.type_id is None or not point.type_id.startswith("M_"):
                                 continue
                             key = (point.common_address, point.ioa)
-                            future: asyncio.Future[ProtocolSample] = asyncio.get_running_loop().create_future()
+                            future: asyncio.Future[ProtocolSample] = (
+                                asyncio.get_running_loop().create_future()
+                            )
                             pending = _Read(point, future)
                             self._read[key] = pending
                             try:
                                 verification_issued = True
-                                await session.send([
-                                    iec104.ReadMsg(
-                                        is_test=False,
-                                        originator_address=0,
-                                        asdu_address=point.common_address,
-                                        io_address=point.ioa,
-                                        cause=iec104.ReadReqCause.REQUEST,
-                                    ),
-                                ])
+                                await session.send(
+                                    [
+                                        iec104.ReadMsg(
+                                            is_test=False,
+                                            originator_address=0,
+                                            asdu_address=point.common_address,
+                                            io_address=point.ioa,
+                                            cause=iec104.ReadReqCause.REQUEST,
+                                        ),
+                                    ]
+                                )
                                 await asyncio.wait_for(future, timeout=self._config.read_timeout)
                                 verification_issued = False
-                            except (ProtocolError, ProtocolConnectionError, OSError, TimeoutError) as exc:
+                            except (
+                                ProtocolError,
+                                ProtocolConnectionError,
+                                OSError,
+                                TimeoutError,
+                            ) as exc:
                                 # 无响应的 C_RD 可能稍后到达；旧 Session 不再允许
                                 # 复用相同 CA/IOA 关联新读请求，必须先安全 close。
-                                if isinstance(exc, (TimeoutError, ProtocolConnectionError, OSError)):
+                                if isinstance(
+                                    exc,
+                                    TimeoutError | ProtocolConnectionError | OSError,
+                                ):
                                     self._state = ProtocolLifecycleState.FAULTED
                                     state = "FAULTED"
                                 point_errors = (
@@ -339,48 +355,46 @@ class IEC104Driver:
         )
 
     async def connect(self) -> None:
-        async with self._mapping_barrier.write():
-            async with self._lifecycle:
-                if self.is_open():
-                    return
-                if self._state is ProtocolLifecycleState.FAULTED:
-                    raise ProtocolConnectionError("IEC104 driver requires successful cleanup")
-                if self._session is not None:
-                    raise ProtocolConnectionError("IEC104 previous session must close first")
-                self._state = ProtocolLifecycleState.CONNECTING
-                c = self._config
-                session: _IEC104Session | None = None
-                try:
-                    session = _IEC104Session(
-                        c.host,
-                        c.port,
-                        t1=c.t1,
-                        t2=c.t2,
-                        t3=c.t3,
-                        k=c.k,
-                        w=c.w,
-                        on_message=lambda msg: self._dispatch(session, msg),
-                        on_disconnect=lambda exc: self._disconnect(session, exc),
-                    )
-                    self._session = session
-                    await asyncio.wait_for(session.open(), timeout=c.t0)
-                    if not session.is_open:
-                        raise ProtocolConnectionError("IEC104 session lost during STARTDT")
-                except BaseException as exc:
-                    await self._close_locked()
-                    if isinstance(exc, OSError | TimeoutError):
-                        raise ProtocolConnectionError(
-                            f"IEC104 connection failed: {exc or type(exc).__name__}"
-                        ) from exc
-                    raise
-                self._state = ProtocolLifecycleState.CONNECTED
-                if self._active_version is None:
-                    self._active_version = 1
+        async with self._mapping_barrier.write(), self._lifecycle:
+            if self.is_open():
+                return
+            if self._state is ProtocolLifecycleState.FAULTED:
+                raise ProtocolConnectionError("IEC104 driver requires successful cleanup")
+            if self._session is not None:
+                raise ProtocolConnectionError("IEC104 previous session must close first")
+            self._state = ProtocolLifecycleState.CONNECTING
+            c = self._config
+            session: _IEC104Session | None = None
+            try:
+                session = _IEC104Session(
+                    c.host,
+                    c.port,
+                    t1=c.t1,
+                    t2=c.t2,
+                    t3=c.t3,
+                    k=c.k,
+                    w=c.w,
+                    on_message=lambda msg: self._dispatch(session, msg),
+                    on_disconnect=lambda exc: self._disconnect(session, exc),
+                )
+                self._session = session
+                await asyncio.wait_for(session.open(), timeout=c.t0)
+                if not session.is_open:
+                    raise ProtocolConnectionError("IEC104 session lost during STARTDT")
+            except BaseException as exc:
+                await self._close_locked()
+                if isinstance(exc, OSError | TimeoutError):
+                    raise ProtocolConnectionError(
+                        f"IEC104 connection failed: {exc or type(exc).__name__}"
+                    ) from exc
+                raise
+            self._state = ProtocolLifecycleState.CONNECTED
+            if self._active_version is None:
+                self._active_version = 1
 
     async def close(self) -> None:
-        async with self._mapping_barrier.write():
-            async with self._lifecycle:
-                await self._close_locked()
+        async with self._mapping_barrier.write(), self._lifecycle:
+            await self._close_locked()
 
     async def _close_locked(self) -> None:
         """Release the owned session; caller holds the lifecycle lock."""
@@ -466,7 +480,12 @@ class IEC104Driver:
                         ]
                     )
                     return await asyncio.wait_for(future, timeout=self._config.read_timeout)
-                except (TimeoutError, ProtocolConnectionError, ProtocolError, asyncio.CancelledError):
+                except (
+                    TimeoutError,
+                    ProtocolConnectionError,
+                    ProtocolError,
+                    asyncio.CancelledError,
+                ):
                     await asyncio.shield(self._isolate(session))
                     raise
                 finally:
@@ -519,7 +538,9 @@ class IEC104Driver:
                     )
                     return ProtocolWriteResult(
                         write.point,
-                        WriteOutcome.CONFIRMED_SUCCESS if accepted else WriteOutcome.CONFIRMED_FAILURE,
+                        WriteOutcome.CONFIRMED_SUCCESS
+                        if accepted
+                        else WriteOutcome.CONFIRMED_FAILURE,
                     )
                 except (TimeoutError, ProtocolError, asyncio.CancelledError) as exc:
                     await asyncio.shield(self._isolate(session))

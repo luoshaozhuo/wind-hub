@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from core.infrastructure.config.adapter import YamlConfigAdapter
+from configuration.site_loader import load_domain
 from scripts.generate_virtual_site import generate_site
 
 pytestmark = pytest.mark.unit
@@ -37,7 +37,7 @@ def test_generated_site_loads_with_sink_outputs_contract(tmp_path: Path) -> None
     system = yaml.safe_load((output / "system.yaml").read_text(encoding="utf-8"))
     assert system["messaging"]["backend"] == "nats"
 
-    snapshot = YamlConfigAdapter(output).load()
+    snapshot = load_domain(output)
     assert len(snapshot.site.devices) == 3
     assert snapshot.sinks["redis_latest"].kind == "redis"
     assert set(snapshot.sinks["redis_latest"].outputs) == set(task_ids)

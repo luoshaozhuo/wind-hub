@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import uvicorn
 
-from core.application.config_diff import ConfigSnapshotDiff
+from configuration import ConfigSnapshotDiff
 from core.infrastructure.diagnostic.correlation import RequestIdFilter, bind_request_id
 from web_server.application.config.service import ReloadResult
 from web_server.server import (

@@ -141,8 +141,8 @@ async def test_partial_write_is_rejected_at_adapter(r5_stack, tmp_path) -> None:
     """
     from datetime import UTC, datetime
 
+    from configuration.site_loader import load_domain
     from core.domain.point_value import PointValue
-    from core.infrastructure.config import YamlConfigAdapter
     from sink_service.infrastructure.adapters import GrpcSink
     from sink_service.infrastructure.config import _resolve_sinks
 
@@ -154,7 +154,7 @@ async def test_partial_write_is_rejected_at_adapter(r5_stack, tmp_path) -> None:
             r5_stack.nats,
             _grpc_config(r5_stack.nats, f"127.0.0.1:{port}"),
         )
-        resolved = _resolve_sinks(YamlConfigAdapter(config_dir).load())["grpc_sink"]
+        resolved = _resolve_sinks(load_domain(config_dir))["grpc_sink"]
         adapter = GrpcSink(resolved)
         await adapter.open()
         now = datetime.now(UTC)

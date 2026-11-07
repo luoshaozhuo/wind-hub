@@ -8,8 +8,8 @@ import json
 import urllib.request
 from pathlib import Path
 
-from core.application.diagnostic import DiagnosticFinding, DiagnosticResult, DiagnosticStatus
 from configuration.site_loader import load_domain
+from core.application.diagnostic import DiagnosticFinding, DiagnosticResult, DiagnosticStatus
 from sink_service.infrastructure.adapters.redis import RedisSink
 from sink_service.infrastructure.config import _resolve_sinks
 

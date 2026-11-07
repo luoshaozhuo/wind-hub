@@ -17,9 +17,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from configuration.diff import ConfigSnapshotDiff, diff_config_snapshots
-from configuration.snapshot import ConfigSnapshot
 from configuration.digest import config_dir_digest
 from configuration.site_loader import load_domain
+from configuration.snapshot import ConfigSnapshot
 from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.worker import (
     CommanderPort,

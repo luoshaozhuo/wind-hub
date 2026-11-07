@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 from collections.abc import Sequence
 
@@ -17,7 +18,7 @@ def _finding(code: str, status: DiagnosticStatus, message: str) -> DiagnosticFin
 
 
 def _validate_timeout(timeout: float) -> None:
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+    if isinstance(timeout, bool) or not isinstance(timeout, int | float):
         raise ValueError("timeout must be a finite positive number")
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be a finite positive number")
@@ -32,7 +33,11 @@ def _result_with_close(
     return DiagnosticResult(
         category=result.category,
         target=result.target,
-        status=(DiagnosticStatus.FAIL if result.status is DiagnosticStatus.FAIL else DiagnosticStatus.UNKNOWN),
+        status=(
+            DiagnosticStatus.FAIL
+            if result.status is DiagnosticStatus.FAIL
+            else DiagnosticStatus.UNKNOWN
+        ),
         findings=(
             *result.findings,
             _finding(
@@ -80,15 +85,15 @@ async def check_protocol(
             evidence["healthy"] = health.healthy
             if not health.healthy:
                 status = DiagnosticStatus.FAIL
-                findings.append(_finding(
-                    "UNHEALTHY", status, health.message or "Protocol health check failed"
-                ))
+                findings.append(
+                    _finding("UNHEALTHY", status, health.message or "Protocol health check failed")
+                )
             elif point_id is not None:
                 if ProtocolCapability.READ not in driver.capabilities():
                     status = DiagnosticStatus.SKIPPED
-                    findings.append(_finding(
-                        "READ_UNSUPPORTED", status, "Driver does not support active reads"
-                    ))
+                    findings.append(
+                        _finding("READ_UNSUPPORTED", status, "Driver does not support active reads")
+                    )
                 else:
                     sample = await driver.read_one(point_id)
                     evidence["point"] = {
@@ -96,36 +101,38 @@ async def check_protocol(
                         "quality": sample.quality.value,
                         "timestamp": sample.timestamp.isoformat(),
                     }
-                    findings.append(_finding(
-                        "PROTOCOL_OK", DiagnosticStatus.PASS, "Read-only probe succeeded"
-                    ))
+                    findings.append(
+                        _finding("PROTOCOL_OK", DiagnosticStatus.PASS, "Read-only probe succeeded")
+                    )
             else:
-                findings.append(_finding(
-                    "PROTOCOL_OK", DiagnosticStatus.PASS, "Protocol health verified"
-                ))
+                findings.append(
+                    _finding("PROTOCOL_OK", DiagnosticStatus.PASS, "Protocol health verified")
+                )
     except asyncio.CancelledError:
         # 业务调用者取消不放弃诊断 Driver 的 close 所有权。
         cleanup = asyncio.create_task(_close_owned(driver, deadline))
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await asyncio.shield(cleanup)
-        except asyncio.CancelledError:
-            pass
         raise
     except TimeoutError:
         status = DiagnosticStatus.FAIL
-        findings.append(_finding(
-            "DIAGNOSTIC_TIMEOUT", status, "Protocol diagnostic deadline expired"
-        ))
+        findings.append(
+            _finding("DIAGNOSTIC_TIMEOUT", status, "Protocol diagnostic deadline expired")
+        )
     except Exception as exc:
         status = DiagnosticStatus.FAIL
-        findings.append(_finding(
-            "PROTOCOL_DIAGNOSTIC_FAILED", status,
-            f"Protocol probe failed: {type(exc).__name__}"
-        ))
+        findings.append(
+            _finding(
+                "PROTOCOL_DIAGNOSTIC_FAILED", status, f"Protocol probe failed: {type(exc).__name__}"
+            )
+        )
     # Close belongs to the diagnostic and consumes the remaining global deadline.
     result = DiagnosticResult(
-        category="protocol", target=target, status=status,
-        findings=tuple(findings), evidence=evidence,
+        category="protocol",
+        target=target,
+        status=status,
+        findings=tuple(findings),
+        evidence=evidence,
     )
     return _result_with_close(result, await _close_owned(driver, deadline))
 
@@ -160,30 +167,36 @@ async def benchmark_protocol(
                     return 1
                 return len(await driver.read_many(point_ids))
 
-            result = await benchmark(
-                target, read, samples=samples, interval=interval
-            )
+            result = await benchmark(target, read, samples=samples, interval=interval)
     except asyncio.CancelledError:
         cleanup = asyncio.create_task(_close_owned(driver, deadline))
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await asyncio.shield(cleanup)
-        except asyncio.CancelledError:
-            pass
         raise
     except TimeoutError:
         result = DiagnosticResult(
-            category="benchmark", target=target, status=DiagnosticStatus.FAIL,
-            findings=(_finding(
-                "DIAGNOSTIC_TIMEOUT", DiagnosticStatus.FAIL,
-                "Protocol benchmark deadline expired",
-            ),),
+            category="benchmark",
+            target=target,
+            status=DiagnosticStatus.FAIL,
+            findings=(
+                _finding(
+                    "DIAGNOSTIC_TIMEOUT",
+                    DiagnosticStatus.FAIL,
+                    "Protocol benchmark deadline expired",
+                ),
+            ),
         )
     except Exception as exc:
         result = DiagnosticResult(
-            category="benchmark", target=target, status=DiagnosticStatus.FAIL,
-            findings=(_finding(
-                "BENCHMARK_FAILED", DiagnosticStatus.FAIL,
-                f"Read-only benchmark failed: {type(exc).__name__}",
-            ),),
+            category="benchmark",
+            target=target,
+            status=DiagnosticStatus.FAIL,
+            findings=(
+                _finding(
+                    "BENCHMARK_FAILED",
+                    DiagnosticStatus.FAIL,
+                    f"Read-only benchmark failed: {type(exc).__name__}",
+                ),
+            ),
         )
     return _result_with_close(result, await _close_owned(driver, deadline))

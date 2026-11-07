@@ -12,16 +12,16 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from core.application.errors import ConfigError
 from configuration.sink import Sink, freeze_sink_value
 from configuration.sink_address import (
     SINK_DATA_TYPES,
-    SinkSource,
-    StreamSinkAddress,
     GrpcSinkAddress,
     ModbusSinkAddress,
     SinkAddress,
+    SinkSource,
+    StreamSinkAddress,
 )
+from core.application.errors import ConfigError
 
 
 @dataclass(frozen=True, slots=True)

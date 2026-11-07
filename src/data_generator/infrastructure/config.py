@@ -12,7 +12,6 @@ from typing import Any
 
 import yaml
 
-from core.domain import DeviceId
 from configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
@@ -21,6 +20,7 @@ from configuration.shared_snapshot import (
     SharedDomainSnapshot,
     build_shared_snapshot,
 )
+from core.domain import DeviceId
 from data_generator.application.models import interpolation_table, random_value
 from data_generator.domain.model import GeneratorError, OutputMapping, OutputTarget
 from data_generator.domain.scenario import Scenario, Settings

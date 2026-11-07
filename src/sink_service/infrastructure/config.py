@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
+from configuration.sink_schema import MODBUS_WORD_WIDTH, SINK_NUMERIC_DATA_TYPES
 from configuration.snapshot import ConfigSnapshot
+from configuration.task import Task
 from core.application.errors import ConfigError
+from core.domain import DeviceId
 from sink_service.application.sink_contract import (
     GrpcSinkAddress,
     ModbusSinkAddress,
     ResolvedSink,
     ResolvedSinkPoint,
 )
-from core.domain import DeviceId
-from configuration.task import Task
-from configuration.sink_schema import MODBUS_WORD_WIDTH, SINK_NUMERIC_DATA_TYPES
 
 
 def _task_group_sources(snapshot: ConfigSnapshot, task: Task) -> tuple[tuple[str, str], ...]:

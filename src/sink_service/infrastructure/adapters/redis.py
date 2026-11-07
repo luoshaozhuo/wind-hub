@@ -7,11 +7,15 @@ import logging
 import math
 from contextlib import suppress
 
-from core.application.protocol_contract import ConnectionHealth
-from sink_service.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
 from configuration.sink_schema import RedisSinkConnection
-from sink_service.application.point_value import SinkPointValue
+from core.application.protocol_contract import ConnectionHealth
 from sink_service.application.error import SinkError
+from sink_service.application.point_value import SinkPointValue
+from sink_service.application.sink_contract import (
+    ResolvedSink,
+    ResolvedSinkPoint,
+    StreamSinkAddress,
+)
 from sink_service.infrastructure.adapters.redis_record import encode_redis_record
 
 logger = logging.getLogger(__name__)

@@ -17,7 +17,7 @@ def yaml_plain(value: Any) -> Any:
         return value.value
     if isinstance(value, Mapping):
         return {key: yaml_plain(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [yaml_plain(item) for item in value]
     if is_dataclass(value) and not isinstance(value, type):
         return yaml_plain(asdict(value))

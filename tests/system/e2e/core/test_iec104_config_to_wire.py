@@ -1,6 +1,6 @@
 """Core-only E2E：YAML 配置目录 → 领域快照 → 驱动 → 真实 c104 wire。
 
-链路：``YamlConfigAdapter.load()`` 加载
+链路：``configuration.site_loader.load_domain()`` 加载
 ``tests/fixtures/configs/example_iec104``，由快照中的
 device/model/point table/protocol options 经 ``ProtocolRegistry``
 创建 ``IEC104Driver``，对端为真实 c104 Server（IEC104ControlServer）。
@@ -17,10 +17,10 @@ import asyncio
 import c104
 import pytest
 
+from configuration.site_loader import load_domain
 from core.application import ProtocolRegistry, ProtocolSample, ProtocolWrite, Quality
 from core.application.protocol_contract import InterrogationRequest, WriteOutcome
 from core.domain import ConnectionEndpoint
-from core.infrastructure.config import YamlConfigAdapter
 from core.infrastructure.protocol.iec104 import IEC104Driver
 from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
 from tests.support.wait import wait_until
@@ -33,7 +33,7 @@ _DATA_POINTS = {100: 1500.5, 200: 50.0}
 
 
 def _load_driver(port: int) -> IEC104Driver:
-    snapshot = YamlConfigAdapter(_CONFIG_DIR).load()
+    snapshot = load_domain(_CONFIG_DIR)
     device = next(iter(snapshot.site.devices.values()))
     model = snapshot.device_models[device.device_model_id]
     table = snapshot.point_tables[model.point_table_id]

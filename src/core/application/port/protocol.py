@@ -22,10 +22,10 @@ from typing_extensions import TypeVar
 from ..protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
+    PointTableUpdateResult,
     ProtocolCapability,
     ProtocolPoint,
     ProtocolSample,
-    PointTableUpdateResult,
     ProtocolWrite,
     ProtocolWriteResult,
 )

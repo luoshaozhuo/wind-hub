@@ -10,7 +10,17 @@ from core.domain import ConnectionEndpoint, ProtocolOptions
 
 _VALID_MODES = frozenset({"tcp"})
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
-_ALLOWED_OPTIONS = frozenset({"mode", "slave_id", "timeout", "word_order", "health_point_id", "read_merge_max_gap", "read_plan_cache_size"})
+_ALLOWED_OPTIONS = frozenset(
+    {
+        "mode",
+        "slave_id",
+        "timeout",
+        "word_order",
+        "health_point_id",
+        "read_merge_max_gap",
+        "read_plan_cache_size",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)

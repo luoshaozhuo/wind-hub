@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from core.application.errors import ConfigError
+
 from .sink_address import (
     SINK_DATA_TYPES,
     GrpcSinkAddress,

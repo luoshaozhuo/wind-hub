@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+
 from core.application.errors import ConfigError
 from core.domain import DataType
 
@@ -55,4 +56,3 @@ class ModbusSinkAddress(BaseModel):
 
 
 SinkAddress = StreamSinkAddress | ModbusSinkAddress | GrpcSinkAddress
-

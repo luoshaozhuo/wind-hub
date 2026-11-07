@@ -7,12 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from core.application.errors import ConfigError
-from core.domain import ConnectionEndpoint
 from configuration import SharedConfigPaths, SharedDocumentLoader
-from core.infrastructure.config import read_yaml
 from configuration.shared_documents import SharedDeviceDefinition
 from configuration.versioned_templates import config_hash
+from core.application.errors import ConfigError
+from core.domain import ConnectionEndpoint
+from core.infrastructure.config import read_yaml
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 from industrial_gateway.infrastructure.config.v1_schema import (
     GatewayServiceConfig,

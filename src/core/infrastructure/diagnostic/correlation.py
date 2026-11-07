@@ -8,8 +8,8 @@
 from __future__ import annotations
 
 import logging
-import uuid
 import unicodedata
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar

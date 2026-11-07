@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from collections.abc import Iterator
 
 from core.application.errors import ProtocolError
-
 
 _IN_CALLBACK: ContextVar[tuple[object, asyncio.Task[object] | None] | None] = ContextVar(
     "protocol_callback_barrier", default=None
@@ -45,7 +43,9 @@ class MappingBarrier:
     async def read(self) -> AsyncIterator[None]:
         async with self._condition:
             if self._callback_in_current_task() and (self._writer_active or self._writers_waiting):
-                raise ProtocolError("protocol callback cannot start I/O while a mapping writer is pending")
+                raise ProtocolError(
+                    "protocol callback cannot start I/O while a mapping writer is pending"
+                )
             await self._condition.wait_for(
                 lambda: not self._writer_active and self._writers_waiting == 0
             )

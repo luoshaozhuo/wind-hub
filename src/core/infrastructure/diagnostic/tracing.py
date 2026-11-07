@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from typing import Any
 
 import grpc
 
 
-def create_tracer_provider(
-    service_name: str, *, endpoint: str, sample_ratio: float
-) -> Any:
+def create_tracer_provider(service_name: str, *, endpoint: str, sample_ratio: float) -> Any:
     try:
         from opentelemetry import trace
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -47,14 +44,15 @@ class TraceServerInterceptor(grpc.aio.ServerInterceptor):
         from opentelemetry import propagate
         from opentelemetry.trace import SpanKind, Status, StatusCode
 
-        parent = propagate.extract({
-            str(k).lower(): str(v) for k, v in (details.invocation_metadata or ())
-        })
+        parent = propagate.extract(
+            {str(k).lower(): str(v) for k, v in (details.invocation_metadata or ())}
+        )
         tracer = self._tracer
         operation = str(details.method)
 
         def wrap(func: Any, response_streaming: bool) -> Any:
             if response_streaming:
+
                 async def stream(request: Any, context: Any) -> Any:
                     with tracer.start_as_current_span(
                         operation, context=parent, kind=SpanKind.SERVER
@@ -65,6 +63,7 @@ class TraceServerInterceptor(grpc.aio.ServerInterceptor):
                         except BaseException as exc:
                             span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
                             raise
+
                 return stream
 
             async def unary(request: Any, context: Any) -> Any:
@@ -76,6 +75,7 @@ class TraceServerInterceptor(grpc.aio.ServerInterceptor):
                     except BaseException as exc:
                         span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
                         raise
+
             return unary
 
         if handler.request_streaming:

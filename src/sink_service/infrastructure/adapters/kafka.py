@@ -8,12 +8,16 @@ import math
 from datetime import UTC, datetime
 from typing import Any
 
-from core.application.protocol_contract import ConnectionHealth
-from sink_service.application.sink_contract import ResolvedSink, ResolvedSinkPoint, StreamSinkAddress
 from configuration.sink_schema import KafkaSinkConnection
-from sink_service.application.point_value import SinkPointValue
+from core.application.protocol_contract import ConnectionHealth
 from sink_service.application.error import SinkError
 from sink_service.application.export import SinkReferenceExporter
+from sink_service.application.point_value import SinkPointValue
+from sink_service.application.sink_contract import (
+    ResolvedSink,
+    ResolvedSinkPoint,
+    StreamSinkAddress,
+)
 
 
 def _utc(value: datetime | None) -> str | None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import queue
 import threading
@@ -47,10 +48,8 @@ class BoundedAsyncHandler(logging.Handler):
         except queue.Full:
             self._dropped += 1
             if self._on_drop is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._on_drop()
-                except Exception:
-                    pass
 
     def _run(self) -> None:
         while not self._stop.is_set() or not self._queue.empty():

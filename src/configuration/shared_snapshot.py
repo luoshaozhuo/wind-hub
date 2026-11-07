@@ -24,7 +24,6 @@ from core.domain import (
     Site,
 )
 from core.domain.unit import UnitCatalog
-from .validation import validate_core_config
 from core.infrastructure.protocol.ads.config import parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
@@ -33,6 +32,7 @@ from .business_points import parse_business_points
 from .shared_documents import SharedDocuments
 from .shared_point_tables import _point_tables
 from .units import parse_unit_catalog
+from .validation import validate_core_config
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,11 +7,11 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 
-from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
-from sink_service.application.sink_contract import ResolvedSink
 from configuration.site_loader import load_domain
+from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
 from sink_service.application.point_port import PointSinkPort
 from sink_service.application.runtime import SinkRuntime
+from sink_service.application.sink_contract import ResolvedSink
 from sink_service.infrastructure.adapters import (
     GrpcSink,
     KafkaSink,

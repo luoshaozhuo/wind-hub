@@ -12,11 +12,6 @@ from typing import Any, Protocol
 
 from commander.application.settings import ServiceSettings
 from commander.domain.command import CommandSpec
-from core.application.port import ProtocolPort
-from core.application.protocol_contract import ProtocolWrite
-from core.application.protocol_registry import ProtocolRegistry
-from core.domain import DeviceId, DeviceModelId, PointAccess, PointTableId, convert_value
-from core.domain.point import raw_write_value
 from configuration.effective import resolve_effective_device
 from configuration.shared_documents import (
     SharedConfigPaths,
@@ -27,6 +22,11 @@ from configuration.shared_snapshot import (
     SharedDomainSnapshot,
     build_shared_snapshot,
 )
+from core.application.port import ProtocolPort
+from core.application.protocol_contract import ProtocolWrite
+from core.application.protocol_registry import ProtocolRegistry
+from core.domain import DeviceId, DeviceModelId, PointAccess, PointTableId, convert_value
+from core.domain.point import raw_write_value
 
 
 @dataclass(frozen=True, slots=True)

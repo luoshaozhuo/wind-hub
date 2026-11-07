@@ -22,9 +22,7 @@ _CallDetails = namedtuple(
 )
 
 
-def _inject(
-    details: grpc.aio.ClientCallDetails, *, correlation: bool, tracing: bool
-) -> Any:
+def _inject(details: grpc.aio.ClientCallDetails, *, correlation: bool, tracing: bool) -> Any:
     metadata = tuple(details.metadata or ())
     if correlation:
         metadata = tuple(
@@ -37,8 +35,7 @@ def _inject(
         inject(carrier)
         propagated = {"traceparent", "tracestate", "baggage"}
         metadata = tuple(
-            (key, value) for key, value in metadata
-            if str(key).lower() not in propagated
+            (key, value) for key, value in metadata if str(key).lower() not in propagated
         ) + tuple(carrier.items())
     return _CallDetails(
         details.method,
@@ -59,9 +56,11 @@ async def _invoke(
     tracer: Any | None,
 ) -> Any:
     started = time.monotonic()
-    method = details.method.decode("ascii", "replace") if isinstance(
-        details.method, bytes
-    ) else str(details.method)
+    method = (
+        details.method.decode("ascii", "replace")
+        if isinstance(details.method, bytes)
+        else str(details.method)
+    )
     span: Any | None = None
     try:
         if tracer is not None:
@@ -95,13 +94,12 @@ async def _invoke(
             outcome = "failure"
         finally:
             if recorder is not None:
-                recorder.record(
-                    "grpc_client", method, outcome, time.monotonic() - started
-                )
+                recorder.record("grpc_client", method, outcome, time.monotonic() - started)
             if span is not None:
                 span.end()
 
     if hasattr(call, "add_done_callback"):
+
         def done(completed: Any) -> None:
             try:
                 asyncio.get_running_loop().create_task(finalize(completed))
@@ -120,9 +118,7 @@ async def _invoke(
 
 
 class _ClientObserver:
-    def __init__(
-        self, *, correlation: bool, recorder: Any | None, tracer: Any | None
-    ) -> None:
+    def __init__(self, *, correlation: bool, recorder: Any | None, tracer: Any | None) -> None:
         self._correlation = correlation
         self._recorder = recorder
         self._tracer = tracer
@@ -143,27 +139,21 @@ class _ClientObserver:
         )
 
 
-class RequestIdUnaryUnaryClientInterceptor(
-    _ClientObserver, grpc.aio.UnaryUnaryClientInterceptor
-):
+class RequestIdUnaryUnaryClientInterceptor(_ClientObserver, grpc.aio.UnaryUnaryClientInterceptor):
     async def intercept_unary_unary(
         self, continuation: Any, client_call_details: grpc.aio.ClientCallDetails, request: Any
     ) -> Any:
         return await self._forward(continuation, client_call_details, request)
 
 
-class RequestIdUnaryStreamClientInterceptor(
-    _ClientObserver, grpc.aio.UnaryStreamClientInterceptor
-):
+class RequestIdUnaryStreamClientInterceptor(_ClientObserver, grpc.aio.UnaryStreamClientInterceptor):
     async def intercept_unary_stream(
         self, continuation: Any, client_call_details: grpc.aio.ClientCallDetails, request: Any
     ) -> Any:
         return await self._forward(continuation, client_call_details, request)
 
 
-class RequestIdStreamUnaryClientInterceptor(
-    _ClientObserver, grpc.aio.StreamUnaryClientInterceptor
-):
+class RequestIdStreamUnaryClientInterceptor(_ClientObserver, grpc.aio.StreamUnaryClientInterceptor):
     async def intercept_stream_unary(
         self,
         continuation: Any,

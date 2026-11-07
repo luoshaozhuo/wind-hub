@@ -9,8 +9,8 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
-from sink_service.application.sink_contract import ModbusSinkAddress
 from sink_service.application.export import ExportedSinkPointValue
+from sink_service.application.sink_contract import ModbusSinkAddress
 
 _STRUCT_FORMAT: dict[str, str] = {
     "int16": "h",

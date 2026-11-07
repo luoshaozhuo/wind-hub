@@ -10,11 +10,7 @@ from pathlib import Path
 from collector.application.acquisition import AcquisitionPlan, DevicePlan
 from collector.application.config_models import SnapshotPaths
 from collector.application.lifecycle import ConfiguredRuntime
-from contracts.sample_message import validate_subject_token
-from core.application.errors import ConfigError
-from core.domain import DeviceId
 from configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
-from core.infrastructure.config import read_yaml
 from configuration.document_version import validate_document_version
 from configuration.effective import resolve_effective_device
 from configuration.template_graph import (
@@ -25,6 +21,10 @@ from configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )
+from contracts.sample_message import validate_subject_token
+from core.application.errors import ConfigError
+from core.domain import DeviceId
+from core.infrastructure.config import read_yaml
 
 
 def resolve_source_paths(config_file: Path) -> SnapshotPaths:
@@ -351,9 +351,7 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
         point_table = snapshot.point_tables[point_table_id]
         protocol = point_table.protocol.name
         subscribe_enabled = definition.protocol_options.get("subscribe_enabled", False)
-        if type(subscribe_enabled) is not bool or (
-            subscribe_enabled and protocol != "ads"
-        ):
+        if type(subscribe_enabled) is not bool or (subscribe_enabled and protocol != "ads"):
             raise ConfigError(f"{device.device_id}: invalid Collector subscribe_enabled")
         mode = (
             "subscribe"

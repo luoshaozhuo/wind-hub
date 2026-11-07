@@ -8,8 +8,8 @@ import logging
 import math
 import struct
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from ctypes import c_ubyte
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -17,7 +17,6 @@ import pyads  # type: ignore[import-untyped]
 
 from core.application.port.protocol import ProtocolSampleCallback
 from core.application.protocol_contract import ProtocolSample, Quality
-
 from core.infrastructure.protocol.mapping_barrier import MappingBarrier
 
 from .codec import NotificationBlock, compile_notification_blocks
@@ -175,9 +174,7 @@ class ADSSubscription:
 
         return receive
 
-    def _enqueue(
-        self, generation: int, samples: tuple[ProtocolSample, ...]
-    ) -> None:
+    def _enqueue(self, generation: int, samples: tuple[ProtocolSample, ...]) -> None:
         if self._stopping or generation != self._generation:
             return
         if self._queue.full():
@@ -195,9 +192,7 @@ class ADSSubscription:
             except Exception:
                 logger.exception("ADS notification delivery callback failed")
 
-    async def prepare_update(
-        self, points: Sequence[ADSPoint]
-    ) -> _PreparedSubscription:
+    async def prepare_update(self, points: Sequence[ADSPoint]) -> _PreparedSubscription:
         """暂存新原生句柄；当前交付代次保持不变。"""
         if self._stopping:
             raise RuntimeError("ADS subscription is stopping")

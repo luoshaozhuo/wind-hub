@@ -3,8 +3,8 @@
 from .observability import (
     CorrelationSettings,
     JsonFormatter,
-    LoggingSettings,
     LogFileSettings,
+    LoggingSettings,
     MetricsSettings,
     ObservabilityHandle,
     ObservabilitySettings,

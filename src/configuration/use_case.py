@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from .diff import ConfigSnapshotDiff, diff_config_snapshots
-from .snapshot import ConfigSnapshot
 from .port import ConfigPort
+from .snapshot import ConfigSnapshot
 
 
 class ConfigUseCase:

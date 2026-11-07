@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from core.application.errors import ConfigError
+from core.infrastructure.config import ConfigOperationError, read_yaml
 
 from .business_points import parse_business_points
 from .document_version import validate_document_version
@@ -20,7 +21,6 @@ from .versioned_templates import (
     VersionedTemplateRepository,
     config_hash,
 )
-from core.infrastructure.config import ConfigOperationError, read_yaml
 
 
 @dataclass(frozen=True, slots=True)

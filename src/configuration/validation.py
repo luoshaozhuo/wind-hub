@@ -15,10 +15,11 @@ from core.domain.identities import (
     PointTableId,
 )
 from core.domain.point import BusinessPoint, PointTable
-from .sink import Sink
-from .task import Task, validate_task_references
 from core.domain.unit import DIMENSIONLESS, Unit, UnitCatalog
 from core.domain.value_objects import DataType
+
+from .sink import Sink
+from .task import Task, validate_task_references
 
 
 def validate_core_config(

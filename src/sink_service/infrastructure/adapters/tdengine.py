@@ -11,11 +11,11 @@ import urllib.request
 from datetime import UTC, datetime
 from urllib.error import HTTPError, URLError
 
-from core.application.protocol_contract import ConnectionHealth
-from sink_service.application.sink_contract import ResolvedSink
 from configuration.sink_schema import TDengineSinkConnection
-from sink_service.application.point_value import SinkPointValue
+from core.application.protocol_contract import ConnectionHealth
 from sink_service.application.error import SinkError
+from sink_service.application.point_value import SinkPointValue
+from sink_service.application.sink_contract import ResolvedSink
 
 
 def _sql_text(value: str) -> str:

@@ -22,7 +22,6 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from .snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.settings import (
     ADSLocalConfig,
@@ -51,19 +50,21 @@ from core.domain import (
     Protocol,
     Site,
 )
-from .sink import Sink, SinkOutput
-from .task import Task
-from .validation import validate_core_config
 from core.domain.unit import DIMENSIONLESS, UnitCatalog
+from core.infrastructure.config import ConfigOperationError, read_yaml
 from core.infrastructure.protocol.ads.config import is_valid_ams_net_id, parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
 from .business_points import parse_business_points
+from .sink import Sink, SinkOutput
 from .sink_schema import parse_sink_definitions, validate_task_sink_points
+from .snapshot import ConfigSnapshot
+from .task import Task
 from .units import parse_unit_catalog
-from core.infrastructure.config import ConfigOperationError, read_yaml
+from .validation import validate_core_config
 from .yaml_values import yaml_plain as _yaml_plain
+
 
 def _read_document(path: Path) -> dict[str, Any]:
     try:

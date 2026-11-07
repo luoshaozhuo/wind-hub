@@ -8,11 +8,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from configuration.sink import Sink
-from web_server.application.sink.yaml_values import yaml_plain
 from web_server.application.config.files import ConfigApplyResult, ConfigFileService
 from web_server.application.config.service import ConfigService
 from web_server.application.port.monitoring import MonitoringSnapshotPort
 from web_server.application.port.sink import SinkDirectoryPort
+from web_server.application.sink.yaml_values import yaml_plain
 
 
 class SinkSnapshot(BaseModel):

@@ -115,7 +115,9 @@ def read_yaml(path: Path) -> dict[str, Any]:
     except FileNotFoundError as exc:
         raise ConfigOperationError("read_yaml", ConfigErrorCode.NOT_FOUND, path=path) from exc
     except PermissionError as exc:
-        raise ConfigOperationError("read_yaml", ConfigErrorCode.PERMISSION_DENIED, path=path) from exc
+        raise ConfigOperationError(
+            "read_yaml", ConfigErrorCode.PERMISSION_DENIED, path=path
+        ) from exc
     except (OSError, UnicodeError) as exc:
         raise ConfigOperationError("read_yaml", ConfigErrorCode.IO_ERROR, path=path) from exc
 
@@ -144,8 +146,12 @@ def save_yaml(path: Path, data: dict[str, Any]) -> None:
     replaced = False
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=path.parent,
-            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
         ) as handle:
             temporary = Path(handle.name)
             handle.write(rendered)
@@ -206,7 +212,10 @@ def _same_scalar(old: Any, new: Any) -> bool:
 
 
 def _walk_diff(
-    old: Any, new: Any, path: tuple[PathPart, ...], output: list[ConfigDiffEntry],
+    old: Any,
+    new: Any,
+    path: tuple[PathPart, ...],
+    output: list[ConfigDiffEntry],
 ) -> None:
     if type(old) is dict and type(new) is dict:
         for key in sorted(old.keys() | new.keys()):

@@ -29,10 +29,10 @@ from pathlib import Path
 
 from collector.application.nats_dispatch import SamplePublisher
 from collector.assembly import assemble_collector
+from configuration.site_loader import load_domain
 from contracts.sample_message import SampleMessage
 from core.application.port.protocol import ProtocolPort
 from core.domain.point_value import PointValue
-from core.infrastructure.config import YamlConfigAdapter
 from tests.support.config_helper import write_config_tree
 from tests.support.netem import NetemController, NetemScenario
 from tests.support.perf_collector import MetricsCollector, PerfMetrics
@@ -292,7 +292,7 @@ async def run_benchmark(
                 c.apply(scenario)  # 中断场景此处是 clear（稳态无规则）
 
             app = assemble_collector(config_dir)
-            site_id = YamlConfigAdapter(config_dir).load_collector().site.site_id
+            site_id = load_domain(config_dir).site.site_id
             _install_null_publisher(app, site_id)
             runtime = app.runtime
             runtime.engine.add_observer(_make_latency_observer(collector))

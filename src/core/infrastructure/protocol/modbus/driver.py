@@ -20,23 +20,22 @@ from core.application.port import ListenHandle, ProtocolSampleCallback, Subscrip
 from core.application.protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
+    PointTableIssue,
+    PointTableUpdateResult,
+    PointTableUpdateStatus,
     ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
-    PointTableUpdateResult,
-    PointTableUpdateStatus,
-    PointTableIssue,
     Quality,
     WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolOptions
+from core.infrastructure.protocol.mapping_barrier import MappingBarrier
 
 from .codec import _encode_coil, _encode_registers, decode
 from .config import parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
-from core.infrastructure.protocol.mapping_barrier import MappingBarrier
-
 from .session import _ModbusSession
 
 _READ_ONLY = frozenset({"discrete_input", "input"})
@@ -119,7 +118,6 @@ class ModbusDriver:
         first_readable = next((key for key in points if key in readable), None)
         return points, readable, writable, point_table.point_table_id, configured or first_readable
 
-
     def _install_point_table(self, point_table: PointTable) -> None:
         points, readable, writable, table_id, health = self._compile_point_table(point_table)
         self._points = points
@@ -165,7 +163,9 @@ class ModbusDriver:
                 async with self._mapping_barrier.write():
                     async with self._lifecycle:
                         if not self.is_open():
-                            return result(PointTableUpdateStatus.NOT_READY, "Modbus session is not ready")
+                            return result(
+                                PointTableUpdateStatus.NOT_READY, "Modbus session is not ready"
+                            )
                         if point_table == self._point_table:
                             return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
                         try:
@@ -173,9 +173,7 @@ class ModbusDriver:
                                 self._compile_point_table(point_table)
                             )
                         except (ConfigError, ValueError) as exc:
-                            return result(
-                                PointTableUpdateStatus.VALIDATION_FAILED, str(exc)
-                            )
+                            return result(PointTableUpdateStatus.VALIDATION_FAILED, str(exc))
 
                         changed = frozenset(
                             point_id
@@ -188,8 +186,7 @@ class ModbusDriver:
                         newly_changed = changed & points.keys()
                         unverified = tuple(sorted(newly_changed - readable))
                         candidates = tuple(
-                            points[point_id]
-                            for point_id in sorted(newly_changed & readable)
+                            points[point_id] for point_id in sorted(newly_changed & readable)
                         )
                         verification_groups = group_consecutive_reads(
                             candidates,
@@ -239,26 +236,24 @@ class ModbusDriver:
             return result(PointTableUpdateStatus.TIMEOUT, "Modbus update deadline expired")
 
     async def connect(self) -> None:
-        async with self._mapping_barrier.write():
-            async with self._lifecycle:
-                if self.is_open():
-                    return
-                previous = self._session
-                if previous is not None:
-                    await previous.close()
-                    self._session = None
-                session = _ModbusSession(self._config)
-                self._session = session
-                await session.open()
+        async with self._mapping_barrier.write(), self._lifecycle:
+            if self.is_open():
+                return
+            previous = self._session
+            if previous is not None:
+                await previous.close()
+                self._session = None
+            session = _ModbusSession(self._config)
+            self._session = session
+            await session.open()
 
     async def close(self) -> None:
-        async with self._mapping_barrier.write():
-            async with self._lifecycle:
-                session = self._session
-                if session is None:
-                    return
-                await session.close()
-                self._session = None
+        async with self._mapping_barrier.write(), self._lifecycle:
+            session = self._session
+            if session is None:
+                return
+            await session.close()
+            self._session = None
 
     def is_open(self) -> bool:
         session = self._session
@@ -298,7 +293,9 @@ class ModbusDriver:
             if point_id not in self._readable:
                 raise ConfigError(f"Modbus point '{point_id}' is not readable")
             session = self._require_session()
-            raw = await session.read(point.register_type, point.address, point.count, point.slave_id)
+            raw = await session.read(
+                point.register_type, point.address, point.count, point.slave_id
+            )
             return _sample(point, raw)
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
@@ -350,7 +347,9 @@ class ModbusDriver:
                 if point.register_type == "coil":
                     values: tuple[int | bool, ...] = (_encode_coil(write.value, point.data_type),)
                 else:
-                    values = tuple(_encode_registers(write.value, point.data_type, point.word_order))
+                    values = tuple(
+                        _encode_registers(write.value, point.data_type, point.word_order)
+                    )
                 if len(values) != point.count:
                     raise ValueError("write encoder length does not match point span")
             except (TypeError, ValueError, struct.error) as exc:

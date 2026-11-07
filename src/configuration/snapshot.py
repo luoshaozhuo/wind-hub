@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
+from core.application.settings import SystemSettings
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
@@ -21,10 +22,9 @@ from core.domain import (
     Site,
 )
 from core.domain.unit import UnitCatalog
+
 from .sink import Sink
 from .task import Task
-
-from core.application.settings import SystemSettings
 
 
 @dataclass(frozen=True, slots=True)

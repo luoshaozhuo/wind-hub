@@ -7,19 +7,19 @@ from typing import cast
 
 import grpc
 
+from configuration.sink_schema import GrpcSinkConnection
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as rpc
 from core.application import ConnectionHealth
+from core.domain.sample_value import Quality
+from core.infrastructure.rpc.scalar_codec import encode_scalar
+from sink_service.application.export import SinkReferenceExporter
+from sink_service.application.point_value import SinkPointValue
 from sink_service.application.sink_contract import (
     GrpcSinkAddress,
     ResolvedSink,
     ResolvedSinkPoint,
 )
-from core.domain.sample_value import Quality
-from configuration.sink_schema import GrpcSinkConnection
-from core.infrastructure.rpc.scalar_codec import encode_scalar
-from sink_service.application.point_value import SinkPointValue
-from sink_service.application.export import SinkReferenceExporter
 
 
 class GrpcSink:

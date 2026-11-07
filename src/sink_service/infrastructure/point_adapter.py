@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from sink_service.application.point_value import SinkPointValue
 from sink_service.application.point_port import PointSinkPort
+from sink_service.application.point_value import SinkPointValue
 
 
 class PointValueSinkAdapter:

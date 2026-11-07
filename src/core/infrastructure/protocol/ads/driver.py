@@ -22,12 +22,12 @@ from core.application.port.protocol import (
 from core.application.protocol_contract import (
     ConnectionHealth,
     InterrogationRequest,
-    ProtocolCapability,
-    ProtocolLifecycleState,
-    ProtocolSample,
     PointTableIssue,
     PointTableUpdateResult,
     PointTableUpdateStatus,
+    ProtocolCapability,
+    ProtocolLifecycleState,
+    ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
@@ -35,6 +35,7 @@ from core.application.protocol_contract import (
 )
 from core.application.settings import ADSLocalConfig
 from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolOptions
+from core.infrastructure.protocol.mapping_barrier import MappingBarrier
 
 from .codec import (
     _coerce_write_value,
@@ -44,8 +45,6 @@ from .codec import (
 )
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point, symbol_index_address
-from core.infrastructure.protocol.mapping_barrier import MappingBarrier
-
 from .session import ADSCommandNotSentError, _AdsSession
 from .subscription import ADSSubscription
 
@@ -190,7 +189,9 @@ class ADSDriver:
                 async with self._mapping_barrier.write():
                     async with self._lifecycle:
                         if not self.is_open() or self._session is None:
-                            return result(PointTableUpdateStatus.NOT_READY, "ADS session is not ready")
+                            return result(
+                                PointTableUpdateStatus.NOT_READY, "ADS session is not ready"
+                            )
                         if point_table == self._point_table:
                             return result(PointTableUpdateStatus.UNCHANGED, "point table unchanged")
                         if point_table.protocol.name != "ads":
@@ -226,11 +227,14 @@ class ADSDriver:
                         try:
                             for point_id in sorted(changed & configured.keys()):
                                 point = configured[point_id]
-                                info = await session.execute(operation="get_symbol", name=point.symbol)
+                                info = await session.execute(
+                                    operation="get_symbol", name=point.symbol
+                                )
                                 group, offset = symbol_index_address(point.symbol, info)
-                                if point.address_resolved and (
-                                    point.group, point.offset
-                                ) != (group, offset):
+                                if point.address_resolved and (point.group, point.offset) != (
+                                    group,
+                                    offset,
+                                ):
                                     raise ConfigError("ADS configured symbol address mismatch")
                                 resolved[point_id] = point.resolved(
                                     index_group=group, index_offset=offset
@@ -273,8 +277,10 @@ class ADSDriver:
                                 for index, subscription in enumerate(affected)
                                 if subscription._registration_uncertain
                             )
-                            if leftovers or uncertain or any(
-                                subscription._retired_handles for subscription in affected
+                            if (
+                                leftovers
+                                or uncertain
+                                or any(subscription._retired_handles for subscription in affected)
                             ):
                                 self._state = ProtocolLifecycleState.FAULTED
                                 state = "FAULTED"
@@ -317,7 +323,11 @@ class ADSDriver:
             # 外部取消不能证明 Native 注册/删除已经收敛；保留句柄所有权，
             # 必须先 close() 确认，再允许后续 connect()。
             if applied or any(
-                (subscription._retired_handles or subscription._prepared_handles or subscription._registration_uncertain)
+                (
+                    subscription._retired_handles
+                    or subscription._prepared_handles
+                    or subscription._registration_uncertain
+                )
                 for subscription in self._subscriptions
             ):
                 state = "FAULTED"
@@ -328,7 +338,11 @@ class ADSDriver:
                 state = "FAULTED"
                 self._state = ProtocolLifecycleState.FAULTED
             if any(
-                (subscription._retired_handles or subscription._prepared_handles or subscription._registration_uncertain)
+                (
+                    subscription._retired_handles
+                    or subscription._prepared_handles
+                    or subscription._registration_uncertain
+                )
                 for subscription in self._subscriptions
             ):
                 state = "FAULTED"
@@ -338,107 +352,108 @@ class ADSDriver:
                     for index, subscription in enumerate(
                         sorted(self._subscriptions, key=lambda item: tuple(sorted(item.point_ids)))
                     )
-                    if subscription._retired_handles or subscription._prepared_handles or subscription._registration_uncertain
+                    if subscription._retired_handles
+                    or subscription._prepared_handles
+                    or subscription._registration_uncertain
                 )
             return result(PointTableUpdateStatus.TIMEOUT, "ADS update deadline expired")
 
     async def connect(self) -> None:
         """Open the PLC and verify every configured point before becoming ready."""
-        async with self._mapping_barrier.write():
-            async with self._lifecycle:
-                if self._state is ProtocolLifecycleState.CONNECTED:
-                    return
-                if self._state is not ProtocolLifecycleState.DISCONNECTED or _LOCAL_CLOSED:
-                    raise ProtocolError("ADS driver is not available for connect")
+        async with self._mapping_barrier.write(), self._lifecycle:
+            if self._state is ProtocolLifecycleState.CONNECTED:
+                return
+            if self._state is not ProtocolLifecycleState.DISCONNECTED or _LOCAL_CLOSED:
+                raise ProtocolError("ADS driver is not available for connect")
 
-                self._state = ProtocolLifecycleState.CONNECTING
-                try:
-                    for attempt in range(2 if self._config.route_auto_add else 1):
-                        session = _AdsSession(
-                            self._config.target_net_id,
-                            self._config.target_port,
-                            self._config.host,
-                        )
-                        self._session = session
-                        _ACTIVE_SESSIONS.add(session)
+            self._state = ProtocolLifecycleState.CONNECTING
+            try:
+                for attempt in range(2 if self._config.route_auto_add else 1):
+                    session = _AdsSession(
+                        self._config.target_net_id,
+                        self._config.target_port,
+                        self._config.host,
+                    )
+                    self._session = session
+                    _ACTIVE_SESSIONS.add(session)
+                    try:
                         try:
-                            try:
-                                await session.open()
-                            except Exception as exc:
-                                # Only an open failure may trigger route registration.
-                                if attempt != 0 or not self._config.route_auto_add:
-                                    raise
-                                await session.close()
-                                _ACTIVE_SESSIONS.discard(session)
-                                self._session = None
-                                if _LOCAL_IDENTITY is None:
-                                    raise ConfigError(
-                                        "ADS local AMS identity is not initialized"
-                                    ) from exc
-                                async with _REMOTE_ROUTE_LOCK:
-                                    # shield keeps native route registration alive if the caller
-                                    # is cancelled. _ROUTE_TASKS then prevents close_local()
-                                    # from closing AMS resources before that thread finishes.
-                                    route_task = asyncio.create_task(
-                                        asyncio.to_thread(
-                                            pyads.add_route_to_plc,
-                                            _LOCAL_IDENTITY.local_ams_net_id,
-                                            _LOCAL_IDENTITY.local_ip,
-                                            self._config.host,
-                                            self._config.username,
-                                            self._config.password,
-                                        )
+                            await session.open()
+                        except Exception as exc:
+                            # Only an open failure may trigger route registration.
+                            if attempt != 0 or not self._config.route_auto_add:
+                                raise
+                            await session.close()
+                            _ACTIVE_SESSIONS.discard(session)
+                            self._session = None
+                            if _LOCAL_IDENTITY is None:
+                                raise ConfigError(
+                                    "ADS local AMS identity is not initialized"
+                                ) from exc
+                            async with _REMOTE_ROUTE_LOCK:
+                                # shield keeps native route registration alive if the caller
+                                # is cancelled. _ROUTE_TASKS then prevents close_local()
+                                # from closing AMS resources before that thread finishes.
+                                route_task = asyncio.create_task(
+                                    asyncio.to_thread(
+                                        pyads.add_route_to_plc,
+                                        _LOCAL_IDENTITY.local_ams_net_id,
+                                        _LOCAL_IDENTITY.local_ip,
+                                        self._config.host,
+                                        self._config.username,
+                                        self._config.password,
                                     )
-                                    _ROUTE_TASKS.add(route_task)
+                                )
+                                _ROUTE_TASKS.add(route_task)
 
-                                    def release_route(done: asyncio.Task[bool]) -> None:
-                                        _ROUTE_TASKS.discard(done)
-                                        if not done.cancelled():
-                                            done.exception()
+                                def release_route(done: asyncio.Task[bool]) -> None:
+                                    _ROUTE_TASKS.discard(done)
+                                    if not done.cancelled():
+                                        done.exception()
 
-                                    route_task.add_done_callback(release_route)
-                                    if not await asyncio.shield(route_task):
-                                        raise ProtocolError(
-                                            "ADS automatic route registration failed"
-                                        ) from exc
-                                continue
+                                route_task.add_done_callback(release_route)
+                                if not await asyncio.shield(route_task):
+                                    raise ProtocolError(
+                                        "ADS automatic route registration failed"
+                                    ) from exc
+                            continue
 
-                            timeout_ms = (
-                                _LOCAL_IDENTITY.request_timeout_ms
-                                if _LOCAL_IDENTITY is not None
-                                else int(self._config.timeout * 1000)
-                            )
-                            # ms: 当前 ADS 请求的原生超时（毫秒），不限定整个 connect()。
-                            await session.execute(operation="set_timeout", ms=timeout_ms)
-                            # read_state 无参数：读取 PLC 的 ADS 状态与设备状态。
-                            plc_state, _ = await session.execute(operation="read_state")
-                            if plc_state != pyads.ADSSTATE_RUN:
-                                raise ProtocolError("ADS PLC is not in RUN state")
-                            points = await self._resolve_points(session)
-                        except BaseException:
-                            if self._session is session:
-                                try:
-                                    # Session serializes close after any pending native I/O.
-                                    await session.close()
-                                except BaseException:
-                                    self._state = ProtocolLifecycleState.FAULTED
-                                    raise
-                                _ACTIVE_SESSIONS.discard(session)
-                                self._session = None
-                            raise
-                        self._points = points
-                        if self._active_version is None:
-                            self._active_version = 1
-                        self._state = ProtocolLifecycleState.CONNECTED
-                        return
-                except BaseException:
-                    if self._state is not ProtocolLifecycleState.FAULTED:
-                        self._state = (
-                            ProtocolLifecycleState.FAULTED
-                            if self._session is not None
-                            else ProtocolLifecycleState.DISCONNECTED
+                        timeout_ms = (
+                            _LOCAL_IDENTITY.request_timeout_ms
+                            if _LOCAL_IDENTITY is not None
+                            else int(self._config.timeout * 1000)
                         )
-                    raise
+                        # ms: 当前 ADS 请求的原生超时（毫秒），不限定整个 connect()。
+                        await session.execute(operation="set_timeout", ms=timeout_ms)
+                        # read_state 无参数：读取 PLC 的 ADS 状态与设备状态。
+                        plc_state, _ = await session.execute(operation="read_state")
+                        if plc_state != pyads.ADSSTATE_RUN:
+                            raise ProtocolError("ADS PLC is not in RUN state")
+                        points = await self._resolve_points(session)
+                    except BaseException:
+                        if self._session is session:
+                            try:
+                                # Session serializes close after any pending native I/O.
+                                await session.close()
+                            except BaseException:
+                                self._state = ProtocolLifecycleState.FAULTED
+                                raise
+                            _ACTIVE_SESSIONS.discard(session)
+                            self._session = None
+                        raise
+                    self._points = points
+                    if self._active_version is None:
+                        self._active_version = 1
+                    self._state = ProtocolLifecycleState.CONNECTED
+                    return
+            except BaseException:
+                if self._state is not ProtocolLifecycleState.FAULTED:
+                    self._state = (
+                        ProtocolLifecycleState.FAULTED
+                        if self._session is not None
+                        else ProtocolLifecycleState.DISCONNECTED
+                    )
+                raise
 
     async def _resolve_points(self, session: _AdsSession) -> dict[str, ADSPoint]:
         """Resolve and validate every configured symbol against this PLC session."""
@@ -464,32 +479,31 @@ class ADSDriver:
 
     async def close(self) -> None:
         """Stop subscriptions, then close the physical session under one lock."""
-        async with self._mapping_barrier.write():
-            async with self._lifecycle:
-                if self._state is ProtocolLifecycleState.DISCONNECTED:
-                    return
-                self._state = ProtocolLifecycleState.CLOSING
-                try:
-                    errors: list[Exception] = []
-                    for subscription in tuple(self._subscriptions):
-                        try:
-                            await subscription.stop()
-                        except Exception as exc:
-                            errors.append(exc)
-                    session = self._session
-                    if session is not None:
-                        await session.close()
-                        if not session.is_settled:
-                            raise ProtocolError("ADS session close is not settled")
-                        _ACTIVE_SESSIONS.discard(session)
-                        self._session = None
-                    if errors:
-                        raise ExceptionGroup("ADS subscriptions not fully released", errors)
-                    self._subscriptions.clear()
-                    self._state = ProtocolLifecycleState.DISCONNECTED
-                except BaseException:
-                    self._state = ProtocolLifecycleState.FAULTED
-                    raise
+        async with self._mapping_barrier.write(), self._lifecycle:
+            if self._state is ProtocolLifecycleState.DISCONNECTED:
+                return
+            self._state = ProtocolLifecycleState.CLOSING
+            try:
+                errors: list[Exception] = []
+                for subscription in tuple(self._subscriptions):
+                    try:
+                        await subscription.stop()
+                    except Exception as exc:
+                        errors.append(exc)
+                session = self._session
+                if session is not None:
+                    await session.close()
+                    if not session.is_settled:
+                        raise ProtocolError("ADS session close is not settled")
+                    _ACTIVE_SESSIONS.discard(session)
+                    self._session = None
+                if errors:
+                    raise ExceptionGroup("ADS subscriptions not fully released", errors)
+                self._subscriptions.clear()
+                self._state = ProtocolLifecycleState.DISCONNECTED
+            except BaseException:
+                self._state = ProtocolLifecycleState.FAULTED
+                raise
 
     def is_open(self) -> bool:
         return (

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import math
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -16,18 +17,17 @@ import grpc
 
 from core.application.settings import LogSettings
 from core.infrastructure.diagnostic.async_log import BoundedAsyncHandler
-from core.infrastructure.diagnostic.log_setup import _DailySizeFileHandler
 from core.infrastructure.diagnostic.correlation import (
     REQUEST_ID_HEADER,
     RequestIdFilter,
     bind_request_id,
-    get_request_id,
     new_request_id,
     normalize_request_id,
 )
-from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
-from core.infrastructure.rpc.client_correlation import client_interceptors
+from core.infrastructure.diagnostic.log_setup import _DailySizeFileHandler
 from core.infrastructure.diagnostic.tracing import TraceServerInterceptor, create_tracer_provider
+from core.infrastructure.rpc.client_correlation import client_interceptors
+from core.infrastructure.rpc.correlation import RequestIdServerInterceptor
 
 _DEFAULT_BUCKETS = (0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0)
 
@@ -92,9 +92,11 @@ class ObservabilitySettings:
         if type(file.retention_days) is not int or file.retention_days <= 0:
             raise ValueError("logging.file.retention_days must be a positive integer")
         buckets = self.metrics.buckets_seconds
-        if not buckets or any(
-            not math.isfinite(value) or value <= 0 for value in buckets
-        ) or any(left >= right for left, right in zip(buckets, buckets[1:])):
+        if (
+            not buckets
+            or any(not math.isfinite(value) or value <= 0 for value in buckets)
+            or any(left >= right for left, right in zip(buckets, buckets[1:], strict=False))
+        ):
             raise ValueError("metric buckets must be positive and strictly increasing")
         tracing = self.tracing
         if not math.isfinite(tracing.sample_ratio) or not 0 <= tracing.sample_ratio <= 1:
@@ -108,15 +110,16 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         values: dict[str, object] = {
-            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat().replace(
-                "+00:00", "Z"
-            ),
+            "timestamp": datetime.fromtimestamp(record.created, UTC)
+            .isoformat()
+            .replace("+00:00", "Z"),
             "level": record.levelname,
             "service": getattr(record, "service", None),
             "logger": record.name,
             "message": record.getMessage(),
             "request_id": (
-                None if getattr(record, "request_id", None) in (None, "", "-")
+                None
+                if getattr(record, "request_id", None) in (None, "", "-")
                 else getattr(record, "request_id", None)
             ),
             "trace_id": getattr(record, "trace_id", None),
@@ -198,21 +201,15 @@ class _Recorder:
         try:
             method = f"{transport}:{operation}" if transport != "grpc" else operation
             self.rpc_calls.labels(self.service_name, method, outcome).inc()
-            self.rpc_duration.labels(
-                self.service_name, method, outcome
-            ).observe(seconds)
+            self.rpc_duration.labels(self.service_name, method, outcome).observe(seconds)
         except Exception:
             # Do not recursively log telemetry failures or mutate business outcomes.
             pass
 
-    def record_protocol(
-        self, protocol: str, operation: str, outcome: str, seconds: float
-    ) -> None:
+    def record_protocol(self, protocol: str, operation: str, outcome: str, seconds: float) -> None:
         try:
             self.protocol_calls.labels(protocol, operation, outcome).inc()
-            self.protocol_duration.labels(
-                protocol, operation, outcome
-            ).observe(seconds)
+            self.protocol_duration.labels(protocol, operation, outcome).observe(seconds)
         except Exception:
             # Optional metrics must not affect device I/O.
             pass
@@ -225,10 +222,8 @@ class _Recorder:
         return partial(self.record_drop, "logging", "queue_full")
 
     def record_drop(self, channel: str, reason: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.dropped.labels(channel, reason).inc()
-        except Exception:
-            pass
 
 
 class RequestIdASGIMiddleware:
@@ -283,9 +278,9 @@ class RequestIdASGIMiddleware:
             if self.tracer is not None:
                 from opentelemetry import propagate
                 from opentelemetry.trace import SpanKind
+
                 carrier = {
-                    k.decode("ascii", "replace"): v.decode("ascii", "replace")
-                    for k, v in headers
+                    k.decode("ascii", "replace"): v.decode("ascii", "replace") for k, v in headers
                 }
                 parent = propagate.extract(carrier)
                 with self.tracer.start_as_current_span(
@@ -297,7 +292,8 @@ class RequestIdASGIMiddleware:
         finally:
             if self.recorder is not None:
                 self.recorder.record(
-                    "http", method,
+                    "http",
+                    method,
                     "success" if status < 500 else "failure",
                     time.monotonic() - started,
                 )
@@ -348,6 +344,7 @@ class MetricsServerInterceptor(grpc.aio.ServerInterceptor):
 
         def observe(behavior: Callable[..., Any], stream: bool) -> Callable[..., Any]:
             if stream:
+
                 async def streaming(req: Any, context: Any) -> Any:
                     started = time.monotonic()
                     outcome = "success"
@@ -359,10 +356,12 @@ class MetricsServerInterceptor(grpc.aio.ServerInterceptor):
                         raise
                     finally:
                         recorder.record(
-                            "grpc", operation,
+                            "grpc",
+                            operation,
                             complete_outcome(context, outcome == "failure"),
                             time.monotonic() - started,
                         )
+
                 return streaming
 
             async def unary(req: Any, context: Any) -> Any:
@@ -380,6 +379,7 @@ class MetricsServerInterceptor(grpc.aio.ServerInterceptor):
                         complete_outcome(context, outcome == "failure"),
                         time.monotonic() - started,
                     )
+
             return unary
 
         if handler.request_streaming:
@@ -453,19 +453,16 @@ class ObservabilityHandle:
                 # RequestId 在生产线程入队前绑定，消费线程不能再次读取 contextvar。
                 target.setFormatter(formatter)
             handler = BoundedAsyncHandler(
-                targets, capacity=settings.logging.queue_capacity,
+                targets,
+                capacity=settings.logging.queue_capacity,
                 process_name=service_name,
                 on_drop=(
-                    self._recorder.record_drop_callback
-                    if self._recorder is not None
-                    else None
+                    self._recorder.record_drop_callback if self._recorder is not None else None
                 ),
             )
             handler.setLevel(logging._nameToLevel[settings.logging.level])
             handler.addFilter(RequestIdFilter())
-            handler.addFilter(
-                _ContextLogFilter(service_name, tracing=settings.tracing.enabled)
-            )
+            handler.addFilter(_ContextLogFilter(service_name, tracing=settings.tracing.enabled))
             self._logger.addHandler(handler)
             self._handler = handler
         interceptors: list[grpc.aio.ServerInterceptor] = []
@@ -483,9 +480,7 @@ class ObservabilityHandle:
                 tracer=self._tracer,
             )
             if (
-                settings.correlation.enabled
-                or settings.metrics.enabled
-                or settings.tracing.enabled
+                settings.correlation.enabled or settings.metrics.enabled or settings.tracing.enabled
             )
             else ()
         )
@@ -559,7 +554,6 @@ class ObservabilityHandle:
         self._closed = True
 
 
-
 def parse_observability_settings(raw: Mapping[str, Any]) -> ObservabilitySettings:
     """严格解析宿主显式传入的 observability 子树，无固定路径或文件 I/O。"""
     if not isinstance(raw, Mapping):
@@ -577,22 +571,41 @@ def parse_observability_settings(raw: Mapping[str, Any]) -> ObservabilitySetting
     unknown = set(raw) - {"logging", "correlation", "metrics", "tracing"}
     if unknown:
         raise ValueError(f"unknown observability sections: {sorted(unknown)}")
-    log = section("logging", frozenset({
-        "level", "format", "console", "file", "queue_capacity",
-    }))
+    log = section(
+        "logging",
+        frozenset(
+            {
+                "level",
+                "format",
+                "console",
+                "file",
+                "queue_capacity",
+            }
+        ),
+    )
     file_raw = log.pop("file", {})
     if not isinstance(file_raw, Mapping):
         raise ValueError("observability.logging.file must be a mapping")
     unknown_file = set(file_raw) - {
-        "enabled", "path", "max_size_mb", "retention_days",
+        "enabled",
+        "path",
+        "max_size_mb",
+        "retention_days",
     }
     if unknown_file:
         raise ValueError(f"unknown observability.logging.file fields: {sorted(unknown_file)}")
     correlation = section("correlation", frozenset({"enabled"}))
     metrics = section("metrics", frozenset({"enabled", "buckets_seconds"}))
-    tracing = section("tracing", frozenset({
-        "enabled", "sample_ratio", "otlp_endpoint",
-    }))
+    tracing = section(
+        "tracing",
+        frozenset(
+            {
+                "enabled",
+                "sample_ratio",
+                "otlp_endpoint",
+            }
+        ),
+    )
     bool_fields = (
         (log, "console"),
         (file_raw, "enabled"),
@@ -617,6 +630,7 @@ def parse_observability_settings(raw: Mapping[str, Any]) -> ObservabilitySetting
         metrics=MetricsSettings(**metrics),
         tracing=TracingSettings(**tracing),
     )
+
 
 _ACTIVE: dict[str, ObservabilityHandle] = {}
 

@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from core.infrastructure.config import YamlConfigAdapter
+from configuration.site_loader import load_domain
 from sink_service.infrastructure.adapters import TDengineSink
 from sink_service.infrastructure.config import _resolve_sinks
 from tests.fixtures.services.r5_stack import TDENGINE_DATABASES
@@ -144,7 +144,7 @@ async def test_ddl_composite_key_accepted_by_real_tdengine(r5_stack, tmp_path: P
     skip/xfail 掩盖。
     """
     config_dir = _write_config(tmp_path, r5_stack, DB_A)
-    snapshot = YamlConfigAdapter(config_dir).load()
+    snapshot = load_domain(config_dir)
     resolved = _resolve_sinks(snapshot)["td_sink"]
     adapter = TDengineSink(resolved)
     await adapter.open()
