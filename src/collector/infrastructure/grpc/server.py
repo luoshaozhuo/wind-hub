@@ -12,6 +12,7 @@ import grpc
 from contracts import collector_pb2 as pb
 from contracts import collector_pb2_grpc as pb_grpc
 from contracts import common_pb2
+from contracts import common_pb2_grpc
 from core.application.protocol_contract import InterrogationRequest, validate_read_many_results
 from core.domain import DeviceId
 from core.domain.point import engineering_value
@@ -293,11 +294,124 @@ class CollectorService(pb_grpc.CollectorServiceServicer):
             raise
 
 
+
+class CollectorCommonService(common_pb2_grpc.CommonServiceServicer):
+    """Shared operational queries over Collector's real in-process state."""
+
+    def __init__(self, app: CollectorApp) -> None:
+        self._app = app
+        self._started = datetime.now(UTC)
+
+    async def GetServiceInfo(self, request: common_pb2.Empty, context: grpc.aio.ServicerContext) -> common_pb2.GetServiceInfoResponse:
+        response = common_pb2.GetServiceInfoResponse(
+            service_id=self._app.identity.collector_id,
+            process_role="collector",
+            contract_version="v1",
+        )
+        response.started_at.FromDatetime(self._started)
+        return response
+
+    async def GetServiceStatus(self, request: common_pb2.Empty, context: grpc.aio.ServicerContext) -> common_pb2.GetServiceStatusResponse:
+        runtime = self._app.runtime
+        response = common_pb2.GetServiceStatusResponse(
+            health="RUNNING" if runtime.running else "STOPPED",
+        )
+        response.observed_at.FromDatetime(datetime.now(UTC))
+        response.dependencies.add(
+            name="nats",
+            health="RUNNING" if runtime.nats_connected else "UNAVAILABLE",
+            detail="publisher connection",
+        )
+        return response
+
+    async def GetCapabilities(self, request: common_pb2.Empty, context: grpc.aio.ServicerContext) -> common_pb2.GetCapabilitiesResponse:
+        return common_pb2.GetCapabilitiesResponse(
+            rpc_names=[method.name for method in pb.DESCRIPTOR.services_by_name["CollectorService"].methods],
+            protocols=sorted({session.protocol_name for session in self._app.runtime.devices.values()}),
+            features=["task_control", "batch_publication", "point_read", "observability"],
+        )
+
+    async def GetMetrics(self, request: common_pb2.GetMetricsRequest, context: grpc.aio.ServicerContext) -> common_pb2.GetMetricsResponse:
+        now = datetime.now(UTC)
+        if request.scope and request.scope not in {"service", "collector"}:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported metrics scope")
+        if request.window_ms:
+            if request.window_ms % 1000 or request.window_ms // 1000 not in self._app.metric_windows:
+                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported metrics window")
+            values = self._app.metrics.window_snapshot(request.window_ms // 1000)
+        else:
+            values = self._app.metrics.snapshot()["counters"]
+        result = common_pb2.GetMetricsResponse()
+        for name, value in sorted(values.items()):
+            metric = result.metrics.add(name=name, value=float(value), unit="count", window_ms=request.window_ms)
+            metric.sampled_at.FromDatetime(now)
+        return result
+
+    async def GetEvents(self, request: common_pb2.GetEventsRequest, context: grpc.aio.ServicerContext) -> common_pb2.GetEventsResponse:
+        if request.page_size > 500:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "page_size exceeds 500")
+        events = self._app.metrics.snapshot()["events"]
+        if request.filter:
+            events = [event for event in events if request.filter in event["kind"] or request.filter in event["message"]]
+        if request.HasField("from_time"):
+            lower = request.from_time.ToDatetime(tzinfo=UTC)
+            events = [event for event in events if datetime.fromisoformat(event["timestamp"]) >= lower]
+        if request.HasField("to_time"):
+            upper = request.to_time.ToDatetime(tzinfo=UTC)
+            events = [event for event in events if datetime.fromisoformat(event["timestamp"]) <= upper]
+        names = [str(index) for index in range(len(events))]
+        try:
+            indexes, token = _page(names, request.page_size or 200, request.page_token)
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise
+        result = common_pb2.GetEventsResponse(next_page_token=token)
+        for index in indexes:
+            event = events[int(index)]
+            item = result.events.add(
+                event_id=index,
+                severity="WARNING" if "fail" in event["kind"] else "INFO",
+                source=event["object"],
+                error_code=event["kind"],
+                message=event["message"],
+            )
+            item.timestamp.FromDatetime(datetime.fromisoformat(event["timestamp"]))
+        return result
+
+    async def Diagnose(self, request: common_pb2.DiagnoseRequest, context: grpc.aio.ServicerContext) -> common_pb2.DiagnoseResponse:
+        if request.target_id and request.target_id not in self._app.runtime.devices:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "unknown device")
+        stage = common_pb2.DiagnosticStage(
+            stage="publisher",
+            status="PASS" if self._app.runtime.nats_connected else "UNKNOWN",
+            source="collector.runtime",
+        )
+        stage.observed_at.FromDatetime(datetime.now(UTC))
+        return common_pb2.DiagnoseResponse(
+            overall_status=stage.status,
+            stages=[stage],
+            limitations=["Only the local publisher connection is inspected; no device I/O executed."],
+        )
+
+    async def GetConfigSnapshot(self, request: common_pb2.GetConfigSnapshotRequest, context: grpc.aio.ServicerContext) -> common_pb2.GetConfigSnapshotResponse:
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "configuration snapshot RPC requires a separately specified contract")
+        raise AssertionError("unreachable")
+
+    async def PushConfigSnapshot(self, request: common_pb2.PushConfigSnapshotRequest, context: grpc.aio.ServicerContext) -> common_pb2.PushConfigSnapshotResponse:
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "configuration snapshot RPC requires a separately specified contract")
+        raise AssertionError("unreachable")
+
+    async def ApplyConfigSnapshot(self, request: common_pb2.ApplyConfigSnapshotRequest, context: grpc.aio.ServicerContext) -> common_pb2.ApplyConfigSnapshotResponse:
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "configuration snapshot RPC requires a separately specified contract")
+        raise AssertionError("unreachable")
+
+
 def build_grpc_server(app: CollectorApp, *, host: str, port: int) -> CollectorGrpcServer:
     if host not in {"127.0.0.1", "::1", "localhost"}:
         raise ValueError("remote Collector gRPC requires a TLS-authenticated listener")
     server = grpc.aio.server()
     pb_grpc.add_CollectorServiceServicer_to_server(CollectorService(app), server)
+    common_pb2_grpc.add_CommonServiceServicer_to_server(CollectorCommonService(app), server)
     bound = server.add_insecure_port(f"{host}:{port}")
     if not bound:
         raise RuntimeError("failed to bind Collector gRPC server")

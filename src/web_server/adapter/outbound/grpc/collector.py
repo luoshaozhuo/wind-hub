@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC
 
 import grpc
 
 from contracts import collector_pb2 as pb
 from contracts import collector_pb2_grpc as pb_grpc
 from contracts import common_pb2
+from contracts import common_pb2_grpc
 from web_server.adapter.outbound.grpc.common import GrpcClientBase
-from web_server.application.port.monitoring import MetricsSnapshot
+from web_server.application.port.monitoring import CounterSnapshot, MetricsSnapshot, MonitoringEvent
 from web_server.application.port.worker import (
     CollectorInfo,
     CollectorRuntimeStatus,
@@ -57,18 +59,84 @@ class CollectorGrpcClient(GrpcClientBase):
     def __init__(self, target: str, *, default_timeout: float = 5.0) -> None:
         super().__init__(target, default_timeout=default_timeout)
         self._collector = pb_grpc.CollectorServiceStub(self._channel)
+        self._common = common_pb2_grpc.CommonServiceStub(self._channel)
 
     async def config_status(self) -> CollectorInfo:
-        """The current Collector contract has no identity or config-status RPC."""
-        raise NotImplementedError("Collector configuration status is not in collector.proto")
+        """Read authoritative identity; absent boot ID is left unspecified."""
+        info = await self._common.GetServiceInfo(
+            common_pb2.Empty(), timeout=self.default_timeout
+        )
+        health = await self._common.GetServiceStatus(
+            common_pb2.Empty(), timeout=self.default_timeout
+        )
+        tasks = await self._tasks()
+        revision = tasks[0].revision if tasks else ""
+        if not revision:
+            devices = await self._collector.ListDevices(
+                pb.ListDevicesRequest(page_size=1),
+                timeout=self.default_timeout,
+            )
+            revision = devices.devices[0].revision if devices.devices else ""
+        return CollectorInfo(
+            collector_id=info.service_id,
+            boot_id="",
+            active_revision=revision,
+            runtime_running=health.health == "RUNNING",
+        )
 
     async def runtime_status(self) -> CollectorRuntimeStatus:
-        """Do not fabricate missing aggregate counters as zeros."""
-        raise NotImplementedError("Collector runtime metrics are not in collector.proto")
+        """Aggregate only the counters the official RPCs actually provide."""
+        health = await self._common.GetServiceStatus(
+            common_pb2.Empty(), timeout=self.default_timeout
+        )
+        devices = await self.list_devices()
+        metrics = await self._common.GetMetrics(
+            common_pb2.GetMetricsRequest(scope="collector"),
+            timeout=self.default_timeout,
+        )
+        values = {item.name: int(item.value) for item in metrics.metrics}
+        return CollectorRuntimeStatus(
+            running=health.health == "RUNNING",
+            device_count=len(devices),
+            devices_connected=sum(item.connected for item in devices),
+            points_collected=values.get("points_total", 0),
+            points_routed=values.get("points_routed", 0),
+            points_dropped=values.get("points_dropped", 0),
+            acquisitions=[],
+        )
 
     async def metrics_snapshot(self) -> MetricsSnapshot:
-        """Do not silently return empty metrics when no metrics RPC exists."""
-        raise NotImplementedError("Collector metrics are not in collector.proto")
+        raw = await self._common.GetMetrics(
+            common_pb2.GetMetricsRequest(scope="collector"),
+            timeout=self.default_timeout,
+        )
+        result = await self._common.GetEvents(
+            common_pb2.GetEventsRequest(page_size=500),
+            timeout=self.default_timeout,
+        )
+        counts = {item.name: int(item.value) for item in raw.metrics}
+        return MetricsSnapshot(
+            counters=CounterSnapshot(
+                points_total=counts.get("points_total", 0),
+                points_bad=counts.get("points_bad", 0),
+                acquisition_runs=counts.get("acquisition_runs", 0),
+                acquisition_failures=counts.get("acquisition_failures", 0),
+                acquisition_partial=counts.get("acquisition_partial", 0),
+                missed_cycles=counts.get("missed_cycles", 0),
+                poll_overruns=counts.get("poll_overruns", 0),
+                connect_failures=counts.get("connect_failures", 0),
+                reconnects=counts.get("reconnects", 0),
+            ),
+            events=[
+                MonitoringEvent(
+                    timestamp=item.timestamp.ToDatetime(tzinfo=UTC),
+                    kind=item.error_code,
+                    object=item.source,
+                    message=item.message,
+                )
+                for item in result.events
+            ],
+        )
 
     async def list_devices(self) -> list[DeviceRuntimeInfo]:
         rows: list[DeviceRuntimeInfo] = []
