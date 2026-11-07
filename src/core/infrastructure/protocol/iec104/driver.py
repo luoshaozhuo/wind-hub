@@ -706,10 +706,10 @@ class IEC104Driver:
                     if cot == 5:
                         self._handle_read(msg, received_at)
                     elif 20 <= cot <= 41:
+                        # Interrogation COTs belong exclusively to the active
+                        # interrogation request. They are not spontaneous
+                        # Listener notifications; avoid duplicate downstream delivery.
                         self._handle_interrogation(msg, received_at)
-                        sample = self._handle_listen(msg, received_at)
-                        if sample is not None:
-                            samples.append(sample)
                     elif cot in (1, 2, 3):
                         sample = self._handle_listen(msg, received_at)
                         if sample is not None:

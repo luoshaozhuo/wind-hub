@@ -173,7 +173,32 @@ class ModbusDriver:
                                 self._compile_point_table(point_table)
                             )
                         except (ConfigError, ValueError) as exc:
-                            return result(PointTableUpdateStatus.VALIDATION_FAILED, str(exc))
+                            # Only attribute failures to a point if its individual
+                            # Modbus mapping independently fails compilation.
+                            # Whole-table/protocol failures must not invent IDs.
+                            issues: list[PointTableIssue] = []
+                            if point_table.protocol.name == "modbus":
+                                for candidate in point_table.points.values():
+                                    try:
+                                        parse_modbus_point(
+                                            candidate,
+                                            default_word_order=self._config.word_order,
+                                            default_slave_id=self._config.slave_id,
+                                        )
+                                    except (ConfigError, ValueError) as point_exc:
+                                        issues.append(
+                                            PointTableIssue(
+                                                point_id=candidate.point_id,
+                                                code=type(point_exc).__name__,
+                                                message=str(point_exc),
+                                                phase="validation",
+                                            )
+                                        )
+                            return result(
+                                PointTableUpdateStatus.VALIDATION_FAILED,
+                                str(exc),
+                                issues=tuple(issues),
+                            )
 
                         changed = frozenset(
                             point_id
