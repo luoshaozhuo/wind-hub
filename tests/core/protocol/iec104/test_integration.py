@@ -123,26 +123,32 @@ async def test_iec104_negative_control_confirmation_is_definite_failure() -> Non
 
 
 @pytest.mark.asyncio
-async def test_iec104_general_interrogation_samples_reach_existing_listener(
+async def test_iec104_general_interrogation_samples_are_isolated_from_listener(
     iec104_server,
 ) -> None:
-    """Collector 先 LISTEN 再 GI，必须收到 GI 初始化点值。"""
+    """GI（COT 20..41）样本只归属召唤上下文，不镜像到已注册 Listener。
+
+    设计 §7.4.4：_dispatch 按 COT 分流；§7.4.5：listen/interrogate 是两个
+    独立入口，监听缓存不得充当总召结果缓存，反之总召数据不得冒充自发上送。
+    Listener 的自发投递由 test_iec104_spontaneous_listen 独立覆盖。
+    """
     driver = iec104_driver(iec104_server.port)
-    received = asyncio.Event()
     samples = []
 
     async def callback(batch) -> None:
         samples.extend(batch)
-        if any(sample.point_id == "power" for sample in batch):
-            received.set()
 
     await driver.connect()
     listener = await driver.listen(["power"], callback)
     try:
         result = await driver.interrogate(InterrogationRequest(kind="station", common_address=1))
+        # 召唤方仍完整收到 GI 样本。
         assert any(sample.point_id == "power" for sample in result)
-        await asyncio.wait_for(received.wait(), timeout=5.0)
-        assert any(sample.value == pytest.approx(1500.5) for sample in samples)
+        assert any(sample.value == pytest.approx(1500.5) for sample in result)
+        # 给监听消费任务一个调度窗口：任何 GI 镜像都会在此浮入。
+        await asyncio.sleep(0.3)
+        assert samples == []
+        assert driver._listener_fault is False
     finally:
         await listener.close()
         await driver.close()

@@ -130,12 +130,46 @@ async def test_st_53_validation_failure_reports_issue_and_keeps_mapping() -> Non
     assert result.applied is False
     assert result.active_version == 1
     assert result.resource_state == "READY"
-    # 当前合同：编译期校验失败把点位与原因写入 message；
-    # point_errors 在该路径为空（PointTableIssue(phase='validation') 未被
-    # Modbus 驱动使用）——差距已在 S3 报告登记为移交项，测试不虚造逐点结构。
+    # 单测点编译错误必须产生 phase='validation' 的逐点 PointTableIssue，
+    # 且只归因于真正非法的测点，合法点 p0 不得被牵连。
     assert "p_bad" in result.message
+    assert len(result.point_errors) == 1
+    issue = result.point_errors[0]
+    assert issue.point_id == "p_bad"
+    assert issue.phase == "validation"
+    assert issue.code == "ConfigError"
+    assert "65535" in issue.message
+    # 映射未切换：原表对象、原点位完全保留，代次不增。
+    assert driver._point_table is base
+    assert driver._points == original_points
+
+
+async def test_st_53_whole_table_failure_does_not_invent_point_issues() -> None:
+    # 两个可独立解析的只写线圈落在同一地址：逐点 parse_modbus_point 均合法，
+    # 仅整表编译期的可写区间重叠检查失败（表级/协议级错误）。
+    base = _table("t1", {"p0": _point("p0", 0)})
+    driver = _driver(base)
+    driver._session = _OkSession()
+    original_points = dict(driver._points)
+
+    overlapping = _table(
+        "t-overlap",
+        {
+            "c0": _point("c0", 8, access=PointAccess.WRITE, register_type="coil", data_type="bool"),
+            "c1": _point("c1", 8, access=PointAccess.WRITE, register_type="coil", data_type="bool"),
+        },
+    )
+    result = await driver.update_point_table(overlapping, timeout=5.0)
+
+    assert result.status is PointTableUpdateStatus.VALIDATION_FAILED
+    assert result.applied is False
+    assert result.active_version == 1
+    # 表级错误没有可归因的单个非法测点：结构化 point_errors 必须为空，
+    # 不得把参与冲突的测点伪造成逐点校验 issue。
     assert result.point_errors == ()
-    # 映射未切换：原表对象、原点位完全保留。
+    assert result.message  # 人类可读消息仍须携带表级失败证据
+    assert "overlapping" in result.message
+    # 旧映射与代次保持不变。
     assert driver._point_table is base
     assert driver._points == original_points
 

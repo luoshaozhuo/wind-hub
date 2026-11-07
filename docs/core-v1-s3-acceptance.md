@@ -587,3 +587,89 @@ mypy src/core 剩余 6 项全部为 `Class cannot subclass ... (has type "Any")`
 - 依赖：`poetry.lock` 真实重锁，pyproject.toml 未改；
 - 文档：本报告第 11 节；
 - 证据目录：`/tmp/s3-acceptance/r2/`（全量 junit、门禁日志、marker 审计、pip 原始记录、安装拦截原文）。
+
+---
+
+# 12. 第三轮补充独立复测（ST-47/ST-53 合同整改复验，2026-11-07）
+
+> 针对第二轮 §11.8 移交观察 1（Modbus 校验失败逐点结构缺口）与观察 3（IEC104 召唤 COT 双路由）的生产修复进行独立复验。本轮复测者仅修改测试与本报告，未触碰生产代码；无断言放松、无 skip/xfail、无 noqa/type-ignore。
+
+## 12.1 Git 与生产变更核验
+
+| 项 | 值 |
+|---|---|
+| 起始/当前 HEAD | `733b41a8f3ac58d3f0c8d5acfe9cfa5257736b96`（与授权点一致） |
+| 工作区 | 复测开始时干净；本轮结束仅 3 个测试文件 + 本报告变更 |
+| 生产修复提交 | `733b41a8 fix(core): attribute Modbus validation point issues and isolate IEC104 interrogation COT from listener`，仅 2 文件 +29/-4 行 |
+
+生产改动语义（逐行人工复核）：
+
+1. `iec104/driver.py::_dispatch`：COT 20..41 分支删除 `_handle_listen` 镜像，仅调用 `_handle_interrogation`；COT 1/2/3 监听分支、COT 5 读分支、未知 COT debug 丢弃分支均未改。
+2. `modbus/driver.py::update_point_table`：整表编译捕获 `ConfigError/ValueError` 后，对表内每个测点独立执行 `parse_modbus_point`；仅独立解析失败的测点生成 `PointTableIssue(phase="validation")`，逐点全部合法（表级错误）时 issues 为空元组，不伪造测点 ID。
+
+## 12.2 Modbus VALIDATION_FAILED 复验（任务 2，对应 ST-53）
+
+测试：`tests/src/system/st/test_st_26_53_54_point_table_update.py`
+
+| 场景 | 断言（真实合同，非放宽） | 结果 |
+|---|---|---|
+| 单测点地址越界（p_bad@65536，p0 合法） | VALIDATION_FAILED；`point_errors` 恰 1 条且 `point_id="p_bad"`、`phase="validation"`、`code="ConfigError"`、消息含 65535；合法点 p0 不被牵连；`applied=False`、`active_version=1`、原表对象/原点位完全保留 | PASS |
+| 整表错误（两个可独立解析的线圈同址，仅 pairwise 重叠检查失败） | VALIDATION_FAILED；**`point_errors == ()`（不伪造测点 ID）**；message 含 "overlapping" 表级证据；旧映射与 active_version 不变 | PASS |
+| 既有 NOT_READY/TIMEOUT/VERIFICATION_FAILED/UNCHANGED/SUCCESS/代次规则 | 同文件其余 7 节点回归 | PASS（8/8） |
+
+## 12.3 IEC104 COT 路由复验（任务 3，对应 ST-47）
+
+测试：`tests/src/system/st/test_st_47_iec104_interrogation.py`（hat/c104 真实回环栈 + 生产 `_dispatch` 注入，10 节点）与 `tests/core/protocol/iec104/test_integration.py`（真实 c104 从站）。
+
+| 路由合同（设计 §7.4.4 line 2210、§7.4.5 line 2280/2318） | 覆盖用例 | 结果 |
+|---|---|---|
+| COT 20..41 只进入匹配的活动召唤，不投递任何 Listener | `..._spontaneous_reaches_listener_but_interrogation_data_is_isolated`、无活动召唤参数化（COT 20/21/37 三值）、并发双 Listener 隔离 | PASS |
+| 无活动召唤时召唤 COT 静默丢弃：不投递、不抛异常、不置 listener_fault | `..._without_active_interrogation_is_dropped[3 参数]` | PASS |
+| COT 1/2/3（周期/背景/自发）仍进入 Listener 且从不进入召唤归集 | `..._spontaneous_family_cot_1_2_3_routes_to_listener[3 参数]` | PASS |
+| 错误 CA（CA=2 无召唤）、错误 IOA（9999 无配置）、错误 Type（M_SP_NA_1 替 M_ME_NC_1）、错误 COT（站召期望 20 实收 21） | `..._wrong_ca_ioa_type_and_cot_never_misroute`：四类坏帧全部不落账、不进 Listener、不置故障；随后正确帧仍正常归集（无附带杀伤）；召唤超时异常 samples 仅含正确帧 42.0 | PASS |
+| 并发监听 | 双 Listener 均收自发 8.8、均不收召唤 9.9，`_listener_fault is False` | PASS |
+| 部分召唤超时不伪称完整 | 既有 partial 用例：`IEC104InterrogationIncompleteError.completed=False`、召唤状态清理 | PASS |
+| 真实 c104 从站 GI 隔离 | 旧用例 `..._samples_reach_existing_listener` 按设计更名为 `..._samples_are_isolated_from_listener`：GI 结果含 power@1500.5，Listener 300ms 窗口内零投递；自发投递能力由同文件 `test_iec104_spontaneous_listen` 独立保持覆盖 | PASS |
+
+生产连带影响核查：`collector/application/acquisition.py` 的 `interrogate()` 直接消费驱动返回值（line 463），`listen()` 为独立回调（line 277），全仓无生产代码依赖「GI 镜像 Listener」旧行为；修复不破坏 Collector 语义。
+
+## 12.4 测试更新性质声明（任务 4）
+
+- ST-47/ST-53 旧断言编码的是第二轮已登记的**缺陷行为**（双路由、空 point_errors），本轮按设计书明文合同重写预期，并为每个修复方向新增负向用例（无召唤、四类坏帧、整表错误、并发监听），不是简单翻转断言；
+- 旧集成用例更名而非删除，保留真实 c104 对端证据强度；
+- 生产修复若回退，本轮 11 个新/改断言将立即失败（已通过反向阅读代码路径确认断言与修复点一一对应）。
+
+## 12.5 DEGRADED 合同一致性（任务 5）
+
+全仓 grep 复核：三个 Core 协议驱动中 `DEGRADED` 仅出现在 `protocol_contract.py:109` 类型声明与 ADS/IEC104 驱动的局部变量 Literal 注解（默认值 READY），**无任何生产赋值路径**；Modbus 驱动仅产出 READY/FAULTED。ST-55 提交后清理失败实测为 FAULTED + residual_resources（第二轮证据继续有效）。
+
+结论：当前生产**不制造虚假 DEGRADED**，满足任务 5 底线；但设计 line 1762 定义的「映射已生效但部分推送未恢复」场景仍无实现路径，第二轮 §11.8 观察 2 维持开放——建议 ChatGPT 要么实现部分恢复路径，要么从合同 Literal 收窄，勿在无场景时预置状态。其余模块（commander ServiceState、collector/gateway/data_generator 健康字符串）的 DEGRADED 属服务级健康概念，与协议 resource_state 不同义，不计入本项。
+
+## 12.6 门禁与测试执行（任务 6，退出码实测）
+
+| 命令 | 结果 | 证据 |
+|---|---|---|
+| `ruff check src tests scripts` | **EXIT=0** | r3/gate-ruff-check.log |
+| `ruff format --check src tests scripts` | **EXIT=0** | r3/gate-ruff-format.log |
+| `mypy src/core` | EXIT=1，6 errors，与第二轮 r2 基线 **diff 完全相同**（grpc 无 py.typed 的 subclass-Any，6 处行号/文本一致） | r3/gate-mypy-core.log |
+| `mypy src/configuration` | **EXIT=0** | r3/gate-mypy-config.log |
+| `lint-imports` | **EXIT=0**，15 kept / 0 broken | r3/gate-lint-imports.log |
+| `pytest tests/src` | **39 passed**（第二轮 30 + 本轮净增 9） | 4.43s |
+| `pytest tests/core/protocol`（三协议真实栈） | **209 passed**（Modbus/IEC104/ADS，含 real_service） | 35.86s |
+| `pytest tests/core` | **508 passed / 1 failed**，唯一失败仍为 D-08 pb2 越界（main 既存，三轮一致） | 39.03s |
+| 全量 `--collect-only` | 1946 collected / 20 errors（18 collector_v2_pb2 UNRELATED + 2 prompt_toolkit ENVIRONMENT，归因与第二轮完全相同，无新增） | 16.68s |
+| Marker 审计（tests/src） | 39/39 单一 system 层级，零无层级/零多层级；`--strict-markers` 零违例 | — |
+
+环境阻断维持第二轮口径：真实 PLC/TwinCAT、NATS、Docker、wind-hub-* 二进制、prompt_toolkit/dbus-next 安装（权限分类器拦截，锁文件已含）均 NOT_RUN，本轮无变化、无新增环境问题。
+
+## 12.7 新增生产缺陷
+
+**本轮未发现新增生产缺陷。** 修复提交的两处改动与设计合同一致，边界行为（无活动召唤、坏帧、表级错误、合法点牵连、并发监听）全部有真实断言兜底。开放项仍为第二轮已登记的：观察 2（DEGRADED 无生产路径）、观察 4（6 个 grpc-Any mypy 基线），以及 main 既存 D-08/D-10 与环境项 D-09/D-13。
+
+## 12.8 第三轮裁决
+
+### 裁决：**PASS WITH LIMITATIONS**
+
+- 两个目标缺陷（Modbus 逐点校验归因、IEC104 召唤/监听 COT 隔离）均已正确修复并经真实协议栈与负向路由用例独立证实；
+- 五项静态门禁 4 绿，唯一红项为三轮不变的 grpc-Any main 基线；Core 508/1 与全量收集 20 errors 的归因三轮稳定，无 RELATED 回归；
+- 限制项（不阻断本分支）：DEGRADED 合同状态仍无生产路径（设计/实现待对齐）；48 项 ST 形式 System 定位与历史树 Marker 结构债务维持第二轮登记；硬件与外部服务环境阻断依旧 NOT_RUN。
