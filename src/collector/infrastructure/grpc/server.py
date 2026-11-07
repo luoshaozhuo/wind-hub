@@ -14,7 +14,6 @@ from contracts import collector_pb2_grpc as pb_grpc
 from contracts import common_pb2
 from contracts import common_pb2_grpc
 from core.application.protocol_contract import InterrogationRequest, validate_read_many_results
-from core.domain import DeviceId
 from core.domain.point import engineering_value
 from core.domain.value_objects import PointAccess
 from core.infrastructure.rpc.scalar_codec import encode_scalar
@@ -326,7 +325,14 @@ class CollectorCommonService(common_pb2_grpc.CommonServiceServicer):
 
     async def GetCapabilities(self, request: common_pb2.Empty, context: grpc.aio.ServicerContext) -> common_pb2.GetCapabilitiesResponse:
         return common_pb2.GetCapabilitiesResponse(
-            rpc_names=[method.name for method in pb.DESCRIPTOR.services_by_name["CollectorService"].methods],
+            rpc_names=[
+                method.name
+                for descriptor in (
+                    pb.DESCRIPTOR.services_by_name["CollectorService"],
+                    common_pb2.DESCRIPTOR.services_by_name["CommonService"],
+                )
+                for method in descriptor.methods
+            ],
             protocols=sorted({session.protocol_name for session in self._app.runtime.devices.values()}),
             features=["task_control", "batch_publication", "point_read", "observability"],
         )
@@ -340,7 +346,10 @@ class CollectorCommonService(common_pb2_grpc.CommonServiceServicer):
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported metrics window")
             values = self._app.metrics.window_snapshot(request.window_ms // 1000)
         else:
-            values = self._app.metrics.snapshot()["counters"]
+            values = dict(self._app.metrics.snapshot()["counters"])
+            values["points_collected"] = self._app.runtime.points_collected
+            values["points_routed"] = self._app.runtime.points_routed
+            values["points_dropped"] = self._app.runtime.points_dropped
         result = common_pb2.GetMetricsResponse()
         for name, value in sorted(values.items()):
             metric = result.metrics.add(name=name, value=float(value), unit="count", window_ms=request.window_ms)
