@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from core.application import ConfigError, ConnectionHealth
 from sink_service.application.sink_contract import ModbusSinkAddress, ResolvedSink, ResolvedSinkPoint
-from sink_service.infrastructure.sink_schema import ModbusSinkConnection
+from configuration.sink_schema import ModbusSinkConnection
 from sink_service.application.point_value import SinkPointValue
 from sink_service.application.point_port import PointSinkPort
 from sink_service.infrastructure.adapters.modbus.pipeline import ModbusSinkDataPath
