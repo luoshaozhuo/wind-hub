@@ -1,11 +1,7 @@
-"""sinks.yaml 强类型配置模型（共享业务配置边界）。
+"""Sink 输出配置的强类型解析、地址校验与端口冲突检测。
 
-本模块定义 sinks.yaml 的原始配置模型、按类型解析与校验；本模块本身不
-创建任何运行时资源。Runtime 对外接口契约（SinkSource / SinkAddress /
-ResolvedSinkPoint）属于 Application 层，见
-``core.application.sink_contract``。Raw :class:`SinkPoint` 到
-:class:`ResolvedSinkPoint` 的 source 引用解析由
-``collector.infrastructure.config`` 完成。
+只构造配置对象，不连接数据库、PLC 或启动任何 Sink 服务。
+地址数据契约由 configuration.sink_address 统一提供。
 """
 
 from __future__ import annotations

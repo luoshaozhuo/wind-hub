@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from typing import Literal
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from hat.drivers import iec104

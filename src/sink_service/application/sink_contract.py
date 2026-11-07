@@ -1,11 +1,7 @@
-"""Sink Service 专属接口契约模型。
+"""Sink Service 运行时契约。
 
-本模块定义 Sink 运行时的稳定外部接口契约：内部点身份（SinkSource）、
-外部地址（Stream/Modbus）以及完成 source 引用解析后的运行时点定义
-（ResolvedSinkPoint）。这些类型只依赖领域类型与框架级校验，不感知
-YAML/文件细节，也不创建任何运行时资源；sinks.yaml 的原始配置模型与
-解析逻辑位于 ``sink_service.infrastructure.sink_schema``，由后者组合
-本模块类型完成原始点到 ResolvedSinkPoint 的解析。
+源引用和地址类型由 configuration.sink_address 定义；本模块仅扩展
+运行时已解析的 Sink 映射，不包含 YAML 解析或基础设施 I/O。
 """
 
 from __future__ import annotations
@@ -50,8 +46,6 @@ class ResolvedSink(Sink):
             object.__setattr__(self, "task_key_prefixes", freeze_sink_value(self.task_key_prefixes))
         if self.task_refs is not None:
             object.__setattr__(self, "task_refs", freeze_sink_value(self.task_refs))
-
-
 
 
 class ResolvedSinkPoint(BaseModel):
