@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+from collections import deque
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from math import ceil
@@ -50,7 +51,19 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
             except Exception:
                 logger.exception("worker watchdog reconciliation failed")
 
+    lag_samples: deque[tuple[float, float]] = deque(maxlen=60000)
+
+    async def monitor_loop_delay() -> None:
+        loop = asyncio.get_running_loop()
+        target = loop.time() + 0.1
+        while True:
+            await asyncio.sleep(max(0.0, target - loop.time()))
+            actual = loop.time()
+            lag_samples.append((actual, max(0.0, (actual - target) * 1000)))
+            target = actual + 0.1
+
     recovery = asyncio.create_task(watchdog())
+    lag_monitor = asyncio.create_task(monitor_loop_delay())
     try:
         while True:
             request = ControlRequest.from_wire(await read_frame(reader))
@@ -102,6 +115,16 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                     counters = registry.counters()
                     if isinstance(factory, RealtimeFactory):
                         counters.update(factory.ingress_counters())
+                    lag_cutoff = asyncio.get_running_loop().time() - (
+                        snapshot.service["metrics"]["metrics_window_ms"] / 1000
+                    )
+                    lag_values = sorted(
+                        delay for stamp, delay in lag_samples if stamp > lag_cutoff
+                    )
+                    if lag_values:
+                        counters[f"{role}_event_loop_lag_ms_p99"] = lag_values[
+                            ceil(len(lag_values) * 0.99) - 1
+                        ]
                     deliveries, histories, overflows = registry.delivery_observations()
                     instant = datetime.now(UTC)
                     cutoff = instant - timedelta(
@@ -150,7 +173,8 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str)
                 break
     finally:
         recovery.cancel()
-        await asyncio.gather(recovery, return_exceptions=True)
+        lag_monitor.cancel()
+        await asyncio.gather(recovery, lag_monitor, return_exceptions=True)
         await registry.shutdown()
         writer.close()
         await writer.wait_closed()

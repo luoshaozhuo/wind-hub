@@ -95,6 +95,12 @@ class Observability:
                 "dead_letter_invalid_batches_total",
             )
         }
+        for name in (
+            "realtime_event_loop_lag_ms_p99",
+            "reliable_event_loop_lag_ms_p99",
+        ):
+            if name in counters:
+                result[name] = float(counters[name])
         if "backlog_messages" in counters:
             result["backlog_messages"] = float(counters["backlog_messages"])
         result["metrics_snapshot_ready"] = 1.0
@@ -149,6 +155,9 @@ class Observability:
             latency_observations,
             latency_overflow_at,
         )
+        # A maximum of Delivery P99s is not the combined process P99.
+        if delivery_p99:
+            process["write_latency_ms_max_delivery_p99"] = max(delivery_p99.values())
         details: dict[str, dict[str, float]] = {}
         for identifier, values in (delivery_counters or {}).items():
             history = self._delivery_samples.setdefault(identifier, deque(maxlen=36002))
