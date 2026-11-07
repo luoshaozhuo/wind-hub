@@ -78,3 +78,5 @@ def test_command_is_frozen() -> None:
     command = Command("c", "d", "p", 1)
     with pytest.raises(dataclasses.FrozenInstanceError):
         command.value = 2  # type: ignore[misc]
+
+pytestmark = pytest.mark.unit
