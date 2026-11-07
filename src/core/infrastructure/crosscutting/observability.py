@@ -18,6 +18,7 @@ import grpc
 
 from core.application.settings import LogSettings
 from core.infrastructure.crosscutting.async_log import BoundedAsyncHandler
+from core.infrastructure.crosscutting.client_correlation import client_interceptors
 from core.infrastructure.crosscutting.correlation import (
     REQUEST_ID_HEADER,
     RequestIdFilter,
@@ -25,10 +26,9 @@ from core.infrastructure.crosscutting.correlation import (
     new_request_id,
     normalize_request_id,
 )
+from core.infrastructure.crosscutting.grpc_correlation import RequestIdServerInterceptor
 from core.infrastructure.crosscutting.log_setup import _DailySizeFileHandler
 from core.infrastructure.crosscutting.tracing import TraceServerInterceptor, create_tracer_provider
-from core.infrastructure.crosscutting.client_correlation import client_interceptors
-from core.infrastructure.crosscutting.grpc_correlation import RequestIdServerInterceptor
 
 _DEFAULT_BUCKETS = (0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0)
 
