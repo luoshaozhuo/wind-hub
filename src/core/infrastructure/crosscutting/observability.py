@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import math
+import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -412,8 +413,12 @@ class ObservabilityHandle:
             _Recorder(service_name, settings.metrics) if settings.metrics.enabled else None
         )
         self._closed = False
+        self._closing = False
+        self._shutdown_started = False
         self._leases = 1
         self._provider: Any | None = None
+        self._provider_shutdown_thread: threading.Thread | None = None
+        self._provider_shutdown_error: BaseException | None = None
         self._tracer: Any | None = None
         if settings.tracing.enabled:
             self._provider = create_tracer_provider(
@@ -518,40 +523,67 @@ class ObservabilityHandle:
     async def close(self, *, timeout: float = 5.0) -> None:
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("timeout must be a positive finite number")
-        if self._closed:
-            return
-        if self._leases > 1:
-            self._leases -= 1
-            return
-        # A failed close remains retryable: retaining the logging worker/provider
-        # is safer than claiming successful release while resources still exist.
-        deadline = asyncio.get_running_loop().time() + timeout
-        failures: list[str] = []
-        if self._handler is not None:
-            self._logger.removeHandler(self._handler)
-            remaining = max(0.0, deadline - asyncio.get_running_loop().time())
-            settled = await asyncio.to_thread(self._handler.stop, timeout=remaining)
-            if not settled:
-                failures.append("logging thread did not settle")
-            else:
-                self._handler = None
-        if self._provider is not None:
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                failures.append("tracing shutdown deadline exhausted")
-            else:
-                try:
-                    await asyncio.wait_for(
-                        asyncio.to_thread(self._provider.shutdown),
-                        timeout=remaining,
-                    )
-                except TimeoutError:
-                    failures.append("tracing provider shutdown timed out")
+        with _REGISTRY_LOCK:
+            if self._closed:
+                return
+            if self._closing:
+                raise RuntimeError("observability shutdown is already in progress")
+            if self._leases > 1:
+                self._leases -= 1
+                return
+            self._closing = True
+            self._shutdown_started = True
+
+        try:
+            deadline = asyncio.get_running_loop().time() + timeout
+            failures: list[str] = []
+            if self._handler is not None:
+                self._logger.removeHandler(self._handler)
+                remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+                settled = await asyncio.to_thread(self._handler.stop, timeout=remaining)
+                if not settled:
+                    failures.append("logging thread did not settle")
                 else:
-                    self._provider = None
-        if failures:
-            raise TimeoutError("; ".join(failures))
-        self._closed = True
+                    self._handler = None
+            if self._provider is not None:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    failures.append("tracing shutdown deadline exhausted")
+                else:
+                    if self._provider_shutdown_thread is None:
+                        provider = self._provider
+
+                        def shutdown_provider() -> None:
+                            try:
+                                provider.shutdown()
+                            except BaseException as exc:
+                                self._provider_shutdown_error = exc
+
+                        worker = threading.Thread(
+                            target=shutdown_provider,
+                            name=f"core-tracing-close-{self.service_name}",
+                            daemon=True,
+                        )
+                        self._provider_shutdown_thread = worker
+                        worker.start()
+                    worker = self._provider_shutdown_thread
+                    await asyncio.to_thread(worker.join, timeout=remaining)
+                    if worker.is_alive():
+                        failures.append("tracing provider shutdown timed out")
+                    elif self._provider_shutdown_error is not None:
+                        failures.append("tracing provider shutdown failed")
+                    else:
+                        self._provider = None
+                        self._provider_shutdown_thread = None
+            if failures:
+                raise TimeoutError("; ".join(failures))
+            with _REGISTRY_LOCK:
+                self._closed = True
+                if _ACTIVE.get(self.service_name) is self:
+                    del _ACTIVE[self.service_name]
+        finally:
+            with _REGISTRY_LOCK:
+                self._closing = False
 
 
 def parse_observability_settings(raw: Mapping[str, Any]) -> ObservabilitySettings:
@@ -632,6 +664,7 @@ def parse_observability_settings(raw: Mapping[str, Any]) -> ObservabilitySetting
     )
 
 
+_REGISTRY_LOCK = threading.RLock()
 _ACTIVE: dict[str, ObservabilityHandle] = {}
 
 
@@ -643,12 +676,15 @@ def configure_observability(
         ch.isascii() and (ch.isalnum() or ch in "-_") for ch in service_name
     ):
         raise ValueError("service_name must not be empty")
-    previous = _ACTIVE.get(service_name)
-    if previous is not None and not previous._closed:
-        if previous.settings != settings:
-            raise ValueError("observability already configured with different settings")
-        previous._leases += 1
-        return previous
-    handle = ObservabilityHandle(settings, service_name)
-    _ACTIVE[service_name] = handle
-    return handle
+    with _REGISTRY_LOCK:
+        previous = _ACTIVE.get(service_name)
+        if previous is not None and not previous._closed:
+            if previous._shutdown_started:
+                raise RuntimeError("observability shutdown has started")
+            if previous.settings != settings:
+                raise ValueError("observability already configured with different settings")
+            previous._leases += 1
+            return previous
+        handle = ObservabilityHandle(settings, service_name)
+        _ACTIVE[service_name] = handle
+        return handle
