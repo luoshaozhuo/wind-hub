@@ -27,7 +27,7 @@ def _is_unsafe_identifier(value: str) -> bool:
 
 def validate_subject_token(value: str) -> str:
     """Require one nonempty NATS subject component."""
-    if _is_unsafe_identifier(value) or any(
+    if not isinstance(value, str) or _is_unsafe_identifier(value) or any(
         char.isspace() or char in ".*>" for char in value
     ):
         raise ValueError("invalid NATS subject token")
