@@ -45,6 +45,7 @@ class ADSSubscription:
         callback: ProtocolSampleCallback,
         *,
         interval: float,
+        trigger: Literal["cyclic", "on_change"],
         max_block_bytes: int,
         max_delay: float,
         queue_capacity: int,
@@ -55,6 +56,8 @@ class ADSSubscription:
             raise ValueError("ADS notification interval must be positive and finite")
         if queue_capacity <= 0:
             raise ValueError("ADS notification queue capacity must be positive")
+        if trigger not in {"cyclic", "on_change"}:
+            raise ValueError("unsupported ADS notification trigger")
         self._session = session
         self._barrier = barrier
         self.point_ids = frozenset(point.point_id for point in points)
@@ -67,6 +70,7 @@ class ADSSubscription:
         self._blocks = compile_notification_blocks(points, max_bytes=max_block_bytes)
         self._callback = callback
         self._interval = interval
+        self._trigger = trigger
         self._max_delay = max_delay
         self._loop = asyncio.get_running_loop()
         self._handles: list[tuple[Any, Any]] = []
@@ -92,17 +96,26 @@ class ADSSubscription:
             self._begin_stop()
             raise
 
+    def _notification_attrib(self, size: int) -> pyads.NotificationAttrib:
+        """Use the same PLC-native trigger during registration and hot updates."""
+        trans_mode = (
+            pyads.ADSTRANS_SERVERCYCLE
+            if self._trigger == "cyclic"
+            else pyads.ADSTRANS_SERVERONCHA
+        )
+        return pyads.NotificationAttrib(
+            size,
+            trans_mode=trans_mode,
+            cycle_time=self._interval * 1000,
+            max_delay=self._max_delay * 1000,
+        )
+
     async def _register_all(self) -> None:
         try:
             for block in self._blocks:
                 if self._stopping:
                     break
-                attribute = pyads.NotificationAttrib(
-                    block.size,
-                    trans_mode=pyads.ADSTRANS_SERVERCYCLE,
-                    cycle_time=self._interval * 1000,
-                    max_delay=self._max_delay * 1000,
-                )
+                attribute = self._notification_attrib(block.size)
                 callback = self._session.notification(c_ubyte * block.size)(
                     self._notification_callback(block, self._generation)
                 )
@@ -206,12 +219,7 @@ class ADSSubscription:
         callbacks: list[Callable[..., None]] = []
         try:
             for block in blocks:
-                attribute = pyads.NotificationAttrib(
-                    block.size,
-                    trans_mode=pyads.ADSTRANS_SERVERCYCLE,
-                    cycle_time=self._interval * 1000,
-                    max_delay=self._max_delay * 1000,
-                )
+                attribute = self._notification_attrib(block.size)
                 callback = self._session.notification(c_ubyte * block.size)(
                     self._notification_callback(block, generation)
                 )
