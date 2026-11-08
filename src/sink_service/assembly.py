@@ -42,6 +42,8 @@ def assemble_sinks(
     deployment_id: str,
     intent_store: SinkIntentStore | None = None,
     sink_ids: frozenset[str] | None = None,
+    max_samples_per_batch: int = 500,
+    max_batch_bytes: int = 1_048_576,
 ) -> dict[str, SinkRuntime]:
     """Build one consumer per enabled target with independent acknowledgments."""
     validate_subject_token(wind_farm_id)
@@ -93,6 +95,8 @@ def assemble_sinks(
                 else None
             ),
             allowed=allowed,
+            max_samples_per_batch=max_samples_per_batch,
+            max_batch_bytes=max_batch_bytes,
             save_intent=(partial(intent_store.set_running, sink_id) if intent_store else None),
         )
     return result
@@ -106,6 +110,8 @@ def _build_runtime(
     subject: str,
     durable: str | None,
     allowed: frozenset[tuple[str, str, str]],
+    max_samples_per_batch: int,
+    max_batch_bytes: int,
     save_intent: Callable[[bool], None] | None,
 ) -> SinkRuntime:
     """Bind every handler to its own runtime, never a shared closure variable."""
@@ -128,6 +134,8 @@ def _build_runtime(
         durable=durable,
         handler=handle,
         max_ack_pending=1,
+        max_samples_per_batch=max_samples_per_batch,
+        max_batch_bytes=max_batch_bytes,
         on_delivery_error=lambda reason, attempts: holder[0].record_delivery_failure(
             reason, attempts
         ),
