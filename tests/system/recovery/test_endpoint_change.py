@@ -1,9 +1,10 @@
 """Recovery：在线/掉线期间设备 endpoint（host/port）迁移的真实链路验证。
 
 与 component 层 endpoint 变更测试的区别：这里 Collector 是独立 subprocess，
-endpoint 迁移经 v2 Config RPC（devices 文档整文档替换 + 运行时收敛）下发，
-与生产控制路径一致；观测全部在系统边界——Redis 最新值的点值来源
-（A=1200.5 / B=1500.5）、gRPC Runtime status 的 ``device_connected``。
+endpoint 迁移经 v1 快照事务（整盘快照内替换 devices.yaml → Push → Apply，
+运行时收敛）下发，与生产控制路径一致；观测全部在系统边界——Redis 最新值
+的点值来源（A=1200.5 / B=1500.5）、gRPC Runtime status 的
+``device_connected``。
 
 两个对端都是真实 Modbus 从站：A 与 B 寄存器值不同，Redis 点值直接
 证明「当前连接的是哪一台」。host 变化用 loopback 别名 127.0.0.2 构造
@@ -20,12 +21,10 @@ from typing import Any
 import pytest
 import yaml
 
-from contracts import collector_v2_pb2 as pb
-from contracts import collector_v2_pb2_grpc as pb_grpc
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
 from tests.support.control import (
-    _channel,
-    _metadata,
+    ConfigMutationResult,
+    replace_config,
     start_task_instance,
 )
 from tests.support.process import CollectorProcess, free_port
@@ -39,7 +38,7 @@ from tests.support.recovery_helpers import (
 
 pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
-# v2：task_id == device_id == instance_id。
+# v1：task_id == device_id；设备级 Task 以 device_id 为键。
 TASK_ID = DEVICE_ID
 INSTANCE_ID = DEVICE_ID
 
@@ -56,35 +55,21 @@ async def _switch_endpoint(
     *,
     host: str,
     port: int,
-) -> pb.ConfigMutationResponse:
-    """改写 v2 devices 文档中唯一设备的 endpoint 并经 ReplaceConfig 收敛。"""
+) -> ConfigMutationResult:
+    """改写 devices 文档中唯一设备的 endpoint 并经 v1 快照事务收敛。
+
+    源树同步改写（保持与已提交代际一致，供同树重启场景使用）；实际下发
+    走 Push+Apply 整盘快照，不复活任何单文档替换 RPC。
+    """
     devices_path = v2_tree / "instances" / "devices.yaml"
     devices_doc: dict[str, Any] = yaml.safe_load(devices_path.read_text(encoding="utf-8"))
     endpoint = devices_doc["devices"][DEVICE_ID]["endpoint"]
     endpoint["host"] = host
     endpoint["port"] = port
-    devices_path.write_text(
-        yaml.safe_dump(devices_doc, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+    content = yaml.safe_dump(devices_doc, allow_unicode=True, sort_keys=False)
+    devices_path.write_text(content, encoding="utf-8")
 
-    # 读取 devices 文档当前 revision 作为乐观版本。
-    async with _channel(proc.grpc_target) as channel:
-        stub = pb_grpc.CollectorConfigServiceStub(channel)
-        current = await stub.GetConfig(
-            pb.GetConfigRequest(selector=pb.ConfigSelector(scope=pb.INSTANCE, name="devices")),
-            metadata=_metadata(None),
-            timeout=5.0,
-        )
-        return await stub.ReplaceConfig(
-            pb.ReplaceConfigRequest(
-                selector=pb.ConfigSelector(scope=pb.INSTANCE, name="devices"),
-                expected_revision=current.revision,
-                request_id=f"endpoint-{host}-{port}-{time.monotonic_ns()}",
-                yaml_content=yaml.safe_dump(devices_doc, allow_unicode=True, sort_keys=False),
-            ),
-            metadata=_metadata(None),
-            timeout=15.0,
-        )
+    return await replace_config(proc.grpc_target, content)
 
 
 async def _wait_value(redis_address: str, expected: float) -> dict[str, Any]:

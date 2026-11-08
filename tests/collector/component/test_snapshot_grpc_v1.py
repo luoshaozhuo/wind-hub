@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import socket
 from pathlib import Path
 
 import grpc
@@ -41,7 +42,9 @@ async def test_full_snapshot_grpc_roundtrip(
         async with grpc.aio.insecure_channel(app.endpoint) as channel:
             client = rpc.CommonServiceStub(channel)
             info = await client.GetServiceInfo(pb.Empty())
-            assert info.service_id == "collector"
+            # 角色与实例身份分离：未显式指定 collector_id 时实例 ID 为主机名。
+            assert info.process_role == "collector"
+            assert info.service_id == socket.gethostname()
             before = await client.GetConfigSnapshot(
                 pb.GetConfigSnapshotRequest(scope=pb.SNAPSHOT_SCOPE_DISK),
                 metadata=AUTH,

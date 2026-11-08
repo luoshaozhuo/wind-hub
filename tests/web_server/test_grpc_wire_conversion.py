@@ -1,4 +1,11 @@
-"""Web Server 到当前 Collector v2 / Commander 的 protobuf 契约测试。"""
+"""Web Server 到当前 Collector v1（CollectorService/CommonService）的 protobuf 契约测试。
+
+Commander 出站适配器（``commander.py`` 的 ``_command_result``/``_point_value``）
+仍引用已退役的 ``PointValueMessage``/``CommandResultMessage`` 与 OUTCOME 枚举，
+现行 commander.proto 已改为 SubmitCommand/GetCommandResult 合同；该生产适配器
+尚未迁移（见验收报告 N-03 commander 半侧），对应旧测试无法在不复活废弃 Proto
+的前提下重写，已随退役合同移除，待生产迁移后按新合同补测。
+"""
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -7,20 +14,14 @@ from unittest.mock import AsyncMock
 import grpc
 import pytest
 
-from contracts import collector_v2_pb2 as cpb
-from contracts import commander_pb2, common_pb2
-from core.application.protocol_contract import WriteOutcome
+from contracts import collector_pb2 as cpb
+from contracts import common_pb2
 from web_server.adapter.outbound.grpc.collector import (
     CollectorGrpcClient,
     _task_instance,
     _task_summary,
 )
-from web_server.adapter.outbound.grpc.commander import (
-    _command_result,
-    _decode_scalar,
-    _encode_scalar,
-    _point_value,
-)
+from web_server.adapter.outbound.grpc.commander import _decode_scalar, _encode_scalar
 from web_server.application.port.worker import CollectorTaskConflictError
 
 pytestmark = pytest.mark.unit
@@ -43,136 +44,153 @@ def test_scalar_wire_round_trip(value: object, field: str) -> None:
     assert _decode_scalar(encoded) == value
 
 
-def test_write_outcome_preserves_unknown() -> None:
-    message = commander_pb2.CommandResultMessage(
-        command_id="cmd-1",
-        outcome=commander_pb2.COMMAND_OUTCOME_UNKNOWN,
-        error="timeout",
-    )
-    message.finished_at.GetCurrentTime()
-    result = _command_result(message)
-    assert result.outcome is WriteOutcome.UNKNOWN
-    assert result.error == "timeout"
-    assert result.finished_at.tzinfo is not None
-
-
-def test_invalid_write_outcome_is_rejected() -> None:
-    with pytest.raises(ValueError, match="unsupported command outcome"):
-        _command_result(commander_pb2.CommandResultMessage())
-
-
-def test_read_value_uses_utc_timestamp() -> None:
-    message = commander_pb2.PointValueMessage(
-        device_id="dev", point_id="p", quality="good", timestamp_source="device"
-    )
-    message.timestamp.FromDatetime(datetime(2026, 10, 15, tzinfo=UTC))
-    message.value.double_value = 4.5
-    sample = _point_value(message)
-    assert sample.value == 4.5
-    assert sample.timestamp.tzinfo is not None
-    assert sample.timestamp_source == "device"
-
-
 def test_collector_task_wrapper_fields() -> None:
-    message = cpb.TaskStatus(
+    message = cpb.Task(
         task_id="WT01",
         device_id="WT01",
-        actual_state=cpb.RUNNING,
+        desired_state="START",
+        actual_state="RUNNING",
+        revision="rev-1",
     )
-    message.interval_ms = 2500
     summary = _task_summary(message)
     assert summary.device == "WT01"
-    assert summary.interval == 2.5
     assert summary.runtime_state == "running"
+    assert summary.enabled is True
     assert summary.running_instances == 1 and summary.stopped_instances == 0
+    assert summary.failed_instances == 0
 
-    stopped = cpb.TaskStatus(task_id="WT01", device_id="WT01", actual_state=cpb.STOPPED)
+    stopped = cpb.Task(
+        task_id="WT01",
+        device_id="WT01",
+        desired_state="STOP",
+        actual_state="STOPPED",
+        revision="rev-2",
+    )
     instance = _task_instance(stopped)
     assert instance.instance_id == "WT01"
     assert instance.state == "stopped"
 
+    faulted = cpb.Task(
+        task_id="WT01",
+        device_id="WT01",
+        desired_state="START",
+        actual_state="FAULTED",
+    )
+    assert _task_summary(faulted).runtime_state == "failed"
+    assert _task_instance(faulted).state == "failed"
 
-def test_collector_status_and_metrics_dtos() -> None:
+
+def _v1_client() -> CollectorGrpcClient:
     client = object.__new__(CollectorGrpcClient)
     client.default_timeout = 5.0
-    client._runtime = SimpleNamespace(
-        GetRuntimeStatus=AsyncMock(
-            return_value=cpb.RuntimeStatusResponse(running=True, device_total=2, device_connected=1)
+    client._collector = SimpleNamespace()
+    client._common = SimpleNamespace()
+    return client
+
+
+@pytest.mark.asyncio
+async def test_collector_status_and_metrics_dtos(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token")
+    client = _v1_client()
+    client._common.GetServiceStatus = AsyncMock(
+        return_value=common_pb2.GetServiceStatusResponse(health="HEALTHY")
+    )
+    client._collector.ListDevices = AsyncMock(
+        return_value=cpb.ListDevicesResponse(
+            devices=[
+                cpb.Device(device_id="dev-1", actual_state="RUNNING"),
+                cpb.Device(device_id="dev-2", actual_state="STOPPED"),
+            ]
         )
     )
-    client._metrics = SimpleNamespace(
-        GetMetrics=AsyncMock(
-            return_value=cpb.GetMetricsResponse(
-                metrics=[
-                    cpb.MetricValue(name="points_total", value=12, valid=True),
-                    cpb.MetricValue(name="device_reconnects", device_id="dev", value=3, valid=True),
-                ]
-            )
-        ),
-        GetMetricsEvents=AsyncMock(return_value=cpb.GetMetricsEventsResponse()),
+    client._common.GetMetrics = AsyncMock(
+        return_value=common_pb2.GetMetricsResponse(
+            metrics=[
+                common_pb2.Metric(name="collector.points.collected", value=12),
+                common_pb2.Metric(name="collector.publisher.published", value=11),
+                common_pb2.Metric(name="collector.publisher.dropped", value=1),
+            ]
+        )
     )
 
-    import asyncio
-
-    status = asyncio.get_event_loop().run_until_complete(client.runtime_status())
+    status = await client.runtime_status()
     assert status.running is True
     assert status.device_count == 2
     assert status.devices_connected == 1
     assert status.points_collected == 12
+    assert status.points_routed == 11
+    assert status.points_dropped == 1
 
-    metrics = asyncio.get_event_loop().run_until_complete(client.metrics_snapshot())
+    client._common.GetEvents = AsyncMock(return_value=common_pb2.GetEventsResponse())
+    metrics = await client.metrics_snapshot()
     assert metrics.counters.points_total == 12
-    assert metrics.device_reconnects == {"dev": 3}
 
 
-def test_collector_monitoring_event_timestamp_is_utc() -> None:
-    client = object.__new__(CollectorGrpcClient)
-    client.default_timeout = 5.0
-    client._runtime = SimpleNamespace()
-    event = cpb.MetricEvent(event_type="acquisition", message="x")
-    event.timestamp.FromDatetime(datetime(2026, 10, 15, tzinfo=UTC))
-    client._metrics = SimpleNamespace(
-        GetMetrics=AsyncMock(return_value=cpb.GetMetricsResponse()),
-        GetMetricsEvents=AsyncMock(return_value=cpb.GetMetricsEventsResponse(events=[event])),
+@pytest.mark.asyncio
+async def test_collector_monitoring_event_timestamp_is_utc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token")
+    client = _v1_client()
+    event = common_pb2.Event(
+        severity="warning",
+        source="acquisition",
+        message="x",
     )
+    event.timestamp.FromDatetime(datetime(2026, 10, 15, tzinfo=UTC))
+    client._common.GetMetrics = AsyncMock(return_value=common_pb2.GetMetricsResponse())
+    client._common.GetEvents = AsyncMock(return_value=common_pb2.GetEventsResponse(events=[event]))
 
-    import asyncio
-
-    dto = asyncio.get_event_loop().run_until_complete(client.metrics_snapshot())
+    dto = await client.metrics_snapshot()
     assert dto.events[0].timestamp == datetime(2026, 10, 15, tzinfo=UTC)
+    assert dto.events[0].kind == "warning"
+    assert dto.events[0].object == "acquisition"
+
+
+@pytest.mark.asyncio
+async def test_metrics_events_omitted_without_admin_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """无管理员令牌时不得拉取事件流，也不得伪造观测事件。"""
+    monkeypatch.delenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", raising=False)
+    client = _v1_client()
+    client._common.GetMetrics = AsyncMock(return_value=common_pb2.GetMetricsResponse())
+    client._common.GetEvents = AsyncMock(side_effect=AssertionError("events require admin token"))
+
+    dto = await client.metrics_snapshot()
+    assert dto.events == []
+    client._common.GetEvents.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_device_start_uses_revision_and_admin_metadata(monkeypatch) -> None:
-    """v2 设备级 START：先取 devices stored_revision，再带管理员元数据下发。"""
+    """v1 设备级 START：先 GetTask 取 task.revision，再带管理员元数据下发 OperationRequest。"""
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token")
-    client = object.__new__(CollectorGrpcClient)
-    client.default_timeout = 5.0
-    start_mock = AsyncMock(return_value=cpb.TaskChangeResponse())
-    get_task_mock = AsyncMock(
-        return_value=cpb.TaskStatus(task_id="WT01", device_id="WT01", actual_state=cpb.RUNNING)
+    client = _v1_client()
+    start_mock = AsyncMock(
+        return_value=common_pb2.OperationResult(accepted=True, actual_state="RUNNING")
     )
-    config_status = cpb.GetConfigStatusResponse(
-        configs=[
-            cpb.ConfigApplyStatus(
-                selector=cpb.ConfigSelector(scope=cpb.INSTANCE, name="devices"),
-                stored_revision="rev-17",
-            )
+    client._collector.GetTask = AsyncMock(
+        side_effect=[
+            cpb.GetTaskResponse(task=cpb.Task(task_id="WT01", device_id="WT01", revision="rev-17")),
+            cpb.GetTaskResponse(
+                task=cpb.Task(
+                    task_id="WT01",
+                    device_id="WT01",
+                    revision="rev-18",
+                    desired_state="START",
+                    actual_state="RUNNING",
+                )
+            ),
         ]
     )
-    client._config = SimpleNamespace(GetConfigStatus=AsyncMock(return_value=config_status))
-    client._tasks = SimpleNamespace(
-        StartTask=start_mock,
-        StopTask=AsyncMock(return_value=cpb.TaskChangeResponse()),
-        GetTask=get_task_mock,
-    )
+    client._collector.StartTask = start_mock
 
     summary = await client.start_task("WT01")
     assert summary.device == "WT01" and summary.runtime_state == "running"
     request = start_mock.call_args.args[0]
-    assert request.device_id == "WT01"
+    assert request.id == "WT01"
     assert request.expected_revision == "rev-17"
-    assert request.request_id
     metadata = dict(start_mock.call_args.kwargs["metadata"])
     assert metadata["x-windhub-admin-token"] == "web-token"
 
@@ -180,26 +198,25 @@ async def test_device_start_uses_revision_and_admin_metadata(monkeypatch) -> Non
 @pytest.mark.asyncio
 async def test_start_without_admin_token_raises(monkeypatch) -> None:
     monkeypatch.delenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", raising=False)
-    client = object.__new__(CollectorGrpcClient)
+    client = _v1_client()
+    client._collector.GetTask = AsyncMock(
+        return_value=cpb.GetTaskResponse(
+            task=cpb.Task(task_id="WT01", device_id="WT01", revision="rev-1")
+        )
+    )
+    client._collector.StartTask = AsyncMock()
     with pytest.raises(PermissionError):
         await client.start_task("WT01")
+    client._collector.StartTask.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_revision_conflict_mapped_to_task_conflict(monkeypatch) -> None:
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token")
-    client = object.__new__(CollectorGrpcClient)
-    client.default_timeout = 5.0
-    client._config = SimpleNamespace(
-        GetConfigStatus=AsyncMock(
-            return_value=cpb.GetConfigStatusResponse(
-                configs=[
-                    cpb.ConfigApplyStatus(
-                        selector=cpb.ConfigSelector(scope=cpb.INSTANCE, name="devices"),
-                        stored_revision="rev-1",
-                    )
-                ]
-            )
+    client = _v1_client()
+    client._collector.GetTask = AsyncMock(
+        return_value=cpb.GetTaskResponse(
+            task=cpb.Task(task_id="WT01", device_id="WT01", revision="rev-1")
         )
     )
 
@@ -211,8 +228,27 @@ async def test_revision_conflict_mapped_to_task_conflict(monkeypatch) -> None:
             "configuration revision conflict",
         )
 
-    client._tasks = SimpleNamespace(StartTask=_abort, StopTask=AsyncMock())
+    client._collector.StartTask = _abort
     with pytest.raises(CollectorTaskConflictError):
+        await client.start_task("WT01")
+
+
+@pytest.mark.asyncio
+async def test_rejected_operation_result_maps_to_conflict(monkeypatch) -> None:
+    """服务端接受 RPC 但 OperationResult.accepted=False 时同样映射为冲突，不伪造成功。"""
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token")
+    client = _v1_client()
+    client._collector.GetTask = AsyncMock(
+        return_value=cpb.GetTaskResponse(
+            task=cpb.Task(task_id="WT01", device_id="WT01", revision="rev-1")
+        )
+    )
+    client._collector.StartTask = AsyncMock(
+        return_value=common_pb2.OperationResult(
+            accepted=False, error_code="REVISION_CONFLICT", message="stale revision"
+        )
+    )
+    with pytest.raises(CollectorTaskConflictError, match="stale revision"):
         await client.start_task("WT01")
 
 
@@ -220,37 +256,6 @@ async def test_revision_conflict_mapped_to_task_conflict(monkeypatch) -> None:
 def test_scalar_out_of_wire_range_is_rejected(value: int) -> None:
     with pytest.raises(ValueError, match="64-bit"):
         _encode_scalar(value)
-
-
-@pytest.mark.parametrize(
-    "outcome",
-    [
-        commander_pb2.COMMAND_OUTCOME_CONFIRMED_SUCCESS,
-        commander_pb2.COMMAND_OUTCOME_CONFIRMED_FAILURE,
-        commander_pb2.COMMAND_OUTCOME_UNKNOWN,
-    ],
-)
-def test_command_result_outcomes(outcome: int) -> None:
-    message = commander_pb2.CommandResultMessage(command_id="c", outcome=outcome)
-    message.finished_at.GetCurrentTime()
-    result = _command_result(message)
-    assert result.command_id == "c"
-    assert result.finished_at.tzinfo is not None
-
-
-def test_command_result_missing_timestamp_is_rejected() -> None:
-    message = commander_pb2.CommandResultMessage(
-        command_id="c",
-        outcome=commander_pb2.COMMAND_OUTCOME_CONFIRMED_SUCCESS,
-    )
-    with pytest.raises(ValueError, match="finish timestamp"):
-        _command_result(message)
-
-
-def test_read_value_missing_timestamp_is_rejected() -> None:
-    message = commander_pb2.PointValueMessage(device_id="d", point_id="p", quality="good")
-    with pytest.raises(ValueError, match="timestamp"):
-        _point_value(message)
 
 
 def test_bytes_scalar_is_not_misrepresented_as_business_value() -> None:
@@ -262,27 +267,3 @@ def test_bytes_scalar_is_not_misrepresented_as_business_value() -> None:
 def test_empty_commander_scalar_rejected() -> None:
     with pytest.raises(ValueError, match="no active value"):
         _decode_scalar(common_pb2.ScalarValue())
-
-
-def test_point_value_without_scalar_rejected() -> None:
-    message = commander_pb2.PointValueMessage(device_id="d", point_id="p", quality="good")
-    message.timestamp.GetCurrentTime()
-    with pytest.raises(ValueError, match="no scalar"):
-        _point_value(message)
-
-
-def test_command_result_without_id_rejected() -> None:
-    message = commander_pb2.CommandResultMessage(
-        outcome=commander_pb2.COMMAND_OUTCOME_CONFIRMED_SUCCESS
-    )
-    message.finished_at.GetCurrentTime()
-    with pytest.raises(ValueError, match="command ID"):
-        _command_result(message)
-
-
-def test_invalid_point_quality_rejected() -> None:
-    message = commander_pb2.PointValueMessage(device_id="d", point_id="p", quality="not-a-quality")
-    message.timestamp.GetCurrentTime()
-    message.value.double_value = 1.0
-    with pytest.raises(ValueError):
-        _point_value(message)

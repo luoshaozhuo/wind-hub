@@ -152,7 +152,8 @@ class TestCollectorRestart:
         # ---- 同配置重启：控制面恢复、读可用、采集可重新启动 ----
         proc_b: CollectorProcess = await collector_factory(v2_tree, collector_id="recovery-restart")
         info = await collector_info(proc_b.grpc_target)
-        assert info.collector_id == "recovery-restart"
+        assert info.process_role == "collector"
+        assert info.service_id == "recovery-restart"
 
         await start_task_instance(
             proc_b.grpc_target,
@@ -216,10 +217,11 @@ class TestPointTablePublishedWhileDisconnected:
         assert catalog_result.success, list(catalog_result.errors)
 
         old_table = yaml.safe_load(
-            (v2_tree / "templates" / "point_tables" / "iec104" / "1.0.0.yaml").read_text()
+            (v2_tree / "templates" / "point_tables" / "iec104_1.0.0.yaml").read_text()
         )
         new_table = copy.deepcopy(old_table)
         new_table["template_version"] = "1.0.1"
+        new_table["file_version"] = "1.0.1"
         new_table["points"]["meas_reactive_power"] = {
             "point_groups": ["telemetry", "all"],
             "address": {"ca": 1, "ioa": 300, "type_id": "M_ME_NC_1"},
@@ -236,10 +238,11 @@ class TestPointTablePublishedWhileDisconnected:
         )
         model_id = devices_doc["devices"][IEC104_DEVICE_ID]["model"]["id"]
         old_model = yaml.safe_load(
-            (v2_tree / "templates" / "device_models" / model_id / "1.0.0.yaml").read_text()
+            (v2_tree / "templates" / "device_models" / f"{model_id}_1.0.0.yaml").read_text()
         )
         new_model = copy.deepcopy(old_model)
         new_model["template_version"] = "1.0.1"
+        new_model["file_version"] = "1.0.1"
         new_model["point_table"] = {"id": "iec104", "version": "1.0.1"}
         model_result = await replace_template(
             proc.grpc_target, "device_models", model_id, "1.0.1", new_model

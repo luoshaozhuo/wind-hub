@@ -1,13 +1,13 @@
 """Round 3 Runtime 验收：START/STOP 意图持久化与跨进程冷恢复。
 
-v2 契约（每启用设备一个采集实例，task_id == device_id）：
+v1 契约（每启用设备一个 Task，task_id == device_id，设备级生命周期）：
 
-- START/STOP 由 Collector 持久化到 devices.yaml 的
-  ``overrides.task.desired_state``，不是内存标志；
+- START/STOP 由 Collector 持久化到已提交快照中 devices.yaml 的
+  ``overrides.task.desired_state``（state-dir 不可变代际），不是内存标志；
 - Collector 进程重启（优雅或强杀）后，冷启动必须按持久化意图自动恢复：
   上次为 START 的设备无需再发任何控制 RPC 即自动 RUNNING 并出数；
 - 手动 STOP 是持久意图：设备重连、看门狗恢复、进程重启都不得复活任务；
-- 观测全部在进程边界：Redis 最新值时间戳、v2 ListTasks 实际状态。
+- 观测全部在进程边界：Redis 最新值时间戳、v1 ListTasks 实际状态字符串。
 
 外部依赖：真实 Modbus fixture 从站、真实 NATS、真实 Redis、独立
 sink_service 与 collector 子进程；不可用时由上层 fixture 明确 skip。
@@ -20,7 +20,6 @@ from pathlib import Path
 
 import pytest
 
-from contracts import collector_v2_pb2 as pb
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import list_tasks, start_task_instance, stop_task
 from tests.support.process import CollectorProcess
@@ -52,14 +51,14 @@ async def _task_running(proc: CollectorProcess) -> bool | None:
     tasks = await list_tasks(proc.grpc_target, device_ids=(DEVICE_ID,))
     if not tasks:
         return None
-    return tasks[0].actual_state == pb.RUNNING
+    return tasks[0].actual_state == "RUNNING"
 
 
 async def _task_stopped(proc: CollectorProcess) -> bool | None:
     tasks = await list_tasks(proc.grpc_target, device_ids=(DEVICE_ID,))
     if not tasks:
         return None
-    return tasks[0].actual_state == pb.STOPPED
+    return tasks[0].actual_state == "STOPPED"
 
 
 class TestDesiredStateColdRestore:

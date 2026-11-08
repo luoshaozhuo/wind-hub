@@ -1,7 +1,7 @@
 """验证无效候选配置被拒后不影响运行中设备，随后的有效变更可正常收敛。
 
-v2 没有两段式 Prepare/Activate 事务：不落盘的候选校验走 ValidateConfig，
-生效走模板新版本发布 + devices 文档 ReplaceConfig。
+v1 快照事务：不落盘的候选校验走 PushConfigSnapshot（valid=False 即拒），
+生效走模板新版本发布 + devices 文档替换的 Push+Apply 整盘事务。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import yaml
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import (
-    get_task,
+    disk_snapshot_files,
     replace_config,
     replace_template,
     start_task_instance,
@@ -30,7 +30,7 @@ from tests.support.recovery_helpers import (
 
 pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
-# v2：task_id == device_id == instance_id。
+# v1：task_id == device_id；设备级 Task 以 device_id 为键。
 TASK_ID = DEVICE_ID
 INSTANCE_ID = DEVICE_ID
 
@@ -83,14 +83,15 @@ class TestReloadFailureResilience:
         model_id = current["devices"][DEVICE_ID]["model"]["id"]
         model_version = current["devices"][DEVICE_ID]["model"]["version"]
         model_doc = _load(
-            v2_tree / "templates" / "device_models" / model_id / f"{model_version}.yaml"
+            v2_tree / "templates" / "device_models" / f"{model_id}_{model_version}.yaml"
         )
         task_ref = model_doc["task"]
         task_doc = _load(
-            v2_tree / "templates" / "tasks" / task_ref["id"] / f"{task_ref['version']}.yaml"
+            v2_tree / "templates" / "tasks" / f"{task_ref['id']}_{task_ref['version']}.yaml"
         )
         new_task = copy.deepcopy(task_doc)
         new_task["template_version"] = "1.0.1"
+        new_task["file_version"] = "1.0.1"
         new_task["interval"] = 0.5
         task_result = await replace_template(
             proc.grpc_target, "tasks", task_ref["id"], "1.0.1", new_task
@@ -99,6 +100,7 @@ class TestReloadFailureResilience:
 
         new_model = copy.deepcopy(model_doc)
         new_model["template_version"] = "1.0.1"
+        new_model["file_version"] = "1.0.1"
         new_model["task"] = {"id": task_ref["id"], "version": "1.0.1"}
         model_result = await replace_template(
             proc.grpc_target, "device_models", model_id, "1.0.1", new_model
@@ -112,7 +114,10 @@ class TestReloadFailureResilience:
         )
         assert activated.success, list(activated.errors)
 
-        task = await get_task(proc.grpc_target, DEVICE_ID)
-        assert task.interval_ms == 500
+        # v1 Task 消息不再携带调度节拍（interval 属于任务模板）；节拍收敛
+        # 以已提交快照中的 1.0.1 任务模板为系统边界事实来源（0.5s == 500ms）。
+        committed = await disk_snapshot_files(proc.grpc_target)
+        applied_task = yaml.safe_load(committed[f"templates/tasks/{task_ref['id']}_1.0.1.yaml"])
+        assert applied_task["interval"] == 0.5
         final = await wait_telemetry_value(redis_service, after=str(continued["timestamp"]))
         assert final["quality"] == "good"

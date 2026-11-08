@@ -158,20 +158,20 @@ async def test_partial_write_is_rejected_at_adapter(r5_stack, tmp_path) -> None:
         adapter = GrpcSink(resolved)
         await adapter.open()
         now = datetime.now(UTC)
+        # v1 领域 PointValue 已移除 task_id 字段；任务归属由 write_task 的
+        # 显式 task_id 参数承载，DTO 本身只描述设备点值。
         batch = [
             PointValue(
                 device_id=DEVICE_ID,
                 point_id="rotor_speed",
                 value=1.0,
                 timestamp=now,
-                task_id=TASK_ID,
             ),
             PointValue(
                 device_id=DEVICE_ID,
                 point_id="gen_power",
                 value=2.0,
                 timestamp=now,
-                task_id=TASK_ID,
             ),
         ]
         with pytest.raises(RuntimeError, match="INVALID_VALUE"):

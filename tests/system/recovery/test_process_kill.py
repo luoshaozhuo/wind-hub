@@ -65,7 +65,8 @@ class TestProcessKillRecovery:
         # ---- 同配置重启：控制面恢复、采集可重新启动、数据继续到达 ----
         proc_b: CollectorProcess = await collector_factory(v2_tree, collector_id=WORKER_ID)
         info = await collector_info(proc_b.grpc_target)
-        assert info.collector_id == WORKER_ID
+        assert info.process_role == "collector"
+        assert info.service_id == WORKER_ID
 
         baseline = str(first["timestamp"])
         await start_task_instance(

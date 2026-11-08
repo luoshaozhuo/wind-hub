@@ -18,8 +18,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from contracts import collector_v2_pb2 as pb
-from contracts import collector_v2_pb2_grpc as pb_grpc
+from contracts import collector_pb2_grpc, common_pb2
 from scripts.generate_virtual_site import generate_site
 from scripts.protocol_servers import run_fleet
 from tests.support.process import (
@@ -139,16 +138,15 @@ async def test_real_task_start_and_stop_via_http(
 async def test_direct_unauthenticated_collector_start_is_denied(
     full_stack: LiveStack,
 ) -> None:
-    """v2 fail-closed：未携带管理员令牌的 StartTask 必须 PERMISSION_DENIED。"""
+    """v1 fail-closed：未携带管理员令牌的 StartTask 必须 PERMISSION_DENIED。"""
     channel = grpc.aio.insecure_channel(full_stack.collector.grpc_target)
     try:
-        stub = pb_grpc.CollectorTaskServiceStub(channel)
+        stub = collector_pb2_grpc.CollectorServiceStub(channel)
         with pytest.raises(grpc.aio.AioRpcError) as error:
             await stub.StartTask(
-                pb.TaskChangeRequest(
-                    device_id="modbus-00",
+                common_pb2.OperationRequest(
+                    id="modbus-00",
                     expected_revision="0" * 64,
-                    request_id="e2e-no-token",
                 ),
                 timeout=4,
             )

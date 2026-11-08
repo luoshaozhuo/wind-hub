@@ -133,7 +133,11 @@ async def test_live_read_models_remain_available_during_worker_outage(
         assert response.status_code == 200, response.text
 
 
-@pytest.mark.parametrize("task_id", ["e2e-modbus", "e2e-ads", "e2e-iec104"])
+# generate_site 的扁平站点按协议族建 3 个任务（virtual-<family>，见
+# scripts/generate_virtual_site.py）；v2 时代的 worker 名（e2e-modbus 等）
+# 在 v1 读模型中不存在，会按合同返回 404，无法覆盖「worker 不可达
+# fail-closed」本意，参数必须取站点内真实 task_id。
+@pytest.mark.parametrize("task_id", ["virtual-modbus", "virtual-ads", "virtual-iec104"])
 async def test_task_start_fails_closed_when_collector_is_unreachable(
     web_server: tuple[str, CollectorProcess],
     task_id: str,

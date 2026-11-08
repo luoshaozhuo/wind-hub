@@ -7,6 +7,7 @@ independent Collector process with real protocol slaves and a real NATS broker.
 from __future__ import annotations
 
 import asyncio
+import socket
 from collections.abc import Callable
 from typing import Any
 
@@ -46,7 +47,10 @@ async def test_uc07_s01_all_20_rpcs_real_invocation(collector, grpc_clients, rea
     # --- CommonService -----------------------------------------------------
     info = await config_stub.GetServiceInfo(common.Empty())
     invoked.add("GetServiceInfo")
-    assert info.service_id == "collector"
+    # 角色与实例身份分离：process_role 固定为 collector，service_id 是
+    # 未显式指定时的主机名默认值（common.proto GetServiceInfoResponse）。
+    assert info.process_role == "collector"
+    assert info.service_id == socket.gethostname()
     assert info.contract_version == "windhub.common.v1"
 
     capabilities = await config_stub.GetCapabilities(common.Empty())

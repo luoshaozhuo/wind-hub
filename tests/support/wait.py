@@ -63,20 +63,21 @@ async def wait_until(
 async def wait_grpc_ready(target: str, *, timeout: float = 30.0) -> str:
     """等待 Collector gRPC 控制面可连接且 Runtime 就绪。
 
-    通过真实 ``GetRuntimeStatus`` RPC 判定（而非仅 TCP 可连——gRPC 监听
-    先于 Runtime 启动完成，仅探测端口会拿到未就绪的 Collector）。
+    通过现行 CommonService 的真实 ``GetServiceStatus`` RPC 判定（而非仅
+    TCP 可连——gRPC 监听先于 Runtime 启动完成，仅探测端口会拿到未就绪的
+    Collector）。该 RPC 不属于管理员面，无需令牌。
     """
 
     async def _probe() -> str | None:
         import grpc
-        from google.protobuf import empty_pb2, json_format
+        from google.protobuf import json_format
 
-        from contracts import collector_v2_pb2_grpc as pb_grpc
+        from contracts import common_pb2, common_pb2_grpc
 
         channel = grpc.aio.insecure_channel(target)
         try:
-            stub = pb_grpc.CollectorRuntimeServiceStub(channel)
-            response = await stub.GetRuntimeStatus(empty_pb2.Empty(), timeout=2.0)
+            stub = common_pb2_grpc.CommonServiceStub(channel)
+            response = await stub.GetServiceStatus(common_pb2.Empty(), timeout=2.0)
             return json_format.MessageToJson(response)
         finally:
             await channel.close()
@@ -90,19 +91,35 @@ async def wait_grpc_ready(target: str, *, timeout: float = 30.0) -> str:
 
 
 async def wait_commander_ready(target: str, *, timeout: float = 30.0) -> str:
-    """等待 Commander gRPC 控制面可连接（真实 ``GetStatus`` RPC 判定）。"""
+    """等待 Commander gRPC 控制面可连接（v1 ``CommonService.GetServiceStatus``）。
+
+    Commander v1 所有 RPC 强制 mTLS 身份（``_Authorized.require``），明文
+    探针必然收到 UNAUTHENTICATED/PERMISSION_DENIED——该响应证明 gRPC server
+    已在监听并完成分发，同样判定就绪；只有链路级失败（UNAVAILABLE /
+    连接拒绝）才继续等待。
+    """
 
     async def _probe() -> str | None:
         import grpc
-        from google.protobuf import empty_pb2, json_format
 
-        from contracts import commander_pb2_grpc as pb_grpc
+        from contracts import common_pb2, common_pb2_grpc
 
         channel = grpc.aio.insecure_channel(target)
         try:
-            stub = pb_grpc.CommanderServiceStub(channel)
-            response = await stub.GetStatus(empty_pb2.Empty(), timeout=2.0)
-            return json_format.MessageToJson(response)
+            stub = common_pb2_grpc.CommonServiceStub(channel)
+            try:
+                response = await stub.GetServiceStatus(common_pb2.Empty(), timeout=2.0)
+                return response.health
+            except grpc.aio.AioRpcError as exc:
+                if exc.code() in (
+                    grpc.StatusCode.UNAUTHENTICATED,
+                    grpc.StatusCode.PERMISSION_DENIED,
+                ):
+                    return exc.code().name
+                if exc.code() is grpc.StatusCode.UNAVAILABLE:
+                    return None
+                # 其余应用层状态码同样说明 server 已完成 RPC 分发。
+                return exc.code().name
         finally:
             await channel.close()
 

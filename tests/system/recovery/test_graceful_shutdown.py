@@ -85,10 +85,10 @@ class TestGracefulShutdown:
 
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
-        # v2 采集计数在 Metrics 服务（Runtime status 不含累计点计数）。
+        # v1 采集计数在 Metrics 服务（Runtime status 不含累计点计数）。
         async def _collected() -> bool | None:
             snap = await metrics_snapshot(proc.grpc_target)
-            return True if snap["counters"]["points_total"] >= 1 else None
+            return True if snap["counters"]["collector.points.collected"] >= 1 else None
 
         await wait_until(_collected, timeout=30.0, description="collection started")
         await modbus_server.stop()

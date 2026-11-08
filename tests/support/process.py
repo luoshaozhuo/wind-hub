@@ -144,15 +144,17 @@ def start_collector(
     env_extra: dict[str, str] | None = None,
     admin_token: str | None = "system-test-admin-token",
 ) -> CollectorProcess:
-    """以 subprocess 启动真实 ``wind-hub-collector``（v2 三路径 CLI）。
+    """以 subprocess 启动真实 ``wind-hub-collector``（v1 快照契约 CLI）。
 
     Args:
-        config_tree: v2 配置树根，须含 ``services/collector.yaml``、
-            ``instances/``、``templates/``（见 tests.support.v2_config）。
+        config_tree: 配置树根，须含 ``services/collector.yaml``、
+            ``instances/``、``templates/``（见 tests.support.v2_config）；
+            v1 CLI 只接收服务文件，其余根目录按相对布局推导。
         grpc_port: gRPC 端口；None 时自动分配空闲端口。
         collector_id: Collector 标识。
         shutdown_timeout: 传入进程的优雅停机硬超时（秒）。
-        log_dir: 进程日志目录（通常 ``tmp_path``）。
+        log_dir: 进程日志目录（通常 ``tmp_path``）；state-dir 置于其下，
+            同工厂的重启用例因此共享不可变配置代际与持久化意图。
         env_extra: 追加环境变量（叠加在当前进程环境上）。
         admin_token: 注入 WIND_HUB_COLLECTOR_ADMIN_TOKEN；None 时不注入
             （用于 fail-closed 负向测试）。对端 Web Server 必须注入同值。
@@ -161,11 +163,9 @@ def start_collector(
         CollectorProcess（调用方负责后续 wait_grpc_ready 与 terminate）。
     """
     service_file = config_tree / "services" / "collector.yaml"
-    instances_dir = config_tree / "instances"
-    templates_dir = config_tree / "templates"
     if not service_file.is_file():
         raise FileNotFoundError(
-            f"{config_tree} is not a v2 config tree: missing services/collector.yaml"
+            f"{config_tree} is not a valid config tree: missing services/collector.yaml"
         )
     env = dict(env_extra or {})
     if admin_token is not None:
@@ -176,10 +176,8 @@ def start_collector(
         [
             "--config",
             str(service_file),
-            "--instances",
-            str(instances_dir),
-            "--templates",
-            str(templates_dir),
+            "--state-directory",
+            str(log_dir / "collector-state"),
             "--collector-id",
             collector_id,
             "--grpc-host",

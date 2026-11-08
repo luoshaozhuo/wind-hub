@@ -293,11 +293,11 @@ class TestPacketLoss:
             attempts = int(last["device_connect_failures"].get(DEVICE_ID, 0)) - int(
                 first["device_connect_failures"].get(DEVICE_ID, 0)
             )
-            runs = int(last["counters"]["acquisition_runs"]) - int(
-                first["counters"]["acquisition_runs"]
+            runs = int(last["counters"]["collector.poll.executions"]) - int(
+                first["counters"]["collector.poll.executions"]
             )
             assert 1 <= attempts <= 10, f"黑洞期 connect 尝试未被退避节流或失败未记账: {attempts}"
-            # v2：未连接期间采集循环不调度（runs==0），建连只可能来自 Watchdog。
+            # v1：未连接期间采集循环不调度（runs==0），建连只可能来自 Watchdog。
             assert runs == 0, f"断连期间采集循环被调度: {runs} ticks"
         finally:
             netem_link.clear()

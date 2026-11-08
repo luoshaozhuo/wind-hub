@@ -1,9 +1,9 @@
-"""Recovery：v2 Watchdog 周期建连节流的真实行为验证。
+"""Recovery：v1 Watchdog 周期建连节流的真实行为验证。
 
-v2 中设备未连接时采集循环不调度，建连只由 Watchdog 退避驱动：
+v1 中设备未连接时采集循环不调度，建连只由 Watchdog 退避驱动：
 
 - 设备不可达时 connect 尝试被退避节流——0.1s 采集节拍绝不等于
-  0.1s 一次 connect（未连接时 ``acquisition_runs`` 恒为 0）；
+  0.1s 一次 connect（未连接时 ``collector.poll.executions`` 恒为 0）；
 - 尝试间隔按指数退避增长（30s 封顶），14s 窗口内只有个位数次尝试；
 - 恢复后数据面恢复、指标记账 ``device_reconnects``；第二次故障期间
   Watchdog 仍周期重试（退避从初始档重新开始）。
@@ -32,7 +32,7 @@ from tests.support.wait import wait_redis_value, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
-# v2：task_id == device_id。
+# v1：task_id == device_id（设备粒度 Task）。
 TASK_ID = DEVICE_ID
 INSTANCE_ID = DEVICE_ID
 
@@ -78,7 +78,7 @@ async def _sample_attempts(proc: CollectorProcess, window: float) -> tuple[list[
     """
     first = await metrics_snapshot(proc.grpc_target)
     base_failures = int(first["device_connect_failures"].get(DEVICE_ID, 0))
-    base_runs = int(first["counters"]["acquisition_runs"])
+    base_runs = int(first["counters"]["collector.poll.executions"])
 
     attempts_at: list[float] = []
     started = time.monotonic()
@@ -95,7 +95,7 @@ async def _sample_attempts(proc: CollectorProcess, window: float) -> tuple[list[
     return (
         attempts_at,
         int(last["device_connect_failures"].get(DEVICE_ID, 0)) - base_failures,
-        int(last["counters"]["acquisition_runs"]) - base_runs,
+        int(last["counters"]["collector.poll.executions"]) - base_runs,
     )
 
 
@@ -119,8 +119,8 @@ class TestWatchdogRecovery:
         # ---- 故障：设备全程不可达，验证周期连接检查 ----
         _, attempts, runs = await _sample_attempts(proc, OUTAGE_WINDOW)
 
-        # v2：建连只由 Watchdog 退避驱动；设备未连接时采集循环根本不调度
-        # （acquisition_runs 恒为 0），结构上不可能由 poll loop 触发重连。
+        # v1：建连只由 Watchdog 退避驱动；设备未连接时采集循环根本不调度
+        # （collector.poll.executions 恒为 0），结构上不可能由 poll loop 触发重连。
         # 0.1s 采集节拍下若每 tick 建连，14s 会有约 140 次尝试；正确退避
         # 下只有个位数次。
         assert 1 <= attempts <= 6, f"expected periodic watchdog reconnect attempts, got {attempts}"

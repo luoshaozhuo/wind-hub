@@ -66,14 +66,81 @@ def write_v2_modbus_tree(
     round-trip 不断言寄存器语义，数据面验证由 acquisition 套件负责。
     """
     root = _empty_tree(base)
+    # 出厂 business_points 目录不含 gen_power/temp_int，且 rotor_speed 绑定
+    # revolution_per_minute；harness 点表使用 dimensionless（none）单位，
+    # 这里随树下发与点表严格一致的目录（units.yaml 的 none 由出厂树提供）。
+    _dump(
+        root / "templates" / "business_points.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "business_points": {
+                "rotor_speed": {"data_type": "float32", "unit": "none"},
+                "gen_power": {"data_type": "float32", "unit": "none"},
+                "temp_int": {"data_type": "int16", "unit": "none"},
+            },
+        },
+    )
+    # v1 模板布局为扁平 ``<id>_<version>.yaml``；出厂树已无 modbus_wtg
+    # 型号，这里按 ModbusMockServer 的保持寄存器布局（100/102/104）生成
+    # 自包含点表与型号，协议模板与 turbine_all 任务复用出厂文件。
+    _dump(
+        root / "templates" / "point_tables" / "modbus_wtg_1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "template_id": "modbus_wtg",
+            "protocol": "modbus",
+            "points": {
+                "rotor_speed": {
+                    "business_point_id": "rotor_speed",
+                    "point_groups": ["all"],
+                    "address": {"register_type": "holding", "address": 100},
+                    "data_type": "float32",
+                },
+                "gen_power": {
+                    "business_point_id": "gen_power",
+                    "point_groups": ["all"],
+                    "address": {"register_type": "holding", "address": 102},
+                    "data_type": "float32",
+                },
+                "temp_int": {
+                    "business_point_id": "temp_int",
+                    "point_groups": ["all"],
+                    "address": {"register_type": "holding", "address": 104},
+                    "data_type": "int16",
+                },
+            },
+        },
+    )
+    _dump(
+        root / "templates" / "device_models" / "modbus_wtg_1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "template_id": "modbus_wtg",
+            "name": "Harness Modbus Turbine",
+            "device_type_id": "turbine",
+            "protocol": {"id": "modbus_tcp", "version": "1.0.0"},
+            "point_table": {"id": "modbus_wtg", "version": "1.0.0"},
+            "task": {"id": "turbine_all", "version": "1.0.0"},
+            "protocol_options": {"slave_id": slave_id},
+        },
+    )
     _dump(
         root / "instances" / "site.yaml",
-        {"schema_version": 1, "site_id": site_id, "name": f"System {site_id}"},
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "site_id": site_id,
+            "name": f"System {site_id}",
+        },
     )
     _dump(
         root / "instances" / "devices.yaml",
         {
             "schema_version": 1,
+            "file_version": "1.0.0",
             "devices": {
                 device_id: {
                     "model": {"id": "modbus_wtg", "version": "1.0.0"},
@@ -126,11 +193,15 @@ def emit_v2_tree_from_flat_site(
     protocols = {model["protocol"] for model in device_models.values()}
     for protocol in sorted(protocols):
         _dump(
-            root / "templates" / "protocols" / f"{protocol}_default" / "1.0.0.yaml",
+            root / "templates" / "protocols" / f"{protocol}_default_1.0.0.yaml",
             {
+                # 协议模板经 shared_snapshot._content 只放行 protocol/
+                # protocol_options，且仅剥离 schema_version/file_version/
+                # template_id——不得带 template_version，否则 strict 键集
+                # 校验报 "unknown protocol template fields"（与出厂模板对齐）。
                 "schema_version": 1,
+                "file_version": "1.0.0",
                 "template_id": f"{protocol}_default",
-                "template_version": "1.0.0",
                 "protocol": protocol,
             },
         )
@@ -147,9 +218,10 @@ def emit_v2_tree_from_flat_site(
                 point = {**point, "point_groups": [*groups, "all"]}
             derived_points[point_id] = point
         _dump(
-            root / "templates" / "point_tables" / table_id / "1.0.0.yaml",
+            root / "templates" / "point_tables" / f"{table_id}_1.0.0.yaml",
             {
                 "schema_version": 1,
+                "file_version": "1.0.0",
                 "template_id": table_id,
                 "template_version": "1.0.0",
                 "protocol": protocol,
@@ -189,6 +261,7 @@ def emit_v2_tree_from_flat_site(
         protocol = model["protocol"]
         document: dict[str, Any] = {
             "schema_version": 1,
+            "file_version": "1.0.0",
             "template_id": model_id,
             "template_version": "1.0.0",
             "name": model_id,
@@ -200,28 +273,33 @@ def emit_v2_tree_from_flat_site(
         if model.get("protocol_options"):
             document["protocol_options"] = model["protocol_options"]
         _dump(
-            root / "templates" / "device_models" / model_id / "1.0.0.yaml",
+            root / "templates" / "device_models" / f"{model_id}_1.0.0.yaml",
             document,
         )
 
     for spec, task_id in combo_ids.items():
-        point_group, interval, desired_state = spec
+        # v1 校验强制任务 point_group == "all"；上面已把扁平站点各点全部
+        # 补入 all 组成员，故这里归一为 all 不改变实际采集点集（具名组的
+        # 节拍/期望态仍由 spec 保留），只是不再下发 v1 已废除的具名组任务。
+        _point_group, interval, desired_state = spec
         _dump(
-            root / "templates" / "tasks" / task_id / "1.0.0.yaml",
+            root / "templates" / "tasks" / f"{task_id}_1.0.0.yaml",
             {
                 "schema_version": 1,
+                "file_version": "1.0.0",
                 "template_id": task_id,
                 "template_version": "1.0.0",
-                "point_group": point_group,
+                "point_group": "all",
                 "interval": interval,
                 "desired_state": desired_state,
             },
         )
     if not combo_ids:
         _dump(
-            root / "templates" / "tasks" / "device_all" / "1.0.0.yaml",
+            root / "templates" / "tasks" / "device_all_1.0.0.yaml",
             {
                 "schema_version": 1,
+                "file_version": "1.0.0",
                 "template_id": "device_all",
                 "template_version": "1.0.0",
                 "point_group": "all",
@@ -233,11 +311,14 @@ def emit_v2_tree_from_flat_site(
     # 扁平站点的 units / business_points 与模板根解析器同源；扁平文档缺
     # schema_version 头（旧 Core 适配器不要它），复制时补齐 v2 必需的头。
     units_doc = _load(flat_site / "units.yaml")
-    _dump(root / "templates" / "units.yaml", {"schema_version": 1, **units_doc})
+    _dump(
+        root / "templates" / "units.yaml",
+        {"schema_version": 1, "file_version": "1.0.0", **units_doc},
+    )
     business_doc = _load(flat_site / "business_points.yaml")
     _dump(
         root / "templates" / "business_points.yaml",
-        {"schema_version": 1, **business_doc},
+        {"schema_version": 1, "file_version": "1.0.0", **business_doc},
     )
 
     site = system_doc.get("site", {})
@@ -245,6 +326,7 @@ def emit_v2_tree_from_flat_site(
         root / "instances" / "site.yaml",
         {
             "schema_version": 1,
+            "file_version": "1.0.0",
             "site_id": site.get("site_id", "virtual_windfarm"),
             "name": site.get("name", "Virtual Wind Farm"),
         },
@@ -261,7 +343,10 @@ def emit_v2_tree_from_flat_site(
         if device.get("enabled") is False:
             entry["enabled"] = False
         v2_devices[device_id] = entry
-    _dump(root / "instances" / "devices.yaml", {"schema_version": 1, "devices": v2_devices})
+    _dump(
+        root / "instances" / "devices.yaml",
+        {"schema_version": 1, "file_version": "1.0.0", "devices": v2_devices},
+    )
 
     service = _load(root / "services" / "collector.yaml")
     messaging = system_doc.get("messaging")
@@ -318,6 +403,7 @@ ADS_LOGICAL_TYPES = {
 
 DEFAULT_SERVICE_DOC: dict[str, Any] = {
     "schema_version": 1,
+    "file_version": "1.0.0",
     "runtime": {
         "shutdown_timeout": 5.0,
         "connect_timeout": 2.0,
@@ -409,19 +495,21 @@ def write_v2_component_tree(
     templates = root / "templates"
     for protocol in protocols:
         _dump(
-            templates / "protocols" / f"{protocol}_default" / "1.0.0.yaml",
+            templates / "protocols" / f"{protocol}_default_1.0.0.yaml",
             {
+                # 同上：协议模板 strict 键集不含 template_version。
                 "schema_version": 1,
+                "file_version": "1.0.0",
                 "template_id": f"{protocol}_default",
-                "template_version": "1.0.0",
                 "protocol": protocol,
             },
         )
     for table_id, table in tables.items():
         _dump(
-            templates / "point_tables" / table_id / "1.0.0.yaml",
+            templates / "point_tables" / f"{table_id}_1.0.0.yaml",
             {
                 "schema_version": 1,
+                "file_version": "1.0.0",
                 "template_id": table_id,
                 "template_version": "1.0.0",
                 "protocol": table["protocol"],
@@ -431,6 +519,7 @@ def write_v2_component_tree(
     for model_id, spec in models_spec.items():
         document = {
             "schema_version": 1,
+            "file_version": "1.0.0",
             "template_id": model_id,
             "template_version": "1.0.0",
             "name": model_id,
@@ -441,7 +530,7 @@ def write_v2_component_tree(
         }
         if spec.get("protocol_options"):
             document["protocol_options"] = spec["protocol_options"]
-        _dump(templates / "device_models" / model_id / "1.0.0.yaml", document)
+        _dump(templates / "device_models" / f"{model_id}_1.0.0.yaml", document)
 
     if task_point_group is None:
         groups = {
@@ -452,9 +541,10 @@ def write_v2_component_tree(
         }
         task_point_group = sorted(groups)[0] if groups else "all"
     _dump(
-        templates / "tasks" / "device_all" / "1.0.0.yaml",
+        templates / "tasks" / "device_all_1.0.0.yaml",
         {
             "schema_version": 1,
+            "file_version": "1.0.0",
             "template_id": "device_all",
             "template_version": "1.0.0",
             "point_group": task_point_group,
@@ -462,12 +552,23 @@ def write_v2_component_tree(
             "desired_state": default_desired_state,
         },
     )
-    _dump(templates / "units.yaml", {"schema_version": 1, **MINIMAL_UNITS_DOCUMENT})
-    _dump(templates / "business_points.yaml", _business_points(tables))
+    _dump(
+        templates / "units.yaml",
+        {"schema_version": 1, "file_version": "1.0.0", **MINIMAL_UNITS_DOCUMENT},
+    )
+    _dump(
+        templates / "business_points.yaml",
+        {"schema_version": 1, "file_version": "1.0.0", **_business_points(tables)},
+    )
 
     _dump(
         root / "instances" / "site.yaml",
-        {"schema_version": 1, "site_id": site_id, "name": f"Component {site_id}"},
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "site_id": site_id,
+            "name": f"Component {site_id}",
+        },
     )
     v2_devices: dict[str, Any] = {}
     for device_id, raw in devices.items():
@@ -479,7 +580,10 @@ def write_v2_component_tree(
         elif isinstance(entry["model"], str):
             entry["model"] = {"id": entry["model"], "version": "1.0.0"}
         v2_devices[device_id] = entry
-    _dump(root / "instances" / "devices.yaml", {"schema_version": 1, "devices": v2_devices})
+    _dump(
+        root / "instances" / "devices.yaml",
+        {"schema_version": 1, "file_version": "1.0.0", "devices": v2_devices},
+    )
 
     service_doc = dict(DEFAULT_SERVICE_DOC)
     if service:
