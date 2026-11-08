@@ -148,7 +148,14 @@ def validate_service_settings(document: Mapping[str, object]) -> None:
         if name in watchdog:
             _positive(watchdog[name], f"watchdog.{name}")
     messaging = _section(document, "messaging")
-    _reject_unknown(messaging, {"servers", "delivery", "max_staleness_ms"}, "messaging")
+    _reject_unknown(messaging, {
+            "servers",
+            "delivery",
+            "max_staleness_ms",
+            "max_samples_per_batch",
+            "max_batch_bytes",
+            "queue_capacity",
+        }, "messaging")
     servers = messaging.get("servers")
     if (
         not isinstance(servers, list)
@@ -163,6 +170,11 @@ def validate_service_settings(document: Mapping[str, object]) -> None:
         raise ConfigError("messaging.delivery must be realtime or reliable")
     if "max_staleness_ms" in messaging:
         _positive(messaging["max_staleness_ms"], "messaging.max_staleness_ms")
+    for name in ("max_samples_per_batch", "max_batch_bytes", "queue_capacity"):
+        if name in messaging:
+            value = messaging[name]
+            if type(value) is not int or value <= 0:
+                raise ConfigError(f"messaging.{name} must be a positive integer")
     metrics = _section(document, "metrics")
     _reject_unknown(
         metrics,
