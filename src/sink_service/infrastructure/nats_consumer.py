@@ -129,6 +129,8 @@ class NatsSinkConsumer:
         if self._client is None or self._durable is None:
             raise RuntimeError("DLQ requires an active durable consumer")
         metadata = msg.metadata
+        if metadata is None:
+            raise RuntimeError("JetStream metadata required for durable DLQ")
         await self._client.jetstream().publish(
             f"wh.dlq.batch.{self._durable}",
             msg.data,
@@ -138,9 +140,12 @@ class NatsSinkConsumer:
                 "Wh-Source-Stream": self._stream,
                 "Wh-Source-Consumer": self._durable,
                 "Wh-Source-Sequence": (
-                    str(metadata.sequence.stream) if metadata is not None else "unknown"
+                    str(metadata.sequence.stream)
                 ),
                 "Wh-Failure-Type": type(error).__name__,
+                "Nats-Msg-Id": (
+                    f"dlq:{self._stream}:{self._durable}:{metadata.sequence.stream}"
+                ),
             },
         )
 
