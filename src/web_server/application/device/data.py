@@ -11,9 +11,9 @@ from core.domain.identities import DeviceId
 from core.domain.point import Point
 from core.domain.sample_value import Quality
 from web_server.application.config.service import ConfigService
+from web_server.application.device.collector_read import DeviceReadPort
 from web_server.application.device.sample import PointValue
 from web_server.application.port.point_store import TrendStore
-from web_server.application.device.collector_read import DeviceReadPort
 
 
 class DeviceDataItem(BaseModel):

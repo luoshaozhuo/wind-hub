@@ -11,11 +11,11 @@ from pydantic import BaseModel
 from core.domain.identities import DeviceId
 from core.domain.sample_value import Quality
 from web_server.application.config.service import ConfigService
+from web_server.application.device.collector_read import DeviceReadPort
 from web_server.application.device.command import (
     DeviceCommandResult,
     DeviceCommandService,
 )
-from web_server.application.device.collector_read import DeviceReadPort
 from web_server.application.device.sample import PointValue
 from web_server.application.operation.registry import OperationRecord, OperationRegistry
 from web_server.application.port.network_probe import NetworkProbePort

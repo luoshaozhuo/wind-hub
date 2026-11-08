@@ -20,8 +20,8 @@ from web_server.application.config.definitions import DefinitionQueryService
 from web_server.application.config.files import ConfigFileService
 from web_server.application.config.service import ConfigService
 from web_server.application.config.settings import SettingsService
-from web_server.application.device.command import DeviceCommandService
 from web_server.application.device.collector_read import CollectorReadRouter
+from web_server.application.device.command import DeviceCommandService
 from web_server.application.device.data import DeviceDataService
 from web_server.application.device.diagnostic import DiagnosticService
 from web_server.application.device.query import DeviceQueryService
