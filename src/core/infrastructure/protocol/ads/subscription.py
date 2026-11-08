@@ -45,7 +45,7 @@ class ADSSubscription:
         callback: ProtocolSampleCallback,
         *,
         interval: float,
-        trigger: Literal["cyclic", "on_change"] = "cyclic",
+        trigger: Literal["cyclic", "on_change"],
         max_block_bytes: int,
         max_delay: float,
         queue_capacity: int,
