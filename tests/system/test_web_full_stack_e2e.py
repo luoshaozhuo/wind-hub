@@ -76,12 +76,8 @@ async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
             pki_dir.mkdir()
             pki = build_pki(pki_dir)
             commander_port = free_port()
-            service_file = write_commander_service(
-                tmp_path, v2_tree, pki, grpc_port=commander_port
-            )
-            commander = start_commander(
-                service_file, grpc_port=commander_port, log_dir=tmp_path
-            )
+            service_file = write_commander_service(tmp_path, v2_tree, pki, grpc_port=commander_port)
+            commander = start_commander(service_file, grpc_port=commander_port, log_dir=tmp_path)
             processes.append(commander)
             await asyncio.gather(
                 wait_grpc_ready(collector.grpc_target, timeout=40),

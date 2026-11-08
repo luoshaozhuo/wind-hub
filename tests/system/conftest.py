@@ -138,7 +138,8 @@ async def full_stack(
     """REST → Server → Commander → Modbus 全链路真实进程现场。
 
     Commander 消费正式三路径配置和 mTLS 服务 YAML；Web Server
-    保留测试用站点配置，Collector 使用同一 Modbus 端口的三路径配置树。Web Server 与 Collector 共享同一
+    保留测试用站点配置，Collector 使用同一 Modbus 端口的三路径配置树。
+    Web Server 与 Collector 共享同一
     管理员令牌（设备级 START/STOP 的 fail-closed 元数据）。Server 以独立
     HTTP 端口启动，REST 客户端确认就绪；结束后先关客户端再优雅停机。
     """
@@ -149,12 +150,8 @@ async def full_stack(
     pki_dir.mkdir()
     pki = build_pki(pki_dir)
     commander_port = free_port()
-    service_file = write_commander_service(
-        tmp_path, v2_tree, pki, grpc_port=commander_port
-    )
-    commander = await commander_factory(
-        service_file, grpc_port=commander_port, pki=pki
-    )
+    service_file = write_commander_service(tmp_path, v2_tree, pki, grpc_port=commander_port)
+    commander = await commander_factory(service_file, grpc_port=commander_port, pki=pki)
 
     http_port = free_port()
     server = start_web_server(
