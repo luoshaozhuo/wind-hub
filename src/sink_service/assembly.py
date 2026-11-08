@@ -8,7 +8,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from configuration.site_loader import load_domain
-from contracts.sample_message import DeliveryMode, SampleMessage, validate_subject_token
+from contracts.sample_batch import DeliveryMode, SampleBatch, validate_subject_token
 from sink_service.application.point_port import PointSinkPort
 from sink_service.application.runtime import SinkRuntime
 from sink_service.application.sink_contract import ResolvedSink
@@ -83,7 +83,7 @@ def assemble_sinks(
             PointValueSinkAdapter(target),
             servers=servers,
             delivery=delivery,
-            subject=f"wh.{'rt' if delivery == 'realtime' else 'hist'}.{wind_farm_id}.>",
+            subject=f"wh.{'rt' if delivery == 'realtime' else 'hist'}.batch.{wind_farm_id}.>",
             durable=(
                 (
                     "sink_"
@@ -111,10 +111,16 @@ def _build_runtime(
     """Bind every handler to its own runtime, never a shared closure variable."""
     holder: list[SinkRuntime] = []
 
-    async def handle(sample: SampleMessage) -> None:
-        if (sample.task_id, sample.device_id, sample.point_id) not in allowed:
+    async def handle(batch: SampleBatch) -> None:
+        selected = tuple(
+            item
+            for item in batch.samples
+            if (batch.task_id, batch.device_id, item.point_id) in allowed
+        )
+        if not selected:
+            # This source message has no delivery obligations for this Sink.
             return
-        await holder[0].write(sample)
+        await holder[0].write_batch(batch.model_copy(update={"samples": selected}))
 
     consumer = NatsSinkConsumer(
         servers,
