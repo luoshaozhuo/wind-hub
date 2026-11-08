@@ -958,3 +958,203 @@ tracing.py:30          ServerInterceptor subclass Any [misc] ×1
 
 - 本轮唯一 commit 为 docs-only：收录 §13（第四轮）与本节 §14（第五轮），不含任何 `src/`、`configs/`、`pyproject.toml`、`poetry.lock` 变更。
 - 本机无 GitHub 凭据，按既有约定不执行 push，commit SHA 交用户手动推送至 `refactor/core-v1`。
+
+# 15. 第六轮独立复测（N-02/N-03 生产整改，2026-11-07，HEAD 87762c33）
+
+## 15.1 Git 基线、变更边界与环境
+
+- 验收基线：`87762c33 fix(core): add partial grpc typing and migrate Web Collector RPC to v1 contracts`（ChatGPT 12 文件生产整改）；对照基线 origin/main `0ac0228a`（临时 worktree `/tmp/wt-main6`，同一 conda 环境与 mypy/ruff 配置）。
+- 本轮 Claude 工作区改动 **20 个文件全部位于 `tests/`**；`src/`、`configs/`、`pyproject.toml`、`typings/` 零改动。全量 diff 无新增 `noqa`、`type: ignore`、`pytest.skip`、`xfail` 或任何排除/降严格度配置。
+- 环境：Python 3.14.7、ruff 0.8.6、mypy 1.20.2、lint-imports 2.15；Docker 可用（redis/r5 compose 正常）；本机无外部 NATS（`WIND_HUB_TEST_NATS` 未设置，nats fixture 按合同显式 skip）；无真实 PLC/ADS/IEC104 链路。
+- 环境修复（不计测试/生产改动）：editable 安装过期导致 `wind-hub-commander` 入口缺失，`poetry install --only-root` 补齐全部 console_scripts；此前误装的 `UNKNOWN-0.0.0` 已 `pip uninstall` 清除。
+
+## 15.2 S1 静态门禁（证据目录 `/tmp/s3-r6/`）
+
+| 命令 | 退出码 | 结果 |
+|---|---|---|
+| `ruff check src/` | 1 | 2 errors：`config_service.py:3:1` I001、`grpc_correlation.py:46:101` E501（103>100） |
+| `ruff format --check src/` | 1 | 1 file would reformat：`grpc_correlation.py` |
+| `mypy src/configuration` | 0 | Success: no issues found in 22 source files |
+| `mypy src/core` | 1 | 8 errors in 5 files（基线 6 项 subclass-Any 全保留 + 同位置新增 1 项 + stub 自身 1 项，见 R-03） |
+| `mypy src` | 1 | 74 errors in 18 files（origin/main 同环境实测 39 errors in 13 files） |
+| `lint-imports` | 0 | Contracts: 15 kept, 0 broken |
+| `ruff check tests/` / `ruff format --check tests/` | 0 | All checks passed / 400 files already formatted |
+
+### 15.2.1 N-02 专项：partial grpc-stubs 不予通过（OPEN）
+
+未以「原 6 个错误消失」判定，而是对 stub 做内容审查与仓库外隔离实验（不修改生产树）：
+
+1. **R-03a enum 零成员（stub 自身报错）**：`typings/grpc-stubs/grpc/__init__.pyi:11` `class StatusCode(Enum)` 采用注解式成员（`OK: StatusCode`），mypy 1.20 语义下被判零成员枚举 `[misc]`。隔离实验改为 `OK = ...` 赋值式后该错误消失。
+2. **R-03b 缺顶层 aio 重导出**：`grpc/__init__.pyi` 无 `from grpc import aio as aio`。scoped `mypy src/core` 不加载 contracts 的 pb2_grpc.pyi，`grpc.aio.ServerInterceptor` 等整体回退 Any，7 处 subclass-Any 不收敛（含 `grpc_correlation.py:73`——该处旧 `# type: ignore[misc]` 已被删除但错误随即复活）。隔离实验仅追加该重导出一行，`mypy src/core` 立即降至 1 error（即 R-03a）；两项同修后 **`mypy src/core` = 0 errors**。
+3. 反证机制：全树 `mypy src` 下 subclass-Any 为 0，因生成的 `*_pb2_grpc.pyi` 内含 `from grpc import aio as _aio` 顺带加载子模块——这同时使 `src/web_server/infra/correlation.py:76` 的旧 ignore 变成 unused-ignore（R-05）。
+4. **未把有类型接口扩大为 Any**：错误增量方向相反——stub 使 `RpcMethodHandler`/`ServicerContext` 等由 Any 变为具名泛型，暴露 24 个裸泛型 `[type-arg]` 与 4 个 `[no-any-return]`；Any 仅存在于消息类型不可知的合法参数化位置，符合第五轮 14.4 的约束。
+
+### 15.2.2 R-04 错误面扩大（origin/main 同环境对照）
+
+| 错误码 | main | 本分支 | 说明 |
+|---|---|---|---|
+| attr-defined | 24 | 34 | 含 commander pb2 符号缺失（N-03，见 15.2.3） |
+| import-not-found | 9 | 0 | partial stub 使模块可解析，降级为 attr-defined/name-defined |
+| type-arg | 0 | 24 | stub 具名化后裸泛型显形（14 个 main 既存文件，全部非本轮新增文件） |
+| no-any-return | 3 | 4 | 同上 |
+| redundant-cast / operator / name-defined | 0/0/3 | 3/3/3 | strict 下真实类型问题 |
+| unused-ignore / type-var / misc | 0 | 各 1 | R-05、R-06、R-03a |
+| **合计** | **39 / 13 files** | **74 / 18 files** | 净增 35 错误、5 个出错文件（含 stub 自身） |
+
+14 个新增出错 src 文件经逐一比对在 origin/main 均已存在（非新文件），其错误原本被 grpc Any 遮蔽。stub 两缺陷修复后的同环境实测为 73 errors / 17 files——残余均为需要配套机械参数化的真实 strict 问题与 N-03，符合第五轮 14.4.3「stub 落地必须同批修复」的预判，但本轮生产整改未包含该配套修改。
+
+### 15.2.3 N-03 commander 半侧仍 OPEN
+
+`src/web_server/adapter/outbound/grpc/commander.py` 23 errors：`PointValueMessage`、`CommandResultMessage`、`PointVerifyResponse` 名称未定义（name-defined ×3）与 `COMMAND_OUTCOME_*` 枚举等 attr-defined ×20——commander v1 Proto 的消息/枚举未生成，属 main 既存上游生成物缺口（第五轮 14.3 已按同环境对照登记），本轮未收口。
+
+## 15.3 S2 Collector RPC 契约核查（12 项，真实 gRPC Server，零 Mock 冒充）
+
+全部用例经 `tests/system/rpc/test_server_collector_rpc.py`（11 用例，真实 collector 子进程 + 正式 CommonService/CollectorService 双 Stub）与 `tests/web_server/test_grpc_wire_conversion.py`（18 用例，出站适配器端口级钉死）交叉覆盖：
+
+1. **服务面完整**：CommonService 9 RPC + CollectorService 11 RPC = 20，服务端实现与 proto 一一对应，无 v2 残留符号（全仓 grep `collector_v2_pb2/v2_pb2` 命中 0）。
+2. **身份合同**：`process_role=="collector"` 固定、`service_id==--collector-id`（默认主机名），rpc 用例实测一致。
+3. **快照三段式事务**：GetConfigSnapshot(DISK) → PushConfigSnapshot（只校验不落盘）→ ApplyConfigSnapshot（代际落盘）闭环；无效候选 valid=False 拒绝后进程存活、旧配置持续出数（reload_failure 用例）。
+4. **revision 摘要算法**：以真实代际目录对照确认输入为 `SnapshotRepository.collect_source` 文件集（5 固定文档 + templates 四类 rglob），非整树 rglob；rpc 用例独立实现 `_collect_files` + `snapshot_digest` 双向核对，替换单文件后期望 revision 精确相等。
+5. **乐观 fencing**：裸链路陈旧 revision Push/Start 均实测 ABORTED；出站适配器 ABORTED→`CollectorTaskConflictError` 由 wire 单测钉死。
+6. **管理员令牌 fail-closed**：无 token 的 GetConfigSnapshot 与 StartTask 实测 PERMISSION_DENIED；令牌经 `x-windhub-admin-token` metadata 传递。
+7. **设备级 START/STOP**：`OperationRequest(id=device_id, expected_revision=task.revision)`；接受与 actual_state 收敛异步，按 uc07 模式轮询 RUNNING/STOPPED，即时语义断言 `enabled`。
+8. **意图持久化边界**：v1 代际落 state-dir，已提交快照内 devices.yaml overrides.task.desired_state 为事实来源，源配置树不再回写。
+9. **指标合同**：service 作用域实测含 `collector.poll.executions/points.collected` 与 `collector.device.<id>.connections/disconnections/reconnections` 前缀；scope/window 约束由组件测试覆盖。
+10. **未知设备**：StartTask 与 GetTask 均 NOT_FOUND。
+11. **CollectorPort 调用方闭环**：web 侧 assembly/directory/reconcile/task 全部装配到唯一出站实现 `CollectorGrpcClient`，无第二份裸 channel 消费方。
+12. **真实进程约束**：所有 real_service 用例经 `tests/support/process.py` 启动正式 `wind-hub-collector`（v1 CLI：--config/--state-directory/--collector-id/--grpc-host/--grpc-port/--shutdown-timeout），不存在 Mock 替身；探针实测见 15.5。
+
+## 15.4 本轮测试/Fixture 修复清单（20 文件，生产零改动）
+
+- **fixture 契约迁移**：`tests/support/control.py`（v1 双 Stub helper、快照事务、字符串 page_token 翻页、service 作用域指标前缀解析、退役 prepare/reload 桩）、`process.py`（v1 CLI argv + state-dir 共享代际）、`wait.py`（就绪探针改 CommonService.GetServiceStatus；commander 探针按 mTLS 语义接受 UNAUTHENTICATED 为就绪证据）、`v2_config.py`（全文档 file_version、扁平模板布局、自包含 modbus 树、任务 point_group 归一 all、协议模板剔除非法 template_version）。
+- **系统测试重写/对齐**：rpc 11 用例全重写；recovery 6 文件（扁平模板、磁盘快照断言、节拍改读已提交模板）；runtime/r5/network/full_stack/fleet 按现行合同更新；废弃字段清理（PointValue.task_id、acquisition_runs→collector.poll.executions、points_total→collector.points.collected，web DTO 字段层不动）。
+- **断言强度**：无放松——digest 改为精确字节级核对、fail-closed 保留负向断言、fleet fail-closed 参数从 v2 worker 名修正为站点真实 task_id 后仍限定失败码集合 `{400,409,422,503}` 且进程存活。
+
+## 15.5 RELATED 生产缺陷清单（移交 ChatGPT，Claude 未改 src/）
+
+| ID | 文件:行 | 复现命令 | 预期 / 实际 | 修复建议 |
+|---|---|---|---|---|
+| R-01 | src/collector/infrastructure/grpc/config_service.py:3 | `ruff check src/` | 预期 EXIT=0；实际 I001 import 块未排序（`infrastructure.config` 应在 `infrastructure.publisher` 前） | `ruff check --fix` 单文件，机械修复 |
+| R-02 | src/core/infrastructure/crosscutting/grpc_correlation.py:46 | `ruff check src/`；`ruff format --check src/` | 预期双绿；实际 E501（103>100）且 format 要求重排 | 换行参数化 `ServicerContext[Any, Any]` 后 `ruff format` |
+| R-03a | typings/grpc-stubs/grpc/__init__.pyi:11 | `mypy src/core` | 预期 stub 零错误；实际 `Detected enum ... zero members [misc]` | 枚举成员改赋值式（`OK = ...`），隔离实验已验证 mypy 归零 |
+| R-03b | typings/grpc-stubs/grpc/__init__.pyi（顶层缺重导出） | `mypy src/core` | 预期 6 项基线 subclass-Any 收敛；实际 7 项 Any（grpc_correlation.py:73 旧 ignore 删除后复活） | 顶层追加 `from grpc import aio as aio`；隔离实验验证 src/core 归零、全树仅剩真实 strict 项 |
+| R-04 | 14 个 main 既存 src 文件（清单见 /tmp/s3-r6/gate-mypy-src.log） | `mypy src` | main 39/13 → 本分支 74/18；stub 具名化后裸泛型/失效 cast 显形（24 type-arg、3 redundant-cast、3 operator、4 no-any-return 等） | 与 R-03 同批机械参数化（`ServicerContext[Any, Any]`/`RpcMethodHandler[Any, Any]` 等），不得以新增 ignore 收口 |
+| R-05 | src/web_server/infra/correlation.py:76 | `mypy src` | 预期无失效抑制；实际 `Unused "type: ignore" [unused-ignore]` | R-03b 落地后删除该 ignore（全树加载时 aio 已具名） |
+| R-06 | src/collector/infrastructure/grpc/config_service.py:184 | `mypy src` | 预期 compare_digest 双参同为 str；实际 metadata 值为 `str | bytes`，AnyStr 无法联合 `[type-var]` | 先归一化 supplied（bytes 则 decode）再比较，或对两侧显式 str 收敛 |
+| N-03 | src/web_server/adapter/outbound/grpc/commander.py（65/82/85-87/108 等 23 处） | `mypy src` | 预期 commander v1 pb2 符号可解析；实际 PointValueMessage/CommandResultMessage/PointVerifyResponse/COMMAND_OUTCOME_* 缺失 | 重生成 commander v1 Proto 生成物（独立立项，第五轮已登记） |
+
+### 测试侧既有债务（非本轮 12 文件引入，main 同源，不计 RELATED）
+
+- **commander 子进程 harness 断层（33 个 system error 的根因）**：`tests/support/process.py::start_commander` 仍传 `--grpc-host/--grpc-port`，而 commander v1 CLI 只接受 `--config`，且 `grpc_transport.py:86` 只开 mTLS 安全端口（"A plaintext endpoint is never opened"），测试配置的证书路径指向 `/etc/wind-hub/certs`。origin/main 同环境同败（已实测）。正式收口需按 `tests/commander/grpc_harness.py` 的进程内 PKI 模式重构子进程 harness（测试 PKI 下发、yaml 重写、安全 channel），工作量超出单轮测试修复，建议 ChatGPT 单独立项。
+- **soak harness 依赖已移除的 v2 进程内 API（4 失败，NOT_RUN）**：`tests/support/soak/runner.py` 调用旧三参 `assemble_collector` 与已删除的 `runtime.engine/task_instances/start_task_instance`；且本机无 NATS（NatsSampleRecorder 必连）。双重阻断，本机不可验证，登记 NOT_RUN。
+- **FINDING-RELIAB-BH-01**（watchdog CancelledError 漏记账）与 **TEMPLATE_PUBLISH 死变量**（生产代码零引用）维持前轮登记。
+
+## 15.6 定向回归结果（本节数字均为本轮本机实测；最终全量 system 复跑见 15.7）
+
+| 范围 | 命令 | 结果 | 归因 |
+|---|---|---|---|
+| 全仓收集 | `pytest --collect-only -q` | 2091 collected，0 errors | — |
+| web_server + collector/component + core | `pytest tests/web_server tests/collector/component tests/core` | 786 passed / 2 failed | 2 失败均 UNRELATED（见下） |
+| collector + src | `pytest tests/collector tests/src` | 184 passed / 2 skipped | skip 为 NATS docker marker |
+| Collector RPC 真实进程 | `pytest tests/system/rpc/test_server_collector_rpc.py` | 11 passed | 正式 collector 子进程双服务 |
+| r5 真实栈（docker NATS/Redis） | `pytest tests/system/r5` | 38 passed / 1 failed | 唯一失败 UNRELATED（tdengine 文档缺失，main 同败） |
+| fleet 30 设备 Web E2E | `pytest tests/system/test_web_fleet_config_e2e.py` | 22 passed | 含修复后的 3 个 fail-closed 参数化 |
+| 全量 system（最终复跑） | `pytest tests/system` | 98 passed / 5 failed / 24 skipped / 33 errors | 见 15.7 |
+| 静态 | `ruff check tests/`、`ruff format --check tests/` | 400 files 全过 | — |
+
+**metrics helper 真实验证（非 Mock）**：独立探针以正式 collector 子进程 + ModbusMockServer 实测——稳态 `collector.device.modbus-1.connections=1`、`collector.poll.executions=2`、`collector.points.collected=6`；制造真实断连恢复后 `device_reconnects={modbus-1:1.0}`、`device_connect_failures={modbus-1:1.0}`，前缀解析与 service 作用域合同一致（PROBE_OK，探针在仓库外临时目录）。
+
+### 15.6.1 UNRELATED 清单（origin/main 同环境同败，已实测）
+
+1. `tests/web_server/test_diagnostic_cancel.py::test_aclose_cancels_all_background_tasks`——第三/四/五轮已登记，main 同败。
+2. `tests/core/architecture/test_rpc_boundary.py::test_pb2_only_in_allowed_zones`——扫描面仅 `src/`，与本轮测试改动无关，main 同败。
+3. `tests/system/r5/test_r6_tdengine_contract.py::test_architecture_doc_discloses_upsert_contract`——`docs/wind-hub_sink_architecture_v0_4.md` 缺失的纯文档断言，main worktree 实测同败。
+
+## 15.7 最终全量 system 复跑归因（2026-11-08，修复后）
+
+`5 failed / 98 passed / 24 skipped / 33 errors / 10 deselected`：
+
+- **5 failed**：15.6.1 第 3 项 UNRELATED ×1；soak ×4 为 NOT_RUN（runner 依赖已删除的 v2 进程内 API 且 NATS NoServers，本机双重阻断，不以 skip 之外的方式冒充通过）。
+- **33 errors 全部同源**：commander 子进程 harness 断层（15.5 债务项），分布 command 4 / e2e 4 / reload 3 / commander-rpc 7 / startup 5 / full_stack 10；origin/main 同环境实测同错，UNRELATED。入口缺失的 ENVIRONMENT 成分已由 `poetry install --only-root` 消除，剩余为安全模型 harness 迁移工作。
+- **24 skipped**：NATS 不可达的 nats_service fixture 与 docker marker 显式跳过，无内存替身。
+- **RELATED = 0（测试侧）**；本轮发现的生产问题全部以 R-01～R-06/N-03 移交。
+
+## 15.8 NOT_RUN / 环境阻断登记
+
+真实 PLC/TwinCAT/IEC104 链路；外部 NATS（r5 compose 内 NATS 除外）；root/netem 与 veth 长稳场景；soak 性能档位（叠加 v2 API 债务）；commander mTLS 子进程集成（33 errors 对应面）；systemd/dbus；设计文档 v1_21 仍不存在。
+
+## 15.9 第六轮裁决
+
+- **S1 静态：FAIL（N-02 OPEN）**。ruff src 2 错（R-01/R-02，机械可修）；mypy src/core 8 错且 stub 自身报错，隔离实验证明两处 stub 修复即可归零但生产整改未实施；错误面 39/13→74/18，未把有类型接口扩大为 Any（反向具名化），但配套机械修复缺失。
+- **S2 契约：PASS**。20 RPC 全覆盖、12 项核查通过、真实进程零 Mock、v2 proto 零残留、CollectorPort 调用方闭环。
+- **S3 回归：PASS WITH LIMITATIONS**。可执行面 RELATED=0；阻断面均有 main 同源或环境证据，NOT_RUN/UNRELATED 如实登记。
+- **S4 缺陷**：R-01～R-06 + N-03 已按文件/行号/复现/预期实际/修复建议移交（15.5）。
+- **冻结建议：不予冻结**。前置条件：R-01/R-02 清零、R-03a/b 落地且 `mypy src/core` EXIT=0、R-04 配套参数化同批完成、R-05/R-06 收口、N-03 commander pb2 重生成立项排期。最终冻结裁决权归 ChatGPT。
+
+## 15.10 提交与推送
+
+- 本轮唯一 commit 限定 `tests/` 20 文件（生产代码零改动、无 ignore/noqa/排除项新增）；验收报告与证据日志不纳入该 commit。
+- 本机无 GitHub 凭据，按既有约定不执行 push，commit SHA 交用户手动推送至 `refactor/core-v1`。
+
+# 16. 第七轮静态整改（有限生产修改授权，2026-11-08）
+
+## 16.1 基线与授权边界
+
+- 基线 HEAD：`0116cf96 fix(core): expose grpc aio stub namespace and enum members`（ChatGPT 已收口第六轮 R-03：aio 重导出 + enum 赋值式成员）。
+- 授权项：R-01（I001）、R-02（E501/format）、R-04（机械泛型参数化）、R-05（失效 ignore 删除）、R-06（compare_digest 类型）。禁止改 Commander/Web RPC 接口与适配器、Proto/生成物、测试断言；禁止新增 ignore/noqa/skip/排除项或降严格度。
+
+## 16.2 整改前门禁全量留证（命令按任务书原样执行，日志 `/tmp/s3-r7/`）
+
+| 命令 | 整改前退出码 | 整改前结果 |
+|---|---|---|
+| `ruff check src tests scripts` | 1 | 2 errors：config_service.py:3 I001、grpc_correlation.py:46 E501（103>100） |
+| `ruff format --check src tests scripts` | 1 | 1 file would reformat：grpc_correlation.py（729 files already formatted） |
+| `mypy src/core` | 0 | Success: no issues found in 61 source files（R-03 已由基线修复） |
+| `mypy src/configuration` | 0 | Success: no issues found in 22 source files |
+| `mypy src` | 1 | 73 errors in 17 files |
+| `lint-imports` | 0 | Contracts: 15 kept, 0 broken |
+
+整改前 mypy 错误构成：attr-defined 34、type-arg 24、no-any-return 4、redundant-cast 3、operator 3、name-defined 3、unused-ignore 1、type-var 1。
+
+## 16.3 实际修改（commit `622b6ea4`，5 文件，+34/−30，零测试改动）
+
+| 授权项 | 文件 | 修改内容 | 运行时影响 |
+|---|---|---|---|
+| R-01 | collector/infrastructure/grpc/config_service.py | ruff --fix 导入排序（config.snapshot_repository 先于 publisher） | 无 |
+| R-02 | core/infrastructure/crosscutting/grpc_correlation.py | unary_stream wrapper 签名换行（与同文件 stream_stream 风格一致） | 无 |
+| R-04 | collector grpc 两文件 + sink_service/grpc_management.py | 23 处 `grpc.aio.ServicerContext`、1 处 `grpc.RpcMethodHandler` 裸泛型 → `[Any, Any]`，补 Any 导入 | 无（`from __future__ import annotations` 下注解不求值） |
+| R-05 | web_server/infra/correlation.py:76 | 删除失效 `# type: ignore[misc]` 与过时注释；未新增任何抑制 | 无 |
+| R-06 | collector/infrastructure/grpc/config_service.py `_authorize` | 增加 `isinstance(supplied, str)` 守卫：bytes 元数据显式 PERMISSION_DENIED；str 路径仍走 `hmac.compare_digest` 恒定时间比较，拒绝语义保留（原 bytes 输入会抛 TypeError 而非干净拒绝，新行为更贴合认证合同） | 仅异常路径收敛为合同拒绝 |
+
+## 16.4 整改后门禁结果
+
+| 命令 | 整改后退出码 | 整改后结果 |
+|---|---|---|
+| `ruff check src tests scripts` | **0** | All checks passed |
+| `ruff format --check src tests scripts` | **0** | 730 files already formatted |
+| `mypy src/core` | **0** | 61 source files 无问题 |
+| `mypy src/configuration` | **0** | 22 source files 无问题 |
+| `mypy src` | 1 | **47 errors in 14 files（73→47，净消 26）** |
+| `lint-imports` | **0** | 15 kept, 0 broken |
+
+净消 26 = 24 type-arg + 1 unused-ignore + 1 type-var，与授权范围精确一致；未引入任何新错误码类别。
+
+## 16.5 残余 47 项归因（均在授权外，停止整改并移交）
+
+1. **N-03 commander 适配器（26 项，禁止修改区）**：web_server/adapter/outbound/grpc/commander.py 23（name-defined 3 + attr-defined 20）、同目录 sink.py 2（Channel `__aenter__/__aexit__` 缺口）、commander/infrastructure/grpc/server.py:79（ServicerContext.auth_context 缺口）。须 Proto 重生成与适配器立项。
+2. **partial grpc-stubs 表面缺口（11 项 attr-defined）**：`Channel.__aenter__/__aexit__`（containerd_client、management_cli、data_generator/diagnostics、web sink 共 6）、`Channel.channel_ready`（sink_service 2）、`ServicerContext.peer/auth_context`（industrial_gateway data_server 3 + commander 1，后者计入上项）。修复需扩 `typings/grpc-stubs`（R-03 同类工作，本轮无授权）。
+3. **no-any-return ×4**：stub 未声明 `grpc.aio.server()` 工厂（经 `__getattr__` 回退 Any），grc_management:99、data_generator/server:565、commander/grpc_transport:90、industrial_gateway/data_server:596。正解为 stub 补工厂声明，生产侧 cast 兜底不推荐。
+4. **operator ×3**：stub 的 `UnaryUnaryMultiCallable` 缺 `__call__`，data_generator/infrastructure/gateway.py:175/230/272。属 stub 建模缺口。
+5. **redundant-cast ×3**：grpc_sink.py:49、industrial_gateway/commander/forwarder.py:276/401。删除 cast 本身机械且运行时中性，但不属于授权的「泛型参数化」范围，且 forwarder 邻接 Commander 适配器禁区，按授权边界保留并移交。
+
+## 16.6 回归验证（运行时语义不变证据）
+
+- `pytest tests/collector tests/core tests/web_server`：873 passed / 2 failed（均为第五、六轮已证 origin/main 同败的 UNRELATED：test_rpc_boundary、test_diagnostic_cancel）/ 2 skipped。
+- `pytest tests/system/rpc/test_server_collector_rpc.py tests/sink_service`：21 passed / 10 skipped（NATS）；真实 collector 子进程 11 RPC 用例全过，覆盖 R-06 授权路径（无令牌/错令牌 fail-closed、管理员令牌成功）。
+- 全仓 collect-only：2091 collected，0 errors。
+- diff 审计：无新增 noqa/type: ignore/skip/排除项；无接口、Proto、生成物、测试断言改动。
+
+## 16.7 提交与推送
+
+- 生产整改 commit：`622b6ea4`（5 src 文件）；本节与 §15 报告随后以 docs-only commit 独立提交。
+- 本机无 GitHub 凭据，不执行 push，两个 SHA 均交用户手动推送；不创建 PR、不 rebase、不 force push。
