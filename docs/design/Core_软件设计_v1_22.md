@@ -1447,7 +1447,7 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TB
-    S["Collector / Commander / Gateway / Generator / Sink / CLI"]
+    S["业务服务（含 Web Server）及 CLI"]
     CFG["configuration：wind-hub 配置装配"]
     CORE["Core：通用能力与领域对象"]
     CT["Contracts：Proto 和传输消息"]
@@ -1468,16 +1468,16 @@ flowchart TB
 | Device、Point、值、质量及协议能力等通用领域语义 | Core `domain/application` | 不含采集任务、控制状态机、派发策略 |
 | Protobuf、RPC 状态字段、NATS 消息 Schema 与跨进程标量编解码 | Contracts | Contracts 不反向导入 Core；边界转化显式处理缺值、非法数值与质量 |
 | 多文件配置提交、候选快照 CAS 和热更新 | `configuration` 的共享协调机制及具体业务 Service | Core 仅确保单文件原子写入；不得把 `save_yaml` 解释成全局事务 |
-| 端到端设备—NATS—Sink 诊断 | 业务服务和 CLI 编排 | Core 只提供网络、工业协议的局部诊断证据 |
+| 端到端设备—NATS—Sink 诊断 | CLI、Web Server 与各业务服务的编排层 | Core 只提供网络、工业协议的局部诊断证据；Web Admin 经 Web Server 展示 |
 
-**冻结边界：**修改 Core 或 configuration 的公开类型、接口、配置契约时，须同步核查全部调用方及测试；基础层设计优先消除真实缺口与逻辑冲突，不因目录美观或分层形式引入额外代理、复制模型及长期兼容层。
+**冻结边界：**修改 Core 或 configuration 的公开类型、接口、配置契约时，须同步核查全部调用方及测试；基础层设计优先消除真实缺口与逻辑冲突，不因目录美观或分层形式引入额外代理、复制模型及长期兼容层。Web Admin 仅通过 Web Server 的 HTTP/OpenAPI 契约间接访问服务，不直接依赖 Core、configuration 或 Contracts 的 Python 实现；Web Server 通过正式 RPC 及必要的公共能力装配访问业务服务。总体运行时关系以 `wind-hub_总体逻辑架构设计_v1_0.md` 为上位依据。
 
 
 # 6. 通用配置数据处理设计
 
 ## 6.1 公开数据与操作
 
-配置数据契约为 `dict[str, Any]` 且嵌套值仅允许 JSON 兼容类型；路径由调用方传入。下面是**目标接口示意**，不是对现有 `main` 已实现 API 的声明：
+配置数据契约为 `dict[str, Any]` 且嵌套值仅允许 JSON 兼容类型；路径由调用方传入。以下五个接口**已在当前 `main@cac23d84` 的 `src/core/infrastructure/config/generic_yaml.py` 实现**，本节描述其稳定公共契约，而非尚待新增接口：
 
 ```python
 from pathlib import Path
@@ -1546,7 +1546,7 @@ flowchart TD
 
 ## 6.7 项目模板装配与通用解析的边界
 
-Core 通用 YAML 接口处理调用方传入的路径和数据，不依赖 `configs/templates` 固定目录；工程交付可包含该目录作为版本化模板实例。现有布局含 `protocols/*.yaml`、`point_tables/*.yaml`、`device_models/*.yaml`、`units.yaml`、`business_points.yaml`、`tasks/*.yaml`。版本化模板使用 `<template_id>_<file_version>.yaml`，显式 ID/版本精确引用；`units.yaml`、`business_points.yaml` 使用文件内 `file_version`。文件系统装配、模板发布权限及任务策略归宿主负责；内容规则分别见第 7、10、8 章。`tasks` 模板属于 Collector 业务，Core 不解释其采集策略。
+Core 通用 YAML 接口处理调用方传入的路径和数据，不依赖 `configs/templates` 固定目录；工程交付可包含该目录作为版本化模板实例。现有布局按 `configs/templates/` 的实际目录组织 `protocols/*.yaml`、`point_tables/*.yaml`、`device_models/*.yaml`、`units.yaml`、`business_points.yaml` 等共享模板；不把任一可选模板类别写成 Core 的硬编码发现规则。版本化模板使用 `<template_id>_<file_version>.yaml`，显式 ID/版本精确引用；`units.yaml`、`business_points.yaml` 使用文件内 `file_version`。文件系统装配、模板发布权限及任务策略归宿主负责；内容规则分别见第 7、10、8 章。`tasks` 模板属于 Collector 业务，Core 不解释其采集策略。
 
 # 7. 通用工业协议通信设计
 
