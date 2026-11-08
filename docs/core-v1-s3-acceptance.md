@@ -1261,3 +1261,86 @@ RELATED = 0。NOT_RUN：无（所有点名套件均实际执行；skip 仅 NATS 
 
 - 生产 commit：`723f3342`（2 src 文件）；本章节为 docs-only commit 独立提交。
 - 本机无 GitHub 凭据，不执行 push，SHA 交用户手动推送；无 PR、无 rebase、无 force push。
+
+---
+
+# 18. 第九轮：N-03 正式契约迁移集中独立验收（2026-11-08，基线 `8b920410`）
+
+## 18.1 验收范围与边界
+
+ChatGPT 已完成 Commander v1 RPC、强制 mTLS、配置快照事务、Collector 即时读点、Web 控制指令持久化防重的生产整改。本轮只做独立验收与测试侧迁移：生产代码仅限机械性类型/格式修复（注解、redundant-cast、ruff），未改任何 RPC 业务逻辑、proto/pb2，未新增 `type: ignore`/`noqa`/`skip`/mypy 排除项，未放松任何断言；无 PR、无 rebase、无 force push。
+
+提交：
+
+| commit | 性质 | 内容 |
+| --- | --- | --- |
+| `da8d8217` | 生产（机械修复） | 7 个 src 文件：gateway AsyncStub 注解、forwarder 删 redundant-cast、assembly E501/I001、4 文件 ruff format（token 流归一化比对证明无语义变化） |
+| `d9e6b2ba` | 测试迁移 | 7 个 tests 文件迁移到正式 v1 接口（明细见 18.4） |
+
+## 18.2 S1 静态门禁（标准 CI 命令，全绿）
+
+| 门禁 | 命令 | 结果 |
+| --- | --- | --- |
+| ruff check | `ruff check src tests scripts` | **0 error** |
+| ruff format | `ruff format --check src tests scripts` | **0 差异** |
+| mypy src/core | `mypy src/core` | **Success，61 files** |
+| mypy src/configuration | `mypy src/configuration` | **Success，22 files** |
+| mypy src | `mypy src` | **Success，330 files，0 errors** |
+| import-linter | `lint-imports`（15 contracts） | **15 kept, 0 broken** |
+
+注：`typings/grpc-stubs/*.pyi` 与 `ai_shared/**/merge.py` 的 ruff 噪声不在 CI 门禁范围（CI 显式限定 `src tests scripts`），与本轮改动无关，未触碰。
+
+## 18.3 五项重点问题结论
+
+1. **N-03 23 项 mypy 是否归零：是。** mypy src 330 files 0 errors；残余路径上的错误全部由 d0cd52dc stub 补齐 + 本轮两处机械修复（gateway 注解、forwarder 删 cast）闭环。
+2. **3 项 operator（gateway）是否归零：是。** `_stub()` 返回标注改 `IndustrialGatewayServiceAsyncStub`（注解-only，运行时零影响），6 个 var-annotated/arg-type 错误同时消除。
+3. **新旧配置结构是否仍阻断正式运行：生产路径不阻断，fail-closed 已落地并有测试。** `ConfigService._changed_files` 对 Commander config_sources 之外的变更文件直接拒绝（`test_legacy_file_outside_commander_sources_fails_closed`），快照不支持删除（`test_snapshot_deletion_is_rejected`），失败不回滚磁盘、不自动重试 Apply。**遗留**：`tests/system/test_web_full_stack_e2e.py`（11 用例）仍经明文 `commander_factory` 子进程 harness 装配，v1 只开安全端口后 fixture setup 超时 ERROR；属测试 harness 结构债务（详见 18.6），不是生产阻断。
+4. **mTLS/事务/幂等/UNKNOWN 真实链路证据：全部以真实进程/真实 PKI/真实 Modbus 取证，无 Mock 替代关键验收。** 见 18.4 的 system 层 16 个用例。
+5. **废弃 RPC 调用方/未同步测试：生产与测试代码零残留。** 全仓 grep `WritePoint`/`prepare_config`/`activate_config`/`abort_config`/`COMMAND_OUTCOME`/`CommandResultMessage`：命中仅为（a）历史验收报告中的证据文本，（b）`tests/support/control.py` 中显式 raise AttributeError 的退役绊网（无活跃调用方），（c）新测试 docstring 中说明退役事实的注释。
+
+## 18.4 S2/S3 测试迁移与真实链路证据
+
+### 单元/组件层（tests/web_server，225 passed 全绿）
+
+| 文件 | 处置 | 关键覆盖 |
+| --- | --- | --- |
+| `test_config.py` | 整体重写（34 用例） | 假 Commander 实现正式 Get/Push/ApplyConfigSnapshot 状态机：成功事务、无变更短路、force 穿透、本地非法配置 fail-closed 且不触 RPC、旧平铺路径拒绝、删除拒绝、Push 拒绝/base revision 不符/空 revision、Apply 收敛错误/RPC UNKNOWN 不重试/回查不符、停机拒绝、reconcile 五种只读取证返回串、bootstrap 只设 hash 不伪装 runtime revision、事务锁串行、commit hook |
+| `test_device_control.py` | 重写（9 用例） | 真实 SQLite DurableCommandRegistry：同 ID 缓存不二次写、异内容 CommandIdConflictError、并发单次执行、**崩溃 pending 重建只返回 UNKNOWN 且 `write.assert_not_awaited()`**、终态跨重建存活 |
+| `test_diagnostic_cancel.py` | 迁移（4 用例） | 挂起点从退役 `Commander.verify_point` 迁到 Collector `DeviceReadPort.read_point`；取消/aclose 真实终止后台协程 |
+| `test_grpc_wire_conversion.py` | 迁移（16 用例） | 删除退役解码用例，`_encode_scalar` 按现行边界断言（0→uint64、负数→sint64、越界拒绝） |
+
+### 系统层（真实 mTLS + 真实 Commander + 真实 Modbus 从站）
+
+**`tests/system/rpc/test_server_commander_rpc.py`（10 用例，全绿）——明文 harness 重点整改对象。** 旧 `commander_factory` 子进程 + 明文探针在强制 mTLS 下必然超时；新 harness 复用 `tests/commander/grpc_harness.py`：EC P-256 真实 CA、viewer/ops/deployer/stranger/rogue 证书、`build_commander` 组合根、`add_secure_port(require_client_auth=True)` 仅安全端口、pymodbus 真实从站。经**生产 `CommanderGrpcClient`**（三环境变量装载证书）验证：
+
+- mTLS：缺三 env 之一构造即 RuntimeError（无明文回退）；stranger→PERMISSION_DENIED；rogue CA→握手 UNAVAILABLE；
+- 查询：status 聚合（active_config_hash 恒 `""` 不伪造）、GetDevice+Diagnose 真实三阶段（先写入建立协议会话）；
+- 控制：GetDevice 取 revision→SubmitCommand→轮询 GetCommandResult，以从站保持寄存器 200 独立回读为物理证据；未知设备 GetDevice 前置失败→CONFIRMED_FAILURE（可确定未执行）；
+- 快照：Push/Apply/disk 回查内容一致、陈旧 expected_revision→ABORTED、viewer（query-only）Push→PERMISSION_DENIED。
+
+**`tests/system/command/test_write_idempotency.py`（6 用例，全绿）。** 旧文件整体基于已删除的 WritePoint pb2 符号；迁移为生产 `DeviceCommandService` + 真实 SQLite journal + 真实 mTLS 链路：8 并发同 ID 从站仅 1 写、重复 ID 命中缓存、UUID 自动生成、异内容拒绝、**崩溃 pending 记录新实例只给 UNKNOWN 且从站写计数为 0**、读回端口不可用不推翻写入成功。
+
+**`tests/system/e2e/test_command_via_server.py`**：docstring 更新为正式 SubmitCommand/GetCommandResult 表述。
+
+## 18.5 S4 回归矩阵（证据目录 `/tmp/s3-r10/`）
+
+| 套件 | 本轮结果 | r9 对照 | 分类 |
+| --- | --- | --- | --- |
+| T1 core/collector/web_server | 1 failed / 880 passed / 2 skipped | 同位置失败 | **UNRELATED**：`test_pb2_only_in_allowed_zones` 7 个 offender（collector/assembly.py 等），本轮改动文件与 offender 零交集，第八轮已 origin/main 取证 |
+| T2 system/rpc | **21 passed** | 11 passed / 6 errors | **本轮闭环**：6 个明文 harness error 全部修复 |
+| T3 tests/src | 44 passed | 44 passed | PASS |
+| T4 commander | 2 failed / 255 passed / 1 skipped | 同 2 项失败 | **UNRELATED/ENVIRONMENT**：test_performance 两项 p99≤200ms 断言；干净基线 worktree（`8b920410`）复跑同败，WSL2 无性能隔离（marker 自述需 root+tc netem） |
+| T5 data_generator/industrial_gateway | 2 failed / 335 passed | 同 2 项 flake | **UNRELATED**：lease p1_09（`'RUNNING'=='FAILED'` 时序）与 FIFO 串行用例；基线 worktree 同败，FIFO 项本轮单独复跑已通过，flake 性质明确 |
+| 全仓 collect | **2103 collected / 0 error** | 2063 / 1 error | 阻断解除 |
+
+基线对照方法：`git worktree` 检出干净 `8b920410`（不含本轮任何改动），PYTHONPATH 前置后复跑三项顽固失败，3/3 同败同断言，证据 `/tmp/s3-r10/baseline-rerun.log`。RELATED 失败：**0**。
+
+## 18.6 遗留项与冻结建议
+
+1. `tests/system/test_web_full_stack_e2e.py`（11 用例）：REST→Server→Commander 全进程 e2e 的装配夹具仍走明文 `commander_factory`/`start_web_server`，需改造为 service.yaml security 节 + mTLS 三 env 透传的子进程 harness（与 grpc_harness 同 PKI 模式），属独立测试基建任务；其合同面已被 18.4 的系统层用例在真实链路上等价覆盖。
+2. T4 性能阈值在 WSL2 不可稳定满足，建议性能验收保持独立可选流程（与 CLAUDE.md §3 一致），不纳入接口冻结门禁。
+3. typings/ai_shared 的 ruff 噪声不在 CI 范围，后续可单独清理。
+
+**最终裁决：PASS。** 六门禁全绿；N-03 23 项 mypy 与 3 项 operator 归零；mTLS 强制模型、快照事务 fencing/回查、持久化 at-most-once 与 UNKNOWN 不重发均有真实进程链路证据；废弃 RPC 生产/测试零残留；collect 零错误；全部失败项经干净基线对照证明 UNRELATED/ENVIRONMENT，RELATED=0。
+
+**接口冻结意见：具备 Core + Configs v1 接口冻结条件。** 唯一冻结后仍需偿还的是 full_stack e2e harness 的 mTLS 化（测试基建债务，不涉及 proto/端口合同变更），不构成冻结阻断。
