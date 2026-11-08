@@ -15,7 +15,7 @@ import nats
 from nats.aio.client import Client
 
 from collector.application.telemetry import CollectorTelemetry
-from contracts.sample_message import validate_subject_token
+from contracts.sample_batch import validate_subject_token
 
 logger = logging.getLogger(__name__)
 
