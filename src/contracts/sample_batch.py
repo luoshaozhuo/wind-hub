@@ -39,6 +39,18 @@ def _unique_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
+def _require_wire_timestamp(value: object, field: str) -> None:
+    """Wire time must be a timezone-bearing ISO string, not an epoch."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be an ISO timestamp string")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field} must be an ISO timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field} must include a UTC offset")
+
+
 def _utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -63,7 +75,9 @@ class SampleItem(BaseModel):
     @field_validator("point_id")
     @classmethod
     def _point_token(cls, value: str) -> str:
-        return validate_subject_token(value)
+        if not value.strip() or any(ord(char) < 32 for char in value):
+            raise ValueError("invalid point_id")
+        return value
 
     @field_validator("sample_id")
     @classmethod
@@ -162,8 +176,13 @@ class SampleBatch(BaseModel):
         max_bytes: int = DEFAULT_MAX_BATCH_BYTES,
     ) -> bytes:
         """Encode a bounded canonical JSON payload."""
-        if max_samples <= 0 or max_bytes <= 0:
-            raise ValueError("batch limits must be positive")
+        if (
+            type(max_samples) is not int
+            or type(max_bytes) is not int
+            or max_samples <= 0
+            or max_bytes <= 0
+        ):
+            raise ValueError("batch limits must be positive integers")
         if len(self.samples) > max_samples:
             raise ValueError("batch exceeds max_samples")
         document = self.model_dump(mode="json")
@@ -194,8 +213,14 @@ class SampleBatch(BaseModel):
         max_bytes: int = DEFAULT_MAX_BATCH_BYTES,
     ) -> SampleBatch:
         """Reject oversized, malformed, mismatched or ambiguous payloads."""
-        if max_samples <= 0 or max_bytes <= 0 or len(payload) > max_bytes:
-            raise ValueError("batch bytes exceed limit")
+        if (
+            type(max_samples) is not int
+            or type(max_bytes) is not int
+            or max_samples <= 0
+            or max_bytes <= 0
+            or len(payload) > max_bytes
+        ):
+            raise ValueError("invalid batch limits or payload length")
         try:
             raw = json.loads(
                 payload.decode("utf-8"),
@@ -206,13 +231,18 @@ class SampleBatch(BaseModel):
             raise ValueError("invalid UTF-8 JSON batch") from exc
         if not isinstance(raw, dict):
             raise ValueError("batch envelope must be an object")
-        if raw.get("schema_version") != 2 or "schema_version" not in raw:
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] != 2:
             raise ValueError("explicit schema_version=2 required")
+        _require_wire_timestamp(raw.get("publish_time"), "publish_time")
         items = raw.get("samples")
         if not isinstance(items, list) or not 0 < len(items) <= max_samples:
             raise ValueError("invalid batch sample count")
         if any(not isinstance(item, dict) or "value" not in item for item in items):
             raise ValueError("every sample must explicitly contain value")
+        for item in items:
+            _require_wire_timestamp(item.get("sample_time"), "sample_time")
+            if "receive_time" in item:
+                _require_wire_timestamp(item["receive_time"], "receive_time")
         if mode == "reliable" and any("max_staleness_ms" in item for item in items):
             raise ValueError("reliable samples must omit max_staleness_ms")
         batch = cls.model_validate_json(payload)
