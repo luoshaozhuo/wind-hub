@@ -1,0 +1,199 @@
+"""Strict version-2 batched NATS telemetry contract.
+
+The batch is the transport and JetStream acknowledgment unit; individual
+samples retain independent identities, timestamps, quality, and TTL.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+from datetime import UTC, datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+DeliveryMode = Literal["realtime", "reliable"]
+DEFAULT_MAX_SAMPLES_PER_BATCH = 500
+DEFAULT_MAX_BATCH_BYTES = 1_048_576
+
+
+def validate_subject_token(value: str) -> str:
+    """Require a nonempty single NATS subject token."""
+    if not value or any(char in value for char in (".", "*", ">", " ", "\t", "\r", "\n")):
+        raise ValueError("invalid NATS subject token")
+    return value
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("timestamps must be timezone-aware")
+    return value.astimezone(UTC)
+
+
+class SampleItem(BaseModel):
+    """One immutable sample within a batch."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    point_id: str
+    sample_id: str
+    value: float | int | bool | str | None
+    quality: Literal["good", "bad", "uncertain"]
+    sample_time: datetime
+    receive_time: datetime | None = None
+    max_staleness_ms: int | None = Field(default=None, gt=0, le=86_400_000)
+
+    @field_validator("point_id")
+    @classmethod
+    def _point_token(cls, value: str) -> str:
+        return validate_subject_token(value)
+
+    @field_validator("sample_id")
+    @classmethod
+    def _sample_identity(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("sample_id must not be empty")
+        return value
+
+    @field_validator("sample_time", "receive_time")
+    @classmethod
+    def _timestamps(cls, value: datetime | None) -> datetime | None:
+        return _utc(value)
+
+    @model_validator(mode="after")
+    def _finite(self) -> SampleItem:
+        if isinstance(self.value, float) and not math.isfinite(self.value):
+            raise ValueError("nonfinite sample value")
+        if isinstance(self.value, int) and not isinstance(self.value, bool):
+            if not -(2**63) <= self.value <= 2**64 - 1:
+                raise ValueError("sample integer exceeds protobuf scalar range")
+        return self
+
+
+class SampleBatch(BaseModel):
+    """Versioned, bounded batch with a stable source identity."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    schema_version: Literal[2] = 2
+    batch_id: str
+    mode: DeliveryMode
+    wind_farm_id: str
+    collector_id: str
+    task_id: str
+    device_id: str
+    publish_time: datetime
+    samples: tuple[SampleItem, ...]
+
+    @field_validator("wind_farm_id", "collector_id", "task_id", "device_id")
+    @classmethod
+    def _identity_token(cls, value: str) -> str:
+        return validate_subject_token(value)
+
+    @field_validator("batch_id")
+    @classmethod
+    def _batch_identity(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("batch_id must not be empty")
+        return value
+
+    @field_validator("publish_time")
+    @classmethod
+    def _publish_timestamp(cls, value: datetime) -> datetime:
+        normalized = _utc(value)
+        assert normalized is not None
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_batch(self) -> SampleBatch:
+        if not self.samples:
+            raise ValueError("batch must contain samples")
+        point_ids = [sample.point_id for sample in self.samples]
+        sample_ids = [sample.sample_id for sample in self.samples]
+        if len(set(point_ids)) != len(point_ids):
+            raise ValueError("duplicate point_id in batch")
+        if len(set(sample_ids)) != len(sample_ids):
+            raise ValueError("duplicate sample_id in batch")
+        for sample in self.samples:
+            if self.mode == "realtime" and sample.max_staleness_ms is None:
+                raise ValueError("realtime sample requires max_staleness_ms")
+            if self.mode == "reliable" and sample.max_staleness_ms is not None:
+                raise ValueError("reliable sample forbids max_staleness_ms")
+        return self
+
+    @property
+    def identity(self) -> tuple[str, str, str, str, str, str]:
+        """Scope a batch ID to its immutable producer identity."""
+        return (
+            self.wind_farm_id,
+            self.collector_id,
+            self.task_id,
+            self.device_id,
+            self.mode,
+            self.batch_id,
+        )
+
+    def subject(self) -> str:
+        """Use device-scoped batch subjects, never legacy point subjects."""
+        prefix = "wh.rt.batch" if self.mode == "realtime" else "wh.hist.batch"
+        return f"{prefix}.{self.wind_farm_id}.{self.collector_id}.{self.device_id}"
+
+    def encode(
+        self,
+        *,
+        max_samples: int = DEFAULT_MAX_SAMPLES_PER_BATCH,
+        max_bytes: int = DEFAULT_MAX_BATCH_BYTES,
+    ) -> bytes:
+        """Encode a bounded canonical JSON payload."""
+        if max_samples <= 0 or max_bytes <= 0:
+            raise ValueError("batch limits must be positive")
+        if len(self.samples) > max_samples:
+            raise ValueError("batch exceeds max_samples")
+        payload = json.dumps(
+            self.model_dump(mode="json", exclude_none=True),
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(payload) > max_bytes:
+            raise ValueError("batch exceeds max_bytes")
+        return payload
+
+    @classmethod
+    def decode(
+        cls,
+        payload: bytes,
+        mode: DeliveryMode,
+        *,
+        subject: str | None = None,
+        max_samples: int = DEFAULT_MAX_SAMPLES_PER_BATCH,
+        max_bytes: int = DEFAULT_MAX_BATCH_BYTES,
+    ) -> SampleBatch:
+        """Reject oversized, malformed, mismatched or ambiguous payloads."""
+        if max_samples <= 0 or max_bytes <= 0 or len(payload) > max_bytes:
+            raise ValueError("batch bytes exceed limit")
+        try:
+            raw = json.loads(
+                payload.decode("utf-8"),
+                parse_constant=lambda value: (_ for _ in ()).throw(
+                    ValueError(f"invalid JSON constant: {value}")
+                ),
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid UTF-8 JSON batch") from exc
+        if not isinstance(raw, dict):
+            raise ValueError("batch envelope must be an object")
+        items = raw.get("samples")
+        if not isinstance(items, list) or not 0 < len(items) <= max_samples:
+            raise ValueError("invalid batch sample count")
+        if any(not isinstance(item, dict) or "value" not in item for item in items):
+            raise ValueError("every sample must explicitly contain value")
+        batch = cls.model_validate(raw)
+        if batch.mode != mode:
+            raise ValueError("batch mode differs from NATS channel")
+        if subject is not None and batch.subject() != subject:
+            raise ValueError("batch source differs from NATS subject")
+        return batch
