@@ -162,8 +162,15 @@ class SampleBatch(BaseModel):
             raise ValueError("batch limits must be positive")
         if len(self.samples) > max_samples:
             raise ValueError("batch exceeds max_samples")
+        document = self.model_dump(mode="json")
+        for item in document["samples"]:
+            if item["receive_time"] is None:
+                del item["receive_time"]
+            if item["max_staleness_ms"] is None:
+                del item["max_staleness_ms"]
+        # value=null means an explicitly absent reading, never omit it.
         payload = json.dumps(
-            self.model_dump(mode="json", exclude_none=True),
+            document,
             ensure_ascii=False,
             allow_nan=False,
             separators=(",", ":"),
