@@ -1401,13 +1401,13 @@ Transport 层 `INVALID_ARGUMENT`、`NOT_FOUND`、`PERMISSION_DENIED`、`FAILED_P
 | 信封 | `mode` | `realtime` / `reliable`；必须与实际 NATS 通道一致 |
 | 信封 | `wind_farm_id`、`collector_id`、`task_id`、`device_id` | 均非空；同批次同设备、同任务、同来源；标识必须符合 NATS 安全 Token 规则 |
 | 信封 | `publish_time` | 带时区的 UTC 时间；不得以发布时刻冒充采样时刻 |
-| 信封 | `samples` | 非空、有界的有序测点数组；不接受同批重复 `point_id` 或 `sample_id` |
+| 信封 | `samples` | 非空、有界的有序测点数组；同批重复 `point_id` 或 `sample_id` 均为非法输入，整条源批次按确定性错误处理，不得静默去重后错误 ACK |
 | 单点 | `point_id`、`sample_id` | 非空；`sample_id` 重发保持稳定，不允许以新 ID 冒充相同采样结果 |
 | 单点 | `value`、`quality`、`sample_time` | 值支持有限浮点、整数、布尔、字符串或显式 null；`quality` 为小写 `good/bad/uncertain`；采样时间带时区并规范至 UTC |
 | 单点 | `receive_time` | 可选，存在时须有效 UTC 时间；不得替代 `sample_time` |
 | 单点 | `max_staleness_ms` | 仅 Realtime 必填且为正整数；Reliable 禁止携带该字段 |
 
-信封与单点均使用严格 UTF-8 JSON，拒绝多余字段、非法 JSON、NaN/Infinity、非法或无时区时间、无效值类型及超限消息。JSON `null` 是合法的“无样本值”，不得转成数值 0。读取后的单点质量与有效期必须独立判断，不可用批次级时间/质量覆盖。
+信封与单点均使用严格 UTF-8 JSON，拒绝多余字段、非法 JSON、NaN/Infinity、非法或无时区时间、无效值类型及超限消息。`value` 字段必须显式出现；JSON `null` 是合法的“无样本值”，而缺失 `value` 是非法 Schema，不得转成数值 0。布尔值不能因 Python `bool` 是 `int` 子类而被当作整数；JSON 数字应区分整数和有限浮点，禁止解析后丢失整数精度。读取后的单点质量与有效期必须独立判断，不可用批次级时间/质量覆盖。
 
 ### 10.6.2 Subject、过滤与发布责任
 
@@ -1418,18 +1418,18 @@ Reliable: wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>
 
 上述为本次**待实现的目标 Subject**，不等于旧版 `wh.rt.<wind_farm>.<collector>.<device>.<point>` 与 `wh.hist.<wind_farm>.<collector>.<device>.<point>`。发布/消费两端必须同时按新 Subject、版本及 `mode` 校验，JetStream Stream/Consumer 的 Subject 过滤也必须同步修改。不得只改信封而继续依赖旧单点 Subject 的最后一级 `point_id` 路由。
 
-Collector 按设备、采样周期和通道形成批次，Realtime 使用 NATS Core，Reliable 使用 JetStream 的发布确认。任何发送失败、确认未知或队列背压，不得标记为已确认发布；重试相同批次保持 `batch_id` 及单点 `sample_id` 不变。Collector 不承担 Sink 下游交付 ACK。
+Collector 按设备、采样周期和通道形成批次，Realtime 使用 NATS Core，Reliable 使用 JetStream 的发布确认。任何发送失败、确认未知或队列背压，不得标记为已确认发布；**同一采样批次在首次进入有界待发队列时确立不可变身份**，重试使用相同 `batch_id`、样本集合及单点 `sample_id`，不能重建批次时调用新的随机 ID 或重新写入原始采样时间。Realtime 的本地 NATS `publish()` 返回只代表客户端接受请求，不等于 Broker 或 Sink 已确认；Reliable 必须依据 JetStream PubAck 单独记账。Collector 不承担 Sink 下游交付 ACK。
 
 ### 10.6.3 容量与版本迁移
 
-`max_samples_per_batch`、`max_batch_bytes`、生产/消费队列容量和超时应作为**开放可配置参数**，默认值、范围和生效时机在 Collector、Sink 的 Service 配置中统一规定，并受 NATS Server 的实际 `max_payload` 约束；禁止把性能实验示例写成不可调整的固定上限。首轮性能基准建议 Realtime 100 点/批、Reliable 500 点/批。每批字节数包括序列化后的完整信封；超限必须明确拒绝或按同设备、同来源、同通道安全拆批，拆批后每个子批具备独立稳定批次 ID。
+`max_samples_per_batch`、`max_batch_bytes`、生产/消费队列容量和超时应作为**开放可配置参数**，默认值、范围和生效时机由 Collector、Sink 的 Service 配置协调，并受 NATS Server 的实际 `max_payload` 约束；禁止把性能实验示例写成不可调整的固定上限。首轮性能基准建议 Realtime 100 点/批、Reliable 500 点/批。每批字节数包括序列化后的完整信封；超限必须明确拒绝或按同设备、同来源、同通道安全拆批。拆批规则必须确定性：在同一原始采样批次中按预先确定的测点顺序、编码后实际字节容量分组，创建稳定且彼此不同的子批 `batch_id`，且每个原始 `sample_id` 恰属于一个子批；对已经形成的子批重投不得重新分组、替换内容或产生新身份。
 
 本次迁移采用明确切换点：先部署支持版本 2 的消费者与 Stream/Consumer 配置，再启用 Collector 的版本 2 发布；验收后删除版本 1 的生产发布/消费代码和旧订阅规则，不保留无限期双写、模糊格式探测或无版本兼容回退。迁移期间不得将旧单测点 JSON 误当批量消息。
 
 ### 10.6.4 实时与可靠消费
 
 - **Realtime：**每个测点根据各自 `sample_time` 与 `max_staleness_ms` 判定时效；相同源身份与测点的乱序/重复按照稳定时间和样本 ID 处理；背压、过期、质量变化与目标输出按 Sink 设计执行，不伪称可靠消费。
-- **Reliable：**一条 JetStream 源批次消息是一份 ACK 责任；批内部分成功时保留可复核的逐点结果及剩余责任。只有全部条目已获得下游明确确认或持久 DLQ 确认，才可 ACK 原批次；未决条目按有界重投恢复，不能因单点失败提前 ACK。
+- **Reliable：**一条 JetStream 源批次消息是一份 ACK 责任；批内部分成功时保留可复核的逐点结果及剩余责任。只有全部条目已获得下游明确确认或持久 DLQ 确认，才可 ACK 原批次；未决条目按有界重投恢复，不能因单点失败提前 ACK。**无法解码、版本不兼容、身份/Subject 不一致等整批永久错误**无合法逐点结果，必须将原始源消息及错误证据持久写入 DLQ 并得到确认后方可 ACK；DLQ 故障时保留原消息未确认责任。
 - **交付语义：**使用稳定 `batch_id/sample_id` 与实际目标去重能力；若下游不支持去重，明确暴露 `at-least-once` 与可能重复，不宣称端到端 exactly-once。
 - **指标：**分别统计源消息数、源测点数、目标写批次数、逐点确认数及错误数，避免把“批次发送成功”误计为所有测点已成功持久交付。
 
@@ -1444,6 +1444,7 @@ Contracts 是 **wire schema 和 RPC 消息**的唯一权威，不导入 Core 或
 3. Sink：Realtime 逐点 TTL、Reliable 部分成功/失败、崩溃恢复、DLQ 持久确认及 ACK 边界通过独立测试。
 4. Core/configuration：静态依赖单向、标量转换仅一个权威实现；配置来源、版本、覆盖优先级和参数调整可追溯。
 5. 本轮只更新设计书，不执行生产代码修改；上述实测门禁均为后续待验收事项。
+6. 下游设计一致性门禁：CLI v1_4 中 `ReadPoints` 的“缓存读取”表述必须改为主动现场读；Sink v1_22 中仍称“上游 NATS 保持单点 `SampleMessage`”的章节必须与本节批量契约统一；其他模块不得绕过 Web Server 由 Web Admin 直接调用业务内部实现。上述修改由后续对应业务设计阶段完成，不得把本次文档通过静态检查视为跨模块逻辑已全部关闭。
 
 # 11. 开发组织与测试验收
 
