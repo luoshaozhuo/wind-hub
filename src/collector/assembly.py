@@ -216,6 +216,7 @@ async def assemble_collector(
             100 if messaging.get("delivery", "realtime") == "realtime" else 500,
         ),
         max_batch_bytes=messaging.get("max_batch_bytes", 1_048_576),
+        enqueue_timeout_s=messaging.get("enqueue_timeout_s", 2.0),
         capacity=messaging.get("queue_capacity", 2048),
         # The bounded sample queue is independent of metrics.pending_capacity,
         # which design §11.4 defines as the pending Metrics-message capacity.
