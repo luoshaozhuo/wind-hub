@@ -206,6 +206,8 @@ class SampleBatch(BaseModel):
             raise ValueError("invalid UTF-8 JSON batch") from exc
         if not isinstance(raw, dict):
             raise ValueError("batch envelope must be an object")
+        if raw.get("schema_version") != 2 or "schema_version" not in raw:
+            raise ValueError("explicit schema_version=2 required")
         items = raw.get("samples")
         if not isinstance(items, list) or not 0 < len(items) <= max_samples:
             raise ValueError("invalid batch sample count")
