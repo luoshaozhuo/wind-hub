@@ -18,7 +18,9 @@ from pathlib import Path
 import httpx
 import pytest
 
+from tests.commander.grpc_harness import build_pki
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.commander_mtls import commander_client_env, write_commander_service
 from tests.support.functional_config import write_functional_config
 from tests.support.process import (
     CollectorProcess,
@@ -135,15 +137,24 @@ async def full_stack(
 ) -> AsyncIterator[FullStack]:
     """REST → Server → Commander → Modbus 全链路真实进程现场。
 
-    Commander / Web Server 消费扁平 Core 站点；Collector v2 消费从同一
-    Modbus 端口派生的三路径配置树。Web Server 与 Collector 共享同一
+    Commander 消费正式三路径配置和 mTLS 服务 YAML；Web Server
+    保留测试用站点配置，Collector 使用同一 Modbus 端口的三路径配置树。Web Server 与 Collector 共享同一
     管理员令牌（设备级 START/STOP 的 fail-closed 元数据）。Server 以独立
     HTTP 端口启动，REST 客户端确认就绪；结束后先关客户端再优雅停机。
     """
     config_dir = write_functional_config(tmp_path / "cfg", modbus_server.port)
     v2_tree = write_v2_modbus_tree(tmp_path / "v2cfg", modbus_server.port)
     collector = await collector_factory(v2_tree, collector_id="collector")
-    commander = await commander_factory(config_dir)
+    pki_dir = tmp_path / "pki"
+    pki_dir.mkdir()
+    pki = build_pki(pki_dir)
+    commander_port = free_port()
+    service_file = write_commander_service(
+        tmp_path, v2_tree, pki, grpc_port=commander_port
+    )
+    commander = await commander_factory(
+        service_file, grpc_port=commander_port, pki=pki
+    )
 
     http_port = free_port()
     server = start_web_server(
@@ -152,7 +163,10 @@ async def full_stack(
         collectors=(f"collector={collector.grpc_target}",),
         commander=commander.grpc_target,
         log_dir=tmp_path,
-        env_extra={"WIND_HUB_COLLECTOR_ADMIN_TOKEN": SYSTEM_ADMIN_TOKEN},
+        env_extra={
+            "WIND_HUB_COLLECTOR_ADMIN_TOKEN": SYSTEM_ADMIN_TOKEN,
+            **commander_client_env(pki),
+        },
     )
     url = f"http://127.0.0.1:{http_port}"
 

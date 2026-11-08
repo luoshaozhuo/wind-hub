@@ -90,36 +90,36 @@ async def wait_grpc_ready(target: str, *, timeout: float = 30.0) -> str:
     )
 
 
-async def wait_commander_ready(target: str, *, timeout: float = 30.0) -> str:
-    """等待 Commander gRPC 控制面可连接（v1 ``CommonService.GetServiceStatus``）。
-
-    Commander v1 所有 RPC 强制 mTLS 身份（``_Authorized.require``），明文
-    探针必然收到 UNAUTHENTICATED/PERMISSION_DENIED——该响应证明 gRPC server
-    已在监听并完成分发，同样判定就绪；只有链路级失败（UNAVAILABLE /
-    连接拒绝）才继续等待。
-    """
+async def wait_commander_ready(
+    target: str,
+    *,
+    ca_cert: bytes,
+    client_cert: bytes,
+    client_key: bytes,
+    timeout: float = 30.0,
+) -> str:
+    """以真实双向 TLS 身份调用 GetServiceStatus，拒绝明文探针伪就绪。"""
 
     async def _probe() -> str | None:
         import grpc
 
         from contracts import common_pb2, common_pb2_grpc
 
-        channel = grpc.aio.insecure_channel(target)
+        credentials = grpc.ssl_channel_credentials(
+            root_certificates=ca_cert,
+            private_key=client_key,
+            certificate_chain=client_cert,
+        )
+        channel = grpc.aio.secure_channel(target, credentials)
         try:
-            stub = common_pb2_grpc.CommonServiceStub(channel)
-            try:
-                response = await stub.GetServiceStatus(common_pb2.Empty(), timeout=2.0)
-                return response.health
-            except grpc.aio.AioRpcError as exc:
-                if exc.code() in (
-                    grpc.StatusCode.UNAUTHENTICATED,
-                    grpc.StatusCode.PERMISSION_DENIED,
-                ):
-                    return exc.code().name
-                if exc.code() is grpc.StatusCode.UNAVAILABLE:
-                    return None
-                # 其余应用层状态码同样说明 server 已完成 RPC 分发。
-                return exc.code().name
+            status = await common_pb2_grpc.CommonServiceStub(channel).GetServiceStatus(
+                common_pb2.Empty(), timeout=2.0
+            )
+            return status.health or None
+        except grpc.aio.AioRpcError as exc:
+            if exc.code() is grpc.StatusCode.UNAVAILABLE:
+                return None
+            raise
         finally:
             await channel.close()
 
@@ -127,7 +127,7 @@ async def wait_commander_ready(target: str, *, timeout: float = 30.0) -> str:
         _probe,
         timeout=timeout,
         interval=0.2,
-        description=f"commander grpc ready at {target}",
+        description=f"authenticated commander grpc ready at {target}",
     )
 
 

@@ -1,9 +1,8 @@
-"""真实全链路：三协议各十台 → Collector(v2)/Commander → Web Server HTTP。
+"""真实全链路：三协议各十台 → Collector / mTLS Commander → Web Server HTTP。
 
-本套件不使用 MSW/fake gRPC，所有控制服务为独立进程。Collector 消费 v2
-三路径配置树（由扁平虚拟站点派生，见 tests.support.v2_config），
-Commander / 协议从站 / Web Server 仍消费扁平 Core 站点。离线执行即可；
-每个用例独立目录、监听端口和故障隔离，结束后优雅关闭全部进程与虚拟从站。
+全部应用均为独立子进程；Commander 使用正式 service.yaml、
+共享 instances/templates 与真实双向 TLS 身份，Web 使用正式证书客户端。
+虚拟协议从站与 Web 配置维持既有测试现场，严禁明文 Commander 探针。
 """
 
 from __future__ import annotations
@@ -21,6 +20,8 @@ import pytest_asyncio
 from contracts import collector_pb2_grpc, common_pb2
 from scripts.generate_virtual_site import generate_site
 from scripts.protocol_servers import run_fleet
+from tests.commander.grpc_harness import build_pki
+from tests.support.commander_mtls import commander_client_env, write_commander_service
 from tests.support.process import (
     CollectorProcess,
     free_port,
@@ -71,11 +72,26 @@ async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
         try:
             collector = start_collector(v2_tree, collector_id="collector", log_dir=tmp_path)
             processes.append(collector)
-            commander = start_commander(config, log_dir=tmp_path)
+            pki_dir = tmp_path / "pki"
+            pki_dir.mkdir()
+            pki = build_pki(pki_dir)
+            commander_port = free_port()
+            service_file = write_commander_service(
+                tmp_path, v2_tree, pki, grpc_port=commander_port
+            )
+            commander = start_commander(
+                service_file, grpc_port=commander_port, log_dir=tmp_path
+            )
             processes.append(commander)
             await asyncio.gather(
                 wait_grpc_ready(collector.grpc_target, timeout=40),
-                wait_commander_ready(commander.grpc_target, timeout=40),
+                wait_commander_ready(
+                    commander.grpc_target,
+                    ca_cert=pki.ca_cert,
+                    client_cert=pki.cert("ops"),
+                    client_key=pki.key("ops"),
+                    timeout=40,
+                ),
             )
             web_port = free_port()
             web = start_web_server(
@@ -84,7 +100,10 @@ async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
                 collectors=(f"collector={collector.grpc_target}",),
                 commander=commander.grpc_target,
                 log_dir=tmp_path,
-                env_extra={"WIND_HUB_COLLECTOR_ADMIN_TOKEN": SYSTEM_ADMIN_TOKEN},
+                env_extra={
+                    "WIND_HUB_COLLECTOR_ADMIN_TOKEN": SYSTEM_ADMIN_TOKEN,
+                    **commander_client_env(pki),
+                },
             )
             processes.append(web)
             url = f"http://127.0.0.1:{web_port}"

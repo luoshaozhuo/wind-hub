@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.commander.grpc_harness import Pki
 from tests.support.process import CollectorProcess, start_collector, start_commander
 from tests.support.wait import wait_commander_ready, wait_grpc_ready
 
@@ -57,11 +58,21 @@ def commander_factory(
 ) -> Iterator[WorkerFactory]:
     started: list[CollectorProcess] = []
 
-    async def _start(config_dir: Path, **kwargs: object) -> CollectorProcess:
-        proc = start_commander(config_dir, log_dir=tmp_path, **kwargs)  # type: ignore[arg-type]
+    async def _start(
+        service_config: Path,
+        *,
+        grpc_port: int,
+        pki: Pki,
+    ) -> CollectorProcess:
+        proc = start_commander(service_config, grpc_port=grpc_port, log_dir=tmp_path)
         started.append(proc)
         try:
-            await wait_commander_ready(proc.grpc_target)
+            await wait_commander_ready(
+                proc.grpc_target,
+                ca_cert=pki.ca_cert,
+                client_cert=pki.cert("ops"),
+                client_key=pki.key("ops"),
+            )
         except BaseException:
             proc.kill_tree()
             proc.close_log()

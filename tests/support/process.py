@@ -195,38 +195,24 @@ def start_collector(
 
 
 def start_commander(
-    config_dir: Path,
+    service_config: Path,
     *,
-    grpc_port: int | None = None,
+    grpc_port: int,
     log_dir: Path,
     env_extra: dict[str, str] | None = None,
 ) -> CollectorProcess:
-    """以 subprocess 启动真实 ``wind-hub-commander``。
+    """启动现行 Commander 子进程，仅传正式 --config 服务 YAML。
 
-    Args:
-        config_dir: 现场配置目录（Commander 只读取 system/device_models/
-            devices/points，忽略 tasks 与 sinks）。
-        grpc_port: gRPC 端口；None 时自动分配空闲端口。
-        log_dir: 进程日志目录（通常 ``tmp_path``）。
-        env_extra: 追加环境变量（叠加在当前进程环境上）。
-
-    Returns:
-        CollectorProcess（通用进程句柄；调用方负责 wait_grpc_ready 与
-        terminate）。
+    gRPC 监听、证书身份和共享配置来源全部由服务 YAML 显式规定；
+    grpc_port 与该文件配置必须一致，用于测试进程句柄的 endpoint。
     """
-    port = grpc_port if grpc_port is not None else free_port()
+    if not service_config.is_file():
+        raise FileNotFoundError(f"Commander service file missing: {service_config}")
     return _start_service(
         "wind-hub-commander",
-        [
-            "--config",
-            str(config_dir),
-            "--grpc-host",
-            "127.0.0.1",
-            "--grpc-port",
-            str(port),
-        ],
+        ["--config", str(service_config)],
         service="commander",
-        port=port,
+        port=grpc_port,
         log_dir=log_dir,
         env_extra=env_extra,
     )
