@@ -1,7 +1,9 @@
-"""Independent realtime and durable JetStream consumption."""
+"""Independent realtime and durable consumption of version-2 batches."""
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from uuid import uuid4
@@ -11,14 +13,19 @@ from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.aio.subscription import Subscription
 
-from contracts.sample_message import SampleMessage
+from contracts.sample_batch import (
+    DEFAULT_MAX_BATCH_BYTES,
+    DEFAULT_MAX_SAMPLES_PER_BATCH,
+    SampleBatch,
+    validate_subject_token,
+)
 
 logger = logging.getLogger(__name__)
-SampleHandler = Callable[[SampleMessage], Awaitable[None]]
+BatchHandler = Callable[[SampleBatch], Awaitable[None]]
 
 
 class NatsSinkConsumer:
-    """Consume a single Sink's own subscription, never a shared queue group."""
+    """Consume each source batch once per Sink without sharing a queue group."""
 
     def __init__(
         self,
@@ -26,16 +33,24 @@ class NatsSinkConsumer:
         subject: str,
         *,
         durable: str | None,
-        handler: SampleHandler,
+        handler: BatchHandler,
         ack_wait_seconds: float = 30.0,
         max_ack_pending: int = 128,
         stream: str = "WH_HISTORY",
+        max_samples_per_batch: int = DEFAULT_MAX_SAMPLES_PER_BATCH,
+        max_batch_bytes: int = DEFAULT_MAX_BATCH_BYTES,
         on_delivery_error: Callable[[str, int], None] | None = None,
     ) -> None:
         if not servers or not subject:
             raise ValueError("NATS servers and subject are required")
-        if durable is not None and not durable:
-            raise ValueError("durable must not be empty")
+        if not subject.startswith(("wh.rt.batch.", "wh.hist.batch.")):
+            raise ValueError("batch subscription subject required")
+        if durable is not None:
+            validate_subject_token(durable)
+        if ack_wait_seconds <= 0 or max_ack_pending <= 0:
+            raise ValueError("invalid consumer limits")
+        if max_samples_per_batch <= 0 or max_batch_bytes <= 0:
+            raise ValueError("invalid batch limits")
         self._servers = list(servers)
         self._subject = subject
         self._durable = durable
@@ -43,12 +58,14 @@ class NatsSinkConsumer:
         self._ack_wait_seconds = ack_wait_seconds
         self._max_ack_pending = max_ack_pending
         self._stream = stream
+        self._max_samples = max_samples_per_batch
+        self._max_bytes = max_batch_bytes
         self._on_delivery_error = on_delivery_error
         self._client: Client | None = None
         self._subscription: Subscription | None = None
 
     async def open(self) -> None:
-        """Create a subscription with independent delivery progress."""
+        """Create the dedicated realtime subscription or durable consumer."""
         if self._client is not None:
             return
         client = await nats.connect(
@@ -89,31 +106,68 @@ class NatsSinkConsumer:
         self._client = client
         self._subscription = subscription
 
+    def _decode(self, msg: Msg, mode: str) -> SampleBatch:
+        """Decode and check the actual source identity and channel."""
+        return SampleBatch.decode(
+            msg.data,
+            "realtime" if mode == "realtime" else "reliable",
+            subject=msg.subject,
+            max_samples=self._max_samples,
+            max_bytes=self._max_bytes,
+        )
+
     async def _on_realtime(self, msg: Msg) -> None:
         try:
-            sample = SampleMessage.decode(msg.data, "realtime")
-            await self._handler(sample)
+            batch = self._decode(msg, "realtime")
+            await self._handler(batch)
         except Exception as exc:
-            logger.exception("Realtime message rejected or write failed")
+            logger.exception("Realtime batch rejected or write failed")
             if self._on_delivery_error is not None:
                 self._on_delivery_error(str(exc), 1)
 
+    async def _to_dlq(self, msg: Msg, error: Exception) -> None:
+        """Persist the entire undecodable source before acknowledging it."""
+        if self._client is None or self._durable is None:
+            raise RuntimeError("DLQ requires an active durable consumer")
+        metadata = msg.metadata
+        envelope = {
+            "source_subject": msg.subject,
+            "source_stream": self._stream,
+            "source_consumer": self._durable,
+            "source_sequence": metadata.sequence.stream if metadata is not None else None,
+            "reason": str(error),
+            "payload_base64": base64.b64encode(msg.data).decode("ascii"),
+        }
+        await self._client.jetstream().publish(
+            f"wh.dlq.batch.{self._durable}",
+            json.dumps(envelope, ensure_ascii=False).encode("utf-8"),
+            timeout=2,
+        )
+
     async def _on_reliable(self, msg: Msg) -> None:
+        attempts = msg.metadata.num_delivered if msg.metadata is not None else 1
         try:
-            sample = SampleMessage.decode(msg.data, "reliable")
-            await self._handler(sample)
+            batch = self._decode(msg, "reliable")
+        except Exception as exc:
+            # Permanently malformed or incompatible messages have no safe
+            # per-point interpretation; the raw payload must survive.
+            try:
+                await self._to_dlq(msg, exc)
+                await msg.ack()
+            except Exception as dlq_error:
+                logger.exception("DLQ unavailable; preserving source ACK responsibility")
+                if self._on_delivery_error is not None:
+                    self._on_delivery_error(str(dlq_error), attempts)
+                await msg.nak(delay=30)
+            return
+        try:
+            await self._handler(batch)
             await msg.ack()
         except Exception as exc:
-            attempts = msg.metadata.num_delivered if msg.metadata is not None else 1
             delay = min(60.0, float(2 ** min(max(attempts - 1, 0), 6)))
             if self._on_delivery_error is not None:
                 self._on_delivery_error(str(exc), attempts)
-            if attempts >= 10:
-                logger.error(
-                    "JetStream poison message requires operator attention: attempt=%s",
-                    attempts,
-                )
-            logger.exception("Reliable target write failed; requesting redelivery in %ss", delay)
+            logger.exception("Reliable batch not confirmed; retry in %ss", delay)
             await msg.nak(delay=delay)
 
     async def clear(self) -> int:
