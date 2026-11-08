@@ -153,15 +153,17 @@ class ADSSubscription:
             received_at = datetime.now(UTC)
             # A timezone-naive PLC timestamp has no reliable UTC meaning.
             # Do not silently label it as an authoritative device clock.
-            valid_device_time = (
-                isinstance(timestamp, datetime)
-                and timestamp.tzinfo is not None
-                and timestamp.utcoffset() is not None
-            )
-            source: Literal["device", "local"] = (
-                "device" if valid_device_time else "local"
-            )
-            stamp = timestamp.astimezone(UTC) if valid_device_time else received_at
+            source: Literal["device", "local"] = "local"
+            stamp = received_at
+            if isinstance(timestamp, datetime) and timestamp.tzinfo is not None:
+                try:
+                    if timestamp.utcoffset() is not None:
+                        stamp = timestamp.astimezone(UTC)
+                        source = "device"
+                except (OverflowError, ValueError):
+                    # Invalid device clock values must not terminate a native
+                    # callback or turn into fabricated UTC device timestamps.
+                    pass
             try:
                 raw = bytes(value)
                 valid = len(raw) == block.size
