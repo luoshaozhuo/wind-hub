@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Protocol
 
-from contracts.sample_message import SampleMessage
+from contracts.sample_batch import SampleBatch, SampleItem
 from core.domain.sample_value import Quality
 from sink_service.application.point_value import SinkPointValue
 from sink_service.application.port import SinkPort
@@ -68,7 +68,7 @@ class SinkRuntime:
         self._desired_running = False
         self._lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
-        self._latest: dict[PointKey, SampleMessage] = {}
+        self._latest: dict[PointKey, SampleItem] = {}
         self._authorities: dict[PointKey, tuple[str, str]] = {}
         self._last_written: datetime | None = None
         self._failure: str | None = None
@@ -167,60 +167,71 @@ class SinkRuntime:
         await self.stop(explicit=False)
         await self.start(explicit=True)
 
-    async def write(self, sample: SampleMessage) -> None:
-        """Validate realtime order and expiry before confirmed target write."""
+    async def write_batch(self, batch: SampleBatch) -> None:
+        """Validate and deliver a source batch with one target write call."""
         async with self._write_lock:
-            if self._state != SinkState.RUNNING:
+            if self._state is not SinkState.RUNNING:
                 raise RuntimeError("Sink is not running")
-            if self._realtime:
-                if sample.max_staleness_ms is None:
-                    raise ValueError("realtime expiry missing")
-                if not self._is_fresh(sample):
-                    return
-                key = self._key(sample)
-                authority = self._authorities.get(key)
-                if authority is not None and authority != (sample.collector_id, sample.task_id):
-                    raise ValueError("multiple realtime publishers for one point")
-                previous = self._latest.get(key)
-                if previous is not None:
-                    if sample.sample_time < previous.sample_time:
-                        return
-                    if sample.sample_time == previous.sample_time:
-                        if sample.sample_id == previous.sample_id:
-                            return
-                        raise ValueError("ambiguous equal-time realtime samples")
-            try:
-                await self._sink.write(
-                    [
-                        SinkPointValue(
-                            device_id=sample.device_id,
-                            point_id=sample.point_id,
-                            value=sample.value,
-                            quality=Quality(sample.quality),
-                            timestamp=sample.sample_time,
-                            receive_time=sample.receive_time,
-                            source=sample.collector_id,
-                            sample_id=sample.sample_id,
-                            task_id=sample.task_id,
-                            max_staleness_ms=sample.max_staleness_ms,
-                        )
-                    ]
+            selected: list[SampleItem] = []
+            for item in batch.samples:
+                if self._realtime:
+                    if not self._is_fresh(item):
+                        continue
+                    key = self._key(batch, item)
+                    authority = self._authorities.get(key)
+                    if authority is not None and authority != (
+                        batch.collector_id,
+                        batch.task_id,
+                    ):
+                        raise ValueError("multiple realtime publishers for one point")
+                    previous = self._latest.get(key)
+                    if previous is not None:
+                        if item.sample_time < previous.sample_time:
+                            continue
+                        if item.sample_time == previous.sample_time:
+                            if item.sample_id == previous.sample_id:
+                                continue
+                            raise ValueError("ambiguous equal-time realtime samples")
+                selected.append(item)
+            if not selected:
+                return
+            values = [
+                SinkPointValue(
+                    device_id=batch.device_id,
+                    point_id=item.point_id,
+                    value=item.value,
+                    quality=Quality(item.quality),
+                    timestamp=item.sample_time,
+                    receive_time=item.receive_time,
+                    source=batch.collector_id,
+                    sample_id=item.sample_id,
+                    task_id=batch.task_id,
+                    max_staleness_ms=item.max_staleness_ms,
                 )
+                for item in selected
+            ]
+            try:
+                await self._sink.write(values)
             except Exception as exc:
+                # Preserve the consumer and original JetStream ACK obligation.
+                # A later source redelivery will retry the same sample IDs.
                 self._failure = str(exc)
-                self._state = SinkState.FAILED
                 raise
             if self._realtime:
-                self._latest[self._key(sample)] = sample
-                self._authorities[self._key(sample)] = (sample.collector_id, sample.task_id)
+                for item in selected:
+                    key = self._key(batch, item)
+                    self._latest[key] = item
+                    self._authorities[key] = (batch.collector_id, batch.task_id)
             self._last_written = datetime.now(UTC)
             self._failure = None
 
-    def latest(self, key: PointKey) -> tuple[SampleMessage | None, bool]:
-        """Return cached value and current validity, even without new messages."""
+    def latest(self, key: PointKey) -> tuple[SampleItem | None, bool]:
+        """Return the cached point and its independent expiry state."""
         sample = self._latest.get(key)
         return sample, (
-            self._state is SinkState.RUNNING and sample is not None and self._is_fresh(sample)
+            self._state is SinkState.RUNNING
+            and sample is not None
+            and self._is_fresh(sample)
         )
 
     async def clear(self) -> int:
@@ -250,11 +261,11 @@ class SinkRuntime:
         self._authorities.clear()
 
     @staticmethod
-    def _key(sample: SampleMessage) -> PointKey:
-        return sample.wind_farm_id, sample.device_id, sample.point_id
+    def _key(batch: SampleBatch, sample: SampleItem) -> PointKey:
+        return batch.wind_farm_id, batch.device_id, sample.point_id
 
     @staticmethod
-    def _is_fresh(sample: SampleMessage) -> bool:
+    def _is_fresh(sample: SampleItem) -> bool:
         if sample.max_staleness_ms is None:
             return False
         now = datetime.now(UTC)
