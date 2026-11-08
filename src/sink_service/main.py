@@ -31,6 +31,8 @@ async def run_sink_service(
     wind_farm_id: str,
     deployment_id: str,
     shutdown_timeout: float = 30.0,
+    max_samples_per_batch: int = 500,
+    max_batch_bytes: int = 1_048_576,
     grpc_listen: str = "127.0.0.1:50074",
     state_dir: Path = Path("/var/tmp/wind-hub/sink-state"),
 ) -> None:
@@ -51,6 +53,8 @@ async def run_sink_service(
                 wind_farm_id=wind_farm_id,
                 deployment_id=deployment_id,
                 intent_store=store,
+                max_samples_per_batch=max_samples_per_batch,
+                max_batch_bytes=max_batch_bytes,
                 sink_ids=realtime_sinks,
             ),
             **assemble_sinks(
@@ -60,6 +64,8 @@ async def run_sink_service(
                 wind_farm_id=wind_farm_id,
                 deployment_id=deployment_id,
                 intent_store=store,
+                max_samples_per_batch=max_samples_per_batch,
+                max_batch_bytes=max_batch_bytes,
                 sink_ids=reliable_sinks,
             ),
         }
@@ -71,6 +77,8 @@ async def run_sink_service(
             wind_farm_id=wind_farm_id,
             deployment_id=deployment_id,
             intent_store=store,
+            max_samples_per_batch=max_samples_per_batch,
+            max_batch_bytes=max_batch_bytes,
             sink_ids=realtime_sinks or reliable_sinks or None,
         )
     if applied_digest != config_dir_digest(config_dir):
@@ -142,6 +150,8 @@ def main() -> None:
     parser.add_argument("--wind-farm-id", required=True)
     parser.add_argument("--deployment-id", required=True)
     parser.add_argument("--grpc-listen", default="127.0.0.1:50074")
+    parser.add_argument("--max-samples-per-batch", type=int, default=500)
+    parser.add_argument("--max-batch-bytes", type=int, default=1_048_576)
     parser.add_argument("--state-dir", type=Path, default=Path("/var/tmp/wind-hub/sink-state"))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
