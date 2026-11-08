@@ -20,6 +20,9 @@ messaging:
     - nats://127.0.0.1:4222
   delivery: realtime
   max_staleness_ms: 500
+  max_samples_per_batch: 100
+  max_batch_bytes: 1048576
+  queue_capacity: 2048
 metrics:
   enabled: true
   windows: [60, 300, 3600]
