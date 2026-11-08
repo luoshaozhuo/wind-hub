@@ -70,7 +70,7 @@ class SampleItem(BaseModel):
     quality: Literal["good", "bad", "uncertain"]
     sample_time: datetime
     receive_time: datetime | None = None
-    max_staleness_ms: int | None = Field(default=None, gt=0, le=86_400_000)
+    max_staleness_ms: int | None = Field(default=None, gt=0, le=2**63 - 1)
 
     @field_validator("point_id")
     @classmethod
