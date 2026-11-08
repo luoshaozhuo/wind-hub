@@ -191,7 +191,7 @@ class SampleBatch(BaseModel):
             raise ValueError("invalid batch sample count")
         if any(not isinstance(item, dict) or "value" not in item for item in items):
             raise ValueError("every sample must explicitly contain value")
-        batch = cls.model_validate(raw)
+        batch = cls.model_validate_json(payload)
         if batch.mode != mode:
             raise ValueError("batch mode differs from NATS channel")
         if subject is not None and batch.subject() != subject:
