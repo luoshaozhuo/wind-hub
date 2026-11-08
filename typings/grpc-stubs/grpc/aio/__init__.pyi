@@ -125,7 +125,22 @@ class Server:
     def add_secure_port(self, address: str, server_credentials: Any) -> int: ...
 
 
-def server(*, maximum_concurrent_rpcs: int | None = ..., options: Any = ..., interceptors: Any = ..., migration_thread_pool: Any = ..., compression: Any = ...) -> Server: ...
+def server(*, handlers: Any = ..., maximum_concurrent_rpcs: int | None = ..., options: Any = ..., interceptors: Any = ..., migration_thread_pool: Any = ..., compression: Any = ...) -> Server: ...
+
+
+def secure_channel(
+    target: str,
+    credentials: Any,
+    *,
+    options: Any = ...,
+    compression: Any = ...,
+    interceptors: Sequence[
+        UnaryUnaryClientInterceptor
+        | UnaryStreamClientInterceptor
+        | StreamUnaryClientInterceptor
+        | StreamStreamClientInterceptor
+    ] | None = ...,
+) -> Channel: ...
 
 
 def insecure_channel(
