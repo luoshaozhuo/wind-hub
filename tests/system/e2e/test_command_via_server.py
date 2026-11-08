@@ -5,8 +5,9 @@
     API/CLI → Server → Commander → Protocol → Device → Result
 
 HTTP 客户端经 wind-hub-server 的 ``POST /api/v1/devices/{id}/commands``
-发起写命令；Server 内部经 CommanderGrpcClient 调用 wind-hub-commander
-subprocess 的 ``WritePoint``；Commander 经真实 Modbus TCP 写入从站。
+发起写命令；Server 内部经 CommanderGrpcClient（强制 mTLS）调用
+wind-hub-commander 的正式 SubmitCommand/GetCommandResult RPC；
+Commander 经真实 Modbus TCP 写入从站。
 全部断言落在系统边界：REST 响应 + **独立** Modbus 回读（从站寄存器值、
 写请求计数），不读取任何进程内部状态。
 

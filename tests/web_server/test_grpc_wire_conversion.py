@@ -1,10 +1,11 @@
-"""Web Server 到当前 Collector v1（CollectorService/CommonService）的 protobuf 契约测试。
+"""Web Server 出站 gRPC 适配器的 protobuf 契约测试（Collector v1 + Commander v1）。
 
-Commander 出站适配器（``commander.py`` 的 ``_command_result``/``_point_value``）
-仍引用已退役的 ``PointValueMessage``/``CommandResultMessage`` 与 OUTCOME 枚举，
-现行 commander.proto 已改为 SubmitCommand/GetCommandResult 合同；该生产适配器
-尚未迁移（见验收报告 N-03 commander 半侧），对应旧测试无法在不复活废弃 Proto
-的前提下重写，已随退役合同移除，待生产迁移后按新合同补测。
+Commander 侧旧 ``PointValueMessage``/``CommandResultMessage`` 与 OUTCOME 枚举已
+随 N-03 迁移退役：实时读点改走 CollectorService.ReadPoints（Sample 合同），
+写控制改走 SubmitCommand/GetCommandResult。本文件只保留仍存在的生产边界：
+Collector 任务/监控 DTO 转换，以及 Commander 写入标量编码 ``_encode_scalar``。
+标量解码与 bytes 拒绝语义现属 Commander 服务端，由
+tests/commander/integration/test_grpc.py 的标量类型用例覆盖。
 """
 
 from datetime import UTC, datetime
@@ -21,7 +22,7 @@ from web_server.adapter.outbound.grpc.collector import (
     _task_instance,
     _task_summary,
 )
-from web_server.adapter.outbound.grpc.commander import _decode_scalar, _encode_scalar
+from web_server.adapter.outbound.grpc.commander import _encode_scalar
 from web_server.application.port.worker import CollectorTaskConflictError
 
 pytestmark = pytest.mark.unit
@@ -31,17 +32,18 @@ pytestmark = pytest.mark.unit
     ("value", "field"),
     [
         (True, "bool_value"),
-        (0, "sint64_value"),
+        (0, "uint64_value"),
         (-1, "sint64_value"),
         (2**63, "uint64_value"),
         (3.25, "double_value"),
         ("abc", "string_value"),
     ],
 )
-def test_scalar_wire_round_trip(value: object, field: str) -> None:
+def test_scalar_encode_selects_correct_oneof_field(value: object, field: str) -> None:
+    # 现行 _encode_scalar 以 0 为界：负数 sint64、非负数 uint64；
+    # 0 的两种 varint 编码在线上等价，服务端 _scalar 对两字段均可解码。
     encoded = _encode_scalar(value)
     assert encoded.WhichOneof("kind") == field
-    assert _decode_scalar(encoded) == value
 
 
 def test_collector_task_wrapper_fields() -> None:
@@ -256,14 +258,3 @@ async def test_rejected_operation_result_maps_to_conflict(monkeypatch) -> None:
 def test_scalar_out_of_wire_range_is_rejected(value: int) -> None:
     with pytest.raises(ValueError, match="64-bit"):
         _encode_scalar(value)
-
-
-def test_bytes_scalar_is_not_misrepresented_as_business_value() -> None:
-    scalar = common_pb2.ScalarValue(bytes_value=b"abc")
-    with pytest.raises(ValueError, match="byte-valued"):
-        _decode_scalar(scalar)
-
-
-def test_empty_commander_scalar_rejected() -> None:
-    with pytest.raises(ValueError, match="no active value"):
-        _decode_scalar(common_pb2.ScalarValue())
