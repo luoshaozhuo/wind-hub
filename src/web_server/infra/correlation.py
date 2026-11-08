@@ -72,8 +72,7 @@ def _request_id_send(send: Send, request_id: str) -> Send:
     return wrapper
 
 
-# grpc.aio 的客户端拦截器基类在类型存根中为 Any。
-class RequestIdInterceptor(grpc.aio.UnaryUnaryClientInterceptor):  # type: ignore[misc]
+class RequestIdInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
     """把当前 Request-ID 作为 metadata 附加到所有 unary 出站 RPC。"""
 
     async def intercept_unary_unary(

@@ -64,7 +64,7 @@ def build_management_server(manager: SinkManager, address: str) -> grpc.aio.Serv
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
             raise AssertionError("abort did not terminate") from exc
 
-    handlers: dict[str, grpc.RpcMethodHandler] = {}
+    handlers: dict[str, grpc.RpcMethodHandler[Any, Any]] = {}
     methods = {
         "GetServiceStatus": (None, True, False),
         "ListSinks": (None, False, True),

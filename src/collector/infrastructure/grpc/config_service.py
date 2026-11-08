@@ -10,6 +10,7 @@ import os
 import time
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import grpc
 import yaml
@@ -18,8 +19,8 @@ from collector.application.acquisition import CollectorAcquisition
 from collector.application.configuration import CollectorConfigurationManager
 from collector.application.lifecycle import CollectorLifecycle, Lifecycle
 from collector.application.telemetry import CollectorTelemetry, RuntimeEvent
-from collector.infrastructure.publisher import CollectorPublisher
 from collector.infrastructure.config.snapshot_repository import SnapshotConflictError, SnapshotError
+from collector.infrastructure.publisher import CollectorPublisher
 from contracts import common_pb2 as pb
 from contracts import common_pb2_grpc as rpc
 from core.application.errors import ConfigError
@@ -98,7 +99,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         ] = {}
 
     async def GetServiceInfo(  # noqa: N802 — method name is required by common.proto
-        self, request: pb.Empty, context: grpc.aio.ServicerContext
+        self, request: pb.Empty, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.GetServiceInfoResponse:
         del request, context
         response = pb.GetServiceInfoResponse(
@@ -111,7 +112,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         return response
 
     async def GetServiceStatus(  # noqa: N802 — method name is required by common.proto
-        self, request: pb.Empty, context: grpc.aio.ServicerContext
+        self, request: pb.Empty, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.GetServiceStatusResponse:
         del request, context
         state = self._lifecycle.state
@@ -145,7 +146,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         return response
 
     async def GetCapabilities(  # noqa: N802 — method name is required by common.proto
-        self, request: pb.Empty, context: grpc.aio.ServicerContext
+        self, request: pb.Empty, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.GetCapabilitiesResponse:
         del request, context
         return pb.GetCapabilitiesResponse(
@@ -176,12 +177,14 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         )
 
     @staticmethod
-    async def _authorize(context: grpc.aio.ServicerContext) -> None:
+    async def _authorize(context: grpc.aio.ServicerContext[Any, Any]) -> None:
         expected = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
         if not expected:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "configuration access disabled")
         supplied = dict(context.invocation_metadata()).get("x-windhub-admin-token", "")
-        if not hmac.compare_digest(expected or "", supplied):
+        # metadata 值类型为 str | bytes；二进制令牌不可能匹配 str 配置，
+        # 显式归入拒绝路径，保证 compare_digest 两侧恒为 str（恒定时间比较）。
+        if not isinstance(supplied, str) or not hmac.compare_digest(expected or "", supplied):
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "configuration access denied")
 
     def _read_candidate(self, candidate_id: str) -> tuple[str, dict[str, bytes]]:
@@ -191,7 +194,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         )
 
     async def GetConfigSnapshot(  # noqa: N802 — method name is required by common.proto
-        self, request: pb.GetConfigSnapshotRequest, context: grpc.aio.ServicerContext
+        self, request: pb.GetConfigSnapshotRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.GetConfigSnapshotResponse:
         await self._authorize(context)
         try:
@@ -268,7 +271,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
             raise AssertionError("aborted") from exc
 
     async def PushConfigSnapshot(  # noqa: N802 — method name is required by common.proto
-        self, request: pb.PushConfigSnapshotRequest, context: grpc.aio.ServicerContext
+        self, request: pb.PushConfigSnapshotRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.PushConfigSnapshotResponse:
         await self._authorize(context)
         try:
@@ -301,7 +304,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         raise AssertionError("aborted")
 
     async def ApplyConfigSnapshot(  # noqa: N802 — method name is required by common.proto
-        self, request: pb.ApplyConfigSnapshotRequest, context: grpc.aio.ServicerContext
+        self, request: pb.ApplyConfigSnapshotRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.ApplyConfigSnapshotResponse:
         await self._authorize(context)
         try:
@@ -349,7 +352,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         raise AssertionError("aborted")
 
     async def GetMetrics(  # noqa: N802
-        self, request: pb.GetMetricsRequest, context: grpc.aio.ServicerContext
+        self, request: pb.GetMetricsRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.GetMetricsResponse:
         scope = request.scope
         device_scope = ""
@@ -431,7 +434,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         return response
 
     async def GetEvents(  # noqa: N802
-        self, request: pb.GetEventsRequest, context: grpc.aio.ServicerContext
+        self, request: pb.GetEventsRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.GetEventsResponse:
         await self._authorize(context)
         since = request.from_time.ToDatetime(tzinfo=UTC) if request.HasField("from_time") else None
@@ -490,7 +493,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         return response
 
     async def Diagnose(  # noqa: N802
-        self, request: pb.DiagnoseRequest, context: grpc.aio.ServicerContext
+        self, request: pb.DiagnoseRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.DiagnoseResponse:
         await self._authorize(context)
         workers = self._acquisition.workers

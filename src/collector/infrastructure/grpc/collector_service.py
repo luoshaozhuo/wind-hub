@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import grpc
 
@@ -85,7 +85,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
         return worker
 
     @staticmethod
-    async def _error(context: grpc.aio.ServicerContext, exc: Exception) -> None:
+    async def _error(context: grpc.aio.ServicerContext[Any, Any], exc: Exception) -> None:
         if isinstance(exc, LookupError):
             code = grpc.StatusCode.NOT_FOUND
         elif isinstance(exc, SnapshotConflictError):
@@ -146,7 +146,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
         return result
 
     async def ListDevices(  # noqa: N802
-        self, request: pb.ListDevicesRequest, context: grpc.aio.ServicerContext
+        self, request: pb.ListDevicesRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.ListDevicesResponse:
         try:
             revision = self._configuration.status().runtime_revision
@@ -162,7 +162,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             raise AssertionError("aborted") from exc
 
     async def GetDevice(  # noqa: N802
-        self, request: pb.DeviceQuery, context: grpc.aio.ServicerContext
+        self, request: pb.DeviceQuery, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.GetDeviceResponse:
         try:
             return pb.GetDeviceResponse(
@@ -176,7 +176,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             raise AssertionError("aborted") from exc
 
     async def ListPoints(  # noqa: N802
-        self, request: pb.ListPointsRequest, context: grpc.aio.ServicerContext
+        self, request: pb.ListPointsRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.ListPointsResponse:
         try:
             worker = self._worker(request.device_id)
@@ -193,7 +193,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             raise AssertionError("aborted") from exc
 
     async def GetPoint(  # noqa: N802
-        self, request: pb.PointQuery, context: grpc.aio.ServicerContext
+        self, request: pb.PointQuery, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.GetPointResponse:
         try:
             worker = self._worker(request.device_id)
@@ -211,7 +211,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             raise AssertionError("aborted") from exc
 
     async def ReadPoints(  # noqa: N802
-        self, request: pb.ReadPointsRequest, context: grpc.aio.ServicerContext
+        self, request: pb.ReadPointsRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.ReadPointsResponse:
         await CollectorConfigRpc._authorize(context)
         try:
@@ -264,7 +264,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             raise AssertionError("aborted") from exc
 
     async def ListTasks(  # noqa: N802
-        self, request: pb.ListTasksRequest, context: grpc.aio.ServicerContext
+        self, request: pb.ListTasksRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.ListTasksResponse:
         try:
             revision = self._configuration.status().disk_revision
@@ -280,7 +280,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             raise AssertionError("aborted") from exc
 
     async def GetTask(  # noqa: N802
-        self, request: common.ObjectId, context: grpc.aio.ServicerContext
+        self, request: common.ObjectId, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.GetTaskResponse:
         try:
             # Task.revision is the writable (DISK) revision clients must echo in
@@ -295,7 +295,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
     async def _control_task(
         self,
         request: common.OperationRequest,
-        context: grpc.aio.ServicerContext,
+        context: grpc.aio.ServicerContext[Any, Any],
         state: str,
     ) -> common.OperationResult:
         await CollectorConfigRpc._authorize(context)
@@ -318,17 +318,17 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             raise AssertionError("aborted") from exc
 
     async def StartTask(  # noqa: N802
-        self, request: common.OperationRequest, context: grpc.aio.ServicerContext
+        self, request: common.OperationRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> common.OperationResult:
         return await self._control_task(request, context, "START")
 
     async def StopTask(  # noqa: N802
-        self, request: common.OperationRequest, context: grpc.aio.ServicerContext
+        self, request: common.OperationRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> common.OperationResult:
         return await self._control_task(request, context, "STOP")
 
     async def GetPublishingStatus(  # noqa: N802
-        self, request: pb.GetPublishingStatusRequest, context: grpc.aio.ServicerContext
+        self, request: pb.GetPublishingStatusRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.GetPublishingStatusResponse:
         del context
         mode = getattr(self._publisher, "_delivery", "realtime")
@@ -349,7 +349,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
         )
 
     async def InterrogateDevice(  # noqa: N802
-        self, request: pb.InterrogateDeviceRequest, context: grpc.aio.ServicerContext
+        self, request: pb.InterrogateDeviceRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.InterrogateDeviceResponse:
         await CollectorConfigRpc._authorize(context)
         try:

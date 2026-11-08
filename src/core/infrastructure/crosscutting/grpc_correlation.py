@@ -43,7 +43,9 @@ def _wrap_unary_unary(behavior: Callable[..., Any], request_id: str) -> Callable
 
 
 def _wrap_unary_stream(behavior: Callable[..., Any], request_id: str) -> Callable[..., Any]:
-    async def wrapper(request: Any, context: grpc.aio.ServicerContext[Any, Any]) -> AsyncIterator[Any]:
+    async def wrapper(
+        request: Any, context: grpc.aio.ServicerContext[Any, Any]
+    ) -> AsyncIterator[Any]:
         with bind_request_id(request_id):
             async for response in behavior(request, context):
                 yield response
