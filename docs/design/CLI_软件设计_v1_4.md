@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_0 · 20261101</p>
+<p class="subtitle">v1_4 · 20261105</p>
 
 <style>
 body {
@@ -160,7 +160,7 @@ pre code {
 6. [进程视图](#6-进程视图)  
 7. [开发视图](#7-开发视图)  
 8. [物理视图（部署视图）](#8-物理视图部署视图)  
-9. [接口与通信契约](#9-接口与通信契约)  
+9. [CLI 客户端接口适配设计](#9-cli-客户端接口适配设计)  
 10. [交互式命令与终端呈现设计](#10-交互式命令与终端呈现设计)  
 11. [CLI 自身配置与运行参数](#11-cli-自身配置与运行参数)  
 12. [关键技术契约](#12-关键技术契约)  
@@ -635,6 +635,8 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
+**设计基线**：`main@0ac0228afc202ea69f75ab1b0046c2ab24bfd369`。外部 RPC/消息以 `src/contracts/*.proto` 和《Contracts 软件设计 v0_2》为准。本次以 CLI v1_1 为编辑基线。
+
 CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务输出为发往 Service 的 gRPC 请求、发往进程管理器的操作请求以及 CLI 本地网络探测；现场操作和权威业务状态归对应 Service 所有。第 3.1 节是已确认的需求范围，第 3.2 节将其分解为可核验要求。
 
 ## 3.1 原始需求
@@ -651,9 +653,9 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | UR-04 | 配置管理 | 配置快照管理 | 获取、推送和应用 Service 完整配置 | 各 Service gRPC |
 | UR-05 | 配置管理 | 配置比较 | 比较两个完整 `configs/` 目录快照的文件差异 | CLI 本地文件系统 |
 | UR-06 | 业务管理 | 业务对象查询与管理 | 查询设备、测点、任务等对象，并执行相应管理操作 | 各 Service gRPC |
-| UR-07 | 实时监视 | 机组实时数据监视 | 指定机组及测点，单次或持续获取 Collector 已采集的实时数据并打印到终端 | Collector gRPC |
+| UR-07 | 监视与读取 | 跨模块数据与运行状态监视 | 读取 Collector 缓存测点、Gateway 当前变量，以及各模块提供的设备/任务/交付/生成状态；支持允许的周期刷新 | Collector、Gateway 及各 Service gRPC |
 | UR-08 | 远程诊断 | 调用远程 Service 诊断能力 | 执行单服务或跨服务诊断，终端显示诊断结果并支持导出报告 | 各 Service gRPC |
-| UR-09 | 现场控制 | 经 Commander 执行现场控制 | 下发现场控制命令并查询执行结果 | Commander gRPC |
+| UR-09 | 控制与写入 | 跨模块业务控制及授权写入 | 经 Commander 执行真实设备控制；经 Gateway 更新内部变量；控制 Collector 采集任务、Sink Delivery、Gateway 实例与 Data Generator 生成任务 | Commander、Gateway、Collector、Sink、Data Generator gRPC |
 | UR-10 | 本地诊断 | CLI 本地网络探测 | 扫描网段可达 IP、指定 IP 常用工业 TCP 端口、指定 IP/Port | CLI 本地网络工具 |
 | UR-11 | 运行监控 | 运行指标与事件查询 | 查询各 Service 的运行指标、故障事件和发布状态 | 各 Service gRPC |
 
@@ -664,6 +666,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 操作人员、自动化脚本 |
+| 触发方式（Trigger） | 终端：启动 Shell 后输入命令，或命令行单次调用 |
 | 输入（Input） | 命令、参数、交互式 Shell 或非交互命令、输出格式、目标 Service |
 | 反馈（Response） | 格式化结果、错误信息及单次命令退出码 |
 | 目标方（Destination） | 按命令选择 Service、进程管理器或 CLI 本地环境；纯帮助命令不适用 |
@@ -678,6 +681,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 授权操作人员、自动化脚本 |
+| 触发方式（Trigger） | 终端/API：操作人员发起进程 start/stop/restart/status |
 | 输入（Input） | Service 名称、部署目标、start/stop/restart 指令 |
 | 反馈（Response） | 管理器受理结果、进程状态、就绪核验结果及错误 |
 | 目标方（Destination） | 进程或容器管理器 |
@@ -692,6 +696,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 操作人员、自动化脚本 |
+| 触发方式（Trigger） | 终端/API：查询服务信息、健康或能力 |
 | 输入（Input） | Service 名称、查询项 |
 | 反馈（Response） | 身份、版本、进程/业务状态、健康和能力清单 |
 | 目标方（Destination） | 对应 Service gRPC Server |
@@ -706,6 +711,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 授权操作人员、自动化脚本 |
+| 触发方式（Trigger） | 终端/API：执行配置 Get/Push/Apply |
 | 输入（Input） | Service、Get/Push/Apply 操作、完整候选快照、候选标识及预期版本 |
 | 反馈（Response） | 磁盘/运行/候选快照、Push 校验结果、Apply 文件提交与运行生效结果、重启要求 |
 | 目标方（Destination） | 对应 Service gRPC Server |
@@ -720,6 +726,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 操作人员、自动化脚本 |
+| 触发方式（Trigger） | 终端：显式指定两个本地目录进行 Diff |
 | 输入（Input） | 两个显式指定的完整 `configs/` 目录路径 |
 | 反馈（Response） | 两个目录文件数量与总容量、增减量；仅一侧存在的文件清单、内容修改文件清单和共同文件的文本逐行差异 |
 | 目标方（Destination） | CLI 本地终端；按需保存为本地报告 |
@@ -734,26 +741,39 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 操作人员、授权自动化脚本 |
+| 触发方式（Trigger） | 终端/API：查询或变更业务对象 |
 | 输入（Input） | Service、对象类型、ID、查询过滤与分页参数；受支持的管理动作及预期版本 |
 | 反馈（Response） | 对象列表、详情、状态、变更受理及执行结果 |
 | 目标方（Destination） | 对应业务 Service gRPC Server |
-| 业务输出（Output） | 列表/详情查询与任务启停等业务管理 RPC |
-| 业务规则（Business Rules） | 业务对象及运行期望状态由 Service 维护；CLI 只发出操作请求，读取权威结果；请求超时不等于后台任务已经停止 |
+| 业务输出（Output） | 列表/详情查询、任务启停、Gateway 变量发现/批量更新/读回确认等业务管理 RPC |
+| 业务规则（Business Rules） | 业务对象及运行期望状态由 Service 维护；CLI 只发出操作请求，读取权威结果；Gateway 的 `ListVariables`、`ClaimTargets`、`UpdateVariables`、`ReadVariables` 使用同一变量标识，形成发现→更新→结果反馈→读回确认闭环；变量更新仅修改 Gateway 内部变量存储，不触发现场控制；请求超时不等于后台操作未执行 |
 | 约束（Constraints） | 分页、权限、并发冲突保护；对有副作用操作由 Service 审计 |
 
-### 3.1.8 UR-07 机组实时数据监视
+### 3.1.8 UR-07 跨模块数据与运行状态监视
 
-<p class="table-caption">表 3-8 UR-07 机组实时数据监视</p>
+<p class="table-caption">表 3-8 UR-07 跨模块数据与运行状态监视</p>
 
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 操作人员、自动化脚本 |
-| 输入（Input） | Collector、一个或多个机组 ID、全部或部分测点、单次/持续模式、刷新参数 |
-| 反馈（Response） | 测点标识、采集值、质量、采集时间戳、更新/过期状态；无数据及断流原因 |
-| 目标方（Destination） | Collector gRPC Server |
-| 业务输出（Output） | `ReadPoints` 单次查询；CLI 按配置周期轮询并刷新终端 |
-| 业务规则（Business Rules） | 只获取 Collector 已采集的数据，不触发协议主动读取；持续模式可结束并安全停止接收；支持表格刷新或逐条输出 |
-| 约束（Constraints） | 采样时间与终端刷新时间区分；数据过期不冒充新值；终端内存有界、客户端取消不影响 Collector 采集任务 |
+| 触发方式（Trigger） | 终端：单次查询或显式启动/终止周期监视；不要求 Server 提供 Streaming RPC |
+| 输入（Input） | 模块、目标对象 ID、测点/变量 ID、筛选与分页参数、刷新间隔及输出方式 |
+| 反馈（Response） | 原始数据与采样时间、质量、逐项错误；或设备、采集任务、Delivery、Gateway、Generation 的期望/实际状态、更新时间与错误（以对应 Proto 实际字段为准） |
+| 目标方（Destination） | Collector、Industrial Gateway、Commander、Sink Service、Data Generator 的 gRPC Server |
+| 业务输出（Output） | Collector `ReadPoints`、Gateway `ReadVariables`；各模块 `List*`/`Get*`、公共 `GetServiceStatus` 等只读 RPC。CLI 按选定范围轮询 Unary 请求 |
+| 业务规则（Business Rules） | **值监视**：Collector 显示已采集缓存，不主动读 PLC；Gateway 显示其内部变量，不主动读真实 PLC。**状态监视**：Commander 提供可控设备和命令结果，Sink 提供 Delivery 状态，Data Generator 提供 Generation 状态，Collector/Gateway 提供任务或实例状态；这些状态查询不能冒充实时测点值。各模块只返回契约可提供的字段，不创建假读数或假 RPC；持续模式由 CLI 轮询实现 |
+| 约束（Constraints） | 各目标独立 deadline，轮询不重入/不积压；区分采样时间与查询/刷新时间；质量、过期、缺测、部分失败与断连均可见；客户端取消只结束本地监视，不停止服务任务 |
+
+<p class="table-caption">表 3-8a 各模块监视能力边界</p>
+
+| 模块 | 可读取对象/值 | 实际 RPC | 不支持或不得推断的能力 |
+|---|---|---|---|
+| Collector | 已采集测点值、设备/测点元数据、采集任务、发布状态 | `ReadPoints`、`ListDevices/GetDevice`、`ListPoints/GetPoint`、`ListTasks/GetTask`、`GetPublishingStatus` | `ReadPoints` 不是 PLC 主动读取或 Streaming |
+| Commander | 可控设备、可写点元数据、既有命令结果 | `ListDevices/GetDevice/ListPoints/GetCommandResult` | **无现场实时值读取 RPC**；`ListPoints` 不返回当前值 |
+| Sink Service | Delivery 配置、期望/实际状态与错误 | `ListDeliveries/GetDelivery` | **无单个 Sink 数据值读取 RPC** |
+| Industrial Gateway | Gateway 实例状态、变量元数据及内部变量当前值 | `ListGateways/GetGateway/ListVariables/ReadVariables` | `ReadVariables` 不向真实 PLC 主动读取 |
+| Data Generator | 虚拟设备、场景与 Generation 运行状态 | `ListDevices/GetDevice/ListScenarios/GetGeneration` | **无模型实时输出样本读取 RPC**；需要值时只能在其实际输出目标 Gateway 的授权可见变量中读取 |
+| 各服务公共能力 | 健康、指标、事件、诊断证据 | `GetServiceStatus/GetMetrics/GetEvents/Diagnose` | 指标/诊断结果不等同于设备测点实时值 |
 
 ### 3.1.9 UR-08 调用远程 Service 诊断能力
 
@@ -762,6 +782,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 操作人员、自动化脚本 |
+| 触发方式（Trigger） | 终端/API：单服务或跨服务诊断请求 |
 | 输入（Input） | Service、对象、诊断类型、参数、范围及超时；可选报告路径 |
 | 反馈（Response） | 分阶段状态、耗时、错误、原始证据、总体结论和报告输出状态 |
 | 目标方（Destination） | Collector、Commander、Sink Service、Industrial Gateway 等对应 gRPC Server |
@@ -769,19 +790,31 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 业务规则（Business Rules） | Service 负责自身网络/协议/业务诊断；Collector 支持主动读取、原生批量读取、监听及 IEC104 总召；CLI 负责跨 Service 诊断编排及结果汇总，不直接操作协议 Driver |
 | 约束（Constraints） | 明确执行位置、阶段证据及未覆盖项；Collector 发布成功不代表 Sink 已写库；远程 I/O 安全收敛由执行 Service 负责 |
 
-### 3.1.10 UR-09 经 Commander 执行现场控制
+### 3.1.10 UR-09 跨模块业务控制与授权写入
 
-<p class="table-caption">表 3-10 UR-09 经 Commander 执行现场控制</p>
+<p class="table-caption">表 3-10 UR-09 跨模块业务控制与授权写入</p>
 
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 授权操作人员、自动化脚本 |
-| 输入（Input） | Commander、设备、可写测点、目标值及命令有效期等参数 |
-| 反馈（Response） | 受理/拒绝、执行结果或结果不确定，必要时返回查询标识 |
-| 目标方（Destination） | Commander gRPC Server |
-| 业务输出（Output） | 命令提交与结果查询 RPC |
-| 业务规则（Business Rules） | 所有现场控制经 Commander；Commander 负责安全规则、命令持久化及底层控制；CLI 只显示其权威结果 |
-| 约束（Constraints） | 服务端身份授权、审计、有效期、幂等；客户端不自动重试可能已提交的现场控制 |
+| 触发方式（Trigger） | 终端：显式提交写入、启停操作或结果查询；不隐式执行控制 |
+| 输入（Input） | 模块、目标对象、动作、预期版本；现场控制时提供可写点/目标值/有效期；Gateway 更新时提供变量和值及服务端要求的租约参数 |
+| 反馈（Response） | 受理/拒绝、期望与实际状态、逐项写入结果、命令 ID 或错误、未知状态及后续权威查询方式 |
+| 目标方（Destination） | Commander、Industrial Gateway、Collector、Sink Service、Data Generator 对应 gRPC Server |
+| 业务输出（Output） | Commander `SubmitCommand/GetCommandResult`；Gateway `ClaimTargets/UpdateVariables`、`StartGateway/StopGateway`；Collector `StartTask/StopTask`；Sink `StartDelivery/StopDelivery`；Data Generator `StartGeneration/StopGeneration` |
+| 业务规则（Business Rules） | 将**现场设备写入**与**Gateway 内部变量更新**严格区分：真实 PLC 写入只能通过 Commander；Gateway 更新仅写本地变量存储并需有效 lease_token，不触发 Commander；其余 Start/Stop 仅改变相应业务任务或实例的运行期望，不等于 OS 容器启停。CLI 不持有权威状态，操作后通过对应 Get/List/Read 查询；未知受理不可盲目重试 |
+| 约束（Constraints） | 服务端鉴权授权、预期 revision、审计、deadline、幂等与并发由所属 Service 裁决；租约失败/过期不得更新；不同服务的控制含义不能用一个泛化 RPC 掩盖；CLI 显示部分成功和 I/O 未收敛等真实语义 |
+
+<p class="table-caption">表 3-10a 跨模块控制动作映射</p>
+
+| 业务目标 | 控制 RPC | 结果/复核 RPC | 副作用边界 |
+|---|---|---|---|
+| 真实 PLC 设定值 | Commander `SubmitCommand` | `GetCommandResult` | 现场写入；受理未知不重发 |
+| Gateway 内部变量值 | Gateway `ClaimTargets` + `UpdateVariables` + `ClaimTargets` RELEASE | `ReadVariables` | 内部存储更新；令牌由 Gateway 管理，读回不是历史执行证明 |
+| Collector 采集任务 | `StartTask/StopTask` | `GetTask` | 采集任务期望状态 |
+| Sink Delivery | `StartDelivery/StopDelivery` | `GetDelivery` | 指定派发任务期望状态 |
+| Gateway 业务实例 | `StartGateway/StopGateway` | `GetGateway` | Gateway 实例启停，不启动宿主进程 |
+| Data Generator 生成任务 | `StartGeneration/StopGeneration` | `GetGeneration` | 生成任务启停，不启动宿主进程 |
 
 ### 3.1.11 UR-10 CLI 本地网络探测
 
@@ -790,6 +823,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 操作人员、自动化脚本 |
+| 触发方式（Trigger） | 终端：执行网段、工业端口或指定 TCP 探测 |
 | 输入（Input） | 三选一：`scan CIDR`；`industrial IP`；`tcp IP PORT`；可选超时 |
 | 反馈（Response） | 网段可达 IP 与延迟；工业常用端口 OPEN/CLOSED/TIMEOUT 与协议提示；指定 IP/Port 的 TCP 建连结果及耗时 |
 | 目标方（Destination） | CLI 所在主机网络栈、用户指定网段/主机 |
@@ -804,6 +838,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 字段 | 描述 |
 |---|---|
 | 请求方（Requester） | 操作人员、自动化脚本 |
+| 触发方式（Trigger） | 终端/API：查询指标、事件或发布状态 |
 | 输入（Input） | Service、指标/事件类型、时间窗口、筛选条件 |
 | 反馈（Response） | 运行指标、故障/恢复事件、发布与交付状态、更新时间 |
 | 目标方（Destination） | 对应 Service gRPC Server |
@@ -820,14 +855,14 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 编号 | 可核验要求 | 来源 |
 |---|---|---|
 | FR-01 | 统一支持单次命令和交互式 Shell，输出结果、错误与退出码 | UR-01 |
-| FR-02 | 通过 containerd、iSulad 或 systemd 管理 Service 启停与重启，查询就绪结果；containerd 带外部 FIFO stdio 的 Task 不支持原位重建，必须在 Kill/Delete 前安全拒绝 | UR-02 |
+| FR-02 | 通过 containerd、iSulad 或 systemd 管理 Service 启停与重启，查询就绪结果 | UR-02 |
 | FR-03 | 查询 Service 身份、状态、健康及能力信息 | UR-03 |
 | FR-04 | 对完整 Service 配置执行 Get/Push/Apply，Push 不生效，Apply 报告磁盘和运行态结果 | UR-04 |
 | FR-05 | 使用两个显式本地目录递归比较整个 `configs/`：文件数、总字节数、增删改及文本 Diff | UR-05 |
-| FR-06 | 经 Service 查询设备、点、任务等对象并执行其提供的业务管理操作 | UR-06 |
-| FR-07 | 从 Collector 缓存一次性查询指定机组测点数据；连续监视由 CLI 周期调用 Unary ReadPoints 实现，不触发现场读取 | UR-07 |
+| FR-06 | 经 Service 查询设备、点、任务等对象并执行其提供的业务管理操作；Gateway 支持通过 `ListVariables`、`ClaimTargets`、`UpdateVariables`、`ReadVariables` 完成租约保护的批量变量读写及读回确认 | UR-06 |
+| FR-07 | 支持 Collector `ReadPoints`、Gateway `ReadVariables` 的当前值读取及五服务对象/任务/交付/生成状态查询；按目标 Unary RPC 周期轮询，不创建额外数据流接口 | UR-07 |
 | FR-08 | 经 Service 执行远程通信/业务诊断并显示结果，CLI 编排跨服务诊断及导出报告 | UR-08 |
-| FR-09 | 通过 Commander 下发现场控制命令并查询权威执行结果 | UR-09 |
+| FR-09 | 按表 3-10a 提供 Commander 现场控制、Gateway 租约变量更新及 Collector/Sink/Gateway/Data Generator 业务任务启停；各类副作用分别报告，不混用结果语义 | UR-09 |
 | FR-10 | `net scan CIDR` 一次性扫描 ICMP 可达 IP | UR-10 |
 | FR-11 | `net industrial IP` 一次性扫描预设工业 TCP 端口 | UR-10 |
 | FR-12 | `net tcp IP PORT` 一次性探测 TCP 建连结果 | UR-10 |
@@ -841,7 +876,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 |---|---|---|
 | PR-01 | 服务 Endpoint 共享 gRPC Channel；分别测量 CLI 请求端到端耗时和服务返回的执行耗时，不混同 | UR-03、UR-04、UR-06～UR-09、UR-11 |
 | PR-02 | 列表和事件查询分页或窗口有界；周期轮询仅保留当前界面所需数据，不无限累积样本 | UR-06、UR-07、UR-08、UR-11 |
-| PR-03 | ReadPoints 周期轮询不得重入或积压；请求耗时超过间隔时跳过到期轮次，限制界面刷新速率 | UR-07 |
+| PR-03 | 对所有监视目标的 Unary 轮询均不得重入或积压；慢响应跳过到期轮次，各 Endpoint 独立限流并限制界面刷新速率 | UR-07 |
 | PR-04 | 一次性网段扫描限制主机数量、并发探针及单目标超时；统计实际扫描数与总耗时 | UR-10 |
 | PR-05 | 远程诊断设置各阶段与总体超时；远程诊断仅执行一次 RPC；需要重复查询时由 CLI 按有界周期调度，禁止叠加请求 | UR-08 |
 
@@ -855,7 +890,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | RR-02 | Push 校验失败不暂存部分快照；Apply 分别报告文件提交和运行生效，部分失败不得谎报全成功 | UR-04 |
 | RR-03 | 本地目录比较只读，遇文件读取错误明确报告；不生成伪完整比较结论 | UR-05 |
 | RR-04 | gRPC 客户端取消、超时或断开不代表远程操作结束；对已提交副作用操作不得盲重试 | UR-02、UR-04、UR-06、UR-08、UR-09 |
-| RR-05 | 实时监视区分无值、过期值、轮询失败与连接中断；CLI 停止本地轮询，不改变 Collector 采集状态 | UR-07 |
+| RR-05 | Collector 与 Gateway 值监视区分无值、过期、逐点失败、轮询失败与断连；业务状态查询区分未提供与运行异常；停止本地轮询不改变任何 Service 业务运行状态 | UR-07 |
 | RR-06 | 跨服务诊断保留各阶段证据与未执行项；无法证实端到端成功时返回 UNKNOWN 或 PARTIAL | UR-08 |
 | RR-07 | 网段扫描探测失败不阻断其他地址；资源句柄和子进程按规定安全释放 | UR-10 |
 
@@ -867,7 +902,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 |---|---|---|
 | SR-01 | 使用安全的 gRPC 身份认证，Service 对实际操作进行授权，CLI 不越权执行 | UR-03、UR-04、UR-06～UR-09、UR-11 |
 | SR-02 | CLI 不实例化现场协议 Driver，不修改 Service 正式配置文件、数据库或权威运行状态 | UR-04、UR-06～UR-09 |
-| SR-03 | 现场控制只能经过 Commander；操作审计由 Service 按契约持有，CLI 显示其结果 | UR-09 |
+| SR-03 | 真实 PLC 控制仅经 Commander；Gateway 内部变量更新必须通过目标租约及服务端授权；任务启停按服务所属权限审计，CLI 不绕过 Server | UR-09 |
 | SR-04 | 配置提交、任务状态修改、进程控制等敏感操作需要授权并可追溯 | UR-02、UR-04、UR-06 |
 | SR-05 | 配置 Diff 和报告输出对密钥、证书私钥、Token 等敏感信息采取脱敏或限制明文显示 | UR-01、UR-04、UR-05、UR-08 |
 | SR-06 | 网络扫描限制于经授权目标及预设范围，不执行端口暴力扫描或协议写入 | UR-10 |
@@ -914,7 +949,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 运行监控（3） | `GetMetrics`、`GetEvents`、`GetPublishingStatus` | UR-11 |
 | 诊断（2） | 公共 `Diagnose`、专属 `InterrogateDevice` | UR-08 |
 
-Collector 读取契约统一为一次性 Unary `ReadPoints`；持续读取由 CLI 周期轮询实现。各公共 RPC 统一在第 9.2 节定义。
+Collector 读取契约统一为一次性 Unary `ReadPoints`；持续读取由 CLI 周期轮询实现。各公共 RPC 统一在Contracts v0_2 定义。
 
 # 4. 用例视图
 
@@ -947,16 +982,16 @@ flowchart LR
 | UC-04 | 获取、推送和应用完整配置快照 | UR-04 |
 | UC-05 | 比较两套本地完整配置目录 | UR-05 |
 | UC-06 | 查询 Collector 设备、测点与采集任务 | UR-06 |
-| UC-07 | 控制 Collector 采集任务 | UR-06 |
-| UC-08 | 监视已采集机组数据 | UR-07 |
-| UC-09 | 查询并控制 Sink Delivery | UR-06 |
-| UC-10 | 查询和控制 Industrial Gateway | UR-06 |
-| UC-11 | 查询与控制 Data Generator | UR-06 |
+| UC-07 | 控制 Collector 采集任务 | UR-06、UR-09 |
+| UC-08 | 监视 Collector 缓存值与 Gateway 内部变量，并轮询业务状态 | UR-07 |
+| UC-09 | 查询并控制 Sink Delivery | UR-06、UR-07、UR-09 |
+| UC-10 | 查询和控制 Industrial Gateway | UR-06、UR-07、UR-09 |
+| UC-11 | 查询与控制 Data Generator | UR-06、UR-07、UR-09 |
 | UC-12 | 诊断单个 Service 的链路 | UR-08 |
 | UC-13 | 诊断跨服务数据链路 | UR-08 |
-| UC-14 | 经 Commander 现场写入与查询结果 | UR-09 |
+| UC-14 | 经 Commander 现场写入与查询结果 | UR-07、UR-09 |
 | UC-15 | 执行三种本地网络探测 | UR-10 |
-| UC-16 | 查看运行指标、事件与发布情况 | UR-11 |
+| UC-16 | 查看运行指标、事件与发布情况 | UR-07、UR-11 |
 
 ## 4.2 UC-01 启动 Shell 并执行命令
 
@@ -1026,7 +1061,7 @@ flowchart TD
 | 关联需求 | UR-02 |
 | UC-02-S01 主流程 | 状态查询及启停重启 |
 | UC-02-S02 关键边界 | 重复操作；延迟就绪 |
-| UC-02-S03 异常与恢复 | 权限；不可达；超时及异常退出；containerd 外部 FIFO Task 重启在任何 Kill/Delete 之前拒绝，原 Task/PID 保持不变 |
+| UC-02-S03 异常与恢复 | 权限；不可达；超时及异常退出 |
 
 ## 4.4 UC-03 查询服务身份、健康与能力
 
@@ -1180,41 +1215,47 @@ flowchart TD
 | 前置条件 | 目标任务存在并具备权限 |
 | 主要异常 | 重复启停、版本冲突、初始化失败、停机未收敛、失联 |
 | 后置条件 | 状态转换及实际结果正确呈现，不误称立即成功 |
-| 关联需求 | UR-06 |
+| 关联需求 | UR-06、UR-09 |
 | UC-07-S01 主流程 | 启动/停止 |
 | UC-07-S02 关键边界 | 幂等边界及状态变更 |
 | UC-07-S03 异常与恢复 | 版本冲突；未收敛及恢复 |
 
-## 4.9 UC-08 监视已采集机组数据
+## 4.9 UC-08 跨模块实时值与运行状态监视
 
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
-    A["选择设备和测点"] --> B["调用一次 Unary ReadPoints"]
-    B --> C["显示逐点值、质量、时间"]
-    C --> D{"watch 模式?"}
-    D -->|否| E["结束本次查询"]
-    D -->|是| F{"用户按 Ctrl+C?"}
-    F -->|是| G["停止本地轮询，返回 Shell"]
-    F -->|否| H["等待下一周期，跳过超期轮次"]
-    H --> B
+    A["选择服务、对象和监视类型"] --> B{"监视内容?"}
+    B -->|采集缓存值| C["Collector ReadPoints"]
+    B -->|网关内部变量值| D["Gateway ReadVariables"]
+    B -->|业务运行状态| E["按模块调用 Get/List 等只读 RPC"]
+    C --> F["展示值、质量、采样时间、错误"]
+    D --> F
+    E --> G["展示期望/实际状态与最后错误"]
+    F --> H{"持续 watch?"}
+    G --> H
+    H -->|否| I["本次查询结束"]
+    H -->|是| J{"收到 Ctrl+C?"}
+    J -->|是| K["停止本地轮询，业务不变"]
+    J -->|否| L["等待下一周期，跳过逾期轮次"]
+    L --> B
 ```
 
-<p class="figure-caption">图 4-9 UC-08 业务活动图</p>
+<p class="figure-caption">图 4-9 跨模块实时值与运行状态监视业务活动图</p>
 
 <p class="table-caption">表 4-9 UC-08 用例说明与规定场景</p>
 
 | 要素 | 内容 |
 |---|---|
-| 参与者 | 操作人员、脚本 |
-| 业务目标 | 监视已采集机组数据 |
-| 前置条件 | Collector 已缓存指定测点 |
-| 主要异常 | 无缓存、过期、逐点失败、批量部分成功、轮询超时、Ctrl+C、断连 |
-| 后置条件 | watch 不重入、不补积压轮次；不主动访问 PLC；中断只结束 CLI 轮询 |
+| 参与者 | 操作人员、自动化脚本 |
+| 业务目标 | 通过一个 CLI 读取 Collector 测点、Gateway 变量和其他服务的可查询运行状态，不混淆值与状态 |
+| 前置条件 | 相应服务可达且具只读权限；对象 ID 可用 |
+| 主要异常 | Collector 缓存缺失、Gateway 变量缺失/过期、Commander 无当前值接口、Sink/Generator 仅状态可读、部分失败、超时、Ctrl+C |
+| 后置条件 | 单次/周期查询均不写入现场或变更任务；状态和样本保留来源标记 |
 | 关联需求 | UR-07 |
-| UC-08-S01 主流程 | 单次及周期轮询 |
-| UC-08-S02 关键边界 | 过期；逐点失败；慢响应 |
-| UC-08-S03 异常与恢复 | 断连；超时；中断恢复 |
+| UC-08-S01 主流程 | Collector latest/watch、Gateway read/watch、五服务状态单次查询与 watch；逐个验证源正确 |
+| UC-08-S02 关键边界 | 不同 Sample 质量/时间、新鲜度；状态查询无采样值、分页边界及慢响应不重入 |
+| UC-08-S03 异常与恢复 | 服务不可达、接口不支持、权限拒绝、样本缺测、部分失败与 Ctrl+C，后续只读轮询可恢复 |
 
 ## 4.10 UC-09 查询并控制 Sink Delivery
 
@@ -1242,7 +1283,7 @@ flowchart TD
 | 前置条件 | Sink 管理端点可用 |
 | 主要异常 | Delivery 不存在、重试中、部分故障、版本冲突、手动停后自动恢复误触发 |
 | 后置条件 | 正确记录期望及实际状态，只有指定 Delivery 受影响 |
-| 关联需求 | UR-06 |
+| 关联需求 | UR-06、UR-07、UR-09 |
 | UC-09-S01 主流程 | 查询和启停 |
 | UC-09-S02 关键边界 | 双进程；部分故障 |
 | UC-09-S03 异常与恢复 | 版本冲突；手动停止 |
@@ -1256,6 +1297,11 @@ flowchart TD
     B --> C{"操作类型?"}
     C -->|read| D["ReadVariables 读取内存变量当前值"]
     D --> E["逐项显示值、质量和错误"]
+    C -->|update| I["ClaimTargets 获取租约后 UpdateVariables 更新变量"]
+    I --> J["逐变量返回写入结果"]
+    J --> L["使用租约令牌 RELEASE 并报告释放结果"]
+    L --> K["ReadVariables 读回确认当前状态"]
+    K --> E
     C -->|start/stop| F["变更业务网关实例状态"]
     F --> G["显示期望与实际状态"]
     C -->|query| H["显示实例与变量列表"]
@@ -1268,14 +1314,14 @@ flowchart TD
 | 要素 | 内容 |
 |---|---|
 | 参与者 | 运维人员 |
-| 业务目标 | 查询和控制 Industrial Gateway |
+| 业务目标 | 发现 Gateway 全部变量，批量更新授权变量，读取结果确认，并管理 Gateway 运行状态 |
 | 前置条件 | Gateway Server 可用 |
-| 主要异常 | 网关无效、变量不存在/不可读、值过期、部分变量错误、配置冲突 |
-| 后置条件 | 只读取 Gateway Protocol Server 当前变量，不主动读取真实 PLC；不混淆容器启停 |
-| 关联需求 | UR-06 |
-| UC-10-S01 主流程 | 实例及变量查询 |
-| UC-10-S02 关键边界 | 批量值与质量 |
-| UC-10-S03 异常与恢复 | 部分失败；网关未就绪 |
+| 主要异常 | 网关无效、变量不存在/不可读/租约冲突/不可通过 gRPC 更新、类型不匹配、重复 ID、值过期、部分变量失败、配置冲突、RPC 超时结果未知 |
+| 后置条件 | 在有效目标租约保护下更新 Gateway 权威变量存储并供协议 Server 读取，不自动转发现场控制；`ReadVariables` 只读 Gateway 当前变量、不主动读取真实 PLC；写入结果与读回值分别呈现，不混淆容器启停 |
+| 关联需求 | UR-06、UR-07、UR-09 |
+| UC-10-S01 主流程 | `ListVariables` 分页列出全部变量→`ClaimTargets` 获取租约→`UpdateVariables` 批量更新并释放租约→逐项检查结果→`ReadVariables` 读回确认 |
+| UC-10-S02 关键边界 | 多变量批量、只读工业协议变量允许内部更新但不触发现场写入、更新权限与协议写权限分离、读回值和更新值对照 |
+| UC-10-S03 异常与恢复 | 变量不存在、类型不符、重复 ID、禁止更新、部分成功、网关未就绪；RPC 超时标记结果未知，读回而不盲目重试 |
 
 ## 4.12 UC-11 查询与控制 Data Generator
 
@@ -1304,7 +1350,7 @@ flowchart TD
 | 前置条件 | Data Generator Server 可用 |
 | 主要异常 | 场景缺失、重复操作、配置冲突、执行失败 |
 | 后置条件 | 管理数据生成任务，不启动/停止其宿主容器；不包含故障注入 |
-| 关联需求 | UR-06 |
+| 关联需求 | UR-06、UR-07、UR-09 |
 | UC-11-S01 主流程 | 设备场景及启停 |
 | UC-11-S02 关键边界 | 重复操作 |
 | UC-11-S03 异常与恢复 | 冲突；停止失败 |
@@ -1398,7 +1444,7 @@ flowchart TD
 | 前置条件 | 设备及测点可写且权限有效 |
 | 主要异常 | 拒绝、版本过期、值越界、排队超时、提交无响应、UNKNOWN、执行失败 |
 | 后置条件 | 不通过 Collector/Gateway 代下发；未知受理不自动重发；凭已知命令 ID 查询 |
-| 关联需求 | UR-09 |
+| 关联需求 | UR-07、UR-09 |
 | UC-14-S01 主流程 | 合法写入及结果查询 |
 | UC-14-S02 关键边界 | 参数边界；终态 |
 | UC-14-S03 异常与恢复 | 未知受理；超时；不重试 |
@@ -1463,7 +1509,7 @@ flowchart TD
 | 前置条件 | 目标 Service 可用 |
 | 主要异常 | 窗口无数据、分页边界、事件为空、统计不可用、权限拒绝 |
 | 后置条件 | Metrics 与 Events 概念区分，事件不混入指标 |
-| 关联需求 | UR-11 |
+| 关联需求 | UR-07、UR-11 |
 | UC-16-S01 主流程 | 指标；事件及发布状态 |
 | UC-16-S02 关键边界 | 时间窗口；分页 |
 | UC-16-S03 异常与恢复 | 空结果；拒绝；断连 |
@@ -1479,11 +1525,13 @@ flowchart TB
     Dispatch --> Present["统一输出 / 报告"]
     Dispatch --> Services["Service Client Adapters"]
     Dispatch --> ConfigDiff["本地目录 Diff"]
-    Dispatch --> Net["本地网络探测"]
+    Dispatch --> Net["网络探测命令适配"]
+    Net --> CoreDiag["Core 网络诊断原语"]
+    ConfigDiff --> CoreConfig["Core 配置通用能力（适用时）"]
     Dispatch --> Process["进程管理适配器"]
     Services --> RPC["公共 gRPC 客户端 / Contracts"]
     Services --> Orch["跨服务诊断编排"]
-    RPC --> Remote["Collector / Commander / Sink / Gateway"]
+    RPC --> Remote["Collector / Commander / Sink / Gateway / Data Generator"]
 ```
 
 <p class="figure-caption">图 5-1 CLI 逻辑组件图</p>
@@ -1495,8 +1543,8 @@ flowchart TB
 | Command Shell | 交互式 Shell 和单次命令解析 | 当前交互命令及显示选项 | 业务状态权威裁决 |
 | Service Client Adapters | 对外 RPC 参数映射和结果解码 | 客户端 Channel/请求句柄 | 实现服务内部业务 |
 | Diagnostic Orchestrator | 多 Service 诊断请求编排、证据关联 | 当前诊断阶段结果 | 直接操作 NATS/目标数据库冒充 Service 诊断 |
-| Directory Diff | 两份 `configs/` 文件树比较 | 本次目录扫描结果 | 加载生产业务配置、热重载 |
-| Network Probe | 网段 ICMP 与 TCP Connect | 本次探测资源 | 协议握手、业务写入 |
+| Directory Diff Adapter | 编排文件级差异及展示；通用文件读写、哈希和安全校验优先由 Core 公共能力承担（已提供时） | 本次目录扫描结果 | 重复 Core 已有基础能力、擅自解析 Service 业务语义 |
+| Network Probe Adapter | 调用 Core 的 ICMP/TCP/端口扫描；仅保留 CLI 子网遍历、限流与输出适配 | 当前探测参数及临时结果 | 复制 Core 的 TCP/ICMP 实现、协议写入 |
 | Process Adapter | 向外部管理器发出启停请求 | 当前进程操作结果 | 替 Service 处理内部任务关闭 |
 | Presentation | Table/JSON、错误及报告 | 有界的当前结果 | 将 UNKNOWN 改为成功 |
 
@@ -1585,7 +1633,7 @@ sequenceDiagram
     CLI-->>Operator: 停止本地轮询，返回 Shell
 ```
 
-<p class="figure-caption">图 6-3 Collector 缓存数据周期轮询时序图</p>
+<p class="figure-caption">图 6-3 Collector 缓存数据周期轮询时序图（Gateway 与状态监视采用同类客户端调度）</p>
 
 ## 6.4 超时、取消与恢复
 
@@ -1608,16 +1656,17 @@ sequenceDiagram
 
 ```text
 src/
-├── cli/                 # 命令入口、交互、展示、Service Client、目录 Diff、网络探测
+├── cli/                 # 命令入口、交互、展示、Service Client、诊断与文件比较适配
 ├── contracts/           # 统一 protobuf 源与公共消息
 ├── core/                # 可复用的非 Service 专有通用能力
 ├── collector/
 ├── commander/
 ├── sink_service/
-└── industrial_gateway/
+├── industrial_gateway/
+└── data_generator/
 ```
 
-CLI 可以按职责拆分少量模块，但不强制建立空的 Domain/Application/Infrastructure 三层。`contracts/` 由 CLI 和各 Service 共同依赖；CLI 不直接 import 任何 Service 的业务实现或协议驱动。
+CLI 可以按职责拆分少量模块，但不强制建立空的 Domain/Application/Infrastructure 三层。原则上复用 Core 已有公共能力；Core 尚无匹配能力时，仅在 CLI 保留与命令直接相关的最小实现，禁止因复用而改变 Core 的模块无关性。`contracts/` 由 CLI 和各 Service 共同依赖；CLI 不直接 import 任何 Service 的业务实现或协议驱动。
 
 ## 7.2 静态依赖关系
 
@@ -1625,11 +1674,12 @@ CLI 可以按职责拆分少量模块，但不强制建立空的 Domain/Applicat
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TB
     CLI["src/cli"] --> Contracts["src/contracts"]
-    CLI --> Common["core 通用能力"]
+    CLI --> Common["src/core：公共配置 / 网络诊断 / 领域基础"]
     Collector["src/collector"] --> Contracts
     Commander["src/commander"] --> Contracts
     Sink["src/sink_service"] --> Contracts
     Gateway["src/industrial_gateway"] --> Contracts
+    Generator["src/data_generator"] --> Contracts
 ```
 
 <p class="figure-caption">图 7-1 CLI 与各服务的契约依赖图</p>
@@ -1638,10 +1688,30 @@ flowchart TB
 
 | 模块 | 责任 | 禁止依赖 |
 |---|---|---|
-| `cli` | 命令编排、结果展示、gRPC Client、本地工具 | Service 内部数据库、Driver |
+| `cli` | 命令编排、结果展示、Contracts gRPC Client、Core 通用能力适配 | Service 内部数据库、工业协议 Driver 和重复通用算法 |
 | `contracts` | Proto 消息、Service 定义及生成代码的唯一源 | 具体服务业务实现 |
-| `core` | 跨模块稳定复用基础机制 | CLI 专用交互状态 |
+| `core` | 模块无关的配置读写/解析/比较、工业协议通信、横切机制、共享领域对象与网络/链路诊断（具体以现有 API 为准） | CLI 专用交互状态及服务业务配置语义 |
 | 各 Service | 业务/诊断执行及 gRPC Server 实现 | CLI 命令分派 |
+
+## 7.3 Core 能力复用及差异处置
+
+本节是 CLI 开发的强制依赖约束。区分「仓库现有 API」「已存在但语义不相同」「目标通用能力尚未提供」；不得将目标能力当成当前已实现。CLI 必须先调用 Core 的公开入口，只有无法满足 CLI 特有需求且不适合抽象到 Core 时才保留本地代码。
+
+<p class="table-caption">表 7-2 Core 复用判定矩阵</p>
+
+| CLI 功能 | 当前 Core 能力（main 基线） | 采用方式及差异 |
+|---|---|---|
+| `net tcp` | `core.infrastructure.diagnostic.network.tcp_probe` | 复用 TCP Connect、耗时与诊断结果；CLI 转换为终端状态，不另写 `asyncio.open_connection` |
+| `net industrial` | `core.infrastructure.diagnostic.network.scan_ports` | 复用有界并发端口探测；端口名称/列表及 Rich 呈现归 CLI；保留 Core 16 并发的上限，不直接扩大 |
+| `net scan CIDR`、单地址 Ping | `core.infrastructure.diagnostic.network.ping_host/ping_probe` | 复用单主机 ICMP；CIDR 展开、总数限制和并发编排为 CLI 特有能力，避免重复 Ping 子进程实现 |
+| 本地共享配置校验 | `core.infrastructure.diagnostic.config.check_config`、`SharedDocumentLoader` | 只用于共享实例/模板文档及其引用；不能据此校验各服务专属配置 |
+| 配置语义差异 | `core.infrastructure.diagnostic.config.compare_config` | 当前只比较共享配置语义；不等于 CLI `config diff` 对任意两个文件目录的完整逐行 Diff |
+| 文件级目录 Diff | Core 当前未发现满足该完整语义的统一公开接口 | 保留 CLI 文件树编排作为现阶段缺口；后续 Core 提供模块无关的文件级比较时迁移并删除重复实现，不能强行改用共享配置语义比较 |
+| 远程工业链路诊断 | `core.infrastructure.diagnostic.protocol.check_protocol/benchmark_protocol` | Core 的本地只读工业协议诊断供其合法消费者复用；CLI 的远程诊断通过 Service 的 `Diagnose`，不在 CLI 创建 Driver |
+| JSON/YAML 通用读写 | Core 配置基础设施按其真实 API 复用 | CLI 自身 `cli.yaml` 的字段语义仍属 CLI；不得用 Core 的共享设备业务模型解释 CLI 配置 |
+| RPC 请求及解码 | `src/contracts/*_pb2.py`、`*_pb2_grpc.py` | 使用全部正式 Service 的生成代码；不得另造独立字段、动态方法名映射或私有 Proto |
+
+**变更要求：** 调整 Core 公共接口须核查 Collector、Commander、Gateway、Sink、Data Generator 与测试的调用方；CLI 仅依赖明确公开的通用 API，不倒逼 Core 接受 CLI 专用对象。对 Core 中以固定 `instances/`、`templates/` 作为前提的旧诊断函数，不应宣称其具备任意路径、任意文件的通用比较能力。
 
 # 8. 物理视图（部署视图）
 
@@ -1659,6 +1729,7 @@ flowchart LR
     CLI -->|gRPC/mTLS| Commander["Commander"]
     CLI -->|gRPC/mTLS| Sink["Sink Service"]
     CLI -->|gRPC/mTLS| Gateway["Industrial Gateway"]
+    CLI --> DG["Data Generator"]
     CLI --> PM["进程/容器管理器"]
     CLI --> Network["本地网络探测目标"]
     Collector --> Field["现场设备"]
@@ -1677,206 +1748,80 @@ flowchart LR
 | 本地网络探测 | 探测从 CLI 主机发出 | 结果不能代替 Collector 所在环境视角 |
 | Service 配置目录 | 由各 Service 独立维护 | CLI 启动不依赖该目录 |
 
-# 9. 接口与通信契约
+# 9. CLI 客户端接口适配设计
 
-本章规定 CLI 所需的目标接口，由 CLI 定义契约，`src/contracts/` 统一承载 Proto，各 Service 实现 Server，CLI 实现 Client。接口清单为目标要求，不表示现有代码已实现。
+本章只规定 CLI 如何消费远程接口；本地通用机制按第 7.3 节优先复用 Core。**所有 gRPC Service、RPC 参数、消息字段编号、枚举和 wire 兼容性由《Contracts 软件设计 v0_2》及上述基线的 `src/contracts/*.proto` 统一定义**。CLI 不拥有 Proto，不实现业务 Server，不得私自新增字段或通过空字符串模拟缺失字段。契约版本更新须先修改 Contracts 文档与 Proto，并检查所有调用方。
 
-## 9.1 通用约定
+## 9.1 客户端通信与边界
 
-| 项目 | 要求 |
+| 项目 | CLI 要求 |
 |---|---|
-| 文件组织 | `src/contracts/common.proto` 定义公共 RPC、消息及枚举；`collector.proto`、`commander.proto`、`sink_service.proto`、`industrial_gateway.proto`、`data_generator.proto` 通过 `import "common.proto"` 复用。各 Server 注册公共 `CommonService` 及自己的专属 gRPC Service。 |
-| 命名与实现 | 公共接口统一名称，不追加 Service 后缀；专属接口只定义在对应 Service；CLI 不直连底层 Driver、数据库或 NATS 代替 Server。 |
-| 类型 | 标量沿用 `ScalarValue`，时间使用 `google.protobuf.Timestamp`；标识使用 `string`，批量使用 `repeated`；必需参数必须校验，缺省与零值需要区分时使用 `optional` 或 `oneof`。 |
-| 分页 | 列表统一使用 `page_size:uint32`、`page_token:string`，返回 `next_page_token:string`；服务端限制每页上限。 |
-| 版本与变更 | 变更请求携带 `expected_revision:string`；冲突使用 `ABORTED`。正式 Proto 冻结字段编号和枚举数值后，不得复用已废弃编号。 |
-| 状态与错误 | gRPC 传输错误与业务执行状态分离；对象缺失 `NOT_FOUND`、参数错误 `INVALID_ARGUMENT`、权限不足 `PERMISSION_DENIED`、状态不满足 `FAILED_PRECONDITION`、不支持 `UNIMPLEMENTED`；超时及断连不代表远端操作失败。 |
-| 安全 | gRPC 使用 mTLS，鉴权和授权由 Server 执行；CLI 确认提示不得替代权限控制。 |
-| 诊断 | 公共 `Diagnose` 输出阶段、状态、时间、来源和证据；CLI 可编排跨服务诊断，缺少消息级关联证据时不得认定端到端成功。 |
-| 读取 | Collector `ReadPoints` 只读取已采集数据，不发起现场协议访问；`watch` 在 CLI 周期调用，不重入、不补发积压轮次；单点用一个 `point_id` 调用。 |
-| 命令结果 | 有副作用操作的 RPC 超时且缺少权威 ID 时结果为 `UNKNOWN`，不得自动重发；部分成功在单次命令返回退出码 `4`，成功 `0`、失败 `1`、参数错误 `2`、不可达/不支持/未知 `3`、用户中断 `130`。 |
-| Proto 落地 | 本章是服务端实现的规范性目标契约；编码时由 contracts 统一落实消息字段编号、枚举数值及字段约束，先通过 Proto 编译与契约测试再开发 Client/Server；不得各 Service 自行变更公共语义。 |
+| 连接 | 一个 Endpoint/TLS 身份对应可复用的 gRPC Channel；所有 Channel 在其所属 Event Loop 内创建与关闭 |
+| 调用 | 对每次 Unary RPC 设置 deadline；保留远端 gRPC 状态与业务响应中的状态字段，不以网络异常推断副作用是否生效 |
+| 权限 | mTLS 身份凭据由 CLI 配置；服务端授权为唯一权威；交互确认不代替服务端权限 |
+| 取消 | Ctrl+C 停止本地等待和后续轮询；受理状态不明的变更请求保持 UNKNOWN，不自动重发 |
+| 状态 | 服务进程状态、gRPC 可达性、业务健康、期望状态与实际状态分别显示 |
+| 分页 | 使用 Proto 定义的 page_size/page_token/next_page_token；无结果与查询失败分开 |
+| 结果 | 将 protobuf 类型映射到统一的 CLI 输出，不用未定义的 wire 字段补齐展示 |
 
-## 9.2 公共 gRPC 契约
+## 9.2 RPC 调用映射
 
-### 9.2.1 接口清单
+以下列出的均为最新 `main` Proto 中真实存在的 Unary RPC；具体请求/响应定义参见 Contracts v0_2。
 
-| 接口 | 类型 | 要求及说明 |
+| 目标 Service | RPC | CLI 业务命令/用途 |
 |---|---|---|
-| `GetServiceInfo` | Unary | 服务身份、进程角色和版本。 |
-| `GetServiceStatus` | Unary | 服务健康及依赖状态；不把进程运行等同于就绪。 |
-| `GetCapabilities` | Unary | 支持的协议、功能和 RPC 能力。 |
-| `GetConfigSnapshot` | Unary | 获取完整配置文件快照及版本。 |
-| `PushConfigSnapshot` | Unary | 校验并暂存候选配置，不修改正式文件和运行态。 |
-| `ApplyConfigSnapshot` | Unary | 应用已暂存快照，分别报告文件提交和运行生效结果。 |
-| `GetMetrics` | Unary | 查询指标及统计窗口。 |
-| `GetEvents` | Unary | 查询运行事件及故障记录。 |
-| `Diagnose` | Unary | 执行本服务能力范围内的诊断，返回分阶段证据。 |
+| 公共 CommonService（各服务） | `GetServiceInfo`, `GetServiceStatus`, `GetCapabilities` | `service info/status/capabilities` |
+| 公共 CommonService（各服务） | `GetConfigSnapshot`, `PushConfigSnapshot`, `ApplyConfigSnapshot` | `config get/push/apply` |
+| 公共 CommonService（各服务） | `GetMetrics`, `GetEvents`, `Diagnose` | `metrics/events`、`diagnose` 系列 |
+| CollectorService | `ListDevices`, `GetDevice`, `ListPoints`, `GetPoint` | `collector devices/device/points/point` |
+| CollectorService | `ReadPoints` | `collector latest/watch`；watch 为客户端周期调用，不是 Streaming RPC |
+| CollectorService | `ListTasks`, `GetTask`, `StartTask`, `StopTask` | `collector tasks/task/start/stop` |
+| CollectorService | `GetPublishingStatus`, `InterrogateDevice` | `collector publishing`、`diagnose collector gi` |
+| CommanderService | `ListDevices`, `GetDevice`, `ListPoints` | `commander devices/device/points`（均无现场值） |
+| CommanderService | `SubmitCommand`, `GetCommandResult` | `commander write/result` |
+| SinkService | `ListDeliveries`, `GetDelivery`, `StartDelivery`, `StopDelivery` | `sink deliveries/delivery/start/stop` |
+| IndustrialGatewayService | `ListGateways`, `GetGateway`, `StartGateway`, `StopGateway` | `gateway list/status/start/stop` |
+| IndustrialGatewayService | `ListVariables`, `ReadVariables` | `gateway variables/read/watch` |
+| IndustrialGatewayService | `ClaimTargets`, `UpdateVariables` | `gateway update` 的目标租约获取、令牌写入和释放 |
+| DataGeneratorService | `ListDevices`, `GetDevice`, `ListScenarios`, `GetGeneration`, `StartGeneration`, `StopGeneration` | `data-generator devices/device/scenarios/status/start/stop` |
 
-### 9.2.2 输入、输出契约
+## 9.2.1 五模块读写能力与限制
 
-| 接口 | 输入 | 输出 |
-|---|---|---|
-| `GetServiceInfo` | 无 | `service_id`、`process_role`、`software_version`、`contract_version`、`started_at`。 |
-| `GetServiceStatus` | 无 | `health`、依赖健康列表、`observed_at`。 |
-| `GetCapabilities` | 无 | 支持的 `rpc_names[]`、`protocols[]`、`features[]`。 |
-| `GetConfigSnapshot` | `scope`（正式/运行/候选）、候选 ID（查询候选时必填） | `snapshot_id`、`revision`、`files[]`（相对路径、内容、大小、哈希）、快照校验信息；运行视图另返回 `application_id`、逐对象生效状态及最后错误。 |
-| `PushConfigSnapshot` | 完整 `files[]`、`expected_revision` | `candidate_id`、校验结果及错误列表、`base_revision`；校验失败不得产生可应用候选。 |
-| `ApplyConfigSnapshot` | `candidate_id`、`expected_revision` | `file_commit`、逐对象 `apply_results[]`、`effective_revision`、`restart_required`、`application_id`；应用结果须可通过 GetConfigSnapshot 的运行视图再次查询。 |
-| `GetMetrics` | 目标作用域、统计窗口 | 指标名称、数值、单位、窗口、采样时间。 |
-| `GetEvents` | 时间范围、过滤条件、分页参数 | 事件 ID、时间、等级、来源、错误码、信息及分页信息。 |
-| `Diagnose` | `target_id`、诊断阶段集合、超时时间、可选关联标识 | `overall_status`、逐阶段状态/耗时/错误/证据、局限说明。 |
+| 模块 | 实时值读取 | 元数据/运行状态读取 | 写入及控制 |
+|---|---|---|---|
+| Collector | `ReadPoints`（采集缓存） | Device、Point、Task、Publishing | `StartTask/StopTask`（业务任务） |
+| Commander | **无** | Device、PointMetadata、CommandResult | `SubmitCommand`（真实设备），`GetCommandResult` 查询结果 |
+| Sink Service | **无** | Delivery 配置及状态 | `StartDelivery/StopDelivery` |
+| Industrial Gateway | `ReadVariables`（内存变量） | Gateway、Variable | `ClaimTargets/UpdateVariables`（内部变量）；`StartGateway/StopGateway` |
+| Data Generator | **无独立样本读取 RPC** | Device、Scenario、Generation | `StartGeneration/StopGeneration`；生成数据经独立客户端向 Gateway 更新 |
 
-公共消息及枚举在 `common.proto` 定义一次；各 Service 不重复声明。配置文件路径必须为规范化相对路径，拒绝 `..`、绝对路径、符号链接及重复项；快照提交与运行生效必须分别表达。
+所有业务监视以现有 Unary 为基础由 CLI 轮询；不能将 `GetMetrics`、`Diagnose`、`GetCommandResult` 或 `InterrogateDevice` 解释为通用实时值流。`InterrogateDevice` 是明确触发现场 IEC104 总召的诊断操作，独立于缓存监视。
 
-## 9.3 Collector gRPC 契约
+## 9.3 Gateway 变量更新的租约语义
 
-### 9.3.1 接口清单
+最新 `UpdateVariablesRequest` 除 `gateway_id`、`values` 外还有 `lease_token`；CLI 不得按 v1_1 的无令牌模型发送写入。执行 `gateway update` 时：
 
-| 接口 | 类型 | 要求及说明 |
-|---|---|---|
-| `ListDevices` | Unary | 查询设备列表，支持筛选与分页。 |
-| `GetDevice` | Unary | 查询设备配置及运行状态。 |
-| `ListPoints` | Unary | 查询指定设备的测点列表。 |
-| `GetPoint` | Unary | 查询指定测点详情。 |
-| `ReadPoints` | Unary | 一次性读取一个或多个已采集测点值，不访问现场设备。 |
-| `ListTasks` | Unary | 查询采集任务及状态。 |
-| `GetTask` | Unary | 查询任务配置及状态。 |
-| `StartTask` | Unary | 启动指定采集任务。 |
-| `StopTask` | Unary | 停止指定采集任务。 |
-| `GetPublishingStatus` | Unary | 查询 NATS 发布连接、统计及异常。 |
-| `InterrogateDevice` | Unary | 对 IEC 104 设备执行一次总召。 |
+1. CLI 根据输入确定唯一的 `gateway_id` 与变量集合，使用 `ClaimTargets(action=ACQUIRE)` 申请独占租约，传入操作身份 `owner_id` 与有界 `lease_ms`。
+2. 仅在 `accepted=true` 且获得非空 `lease_token` 后调用 `UpdateVariables`，原样携带取得的令牌；逐项检查 `results[]`。
+3. 如操作时间跨越租约期限，按服务端契约通过 `ClaimTargets(action=RENEW)` 延续，不能使用过期令牌。
+4. 操作完成后使用相同 owner、精确变量集合和令牌执行 `ClaimTargets(action=RELEASE)`；释放失败必须报告，不能宣称资源已释放。
+5. ACQUIRE 失败时不发送更新；Update RPC 超时或断连时不自动重发，按 UNKNOWN 显示，可读回确认当前值，但读回不能证明此前提交是否发生。
+6. 租约避免与 Data Generator 的既有目标写入冲突；CLI 不可抢占其他有效 owner 的租约。租约 TTL、授权与原子归属由 Gateway Server 裁决。
 
-### 9.3.2 输入、输出契约
+**待决授权边界**：`industrial_gateway.proto` 注释称租约为 per-Generation；虽然存在 `ClaimTargets` RPC，不能据此推断普通 CLI 身份具有 ACQUIRE 权限。未获 Gateway 服务端明确授权时，`gateway update` 应返回 PERMISSION_DENIED/UNSUPPORTED，不得绕过令牌或冒用 Generation owner。
 
-| 接口 | 输入 | 输出 |
-|---|---|---|
-| `ListDevices` | 筛选条件、分页参数 | 设备列表、运行状态、分页信息。 |
-| `GetDevice` | `device_id` | 设备配置、协议、Endpoint、关联任务、实际状态、版本。 |
-| `ListPoints` | `device_id`、筛选条件、分页参数 | 测点 ID、类型、协议地址、读写属性、分页信息。 |
-| `GetPoint` | `device_id`、`point_id` | 测点详细配置、数据类型、地址及读写属性。 |
-| `ReadPoints` | `device_id`、非空 `point_ids[]`、单次 `timeout_ms` | 按请求测点逐项返回值或错误、质量、采样时间、新鲜度、查询时间；不得用零替代无数据。 |
-| `ListTasks` | 筛选条件、分页参数 | 任务列表、期望状态、实际状态及分页信息。 |
-| `GetTask` | `task_id` | 任务配置、关联设备、期望/实际状态、版本。 |
-| `StartTask` | `task_id`、`expected_revision` | 操作标识、期望状态、实际状态及错误。 |
-| `StopTask` | `task_id`、`expected_revision` | 操作标识、期望状态、实际状态及错误；手动停止不被 Watchdog 自动恢复。 |
-| `GetPublishingStatus` | 可选发布通道 | NATS 连接状态、发布/失败统计、背压和最后错误。 |
-| `InterrogateDevice` | `device_id`、可选公共地址、`timeout_ms` | 总召完成状态、结果测点、缺失项及错误；不支持设备返回 `UNIMPLEMENTED`。 |
+**兼容性差异**：原 v1_1 第 9.6 节的两字段 `UpdateVariablesRequest` 示例已失效。此处不重定义字段号。CLI 仍保留 `gateway update` 命令，但须增加租约获取与释放的业务步骤。
 
-## 9.4 Commander gRPC 契约
+## 9.4 配置快照和现场控制的特殊处理
 
-### 9.4.1 接口清单
+- Get/Push/Apply 的 `revision`、`expected_revision`、`candidate_id` 以 `common.proto` 定义为准。`Push` 不应用，`Apply` 分别呈现 `file_commit`、`apply_results`、`restart_required`，不得合并为一个布尔值。
+- `SubmitCommand` 的 `command_id` 由 Commander 返回；没有收到 `command_id` 时不能构造假 ID，也不能自动再次提交。`GetCommandResult` 只能按已知 `command_id` 查询。
+- `ReadPoints` 读取 Collector 已采集值；`InterrogateDevice` 才是显式 IEC104 总召；CLI 不以本地协议驱动替代两者。
+- 业务响应中用字符串表达的状态不应由 CLI 假定是 Proto enum；应由对应 Service 设计说明给出合法值及状态规则。
 
-| 接口 | 类型 | 要求及说明 |
-|---|---|---|
-| `ListDevices` | Unary | 查询可控设备。 |
-| `GetDevice` | Unary | 查询可控设备及连接元数据。 |
-| `ListPoints` | Unary | 查询指定设备可写测点及范围，不读取现场值。 |
-| `SubmitCommand` | Unary | 提交一次控制命令，不承诺同步执行完成。 |
-| `GetCommandResult` | Unary | 查询命令权威执行结果。 |
+## 9.5 契约缺口处理
 
-### 9.4.2 输入、输出契约
-
-| 接口 | 输入 | 输出 |
-|---|---|---|
-| `ListDevices` | 筛选条件、分页参数 | 可控设备列表及分页信息。 |
-| `GetDevice` | `device_id` | 设备协议、Endpoint、配置版本、可用状态。 |
-| `ListPoints` | `device_id`、分页参数 | 可写测点、数据类型、范围、单位、版本。 |
-| `SubmitCommand` | `device_id`、`point_id`、`value:ScalarValue`、`expires_at`、`expected_revision` | `command_id`、受理状态、执行状态、结果及错误；命令 ID 由 Commander 产生；受理响应未收到时，CLI 无 command_id，报告 UNKNOWN 且禁止自动重发。 |
-| `GetCommandResult` | `command_id` | 权威状态、`outcome`、错误、写入测点信息、更新时间及 I/O 是否收敛。 |
-
-CLI 不重复下发受理状态不明的命令；只有已取得 command_id 的命令才允许 GetCommandResult 查询。未收到 command_id 时报告“受理结果未知，无法自动定位”，由人工结合 Commander 审计记录核查，不生成伪查询标识。Commander 负责 FIFO、并发、幂等、审计及未收敛 I/O 资源管理。
-
-## 9.5 Sink Service gRPC 契约
-
-### 9.5.1 接口清单
-
-| 接口 | 类型 | 要求及说明 |
-|---|---|---|
-| `ListDeliveries` | Unary | 查询派发通道列表及运行状态。 |
-| `GetDelivery` | Unary | 查询指定派发通道配置及状态。 |
-| `StartDelivery` | Unary | 启动派发通道。 |
-| `StopDelivery` | Unary | 停止派发通道。 |
-
-### 9.5.2 输入、输出契约
-
-| 接口 | 输入 | 输出 |
-|---|---|---|
-| `ListDeliveries` | 可选 Realtime/Reliable 通道过滤、分页参数 | Delivery 列表、Sink 关联、期望/实际状态、分页信息。 |
-| `GetDelivery` | `delivery_id` | 配置、归属进程、目标 Sink、期望/实际状态、版本、最后错误。 |
-| `StartDelivery` | `delivery_id`、`expected_revision` | 受理结果、期望/实际状态、版本及错误。 |
-| `StopDelivery` | `delivery_id`、`expected_revision` | 受理结果、期望/实际状态、版本及错误；手动停止不被自动恢复。 |
-
-Realtime 和 Reliable 作为独立进程分别报告实际状态；配置变更只由唯一写入端点受理。
-
-## 9.6 Industrial Gateway gRPC 契约
-
-### 9.6.1 接口清单
-
-| 接口 | 类型 | 要求及说明 |
-|---|---|---|
-| `ListGateways` | Unary | 查询网关业务实例。 |
-| `GetGateway` | Unary | 查询网关配置、映射及状态。 |
-| `StartGateway` | Unary | 启用指定网关实例，不启动容器。 |
-| `StopGateway` | Unary | 停用指定网关实例，不停止服务进程。 |
-| `ListVariables` | Unary | 查询当前 Gateway Protocol Server 的变量列表及属性。 |
-| `ReadVariables` | Unary | 一次性读取 Gateway Protocol Server 内部的变量当前值，不向真实 PLC 发起读取。 |
-
-### 9.6.2 输入、输出契约
-
-| 接口 | 输入 | 输出 |
-|---|---|---|
-| `ListGateways` | 筛选条件、分页参数 | 网关列表、实际状态及分页信息。 |
-| `GetGateway` | `gateway_id` | Endpoint、映射摘要、期望/实际状态、版本及错误。 |
-| `StartGateway` | `gateway_id`、`expected_revision` | 受理结果、网关期望/实际状态及错误。 |
-| `StopGateway` | `gateway_id`、`expected_revision` | 受理结果、网关期望/实际状态及错误。 |
-| `ListVariables` | `gateway_id`、筛选及分页参数 | 变量 ID、名称、地址、类型、读写属性及分页信息。 |
-| `ReadVariables` | `gateway_id`、非空 `variable_ids[]` | 逐变量当前值、质量、时间戳、逐项错误；不触发现场读取。 |
-
-## 9.7 Data Generator gRPC 契约
-
-### 9.7.1 接口清单
-
-| 接口 | 类型 | 要求及说明 |
-|---|---|---|
-| `ListDevices` | Unary | 查询虚拟设备。 |
-| `GetDevice` | Unary | 查询虚拟设备信息。 |
-| `ListScenarios` | Unary | 查询数据生成场景。 |
-| `GetGeneration` | Unary | 查询指定数据生成任务的实际状态与关联场景。 |
-| `StartGeneration` | Unary | 启动数据生成任务，不启动容器。 |
-| `StopGeneration` | Unary | 停止数据生成任务，不停止服务进程。 |
-
-### 9.7.2 输入、输出契约
-
-| 接口 | 输入 | 输出 |
-|---|---|---|
-| `ListDevices` | 筛选条件、分页参数 | 虚拟设备、运行状态及分页信息。 |
-| `GetDevice` | `device_id` | 设备协议、虚拟 Endpoint、所属数据生成任务及状态。 |
-| `ListScenarios` | 分页参数 | 场景 ID、有效版本、可用版本、设备集合、描述及分页信息。 |
-| `GetGeneration` | `generation_id` | 场景 ID/版本、期望状态、实际状态、启动时间及最后错误。 |
-| `StartGeneration` | `scenario_id`、可选 `scenario_version`（不传时使用当前有效版本）、`expected_revision` | `generation_id`、受理结果及数据生成状态。 |
-| `StopGeneration` | `generation_id`、`expected_revision` | 受理结果、数据生成状态及错误。 |
-
-## 9.8 服务进程管理契约
-
-### 9.8.1 接口清单
-
-| 管理器 | 类型 | 要求及说明 |
-|---|---|---|
-| containerd | 本机管理 API | 真实 Daemon、namespace、container/task；支持 start、stop、status；restart 仅支持可安全重建且无需外部 FIFO stdio relay 的 Task（如 null-io）。对使用外部 FIFO 的 Task，必须在 Kill/Delete 前明确拒绝，保留原 Task 及 PID，不自动重试；不得声称具备完整 FIFO 重启能力。 |
-| iSulad | 本机 `isula` CLI（受控 subprocess，使用参数数组、固定可执行文件路径和命令白名单，不通过 Shell） | 真实 Daemon 与容器；支持 start、stop、restart、status；适配安装版本。 |
-| systemd | System Bus D-Bus | 系统级 Unit 的 start、stop、restart、status。 |
-
-### 9.8.2 输入、输出契约
-
-| 操作 | 输入 | 输出 |
-|---|---|---|
-| `status` | 运行时类型、受管目标 ID | 管理器状态、业务 gRPC 就绪状态、时间及错误。 |
-| `start` | 运行时类型、受管目标 ID、超时 | 接受情况、进程状态、就绪状态及错误。 |
-| `stop` | 运行时类型、受管目标 ID、超时 | 进程状态、停止结果及错误。 |
-| `restart` | 运行时类型、受管目标 ID、超时 | 重启各阶段结果、进程状态、就绪状态及错误；停止未确认不得继续启动；containerd 原 Task 使用外部 FIFO 时必须预检拒绝且不执行 Kill/Delete。 |
-
-CLI 仅管理 `cli.yaml` 白名单对象；容器或 Unit 运行不代表 gRPC Ready。真实基础设施验收允许容器内部运行模拟业务组件，禁止用 Mock Daemon 替代 containerd、iSulad 或 systemd。
+CLI 发现契约不能表达的需求时，记录差异并提交 Contracts 统一演进，不得扩展本地私有 Proto、将关键结构编码进 `message` 字符串，或使用与实际 Server 不一致的演示 RPC。Proto 变更检查全部五个 Service、CLI、Data Generator 对 Gateway 的客户端以及测试。
 
 # 10. 交互式命令与终端呈现设计
 
@@ -1916,10 +1861,11 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
   service    list | info | status | capabilities | start | stop | restart
   config     get | push | apply | diff
   collector  devices | device | points | point | tasks | task | start | stop | latest | watch | metrics | events | publishing
-  commander  devices | points | write | result | metrics | events
+  commander  devices | device | points | write | result | metrics | events
   sink       deliveries | delivery | start | stop | metrics | events
-  gateway    list | status | variables | read | start | stop | metrics
-  data-generator  devices | scenarios | start | stop | status
+  gateway    list | status | variables | read | watch | update | start | stop | metrics
+  data-generator  devices | device | scenarios | start | stop | status
+  monitor     collector | gateway | commander | sink | data-generator
   diagnose   collector (device|pipeline|gi) | commander | sink | gateway | data-generator | pipeline
   net        scan | industrial | tcp
   help | exit
@@ -1941,16 +1887,18 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `collector points/point` | DEVICE [POINT] | Collector ListPoints/GetPoint | 测点元信息 |
 | `collector tasks/task/start/stop` | [TASK]/TASK | Collector ListTasks/GetTask/StartTask/StopTask | 任务查询及期望状态变更 |
 | `collector latest` / `collector watch` | DEVICE、可选 POINT... | ReadPoints（单次/客户端轮询） | 已采集值，不主动读取现场 |
+| `gateway read` / `gateway watch` | GATEWAY_ID、VARIABLE...；watch 可设 `--interval` | ReadVariables（单次/客户端轮询） | Gateway 内部变量当前值；不主动读 PLC |
+| `monitor collector/gateway/commander/sink/data-generator` | 模块对应对象 ID、可选 `--watch`/`--interval` | 对应 Get/List/Status Unary | 查询各模块运行状态；无当前数值接口时仅显示状态，不伪造采样值 |
 | `collector metrics/events/publishing` | 可选筛选 | GetMetrics/GetEvents/GetPublishingStatus | 指标/事件 |
-| `commander devices/points` | 可选对象 ID | Commander 对象查询接口 | 可控对象 |
+| `commander devices/device/points` | 可选对象 ID | Commander ListDevices/GetDevice/ListPoints | 可控对象、可写点元数据，不返回当前值 |
 | `commander write` | DEVICE POINT VALUE、可选 `--yes` | Commander 提交控制 RPC | 不自动重试；返回 command_id |
 | `commander result` | COMMAND_ID | GetCommandResult | 查询权威结果 |
 | `commander metrics/events` | 可选筛选 | Commander 指标/事件 | 运维信息 |
 | `sink deliveries/delivery` | [ID]/ID | Sink Delivery 查询 | 配置与运行状态 |
 | `sink start/stop` | DELIVERY_ID | Sink Delivery 控制 | 修改期望状态 |
 | `sink metrics/events` | 可选筛选 | Sink 指标/事件 | 消费及交付 |
-| `gateway list/status/variables/read/start/stop/metrics` | 可选 GATEWAY_ID | Gateway 目标 RPC | 依据 9.6 目标 RPC 实现；未实现验收失败 |
-| `data-generator devices/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.7 必需 RPC 实现 |
+| `gateway list/status/variables/update/start/stop/metrics` | `update`：GATEWAY_ID、变量值集合；其他同前 | Gateway `ListVariables`/`ReadVariables`/`ClaimTargets`/`UpdateVariables` 等 | CLI 支持变量发现→租约申请→批量更新→租约释放→逐项结果→读回确认；RPC 不触发现场控制；未实现验收失败 |
+| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v0_2 的专属 RPC 实现 |
 | `data-generator start/stop/status` | 场景/任务标识 | StartGeneration / StopGeneration / GetGeneration | start 传 scenario_id、stop/status 传 generation_id；无故障注入命令 |
 | `diagnose collector/commander/sink/gateway/data-generator` | 目标对象及可选范围 | 对应 Service 诊断 RPC | 统一显示阶段证据 |
 | `diagnose pipeline` | DEVICE | CLI 调用 Collector + Sink | 跨服务证据汇总 |
@@ -1958,7 +1906,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `net industrial` | IP | CLI 本地工业 TCP 端口集 | 一次性扫描预设端口 |
 | `net tcp` | IP PORT | CLI 本地 TCP Connect | 一次性指定端口 |
 
-### 10.2.1 命令—RPC 映射补充（闭合 Collector 精简接口）
+### 10.2.1 命令—RPC 映射补充（多服务读写及 Collector 精简接口）
 
 | 接口能力 | CLI 调用入口 | 说明 |
 |---|---|---|
@@ -1990,7 +1938,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 
 ```text
 $ wind-hub
-Wind Hub CLI v0_8
+Wind Hub CLI（版本由程序实际构建信息提供）
 Type 'help' for commands.
 
 wind-hub> service status
@@ -2170,6 +2118,19 @@ Gateway : edge-01
 State   : ONLINE
 Traffic : 120 messages/s
 
+wind-hub> gateway update edge-01 --values updates.json --yes
+VARIABLE      SUCCESS  ERROR_CODE
+──────────────────────────────────
+wind_power    true     -
+wind_speed    true     -
+bad_variable  false    NOT_FOUND
+
+wind-hub> gateway read edge-01 wind_power wind_speed
+VARIABLE      VALUE
+──────────────────────
+wind_power    1200
+wind_speed    8.5
+
 wind-hub> data-generator devices
 DEVICE      PROTOCOL    STATE
 ────────────────────────────────
@@ -2182,6 +2143,8 @@ SCENARIO      STATUS
 normal-wind   READY
 
 ```
+
+`gateway update GATEWAY_ID --values PATH --yes` 的 `PATH` 为 UTF-8 JSON 数组，元素仅含 `variable_id` 与 `value`；`value` 为 JSON 标量（布尔、整数、有限浮点数或字符串），由 CLI 按 `ScalarValue` 类型编码。CLI 不接受原始工业协议地址作为更新目标，不以 `Variable.writable` 自行推断 gRPC 更新权限；CLI 需先调用 `ClaimTargets` 获取有效 `lease_token`，更新后释放租约，由 Gateway 返回逐项结果。需要确认实际状态时显式执行 `gateway read`，不可将提交成功和读回一致性混为一项保证。
 
 ## 10.8 远程诊断与跨服务链路输出
 
@@ -2471,7 +2434,7 @@ wind-hub net industrial 192.168.1.100
 
 两个显式路径均指向整个 `configs/` 根目录。递归按相对路径比较文件数量、总字节数、增删改与不变文件；同路径采用完整字节比较，文本用 `difflib.unified_diff` 给出行级差异，二进制不做文本比较。扫描不执行 YAML Schema 校验，不读取 Service 的生效配置。
 
-成熟组件：`pathlib`、`filecmp`（`shallow=False`）、`difflib`、`Rich`。对不可读文件、运行中目录变更、符号链接及大文件必须明确定义处置；限制报告大小、脱敏敏感字段，避免把不完整扫描当成完整比较。
+Core 已有通用文件能力优先复用；其当前 `compare_config` 是共享配置语义比较，不能直接承担本节的通用文件级差异。未形成等价 Core API 前，CLI 可用标准库 `pathlib`、`hashlib`、`difflib` 完成最小文件级比较和 Rich 显示；统一公共实现落地后删除重复实现。对不可读文件、运行中目录变更、符号链接及大文件必须明确定义处置；限制报告大小、脱敏敏感字段，避免把不完整扫描当成完整比较。
 
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
@@ -2499,11 +2462,17 @@ flowchart TD
 | `net industrial IP` | TCP Connect 扫描固定预设端口 | 端口/协议提示、OPEN/CLOSED/TIMEOUT | 端口提示不代表协议识别成功 |
 | `net tcp IP PORT` | 一次 TCP Connect | 状态、耗时、错误 | 不进行工业协议握手 |
 
+Core 统一提供 TCP、单主机 ICMP、批量端口探测；CLI 负责 CIDR 枚举和有界编排，只有 CLI 独有逻辑保留本地。Core 的 `scan_ports` 当前并发上限为 16；CLI 不得将本地原有 64/256 的默认值直接传给它而忽略接口限制。Core 当前网络诊断主要面向 Linux；平台能力不足要明确返回 UNSUPPORTED/UNKNOWN，不得制造探测成功。
+
 端口预设：Siemens S7/102、Modbus TCP/502、IEC104/2404、OPC UA/4840、EtherNet/IP/44818、ADS Router/48898。ADS Router TCP 端口与 AMS 目标端口不同。使用成熟系统工具/标准库，不重复实现操作系统网络协议栈；网段扫描并发、范围和超时有上限。
 
-## 12.3 实时数据与远程诊断边界
+## 12.3 跨模块数据监视、写入与远程诊断边界
 
-`collector latest` / `collector watch` 通过 Collector `ReadPoints` 读取已采集缓存（单次读取或 CLI 周期轮询），不主动连接现场设备。Collector 的 `ReadPoints` 只读取已采集数据；诊断接口不会隐式执行现场主动读。远程底层 I/O 的取消与安全释放由所属 Service 负责；CLI 只停止后续轮询、取消在途 gRPC 请求并释放 Channel。跨服务诊断的整体结论必须与实际阶段证据相符。
+`collector latest/watch` 使用 Collector `ReadPoints` 已采集缓存；`gateway read/watch` 使用 Gateway `ReadVariables` 内部变量；`monitor <service>` 使用该模块现有只读状态 RPC。三类展示必须标明数据来源；命令结果、Delivery 状态和 Generation 状态不等于当前测点值。Collector 的 `ReadPoints` 只读取已采集数据；诊断接口不会隐式执行现场主动读。远程底层 I/O 的取消与安全释放由所属 Service 负责；CLI 只停止后续轮询、取消在途 gRPC 请求并释放 Channel。跨服务诊断的整体结论必须与实际阶段证据相符。
+
+## 12.4 Core 复用的错误与结果适配
+
+Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执行环境。CLI 展示时必须保留 `source`、实际执行位置、测量时间及局限说明，不能将 Core `PASS`（TCP 建连）解释成工业协议正常，也不得将 Core `compare_config` 的“配置语义相同”解释成“两个文件树的字节内容相同”。Core 异常由 CLI 统一错误信封封装，不吞掉取消、超时与权限错误；终端格式化与 CLI 退出码由 CLI 自身负责。
 
 # 13. 安全与可观测性
 
@@ -2522,7 +2491,7 @@ flowchart TD
 
 ## 14.1 测试依据与层级
 
-执行第 2.4、2.4.1 节规定：Unit 基于逻辑规则，Component 基于组件契约，Integration 基于第 9 章真实接口，System 以第 4 章 UC 及场景为主基线并补充第 9～13 章非功能约束。所有系统测试使用真实 CLI 进程和真实通信链路；容器内允许模拟业务 Server，管理器必须真实。
+执行第 2.4、2.4.1 节规定。Core 复用还须验证 CLI 未重复实现 TCP/ICMP/端口探测、错误语义正确且与 Core API 版本一致：Unit 基于逻辑规则，Component 基于组件契约，Integration 基于第 9 章真实接口，System 以第 4 章 UC 及场景为主基线并补充第 9～13 章非功能约束。所有系统测试使用真实 CLI 进程和真实通信链路；容器内允许模拟业务 Server，管理器必须真实。
 
 <p class="table-caption">表 14-1 各层级代表性测试文件与 Marker</p>
 
@@ -2533,16 +2502,12 @@ flowchart TD
 | `test_poll_scheduler.py` | unit | reliability | polling | ReadPoints 轮询不重入、跳过积压轮次 |
 | `test_shell.py` | component | usability | interactive | Prompt、Tab、Ctrl+C、历史及输出 |
 | `test_network_probe.py` | component | reliability | network | 有界 ICMP/TCP 探测及取消 |
+| `test_core_reuse.py` | component | contract | core_reuse | Core 的 ping/tcp/scan_ports 复用、结果适配、无重复底层网络 I/O |
+| `test_gateway_lease_client.py` | integration | contract | lease | ClaimTargets 与 UpdateVariables 真实请求字段、权限及释放语义 |
 | `test_containerd_real.py` | integration | reliability | real_container | 真实 containerd Daemon 及容器 |
 | `test_isulad_real.py` | integration | reliability | real_container | 真实 iSulad Daemon 及容器 |
 | `test_systemd_real.py` | integration | reliability | real_process | 真实 systemd Unit |
-| `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC、mTLS、错误映射 |
-
-### 14.1.1 首版运行时验收边界（2026-11-02 裁定）
-
-1. containerd：null-io 等可安全重建 Task 的 restart 应在真实 Daemon 上完成预检→停止→删除→创建→启动→RUNNING 复核。使用外部 FIFO 的 Task 仅验收预检拒绝、原 Task 仍 RUNNING 且 PID 不变、无 Kill/Delete、无自动重试；不能将此安全验收视为 FIFO 重启功能 PASS。
-2. iSulad：仍在设计支持范围，必须使用真实 iSulad Daemon 和 isula 测试 start/stop/restart/status、重复操作、超时及权限拒绝；未执行统一记为 NOT_RUN，不能宣称三管理器完整验收 PASS。
-3. 发布约束：iSulad 真机验收完成前，只允许对已验证的 systemd/containerd 子集作受限验收结论。原 48 场景矩阵不删除、不折算、不伪造通过。
+| `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC（按 Contracts v0_2）、mTLS、错误映射 |
 
 ## 14.2 System Test：全 UC 与场景追溯矩阵
 
@@ -2552,12 +2517,12 @@ flowchart TD
 
 | 需求 | UC / 场景 | 技术契约 | 测试文件名 | 层级 Marker | 专题 Marker | 场景 Marker | 验证内容与预期结果 |
 |---|---|---|---|---|---|---|---|
-| UR-01 | UC-01-S01 | 9.3～9.7；10 | `test_shell_e2e.py` / `test_uc_01_s01` | `system` | `contract` | `normal` | Shell 启动与退出；断言启动返回提示符，退出不停止远端服务 |
-| UR-01 | UC-01-S02 | 9.3～9.7；10 | `test_shell_e2e.py` / `test_uc_01_s02` | `system` | `contract` | `boundary` | 参数、历史、补全和 JSON；断言非法参数退出2；帮助/补全包含配置命令，JSON可解析 |
-| UR-01 | UC-01-S03 | 9.3～9.7；10 | `test_shell_e2e.py` / `test_uc_01_s03` | `system` | `reliability` | `failure` | 远端不可达及中断；断言不可达退出3，Ctrl+C回Shell并能继续执行命令 |
-| UR-02 | UC-02-S01 | 9.8；10.3 | `test_runtime_e2e.py` / `test_uc_02_s01` | `system` | `contract` | `normal` | 状态查询及启停重启；断言每种运行时 start→RUNNING、stop→STOPPED、restart 后 PID/状态更新 |
-| UR-02 | UC-02-S02 | 9.8；10.3 | `test_runtime_e2e.py` / `test_uc_02_s02` | `system` | `contract` | `boundary` | 重复操作、延迟就绪；断言重复启停无误杀；进程运行而 gRPC 不就绪分别显示 |
-| UR-02 | UC-02-S03 | 9.8；10.3 | `test_runtime_e2e.py` / `test_uc_02_s03` | `system` | `security` | `failure` | 权限、不可达、超时及异常退出；断言权限拒绝不改变目标状态；超时不谎报成功；异常退出可识别 |
+| UR-01 | UC-01-S01 | 9.1～9.2；10 | `test_shell_e2e.py` / `test_uc_01_s01` | `system` | `contract` | `normal` | Shell 启动与退出；断言启动返回提示符，退出不停止远端服务 |
+| UR-01 | UC-01-S02 | 9.1～9.2；10 | `test_shell_e2e.py` / `test_uc_01_s02` | `system` | `contract` | `boundary` | 参数、历史、补全和 JSON；断言非法参数退出2；帮助/补全包含配置命令，JSON可解析 |
+| UR-01 | UC-01-S03 | 9.1～9.2；10 | `test_shell_e2e.py` / `test_uc_01_s03` | `system` | `reliability` | `failure` | 远端不可达及中断；断言不可达退出3，Ctrl+C回Shell并能继续执行命令 |
+| UR-02 | UC-02-S01 | 10.3；11.2 | `test_runtime_e2e.py` / `test_uc_02_s01` | `system` | `contract` | `normal` | 状态查询及启停重启；断言每种运行时 start→RUNNING、stop→STOPPED、restart 后 PID/状态更新 |
+| UR-02 | UC-02-S02 | 10.3；11.2 | `test_runtime_e2e.py` / `test_uc_02_s02` | `system` | `contract` | `boundary` | 重复操作、延迟就绪；断言重复启停无误杀；进程运行而 gRPC 不就绪分别显示 |
+| UR-02 | UC-02-S03 | 10.3；11.2 | `test_runtime_e2e.py` / `test_uc_02_s03` | `system` | `security` | `failure` | 权限、不可达、超时及异常退出；断言权限拒绝不改变目标状态；超时不谎报成功；异常退出可识别 |
 | UR-01、UR-03 | UC-03-S01 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s01` | `system` | `contract` | `normal` | 基本状态及能力；断言五个服务均返回身份/版本、健康和能力 |
 | UR-01、UR-03 | UC-03-S02 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s02` | `system` | `contract` | `boundary` | 五服务查询和 JSON；断言五服务输出结构一致；JSON含独立健康/能力字段 |
 | UR-01、UR-03 | UC-03-S03 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s03` | `system` | `reliability` | `failure` | 认证失败、不支持、依赖异常；断言mTLS拒绝退出2；UNIMPLEMENTED退出3；依赖故障不显示READY |
@@ -2567,39 +2532,39 @@ flowchart TD
 | UR-05 | UC-05-S01 | 12.1 | `test_diff_e2e.py` / `test_uc_05_s01` | `system` | `contract` | `normal` | 增删改及容量统计；断言新增1删除1修改1未变2；两侧文件数均4；字节统计精确 |
 | UR-05 | UC-05-S02 | 12.1 | `test_diff_e2e.py` / `test_uc_05_s02` | `system` | `contract` | `boundary` | 文本/二进制、空目录；断言空目录为0；二进制不输出文本diff；文本差异可复现 |
 | UR-05 | UC-05-S03 | 12.1 | `test_diff_e2e.py` / `test_uc_05_s03` | `system` | `reliability` | `failure` | 并发修改、权限及敏感输出；断言并发变更不能报告完整成功；权限错误可定位；敏感内容不泄漏 |
-| UR-06 | UC-06-S01 | 9.3；10 | `test_collector_objects_e2e.py` / `test_uc_06_s01` | `system` | `contract` | `normal` | 列表和详情；断言列表与详情的device_id/point_id对应，地址和类型正确 |
-| UR-06 | UC-06-S02 | 9.3；10 | `test_collector_objects_e2e.py` / `test_uc_06_s02` | `system` | `contract` | `boundary` | 分页、空列表；断言空列表总数0；分页不重复漏项 |
-| UR-06 | UC-06-S03 | 9.3；10 | `test_collector_objects_e2e.py` / `test_uc_06_s03` | `system` | `reliability` | `failure` | 无权限、对象消失；断言无权限退出2；对象消失NOT_FOUND且不崩溃 |
-| UR-06 | UC-07-S01 | 9.3；10 | `test_collector_task_e2e.py` / `test_uc_07_s01` | `system` | `contract` | `normal` | 启动/停止；断言start后desired_running=true；stop后false且Watchdog不重启 |
-| UR-06 | UC-07-S02 | 9.3；10 | `test_collector_task_e2e.py` / `test_uc_07_s02` | `system` | `contract` | `boundary` | 幂等边界及状态变更；断言重复启停不产生额外任务；实际与期望分别显示 |
-| UR-06 | UC-07-S03 | 9.3；10 | `test_collector_task_e2e.py` / `test_uc_07_s03` | `system` | `reliability` | `failure` | 版本冲突、未收敛及恢复；断言revision冲突无副作用；未收敛状态不谎报RUNNING |
-| UR-07 | UC-08-S01 | 9.3；10 | `test_collector_watch_e2e.py` / `test_uc_08_s01` | `system` | `contract` | `normal` | 单次及周期轮询；断言latest只请求一次；watch至少刷新两轮且不访问PLC |
-| UR-07 | UC-08-S02 | 9.3；10 | `test_collector_watch_e2e.py` / `test_uc_08_s02` | `system` | `contract` | `boundary` | 过期、逐点失败、慢响应；断言慢响应无并发重入；旧值与逐点错误清楚标识 |
-| UR-07 | UC-08-S03 | 9.3；10 | `test_collector_watch_e2e.py` / `test_uc_08_s03` | `system` | `reliability` | `failure` | 断连、超时、中断恢复；断言断连显示UNAVAILABLE；Ctrl+C停止轮询并返回Shell |
-| UR-06 | UC-09-S01 | 9.5；10 | `test_sink_e2e.py` / `test_uc_09_s01` | `system` | `contract` | `normal` | 查询和启停；断言查询Delivery配置与状态；启停只改变目标Delivery |
-| UR-06 | UC-09-S02 | 9.5；10 | `test_sink_e2e.py` / `test_uc_09_s02` | `system` | `contract` | `boundary` | 双进程、部分故障；断言Realtime/Reliable状态互不混淆，单侧故障不假报另一侧 |
-| UR-06 | UC-09-S03 | 9.5；10 | `test_sink_e2e.py` / `test_uc_09_s03` | `system` | `reliability` | `failure` | 版本冲突、手动停止；断言冲突不更新配置；手动停止不被自动恢复 |
-| UR-06 | UC-10-S01 | 9.6；10 | `test_gateway_e2e.py` / `test_uc_10_s01` | `system` | `contract` | `normal` | 实例及变量查询；断言变量列表与读取值匹配；PLC读取计数不因ReadVariables增加 |
-| UR-06 | UC-10-S02 | 9.6；10 | `test_gateway_e2e.py` / `test_uc_10_s02` | `system` | `contract` | `boundary` | 批量值与质量；断言多个变量逐项关联质量/时间戳，缺失值不替为0 |
-| UR-06 | UC-10-S03 | 9.6；10 | `test_gateway_e2e.py` / `test_uc_10_s03` | `system` | `reliability` | `failure` | 部分失败、网关未就绪；断言逐变量失败保留其他成功项；网关未就绪不虚报有效值 |
-| UR-06 | UC-11-S01 | 9.7；10 | `test_data_generator_e2e.py` / `test_uc_11_s01` | `system` | `contract` | `normal` | 设备场景及启停；断言场景列表含版本；启动返回generation_id；停止目标实例 |
-| UR-06 | UC-11-S02 | 9.7；10 | `test_data_generator_e2e.py` / `test_uc_11_s02` | `system` | `contract` | `boundary` | 重复操作；断言重复start/stop结果明确且不影响其他generation_id |
-| UR-06 | UC-11-S03 | 9.7；10 | `test_data_generator_e2e.py` / `test_uc_11_s03` | `system` | `reliability` | `failure` | 冲突、停止失败；断言配置冲突无副作用；失败保留错误与可查询状态 |
+| UR-06 | UC-06-S01 | 9.2；10 | `test_collector_objects_e2e.py` / `test_uc_06_s01` | `system` | `contract` | `normal` | 列表和详情；断言列表与详情的device_id/point_id对应，地址和类型正确 |
+| UR-06 | UC-06-S02 | 9.2；10 | `test_collector_objects_e2e.py` / `test_uc_06_s02` | `system` | `contract` | `boundary` | 分页、空列表；断言空列表总数0；分页不重复漏项 |
+| UR-06 | UC-06-S03 | 9.2；10 | `test_collector_objects_e2e.py` / `test_uc_06_s03` | `system` | `reliability` | `failure` | 无权限、对象消失；断言无权限退出2；对象消失NOT_FOUND且不崩溃 |
+| UR-06、UR-09 | UC-07-S01 | 9.2；10 | `test_collector_task_e2e.py` / `test_uc_07_s01` | `system` | `contract` | `normal` | 启动/停止；断言start后desired_running=true；stop后false且Watchdog不重启 |
+| UR-06、UR-09 | UC-07-S02 | 9.2；10 | `test_collector_task_e2e.py` / `test_uc_07_s02` | `system` | `contract` | `boundary` | 幂等边界及状态变更；断言重复启停不产生额外任务；实际与期望分别显示 |
+| UR-06、UR-09 | UC-07-S03 | 9.2；10 | `test_collector_task_e2e.py` / `test_uc_07_s03` | `system` | `reliability` | `failure` | 版本冲突、未收敛及恢复；断言revision冲突无副作用；未收敛状态不谎报RUNNING |
+| UR-07 | UC-08-S01 | 9.2、12.3；10 | `test_cross_module_monitor_e2e.py` / `test_uc_08_s01` | `system` | `contract` | `normal` | 跨模块监视：Collector latest/watch、Gateway read/watch、五服务状态；验证正确 RPC、值与状态区分、watch 至少刷新两轮且无主动 PLC 读取 |
+| UR-07 | UC-08-S02 | 9.2、12.3；10 | `test_cross_module_monitor_e2e.py` / `test_uc_08_s02` | `system` | `contract` | `boundary` | 跨模块边界：Collector/Gateway 的过期、逐项缺测及慢响应；Commander/Sink/Generator 不伪造实时值，轮询不重入 |
+| UR-07 | UC-08-S03 | 9.2、12.3；10 | `test_cross_module_monitor_e2e.py` / `test_uc_08_s03` | `system` | `reliability` | `failure` | 五模块断连、接口缺失、超时和中断；断言来源明确，Ctrl+C 仅停止轮询并返回 Shell |
+| UR-06、UR-07、UR-09 | UC-09-S01 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s01` | `system` | `contract` | `normal` | 查询和启停；断言查询Delivery配置与状态；启停只改变目标Delivery |
+| UR-06、UR-07、UR-09 | UC-09-S02 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s02` | `system` | `contract` | `boundary` | 双进程、部分故障；断言Realtime/Reliable状态互不混淆，单侧故障不假报另一侧 |
+| UR-06、UR-07、UR-09 | UC-09-S03 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s03` | `system` | `reliability` | `failure` | 版本冲突、手动停止；断言冲突不更新配置；手动停止不被自动恢复 |
+| UR-06、UR-07、UR-09 | UC-10-S01 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s01` | `system` | `contract` | `normal` | 分页获取变量→经授权的 CLI 身份执行 ClaimTargets 领取目标→持有效 lease_token 调用 UpdateVariables→释放租约→ReadVariables 读回；断言变量 ID 一致、存储值可见、无现场 PLC 读写或 Commander 下发 |
+| UR-06、UR-07、UR-09 | UC-10-S02 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s02` | `system` | `contract` | `boundary` | 租约占用冲突、重复申请/释放、租约期限边界、批量更新多个变量、工业协议写权限与 gRPC 更新权限独立；断言响应按请求顺序一一对应，读回仍含质量/时间戳，写操作不触发现场控制 |
+| UR-06、UR-07、UR-09 | UC-10-S03 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s03` | `system` | `reliability` | `failure` | 租约领取失败、令牌过期、owner 不一致、RELEASE 失败、变量不存在、重复 ID、非法类型/值、未授权、容量超限、网关未就绪、超时；断言逐变量部分成功、整体错误分离、未知写入不自动重试，读回不冒充写入确认 |
+| UR-06、UR-07、UR-09 | UC-11-S01 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s01` | `system` | `contract` | `normal` | 设备场景及启停；断言场景列表含版本；启动返回generation_id；停止目标实例 |
+| UR-06、UR-07、UR-09 | UC-11-S02 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s02` | `system` | `contract` | `boundary` | 重复操作；断言重复start/stop结果明确且不影响其他generation_id |
+| UR-06、UR-07、UR-09 | UC-11-S03 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s03` | `system` | `reliability` | `failure` | 冲突、停止失败；断言配置冲突无副作用；失败保留错误与可查询状态 |
 | UR-08 | UC-12-S01 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s01` | `system` | `contract` | `normal` | 各服务诊断；断言五服务Diagnose返回阶段及来源证据 |
 | UR-08 | UC-12-S02 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s02` | `system` | `contract` | `boundary` | 部分证据、报告；断言缺证阶段为UNKNOWN/PARTIAL，报告保留原始状态 |
 | UR-08 | UC-12-S03 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s03` | `system` | `reliability` | `failure` | 阶段错误、权限拒绝；断言单阶段失败不伪装整体成功；权限拒绝退出2 |
 | UR-08 | UC-13-S01 | 9.2；10 | `test_pipeline_diagnose_e2e.py` / `test_uc_13_s01` | `system` | `contract` | `normal` | 完整可证实链路；断言Collector到Sink同一关联标识可证实后才SUCCESS |
 | UR-08 | UC-13-S02 | 9.2；10 | `test_pipeline_diagnose_e2e.py` / `test_uc_13_s02` | `system` | `contract` | `boundary` | 某阶段失败或缺证；断言缺少消息级关联证据不得SUCCESS；阶段失败可定位 |
 | UR-08 | UC-13-S03 | 9.2；10 | `test_pipeline_diagnose_e2e.py` / `test_uc_13_s03` | `system` | `reliability` | `failure` | 跨服务断连、报告输出；断言跨服务断连为UNKNOWN/PARTIAL；导出报告标识缺失阶段 |
-| UR-09 | UC-14-S01 | 9.4；10 | `test_commander_e2e.py` / `test_uc_14_s01` | `system` | `contract` | `normal` | 合法写入及结果查询；断言合法写入返回command_id且结果可按ID查询 |
-| UR-09 | UC-14-S02 | 9.4；10 | `test_commander_e2e.py` / `test_uc_14_s02` | `system` | `contract` | `boundary` | 参数边界、终态；断言类型/范围非法拒绝；终态SUCCESS/FAILURE可区分 |
-| UR-09 | UC-14-S03 | 9.4；10 | `test_commander_e2e.py` / `test_uc_14_s03` | `system` | `security` | `failure` | 未知受理、超时、不重试；断言受理超时无ID报告UNKNOWN，不得自动提交第二次 |
+| UR-07、UR-09 | UC-14-S01 | 9.2、9.4；10 | `test_commander_e2e.py` / `test_uc_14_s01` | `system` | `contract` | `normal` | 合法写入及结果查询；断言合法写入返回command_id且结果可按ID查询 |
+| UR-07、UR-09 | UC-14-S02 | 9.2、9.4；10 | `test_commander_e2e.py` / `test_uc_14_s02` | `system` | `contract` | `boundary` | 参数边界、终态；断言类型/范围非法拒绝；终态SUCCESS/FAILURE可区分 |
+| UR-07、UR-09 | UC-14-S03 | 9.2、9.4；10 | `test_commander_e2e.py` / `test_uc_14_s03` | `system` | `security` | `failure` | 未知受理、超时、不重试；断言受理超时无ID报告UNKNOWN，不得自动提交第二次 |
 | UR-10 | UC-15-S01 | 12.2 | `test_network_e2e.py` / `test_uc_15_s01` | `system` | `contract` | `normal` | 三命令正常操作；断言scan返回可响应IP；industrial标注端口；tcp输出OPEN/CLOSED/TIMEOUT |
 | UR-10 | UC-15-S02 | 12.2 | `test_network_e2e.py` / `test_uc_15_s02` | `system` | `contract` | `boundary` | CIDR 上限、端口范围；断言网段超过4096拒绝；端口超范围拒绝；不把NO_RESPONSE等同OFFLINE |
 | UR-10 | UC-15-S03 | 12.2 | `test_network_e2e.py` / `test_uc_15_s03` | `system` | `reliability` | `failure` | 拒绝、超时及中断；断言目标拒绝和超时分别返回；取消后子进程/Socket无遗留 |
-| UR-11 | UC-16-S01 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s01` | `system` | `contract` | `normal` | 指标、事件及发布状态；断言五服务指标窗口、事件字段可查；发布状态单独可查 |
-| UR-11 | UC-16-S02 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s02` | `system` | `contract` | `boundary` | 时间窗口、分页；断言窗口分页有界，空结果合法且不伪造记录 |
-| UR-11 | UC-16-S03 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s03` | `system` | `reliability` | `failure` | 空结果、拒绝、断连；断言未授权退出2；断连退出3；局部失败可定位 |
+| UR-07、UR-11 | UC-16-S01 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s01` | `system` | `contract` | `normal` | 指标、事件及发布状态；断言五服务指标窗口、事件字段可查；发布状态单独可查 |
+| UR-07、UR-11 | UC-16-S02 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s02` | `system` | `contract` | `boundary` | 时间窗口、分页；断言窗口分页有界，空结果合法且不伪造记录 |
+| UR-07、UR-11 | UC-16-S03 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s03` | `system` | `reliability` | `failure` | 空结果、拒绝、断连；断言未授权退出2；断连退出3；局部失败可定位 |
 
 ## 14.3 技术约束补充 System Test
 
@@ -2610,8 +2575,12 @@ flowchart TD
 | `test_mtls_permissions_e2e.py` | system | security | real_service | 9.1、13：mTLS、越权、身份与审计边界 |
 | `test_timeout_unknown_e2e.py` | system | reliability | timeout | 6.4、9.1：RPC 超时不推断远端副作用、不盲目重发 |
 | `test_config_apply_partial_e2e.py` | system | reliability | partial | 9.2：文件提交与运行生效分别返回，部分成功退出码 4 |
-| `test_poll_load_e2e.py` | system | performance | polling | 6.3、12.3：慢响应不重入、请求有界、无积压 |
-| `test_runtime_cleanup_e2e.py` | system | reliability | recovery | 9.8、13：异常退出后无错误目标清理及进程误杀 |
+| `test_gateway_variable_update_real.py` | system | contract | real_service | 9.3：真实 CLI→Gateway 变量发现→ClaimTargets→UpdateVariables→Release→读回闭环（Data Generator→Gateway 链路归 Contracts/Generator 验收）；请求顺序、部分成功、写权限隔离、拒绝控制转发、未知结果不重试 |
+| `test_gateway_lease_cli_e2e.py` | system | reliability | fencing | 9.3：真实 CLI 仅在独立 owner 授权存在时申请租约；无授权必须拒绝，验证租约获取拒绝、过期/错误 owner、释放失败以及断连后的未知状态；不得绕过租约更新 |
+| `test_poll_load_e2e.py` | system | performance | polling | 6.3、12.3：Collector/Gateway/状态监视慢响应均不重入、请求有界、无积压 |
+| `test_cross_module_monitor_e2e.py` | system | contract | real_service | UR-07、UC-08：Collector 样本、Gateway 内存变量、Commander/Sink/Generator 业务状态的真实 Unary 轮询全覆盖，不存在的值读取 RPC 明确拒绝 |
+| `test_cross_module_control_e2e.py` | system | security | real_service | UR-09、UC-07/09/10/11/14：分别验证现场写入、Gateway 内部更新、Collector Task、Sink Delivery、Gateway Instance 与 Generation 启停及授权/失败/未知结果 |
+| `test_runtime_cleanup_e2e.py` | system | reliability | recovery | 10.3、13：异常退出后无错误目标清理及进程误杀 |
 
 ## 14.4 真实运行时环境及验收
 
@@ -2663,20 +2632,34 @@ lint-imports
 | 需求 | 第 4 章覆盖用例 | 命令与接口依据 | System Test 依据 |
 |---|---|---|---|
 | UR-01 | UC-01、UC-03 | Shell、help、service；10.1～10.2 | 表 14-2 UC-01/03 |
-| UR-02 | UC-02 | service；9.8 | 表 14-2 UC-02 |
+| UR-02 | UC-02 | service；10.3、11.2 | 表 14-2 UC-02 |
 | UR-03 | UC-03 | service info/status/capabilities；9.2 | 表 14-2 UC-03 |
 | UR-04 | UC-04 | config get/push/apply；9.2 | 表 14-2 UC-04 |
 | UR-05 | UC-05 | config diff；12.1 | 表 14-2 UC-05 |
-| UR-06 | UC-06、UC-07、UC-09、UC-10、UC-11 | 五服务对象管理；9.3～9.7 | 表 14-2 对应 UC |
-| UR-07 | UC-08 | collector latest/watch；9.3、12.3 | 表 14-2 UC-08 |
+| UR-06 | UC-06、UC-07、UC-09、UC-10、UC-11 | 五服务对象管理；9.2 | 表 14-2 对应 UC |
+| UR-07 | UC-08、UC-09、UC-10、UC-11、UC-14、UC-16 | collector latest/watch、gateway read/watch、各服务 status/watch；9.2、12.3 | 表 14-2 相应 UC 及表 14-3 多模块监视专项 |
 | UR-08 | UC-12、UC-13 | diagnose；9.2、10.8 | 表 14-2 UC-12/13 |
-| UR-09 | UC-14 | commander write/result；9.4 | 表 14-2 UC-14 |
+| UR-09 | UC-07、UC-09、UC-10、UC-11、UC-14 | commander write/result、gateway update、各模块 start/stop；9.2～9.4 | 表 14-2 相应 UC 及表 14-3 跨模块控制专项 |
 | UR-10 | UC-15 | net scan/industrial/tcp；12.2 | 表 14-2 UC-15 |
-| UR-11 | UC-16 | metrics/events/publishing；9.2、9.3 | 表 14-2 UC-16 |
+| UR-11 | UC-16 | metrics/events/publishing；9.2 | 表 14-2 UC-16 |
 
-## 15.2 设计状态与同步规则
+## 15.2 Contracts / Core / CLI 一致性验收
+
+<p class="table-caption">表 15-2 公共能力与接口一致性检查</p>
+
+| 检查项 | 通过条件 | 当前代码核查状态 |
+|---|---|---|
+| 6 份 Proto 的 43 个唯一 Unary RPC | 全部在 Contracts 中明确归属；CLI 对所需能力具有对应命令或说明不适用 | 契约清单已核对；CLI 全命令落地尚须测试 |
+| Gateway `UpdateVariables` | 请求携带有效 `lease_token`，遵守 `ClaimTargets` ACQUIRE/RENEW/RELEASE | **待整改**：main 中 `cli.plant_commands.gateway_update` 未携带令牌 |
+| 本地 TCP/ICMP/端口探测 | 复用 Core 公共探测原语，不重复实现网络 I/O | **待整改**：main 中 `cli.network_probe` 仍有独立实现 |
+| 配置比较 | 清楚区分文件树字节 Diff 与 Core 共享配置语义 Diff，不混淆状态 | 设计已区分；复用程度待编码核实 |
+| Core/Contracts 接口变更 | 全调用方、测试、配置、注释同步检查；静态检查及系统测试有真实证据 | NOT_RUN |
+
+该表为依据当前 `main` 源码的差异登记，不是完成代码改造的声明。需在开发阶段整改后按第 14 章测试矩阵执行验证。
+
+## 15.3 设计状态与同步规则
 
 第 4 章定义 16 项 UC，每项包含主流程、边界、异常/恢复三个规定场景（共 48 个场景标识）。第 14 章逐项提供测试归属和独立技术约束补充。所有 UC、接口、命令变更必须同步更新本追溯表和 System Test。命令、RPC 与 Proto 属于目标开发契约，不表示当前生产代码已实现或真实环境验收通过。
 
-**版本**：`CLI_软件设计_v1_0.md`。此版仅为设计修订，不代表已执行测试或提交代码。
+**版本**：`CLI_软件设计_v1_4.md`。本次统一扩展 UR-07/UR-09 为五服务监视与控制，并依据现有 Gateway `ClaimTargets` 与 `UpdateVariables(lease_token)` 调整 CLI 租约调用，Gateway 当前有 8 个专属 RPC；不重新定义契约。此版明确 Contracts 对齐、Core 复用约束和当前生产代码差异；仅修订设计，不代表 Client 已按新要求整改或通过测试。
 

@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_17 · 20261103</p>
+<p class="subtitle">v1_22 · 20261108</p>
 
 <style>
 body {
@@ -765,11 +765,37 @@ System Test 必须遵守以下规定：
 | UR-07 | 链路诊断（Diagnose） | 按阶段提供可核验证据而不破坏生产链路 | API |
 | UR-08 | gRPC 服务端实现 | 实现已冻结的 9 公共 + 4 专属 Unary RPC | API、生命周期 |
 
-首版 Sink Adapter 为 Redis Client、Modbus TCP Server、Kafka Producer；不包含 TDengine、gRPC Adapter、MQTT、IEC 104。两类消息依据 `contracts.sample_message.SampleMessage`，Realtime 经 NATS Core，Reliable 经 JetStream；不擅自改变来源消息的数据质量。
+首版 Sink Adapter 为 Redis Client、Modbus TCP Server、Kafka Producer；不包含 TDengine、gRPC Adapter、MQTT、IEC 104。当前已发布的单点契约是 `contracts.sample_message.SampleMessage`；本版双通道批量输入须先按 §10.1 升级 Contracts 并与 Collector 联调。Realtime 经 NATS Core、Reliable 经 JetStream，质量标志不得被改变。
 
 ### 3.1.1 首版派发负载与验收基准
 
-本版性能验收负载为：**同时运行不少于 20 个 Sink 实例，每个 Sink 按可配置触发方式（消息、周期或变化与周期保底）输出；周期型输出须支持 10 Hz、每批 500 个 `float32` 测点值。** 验收负载总计 200 批/s 和 100000 个数值/s，裸 `float32` 值载荷约 400000 B/s，不含消息封装与协议开销。该指标是**验收目标，尚未经实际压力测试证明**，不同 Adapter 以及端到端性能分别测试，不允许以单一 Redis 结果推定全部目标协议达标。若目标协议无法表达批处理，必须在验收报告中明确其映射的写入操作数和限制，而不隐含承诺网络单报文支持 500 点。
+**参考负载**为单个 Sink Service 容器实例（Main + Realtime + Reliable 三个独立 asyncio 进程）同时处理 30 台风机、两条通道均为 10 Hz 的批量输入与批量转发。此负载用于容量标定，不是固定的合并吞吐门槛；单实例实际稳定容量必须独立测量，不得用多容器聚合吞吐替代。
+
+<p class="table-caption">表 3-1a 单实例双通道共载参考性能目标</p>
+
+| 指标 | Realtime | Reliable | 单实例合计 |
+|---|---:|---:|---:|
+| 风机数 | 30 台 | 30 台（同一组） | 30 台 |
+| 每台、每周期变量数 | 100 | 500 | 600 |
+| 每台更新/派发频率 | 10 Hz | 10 Hz | 两通道同时 10 Hz |
+| 上游批量消息数（每台每通道每周期一批） | 300 批/s | 300 批/s | **600 输入批/s** |
+| 输入变量数 | 30000 值/s | 150000 值/s | **180000 值/s** |
+| 完整有效负载对应的目标成功变量数 | 30000 值/s | 150000 值/s | **180000 值/s** |
+| 优先采用的稳定测量窗口 | 600 s | 600 s | 600 s |
+
+**计数边界：** 600 批/s 是假定每台风机每通道每周期恰好一条批量消息时的**上游输入批次**，不等于下游 Adapter 写入批次数。输入批次可按多个 Delivery 扇出，目标能力也可能导致拆批；按每通道各一份预期输出的参考拓扑计数时，参考确认值吞吐为 180000 值/s，有额外扇出时应分别记录附加的目标写入工作量。区分 offered（发布）、received（已接收）、accepted（校验后有效）、delivered（目标明确确认）、dropped（合法策略丢弃）和 target batches（下游写入批次），不得混算。Realtime 的合法覆盖须独立统计，不得以 dropped 或 offered 冒充 delivered；参考负载测量须提供满足时效的批次、足够 TTL 和可确认目标，控制输入相位以验证实际输出频率。
+
+**输入契约前置条件：** 正式批量输入采用 `src/contracts/sample_batch.py::SampleBatch`，其 Schema、Subject、样本标识与批量上限按第 10.1 节执行；Publisher 与 Collector/Contracts/Sink 的一致性须通过独立实测。不得将单点消息数量冒充批量消息数量。
+
+**资源与适配器：** 三进程分别使用独立事件循环，Main 不参与采样解码与目标批写；Realtime、Reliable 必须同容器同时满载。所有目标协议需逐一标明原生批量能力、拆批上限与真实确认边界；Redis、Kafka、Modbus 的全协议表现分别测试，不得由某一协议推断其他协议的吞吐能力。未实测时指标仅为待验收设计目标。
+
+### 3.1.2 性能目标成立条件
+
+- **双通道共载**：一个容器的两个数据进程同时运行；同一 30 台风机集合的实时 3000 点和可靠 15000 点持续更新。目标值类型为有效 `float32`，质量可包含 `good/bad/uncertain`，所有批次具有有效身份与时间。
+- **实时输出**：使用 `periodic` 或明确可达到每拍输出的变化数据作为基准负载；稳定测量时不能靠数据过期、重复 sample_id 或最新值覆盖减少工作量。变化触发与保底策略另作专项测试。
+- **可靠确认**：按批量消息处理，但 ACK 必须覆盖批内全部测点的终局；部分成功、重投、DLQ、故障恢复必须单独验证，不允许以写入尝试数代替目标确认值数。
+- **性能环境**：声明容器 CPU 配额、内存、Broker/目标配置、网络和 Producer 实际供数能力；独立 Publisher 须先实测持续供数上限。若未能达到 600 批/s、180000 值/s，参考满载对比标记 NOT_RUN，但仍须在实际可供负载下完成单实例稳定容量测量，不得将其结果冒充参考负载成绩。
+- **控制面**：Main 的 13 RPC 在双通道满载时仍保持可达；关键健康、状态及指标调用在配置 deadline 内完成，超时、拒绝连接和最长不可用时间全部记录。
 
 ## 3.2 UR-01 实时数据派发
 
@@ -781,7 +807,7 @@ System Test 必须遵守以下规定：
 |---|---|
 | 请求方（Requester） | NATS Core 消息生产者（Collector）；周期定时器非外部请求方 |
 | 触发方式（Trigger） | 消息：实时样本到达；周期：按 Delivery 输出/保底周期；状态：目标恢复后重试未过期最新值 |
-| 输入（Input） | SampleMessage、来源规则、有效期、Delivery 输出策略 |
+| 输入（Input） | 批量实时样本（以第 10.1 节待冻结正式契约为准）、来源规则、逐测点有效期、Delivery 输出策略 |
 | 反馈（Response） | 不逐条应答 Core 消息；通过状态、指标与事件查询派发结果 |
 | 目标方（Destination） | 已绑定的 Redis、Modbus TCP Server 或 Kafka |
 | 业务输出（Output） | 未过期的最新值及原始质量、时间、测点身份 |
@@ -839,7 +865,7 @@ $$
 
 | 约束类别 | 可验证要求 |
 |---|---|
-| 性能与容量 | 设计验收负载：至少 20 个并行 Sink，每个 10 Hz、每批 500 个 `float32`，合计至少 200 批/s、100000 值/s；不同协议分别测试，输出周期可配置，10 Hz 负载不得因内部定时分辨率被拒绝。该值为待实测目标。 |
+| 性能与容量 | 单实例 Realtime 参考负载：30 台 × 100 点/台 × 10 Hz，对应 300 输入批/s、30000 值/s；与 Reliable 共载测量，优先采用连续 600 s 稳态窗口，报告实际确认值/s、输出频率、覆盖/丢弃及参考达成率；不以参考值不足单独判 FAIL，参见 §3.1.1、§14.5.3。 |
 | 缓存与背压 | Realtime 每 Delivery 按测点去重，默认最多 10000 个最新点（与配置第 11 章一致）；满载时拒绝新增键而不驱逐已有键；已存在键覆盖。所有丢弃或拒绝计数，内存不随持续输入无限增长。 |
 | I/O 安全 | 每 Delivery 默认最多 1 个在途写入，UNKNOWN 未收敛持续占有额度；调度不重入。 |
 | 可靠性与错误 | 目标拒绝、重试、UNKNOWN 分别报告；目标质量映射缺失时在配置阶段报错。 |
@@ -855,7 +881,7 @@ $$
 |---|---|
 | 请求方（Requester） | JetStream durable Consumer（自动消息投递），没有人工请求方 |
 | 触发方式（Trigger） | 消息：JetStream 投递；状态：目标恢复、Consumer 恢复、退避期限到达 |
-| 输入（Input） | 持久化 SampleMessage、Delivery 来源条件、JetStream 元数据 |
+| 输入（Input） | JetStream 持久化批量历史消息、逐测点来源条件、批次及原始消息身份 |
 | 反馈（Response） | ACK/NAK/InProgress 等确认行为；状态、指标及错误可查询 |
 | 目标方（Destination） | 可靠目标 Sink；永久错误的 DLQ Stream |
 | 业务输出（Output） | 历史原始样本；必要时输出带错误和源标识的死信 |
@@ -903,7 +929,7 @@ flowchart TD
 | 约束类别 | 可验证要求 |
 |---|---|
 | 可靠性 | 原消息在目标明确成功或 DLQ 获持久 PubAck 前 ACK 次数必须为 0；故障重试无限时仍受 Broker 保留容量和期限约束，不保证无限保存。 |
-| 背压 | 每 Delivery 默认并发写入 1；历史补发不得使用被实时派发占用的目标额度；实际消费批次、ACK pending 和补发速率均不得突破第 11 章配置值，超限时暂停拉取而不是丢弃可靠数据。 |
+| 背压与性能 | 单实例 Reliable 参考负载：30 台 × 500 点/台 × 10 Hz，对应 300 输入批/s、150000 值/s；与 Realtime 共载测量，优先采用连续 600 s 稳态窗口，报告实际目标确认值/s、积压增长率和参考达成率；参考值不足不单独判 FAIL，超出实测稳定能力的持续输入不得宣称可长期稳定运行。每 Delivery 默认逻辑写入并发 1；实际 ACK pending 和重放速率不得突破配置值，超限时暂停拉取而非丢弃可靠数据。 |
 | I/O | UNKNOWN 安全收敛之前释放底层操作所有权的次数必须为 0。 |
 | 审计 | DLQ 记录源消息 ID、原因、发生时刻及可查位置，脱敏。 |
 
@@ -919,7 +945,7 @@ flowchart TD
 | 触发方式（Trigger） | API：StartDelivery/StopDelivery；生命周期：启动加载；状态：Watchdog 恢复 START |
 | 输入（Input） | delivery_id、expected_revision、持久化期望状态 |
 | 反馈（Response） | OperationResult 的受理、期望状态、实际状态、版本和错误 |
-| 目标方（Destination） | 所属进程的 Delivery 与共享 Sink |
+| 目标方（Destination） | Main 配置管理及相应 Realtime/Reliable 子进程的 Delivery 与 Sink |
 | 业务输出（Output） | 启动或停止该 Delivery 的派发行为 |
 
 ### 3.4.2 业务流程
@@ -930,11 +956,11 @@ flowchart TD
  A[/"启停请求 / 进程恢复信号"/] --> B{"身份、Delivery、版本合法?"}
  B -->|否| X["拒绝并返回错误/冲突"]
  B -->|是| C{"请求期望状态"}
- C -->|START| D["持久化 START 后取得 Sink 引用"]
+ C -->|START| D["Main 持久化 START 并经 IPC 通知子进程取得 Sink 引用"]
  D --> E{"初始化与消费成功?"}
  E -->|是| J["返回期望与实际 RUNNING"]
  E -->|否| F["保留期望 START，报告 FAILED/DEGRADED"]
- C -->|STOP| G["持久化 STOP 并停止新消费"]
+ C -->|STOP| G["Main 持久化 STOP 并经 IPC 通知子进程停止新消费"]
  G --> H{"在途 I/O 安全收敛?"}
  H -->|否| I["返回 STOPPING/未收敛"]
  H -->|是| K["释放引用，必要时关闭共享 Sink"]
@@ -945,9 +971,11 @@ flowchart TD
 
 ### 3.4.3 业务规则
 
-**R03-01 状态模型。** 区分持久 `desired_state`（START/STOP）与实际 `runtime_state`（初始化、运行、退化、停止中、停止、失败）；两者不得互相代替，Stop 只在安全收敛后返回实际 STOPPED。
+**R03-01 状态模型。** Main 通过有界 IPC 执行启动和停止、核对子进程实际状态；IPC 超时只能报告尚未收敛。区分持久 `desired_state`（START/STOP）与实际 `runtime_state`（初始化、运行、退化、停止中、停止、失败）；两者不得互相代替，Stop 只在安全收敛后返回实际 STOPPED。
 
 **R03-02 共享资源所有权。** 共享 Sink 以稳定身份键管理引用；最后一个 Delivery 引用释放且 I/O 已安全收敛后才可关闭目标连接；正在进行的操作不能因上层取消失去所有权。
+
+**R03-03 静态归属。** CLI/Web UI 在部署前将完整 Delivery 及其 Sink 引用分配到指定配置域。实例仅执行本地显式配置中的 Delivery，不需要知道其他实例数量及拓扑。任何时刻同一 Delivery 及可能冲突的物理 Sink 只能有一个活动写入所有者；跨实例转移须先停止旧所有者、确认底层 I/O 安全结束，再提交并启动新所有者。无法确认安全结束时拒绝切换，不能通过重新启动冒险接管。
 
 
 ### 3.4.4 关键约束
@@ -1154,7 +1182,7 @@ flowchart TD
 
 | 约束类别 | 可验证要求 |
 |---|---|
-| 性能与容量 | 设计验收目标：单次最多 500 条事件，查询返回体上限 2 MiB，局部服务查询 P99 不高于 200 ms（每秒 20 并发请求，20 Sink 运行条件）；超限返回明确参数错误；验收目标尚未实测。 |
+| 性能与容量 | 设计验收目标：单次最多 500 条事件，查询返回体上限 2 MiB，局部服务查询 P99 不高于 200 ms（每秒 20 并发请求，单实例两通道按 §3.1.1 同时满载）；超限返回明确参数错误；验收目标尚未实测。 |
 | 安全 | 认证和对象级授权；查询不执行脱敏处理，返回字段依正式查询契约和权限决定。未经授权的查询不得返回业务内容。 |
 | 错误 | 缺少数据、不支持窗口、对象不存在、来源不可达须可区分；不可触发目标新连接。 |
 | 审计 | 记录运维查询中需留证的敏感操作。 |
@@ -1167,11 +1195,11 @@ flowchart TD
 
 | 字段 | 内容 |
 |---|---|
-| 请求方（Requester） | 授权配置管理客户端；双进程仅静态 Writer 受理写操作 |
-| 触发方式（Trigger） | API：GetConfigSnapshot/PushConfigSnapshot/ApplyConfigSnapshot；状态：Reader 收敛；生命周期：重启加载 |
+| 请求方（Requester） | 授权 CLI/Web UI；各容器 Main 受理本域配置操作 |
+| 触发方式（Trigger） | API：GetConfigSnapshot/PushConfigSnapshot/ApplyConfigSnapshot；状态：两个数据子进程确认配置代；生命周期：重启加载 |
 | 输入（Input） | SnapshotScope、完整文件集、candidate_id、expected_revision |
 | 反馈（Response） | 快照及候选校验、文件提交、逐对象应用结果、effective_revision、restart_required |
-| 目标方（Destination） | 共享正式配置目录、Realtime/可靠进程 |
+| 目标方（Destination） | 本容器正式配置目录、Realtime/Reliable 子进程 |
 | 业务输出（Output） | 正式文件提交及受影响 Delivery/Sink 的运行配置变更 |
 
 ### 3.7.2 业务流程
@@ -1179,7 +1207,7 @@ flowchart TD
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
- A[/"配置 API 请求"/] --> B{"鉴权与 Writer 权限通过?"}
+ A[/"配置 API 请求"/] --> B{"鉴权与 Main 写入权限通过?"}
  B -->|否| X["拒绝操作"]
  B -->|是| C{"操作类型"}
  C -->|Get| G["按 Scope 返回完整快照与版本"]
@@ -1192,7 +1220,7 @@ flowchart TD
  Q -->|是| W["原子提交正式配置文件集"]
  W --> R{"包含 Service 配置变更?"}
  R -->|是| RR["报告 RESTART_REQUIRED"]
- R -->|否| H["局部热应用并通知 Reader"]
+ R -->|否| H["Main 经 IPC 将配置应用到关联子进程"]
  H --> I{"期限内各对象收敛?"}
  I -->|是| OK["返回文件提交及 APPLIED"]
  I -->|否| PART["报告逐对象 PARTIAL/失败，不伪装全成功"]
@@ -1206,6 +1234,8 @@ flowchart TD
 
 **R06-02 配置分类。** Service 配置修改需重启；Template 版本不可变；Instance 通过版本化引用热更新；服务文件、模板文件及实例文件不能混为一类。
 
+**R06-03 多实例静态配置分配。** 每个容器只有 Main 一个配置写入方、一个独立配置域。CLI/Web UI 按容器分配 Delivery/Sink，并串行处理存在资源冲突的跨域迁移；先确认旧容器停止与 I/O 收敛，再在新容器启动。各容器通过既有 Get/Push/Apply 提交本地快照，跨域操作不具备分布式原子性，不提供自动选主、调度和故障迁移。
+
 
 ### 3.7.4 关键约束
 
@@ -1213,9 +1243,10 @@ flowchart TD
 
 | 约束类别 | 可验证要求 |
 |---|---|
-| 可靠性 | 同一配置源同时生效的 Writer 数量上限 1；正式文件集必须全部提交或全部不提交；部分热生效时不得返回全成功。 |
+| 可靠性 | 单容器正式配置写入方数量上限 1（Main）；正式文件集必须全部提交或全部不提交；部分热生效时不得返回全成功。 |
 | 安全 | 路径校验、权限、秘密数据保护；审计：Push/Apply 的身份、候选 ID、版本、结果和失败原因。 |
 | I/O | 不强制取消旧版本未结束写入。 |
+| 多实例 | 单容器 Main 写入入口同时最多 1 个；部署平台跨配置域校验 Delivery、Sink 目标与监听端口归属。未确认旧实例 STOPPED 和底层 I/O 收敛时，新实例允许启动冲突 Delivery 次数为 0。 |
 
 ## 3.8 UR-07 链路诊断（Diagnose）
 
@@ -1326,7 +1357,7 @@ flowchart TD
 
 # 4. 用例视图
 
-> 修订版本：v1_15。第 1～3 章保留 v1_14 原文；本轮依据 main `0dfee3bbbc864eae364fb214e447dea0a447820b` 修订第 7、11、14 章的共享配置契约。
+> 修订版本：v1_18。基于 v1_17，保留第 1～2 章原文；第 3 章仅补充本轮已确定的静态归属和多实例配置分配规则，其余章节同步校核。
 
 ## 4.1 系统上下文
 
@@ -1338,13 +1369,13 @@ flowchart LR
   C["Collector"] --> N["NATS Core / JetStream"]
   N -->|"实时样本 / 历史样本"| S
   S -->|"按 Delivery 输出"| T["Redis / Kafka / Modbus TCP"]
-  S <-->|"候选与生效配置"| F[("共享配置文件")]
+  S <-->|"候选与生效配置"| F[("本实例配置域")]
   S -->|"可靠死信"| D["JetStream DLQ"]
 ```
 
 <p class="figure-caption">图 4-1 Sink Service 系统边界与外部交互</p>
 
-用例基于第 3 章八项 UR，按外部可观察的完整业务目标组织。进程管理系统、运维 gRPC 调用方为主动参与者；NATS/JetStream 样本和故障事件是业务触发，不虚构人工参与者。每个用例的规定场景采用 `UC-xx-S01`（主流程）、`S02`（关键边界）、`S03`（异常与恢复）；同一场景涉及多种条件时，System Test 必须逐一参数化或分别验证。
+用例基于第 3 章八项 UR，按外部可观察的完整业务目标组织。多实例静态分配属于 UC-01、02、03、07、09、10 的部署和配置分支，不新增集群管理 UC，也不扩展对外 RPC。进程管理系统、运维 gRPC 调用方为主动参与者；NATS/JetStream 样本和故障事件是业务触发，不虚构人工参与者。每个用例的规定场景采用 `UC-xx-S01`（主流程）、`S02`（关键边界）、`S03`（异常与恢复）；同一场景涉及多种条件时，System Test 必须逐一参数化或分别验证。
 
 <p class="table-caption">表 4-1 用例—需求总表</p>
 
@@ -1370,11 +1401,11 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
- A["进程管理系统启动双进程"] --> B["读取服务及实例 / 模板配置"]
+ A["进程管理系统启动本部署单元已启用的进程"] --> B["读取服务及实例 / 模板配置"]
  B --> C{"版本、引用、凭据有效?"}
  C -->|否| X["失败：不可就绪并反馈错误"]
- C -->|是| D["验证独占地址和 Writer 归属"]
- D --> E{"Writer / 配置快照一致?"}
+ C -->|是| D["验证独占地址和 Main 配置归属"]
+ D --> E{"Main / 配置快照一致?"}
  E -->|否| X
  E -->|是| F["恢复 Delivery 期望状态并启动管理入口"]
  F --> G["按进程模式启动期望 START 的 Delivery"]
@@ -1390,12 +1421,12 @@ flowchart TD
 | 参与者 | 进程管理系统 |
 | 业务目标 | 首次部署启动并就绪 |
 | 前置条件 | 系统具备配置路径及 TLS 文件 |
-| 主要异常 | 配置非法、Writer 冲突、独占端口占用 |
+| 主要异常 | 配置非法、Main 配置写入冲突、独占端口占用 |
 | 后置条件 | 进程及对象的就绪状态真实可查询 |
 | 关联需求 | UR-03、UR-06、UR-08 |
-| UC-01-S01 主流程 | 启动双进程并查询就绪 |
-| UC-01-S02 关键边界 | Service 配置变化与单进程未就绪 |
-| UC-01-S03 异常与恢复 | 非法配置、Writer 冲突和进程恢复 |
+| UC-01-S01 主流程 | 启动本域已启用的 Realtime/Reliable 进程并查询就绪 |
+| UC-01-S02 关键边界 | Service 配置变化与子进程未就绪 |
+| UC-01-S03 异常与恢复 | 非法配置、Main 配置写入冲突和进程恢复 |
 
 ## 4.3 UC-02 启动 Delivery 并建立输出
 
@@ -1581,7 +1612,7 @@ flowchart TD
  E -->|否| X["拒绝候选，不改变正式配置"]
  E -->|是| F["暂存候选并返回候选标识"]
  B -->|Apply| G["按候选标识和预期版本申请生效"]
- G --> H{"Writer 提交正式文件成功?"}
+ G --> H{"Main 提交正式文件成功?"}
  H -->|否| Y["返回提交失败，保持原正式文件"]
  H -->|是| I["按受影响 Delivery 和 Sink 局部生效"]
  I --> J{"运行态均已收敛?"}
@@ -1597,13 +1628,13 @@ flowchart TD
 |---|---|
 | 参与者 | gRPC 调用方 |
 | 业务目标 | 校验、修改配置并热生效 |
-| 前置条件 | Writer 运行且配置存储可读写 |
-| 主要异常 | Reader 不可达、应用超时、版本冲突、连接未收敛 |
+| 前置条件 | Main 运行且配置存储可读写 |
+| 主要异常 | 数据子进程不可达、应用超时、版本冲突、连接未收敛 |
 | 后置条件 | 提交版本与每对象 active 版本可对账，不伪报全局成功 |
 | 关联需求 | UR-06、UR-08 |
 | UC-07-S01 主流程 | 完整配置 Get、Push、Apply 与局部热生效 |
 | UC-07-S02 关键边界 | 候选校验、版本冲突、Service 重启要求 |
-| UC-07-S03 异常与恢复 | 文件提交后应用失败、Reader 不可达与收敛查询 |
+| UC-07-S03 异常与恢复 | 文件提交后应用失败、数据子进程不可达与收敛查询 |
 
 ## 4.9 UC-08 正常停止服务
 
@@ -1690,12 +1721,12 @@ flowchart TD
 | 参与者 | 进程管理系统 |
 | 业务目标 | 异常退出后恢复和重新交付 |
 | 前置条件 | 存在已部署配置和持久意图 |
-| 主要异常 | 重投重复、Reader/Writer 不一致、旧 I/O 不明 |
+| 主要异常 | 重投重复、Main 与子进程版本不一致、旧 I/O 不明 |
 | 后置条件 | 恢复进度正确，遗留问题显式暴露 |
 | 关联需求 | UR-02、UR-03、UR-06 |
 | UC-10-S01 主流程 | 异常退出后按持久意图恢复派发 |
 | UC-10-S02 关键边界 | 可靠消息重复投递、实时缓存清空 |
-| UC-10-S03 异常与恢复 | Reader/Writer 版本不一致、旧资源冲突 |
+| UC-10-S03 异常与恢复 | Main 与子进程版本不一致、旧资源冲突 |
 
 ## 4.12 UC-11 故障隔离与目标恢复
 
@@ -1836,37 +1867,24 @@ UC-12 仅查询死信与积压证据，外部运维工具负责重放；UC-13 �
 
 # 5. 逻辑视图
 
-逻辑视图只描述组件职责和状态，不将每个模块等同于常驻 Task。Delivery 是业务执行单元；Sink 是共享目标资源；Consumer 归 Delivery 所有。两个进程不共享 Python 对象，所有配置一致性由唯一 Writer 和版本对账承担。
+逻辑视图只描述组件职责和状态，不将每个模块等同于常驻 Task。Delivery 是业务执行单元；Sink 是共享目标资源；Consumer 归 Delivery 所有。同一配置域内的 Realtime/Reliable 子进程不共享 Python 对象，配置一致性由 Main 的版本化 IPC 和子进程确认承担。不同部署单元的配置域相互独立，其资源分配由 CLI/Web UI 在部署前校验。
 
 ## 5.1 组件结构与职责
 
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TB
-  API["gRPC 接入：身份与权限"] --> CFG["配置管理"]
-  API --> DM["Delivery 管理"]
-  API --> Q["状态 / Metrics 查询"]
-  API --> DG["Diagnose 链路诊断"]
-  DG --> DM
-  DG --> Q
-  DG --> N
-  subgraph APP["应用层"]
-    DM --> D["DeliveryRuntime"]
-    D --> F["SourceFilter / OutputPolicy"]
-    D --> SM["SinkManager"]
-    SM --> SR["SinkRuntime"]
-  end
-  subgraph INF["基础设施"]
-    N["NATS / JetStream Consumer"]
-    A["三类 Sink Adapter"]
-    CS["配置存取 / 版本同步"]
-  end
-  N --> D
-  SR --> A
-  CFG --> CS
-  CFG --> DM
-  Q --> DM
-  Q --> SM
+ UI["CLI / Web UI"] --> RPC["Main：13 RPC / 鉴权"]
+ RPC --> CFG["配置快照 / Revision CAS / 审计"]
+ RPC --> CTRL["Delivery 控制 / 运行状态与指标聚合"]
+ CFG --> CTRL
+ CTRL <-->|"有界 IPC：命令、结果、状态、指标"| RT["Realtime Runtime"]
+ CTRL <-->|"有界 IPC：命令、结果、状态、指标"| RL["Reliable Runtime"]
+ N["NATS Core"] --> RT
+ J["JetStream"] --> RL
+ RT --> AT["各自进程内的 Sink Adapter"]
+ RL --> AT
+ AT --> S["外部 Sink"]
 ```
 
 <p class="figure-caption">图 5-1 Sink Service 逻辑组件结构</p>
@@ -1875,14 +1893,59 @@ flowchart TB
 
 | 组件 | 职责 | 不承担 |
 |---|---|---|
-| DeliveryRuntime | 生命周期、策略、消息处理与独立确认责任 | 目标连接建立与关闭 |
-| SinkRuntime | 持有连接、写入、并发额度、异常与安全结束证据 | NATS 消费和变化触发 |
-| SinkManager | 按目标配置和进程归属复用 SinkRuntime | 持有每 Delivery 最新值 |
-| Consumer | 订阅、取样、JetStream ACK/NAK/InProgress | 目标业务确认的推断 |
-| ConfigService | 完整校验、提交版本、受影响对象收敛与进程对账 | 数据库记录保留管理 |
-| Metrics | 只读指标/事件窗口 | 修改业务状态 |
-| Diagnose | 采集 NATS/Consumer、Delivery、Sink、Adapter 阶段证据，形成有范围的诊断结论 | 业务写入、ACK、修改 Delivery 状态、冒充目标业务确认 |
-| Adapter | 协议操作、确认粒度、资源隔离与能力声明 | 决定哪些来源样本应交付 |
+| Main / gRPC | 唯一对外 RPC、mTLS、配置快照、Delivery 管理、状态与指标聚合、诊断 | NATS 样本解码及目标业务写入 |
+| ProcessSupervisor | 创建、监控、重启/停止两个子进程；按子进程状态判定就绪 | 自动跨容器抢占 Delivery |
+| WorkerControl | 经 IPC 接收已校验的配置版本和命令，回报真实运行状态、错误及指标 | 对外 gRPC、配置文件写入 |
+| DeliveryRuntime | 本通道 Delivery 生命周期、过滤/策略、确认责任 | 跨进程共享 Adapter 对象 |
+| SinkRuntime / SinkManager | 在子进程内持有连接、共享引用、写入额度与未收敛 I/O | 跨进程 Python 对象共享 |
+| Realtime Consumer | NATS Core 订阅、解码和最新值缓存 | JetStream ACK/DLQ |
+| Reliable Consumer | JetStream 消费、ACK/NAK/InProgress、重试及 DLQ | 实时覆盖语义 |
+| Metrics / Diagnose | Main 汇总子进程真实证据；超时或断连返回 UNKNOWN/DEGRADED | 将子进程无响应解释为健康 |
+
+### 5.1.1 静态多实例逻辑边界
+
+```mermaid
+%%{init: {"flowchart": {"useMaxWidth": true}}}%%
+flowchart TB
+ UI["CLI / Web UI：人工静态分配 Delivery / Sink"]
+ N["NATS Core / JetStream"]
+ subgraph A["容器 A：独立配置域"]
+   MA["Main / 唯一 gRPC / 配置管理"]
+   RA["Realtime 子进程"]
+   LA["Reliable 子进程"]
+   MA <-->|"IPC"| RA
+   MA <-->|"IPC"| LA
+ end
+ subgraph B["容器 B：独立配置域"]
+   MB["Main / 唯一 gRPC / 配置管理"]
+   RB["Realtime 子进程"]
+   LB["Reliable 子进程"]
+   MB <-->|"IPC"| RB
+   MB <-->|"IPC"| LB
+ end
+ UI --> MA
+ UI --> MB
+ N --> RA
+ N --> LA
+ N --> RB
+ N --> LB
+ RA --> TA["A 拥有的目标 Sink"]
+ LA --> TA
+ RB --> TB["B 拥有的目标 Sink"]
+ LB --> TB
+```
+
+<p class="figure-caption">图 5-2 双容器静态分配逻辑架构</p>
+
+每个容器实例固定包含 Main、Realtime、Reliable **三个进程**，三个进程分别具有独立的 asyncio 事件循环；两种子进程均创建，但只为本通道的 `desired_state=START` Delivery 创建业务 Task。一个容器就是一个独立配置域与一个受管进程组；多容器仅通过 CLI/Web UI 分配互不冲突的 Delivery/Sink，不建立中心协调服务、选主或自动迁移。IPC 仅在同一容器内部传递管理信息，**不传输采样数据**。
+
+### 5.1.2 批量处理组件边界
+
+每个数据进程采用**批量消息接入 → 批内逐测点校验与路由 → 按 Delivery 聚合 → Adapter 批量输出**的流水线，优先减少每测点独立解析、重复配置查找、Python 对象构造和网络往返。单批固定一次来源和版本校验；批内身份、质量、时间及 TTL 必须逐项验证，不因批处理改变原有逐点业务语义。相同来源可一次匹配对应 Delivery，随后仅将匹配测点放入其有界缓存/发送批次；不把全部风机批次广播给所有 Delivery 再逐点过滤。
+
+- **Realtime**：按点替换最新缓存；仅批内有效点参与写入，过期/冲突逐点统计；按输出策略成批提交，慢 Sink 不阻塞接收事件循环的其它 Delivery。
+- **Reliable**：消费单位为 JetStream 的**完整批量消息**；允许按目标 Adapter 上限拆为多个 I/O 子批，但必须在整条源消息的每个测点已成功确认或已持久转移到 DLQ 后才 ACK 源消息。未决点保留在 Broker 未 ACK 消息内，必要的去重/已确认进度依赖目标幂等契约；不得把仅内存中记录的部分成功当成崩溃可恢复事务。
+- **Main**：IPC 仅传已校验配置代、控制命令、状态、聚合统计和受限诊断结果；不得传递高频批量采样。进程级 CPU 并行不能取代单进程热点优化。
 
 ## 5.2 核心对象与引用关系
 
@@ -2011,101 +2074,89 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TB
-  subgraph R["realtime 进程：独立 asyncio Loop"]
-    RR["gRPC 请求协程"]
-    RC["Realtime Consumers × N"]
-    RP["每 Delivery 策略定时 Task"]
-    RS["SinkRuntime / Adapter"]
-    RW["监督与 Metrics Task"]
-    RC --> RP --> RS
-  end
-  subgraph H["reliable 进程：独立 asyncio Loop"]
-    HG["gRPC 请求协程"]
-    HC["JetStream Consumers × N"]
-    HS["SinkRuntime / Adapter"]
-    HW["监督与 Metrics Task"]
-    HC --> HS
-  end
-  N["NATS Core / JetStream"] --> RC
-  N --> HC
-  RS --> T["各类下游目标"]
-  HS --> T
-  F[("共享配置 / Writer 提交快照")] --> R
-  F --> H
+ CLI["CLI / Web UI"] --> GRPC
+ subgraph C["Sink Service 容器：一个实例 / 三个 OS 进程"]
+   subgraph M["PID 1：Main / asyncio Loop-M"]
+     GRPC["唯一 gRPC Server：13 RPC"]
+     CFG["配置 CAS / 完整快照"]
+     SUP["子进程 Supervisor / 状态汇总 / Metrics"]
+     GRPC --> CFG
+     GRPC --> SUP
+   end
+   subgraph R["子进程：Realtime / asyncio Loop-R"]
+     NC["NATS Core Subscriber"] --> RE["Realtime Delivery Tasks"] --> RA["Realtime Adapter / Sink Pool"]
+   end
+   subgraph L["子进程：Reliable / asyncio Loop-L"]
+     JC["JetStream Durable Consumer"] --> LE["Reliable Delivery Tasks"] --> LA["Reliable Adapter / Sink Pool"]
+   end
+   SUP <-->|"有界 IPC"| RE
+   SUP <-->|"有界 IPC"| LE
+ end
+ NATS["NATS Core"] --> NC
+ JS["JetStream"] --> JC
+ RA --> T["Sink 目标"]
+ LA --> T
 ```
 
-<p class="figure-caption">图 6-1 双进程、Event Loop 与执行资源</p>
+<p class="figure-caption">图 6-1 单容器三进程及各自独立事件循环</p>
 
-<p class="table-caption">表 6-1 执行单元、所有者及退出条件</p>
+**进程边界。** Main 是容器 PID 1，负责创建、监控和回收两个子进程；仅 Main 监听外部 gRPC，两个子进程不开放 gRPC 服务或配置写接口。Realtime、Reliable 进程独立运行 asyncio，互不共享缓存、连接、Semaphore 或 Python 对象。单容器始终是三进程；没有对应 START Delivery 时，子进程保持轻量空闲，不建立无用订阅或目标连接。扩容只增加相同形态的容器实例，实例不判断自身是否处于多实例部署。
 
-| 执行单元 | 方式 | 所有者 | 终止及资源约束 |
-|---|---|---|---|
-| gRPC 调用 | 按请求协程 | gRPC Server | 请求取消不回滚已提交的期望状态 |
-| 实时消息接收 | 每 Delivery 一个订阅/回调 | DeliveryRuntime | Stop 后关闭订阅并停止新交付 |
-| 输出周期任务 | 有策略时按 Delivery 常驻 | DeliveryRuntime | 定时器退出与缓存清理不得冒充 Sink 写入取消 |
-| 可靠消费 | 每 Delivery 单一处理执行序列 | DeliveryRuntime | 不跨重建与旧 I/O 形成第二个冲突在途 |
-| Sink 连接与 I/O | 普通共享对象与有界调用 | SinkRuntime | 未安全结束的底层 I/O 保留额度 |
-| 配置同步 | Reader 监督 Task | ProcessRuntime | 按版本对账，停机停止拉取新候选 |
-| 阻塞 SDK | 必要时有界线程池 | SinkRuntime | 工作线程未退出不能释放其所持连接 |
-| Metrics 与恢复 | 监督 Task | ProcessRuntime | 仅 desired START 允许自动恢复 |
+**IPC 最小契约。** Main 经容器内 Unix Domain Socket（或等价双向本地进程通道）发送带 `request_id`（仅内部 IPC 标识）、`generation`、`delivery_id` 的 START/STOP、APPLY、GET_STATUS、GET_METRICS、DIAGNOSE 和 SHUTDOWN 命令；子进程返回实际状态、运行版本、错误、有限大小的诊断/指标记录。IPC 帧必须有类型、长度上限、超时和关联请求标识；控制命令不得在 IPC 中夹带原始高频 SampleMessage。Main 对每个子进程只允许一个配置应用序列，允许彼此独立的只读查询。IPC 的内部 request_id 不改变任何外部 Proto 字段。
+
+**性能隔离边界。** 每个进程各自事件循环，数据面不直接阻塞 Main 的事件循环；但共享容器 CPU 配额，满载 gRPC 的可用性仍须实测。Main 的 IPC 等待不得阻塞 asyncio 循环；超时返回 UNKNOWN/PENDING，不得把超时解释为未执行。
+
+<p class="table-caption">表 6-1 执行单元、所有者与退出条件</p>
+
+| 执行单元 | 所在进程 | 资源所有者与约束 |
+|---|---|---|
+| gRPC 请求、配置提交、指标聚合 | Main | 仅 Main 对外监听；请求超时仍保留有副作用命令的收敛跟踪 |
+| 进程启动、停止、重启及 IPC | Main | Supervisor 管理两个子进程；绝不依赖子进程自动写配置 |
+| NATS 订阅与消息回调 | Realtime | 只订阅归属本实例的来源；全部 Delivery 停止后关闭相关订阅 |
+| 最新值缓存、调度 | Realtime | 每 Delivery 有界、串行，按 §10.2 保留质量、TTL 与版本语义 |
+| JetStream Durable 消费、ACK/DLQ | Reliable | 每 Delivery 消费串行，持久身份稳定；不因 IPC 断连提前 ACK |
+| Sink 连接与在途 I/O | 所属数据子进程 | 仅所有者释放资源；未收敛 I/O 不能因 Main 超时取消而视作已释放 |
+| 统计、诊断原始记录 | 各子进程 | 产生真实证据并有界上报 Main；断连时旧快照标为不新鲜 |
 
 ## 6.2 运行生命周期
 
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
-  A["进程启动"] --> B["读取完整配置快照与进程归属"]
-  B --> C{"结构、引用、权限、独占端口合法?"}
-  C -->|否| X["NOT_READY：报告失败"]
-  C -->|是| D["恢复持久化 desired_state"]
-  D --> E["初始化 gRPC、NATS、监督"]
-  E --> F["仅拉起归属本进程且 desired START 的 Delivery"]
-  F --> G{"全部所需交付可运行?"}
-  G -->|是| H["READY"]
-  G -->|否| I["DEGRADED：保留管理入口和恢复监督"]
+ A["容器启动 Main / 读取完整配置"] --> B{"快照、引用、安全配置合法?"}
+ B -->|否| X["启动失败：NOT_READY"]
+ B -->|是| C["Main 建立 gRPC 及本地 IPC"]
+ C --> D["分别创建 Realtime、Reliable 子进程"]
+ D --> E["对子进程发送已验证的配置代和本通道 Delivery 集合"]
+ E --> F["子进程仅启动期望 START 的 Delivery Tasks"]
+ F --> G{"两个子进程均已确认当前代和就绪?"}
+ G -->|否| H["DEGRADED：保留 Main gRPC，监督重试"]
+ G -->|是| I["READY：可查询状态、指标和诊断"]
 ```
 
-<p class="figure-caption">图 6-2 启动、就绪及故障降级</p>
+<p class="figure-caption">图 6-2 Main 统一启动与子进程就绪判定</p>
 
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
-  A["系统请求关闭"] --> B["拒绝新配置写入与新消费"]
-  B --> C["停止各 Delivery 消费入口"]
-  C --> D["等待在途 I/O 真实结束 / 可信隔离"]
-  D --> E{"在关闭期限前安全?"}
-  E -->|否| X["报告未收敛并保持必要资源保护"]
-  E -->|是| F["已确认历史写入才 ACK；其他保留重投"]
-  F --> G["释放引用并关闭 Sink"]
-  G --> H["关闭 NATS / gRPC 并退出"]
+ A["Main 收到容器终止信号"] --> B["停止受理新配置与 START"]
+ B --> C["IPC 通知 Realtime/Reliable 停止消费"]
+ C --> D["各子进程等待自身在途 I/O 安全收敛"]
+ D --> E{"两个子进程均确认安全停止?"}
+ E -->|是| F["释放 Adapter、连接与订阅"]
+ F --> G["Main 回收子进程并关闭 gRPC"]
+ E -->|否| H["报告未收敛；停止超时不可冒充安全释放"]
 ```
 
-<p class="figure-caption">图 6-3 服务优雅关闭与底层 I/O 保护</p>
+<p class="figure-caption">图 6-3 三进程优雅关闭</p>
 
-```mermaid
-%%{init: {"sequence": {"useMaxWidth": true}}}%%
-sequenceDiagram
- participant C as 管理客户端
- participant W as 唯一 Writer
- participant D as DeliveryRuntime
- participant S as SinkRuntime
- participant R as 恢复监督
- C->>W: StopDelivery(id, expected_revision)
- W->>W: 持久化 STOP
- W->>D: 收敛 STOP
- par 正常停止
-  D->>S: 等待在途安全结束并释放引用
- and 自动恢复触发
-  R->>W: 读取最新 desired 状态
-  W-->>R: STOP
-  R->>R: 禁止重连此 Delivery
- end
- D-->>C: 当前状态 / 未收敛信息
-```
+**停止与重启。** Main 监督两个子进程，异常退出时仅重建故障角色；重建进程必须从 Main 获取最新**已提交**配置代、持久期望状态，禁止重建 STOP Delivery。进程崩溃后旧 OS 进程已实际终止，重新绑定前仍须核对目标端口/租约、JetStream Durable 及外部副作用不确定性；Reliable 仅凭 Broker 未 ACK 消息恢复。若旧子进程还活着但失去 IPC，Main 不得并行启动第二个同角色消费者，必须先确认旧 PID 终止及可能的资源隔离。
 
-<p class="figure-caption">图 6-4 Delivery Stop 与 Watchdog 重连竞争</p>
+**命令收敛。** Main 先持久化 START/STOP 期望状态，再下发带版本的 IPC；子进程只执行当前/更高有效代的命令，拒绝旧代重放，返回真实运行态。IPC 超时或子进程重启期间，外部 RPC 只可返回已受理及 UNKNOWN/PENDING，不得报告实际 RUNNING/STOPPED，直到具备子进程证据。正常关闭请求不得删除已提交的 START/STOP 意图。
 
 ## 6.3 并发、额度、背压与缓存
+
+**容量标定边界：** 单实例双通道 180000 确认值/s（Realtime 30000、Reliable 150000）是参考目标，而非固定门槛；按每台每拍一批计，参考输入为 Realtime 与 Reliable 各 300 批/s。验收必须报告同一容器三进程共载的实际最高稳定确认吞吐、确认边界、积压趋势与资源约束，不以多容器聚合结果替代。每数据进程必须优化批次级解码、批内校验/路由和批量写入；记录每批平均点数、分发系数、事件循环延迟及每进程 CPU。Realtime 目标工作集至少 3000 个活跃点，Reliable 的 15000 点/周期不能被误作为无界本地待 ACK 缓存；路由缓存容量应与实际身份集合和匹配关系匹配，禁止 8192 固定阈值引发的周期性全表清空。每个进程的 `max_inflight_global` 仅约束该进程，跨进程共享目标额度仍按 §6.3.1 校验。Publisher 供数不足时 Gate-5 参考满载对比记 NOT_RUN；低于参考负载的独立容量标定仍须如实记录，不以聚合多容器数据补足。
 
 补发属于 Reliable 进程内部低优先级工作负载，资源边界按第 10.3.2 节执行。Realtime 与 Reliable 分属独立进程，但共享物理 Kafka/Redis 目标时必须使用可实际验证的目标侧配额或连接隔离；跨进程的独立本地 `max_inflight_global` 不构成全局共享额度。并发上限取 Adapter 安全能力和所有适用配置上限的最小值；单 Delivery 默认串行，底层 I/O 未收敛持续占额度。
 
@@ -2151,6 +2202,20 @@ Realtime 与 Reliable 默认分别运行于不同进程，因此**进程内 Sema
 
 Reliable 补发仅使用已核实的剩余容量，不能抢占正在执行的实时 I/O；优先级不等同于 JetStream durable Consumer 内可任意跳过旧序列。补发等待过长必须生成饥饿事件。性能测试应同时施加实时负载与历史补发，分别测量目标负载及实时延迟。
 
+### 6.3.2 单实例性能热路径与背压
+
+| 环节 | 设计要求 | 容量耗尽/故障行为 |
+|---|---|---|
+| 批量订阅 | 一条消息一次解码、版本和整体长度校验；按来源缩小订阅范围 | 非法批次分通道处理：实时拒绝，可靠按 §10.3 判定 DLQ，不在事件循环无界积压 |
+| 批内路由 | 来源索引先筛选 Delivery；批内测点按过滤规则一次迭代分配 | 非匹配测点不计为目标业务失败；非法测点按消息契约处理 |
+| Realtime 缓存 | 有界最新值表；按设备/点索引覆盖；写前复核 TTL | 允许覆盖和过期丢弃，但必须统计，不能误记 delivered |
+| Reliable 消费 | 有界拉取批次、在途源消息数和源批次字节预算 | 暂停拉取，保留 Broker 未确认消息；不能覆盖已排队可靠点 |
+| Adapter | 按目标支持的原生批量写入；上限不足时拆批 | 子批独立确认、源消息整体完成后 ACK；未决不得释放 I/O 所有权 |
+| 调度与隔离 | 两个数据进程分别运行 asyncio；每 Delivery 默认串行，设备间/Delivery 间并发受限 | 不允许长同步 CPU 工作或日志阻塞自身事件循环；定量记录循环延迟 |
+| Main | 只处理配置、13 RPC、IPC 和指标汇总 | 子进程饱和时保持可查询；IPC 超时不能虚报执行结果 |
+
+不预先承诺具体 CPU 核数或生产部署内存值；验收必须以真实容器配额与 CPU 亲和性记录实测资源预算。若单实例达不到目标，先依据分段测量（Producer、Broker、解码、路由、缓存、调度、Adapter、确认）定位并优化，不允许擅自将目标改为多个实例合计。
+
 ## 6.4 异常、崩溃与恢复
 
 ```mermaid
@@ -2173,19 +2238,19 @@ flowchart TD
 
 | 故障 | 受影响范围 | 必须行为 |
 |---|---|---|
-| 实时进程崩溃 | 仅实时 | 历史独立运行；实时缓存重启为空 |
+| 单个实时实例崩溃 | 该实例负责的 Delivery/Sink | 其它实例保持运行；实时缓存重启为空；不自动转移所有权 |
 | 历史进程崩溃 | 仅历史 | JetStream 保留消息，原 durable 继续 |
 | NATS 断连 | 本进程订阅 | 标记不可用、按期望状态重订阅 |
 | 单目标断连 | 引用该 Sink 的 Delivery | 共用连接监督重建，不影响其它 Sink |
-| Writer 崩溃 | 配置写入/管理 | Reader 只读继续旧生效配置；无选举接管 |
-| Reader 崩溃 | 该模式交付 | Writer 保留已提交版本并报告 Reader 未确认 |
+| Main 崩溃 | 本容器管理与两个子进程 | 容器停止整个进程组，禁止孤儿继续写入；重启时恢复本域已提交配置；其它容器不接管 |
+| Realtime/Reliable 子进程崩溃 | 对应通道 Delivery | Main 保留已提交版本、标记子进程未收敛，确认旧 PID 终止后按期望状态恢复 |
 | 旧 I/O 不明 | 冲突 Sink 资源 | 保留额度和隔离限制 |
 | 配置热更失败 | 受影响对象 | 逐对象 APPLY_FAILED；其它独立生效 |
 | DLQ 不可用 | 相关历史 Delivery | 不 ACK 原消息，退避并告警 |
 
 # 7. 开发视图
 
-本章只规定目标模块及依赖。按 D38 使用 Domain / Application / Infrastructure；没有独立职责的类不强制分立。Clean Rewrite 不保留旧 `StartSink/StopSink/ClearSink` 控制兼容层。最新 main 中共享配置由 `core.infrastructure.config.shared_documents`、`shared_snapshot`、`versioned_templates` 提供，Sink 复用其服务无关解析结果；Sink 自有配置仓储继续负责 Writer CAS、不可变版本与原子配置代。
+本章只规定目标模块及依赖。按 D38 使用 Domain / Application / Infrastructure；没有独立职责的类不强制分立。Clean Rewrite 不保留旧 `StartSink/StopSink/ClearSink` 控制兼容层。最新 main 中共享配置由 `core.infrastructure.config.shared_documents`、`shared_snapshot`、`versioned_templates` 提供，Sink 复用其服务无关解析结果；Sink 自有配置仓储继续负责 Main 的 revision CAS、不可变版本与原子配置代。
 
 ## 7.1 目标代码结构
 
@@ -2231,12 +2296,12 @@ src/
 | domain/policy.py | 三种实时输出与质量判定 | unit/test_output_policy.py |
 | application/delivery_runtime.py | 独立 Consumer、历史 ACK 与实时策略 | component/test_delivery_runtime.py |
 | application/sink_runtime.py | 共享连接、并发、阻塞与确认 | component/test_sink_runtime.py |
-| application/config.py | 配置生效、Writer/Reader 对账 | component/test_config.py |
+| application/config.py | Main 管理候选、提交和子进程配置代对账 | component/test_config.py |
 | infrastructure/nats_consumer.py | NATS / JetStream API、重投、死信 | integration/test_jetstream.py |
 | infrastructure/config_repository.py | 原子写入、版本、意图恢复 | integration/test_config_repository.py |
 | infrastructure/grpc_server.py | 按外部正式 proto 实现 Server、身份与权限 | integration/test_grpc.py |
 | infrastructure/adapters/* | 三类目标写入与能力确认 | integration/test_adapters.py |
-| application/runtime.py | 双进程启停与故障监督 | system/test_lifecycle.py |
+| application/runtime.py | Main 监督两个子进程、IPC 与收敛 | system/test_lifecycle.py |
 
 ## 7.3 模块依赖
 
@@ -2267,45 +2332,64 @@ Core 提供可复用的 `validate_document_version`、`VersionedTemplateReposito
 
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
-flowchart LR
-  C["Collector"] --> N["NATS / JetStream"]
-  subgraph HOST["同容器或不同容器 / 节点"]
-    RT["Sink Service：realtime"]
-    HIS["Sink Service：reliable"]
-    CFG[("共享一致配置快照")]
-    RT <-->|"单 Writer / 状态查询"| CFG
-    HIS <-->|"只读对账"| CFG
-  end
-  N --> RT
-  N --> HIS
-  RT --> T["目标系统"]
-  HIS --> T
-  G["gRPC 管理客户端"] --> RT
-  G --> HIS
+flowchart TB
+ UI["CLI / Web UI：静态分配配置"]
+ N["NATS Core / JetStream"]
+ subgraph A["容器 A / 独立配置域"]
+   MA["Main + gRPC"]
+   RA["Realtime 子进程"]
+   LA["Reliable 子进程"]
+   MA <-->|"IPC"| RA
+   MA <-->|"IPC"| LA
+ end
+ subgraph B["容器 B / 独立配置域"]
+   MB["Main + gRPC"]
+   RB["Realtime 子进程"]
+   LB["Reliable 子进程"]
+   MB <-->|"IPC"| RB
+   MB <-->|"IPC"| LB
+ end
+ UI --> MA
+ UI --> MB
+ N --> RA
+ N --> LA
+ N --> RB
+ N --> LB
+ RA --> SA["A 分配的 Sink"]
+ LA --> SA
+ RB --> SB["B 分配的 Sink"]
+ LB --> SB
 ```
 
-<p class="figure-caption">图 8-1 实时/可靠双进程与部署依赖</p>
+<p class="figure-caption">图 8-1 单容器三进程及静态水平扩容部署视图</p>
+
+一个容器对应一个 Sink Service 实例，内部固定 Main、Realtime、Reliable 三个 OS 进程，每个进程各有独立 asyncio 事件循环。容器对外只暴露 Main 的一个 gRPC 端点；两个数据子进程只使用容器内部 IPC，不能直接被外部配置或 RPC 调用。容器之间不共享 IPC、进程内存或 Adapter 连接。各容器配置域独立、持久 `CURRENT` 独立，使用相同镜像和配置 Schema。
 
 <p class="table-caption">表 8-1 物理部署与故障域</p>
 
-| 对象 | 部署要求 | 失败影响 |
+| 对象 | 部署要求 | 故障影响 |
 |---|---|---|
-| realtime 进程 | 独立 PID、独立 gRPC 端口、只持有 realtime Delivery | 仅实时派发受影响 |
-| reliable 进程 | 独立 PID、独立 gRPC 端口、独立 durable 消费身份 | 仅历史派发受影响 |
-| 共享配置 | 文件内容发布原子、版本可比较；跨容器必须确保同一一致可见存储 | Reader 版本无法确认时不可宣称 APPLIED |
-| 唯一 Writer | Service 配置静态指定一个 writer 角色；另一个只读 | Writer 故障不自动切换角色 |
-| 独占端口 | Modbus TCP Server 等监听地址/端口只能归单进程 | 冲突拒绝配置或不就绪 |
-| NATS/JetStream | 稳定 stream/subject 与 durable 命名、消息保留容量配置 | Broker 保留边界外不能保证历史样本不丢 |
-| gRPC mTLS | 真实客户端证书身份和最小授权 | 认证失败拒绝管理操作 |
-| 目标存储 | 由目标方提供留存、清理、容量、备份及幂等保证 | Sink Service 不管理目标存储生命周期 |
+| Sink Service 容器 | 一个 Main + 两个子进程；一个 gRPC 端点 | 该实例全部交付；其它容器不受直接影响 |
+| Main | 容器 PID 1，持有配置权威与 IPC 监督 | Main 退出导致容器重启，不允许孤儿子进程继续对外写入 |
+| Realtime | 独立事件循环，按当前配置启动 Delivery Tasks | 只影响实时交付，Main 和 Reliable 保持可达 |
+| Reliable | 独立事件循环，按当前配置启动 Durable Tasks | 只影响可靠交付；未 ACK 消息保留 |
+| 配置域 | 每容器独立一个 `CURRENT` 和唯一配置提交者 Main | 其它配置域不可自动接管 |
+| NATS/JetStream | 源过滤、Durable 身份与目标所有权按本地分配 | Broker 不承担静态分配协调 |
+| gRPC/mTLS | 每容器一个可达 Main 端点 | Main 满载可用性必须实测，不能仅凭进程隔离推定 |
+
+**容器生命周期。** Main 处理 SIGTERM，向两子进程下发受控停止命令、等待 I/O 收敛、关闭连接与进程，最后退出。容器终止期限必须大于配置的停止宽限；超时被强制杀死不等于业务副作用已经被证明不存在，恢复时按 §10 的不确定结果语义处理。禁止借助多个容器模拟实例内三进程，也不新增容器级集群服务。
 
 ## 8.2 部署身份与重建约束
 
-`deployment_id`、`wind_farm_id`、`process_role`、`delivery_id` 必须联合确定唯一消费归属。一个历史 Delivery 的 durable 名称须在重启前后保持稳定，不得因随机 `boot_id` 改变。配置 Writer 的实际存储位置是部署强约束；跨主机普通本地文件不构成共享配置。Modbus Sink 是 TCP **Server**，只更新服务内可读寄存器数据区并监听主站读取，不主动向 PLC 下发指令。
+`deployment_id` 与 `service_id` 标识单个容器实例；Main 分配固定子进程角色 `realtime`、`reliable`，角色不代表配置写入权限。`delivery_id` 与物理 Sink 所有权由本实例的正式配置决定，迁移前后 Delivery 业务身份不变，Reliable durable 不得双主消费。
+
+CLI/Web UI 管理各容器独立完整快照，涉及冲突资源的跨容器静态分配须由管理端串行执行并检查同一 Delivery、物理 Sink、Modbus 监听端口冲突。迁移时旧实例持久 STOP，确认子进程实际 STOPPED、I/O 安全收敛，再移除旧归属并把相同 Delivery 配置加入新实例，最后新实例 START。任一步不确定，新实例不得抢占；跨域变更不是原子事务，也没有自动故障迁移、集群发现、选主或动态均衡。
+
+首次启动、容器重建和工作进程重启均由 Main 恢复本域最新已提交配置与持久期望状态。各容器拥有独立持久 `config_root`；相同容器内三个进程只读使用 Main 提供的配置代，不得同时写入 `CURRENT`。网络订阅按本实例实际来源尽量缩小范围，相同来源被多个实例消费时可能重复解码，必须在容量报告中如实计算。
 
 # 9. gRPC Server 实现
 
-本章以重新查询的 GitHub `luoshaozhuo/wind-hub` 的 `main` 提交 `bf9dc6d2815a62b77a5e9868b3c6e8e35b3a492c` 的 `src/contracts/common.proto`、`src/contracts/sink_service.proto` 为唯一权威接口定义。本模块仅实现 Server；Proto 的字段号、类型及 RPC 名称不得在本模块内重新定义。当前契约为 **公共 `CommonService` 9 个 Unary RPC + 专属 `SinkService` 4 个 Unary RPC，共 13 个**。接口清单是应实现的目标，不代表现有代码已经通过测试。
+本章以核查时 GitHub `luoshaozhuo/wind-hub` 的 `main` 提交 `0ac0228afc202ea69f75ab1b0046c2ab24bfd369` 的 `src/contracts/common.proto`、`src/contracts/sink_service.proto` 为唯一权威接口定义。本模块仅实现 Server；Proto 的字段号、类型及 RPC 名称不得在本模块内重新定义。当前契约为 **公共 `CommonService` 9 个 Unary RPC + 专属 `SinkService` 4 个 Unary RPC，共 13 个**。接口清单是应实现的目标，不代表现有代码已经通过测试。
 
 ## 9.1 服务与接口总表
 
@@ -2335,7 +2419,7 @@ flowchart LR
 
 | RPC | 关键输入 | 关键输出和必须满足的业务规则 |
 |---|---|---|
-| `GetServiceInfo` | `Empty` | `service_id`、`process_role`、`software_version`、`contract_version`、`started_at`；双进程身份不可混同 |
+| `GetServiceInfo` | `Empty` | `service_id`、`process_role`、`software_version`、`contract_version`、`started_at`；仅由 Main 提供，`process_role=main`；Delivery 的 `process_role` 按其实际 realtime/reliable 业务角色返回 |
 | `GetServiceStatus` | `Empty` | `health`、`dependencies[]`（name/health/detail）、`observed_at`；gRPC 可达不等于派发就绪 |
 | `GetCapabilities` | `Empty` | `rpc_names[]`、`protocols[]`、`features[]`；必须与实装能力一致 |
 | `GetConfigSnapshot` | `scope` (`SNAPSHOT_SCOPE_DISK/RUNTIME/CANDIDATE`)、候选查询时 `candidate_id` | `snapshot_id`、`revision`、`files[]`、`validation[]`、`application_id`、`apply_results[]`、`last_error`；不同范围不得混报 |
@@ -2356,20 +2440,20 @@ flowchart LR
 
 `ScalarValue` 仅由 `oneof kind` 中的 bool、sint64、uint64、double、string、bytes 六类型表示。`AddressField` 由 `key + ScalarValue value` 构成。`SnapshotScope` 另有 `UNSPECIFIED=0`，服务端必须裁决是否允许，不能将未指定默认解释为已确认的范围。`GetDelivery` 与启动/停止的 ID 字段分别为 `ObjectId.id` 和 `OperationRequest.id`，不可擅自改名为 `delivery_id` 的 wire 字段。`OperationResult.accepted` 不等于实际派发成功；`OperationRequest` 不包含 `request_id` 字段。带副作用的 RPC 超时或断连不得据此推断未执行。
 
-## 9.3 服务端映射、权限及双进程归属
+## 9.3 服务端映射、权限及配置域归属
 
 <p class="table-caption">表 9-4 RPC 到内部职责与测试映射</p>
 
 | RPC 组 | 实现责任组件 | 权限及资源约束 | 主要测试归属 |
 |---|---|---|---|
-| 身份、健康、能力（三项） | Service Runtime / Health | mTLS、状态权威来自本进程；只读 | `test_grpc_contract.py`、`test_grpc_api.py` |
-| 配置快照（三项） | ConfigService / 唯一 Writer | Get 按角色授权；Push/Apply 仅 Writer 可修改；候选、revision 竞争与真实文件提交 | `test_config_snapshot.py`、`test_config_apply.py` |
-| Metrics、Events（两项） | Metrics / Event Query | 只读、作用域/窗口/分页有界；按权限返回 | `test_metrics.py`、`test_metrics_query.py` |
-| Diagnose（一项） | Diagnose | 分阶段超时、证据完整性、只读/无业务副作用 | `test_diagnose.py`、`test_diagnose_pipeline.py` |
-| Delivery 查询（两项） | Delivery Manager / State Query | 列表分页；跨进程状态不得猜测或冒用 | `test_grpc_contract.py`、`test_grpc_api.py` |
-| Delivery 启停（两项） | Delivery Manager / Config Writer | `expected_revision` 冲突保护、期望状态持久化、异步收敛和资源安全 | `test_delivery_state.py`、`test_delivery_flow.py` |
+| 身份、健康、能力（三项） | Main Service Runtime / Health | mTLS；聚合子进程实际状态，不能凭配置猜测 | `test_grpc_contract.py`、`test_grpc_api.py` |
+| 配置快照（三项） | Main Config Manager | Get 按角色授权；Push/Apply 仅 Main 写正式快照；CAS、候选及 IPC 版本收敛 | `test_config_snapshot.py`、`test_config_apply.py` |
+| Metrics、Events（两项） | Main Metrics / Event Query | 汇总有时间戳的子进程指标，超时标记不可用 | `test_metrics.py`、`test_metrics_query.py` |
+| Diagnose（一项） | Main Diagnose | 经 IPC 有界获取数据面证据，失败返回 UNKNOWN | `test_diagnose.py`、`test_diagnose_pipeline.py` |
+| Delivery 查询（两项） | Main Delivery Manager | 按通道查询真实子进程状态，分页有界 | `test_grpc_contract.py`、`test_grpc_api.py` |
+| Delivery 启停（两项） | Main Delivery Manager | 先原子持久化 desired_state，后经 IPC 执行，超时不虚报已停止/运行 | `test_delivery_state.py`、`test_delivery_flow.py` |
 
-Writer/Reader 配置管理遵循第 11 章。当前 Proto 不包含跨进程状态聚合专用字段，也不包含查询单个 Sink 的 RPC；全局状态仅可来自可验证的进程汇报，不能凭共享配置推断另一进程的 actual_state。若两个进程均对外提供 `CommonService`，各自只报告有证据的本进程状态；修改性操作由唯一 Writer 接收或返回明确的非授权/失败前置条件错误，禁止 Reader 静默成功。全局 Delivery 列表需要由具备权威共享配置和可核验运行状态的入口负责，不能把另一进程的缺失状态编造为 STOPPED。系统必须通过真实 Proto Stub 核对完整服务注册、方法数量、参数/输出类型、mTLS、版本冲突及错误语义。
+单容器对外仅 Main 注册全部 13 个 Unary RPC；两个数据子进程不运行 gRPC、不对外接收配置。CLI/Web UI 分别调用每个容器的 Main，跨域汇总、静态分配和人工迁移均在外部执行，不引入新的 Proto。Main 以已提交配置为期望状态，以经过版本和时间验证的 IPC 汇报为实际状态；若子进程失联，不得构造其 `actual_state=STOPPED`。具体参数及返回类型以已冻结 Proto 为准。
 
 ### 9.3.1 方法受理、错误与版本的一致裁决
 
@@ -2378,7 +2462,7 @@ Writer/Reader 配置管理遵循第 11 章。当前 Proto 不包含跨进程状�
 | 查询不存在的 Delivery | 不改变运行状态 | gRPC `NOT_FOUND` |
 | 请求参数非法或 page_size 超限 | 拒绝，不截断为隐含成功 | `INVALID_ARGUMENT`，分页上限由 Service 配置确定 |
 | `expected_revision` 与权威提交版本不符 | 不写入配置、不改变期望状态 | `ABORTED`，返回冲突信息 |
-| 在 Reader 调用配置变更或 Delivery 启停 | 不转为隐式成功 | `FAILED_PRECONDITION`（或授权拒绝时 `PERMISSION_DENIED`） |
+| 未授权用户调用配置变更或 Delivery 启停 | Main 拒绝请求 | `PERMISSION_DENIED`，不得产生副作用 |
 | 手动 STOP 已持久化、底层 I/O 未收敛 | 操作已受理，但 actual 不得伪造 STOPPED | `accepted=true`；返回真实 `actual_state` 与说明，继续可查询 |
 | Apply 已提交磁盘、局部运行失败 | 不谎称整体成功、不静默回滚正式文件 | `file_commit` 与逐对象 `apply_results` 独立反映，记录 `application_id` |
 | 客户端 deadline / 断连 | 不直接取消已提交的业务事实 | 调用方按修订号、`operation_id` 或 `application_id` 核查；缺失查询接口时通过现有快照/状态查询核查，不自行增加 RPC |
@@ -2408,11 +2492,34 @@ sequenceDiagram
 
 # 10. 数据交付、JetStream 与可靠性契约
 
-## 10.1 样本身份、消费模式及来源权威
+## 10.1 样本身份、批量契约与来源权威
 
-Collector 到 NATS 的消息以同一 main 提交的 `src/contracts/sample_message.py::SampleMessage` 为权威，使用 `schema_version=1` 的严格 UTF-8 JSON；`extra="forbid"`，消息模型不可变。字段为 `wind_farm_id`、`collector_id`、`task_id`、`device_id`、`point_id`、`sample_id`、`value`、`quality`、`sample_time`、`publish_time`、可选 `receive_time` 和 `max_staleness_ms`。`value` 仅允许有限 float、int、bool、str 或 null；`quality` 枚举为小写 `good/bad/uncertain`；时间必须带时区并规范到 UTC。`wind_farm_id/collector_id/task_id/device_id/point_id` 禁止包含 NATS Subject 特殊字符。**不使用不存在的 `site_id` 字段，也不把质量值按大写文本反序列化。**
+### 10.1.1 已发布契约与本版目标的差异
 
-`SampleMessage.subject(mode)` 固定为 `wh.rt.<wind_farm_id>.<collector_id>.<device_id>.<point_id>` 或 `wh.hist.<wind_farm_id>.<collector_id>.<device_id>.<point_id>`；`task_id` 不属于 Subject，但参与消息来源识别。realtime **必须**包含正值 `max_staleness_ms`（范围 1～86,400,000）；reliable **必须不含**该字段。历史数据不因实时 TTL 被过滤。订阅 Subject/Consumer 过滤需要兼容上述五段后缀的正式形式，其他格式不得擅自兼容。实时使用 Core NATS，历史使用 JetStream。多权威 Publisher 对同一逻辑点冲突时按明确来源身份和配置裁决，不能按最近到达时间随意切权。
+截至核查的 `main` 提交 `0ac0228afc202ea69f75ab1b0046c2ab24bfd369`，`src/contracts/sample_message.py::SampleMessage` 是 `schema_version=1` 的**单测点**严格 JSON 契约；字段为 `wind_farm_id`、`collector_id`、`task_id`、`device_id`、`point_id`、`sample_id`、`value`、`quality`、`sample_time`、`publish_time`、可选 `receive_time`、`max_staleness_ms`。`quality` 为小写 `good/bad/uncertain`；时间必须带时区并规范为 UTC。Realtime 必须包含有效 `max_staleness_ms`，Reliable 必须不含；不得因性能优化破坏逐测点 TTL、版本、质量和来源权威语义。
+
+**本版新决定是两通道均通过一条批量消息承载同一机组一次周期的多个测点。该批量线协议尚未在 main 发布，需要跨 Collector / Contracts / Sink Service 先冻结，再实现、联调。** 当前单测点 `SampleMessage.subject(mode)` 为 `wh.rt.<wind_farm_id>.<collector_id>.<device_id>.<point_id>` / `wh.hist.<wind_farm_id>.<collector_id>.<device_id>.<point_id>`，批量消息无法沿用最后一层单测点 `point_id` 作为唯一消息主题；必须在 Contracts 中正式定义批量 Subject、消息版本、解码和 JetStream Stream 过滤规则。未冻结前不得把下列设计字段当作现有代码接口，也不得默默把新批消息发送到旧 Subject 造成误解码。
+
+### 10.1.2 待冻结的批量数据契约（跨模块前置任务）
+
+<p class="table-caption">表 10-1a 批量消息语义与必要字段（设计候选，非已发布 Schema）</p>
+
+| 层级 | 必要语义 | 约束 |
+|---|---|---|
+| 批次信封 | `schema_version`、`batch_id`、`mode`、`wind_farm_id`、`collector_id`、`task_id`、`device_id`、`publish_time`、`samples[]` | 批次 ID 在重发时稳定；同一批限同一设备、来源和通道；批次最大值数及字节数须有明确上限 |
+| 单测点条目 | `point_id`、`sample_id`、`value`、`quality`、`sample_time`、实时 `max_staleness_ms` | 原有值域与质量枚举不变；样本 ID 可跨重投稳定识别；不能只给批次一个统一 TTL 覆盖不同点有效期 |
+| Subject / Stream | 按批次设备身份路由，Realtime 使用 NATS Core，Reliable 使用 JetStream | 具体 Subject 字符串及 Stream/Consumer 过滤必须在 Contracts 冻结；不同通道不能混读 |
+| 编码 | 一次信封解码得到有界批次，严格拒绝非法 Schema、重复 `point_id/sample_id` 冲突、非有限数及不合法时间 | 批量解码不能把坏数据静默解释为合法测点；实时逐点时效，可靠按消息级确认责任处理 |
+| 操作语义 | 订阅、路由、批次拆分、下游确认和统计 | 一条源批次可能产生多个目标子批；聚合统计必须区分消息数、测点数和目标写批次数 |
+
+本表仅规定设计所需的**语义和推荐字段名**，不是新 Proto、Python 类或线上消息 Schema 的既成事实。实际 JSON/二进制编码、版本号、Subject、批次大小、序列化开销、超限错误行为和与旧单样本消息的切换顺序，须由 Contracts 统一冻结；Collector 必须按同一契约批量发布，Sink Service 不单方面兼容不明版本。首轮基准负载推荐 Realtime **100 点/批**、Reliable **500 点/批**；若 Collector 的真实源批次形态不同，需说明等效批次/s 与点/s 后重新验收。
+
+### 10.1.3 批量处理的正确性和性能边界
+
+- **批次校验**：先校验信封身份、数量/大小和版本，再处理每个测点；批内每点保留其 `sample_id`、`sample_time`、`quality` 和实时 TTL。来源身份不匹配不得误派发。
+- **Realtime**：合法批次内可逐点判定过期、乱序、重复和容量拒绝；目标输出仍由 Delivery 的周期/变化策略决定，原有 `SampleMessage` 单点业务语义保持不变。
+- **Reliable**：一条 JetStream 批次消息是原始 ACK 责任单位；批内一个点明确失败不等于整批已可 ACK。对已确认、永久错误及未决条目分别记账，永久错误须有可定位的持久 DLQ 证据；只有**所有条目**已有目标确认或持久 DLQ 确认，才能 ACK 原批次；其余状态保持源消息未确认并按有界重试策略恢复。崩溃后重复处理已成功子项时，依赖稳定 ID + 目标业务去重或显式 `allow_at_least_once`，不宣称端到端 exactly-once。
+- **目标拆批**：依 Adapter 的安全最大点数和消息字节限制拆批，确认按实际写成功的条目计数；不能把“批次写 API 返回”直接解释为整批点数都已持久成功。
 
 ## 10.2 实时三种输出策略的确定性语义
 
@@ -2456,6 +2563,8 @@ sequenceDiagram
 
 ## 10.3 JetStream 历史消息处理及 ACK
 
+**批量历史消息确认边界。** 本节原有“原消息”均指**一条 JetStream 批量信封消息**，不是信封内单测点；整批有效条目只在全部确认目标业务结果或逐条得到持久 DLQ 确认后 ACK。目标支持部分成功时按稳定 sample_id 重试未决点，或在目标幂等/至少一次契约允许下安全重投原批；既不能对只成功部分提前 ACK，也不能将整批的临时失败误送 DLQ。Stream 的 `AckWait`/`InProgress` 跟踪同一源消息，在批量目标写入持续超过期限时必须续约并记录失效证据。批量接收与 Writer 逻辑写入串行不矛盾：一次来源消息可被拆成多个受控子批。
+
 ### 10.3.1 故障分类、积压与确认裁决
 
 | 事件 | 可验证裁决 | 消息和运行状态 |
@@ -2474,11 +2583,11 @@ sequenceDiagram
 
 **补发优先级**：当前实时派发优先，Reliable 新消息次之，历史积压补发最低。补发只在可观测的目标余量和可用 I/O 额度内启动，独立限制 `replay_max_inflight` 和 `replay_max_rate_per_second`；不能抢占已经开始的 I/O，不能通过无界后台 Task 追赶。持续正常负载下允许补发长期等待，必须记录积压年龄与饥饿告警；不得同时承诺零影响与必定清空。
 
-**关键实现约束**：单 Durable Consumer 按序消费时，新消息排在积压后，无法仅靠本地优先级保证新历史消息先于积压；也不能在未证明分流、去重和顺序契约前随意跳过游标。首版将“当前优先”严格落实为 **Realtime 独立进程和独立资源配额**、Reliable 补发低优先级限流；在同一 Reliable Durable 内维持序列先后，不承诺 Reliable 新消息越过旧积压。若后续要求 Reliable 新消息插队，必须单独设计双 Consumer/分流和消息顺序规则，不作为本版隐含功能。两个进程共享同一 Kafka/Redis 目标时，以目标侧连接/流量配额隔离，不能仅凭进程内 Semaphore 声称跨进程限流有效。
+**关键实现约束**：单 Durable Consumer 按序消费时，新消息排在积压后，不能仅靠本地优先级使其插队。Realtime 和 Reliable 为同容器内独立数据进程，Reliable 补发限速；同一目标的跨进程优先级需依赖目标侧可验证的配额或隔离。不能以两个进程的独立 Semaphore 冒充全局额度，也不承诺 Reliable 新消息越过旧积压。
 
 ### 10.3.3 恢复重复投递与 DLQ 上限
 
-使用源消息稳定 `sample_id` 与 Delivery 身份形成去重键；消息发布到 DLQ 时保存源 Stream、Consumer、sequence、原始 payload、失败分类、首次/末次失败时间和原因，禁止因重试生成新的业务消息身份。Kafka Producer 幂等仅覆盖其生产会话的重试，跨系统重复须由下游去重或明确接受至少一次；Redis Reliable 须用原子去重/版本比较。若目标既无可验证的业务去重能力、又未明确接受至少一次重复，则拒绝配置为 Reliable；两种准入方式均不得冒充 exactly-once。
+批量源消息以稳定 `batch_id` 识别消息重投，批内以稳定 `sample_id` 与 Delivery 身份形成业务去重键；向 DLQ 转移失败条目时保存批次身份、测点身份、源 Stream/Consumer/sequence、可复原的原始批次或条目 payload、失败分类、时间和原因，禁止因重试生成新的业务身份。Kafka Producer 幂等仅覆盖其生产会话的重试，跨系统重复须由下游去重或明确接受至少一次；Redis Reliable 须用原子去重/版本比较。若目标既无可验证的业务去重能力、又未明确接受至少一次重复，则拒绝配置为 Reliable；两种准入方式均不得冒充 exactly-once。
 
 DLQ 配置 `max_bytes`、保留期、告警阈值及 `DiscardNew`。DLQ 满时既不 ACK 原消息也不删除其确认责任；若源 Stream 也耗尽容量，进入可靠性故障告警并显式暴露上游拒绝/丢失风险。死信重放只由外部授权工具发起，经审查去重后投递，不允许 Sink 自动循环重放永久错误。
 
@@ -2576,121 +2685,107 @@ flowchart TD
 
 ## 11.1 文件体系、显式来源与版本
 
-Sink Service 使用 Service、Instance、Template 三类配置。每个进程以**启动参数显式指定的 Service 文件**作为唯一入口；Service 的 `config_sources` **直接指定**所使用的 Instance 文件 pathname 和 Template 根目录。这里的 `config_root` 为路径解析基准目录，例如 `/etc/wind-hub`；`config_sources` 中的 `configs/...` 相对 `config_root` 解析，禁止与配置根目录再重复拼接一层 `configs`。
+每个 Sink Service **容器实例**只有一个配置域和一个 Service 文件：`configs/services/sink_service.yaml`。Main 是该域唯一配置写入入口；两个子进程不拥有配置写入权限，不运行独立配置同步器。Realtime、Reliable 业务角色对等，区别只在所消费的消息通道及交付语义。共享配置由 Main 以已校验的版本通过 IPC 分发；子进程回报各自的实际应用版本和 Delivery 状态。
 
-```yaml
-config_root: "/etc/wind-hub"
-config_sources:
-  instances:
-    sinks: "configs/instances/sinks.yaml"
-    deliveries: "configs/instances/deliveries.yaml"
-  templates:
-    root: "configs/templates"
-```
+Service 使用显式 `config_sources.instances.sinks`、`config_sources.instances.deliveries` 和 `config_sources.templates.root`；不使用默认路径。Instance 文件、按引用精确解析的版本化 Template 与这一份 Service 组成完整候选快照。每容器独立持久 `CURRENT` 与 revision CAS；CLI/Web UI 分别通过每容器 Main 的标准 13 RPC 管理，容器之间不共享 `CURRENT`，也没有跨域原子 Apply。
 
-**依赖闭包规则：**Service 只声明直接配置来源，不重复列出间接使用的具体 Template 文件。`instances.sinks` 内每个 Sink 引用 `template_id + template_version`，由 `config_sources.templates.root` 解析为 `sinks/{template_id}_{template_version}.yaml`；`instances.deliveries` 类同，解析为 `deliveries/{template_id}_{template_version}.yaml`。示例路径分别为 `configs/templates/sinks/redis_realtime_1.0.0.yaml` 和 `configs/templates/deliveries/realtime_power_1.0.0.yaml`。不扫描目录、不按名称猜测 Instance 文件、不按“最新版本”回退、不支持旧的分层模板文件名。
+Core 共享配置由 Core 的通用读取、解析能力提供；Sink 的业务结构和引用校验由 Sink 自身负责，不写入 `configs/instances/site.yaml`、`devices.yaml`、`configs/templates/units.yaml`、`business_points.yaml` 和 Core 协议/点表/设备型号模板。Sink/Delivery Template 名称使用 `{template_id}_{file_version}.yaml`，同版本已提交内容不可修改；Instance 中的 `template_version` 与模板 `file_version` 一致。Service 配置变更提交后返回 `RESTART_REQUIRED`；Instance 和新版本 Template 可受控增量热更新。
 
-同一个配置域中的 Realtime Writer 和 Reliable Reader 使用相同的 `config_root` 和 `config_sources`；角色、TLS、RPC 监听等进程专属字段各自配置。Service 文件分别为 `configs/services/sink-realtime.yaml` 与 `configs/services/sink-reliable.yaml`，由各自启动参数显式给定；初始原子配置代必须显式提供两份 Service 文件，不能通过目录扫描或硬编码另一进程文件名补齐。Reader 只能读取已提交的完整配置代，且不得修改 Writer 所拥有的文件。
+配置权威为 Main：`stored_revision` 表示已原子提交到磁盘的完整快照，`active_revision` 只表示已由对应子进程真实确认的运行配置代；在各子进程未同时收敛时不得伪造全实例已应用。Main 不直接修改运行中子进程的 Python 对象。所有配置相对 pathname 须限制于 `configs/`、拒绝 `..`、符号链接、越界访问与未引用文件；Template 根路径不代表扫描整个目录。
 
-Sink Writer 的受管范围仅为这两份 Service 文件、明确引用的两份 Instance 文件，以及沿 `Instance → Template` **精确解析且纳入候选快照的模板依赖闭包**；无关模板及 Core 共享文件不属于 Sink 管理域。未引用模板不能仅因位于 Template 根目录内就被纳入快照或删除。提交新的版本化 Template 时，候选必须包含新版本文件及使用它的 Instance 引用。Template 根目录仅用于确定路径，不表示递归加载整棵目录。完整候选替换、删除范围与已发布模板版本不可变约束分别按 §11.3、§11.5 执行。
+### 11.1.1 批量容量参数的归属
 
-Core 共享配置仍由 Core 自己的 `SharedDocumentLoader`、`VersionedTemplateRepository` 读取和校验；Sink 不负责写入 `configs/instances/site.yaml`、`devices.yaml`、`configs/templates/units.yaml`、`business_points.yaml` 和 Core 协议/点表/设备型号模板。Core 通用模板使用 `{template_id}_{file_version}.yaml`，Sink/Delivery 模板也统一该扁平命名，业务校验仍由各自所属模块负责。
+批量消息**最大字节数、最大测点数、编码版本和 Subject**属于正式 Contracts/Collector/Sink 协同契约，不能由 Sink Service 单方猜测默认值。Sink Service 配置只表达受控执行预算：每数据子进程的最大在途 I/O、每 Delivery 最新值点数、可靠拉取在途批次/字节上限、目标安全写批点数以及适配器支持的并发能力。配置变更必须在第 11.2 节明确给出合法字段、取值范围及行为；当前单 Service 目标 YAML 中没有的可靠批量拉取/入站字节预算字段**属于待同步 Schema 设计项**，禁止在旧配置加载器中默默接受不受验证的自由字段。
 
-受管 YAML 使用 `schema_version: 1`、语义版本字符串 `file_version`，与 Core 文档版本规则一致。模板身份采用 `template_id + file_version`；Instance 的 `template_version` 必须匹配被引用 Template 的 `file_version`。不设置冗余 `object_version`。`revision` 是完整快照 CAS/内容修订标识，不等同于模板 `file_version`。对外须区分 `stored_revision`、`active_revision` 和各 Delivery 实际运行状态。
-
-**路径与变更规则：**`config_root`、`config_sources` 仅在 Service 级配置；所有相对 pathname 必须校验普通文件、允许范围、符号链接与越界访问。修改任一 Service 配置来源是 Service 变更，Apply 后应提示 `RESTART_REQUIRED`，运行中的进程不得悄然切换来源；仅修改 Instance 的模板引用及新增版本文件属于可以增量热更新的内容。若新版本引用的文件缺失或未进入一致快照，Push 必须拒绝。
+验收基准 Realtime 100 点/输入批、Reliable 500 点/输入批只是性能场景参数，不作为所有协议的统一硬编码写批上限。目标侧拆批必须在可验证的 I/O 限额内进行。
 
 ## 11.2 完整配置示例
 
-以下给出本版本的目标配置示例。仅本版三种 Adapter 属于有效配置范围；旧版其它 Adapter 模板须删除或拒绝加载。字段旁注释说明含义、值域与是否可热更新；现场地址、证书路径和容量数值是示例默认提议而非已测量事实。
+以下为**一个容器实例**的单 Service 配置。Main 统一读取、验证、提交；子进程角色由启动器固定创建，不需要重复的 Service 文件、各自独立 gRPC 端口、`config_writer` 或 `writer_endpoint`。两个子进程共用已提交配置代，但各自拥有独立运行状态。
 
-### 11.2.1 configs/services/sink-realtime.yaml（Reader 对应 sink-reliable.yaml）
+### 11.2.1 configs/services/sink_service.yaml
 
 ```yaml
-schema_version: 1            # 固定结构版本 1；不支持其它版本时拒绝
-file_version: "1.0.0"       # 文件版本：非空、内容变更须更新
-service_id: "sink-west"     # 服务逻辑身份：非空、部署内唯一
-wind_farm_id: "farm-a"          # 风场标识：必须与消息身份匹配
-deployment_id: "prod-a"     # 部署身份：用于稳定消费命名
-process_role: "realtime"   # realtime | reliable；两个进程分别配置
-config_writer: true        # true | false；同一共享配置域仅一个 true
-config_root: "/etc/wind-hub"  # 路径基准，config_sources 使用 configs/... 相对路径
-config_sources:                # Service 对附属配置的直接依赖；两进程必须一致
+schema_version: 1                 # 固定结构版本
+file_version: "1.0.0"            # 语义版本
+service_id: sink-west            # 本实例逻辑标识
+wind_farm_id: farm-a             # 来源风场标识
+deployment_id: prod-a            # 本实例稳定部署标识
+config_root: /etc/wind-hub       # 容器内配置根路径
+config_sources:                  # 所有路径均显式、相对 config_root
   instances:
-    sinks: "configs/instances/sinks.yaml"        # Sink 实例文件 pathname
-    deliveries: "configs/instances/deliveries.yaml" # Delivery 实例文件 pathname
+    sinks: configs/instances/sinks.yaml
+    deliveries: configs/instances/deliveries.yaml
   templates:
-    root: "configs/templates"  # 模板根目录；仅按 Instance 引用读取精确版本
+    root: configs/templates
 
-grpc:
-  listen_host: "127.0.0.1"      # 绑定 IP；可指定网卡地址
-  listen_port: 50061            # 1..65535；另一进程必须不同
-  max_active_rpcs: 64           # 1..64；默认/本版本验收并发上限
-  max_request_bytes: 2097152     # 1..2097152；请求体上限 2 MiB
-  default_deadline_ms: 5000      # 1..5000；应用层内部预算，不能假定 gRPC 自动为客户端注入 deadline
+grpc:                            # 仅 Main 对外监听
+  listen_host: 0.0.0.0
+  listen_port: 50061
+  max_active_rpcs: 64
+  max_request_bytes: 2097152
+  default_deadline_ms: 5000
 
 security:
-  ca_cert: "/etc/wind-hub/tls/ca.crt"         # 信任的客户端 CA
-  server_cert: "/etc/wind-hub/tls/sink.crt"   # 服务端证书
-  server_key: "/etc/wind-hub/tls/sink.key"    # 私钥路径，不在日志中输出
-  callers:                              # mTLS 证书可信身份到权限映射
-    - caller_id: "maintenance"          # 非空、唯一
-      certificate_identity: "spiffe://wind-hub/maintenance" # URI SAN
-      permissions: [query, control, config] # query | control | config
+  ca_cert: /etc/wind-hub/tls/ca.crt
+  server_cert: /etc/wind-hub/tls/sink.crt
+  server_key: /etc/wind-hub/tls/sink.key
+  callers:
+    - caller_id: maintenance
+      certificate_identity: spiffe://wind-hub/maintenance
+      permissions: [query, control, config]
 
 nats:
-  servers: ["nats://127.0.0.1:4222"] # 非空服务器 URL 列表
-  realtime_subject: "wh.rt"       # Core NATS 前缀；订阅过滤匹配 wh.rt.>
-  reliable_subject: "wh.hist"     # JetStream Subject 前缀；Stream 覆盖 wh.hist.>
-  reliable_stream: "WH_HISTORY"   # 必须覆盖 reliable_subject
-  dead_letter_stream: "WH_DLQ"    # 死信流，必须持久可写
-  dead_letter_subject: "wh.dlq"  # 单独的 DLQ 主题，必须属于 dead_letter_stream
-  history_storage: file          # 已有可靠 Stream 必须持久化，校验 Broker 实态
-  dlq_storage: file              # DLQ Stream 必须持久化，校验 Broker 实态
-  history_discard: new           # 源 Stream 满时拒绝新发布，不覆盖未交付消息
-  dlq_discard: new               # DLQ 满时拒绝新死信，不覆盖已有死信
-  dlq_max_bytes: 1073741824      # 示例容量 1 GiB；按现场核定
-  dlq_max_age_seconds: 2592000  # 示例保留期 30 天；超限告警
-  connect_timeout_ms: 2000        # 正整数
-  max_reconnect_interval_ms: 5000 # 正整数
+  servers: [nats://127.0.0.1:4222]
+  realtime_subject: wh.rt
+  reliable_subject: wh.hist
+  reliable_stream: WH_HISTORY
+  dead_letter_stream: WH_DLQ
+  dead_letter_subject: wh.dlq
+  history_storage: file
+  dlq_storage: file
+  history_discard: new
+  dlq_discard: new
+  dlq_max_bytes: 1073741824
+  dlq_max_age_seconds: 2592000
+  connect_timeout_ms: 2000
+  max_reconnect_interval_ms: 5000
 
 runtime:
-  max_inflight_global: 128      # 正整数；包含未安全收敛的 I/O
-  max_inflight_per_sink: 8      # 正整数 <= 全局上限；可由 Sink 模板收紧
-  max_pending_points: 10000    # 每 Delivery 实时缓存点数上限；一个点存一份最新样本
-  io_wait_timeout_ms: 3000     # 正整数；仅限定等待，不证明 I/O 已结束
-  max_event_records: 10000     # 1..10000；事件内存窗口条数
+  max_inflight_global: 128       # 每个数据子进程独立额度
+  max_inflight_per_sink: 8       # 同一物理 Sink 的跨进程竞争需额外验证
+  max_pending_points: 10000
+  io_wait_timeout_ms: 3000
+  max_event_records: 10000
 
 reliable:
-  max_deliver: -1              # 配置意图：不因次数触发终止；部署前用实际 NATS 版本校验该值与持续重投行为
-  ack_wait_seconds: 30         # >0；期间长 I/O 用 InProgress 续约
-  retry_base_ms: 1000         # >0；JetStream 重投退避基数
-  retry_max_ms: 60000         # >= retry_base_ms
-  max_inflight_per_delivery: 1 # 已决策固定 1；不能增大
-  transient_retry_policy: continuous  # 临时故障持续受控退避，不以次数耗尽判永久错误
-  permanent_error_action: dlq         # 持久化 PubAck 后才 ACK 原消息
-  replay_max_inflight: 1              # 仅占用目标剩余额度，不预留或抢占
-  replay_max_rate_per_second: 50      # 示例补发限速，受目标侧配额约束
-  replay_starvation_alarm_seconds: 300 # 低优先级持续饥饿则告警
-  dedup_key: sample_id                # 结合 delivery_id 确定业务身份
+  max_deliver: -1
+  ack_wait_seconds: 30
+  retry_base_ms: 1000
+  retry_max_ms: 60000
+  max_inflight_per_delivery: 1
+  transient_retry_policy: continuous
+  permanent_error_action: dlq
+  replay_max_inflight: 1
+  replay_max_rate_per_second: 50
+  replay_starvation_alarm_seconds: 300
+  dedup_key: sample_id
 
 metrics:
-  metrics_compute_interval_ms: 1000 # 100..60000；计算周期
-  metrics_window_ms: 60000         # 1000..3600000；滚动窗口；须能被桶宽整除
-  supported_window_ms: [60000]     # 非空、去重；首版仅可查询已计算窗口
-  max_time_buckets: 120            # 1..3600；实际时间桶宽 = 500 ms；覆盖 60000 ms
-  overrun_policy: skip             # 固定 skip，不允许任务重入
+  metrics_compute_interval_ms: 1000
+  metrics_window_ms: 60000
+  supported_window_ms: [60000]
+  max_time_buckets: 120
+  overrun_policy: skip
 
 config_sync:
-  poll_interval_ms: 1000      # Reader 检查原子提交版本的周期
-  apply_timeout_ms: 10000     # 配置 gRPC 等待的上限
-  writer_endpoint: "127.0.0.1:50061" # Reader 用；Writer 可空
+  apply_timeout_ms: 10000       # Main 等待子进程版本确认的上限
 
 shutdown:
-  grace_seconds: 10           # >0；未收敛 I/O 不强制安全释放
+  grace_seconds: 10
 ```
 
-两个进程使用相同的 `config_root` 和 `config_sources`，但分别设置 `process_role`、`grpc.listen_port`、`config_writer`；Reader 的 `config_writer=false`，`writer_endpoint` 指向 Writer。两个 Service 文件均须显式包含相同的 `config_sources` 段，不允许依赖默认实例文件名或默认模板目录。共享配置提交路径只在 Writer 侧可写，Reader 不得借其它 API 绕过权限。
+`runtime.max_inflight_global` 是**每个数据子进程**的额度，不是两个子进程之和，也不是容器级物理 Sink 额度。没有 START Delivery 的子进程保持运行但不建立消息订阅或 Adapter。IPC 使用容器内专用权限保护的本地通道，路径可由启动器生成且不作为对外配置契约。
 
 ### 11.2.2 configs/templates/sinks/redis_realtime_1.0.0.yaml
 
@@ -2772,6 +2867,8 @@ output:
 
 此模板只保证 Kafka Producer 的提交确认边界，Broker 接收成功不代表下游最终处理成功；使用 Reliable 时必须明确选择下游业务级去重或允许至少一次重复，不得把 Producer 幂等误认为端到端去重。具体点表与质量标志映射遵守第 12 章。
 
+**Kafka Producer 性能参数（v1_22 补充）**：`output.max_batch_size` 为可选正整数，单位 byte，默认 `131072`（128 KiB）；`output.linger_ms` 为可选整数，默认且当前唯一允许值为 `0`，显式配置非零必须在快照校验阶段拒绝。两项由共享 Sink 模板的 `output` 传递到 Adapter，不得在 Delivery 实例中覆盖。默认值源于第 14 章对应的独立真实链路容量实验；增大批次缓冲不能改变 `acks=all`、`enable_idempotence=true`、整批终局后 ACK、重投与幂等责任。已发布的 `kafka_history_1.0.0.yaml` 保持原文不变；后续需要显式指定参数时应发布新模板版本，不得原地覆盖旧版本。
+
 ### 11.2.6 configs/templates/sinks/modbus_registers_1.0.0.yaml
 
 Modbus TCP Server 是**被读取的寄存器服务端**，并非对外写寄存器的客户端。一次成功派发只表示内部寄存器镜像更新完成，不表示第三方已读取。
@@ -2807,7 +2904,7 @@ output:
 ```yaml
 schema_version: 1
 file_version: "1.0.0"
-revision: "sinks-r1"           # 并发修改令牌；由 Writer 更新
+revision: "sinks-r1"           # 并发修改令牌；由 Main 更新
 sinks:
   ems_redis:
     template_id: redis_realtime
@@ -2877,83 +2974,84 @@ deliveries:
     overrides: {}
 ```
 
+### 11.2.8.1 静态多实例分配示例（无新增配置字段）
+
+以上完整 YAML 是部署单元 A 的实例配置示例。若把 `ems_power` 分配至部署单元 B，则由 CLI/Web UI 操作：先使 A 的 `ems_power.desired_state=STOP` 并等待实际停止与 I/O 收敛，再从 A 的 deliveries 文件删除该条目，最后在 B 的独立 `configs/instances/deliveries.yaml` 中加入**内容相同、身份不变**的 `ems_power`，并确保 B 的 sinks 文件包含 `ems_redis` 的唯一目标配置；B 随后 Apply 和 START。两份配置根目录独立，模板版本保持不变。不能通过 NATS queue group 或在两个域中配置相同 `ems_power` 来替代明确分配。
+
+本版没有跨域分配存储表或全局选主；CLI/Web UI 可以持有部署清单用于检查和展示，但该清单不是 Sink Service 运行时依赖。因两个 Main 只保证各自本域的原子提交，CLI/Web UI 的跨域迁移是分步骤受控操作，不得宣称单次全局原子完成。
+
 ### 11.2.9 配置字段与跨文件校验契约
 
 | 维度 | 必须执行的校验 | 失败处理 |
 |---|---|---|
-| 配置来源及模板命名 | 两份 Service 的 `config_sources` 一致；Instance pathname 为明确 YAML 文件；Template 根目录明确；精确引用 `{template_id}_{template_version}.yaml`；禁止默认文件名、目录扫描和旧分层路径 | Push 拒绝缺项、路径越界、引用缺失、版本不一致和额外文件；不自动回退 |
-| 服务与 RPC | `max_active_rpcs` 为 1～64、请求体至多 2 MiB、默认 deadline 至多 5000 ms；监听端口不重复 | Push 拒绝并指出文件路径、字段及允许范围 |
-| 统计 | 计算周期 100～60000 ms、窗口 1000～3600000 ms、时间桶 1～3600；`supported_window_ms` 非空且均不超过 `metrics_window_ms`；时间桶容量足够覆盖窗口 | 不允许静默扩大窗口、改写公式或降级精度 |
-| 进程与 Writer | 同一配置域恰好一个 Writer；双进程 `process_role` 和监听端口互不冲突 | 冲突直接拒绝 |
-| Adapter 及 I/O | `supports_concurrent_write=false` 时 `max_safe_inflight=1`；并发能力必须与 Adapter 声明兼容；在途超时不释放未收敛额度 | 不得假设超时即完成 |
-| Reliable | Sink 模板必须声明 `reliable=true`；Kafka 显式配置 `business_duplicate_policy`；Modbus TCP Server 拒绝 Reliable | 不支持模式拒绝实例，禁止静默退化 |
-| 配置引用 | `sink_id`、模板 ID/版本存在；模板版本不可变；实例受控 `overrides` 字段均合法 | 原子拒绝完整候选 |
-| Modbus 寄存器 | 地址、数量、value/quality 区域不重叠；每 float32 两寄存器，质量独立映射；监听地址唯一 | 禁止部分建立寄存器表 |
-| Realtime 缓存 | 每 Delivery 测点缓存上限、覆盖/过期处理及内存上界可计算 | 超限执行已定义丢弃/拒绝，不得无限排队 |
-| 目标资源配额 | 共享目标具备可验证的实时保留额度或物理隔离；补发只用剩余额度，限速/并发界限完整 | 无法保障实时优先级则拒绝“实时优先”声明和相应混合部署 |
-| 性能容量 | 配置及部署拓扑可表达至少 20 个 Sink、各 10 Hz、每批 500 个 float32；并核算适配器单点消息到批写、带宽、寄存器地址空间和质量映射 | 无法满足时明确返回容量不支持；最终以系统压测验收 |
+| 配置来源 | 单份 Service 明确 `config_sources`；Instance 显式 pathname；Template 精确 ID/版本引用；不扫描目录 | 拒绝路径越界、引用缺失、额外文件和旧路径 |
+| 服务与 RPC | Main 唯一 gRPC 端点；请求大小、并发与超时符合第 3、9 章 | 拒绝非法配置，不向数据进程开放 gRPC |
+| 统计 | 计算周期、时间窗、桶容量与第 3 章一致 | 拒绝不支持的窗口、无效参数 |
+| 进程管理 | Main 唯一配置写入方；固定 Realtime/Reliable 两子进程；IPC 配置代匹配 | 子进程未确认则 PENDING/FAILED，不伪造 APPLIED |
+| Adapter 与 I/O | 能力声明、单 Delivery 1 在途；跨子进程共享目标不将各自 Semaphore 当全局额度 | 不能证明目标侧保障时不得声明严格实时优先 |
+| Reliable | 仅支持适配器声明可确认的模式，明确重复投递策略；Modbus TCP 不支持 Reliable | 非法 Delivery 拒绝 |
+| 引用与映射 | `sink_id`、模板版本、Modbus 点位与寄存器闭包有效且不冲突 | 原子拒绝整份候选 |
+| Realtime 缓存 | 按 Delivery 有界，过期/覆盖计数和内存上限明确 | 不得无限堆积 |
+| 容量 | 单容器 30 台、实时 100 点/台、可靠 500 点/台，双通道 10 Hz，共 180000 值/s | 三进程合载、输入批量契约与目标确认均按 §14.5.3 实测；多容器成绩不得替代 |
 
-跨进程资源不允许用两个进程各自的内存 Semaphore 伪装为同一物理 Sink 的全局限额。若真实目标无可验证的物理隔离或配额，必须将实时与补发配置到不同目标，或者声明该部署**不提供实时优先级保证**并拒绝需要此保证的配置。`replay_max_inflight` 与 `replay_max_rate_per_second` 只是补发本进程的上限，不是跨进程保障。
-
-字段范围是本版本**配置校验契约**，性能指标是**待系统实测的验收目标**，二者不得混为已验证的运行能力。
+字段范围为设计目标校验契约；真实通过状态以独立测试为准。
 
 ### 11.2.10 配置示例的执行边界与准入补充
 
-1. **服务角色**：`services/sink-realtime.yaml` 与 `services/sink-reliable.yaml` 分别为两个进程的完整配置。启动时通过明确的 Service 文件路径选择角色；不得把 `process_role: realtime` 这一份文件原样用于两个进程。Reader 应配置 `process_role: reliable`、`config_writer: false`、独立 gRPC 端口、`writer_endpoint`，二者 `config_root` 必须指向一致可见的正式快照。
-2. **Source Subject**：`wh.rt` 与 `wh.hist` 是前缀，不是完整订阅主题；实时样本主题严格为 `wh.rt.<wind_farm_id>.<collector_id>.<device_id>.<point_id>`，历史对应 `wh.hist...`。实际 NATS 订阅和 JetStream Stream 的 Subject 覆盖、Consumer Filter 必须与层级相符。不得把前缀字符串当作匹配全部设备的精确 Subject。
-3. **样本契约**：一个 `SampleMessage` 只承载一个测点的标量值与质量。所谓每批 500 个 `float32` 是 Sink 侧把 500 条有效样本组织成一次 Adapter 批输出；**不是**修改上游消息为批量 Schema。必须确定批次边界：同一个 Sink、同一个调度周期形成一批，每个测点最多取最新一条、按 `(device_id, point_id)` 升序确定固定测点映射排序（规则见第 12.1.1 节）；不足 500 点时按实际点数输出，不补伪造零值。配置中的 10 Hz 代表周期输出调度 100 ms；Adapter 应声明批写能力，不能只按单值写入计数冒充 500 点批次。
-4. **运行语义**：`max_inflight_global: 128` 只是进程级总上限，不能替代 `max_inflight_per_sink`、Adapter 安全上限、同 Delivery 1 在途以及目标侧配额。补发优先级必须通过部署时明确且可测的目标资源隔离实现；不能把 `replay_max_rate_per_second` 当作真实资源保证。
-5. **重试配置**：`reliable.max_deliver: -1` 属于配置目标语义，初始化时必须核对 Broker/Consumer 的实际重投策略、Retention 和版本支持；若 Broker 不允许目标配置或不能证明长期临时错误仍会重投，则 Reliable 服务不得就绪。Consumer 不得因为达到 `MaxDeliver` 自动将临时错误归类永久故障。
-6. **权威约束**：`schema_version`、模板/实例引用及上述 YAML 字段为本设计的目标配置契约；如其与现行配置加载器不一致，应修改实现和测试，不能静默忽略未知字段或保留双套旧配置。
+1. **启动与角色**：一个容器仅使用 `configs/services/sink_service.yaml`；Main 创建两个独立 asyncio 数据子进程，并通过 IPC 分发相关 Delivery 配置。`config_writer`、`process_role`、`writer_endpoint`、双 Service 文件及双外部 gRPC 端口不属于 v1_20 目标配置契约。
+2. **Source Subject**：`wh.rt`、`wh.hist` 是旧单点消息的前缀；批量 Subject 及 Stream/Consumer 过滤以 §10.1 待冻结契约为准，不能沿用单点后缀点号假装批消息已兼容。订阅尽量按本容器的已分配来源缩小，相同来源跨容器复用时仍可能重复解码，须计入容量测量。
+3. **样本与批次**：已发布的 SampleMessage 仅含一个测点；本版拟升级的批量契约按每台机组每通道每拍一条信封消息承载 100/500 点。Realtime 仍按点保留最新值、按策略形成输出批次，Reliable 按源批次整条消息维护 ACK 责任；不因批量输入取消逐测点版本、质量与可靠确认。10 Hz 对应 100 ms 输出周期，输入批次数不等于目标实际成功写批次数。
+4. **资源额度**：`max_inflight_global` 是每个数据子进程额度，跨进程共享目标的真实限速/优先级须在目标端验证。Reliable 重试不能据此抢占实时容量。
+5. **JetStream**：以真实 Broker 核查 Consumer/Stream 约束；临时错误不能因次数耗尽直接进入 DLQ；仅永久错误在 DLQ 持久确认后 ACK。
+6. **执行性**：本设计是目标实现契约；现有双进程双 Service 代码和测试须更新到 Main + 两子进程架构，不能保留旧配置兼容分支冒充新架构完成。
 
 ### 11.2.11 配置可执行性补充约束
 
-- 所有输出测点的值、质量及点号须按 Sink 与 Delivery 的稳定映射确定；同一 Modbus Server 寄存器表内 `(device_id, point_id)` 唯一对应一个 value/quality 地址对。示例 `devices: [WT001, WT002]`、`points: [active_power]` 仅构成 2 个映射点，**不是** 500 点的完整验收配置。500 点场景应生成 500 个互异的来源测点，并在执行前核查地址闭包与数量。
+- 所有输出测点的值、质量及点号须按 Sink 与 Delivery 的稳定映射确定；同一 Modbus Server 寄存器表内 `(device_id, point_id)` 唯一对应一个 value/quality 地址对。示例 `devices: [WT001, WT002]`、`points: [active_power]` 仅构成 2 个映射点，**不是** 500 点的完整验收配置。30 台批量场景应按通道分别生成每台 100 个实时点与 500 个可靠点；其中 Modbus 目标需核查映射点、寄存器地址闭包和容量限制。
 - `max_pending_points` 为缓存容量上限，不是 Adapter 批次长度；`period_ms: 100` 为 10 Hz 输出周期，必须与限流、I/O 在途及质量映射同时满足才能准入性能场景。
 - 模板标识与实例引用均在单次完整快照中闭合；示例 Kafka 的 `allow_at_least_once` 仅说明重复接收策略，不表示已实测 Kafka 端到端去重。
-- 两个进程的 Service 配置需各有独立的启动路径；在使用同一共享正式配置域时，Get/Push/Apply 的受管文件范围必须明确保留各角色配置，不能由单角色快照删除另一角色的服务配置。该规则的文件命名及打包清单必须由部署配置明确并纳入 Push 校验。
+- 单容器只有 Main 的 Service 启动路径；Get/Push/Apply 的受管文件集仅由该 Service、显式 Instance 文件与精确引用的 Template 构成，不允许扫描整个目录。
 
-### 11.2.12 最新 main 的配置归属与迁移矩阵（v1_17）
+### 11.2.12 目标配置归属与现有实现迁移矩阵（v1_20）
 
-| 对象 | 唯一路径/来源规则 | 生产代码责任 | 实施阶段 |
+| 对象 | 目标路径/来源 | 责任 | 实施验收 |
 |---|---|---|---|
-| Service 入口 | 两个进程分别显式传入 `configs/services/sink-realtime.yaml`、`configs/services/sink-reliable.yaml` | 启动器按给定 pathname 加载，禁止猜测另一个 Service 文件 | 阶段二前置整改 |
-| Sink Instance | Service 的 `config_sources.instances.sinks` | 只读取该字段所指明的 YAML | 阶段二前置整改 |
-| Delivery Instance | Service 的 `config_sources.instances.deliveries` | 状态更新、CAS、快照均使用该字段解析的 pathname | 阶段二前置整改 |
-| Sink Template | `config_sources.templates.root` + `sinks/{template_id}_{template_version}.yaml` | 按 Instance 引用加载，不扫描、不兼容旧版分层路径 | 阶段二前置整改 |
-| Delivery Template | `config_sources.templates.root` + `deliveries/{template_id}_{template_version}.yaml` | 同上；版本和身份精确验证 | 阶段二前置整改 |
-| Core 共享文件 | Core SharedDocumentLoader / VersionedTemplateRepository | 仅消费 Core 解析结果；不由 Sink 快照覆盖 | 阶段二 |
-| 全量 Get/Push/Apply | 两份显式 Service + 两份显式 Instance + 精确引用的 Template 闭包 | 原子代提交；检查来源变更需重启、引用缺失拒绝 | 阶段二前置整改 |
-| 测试与部署 | `tests/sink_service/{unit,component,integration,system}/` | 覆盖显式来源、路径安全、跨进程一致性与不可变版本 | 阶段四验收 |
+| Service | `configs/services/sink_service.yaml` | Main 显式加载，校验版本和服务参数 | 旧双 Service 必须移除，单文件启动通过 |
+| Sink Instance | `config_sources.instances.sinks` | Main 解析、校验并持久化 | 精确 pathname、CAS 和引用测试 |
+| Delivery Instance | `config_sources.instances.deliveries` | Main 管理 desired_state 与配置代 | Start/Stop 语义及崩溃恢复测试 |
+| Sink Template | `config_sources.templates.root` + `sinks/{template_id}_{template_version}.yaml` | Main 校验不可变版本及能力 | 严格引用、不扫描目录 |
+| Delivery Template | `config_sources.templates.root` + `deliveries/{template_id}_{template_version}.yaml` | Main 校验，按通道发给子进程 | 子进程版本确认与过滤测试 |
+| 跨进程 IPC | Main → Realtime/Reliable，版本化应用/状态反馈 | Main 控制，子进程只读运行配置 | 超时、断线、故障恢复、无样本 IPC |
+| Core 共享能力 | 通用读取/解析/比较 | Core 不管理 Sink 业务配置语义 | 禁止间接默认路径/业务配置侵入 Core |
 
-**迁移边界：**移除 `templates/sinks/<id>/<version>.yaml`、`templates/deliveries/<id>/<version>.yaml` 等旧路径及默认文件名读取逻辑；不得为旧版结构保留兼容分支。`config_sources` 属于 Service 契约，`template_id + template_version` 属于 Instance 契约，`file_version` 属于 Template 自身身份，三者分别校验。
-
-**原子快照所有权：**Sink Writer 的候选文件集严格由两份显式 Service、两份 `config_sources.instances` 文件以及精确解析的已引用 Template 闭包组成。`config_sources.templates.root` 不是目录扫描许可；同目录内不相关文件及 Core 文件不纳入本次快照的替换/删除范围。Writer/Reader 以相同的 `config_sources` 和已提交 revision 核对来源，发现偏差应报配置不一致，不得自动切换路径。
+**原子快照所有权：**每容器 Main 的候选文件集严格由一份显式 Service、两份显式 Instance 和精确引用的 Template 闭包构成。只写入本配置域独立的正式 `CURRENT`；不扫描其它同级目录、不删除 Core 或其它容器文件。Main 等待两个子进程返回对应实际应用代；未收敛时保留已提交配置并准确报告状态。
 
 ## 11.3 完整配置快照 Get / Push / Apply
 
-本节规定 CLI 已确认的外部配置行为，不自行定义 Proto 字段。**Get** 按当前 Service 的 `config_sources` 与 Instance→Template 精确引用闭包读取指定作用域的完整文件快照及 revision；**Push** 校验完整候选文件集合（路径安全、Schema、文件版本、模板引用、实例引用、Sink 能力及冲突），只暂存候选及标识，**不得**改变正式文件或运行配置；**Apply** 检查候选标识和预期 revision，原子提交正式文件集合，再对 Instance/Template 引用变更进行受影响对象增量应用。Service 配置变更仅提交文件并明确提示需要重启。
+本节规定 CLI 已确认的外部配置行为，不自行定义 Proto 字段。多实例部署下，每次 Get/Push/Apply 只针对一个配置域，由 CLI/Web UI 分别调用相应容器的 Main。跨域分配先执行外部冲突检查及安全停旧启新，不能通过在多个域内同时置 START 完成迁移。
+
+**Get** 按当前 Service 的 `config_sources` 与 Instance→Template 精确引用闭包读取指定作用域的完整文件快照及 revision；**Push** 校验完整候选文件集合（路径安全、Schema、文件版本、模板引用、实例引用、Sink 能力及冲突），只暂存候选及标识，**不得**改变正式文件或运行配置；**Apply** 检查候选标识和预期 revision，原子提交正式文件集合，再对 Instance/Template 引用变更进行受影响对象增量应用。Service 配置变更仅提交文件并明确提示需要重启。
 
 | 阶段 | 成功条件 | 失败处理与反馈 |
 |---|---|---|
 | Get | 返回一致的正式/生效/候选作用域及版本 | 不可读或版本不一致时显式失败，不返回混合版本 |
 | Push | 完整校验通过并暂存不可混淆候选 | 校验失败不生成可应用候选，不改变磁盘正式配置或 Runtime |
-| Apply 文件提交 | Writer 对预期 revision 执行唯一原子提交 | 冲突拒绝；文件集合提交失败不得宣称部分文件为新正式版本 |
-| Apply 运行生效 | 受影响 Delivery 局部收敛，Reader 报告实际 active revision | 未收敛保持已提交文件版本，逐对象报告 PENDING/FAILED，不能虚报全成功 |
+| Apply 文件提交 | Main 对预期 revision 执行唯一原子提交 | 冲突拒绝；文件集合提交失败不得宣称部分文件为新正式版本 |
+| Apply 运行生效 | Main 经 IPC 收集受影响子进程的实际应用版本与 Delivery 状态 | 未收敛保持已提交文件版本，逐对象报告 PENDING/FAILED，不能虚报全成功 |
 | Service 配置变更 | 正式文件提交成功，显示 `RESTART_REQUIRED` | 不在运行进程内冒险热替换服务级资源 |
 
-候选快照需限制总字节数、路径个数、存活时间及并发候选数；仅唯一 Writer 可以暂存并提交共享配置。手动 Start/Stop 的 `desired_state` 变更与快照 Apply 竞争同一配置 revision，防止丢失更新。旧实例和连接的释放须等待 I/O 安全结束或可信隔离。
+候选快照需限制总字节数、路径个数、存活时间及并发候选数；仅 Main 可以暂存并提交本配置域配置。手动 Start/Stop 的 `desired_state` 变更与快照 Apply 竞争同一配置 revision，防止丢失更新。旧实例和连接的释放须等待 I/O 安全结束或可信隔离。
 
 ### 11.3.1 候选快照和文件集契约
 
 | 对象 | 编码前必须确定的行为 |
 |---|---|
-| 全量文件集 | `files[]` 仅表示两份显式 Service、两份显式 Instance 以及精确引用的模板闭包；不得扫描 `templates.root` 生成候选。对于旧代已受管、现已解除引用的 Sink 模板版本仍须遵守已发布模板不可变/不可删约束，不把未引用的外部共享文件视为待删除。 |
+| 全量文件集 | `files[]` 仅表示一份显式 Service、两份显式 Instance 以及精确引用的模板闭包；不得扫描 `templates.root` 生成候选。对于旧代已受管、现已解除引用的 Sink 模板版本仍须遵守已发布模板不可变/不可删约束，不把未引用的外部共享文件视为待删除。 |
 | 路径安全 | `relative_path` 与 `config_sources` 必须相对于 `config_root` 在允许的 `configs` 子树内安全解析；拒绝绝对路径、`..`、符号链接、重复路径、非普通文件及越界访问；不允许隐式默认路径。 |
 | 文件完整性 | 校验 `size_bytes` 和 SHA-256 与实际 `content` 一致；未知 Schema、版本或失效引用拒绝 Push。 |
 | 版本不可变 | 既有 Template 版本内容一旦提交不得原地覆盖；更新需创建新版本并修改 Instance 引用。 |
 | 候选生命周期 | 绑定 `base_revision`、不可变内容摘要与唯一 `candidate_id`；过期、失效、重复应用须显式拒绝或按已完成结果安全响应，不得悄然覆盖较新正式版本。 |
-| 原子提交 | 对多个文件采用同一代完整目录快照/清单指针切换，保证 Reader 只能读取一个完整 revision；仅逐文件 `os.replace` 不足以保证整个集合原子可见。持久化执行 `fsync`，崩溃后能识别并恢复最后完整提交代。 |
+| 原子提交 | 对多个文件采用同一代完整目录快照/清单指针切换，保证数据子进程只能接收同一个完整 revision；仅逐文件 `os.replace` 不足以保证整个集合原子可见。持久化执行 `fsync`，崩溃后能识别并恢复最后完整提交代。 |
 | 运行状态 | `stored_revision` 为已提交磁盘代；`active_revision` 为进程确实应用的代。部分应用失败不回滚已提交文件，但保留旧对象运行代及安全所有权。 |
 | 服务配置 | Service 参数改变只标记需要重启，现有进程继续使用旧 active 服务参数；重启后应用已提交版本。 |
 | 竞争 | Delivery Start/Stop 与 Apply 共用权威 revision 的 CAS；若配置 Apply 删除目标 Delivery，并发控制请求因版本/对象状态冲突拒绝。 |
@@ -2967,12 +3065,12 @@ flowchart TD
  B --> C{"校验通过?"}
  C -->|否| X["拒绝候选，不改变正式文件和 Runtime"]
  C -->|是| D["暂存不可变候选与基线 revision"]
- D --> E["Apply：检查期望 revision 与 Writer 身份"]
+ D --> E["Apply：Main 检查期望 revision 和写入权限"]
  E --> F{"版本仍匹配?"}
  F -->|否| Y["拒绝冲突，正式配置不变"]
  F -->|是| G["原子提交完整正式文件集合"]
  G --> H["按实例/模板引用计算受影响对象"]
- H --> I["局部应用并等待 Reader 版本确认"]
+ H --> I["局部应用并等待子进程版本确认"]
  I --> J["分别返回文件提交、运行结果、重启要求"]
 ```
 
@@ -2981,14 +3079,11 @@ flowchart TD
 
 ## 11.5 热更新中的竞态和不可变边界
 
-只允许通过 Writer 对 `config_sources.instances` 所指明的实例文件进行 revision CAS 更新；对外通过 Get/Push/Apply 处理完整快照；服务内部针对单个 Delivery 的期望状态更新使用相同 revision CAS 与原子文件提交机制，不额外暴露旧的 Update/Replace 接口。模板版本不可修改，发布新版本后仅修改实例引用才影响运行。Service 参数保存后标记 `RESTART_REQUIRED`，不混入当前实际生效版本。受影响 Sink 连接切换前先停止新交付，旧 I/O 未安全结束则维持旧 active_revision 和资源所有权，并把新 stored_revision 记录为待收敛。Reader 以 `revision + content_hash` 确认全量候选快照，不信任部分写入的文件；通知可以丢失，定期轮询保证最终发现。Writer 只对已收到 Reader 生效确认的对象标记 APPLIED；Reader 故障时不启动第二 Writer。历史来源过滤变更必须遵守第 10.4 节的积压责任边界。
+仅 Main 可对正式配置源执行 revision CAS 更新；Start/Stop 与 Apply 竞争同一权威修订号，避免丢失更新。模板版本不可原地修改，实例通过新版本引用热更新。Service 参数修改后报告 `RESTART_REQUIRED`，不隐式热替换进程与监听端口。Main 原子提交后向受影响子进程发送有版本 IPC；子进程拒绝过期配置，报告应用完成或失败。旧 I/O 未收敛时保留旧 Adapter 所有权；Main 的 `stored_revision` 可以领先于实际 `active_revision`，子进程失联只标记 UNKNOWN/PENDING，不宣称 APPLIED。Main 重启从本域 `CURRENT` 恢复期望状态，子进程不自行读取并写入正式配置。
 
 ## 11.6 配置安全性与身份来源
 
-凭据通过 Secret 引用解析，示例采用 `env:` 或部署支持的安全 Secret 后端；Secret 明文不写入 YAML，也不通过 GetConfig 返回。`config_sources` 必须显式、完整、两进程一致；配置文件必须限定目录、符号链接及路径遍历访问；原子提交须采用完整目录代与原子清单指针切换；每个临时文件持久化后 fsync 文件与目录，并在切换时确保 Reader 只看见一个已提交代。Writer 无法验证配置文件内容哈希时拒绝同步，不能报告已经生效。
-
-周期统计配置仅在各进程的 `services/sink-realtime.yaml` 或 `services/sink-reliable.yaml` 的 `metrics` 段定义，不得在 `runtime` 或实例配置中重复声明；热更新与重启遵守 UR-04 的窗口重建规则。`GetMetricsRequest.window_ms` 必须属于 `supported_window_ms`，否则明确返回不支持的窗口错误。
-
+Main 的 gRPC 使用 mTLS 与 `query/control/config` 权限；唯一 Main 接受候选与配置修改，子进程不监听外部 RPC。凭据使用 Secret 引用，不写入 YAML 明文或返回普通配置查询。受管配置路径限定 `configs/` 相对范围，禁止符号链接、路径逃逸、未引用模板扫描。正式快照使用原子目录代/清单指针提交并保障崩溃恢复；每份配置版本具有内容哈希。IPC 本地通道访问限制为本容器进程组，帧大小及超时有界，敏感信息不记录普通日志。统计配置只存在一份 Service 的 `metrics` 段，由 Main 统一调度/汇总子进程结果。
 
 # 12. Sink Adapter 能力与输出映射
 
@@ -3012,7 +3107,7 @@ flowchart TD
 
 ### 12.1.1 三类输出的可编码映射契约
 
-下述映射是对已有单样本消息、稳定测点身份及输出能力的实现细化；它不修改 `SampleMessage` 的线格式。
+下述映射以稳定的逐测点身份和目标输出能力为约束；v1_20 所需的批量输入线格式按 §10.1 统一升级，不能把当前 `SampleMessage` 线格式视为已支持批量。
 
 1. **Redis**：业务 Key 由 `namespace:wind_farm_id:collector_id:device_id:point_id` 组成，禁止使用 `sample_id` 作为 Key 的一部分。Value 为 UTF-8 JSON 对象，固定包含 `sample_id`、`value`、`quality`、`sample_time`、`publish_time`、`collector_id`、`device_id`、`point_id`、`wind_farm_id`；时间统一为 UTC ISO 8601，数值与布尔使用原始 JSON 类型，`null` 不改写为数字零。单个 Adapter 批次的成功要求所有属于该批的 Key 更新均获得可信确认；部分成功不得宣称整批已成功，已成功测点的确认按具体操作记录。
 2. **Kafka**：输出 Topic 使用模板 `output.topic`；Message Key 使用 `wind_farm_id:collector_id:device_id` 的 UTF-8 字节；Value 为原 `SampleMessage` 的规范 JSON（不添加 Sink 内部业务计算字段），并保留 `sample_id` 用作下游业务去重键。同一设备使用稳定 Key，但不承诺跨设备、跨分区的顺序。Broker 确认数按真实 Producer 操作记录，多个上游样本合成的调度批次不假装为 Kafka 原生单条消息。
@@ -3020,6 +3115,16 @@ flowchart TD
 4. **批次与计数**：一个调度批次可以拆成多个网络 I/O 操作；`failed_total` 按真实明确失败 I/O 尝试计数。`delivered_total` 按获得明确成功确认的逻辑样本交付计数，同批 500 条样本均已确认时增量为 500，而不是 1；仅当各样本明确完成时分别计入。批次大小、样本数和 I/O 尝试数须分别在测试中核验，不互相代替。
 
 配置准入还须检查 Redis Key 命名空间合法性、Kafka Topic 非空、Modbus 映射区域与编码支持范围。含有非 `float32` 类型或 `null` 的 Modbus 来源不应被伪装为一次成功写入；确需写入此类数据时必须先确定新编码规则并变更设计，本版不隐含支持。
+
+### 12.1.1 批量 Adapter 写入预算
+
+| Adapter | 批量要求 | 可信完成条件 |
+|---|---|---|
+| Redis | 尽量一次 Lua EVAL 处理同一目标最多 500 点；超限按配置和协议限制拆批 | Lua 应答中逐项明确确认；CAS 冲突/过期不得计为新成功 |
+| Kafka | Producer 异步聚合多个测点，使用批次化发送能力与有界在途；不假定“500 点”是单个 Kafka Record | Broker ACK 对应消息后才确认；端到端业务去重仍依赖下游或策略声明 |
+| Modbus TCP Server | 一次原子刷新本次有效点与质量的寄存器镜像，不制造 500 次外部主动网络写 | 本地镜像刷新完成；不将工业客户端读取等同于确认 |
+
+跨目标分发、按 Sink 拆批以及部分成功必须保留逐测点身份和质量。不同 Sink 协议的“成功”语义不能混为一个统一的网络 ACK；Reliable 准入继续执行第 10.3 节的可靠结果与重复策略约束。以上是实现目标，需由相应 Adapter 的真实协议测试证明。
 
 ## 12.2 输出点映射与冲突规则
 
@@ -3056,7 +3161,7 @@ flowchart TD
 
 ## 13.1 管理面身份与授权
 
-外部 gRPC 只使用 mTLS 验证身份；从可信证书 URI SAN 映射 caller_id，再按 `query/control/config` 检查。不能使用请求体自报的 caller_id 作为权限事实。授权查询不执行通用脱敏；凭据不作为普通业务查询输出字段。Writer/Reader 身份不通过客户端可修改字段决定。运行日志不保存 Token、私钥或明文连接口令。
+外部 gRPC 只使用 mTLS 验证身份；从可信证书 URI SAN 映射 caller_id，再按 `query/control/config` 检查。不能使用请求体自报的 caller_id 作为权限事实。授权查询不执行通用脱敏；凭据不作为普通业务查询输出字段。Main 的配置权限不通过客户端可修改字段决定。运行日志不保存 Token、私钥或明文连接口令。
 
 ## 13.2 操作审计和普通指标
 
@@ -3080,6 +3185,10 @@ flowchart TD
 
 窗口覆盖时长按 `metrics_covered_ms` 报告；无法通过现有 Proto 表达的可用性不新增字段，而由省略指标和状态/事件明确说明。进程重启不回填未知历史；Broker 积压来自可核实查询，失败时不可报告零值。指标标签只使用有界的进程角色和对象 ID，不使用 `sample_id` 等高基数标签。
 
+### 13.3.1 单实例容量观测（性能测试专用）
+
+不扩大已冻结的 12 项必选 `GetMetrics` 指标全集；容量专项测试需独立记录：上游批/s、点/s、输入字节/s，Sink 已接收/校验/拒绝的批与点数量，按 Delivery 扇出点/s、目标确认点/s、Adapter 实际写批/s、批次平均/分位点数、可靠 ACK pending、重投、DLQ、两个数据进程的 CPU/RSS/事件循环延迟，以及 Main 关键 gRPC 调用的成功率、P95/P99 与最长不可达时长。必须同时报告实时覆盖丢弃数，禁止把 `failed_total=0` 解释为容量通过。用于计算的计数器必须按输入消息、业务测点和目标 I/O 尝试三个粒度分别定义与复核。
+
 ## 13.4 链路诊断证据与安全边界
 
 Diagnose 仅返回所指定范围内的可验证证据：NATS/JetStream 连通与消费者状态、Delivery 匹配/过滤与待处理、Sink 连接与在途 I/O、Adapter 返回及可验证的目标响应。每阶段报告执行位置、观察时间、耗时、状态、错误及证据来源；未执行和无法证明分别记为 `NOT_RUN`/`UNKNOWN`（最终状态名称以正式 Proto 为准）。TCP 通不代表协议成功，Adapter 接受不等于目标完成业务处理。
@@ -3088,7 +3197,7 @@ Diagnose 仅返回所指定范围内的可验证证据：NATS/JetStream 连通�
 
 # 14. 测试体系、物理组织与验收
 
-**派发吞吐强制验收场景：**同时配置 ≥20 个 Sink，各 10 Hz，每次 500 个 `float32` 测点值，至少持续 10 min。分别记录实际成功批次/s、成功数值/s、输出周期误差、P99 派发延迟、CPU/内存及各 Sink 错误和背压；在验收报告中标注协议类型及环境。通过条件为各 Sink 达到配置的 10 Hz 且全局成功输出不少于 200 批/s 和 100000 数值/s（若实测失败，必须记录 FAIL，不得伪称通过）。
+**派发吞吐容量标定场景：** 单个三进程实例按 30 台 × 10 Hz、实时 100 点/台、可靠 500 点/台的参考负载，持续至少 600 s。分别记录 offered、received、accepted、实际确认 delivered、目标写入批次数、输出周期误差、P99 延迟、CPU/内存及各 Sink 错误/背压；参考吞吐不作为合并阻断指标，必须以真实供数、真实目标确认和完整可靠性证据报告稳定容量边界。详见 §14.5.3。
 
 
 ## 14.1 测试依据与裁定
@@ -3117,6 +3226,12 @@ tests/sink_service/
 
 | 测试文件名 | 层级 Marker | 专题 Marker | 场景 Marker | 测试说明 |
 |---|---|---|---|---|
+| `test_config_validation.py` | unit | contract、security | normal、exception | Service/Instance/Template 完整闭包、显式路径、类型及能力校验 |
+| `test_modbus_image.py` | unit | contract | normal、boundary | Modbus 点表与寄存器编码映射 |
+| `test_reliable_seams.py` | unit | reliability | exception、boundary | Reliable durable 身份、协议能力与 fail-closed 前置条件 |
+| `test_writer_lease.py` | component | reliability | concurrency、recovery | Sink 共享资源独占与安全释放 |
+| `test_config_repository.py` | integration | contract、reliability | storage、recovery | GenerationStore 原子提交、CAS、越界与模板不可变 |
+| `test_redis_batch_contract.py` | integration | contract | normal、boundary | Redis 真批量写入的目标确认边界 |
 | `test_output_policy.py` | unit | reliability | normal、exception | UR-01 三策略、变化阈值、质量/过期 |
 | `test_sample_identity.py` | unit | reliability | exception | 来源、乱序、重复及冲突样本 |
 | `test_delivery_state.py` | unit | reliability | normal、exception | UR-03 desired/actual 状态转换 |
@@ -3124,8 +3239,8 @@ tests/sink_service/
 | `test_delivery_runtime.py` | component | reliability | concurrency | Sink 共享、独立 Consumer、停止收敛 |
 | `test_realtime_cache.py` | component | performance | load | 有界合并、丢弃、最新值与重启清空 |
 | `test_config_snapshot.py` | component | contract | normal、exception | Get/Push/Apply 校验、候选、冲突及版本 |
-| `test_config_sources.py` | integration | contract、security | normal、exception、recovery | 两个 Service 显式 Instance pathname；Template 根目录与扁平文件名；缺失/越界/旧版目录/默认路径回退拒绝；切换配置来源需重启 |
-| `test_writer_reader.py` | component | reliability | recovery、timeout | Writer/Reader 版本及部分收敛 |
+| `test_config_sources.py` | integration | contract、security | normal、exception、recovery | 单 Service 显式 Instance pathname；Template 根目录与扁平文件名；缺失/越界/旧版目录/默认路径回退拒绝；切换配置来源需重启 |
+| `test_worker_ipc.py` | component | reliability | recovery、timeout | Main/子进程版本确认、超时与部分收敛 |
 | `test_metrics.py` | component | contract | exception | 初始化、时间窗口、周期计算、跳周期、延迟分位数及快照不可用 |
 | `test_diagnose.py` | component | security | exception、timeout | 诊断分阶段证据、无副作用、限流 |
 | `test_grpc_contract.py` | integration | contract、security | normal、exception | 正式 Proto 全 RPC、mTLS、授权与错误映射 |
@@ -3133,16 +3248,18 @@ tests/sink_service/
 | `test_nats_realtime_real.py` | integration | reliability | normal、exception | 真实 NATS Core 实时消息链路 |
 | `test_adapters_real.py` | integration | reliability | normal、exception | 三类 Adapter 真实协议确认边界 |
 | `test_config_disk_real.py` | integration | reliability | storage、recovery | 共享配置原子提交、磁盘重启恢复 |
-| `test_lifecycle.py` | system | reliability | normal、recovery | UC-01、08、09 双进程和停止/重启 |
+| `test_lifecycle.py` | system | reliability | normal、recovery | UC-01、08、09 单容器三进程启停与恢复 |
 | `test_delivery_flow.py` | system | reliability | normal、exception | UC-02～05、11 共享/实时/可靠派发 |
 | `test_dlq_recovery.py` | system | reliability | timeout、recovery | UC-05、10、12 重投/死信/崩溃 |
-| `test_config_apply.py` | system | reliability | concurrency、recovery | UC-07 快照、Writer/Reader、部分生效 |
+| `test_config_apply.py` | system | reliability | concurrency、recovery | UC-07 Main 配置提交、IPC 版本与部分生效 |
 | `test_metrics_query.py` | system | contract | normal、exception | UC-06、12 查询指标事件、分页和故障状态 |
 | `test_metrics_cycle_e2e.py` | system | contract | normal、boundary、recovery | UC-14 初始化、首次周期、空窗口、重启及口径热变更 |
 | `test_diagnose_pipeline.py` | system | reliability | exception、timeout | UC-13 阶段探测、证据不足、只读安全 |
 | `test_grpc_api.py` | system | security | normal、exception | UC-02、03、06、07、13 正式接口可用性 |
 | `test_resource_safety.py` | system | reliability | timeout、concurrency | UC-03、08、11 未收敛 I/O 与故障隔离 |
-| `test_capacity.py` | system | performance | load | 有界缓存/在途、吞吐、P99、内存资源 |
+| `test_capacity.py` | system | performance | load | 单实例稳定吞吐/饱和点，输入供数、事件循环、满载 gRPC、P99 与内存资源 |
+| `test_static_assignment.py` | component | contract、reliability | normal、exception | 每配置域本地完整闭包、Delivery/Sink 静态归属、无需集群字段及跨域独立性 |
+| `test_container_scaleout.py` | system | performance、reliability | load、recovery、concurrency | 多个三进程容器独立运行、静态分配不重叠、总吞吐、满载 RPC、迁移先停后启、故障不自动接管 |
 | `test_field_delivery.py` | system | reliability | field | 获授权条件下三类目标的真实交付 |
 | `test_realtime_expiry_e2e.py` | system | reliability | exception、recovery | 实时数据过期丢弃、重启不补发；UC-04 |
 | `test_reliable_outage_replay_e2e.py` | system | reliability | timeout、recovery、load | 下游长期不可达后的自动续发、限流及实时竞争；UC-05、11 |
@@ -3151,7 +3268,7 @@ tests/sink_service/
 | `test_replay_starvation_e2e.py` | system | performance、reliability | load、timeout | 持续实时负载时补发的等待、饥饿监控和告警；UC-11 |
 | `test_modbus_server_e2e.py` | system | reliability | normal、exception | Modbus Server 寄存器更新与真实客户端读取；UC-04 |
 
-矩阵中的测试文件仅列文件名，物理归属由层级 Marker 确定为 `tests/sink_service/{unit,component,integration,system}/`，不得仅凭文件名推断测试已实现。上述文件均为**目标测试设计**，并不代表已创建、运行或通过。
+矩阵中的测试文件仅列文件名，物理归属由层级 Marker 确定为 `tests/sink_service/{unit,component,integration,system}/`，不得仅凭文件名推断测试已实现。上述文件均为**目标测试设计**，并不代表已创建、运行或通过。所有测试设计与场景追溯均以本章为唯一权威来源；验收报告可记录实施状态，但不得另建与本章并行的测试设计规范。
 
 ## 14.4 System Test 用例及场景追溯矩阵
 
@@ -3161,9 +3278,9 @@ tests/sink_service/
 
 | UR | UC 与规定场景 | 技术契约 | 测试文件/标识 | Marker | 预期结果 | 真实环境及执行结果 |
 |---|---|---|---|---|---|---|
-| UR-03、06、08 | UC-01-S01 | 9.1～9.3；11 | `test_lifecycle.py::test_uc_01_s01` | `system`、`contract`、`normal` | 启动双进程并查询就绪；进程/业务就绪分离，失败可观察 | 真实环境待核验；NOT_RUN（设计阶段） |
-| UR-03、06、08 | UC-01-S02 | 9.1～9.3；11 | `test_lifecycle.py::test_uc_01_s02` | `system`、`reliability`、`boundary` | Service 配置变化与单进程未就绪；进程/业务就绪分离，失败可观察 | 真实环境待核验；NOT_RUN（设计阶段） |
-| UR-03、06、08 | UC-01-S03 | 9.1～9.3；11 | `test_lifecycle.py::test_uc_01_s03` | `system`、`reliability`、`failure` | 非法配置、Writer 冲突和进程恢复；进程/业务就绪分离，失败可观察 | 真实环境待核验；NOT_RUN（设计阶段） |
+| UR-03、06、08 | UC-01-S01 | 9.1～9.3；11 | `test_lifecycle.py::test_uc_01_s01` | `system`、`contract`、`normal` | 启动本域已启用的进程并查询就绪；进程/业务就绪分离，失败可观察 | 真实环境待核验；NOT_RUN（设计阶段） |
+| UR-03、06、08 | UC-01-S02 | 9.1～9.3；11 | `test_lifecycle.py::test_uc_01_s02` | `system`、`reliability`、`boundary` | Service 配置变化与子进程未就绪；进程/业务就绪分离，失败可观察 | 真实环境待核验；NOT_RUN（设计阶段） |
+| UR-03、06、08 | UC-01-S03 | 9.1～9.3；11 | `test_lifecycle.py::test_uc_01_s03` | `system`、`reliability`、`failure` | 非法配置、Main 配置写入冲突和进程恢复；进程/业务就绪分离，失败可观察 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-03、06、08 | UC-02-S01 | 9.1～9.3；11 | `test_delivery_flow.py::test_uc_02_s01` | `system`、`contract`、`normal` | 启动已配置 Delivery 并确认状态；desired 与 actual 可区分，无重复资源 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-03、06、08 | UC-02-S02 | 9.1～9.3；11 | `test_delivery_flow.py::test_uc_02_s02` | `system`、`reliability`、`boundary` | 重复启动与共享 Sink 的引用；desired 与 actual 可区分，无重复资源 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-03、06、08 | UC-02-S03 | 9.1～9.3；11 | `test_delivery_flow.py::test_uc_02_s03` | `system`、`reliability`、`failure` | 版本冲突、目标不可达及待收敛；desired 与 actual 可区分，无重复资源 | 真实环境待核验；NOT_RUN（设计阶段） |
@@ -3181,7 +3298,7 @@ tests/sink_service/
 | UR-05、08 | UC-06-S03 | 9.1～9.3；13 | `test_metrics_query.py::test_uc_06_s03` | `system`、`reliability`、`failure` | 无权限、对象不存在、部分进程不可用；实时状态、指标口径一致 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-06、08 | UC-07-S01 | 9.1～9.3；11 | `test_config_apply.py::test_uc_07_s01` | `system`、`contract`、`normal` | 完整配置 Get、Push、Apply 与局部热生效；文件提交与运行生效分离 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-06、08 | UC-07-S02 | 9.1～9.3；11 | `test_config_apply.py::test_uc_07_s02` | `system`、`reliability`、`boundary` | 候选校验、版本冲突、Service 重启要求；文件提交与运行生效分离 | 真实环境待核验；NOT_RUN（设计阶段） |
-| UR-06、08 | UC-07-S03 | 9.1～9.3；11 | `test_config_apply.py::test_uc_07_s03` | `system`、`reliability`、`failure` | 文件提交后应用失败、Reader 不可达与收敛查询；文件提交与运行生效分离 | 真实环境待核验；NOT_RUN（设计阶段） |
+| UR-06、08 | UC-07-S03 | 9.1～9.3；11 | `test_config_apply.py::test_uc_07_s03` | `system`、`reliability`、`failure` | 文件提交后应用失败、数据子进程不可达与收敛查询；文件提交与运行生效分离 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-03、08 | UC-08-S01 | 6；10；12 | `test_lifecycle.py::test_uc_08_s01` | `system`、`contract`、`normal` | 正常停止进程并保全交付责任；禁止不安全释放/重启 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-03、08 | UC-08-S02 | 6；10；12 | `test_lifecycle.py::test_uc_08_s02` | `system`、`reliability`、`boundary` | 重复关闭、待处理消息及共享资源；禁止不安全释放/重启 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-03、08 | UC-08-S03 | 6；10；12 | `test_lifecycle.py::test_uc_08_s03` | `system`、`reliability`、`failure` | 关闭超时、未收敛 I/O 与安全退出；禁止不安全释放/重启 | 真实环境待核验；NOT_RUN（设计阶段） |
@@ -3190,7 +3307,7 @@ tests/sink_service/
 | UR-03、06、08 | UC-09-S03 | 9.1～9.3；11 | `test_lifecycle.py::test_uc_09_s03` | `system`、`reliability`、`failure` | 配置非法、端口占用及旧资源未收敛；服务级变更经重启生效 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-02、03、06 | UC-10-S01 | 6；10；12 | `test_dlq_recovery.py::test_uc_10_s01` | `system`、`contract`、`normal` | 异常退出后按持久意图恢复派发；不丢消费责任，不重启 STOP | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-02、03、06 | UC-10-S02 | 6；10；12 | `test_dlq_recovery.py::test_uc_10_s02` | `system`、`reliability`、`boundary` | 可靠消息重复投递、实时缓存清空；不丢消费责任，不重启 STOP | 真实环境待核验；NOT_RUN（设计阶段） |
-| UR-02、03、06 | UC-10-S03 | 6；10；12 | `test_dlq_recovery.py::test_uc_10_s03` | `system`、`reliability`、`failure` | Reader/Writer 版本不一致、旧资源冲突；不丢消费责任，不重启 STOP | 真实环境待核验；NOT_RUN（设计阶段） |
+| UR-02、03、06 | UC-10-S03 | 6；10；12 | `test_dlq_recovery.py::test_uc_10_s03` | `system`、`reliability`、`failure` | Main 与子进程版本不一致、旧资源冲突；不丢消费责任，不重启 STOP | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-01、02、03 | UC-11-S01 | 6；10；12 | `test_delivery_flow.py::test_uc_11_s01` | `system`、`contract`、`normal` | 隔离故障 Sink 并恢复相关 Delivery；无关 Sink 不受影响 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-01、02、03 | UC-11-S02 | 6；10；12 | `test_delivery_flow.py::test_uc_11_s02` | `system`、`reliability`、`boundary` | 多个 Delivery 引用同一 Sink、无关 Sink 保持运行；无关 Sink 不受影响 | 真实环境待核验；NOT_RUN（设计阶段） |
 | UR-01、02、03 | UC-11-S03 | 6；10；12 | `test_delivery_flow.py::test_uc_11_s03` | `system`、`reliability`、`failure` | 重连失败、手动 STOP 与未收敛 I/O；无关 Sink 不受影响 | 真实环境待核验；NOT_RUN（设计阶段） |
@@ -3219,7 +3336,7 @@ tests/sink_service/
 | CommonService | `GetConfigSnapshot`、`PushConfigSnapshot`、`ApplyConfigSnapshot` | 候选不生效、revision 冲突、文件提交与运行生效分开 |
 | CommonService | `GetMetrics`、`GetEvents` | 窗口与分页、统计真实、权限和无数据 |
 | CommonService | `Diagnose` | 阶段证据、超时、只读安全和 UNKNOWN |
-| SinkService | `ListDeliveries`、`GetDelivery` | 通道筛选、分页、配置和双进程状态 |
+| SinkService | `ListDeliveries`、`GetDelivery` | 通道筛选、分页、配置和两个子进程状态 |
 | SinkService | `StartDelivery`、`StopDelivery` | 版本冲突、期望状态、手动停止、未收敛 I/O |
 
 方法验收必须使用正式生成的 Stub，逐项核对请求/响应 Descriptor、实际 gRPC 可调用性、正常与异常结果，不能只按数量检查。
@@ -3229,10 +3346,10 @@ tests/sink_service/
 
 | 契约 | 验证内容 | 基础设施与要求 |
 |---|---|---|
-| 第 6 章 | 双进程、任务资源所有权、未收敛 I/O、竞争与恢复 | 两个独立真实进程，允许可控故障注入 |
+| 第 6 章 | 单容器三进程，各自独立 asyncio、IPC、任务所有权与恢复 | 真实 Main/Realtime/Reliable 三进程；模拟 IPC 断开、进程崩溃及未收敛 I/O |
 | 第 9 章 | `CommonService` 9 项 + `SinkService` 4 项全部 Unary RPC，认证、错误、deadline | 真实 gRPC Server/Stub、mTLS，Proto 已发布；未能完成编译或真实联调则 NOT_RUN |
 | 第 10 章 | 实时 NATS 和可靠 JetStream、确认/死信与重复投递 | 真实 NATS Core 与 JetStream 服务 |
-| 第 11 章 | 快照候选与原子提交、版本冲突、Writer/Reader 收敛 | 真实磁盘配置和两个进程；故障可控 |
+| 第 11 章 | 快照候选与原子提交、版本冲突、子进程配置代收敛 | 真实磁盘配置和三个进程；故障可控 |
 | 第 12 章 | Redis/Modbus TCP Server/Kafka 成功边界 | 真实协议端点；不可用项逐项 NOT_RUN |
 | 第 13 章 | UR-04 必选 12 项指标、P99、统计窗口、资源上限、诊断/事件安全 | 记录负载、窗口、机器规格、测试数据、样本量 |
 
@@ -3244,10 +3361,10 @@ System 测试以真实进程与真实消息基础设施运行，受控测试目�
 |---|---|---|
 | 质量与过期 | 同批注入 `good`、`bad`、`uncertain` 及过期样本 | 未过期三类质量均被派发且标志保留；过期样本不写入目标 |
 | 计数口径 | 依 UR-04 R04-01 的完整算例输入，含一次 I/O 失败后成功与可靠重投 | 五项累计计数与窗口指标符合第 3 章定义；按样本计数和按尝试计数不混淆 |
-| 并行派发容量 | ≥20 个独立 Sink、每个 10 Hz、每批 500 个 `float32`、连续 ≥10 min | 每 Sink 达到配置频率；总成功 ≥200 批/s、≥100000 数值/s；需给出实测证据 |
+| 并行派发容量 | 单实例 30 台、Realtime 100 点/台 + Reliable 500 点/台，均为 10 Hz 的参考负载；优先持续测量 ≥600 s | 分别报告实际供数、接收、两通道目标确认、积压趋势、资源占用及参考达成率；不得将参考吞吐用作固定通过门槛 |
 | 共享目标优先级 | 同一物理目标的 Realtime、Reliable 并存，持续大量历史积压 | 经目标侧配额验证 Realtime 不被补发占满；无配额时配置拒绝此保证 |
 | 历史可靠性 | 临时故障、永久错误、DLQ 满、PubAck 丢失、重启后重投 | 临时故障不因重试次数转 DLQ；DLQ 持久确认前不 ACK；重复消费满足目标幂等/下游去重约定 |
-| 配置快照原子性 | Push 与 Start/Stop 并发、断电模拟、Reader 版本落后 | 单代提交可见，revision 冲突明确返回，`stored_revision` 与 `active_revision` 不混淆 |
+| 配置快照原子性 | Push 与 Start/Stop 并发、断电模拟、子进程应用版本落后 | 单代提交可见，revision 冲突明确返回，`stored_revision` 与 `active_revision` 不混淆 |
 | 统计初始化 | 空窗口启动、第一个周期、统计超期、重启、口径热更新 | `NOT_READY`/无数据/0 语义区分；周期任务不重入、不积压 |
 | 查询无脱敏 | 授权与未授权分别读取全部可查询字段 | 授权按正式契约原样返回；未授权拒绝，日志不得泄漏凭据 |
 
@@ -3259,11 +3376,45 @@ System 测试以真实进程与真实消息基础设施运行，受控测试目�
 
 1. `UC-04-S02`：构造 `good/bad/uncertain` 各一个未过期样本，输出质量与输入完全一致；构造 `now == sample_time + max_staleness_ms`，输出数为 0；相对阈值基准值为 0 时仅按已启用绝对阈值判定。
 2. `UC-05-S03`：对临时故障重复执行超过所配置普通重试计数的次数，DLQ 新增数仍为 0 且原消息未 ACK；永久错误须先取得 DLQ 持久 PubAck，再确认源 ACK；PubAck 不可确认时源 ACK 数为 0。
-3. `UC-07-S03`：原子提交后的 Reader 故障必须返回文件提交成功但对象未应用；Reader 恢复后通过正式快照接口验证存储版本与有效版本收敛。
+3. `UC-07-S03`：原子提交后的 数据子进程故障必须返回文件提交成功但对象未应用；数据子进程恢复后通过正式快照接口验证存储版本与有效版本收敛。
 4. `UC-14-S02`：零有效 I/O 样本时 `write_latency_ms_p99` 不得出现为数值 0；有有效覆盖时长但无成功写入，`delivered_rate_per_second` 为 0；不支持的窗口必须返回参数错误，不得触发重新统计。
 5. `UC-03-S03`：人为阻塞目标 I/O 超过 Stop 等待期限，返回状态不得为 `STOPPED`；共享 Sink 不能提前关闭，后续确认 I/O 安全结束后才可释放。
 
 上述为执行协议和基础断言，而非软件已通过验收的记录。
+
+### 14.5.3 单实例双通道 30 台风机容量标定与优化
+
+本项为**单实例性能测量与稳定容量确认**，而非固定吞吐数字的合并阻断门禁。真实部署单元为一个容器三个进程（Main、Realtime、Reliable），两通道必须同时运行。保留 §3.1.1 的 30 台 × 10 Hz 参考负载，通过多轮基线、瓶颈分析、定向优化和重复测量寻找可持续上限。若达不到参考目标，客观报告最佳稳定确认吞吐与约束，不强行达标；**禁止以多实例聚合、单通道分别达标或 offered 值替代目标确认值**。ACK 安全性、数据一致性、资源有界、系统可靠性及满载控制面可用性仍为独立强制门禁。
+
+<p class="table-caption">表 14-5 Gate-5 单实例双通道容量标定与可靠性验收矩阵</p>
+
+| 场景 | 输入/参考负载 | 必须提交的测量与可靠性证据 |
+|---|---|---|
+| 批量输入契约 | Collector 按冻结的批量 Schema 每台每通道每拍发送一批 | 正式 Contracts 与 Subject、生产者/消费者相容，报告独立 Publisher 可提供的批/s、值/s、参考负载达成率和批次/样本 ID 一致性 |
+| Realtime 容量 | 30 台 × 100 点 × 10 Hz | 报告明确确认的实时值/s、输出周期分布与参考达成率；记录实时丢弃/覆盖/过期值 |
+| Reliable 容量 | 同 30 台 × 500 点 × 10 Hz | 报告明确确认的可靠值/s、长期积压增长率与参考达成率；ACK 仅在整批条目终局后，无未解释的 ACK 提前/数据丢失 |
+| 合并负载 | Realtime 与 Reliable 同时运行 ≥600 s | 报告同一容器稳定交付值/s、RT/可靠分别确认值/s及参考目标达成率；记录 Adapter 写批/s、CPU/RSS、事件循环 P99、Broker 积压及长期增长趋势 |
+| 可靠部分成功 | 一批 500 点，部分目标确认、部分暂时失败、部分永久错误 | 原批未完成不 ACK；永久错误 DLQ 持久确认；重启/重投不会让未决点消失；重复符合业务策略 |
+| 背压与恢复 | 暂停目标或限流、恢复后补发 | 无本地无界队列、Reliable 不丢未 ACK；实时过期按策略丢弃；恢复与重投有实际证据 |
+| gRPC 可用性 | 600 s 双通道满载期间持续调用 Main 的真实 13 RPC 中适用的无副作用查询 | 连接拒绝为 0；健康/状态/指标请求在配置 deadline 内完成，记录 P95/P99、失败数和最长不可达时间 |
+| 各协议 | Redis、Kafka、Modbus 的实际协议能力及确认边界 | 逐协议报告吞吐、拆批成本和结果；无法覆盖的协议不冒充已 PASS |
+| 输入/性能归因 | 独立 Producer、NATS/JetStream、Sink、Adapter 阶段采样 | 生产能力必须独立测量；供数不足时参考目标比较为 NOT_RUN，但可记录较低负载下真实稳定容量；提供可复现的瓶颈定位 |
+
+**性能统计规则**：逐轮先校准 Publisher、Broker 与目标供数能力，调整负载寻找可持续最高吞吐；稳态按连续 600 s 窗口计算成功值速率，不以短时峰值抵消长期降速；同时记录 1 s 与 10 s 分桶以观察调度退化。无效、过期、重复、不匹配样本不得用于填充输入要求；测试应提供足量新鲜且可成功写入的不同样本。必须分别报告每个 Adapter 的目标写入成功边界、下游批次数与上游批次数，不假定相等。可靠历史流的故障后恢复能力与正常满载吞吐分别验收，不能以 Broker 缓存速度替代目标确认速度。
+
+**Gate-5 裁决口径**：容量标定 PASS 表示所报告的负载及运行窗口内，目标确认量、可靠积压斜率、资源水位、ACK/DLQ、故障与控制面可用性均有真实且可复算的证据；不表示达到参考负载。若高于稳定吞吐的输入造成持续增长的可靠积压，只能将该轮判为超载边界证据，不得据此宣称该负载稳定；必须额外给出低于边界的稳定运行轮次。可靠性或容量测量真实性不满足要求时仍判 FAIL/NOT_RUN。
+
+### 14.5.4 静态多实例部署专项验收
+
+| 场景 | 测试与必须证实的结果 |
+|---|---|
+| 静态分配 | 相同镜像的多个三进程容器，各独立配置域，CLI/Web UI 显式分配不冲突的 Delivery/Sink；不依赖协调者或选主 |
+| 规模扩展 | 先单独确认 §14.5.3 的稳定容量边界，再测量扩容后的增量与整体吞吐；不得以多实例成绩冒充单实例能力 |
+| 来源订阅 | 每容器只订阅归属的来源，核对未匹配输入仍可能存在的重复接收/解码负担 |
+| 配置隔离和迁移 | 独立 CURRENT，旧域 STOP/I/O 安全收敛后新域 START；任一步不确定拒绝抢占 |
+| 控制面与故障 | 各实例 Main 保持可用，故障容器不影响别的实例；无自动跨域迁移或隐式集群能力 |
+
+以上专项测试是 UC-01、02、03、04、05、07、09、10、11 及对应 14 UC × 3 场景的补充参数化用例，不改变其编号。未获得真实证据者标记 NOT_RUN，不能充作通过记录。
 
 ## 14.6 执行命令和质量检查
 
@@ -3283,7 +3434,9 @@ lint-imports
 
 ## 14.7 验收门槛
 
-系统验收要求：全部 UR、UC 及规定场景形成可定位的真实测试映射；必需的测试在符合要求的环境执行且 PASS；无未裁定 P0/P1 缺陷；真实依赖未具备的测试标记 NOT_RUN 并阻止宣称完整验收通过。指标结果须同时提供原始测量口径，不得用设计期望充当实测证据。以 main commit `bf9dc6d2815a62b77a5e9868b3c6e8e35b3a492c` 的正式 Proto 作为接口基线；代码实现和联调仍需实际验证。
+单实例容量和多容器规模化是两个独立验收项目。**Gate-5 为单容器三进程双通道容量标定**：30 台风机、Realtime 30000 值/s + Reliable 150000 值/s 为参考负载；优先采用连续 ≥600 s 稳态窗口寻找可持续目标确认上限。低于参考吞吐不单独导致 FAIL；必须有可复算的稳定容量、输入及确认口径、积压斜率、CPU/RSS、延迟及故障记录。实测稳定能力之外的持续输入会造成积压时，必须明确供数限制、容量裕度或后续分片方案，不能声称该输入可长期稳定。多容器成绩不能替代单实例报告。ACK 提前、未解释丢失、资源失控和满载控制面不可用仍为阻断缺陷；Contracts/Collector 联调覆盖不足须明确标记限制，不可冒充已通过。
+
+系统验收要求：全部 UR、UC 及规定场景形成可定位的真实测试映射；必需的测试在符合要求的环境执行且 PASS；无未裁定 P0/P1 缺陷；真实依赖未具备的测试标记 NOT_RUN 并阻止宣称完整验收通过。指标结果须同时提供原始测量口径，不得用设计期望充当实测证据。以核查时 main commit `0ac0228afc202ea69f75ab1b0046c2ab24bfd369` 的正式 Proto 作为接口基线；代码实现和联调仍需实际验证。
 
 ### 14.7.1 文档编码准入静态检查
 
@@ -3291,14 +3444,14 @@ lint-imports
 
 | 设计检查项 | 判定标准 |
 |---|---|
-| 冻结范围 | 第 1～3 章与 v1_12 完全一致；变更需另行决策 |
+| 冻结范围 | 第 1～2 章保持 v1_17 不变；第 3 章同步体现用户确认的单实例批量性能目标与静态分配规则 |
 | UR/UC/场景映射 | 8 项 UR、14 项 UC 和每个规定的 System 场景均有唯一可执行测试入口；每个场景有明确断言 |
 | gRPC 契约 | 以锁定 main 提交的 Proto 逐项核对 9+4 RPC、消息字段、枚举、状态返回；不得在设计中发明 wire 字段 |
-| 消息契约 | 单样本 JSON、三种 quality、时区/有效期规则、Subject 层级及 500 点批输出分层清楚 |
+| 消息契约 | 明确现行单点 `SampleMessage` 与尚待冻结的批量新契约之间的差异；Collector/Contracts/Sink 三方一致后才可实现批量上线 |
 | 数据可靠性 | 明确 ACK/DLQ PubAck/未知 I/O 所有权；Broker 限额未证实时不写“无损” |
 | 配置闭包 | 每个模板与实例引用都存在；角色、监听端口、容量、策略、质量寄存器映射合法 |
 | 术语一致 | `Sink` 指目标实例，`Delivery` 指派发任务，`Realtime/Reliable` 指通道，`sample` 为单测点消息，`batch` 为 Adapter 输出组 |
-| 性能目标 | 20 Sink × 10 Hz × 500 值被定义为验收负载而非已完成的性能证明；区分不同 Adapter 能力 |
+| 性能参考负载 | 单容器 30 台 ×10 Hz：Realtime 100 点/台、Reliable 500 点/台，即 600 输入批/s、180000 值/s；优先测量连续 600 s 稳态，报告实际稳定确认能力及差距；多容器不能替代 |
 
 ## 14.8 配置契约专项验收（补充）
 
@@ -3309,32 +3462,59 @@ lint-imports
 | Kafka Reliable | `require_dedup`、`allow_at_least_once`、缺失策略 | 前两者按声明通过准入；缺失拒绝；重复测试不宣称 exactly-once |
 | Modbus TCP Server | 1 个 float32+质量寄存器、500 点、地址冲突、Reliable 模式 | 值与质量同时可读；正确连续映射；冲突及 Reliable 拒绝 |
 | 并发能力 | 单写入 Adapter 配 `max_safe_inflight=2` | Push 拒绝；已在途 I/O 超时不提前回收额度 |
-| 双进程优先级 | 实时和补发共用目标、分别具有/没有物理隔离或目标侧配额 | 有保障时实测实时优先；无保障不允许声称优先级成立 |
+| 双数据进程优先级 | 实时和补发共用目标、分别具有/没有物理隔离或目标侧配额 | 有保障时实测实时优先；无保障不允许声称优先级成立 |
 | 配置来源 | 同配置域两 Service 指向同一路径、不同 pathname、缺失实例、目录扫描诱饵、旧式分层模板、Template 未引用 | 仅匹配显式文件和精确引用闭包；不同来源/缺失/旧路径拒绝；未引用模板不被读取或删除；变更来源提示重启 |
-| 完整快照 | Template 缺失、版本原地覆盖、Writer 冲突、CAS 冲突 | 完整候选原子拒绝；正式文件和 active_revision 均不被错误改变 |
-| 容量性能 | 20 Sink × 10 Hz × 500 float32，持续 10 分钟 | 确实输出 ≥200 批/s、≥100000 数值/s；记录 P99、错误、背压与资源；未实测不得标 PASS |
+| 完整快照 | Template 缺失、版本原地覆盖、Main 配置写入冲突、CAS 冲突 | 完整候选原子拒绝；正式文件和 active_revision 均不被错误改变 |
+| 容量性能 | 单实例两通道同时运行；30 台、10 Hz、实时 100 点/台、可靠 500 点/台为参考负载；优先连续 600 s 稳态；独立实测 Publisher | 分别提交输入、接收、目标确认、积压增长、CPU/RSS、P99、错误与背压；报告最高可持续稳定值/s及参考达成率；未达到参考值不单独判 FAIL，证据不足不得标容量测量 PASS |
 
 上述测试是原有 UC→System Test 矩阵的专项细化，不替代原场景覆盖；每个配置拒绝分支须记录错误码、字段路径及可复现输入。
 
+### 14.8.1 批量契约跨模块验收前置清单
+
+| 变更对象 | 必须核验 |
+|---|---|
+| `src/contracts` | 新批量消息的 Schema、Subject、版本、批次/测点身份、有效期、序列化上限以及解析测试；不能再把旧单点契约当作批量契约 |
+| Collector | 每台每通道批量发布、稳定 batch_id/sample_id、质量/时间与原点表映射、压测下足量 600 批/s 供数 |
+| Sink Realtime | 一次批量解析与来源路由、逐点 TTL/质量/覆盖、调度与拆批确认计数 |
+| Sink Reliable | 批量 JetStream 消费、逐点目标确认、整条消息安全 ACK、部分成功重投与 DLQ、InProgress 续约 |
+| Service 配置与测试 | 校验真实生效的批量字节/消息上限、流过滤、新旧消息版本切换；无隐式兼容或旧接口残留 |
+
+上述为正式编码前必须落实的跨模块契约变更，不是已实现或已通过的测试。
+
 ## 14.9 设计审查与未验证事项
 
-本节为设计检查结果，不是实际软件验收。
+本节为设计检查结果，不是实际软件验收。**2026-11-05 复核**：GitHub `main` HEAD 为 `0ac0228afc202ea69f75ab1b0046c2ab24bfd369`，本轮开发分支 HEAD 为 `41fff0aa34a1adc4f7acb5d6e3618f54dad18b34`。`common.proto` 9 项、`sink_service.proto` 4 项 RPC 的字段/接口对照一致；三进程单 Service 及双通道批量吞吐是设计目标；现行生产代码尚未完成三进程迁移，也未实现批量传输契约，不能依据设计文档宣称实现或性能通过。
+
+- **v1_20 历史参考负载（v1_22 已调整判定）**：单容器 30 台双通道同时 10 Hz，按批量输入 600 批/s、180000 值/s，参考目标确认实时 30000 值/s + 可靠 150000 值/s、优先连续 600 s；正式批量契约仍需同步修改 `src/contracts` 与 Collector。保留单容器三进程、仅 Main gRPC、静态跨容器分配和 13 项 RPC，不引入集群协调服务。
 
 - **原 v1_14 核实基线**：当时 `main` HEAD 为 `bf9dc6d2815a62b77a5e9868b3c6e8e35b3a492c`；`common.proto` 9 RPC、`sink_service.proto` 4 RPC 与第 9 章一致；`SampleMessage` 消息字段、质量枚举及 Subject 层级经源文件复核。
 - **已整改**：UC-05 临时故障重试次数误导向 DLQ；第 10 章相对阈值分母与 R01-03 不一致；实时图中过期/不确定写入处理不完整；10 Hz 输出示例周期；不存在的 `OperationRequest.request_id`；System 测试矩阵断行及 UC-12 追溯偏差。
-- **待编码时验证**：JetStream `max_deliver=-1` 与具体 Broker 版本实际消费行为；真实 Redis/Kafka/Modbus 适配器配置加载；全文件集原子提交与跨进程隔离；mTLS 和角色权限；三类 Adapter 的 20×10 Hz×500 float32 负载；Mermaid/LaTeX 在最终目标渲染器下的视觉检查。未实测项目不得记 PASS。
-- **编码前须落实的部署输入**：双进程各自的服务配置实际文件路径、共享根目录及唯一 Writer 角色；目标侧实时/补发配额；500 点来源清单和对应 Modbus 地址表。这些是部署或测试输入，不能用文内少量演示实例冒充完整现场配置。
+- **待编码时验证**：JetStream `max_deliver=-1` 与具体 Broker 版本实际消费行为；真实 Redis/Kafka/Modbus 适配器配置加载；全文件集原子提交与跨进程隔离；mTLS 和角色权限；三个进程合载 30 台风机 × 10 Hz ×（Realtime 100 点 + Reliable 500 点）的批量负载；Mermaid/LaTeX 在最终目标渲染器下的视觉检查。未实测项目不得记 PASS。
+- **编码前须落实的部署输入**：单 Service 文件及本容器独立配置根目录、Main 唯一配置写入权；目标侧实时/补发配额；30 台 ×（Realtime 100 点、Reliable 500 点）的来源清单及所需 Modbus 地址表。这些是部署或测试输入，不能用文内少量演示实例冒充完整现场配置。
 
 
 ### 14.9.1 v1_15 Core 共享配置对齐审查记录
 
 - **已核对代码（2026-11-03）**：`main` HEAD `0dfee3bbbc864eae364fb214e447dea0a447820b`；`VersionedTemplateRepository` 支持 `protocols`、`device_models`、`point_tables`、`tasks`、`deliveries`，不支持 `sinks`；前 3 类采用扁平文件名，其余支持类别采用分层文件名。`validate_document_version` 要求 `schema_version == 1` 且 `file_version` 符合 `X.Y.Z`。
 - **本版修订**：明确两份 Sink Service 配置文件、Sink 管辖范围与共享 Core 文件的只读边界；删除 Sink/Delivery 示例中的冗余 `object_version`；补充版本引用的单一权威和阶段一、二迁移矩阵。
-- **未完成的代码验证**：当前开发分支是否已实现此新契约、CLI 是否处理两个 Service 文件的快照边界，以及本地 Claude Code 的 Ruff/Mypy/Import Linter、System 验收，均不得据此设计修订宣称 PASS。
+- **未完成的代码验证**：当前开发分支是否已实现单 Service、三进程、IPC 和配置代闭环，CLI 是否按容器调用单 Main 的快照接口，以及本地 Claude Code 的 Ruff/Mypy/Import Linter、System 验收，均不得据此设计修订宣称 PASS。
 
 ### 14.9.2 v1_17 配置路径设计修订及待验证项
 
 - Service 增加 `config_sources`，实例文件路径和模板根目录由 Service 明确指定；间接引用的模板由实例 ID/版本解析，Service 不逐项列举。
 - Sink、Delivery 模板统一扁平命名 `{template_id}_{file_version}.yaml`；不再支持旧的 `templates/{family}/{id}/{version}.yaml`。
-- 启动、候选快照、原子代提交、Reader 同步、Delivery desired-state 更新均需按显式路径改造，不允许以默认 `instances/deliveries.yaml` 或递归扫描补救。
+- 启动、候选快照、原子代提交、子进程配置代同步、Delivery desired-state 更新均需按显式路径改造，不允许以默认 `instances/deliveries.yaml` 或递归扫描补救。
 - 本次为**设计修订**，不代表开发分支实现或独立测试已通过；尚待生产代码与测试矩阵同步，并由本地 Claude Code 在阶段四后独立验收。
+
+
+### 14.9.3 v1_20 单容器三进程、批量输入与静态多实例决策
+
+- **已确认目标**：一个 Sink Service 容器固定 Main、Realtime、Reliable 三个 OS 进程，各自拥有独立 asyncio 事件循环；仅 Main 对外暴露 13 RPC。两个子进程按本地 Delivery 配置创建任务，空闲时不建立无用订阅或目标连接。业务角色不与配置写入角色绑定。
+- **配置权威**：每容器仅一个 Main 和一份 `configs/services/sink_service.yaml`，Main 以原子配置代提交并通过有界 IPC 将业务配置分发给两个子进程；无需两个 Service 文件、独立配置 Writer/Reader 角色或数据进程的 gRPC 端点。
+- **多实例**：以容器为扩容单位；CLI/Web UI 负责静态分配、跨容器资源冲突检查和先停旧再启新；容器之间没有 IPC、中心协调器、选举或自动迁移。单实例无需感知多实例身份。
+- **容量与安全**：单容器三进程可利用多个 CPU 核，但容器 CPU 配额仍共享；满载 Main gRPC 不得失联。NATS 来源过滤、路由缓存工作集和足额 Publisher 均须实测。跨进程共享物理 Sink 的限额不能只使用内存 Semaphore。
+- **历史验收状态**：原架构 Gate-5 FAIL：单 Realtime 进程稳态约 23k–25k 值/s，20 Sink 全拓扑约 47.7 值/s、2.2 批/s，单 Publisher 峰值约 93k 消息/s；这些指标不是三进程改造后的预测值。新方案须采用单实例 30 台双通道批量输入参考负载开展容量标定，记录对 180000 确认值/s 参考目标的达成率、优先采用 600 秒稳定窗口，并验证控制面满载可用性。
+- **待开发与验证**：当前开发分支仍是两角色双 Service 且单测点源消息的实现，必须按第 6、9、10、11、14 章以及 Collector/Contracts 同步迁移，完成 Ruff、Mypy、Import Linter 和真实三进程系统测试后方可声称达标。未执行项 NOT_RUN。
+
+
+> **v1_22 修订说明（2026-11-08）**：统一 §3.1、§3.2、§3.3、§6.3、§14.5～§14.8 的容量验收口径：180000 值/s 为参考负载，不是阻断门槛；保持 ACK 正确性、资源有界、真实证据及控制面可用性强制要求。第 1～2 章原文未修改。
