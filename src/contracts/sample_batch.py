@@ -18,9 +18,18 @@ DEFAULT_MAX_SAMPLES_PER_BATCH = 500
 DEFAULT_MAX_BATCH_BYTES = 1_048_576
 
 
+def _is_unsafe_identifier(value: str) -> bool:
+    """Control characters cannot occur in wire IDs or NATS headers."""
+    return not value.strip() or any(
+        ord(char) < 32 or ord(char) == 127 for char in value
+    )
+
+
 def validate_subject_token(value: str) -> str:
-    """Require a nonempty single NATS subject token."""
-    if not value or any(char.isspace() or ord(char) < 32 or ord(char) == 127 or char in ".*>" for char in value):
+    """Require one nonempty NATS subject component."""
+    if _is_unsafe_identifier(value) or any(
+        char.isspace() or char in ".*>" for char in value
+    ):
         raise ValueError("invalid NATS subject token")
     return value
 
@@ -75,15 +84,15 @@ class SampleItem(BaseModel):
     @field_validator("point_id")
     @classmethod
     def _point_token(cls, value: str) -> str:
-        if not value.strip() or any(ord(char) < 32 for char in value):
+        if _is_unsafe_identifier(value):
             raise ValueError("invalid point_id")
         return value
 
     @field_validator("sample_id")
     @classmethod
     def _sample_identity(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("sample_id must not be empty")
+        if _is_unsafe_identifier(value):
+            raise ValueError("invalid sample_id")
         return value
 
     @field_validator("sample_time", "receive_time")
@@ -124,8 +133,8 @@ class SampleBatch(BaseModel):
     @field_validator("batch_id")
     @classmethod
     def _batch_identity(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("batch_id must not be empty")
+        if _is_unsafe_identifier(value):
+            raise ValueError("invalid batch_id")
         return value
 
     @field_validator("publish_time")
