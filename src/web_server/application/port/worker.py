@@ -7,7 +7,7 @@ protobuf ↔ DTO 转换，application 内部只做属性访问，不再有魔术
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Protocol
 
 from web_server.application.device.command_model import Command, CommandResult
 from web_server.application.device.sample import PointValue
@@ -22,39 +22,30 @@ class CollectorTaskConflictError(RuntimeError):
 
 
 # ===================================================================
-# 配置事务（Commander / Collector 共用同一组 Ack 契约）
+# Commander 正式快照事务：Disk revision → Candidate ID → Apply
 # ===================================================================
 
 
 @dataclass(frozen=True)
-class ConfigPrepareAck:
-    """Worker 对 PrepareConfig 的应答；Commander 不上报 errors/duration。"""
-
-    success: bool
-    revision_id: str
-    config_hash: str
-    errors: list[str] = field(default_factory=list)
-    duration_ms: int = 0
+class RemoteConfigSnapshot:
+    revision: str
+    files: dict[str, bytes]
 
 
 @dataclass(frozen=True)
-class ConfigActivateAck:
-    """Worker 对 ActivateConfig 的应答；Commander 不上报 errors/duration。"""
-
-    success: bool
-    revision_id: str
-    active_config_hash: str
+class ConfigPushResult:
+    candidate_id: str
+    valid: bool
+    base_revision: str
     errors: list[str] = field(default_factory=list)
-    duration_ms: int = 0
 
 
 @dataclass(frozen=True)
-class ConfigAbortAck:
-    """Worker 对 AbortConfig 的应答。"""
-
-    success: bool
-    revision_id: str
-    aborted: bool
+class ConfigApplyResult:
+    file_commit: str
+    effective_revision: str
+    restart_required: bool
+    errors: list[str] = field(default_factory=list)
 
 
 # ===================================================================
@@ -96,35 +87,6 @@ class DeviceVerifyResult:
     stages: list[DiagnosticStage]
 
 
-@dataclass(frozen=True)
-class PointVerifyResult:
-    """单点在线读取验证结果。
-
-    ``configured_address``/``resolved_address`` 是协议相关的动态键值地址，
-    保留 dict；``raw_value``/``engineering_value`` 是动态标量。
-    """
-
-    device_id: str
-    point_id: str
-    variable_name: str | None
-    protocol: str
-    configured_address: dict[str, Any]
-    resolved_address: dict[str, Any] | None
-    data_type: str
-    scale: float
-    offset: float
-    unit: str
-    readable: bool | None
-    ok: bool
-    code: str
-    severity: str
-    raw_value: Any
-    engineering_value: Any
-    quality: str | None
-    source: str | None
-    error: str | None
-
-
 # ===================================================================
 # Collector 状态与运行快照
 # ===================================================================
@@ -132,7 +94,7 @@ class PointVerifyResult:
 
 @dataclass(frozen=True)
 class CollectorInfo:
-    """Runtime identity from Collector v2, independent of config ownership."""
+    """Collector 正式 CommonService 暴露的运行时身份。"""
 
     collector_id: str
     boot_id: str
@@ -198,41 +160,31 @@ class CollectorTaskInstance:
 
 
 class CommanderPort(Protocol):
-    """即时设备操作端口。"""
+    """正式 Commander v1 控制、快照、诊断边界。"""
 
     async def status(self) -> CommanderStatus: ...
 
-    async def prepare_config(
-        self,
-        revision_id: str,
-        config_hash: str,
-    ) -> ConfigPrepareAck: ...
+    async def get_config_snapshot(
+        self, scope: str
+    ) -> RemoteConfigSnapshot: ...
 
-    async def activate_config(self, revision_id: str) -> ConfigActivateAck: ...
+    async def push_config(
+        self, files: dict[str, bytes], expected_revision: str
+    ) -> ConfigPushResult: ...
 
-    async def abort_config(self, revision_id: str) -> ConfigAbortAck: ...
-
-    async def read_point(self, device_id: str, point_id: str) -> PointValue: ...
-
-    async def read_points(
-        self,
-        device_id: str,
-        point_ids: list[str],
-    ) -> list[PointValue]: ...
+    async def apply_config(
+        self, candidate_id: str, expected_revision: str
+    ) -> ConfigApplyResult: ...
 
     async def write(self, command: Command) -> CommandResult: ...
 
     async def verify_device(
-        self,
-        device_id: str,
-        timeout: float = 1.0,
+        self, device_id: str, timeout: float = 1.0
     ) -> DeviceVerifyResult: ...
-
-    async def verify_point(self, device_id: str, point_id: str) -> PointVerifyResult: ...
 
 
 class CollectorPort(Protocol):
-    """Collector v2 read queries and revision-checked device task controls."""
+    """Collector v1 查询、即时读点和受修订号保护的任务控制。"""
 
     async def config_status(self) -> CollectorInfo: ...
     async def runtime_status(self) -> CollectorRuntimeStatus: ...

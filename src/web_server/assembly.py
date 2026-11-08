@@ -1,7 +1,7 @@
 """wind-hub-server composition root.
 
-Server 是独立管理/控制面：不装配、不启动 Collector Runtime。设备即时操作经
-Commander gRPC，采集 Task/运行态经 Collector gRPC，Sink 状态经独立 Sink Service gRPC；Server 只持有
+Server 是独立管理/控制面：不装配、不启动 Collector Runtime。控制经
+Commander mTLS gRPC，实时读点及 Task 经 Collector gRPC，Sink 状态经独立 Sink Service gRPC；Server 只持有
 配置管理、读模型、监控历史与 Web/Admin 服务。
 """
 
@@ -23,6 +23,7 @@ from web_server.application.config.settings import SettingsService
 from web_server.application.device.collector_read import CollectorReadRouter
 from web_server.application.device.command import DeviceCommandService
 from web_server.application.device.data import DeviceDataService
+from web_server.application.device.durable_command import DurableCommandRegistry
 from web_server.application.device.diagnostic import DiagnosticService
 from web_server.application.device.query import DeviceQueryService
 from web_server.application.monitoring.aggregate import CollectorStatusAggregator
@@ -162,6 +163,7 @@ def assemble_server(
         commander_client,
         reads,
         trend,
+        DurableCommandRegistry(Path(config_dir).resolve() / ".state" / "commands.sqlite3"),
     )
     overview = OverviewService(
         monitoring=monitoring,

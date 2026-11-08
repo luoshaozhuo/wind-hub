@@ -14,15 +14,27 @@ class GrpcClientBase:
     metadata，实现 HTTP → gRPC 的跨进程日志关联。
     """
 
-    def __init__(self, target: str, *, default_timeout: float = 5.0) -> None:
+    def __init__(
+        self,
+        target: str,
+        *,
+        default_timeout: float = 5.0,
+        credentials: grpc.ChannelCredentials | None = None,
+    ) -> None:
         if default_timeout <= 0:
             raise ValueError("default_timeout must be > 0")
         self.target = target
         self.default_timeout = default_timeout
-        self._channel = grpc.aio.insecure_channel(
-            target,
-            interceptors=(RequestIdInterceptor(),),
-        )
+        if credentials is None:
+            self._channel = grpc.aio.insecure_channel(
+                target, interceptors=(RequestIdInterceptor(),)
+            )
+        else:
+            self._channel = grpc.aio.secure_channel(
+                target,
+                credentials,
+                interceptors=(RequestIdInterceptor(),),
+            )
 
     async def close(self) -> None:
         """关闭底层异步 gRPC channel。"""

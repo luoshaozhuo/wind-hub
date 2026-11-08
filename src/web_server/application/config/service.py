@@ -1,58 +1,39 @@
-"""Server 配置编排。
-
-Server 负责自身及 Commander 共享配置事务；Collector 单独管理
-其 Service / Instance / Template 配置，不参与 Server 两阶段提交。配置事务在进程内串行，
-停机时可关闭新事务入口并等待当前事务完成。
-"""
+"""Web Server 配置事务：基于 Commander CommonService 的正式快照协议。"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from uuid import uuid4
 
 from configuration.diff import ConfigSnapshotDiff, diff_config_snapshots
 from configuration.digest import config_dir_digest
 from configuration.site_loader import load_domain
 from configuration.snapshot import ConfigSnapshot
 from web_server.application.port.collector_directory import CollectorDirectory
-from web_server.application.port.worker import (
-    CommanderPort,
-    CommanderStatus,
-    ConfigAbortAck,
-    ConfigActivateAck,
-    ConfigPrepareAck,
-)
+from web_server.application.port.worker import CommanderPort
 from web_server.application.worker.model import COMMANDER_WORKER_ID
+
+logger = logging.getLogger(__name__)
+ConfigCommitHook = Callable[[ConfigSnapshot, ConfigSnapshot], None]
 
 
 @dataclass(frozen=True, slots=True)
 class ReloadResult:
-    """配置事务结果；diff 使用当前 Core 的正式快照差异模型。"""
+    """本地配置与远端 Commander 提交的联合结果。"""
 
     success: bool
     diff: ConfigSnapshotDiff
     errors: list[str] = field(default_factory=list)
     duration_ms: float = 0.0
-
-
-logger = logging.getLogger(__name__)
-
-ConfigCommitHook = Callable[[ConfigSnapshot, ConfigSnapshot], None]
-
-
-def _active_config_hash(status: CommanderStatus) -> str:
-    """Return the active Commander configuration hash."""
-    return status.active_config_hash
+    restart_required: bool = False
 
 
 class ConfigService:
-    """Server 配置成功基线与多 Worker prepare/activate 编排。"""
+    """一个串行事务所有者；不模拟 Commander 已废弃的配置 RPC。"""
 
     def __init__(
         self,
@@ -61,16 +42,13 @@ class ConfigService:
         commander: CommanderPort,
         current_config: ConfigSnapshot,
     ) -> None:
-        self._config_dir = Path(config_dir)
-        self._collectors = collectors
+        self._config_dir = Path(config_dir).resolve()
         self._commander = commander
-        collector_ids = self._collectors.list_worker_ids()
-        if not collector_ids:
+        names = collectors.list_worker_ids()
+        if not names:
             raise ValueError("at least one collector worker is required")
-        if COMMANDER_WORKER_ID in collector_ids:
-            raise ValueError(
-                f"collector worker_id '{COMMANDER_WORKER_ID}' conflicts with commander"
-            )
+        if COMMANDER_WORKER_ID in names:
+            raise ValueError("collector worker ID conflicts with Commander")
         self._current = current_config
         self._desired_revision: str | None = None
         self._desired_config_hash: str | None = None
@@ -81,497 +59,221 @@ class ConfigService:
         self._commit_hooks: list[ConfigCommitHook] = []
 
     def add_commit_hook(self, hook: ConfigCommitHook) -> None:
-        """登记成功提交后的副作用回调（previous, candidate），随事务串行触发。"""
         self._commit_hooks.append(hook)
-
-    def _run_commit_hooks(
-        self,
-        previous: ConfigSnapshot,
-        candidate: ConfigSnapshot,
-    ) -> None:
-        for hook in self._commit_hooks:
-            try:
-                hook(previous, candidate)
-            except Exception:
-                # 基线已提交成功：副作用失败不得回滚配置，只记录诊断。
-                logger.warning("config commit hook failed", exc_info=True)
 
     @property
     def config_dir(self) -> Path:
-        """返回 Server 管理的配置目录。"""
         return self._config_dir
 
     @property
     def current_config(self) -> ConfigSnapshot:
-        """返回最近一次成功提交的 Server 配置基线。"""
         return self._current
 
     @property
     def desired_revision(self) -> str | None:
-        """最近一次成功激活到全部 Worker 的目标 revision。"""
         return self._desired_revision
 
     @property
     def desired_config_hash(self) -> str | None:
-        """desired_revision 对应的配置集指纹。"""
         return self._desired_config_hash
 
     @staticmethod
     def load_directory(config_dir: str | Path) -> ConfigSnapshot:
-        """完整加载并校验指定配置目录。"""
         return load_domain(Path(config_dir))
 
     def load_disk(self) -> ConfigSnapshot:
-        """加载当前 Server 管理的配置目录。"""
-        return load_domain(self._config_dir)
+        return self.load_directory(self._config_dir)
 
     def initialize_desired_revision(self) -> None:
-        """基于当前稳定磁盘配置建立 bootstrap desired revision。"""
+        """启动基线仅代表本地配置；不得伪装为 Commander runtime revision。"""
         if self._desired_revision is not None:
             return
-        before_hash = config_dir_digest(self._config_dir)
+        before = config_dir_digest(self._config_dir)
         candidate = self.load_disk()
-        config_hash = config_dir_digest(self._config_dir)
-        if before_hash != config_hash:
-            raise ValueError(
-                "config changed while initializing desired revision: "
-                f"before={before_hash} after={config_hash}"
-            )
+        after = config_dir_digest(self._config_dir)
+        if before != after:
+            raise ValueError("config changed while initializing desired revision")
         if diff_config_snapshots(self._current, candidate).has_changes:
-            raise ValueError("current config differs from disk while initializing desired revision")
-        self._desired_revision = f"bootstrap-{config_hash}"
-        self._desired_config_hash = config_hash
+            raise ValueError("current config differs from disk at startup")
+        self._desired_config_hash = after
 
     def stop_accepting_transactions(self) -> None:
-        """关闭新配置事务入口；已持锁事务继续运行到自然结束。"""
         self._accept_transactions = False
 
     async def wait_for_transactions(self, timeout: float) -> bool:
-        """等待当前配置事务释放全局锁。
-
-        Args:
-            timeout: 最大等待秒数。
-
-        Returns:
-            在超时前进入并离开事务锁返回 True，否则返回 False。
-        """
         self.stop_accepting_transactions()
         try:
-            await asyncio.wait_for(self._wait_for_transaction_lock(), timeout=timeout)
+            async with asyncio.timeout(timeout):
+                async with self._transaction_lock:
+                    return True
         except TimeoutError:
             return False
-        return True
-
-    async def _wait_for_transaction_lock(self) -> None:
-        """等待事务锁空闲；不执行任何配置动作。"""
-        async with self._transaction_lock:
-            return
-
-    def _closed_result(self) -> ReloadResult:
-        """构造停机阶段拒绝新配置事务的稳定结果。"""
-        return ReloadResult(
-            success=False,
-            diff=diff_config_snapshots(self._current, self._current),
-            errors=["config transactions are shutting down"],
-        )
-
-    async def reload(self, *, force_workers: bool = False) -> ReloadResult:
-        """串行执行全部已登记 Worker 的配置事务。"""
-        if not self._accept_transactions:
-            return self._closed_result()
-        async with self._transaction_lock:
-            if not self._accept_transactions:
-                return self._closed_result()
-            return await self._reload_locked(force_workers=force_workers)
-
-    async def _reload_locked(self, *, force_workers: bool) -> ReloadResult:
-        """在配置事务锁内编排一次完整 prepare/activate 事务。"""
-        started = time.monotonic()
-        try:
-            candidate, config_hash = self._load_candidate()
-        except Exception as exc:
-            load_errors = [str(exc) or type(exc).__name__]
-            load_errors.extend(self._restore_applied_files())
-            return ReloadResult(
-                success=False,
-                diff=diff_config_snapshots(self._current, self._current),
-                errors=load_errors,
-                duration_ms=(time.monotonic() - started) * 1000,
-            )
-
-        diff = diff_config_snapshots(self._current, candidate)
-        if not diff.has_changes and not force_workers and config_hash == self._applied_config_hash:
-            return ReloadResult(
-                success=True,
-                diff=diff,
-                duration_ms=(time.monotonic() - started) * 1000,
-            )
-
-        revision_id = uuid4().hex
-        participant_ids = self._participant_ids()
-        errors, prepare_ok = await self._prepare_revision(
-            participant_ids,
-            revision_id,
-            config_hash,
-            force_workers=force_workers,
-        )
-        if not all(prepare_ok):
-            errors.extend(await self._abort_prepared_revision(revision_id))
-            errors.extend(self._restore_applied_files())
-            return ReloadResult(
-                success=False,
-                diff=diff,
-                errors=errors,
-                duration_ms=(time.monotonic() - started) * 1000,
-            )
-
-        activate_errors, activate_ok = await self._activate_revision(
-            participant_ids,
-            revision_id,
-            config_hash,
-        )
-        errors.extend(activate_errors)
-
-        success = all(activate_ok)
-        if success:
-            self._commit_revision(candidate, revision_id, config_hash)
-        else:
-            errors.extend(await self._abort_prepared_revision(revision_id))
-            errors.extend(await self._rollback_to_applied_config())
-        return ReloadResult(
-            success=success,
-            diff=diff,
-            errors=errors,
-            duration_ms=(time.monotonic() - started) * 1000,
-        )
-
-    def _load_candidate(self) -> tuple[ConfigSnapshot, str]:
-        """加载候选配置集并校验加载期间磁盘内容稳定。"""
-        before_hash = config_dir_digest(self._config_dir)
-        candidate = self.load_disk()
-        config_hash = config_dir_digest(self._config_dir)
-        if before_hash != config_hash:
-            raise ValueError(
-                "config changed while loading candidate: "
-                f"before={before_hash} after={config_hash}"
-            )
-        return candidate, config_hash
-
-    async def _prepare_revision(
-        self,
-        participant_ids: list[str],
-        revision_id: str,
-        config_hash: str,
-        *,
-        force_workers: bool,
-    ) -> tuple[list[str], list[bool]]:
-        """向全部参与者扇出 Prepare 并评估应答与远端 hash。"""
-        prepared = await asyncio.gather(
-            *(
-                self._prepare_participant(
-                    participant_id,
-                    revision_id,
-                    config_hash,
-                    force_workers=force_workers,
-                )
-                for participant_id in participant_ids
-            ),
-            return_exceptions=True,
-        )
-        errors: list[str] = []
-        prepare_ok: list[bool] = []
-        for name, result in zip(participant_ids, prepared, strict=True):
-            if isinstance(result, BaseException):
-                errors.append(f"{name} prepare failed: {str(result) or type(result).__name__}")
-                prepare_ok.append(False)
-                continue
-            success = result.success
-            remote_hash = result.config_hash
-            if success and remote_hash != config_hash:
-                success = False
-                errors.append(
-                    f"{name} prepare hash mismatch: " f"expected={config_hash} actual={remote_hash}"
-                )
-            prepare_ok.append(success)
-            if not success:
-                errors.extend(result.errors or [f"{name} prepare failed"])
-        return errors, prepare_ok
-
-    async def _activate_revision(
-        self,
-        participant_ids: list[str],
-        revision_id: str,
-        config_hash: str,
-    ) -> tuple[list[str], list[bool]]:
-        """向全部参与者扇出 Activate；RPC 异常经状态回查区分失败与未知。"""
-        activated = await asyncio.gather(
-            *(
-                self._activate_participant(participant_id, revision_id)
-                for participant_id in participant_ids
-            ),
-            return_exceptions=True,
-        )
-        errors: list[str] = []
-        activate_ok: list[bool] = []
-        for name, outcome in zip(participant_ids, activated, strict=True):
-            if isinstance(outcome, BaseException):
-                confirmed, confirm_error = await self._confirm_active_config(
-                    name,
-                    revision_id,
-                    config_hash,
-                )
-                activate_ok.append(confirmed)
-                if not confirmed:
-                    detail = str(outcome) or type(outcome).__name__
-                    if confirm_error is None:
-                        errors.append(f"{name} activate failed after RPC error: {detail}")
-                    else:
-                        errors.append(
-                            f"{name} activate outcome unknown after RPC error: "
-                            f"{detail}; status check failed: {confirm_error}"
-                        )
-                continue
-
-            success = outcome.success
-            remote_hash = outcome.active_config_hash
-            if success and remote_hash and remote_hash != config_hash:
-                success = False
-                errors.append(
-                    f"{name} activate hash mismatch: "
-                    f"expected={config_hash} actual={remote_hash}"
-                )
-            activate_ok.append(success)
-            if not success:
-                errors.extend(outcome.errors or [f"{name} activate failed"])
-        return errors, activate_ok
-
-    def _commit_revision(
-        self,
-        candidate: ConfigSnapshot,
-        revision_id: str,
-        config_hash: str,
-    ) -> None:
-        """提交已激活 revision 为 Server 成功基线并刷新磁盘快照。"""
-        previous = self._current
-        self._current = candidate
-        self._desired_revision = revision_id
-        self._desired_config_hash = config_hash
-        self._applied_files = self._snapshot_config_files()
-        self._applied_config_hash = config_hash
-        self._run_commit_hooks(previous, candidate)
 
     def _snapshot_config_files(self) -> dict[Path, bytes]:
-        """保存当前已接受配置集的 YAML 文件快照。"""
-        snapshot: dict[Path, bytes] = {}
-        root = self._config_dir.resolve()
-        for path in root.rglob("*"):
+        paths: dict[Path, bytes] = {}
+        for path in self._config_dir.rglob("*"):
             if (
                 path.is_file()
                 and path.suffix.lower() in {".yaml", ".yml"}
-                and ".history" not in path.relative_to(root).parts
+                and ".history" not in path.relative_to(self._config_dir).parts
             ):
-                snapshot[path.resolve()] = path.read_bytes()
-        return snapshot
+                paths[path.resolve()] = path.read_bytes()
+        return paths
 
-    def _restore_applied_files(self) -> list[str]:
-        """把磁盘 YAML 恢复到最近一次成功激活的配置集。"""
-        errors: list[str] = []
-        try:
-            root = self._config_dir.resolve()
-            current = {
-                path.resolve()
-                for path in root.rglob("*")
-                if (
-                    path.is_file()
-                    and path.suffix.lower() in {".yaml", ".yml"}
-                    and ".history" not in path.relative_to(root).parts
+    def _load_candidate(self) -> tuple[ConfigSnapshot, str, dict[Path, bytes]]:
+        before = config_dir_digest(self._config_dir)
+        candidate = self.load_disk()
+        files = self._snapshot_config_files()
+        after = config_dir_digest(self._config_dir)
+        if before != after:
+            raise ValueError("config changed while reading candidate")
+        return candidate, after, files
+
+    def _changed_files(
+        self, current: dict[Path, bytes], remote: dict[str, bytes]
+    ) -> dict[str, bytes]:
+        """只接受 Commander 明确拥有的配置路径，绝不猜测默认路径。"""
+        removed = set(self._applied_files) - set(current)
+        if removed:
+            raise ValueError("snapshot RPC does not support deletion: " + str(sorted(removed)))
+        changed = {
+            path: content
+            for path, content in current.items()
+            if self._applied_files.get(path) != content
+        }
+        updates: dict[str, bytes] = {}
+        root = self._config_dir.parent
+        for path, content in changed.items():
+            if not path.is_relative_to(root):
+                raise ValueError(f"config outside managed root: {path}")
+            relative = path.relative_to(root).as_posix()
+            if relative not in remote:
+                raise ValueError(
+                    f"modified file {relative!r} is not in Commander config_sources; "
+                    "a legacy Web configuration cannot be pushed as a shared snapshot"
                 )
-            }
-            for path in current - set(self._applied_files):
-                path.unlink()
-            for path, content in self._applied_files.items():
-                path.parent.mkdir(parents=True, exist_ok=True)
-                temp = path.with_name(f".{path.name}.rollback.tmp")
-                temp.write_bytes(content)
-                os.replace(temp, path)
-        except Exception as exc:
-            errors.append(
-                "restore applied config files failed: " + (str(exc) or type(exc).__name__)
+            updates[relative] = content
+        return updates
+
+    def _commit(
+        self, candidate: ConfigSnapshot, revision: str, local_digest: str
+    ) -> None:
+        previous = self._current
+        self._current = candidate
+        self._desired_revision = revision
+        self._desired_config_hash = local_digest
+        self._applied_files = self._snapshot_config_files()
+        self._applied_config_hash = local_digest
+        for hook in self._commit_hooks:
+            try:
+                hook(previous, candidate)
+            except Exception:
+                logger.warning("config commit hook failed", exc_info=True)
+
+    def _failure(
+        self, started: float, diff: ConfigSnapshotDiff, message: str
+    ) -> ReloadResult:
+        return ReloadResult(
+            success=False,
+            diff=diff,
+            errors=[message],
+            duration_ms=(time.monotonic() - started) * 1000,
+        )
+
+    async def reload(self, *, force_workers: bool = False) -> ReloadResult:
+        if not self._accept_transactions:
+            return self._failure(
+                time.monotonic(),
+                diff_config_snapshots(self._current, self._current),
+                "config transactions are shutting down",
             )
-        return errors
-
-    async def _rollback_to_applied_config(self) -> list[str]:
-        """恢复磁盘并把全部 Worker 强制收敛到最近成功配置。"""
-        errors = self._restore_applied_files()
-        if errors:
-            return errors
-
-        revision_id = self._desired_revision or f"rollback-{self._applied_config_hash}"
-        participant_ids = self._participant_ids()
-        outcomes = await asyncio.gather(
-            *(
-                self._reconcile_worker(
-                    participant_id,
-                    revision_id,
-                    self._applied_config_hash,
+        async with self._transaction_lock:
+            started = time.monotonic()
+            if not self._accept_transactions:
+                return self._failure(
+                    started, diff_config_snapshots(self._current, self._current),
+                    "config transactions are shutting down",
                 )
-                for participant_id in participant_ids
-            ),
-            return_exceptions=True,
-        )
-        for name, outcome in zip(participant_ids, outcomes, strict=True):
-            if isinstance(outcome, BaseException):
-                errors.append(f"{name} rollback raised: {str(outcome) or type(outcome).__name__}")
-            elif outcome not in {"reconciled", "already-current"}:
-                errors.append(f"{name} rollback failed: {outcome}")
-        return errors
-
-    async def _abort_prepared_revision(self, revision_id: str) -> list[str]:
-        """Prepare/Activate 失败后尽力撤销全部参与者同 revision 候选状态。"""
-        participant_ids = self._participant_ids()
-        results = await asyncio.gather(
-            *(
-                self._abort_participant(participant_id, revision_id)
-                for participant_id in participant_ids
-            ),
-            return_exceptions=True,
-        )
-        errors: list[str] = []
-        for name, result in zip(participant_ids, results, strict=True):
-            if isinstance(result, BaseException):
-                errors.append(f"{name} abort failed: {str(result) or type(result).__name__}")
-                continue
-            if not result.success:
-                errors.append(f"{name} abort failed")
-        return errors
+            try:
+                candidate, local_digest, local_files = self._load_candidate()
+            except Exception as exc:
+                return self._failure(
+                    started,
+                    diff_config_snapshots(self._current, self._current),
+                    f"local configuration invalid: {exc}",
+                )
+            diff = diff_config_snapshots(self._current, candidate)
+            if (
+                not diff.has_changes
+                and not force_workers
+                and local_digest == self._applied_config_hash
+            ):
+                return ReloadResult(
+                    success=True, diff=diff,
+                    duration_ms=(time.monotonic() - started) * 1000,
+                )
+            try:
+                disk = await self._commander.get_config_snapshot("disk")
+                if not disk.revision:
+                    raise RuntimeError("Commander returned no disk revision")
+                files = self._changed_files(local_files, disk.files)
+                if diff.has_changes and not files:
+                    raise RuntimeError("local semantic changes have no Commander-owned files")
+                pushed = await self._commander.push_config(files, disk.revision)
+                if not pushed.valid or not pushed.candidate_id:
+                    raise RuntimeError("Commander candidate rejected: " + "; ".join(pushed.errors))
+                if pushed.base_revision != disk.revision:
+                    raise RuntimeError("Commander candidate base revision differs from disk")
+                applied = await self._commander.apply_config(
+                    pushed.candidate_id, disk.revision
+                )
+                if not applied.effective_revision:
+                    raise RuntimeError("Commander Apply returned no effective runtime revision")
+                if applied.errors:
+                    raise RuntimeError(
+                        "Commander Apply may have committed files but failed convergence: "
+                        + "; ".join(applied.errors)
+                    )
+                confirmed = await self._commander.get_config_snapshot("disk")
+                if not applied.file_commit or applied.file_commit != confirmed.revision:
+                    raise RuntimeError("Commander Apply disk commit cannot be confirmed")
+                if any(confirmed.files.get(name) != body for name, body in files.items()):
+                    raise RuntimeError("Commander disk content differs from pushed candidate")
+                if config_dir_digest(self._config_dir) != local_digest:
+                    raise RuntimeError(
+                        "local configuration changed during remote Apply; "
+                        "manual reconciliation required"
+                    )
+            except Exception as exc:
+                # An RPC timeout after Push/Apply is UNKNOWN, never automatically retry Apply.
+                return self._failure(
+                    started, diff,
+                    "Commander snapshot transaction is not confirmed; "
+                    f"manual status/reconciliation required: {exc}",
+                )
+            self._commit(candidate, applied.effective_revision, local_digest)
+            return ReloadResult(
+                success=True, diff=diff,
+                duration_ms=(time.monotonic() - started) * 1000,
+                restart_required=applied.restart_required,
+            )
 
     async def reconcile_workers(self) -> dict[str, str]:
-        """按 revision + config hash 把全部 Worker 收敛到 desired 配置。"""
-        participant_ids = self._participant_ids()
+        """只检查远端状态；未知提交绝不自动重新 Apply。"""
         if not self._accept_transactions:
-            return {participant_id: "transactions-closed" for participant_id in participant_ids}
+            return {COMMANDER_WORKER_ID: "transactions-closed"}
         async with self._transaction_lock:
-            if not self._accept_transactions:
-                return {participant_id: "transactions-closed" for participant_id in participant_ids}
-            revision_id = self._desired_revision
-            config_hash = self._desired_config_hash
-            if revision_id is None or config_hash is None:
-                return {participant_id: "no-desired-revision" for participant_id in participant_ids}
-
-            statuses = await asyncio.gather(
-                *(self._status_participant(participant_id) for participant_id in participant_ids),
-                return_exceptions=True,
-            )
-            outcomes: dict[str, str] = {}
-            for name, status in zip(participant_ids, statuses, strict=True):
-                if isinstance(status, BaseException):
-                    outcomes[name] = "status-error:" + (str(status) or type(status).__name__)
-                    continue
-                active_revision = status.active_revision
-                active_hash = _active_config_hash(status)
-                if active_revision == revision_id and active_hash == config_hash:
-                    outcomes[name] = "already-current"
-                    continue
-                outcomes[name] = await self._reconcile_worker(
-                    name,
-                    revision_id,
-                    config_hash,
-                )
-            return outcomes
-
-    async def _reconcile_worker(
-        self,
-        worker: str,
-        revision_id: str,
-        config_hash: str,
-    ) -> str:
-        """对单个偏离 Worker 执行 Prepare/Activate 并确认最终配置状态。"""
-        try:
-            prepared = await self._prepare_participant(
-                worker,
-                revision_id,
-                config_hash,
-                force_workers=True,
-            )
-        except Exception as exc:
-            return "prepare-error:" + (str(exc) or type(exc).__name__)
-
-        if not prepared.success:
-            return "prepare-failed:" + ("; ".join(prepared.errors) or "unknown")
-        if prepared.config_hash != config_hash:
-            return "prepare-hash-mismatch:" + prepared.config_hash
-
-        try:
-            activated = await self._activate_participant(worker, revision_id)
-        except Exception as exc:
-            confirmed, confirm_error = await self._confirm_active_config(
-                worker,
-                revision_id,
-                config_hash,
-            )
-            if confirmed:
-                return "reconciled"
-            if confirm_error is not None:
-                return (
-                    "activate-unknown:" f"{str(exc) or type(exc).__name__}; status={confirm_error}"
-                )
-            return "activate-failed:" + (str(exc) or type(exc).__name__)
-
-        if activated.success:
-            active_hash = activated.active_config_hash
-            if not active_hash or active_hash == config_hash:
-                return "reconciled"
-            return f"activate-hash-mismatch:{active_hash}"
-
-        return "activate-failed:" + ("; ".join(activated.errors) or "unknown")
-
-    async def _confirm_active_config(
-        self,
-        worker: str,
-        revision_id: str,
-        config_hash: str,
-    ) -> tuple[bool, str | None]:
-        """RPC 异常后回查 active revision/hash，区分失败与结果未知。"""
-        try:
-            status = await self._status_participant(worker)
-        except Exception as exc:
-            return False, str(exc) or type(exc).__name__
-
-        return (
-            status.active_revision == revision_id and _active_config_hash(status) == config_hash
-        ), None
-
-    def _participant_ids(self) -> list[str]:
-        """Server-wide configuration transactions only target Commander."""
-        return [COMMANDER_WORKER_ID]
-
-    async def _prepare_participant(
-        self,
-        worker: str,
-        revision_id: str,
-        config_hash: str,
-        *,
-        force_workers: bool,
-    ) -> ConfigPrepareAck:
-        del force_workers
-        if worker != COMMANDER_WORKER_ID:
-            raise ValueError(f"unknown config participant: {worker}")
-        return await self._commander.prepare_config(revision_id, config_hash)
-
-    async def _activate_participant(self, worker: str, revision_id: str) -> ConfigActivateAck:
-        if worker != COMMANDER_WORKER_ID:
-            raise ValueError(f"unknown config participant: {worker}")
-        return await self._commander.activate_config(revision_id)
-
-    async def _abort_participant(self, worker: str, revision_id: str) -> ConfigAbortAck:
-        if worker != COMMANDER_WORKER_ID:
-            raise ValueError(f"unknown config participant: {worker}")
-        return await self._commander.abort_config(revision_id)
-
-    async def _status_participant(self, worker: str) -> CommanderStatus:
-        if worker != COMMANDER_WORKER_ID:
-            raise ValueError(f"unknown config participant: {worker}")
-        return await self._commander.status()
+            try:
+                status = await self._commander.status()
+            except Exception as exc:
+                return {COMMANDER_WORKER_ID: "status-error:" + str(exc)}
+            if not status.running:
+                return {COMMANDER_WORKER_ID: "not-running"}
+            if not self._desired_revision:
+                return {COMMANDER_WORKER_ID: "no-confirmed-remote-revision"}
+            if status.active_revision != self._desired_revision:
+                return {COMMANDER_WORKER_ID: "revision-mismatch"}
+            return {COMMANDER_WORKER_ID: "already-current"}
 
 
 __all__ = ["ConfigService", "ReloadResult"]

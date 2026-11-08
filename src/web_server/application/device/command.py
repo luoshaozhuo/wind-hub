@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import math
 import time
 import uuid
-from collections import OrderedDict
-from collections.abc import Hashable
-from datetime import datetime
+from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Any
 
 from pydantic import BaseModel
@@ -15,19 +16,9 @@ from pydantic import BaseModel
 from core.application.protocol_contract import WriteOutcome
 from web_server.application.device.collector_read import DeviceReadPort
 from web_server.application.device.command_model import Command
+from web_server.application.device.durable_command import DurableCommandRegistry
 from web_server.application.port.point_store import TrendStore
 from web_server.application.port.worker import CommanderPort
-
-
-def _freeze(value: Any) -> Hashable:
-    """把写入值规范为可哈希形式，供幂等键内容比对。"""
-    if isinstance(value, list | tuple):
-        return tuple(_freeze(item) for item in value)
-    if isinstance(value, dict):
-        return tuple(sorted((str(k), _freeze(v)) for k, v in value.items()))
-    if isinstance(value, Hashable):
-        return value
-    return repr(value)
 
 
 class CommandIdConflictError(ValueError):
@@ -52,22 +43,54 @@ class DeviceCommandResult(BaseModel):
 
 
 class DeviceCommandService:
-    """通过独立 Commander 完成设备写入与回读闭环。"""
-
-    #: 已完成 command_id 结果缓存上限——幂等窗口，超出后最旧记录淘汰。
-    _COMPLETED_CAPACITY = 256
+    """将客户端命令 ID 持久化为 at-most-once 控制防重边界。"""
 
     def __init__(
         self,
         commander: CommanderPort,
         reads: DeviceReadPort,
         trend: TrendStore,
+        journal: DurableCommandRegistry,
     ) -> None:
         self._commander = commander
         self._reads = reads
         self._trend = trend
-        self._in_flight: dict[str, tuple[Hashable, asyncio.Task[DeviceCommandResult]]] = {}
-        self._completed: OrderedDict[str, tuple[Hashable, DeviceCommandResult]] = OrderedDict()
+        self._journal = journal
+        self._lock = asyncio.Lock()
+        self._in_flight: dict[str, tuple[str, asyncio.Task[DeviceCommandResult]]] = {}
+
+    @staticmethod
+    def _fingerprint(
+        device_id: str, point_id: str, value: Any, timeout: float
+    ) -> str:
+        if not isinstance(value, bool | int | float | str):
+            raise TypeError("control value must be a writable scalar")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be finite and positive")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError("control value must be finite")
+        payload = json.dumps(
+            [device_id, point_id, value, timeout],
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        return sha256(payload.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _unresolved(command_id: str, requested: Any) -> DeviceCommandResult:
+        """持久化预留存在但没有终态时，不得自动重发。"""
+        now = datetime.now(UTC)
+        return DeviceCommandResult(
+            command_id=command_id,
+            requested=requested,
+            outcome=WriteOutcome.UNKNOWN,
+            success=False,
+            error="previous control outcome is unresolved; command was not retransmitted",
+            sent_at=now,
+            finished_at=now,
+            latency_ms=0.0,
+        )
 
     async def send(
         self,
@@ -78,46 +101,71 @@ class DeviceCommandService:
         timeout: float = 5.0,
         command_id: str | None = None,
     ) -> DeviceCommandResult:
-        """写入设备；成功后经 Collector 即时回读，并追加短期趋势样本。
-
-        幂等语义：显式 ``command_id`` 是幂等键。相同 command_id + 相同写入
-        内容的并发请求共享同一次执行（不发生二次写入）；已完成请求直接返回
-        首次结果；相同 command_id + 不同内容抛 ``CommandIdConflictError``。
-        结果未知（UNKNOWN）时同样缓存——禁止借重复请求变相重发。
-        """
-        key: Hashable = (device_id, point_id, _freeze(value), timeout)
-        if command_id is not None:
-            cached = self._completed.get(command_id)
-            if cached is not None:
-                cached_key, cached_result = cached
-                if cached_key != key:
-                    raise CommandIdConflictError(
-                        f"command_id '{command_id}' was used with different command content"
-                    )
-                return cached_result
-            pending = self._in_flight.get(command_id)
+        """同一 command_id 只允许一次首次提交；跨重启安全失效闭锁。"""
+        identifier = command_id or str(uuid.uuid4())
+        if not identifier.strip() or len(identifier) > 128:
+            raise ValueError("command_id must contain 1..128 non-whitespace characters")
+        fingerprint = self._fingerprint(device_id, point_id, value, timeout)
+        async with self._lock:
+            pending = self._in_flight.get(identifier)
             if pending is not None:
-                pending_key, task = pending
-                if pending_key != key:
+                previous_fingerprint, task = pending
+                if previous_fingerprint != fingerprint:
                     raise CommandIdConflictError(
-                        f"command_id '{command_id}' was used with different command content"
+                        f"command_id {identifier!r} reused for different command"
                     )
-                return await asyncio.shield(task)
+            else:
+                try:
+                    state, previous = await self._journal.reserve(identifier, fingerprint)
+                except ValueError as exc:
+                    raise CommandIdConflictError(str(exc)) from exc
+                if state == "completed":
+                    if previous is None:
+                        raise RuntimeError("completed command is missing persisted result")
+                    return DeviceCommandResult.model_validate_json(previous)
+                if state == "pending":
+                    return self._unresolved(identifier, value)
+                task = asyncio.create_task(
+                    self._execute_and_record(
+                        device_id,
+                        point_id,
+                        value,
+                        timeout=timeout,
+                        command_id=identifier,
+                        fingerprint=fingerprint,
+                    )
+                )
+                self._in_flight[identifier] = (fingerprint, task)
+        try:
+            return await asyncio.shield(task)
+        finally:
+            async with self._lock:
+                existing = self._in_flight.get(identifier)
+                if existing is not None and existing[1] is task:
+                    self._in_flight.pop(identifier, None)
 
-            task = asyncio.create_task(
-                self._execute(device_id, point_id, value, timeout=timeout, command_id=command_id)
+    async def _execute_and_record(
+        self,
+        device_id: str,
+        point_id: str,
+        value: Any,
+        *,
+        timeout: float,
+        command_id: str,
+        fingerprint: str,
+    ) -> DeviceCommandResult:
+        try:
+            result = await self._execute(
+                device_id, point_id, value, timeout=timeout, command_id=command_id
             )
-            self._in_flight[command_id] = (key, task)
-            try:
-                result = await asyncio.shield(task)
-            finally:
-                self._in_flight.pop(command_id, None)
-            self._completed[command_id] = (key, result)
-            while len(self._completed) > self._COMPLETED_CAPACITY:
-                self._completed.popitem(last=False)
-            return result
-
-        return await self._execute(device_id, point_id, value, timeout=timeout, command_id=None)
+        except asyncio.CancelledError:
+            # 预留记录仍为 pending；再次请求只会得到 UNKNOWN。
+            raise
+        except Exception as exc:
+            result = self._unresolved(command_id, value)
+            result.error = f"control submission/result is uncertain: {exc}"
+        await self._journal.finish(command_id, fingerprint, result.model_dump_json())
+        return result
 
     async def _execute(
         self,

@@ -1,8 +1,7 @@
 """Web Server 设备写入边界 DTO。
 
-Command 的 ``command_id`` 是进程内幂等键；同一逻辑操作的重试必须复用
-相同 command_id，且命令内容（device/point/value）必须一致——Dispatcher
-对同键不同内容返回幂等冲突。
+Command 的 ``command_id`` 是 Web 控制面的持久化幂等键，首次 RPC 前落盘。
+同一 ID 的重复请求必须满足内容一致；未知执行结果禁止重新发送现场指令。
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ class Command:
     """下发给设备的一条逻辑写命令。
 
     Attributes:
-        command_id: 调用方生成的幂等键。
+        command_id: Web 控制面持久化的客户端幂等键。
         device_id: 目标设备标识。
         point_id: 目标点表内 point_id。
         value: 业务（工程）值；写入前由会话按点表 scale/offset 逆变换为
