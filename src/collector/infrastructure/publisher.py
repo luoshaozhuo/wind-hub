@@ -214,41 +214,61 @@ class CollectorPublisher:
     async def _run(self) -> None:
         while True:
             batch = await self._queue.get()
-            attempted = False
             try:
-                if self._delivery == "realtime":
-                    now = datetime.now(UTC)
-                    if all(
-                        (now - sample.sample_time).total_seconds() * 1000
-                        > (sample.max_staleness_ms or 0)
-                        for sample in batch.samples
-                    ):
-                        self.expired += 1
-                        self.dropped += 1
+                delay = 0.2
+                while True:
+                    if self._delivery == "realtime":
+                        now = datetime.now(UTC)
+                        if all(
+                            (now - sample.sample_time).total_seconds() * 1000
+                            > (sample.max_staleness_ms or 0)
+                            for sample in batch.samples
+                        ):
+                            self.expired += 1
+                            self.dropped += 1
+                            self.not_attempted += 1
+                            if self._telemetry is not None:
+                                self._telemetry.increment("collector.publisher.expired")
+                                self._telemetry.increment("collector.publisher.dropped")
+                            break
+                    attempts_before = self.attempted
+                    try:
+                        await self._send(batch)
+                        self.last_error = ""
+                        break
+                    except asyncio.CancelledError:
+                        if self.attempted > attempts_before:
+                            self.unconfirmed += 1
+                            if self._telemetry is not None:
+                                self._telemetry.increment("collector.publisher.unconfirmed")
+                        raise
+                    except (TypeError, ValueError) as exc:
+                        self.last_error = str(exc)
+                        self.failed += 1
                         self.not_attempted += 1
                         if self._telemetry is not None:
-                            self._telemetry.increment("collector.publisher.expired")
-                            self._telemetry.increment("collector.publisher.dropped")
-                        continue
-                attempted = True
-                await self._send(batch)
-                self.last_error = ""
-            except asyncio.CancelledError:
-                if attempted:
-                    self.unconfirmed += 1
-                raise
-            except Exception as exc:
-                self.last_error = str(exc)
-                if attempted:
-                    self.unconfirmed += 1
-                    if self._telemetry is not None:
-                        self._telemetry.increment("collector.publisher.unconfirmed")
-                    logger.warning("Batch publication not confirmed: %s", exc)
-                else:
-                    self.connection_failed += 1
-                    self.not_attempted += 1
-                    self.dropped += 1
-                await asyncio.sleep(0.2)
+                            self._telemetry.increment("collector.publisher.failed")
+                        break
+                    except Exception as exc:
+                        self.last_error = str(exc)
+                        if self.attempted > attempts_before:
+                            self.unconfirmed += 1
+                            if self._telemetry is not None:
+                                self._telemetry.increment("collector.publisher.unconfirmed")
+                        else:
+                            self.connection_failed += 1
+                            if self._telemetry is not None:
+                                self._telemetry.increment("collector.publisher.connection_failed")
+                        logger.warning("Batch publication not confirmed: %s", exc)
+                        if self._delivery == "realtime":
+                            self.dropped += 1
+                            if self._telemetry is not None:
+                                self._telemetry.increment("collector.publisher.dropped")
+                            break
+                        # Reliable: retain the SAME batch and source identities
+                        # until PubAck or an explicit process shutdown.
+                        await asyncio.sleep(delay)
+                        delay = min(30.0, delay * 2)
             finally:
                 self._queue.task_done()
 
