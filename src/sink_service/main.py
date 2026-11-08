@@ -164,6 +164,8 @@ def main() -> None:
             reliable_sinks=frozenset(args.reliable_sink),
             wind_farm_id=args.wind_farm_id,
             deployment_id=args.deployment_id,
+            max_samples_per_batch=args.max_samples_per_batch,
+            max_batch_bytes=args.max_batch_bytes,
             state_dir=args.state_dir,
             grpc_listen=args.grpc_listen,
         )
