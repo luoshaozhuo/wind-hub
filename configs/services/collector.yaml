@@ -23,6 +23,7 @@ messaging:
   max_samples_per_batch: 100
   max_batch_bytes: 1048576
   queue_capacity: 2048
+  enqueue_timeout_s: 2.0
 metrics:
   enabled: true
   windows: [60, 300, 3600]
