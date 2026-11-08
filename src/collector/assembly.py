@@ -211,6 +211,12 @@ async def assemble_collector(
         collector_id=(collector_id or os.getenv("WIND_HUB_COLLECTOR_ID") or socket.gethostname()),
         delivery=messaging.get("delivery", "realtime"),
         max_staleness_ms=messaging.get("max_staleness_ms", 500),
+        max_samples_per_batch=messaging.get(
+            "max_samples_per_batch",
+            100 if messaging.get("delivery", "realtime") == "realtime" else 500,
+        ),
+        max_batch_bytes=messaging.get("max_batch_bytes", 1_048_576),
+        capacity=messaging.get("queue_capacity", 2048),
         # The bounded sample queue is independent of metrics.pending_capacity,
         # which design §11.4 defines as the pending Metrics-message capacity.
         telemetry=telemetry,
