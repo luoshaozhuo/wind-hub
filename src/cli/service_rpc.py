@@ -132,4 +132,9 @@ async def poll_latest(
             failures += 1
             await asyncio.sleep(min(interval_seconds * failures, 5.0))
         deadline += interval_seconds
-        await asyncio.sleep(max(0, deadline - time.monotonic()))
+        now = time.monotonic()
+        if deadline < now:
+            # Skip missed read slots instead of bursting late PLC reads.
+            missed = int((now - deadline) // interval_seconds) + 1
+            deadline += missed * interval_seconds
+        await asyncio.sleep(max(0.0, deadline - now))
