@@ -273,7 +273,7 @@ class CommandForwarder:
             if remaining <= 0:
                 raise TimeoutError("event expired before revision lookup")
             response = await self._stub.GetDevice(common.ObjectId(id=device_id), timeout=remaining)
-            revision = cast(str, response.device.revision)
+            revision = response.device.revision
             if not revision:
                 raise ValueError(f"Commander device {device_id} has no revision")
             self._revision_cache[device_id] = (
@@ -398,7 +398,7 @@ class CommandForwarder:
             pb.GetCommandResultRequest(command_id=command_id),
             timeout=self._config.submit_deadline_ms / 1000,
         )
-        return cast(pb.GetCommandResultResponse, response)
+        return response
 
     async def stop(self) -> None:
         """Discard queued events and mark in-flight submissions UNKNOWN."""

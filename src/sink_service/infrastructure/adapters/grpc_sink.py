@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import cast
 
 import grpc
 
@@ -44,12 +43,8 @@ class GrpcSink:
             return
         channel = grpc.aio.insecure_channel(self._settings.endpoint)
         self._channel = channel
-        # AsyncStub exists only in the mypy-protobuf .pyi; the string forward
-        # reference keeps the async contract without a runtime attribute lookup.
-        self._stub = cast(
-            "rpc.IndustrialGatewayServiceAsyncStub",
-            rpc.IndustrialGatewayServiceStub(channel),
-        )
+        # mypy-protobuf 的 __new__ 重载按 aio.Channel 直接解析为 AsyncStub。
+        self._stub = rpc.IndustrialGatewayServiceStub(channel)
 
     async def close(self) -> None:
         if self._channel is not None:
