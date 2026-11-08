@@ -158,7 +158,9 @@ class CollectorPublisher:
             self.not_attempted += 1
             if self._telemetry is not None:
                 self._telemetry.increment("collector.publisher.failed")
-            return
+            # Invalid samples must not be reported as an accepted acquisition
+            # batch. The owning task reports the failure and can recover.
+            raise ValueError(f"acquisition batch rejected: {exc}") from exc
         for batch in batches:
             try:
                 self._queue.put_nowait(batch)
@@ -244,6 +246,10 @@ class CollectorPublisher:
     async def _run(self) -> None:
         while True:
             batch = await self._queue.get()
+            # One source acquisition event remains one transport batch (or
+            # capacity-limited fragments). Stamp once at first send attempt;
+            # JetStream retries preserve exactly this identity and timestamp.
+            batch = batch.model_copy(update={"publish_time": datetime.now(UTC)})
             try:
                 delay = 0.2
                 while True:
