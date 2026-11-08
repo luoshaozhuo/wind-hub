@@ -21,7 +21,7 @@ from configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )
-from contracts.sample_message import validate_subject_token
+from contracts.sample_batch import validate_subject_token
 from core.application.errors import ConfigError
 from core.domain import DeviceId
 from core.infrastructure.config import read_yaml
