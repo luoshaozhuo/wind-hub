@@ -155,6 +155,7 @@ def validate_service_settings(document: Mapping[str, object]) -> None:
             "max_samples_per_batch",
             "max_batch_bytes",
             "queue_capacity",
+            "enqueue_timeout_s",
         }, "messaging")
     servers = messaging.get("servers")
     if (
@@ -175,6 +176,8 @@ def validate_service_settings(document: Mapping[str, object]) -> None:
             value = messaging[name]
             if type(value) is not int or value <= 0:
                 raise ConfigError(f"messaging.{name} must be a positive integer")
+    if "enqueue_timeout_s" in messaging:
+        _positive(messaging["enqueue_timeout_s"], "messaging.enqueue_timeout_s")
     metrics = _section(document, "metrics")
     _reject_unknown(
         metrics,
