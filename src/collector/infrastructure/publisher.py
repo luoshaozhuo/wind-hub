@@ -156,7 +156,7 @@ class CollectorPublisher:
         for batch in batches:
             try:
                 self._queue.put_nowait(batch)
-            except asyncio.QueueFull as exc:
+            except asyncio.QueueFull:
                 self.last_error = "batch queue capacity exhausted"
                 self.backpressure += 1
                 if self._telemetry is not None:
