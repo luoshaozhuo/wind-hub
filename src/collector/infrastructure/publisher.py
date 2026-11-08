@@ -77,6 +77,9 @@ class CollectorPublisher:
         self.dropped = 0
         self.client_submitted = 0
         self.pubacked = 0
+        self.attempted_samples = 0
+        self.published_samples = 0
+        self.pubacked_samples = 0
 
     @property
     def collector_id(self) -> str:
@@ -202,8 +205,10 @@ class CollectorPublisher:
         )
         subject = batch.subject()
         self.attempted += 1
+        self.attempted_samples += len(batch.samples)
         if self._telemetry is not None:
             self._telemetry.increment("collector.publisher.attempted")
+            self._telemetry.increment("collector.publisher.samples_attempted", len(batch.samples))
         if self._delivery == "realtime":
             await connection.publish(subject, payload)
             self.client_submitted += 1
@@ -217,10 +222,14 @@ class CollectorPublisher:
                 headers={"Nats-Msg-Id": batch.batch_id},
             )
             self.pubacked += 1
+            self.pubacked_samples += len(batch.samples)
             if self._telemetry is not None:
                 self._telemetry.increment("collector.publisher.pubacked")
+                self._telemetry.increment("collector.publisher.samples_pubacked", len(batch.samples))
         self.published += 1
+        self.published_samples += len(batch.samples)
         if self._telemetry is not None:
+            self._telemetry.increment("collector.publisher.samples_published", len(batch.samples))
             received = min(
                 (item.receive_time or item.sample_time for item in batch.samples),
             )
