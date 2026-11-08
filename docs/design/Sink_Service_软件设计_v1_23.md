@@ -765,7 +765,7 @@ System Test 必须遵守以下规定：
 | UR-07 | 链路诊断（Diagnose） | 按阶段提供可核验证据而不破坏生产链路 | API |
 | UR-08 | gRPC 服务端实现 | 实现已冻结的 9 公共 + 4 专属 Unary RPC | API、生命周期 |
 
-首版 Sink Adapter 为 Redis Client、Modbus TCP Server、Kafka Producer；不包含 TDengine、gRPC Adapter、MQTT、IEC 104。当前已发布的单点契约是 `contracts.sample_message.SampleMessage`；本版双通道批量输入须先按 §10.1 升级 Contracts 并与 Collector 联调。Realtime 经 NATS Core、Reliable 经 JetStream，质量标志不得被改变。
+首版 Sink Adapter 为 Redis Client、Modbus TCP Server、Kafka Producer；不包含 TDengine、gRPC Adapter、MQTT、IEC 104。`main@cac23d84` 仍为旧单点契约；开发分支已改为 `contracts.sample_batch.SampleBatch(schema_version=2)` 双通道批量输入，必须与 Collector、Contracts 联调后才可上线。Realtime 经 NATS Core、Reliable 经 JetStream，质量标志不得被改变。
 
 ### 3.1.1 首版派发负载与验收基准
 
@@ -3000,8 +3000,8 @@ deliveries:
 ### 11.2.10 配置示例的执行边界与准入补充
 
 1. **启动与角色**：一个容器仅使用 `configs/services/sink_service.yaml`；Main 创建两个独立 asyncio 数据子进程，并通过 IPC 分发相关 Delivery 配置。`config_writer`、`process_role`、`writer_endpoint`、双 Service 文件及双外部 gRPC 端口不属于 v1_20 目标配置契约。
-2. **Source Subject**：`wh.rt`、`wh.hist` 是旧单点消息的前缀；批量 Subject 及 Stream/Consumer 过滤以 §10.1 待冻结契约为准，不能沿用单点后缀点号假装批消息已兼容。订阅尽量按本容器的已分配来源缩小，相同来源跨容器复用时仍可能重复解码，须计入容量测量。
-3. **样本与批次**：已发布的 SampleMessage 仅含一个测点；本版拟升级的批量契约按每台机组每通道每拍一条信封消息承载 100/500 点。Realtime 仍按点保留最新值、按策略形成输出批次，Reliable 按源批次整条消息维护 ACK 责任；不因批量输入取消逐测点版本、质量与可靠确认。10 Hz 对应 100 ms 输出周期，输入批次数不等于目标实际成功写批次数。
+2. **Source Subject**：新版源 Subject 为 `wh.rt.batch.<farm>.<collector>.<device>` / `wh.hist.batch.<farm>.<collector>.<device>`，Stream/Consumer 过滤以 Contracts v1_4 第 10.6 节为准。旧单点后缀 `point_id` 不能继续沿用。订阅尽量按本容器的已分配来源缩小，相同来源跨容器复用时仍可能重复解码，须计入容量测量。
+3. **样本与批次**：本开发分支使用 `SampleBatch(schema_version=2)`；Poll 每周期形成一条源事件批次（容量超限可拆分）；Subscribe/Listen 按原生回调/消息集合形成源事件批次，大小和频率不保证每机每拍 100/500 点。Realtime 仍按点保留最新值、按策略形成输出批次，Reliable 按源批次整条消息维护 ACK 责任；不因批量输入取消逐测点版本、质量与可靠确认。10 Hz 对应 100 ms 输出周期，输入批次数不等于目标实际成功写批次数。
 4. **资源额度**：`max_inflight_global` 是每个数据子进程额度，跨进程共享目标的真实限速/优先级须在目标端验证。Reliable 重试不能据此抢占实时容量。
 5. **JetStream**：以真实 Broker 核查 Consumer/Stream 约束；临时错误不能因次数耗尽直接进入 DLQ；仅永久错误在 DLQ 持久确认后 ACK。
 6. **执行性**：本设计是目标实现契约；现有双进程双 Service 代码和测试须更新到 Main + 两子进程架构，不能保留旧配置兼容分支冒充新架构完成。
@@ -3102,16 +3102,16 @@ Main 的 gRPC 使用 mTLS 与 `query/control/config` 权限；唯一 Main 接受
 
 **并发能力契约**：每个 Delivery 默认仅允许一个在途操作；共享 Sink 可以允许不同 Delivery 并发，但须满足 Adapter 的 `supports_concurrent_write`、`max_safe_inflight`、Sink 配置上限、进程上限和目标顺序约束的交集。未声明安全并发的 Adapter 上限固定为 1。跨进程共享目标资源时，不能把两个进程的本地计数误认为全局协调；需要独立连接/端口/客户端配额或明示无法提供严格隔离的部署限制。
 
-**输出批次契约**：上游 NATS 传输保持单点 `SampleMessage`；按 Sink 独立维护映射点集合。10 Hz 周期调度时从有效最新值缓存提取本周期待输出点，按稳定 `(device_id, point_id)` 排序打包，**一次批次最多 500 个值**；更多测点须依固定顺序切分为多个批次并分别计入交付负载。每个值与原始 `quality`、`sample_time`、`sample_id` 对应；Modbus 映射为寄存器镜像的原子更新，Redis/Kafka 按第 12.1.1 节的固定编码/序列化定义确认。若目标不具备实际批写能力，其写入时延与 I/O 次数须按单点或分块操作真实计量，不得用调用 1 次的抽象层统计掩盖多个网络请求。
+**输出批次契约**：上游 NATS 使用批量 `SampleBatch`；Sink 按 Delivery 独立维护点映射、最新值和输出策略，采集触发不等于目标输出触发。10 Hz 周期调度时从有效最新值缓存提取本周期待输出点，按稳定 `(device_id, point_id)` 排序打包，**一次批次最多 500 个值**；更多测点须依固定顺序切分为多个批次并分别计入交付负载。每个值与原始 `quality`、`sample_time`、`sample_id` 对应；Modbus 映射为寄存器镜像的原子更新，Redis/Kafka 按第 12.1.1 节的固定编码/序列化定义确认。若目标不具备实际批写能力，其写入时延与 I/O 次数须按单点或分块操作真实计量，不得用调用 1 次的抽象层统计掩盖多个网络请求。
 
 **重复策略**：Kafka Reliable 按 `output.business_duplicate_policy` 验证；`require_dedup` 必须提供可核验的去重方，`allow_at_least_once` 明确不承诺去重。Redis 首版模板 `reliable: false`，不得仅因理论上可使用原子脚本就将该实例当作支持 Reliable。Modbus TCP Server `reliable: false`，业务成功边界只到内存镜像。
 
 ### 12.1.1 三类输出的可编码映射契约
 
-下述映射以稳定的逐测点身份和目标输出能力为约束；v1_20 所需的批量输入线格式按 §10.1 统一升级，不能把当前 `SampleMessage` 线格式视为已支持批量。
+下述映射以稳定的逐测点身份和目标输出能力为约束；当前开发分支批量输入线格式为 Contracts v1_4 的 `SampleBatch(schema_version=2)`，不能在输出 Adapter 中把源批次误解成单点消息。
 
 1. **Redis**：业务 Key 由 `namespace:wind_farm_id:collector_id:device_id:point_id` 组成，禁止使用 `sample_id` 作为 Key 的一部分。Value 为 UTF-8 JSON 对象，固定包含 `sample_id`、`value`、`quality`、`sample_time`、`publish_time`、`collector_id`、`device_id`、`point_id`、`wind_farm_id`；时间统一为 UTC ISO 8601，数值与布尔使用原始 JSON 类型，`null` 不改写为数字零。单个 Adapter 批次的成功要求所有属于该批的 Key 更新均获得可信确认；部分成功不得宣称整批已成功，已成功测点的确认按具体操作记录。
-2. **Kafka**：输出 Topic 使用模板 `output.topic`；Message Key 使用 `wind_farm_id:collector_id:device_id` 的 UTF-8 字节；Value 为原 `SampleMessage` 的规范 JSON（不添加 Sink 内部业务计算字段），并保留 `sample_id` 用作下游业务去重键。同一设备使用稳定 Key，但不承诺跨设备、跨分区的顺序。Broker 确认数按真实 Producer 操作记录，多个上游样本合成的调度批次不假装为 Kafka 原生单条消息。
+2. **Kafka**：输出 Topic 使用模板 `output.topic`；Message Key 使用 `wind_farm_id:collector_id:device_id` 的 UTF-8 字节；Value 按独立输出的测点条目规范 JSON 编码（含 `sample_id`、质量和原始采样时间，必要时保留源批次身份）；不得将整个 `SampleBatch` 强行当作旧单点消息或无依据假称输出格式已验收。同一设备使用稳定 Key，但不承诺跨设备、跨分区的顺序。Broker 确认数按真实 Producer 操作记录，多个上游样本合成的调度批次不假装为 Kafka 原生单条消息。
 3. **Modbus TCP Server**：同一 `unit_id` 的点映射按 `(wind_farm_id, collector_id, device_id, point_id)` 字典序固定排序，序号从 0 开始。第 $i$ 个点的浮点值起始 Holding Register 为 `register_start` 加 $2i$，质量寄存器为 `quality_register_start` 加 $i$。寄存器地址为零基偏移，编码固定为 IEEE-754 binary32，高字在前且每字节高字节在前。质量码 `good=0`、`bad=1`、`uncertain=2`。每个配置代内映射固定；映射变更需先完成旧版本的安全切换。对 `null` 或不可编码为有限 `float32` 的值，拒绝该点更新并记录明确错误，不将其改写为 0；不影响同批其他有效点的编码结果。读取端必须通过同一版本的点位映射清单解释寄存器，不能仅凭点值自行恢复身份。
 4. **批次与计数**：一个调度批次可以拆成多个网络 I/O 操作；`failed_total` 按真实明确失败 I/O 尝试计数。`delivered_total` 按获得明确成功确认的逻辑样本交付计数，同批 500 条样本均已确认时增量为 500，而不是 1；仅当各样本明确完成时分别计入。批次大小、样本数和 I/O 尝试数须分别在测试中核验，不互相代替。
 
@@ -3448,10 +3448,10 @@ lint-imports
 | 冻结范围 | 第 1～2 章保持 v1_17 不变；第 3 章同步体现用户确认的单实例批量性能目标与静态分配规则 |
 | UR/UC/场景映射 | 8 项 UR、14 项 UC 和每个规定的 System 场景均有唯一可执行测试入口；每个场景有明确断言 |
 | gRPC 契约 | 以锁定 main 提交的 Proto 逐项核对 9+4 RPC、消息字段、枚举、状态返回；不得在设计中发明 wire 字段 |
-| 消息契约 | 明确现行单点 `SampleMessage` 与尚待冻结的批量新契约之间的差异；Collector/Contracts/Sink 三方一致后才可实现批量上线 |
+| 消息契约 | main 旧版为 `SampleMessage`，开发分支目标为 `SampleBatch(schema_version=2)`；Collector/Contracts/Sink 编码一致、ACK 与数据回放须真实验证才可上线 |
 | 数据可靠性 | 明确 ACK/DLQ PubAck/未知 I/O 所有权；Broker 限额未证实时不写“无损” |
 | 配置闭包 | 每个模板与实例引用都存在；角色、监听端口、容量、策略、质量寄存器映射合法 |
-| 术语一致 | `Sink` 指目标实例，`Delivery` 指派发任务，`Realtime/Reliable` 指通道，`sample` 为单测点消息，`batch` 为 Adapter 输出组 |
+| 术语一致 | `Sink` 指目标实例，`Delivery` 指派发任务，`Realtime/Reliable` 指通道，`sample` 为批内测点条目，`source batch` 为采集来源事件，`output batch` 为 Adapter 输出组 |
 | 性能参考负载 | 单容器 30 台 ×10 Hz：Realtime 100 点/台、Reliable 500 点/台，即 600 输入批/s、180000 值/s；优先测量连续 600 s 稳态，报告实际稳定确认能力及差距；多容器不能替代 |
 
 ## 14.8 配置契约专项验收（补充）
