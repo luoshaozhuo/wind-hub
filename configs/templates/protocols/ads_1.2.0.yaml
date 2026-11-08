@@ -1,0 +1,68 @@
+# ADS 协议完整配置模板：以 TwinCAT 2 为默认运行环境。
+# 本模板的 protocol_options 显式列出 Core ADS 解析器支持的全部 12 个参数。
+# 配置继承优先级：设备实例 > 设备型号 > 本协议模板 > Core 默认值。
+#
+# 【远程 PLC 地址】以下字段不属于 protocol_options，因此不写入本模板正文：
+# - configs/instances/devices.yaml 中的 endpoint.host：目标 PLC IP/主机名，必须提供。
+# - endpoint.port：目标 AMS Runtime Port；TwinCAT 2 首个 Runtime 默认为 801。
+# - 设备型号 endpoint_defaults.port：可指定型号统一的目标 AMS Runtime Port。
+# - AMS Runtime Port 801 与 ADS Router TCP 端口（通常 48898）不是同一个端口。
+#
+# 【本机 ADS 身份】属于服务级配置 ADSLocalConfig，不属于设备协议模板：
+# - local_ams_net_id：本机 AMS Net ID。
+# - local_ip：本机路由注册使用的 IP。
+# - request_timeout_ms、connect_timeout_ms、close_timeout_ms：本机相关超时。
+# 本地 AMS Port 由 pyads 管理，当前 Core 没有独立的单设备配置字段。
+#
+# 【生产配置】本模板是通用默认值，不包含现场 PLC 身份与真实密码。
+# 设备正式启用前必须在型号或实例中设置有效 target_net_id。
+# 自动路由关闭时不使用 username/password；启用时必须在受控配置中提供有效凭据。
+schema_version: 1
+template_id: ads
+file_version: 1.2.0
+protocol: ads
+
+protocol_options:
+  # TwinCAT 版本；可选 "2"、"3"，当前默认 TwinCAT 2。
+  # 默认目标 PLC Runtime AMS Port：TwinCAT 2 为 801，TwinCAT 3 为 851。
+  twincat_version: "2"
+
+  # 远程 PLC AMS Net ID，形式为 6 段十进制数，每段取值 0~255。
+  # 空字符串代表通用模板尚未绑定 PLC；实际建立 ADSDriver 时不允许为空。
+  # 示例：192.168.1.100.1.1。生产环境应通过型号/实例覆盖。
+  target_net_id: ""
+
+  # ADS 请求超时，单位秒；正数，默认 5.0。
+  # 注意：若已初始化进程级 ADSLocalConfig，其 request_timeout_ms 在连接时优先使用。
+  timeout: 5.0
+
+  # 单次 Sum Notification 操作的最大订阅测点数；正整数。
+  max_subs_per_sum: 500
+
+  # 单个通知数据块的最大字节数；正整数。
+  max_block_bytes: 1024
+
+  # 订阅通知最大延迟，单位秒；非负数，0 表示不允许额外等待。
+  max_delay: 0.06
+
+  # 默认原生 Notification 周期，单位秒，必须为正有限数。
+  notification_interval: 0.1
+
+  # PLC 原生通知触发：cyclic=按原生周期；on_change=原生值变化通知。
+  # 两种模式均按每次原生通知回调成批，绝不在 Collector 端合批。
+  notification_trigger: cyclic
+
+  # 每个订阅句柄的有界通知批次队列容量，必须为正整数。
+  notification_queue_capacity: 1000
+
+  # 是否自动尝试添加远程 PLC 路由；布尔值。
+  # false：需要预先完成双方 ADS 路由；true：首次连接失败后尝试远程注册。
+  route_auto_add: false
+
+  # 自动注册远程路由的用户名；非空字符串。
+  # route_auto_add=false 时不使用该字段。
+  username: "Administrator"
+
+  # 自动注册远程路由的密码；允许空字符串，空字符串表示未配置有效密码。
+  # 不得在共享模板中写入真实凭据；route_auto_add=true 时由受控设备配置覆盖。
+  password: ""
