@@ -13,6 +13,7 @@ from nats.aio.subscription import Subscription
 
 from contracts.sample_batch import (
     DEFAULT_MAX_BATCH_BYTES,
+    DeliveryMode,
     DEFAULT_MAX_SAMPLES_PER_BATCH,
     SampleBatch,
     validate_subject_token,
@@ -104,11 +105,11 @@ class NatsSinkConsumer:
         self._client = client
         self._subscription = subscription
 
-    def _decode(self, msg: Msg, mode: str) -> SampleBatch:
+    def _decode(self, msg: Msg, mode: DeliveryMode) -> SampleBatch:
         """Decode and check the actual source identity and channel."""
         return SampleBatch.decode(
             msg.data,
-            "realtime" if mode == "realtime" else "reliable",
+            mode,
             subject=msg.subject,
             max_samples=self._max_samples,
             max_bytes=self._max_bytes,
