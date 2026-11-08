@@ -151,13 +151,17 @@ class ADSSubscription:
             if self._stopping:
                 return
             received_at = datetime.now(UTC)
-            source: Literal["device", "local"] = (
-                "device" if isinstance(timestamp, datetime) else "local"
+            # A timezone-naive PLC timestamp has no reliable UTC meaning.
+            # Do not silently label it as an authoritative device clock.
+            valid_device_time = (
+                isinstance(timestamp, datetime)
+                and timestamp.tzinfo is not None
+                and timestamp.utcoffset() is not None
             )
-            stamp = timestamp if isinstance(timestamp, datetime) else received_at
-            if stamp.tzinfo is None:
-                stamp = stamp.replace(tzinfo=UTC)
-            stamp = stamp.astimezone(UTC)
+            source: Literal["device", "local"] = (
+                "device" if valid_device_time else "local"
+            )
+            stamp = timestamp.astimezone(UTC) if valid_device_time else received_at
             try:
                 raw = bytes(value)
                 valid = len(raw) == block.size
