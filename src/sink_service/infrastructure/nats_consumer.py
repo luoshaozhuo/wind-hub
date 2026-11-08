@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from uuid import uuid4
@@ -130,18 +128,19 @@ class NatsSinkConsumer:
         if self._client is None or self._durable is None:
             raise RuntimeError("DLQ requires an active durable consumer")
         metadata = msg.metadata
-        envelope = {
-            "source_subject": msg.subject,
-            "source_stream": self._stream,
-            "source_consumer": self._durable,
-            "source_sequence": metadata.sequence.stream if metadata is not None else None,
-            "reason": str(error),
-            "payload_base64": base64.b64encode(msg.data).decode("ascii"),
-        }
         await self._client.jetstream().publish(
             f"wh.dlq.batch.{self._durable}",
-            json.dumps(envelope, ensure_ascii=False).encode("utf-8"),
+            msg.data,
             timeout=2,
+            headers={
+                "Wh-Source-Subject": msg.subject,
+                "Wh-Source-Stream": self._stream,
+                "Wh-Source-Consumer": self._durable,
+                "Wh-Source-Sequence": (
+                    str(metadata.sequence.stream) if metadata is not None else "unknown"
+                ),
+                "Wh-Failure-Type": type(error).__name__,
+            },
         )
 
     async def _on_reliable(self, msg: Msg) -> None:
