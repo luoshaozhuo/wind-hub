@@ -719,6 +719,7 @@ class ADSDriver:
             mapped,
             callback,
             interval=self._config.notification_interval if interval is None else interval,
+            trigger=self._config.notification_trigger,
             max_block_bytes=self._config.max_block_bytes,
             max_delay=self._config.max_delay,
             queue_capacity=self._config.notification_queue_capacity,
