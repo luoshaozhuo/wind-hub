@@ -12,7 +12,7 @@ from typing import Any
 import grpc
 
 from contracts import industrial_gateway_pb2, industrial_gateway_pb2_grpc
-from core.infrastructure.rpc.scalar_codec import encode_scalar
+from contracts.scalar_codec import encode_scalar
 from data_generator.domain.model import (
     DataBatch,
     DeliveryResult,

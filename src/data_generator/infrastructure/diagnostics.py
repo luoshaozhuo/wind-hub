@@ -14,7 +14,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as gateway
 from contracts import industrial_gateway_pb2_grpc as gateway_rpc
-from core.infrastructure.rpc.scalar_codec import encode_scalar
+from contracts.scalar_codec import encode_scalar
 from data_generator.application.models import generate_values
 from data_generator.domain.scenario import Scenario, Settings, resolve_history
 

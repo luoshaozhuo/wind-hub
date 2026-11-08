@@ -15,7 +15,7 @@ from contracts import common_pb2_grpc as common_rpc
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as rpc
 from core.application.errors import ConfigError
-from core.infrastructure.rpc.scalar_codec import decode_scalar, encode_scalar
+from contracts.scalar_codec import decode_scalar, encode_scalar
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.config.v1_schema import service_path
 from industrial_gateway.infrastructure.diagnostics import GatewayDiagnostics

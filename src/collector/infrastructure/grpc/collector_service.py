@@ -20,7 +20,7 @@ from contracts import common_pb2 as common
 from core.application import InterrogationRequest, ProtocolSample
 from core.application.errors import ConfigError, CoreError
 from core.domain import PointAccess
-from core.infrastructure.rpc.scalar_codec import encode_scalar
+from contracts.scalar_codec import encode_scalar
 
 T = TypeVar("T")
 

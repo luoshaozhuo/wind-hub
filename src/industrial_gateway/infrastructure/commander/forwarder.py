@@ -18,7 +18,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc as rpc
 from contracts import common_pb2 as common
-from core.infrastructure.rpc.scalar_codec import encode_scalar
+from contracts.scalar_codec import encode_scalar
 from industrial_gateway.application.variable_store import Scalar
 from industrial_gateway.infrastructure.config.v1_schema import (
     ControlConfig,
