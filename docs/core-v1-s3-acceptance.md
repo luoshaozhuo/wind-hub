@@ -1344,3 +1344,116 @@ ChatGPT 已完成 Commander v1 RPC、强制 mTLS、配置快照事务、Collecto
 **最终裁决：PASS。** 六门禁全绿；N-03 23 项 mypy 与 3 项 operator 归零；mTLS 强制模型、快照事务 fencing/回查、持久化 at-most-once 与 UNKNOWN 不重发均有真实进程链路证据；废弃 RPC 生产/测试零残留；collect 零错误；全部失败项经干净基线对照证明 UNRELATED/ENVIRONMENT，RELATED=0。
 
 **接口冻结意见：具备 Core + Configs v1 接口冻结条件。** 唯一冻结后仍需偿还的是 full_stack e2e harness 的 mTLS 化（测试基建债务，不涉及 proto/端口合同变更），不构成冻结阻断。
+
+# 19. 第十轮：Full-Stack E2E mTLS Harness 最终独立验收（2026-11-08，基线 `b57b254f`）
+
+## 19.1 验收范围与边界
+
+ChatGPT 已完成 Commander 子进程 mTLS Harness 迁移并以单 commit `b57b254f`（6 文件，+168/−62，零 `src/` 改动）推送。本轮只做独立验收与测试侧机械修复：未修改生产代码、`src/contracts/`、冻结公共接口、业务断言与错误语义；未新增 `ignore`/`noqa`/排除规则；无 PR、merge、rebase、force push；未扩大任何 timeout、未放松断言、未 skip。
+
+本轮自有改动仅一个测试侧机械提交 `ecfec634`（`ruff check` E501 docstring 换行 + `ruff format` 两文件；token 流归一化比对证明无语义变化），与本报告分袋提交。
+
+## 19.2 S1 静态门禁（标准 CI 命令，六道全 EXIT=0）
+
+| 门禁 | 命令 | 结果 |
+| --- | --- | --- |
+| ruff check | `ruff check src tests scripts` | **All checks passed** |
+| ruff format | `ruff format --check src tests scripts` | **733 files already formatted** |
+| mypy src/core | `mypy src/core` | **Success，61 files，0 errors** |
+| mypy src/configuration | `mypy src/configuration` | **Success，22 files，0 errors** |
+| mypy src | `mypy src` | **Success，330 files，0 errors** |
+| import-linter | `lint-imports`（15 contracts） | **15 kept, 0 broken**（371 files/1985 deps） |
+
+## 19.3 S2 安全边界十项审查（静态 + 真实进程双重取证）
+
+| # | 条件 | 结论 | 证据 |
+| --- | --- | --- | --- |
+| 1 | 只通过正式 `--config` 接收服务 YAML | 满足 | `src/commander/__main__.py:17-18` 唯一必填参数 `--config`；`tests/support/process.py` argv 仅 `["--config", path]`，旧 `--grpc-host/--grpc-port` 已删除 |
+| 2 | config_sources 明确 instances/templates 路径 | 满足 | 实测生成 YAML：`instances.devices` 与 `templates.root` 均为 tmp_path 下绝对路径；`write_commander_service` 对树归属与两路径存在性有守卫 |
+| 3 | 只开安全 gRPC 端口 | 满足 | `src/commander/infrastructure/grpc_transport.py:86` 仅 `add_secure_port`，全函数无 `add_insecure_port` 分支（全 src grep 对照：collector/gateway 的条件明文回退在 commander 不存在），docstring 明示 "A plaintext endpoint is never opened" |
+| 4 | `require_client_auth=True` 无明文回退 | 满足 | `grpc_transport.py:74-76` ssl_server_credentials 强制客户端证书；Web 侧 `adapter/outbound/grpc/commander.py:55-64` 三 env 缺一即 RuntimeError |
+| 5 | PKI 复用 grpc_harness 不造假证书 | 满足 | 直接调 `tests/commander/grpc_harness.build_pki`（EC P-256 CA + server/ops/viewer/deployer/dual/stranger/rogue），tmp 现场 `pki/` 落盘证书集与 harness 同源 |
+| 6 | Web 用有效证书走 mTLS | 满足 | `commander_client_env(pki)` 仅透传三证书 pathname（CA/ops.crt/ops.key），经 `env_extra` 注入 Web 子进程 |
+| 7 | 真实 GetServiceStatus 成功才算就绪 | 满足 | `wait_commander_ready` 以 `ssl_channel_credentials` + `secure_channel` 调真实 GetServiceStatus；S3 每套 fixture 均通过该探针 |
+| 8 | 证书无效/权限不符/缺失不得误判就绪 | 满足 | 探针仅对 UNAVAILABLE 重试，其余 RpcError 直接 raise；负向链路由第九轮 `TestMtlsClientBoundary`（stranger→PERMISSION_DENIED、rogue→握手失败、缺 env→RuntimeError）在 T5 commander 套件内持续全绿 |
+| 9 | 子进程失败输出实际日志 | 满足 | Web 未就绪 `raise RuntimeError(web.read_log())`；工厂启动失败 kill_tree + close_log；基线复现中 fleet 的真实 RuntimeError 即经此通道读出 |
+| 10 | 停机后无遗留进程/端口/连接/数据库锁 | 满足 | fixture 反向 `_shutdown`（terminate 12s→kill_tree→close_log）；S3 后实测 pgrep 无 wind-hub 残留进程、ss 无临时端口监听、fuser 确认 commander.sqlite3 无 holder |
+
+**特别核对——`emit_v2_tree_from_flat_site` 测试树被正式共享配置加载器接受：成立，但不仅凭 YAML 存在认定。** S3 中 Commander 子进程以正式 CLI `--config` 启动、正式配置加载器解析该三路径树（instances/devices.yaml + templates/）并成功通过真实 mTLS GetServiceStatus 就绪探针，11 套 fixture 11 次成功；加载器拒绝则进程退出、探针超时，测试不可能通过。
+
+## 19.4 S3 Full-Stack E2E 逐项结果（`pytest tests/system/test_web_full_stack_e2e.py -vv -s`）
+
+**总计 11 passed / 0 failed / 0 errors / 0 skipped，130.54s，EXIT=0。** 每用例现场为 30 个真实虚拟从站（三协议各 10）+ Collector/Commander/Web 三个独立子进程，Commander 全程正式 service YAML + 真实 mTLS。
+
+| # | 用例 | 结果 |
+| --- | --- | --- |
+| 1 | `test_full_stack_lists_all_devices_and_workers` | PASSED（30 设备、worker 含 collector 与 commander） |
+| 2 | `test_real_task_start_and_stop_via_http[modbus]` | PASSED（instances==10） |
+| 3 | `test_real_task_start_and_stop_via_http[ads]` | PASSED（instances==10） |
+| 4 | `test_real_task_start_and_stop_via_http[iec104]` | PASSED（instances==10） |
+| 5 | `test_direct_unauthenticated_collector_start_is_denied` | PASSED（明文 StartTask→PERMISSION_DENIED） |
+| 6 | `test_unknown_resources...[GET /devices/missing]` | PASSED（404，进程存活） |
+| 7 | `test_unknown_resources...[GET /config/files/missing.yaml]` | PASSED（404） |
+| 8 | `test_unknown_resources...[POST /tasks/missing/start]` | PASSED（404） |
+| 9 | `test_unknown_resources...[POST /sinks/missing/verify]` | PASSED（404） |
+| 10 | `test_concurrent_invalid_config_does_not_change_live_state` | PASSED（20 并发非法 YAML 全拒，settings 前后相等） |
+| 11 | `test_worker_loss_causes_fail_closed_start` | PASSED（Collector 停机后 start 返回 409/503，Web 存活） |
+
+断言零修改、timeout 零扩大、零 skip。
+
+## 19.5 S4 系统回归与缺陷归因（证据目录 `/tmp/s3-r11/`）
+
+| 命令 | 本轮结果 | 归因 |
+| --- | --- | --- |
+| `pytest tests/system -q` | 110 passed / 24 skipped / 10 deselected / **11 failed / 21 errors** | 失败项全部 UNRELATED/ENVIRONMENT，明细见下；基线 `a59e5462` 同环境复现 |
+| `pytest tests/system/rpc -q` | **21 passed** | PASS |
+| `pytest tests/system/command -q` | **6 passed** | PASS |
+| `pytest tests/web_server -q` | **225 passed** | PASS |
+| `pytest tests/commander -q` | 255 passed / 1 skipped / **2 failed** | **UNRELATED/ENVIRONMENT**：test_performance 两项 p99≤200ms 断言（实测 284.3/302.2ms），与第九轮干净基线 `8b920410` 同败同断言，WSL2 无性能隔离；b57b254f 与 src/commander 零交集 |
+| `pytest tests --collect-only -q` | **2103 collected / 0 error** | PASS |
+
+**T1 失败逐项归因（干净 worktree `a59e5462` = b57b254f 父提交，PYTHONPATH 前置同环境复现）：**
+
+| 失败群 | 本轮形态 | 基线 `a59e5462` 形态 | 分类与根因 |
+| --- | --- | --- | --- |
+| fleet_config e2e ×21 errors | fixture setup AssertionError | **21 errors 同位置**，日志实锤 `RuntimeError: Commander mTLS requires CA, client certificate and client key` | **UNRELATED**：该文件自带 web_server fixture 未透传 mTLS 三 env，b57b254f 未触及该文件；env 强制自 `471de3b3` 起存在 |
+| e2e/test_command_via_server ×4 failed | 2 项 PERMISSION_DENIED（v2 树点表仅 100/102/104 三点，缺 functional 配置的控制点位 `setpoint_power`@200，`_writable=False`）；2 项 Web 错误映射契约漂移（ commander 不可达现返回 200 confirmed_failure 而非旧断言的 503；NOT_FOUND 消息不含 device id） | **4 项全部 setup ERROR**（明文探针撞 mTLS -only 端口，第九轮 18.6 已登记的 harness 断层） | **UNRELATED**：无绿→红回归；后 2 项只能经 src 改动或放松断言修复，两者均在禁止列；属测试树统一与契约测试更新的后续基建项 |
+| reload ×1 failed | fail-closed 拒绝：flat 配置文件不在 Commander config_sources 内（"configuration cannot be pushed as a shared snapshot"），**生产拒绝行为本身正确** | 该文件基线 **3 errors**（迁移后其中 2 项已转绿） | **UNRELATED**：双配置树分裂的 fixture 结构问题，基线即红 |
+| startup ×1 failed | overview `runtime_running is False`（v2 树默认 `desired_state=STOP`） | 该文件基线 **5 errors**（迁移后其中 4 项已转绿） | **UNRELATED**：同上，基线即红 |
+| soak ×4 failed | NATS 127.0.0.1:4222 拒绝 61 次 + 监听端口占用 | 第九轮已登记 NOT_RUN/ENVIRONMENT（本机无 NATS） | **ENVIRONMENT** |
+| r5 tdengine 契约 ×1 failed | `docs/wind-hub_sink_architecture_v0_4.md` 不存在（FileNotFoundError） | **基线 1 failed 同错**（worktree 路径实证） | **UNRELATED**：文档缺失，与 harness 零关联 |
+
+基线复现命令与完整输出：`/tmp/s3-r11/baseline-repro.sh`、`baseline-repro.log`（五组 EXIT=1 同败）；worktree 已按规清理。**RELATED 失败：0。未发现生产缺陷，未触发停止整改条件。**
+
+## 19.6 资源清理取证
+
+- S3 跑完后 `pgrep -af` 无任何 wind-hub/commander/collector/web_server 残留子进程；
+- 本轮临时端口 `ss -ltnp` 全部释放；
+- `fuser` 确认 tmp 现场 `state/commander.sqlite3` 无锁持有（SQLite 文件随 pytest tmp_path 留存属正常，无进程附着）；
+- 基线 worktree `/tmp/wh-r10-base` 已 `git worktree remove --force` 回收，`git worktree list` 无残留。
+
+## 19.7 残留项与后续建议（均不阻断本轮裁决）
+
+1. **fixture 配置树统一**：`tests/system/conftest.py` 的 full_stack 中 Web 消费 flat functional 树而 Commander 消费 v2 树，控制点集合与 config_sources 范围不一致，是 e2e×4/reload/startup 残留失败的共同结构根因；建议后续在测试侧统一为单一三路径树（含 `setpoint_power` 控制点位与 RUN 期望态），或同步更新受影响测试的契约断言。
+2. **fleet_config 独立 fixture mTLS 化**：21 errors 的直接闭环路径是仿照 `commander_client_env` 透传三 env 并下发测试 PKI。
+3. **Web 错误映射契约测试更新**：commander 不可达/未知设备的现行信封（200 confirmed_failure、revision query failed 前缀）与旧 e2e 断言不一致，需产品侧确认合同后由测试侧对齐，禁止在未确认前放松断言。
+4. T5 性能阈值与 soak NATS 依赖维持第九轮结论：独立可选验收流程，不纳入接口冻结门禁。
+
+## 19.8 最终裁决
+
+**最终裁决：PASS。**
+
+| 交付项 | 结论 |
+| --- | --- |
+| Git 边界 | 基线 b57b254f 零 src 改动；本轮仅 ecfec634 测试侧机械格式提交，报告分袋；无 PR/merge/rebase/force push |
+| Ruff（check + format） | 全绿，0 ignore/noqa 新增 |
+| Mypy（core/configuration/src） | 61/22/330 files 全 0 errors |
+| Import-linter | 15 kept / 0 broken |
+| mTLS Harness 十项条件 | 全部满足，真实进程 + 真实 PKI + 正式配置加载器取证 |
+| 11 项 Full-Stack E2E | **11 passed / 0 failed / 0 errors / 0 skipped**，断言零放松 |
+| 系统回归（六条命令） | rpc/command/web_server/collect 全绿；system 与 commander 残留失败经干净基线同环境复现，全部 UNRELATED/ENVIRONMENT |
+| 全仓 collect | 2103 collected / 0 error |
+| 缺陷归因 | **RELATED=0**，无生产缺陷 |
+| 资源清理 | 无遗留进程/端口/连接/数据库锁，worktree 已回收 |
+
+第九轮 18.6 登记的唯一冻结阻断项（full_stack e2e harness mTLS 化）已由 b57b254f 闭环并经本轮独立验收；剩余为既有测试基建债务的后续项，不涉及 proto/端口/冻结接口变更。
