@@ -1158,3 +1158,106 @@ tracing.py:30          ServerInterceptor subclass Any [misc] ×1
 
 - 生产整改 commit：`622b6ea4`（5 src 文件）；本节与 §15 报告随后以 docs-only commit 独立提交。
 - 本机无 GitHub 凭据，不执行 push，两个 SHA 均交用户手动推送；不创建 PR、不 rebase、不 force push。
+
+# 17. 第八轮静态门禁收口与独立复测（2026-11-08）
+
+## 17.1 基线与环境
+
+- 指定基线 `0c38e7df fix(types): complete grpc.aio channel, server and context stub interfaces`；`git fetch` + `pull --ff-only` 后 HEAD 与 `origin/refactor/core-v1` 完全一致，工作区干净。
+- 基线新增内容（ChatGPT）：`typings/grpc-stubs/grpc/aio/__init__.pyi` 补 `Channel.__aenter__/__aexit__/channel_ready`、`ServicerContext.peer/auth_context`、四类 MultiCallable 的 `__call__`、`server()` 工厂。
+- 环境：`scripts/dev.py env` PASS；Python 3.14.7、ruff 0.8.6、mypy 1.20.2、lint-imports 2.15、grpcio 1.84.0。证据目录 `/tmp/s3-r8/`。
+
+## 17.2 S1 静态门禁（整改前，基线 0c38e7df 实测）
+
+| 命令 | 退出码 | 结果 |
+|---|---|---|
+| `ruff check src tests scripts` | 0 | All checks passed |
+| `ruff format --check src tests scripts` | 0 | 730 files already formatted |
+| `mypy src/core` | 0 | 61 files 无问题 |
+| `mypy src/configuration` | 0 | 22 files 无问题 |
+| `mypy src` | 1 | **29 errors / 4 files**（上轮 47/14，ChatGPT stub 补齐净消 18） |
+| `lint-imports` | 0 | 15 kept, 0 broken |
+
+29 项构成：attr-defined 20、name-defined 3（均在禁改文件 commander.py，N-03）、operator 3（gateway.py）、redundant-cast 3。上轮的 4 项 no-any-return 随 `server()` 工厂声明归零。
+
+## 17.3 S2 gRPC Stub 专项验证（真实 grpcio 1.84.0 运行时内省，非仅静态对照）
+
+探针 `/tmp/s3-r8/verify_runtime.py`（`python -I` 隔离执行，输出 `runtime-verify.log`）：
+
+| 验证项 | 运行时事实 | stub 声明 | 结论 |
+|---|---|---|---|
+| Channel 异步上下文管理 | `aio.Channel.__aenter__/__aexit__` 存在，实测 `async with ch` 返回同一 channel 并关闭 | 已声明 | 一致 |
+| `channel_ready()` | 存在且为 coroutine | `async def channel_ready()` | 一致 |
+| `ServicerContext.peer/auth_context` | 均存在 | 已声明 | 一致 |
+| `grpc.aio.server()` 返回类型 | 实测 `grpc.aio._server.Server`，`isinstance(..., aio.Server)` 为真 | 返回 `Server` | 一致；但真实签名含 `handlers` 形参，stub 未声明（次要缺口） |
+| 四类 MultiCallable 可调用 | 同步 `grpc.*` 与 `grpc.aio.*` 八个类运行时均有 `__call__` | aio 四类已声明；**顶层同步四类仍为空类（无 `__call__`）** | **stub 缺口（移交）** |
+| 四类 Client + Server 拦截器 | 五个基类运行时均存在 | 已声明 | 一致 |
+| `aio.secure_channel` | 运行时存在，签名 `(target, credentials, options=None, compression=None, interceptors=None) -> Channel` | **stub 未声明，走 `__getattr__` 回退 Any** | **stub 缺口（移交）** |
+| pb2 `.pyi` 冲突 / subclass-Any / no-any-return | mypy src 全树无 contracts 错误、无该两类告警 | — | 无新冲突 |
+
+两项 stub 缺口与残余 operator 错误的因果链：生成的 `industrial_gateway_pb2_grpc.pyi` 同步基类 Stub 属性标注为顶层 `_grpc.UnaryUnaryMultiCallable`（空类），而 `data_generator/gateway.py:210` 的 `_stub()` 显式标注返回同步基类 `IndustrialGatewayServiceStub`，致 175/230/272 行 `stub.ClaimTargets(...)` 被判 not callable。正解是补全顶层 stub 四个 MultiCallable 的 `__call__`（真实 grpcio 同步签名 `__call__(request, timeout, metadata, credentials, wait_for_ready, compression)`），按任务书 S2 规则不修 stub、留证移交 ChatGPT。
+
+## 17.4 S3 机械性整改（commit `723f3342`，2 文件 +4/−9）
+
+| 文件:行 | 修改 | 冗余判定依据 |
+|---|---|---|
+| sink_service/infrastructure/adapters/grpc_sink.py:49 | 删除 `cast("rpc.IndustrialGatewayServiceAsyncStub", ...)` 与 `from typing import cast` 导入，替换过时注释 | `insecure_channel` 现精确返回 `aio.Channel`，mypy-protobuf `__new__` 重载直接给出 AsyncStub |
+| industrial_gateway/infrastructure/commander/forwarder.py:276 | `cast(str, response.device.revision)` → 直接赋值 | 生成 pyi 中 revision 已是 str |
+| industrial_gateway/infrastructure/commander/forwarder.py:401 | `cast(pb.GetCommandResultResponse, response)` → `return response` | 调用返回类型已精确 |
+
+forwarder.py:220 的 mTLS 路径 cast **保留**：`aio.secure_channel` 未在 stub 声明（17.3 缺口），channel 回退 Any，mypy 仍需要该 cast，mypy 也未将其标记冗余。整改后全量门禁：
+
+| 命令 | 退出码 | 结果 |
+|---|---|---|
+| ruff check / format | 0 / 0 | 全绿 |
+| mypy src/core / src/configuration | 0 / 0 | 全绿 |
+| mypy src | 1 | **26 errors / 2 files**（29→26，redundant-cast 类别归零；与整改前非 cast 错误逐条 diff 完全相同，零新增零位移） |
+| lint-imports | 0 | 15 kept, 0 broken |
+
+## 17.5 S4 回归与缺陷分类
+
+| 套件 | 结果 | 分类 |
+|---|---|---|
+| tests/core + collector + web_server | 873 passed / 2 failed / 2 skipped | 2 failed 为第五~七轮已证 main 同败的 UNRELATED：test_rpc_boundary::test_pb2_only_in_allowed_zones、test_diagnostic_cancel::test_aclose_cancels_all_background_tasks |
+| tests/system/rpc | 11 passed / 6 errors | 6 errors 全在 test_server_commander_rpc.py setup：`wait_commander_ready` 15s 超时。v1 commander 只开 mTLS 端口而 harness 明文探针，第六轮已记录的安全模型断层（ENVIRONMENT/UNRELATED，main 同败） |
+| tests/src | 44 passed | 全过 |
+| tests/sink_service | 10 passed / 10 skipped（NATS） | 全过 |
+| tests/data_generator | 168 passed / 1 failed | test_p1_09_gateway_restart_invalidates_all_tokens：**干净基线 0c38e7df 隔离复跑同样 FAIL**（'RUNNING'=='FAILED' 时序断言），UNRELATED 预存缺陷 |
+| tests/industrial_gateway | 167 passed / 1 failed | test_concurrent_same_point_writes_serialize_at_commander：并发 FIFO 顺序断言 flake。对照实测：**基线 5/5 全败、改动版 5 次中 4 败 1 过**，预存 flake，与本次 cast 删除（运行时恒等）无因果，UNRELATED |
+| 全仓 collect-only | **2091 collected / 0 errors**（EXIT=0） | — |
+
+RELATED = 0。NOT_RUN：无（所有点名套件均实际执行；skip 仅 NATS 外部依赖 10 项与既有 2 项）。
+
+## 17.6 N-03 独立审查：Web Commander 适配器 vs 正式 Proto 差异矩阵（只审查，未修改）
+
+正式接口面：commander.proto 的 CommanderService 仅 5 RPC（ListDevices/GetDevice/ListPoints/SubmitCommand/GetCommandResult）；commander 同时注册 common.proto 的 CommonService 9 RPC（含 GetServiceStatus、GetConfigSnapshot、PushConfigSnapshot、ApplyConfigSnapshot、Diagnose）。现适配器 `web_server/adapter/outbound/grpc/commander.py` 调用的 9 个旧 RPC 与 3 个旧消息/枚举在正式 proto 中**全部不存在**（mypy 23 错误即此事实的静态投影）。
+
+| # | Web 当前调用（旧） | 正式 Proto 对应 | 字段/语义差异 | 调用方与测试 | 推荐迁移方式（禁止恢复旧接口） |
+|---|---|---|---|---|---|
+| 1 | `GetStatus(Empty)` → running/device_count/active_revision/active_config_hash/prepared_revision | CommonService.`GetServiceStatus(Empty)` → `{health, dependencies[], observed_at}` | 无设备计数/revision 字段；模型从「指挥官私有状态」变为「服务健康+依赖健康」 | registry.py:164；config/service.py:574；test_server_commander_rpc.py:68 | DTO 重构：CommanderStatus 改由 health/dependencies 映射；revision 信息改走 GetConfigSnapshot 的 revision 字段 |
+| 2 | `PrepareConfig(PrepareConfigRequest{revision_id,config_hash})` | CommonService.`PushConfigSnapshot(PushConfigSnapshotRequest{files[], expected_revision})` → `{candidate_id, valid, validation[], base_revision}` | 旧接口只传 revision 引用；新接口以 SnapshotFile 整包推送并服务端校验，返回 candidate_id 而非成功布尔 | config/service.py:559；test_server_commander_rpc.py:120 | 配置事务改为「Push 候选 → 校验 → Apply」两段式；ConfigPrepareAck 由 candidate_id/valid/validation 重新装配 |
+| 3 | `ActivateConfig(ActivateConfigRequest{revision_id})` | CommonService.`ApplyConfigSnapshot(ApplyConfigSnapshotRequest{candidate_id, expected_revision})` → `{file_commit, apply_results[], effective_revision, restart_required, application_id}` | 激活对象从 revision_id 变为 candidate_id；响应是逐应用 ApplicationResult 事务结果而非单布尔 | config/service.py:564；test_server_commander_rpc.py:124 | 以 candidate_id 串联 #2；ack 映射 effective_revision/restart_required，apply_results 下沉为校验事件 |
+| 4 | `AbortConfig(AbortConfigRequest{revision_id})` → `{success, revision_id, aborted}` | **无对应 RPC** | 新模型无显式 abort：候选未 Apply 即不生效，放弃 candidate_id 即可 | config/service.py:569；test_server_commander_rpc.py:139/146 | 删除 abort 端口方法，本地标记候选废弃；需要回滚时 Push 上一 revision 快照再 Apply |
+| 5 | `ReadPoint(ReadPointRequest{device_id,point_id})` → `PointValueMessage` | CollectorService.`ReadPoints(ReadPointsRequest{device_id,point_ids[],timeout_ms})`（collector.proto，Web 已有 CollectorGrpcClient） | 即时读取归属 Collector 而非 Commander；返回 common.Sample（point_id/value/quality/timestamp/error_*），PointValueMessage 已废弃 | device/data.py、command.py:146、diagnostic.py:127；test_server_commander_rpc.py:85 | 读取路径改注入 CollectorPort；`_point_value` 解码器改为 Sample→PointValue DTO 映射 |
+| 6 | `ReadPoints(ReadPointsRequest)` → `repeated PointValueMessage` | 同上 CollectorService.ReadPoints（支持 1..500 点、超时降级 TIMEOUT_UNCONFIRMED 坏质量样本） | 批量语义正式化；错误以样本内 error_code 表达而非 RPC 失败 | data.py:85,130 | 同 #5，复用 collector 适配器既有分页/超时合同 |
+| 7 | `WritePoint(WritePointRequest{command_id,device_id,point_id,value,timeout})` 同步返回 `CommandResultMessage` | CommanderService.`SubmitCommand(SubmitCommandRequest{device_id,point_id,value,expires_at,expected_revision})` → `{command_id,accepted,state,outcome,error_code,message}` + 轮询 `GetCommandResult(GetCommandResultRequest{command_id})` → `{state,outcome,error_code,message,updated_at,io_settled}` | 同步写变异步两阶段；客户端 command_id 改为服务端签发；乐观锁由 expected_revision 承载；三态 outcome 改为字符串字段 + io_settled 明确 IO 落地 | command.py:137；e2e/test_command_via_server.py | write() 改 Submit+按 deadline 轮询 GetCommandResult；UNKNOWN 仍禁止重发（现有 command.py 语义保留）；expected_revision 从 GetDevice.revision 取得 |
+| 8 | `VerifyDevice(VerifyDeviceRequest{device_id,timeout})` → 设备级 stages | CommonService.`Diagnose(DiagnoseRequest{target_id,stages[],timeout_ms,correlation_id})` → `{overall_status, stages[]{stage,status,duration_ms,error_code,message,evidence[],observed_at,source}, limitations[]}` | 诊断统一入口；stage 结构不同（旧 name/ok/code/severity/message → 新 stage/status/error_code/evidence/observed_at） | diagnostic.py:119；test_server_commander_rpc.py:74 | DeviceVerifyResult 由 DiagnoseResponse 映射；target_id 编码 device 维度；limitations 透传到 DTO |
+| 9 | `VerifyPoint(PointRequest{device_id,point_id})` → `PointVerifyResponse`（22 字段富诊断） | 同 #8 Diagnose（target_id 编码点维度）；点元数据由 CommanderService.`ListPoints` 补 | 无点级专用响应，富字段（configured/resolved address、scale/offset、raw/engineering 值）需由 stages+evidence 重建 | diagnostic.py:223 | PointVerifyResult 装配器重写；address 等静态字段走 ListPoints 的 PointMetadata.address |
+| 10 | 枚举 `COMMAND_OUTCOME_*`（3 个模块级枚举） | GetCommandResultResponse.outcome / SubmitCommandResponse.outcome 为 **string** 字段 | 枚举值改为合同字符串（CONFIRMED_SUCCESS/CONFIRMED_FAILURE/UNKNOWN 词汇表须在 proto 注释或文档固化） | commander.py:85-87、_command_result | outcomes 映射表改字符串常量集合，保留三态与 UNKNOWN 不重发规则 |
+
+补充：CommanderService.ListDevices/GetDevice/ListPoints 三个正式 RPC 当前适配器完全未使用，#1 的设备计数、#7 的 expected_revision、#9 的点元数据均应从这三个 RPC 取得。受影响测试：tests/system/rpc/test_server_commander_rpc.py（整文件按旧接口编写，随迁移重写）、tests/system/e2e/test_command_via_server.py（HTTP 契约可保持，仅后端接线变化）。该矩阵作为独立生产整改移交 ChatGPT，本轮未修改禁改文件。
+
+## 17.7 残余生产错误（26 项）复现命令与修复建议
+
+复现：`python -m mypy src`（EXIT=1，日志 `/tmp/s3-r8/mypy-src-after.log`）。
+
+1. **23 项 N-03（web_server/adapter/outbound/grpc/commander.py，禁改文件）**：按 17.6 矩阵实施 v1 迁移后自然归零，无需任何 ignore。
+2. **3 项 operator（data_generator/infrastructure/gateway.py:175/230/272）**：在 `typings/grpc-stubs/grpc/__init__.pyi:61-64` 为同步四类 MultiCallable 补 `__call__`（签名以 17.3 运行时内省为准），或在 stub 补齐后把 gateway.py `_stub()` 返回标注改为 AsyncStub（注解-only，零运行时影响）；首选修 stub，与 R-03/0c38e7df 同类。
+3. **stub 次要缺口（当前被 Any 掩盖，未产生错误但应一并修）**：aio 补 `secure_channel` 声明（签名见 17.3）；`server()` 补 `handlers` 形参。修复后 forwarder.py:220 现存 cast 将变为新的 redundant-cast，下一轮机械删除即可。
+
+裁决：**PASS WITH LIMITATIONS**——授权机械项全部闭环（ruff/format/core/configuration/lint-imports 全绿，mypy src 29→26 且残余全部归因），RELATED 失败为 0；限制项为 N-03（23 项，ChatGPT 矩阵整改）与 grpc-stubs 同步表面缺口（3+2 项，ChatGPT stub 整改），均有复现命令与修复路径。
+
+## 17.8 提交与推送
+
+- 生产 commit：`723f3342`（2 src 文件）；本章节为 docs-only commit 独立提交。
+- 本机无 GitHub 凭据，不执行 push，SHA 交用户手动推送；无 PR、无 rebase、无 force push。
