@@ -18,10 +18,13 @@ class PointValueSinkAdapter:
 
     async def write(self, batch: list[SinkPointValue]) -> None:
         """Preserve each sample's Task mapping and target write confirmation."""
+        groups: dict[str, list[SinkPointValue]] = {}
         for point in batch:
             if point.task_id is None:
                 raise ValueError("Sink point is missing its source task")
-            await self._target.write_task(point.task_id, [point])
+            groups.setdefault(point.task_id, []).append(point)
+        for task_id, values in groups.items():
+            await self._target.write_task(task_id, values)
 
     async def close(self) -> None:
         """Release target resources."""
