@@ -123,7 +123,7 @@ def load_config(path: Path) -> CLIConfig:
     if type(history) is not bool:
         raise ValueError("cli.history must be boolean")
     max_display_rows = _int_range(cli.get("max_display_rows", 1000), "max_display_rows", 1, 10000)
-    poll_interval_ms = _int_range(cli.get("poll_interval_ms", 1000), "poll_interval_ms", 200, 60000)
+    poll_interval_ms = _int_range(cli.get("poll_interval_ms", 1000), "poll_interval_ms", 100, 60000)
     poll_reconnect_attempts = _int_range(
         cli.get("poll_reconnect_attempts", 3), "poll_reconnect_attempts", 0, 10
     )
