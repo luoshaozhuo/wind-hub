@@ -25,6 +25,16 @@ def validate_subject_token(value: str) -> str:
     return value
 
 
+def _unique_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject duplicate JSON object keys instead of silently overwriting."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
 def _utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -178,6 +188,7 @@ class SampleBatch(BaseModel):
         try:
             raw = json.loads(
                 payload.decode("utf-8"),
+                object_pairs_hook=_unique_json_keys,
                 parse_constant=lambda value: (_ for _ in ()).throw(
                     ValueError(f"invalid JSON constant: {value}")
                 ),
@@ -191,6 +202,8 @@ class SampleBatch(BaseModel):
             raise ValueError("invalid batch sample count")
         if any(not isinstance(item, dict) or "value" not in item for item in items):
             raise ValueError("every sample must explicitly contain value")
+        if mode == "reliable" and any("max_staleness_ms" in item for item in items):
+            raise ValueError("reliable samples must omit max_staleness_ms")
         batch = cls.model_validate_json(payload)
         if batch.mode != mode:
             raise ValueError("batch mode differs from NATS channel")
