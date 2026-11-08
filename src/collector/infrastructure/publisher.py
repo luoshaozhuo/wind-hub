@@ -147,6 +147,9 @@ class CollectorPublisher:
         if not samples:
             return
         try:
+            point_ids = [sample.point_id for sample in samples]
+            if len(set(point_ids)) != len(point_ids):
+                raise ValueError("duplicate point_id in acquisition batch")
             items = tuple(self._item(sample) for sample in samples)
             batches = self._pack(device_id, items)
         except (ValueError, TypeError) as exc:
