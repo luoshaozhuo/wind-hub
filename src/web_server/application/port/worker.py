@@ -7,7 +7,7 @@ protobuf ↔ DTO 转换，application 内部只做属性访问，不再有魔术
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
 
 from web_server.application.device.command_model import Command, CommandResult
 from web_server.application.device.sample import PointValue
@@ -165,7 +165,7 @@ class CommanderPort(Protocol):
     async def status(self) -> CommanderStatus: ...
 
     async def get_config_snapshot(
-        self, scope: str
+        self, scope: Literal["disk", "runtime"]
     ) -> RemoteConfigSnapshot: ...
 
     async def push_config(
