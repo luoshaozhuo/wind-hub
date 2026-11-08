@@ -229,9 +229,7 @@ class SinkRuntime:
         """Return the cached point and its independent expiry state."""
         sample = self._latest.get(key)
         return sample, (
-            self._state is SinkState.RUNNING
-            and sample is not None
-            and self._is_fresh(sample)
+            self._state is SinkState.RUNNING and sample is not None and self._is_fresh(sample)
         )
 
     async def clear(self) -> int:

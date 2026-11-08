@@ -13,7 +13,7 @@ import grpc
 import pytest
 
 from contracts import industrial_gateway_pb2 as pb
-from core.infrastructure.rpc.scalar_codec import encode_scalar
+from contracts.scalar_codec import encode_scalar
 from tests.support.gateway_v1 import (
     FEEDBACK_COIL_0,
     FEEDBACK_FLOAT,

@@ -81,6 +81,7 @@ def main() -> None:
     parser.add_argument("--dlq-stream", default="WH_DLQ")
     parser.add_argument("--dlq-max-age-days", type=int, default=30)
     args = parser.parse_args()
+
     async def provision() -> None:
         await ensure_history_stream(
             tuple(args.nats), stream=args.stream, max_age_days=args.max_age_days

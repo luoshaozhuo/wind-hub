@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import nats
@@ -14,8 +14,8 @@ from nats.aio.subscription import Subscription
 
 from contracts.sample_batch import (
     DEFAULT_MAX_BATCH_BYTES,
-    DeliveryMode,
     DEFAULT_MAX_SAMPLES_PER_BATCH,
+    DeliveryMode,
     SampleBatch,
     validate_subject_token,
 )
@@ -140,15 +140,11 @@ class NatsSinkConsumer:
                 "Wh-Source-Subject": msg.subject,
                 "Wh-Source-Stream": self._stream,
                 "Wh-Source-Consumer": self._durable,
-                "Wh-Source-Sequence": (
-                    str(metadata.sequence.stream)
-                ),
+                "Wh-Source-Sequence": (str(metadata.sequence.stream)),
                 "Wh-Failure-Type": type(error).__name__,
                 "Wh-Failure-Reason": str(error)[:160],
                 "Wh-Dlq-Time": datetime.now(UTC).isoformat(),
-                "Nats-Msg-Id": (
-                    f"dlq:{self._stream}:{self._durable}:{metadata.sequence.stream}"
-                ),
+                "Nats-Msg-Id": (f"dlq:{self._stream}:{self._durable}:{metadata.sequence.stream}"),
             },
         )
 

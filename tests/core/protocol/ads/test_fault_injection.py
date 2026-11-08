@@ -68,6 +68,7 @@ def _subscription(session: FakeAdsSession) -> ADSSubscription:
         (mapped,),
         callback,
         interval=0.1,
+        trigger="cyclic",
         max_block_bytes=20,
         max_delay=0.01,
         queue_capacity=1000,

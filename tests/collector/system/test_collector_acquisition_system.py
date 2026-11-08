@@ -25,6 +25,7 @@ from tests.collector.system.nats_verify import (
     collect_realtime,
     collect_reliable,
     ensure_hist_stream,
+    point_docs,
 )
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
@@ -41,12 +42,18 @@ async def test_uc03_s01_poll_publishes_complete_envelope(
     _channel, _config, device_stub = grpc_clients(handle.process.grpc_port)
     await start_task(device_stub, _config, MODBUS)
     assert await wait_actual(device_stub, MODBUS, {"RUNNING"}) == "RUNNING"
-    messages = await collect_realtime(real_nats.url, count=6, timeout=10)
+    batches = await collect_realtime(real_nats.url, count=6, timeout=10)
+    # v2：一个采集周期形成一个设备级批次，信封与批次身份在批次层，逐点值在 samples 内。
+    for batch in batches:
+        assert batch["schema_version"] == 2
+        assert batch["wind_farm_id"] == "site_alpha"
+        assert batch["device_id"] == MODBUS
+        assert batch["mode"] == "realtime"
+        assert batch["batch_id"]
+        assert batch["samples"]
+    messages = point_docs(batches)
     by_point: dict[str, dict[str, Any]] = {}
     for message in messages:
-        assert message["schema_version"] == 1
-        assert message["wind_farm_id"] == "site_alpha"
-        assert message["device_id"] == MODBUS
         assert message["quality"] == "good"
         assert message["sample_id"]
         by_point[message["point_id"]] = message
@@ -70,7 +77,8 @@ async def test_uc03_s01_listen_receives_spontaneous_iec104(
     await start_task(device_stub, _config, IEC104)
     await wait_actual(device_stub, IEC104, {"STARTING", "RUNNING"})
     await iec104_slave.set_value(100, 1610.25, spontaneous=True)
-    messages = await collect_realtime(real_nats.url, count=1, timeout=12)
+    batches = await collect_realtime(real_nats.url, count=1, timeout=12)
+    messages = point_docs(batches)
     power = next(item for item in messages if item["point_id"] == "meas_power")
     assert abs(float(power["value"]) - 1610.25) < 1e-6
     assert power["device_id"] == IEC104

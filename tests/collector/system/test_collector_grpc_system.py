@@ -33,7 +33,7 @@ from tests.collector.system.helpers import (
 from tests.collector.system.helpers import (
     wait_actual as _wait_actual,
 )
-from tests.collector.system.nats_verify import collect_realtime
+from tests.collector.system.nats_verify import collect_realtime, point_docs
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker]
 
@@ -169,7 +169,8 @@ async def test_uc07_s01_all_20_rpcs_real_invocation(collector, grpc_clients, rea
     # The same device's background poll really reached the independent NATS.
     observed = await collect_realtime(real_nats.url, count=3, timeout=10)
     assert all(item["device_id"] == DEVICE_MODBUS for item in observed)
-    assert {item["point_id"] for item in observed} == {
+    assert all(item["schema_version"] == 2 for item in observed)
+    assert {item["point_id"] for item in point_docs(observed)} == {
         "active_power",
         "rotor_speed",
         "gear_temp",

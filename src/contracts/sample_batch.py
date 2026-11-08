@@ -20,15 +20,15 @@ DEFAULT_MAX_BATCH_BYTES = 1_048_576
 
 def _is_unsafe_identifier(value: str) -> bool:
     """Control characters cannot occur in wire IDs or NATS headers."""
-    return not value.strip() or any(
-        ord(char) < 32 or ord(char) == 127 for char in value
-    )
+    return not value.strip() or any(ord(char) < 32 or ord(char) == 127 for char in value)
 
 
 def validate_subject_token(value: str) -> str:
     """Require one nonempty NATS subject component."""
-    if not isinstance(value, str) or _is_unsafe_identifier(value) or any(
-        char.isspace() or char in ".*>" for char in value
+    if (
+        not isinstance(value, str)
+        or _is_unsafe_identifier(value)
+        or any(char.isspace() or char in ".*>" for char in value)
     ):
         raise ValueError("invalid NATS subject token")
     return value
@@ -104,9 +104,12 @@ class SampleItem(BaseModel):
     def _finite(self) -> SampleItem:
         if isinstance(self.value, float) and not math.isfinite(self.value):
             raise ValueError("nonfinite sample value")
-        if isinstance(self.value, int) and not isinstance(self.value, bool):
-            if not -(2**63) <= self.value <= 2**64 - 1:
-                raise ValueError("sample integer exceeds protobuf scalar range")
+        if (
+            isinstance(self.value, int)
+            and not isinstance(self.value, bool)
+            and not -(2**63) <= self.value <= 2**64 - 1
+        ):
+            raise ValueError("sample integer exceeds protobuf scalar range")
         return self
 
 

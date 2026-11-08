@@ -7,7 +7,7 @@ import math
 import pytest
 
 from contracts import common_pb2 as pb
-from core.infrastructure.rpc.scalar_codec import decode_scalar, encode_scalar
+from contracts.scalar_codec import decode_scalar, encode_scalar
 
 
 def test_round_trip_preserves_bool_int_float_str_bytes_none() -> None:
@@ -46,16 +46,16 @@ def test_integer_outside_64bit_range_rejected() -> None:
         encode_scalar(-(2**63) - 1)
 
 
-def test_nonfinite_floats_remain_decodable_at_codec_layer() -> None:
-    # 非有限浮点是否允许进入业务由各 gRPC 服务边界（如 Gateway WriteMany）决定。
+def test_nonfinite_floats_rejected_at_codec_layer() -> None:
+    # Contracts v1_6：统一编解码器明确拒绝 NaN/Infinity（设计 §ScalarValue 表）。
     for value in (math.nan, math.inf, -math.inf):
-        message = encode_scalar(value)
-        assert message.WhichOneof("kind") == "double_value"
-        decoded = decode_scalar(message)
-        if math.isnan(value):
-            assert math.isnan(decoded)
-        else:
-            assert decoded == value
+        with pytest.raises(ValueError, match="finite"):
+            encode_scalar(value)
+        # 绕过编码器直接构造 wire 消息时，解码侧同样必须拒绝。
+        message = pb.ScalarValue()
+        message.double_value = value
+        with pytest.raises(ValueError, match="finite"):
+            decode_scalar(message)
 
 
 def test_unsupported_type_rejected() -> None:
@@ -67,4 +67,4 @@ def test_unset_scalar_decodes_to_none() -> None:
     assert decode_scalar(pb.ScalarValue()) is None
 
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.contract]

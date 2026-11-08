@@ -170,7 +170,9 @@ class CollectorPublisher:
                 if self._telemetry is not None:
                     self._telemetry.increment("collector.publisher.backpressure")
                     self._telemetry.event(
-                        "WARNING", "nats", "BACKPRESSURE",
+                        "WARNING",
+                        "nats",
+                        "BACKPRESSURE",
                         f"batch queue full for {device_id}",
                     )
                 if self._delivery == "reliable":
@@ -190,7 +192,6 @@ class CollectorPublisher:
                     if self._telemetry is not None:
                         self._telemetry.increment("collector.publisher.dropped")
 
-
     async def _connect(self) -> Client:
         if self._connection is not None and self._connection.is_connected:
             return self._connection
@@ -205,9 +206,7 @@ class CollectorPublisher:
 
     async def _send(self, batch: SampleBatch) -> None:
         connection = await self._connect()
-        payload = batch.encode(
-            max_samples=self._max_samples, max_bytes=self._max_bytes
-        )
+        payload = batch.encode(max_samples=self._max_samples, max_bytes=self._max_bytes)
         subject = batch.subject()
         self.attempted += 1
         self.attempted_samples += len(batch.samples)
@@ -223,14 +222,18 @@ class CollectorPublisher:
             # Retries, if initiated by the broker or an operator, retain the
             # original batch_id. PubAck is the only publication confirmation.
             await connection.jetstream().publish(
-                subject, payload, timeout=2,
+                subject,
+                payload,
+                timeout=2,
                 headers={"Nats-Msg-Id": batch.batch_id},
             )
             self.pubacked += 1
             self.pubacked_samples += len(batch.samples)
             if self._telemetry is not None:
                 self._telemetry.increment("collector.publisher.pubacked")
-                self._telemetry.increment("collector.publisher.samples_pubacked", len(batch.samples))
+                self._telemetry.increment(
+                    "collector.publisher.samples_pubacked", len(batch.samples)
+                )
         self.published += 1
         self.published_samples += len(batch.samples)
         if self._telemetry is not None:

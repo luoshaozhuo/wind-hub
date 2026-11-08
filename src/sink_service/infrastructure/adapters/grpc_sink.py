@@ -9,9 +9,9 @@ import grpc
 from configuration.sink_schema import GrpcSinkConnection
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as rpc
+from contracts.scalar_codec import encode_scalar
 from core.application import ConnectionHealth
 from core.domain.sample_value import Quality
-from contracts.scalar_codec import encode_scalar
 from sink_service.application.export import SinkReferenceExporter
 from sink_service.application.point_value import SinkPointValue
 from sink_service.application.sink_contract import (

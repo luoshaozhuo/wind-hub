@@ -17,10 +17,10 @@ from collector.infrastructure.grpc.config_service import CollectorConfigRpc
 from contracts import collector_pb2 as pb
 from contracts import collector_pb2_grpc as rpc
 from contracts import common_pb2 as common
+from contracts.scalar_codec import encode_scalar
 from core.application import InterrogationRequest, ProtocolSample
 from core.application.errors import ConfigError, CoreError
 from core.domain import PointAccess
-from contracts.scalar_codec import encode_scalar
 
 T = TypeVar("T")
 

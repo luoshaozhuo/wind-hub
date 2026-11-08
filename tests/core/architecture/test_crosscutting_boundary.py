@@ -66,7 +66,9 @@ def test_infrastructure_directories_respect_separation() -> None:
     rpc = {path.name for path in (_INFRA / "rpc").glob("*.py")}
     assert crosscutting >= _CROSSCUTTING
     assert diagnostic == _ACTIVE_DIAGNOSTIC
-    assert rpc == {"__init__.py", "scalar_codec.py"}
+    # Contracts v1_6：scalar_codec 唯一归属 contracts.scalar_codec，core 的
+    # rpc 包（含 __init__.py）已整体删除，目录下不得再出现任何 Python 模块。
+    assert rpc == set()
 
 
 def test_no_production_imports_of_obsolete_crosscutting_paths() -> None:

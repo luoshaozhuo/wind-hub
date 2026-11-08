@@ -33,6 +33,30 @@ def test_valid_service_settings() -> None:
     validate_service_settings(_settings())
 
 
+def test_v2_batch_messaging_limits_accepted() -> None:
+    settings = _settings()
+    messaging = settings["messaging"]
+    assert isinstance(messaging, dict)
+    messaging.update(
+        {
+            "max_samples_per_batch": 100,
+            "max_batch_bytes": 1_048_576,
+            "queue_capacity": 2048,
+            "enqueue_timeout_s": 2.0,
+        }
+    )
+    validate_service_settings(settings)
+
+
+def test_unknown_messaging_key_rejected() -> None:
+    settings = _settings()
+    messaging = settings["messaging"]
+    assert isinstance(messaging, dict)
+    messaging["legacy_batch_seconds"] = 1
+    with pytest.raises(ConfigError):
+        validate_service_settings(settings)
+
+
 @pytest.mark.parametrize(
     ("section", "key", "bad"),
     [
@@ -43,6 +67,11 @@ def test_valid_service_settings() -> None:
         ("messaging", "delivery", "no-such-mode"),
         ("messaging", "servers", []),
         ("messaging", "max_staleness_ms", 0),
+        ("messaging", "max_samples_per_batch", 0),
+        ("messaging", "max_samples_per_batch", True),
+        ("messaging", "max_batch_bytes", -1),
+        ("messaging", "queue_capacity", 1.5),
+        ("messaging", "enqueue_timeout_s", 0),
         ("metrics", "publish_interval", 0),
         ("metrics", "windows", [30, 60]),
         ("metrics", "pending_capacity", -1),

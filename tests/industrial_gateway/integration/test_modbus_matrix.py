@@ -17,7 +17,7 @@ import pytest
 from pymodbus.client import AsyncModbusTcpClient
 
 from contracts import industrial_gateway_pb2 as pb
-from core.infrastructure.rpc.scalar_codec import encode_scalar
+from contracts.scalar_codec import encode_scalar
 from tests.support.gateway_v1 import (
     COMMAND_COIL,
     COMMAND_COIL_B,

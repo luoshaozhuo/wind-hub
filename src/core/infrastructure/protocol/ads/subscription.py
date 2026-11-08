@@ -101,9 +101,7 @@ class ADSSubscription:
     def _notification_attrib(self, size: int) -> pyads.NotificationAttrib:
         """Use the same PLC-native trigger during registration and hot updates."""
         trans_mode = (
-            pyads.ADSTRANS_SERVERCYCLE
-            if self._trigger == "cyclic"
-            else pyads.ADSTRANS_SERVERONCHA
+            pyads.ADSTRANS_SERVERCYCLE if self._trigger == "cyclic" else pyads.ADSTRANS_SERVERONCHA
         )
         return pyads.NotificationAttrib(
             size,

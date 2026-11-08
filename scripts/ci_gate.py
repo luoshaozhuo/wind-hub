@@ -219,24 +219,22 @@ def hardware_gate() -> bool:
 
 
 def performance_gate(args: argparse.Namespace) -> bool:
-    """执行 performance benchmark。"""
-    command = _python("scripts/run_benchmark.py")
-    if args.mode == "quick":
-        command.append("--quick")
-    if args.duration is not None:
-        command.extend(["--duration", str(args.duration)])
+    """执行 SampleBatch v2 批次管线性能基线（pytest 化；v1 run_benchmark 已退役）。"""
+    command = _python_module(
+        "pytest", "tests/src/performance", "-q", "-m", "performance and not soak"
+    )
     if args.output:
-        command.extend(["--output", args.output])
+        command.extend(["--junitxml", args.output])
     return _run("performance", command)
 
 
 def soak_gate() -> bool:
-    """执行 soak 测试。"""
+    """执行 v2 批次管线有界负载与资源释放可靠性测试。"""
     return _run(
         "soak",
         _python_module(
             "pytest",
-            "tests/system/soak",
+            "tests/src/reliability",
             "-q",
             "-m",
             "soak and not performance",

@@ -16,9 +16,27 @@ import nats
 from nats.aio.msg import Msg
 from nats.js.errors import APIError
 
-REALTIME_SUBJECT = "wh.rt.>"
-RELIABLE_SUBJECT = "wh.hist.>"
-HIST_STREAM = "WH_HIST"
+REALTIME_SUBJECT = "wh.rt.batch.>"
+RELIABLE_SUBJECT = "wh.hist.batch.>"
+HIST_STREAM = "WH_HISTORY"
+
+
+def point_docs(batches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把 v2 批次文档摊平为带信封身份的逐点文档，供逐点断言复用。"""
+    flattened: list[dict[str, Any]] = []
+    for batch in batches:
+        for sample in batch["samples"]:
+            flattened.append(
+                {
+                    **sample,
+                    "schema_version": batch["schema_version"],
+                    "wind_farm_id": batch["wind_farm_id"],
+                    "device_id": batch["device_id"],
+                    "mode": batch["mode"],
+                    "batch_id": batch["batch_id"],
+                }
+            )
+    return flattened
 
 
 async def collect_realtime(url: str, *, count: int, timeout: float) -> list[dict[str, Any]]:

@@ -148,7 +148,9 @@ def validate_service_settings(document: Mapping[str, object]) -> None:
         if name in watchdog:
             _positive(watchdog[name], f"watchdog.{name}")
     messaging = _section(document, "messaging")
-    _reject_unknown(messaging, {
+    _reject_unknown(
+        messaging,
+        {
             "servers",
             "delivery",
             "max_staleness_ms",
@@ -156,7 +158,9 @@ def validate_service_settings(document: Mapping[str, object]) -> None:
             "max_batch_bytes",
             "queue_capacity",
             "enqueue_timeout_s",
-        }, "messaging")
+        },
+        "messaging",
+    )
     servers = messaging.get("servers")
     if (
         not isinstance(servers, list)
