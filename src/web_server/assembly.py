@@ -21,6 +21,7 @@ from web_server.application.config.files import ConfigFileService
 from web_server.application.config.service import ConfigService
 from web_server.application.config.settings import SettingsService
 from web_server.application.device.command import DeviceCommandService
+from web_server.application.device.collector_read import CollectorReadRouter
 from web_server.application.device.data import DeviceDataService
 from web_server.application.device.diagnostic import DiagnosticService
 from web_server.application.device.query import DeviceQueryService
@@ -127,6 +128,7 @@ def assemble_server(
         definitions=[*collector_definitions, commander_definition],
     )
     task_placements = TaskPlacementRegistry(config, collector_directory)
+    reads = CollectorReadRouter(collector_directory, task_placements)
     sink_directory = SinkGrpcDirectory()
     collector_status = CollectorStatusAggregator(
         collector_directory,
@@ -153,11 +155,12 @@ def assemble_server(
     devices = DeviceQueryService(monitoring, config)
     device_data = DeviceDataService(
         config,
-        commander_client,
+        reads,
         trend,
     )
     device_control = DeviceCommandService(
         commander_client,
+        reads,
         trend,
     )
     overview = OverviewService(
@@ -173,6 +176,7 @@ def assemble_server(
     sink_ops = SinkService(monitoring, sink_directory, config, config_admin)
     diagnostics = DiagnosticService(
         commander_client,
+        reads,
         device_control,
         config,
         operations,

@@ -9,11 +9,13 @@ from typing import Any
 from pydantic import BaseModel
 
 from core.domain.identities import DeviceId
+from core.domain.sample_value import Quality
 from web_server.application.config.service import ConfigService
 from web_server.application.device.command import (
     DeviceCommandResult,
     DeviceCommandService,
 )
+from web_server.application.device.collector_read import DeviceReadPort
 from web_server.application.device.sample import PointValue
 from web_server.application.operation.registry import OperationRecord, OperationRegistry
 from web_server.application.port.network_probe import NetworkProbePort
@@ -35,19 +37,21 @@ class PortResult(BaseModel):
 class DiagnosticService:
     """Diagnostics 页执行入口。
 
-    Server 自己执行网络层 ping/port scan；所有协议级设备访问通过 Commander，
-    避免 Server/Collector 重复维护 PLC 会话。
+    Server 执行网络层 ping/port scan；Commander 负责控制侧协议诊断，
+    Collector 通过正式 ReadPoints RPC 执行即时读点，Server 不维持 PLC 会话。
     """
 
     def __init__(
         self,
         commander: CommanderPort,
+        reads: DeviceReadPort,
         control: DeviceCommandService,
         config: ConfigService,
         operations: OperationRegistry,
         network: NetworkProbePort,
     ) -> None:
         self._commander = commander
+        self._reads = reads
         self._control = control
         self._config = config
         self._operations = operations
@@ -123,8 +127,8 @@ class DiagnosticService:
         return result.ok
 
     async def read(self, device_id: str, point_id: str) -> PointValue:
-        """通过 Commander 即时读取单点，绕过采集缓存。"""
-        return await self._commander.read_point(device_id, point_id)
+        """通过 Collector 实时协议 RPC 读取单点，绕过采集缓存。"""
+        return await self._reads.read_point(device_id, point_id)
 
     async def write(
         self,
@@ -160,7 +164,7 @@ class DiagnosticService:
         return operation
 
     def start_point_table_test(self, device_id: str) -> OperationRecord:
-        """按当前 Server 配置取得点表，逐点通过 Commander 在线验证。"""
+        """按当前 Server 配置取得点表，通过 Collector 在线读点验证。"""
         cfg = self._config.current_config
         device = cfg.site.devices.get(DeviceId(device_id))
         if device is None:
@@ -220,17 +224,17 @@ class DiagnosticService:
         failures = 0
         for index, point_id in enumerate(point_ids, start=1):
             try:
-                result = await self._commander.verify_point(device_id, point_id)
-                success = result.ok
+                observed = await self._reads.read_point(device_id, point_id)
+                success = observed.quality is Quality.GOOD
                 if not success:
                     failures += 1
                 rows.append(
                     {
                         "point_id": point_id,
                         "success": success,
-                        "quality": result.quality,
-                        "value": result.engineering_value,
-                        "error": result.error,
+                        "quality": observed.quality.value,
+                        "value": observed.value,
+                        "error": None if success else "Collector sample is not GOOD",
                     }
                 )
             except Exception as exc:

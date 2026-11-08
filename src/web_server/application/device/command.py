@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from core.application.protocol_contract import WriteOutcome
+from web_server.application.device.collector_read import DeviceReadPort
 from web_server.application.device.command_model import Command
 from web_server.application.port.point_store import TrendStore
 from web_server.application.port.worker import CommanderPort
@@ -59,9 +60,11 @@ class DeviceCommandService:
     def __init__(
         self,
         commander: CommanderPort,
+        reads: DeviceReadPort,
         trend: TrendStore,
     ) -> None:
         self._commander = commander
+        self._reads = reads
         self._trend = trend
         self._in_flight: dict[str, tuple[Hashable, asyncio.Task[DeviceCommandResult]]] = {}
         self._completed: OrderedDict[str, tuple[Hashable, DeviceCommandResult]] = OrderedDict()
@@ -75,7 +78,7 @@ class DeviceCommandService:
         timeout: float = 5.0,
         command_id: str | None = None,
     ) -> DeviceCommandResult:
-        """写入设备；成功后经 Commander 即时回读，并追加短期趋势样本。
+        """写入设备；成功后经 Collector 即时回读，并追加短期趋势样本。
 
         幂等语义：显式 ``command_id`` 是幂等键。相同 command_id + 相同写入
         内容的并发请求共享同一次执行（不发生二次写入）；已完成请求直接返回
@@ -143,7 +146,7 @@ class DeviceCommandService:
 
         if result.outcome is WriteOutcome.CONFIRMED_SUCCESS:
             try:
-                observed = await self._commander.read_point(device_id, point_id)
+                observed = await self._reads.read_point(device_id, point_id)
             except Exception as exc:
                 readback_error = str(exc) or type(exc).__name__
             else:

@@ -13,7 +13,7 @@ from core.domain.sample_value import Quality
 from web_server.application.config.service import ConfigService
 from web_server.application.device.sample import PointValue
 from web_server.application.port.point_store import TrendStore
-from web_server.application.port.worker import CommanderPort
+from web_server.application.device.collector_read import DeviceReadPort
 
 
 class DeviceDataItem(BaseModel):
@@ -43,16 +43,16 @@ class TrendSeries(BaseModel):
 
 
 class DeviceDataService:
-    """Data 读取 Commander 当前值；Trend 保存这些即时读取形成的短期历史。"""
+    """Data 从设备所属 Collector 即时读取；Trend 保存短期历史。"""
 
     def __init__(
         self,
         config: ConfigService,
-        commander: CommanderPort,
+        reads: DeviceReadPort,
         trend: TrendStore,
     ) -> None:
         self._config = config
-        self._commander = commander
+        self._reads = reads
         self._trend = trend
 
     async def list_data(
@@ -82,7 +82,7 @@ class DeviceDataService:
             )
         ]
         observed = (
-            await self._commander.read_points(device_id, [point.point_id for point in selected])
+            await self._reads.read_points(device_id, [point.point_id for point in selected])
             if selected
             else []
         )
@@ -127,7 +127,7 @@ class DeviceDataService:
         unknown = [point_id for point_id in requested if point_id not in definitions]
         if unknown:
             raise KeyError(f"unknown points: {', '.join(unknown)}")
-        observed = await self._commander.read_points(device_id, requested) if requested else []
+        observed = await self._reads.read_points(device_id, requested) if requested else []
         if observed:
             self._trend.append_batch(observed)
 

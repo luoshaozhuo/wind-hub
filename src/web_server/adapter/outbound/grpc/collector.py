@@ -12,7 +12,9 @@ from contracts import collector_pb2 as pb
 from contracts import collector_pb2_grpc as pb_grpc
 from contracts import common_pb2 as common
 from contracts import common_pb2_grpc as common_grpc
+from core.domain.sample_value import Quality
 from web_server.adapter.outbound.grpc.common import GrpcClientBase
+from web_server.application.device.sample import PointValue
 from web_server.application.port.monitoring import (
     CounterSnapshot,
     MetricsSnapshot,
@@ -183,6 +185,62 @@ class CollectorGrpcClient(GrpcClientBase):
             token = response.next_page_token
             if not token:
                 return rows
+
+    async def read_points(
+        self,
+        device_id: str,
+        point_ids: list[str],
+        *,
+        timeout: float | None = None,
+    ) -> list[PointValue]:
+        """调用 Collector 的实时协议读点，不读取缓存，不伪造失败样本。"""
+        if not point_ids:
+            return []
+        if len(point_ids) > 500 or len(set(point_ids)) != len(point_ids):
+            raise ValueError("Collector ReadPoints requires 1..500 unique point IDs")
+        deadline = self.default_timeout if timeout is None else timeout
+        if deadline <= 0:
+            raise ValueError("read timeout must be positive")
+        response = await self._collector.ReadPoints(
+            pb.ReadPointsRequest(
+                device_id=device_id,
+                point_ids=point_ids,
+                timeout_ms=max(1, int(deadline * 1000)),
+            ),
+            timeout=deadline,
+            metadata=self._admin_metadata(),
+        )
+        observed: dict[str, PointValue] = {}
+        for sample in response.samples:
+            if sample.point_id not in point_ids or sample.point_id in observed:
+                raise ValueError("Collector returned unexpected or duplicate point ID")
+            if sample.quality not in Quality._value2member_map_:
+                raise ValueError(f"invalid sample quality: {sample.quality}")
+            if sample.HasField("value"):
+                kind = sample.value.WhichOneof("kind")
+                if kind is None or kind == "bytes_value":
+                    raise ValueError("unsupported Collector sample scalar")
+                value = getattr(sample.value, kind)
+            else:
+                value = None
+            if sample.HasField("sample_timestamp"):
+                timestamp = sample.sample_timestamp.ToDatetime(tzinfo=UTC)
+            elif sample.HasField("queried_at"):
+                timestamp = sample.queried_at.ToDatetime(tzinfo=UTC)
+            else:
+                raise ValueError("Collector sample has no timestamp")
+            observed[sample.point_id] = PointValue(
+                device_id=device_id,
+                point_id=sample.point_id,
+                value=value,
+                quality=Quality(sample.quality),
+                timestamp=timestamp,
+                source="collector",
+                timestamp_source="device" if sample.HasField("sample_timestamp") else "local",
+            )
+        if set(observed) != set(point_ids):
+            raise ValueError("Collector omitted one or more requested point results")
+        return [observed[point_id] for point_id in point_ids]
 
     async def _list_tasks(self) -> list[pb.Task]:
         rows: list[pb.Task] = []
