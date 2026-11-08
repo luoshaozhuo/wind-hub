@@ -38,6 +38,7 @@ class CollectorPublisher:
         capacity: int = 2048,
         max_samples_per_batch: int = DEFAULT_MAX_SAMPLES_PER_BATCH,
         max_batch_bytes: int = DEFAULT_MAX_BATCH_BYTES,
+        enqueue_timeout_s: float = 2.0,
         telemetry: CollectorTelemetry | None = None,
     ) -> None:
         if delivery not in {"realtime", "reliable"}:
@@ -46,6 +47,8 @@ class CollectorPublisher:
             raise ValueError("NATS servers and positive queue capacity required")
         if not 0 < max_samples_per_batch <= 100_000 or max_batch_bytes <= 0:
             raise ValueError("invalid batch limits")
+        if not 0 < enqueue_timeout_s <= 300:
+            raise ValueError("enqueue_timeout_s must be in (0, 300]")
         if delivery == "realtime" and max_staleness_ms <= 0:
             raise ValueError("realtime max_staleness_ms must be positive")
         self._servers = list(servers)
@@ -58,6 +61,7 @@ class CollectorPublisher:
         self._staleness = max_staleness_ms
         self._max_samples = max_samples_per_batch
         self._max_bytes = max_batch_bytes
+        self._enqueue_timeout_s = enqueue_timeout_s
         self._queue: asyncio.Queue[SampleBatch] = asyncio.Queue(maxsize=capacity)
         self._connection: Client | None = None
         self._task: asyncio.Task[None] | None = None
@@ -152,18 +156,32 @@ class CollectorPublisher:
         for batch in batches:
             try:
                 self._queue.put_nowait(batch)
-            except asyncio.QueueFull:
+            except asyncio.QueueFull as exc:
                 self.last_error = "batch queue capacity exhausted"
                 self.backpressure += 1
-                self.not_attempted += 1
-                self.dropped += 1
                 if self._telemetry is not None:
                     self._telemetry.increment("collector.publisher.backpressure")
-                    self._telemetry.increment("collector.publisher.dropped")
                     self._telemetry.event(
                         "WARNING", "nats", "BACKPRESSURE",
                         f"batch queue full for {device_id}",
                     )
+                if self._delivery == "reliable":
+                    try:
+                        await asyncio.wait_for(
+                            self._queue.put(batch), timeout=self._enqueue_timeout_s
+                        )
+                    except TimeoutError as timeout_error:
+                        self.not_attempted += 1
+                        self.failed += 1
+                        raise RuntimeError(
+                            "reliable batch enqueue timed out; publication not accepted"
+                        ) from timeout_error
+                else:
+                    self.not_attempted += 1
+                    self.dropped += 1
+                    if self._telemetry is not None:
+                        self._telemetry.increment("collector.publisher.dropped")
+
 
     async def _connect(self) -> Client:
         if self._connection is not None and self._connection.is_connected:
