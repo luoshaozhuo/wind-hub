@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from collections.abc import Awaitable, Callable, Sequence
 from uuid import uuid4
 
@@ -143,6 +144,8 @@ class NatsSinkConsumer:
                     str(metadata.sequence.stream)
                 ),
                 "Wh-Failure-Type": type(error).__name__,
+                "Wh-Failure-Reason": str(error)[:160],
+                "Wh-Dlq-Time": datetime.now(UTC).isoformat(),
                 "Nats-Msg-Id": (
                     f"dlq:{self._stream}:{self._durable}:{metadata.sequence.stream}"
                 ),
