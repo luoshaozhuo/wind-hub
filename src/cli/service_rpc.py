@@ -102,8 +102,8 @@ async def poll_latest(
     count: int | None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Non-overlapping polling with drift-free monotonic deadlines."""
-    if not 0.2 <= interval_seconds <= 60:
-        raise ValueError("poll interval must be in [0.2, 60] seconds")
+    if not 0.1 <= interval_seconds <= 60:
+        raise ValueError("poll interval must be in [0.1, 60] seconds")
     if count is not None and not 1 <= count <= 100000:
         raise ValueError("count must be 1..100000")
     selected = await resolve_point_ids(runtime, device_id, point_ids)
