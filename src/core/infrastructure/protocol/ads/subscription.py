@@ -84,6 +84,8 @@ class ADSSubscription:
         self._stopping = False
         self._registration_uncertain = False
         self._cleanup_retryable = False
+        self.dropped_notifications = 0
+        self.callback_failures = 0
 
     async def start(self) -> None:
         if self._stopping or self._start_task is not None:
@@ -192,6 +194,13 @@ class ADSSubscription:
             return
         if self._queue.full():
             self._queue.get_nowait()
+            self.dropped_notifications += 1
+            count = self.dropped_notifications
+            if count & (count - 1) == 0:
+                logger.warning(
+                    "ADS notification queue overflow: %s oldest batches discarded",
+                    count,
+                )
         self._queue.put_nowait((generation, samples))
 
     async def _consume(self) -> None:
@@ -203,6 +212,7 @@ class ADSSubscription:
                         with self._barrier.callback_scope():
                             await self._callback(batch)
             except Exception:
+                self.callback_failures += 1
                 logger.exception("ADS notification delivery callback failed")
 
     async def prepare_update(self, points: Sequence[ADSPoint]) -> _PreparedSubscription:
