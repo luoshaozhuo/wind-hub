@@ -10,7 +10,7 @@ import typer
 from .scalar_value import parse_json_scalar
 from .service_rpc import invoke, poll_latest, resolve_point_ids
 
-collector = typer.Typer(help="Collector devices, tasks and cached measurements.")
+collector = typer.Typer(help="Collector devices, tasks and active PLC measurements.")
 commander = typer.Typer(help="Commander configuration and control.")
 
 
@@ -138,7 +138,9 @@ def collector_publishing(
 def collector_watch(
     device_id: str,
     point_ids: list[str] | None = typer.Argument(None),
-    interval: float | None = typer.Option(None, "--interval"),
+    interval: float | None = typer.Option(
+        None, "--interval", help="Active device reads; frequent polling increases PLC load."
+    ),
     count: int | None = typer.Option(None, "--count"),
 ) -> None:
     from rich.live import Live
@@ -154,7 +156,7 @@ def collector_watch(
         iterations = 0
 
         def make_table(sample: dict[str, Any]) -> Table:
-            table = Table(title=f"Collector cache: {device_id}")
+            table = Table(title=f"Collector active read: {device_id}")
             for column in ("Point", "Value", "Quality", "Freshness", "Timestamp"):
                 table.add_column(column)
             for item in sample.get("samples", []):
