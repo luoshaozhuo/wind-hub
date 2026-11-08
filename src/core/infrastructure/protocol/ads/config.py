@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Literal
 
 from core.application.errors import ConfigError
 from core.domain import ConnectionEndpoint, ProtocolOptions
@@ -17,6 +18,7 @@ _ALLOWED_OPTIONS = frozenset(
         "max_block_bytes",
         "max_delay",
         "notification_interval",
+        "notification_trigger",
         "notification_queue_capacity",
         "route_auto_add",
         "username",
@@ -38,6 +40,7 @@ class ADSConfig:
     max_block_bytes: int = 1024
     max_delay: float = 0.06
     notification_interval: float = 0.1
+    notification_trigger: Literal["cyclic", "on_change"] = "cyclic"
     notification_queue_capacity: int = 1000
     route_auto_add: bool = False
     # 远程 PLC 路由注册凭据：wind-hub 应用层默认值，非 pyads 函数默认值。
@@ -102,6 +105,16 @@ def parse_ads_config(
     )
     if not math.isfinite(notification_interval) or notification_interval <= 0:
         raise ConfigError("ADS notification_interval must be a positive finite number")
+    trigger = _string_option(
+        options.get("notification_trigger"),
+        "notification_trigger",
+        default="cyclic",
+    )
+    if trigger not in {"cyclic", "on_change"}:
+        raise ConfigError("ADS notification_trigger must be cyclic or on_change")
+    notification_trigger: Literal["cyclic", "on_change"] = (
+        "cyclic" if trigger == "cyclic" else "on_change"
+    )
     notification_queue_capacity = _int_option(
         options.get("notification_queue_capacity"), "notification_queue_capacity", default=1000
     )
@@ -135,6 +148,7 @@ def parse_ads_config(
         max_block_bytes=max_block_bytes,
         max_delay=max_delay,
         notification_interval=notification_interval,
+        notification_trigger=notification_trigger,
         notification_queue_capacity=notification_queue_capacity,
         route_auto_add=route_auto_add,
         username=username,
