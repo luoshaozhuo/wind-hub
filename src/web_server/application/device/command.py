@@ -60,9 +60,7 @@ class DeviceCommandService:
         self._in_flight: dict[str, tuple[str, asyncio.Task[DeviceCommandResult]]] = {}
 
     @staticmethod
-    def _fingerprint(
-        device_id: str, point_id: str, value: Any, timeout: float
-    ) -> str:
+    def _fingerprint(device_id: str, point_id: str, value: Any, timeout: float) -> str:
         if not isinstance(value, bool | int | float | str):
             raise TypeError("control value must be a writable scalar")
         if not math.isfinite(timeout) or timeout <= 0:

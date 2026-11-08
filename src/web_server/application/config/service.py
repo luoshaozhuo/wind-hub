@@ -155,9 +155,7 @@ class ConfigService:
             updates[relative] = content
         return updates
 
-    def _commit(
-        self, candidate: ConfigSnapshot, revision: str, local_digest: str
-    ) -> None:
+    def _commit(self, candidate: ConfigSnapshot, revision: str, local_digest: str) -> None:
         previous = self._current
         self._current = candidate
         self._desired_revision = revision
@@ -170,9 +168,7 @@ class ConfigService:
             except Exception:
                 logger.warning("config commit hook failed", exc_info=True)
 
-    def _failure(
-        self, started: float, diff: ConfigSnapshotDiff, message: str
-    ) -> ReloadResult:
+    def _failure(self, started: float, diff: ConfigSnapshotDiff, message: str) -> ReloadResult:
         return ReloadResult(
             success=False,
             diff=diff,
@@ -191,7 +187,8 @@ class ConfigService:
             started = time.monotonic()
             if not self._accept_transactions:
                 return self._failure(
-                    started, diff_config_snapshots(self._current, self._current),
+                    started,
+                    diff_config_snapshots(self._current, self._current),
                     "config transactions are shutting down",
                 )
             try:
@@ -209,7 +206,8 @@ class ConfigService:
                 and local_digest == self._applied_config_hash
             ):
                 return ReloadResult(
-                    success=True, diff=diff,
+                    success=True,
+                    diff=diff,
                     duration_ms=(time.monotonic() - started) * 1000,
                 )
             try:
@@ -224,9 +222,7 @@ class ConfigService:
                     raise RuntimeError("Commander candidate rejected: " + "; ".join(pushed.errors))
                 if pushed.base_revision != disk.revision:
                     raise RuntimeError("Commander candidate base revision differs from disk")
-                applied = await self._commander.apply_config(
-                    pushed.candidate_id, disk.revision
-                )
+                applied = await self._commander.apply_config(pushed.candidate_id, disk.revision)
                 if not applied.effective_revision:
                     raise RuntimeError("Commander Apply returned no effective runtime revision")
                 if applied.errors:
@@ -247,13 +243,15 @@ class ConfigService:
             except Exception as exc:
                 # An RPC timeout after Push/Apply is UNKNOWN, never automatically retry Apply.
                 return self._failure(
-                    started, diff,
+                    started,
+                    diff,
                     "Commander snapshot transaction is not confirmed; "
                     f"manual status/reconciliation required: {exc}",
                 )
             self._commit(candidate, applied.effective_revision, local_digest)
             return ReloadResult(
-                success=True, diff=diff,
+                success=True,
+                diff=diff,
                 duration_ms=(time.monotonic() - started) * 1000,
                 restart_required=applied.restart_required,
             )

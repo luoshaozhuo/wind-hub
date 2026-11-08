@@ -210,7 +210,7 @@ class GatewayWriter:
     def _stub(
         self,
         endpoint: str,
-    ) -> industrial_gateway_pb2_grpc.IndustrialGatewayServiceStub:
+    ) -> industrial_gateway_pb2_grpc.IndustrialGatewayServiceAsyncStub:
         channel = self._channels.get(endpoint)
         if channel is None:
             channel = grpc.aio.insecure_channel(endpoint)

@@ -178,9 +178,7 @@ class CommanderPort(Protocol):
 
     async def write(self, command: Command) -> CommandResult: ...
 
-    async def verify_device(
-        self, device_id: str, timeout: float = 1.0
-    ) -> DeviceVerifyResult: ...
+    async def verify_device(self, device_id: str, timeout: float = 1.0) -> DeviceVerifyResult: ...
 
 
 class CollectorPort(Protocol):

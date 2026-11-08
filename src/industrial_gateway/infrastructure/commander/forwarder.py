@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from time import monotonic
-from typing import cast
 
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -213,14 +212,9 @@ class CommandForwarder:
         else:
             channel = grpc.aio.insecure_channel(self._config.commander_endpoint)
         self._channel = channel
-        # grpcio generates one runtime Stub; the aio channel overload cannot be
-        # selected while grpc is typed Any, so assert the async contract here.
-        # AsyncStub exists only in the mypy-protobuf .pyi; at runtime one Stub
-        # class serves both channels, so the async type is a string forward ref.
-        self._stub = cast(
-            "rpc.CommanderServiceAsyncStub",
-            rpc.CommanderServiceStub(channel),
-        )
+        # mypy-protobuf 的 __new__ 重载按 aio.Channel 直接解析为 AsyncStub；
+        # 运行时只有一个 Stub 类，同步/异步通道共用。
+        self._stub = rpc.CommanderServiceStub(channel)
         self._workers = [
             asyncio.create_task(self._work()) for _ in range(self._config.max_forward_inflight)
         ]

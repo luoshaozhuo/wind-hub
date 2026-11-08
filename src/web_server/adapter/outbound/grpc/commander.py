@@ -82,9 +82,7 @@ class CommanderGrpcClient(GrpcClientBase):
         self._commander = cmd_rpc.CommanderServiceStub(self._channel)
         self._common = common_rpc.CommonServiceStub(self._channel)
 
-    async def get_config_snapshot(
-        self, scope: Literal["disk", "runtime"]
-    ) -> RemoteConfigSnapshot:
+    async def get_config_snapshot(self, scope: Literal["disk", "runtime"]) -> RemoteConfigSnapshot:
         wire_scope = (
             common.SNAPSHOT_SCOPE_DISK if scope == "disk" else common.SNAPSHOT_SCOPE_RUNTIME
         )
@@ -122,9 +120,7 @@ class CommanderGrpcClient(GrpcClientBase):
             errors=[f"{item.path}: {item.message}" for item in response.validation],
         )
 
-    async def apply_config(
-        self, candidate_id: str, expected_revision: str
-    ) -> ConfigApplyResult:
+    async def apply_config(self, candidate_id: str, expected_revision: str) -> ConfigApplyResult:
         response = await self._common.ApplyConfigSnapshot(
             common.ApplyConfigSnapshotRequest(
                 candidate_id=candidate_id,
@@ -159,9 +155,7 @@ class CommanderGrpcClient(GrpcClientBase):
 
     async def status(self) -> CommanderStatus:
         health, runtime, devices = await asyncio.gather(
-            self._common.GetServiceStatus(
-                common.Empty(), timeout=self.default_timeout
-            ),
+            self._common.GetServiceStatus(common.Empty(), timeout=self.default_timeout),
             self.get_config_snapshot("runtime"),
             self._devices(),
         )
@@ -173,15 +167,11 @@ class CommanderGrpcClient(GrpcClientBase):
             prepared_revision=None,
         )
 
-    async def verify_device(
-        self, device_id: str, timeout: float = 1.0
-    ) -> DeviceVerifyResult:
+    async def verify_device(self, device_id: str, timeout: float = 1.0) -> DeviceVerifyResult:
         if timeout <= 0:
             raise ValueError("diagnostic timeout must be positive")
         device, result = await asyncio.gather(
-            self._commander.GetDevice(
-                common.ObjectId(id=device_id), timeout=self.default_timeout
-            ),
+            self._commander.GetDevice(common.ObjectId(id=device_id), timeout=self.default_timeout),
             self._common.Diagnose(
                 common.DiagnoseRequest(
                     target_id=device_id,
@@ -255,9 +245,7 @@ class CommanderGrpcClient(GrpcClientBase):
         )
         request.expires_at.FromDatetime(expires)
         try:
-            admitted = await self._commander.SubmitCommand(
-                request, timeout=remaining
-            )
+            admitted = await self._commander.SubmitCommand(request, timeout=remaining)
         except (grpc.RpcError, TimeoutError) as exc:
             return outcome(
                 WriteOutcome.UNKNOWN,

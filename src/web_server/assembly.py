@@ -1,8 +1,8 @@
 """wind-hub-server composition root.
 
 Server 是独立管理/控制面：不装配、不启动 Collector Runtime。控制经
-Commander mTLS gRPC，实时读点及 Task 经 Collector gRPC，Sink 状态经独立 Sink Service gRPC；Server 只持有
-配置管理、读模型、监控历史与 Web/Admin 服务。
+Commander mTLS gRPC，实时读点及 Task 经 Collector gRPC，Sink 状态经独立
+Sink Service gRPC；Server 只持有配置管理、读模型、监控历史与 Web/Admin 服务。
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from web_server.application.config.settings import SettingsService
 from web_server.application.device.collector_read import CollectorReadRouter
 from web_server.application.device.command import DeviceCommandService
 from web_server.application.device.data import DeviceDataService
-from web_server.application.device.durable_command import DurableCommandRegistry
 from web_server.application.device.diagnostic import DiagnosticService
+from web_server.application.device.durable_command import DurableCommandRegistry
 from web_server.application.device.query import DeviceQueryService
 from web_server.application.monitoring.aggregate import CollectorStatusAggregator
 from web_server.application.monitoring.health import SystemHealthService
