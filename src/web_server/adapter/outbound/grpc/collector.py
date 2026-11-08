@@ -214,8 +214,10 @@ class CollectorGrpcClient(GrpcClientBase):
         for sample in response.samples:
             if sample.point_id not in point_ids or sample.point_id in observed:
                 raise ValueError("Collector returned unexpected or duplicate point ID")
-            if sample.quality not in Quality._value2member_map_:
-                raise ValueError(f"invalid sample quality: {sample.quality}")
+            try:
+                quality = Quality(sample.quality)
+            except ValueError as exc:
+                raise ValueError(f"invalid sample quality: {sample.quality}") from exc
             if sample.HasField("value"):
                 kind = sample.value.WhichOneof("kind")
                 if kind is None or kind == "bytes_value":
@@ -233,7 +235,7 @@ class CollectorGrpcClient(GrpcClientBase):
                 device_id=device_id,
                 point_id=sample.point_id,
                 value=value,
-                quality=Quality(sample.quality),
+                quality=quality,
                 timestamp=timestamp,
                 source="collector",
                 timestamp_source="device" if sample.HasField("sample_timestamp") else "local",
