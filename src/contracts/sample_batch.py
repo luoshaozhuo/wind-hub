@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import math
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, NoReturn
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -23,6 +23,10 @@ def validate_subject_token(value: str) -> str:
     if not value or any(char in value for char in (".", "*", ">", " ", "\t", "\r", "\n")):
         raise ValueError("invalid NATS subject token")
     return value
+
+
+def _reject_nonfinite_constant(value: str) -> NoReturn:
+    raise ValueError(f"invalid JSON constant: {value}")
 
 
 def _unique_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -196,9 +200,7 @@ class SampleBatch(BaseModel):
             raw = json.loads(
                 payload.decode("utf-8"),
                 object_pairs_hook=_unique_json_keys,
-                parse_constant=lambda value: (_ for _ in ()).throw(
-                    ValueError(f"invalid JSON constant: {value}")
-                ),
+                parse_constant=_reject_nonfinite_constant,
             )
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise ValueError("invalid UTF-8 JSON batch") from exc
