@@ -54,9 +54,7 @@ def pki(tmp_path: Path) -> Pki:
 
 
 @pytest.fixture
-async def grpc_stack(
-    tmp_path: Path, pki: Pki, modbus_server: ModbusMockServer
-) -> GrpcStack:
+async def grpc_stack(tmp_path: Path, pki: Pki, modbus_server: ModbusMockServer) -> GrpcStack:
     stack, server, service = await build_stack(
         tmp_path,
         pki,
@@ -120,9 +118,7 @@ class TestMtlsClientBoundary:
         self, monkeypatch: pytest.MonkeyPatch, pki: Pki, grpc_stack: GrpcStack
     ) -> None:
         # rogue 证书由外部 CA 签发：服务器只信任 WindHub Test CA。
-        client = _client(
-            monkeypatch, pki, grpc_stack, identity="rogue", ca="rogue-ca.crt"
-        )
+        client = _client(monkeypatch, pki, grpc_stack, identity="rogue", ca="rogue-ca.crt")
         try:
             with pytest.raises(grpc.aio.AioRpcError) as exc_info:
                 await client.status()
@@ -301,9 +297,7 @@ class TestConfigSnapshotRoundTrip:
             disk = await client.get_config_snapshot("disk")
             devices_name = next(name for name in disk.files if name.endswith("devices.yaml"))
             with pytest.raises(grpc.aio.AioRpcError) as exc_info:
-                await client.push_config(
-                    {devices_name: disk.files[devices_name]}, disk.revision
-                )
+                await client.push_config({devices_name: disk.files[devices_name]}, disk.revision)
             assert exc_info.value.code() is grpc.StatusCode.PERMISSION_DENIED
         finally:
             await client.close()

@@ -61,9 +61,7 @@ def pki(tmp_path: Path) -> Pki:
 
 
 @pytest.fixture
-async def grpc_stack(
-    tmp_path: Path, pki: Pki, modbus_server: ModbusMockServer
-) -> GrpcStack:
+async def grpc_stack(tmp_path: Path, pki: Pki, modbus_server: ModbusMockServer) -> GrpcStack:
     stack, server, service = await build_stack(
         tmp_path,
         pki,
@@ -92,9 +90,7 @@ async def idem_env(
     monkeypatch.setenv(_KEY_ENV, str(pki.tmp / "ops.key"))
     client = CommanderGrpcClient(grpc_stack.target)
     journal = DurableCommandRegistry(tmp_path / "commands.sqlite3")
-    service = DeviceCommandService(
-        client, _ReadsUnavailable(), InMemoryTrendStore(), journal
-    )
+    service = DeviceCommandService(client, _ReadsUnavailable(), InMemoryTrendStore(), journal)
     modbus_server.reset_write_count()
     try:
         yield service, modbus_server
@@ -116,9 +112,7 @@ class TestWriteIdempotency:
 
         results = await asyncio.gather(
             *(
-                service.send(
-                    _DEVICE_ID, _POINT_ID, 66.6, timeout=10.0, command_id=command_id
-                )
+                service.send(_DEVICE_ID, _POINT_ID, 66.6, timeout=10.0, command_id=command_id)
                 for _ in range(8)
             )
         )
@@ -175,15 +169,11 @@ class TestWriteIdempotency:
     ) -> None:
         service, server = idem_env
         command_id = "cmd-system-idem-conflict"
-        first = await service.send(
-            _DEVICE_ID, _POINT_ID, 44.4, timeout=10.0, command_id=command_id
-        )
+        first = await service.send(_DEVICE_ID, _POINT_ID, 44.4, timeout=10.0, command_id=command_id)
         assert first.outcome is WriteOutcome.CONFIRMED_SUCCESS
 
         with pytest.raises(CommandIdConflictError):
-            await service.send(
-                _DEVICE_ID, _POINT_ID, 99.9, timeout=10.0, command_id=command_id
-            )
+            await service.send(_DEVICE_ID, _POINT_ID, 99.9, timeout=10.0, command_id=command_id)
         assert server.write_count == 1
         registers = await server.read_holding(1, _SETPOINT_ADDRESS, 2)
         assert _decode_float32(registers) == pytest.approx(44.4, abs=0.1)
