@@ -20,7 +20,7 @@ DEFAULT_MAX_BATCH_BYTES = 1_048_576
 
 def validate_subject_token(value: str) -> str:
     """Require a nonempty single NATS subject token."""
-    if not value or any(char.isspace() or char in ".*>" for char in value):
+    if not value or any(ord(char) < 32 or ord(char) == 127 or char in ".*>" for char in value):
         raise ValueError("invalid NATS subject token")
     return value
 
