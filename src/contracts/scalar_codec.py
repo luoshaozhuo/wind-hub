@@ -6,6 +6,7 @@ Collector、Commander、Gateway 共用 ``windhub.common.v1.ScalarValue``
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from contracts import common_pb2 as pb
@@ -26,6 +27,8 @@ def encode_scalar(value: Any) -> pb.ScalarValue:
         else:
             raise ValueError("integer value is outside protobuf 64-bit range")
     elif isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("scalar float must be finite")
         message.double_value = value
     elif isinstance(value, str):
         message.string_value = value
@@ -41,4 +44,7 @@ def decode_scalar(message: pb.ScalarValue) -> Any:
     kind = message.WhichOneof("kind")
     if kind is None:
         return None
-    return getattr(message, kind)
+    value = getattr(message, kind)
+    if kind == "double_value" and not math.isfinite(value):
+        raise ValueError("scalar float must be finite")
+    return value
