@@ -285,10 +285,13 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
             admitted = await self._boundary.service.executor.accept(
                 (spec,), caller_id=caller, request_id=request.request_id
             )
+            results = await self._boundary.service.control.get_request(
+                request.request_id, caller
+            )
             return commander_pb2.SubmitCommandResponse(
                 command_id=admitted[0].command_id,
                 accepted=True,
-                state=CommandState.ACCEPTED.value,
+                state=self._request_state(results),
                 request_id=request.request_id,
             )
         except Exception as exc:
@@ -308,11 +311,14 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
             admitted = await self._boundary.service.executor.accept(
                 specs, caller_id=caller, request_id=request.request_id
             )
+            results = await self._boundary.service.control.get_request(
+                request.request_id, caller
+            )
             return commander_pb2.SubmitCommandsResponse(
                 request_id=request.request_id,
                 accepted=True,
                 command_ids=[item.command_id for item in admitted],
-                state=CommandState.ACCEPTED.value,
+                state=self._request_state(results),
             )
         except Exception as exc:
             await self._boundary.invalid(context, exc)
