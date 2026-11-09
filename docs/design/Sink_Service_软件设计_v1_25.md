@@ -2220,7 +2220,7 @@ Reliable 补发仅使用已核实的剩余容量，不能抢占正在执行的�
 
 ### 6.3.3 Reliable 设备级并发（v1_25 受控能力）
 
-**架构保持不变：一个容器、Main/Realtime/Reliable 三进程。** 并行单位为独立设备的 Reliable Delivery，不在单 Delivery 内自动生成多设备 Task。每个 Delivery 独占一个 Durable、按源消息顺序处理，维持 `max_ack_pending=1`、`fetch(batch=1)` 和**源批内全部条目终局确认之后执行 `ack_sync`** 的条件。不同设备可异步重叠，不能通过并行绕过任何写入额度及 ACK 责任。
+**架构保持不变：一个容器、Main/Realtime/Reliable 三进程。** 并行单位为独立设备的 Reliable Delivery，不在单 Delivery 内自动生成多设备 Task。每个 Delivery 独占一个 Durable、按源消息顺序处理，维持 `max_ack_pending=1`、`fetch(batch=1)` 和**源批内全部条目终局确认之后执行 `ack_sync`** 的条件。不同设备可异步重叠，不能通过并行绕过任何写入额度及 ACK 责任。设备归属判定以完整 `(wind_farm_id, collector_id, device_id)` 来源身份为准；配置交集检查还须按物理目标、Kafka Topic 与设备分区 Key 的实际映射判断，不能仅比较设备短名。
 
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
@@ -2428,7 +2428,7 @@ CLI/Web UI 管理各容器独立完整快照，涉及冲突资源的跨容器静
 
 # 9. gRPC Server 实现
 
-本章以核查时 GitHub `luoshaozhuo/wind-hub` 的 `main` 提交 `0ac0228afc202ea69f75ab1b0046c2ab24bfd369` 的 `src/contracts/common.proto`、`src/contracts/sink_service.proto` 为唯一权威接口定义。本模块仅实现 Server；Proto 的字段号、类型及 RPC 名称不得在本模块内重新定义。当前契约为 **公共 `CommonService` 9 个 Unary RPC + 专属 `SinkService` 4 个 Unary RPC，共 13 个**。接口清单是应实现的目标，不代表现有代码已经通过测试。
+本章以 `main@14e3be661cfd1d30417144d3f4cfa928d313eaa5` 的 `src/contracts/common.proto`、`src/contracts/sink_service.proto` 及 Contracts v1_6 为唯一权威接口定义。本模块仅实现 Server；Proto 的字段号、类型及 RPC 名称不得在本模块内重新定义。当前契约为 **公共 `CommonService` 9 个 Unary RPC + 专属 `SinkService` 4 个 Unary RPC，共 13 个**。接口清单是应实现的目标，不代表现有代码已经通过测试。
 
 ## 9.1 服务与接口总表
 
@@ -2533,9 +2533,9 @@ sequenceDiagram
 
 ## 10.1 样本身份、批量契约与来源权威
 
-### 10.1.1 已发布主干与当前开发分支的契约差异
+### 10.1.1 当前已发布批量契约及历史迁移边界
 
-`main@cac23d84` 的 `contracts.sample_message.SampleMessage(schema_version=1)` 是旧版单点消息；当前开发分支已改造为 `contracts.sample_batch.SampleBatch(schema_version=2)` 批量信封，Collector、Sink 使用 `wh.rt.batch.<wind_farm_id>.<collector_id>.<device_id>` / `wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>`，旧版单点消息实现已从分支删除。**这表示生产改动已提交，不表示真实 JetStream 联调和 10 Hz 性能测试已经通过**。切换前须按 Contracts 第 10.6 节处理旧 Stream/Durable Consumer 的未确认消息，不得直接清空历史积压。
+当前已发布的正式输入契约为 `contracts.sample_batch.SampleBatch(schema_version=2)`，Subject 分别为 `wh.rt.batch.<wind_farm_id>.<collector_id>.<device_id>` 与 `wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>`，与 Contracts v1_6 §10.6 一致。历史 `SampleMessage(schema_version=1)` 已从生产契约移除，不保留兼容消费者。JetStream 旧 Durable 的残余积压与过滤切换仍按 §10.4 单独核查，不能因为线协议已切换就认定旧历史责任全部消失。
 
 ### 10.1.2 源批次与 Sink 输出策略的边界
 
@@ -2544,7 +2544,7 @@ sequenceDiagram
 | 责任方 | 触发与批次边界 | 约束 |
 |---|---|---|
 | Collector `poll` | 每个 Task 周期完成采样后提交一次源批次；如 100 ms 周期即正常约 10 批/s | 不把十个周期攒成 1 s 大批；实际成功确认受 Broker 和负载制约 |
-| Collector `subscribe` | 每次原生订阅通知回调作为一个源批次 | ADS `cyclic/on_change` 原生注册已在开发分支编码，但 `on_change` 尚待真实 PLC 系统验收；独立通知块无需凑齐全机点表 |
+| Collector `subscribe` | 每次原生订阅通知回调作为一个源批次 | ADS `cyclic/on_change` 原生注册已编码，但 `on_change` 尚待真实 PLC 系统验收；独立通知块无需凑齐全机点表 |
 | Collector `listen` | 每次设备主动上送的原生消息集合作为一个源批次 | 无事件不发布；不虚构计划采样率或周期值 |
 | Contracts `SampleBatch` | 一个源事件经容量限制可能形成多个身份稳定的传输子批 | 不跨来源周期/回调合并；每点保留独立 `sample_id/quality/sample_time`，Realtime 另有逐点 TTL |
 | Sink Realtime Delivery | 消费来源批次，按配置的 `periodic/on_change/change_with_heartbeat` 决定**目标输出时机** | 此处的 `on_change` 是 Sink 输出策略，不是 ADS 的原生变化订阅；不得改变上游实际采样事件 |
@@ -2702,7 +2702,7 @@ Broker `num_delivered` 作为实际投递次数的权威；`ack_wait_seconds` �
 
 每个设备 Delivery 维护独立 Durable 和源消息序列；`ack_sync` 仅在该源批全部目标条目已得到可信确认或已取得逐条持久 DLQ 责任转移证据后执行。一个设备的未决消息阻塞本设备下一条源消息，但不阻塞其它设备独立 Durable；不得以其它设备的 ACK 替代本设备 ACK。
 
-精确设备 Subject 必须根据 Contracts v1_6 的实际 Subject 构造函数与 token 限制获得，不得依历史文档自行拼接；NATS 过滤范围和 Delivery 来源校验需要双重一致。切换宽过滤 Durable 时先停止旧消费、确认其历史责任及在途 I/O 收敛，随后创建新的独立身份并记录边界，旧 Durable 由运维在核实积压处置后显式清理。
+精确设备 Subject 按 Contracts v1_6 §10.6.2 的正式模式 `wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>` 及其 token 限制生成，并与实际 `src/contracts/sample_batch.py` 的 Subject 生成函数核对；不得依历史旧单点 Subject 拼接；NATS 过滤范围和 Delivery 来源校验需要双重一致。切换宽过滤 Durable 时先停止旧消费、确认其历史责任及在途 I/O 收敛，随后创建新的独立身份并记录边界，旧 Durable 由运维在核实积压处置后显式清理。
 
 Kafka 同设备采用稳定分区 Key；同设备逻辑写入顺序、Broker ACK 与源消息 ACK 是不同层次。因崩溃后重投可能重复，业务重复策略必须仍显式为 `require_dedup` 或 `allow_at_least_once`。任何已确认记录的仅内存进度都不能视为持久跨重启幂等状态。
 
@@ -3082,7 +3082,7 @@ deliveries:
 
 1. **启动与角色**：一个容器仅使用 `configs/services/sink_service.yaml`；Main 创建两个独立 asyncio 数据子进程，并通过 IPC 分发相关 Delivery 配置。`config_writer`、`process_role`、`writer_endpoint`、双 Service 文件及双外部 gRPC 端口不属于 v1_20 目标配置契约。
 2. **Source Subject**：新版源 Subject 为 `wh.rt.batch.<farm>.<collector>.<device>` / `wh.hist.batch.<farm>.<collector>.<device>`，Stream/Consumer 过滤以 Contracts v1_6 第 10.6 节为准。旧单点后缀 `point_id` 不能继续沿用。订阅尽量按本容器的已分配来源缩小，相同来源跨容器复用时仍可能重复解码，须计入容量测量。
-3. **样本与批次**：本开发分支使用 `SampleBatch(schema_version=2)`；Poll 每周期形成一条源事件批次（容量超限可拆分）；Subscribe/Listen 按原生回调/消息集合形成源事件批次，大小和频率不保证每机每拍 100/500 点。Realtime 仍按点保留最新值、按策略形成输出批次，Reliable 按源批次整条消息维护 ACK 责任；不因批量输入取消逐测点版本、质量与可靠确认。10 Hz 对应 100 ms 输出周期，输入批次数不等于目标实际成功写批次数。
+3. **样本与批次**：当前正式线协议使用 `SampleBatch(schema_version=2)`；Poll 每周期形成一条源事件批次（容量超限可拆分）；Subscribe/Listen 按原生回调/消息集合形成源事件批次，大小和频率不保证每机每拍 100/500 点。Realtime 仍按点保留最新值、按策略形成输出批次，Reliable 按源批次整条消息维护 ACK 责任；不因批量输入取消逐测点版本、质量与可靠确认。10 Hz 对应 100 ms 输出周期，输入批次数不等于目标实际成功写批次数。
 4. **资源额度**：`max_inflight_global` 是每个数据子进程额度，跨进程共享目标的真实限速/优先级须在目标端验证。Reliable 重试不能据此抢占实时容量。
 5. **JetStream**：以真实 Broker 核查 Consumer/Stream 约束；临时错误不能因次数耗尽直接进入 DLQ；仅永久错误在 DLQ 持久确认后 ACK。
 6. **执行性**：本设计是目标实现契约；现有双进程双 Service 代码和测试须更新到 Main + 两子进程架构，不能保留旧配置兼容分支冒充新架构完成。
@@ -3298,7 +3298,7 @@ UR-04 强制追加如下参数化验算场景：零样本首轮计算、无成�
 ## 14.2 测试目录与 Marker
 
 ```text
-tests/sink_service/
+tests/src/sink_service/
 ├── unit/
 ├── component/
 ├── integration/
@@ -3356,7 +3356,7 @@ tests/sink_service/
 | `test_replay_starvation_e2e.py` | system | performance、reliability | load、timeout | 持续实时负载时补发的等待、饥饿监控和告警；UC-11 |
 | `test_modbus_server_e2e.py` | system | reliability | normal、exception | Modbus Server 寄存器更新与真实客户端读取；UC-04 |
 
-矩阵中的测试文件仅列文件名，物理归属由层级 Marker 确定为 `tests/sink_service/{unit,component,integration,system}/`，不得仅凭文件名推断测试已实现。上述文件均为**目标测试设计**，并不代表已创建、运行或通过。所有测试设计与场景追溯均以本章为唯一权威来源；验收报告可记录实施状态，但不得另建与本章并行的测试设计规范。
+矩阵中的测试文件仅列文件名，物理归属由层级 Marker 确定为 `tests/src/sink_service/{unit,component,integration,system}/`，不得仅凭文件名推断测试已实现。上述文件均为**目标测试设计**，并不代表已创建、运行或通过。所有测试设计与场景追溯均以本章为唯一权威来源；验收报告可记录实施状态，但不得另建与本章并行的测试设计规范。
 
 ## 14.4 System Test 用例及场景追溯矩阵
 
@@ -3538,7 +3538,7 @@ lint-imports
 
 单实例容量和多容器规模化是两个独立验收项目。**Gate-5 为单容器三进程双通道容量标定**：30 台风机、Realtime 30000 值/s + Reliable 150000 值/s 为参考负载；优先采用连续 ≥600 s 稳态窗口寻找可持续目标确认上限。低于参考吞吐不单独导致 FAIL；必须有可复算的稳定容量、输入及确认口径、积压斜率、CPU/RSS、延迟及故障记录。实测稳定能力之外的持续输入会造成积压时，必须明确供数限制、容量裕度或后续分片方案，不能声称该输入可长期稳定。多容器成绩不能替代单实例报告。ACK 提前、未解释丢失、资源失控和满载控制面不可用仍为阻断缺陷；Contracts/Collector 联调覆盖不足须明确标记限制，不可冒充已通过。
 
-系统验收要求：全部 UR、UC 及规定场景形成可定位的真实测试映射；必需的测试在符合要求的环境执行且 PASS；无未裁定 P0/P1 缺陷；真实依赖未具备的测试标记 NOT_RUN 并阻止宣称完整验收通过。指标结果须同时提供原始测量口径，不得用设计期望充当实测证据。以核查时 main commit `0ac0228afc202ea69f75ab1b0046c2ab24bfd369` 的正式 Proto 作为接口基线；代码实现和联调仍需实际验证。
+系统验收要求：全部 UR、UC 及规定场景形成可定位的真实测试映射；必需的测试在符合要求的环境执行且 PASS；无未裁定 P0/P1 缺陷；真实依赖未具备的测试标记 NOT_RUN 并阻止宣称完整验收通过。指标结果须同时提供原始测量口径，不得用设计期望充当实测证据。以 `main@14e3be661cfd1d30417144d3f4cfa928d313eaa5` 的正式 Proto 和 Contracts v1_6 作为接口基线；代码实现和联调仍需实际验证。
 
 ### 14.7.1 文档编码准入静态检查
 
@@ -3583,6 +3583,23 @@ lint-imports
 
 上述为正式编码前必须落实的跨模块契约变更，不是已实现或已通过的测试。
 
+### 14.8.2 跨设计文档一致性审查（v1_25）
+
+本次对照 `main@14e3be661cfd1d30417144d3f4cfa928d313eaa5` 的总体逻辑架构 v1_0、Core v1_27、Contracts v1_6、Collector v1_11，以及 Sink Service v1_24，裁决如下：
+
+| 对照文档 | 不变契约 | 本版协调结果 |
+|---|---|---|
+| 总体逻辑架构 v1_0 | Collector 发布；Sink 消费/交付；NATS 外部基础设施；公共能力不承担业务 | 设备并发局限于 Sink Reliable 内部，不新增模块间直接依赖、集群管理服务或业务 RPC |
+| Core v1_27 | Core 模块无关；通用协议、配置原语、领域对象和诊断，不依赖业务/Contracts | 不修改 Core API、不将 Kafka 并发锁或 NATS Consumer 下沉 Core |
+| Contracts v1_6 | 43 唯一 Unary RPC，Sink 注册 9+4；SampleBatch v2、正式 Subject 与字段语义 | 不增加 Proto、字段或线协议；准确使用 `wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>`；各 Delivery ACK 不变 |
+| Collector v1_11 | `poll/subscribe/listen` 各自即时形成来源批次；仅超限拆批；JetStream PubAck 不等于 Sink 交付 | 不反向改变采样事件、频率、批次身份或 Collector 发布队列；设备并发只改变 Sink 的下游执行 |
+| Sink v1_24 | 单容器三进程、主进程 13 RPC、Realtime/Reliable 对等、静态跨容器分配、可靠 ACK/DLQ | 保留，新增显式 Kafka 并发模板和独立设备 Delivery Task，默认原串行行为不变 |
+
+**文档状态与事实分离：**Contracts v1_6 部分历史审查段落仍使用旧 main/开发分支措辞，不能用其历史状态否定当前 main 已发布的 SampleBatch v2；本轮未改该已冻结公共设计。Sink 本文 §14.9.1～§14.9.3 也是历史决策记录，不能作为当前代码状态。具体运行与性能能力仍以真实生产实现和独立实测为准。总体架构、Core、Contracts、Collector 设计文档本轮全部保持原样。
+
+**代码准入待核：**新 Kafka 模板、支持的并发适配器行为、目标身份冲突校验、Durable 精确过滤与迁移、受控设备级顺序及专项 System Test 均尚未由本轮设计审查证明已实施；Ruff、Mypy、import-linter 和真实联调均未在本轮执行。此处仅裁定设计边界协调一致，不等于实施验收 PASS。
+
+
 ## 14.9 设计审查与未验证事项
 
 本节为设计检查结果，不是实际软件验收。**2026-11-05 复核**：GitHub `main` HEAD 为 `0ac0228afc202ea69f75ab1b0046c2ab24bfd369`，本轮开发分支 HEAD 为 `41fff0aa34a1adc4f7acb5d6e3618f54dad18b34`。`common.proto` 9 项、`sink_service.proto` 4 项 RPC 的字段/接口对照一致；三进程单 Service 及双通道批量吞吐是设计目标；现行生产代码尚未完成三进程迁移，也未实现批量传输契约，不能依据设计文档宣称实现或性能通过。
@@ -3616,7 +3633,7 @@ lint-imports
 - **多实例**：以容器为扩容单位；CLI/Web UI 负责静态分配、跨容器资源冲突检查和先停旧再启新；容器之间没有 IPC、中心协调器、选举或自动迁移。单实例无需感知多实例身份。
 - **容量与安全**：单容器三进程可利用多个 CPU 核，但容器 CPU 配额仍共享；满载 Main gRPC 不得失联。NATS 来源过滤、路由缓存工作集和足额 Publisher 均须实测。跨进程共享物理 Sink 的限额不能只使用内存 Semaphore。
 - **历史验收状态**：原架构 Gate-5 FAIL：单 Realtime 进程稳态约 23k–25k 值/s，20 Sink 全拓扑约 47.7 值/s、2.2 批/s，单 Publisher 峰值约 93k 消息/s；这些指标不是三进程改造后的预测值。新方案须采用单实例 30 台双通道批量输入参考负载开展容量标定，记录对 180000 确认值/s 参考目标的达成率、优先采用 600 秒稳定窗口，并验证控制面满载可用性。
-- **待开发与验证**：当前开发分支仍是两角色双 Service 且单测点源消息的实现，必须按第 6、9、10、11、14 章以及 Collector/Contracts 同步迁移，完成 Ruff、Mypy、Import Linter 和真实三进程系统测试后方可声称达标。未执行项 NOT_RUN。
+- **待开发与验证**：历史当时的开发分支仍是两角色双 Service 且单测点源消息的实现；该判断仅适用于当时提交，不代表当前 main 状态，完成 Ruff、Mypy、Import Linter 和真实三进程系统测试后方可声称达标。未执行项 NOT_RUN。
 
 
 > **v1_22 修订说明（2026-11-08）**：统一 §3.1、§3.2、§3.3、§6.3、§14.5～§14.8 的容量验收口径：180000 值/s 为参考负载，不是阻断门槛；保持 ACK 正确性、资源有界、真实证据及控制面可用性强制要求。第 1～2 章原文未修改。
