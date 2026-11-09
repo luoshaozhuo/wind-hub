@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 from shutil import copytree
+from uuid import uuid4
 
 import pytest
 
@@ -205,6 +206,7 @@ async def test_model_only_options_and_model_default_port_drive_real_modbus(
         assert fingerprint is not None
         accepted = await service.executor.accept(
             [CommandSpec("WT-B1", "setpoint_power", 42.5, fingerprint)],
+            request_id=f"req-b1-{uuid4().hex}",
             caller_id="ops-b1",
         )
         result = await service.executor.wait(accepted[0].command_id)
@@ -297,6 +299,7 @@ async def test_model_option_change_rotates_fingerprint_and_reload_routes_new_ses
             assert old_reference is not None
             accepted = await service.executor.accept(
                 [CommandSpec("WT-B1", "setpoint_power", 11.0, old_reference)],
+                request_id=f"req-b1-{uuid4().hex}",
                 caller_id="ops-b1",
             )
             first = await service.executor.wait(accepted[0].command_id)
@@ -320,6 +323,7 @@ async def test_model_option_change_rotates_fingerprint_and_reload_routes_new_ses
 
             accepted2 = await service.executor.accept(
                 [CommandSpec("WT-B1", "setpoint_power", 22.0, new_reference)],
+                request_id=f"req-b1-{uuid4().hex}",
                 caller_id="ops-b1",
             )
             second = await service.executor.wait(accepted2[0].command_id)

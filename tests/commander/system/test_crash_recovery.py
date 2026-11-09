@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -59,6 +60,7 @@ async def test_crash_recovery(sys_pki, grpc_stack_prepared) -> None:
             point_id=point.point_id,
             value=common_pb2.ScalarValue(sint64_value=1),
             expected_revision=revision,
+            request_id=f"req-crash-{uuid4().hex}",
         ),
         timeout=5,
     )

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -60,6 +61,7 @@ async def test_expiration_and_unknown(sys_pki, grpc_stack_prepared) -> None:
             value=common_pb2.ScalarValue(sint64_value=1),
             expected_revision=revision,
             expires_at=expires,
+            request_id=f"req-conc-{uuid4().hex}",
         ),
         timeout=5,
     )

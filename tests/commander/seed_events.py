@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from uuid import uuid4
 from weakref import WeakKeyDictionary
 
 from commander.application.persistence import BufferedJournal
@@ -37,11 +38,19 @@ def seed_accept(
     specs: Sequence[CommandSpec],
     *,
     caller_id: str,
+    request_id: str | None = None,
     operator_id: str | None = None,
     trace_id: str | None = None,
 ) -> tuple[AcceptedCommand, ...]:
     buffer = _buffer(repository)
-    commands = buffer.accept(specs, caller_id=caller_id, operator_id=operator_id, trace_id=trace_id)
+    request_id = request_id or f"seed-{uuid4().hex}"
+    commands = buffer.accept(
+        specs,
+        caller_id=caller_id,
+        request_id=request_id,
+        operator_id=operator_id,
+        trace_id=trace_id,
+    )
     _flush(repository, buffer)
     return commands
 

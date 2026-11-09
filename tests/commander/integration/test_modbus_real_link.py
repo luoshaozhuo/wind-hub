@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -54,7 +55,9 @@ async def test_real_modbus_write_confirmed_and_persisted(modbus_server, control)
         write_timeout=3.0,
     )
     accepted = await executor.accept(
-        [CommandSpec("WT01", "command", 42.5, "ref-v1")], caller_id="ops"
+        [CommandSpec("WT01", "command", 42.5, "ref-v1")],
+        request_id=f"req-mb-{uuid4().hex}",
+        caller_id="ops",
     )
     try:
         waited = await asyncio.wait_for(executor.wait(accepted[0].command_id), timeout=5.0)
@@ -97,6 +100,7 @@ async def test_real_modbus_batch_writes_each_point_separately_without_write_many
             CommandSpec("WT01", "command", 7.0, "ref-v1"),
             CommandSpec("WT01", "temperature", 31, "ref-v1"),
         ],
+        request_id=f"req-mb-{uuid4().hex}",
         caller_id="ops",
     )
     try:
@@ -131,7 +135,9 @@ async def test_unreachable_modbus_connect_is_confirmed_failure(control) -> None:
         write_timeout=2.0,
     )
     accepted = await executor.accept(
-        [CommandSpec("WT01", "command", 1.0, "ref-v1")], caller_id="ops"
+        [CommandSpec("WT01", "command", 1.0, "ref-v1")],
+        request_id=f"req-mb-{uuid4().hex}",
+        caller_id="ops",
     )
     try:
         waited = await asyncio.wait_for(executor.wait(accepted[0].command_id), timeout=5.0)
@@ -168,7 +174,11 @@ async def test_point_without_write_access_rejected_before_wire(modbus_server, co
         connect_timeout=3.0,
         write_timeout=3.0,
     )
-    accepted = await executor.accept([CommandSpec("WT01", "speed", 1.0, "ref-v1")], caller_id="ops")
+    accepted = await executor.accept(
+        [CommandSpec("WT01", "speed", 1.0, "ref-v1")],
+        request_id=f"req-mb-{uuid4().hex}",
+        caller_id="ops",
+    )
     try:
         waited = await asyncio.wait_for(executor.wait(accepted[0].command_id), timeout=5.0)
         assert waited is not None
@@ -291,6 +301,7 @@ async def test_real_modbus_rst_mid_batch_confirmed_not_sent_never_reaches_wire(
             CommandSpec("WT01", "p1", 22.5, "ref-v1"),
             CommandSpec("WT01", "p2", 33.5, "ref-v1"),
         ],
+        request_id=f"req-mb-{uuid4().hex}",
         caller_id="ops",
     )
     try:
@@ -361,6 +372,7 @@ async def test_real_modbus_write_timeout_but_applied_stays_unknown_no_overwrite(
             CommandSpec("WT01", "p1", 222.5, "ref-v1"),
             CommandSpec("WT01", "p2", 333.75, "ref-v1"),
         ],
+        request_id=f"req-mb-{uuid4().hex}",
         caller_id="ops",
     )
     try:

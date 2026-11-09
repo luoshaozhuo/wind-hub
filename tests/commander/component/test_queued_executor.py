@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import pytest
 
@@ -42,7 +43,9 @@ async def _drain(
 async def test_happy_path_persists_all_boundaries_and_writes_one(control) -> None:
     session = FakeSession()
     executor = build_executor(control, {"WT01": session})
-    accepted = await executor.accept([make_spec()], caller_id="op-1")
+    accepted = await executor.accept(
+        [make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op-1"
+    )
     try:
         results = await _drain(executor, accepted)
     finally:
@@ -72,9 +75,15 @@ async def test_fifo_order_within_one_device_and_parallel_devices(control) -> Non
 
     sessions = {"slow": OrderSession("slow", 0.15), "fast": OrderSession("fast", 0.0)}
     executor = build_executor(control, sessions, global_capacity=8)
-    a = await executor.accept([make_spec("p1", device="slow")], caller_id="op")
-    b = await executor.accept([make_spec("p2", device="slow")], caller_id="op")
-    accept_fast = await executor.accept([make_spec("p3", device="fast")], caller_id="op")
+    a = await executor.accept(
+        [make_spec("p1", device="slow")], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
+    b = await executor.accept(
+        [make_spec("p2", device="slow")], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
+    accept_fast = await executor.accept(
+        [make_spec("p3", device="fast")], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     try:
         fast_result = await wait_for_result(executor, accept_fast[0], timeout=1.0)
         # fast 在 slow 第一拍尚未结束时完成：设备间未被 FIFO 串行化。
@@ -98,7 +107,9 @@ async def test_batch_points_coalesce_into_single_write_many(control) -> None:
     executor = build_executor(control, {"WT01": session}, max_batch_points=10)
     # 同一次请求的多个点必须合并为一次原生多写。
     accepted = await executor.accept(
-        [make_spec("p1"), make_spec("p2"), make_spec("p3")], caller_id="op"
+        [make_spec("p1"), make_spec("p2"), make_spec("p3")],
+        request_id=f"req-qe-{uuid4().hex}",
+        caller_id="op",
     )
     try:
         results = await _drain(executor, accepted)
@@ -113,7 +124,9 @@ async def test_driver_without_write_many_falls_back_to_write_one(control) -> Non
     # Modbus 驱动只声明 WRITE：合并必须被能力门禁用。
     session = FakeSession()  # 默认无 WRITE_MANY
     executor = build_executor(control, {"WT01": session})
-    accepted = await executor.accept([make_spec("p1"), make_spec("p2")], caller_id="op")
+    accepted = await executor.accept(
+        [make_spec("p1"), make_spec("p2")], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     try:
         await _drain(executor, accepted)
     finally:
@@ -128,7 +141,11 @@ async def test_batch_over_limit_rejected_before_persistence(
     session = FakeSession()
     executor = build_executor(control, {"WT01": session}, max_batch_points=2)
     with pytest.raises(OverflowError):
-        await executor.accept([make_spec("p1"), make_spec("p2"), make_spec("p3")], caller_id="op")
+        await executor.accept(
+            [make_spec("p1"), make_spec("p2"), make_spec("p3")],
+            request_id=f"req-qe-{uuid4().hex}",
+            caller_id="op",
+        )
     await executor.close()
     metrics = sqlite_writer.submit(repository.metrics).result()
     assert metrics.accepted_total == 0
@@ -151,10 +168,14 @@ async def test_queue_timeout_expires_waiter_without_field_write(control) -> None
         connect_timeout=1.0,
         write_timeout=5.0,
     )
-    await executor.accept([make_spec("p1", device="d1")], caller_id="op")
+    await executor.accept(
+        [make_spec("p1", device="d1")], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     # 让第一拍拿到唯一许可并挂在原生写中。
     await asyncio.sleep(0.05)
-    second = await executor.accept([make_spec("p2", device="d2")], caller_id="op")
+    second = await executor.accept(
+        [make_spec("p2", device="d2")], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     try:
         result = await wait_for_result(executor, second[0], timeout=2.0)
         assert result.state is CommandState.EXPIRED
@@ -174,7 +195,7 @@ async def test_expired_before_t2_when_connect_outlasts_deadline(control) -> None
     executor = build_executor(control, {"WT01": session}, connect_timeout=2.0, write_timeout=2.0)
     spec = make_spec()
     object.__setattr__(spec, "expires_at", future)
-    accepted = await executor.accept([spec], caller_id="op")
+    accepted = await executor.accept([spec], request_id=f"req-qe-{uuid4().hex}", caller_id="op")
     try:
         result = await wait_for_result(executor, accepted[0], timeout=3.0)
     finally:
@@ -189,14 +210,18 @@ async def test_expired_before_t2_when_connect_outlasts_deadline(control) -> None
 async def test_connect_failure_confirmed_not_sent_and_session_removed(control) -> None:
     session = FakeSession(connect_error=ConnectionRefusedError("unreachable"))
     executor = build_executor(control, {"WT01": session})
-    accepted = await executor.accept([make_spec()], caller_id="op")
+    accepted = await executor.accept(
+        [make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     try:
         result = await _drain(executor, accepted)
         assert result[0].state is CommandState.FAILED
         assert result[0].error_code == "CONNECT_FAILED"
         # 连接失败后会话被关闭移除；后续命令重建会话再试。
         session._connect_error = None
-        second = await executor.accept([make_spec()], caller_id="op")
+        second = await executor.accept(
+            [make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+        )
         results2 = await _drain(executor, second)
         assert results2[0].state is CommandState.SUCCEEDED
         assert session.connects == 2
@@ -215,7 +240,9 @@ async def test_write_timeout_marks_unknown_blocks_device_and_retains_permit(
         connect_timeout=1.0,
         write_timeout=0.05,
     )
-    accepted = await executor.accept([make_spec()], caller_id="op")
+    accepted = await executor.accept(
+        [make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     result = await wait_for_result(executor, accepted[0], timeout=2.0)
     assert result.state is CommandState.UNKNOWN
     assert result.outcome is CommandOutcome.UNKNOWN
@@ -224,7 +251,7 @@ async def test_write_timeout_marks_unknown_blocks_device_and_retains_permit(
     assert executor.in_flight_native() >= 1
     # 阻塞期间新命令 fail-fast，不得进入现场。
     with pytest.raises(RuntimeError):
-        await executor.accept([make_spec()], caller_id="op")
+        await executor.accept([make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op")
     # 原生任务结束 + 物理 close 成功后自动隔离：解除阻塞、释放许可。
     await asyncio.sleep(0.5)
     assert executor.blocked_devices() == frozenset()
@@ -238,7 +265,9 @@ async def test_write_exception_blocks_device_and_unknown_outcome(control) -> Non
     # 物理 close 同样失败时，设备必须保持阻塞，许可不得归还。
     session = FakeSession(write_error=OSError("link reset"), close_error=OSError("socket gone"))
     executor = build_executor(control, {"WT01": session}, write_timeout=1.0, connect_timeout=1.0)
-    accepted = await executor.accept([make_spec()], caller_id="op")
+    accepted = await executor.accept(
+        [make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     result = await wait_for_result(executor, accepted[0], timeout=2.0)
     assert result.state is CommandState.UNKNOWN
     assert result.error_code == "OSError"
@@ -252,7 +281,9 @@ async def test_write_exception_blocks_device_and_unknown_outcome(control) -> Non
 async def test_device_rejection_is_confirmed_failure_not_unknown(control) -> None:
     session = FakeSession(outcome=WriteOutcome.CONFIRMED_FAILURE)
     executor = build_executor(control, {"WT01": session})
-    accepted = await executor.accept([make_spec()], caller_id="op")
+    accepted = await executor.accept(
+        [make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     try:
         result = (await _drain(executor, accepted))[0]
     finally:
@@ -298,7 +329,9 @@ async def test_admission_cancel_after_t1_settles_interrupted_without_field_write
     sessions = {"WT01": OrderedSession()}
     executor = build_executor(gated, sessions, global_capacity=1)
 
-    task = asyncio.create_task(executor.accept([make_spec("p9")], caller_id="op"))
+    task = asyncio.create_task(
+        executor.accept([make_spec("p9")], request_id=f"req-qe-{uuid4().hex}", caller_id="op")
+    )
     # 等执行器进入受理门（已持受理锁、T1 尚未记录）。
     for _ in range(200):
         if gated.entered:
@@ -330,8 +363,8 @@ async def test_repeated_submission_executes_twice_per_rr02(control) -> None:
     session = FakeSession()
     executor = build_executor(control, {"WT01": session})
     specs = [make_spec()]
-    first = await executor.accept(specs, caller_id="op")
-    replay = await executor.accept(specs, caller_id="op")
+    first = await executor.accept(specs, request_id=f"req-qe-{uuid4().hex}", caller_id="op")
+    replay = await executor.accept(specs, request_id=f"req-qe-{uuid4().hex}", caller_id="op")
     try:
         await _drain(executor, first + replay)
     finally:
@@ -357,7 +390,7 @@ async def test_close_keeps_hanging_native_workers_blocked(control) -> None:
         write_timeout=30.0,
         connect_timeout=1.0,
     )
-    await executor.accept([make_spec()], caller_id="op")
+    await executor.accept([make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op")
     await asyncio.sleep(0.05)
     blocked = await executor.close(grace_seconds=0.1)
     assert "WT01" in blocked
@@ -371,7 +404,7 @@ async def test_accept_after_close_is_rejected(control) -> None:
     executor = build_executor(control, {"WT01": session})
     await executor.close()
     with pytest.raises(RuntimeError):
-        await executor.accept([make_spec()], caller_id="op")
+        await executor.accept([make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op")
 
 
 async def test_connect_timeout_is_failed_not_unknown(control) -> None:
@@ -384,7 +417,9 @@ async def test_connect_timeout_is_failed_not_unknown(control) -> None:
 
     session = SlowConnect()
     executor = build_executor(control, {"WT01": session}, connect_timeout=0.05, write_timeout=1.0)
-    accepted = await executor.accept([make_spec()], caller_id="op")
+    accepted = await executor.accept(
+        [make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     result = await wait_for_result(executor, accepted[0], timeout=2.0)
     # 连接超时现场未写：可确证 NOT_SENT 语义走 FAILED/CONNECT_TIMEOUT。
     assert result.state is CommandState.FAILED
@@ -406,18 +441,22 @@ async def test_quiesce_drains_device_then_rejects_with_reloading_error(control) 
 
     session = SerialSession()
     executor = build_executor(control, {"WT01": session}, write_timeout=2.0, connect_timeout=1.0)
-    first = await executor.accept([make_spec("p1")], caller_id="op")
+    first = await executor.accept(
+        [make_spec("p1")], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     await gate.wait()
     quiesce = asyncio.create_task(executor.quiesce_devices(frozenset({"WT01"})))
     await asyncio.sleep(0.05)
     # quiesce 期间新受理直接失败（fail-fast，不入队）。
     with pytest.raises(RuntimeError):
-        await executor.accept([make_spec("p2")], caller_id="op")
+        await executor.accept([make_spec("p2")], request_id=f"req-qe-{uuid4().hex}", caller_id="op")
     assert await asyncio.wait_for(quiesce, timeout=2.0) == frozenset()
     result = await wait_for_result(executor, first[0], timeout=2.0)
     assert result.state is CommandState.SUCCEEDED
     # quiesce 返回后设备可重新受理（配合 reload 热替换场景）。
-    again = await executor.accept([make_spec("p3")], caller_id="op")
+    again = await executor.accept(
+        [make_spec("p3")], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
+    )
     results = await _drain(executor, again)
     assert results[0].state is CommandState.SUCCEEDED
     await executor.close()

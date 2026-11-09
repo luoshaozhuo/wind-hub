@@ -59,6 +59,7 @@ async def test_persistence_and_admission(sys_pki, grpc_stack) -> None:
                     point_id=point.point_id,
                     value=common_pb2.ScalarValue(sint64_value=1),
                     expected_revision=revision,
+                    request_id=f"req-cap-{uuid.uuid4().hex}",
                 ),
                 timeout=5,
             ),
@@ -72,6 +73,7 @@ async def test_persistence_and_admission(sys_pki, grpc_stack) -> None:
             point_id=point.point_id,
             value=common_pb2.ScalarValue(sint64_value=1),
             expected_revision=revision,
+            request_id=f"req-cap-{uuid.uuid4().hex}",
         ),
         timeout=5,
     )
@@ -97,6 +99,7 @@ async def test_audit_retry(sys_pki, grpc_stack_jetstream) -> None:
             point_id="setpoint_power",
             value=common_pb2.ScalarValue(double_value=55.25),
             expected_revision=revision,
+            request_id=f"req-cap-{uuid.uuid4().hex}",
         ),
         timeout=5,
     )

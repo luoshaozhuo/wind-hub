@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from shutil import copytree
+from uuid import uuid4
 
 import pytest
 import yaml
@@ -136,6 +137,7 @@ async def test_shutdown_unsettled_io(sys_pki, grpc_stack_prepared) -> None:
             point_id=point.point_id,
             value=common_pb2.ScalarValue(sint64_value=1),
             expected_revision=revision,
+            request_id=f"req-life-{uuid4().hex}",
         ),
         timeout=5,
     )

@@ -14,6 +14,7 @@ import json
 import uuid
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from nats.aio.client import Client as NatsClient
@@ -103,6 +104,7 @@ async def test_full_command_chain_real_modbus_and_jetstream(
 
         accepted = await service.executor.accept(
             [CommandSpec("WT01", "setpoint_power", 42.5, fingerprint)],
+            request_id=f"req-e2e-{uuid4().hex}",
             caller_id="ops-console",
         )
         waited = await service.executor.wait(accepted[0].command_id)
@@ -186,6 +188,7 @@ async def test_restart_recovers_executing_command_as_unknown(
         buffer = BufferedJournal()
         accepted = buffer.accept(
             [CommandSpec("WT01", "setpoint_power", 10.0, fingerprint)],
+            request_id=f"req-e2e-{uuid4().hex}",
             caller_id="ops-console",
         )
         command_id = accepted[0].command_id
