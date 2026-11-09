@@ -209,6 +209,12 @@ def commander_result(command_id: str) -> None:
     _call("commander", "GetCommandResult", {"command_id": command_id})
 
 
+@commander.command("request-result")
+def commander_request_result(request_id: str) -> None:
+    """Look up the full caller-scoped result of one submitted request."""
+    _call("commander", "GetRequestResult", {"request_id": request_id})
+
+
 @commander.command("write")
 def commander_write(
     device_id: str,
@@ -217,8 +223,11 @@ def commander_write(
     yes: bool = typer.Option(False, "--yes"),
     expires_at: str | None = typer.Option(None, "--expires-at"),
     expected_revision: str | None = typer.Option(None, "--expected-revision"),
+    request_id: str = typer.Option(
+        ..., "--request-id", help="Persist this caller-generated ID before submitting."
+    ),
 ) -> None:
-    """Confirm and submit a single control command; never retry ambiguous writes."""
+    """Submit once with a pre-recorded idempotency key; never retry UNKNOWN."""
     from .main import _run, runtime
 
     def reject(exc: ValueError) -> None:
@@ -226,6 +235,8 @@ def commander_write(
         raise typer.Exit(code=2) from exc
 
     try:
+        if not request_id.strip():
+            raise ValueError("--request-id must be nonempty")
         scalar = parse_json_scalar(value)
         deadline = expires_at or (datetime.now(UTC) + timedelta(seconds=30)).isoformat()
         parsed = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
@@ -260,6 +271,7 @@ def commander_write(
                 "value": scalar,
                 "expires_at": deadline,
                 "expected_revision": revision,
+                "request_id": request_id,
             },
         )
 
