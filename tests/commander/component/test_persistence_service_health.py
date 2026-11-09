@@ -93,6 +93,8 @@ def _service(
             persistence_interval_seconds=0.02,
             persistence_batch_size=500,
             persistence_max_events=100_000,
+            # 故障注入用例：持久化门禁快速超时，避免等待生产默认 10s。
+            accept_commit_timeout=0.3,
         )
 
     return CommanderService(
@@ -131,11 +133,14 @@ async def test_persistence_worker_death_is_degraded(tmp_path: Path) -> None:
     try:
         assert service.health().state is ServiceState.READY
         assert service.health().ready is True
-        # 受理一条命令：后台 append 抛出 BaseException 级异常，worker 任务死亡。
-        await service.control.accept(
-            [CommandSpec("WT01", "setpoint_power", 1.0, "ref-not-checked")],
-            caller_id="op",
-        )
+        # 受理一条命令：T1 入内存队列即触发后台 append，worker 任务死亡；
+        # RR-01 门禁等不到 COMMIT，在 accept_commit_timeout 处 fail-closed。
+        with pytest.raises(TimeoutError):
+            await service.control.accept(
+                [CommandSpec("WT01", "setpoint_power", 1.0, "ref-not-checked")],
+                caller_id="op",
+                request_id="req-health-worker-death",
+            )
         await _wait_state(service, ServiceState.DEGRADED)
         health = service.health()
         assert health.ready is False
@@ -151,11 +156,14 @@ async def test_stop_reports_persistence_queue_when_drain_times_out(tmp_path: Pat
     service = _service(tmp_path, journal_cls=_AppendFailsRepository, grace=1.0)
     await service.start()
     try:
-        # 直接走控制面受理：事件入内存队列，后台落盘持续失败、看门狗降级。
-        await service.control.accept(
-            [CommandSpec("WT01", "setpoint_power", 1.0, "ref-not-checked")],
-            caller_id="op",
-        )
+        # 直接走控制面受理：T1/保守终态事件入内存队列，后台落盘持续失败、
+        # 看门狗降级；RR-01 门禁在 accept_commit_timeout 处抛 TimeoutError。
+        with pytest.raises(TimeoutError):
+            await service.control.accept(
+                [CommandSpec("WT01", "setpoint_power", 1.0, "ref-not-checked")],
+                caller_id="op",
+                request_id="req-health-drain-timeout",
+            )
         await _wait_state(service, ServiceState.DEGRADED)
         # 排空在 grace 预算内不可能成功：stop 必须明确报告，绝不伪装干净停机。
         stopped = await service.stop()

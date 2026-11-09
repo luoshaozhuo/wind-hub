@@ -6,8 +6,16 @@
   - 每批一次现场 I/O（此处 FakeSession 立即完成，测的是调度+持久化上限）。
 结果在报告中与目标对照；本机环境差异不做达标硬断言，只钉防回归下限。
 
+v1_22 RR-01 改变了受理性能模型：accept 在全局受理锁内等待 T1 COMMIT
+（write-behind 按 persistence_interval 批量落盘），因此受理速率上限约为
+1/interval，旧契约“受理不等 SQLite”的 500 批/s 地板与 200ms e2e 地板已
+失效。本模块改钉新契约的结构性不变量：T1 落盘延迟有界、writer 线程无
+积压、事件合批高效、零丢失零重复、内存积压有界；吞吐地板取理论受理
+ envelope（1/interval）的保守一半。全局受理锁的并发度限制作为 P2 结构
+观察项在验收报告记录，不在测试侧掩盖。
+
 B4 延迟必须分四个口径独立测量，禁止混用单一端到端数字：
-  accept  — 纯命令受理（T1 fsync 在唯一 writer 线程，调用方只等 executor 往返）；
+  accept  — 命令受理（含 RR-01 的 T1 COMMIT 等待，fsync 仍在唯一 writer 线程）；
   queue   — 受理返回到 worker 实际开始写之间的排队等待；
   write   — 协议会话 write_one 在途时间；
   e2e     — accept 调用前到终态结果的整体端到端。
@@ -19,6 +27,7 @@ import asyncio
 import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from uuid import uuid4
 
 import pytest
 
@@ -34,6 +43,8 @@ pytestmark = [pytest.mark.performance, pytest.mark.slow]
 DEVICE_COUNT = 100
 COMMANDS_PER_DEVICE = 10
 BATCH_POINTS = 10
+# 与生产 configs/services/commander.yaml persistence_interval_ms=50 对齐。
+PERSISTENCE_INTERVAL = 0.05
 
 
 class _InstrumentedWriter(ThreadPoolExecutor):
@@ -65,7 +76,9 @@ async def test_dispatch_throughput_100_devices_real_sqlite(tmp_path) -> None:
     writer = _InstrumentedWriter()
     repository = writer.submit(lambda: EventRepository(tmp_path / "perf.db")).result()
     buffer = BufferedJournal()
-    worker = PersistenceWorker(buffer, repository, writer, interval=0.05, batch_size=500)
+    worker = PersistenceWorker(
+        buffer, repository, writer, interval=PERSISTENCE_INTERVAL, batch_size=500
+    )
 
     # 插桩：事务边界计数、每批事件数、事件生成→落盘延迟、内存队列最大积压。
     original_tx = repository._transaction
@@ -130,7 +143,9 @@ async def test_dispatch_throughput_100_devices_real_sqlite(tmp_path) -> None:
             )
             # 无 WRITE_MANY：同请求 10 点顺序走 write_one，等于 10 次现场写。
             t0 = time.perf_counter()
-            accepted = await executor.accept(list(specs), caller_id="perf")
+            accepted = await executor.accept(
+                list(specs), request_id=f"req-perf-{uuid4().hex}", caller_id="perf"
+            )
             await asyncio.gather(*(executor.wait(c.command_id) for c in accepted))
             latencies.append((time.perf_counter() - t0) * 1000)
         return latencies
@@ -199,10 +214,18 @@ async def test_dispatch_throughput_100_devices_real_sqlite(tmp_path) -> None:
     assert max(batches) <= 500
     assert terminal_metrics.accepted_total == total_commands
 
-    # 防回归地板：write-behind 现场路径必须显著优于同步基线
-    # （round6 396–413 批/s、P99 256–267ms）。设计目标 1000 批/s 以实测为准。
-    assert batches_per_second >= 500
-    assert p99 <= 200.0
+    # v1_22 RR-01 防回归地板（取代旧契约的 500 批/s、200ms）：
+    # 1) 受理速率不低于理论门禁 envelope（1/interval=20/s）的一半，防死锁/退化；
+    assert batches_per_second >= 0.5 / PERSISTENCE_INTERVAL
+    # 2) T1 落盘延迟被 flush 节奏有界（实测 p99≈52ms），fsync 未失控；
+    assert flush_p99 <= 100.0
+    # 3) 唯一 writer 线程无排队积压（fsync 不是瓶颈，插桩 p99 个位数毫秒）；
+    assert qwait_p99 <= 50.0
+    # 4) 合批持续生效：内存峰值远低于 batch 容量量级，无无界积压；
+    assert max_pending["value"] <= 1000
+    # 5) 活性上界：全局受理锁串行 + 门禁等待下，e2e p99 不得超过
+    #    “每受理一个 flush 周期”的理论串行预算的 1.5 倍（挂死检测器）。
+    assert p99 <= 1.5 * PERSISTENCE_INTERVAL * total_batches * 1000
 
 
 async def test_nominal_load(tmp_path) -> None:
@@ -210,23 +233,29 @@ async def test_nominal_load(tmp_path) -> None:
 
     与 test_dispatch_throughput_100_devices_real_sqlite 为同一负载、同一
     统计口径与同一防回归地板；此处不另设阈值、不改变负载（验收§3.3）。
-    UR-04/UR-05/UR-08 行中的外部批量 RPC 仍为 Contracts GAP，不计 PASS。
+    本用例经 QueuedExecutor 应用层装配施载，UR-05 外部批量 RPC 的 PASS
+    证据由 tests/commander/system/test_control_flow.py 与 tests/src/ 承担。
     """
     await test_dispatch_throughput_100_devices_real_sqlite(tmp_path)
 
 
-async def test_dispatch_throughput_survives_full_sqlite_outage_then_drains(tmp_path) -> None:
-    """故障矩阵性能口径：现场阶段 SQLite 全程不可用，恢复后批量补齐、无丢失。
+async def test_sqlite_outage_rejects_admission_then_drains_without_loss(tmp_path) -> None:
+    """故障矩阵性能口径（v1_22 §9.5.1）：故障期受理 fail-closed，恢复后零丢失。
 
-    测量：故障期间现场控制吞吐不被拖垮；内存积压严格小于容量上限；
-    恢复后全部事件幂等落盘（INSERT OR IGNORE + event_id UNIQUE）。
+    取代旧契约“故障期现场吞吐不受影响”——RR-01 要求 T1 COMMIT 先于
+    accepted=true：SQLite 全程不可用时，所有受理在 accept_timeout 处被拒、
+    零现场 I/O，保守 INTERRUPTED/NOT_SENT 事件滞留内存且积压有界；恢复后
+    新受理正常收敛，全部滞留事件幂等落盘（event_id UNIQUE + 重试），
+    无丢失、无重复。
     """
     import sqlite3
 
     writer = _InstrumentedWriter()
     repository = writer.submit(lambda: EventRepository(tmp_path / "perf_outage.db")).result()
     buffer = BufferedJournal()
-    worker = PersistenceWorker(buffer, repository, writer, interval=0.05, batch_size=500)
+    worker = PersistenceWorker(
+        buffer, repository, writer, interval=PERSISTENCE_INTERVAL, batch_size=500
+    )
 
     state = {"failing": True, "failed_batches": 0}
     original_append = repository.append_events
@@ -245,7 +274,8 @@ async def test_dispatch_throughput_survives_full_sqlite_outage_then_drains(tmp_p
         batches.append(len(events))
         return original_append(events)
 
-    control = CommandControl(repository, writer, buffer)
+    # 短门禁：故障期快速失败，避免等待生产默认 10s。
+    control = CommandControl(repository, writer, buffer, accept_timeout=0.3)
     max_pending = {"value": 0}
     stop_sampling = asyncio.Event()
 
@@ -256,7 +286,8 @@ async def test_dispatch_throughput_survives_full_sqlite_outage_then_drains(tmp_p
 
     sampler = asyncio.create_task(sample_backlog())
     worker.start()
-    sessions = {f"WT{i:03d}": FakeSession() for i in range(DEVICE_COUNT)}
+    outage_devices = 10
+    sessions = {f"WT{i:03d}": FakeSession() for i in range(outage_devices)}
     executor = build_executor(
         control,
         sessions,
@@ -269,28 +300,43 @@ async def test_dispatch_throughput_survives_full_sqlite_outage_then_drains(tmp_p
         write_timeout=3.0,
     )
 
-    async def run_device(device: str) -> None:
-        for _ in range(COMMANDS_PER_DEVICE):
+    rejected_commands = 0
+    started = time.perf_counter()
+    try:
+        # 故障期：每个设备一次受理尝试，必须全部门禁超时、零现场写入。
+        for device in sorted(sessions):
             specs = tuple(
                 make_spec(f"p{point}", device=device, value=float(point))
                 for point in range(BATCH_POINTS)
             )
-            accepted = await executor.accept(list(specs), caller_id="perf")
-            await asyncio.gather(*(executor.wait(c.command_id) for c in accepted))
+            with pytest.raises(TimeoutError):
+                await executor.accept(
+                    list(specs), request_id=f"req-perf-out-{uuid4().hex}", caller_id="perf"
+                )
+            rejected_commands += BATCH_POINTS
+        outage_elapsed = time.perf_counter() - started
+        assert executor.pending_commands() == 0
+        assert all(session.one_calls == [] for session in sessions.values())
+        # worker 健康面如实暴露失败，内存积压严格有界。
+        assert worker.failure is not None
+        assert state["failed_batches"] >= 1
+        assert 0 < max_pending["value"] < 100_000
 
-    started = time.perf_counter()
-    try:
-        await asyncio.gather(*(run_device(f"WT{i:03d}") for i in range(DEVICE_COUNT)))
+        # 恢复 SQLite：同栈新受理必须成功并真实走到终态。
+        state["failing"] = False
+        repository.append_events = counting_append
+        recovered_specs = tuple(
+            make_spec(f"p{point}", device="WT000", value=float(point))
+            for point in range(BATCH_POINTS)
+        )
+        recovered = await executor.accept(
+            list(recovered_specs), request_id=f"req-perf-rec-{uuid4().hex}", caller_id="perf"
+        )
+        recovered_results = await asyncio.gather(*(executor.wait(c.command_id) for c in recovered))
+        assert all(r is not None and r.state.value == "SUCCEEDED" for r in recovered_results)
     finally:
         blocked = await executor.close(grace_seconds=10.0)
         assert blocked == frozenset()
-    outage_elapsed = time.perf_counter() - started
-    # 故障期间：全部事件滞留内存，worker 健康面必须有失败记录。
-    assert worker.failure is not None
-    assert state["failed_batches"] >= 1
-    assert 0 < max_pending["value"] < 100_000
-    # 恢复 SQLite：替换计数包装并有界排空。
-    repository.append_events = counting_append
     assert await worker.stop(timeout=30.0)
     stop_sampling.set()
     await sampler
@@ -299,25 +345,26 @@ async def test_dispatch_throughput_survives_full_sqlite_outage_then_drains(tmp_p
     writer.submit(repository.close).result()
     writer.shutdown(wait=True)
 
-    total_commands = DEVICE_COUNT * COMMANDS_PER_DEVICE * BATCH_POINTS
-    total_batches = DEVICE_COUNT * COMMANDS_PER_DEVICE
-    expected_events = total_commands * 3 + DEVICE_COUNT
-    field_batches_per_second = total_batches / outage_elapsed
+    # 每个被拒受理在内存留下 T1 + INTERRUPTED 终态（每点 2 事件），
+    # 恢复后随新受理事件一起幂等落盘：无丢失、无重复。
+    expected_rejected_events = rejected_commands * 2
+    expected_recovered_events = BATCH_POINTS * 3 + 1  # T1/T2/T3 + CONNECTING
+    expected_events = expected_rejected_events + expected_recovered_events
     print(
         "\n[perf-outage] "
-        f"field_elapsed={outage_elapsed:.2f}s total_with_drain={total_elapsed:.2f}s "
-        f"field_batches/s={field_batches_per_second:.0f} "
-        f"failed_attempts={state['failed_batches']} max_backlog={max_pending['value']} "
-        f"drain_batches={len(batches)} events={sum(batches)}"
+        f"outage_phase={outage_elapsed:.2f}s total_with_drain={total_elapsed:.2f}s "
+        f"rejected_commands={rejected_commands} failed_attempts={state['failed_batches']} "
+        f"max_backlog={max_pending['value']} drain_batches={len(batches)} "
+        f"events={sum(batches)} expected={expected_events}"
     )
 
-    # 现场吞吐在 SQLite 全程故障下不得被持久化拖垮（防回归地板 500 批/s）。
-    assert field_batches_per_second >= 500
-    # 恢复后无丢失、无重复：30100 事件全部幂等落盘，终态全成功。
     assert sum(batches) == expected_events
     assert max(batches) <= 500
-    assert terminal_metrics.accepted_total == total_commands
-    assert dict(terminal_metrics.terminal_counts).get("SUCCEEDED") == total_commands
+    assert terminal_metrics.accepted_total == rejected_commands + BATCH_POINTS
+    terminal = dict(terminal_metrics.terminal_counts)
+    assert terminal.get("INTERRUPTED") == rejected_commands
+    assert terminal.get("SUCCEEDED") == BATCH_POINTS
+    assert not (set(terminal) - {"INTERRUPTED", "SUCCEEDED"})
 
 
 class _TimedSession(FakeSession):
@@ -375,7 +422,9 @@ async def test_command_latency_split_into_four_buckets(control, repository) -> N
         for i in range(count):
             t0 = time.perf_counter()
             accepted = await executor.accept(
-                [make_spec("p0", device=device, value=float(i))], caller_id="perf"
+                [make_spec("p0", device=device, value=float(i))],
+                request_id=f"req-perf-{uuid4().hex}",
+                caller_id="perf",
             )
             t1 = time.perf_counter()
             result = await executor.wait(accepted[0].command_id)

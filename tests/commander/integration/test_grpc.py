@@ -1,4 +1,4 @@
-"""§14.3 test_grpc.py：正式 Proto 下 14 RPC 真实注册/调用、真实 mTLS 与授权拒绝。
+"""§14.3 test_grpc.py：正式 Proto 下 16 RPC 真实注册/调用、真实 mTLS 与授权拒绝。
 
 所有用例经过 TCP 回环上的真实 TLS 1.3 握手（require_client_auth），不使用
 任何 gRPC 替身；服务端由 build_commander 组合根构造（真实配置树/SQLite/
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import grpc
 import pytest
@@ -37,7 +38,9 @@ ALL_RPC_NAMES = (
     "CommanderService.GetDevice",
     "CommanderService.ListPoints",
     "CommanderService.SubmitCommand",
+    "CommanderService.SubmitCommands",
     "CommanderService.GetCommandResult",
+    "CommanderService.GetRequestResult",
 )
 
 
@@ -116,6 +119,7 @@ async def test_reload_and_control_denied_for_query_only_caller(pki, grpc_stack) 
         point_id="power_demand",
         expected_revision="x",
         value=common_pb2.ScalarValue(double_value=1.0),
+        request_id=f"req-grpc-{uuid4().hex}",
     )
     await _aborts(commander.SubmitCommand(req, timeout=5), grpc.StatusCode.PERMISSION_DENIED)
 
@@ -137,25 +141,28 @@ async def test_reload_caller_cannot_submit_command(pki, grpc_stack) -> None:
         point_id="power_demand",
         expected_revision="x",
         value=common_pb2.ScalarValue(double_value=1.0),
+        request_id=f"req-grpc-{uuid4().hex}",
     )
     await _aborts(commander.SubmitCommand(req, timeout=5), grpc.StatusCode.PERMISSION_DENIED)
 
 
 # ---------------------------------------------------------------------------
-# 14 RPC 全注册、可调用（ops/deployer 组合覆盖全部权限域）
+# 16 RPC 全注册、可调用（ops/deployer 组合覆盖全部权限域）
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.normal
-async def test_all_fourteen_rpcs_registered_and_callable(pki, grpc_stack) -> None:
+async def test_all_sixteen_rpcs_registered_and_callable(pki, grpc_stack) -> None:
     common_ops, commander_ops = grpc_stack.stubs(pki, client="ops")
     common_dep, _commander_dep = grpc_stack.stubs(pki, client="deployer")
 
     caps = await common_ops.GetCapabilities(common_pb2.Empty(), timeout=5)
     assert tuple(caps.rpc_names) == ALL_RPC_NAMES
-    assert len(caps.rpc_names) == 14
+    assert len(caps.rpc_names) == 16
     assert "modbus" in tuple(caps.protocols)
     assert "single_point_control" in tuple(caps.features)
+    # v1_22：批次控制与请求级幂等能力必须随契约一起宣告。
+    assert {"batch_control", "request_idempotency"} <= set(caps.features)
 
     await common_ops.GetServiceInfo(common_pb2.Empty(), timeout=5)
     await common_ops.GetServiceStatus(common_pb2.Empty(), timeout=5)
@@ -231,12 +238,14 @@ async def test_all_fourteen_rpcs_registered_and_callable(pki, grpc_stack) -> Non
             point_id=writable.point_id,
             value=value,
             expected_revision=revision,
+            request_id=f"req-grpc-{uuid4().hex}",
         ),
         timeout=5,
     )
     assert submitted.accepted is True
     assert submitted.state == "ACCEPTED"
     assert submitted.command_id
+    assert submitted.request_id
     result = await commander_ops.GetCommandResult(
         commander_pb2.GetCommandResultRequest(command_id=submitted.command_id), timeout=5
     )
@@ -246,6 +255,14 @@ async def test_all_fourteen_rpcs_registered_and_callable(pki, grpc_stack) -> Non
     assert result.HasField("updated_at")
     # UNKNOWN 与 io_settled 是两个独立维度，字段必然存在（bool）。
     assert isinstance(result.io_settled, bool)
+
+    # 第 16 个 RPC GetRequestResult：按 request_id 聚合回查同一请求。
+    request_view = await commander_ops.GetRequestResult(
+        commander_pb2.GetRequestResultRequest(request_id=submitted.request_id),
+        timeout=5,
+    )
+    assert request_view.request_id == submitted.request_id
+    assert [item.command_id for item in request_view.commands] == [submitted.command_id]
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +300,7 @@ async def test_scalar_value_numeric_kinds_accept_on_int_point(pki, grpc_stack, f
             point_id=point,
             value=factory(),
             expected_revision=revision,
+            request_id=f"req-grpc-{uuid4().hex}",
         ),
         timeout=5,
     )
@@ -315,6 +333,7 @@ async def test_scalar_value_bool_string_decode_then_typed_by_point(
                 point_id=point,
                 value=factory(),
                 expected_revision=revision,
+                request_id=f"req-grpc-{uuid4().hex}",
             ),
             timeout=5,
         ),
@@ -336,6 +355,7 @@ async def test_scalar_value_double_accepts_on_real_float_point(pki, grpc_stack_m
             point_id="setpoint_power",
             value=common_pb2.ScalarValue(double_value=42.5),
             expected_revision=revision,
+            request_id=f"req-grpc-{uuid4().hex}",
         ),
         timeout=5,
     )
@@ -365,6 +385,7 @@ async def test_scalar_value_bytes_kind_rejected(pki, grpc_stack) -> None:
                 point_id=point,
                 value=common_pb2.ScalarValue(bytes_value=b"\x01"),
                 expected_revision=revision,
+                request_id=f"req-grpc-{uuid4().hex}",
             ),
             timeout=5,
         ),
@@ -383,6 +404,7 @@ async def test_scalar_value_unset_kind_rejected(pki, grpc_stack) -> None:
                 point_id="anything",
                 value=common_pb2.ScalarValue(),
                 expected_revision=revision,
+                request_id=f"req-grpc-{uuid4().hex}",
             ),
             timeout=5,
         ),
@@ -397,12 +419,22 @@ async def test_submit_boundary_validation(pki, grpc_stack) -> None:
     good_value = common_pb2.ScalarValue(double_value=1.0)
 
     async def expect_invalid(**kwargs: object) -> None:
+        # 每个边界用例自带合法 request_id，确保 INVALID_ARGUMENT 来自被测字段。
+        kwargs.setdefault("request_id", f"req-grpc-{uuid4().hex}")
         await _aborts(
             commander.SubmitCommand(commander_pb2.SubmitCommandRequest(**kwargs), timeout=5),
             grpc.StatusCode.INVALID_ARGUMENT,
         )
 
     await expect_invalid(device_id="", point_id=point, value=good_value, expected_revision=revision)
+    # 空白 request_id 必须在业务校验前被拒（RR-01 请求级身份强制）。
+    await expect_invalid(
+        device_id=device,
+        point_id=point,
+        value=good_value,
+        expected_revision=revision,
+        request_id="   ",
+    )
     await expect_invalid(
         device_id=device, point_id="", value=good_value, expected_revision=revision
     )

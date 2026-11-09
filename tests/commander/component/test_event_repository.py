@@ -61,7 +61,7 @@ def test_accept_persists_batch_with_shared_request_and_ordered_seq(repo: EventRe
     assert accepted[0].command_id != accepted[1].command_id
     assert accepted[0].receive_seq == 1
     assert accepted[1].receive_seq == 2
-    results = repo.get_request(accepted[0].request_id)
+    results = repo.get_request(accepted[0].request_id, "operator-1")
     assert [result.command.spec.point_id for result in results] == ["a", "b"]
     got = _must(repo.get(accepted[0].command_id))
     assert got is not None
@@ -116,12 +116,19 @@ def test_illegal_transition_rolls_back_and_keeps_repository_usable(repo: EventRe
     assert _must(repo.get(command.command_id)).state is CommandState.CONNECTING
 
 
-def test_recover_after_executing_is_unknown_never_not_sent(repo: EventRepository) -> None:
+def test_recover_all_unfinished_commands_are_conservatively_unknown(
+    repo: EventRepository,
+) -> None:
+    """v1_22 §9.5：所有无 COMPLETED 的受理一律 UNKNOWN/UNKNOWN，绝不判 NOT_SENT。
+
+    缓冲 T2 可能在崩溃前已触发物理 I/O，缺持久 T2 不证明未发送；
+    已见 EXECUTING、仅 ACCEPTED、仅 CONNECTING 三种未完结形态同规则保守裁决。
+    """
     # T2 已落盘：崩溃恢复必须 UNKNOWN，绝不假定未发送。
     t2 = seed_accept(repo, [_spec()], caller_id="op")[0]
     seed_transition(repo, t2.command_id, CommandState.CONNECTING)
     seed_transition(repo, t2.command_id, CommandState.EXECUTING)
-    # 更早阶段崩溃：ACCEPTED / CONNECTING -> INTERRUPTED / NOT_SENT。
+    # 更早阶段崩溃：仅 ACCEPTED 与仅 CONNECTING，同样不得判 NOT_SENT。
     accepted_only = seed_accept(repo, [_spec(point="b")], caller_id="op")[0]
     connecting = seed_accept(repo, [_spec(point="c")], caller_id="op")[0]
     seed_transition(repo, connecting.command_id, CommandState.CONNECTING)
@@ -142,15 +149,10 @@ def test_recover_after_executing_is_unknown_never_not_sent(repo: EventRepository
         connecting.command_id,
     }
 
-    t2_result = _must(repo.get(t2.command_id))
-    assert t2_result.state is CommandState.UNKNOWN
-    assert t2_result.outcome is CommandOutcome.UNKNOWN
-    early = _must(repo.get(accepted_only.command_id))
-    assert early.state is CommandState.INTERRUPTED
-    assert early.outcome is CommandOutcome.NOT_SENT
-    mid = _must(repo.get(connecting.command_id))
-    assert mid.state is CommandState.INTERRUPTED
-    assert mid.outcome is CommandOutcome.NOT_SENT
+    for unfinished in (t2, accepted_only, connecting):
+        result = _must(repo.get(unfinished.command_id))
+        assert result.state is CommandState.UNKNOWN
+        assert result.outcome is CommandOutcome.UNKNOWN
     # 恢复幂等：第二次没有待决命令。
     assert repo.recover() == ()
     done = _must(repo.get(finished.command_id))
@@ -187,8 +189,8 @@ def test_each_submission_creates_fresh_request_per_rr02(repo: EventRepository) -
     assert first[0].receive_seq == 1
     assert second[0].receive_seq == 2
     # 两个请求可分别按 request_id 查询。
-    first_members = repo.get_request(first[0].request_id)
-    second_members = repo.get_request(second[0].request_id)
+    first_members = repo.get_request(first[0].request_id, "op")
+    second_members = repo.get_request(second[0].request_id, "op")
     assert [c.command.command_id for c in first_members] == [first[0].command_id]
     assert [c.command.command_id for c in second_members] == [second[0].command_id]
     # 仓储接口不再暴露任何调用方幂等键能力。
@@ -314,9 +316,9 @@ def test_cleanup_keeps_unpublished_or_unfinished_requests(tmp_path: Path) -> Non
 
 def test_buffered_admission_reserves_terminal_event_capacity() -> None:
     buffer = BufferedJournal(maximum_events=4)
-    buffer.accept([_spec()], caller_id="operator")
+    buffer.accept([_spec()], caller_id="operator", request_id="req-capacity-1")
     with pytest.raises(OverflowError, match="persistence queue full"):
-        buffer.accept([_spec()], caller_id="operator")
+        buffer.accept([_spec()], caller_id="operator", request_id="req-capacity-2")
 
 
 def test_flock_rejects_second_process_owner(tmp_path: Path) -> None:
@@ -379,7 +381,7 @@ async def test_command_control_maps_service_boundaries(
     worker.start()
     try:
         control = CommandControl(repo, sqlite_writer, buffer)
-        command = (await control.accept([_spec()], caller_id="op"))[0]
+        command = (await control.accept([_spec()], caller_id="op", request_id="req-boundary-1"))[0]
         await control.connecting(command.command_id)
         await control.executing(command.command_id)
         await control.complete(
@@ -402,14 +404,15 @@ async def test_command_control_maps_service_boundaries(
         sqlite_writer.submit(repo.close).result()
 
 
-async def test_control_accept_is_memory_synchronous_even_when_writer_blocked(
+async def test_control_accept_times_out_fail_closed_when_writer_blocked(
     tmp_path: Path, sqlite_writer: ThreadPoolExecutor
 ) -> None:
-    """write-behind 新契约：T1 不等待 SQLite。
+    """v1_22 RR-01：T1 必须先 durable，writer 不可用时受理在门禁超时后 fail-closed。
 
-    旧测试要求“writer 队列中的 T1 不可取消、必落盘”；新架构下 T1 在
-    loop 内存中同步完成——即使唯一 writer 线程被占死，accept 立即返回、
-    内存可查；落盘是后台 worker 的职责，崩溃允许丢失未落盘事件。
+    唯一 writer 线程被占死时，wait_persisted 不可能完成；accept 在
+    accept_timeout 处抛 TimeoutError，并在内存留下保守 INTERRUPTED/NOT_SENT
+    （PERSISTENCE_TIMEOUT）终态。调用方拿不到 accepted 受理，也就无法
+    调度任何现场 I/O——取代旧契约“T1 内存同步、不等 SQLite”。
     """
     import threading
 
@@ -420,13 +423,22 @@ async def test_control_accept_is_memory_synchronous_even_when_writer_blocked(
     ).result()
     release = threading.Event()
     sqlite_writer.submit(lambda: release.wait(2.0))  # 占住唯一 writer 线程
+    buffer = BufferedJournal()
     try:
-        control = CommandControl(repo, sqlite_writer, BufferedJournal())
+        control = CommandControl(repo, sqlite_writer, buffer, accept_timeout=0.3)
         started = time.perf_counter()
-        command = (await control.accept([_spec()], caller_id="op"))[0]
-        assert time.perf_counter() - started < 0.05  # 不经过 writer 线程
-        result = _must(await control.get_command(command.command_id))
-        assert result.state is CommandState.ACCEPTED
+        with pytest.raises(TimeoutError):
+            await control.accept([_spec()], caller_id="op", request_id="req-boundary-2")
+        elapsed = time.perf_counter() - started
+        assert 0.3 <= elapsed < 1.0
+        # 保守终态已写入内存缓冲（writer 恢复后随 worker 落盘）。
+        pending_ids = {event["command_id"] for event in buffer.snapshot(500)}
+        cached = [buffer.get_cached(cid) for cid in pending_ids]
+        assert len(cached) == 1
+        assert cached[0] is not None
+        assert cached[0].state is CommandState.INTERRUPTED
+        assert cached[0].outcome is CommandOutcome.NOT_SENT
+        assert cached[0].error_code == "PERSISTENCE_TIMEOUT"
     finally:
         release.set()
         sqlite_writer.submit(repo.close).result()

@@ -12,9 +12,10 @@ import json
 import subprocess
 import time
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
+from uuid import uuid4
 
 import nats
 import pytest
@@ -173,7 +174,12 @@ async def test_audit_delivery_over_real_jetstream_drains_outbox_in_order(
     delivery = AuditDelivery(repo, transport, writer, retry_base=0.1, retry_max=1.0)
 
     def seed() -> None:
-        command = seed_accept(repo, [CommandSpec("WT01", "p", 3.5, "ref-v1")], caller_id="ops")[0]
+        command = seed_accept(
+            repo,
+            [CommandSpec("WT01", "p", 3.5, "ref-v1")],
+            request_id=f"req-nats-{uuid4().hex}",
+            caller_id="ops",
+        )[0]
         seed_transition(repo, command.command_id, CommandState.CONNECTING)
         seed_transition(repo, command.command_id, CommandState.EXECUTING)
         seed_transition(
@@ -211,9 +217,14 @@ async def test_volatile_events_are_never_published_before_durable_flush(
 ) -> None:
     """两种可靠性分层：未落盘事件绝不发布；落盘后 outbox 才投递 JetStream。
 
-    用 60s interval 的 worker 冻结后台落盘：命令在内存中走完终态后，
-    JetStream 必须零消息；显式排空后四个事件才按序到达。
+    v1_22 RR-01 下 T1 必须先 COMMIT 才能受理成功，因此无法再用“冻结全部
+    落盘”制造零消息窗口。改用确定性 append 闸：首个落盘批次（必为纯 T1，
+    现场 I/O 在 COMMIT 前不可能发生）直通；第二个批次起在唯一 writer 线程
+    内阻塞。于是 T2/T3 走完内存终态仍保持 volatile；审计发箱在闸放行前不
+    启动，JetStream 窗口内必须零消息。放行并排空后启动发箱，四事件按序到齐。
     """
+    import threading
+
     from commander.application.control import CommandControl
     from commander.application.persistence import BufferedJournal, PersistenceWorker
     from commander.application.queued_executor import QueuedExecutor
@@ -226,18 +237,49 @@ async def test_volatile_events_are_never_published_before_durable_flush(
 
     from ..component.conftest import FakeSession, build_executor, make_spec
 
+    class _AppendGate:
+        """首批次直通，其后阻塞在唯一 writer 线程直到 release()。"""
+
+        def __init__(self, repository: EventRepository) -> None:
+            self._original = repository.append_events
+            self._release = threading.Event()
+            self.calls = 0
+            self.first_batch_types: list[str] = []
+            object.__setattr__(repository, "append_events", self)
+
+        def __call__(self, events: Sequence[dict[str, Any]]) -> None:
+            self.calls += 1
+            if self.calls == 1:
+                # RR-01 证据：现场 I/O 在 T1 COMMIT 前不可能发生，
+                # 首批次必须且只能包含 ACCEPTED。
+                self.first_batch_types = [str(event["event_type"]) for event in events]
+            else:
+                # 阻塞发生在 writer 线程；绝不能在事件循环线程上等待本事件。
+                assert self._release.wait(timeout=30.0), "append gate never released"
+            self._original(events)
+
+        async def wait_second_blocked(self) -> None:
+            deadline = time.monotonic() + 5.0
+            while self.calls < 2 and time.monotonic() < deadline:
+                await asyncio.sleep(0.01)
+            assert self.calls >= 2, "second flush never reached gate"
+
+        def release(self) -> None:
+            self._release.set()
+
     nc, stream, subject, url = jetstream
     js = nc.jetstream(timeout=5)
     writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="it-sqlite")
     repo = writer.submit(lambda: EventRepository(tmp_path / "volatile.db")).result()
     buffer = BufferedJournal()
-    # 超大 interval：测试期间后台绝不可能自行 flush。
-    persistence = PersistenceWorker(buffer, repo, writer, interval=60.0, batch_size=500)
+    # 短合并窗口：T1 快速落盘以满足 RR-01 门禁；T2/T3 由 append 闸确定性冻结。
+    persistence = PersistenceWorker(buffer, repo, writer, interval=0.02, batch_size=500)
     control = CommandControl(repo, writer, buffer)
     transport = NatsAuditTransport([url], stream=stream, subject=subject)
     delivery = AuditDelivery(repo, transport, writer, retry_base=0.1, retry_max=1.0)
+    gate = _AppendGate(repo)
     persistence.start()
-    delivery.start()
+    # 发箱延迟到闸放行后启动：保证零消息窗口是确定性的而非调度竞态。
 
     class _OkSession(FakeSession):
         def capabilities(self) -> frozenset[ProtocolCapability]:
@@ -248,15 +290,25 @@ async def test_volatile_events_are_never_published_before_durable_flush(
 
     executor: QueuedExecutor = build_executor(control, {"WT01": _OkSession()})
     try:
-        accepted = await executor.accept([make_spec(device="WT01")], caller_id="ops")
+        accepted = await executor.accept(
+            [make_spec(device="WT01")], request_id=f"req-nats-{uuid4().hex}", caller_id="ops"
+        )
         await asyncio.gather(*(executor.wait(c.command_id) for c in accepted))
-        # 内存已终态但全部未落盘：给足 outbox 轮询窗口，JetStream 必须零消息。
+        # RR-01：首个落盘批次纯 T1，现场写入只能发生在它 COMMIT 之后。
+        assert gate.first_batch_types == ["ACCEPTED"]
+        # 内存已终态；等第二个落盘批次（T2/T3）在闸上阻塞，事件保持 volatile。
+        await gate.wait_second_blocked()
+        assert buffer.pending_count == 3
+        # 发箱尚未启动且唯一 writer 被闸占用：JetStream 必须零消息，
+        # volatile 的 T2/T3 不存在任何发布路径。
         await asyncio.sleep(0.6)
         with pytest.raises(asyncio.TimeoutError):
             await _drain_probe(js, stream, subject)
-        # 显式有界排空：落盘后 outbox 投递，四事件按序到达。
+        # 放行闸并显式有界排空：剩余事件落盘后再启动发箱，outbox 按序投递。
+        gate.release()
         assert await persistence.stop(timeout=10.0)
         assert buffer.pending_count == 0
+        delivery.start()
         for _ in range(300):
             if not writer.submit(repo.pending_events, 100).result():
                 break
@@ -265,6 +317,7 @@ async def test_volatile_events_are_never_published_before_durable_flush(
             pytest.fail("volatile-flush outbox did not drain")
         assert await delivery.stop(timeout=5.0)
     finally:
+        gate.release()
         if delivery.operational:
             await delivery.stop(timeout=5.0)
         await executor.close()
@@ -363,7 +416,9 @@ async def test_mixed_result_serial_batch_audit_events_complete_ordered_unique(
 
     delivery.start()
     accepted = await executor.accept(
-        [make_spec(f"p{i}", device="WT01") for i in range(4)], caller_id="ops"
+        [make_spec(f"p{i}", device="WT01") for i in range(4)],
+        request_id=f"req-nats-{uuid4().hex}",
+        caller_id="ops",
     )
     try:
         await asyncio.gather(

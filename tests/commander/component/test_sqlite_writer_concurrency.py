@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from concurrent.futures import Executor, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 
@@ -92,7 +93,13 @@ async def test_concurrent_accepts_across_devices_all_durable_and_settled(
     async def run_device(device: str) -> list[AcceptedCommand]:
         accepted: list[AcceptedCommand] = []
         for _ in range(per_device):
-            accepted.extend(await executor.accept([make_spec(device=device)], caller_id="stress"))
+            accepted.extend(
+                await executor.accept(
+                    [make_spec(device=device)],
+                    request_id=f"req-swc-{uuid4().hex}",
+                    caller_id="stress",
+                )
+            )
         return accepted
 
     try:
@@ -147,31 +154,43 @@ def _fail_append_for(repo: EventRepository, *, fail_calls: int | None = None) ->
     return state
 
 
-async def test_sqlite_outage_keeps_field_control_running_and_retries_in_order(
+async def test_transient_sqlite_outage_blocks_admission_until_commit_then_settles_in_order(
     control, repository, sqlite_writer, buffer, persistence
 ) -> None:
-    """SQLite 暂时不可用：已接收命令照常执行；快照保留、恢复后按序落盘不重复。
+    """SQLite 暂时不可用（v1_22 RR-01）：受理阻塞到 T1 COMMIT，恢复后按序落盘不重复。
 
-    取代旧契约"SQLite 故障即 fail-closed"——write-behind 下现场链路不得
-    被持久化阻塞；worker 失败必须对外可见（failure/DEGRADED 由服务层观测）。
+    accept 在 wait_persisted 处等待后台 worker 重试成功；返回保证 T1 已 durable，
+    之后现场链路才允许写入。worker 失败对外可见（failure/DEGRADED 由服务层观测），
+    快照保留、重试幂等；故障恢复后全部事件按序落盘、event_id 无重复。
     """
     fault = _fail_append_for(repository, fail_calls=5)
     session = FakeSession()
     executor = build_executor(control, {"WT01": session})
-    accepted = await executor.accept([make_spec()], caller_id="op")
+    started = time.monotonic()
+    accepted = await executor.accept(
+        [make_spec()], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+    )
+    # RR-01：受理返回经历了 worker 失败重试（5 个失败批次 × interval），
+    # 且返回时刻 T1 必须已经 durable——现场 I/O 不可能先于 COMMIT 发生。
+    assert time.monotonic() - started >= 0.05
+    durable = sqlite_writer.submit(repository.get, accepted[0].command_id).result()
+    assert durable is not None and durable.state is CommandState.ACCEPTED
     # 内存终态立即可查，现场写入真实发生，执行器不进入 fatal。
     result = await wait_for_result(executor, accepted[0])
     try:
         assert result.state is CommandState.SUCCEEDED
         assert session.one_calls == ["setpoint"]
         assert executor.operational is True
-        # 故障期间 worker 如实暴露失败，事件滞留在内存。
-        deadline = time.monotonic() + 2.0
-        while persistence.failure is None and time.monotonic() < deadline:
-            await asyncio.sleep(0.01)
-        assert persistence.failure is not None
-        # 新受理不受 SQLite 故障影响。
-        accepted2 = await executor.accept([make_spec(point="p2")], caller_id="op")
+        # 受理能返回本身说明 worker 经历了完整失败-重试序列：故障闸计数为证，
+        # 恢复后 worker.failure 已清除（瞬时故障的终态）。
+        assert fault["failed_batches"] == 5
+        assert persistence.failure is None
+        # 故障恢复后的新受理：同样先 durable 再返回，正常收敛。
+        accepted2 = await executor.accept(
+            [make_spec(point="p2")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+        )
+        durable2 = sqlite_writer.submit(repository.get, accepted2[0].command_id).result()
+        assert durable2 is not None and durable2.state is CommandState.ACCEPTED
         result2 = await wait_for_result(executor, accepted2[0])
         assert result2.state is CommandState.SUCCEEDED
     finally:
@@ -196,7 +215,9 @@ async def test_sqlite_outage_keeps_field_control_running_and_retries_in_order(
 
 def test_buffer_transition_batch_atomic_when_one_member_illegal(buffer) -> None:
     """内存 T2 批量必须原子：一个成员转移非法，整批不更新、不追加事件。"""
-    accepted = buffer.accept([make_spec("p1"), make_spec("p2")], caller_id="op")
+    accepted = buffer.accept(
+        [make_spec("p1"), make_spec("p2")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+    )
     pending_before = buffer.pending_count
     buffer.transition(accepted[0].command_id, CommandState.CONNECTING)
     with pytest.raises(Exception):  # noqa: B017, BLE001
@@ -222,7 +243,9 @@ def test_repository_append_events_atomic_rollback_on_invalid_event(
     repository, sqlite_writer, buffer
 ) -> None:
     """Write-behind batch rolls back completely if a later event violates SQLite schema."""
-    accepted = buffer.accept([make_spec("p1"), make_spec("p2")], caller_id="op")
+    accepted = buffer.accept(
+        [make_spec("p1"), make_spec("p2")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+    )
     sqlite_writer.submit(repository.append_events, buffer.snapshot(100)).result()
     valid = {
         "event_id": "valid-connecting-event",
@@ -290,7 +313,9 @@ async def test_memory_t2_is_recorded_before_any_native_write(
         max_batch_points=10,
     )
     accepted = await executor.accept(
-        [make_spec("p1"), make_spec("p2"), make_spec("p3")], caller_id="op"
+        [make_spec("p1"), make_spec("p2"), make_spec("p3")],
+        request_id=f"req-swc-{uuid4().hex}",
+        caller_id="op",
     )
     accepted_ids.update({c.spec.point_id: c.command_id for c in accepted})
     try:
@@ -310,40 +335,56 @@ async def test_memory_t2_is_recorded_before_any_native_write(
     }
 
 
-async def test_terminal_decisions_settle_in_memory_under_sqlite_outage(
+async def test_persistent_sqlite_outage_rejects_admission_without_field_io(
     control, repository, sqlite_writer, buffer, persistence
 ) -> None:
-    """旧契约"T3 事务故障 fail-closed"的迁移：现场已写则内存如实终态。
+    """SQLite 长期不可用（v1_22 §9.5.1）：持久化门禁超时 fail-closed，零现场写入。
 
-    落盘长期失败期间，调用方必须立即拿到正确终态、现场只写一次；
-    SQLite 恢复后落盘终态与内存一致。
+    accept 在 accept_timeout 内等不到 T1 COMMIT 即抛 TimeoutError，不注册设备
+    队列、不产生任何现场 I/O；保守 INTERRUPTED/NOT_SENT（PERSISTENCE_TIMEOUT）
+    终态事件滞留内存。worker 失败对外可见；SQLite 恢复后滞留事件幂等落盘，
+    持久层终态与内存裁决一致。
     """
     fault = _fail_append_for(repository)  # 默认持续失败，显式恢复前一直不可用
+    gated = CommandControl(repository, sqlite_writer, buffer, accept_timeout=0.3)
     session = FakeSession(
         capabilities=frozenset(
             {ProtocolCapability.READ, ProtocolCapability.WRITE, ProtocolCapability.WRITE_MANY}
         )
     )
-    executor = build_executor(control, {"WT01": session}, max_batch_points=10)
-    accepted = await executor.accept([make_spec("p1"), make_spec("p2")], caller_id="op")
-    results = await asyncio.gather(*(executor.wait(c.command_id) for c in accepted))
-    assert results
-    settled = [r for r in results if r is not None]
-    assert len(settled) == len(results)
+    executor = build_executor(gated, {"WT01": session}, max_batch_points=10)
     try:
-        assert {r.state for r in settled} == {CommandState.SUCCEEDED}
-        assert session.many_calls == [("p1", "p2")]
+        with pytest.raises(TimeoutError):
+            await executor.accept(
+                [make_spec("p1"), make_spec("p2")],
+                request_id=f"req-swc-{uuid4().hex}",
+                caller_id="op",
+            )
+        # 门禁拒绝：无队列条目、无任何现场会话写入，执行器仍可观测。
+        assert executor.pending_commands() == 0
+        assert session.many_calls == []
+        assert session.one_calls == []
         assert executor.operational is True
-        # 事件全部滞留内存：终态可查、缓存未被提前回收。
-        memory = {c.command_id: buffer.get_cached(c.command_id).state for c in accepted}
-        assert set(memory.values()) == {CommandState.SUCCEEDED}
-        # 恢复 SQLite：worker 下一轮重试成功，停机排空。
-        fault["restore"]()
+        # 故障期间 worker 如实暴露失败。
+        deadline = time.monotonic() + 2.0
+        while persistence.failure is None and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        assert persistence.failure is not None
     finally:
+        fault["restore"]()
         await executor.close()
+    # 恢复 SQLite：滞留的 T1 + 保守终态事件幂等落盘。
     await flush_buffer(buffer, persistence)
     metrics = sqlite_writer.submit(repository.metrics).result()
-    assert dict(metrics.terminal_counts).get("SUCCEEDED") == 2
+    assert metrics.accepted_total == 2
+    terminal = dict(metrics.terminal_counts)
+    assert terminal.get("INTERRUPTED") == 2
+    rows = sqlite_writer.submit(
+        lambda: repository._db.execute(
+            "SELECT DISTINCT outcome, error_code FROM command_events " "WHERE state='INTERRUPTED'"
+        ).fetchall()
+    ).result()
+    assert rows == [("NOT_SENT", "PERSISTENCE_TIMEOUT")]
 
 
 async def test_queue_timer_racing_t2_reaches_terminal_then_durable(
@@ -360,10 +401,16 @@ async def test_queue_timer_racing_t2_reaches_terminal_then_durable(
             connect_timeout=1.0,
             write_timeout=1.0,
         )
-        accepted_a = await executor.accept([make_spec(device="A")], caller_id="op")
+        accepted_a = await executor.accept(
+            [make_spec(device="A")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+        )
         accepted_bs: list[AcceptedCommand] = []
         for _ in range(2):
-            accepted_bs.extend(await executor.accept([make_spec(device="B")], caller_id="op"))
+            accepted_bs.extend(
+                await executor.accept(
+                    [make_spec(device="B")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+                )
+            )
         await asyncio.sleep(0.004 * round_no)
         all_accepted = accepted_a + tuple(accepted_bs)
         results = await asyncio.gather(
@@ -396,7 +443,11 @@ async def test_close_settles_memory_terminals_then_drain_makes_them_durable(
     )
     accepted: list[AcceptedCommand] = []
     for i in range(8):
-        accepted.extend(await executor.accept([make_spec(device=f"D{i}")], caller_id="op"))
+        accepted.extend(
+            await executor.accept(
+                [make_spec(device=f"D{i}")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+            )
+        )
     await asyncio.sleep(0.01)
     blocked = await executor.close(grace_seconds=5.0)
     assert blocked == frozenset()
@@ -434,10 +485,20 @@ async def test_repeated_accepts_under_worker_flush_preserve_fifo(
     sessions = {"slow": GateSession(), "fast": GateSession()}
     executor = build_executor(control, sessions, global_capacity=max_concurrency)
     slow = [
-        (await executor.accept([make_spec(f"s{i}", device="slow")], caller_id="op"))[0]
+        (
+            await executor.accept(
+                [make_spec(f"s{i}", device="slow")],
+                request_id=f"req-swc-{uuid4().hex}",
+                caller_id="op",
+            )
+        )[0]
         for i in range(4)
     ]
-    fast = (await executor.accept([make_spec("f0", device="fast")], caller_id="op"))[0]
+    fast = (
+        await executor.accept(
+            [make_spec("f0", device="fast")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+        )
+    )[0]
     try:
         results = await asyncio.gather(*(executor.wait(c.command_id) for c in [*slow, fast]))
     finally:
@@ -469,9 +530,13 @@ async def test_terminal_outcome_mapping_consistent_for_all_settlement_paths(
         connect_timeout=1.0,
         write_timeout=5.0,
     )
-    first = await executor.accept([make_spec(device="d1")], caller_id="op")
+    first = await executor.accept(
+        [make_spec(device="d1")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+    )
     await asyncio.sleep(0.02)
-    second = await executor.accept([make_spec(device="d2")], caller_id="op")
+    second = await executor.accept(
+        [make_spec(device="d2")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+    )
     expired = await wait_for_result(executor, second[0], timeout=2.0)
     assert expired.state is CommandState.EXPIRED
     assert expired.outcome is CommandOutcome.NOT_SENT
@@ -513,7 +578,9 @@ async def test_serial_batch_mixed_confirmed_outcomes_recorded_per_point(
     )
     executor = build_executor(control, {"WT01": session}, max_batch_points=10)
     accepted = await executor.accept(
-        [make_spec("p0"), make_spec("p1"), make_spec("p2")], caller_id="op"
+        [make_spec("p0"), make_spec("p1"), make_spec("p2")],
+        request_id=f"req-swc-{uuid4().hex}",
+        caller_id="op",
     )
     raw_results = await asyncio.gather(*(executor.wait(c.command_id) for c in accepted))
     results: list[CommandResult] = []
@@ -565,6 +632,7 @@ async def test_serial_batch_midpoint_exception_keeps_earlier_confirmed_evidence(
     executor = build_executor(control, {"WT01": session}, max_batch_points=10)
     accepted = await executor.accept(
         [make_spec("p0"), make_spec("p1"), make_spec("p2"), make_spec("p3")],
+        request_id=f"req-swc-{uuid4().hex}",
         caller_id="op",
     )
     await asyncio.gather(
@@ -638,7 +706,9 @@ async def test_serial_batch_failure_matrix_per_point_adjudication(
     session = _ScriptedPointSession(script)
     executor = build_executor(control, {"WT01": session}, max_batch_points=10, write_timeout=2.0)
     points = ["p0", "p1", "p2"]
-    accepted = await executor.accept([make_spec(point) for point in points], caller_id="op")
+    accepted = await executor.accept(
+        [make_spec(point) for point in points], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+    )
     await asyncio.gather(
         *(executor.wait(c.command_id) for c in accepted),
         return_exceptions=True,
@@ -699,7 +769,9 @@ async def test_serial_batch_returned_unknown_matrix(
     session = _ScriptedPointSession(script)
     executor = build_executor(control, {"WT01": session}, max_batch_points=10)
     points = ["p0", "p1", "p2"]
-    accepted = await executor.accept([make_spec(point) for point in points], caller_id="op")
+    accepted = await executor.accept(
+        [make_spec(point) for point in points], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+    )
     await asyncio.gather(
         *(executor.wait(c.command_id) for c in accepted),
         return_exceptions=True,
@@ -740,7 +812,9 @@ async def test_serial_batch_write_timeout_marks_unsettled_suffix_unknown_without
     session = _HangThenResumeSession()
     executor = build_executor(control, {"WT01": session}, max_batch_points=10, write_timeout=0.3)
     accepted = await executor.accept(
-        [make_spec("p0"), make_spec("p1"), make_spec("p2")], caller_id="op"
+        [make_spec("p0"), make_spec("p1"), make_spec("p2")],
+        request_id=f"req-swc-{uuid4().hex}",
+        caller_id="op",
     )
     try:
         await asyncio.gather(
@@ -791,7 +865,9 @@ async def test_serial_batch_returned_unknown_outcome_suffix_is_not_sent(
     )
     executor = build_executor(control, {"WT01": session}, max_batch_points=10)
     accepted = await executor.accept(
-        [make_spec("p0"), make_spec("p1"), make_spec("p2")], caller_id="op"
+        [make_spec("p0"), make_spec("p1"), make_spec("p2")],
+        request_id=f"req-swc-{uuid4().hex}",
+        caller_id="op",
     )
     await asyncio.gather(
         *(executor.wait(c.command_id) for c in accepted),
@@ -810,7 +886,9 @@ async def test_serial_batch_returned_unknown_outcome_suffix_is_not_sent(
 
 
 def _seed_durable_chain(repo: EventRepository, *, executing: bool) -> str:
-    accepted = seed_accept(repo, [make_spec("p1")], caller_id="op")
+    accepted = seed_accept(
+        repo, [make_spec("p1")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+    )
     command_id = accepted[0].command_id
     seed_transition(repo, command_id, CommandState.CONNECTING)
     if executing:
@@ -819,15 +897,19 @@ def _seed_durable_chain(repo: EventRepository, *, executing: bool) -> str:
 
 
 def _seed_accepted_only(repo: EventRepository) -> str:
-    return seed_accept(repo, [make_spec("p2")], caller_id="op")[0].command_id
+    return seed_accept(
+        repo, [make_spec("p2")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+    )[0].command_id
 
 
-async def test_recover_executing_is_unknown_and_accepted_only_is_interrupted(
+async def test_recover_without_t2_evidence_is_conservatively_unknown(
     tmp_path, sqlite_writer
 ) -> None:
-    """崩溃恢复两分支：durable EXECUTING→UNKNOWN；仅 durable ACCEPTED→INTERRUPTED。
+    """崩溃恢复保守裁决：durable EXECUTING 与仅 durable ACCEPTED 均为 UNKNOWN。
 
-    两种情况下都绝不重发现场命令（recover 只写终态事件）。
+    Commander v1_22 §9.5：缓冲 T2 可能在崩溃前已触发物理 I/O，缺失持久 T2
+    不证明未发送，禁止裁决 NOT_SENT；两种情况下都绝不重发现场命令
+    （recover 只写终态事件）。
     """
     db_path = tmp_path / "recover.db"
     repo = sqlite_writer.submit(lambda: EventRepository(db_path)).result()
@@ -849,8 +931,8 @@ async def test_recover_executing_is_unknown_and_accepted_only_is_interrupted(
         accepted_result = sqlite_writer.submit(reopen.get, accepted_id).result()
         assert executing_result.state is CommandState.UNKNOWN
         assert executing_result.outcome is CommandOutcome.UNKNOWN
-        assert accepted_result.state is CommandState.INTERRUPTED
-        assert accepted_result.outcome is CommandOutcome.NOT_SENT
+        assert accepted_result.state is CommandState.UNKNOWN
+        assert accepted_result.outcome is CommandOutcome.UNKNOWN
     finally:
         sqlite_writer.submit(reopen.close).result()
 
@@ -858,11 +940,17 @@ async def test_recover_executing_is_unknown_and_accepted_only_is_interrupted(
 async def test_crash_before_flush_loses_volatile_events_without_replay(
     tmp_path, sqlite_writer
 ) -> None:
-    """异常崩溃允许丢失未落盘事件：重开后库里没有该命令，也绝不重发。"""
+    """T1 门禁下崩溃语义：未落盘即受理超时，无现场 I/O；重开后空库且绝不重发。
+
+    Commander v1_22 RR-01/§9.5.1：accepted=true 前必须等到 T1 COMMIT。
+    超长 worker 周期 + 短 accept_timeout 使持久化门禁超时，受理以
+    TimeoutError 失败且不注册设备队列；模拟 SIGKILL 后 volatile 事件丢失，
+    重开库为空、recover 无裁决、现场从未被写入。
+    """
     db_path = tmp_path / "crash.db"
     repo = sqlite_writer.submit(lambda: EventRepository(db_path)).result()
     buffer = BufferedJournal()
-    # 超长周期：受理后 worker 来不及任何落盘即"进程崩溃"。
+    # 超长周期：受理超时前 worker 不可能完成任何落盘。
     worker = PersistenceWorker(buffer, repo, sqlite_writer, interval=60.0, batch_size=500)
     worker.start()
     physical: list[str] = []
@@ -872,18 +960,24 @@ async def test_crash_before_flush_loses_volatile_events_without_replay(
             physical.append(write.point)
             return await super().write_one(write)
 
-    control = CommandControl(repo, sqlite_writer, buffer)
+    control = CommandControl(repo, sqlite_writer, buffer, accept_timeout=0.3)
     executor = build_executor(control, {"WT01": CrashSession()})
-    accepted = await executor.accept([make_spec()], caller_id="op")
-    await executor.wait(accepted[0].command_id)
-    # 模拟进程被 SIGKILL：不排空、直接取消 worker，关闭仓储。
-    assert worker._task is not None
-    worker._task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await worker._task
-    assert buffer.pending_count == 4  # 4 个事件全部滞留内存
-    await executor.close()
-    sqlite_writer.submit(repo.close).result()
+    try:
+        with pytest.raises(TimeoutError):
+            await executor.accept(
+                [make_spec()], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+            )
+        # 持久化门禁失败：命令从未进入设备队列，现场零写入。
+        assert executor.pending_commands() == 0
+        # 模拟进程被 SIGKILL：不排空、直接取消 worker，关闭仓储。
+        assert worker._task is not None
+        worker._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await worker._task
+        assert buffer.pending_count > 0  # 事件全部滞留内存并随进程丢失
+    finally:
+        await executor.close()
+        sqlite_writer.submit(repo.close).result()
 
     # 重启：库里无该命令；recover 返回空；现场未被任何人重发。
     reopen = sqlite_writer.submit(lambda: EventRepository(db_path)).result()
@@ -892,7 +986,7 @@ async def test_crash_before_flush_loses_volatile_events_without_replay(
         assert sqlite_writer.submit(reopen.metrics).result().accepted_total == 0
     finally:
         sqlite_writer.submit(reopen.close).result()
-    assert physical == ["setpoint"]
+    assert physical == []
 
 
 def test_invalid_buffer_and_worker_configuration_rejected() -> None:
@@ -910,44 +1004,50 @@ def test_invalid_buffer_and_worker_configuration_rejected() -> None:
         PersistenceWorker(BufferedJournal(), dummy_journal, dummy_executor, batch_size=0)
 
 
-async def test_queue_full_rejects_new_commands_but_accepted_ones_terminate(
+async def test_persistent_sqlite_outage_fails_admission_closed_without_field_io(
     repository, sqlite_writer
 ) -> None:
-    """容量预留 + SQLite 长期不可用：队列满拒新、已受理命令终结不被阻塞、内存有界。
+    """SQLite 长期不可用：持久化门禁超时拒新准入，零现场写入，内存严格有界。
 
-    用极小容量（每命令预留 4 事件）直接构造 buffer/control/executor；
-    append_events 永久失败模拟长期故障，排除后台排空造成的竞态。
+    v1_22 RR-01/§9.5.1：T1 COMMIT 先于 accepted=true。append_events 永久
+    失败时所有受理在 accept_timeout 处失败、不注册设备队列；保守 INTERRUPTED
+    终态事件滞留内存，worker 失败对外可见，不存在无界积压。纯缓冲容量
+    OverflowError 路径由 test_event_repository 容量用例独立覆盖。
     """
     fault = _fail_append_for(repository)  # 不恢复：长期不可用
-    tiny = BufferedJournal(maximum_events=8)  # 仅够 2 个命令的全生命周期
+    tiny = BufferedJournal(maximum_events=8)  # 极小容量，暴露任何无界增长
     worker = PersistenceWorker(tiny, repository, sqlite_writer, interval=0.02, batch_size=500)
     worker.start()
-    tiny_control = CommandControl(repository, sqlite_writer, tiny)
+    tiny_control = CommandControl(repository, sqlite_writer, tiny, accept_timeout=0.3)
     sessions = {"WT01": FakeSession(), "WT02": FakeSession()}
     executor = build_executor(tiny_control, sessions, max_batch_points=10)
     try:
-        first = await executor.accept(
-            [make_spec("p0", device="WT01"), make_spec("p1", device="WT02")],
-            caller_id="op",
-        )
-        # 容量耗尽（8/8：T1 已入 pending，每命令余 3 预留）：新命令必须被拒。
-        with pytest.raises(OverflowError):
-            await executor.accept([make_spec("p2", device="WT01")], caller_id="op")
-        # 已受理两命令正常走到终态（预留容量保证 T2/T3 入队），现场不被 SQLite 阻塞。
-        results = await asyncio.gather(*(executor.wait(c.command_id) for c in first))
-        assert results and all(r is not None for r in results)
-        assert {r.state for r in results if r is not None} == {CommandState.SUCCEEDED}
-        assert tiny.pending_count == 8
-        # 等过 worker 周期：失败对健康可见、事件原样保留、无丢失无无限增长。
+        with pytest.raises(TimeoutError):
+            await executor.accept(
+                [make_spec("p0", device="WT01"), make_spec("p1", device="WT02")],
+                request_id=f"req-swc-{uuid4().hex}",
+                caller_id="op",
+            )
+        # 持久化门禁失败：无队列条目、无现场会话写入。
+        assert executor.pending_commands() == 0
+        assert all(session.one_calls == [] for session in sessions.values())
+        # 等过 worker 周期：失败对健康可见、事件原样保留。
         deadline = time.monotonic() + 1.0
         while worker.failure is None and time.monotonic() < deadline:
             await asyncio.sleep(0.01)
         assert worker.failure is not None
         assert fault["failed_batches"] >= 1
-        assert tiny.pending_count == 8
-        # 长期故障下内存严格有界：再来的受理一律拒绝，不存在无界积压。
-        with pytest.raises(OverflowError):
-            await executor.accept([make_spec("p3", device="WT01")], caller_id="op")
+        bounded = tiny.pending_count
+        assert 0 < bounded <= 8
+        # 长期故障下后续受理同样 fail-closed，内存不增长（同 specs 被幂等门禁拦截
+        # 或在持久化门禁处超时），不存在无界积压。
+        with pytest.raises((TimeoutError, FileExistsError)):
+            await executor.accept(
+                [make_spec("p2", device="WT01")],
+                request_id=f"req-swc-{uuid4().hex}",
+                caller_id="op",
+            )
+        assert tiny.pending_count <= 8
     finally:
         fault["restore"]()
         await executor.close()
@@ -972,7 +1072,11 @@ async def test_batch_threshold_flushes_back_to_back_without_interval_wait(
     try:
         # 同步灌入 8 个 T1 事件；worker 协程在这些同步调用之间无法插入。
         for index in range(8):
-            buffer.accept([CommandSpec("WT01", f"p{index}", 1.0, "ref")], caller_id="op")
+            buffer.accept(
+                [CommandSpec("WT01", f"p{index}", 1.0, "ref")],
+                request_id=f"req-swc-{uuid4().hex}",
+                caller_id="op",
+            )
         started = time.monotonic()
         while buffer.pending_count and time.monotonic() - started < 2.0:
             await asyncio.sleep(0.005)
@@ -1007,7 +1111,9 @@ async def test_stop_interrupts_coalescing_window_without_waiting_interval(
     """停机必须立即中断合并窗口：排空耗时不得绑定 interval 本身。"""
     worker = PersistenceWorker(buffer, repository, sqlite_writer, interval=5.0, batch_size=500)
     worker.start()
-    buffer.accept([CommandSpec("WT01", "p1", 1.0, "ref")], caller_id="op")
+    buffer.accept(
+        [CommandSpec("WT01", "p1", 1.0, "ref")], request_id=f"req-swc-{uuid4().hex}", caller_id="op"
+    )
     await asyncio.sleep(0.05)  # 确保 worker 已进入 5s 合并等待。
     started = time.monotonic()
     assert await worker.stop(timeout=5.0)

@@ -100,9 +100,10 @@ def test_reopen_restores_full_command_history(repo: EventRepository) -> None:
 
 @pytest.mark.recovery
 @pytest.mark.exception
-def test_recover_executing_to_unknown_and_accepted_to_interrupted(
+def test_recover_missing_t2_evidence_is_conservatively_unknown(
     repo: EventRepository,
 ) -> None:
+    """Commander v1_22 §9.5：缺持久 T2 不证明未发送，两类未完结命令均裁决 UNKNOWN。"""
     executing = seed_accept(repo, [_spec("a")], caller_id="ops")
     seed_transition(repo, executing[0].command_id, CommandState.CONNECTING)
     seed_transition(repo, executing[0].command_id, CommandState.EXECUTING)
@@ -117,10 +118,12 @@ def test_recover_executing_to_unknown_and_accepted_to_interrupted(
         first = reopened.get(executing[0].command_id)
         second = reopened.get(accepted_only[0].command_id)
         assert first is not None and second is not None
+        # 已见 EXECUTING：可能已写入，保守 UNKNOWN。
         assert first.state is CommandState.UNKNOWN
         assert first.outcome is CommandOutcome.UNKNOWN
-        assert second.state is CommandState.INTERRUPTED
-        assert second.outcome is CommandOutcome.NOT_SENT
+        # 仅有 ACCEPTED：缓冲 T2 可能在崩溃前已触发物理 I/O，同样不得判 NOT_SENT。
+        assert second.state is CommandState.UNKNOWN
+        assert second.outcome is CommandOutcome.UNKNOWN
         # 恢复幂等：第二次没有新裁决。
         assert reopened.recover() == ()
     finally:
@@ -146,7 +149,7 @@ def test_batch_with_check_violation_rolls_back_entire_commit(
 ) -> None:
     """ON CONFLICT DO NOTHING 只吞唯一冲突；CHECK 违约必须整批回滚。"""
     buffer = BufferedJournal()
-    buffer.accept([_spec()], caller_id="ops")
+    buffer.accept([_spec()], caller_id="ops", request_id="req-check-violation")
     events = buffer.snapshot(500)
     repo.append_events(events)
     before = _row_count(repo)
@@ -171,14 +174,16 @@ def test_batch_with_check_violation_rolls_back_entire_commit(
 def test_replaying_same_batch_is_idempotent(repo: EventRepository) -> None:
     """worker 重试（同一 event_id 集合）不得产生重复行。"""
     buffer = BufferedJournal()
-    commands = buffer.accept([_spec("a"), _spec("b")], caller_id="ops")
+    commands = buffer.accept(
+        [_spec("a"), _spec("b")], caller_id="ops", request_id="req-replay-idempotent"
+    )
     events = buffer.snapshot(500)
     repo.append_events(events)
     repo.append_events([dict(item) for item in events])  # 模拟重试重投
     rows = _row_count(repo)
     repo.append_events([dict(item) for item in events])
     assert _row_count(repo) == rows
-    request = repo.get_request(commands[0].request_id)
+    request = repo.get_request(commands[0].request_id, "ops")
     assert len(request) == 2
 
 
