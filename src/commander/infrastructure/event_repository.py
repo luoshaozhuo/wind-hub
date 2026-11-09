@@ -72,6 +72,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ce_accept_once
     ON command_events(command_id) WHERE event_type='ACCEPTED';
 CREATE UNIQUE INDEX IF NOT EXISTS ce_terminal_once
     ON command_events(command_id) WHERE event_type='COMPLETED';
+CREATE UNIQUE INDEX IF NOT EXISTS ce_request_once
+    ON command_events(caller_id,request_id)
+    WHERE event_type='ACCEPTED'
+      AND json_extract(detail_json, '$.request_index')=0;
 CREATE INDEX IF NOT EXISTS ce_command_seq ON command_events(command_id,event_seq DESC);
 CREATE INDEX IF NOT EXISTS ce_request_query
     ON command_events(request_id,event_seq) WHERE event_type='ACCEPTED';
@@ -265,6 +269,30 @@ class EventRepository:
 
         def write() -> None:
             self._allow_write_behind_flush()
+            accepted: dict[tuple[str, str], list[dict[str, Any]]] = {}
+            for event in events:
+                if event.get("event_type") == "ACCEPTED":
+                    key = (str(event["caller_id"]), str(event["request_id"]))
+                    accepted.setdefault(key, []).append(event)
+            for (caller_id, request_id), incoming in accepted.items():
+                existing = self._db.execute(
+                    "SELECT command_id,detail_json FROM command_events "
+                    "WHERE caller_id=? AND request_id=? AND event_type='ACCEPTED' "
+                    "ORDER BY receive_seq",
+                    (caller_id, request_id),
+                ).fetchall()
+                if existing:
+                    command_ids = [str(item["command_id"]) for item in incoming]
+                    stored_ids = [str(row[0]) for row in existing]
+                    incoming_hash = json.loads(str(incoming[0]["detail_json"])).get(
+                        "request_fingerprint"
+                    )
+                    stored_hashes = {
+                        json.loads(str(row[1] or "{}")).get("request_fingerprint")
+                        for row in existing
+                    }
+                    if stored_ids != command_ids or stored_hashes != {incoming_hash}:
+                        raise RepositoryError("request_id already accepted with other content")
             self._db.executemany(
                 statement,
                 [tuple(event.get(column) for column in columns) for event in events],
