@@ -321,6 +321,7 @@ class CommandForwarder:
             value=encode_scalar(event.value),
             expires_at=deadline,
             expected_revision=device_revision,
+            request_id=event.event_id,
         )
         self._record(
             ForwardRecord(
