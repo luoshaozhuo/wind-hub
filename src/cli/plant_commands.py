@@ -240,13 +240,10 @@ def gateway_update(
                     "UpdateVariables result incomplete; outcome UNKNOWN; do not retry"
                 )
             actual = [
-                item.get("variable_id") if isinstance(item, dict) else None
-                for item in results
+                item.get("variable_id") if isinstance(item, dict) else None for item in results
             ]
             if actual != variable_ids:
-                raise TimeoutError(
-                    "UpdateVariables result mismatch; outcome UNKNOWN; do not retry"
-                )
+                raise TimeoutError("UpdateVariables result mismatch; outcome UNKNOWN; do not retry")
         except BaseException as exc:
             update_error = exc
         finally:

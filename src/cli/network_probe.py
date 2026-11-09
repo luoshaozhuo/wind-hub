@@ -9,7 +9,11 @@ from typing import Any
 
 from core.infrastructure.diagnostic.network import (
     ping_host,
+)
+from core.infrastructure.diagnostic.network import (
     ping_probe as core_ping_probe,
+)
+from core.infrastructure.diagnostic.network import (
     tcp_probe as core_tcp_probe,
 )
 
@@ -81,7 +85,13 @@ async def scan_cidr(
                 "latency_ms": round((time.monotonic() - started) * 1000, 2),
             }
 
-    results = await asyncio.gather(*(probe(host) for host in hosts))
+    results = await asyncio.gather(
+        *(
+            probe(host)
+            for host in hosts
+            if isinstance(host, ipaddress.IPv4Address | ipaddress.IPv6Address)
+        )
+    )
     return {
         "network": str(network),
         "scanned": len(results),

@@ -122,7 +122,9 @@ class SharedDocumentLoader:
             else self._paths.instances / "devices.yaml"
         )
         site = (
-            read_stable_document(site_path) if self._paths.load_site else {"site_id": "shared", "name": "Shared"}
+            read_stable_document(site_path)
+            if self._paths.load_site
+            else {"site_id": "shared", "name": "Shared"}
         )
         return self._load_documents(site, devices_path)
 
