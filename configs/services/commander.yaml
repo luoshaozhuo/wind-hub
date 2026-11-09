@@ -30,6 +30,7 @@ dispatcher:
   max_pending_per_device: 10
   max_pending_global: 1000
   max_batch_size: 10
+  max_request_id_bytes: 128
 
 repository:
   sqlite_path: "/var/lib/wind-hub/commander/events.db"
