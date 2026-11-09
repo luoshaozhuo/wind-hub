@@ -168,6 +168,8 @@ class QueuedExecutor:
                 raise OverflowError("batch point limit exceeded")
             counts: dict[str, int] = defaultdict(int)
             for spec in commands:
+                if spec.expires_at is not None and spec.expires_at <= datetime.now(UTC):
+                    raise ValueError("expires_at is in the past")
                 if spec.device_id in self._reloading or spec.device_id in self._blocked:
                     raise RuntimeError("device unavailable for control")
                 if not self._authorize(spec):
