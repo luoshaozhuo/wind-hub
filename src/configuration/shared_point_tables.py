@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from math import isfinite
 from typing import Any
 
@@ -33,13 +33,13 @@ _POINT_FIELDS = {
 
 
 def _map(value: Any, context: str) -> Mapping[str, Any]:
-    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
         raise ConfigError(f"{context} must be a mapping with string keys")
     return value
 
 
-def _list(value: Any, context: str) -> list[Any]:
-    if not isinstance(value, list):
+def _list(value: Any, context: str) -> Sequence[Any]:
+    if not isinstance(value, list | tuple):
         raise ConfigError(f"{context} must be a list")
     return value
 
