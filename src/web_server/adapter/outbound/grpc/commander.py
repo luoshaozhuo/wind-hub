@@ -242,6 +242,7 @@ class CommanderGrpcClient(GrpcClientBase):
             point_id=command.point_id,
             value=_encode_scalar(command.value),
             expected_revision=revision,
+            request_id=command.command_id,
         )
         request.expires_at.FromDatetime(expires)
         try:
