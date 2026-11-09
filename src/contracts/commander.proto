@@ -18,10 +18,13 @@ message SubmitCommandRequest {
   string device_id = 1; string point_id = 2;
   windhub.common.v1.ScalarValue value = 3;
   google.protobuf.Timestamp expires_at = 4; string expected_revision = 5;
+  // Required by Commander for durable request-level idempotency.
+  string request_id = 6;
 }
 message SubmitCommandResponse {
   string command_id = 1; bool accepted = 2; string state = 3;
   string outcome = 4; string error_code = 5; string message = 6;
+  string request_id = 7;
 }
 message GetCommandResultRequest { string command_id = 1; }
 message GetCommandResultResponse {
@@ -30,10 +33,42 @@ message GetCommandResultResponse {
   string point_id = 7; google.protobuf.Timestamp updated_at = 8;
   bool io_settled = 9;
 }
+// Batch acceptance is atomic; physical execution is independently reported per item.
+message CommandItem {
+  string device_id = 1;
+  string point_id = 2;
+  windhub.common.v1.ScalarValue value = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  string expected_revision = 5;
+}
+message SubmitCommandsRequest {
+  // Required unique idempotency key within the authenticated caller and instance.
+  string request_id = 1;
+  // Nonempty; order determines the command_ids and result ordering.
+  repeated CommandItem commands = 2;
+}
+message SubmitCommandsResponse {
+  string request_id = 1;
+  bool accepted = 2;
+  repeated string command_ids = 3;
+  string state = 4;
+  string error_code = 5;
+  string message = 6;
+}
+message GetRequestResultRequest { string request_id = 1; }
+message GetRequestResultResponse {
+  string request_id = 1;
+  string state = 2;
+  repeated GetCommandResultResponse commands = 3;
+  google.protobuf.Timestamp updated_at = 4;
+  bool io_settled = 5;
+}
 service CommanderService {
   rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
   rpc GetDevice(windhub.common.v1.ObjectId) returns (GetDeviceResponse);
   rpc ListPoints(ListPointsRequest) returns (ListPointsResponse);
   rpc SubmitCommand(SubmitCommandRequest) returns (SubmitCommandResponse);
+  rpc SubmitCommands(SubmitCommandsRequest) returns (SubmitCommandsResponse);
   rpc GetCommandResult(GetCommandResultRequest) returns (GetCommandResultResponse);
+  rpc GetRequestResult(GetRequestResultRequest) returns (GetRequestResultResponse);
 }
