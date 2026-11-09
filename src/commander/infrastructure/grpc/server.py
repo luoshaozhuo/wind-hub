@@ -344,12 +344,12 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
 
     async def GetCommandResult(self, request: Any, context: Any) -> Any:
         started = perf_counter()
-        await self._boundary.require(context, "query")
+        caller = await self._boundary.require(context, "query")
         try:
             if not request.command_id:
                 raise ValueError("command_id is required")
             result = await self._boundary.service.control.get_command(request.command_id)
-            if result is None:
+            if result is None or result.command.caller_id != caller:
                 raise KeyError(request.command_id)
             return self._command_result(result)
         except Exception as exc:
