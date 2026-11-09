@@ -18,13 +18,13 @@ def parse_business_points(
     if set(raw) != {"business_points"}:
         raise ConfigError("business_points.yaml requires only 'business_points' root")
     entries = raw["business_points"]
-    if not isinstance(entries, dict):
+    if not isinstance(entries, Mapping):
         raise ConfigError("business_points must be a mapping keyed by business point ID")
     points: dict[BusinessPointId, BusinessPoint] = {}
     for identity, value in entries.items():
         if not isinstance(identity, str) or not identity.strip() or identity != identity.strip():
             raise ConfigError("business point IDs must be non-empty trimmed strings")
-        if not isinstance(value, dict) or set(value) - {"data_type", "unit", "description"}:
+        if not isinstance(value, Mapping) or set(value) - {"data_type", "unit", "description"}:
             raise ConfigError(f"invalid business point '{identity}' fields")
         try:
             data_type = DataType(value["data_type"])
