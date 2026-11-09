@@ -38,6 +38,7 @@ _AUTHORITATIVE_REJECTIONS = frozenset(
         grpc.StatusCode.NOT_FOUND,
         grpc.StatusCode.OUT_OF_RANGE,
         grpc.StatusCode.UNIMPLEMENTED,
+        grpc.StatusCode.ALREADY_EXISTS,
     }
 )
 
