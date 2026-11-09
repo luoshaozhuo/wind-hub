@@ -173,14 +173,18 @@ def gateway_read(gateway_id: str, variable_ids: list[str] = typer.Argument(...))
 def gateway_update(
     gateway_id: str,
     updates: list[str] = typer.Argument(..., help="variable_id=typed_value"),
+    owner_id: str = typer.Option(..., "--owner-id", help="Authorized lease owner identity."),
+    lease_ms: int = typer.Option(30000, "--lease-ms", min=1),
     yes: bool = typer.Option(False, "--yes"),
 ) -> None:
-    """Update Gateway-owned variables; no industrial control command is sent."""
+    """Update Gateway-owned variables under a server-authorized target lease."""
     from .main import _run, runtime
     from .safety import confirm_mutation
     from .scalar_value import parse_json_scalar
 
     try:
+        if not owner_id.strip():
+            raise ValueError("--owner-id must be non-empty")
         values: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in updates:
@@ -201,23 +205,79 @@ def gateway_update(
     )
 
     async def update() -> dict[str, Any]:
-        response = await invoke(
-            runtime(),
+        ctx = runtime()
+        variable_ids = [item["variable_id"] for item in values]
+        lease = await invoke(
+            ctx,
             "gateway",
-            "UpdateVariables",
-            {"gateway_id": gateway_id, "values": values},
+            "ClaimTargets",
+            {
+                "gateway_id": gateway_id,
+                "owner_id": owner_id,
+                "variable_ids": variable_ids,
+                "action": "ACQUIRE",
+                "lease_ms": lease_ms,
+            },
         )
-        results = response.get("results")
-        if not isinstance(results, list) or len(results) != len(values):
-            raise TimeoutError(
-                "UpdateVariables result incomplete; write outcome UNKNOWN; do not retry"
+        token = lease.get("lease_token")
+        if lease.get("accepted") is not True or not isinstance(token, str) or not token:
+            raise PermissionError(
+                f"Gateway denied target lease: {lease.get('error_code', 'DENIED')}"
             )
-        expected = [item["variable_id"] for item in values]
-        actual = [item.get("variable_id") if isinstance(item, dict) else None for item in results]
-        if actual != expected:
-            raise TimeoutError(
-                "UpdateVariables result mismatch; write outcome UNKNOWN; do not retry"
+
+        response: dict[str, Any] | None = None
+        update_error: BaseException | None = None
+        try:
+            response = await invoke(
+                ctx,
+                "gateway",
+                "UpdateVariables",
+                {"gateway_id": gateway_id, "values": values, "lease_token": token},
             )
+            results = response.get("results")
+            if not isinstance(results, list) or len(results) != len(values):
+                raise TimeoutError(
+                    "UpdateVariables result incomplete; outcome UNKNOWN; do not retry"
+                )
+            actual = [
+                item.get("variable_id") if isinstance(item, dict) else None
+                for item in results
+            ]
+            if actual != variable_ids:
+                raise TimeoutError(
+                    "UpdateVariables result mismatch; outcome UNKNOWN; do not retry"
+                )
+        except BaseException as exc:
+            update_error = exc
+        finally:
+            try:
+                released = await invoke(
+                    ctx,
+                    "gateway",
+                    "ClaimTargets",
+                    {
+                        "gateway_id": gateway_id,
+                        "owner_id": owner_id,
+                        "variable_ids": variable_ids,
+                        "action": "RELEASE",
+                        "lease_token": token,
+                    },
+                )
+                if released.get("accepted") is not True:
+                    raise RuntimeError(
+                        "Gateway lease release not confirmed: "
+                        f"{released.get('error_code', 'UNKNOWN')}"
+                    )
+            except Exception as release_exc:
+                if update_error is not None:
+                    raise RuntimeError(
+                        "Gateway update outcome UNKNOWN and lease release unconfirmed; "
+                        "do not retry"
+                    ) from release_exc
+                raise
+        if update_error is not None:
+            raise update_error
+        assert response is not None
         return response
 
     _run("gateway update", update())
