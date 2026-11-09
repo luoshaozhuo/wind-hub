@@ -67,6 +67,10 @@ class ResolvedTemplate:
     content_hash: str
     document: Mapping[str, Any]
 
+    def __post_init__(self) -> None:
+        """Detach the validated template from all mutable source mappings."""
+        object.__setattr__(self, "document", freeze_document(self.document))
+
 
 class VersionedTemplateRepository:
     """仅访问预定义类别下的精确版本文件，绝不回退到最新版。"""
@@ -96,5 +100,5 @@ class VersionedTemplateRepository:
             reference=reference,
             path=path,
             content_hash=config_hash(document),
-            document=freeze_document(document),
+            document=document,
         )
