@@ -230,8 +230,6 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
             if item.HasField("expires_at")
             else None
         )
-        if expires is not None and expires <= datetime.now(UTC):
-            raise ValueError("expires_at is in the past")
         return CommandSpec(
             device_id=item.device_id,
             point_id=item.point_id,
