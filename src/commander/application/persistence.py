@@ -22,6 +22,7 @@ from commander.domain.command import (
     CommandResult,
     CommandSpec,
     CommandState,
+    request_fingerprint,
     utc_now,
     validate_transition,
 )
@@ -101,6 +102,7 @@ class BufferedJournal:
         # Reserve T1, optional CONNECTING, T2 and T3 for every command.
         self._capacity(4 * len(specs))
         encoded = [json.dumps(spec.value, allow_nan=False) for spec in specs]
+        fingerprint = request_fingerprint(specs)
         now = utc_now()
         accepted: list[AcceptedCommand] = []
         for spec, value in zip(specs, encoded, strict=True):
@@ -131,7 +133,10 @@ class BufferedJournal:
                     "receive_seq": self._sequence,
                     "state": CommandState.ACCEPTED.value,
                     "detail_json": json.dumps(
-                        {"expires_at": spec.expires_at.isoformat() if spec.expires_at else None}
+                        {
+                            "expires_at": spec.expires_at.isoformat() if spec.expires_at else None,
+                            "request_fingerprint": fingerprint,
+                        }
                     ),
                 }
             )
