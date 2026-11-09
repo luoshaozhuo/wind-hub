@@ -337,13 +337,13 @@ class EventRepository:
             datetime.fromisoformat(last[1]),
         )
 
-    def get_request(self, request_id: str) -> tuple[CommandResult, ...]:
+    def get_request(self, request_id: str, caller_id: str) -> tuple[CommandResult, ...]:
         """Return every accepted child in durable receive order."""
         with self._lock:
             rows = self._db.execute(
                 "SELECT command_id FROM command_events WHERE request_id=? "
-                "AND event_type='ACCEPTED' ORDER BY receive_seq",
-                (request_id,),
+                "AND caller_id=? AND event_type='ACCEPTED' ORDER BY receive_seq",
+                (request_id, caller_id),
             ).fetchall()
         results = (self.get(command_id) for (command_id,) in rows)
         return tuple(result for result in results if result is not None)
