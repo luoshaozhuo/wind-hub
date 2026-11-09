@@ -1,12 +1,17 @@
-"""Local one-shot ICMP and TCP probes with strict concurrency bounds."""
+"""Bounded CLI network probes using Core's shared diagnostic primitives."""
 
 from __future__ import annotations
 
 import asyncio
 import ipaddress
-import platform
 import time
 from typing import Any
+
+from core.infrastructure.diagnostic.network import (
+    ping_host,
+    ping_probe as core_ping_probe,
+    tcp_probe as core_tcp_probe,
+)
 
 MAX_HOSTS = 4096
 MAX_CONCURRENCY = 256
@@ -22,25 +27,12 @@ INDUSTRIAL_PORTS = {
 
 async def tcp_probe(host: str, port: int, timeout: float = 1.0) -> dict[str, Any]:
     ipaddress.ip_address(host)
-    if not 1 <= port <= 65535:
-        raise ValueError("port must be in 1..65535")
-    if not 0 < timeout <= 30:
-        raise ValueError("timeout must be in (0, 30]")
-    start = time.monotonic()
-    try:
-        _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
-        writer.close()
-        await asyncio.wait_for(writer.wait_closed(), timeout)
-        status = "OPEN"
-    except TimeoutError:
-        status = "TIMEOUT"
-    except OSError:
-        status = "CLOSED"
+    result = await core_tcp_probe(host, port, timeout=timeout)
     return {
         "host": host,
         "port": port,
-        "tcp_state": status,
-        "latency_ms": round((time.monotonic() - start) * 1000, 2),
+        "tcp_state": "OPEN" if result.status.value == "PASS" else "CLOSED",
+        "latency_ms": round(float(result.measurements.get("connect_ms", 0)), 2),
     }
 
 
@@ -70,51 +62,18 @@ async def scan_cidr(
         raise ValueError("timeout must be in (0, 30]")
     hosts = list(network.hosts())
     semaphore = asyncio.Semaphore(concurrency)
-    option = "-n" if platform.system() == "Windows" else "-c"
-    wait_option = "-w" if platform.system() == "Windows" else "-W"
-    wait_value = (
-        str(int(timeout * 1000)) if platform.system() == "Windows" else str(max(1, int(timeout)))
-    )
 
     async def probe(host: ipaddress.IPv4Address | ipaddress.IPv6Address) -> dict[str, Any]:
         async with semaphore:
             started = time.monotonic()
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    "ping",
-                    option,
-                    "1",
-                    wait_option,
-                    wait_value,
-                    str(host),
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                )
-                try:
-                    await asyncio.wait_for(process.wait(), timeout + 1.0)
-                except TimeoutError:
-                    process.kill()
-                    await process.wait()
-                except asyncio.CancelledError:
-                    process.kill()
-                    await process.wait()
-                    raise
-                status = "UP" if process.returncode == 0 else "NO_RESPONSE"
-            except FileNotFoundError as exc:
-                raise RuntimeError("system ping executable not found") from exc
+            up = await ping_host(str(host), timeout=timeout)
             return {
                 "ip": str(host),
-                "status": status,
+                "status": "UP" if up else "NO_RESPONSE",
                 "latency_ms": round((time.monotonic() - started) * 1000, 2),
             }
 
-    results = await asyncio.gather(
-        *(
-            probe(host)
-            for host in hosts
-            if isinstance(host, ipaddress.IPv4Address | ipaddress.IPv6Address)
-        )
-    )
+    results = await asyncio.gather(*(probe(host) for host in hosts))
     return {
         "network": str(network),
         "scanned": len(results),
@@ -124,16 +83,11 @@ async def scan_cidr(
 
 
 async def ping_probe(host: str, timeout: float = 1.0) -> dict[str, Any]:
-    """Run a single bounded ICMP probe against a validated IP literal."""
-    address = ipaddress.ip_address(host)
-    prefix = 32 if address.version == 4 else 128
-    outcome = await scan_cidr(
-        f"{address}/{prefix}",
-        timeout=timeout,
-        concurrency=1,
-        max_hosts=1,
-    )
-    if len(outcome["results"]) != 1:
-        raise RuntimeError("unexpected ping result count")
-    result: dict[str, Any] = outcome["results"][0]
-    return result
+    """Probe one literal host through the shared Core ICMP implementation."""
+    ipaddress.ip_address(host)
+    result = await core_ping_probe(host, count=1, timeout=timeout)
+    return {
+        "ip": host,
+        "status": "UP" if result.status.value == "PASS" else "NO_RESPONSE",
+        "latency_ms": round(float(result.measurements.get("rtt_avg_ms", 0)), 2),
+    }
