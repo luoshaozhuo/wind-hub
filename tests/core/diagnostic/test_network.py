@@ -154,7 +154,31 @@ async def test_tcp_probe_closed_port_is_fail() -> None:
     probe = await network.tcp_probe("127.0.0.1", 1, timeout=0.5)
 
     assert probe.status is DiagnosticStatus.FAIL
-    assert probe.findings[0].code == "TCP_CONNECT_FAILED"
+    # Core v1_29: refused is distinct from timeout and other transport failures.
+    assert probe.findings[0].code == "TCP_CONNECT_REFUSED"
+    assert "connect_ms" in probe.measurements
+
+
+@pytest.mark.parametrize(
+    ("exc", "code"),
+    [
+        (TimeoutError(), "TCP_CONNECT_TIMEOUT"),
+        (ConnectionRefusedError(), "TCP_CONNECT_REFUSED"),
+        (OSError("network unreachable"), "TCP_CONNECT_FAILED"),
+    ],
+)
+async def test_tcp_probe_distinguishes_failure_codes(
+    monkeypatch: pytest.MonkeyPatch, exc: OSError, code: str
+) -> None:
+    async def fake_open_connection(host: str, port: int) -> tuple[object, object]:
+        raise exc
+
+    monkeypatch.setattr(network.asyncio, "open_connection", fake_open_connection)
+
+    probe = await network.tcp_probe("127.0.0.1", 80, timeout=0.5)
+
+    assert probe.status is DiagnosticStatus.FAIL
+    assert probe.findings[0].code == code
     assert "connect_ms" in probe.measurements
 
 

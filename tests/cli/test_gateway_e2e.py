@@ -22,9 +22,27 @@ def _path(server: Any, method: str) -> str:
     return server.method_path("IndustrialGatewayService", method)
 
 
+def _install_lease(server: Any, *, token: str = "lease-token-1") -> None:
+    """Fake the real Gateway lease RPC: ACQUIRE issues a token, RELEASE confirms."""
+
+    async def on_claim(request: Any, context: Any) -> Any:
+        if request.action == "ACQUIRE":
+            return gw_pb2.ClaimTargetsResponse(accepted=True, lease_token=token)
+        if request.action == "RELEASE" and request.lease_token == token:
+            return gw_pb2.ClaimTargetsResponse(accepted=True)
+        return gw_pb2.ClaimTargetsResponse(accepted=False, error_code="INVALID_CLAIM")
+
+    server.respond(_path(server, "ClaimTargets"), on_claim)
+
+
+def _claim_paths(server: Any) -> list[str]:
+    return [c.path for c in server.calls if c.path.endswith("/ClaimTargets")]
+
+
 def test_gateway_closed_loop_list_update_read(cli_env: Any) -> None:
     """UC-10-S01：列表→读→批量更新（部分成功）→再读，真实进程真实链路。"""
     server = cli_env.server
+    _install_lease(server)
     server.respond_value(
         _path(server, "ListVariables"),
         gw_pb2.ListVariablesResponse(
@@ -58,16 +76,25 @@ def test_gateway_closed_loop_list_update_read(cli_env: Any) -> None:
     assert listing.exit_code == 0, listing.stdout
     assert len(listing.json()["data"]["variables"]) == 2
 
-    update = cli_env.subprocess_invoke("gateway", "update", "gw1", "v1=123", "v2=1.5", "--yes")
+    update = cli_env.subprocess_invoke(
+        "gateway", "update", "gw1", "v1=123", "v2=1.5", "--owner-id", "tester", "--yes"
+    )
     # 部分成功 → PARTIAL/4（不阻断其他独立服务的设计在 service status 用例验证）
     assert update.exit_code == 4, update.stdout
     envelope = update.json()
     assert envelope["status"] == "PARTIAL"
     request = captured["request"]
     assert request.gateway_id == "gw1"
+    assert request.lease_token == "lease-token-1"
     assert request.values[0].value.sint64_value == 123
     assert request.values[0].value.HasField("sint64_value")
     assert request.values[1].value.double_value == pytest.approx(1.5)
+    # 租约完整流转：先 ACQUIRE 后 RELEASE，更新只发一次。
+    claim_requests = [call.request for call in server.calls if call.path.endswith("/ClaimTargets")]
+    assert [item.action for item in claim_requests] == ["ACQUIRE", "RELEASE"]
+    assert claim_requests[0].owner_id == "tester"
+    assert claim_requests[0].variable_ids == ["v1", "v2"]
+    assert claim_requests[1].lease_token == "lease-token-1"
 
     read = cli_env.subprocess_invoke("gateway", "read", "gw1", "v1", "v2")
     assert read.exit_code == 0, read.stdout
@@ -75,14 +102,15 @@ def test_gateway_closed_loop_list_update_read(cli_env: Any) -> None:
 
 
 def test_gateway_update_requires_confirmation(cli_env: Any) -> None:
-    """确认门：非交互且无 --yes → ABORTED/2，且不得发出 RPC。"""
-    result = cli_env.subprocess_invoke("gateway", "update", "gw1", "v1=1")
+    """确认门：非交互且无 --yes → ABORTED/2，且不得发出 RPC（含租约申请）。"""
+    result = cli_env.subprocess_invoke("gateway", "update", "gw1", "v1=1", "--owner-id", "tester")
     assert result.exit_code == 2, result.stdout
     assert result.json()["status"] in {"ABORTED", "FAILURE"}
     assert not cli_env.server.calls
 
 
 def test_gateway_update_all_fail_exit_1(cli_env: Any) -> None:
+    _install_lease(cli_env.server)
     cli_env.server.respond_value(
         _path(cli_env.server, "UpdateVariables"),
         gw_pb2.UpdateVariablesResponse(
@@ -91,9 +119,28 @@ def test_gateway_update_all_fail_exit_1(cli_env: Any) -> None:
             ]
         ),
     )
-    result = cli_env.subprocess_invoke("gateway", "update", "gw1", "v1=1", "--yes")
+    result = cli_env.subprocess_invoke(
+        "gateway", "update", "gw1", "v1=1", "--owner-id", "tester", "--yes"
+    )
     assert result.exit_code == 1, result.stdout
     assert result.json()["status"] == "FAILURE"
+
+
+def test_gateway_update_denied_lease_never_dispatches_update(cli_env: Any) -> None:
+    """租约申请被拒：按业务参数错误退出，且不得发出 UpdateVariables。"""
+    server = cli_env.server
+
+    async def deny(request: Any, context: Any) -> Any:
+        return gw_pb2.ClaimTargetsResponse(accepted=False, error_code="TARGET_CLAIMED")
+
+    server.respond(_path(server, "ClaimTargets"), deny)
+    result = cli_env.subprocess_invoke(
+        "gateway", "update", "gw1", "v1=1", "--owner-id", "tester", "--yes"
+    )
+    assert result.exit_code == 2, result.stdout
+    assert "TARGET_CLAIMED" in result.stdout
+    assert _update_paths(server) == []
+    assert _claim_paths(server) == [_path(server, "ClaimTargets")]
 
 
 def _update_paths(server: Any) -> list[str]:
@@ -103,13 +150,16 @@ def _update_paths(server: Any) -> list[str]:
 def test_gateway_update_result_count_mismatch_is_unknown_no_retry(cli_env: Any) -> None:
     """服务端结果数少于请求数：写入结果不明 → UNKNOWN/3，绝不重发、绝不伪称成功。"""
     server = cli_env.server
+    _install_lease(server)
     server.respond_value(
         _path(server, "UpdateVariables"),
         gw_pb2.UpdateVariablesResponse(
             results=[gw_pb2.VariableUpdateResult(variable_id="v1", success=True)]
         ),
     )
-    result = cli_env.subprocess_invoke("gateway", "update", "gw1", "v1=1", "v2=2", "--yes")
+    result = cli_env.subprocess_invoke(
+        "gateway", "update", "gw1", "v1=1", "v2=2", "--owner-id", "tester", "--yes"
+    )
     # 数量不一致无法判断各点写入结果，等同结果不明（UNKNOWN/3），不是业务失败（1）。
     assert result.exit_code == 3, result.stdout
     envelope = result.json()
@@ -118,11 +168,17 @@ def test_gateway_update_result_count_mismatch_is_unknown_no_retry(cli_env: Any) 
     assert "unknown" in message and "do not retry" in message
     # 真实线上调用计数：只发出过一次 UpdateVariables，无任何自动重试。
     assert _update_paths(server) == [_path(server, "UpdateVariables")]
+    # 失败路径也必须释放租约，不得遗留占用。
+    assert [c.request.action for c in server.calls if c.path.endswith("/ClaimTargets")] == [
+        "ACQUIRE",
+        "RELEASE",
+    ]
 
 
 def test_gateway_update_result_id_order_mismatch_is_unknown_no_retry(cli_env: Any) -> None:
     """结果 ID 集合/顺序与请求不符：UNKNOWN/3，仅发一次，不重发。"""
     server = cli_env.server
+    _install_lease(server)
     server.respond_value(
         _path(server, "UpdateVariables"),
         gw_pb2.UpdateVariablesResponse(
@@ -132,7 +188,9 @@ def test_gateway_update_result_id_order_mismatch_is_unknown_no_retry(cli_env: An
             ]
         ),
     )
-    result = cli_env.subprocess_invoke("gateway", "update", "gw1", "v1=1", "v2=2", "--yes")
+    result = cli_env.subprocess_invoke(
+        "gateway", "update", "gw1", "v1=1", "v2=2", "--owner-id", "tester", "--yes"
+    )
     assert result.exit_code == 3, result.stdout
     envelope = result.json()
     assert envelope["status"] == "UNKNOWN"
@@ -144,13 +202,17 @@ def test_gateway_update_result_id_order_mismatch_is_unknown_no_retry(cli_env: An
 def test_gateway_update_illegal_scalar_exit_2(cli_env: Any) -> None:
     # 数组不是标量；NaN 不是有限 JSON；两者都不得发出 RPC。
     for bad in ("v1=[1,2]", "v1=NaN"):
-        result = cli_env.subprocess_invoke("gateway", "update", "gw1", bad, "--yes")
+        result = cli_env.subprocess_invoke(
+            "gateway", "update", "gw1", bad, "--owner-id", "tester", "--yes"
+        )
         assert result.exit_code == 2, (bad, result.stdout)
     assert not cli_env.server.calls
 
 
 def test_gateway_update_duplicate_variable_rejected(cli_env: Any) -> None:
-    result = cli_env.subprocess_invoke("gateway", "update", "gw1", "v1=1", "v1=2", "--yes")
+    result = cli_env.subprocess_invoke(
+        "gateway", "update", "gw1", "v1=1", "v1=2", "--owner-id", "tester", "--yes"
+    )
     assert result.exit_code == 2, result.stdout
     assert not cli_env.server.calls
 
@@ -197,6 +259,7 @@ def test_gateway_update_deadline_unknown_single_dispatch(cli_env: Any, tmp_path:
         return gw_pb2.UpdateVariablesResponse()
 
     server = cli_env.server
+    _install_lease(server)
     server.respond(_path(server, "UpdateVariables"), never_responds)
     cfg = write_cli_yaml(
         tmp_path / "cli.yaml",
@@ -204,7 +267,17 @@ def test_gateway_update_deadline_unknown_single_dispatch(cli_env: Any, tmp_path:
         {"gateway": f"localhost:{server.port}"},
         timeout=1.0,
     )
-    completed = run_cli(cfg, "gateway", "update", "gw1", "v1=1", "--yes", timeout=20)
+    completed = run_cli(
+        cfg,
+        "gateway",
+        "update",
+        "gw1",
+        "v1=1",
+        "--owner-id",
+        "tester",
+        "--yes",
+        timeout=20,
+    )
     assert completed.returncode == 3, completed.stdout
     envelope = last_json(completed.stdout)
     assert envelope["status"] == "UNKNOWN"
