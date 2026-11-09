@@ -11,9 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from core.application.errors import ConfigError
-from core.infrastructure.config import ConfigOperationError, read_yaml
 
-from .document_version import validate_document_version
+from .document_version import read_stable_document
 
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -96,14 +95,11 @@ class VersionedTemplateRepository:
 
     def resolve(self, reference: TemplateRef) -> ResolvedTemplate:
         path = self.path_for(reference)
-        try:
-            document = read_yaml(path)
-        except ConfigOperationError as exc:
-            raise ConfigError(f"{path}: template read failed ({exc.code.value})") from exc
-        metadata = validate_document_version(document, path)
+        document, _source_sha256 = read_stable_document(path)
+        file_version = document["file_version"]
         if document.get("template_id") != reference.template_id:
             raise ConfigError(f"{path}: template_id mismatch")
-        if metadata.file_version != reference.file_version:
+        if file_version != reference.file_version:
             raise ConfigError(f"{path}: file_version mismatch")
         return ResolvedTemplate(
             reference=reference,
