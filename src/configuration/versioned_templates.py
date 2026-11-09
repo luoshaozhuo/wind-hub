@@ -8,7 +8,6 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
 
 from core.application.errors import ConfigError
@@ -45,15 +44,6 @@ def config_hash(document: Mapping[str, Any]) -> str:
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"configuration cannot be hashed: {exc}") from exc
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def freeze_config(value: Any) -> Any:
-    """Defensively freeze validated JSON-compatible YAML values."""
-    if isinstance(value, dict):
-        return MappingProxyType({key: freeze_config(item) for key, item in value.items()})
-    if isinstance(value, list):
-        return tuple(freeze_config(item) for item in value)
-    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,5 +105,5 @@ class VersionedTemplateRepository:
             reference=reference,
             path=path,
             content_hash=config_hash(document),
-            document=freeze_config(document),
+            document=document,
         )
