@@ -109,6 +109,8 @@ class _Authorized:
     async def invalid(self, context: grpc.aio.ServicerContext[Any, Any], exc: Exception) -> None:
         if isinstance(exc, FileExistsError):
             code = grpc.StatusCode.ALREADY_EXISTS
+        elif isinstance(exc, TimeoutError):
+            code = grpc.StatusCode.DEADLINE_EXCEEDED
         elif isinstance(exc, OverflowError):
             code = grpc.StatusCode.RESOURCE_EXHAUSTED
         elif isinstance(exc, ValueError | TypeError | ConfigError):
