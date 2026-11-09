@@ -3583,22 +3583,44 @@ lint-imports
 
 上述为正式编码前必须落实的跨模块契约变更，不是已实现或已通过的测试。
 
-### 14.8.2 跨设计文档一致性审查（v1_25）
+### 14.8.2 全部模块设计协调审查（v1_25，2026-11-09）
 
-本次对照 `main@14e3be661cfd1d30417144d3f4cfa928d313eaa5` 的总体逻辑架构 v1_0、Core v1_27、Contracts v1_6、Collector v1_11，以及 Sink Service v1_24，裁决如下：
+审查范围由 `main/docs/design` 实际目录清单确定，包含 9 份设计：总体架构 v1_0、Core v1_27、Contracts v1_6、Collector v1_11、Commander v1_10、Industrial Gateway v1_10、Data Generator v1_10、CLI v1_4（已在本设计工作分支修订为 v1_5）及原 Sink Service v1_24。以当前分支 Sink Service v1_25 逐项比对。核实了 `src/contracts/sample_batch.py`、`collector.proto`、`sink_service.proto`、`industrial_gateway.proto`、`data_generator.proto` 中相关线协议和 RPC；不把设计目标当作生产代码验收证据。
 
-| 对照文档 | 不变契约 | 本版协调结果 |
+| 文档及版本 | 交叉核查的职责/接口/行为 | 结论及必要处理 |
 |---|---|---|
-| 总体逻辑架构 v1_0 | Collector 发布；Sink 消费/交付；NATS 外部基础设施；公共能力不承担业务 | 设备并发局限于 Sink Reliable 内部，不新增模块间直接依赖、集群管理服务或业务 RPC |
-| Core v1_27 | Core 模块无关；通用协议、配置原语、领域对象和诊断，不依赖业务/Contracts | 不修改 Core API、不将 Kafka 并发锁或 NATS Consumer 下沉 Core |
-| Contracts v1_6 | 43 唯一 Unary RPC，Sink 注册 9+4；SampleBatch v2、正式 Subject 与字段语义 | 不增加 Proto、字段或线协议；准确使用 `wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>`；各 Delivery ACK 不变 |
-| Collector v1_11 | `poll/subscribe/listen` 各自即时形成来源批次；仅超限拆批；JetStream PubAck 不等于 Sink 交付 | 不反向改变采样事件、频率、批次身份或 Collector 发布队列；设备并发只改变 Sink 的下游执行 |
-| Sink v1_24 | 单容器三进程、主进程 13 RPC、Realtime/Reliable 对等、静态跨容器分配、可靠 ACK/DLQ | 保留，新增显式 Kafka 并发模板和独立设备 Delivery Task，默认原串行行为不变 |
+| 总体逻辑架构 v1_0 | Collector 经 NATS Core/JetStream 发布；Sink 按配置消费/交付；公开线协议属于 Contracts，工业协议驱动为独立职责 | 一致；设备级并发只限 Sink 内部，不增加跨模块依赖、集群管理及业务 RPC；原文不改 |
+| Core v1_27 | Core 通用配置/协议/领域对象/诊断，不能承载 Sink Kafka Producer、Consumer 或业务 ACK 规则 | 一致；公共 API 不改 |
+| Contracts v1_6 | 六份 Proto/43 唯一 Unary，Sink 公共 9+专属 4；SampleBatch v2、Subject、batch/sample 身份及字段校验 | 一致；`wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>` 是每设备精确订阅基础；不增加字段/RPC；历史状态文字并非当前代码状态，冻结文本不改 |
+| Collector v1_11 | poll 一周期一源批；subscribe/listen 一原生事件一批；仅超限拆批；`ReadPoints` 为一次性现场主动读；Collector JetStream PubAck 不等于 Sink 目标确认 | 一致；Sink 并发不改变采样周期、源批身份、质量及 Collector 发布行为；原文不改 |
+| Commander v1_10 | 真正的现场控制由 Commander 执行；单设备指令顺序与 UNKNOWN 是 Commander 自有职责 | 一致；Sink Kafka 数据派发不得冒充现场控制或共享 Commander 执行队列；原文不改 |
+| Industrial Gateway v1_10 | 真实工业协议 Server；`UpdateVariables` 只更新内部变量，`ClaimTargets` 管理变量租约；工业客户端写命令才可能转发 Commander | 一致；Sink 的 Modbus TCP Server 为另一个明确拥有的输出实例，不与 Gateway 的协议 Server/监听端口共享所有权；原文不改，部署必须检查端口冲突 |
+| Data Generator v1_10 | 随机/静态模型及 CSV 重放，通过正式 `UpdateVariables` 向 Gateway 批量注入；多个 Gateway 独立结果，目标映射不能重复，且须符合租约 | 一致；**Data Generator 不直接发布 Sink 的 SampleBatch，也不经过 Sink 向 Gateway 注入**；不能将 Data Generator→Gateway 的确认误算为 Sink 目标交付；原文不改 |
+| CLI v1_4 → 工作分支 v1_5 | `ListDeliveries/GetDelivery/StartDelivery/StopDelivery` 对 Sink 管理；`Get/Push/Apply` 配置操作；`collector latest/watch` 的 ReadPoints | 发现一项实质矛盾：v1_4 将 ReadPoints 误述为采集缓存读取。已修订 v1_5 为一次性现场主动读、watch 客户端独立 Unary 轮询、不额外发 NATS；其他 Sink 管理/配置接口未新增 |
+| Sink Service v1_24 → v1_25 | 三进程、13 RPC、双通道批量、可靠整批终局 ACK、静态资源归属及 Kafka Adapter | 保持原契约，新增显式 Kafka 模板 1.1.0 和受控设备级并行 Delivery；未实际验收时不宣布功能 PASS |
 
-**文档状态与事实分离：**Contracts v1_6 部分历史审查段落仍使用旧 main/开发分支措辞，不能用其历史状态否定当前 main 已发布的 SampleBatch v2；本轮未改该已冻结公共设计。Sink 本文 §14.9.1～§14.9.3 也是历史决策记录，不能作为当前代码状态。具体运行与性能能力仍以真实生产实现和独立实测为准。总体架构、Core、Contracts、Collector 设计文档本轮全部保持原样。
+**跨服务数据通路的责任边界：**
 
-**代码准入待核：**新 Kafka 模板、支持的并发适配器行为、目标身份冲突校验、Durable 精确过滤与迁移、受控设备级顺序及专项 System Test 均尚未由本轮设计审查证明已实施；Ruff、Mypy、import-linter 和真实联调均未在本轮执行。此处仅裁定设计边界协调一致，不等于实施验收 PASS。
+```mermaid
+%%{init: {"flowchart": {"useMaxWidth": true}}}%%
+flowchart LR
+    DG["Data Generator"] -->|"UpdateVariables + 租约"| GW["Industrial Gateway"]
+    GW -->|"工业协议 Server 变量"| IC["工业客户端"]
+    IC -->|"合法控制写事件"| GW
+    GW -->|"转发控制请求"| CMD["Commander"]
+    DEV["真实设备"] -->|"采集"| COL["Collector"]
+    COL -->|"SampleBatch v2"| N[("NATS Core / JetStream")]
+    N -->|"批量消费"| SINK["Sink Service"]
+    SINK -->|"Delivery/Adapter"| OUT["Redis / Kafka / Modbus TCP Server"]
+```
 
+<p class="figure-caption">图 14-8 Data Generator、Gateway、Commander、Collector 与 Sink 的跨模块职责边界</p>
+
+图中不同业务链路不构成默认连通的整体：Data Generator 的输出不会自动进入 Collector→NATS→Sink；若工程需仿真数据继续进入 Sink，必须显式配置由 Collector 采集 Gateway 所暴露的协议变量，再由 Collector 按正式批量契约发布，不能假定 Gateway 已实现直接 NATS 发布。工业客户端写事件转发 Commander 只在合法命令映射和转发策略下触发；内部 gRPC 数据注入不触发该转发。
+
+**其他设计协调约束：** CLI/Web UI 对不同 Sink 容器执行分域 `Get/Push/Apply` 与 Delivery 控制；真实静态跨域迁移的旧实例停止、底层 I/O 收敛和新实例启用仍须在系统测试核验。Commander 的 UNKNOWN 和 Sink 的 UNKNOWN 属不同业务写入责任，不共享日志/队列。Gateway 与 Sink 自有 Modbus Server 不得抢占同一物理监听地址和端口。Data Generator 的变量输出不提供 Sink 专用派发保证，也不改变 Contracts 消息格式。
+
+**结论分级：** 上述 9 份设计的职责、接口及数据流已完成文档对照；CLI 已发现并修订一处实质矛盾。未对全部模块生产代码开展静态检查和端到端回归；Data Generator→Gateway 实栈、Gateway→工业客户端、Collector→Sink、CLI→Sink，以及 1/2/4 设备 Kafka 并发均需分别验证，尚未运行者标 `NOT_RUN`。总体架构/Core/Contracts/Collector/Commander/Gateway/Data Generator 均保持不变。
 
 ## 14.9 设计审查与未验证事项
 
