@@ -148,7 +148,23 @@ class QueuedExecutor:
         caller_id: str,
         request_id: str,
     ) -> tuple[AcceptedCommand, ...]:
-        """Persist one caller-scoped request before scheduling any physical I/O."""
+        """Do not revoke an in-progress admission on gRPC cancellation."""
+        operation = asyncio.create_task(
+            self._accept_persist_and_queue(
+                commands, caller_id=caller_id, request_id=request_id
+            ),
+            name="commander:request-admission",
+        )
+        return await asyncio.shield(operation)
+
+    async def _accept_persist_and_queue(
+        self,
+        commands: Sequence[CommandSpec],
+        *,
+        caller_id: str,
+        request_id: str,
+    ) -> tuple[AcceptedCommand, ...]:
+        """Complete durable T1 and FIFO registration as one owned operation."""
         if not request_id or not request_id.strip():
             raise ValueError("request_id is required")
         async with self._admission_lock:
@@ -191,11 +207,8 @@ class QueuedExecutor:
             # CommandControl.accept only mutates the event-loop-owned memory journal.
             # No I/O or suspension occurs between T1 and queue registration:
             # cancellation of the calling RPC must not revoke an accepted control.
-            accepted = await asyncio.wait_for(
-                self._control.accept(
-                    commands, caller_id=caller_id, request_id=request_id
-                ),
-                timeout=30.0,
+            accepted = await self._control.accept(
+                commands, caller_id=caller_id, request_id=request_id
             )
             for command in accepted:
                 entry = _Entry(
