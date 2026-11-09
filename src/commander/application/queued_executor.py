@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable, Sequence
@@ -46,6 +47,8 @@ class WriteSession(Protocol):
 
 
 SessionFactory = Callable[[str], WriteSession]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -109,6 +112,7 @@ class QueuedExecutor:
             raise ValueError("timeouts must be positive")
         self._control = control
         self._admission_lock = asyncio.Lock()
+        self._admissions: set[asyncio.Task[tuple[AcceptedCommand, ...]]] = set()
         self._factory = session_factory
         self._authorize = authorize
         self._prepare_write = prepare_write
@@ -155,7 +159,19 @@ class QueuedExecutor:
             ),
             name="commander:request-admission",
         )
+        self._admissions.add(operation)
+        operation.add_done_callback(self._admission_completed)
         return await asyncio.shield(operation)
+
+    def _admission_completed(
+        self, task: asyncio.Task[tuple[AcceptedCommand, ...]]
+    ) -> None:
+        self._admissions.discard(task)
+        if task.cancelled():
+            return
+        failure = task.exception()
+        if failure is not None:
+            logger.error("Commander request admission failed: %s", failure)
 
     async def _accept_persist_and_queue(
         self,
