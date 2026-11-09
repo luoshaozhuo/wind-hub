@@ -277,7 +277,8 @@ def gateway_update(
                 raise
         if update_error is not None:
             raise update_error
-        assert response is not None
+        if response is None:
+            raise RuntimeError("Gateway returned no update response")
         return response
 
     _run("gateway update", update())
