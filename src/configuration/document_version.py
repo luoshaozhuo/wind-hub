@@ -54,7 +54,7 @@ def read_stable_document(path: Path) -> dict[str, Any]:
     except OSError as exc:
         raise ConfigError(f"{path}: configuration source I/O failed") from exc
     except ConfigOperationError as exc:
-        raise ConfigError(f"{path}: configuration parse failed ({exc.code.value})") from exc
+        raise ConfigError(f"{path}: SCHEMA_ERROR ({exc.code.value})") from exc
     if original != current:
         before = hashlib.sha256(original).hexdigest()
         after = hashlib.sha256(current).hexdigest()
