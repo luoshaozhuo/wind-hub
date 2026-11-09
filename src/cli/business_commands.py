@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
+from uuid import uuid4
 
 import typer
+
+from core.infrastructure.config import parse_yaml
 
 from .scalar_value import parse_json_scalar
 from .service_rpc import invoke, poll_latest, resolve_point_ids
@@ -211,6 +215,14 @@ def commander_result(command_id: str) -> None:
     _call("commander", "GetCommandResult", {"command_id": command_id})
 
 
+def _request_receipt(request_id: str, expires_at: str | None = None) -> None:
+    """Expose the idempotency key before any control RPC is transmitted."""
+    typer.echo(f"Commander request_id={request_id}", err=True)
+    if expires_at is not None:
+        typer.echo(f"Commander expires_at={expires_at}", err=True)
+    sys.stderr.flush()
+
+
 @commander.command("request-result")
 def commander_request_result(request_id: str) -> None:
     """Look up the full caller-scoped result of one submitted request."""
@@ -225,11 +237,11 @@ def commander_write(
     yes: bool = typer.Option(False, "--yes"),
     expires_at: str | None = typer.Option(None, "--expires-at"),
     expected_revision: str | None = typer.Option(None, "--expected-revision"),
-    request_id: str = typer.Option(
-        ..., "--request-id", help="Persist this caller-generated ID before submitting."
+    request_id: str | None = typer.Option(
+        None, "--request-id", help="Reuse an existing recorded idempotency key."
     ),
 ) -> None:
-    """Submit once with a pre-recorded idempotency key; never retry UNKNOWN."""
+    """Generate and print the request key before sending any control RPC."""
     from .main import _run, runtime
 
     def reject(exc: ValueError) -> None:
@@ -237,7 +249,7 @@ def commander_write(
         raise typer.Exit(code=2) from exc
 
     try:
-        if not request_id.strip():
+        if request_id is not None and not request_id.strip():
             raise ValueError("--request-id must be nonempty")
         scalar = parse_json_scalar(value)
         deadline = expires_at or (datetime.now(UTC) + timedelta(seconds=30)).isoformat()
@@ -255,6 +267,8 @@ def commander_write(
         if not typer.confirm("Confirm control command?", default=False):
             raise typer.Abort()
 
+    identity = request_id or str(uuid4())
+
     async def submit() -> dict[str, Any]:
         revision = expected_revision
         if revision is None:
@@ -263,6 +277,7 @@ def commander_write(
             revision = device.get("revision") if isinstance(device, dict) else None
             if not isinstance(revision, str) or not revision:
                 raise ValueError("no device revision; pass --expected-revision explicitly")
+        _request_receipt(identity, deadline)
         return await invoke(
             runtime(),
             "commander",
@@ -273,7 +288,7 @@ def commander_write(
                 "value": scalar,
                 "expires_at": deadline,
                 "expected_revision": revision,
-                "request_id": request_id,
+                "request_id": identity,
             },
         )
 
@@ -288,7 +303,7 @@ def commander_batch(
     ),
     yes: bool = typer.Option(False, "--yes"),
 ) -> None:
-    """Submit a JSON array of ordered commands as one idempotent request."""
+    """Submit an ordered JSON/YAML command batch with a recorded request ID."""
     from .main import _run, runtime
     from .safety import confirm_mutation
 
@@ -297,9 +312,17 @@ def commander_batch(
             raise ValueError("--request-id must be nonempty")
         if path.stat().st_size > 1024 * 1024:
             raise ValueError("batch file exceeds 1 MiB")
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        source = path.read_text(encoding="utf-8")
+        if path.suffix.lower() in {".yaml", ".yml"}:
+            raw = parse_yaml(source)
+        else:
+            raw = json.loads(source)
+        if isinstance(raw, dict):
+            if set(raw) != {"commands"}:
+                raise ValueError("batch mapping must contain only commands")
+            raw = raw["commands"]
         if not isinstance(raw, list) or not 1 <= len(raw) <= 1000:
-            raise ValueError("batch must be a JSON array of 1..1000 commands")
+            raise ValueError("batch requires 1..1000 ordered commands")
         commands: list[dict[str, Any]] = []
         for index, item in enumerate(raw):
             if not isinstance(item, dict) or set(item) - {
@@ -330,18 +353,20 @@ def commander_batch(
         runtime().error("commander batch", exc)
         raise typer.Exit(code=2) from exc
 
+    identity = request_id or str(uuid4())
     confirm_mutation(
-        f"Submit {len(commands)} Commander control commands under {request_id}?",
+        f"Submit {len(commands)} Commander control commands under {identity}?",
         yes,
         command="commander batch",
     )
 
     async def submit() -> dict[str, Any]:
+        _request_receipt(identity)
         return await invoke(
             runtime(),
             "commander",
             "SubmitCommands",
-            {"request_id": request_id, "commands": commands},
+            {"request_id": identity, "commands": commands},
         )
 
     _run("commander batch", submit())
