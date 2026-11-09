@@ -67,6 +67,7 @@ _ALLOWED = {
         {
             CommandState.EXECUTING,
             CommandState.FAILED,
+            CommandState.UNKNOWN,
             CommandState.EXPIRED,
             CommandState.CANCELLED,
             CommandState.INTERRUPTED,
