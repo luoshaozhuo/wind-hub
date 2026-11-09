@@ -95,7 +95,7 @@ class VersionedTemplateRepository:
 
     def resolve(self, reference: TemplateRef) -> ResolvedTemplate:
         path = self.path_for(reference)
-        document, _source_sha256 = read_stable_document(path)
+        document = read_stable_document(path)
         file_version = document["file_version"]
         if document.get("template_id") != reference.template_id:
             raise ConfigError(f"{path}: template_id mismatch")
