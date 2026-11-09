@@ -24,10 +24,20 @@ _T = TypeVar("_T")
 class CommandControl:
     """Record all command decisions in memory; never await SQLite on the write path."""
 
-    def __init__(self, repository: JournalPort, writer: Executor, buffer: BufferedJournal) -> None:
+    def __init__(
+        self,
+        repository: JournalPort,
+        writer: Executor,
+        buffer: BufferedJournal,
+        *,
+        accept_timeout: float = 10.0,
+    ) -> None:
+        if accept_timeout <= 0:
+            raise ValueError("accept_timeout must be positive")
         self._repository = repository
         self._writer = writer
         self._buffer = buffer
+        self._accept_timeout = accept_timeout
 
     async def _run(self, method: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
         loop = asyncio.get_running_loop()
@@ -56,7 +66,28 @@ class CommandControl:
         )
         # An acknowledged control must have a durable request identity before
         # any caller can schedule physical I/O.
-        await self._buffer.wait_persisted([command.command_id for command in accepted])
+        try:
+            await asyncio.wait_for(
+                self._buffer.wait_persisted(
+                    [command.command_id for command in accepted]
+                ),
+                timeout=self._accept_timeout,
+            )
+        except TimeoutError:
+            # Nothing has been queued or sent. Preserve a conservative
+            # terminal event even if the asynchronous T1 flush later succeeds.
+            self._buffer.transition_many(
+                tuple(
+                    (
+                        command.command_id,
+                        CommandState.INTERRUPTED,
+                        CommandOutcome.NOT_SENT,
+                        "PERSISTENCE_TIMEOUT",
+                    )
+                    for command in accepted
+                )
+            )
+            raise
         return accepted
 
     async def connecting(self, command_id: str) -> None:
