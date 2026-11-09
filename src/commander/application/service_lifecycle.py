@@ -194,7 +194,9 @@ class CommanderService:
                 interval=settings.persistence_interval_seconds,
                 batch_size=settings.persistence_batch_size,
             )
-            control = CommandControl(journal, writer, buffer)
+            control = CommandControl(
+                journal, writer, buffer, accept_timeout=settings.accept_commit_timeout
+            )
             executor = QueuedExecutor(
                 control,
                 lambda device_id: manager.create_session(device_id, self._registry),
