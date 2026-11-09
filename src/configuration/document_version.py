@@ -34,6 +34,7 @@ def validate_document_version(
         raise ConfigError(f"{path}: invalid file_version {file_version!r}")
     return DocumentVersion(schema_version=schema_version, file_version=file_version)
 
+
 def read_stable_document(path: Path) -> dict[str, Any]:
     """Read one versioned document and reject changes during parsing.
 
