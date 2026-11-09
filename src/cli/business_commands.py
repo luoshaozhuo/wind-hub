@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -276,6 +278,73 @@ def commander_write(
         )
 
     _run("commander write", submit())
+
+
+@commander.command("batch")
+def commander_batch(
+    path: Path,
+    request_id: str = typer.Option(
+        ..., "--request-id", help="Persist this caller-generated ID before submitting."
+    ),
+    yes: bool = typer.Option(False, "--yes"),
+) -> None:
+    """Submit a JSON array of ordered commands as one idempotent request."""
+    from .main import _run, runtime
+    from .safety import confirm_mutation
+
+    try:
+        if not request_id.strip():
+            raise ValueError("--request-id must be nonempty")
+        if path.stat().st_size > 1024 * 1024:
+            raise ValueError("batch file exceeds 1 MiB")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, list) or not 1 <= len(raw) <= 1000:
+            raise ValueError("batch must be a JSON array of 1..1000 commands")
+        commands: list[dict[str, Any]] = []
+        for index, item in enumerate(raw):
+            if not isinstance(item, dict) or set(item) - {
+                "device_id", "point_id", "value", "expected_revision", "expires_at"
+            }:
+                raise ValueError(f"invalid batch command at index {index}")
+            if not all(
+                isinstance(item.get(key), str) and item[key]
+                for key in ("device_id", "point_id", "expected_revision")
+            ):
+                raise ValueError(f"missing command identity at index {index}")
+            command: dict[str, Any] = {
+                "device_id": item["device_id"],
+                "point_id": item["point_id"],
+                "expected_revision": item["expected_revision"],
+                "value": parse_json_scalar(json.dumps(item.get("value"), allow_nan=False)),
+            }
+            if "expires_at" in item:
+                expiry = item["expires_at"]
+                if not isinstance(expiry, str):
+                    raise ValueError(f"expires_at must be a string at index {index}")
+                parsed = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    raise ValueError(f"expires_at requires timezone at index {index}")
+                command["expires_at"] = expiry
+            commands.append(command)
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        runtime().error("commander batch", exc)
+        raise typer.Exit(code=2) from exc
+
+    confirm_mutation(
+        f"Submit {len(commands)} Commander control commands under {request_id}?",
+        yes,
+        command="commander batch",
+    )
+
+    async def submit() -> dict[str, Any]:
+        return await invoke(
+            runtime(),
+            "commander",
+            "SubmitCommands",
+            {"request_id": request_id, "commands": commands},
+        )
+
+    _run("commander batch", submit())
 
 
 @collector.command("metrics")
