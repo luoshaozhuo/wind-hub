@@ -256,7 +256,7 @@ def _validate_all_templates(root: Path) -> None:
             elif category == "point_tables":
                 if document.get("protocol") not in {"ads", "modbus", "iec104"}:
                     raise ConfigError(f"{path}: point table protocol missing")
-                if not isinstance(document.get("points"), dict):
+                if not isinstance(document.get("points"), Mapping):
                     raise ConfigError(f"{path}: points must be a mapping")
                 validate_point_table_chain(repository, template)
             elif category == "tasks":
