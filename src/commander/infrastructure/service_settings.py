@@ -185,6 +185,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
             "persistence_interval_ms",
             "persistence_batch_size",
             "persistence_max_events",
+            "accept_commit_timeout_ms",
         },
         "repository",
     )
