@@ -10,6 +10,9 @@ This is a projection, not a second independent state machine.
 
 from __future__ import annotations
 
+import hashlib
+import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -121,6 +124,28 @@ class CommandSpec:
             raise ValueError("value must be finite")
         if self.expires_at is not None and self.expires_at.utcoffset() is None:
             raise ValueError("expires_at must include timezone")
+
+
+def request_fingerprint(specs: Sequence[CommandSpec]) -> str:
+    """Bind request order, scalar type, expiry and expected revisions."""
+    items = [
+        {
+            "device_id": item.device_id,
+            "point_id": item.point_id,
+            "value": item.value,
+            "expected_revision": item.config_reference,
+            "expires_at": (
+                item.expires_at.astimezone(UTC).isoformat()
+                if item.expires_at is not None
+                else None
+            ),
+        }
+        for item in specs
+    ]
+    payload = json.dumps(
+        items, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
