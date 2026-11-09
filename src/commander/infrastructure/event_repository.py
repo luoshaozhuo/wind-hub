@@ -27,7 +27,7 @@ from commander.domain.command import (
 
 
 class RepositoryError(RuntimeError):
-    """Persistence unavailable; the bounded volatile control path may continue."""
+    """Persistence unavailable; new control admissions fail closed."""
 
 
 class StorageFullError(RepositoryError):
