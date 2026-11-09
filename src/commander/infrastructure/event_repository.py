@@ -423,12 +423,11 @@ class EventRepository:
             recovered: list[str] = []
             for (command_id,) in rows:
                 previous = self._current_state(command_id)
-                if previous == CommandState.EXECUTING:
-                    state = CommandState.UNKNOWN
-                    outcome = CommandOutcome.UNKNOWN
-                else:
-                    state = CommandState.INTERRUPTED
-                    outcome = CommandOutcome.NOT_SENT
+                # T2 may have started physical I/O before its buffered
+                # EXECUTING event reached SQLite. A missing T2 is not proof
+                # that the original command was never sent.
+                state = CommandState.UNKNOWN
+                outcome = CommandOutcome.UNKNOWN
                 validate_transition(previous, state, outcome)
                 self._db.execute(
                     "INSERT INTO command_events("
