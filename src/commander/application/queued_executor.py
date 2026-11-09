@@ -223,9 +223,8 @@ class QueuedExecutor:
                 raise OverflowError("global pending batch capacity exceeded")
             loop = asyncio.get_running_loop()
             started = time.monotonic()
-            # CommandControl.accept only mutates the event-loop-owned memory journal.
-            # No I/O or suspension occurs between T1 and queue registration:
-            # cancellation of the calling RPC must not revoke an accepted control.
+            # Commit all T1 events durably before registering device workers.
+            # The shielded admission task continues even if its RPC is cancelled.
             accepted = await self._control.accept(
                 commands, caller_id=caller_id, request_id=request_id
             )
