@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from commander.application.settings import ServiceSettings
 from commander.domain.command import CommandSpec
 from configuration.effective import resolve_effective_device
+from configuration.immutable import plain_document
 from configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
@@ -45,8 +46,8 @@ def _device_fingerprint(document: Any) -> str:
     payload = {
         "enabled": document.enabled,
         "name": document.name,
-        "endpoint": document.endpoint,
-        "options": document.protocol_options,
+        "endpoint": plain_document(document.endpoint),
+        "options": plain_document(document.protocol_options),
         "templates": [
             (r.reference.template_id, r.reference.file_version, r.content_hash) for r in refs
         ],
@@ -289,9 +290,9 @@ class CommanderConfigManager:
                 applied_revision = hashlib.sha256(
                     json.dumps(
                         {
-                            "site": effective_site,
-                            "units": effective_units,
-                            "business_points": effective_business,
+                            "site": plain_document(effective_site),
+                            "units": plain_document(effective_units),
+                            "business_points": plain_document(effective_business),
                             "devices": current_fp,
                         },
                         sort_keys=True,
