@@ -163,6 +163,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
             "max_pending_per_device",
             "max_pending_global",
             "max_batch_size",
+            "max_request_id_bytes",
         },
         "dispatcher",
     )
@@ -279,6 +280,13 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         ),
         max_batch_points=int(
             _positive(dispatch.get("max_batch_size", 10), "max_batch_size", integer=True)
+        ),
+        max_request_id_bytes=int(
+            _positive(
+                dispatch.get("max_request_id_bytes", 128),
+                "dispatcher.max_request_id_bytes",
+                integer=True,
+            )
         ),
         sqlite_path=sqlite_file,
         max_storage_bytes=max_storage,
