@@ -10,10 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from core.application.errors import ConfigError
-from core.infrastructure.config import ConfigOperationError, read_yaml
 
 from .business_points import parse_business_points
-from .document_version import validate_document_version
+from .document_version import read_stable_document
 from .template_graph import DeviceTemplates, resolve_device_templates
 from .units import parse_unit_catalog
 from .versioned_templates import (
@@ -76,11 +75,7 @@ def _reference(raw: object, context: str) -> TemplateRef:
 
 
 def _read(path: Path) -> dict[str, Any]:
-    try:
-        document = read_yaml(path)
-    except ConfigOperationError as exc:
-        raise ConfigError(f"{path}: configuration read failed ({exc.code.value})") from exc
-    validate_document_version(document, path)
+    document, _source_sha256 = read_stable_document(path)
     return document
 
 
