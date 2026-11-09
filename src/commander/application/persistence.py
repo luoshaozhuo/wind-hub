@@ -105,7 +105,7 @@ class BufferedJournal:
         fingerprint = request_fingerprint(specs)
         now = utc_now()
         accepted: list[AcceptedCommand] = []
-        for spec, value in zip(specs, encoded, strict=True):
+        for index, (spec, value) in enumerate(zip(specs, encoded, strict=True)):
             self._sequence += 1
             command = AcceptedCommand(
                 str(uuid4()), request_id, caller_id, spec, now, self._sequence
@@ -136,6 +136,7 @@ class BufferedJournal:
                         {
                             "expires_at": spec.expires_at.isoformat() if spec.expires_at else None,
                             "request_fingerprint": fingerprint,
+                            "request_index": index,
                         }
                     ),
                 }
