@@ -7,6 +7,7 @@ import os
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from core.application.errors import ConfigError
@@ -50,6 +51,15 @@ class SharedDocuments:
     business_points: Mapping[str, Any]
     revision: str
     devices_file_version: str
+
+    def __post_init__(self) -> None:
+        """Detach public indexes from loader-owned mutable dictionaries."""
+        for name in ("site", "devices", "units", "business_points"):
+            object.__setattr__(
+                self,
+                name,
+                MappingProxyType(dict(getattr(self, name))),
+            )
 
 
 def _mapping(value: object, context: str) -> dict[str, Any]:
