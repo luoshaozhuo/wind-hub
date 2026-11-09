@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import typer
 
-from core.infrastructure.config import parse_yaml
+from core.infrastructure.config import ConfigOperationError, parse_yaml
 
 from .scalar_value import parse_json_scalar
 from .service_rpc import invoke, poll_latest, resolve_point_ids
@@ -298,8 +298,8 @@ def commander_write(
 @commander.command("batch")
 def commander_batch(
     path: Path,
-    request_id: str = typer.Option(
-        ..., "--request-id", help="Persist this caller-generated ID before submitting."
+    request_id: str | None = typer.Option(
+        None, "--request-id", help="Reuse an existing recorded idempotency key."
     ),
     yes: bool = typer.Option(False, "--yes"),
 ) -> None:
@@ -308,7 +308,7 @@ def commander_batch(
     from .safety import confirm_mutation
 
     try:
-        if not request_id.strip():
+        if request_id is not None and not request_id.strip():
             raise ValueError("--request-id must be nonempty")
         if path.stat().st_size > 1024 * 1024:
             raise ValueError("batch file exceeds 1 MiB")
@@ -349,7 +349,7 @@ def commander_batch(
                     raise ValueError(f"expires_at requires timezone at index {index}")
                 command["expires_at"] = expiry
             commands.append(command)
-    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+    except (OSError, UnicodeError, ValueError, TypeError, ConfigOperationError) as exc:
         runtime().error("commander batch", exc)
         raise typer.Exit(code=2) from exc
 
