@@ -58,7 +58,7 @@ def parse_unit_catalog(raw: Mapping[str, Any]) -> UnitCatalog:
     for raw_key, item in raw_units.items():
         unit_id = _id_key(raw_key, "units.yaml units")
         context = f"unit '{unit_id}'"
-        if not isinstance(item, dict):
+        if not isinstance(item, Mapping):
             raise ConfigError(f"units.yaml {context} must be a mapping")
         unknown = set(item) - _UNIT_FIELDS
         if unknown:
