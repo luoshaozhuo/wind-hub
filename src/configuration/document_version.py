@@ -34,7 +34,7 @@ def validate_document_version(
         raise ConfigError(f"{path}: invalid file_version {file_version!r}")
     return DocumentVersion(schema_version=schema_version, file_version=file_version)
 
-def read_stable_document(path: Path) -> tuple[dict[str, Any], str]:
+def read_stable_document(path: Path) -> dict[str, Any]:
     """Read one versioned document and reject changes during parsing.
 
     A cooperative shared configuration lock must still cover the entire
@@ -53,4 +53,4 @@ def read_stable_document(path: Path) -> tuple[dict[str, Any], str]:
         after = hashlib.sha256(current).hexdigest()
         raise ConfigError(f"{path}: SOURCE_CHANGED sha256={before} -> {after}")
     validate_document_version(document, path)
-    return document, hashlib.sha256(original).hexdigest()
+    return document
