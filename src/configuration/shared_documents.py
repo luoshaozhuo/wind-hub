@@ -7,7 +7,6 @@ import os
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
 
 from core.application.errors import ConfigError
@@ -20,7 +19,6 @@ from .versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
     config_hash,
-    freeze_config,
 )
 
 
@@ -215,16 +213,16 @@ class SharedDocumentLoader:
                 device_id=device_id,
                 name=name,
                 templates=templates,
-                endpoint=freeze_config(endpoint),
-                protocol_options=freeze_config(options),
+                endpoint=endpoint,
+                protocol_options=options,
                 enabled=enabled,
             )
         return SharedDocuments(
-            site=freeze_config(dict(site)),
+            site=site,
             devices_file_version=str(device_doc["file_version"]),
-            devices=MappingProxyType(devices),
-            units=freeze_config(units),
-            business_points=freeze_config(business_points),
+            devices=devices,
+            units=units,
+            business_points=business_points,
             revision=config_hash(
                 {
                     "site": site,
