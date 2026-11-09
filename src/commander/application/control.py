@@ -135,7 +135,15 @@ class CommandControl:
     ) -> tuple[CommandResult, ...]:
         cached = self._buffer.get_request_cached(request_id, caller_id)
         if cached is not None:
-            return cached
+            # A provisional in-memory T1 must never appear as accepted
+            # before its batch is durably committed.
+            await asyncio.wait_for(
+                self._buffer.wait_persisted(
+                    [item.command.command_id for item in cached]
+                ),
+                timeout=self._accept_timeout,
+            )
+            return self._buffer.get_request_cached(request_id, caller_id) or cached
         return await self._run(self._repository.get_request, request_id, caller_id)
 
     async def recover(self) -> tuple[str, ...]:
