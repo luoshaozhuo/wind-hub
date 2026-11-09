@@ -12,7 +12,13 @@ import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from commander.application.service_lifecycle import CommanderService
-from commander.domain.command import CommandSpec, CommandState
+from commander.domain.command import (
+    TERMINAL_STATES,
+    CommandOutcome,
+    CommandResult,
+    CommandSpec,
+    CommandState,
+)
 from configuration.effective import resolve_effective_device
 from contracts import commander_pb2, commander_pb2_grpc, common_pb2, common_pb2_grpc
 from core.application.errors import ConfigError
@@ -101,7 +107,9 @@ class _Authorized:
         raise RuntimeError("unreachable")
 
     async def invalid(self, context: grpc.aio.ServicerContext[Any, Any], exc: Exception) -> None:
-        if isinstance(exc, OverflowError):
+        if isinstance(exc, FileExistsError):
+            code = grpc.StatusCode.ALREADY_EXISTS
+        elif isinstance(exc, OverflowError):
             code = grpc.StatusCode.RESOURCE_EXHAUSTED
         elif isinstance(exc, ValueError | TypeError | ConfigError):
             code = grpc.StatusCode.INVALID_ARGUMENT
@@ -211,38 +219,133 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
         except Exception as exc:
             await self._boundary.invalid(context, exc)
 
+    @staticmethod
+    def _command_spec(item: Any) -> CommandSpec:
+        if not item.device_id or not item.point_id or not item.expected_revision:
+            raise ValueError("device_id, point_id, expected_revision are required")
+        if not item.HasField("value"):
+            raise ValueError("value is required")
+        expires = (
+            item.expires_at.ToDatetime(tzinfo=UTC)
+            if item.HasField("expires_at")
+            else None
+        )
+        if expires is not None and expires <= datetime.now(UTC):
+            raise ValueError("expires_at is in the past")
+        return CommandSpec(
+            device_id=item.device_id,
+            point_id=item.point_id,
+            value=_scalar(item.value),
+            config_reference=item.expected_revision,
+            expires_at=expires,
+        )
+
+    def _command_result(self, result: CommandResult) -> Any:
+        settled = self._boundary.service.executor.io_settled(
+            result.command.command_id, result.state, result.error_code
+        )
+        return commander_pb2.GetCommandResultResponse(
+            command_id=result.command.command_id,
+            state=result.state.value,
+            outcome=result.outcome.value if result.outcome is not None else "",
+            error_code=result.error_code or "",
+            message=result.error_message or "",
+            device_id=result.command.spec.device_id,
+            point_id=result.command.spec.point_id,
+            updated_at=_timestamp(
+                result.updated_at or result.completed_at or result.command.received_at
+            ),
+            io_settled=settled,
+        )
+
+    @staticmethod
+    def _request_state(results: tuple[CommandResult, ...]) -> str:
+        if any(result.state not in TERMINAL_STATES for result in results):
+            if all(result.state is CommandState.ACCEPTED for result in results):
+                return "ACCEPTED"
+            return "EXECUTING"
+        outcomes = {result.outcome for result in results}
+        if CommandOutcome.UNKNOWN in outcomes:
+            return "UNKNOWN"
+        if outcomes == {CommandOutcome.CONFIRMED_SUCCESS}:
+            return "SUCCEEDED"
+        if outcomes == {CommandOutcome.NOT_SENT}:
+            return "NOT_SENT"
+        if outcomes <= {CommandOutcome.CONFIRMED_FAILURE, CommandOutcome.NOT_SENT}:
+            return "FAILED"
+        return "PARTIAL"
+
     async def SubmitCommand(self, request: Any, context: Any) -> Any:
         started = perf_counter()
         caller = await self._boundary.require(context, "control")
         try:
-            if not request.device_id or not request.point_id or not request.expected_revision:
-                raise ValueError("device_id, point_id, expected_revision are required")
-            if not request.HasField("value"):
-                raise ValueError("value is required")
-            expires = (
-                request.expires_at.ToDatetime(tzinfo=UTC)
-                if request.HasField("expires_at")
-                else None
+            if not request.request_id.strip():
+                raise ValueError("request_id is required")
+            spec = self._command_spec(request)
+            admitted = await self._boundary.service.executor.accept(
+                (spec,), caller_id=caller, request_id=request.request_id
             )
-            if expires is not None and expires <= datetime.now(UTC):
-                raise ValueError("expires_at is in the past")
-            spec = CommandSpec(
-                device_id=request.device_id,
-                point_id=request.point_id,
-                value=_scalar(request.value),
-                config_reference=request.expected_revision,
-                expires_at=expires,
-            )
-            admitted = await self._boundary.service.executor.accept((spec,), caller_id=caller)
             return commander_pb2.SubmitCommandResponse(
                 command_id=admitted[0].command_id,
                 accepted=True,
+                state=CommandState.ACCEPTED.value,
+                request_id=request.request_id,
+            )
+        except Exception as exc:
+            await self._boundary.invalid(context, exc)
+        finally:
+            self._boundary.service.metrics.accept_latency((perf_counter() - started) * 1000)
+
+    async def SubmitCommands(self, request: Any, context: Any) -> Any:
+        started = perf_counter()
+        caller = await self._boundary.require(context, "control")
+        try:
+            if not request.request_id.strip():
+                raise ValueError("request_id is required")
+            if not request.commands:
+                raise ValueError("commands must not be empty")
+            specs = tuple(self._command_spec(item) for item in request.commands)
+            admitted = await self._boundary.service.executor.accept(
+                specs, caller_id=caller, request_id=request.request_id
+            )
+            return commander_pb2.SubmitCommandsResponse(
+                request_id=request.request_id,
+                accepted=True,
+                command_ids=[item.command_id for item in admitted],
                 state=CommandState.ACCEPTED.value,
             )
         except Exception as exc:
             await self._boundary.invalid(context, exc)
         finally:
             self._boundary.service.metrics.accept_latency((perf_counter() - started) * 1000)
+
+    async def GetRequestResult(self, request: Any, context: Any) -> Any:
+        started = perf_counter()
+        caller = await self._boundary.require(context, "query")
+        try:
+            if not request.request_id.strip():
+                raise ValueError("request_id is required")
+            results = await self._boundary.service.control.get_request(
+                request.request_id, caller
+            )
+            if not results:
+                raise KeyError(request.request_id)
+            children = [self._command_result(item) for item in results]
+            updated = max(
+                item.updated_at or item.completed_at or item.command.received_at
+                for item in results
+            )
+            return commander_pb2.GetRequestResultResponse(
+                request_id=request.request_id,
+                state=self._request_state(results),
+                commands=children,
+                updated_at=_timestamp(updated),
+                io_settled=all(child.io_settled for child in children),
+            )
+        except Exception as exc:
+            await self._boundary.invalid(context, exc)
+        finally:
+            self._boundary.service.metrics.query_latency((perf_counter() - started) * 1000)
 
     async def GetCommandResult(self, request: Any, context: Any) -> Any:
         started = perf_counter()
@@ -253,22 +356,7 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
             result = await self._boundary.service.control.get_command(request.command_id)
             if result is None:
                 raise KeyError(request.command_id)
-            settled = self._boundary.service.executor.io_settled(
-                result.command.command_id, result.state, result.error_code
-            )
-            return commander_pb2.GetCommandResultResponse(
-                command_id=result.command.command_id,
-                state=result.state.value,
-                outcome=result.outcome.value if result.outcome is not None else "",
-                error_code=result.error_code or "",
-                message=result.error_message or "",
-                device_id=result.command.spec.device_id,
-                point_id=result.command.spec.point_id,
-                updated_at=_timestamp(
-                    result.updated_at or result.completed_at or result.command.received_at
-                ),
-                io_settled=settled,
-            )
+            return self._command_result(result)
         except Exception as exc:
             await self._boundary.invalid(context, exc)
         finally:
@@ -327,10 +415,12 @@ class CommonRpc(common_pb2_grpc.CommonServiceServicer):
                 "CommanderService.GetDevice",
                 "CommanderService.ListPoints",
                 "CommanderService.SubmitCommand",
+                "CommanderService.SubmitCommands",
                 "CommanderService.GetCommandResult",
+                "CommanderService.GetRequestResult",
             ],
             protocols=self._boundary.service.supported_protocols,
-            features=["single_point_control", "asynchronous_persistence"],
+            features=["single_point_control", "batch_control", "request_idempotency"],
         )
 
     async def GetConfigSnapshot(self, request: Any, context: Any) -> Any:
