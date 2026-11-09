@@ -1,29 +1,16 @@
 name: Production Qualification Gate
-run-name: Soak ${{ inputs.soak_profile }} @ ${{ github.sha }}
+run-name: Soak (bounded reliability) @ ${{ github.sha }}
 
 on:
   workflow_dispatch:
-    inputs:
-      soak_profile:
-        description: soak 档位
-        type: choice
-        options: [smoke_1h, prerelease_8h, rc_24h]
-        default: smoke_1h
-      duration_override_s:
-        description: 覆盖测量时长（秒，仅验证 soak 路径）
-        required: false
-        default: ''
 
 permissions:
   contents: read
 
 jobs:
   soak:
-    runs-on: [self-hosted, qualification]
-    timeout-minutes: 1560
-    env:
-      WIND_HUB_SOAK_PROFILE: ${{ inputs.soak_profile }}
-      WIND_HUB_SOAK_DURATION_S: ${{ inputs.duration_override_s }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Run metadata
         shell: bash
@@ -33,7 +20,6 @@ jobs:
             echo "- SHA: `$GITHUB_SHA`"
             echo "- Run: `$GITHUB_RUN_ID`"
             echo "- Runner: `$RUNNER_NAME`"
-            echo "- Profile: `${{ inputs.soak_profile }}`"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,14 +34,20 @@ jobs:
           poetry install --all-extras --no-interaction
       - name: Run soak
         id: soak
-        run: python scripts/ci_gate.py soak
-      - name: Upload soak report
+        shell: bash
+        run: |
+          mkdir -p artifacts/soak
+          # v2 soak 是 tests/src/reliability 下的有界负载/资源释放 pytest 用例；
+          # 旧 WIND_HUB_SOAK_PROFILE / 8h/24h 长稳框架已退役，无外部 profile 输入。
+          python scripts/ci_gate.py soak \
+            --output "artifacts/soak/soak-results-${{ github.sha }}.xml"
+      - name: Upload JUnit results
         id: upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-report-${{ github.sha }}-${{ inputs.soak_profile }}
-          path: artifacts/soak/
+          name: soak-results-${{ github.sha }}
+          path: artifacts/soak/*.xml
           if-no-files-found: error
       - name: Final qualification status
         if: always()

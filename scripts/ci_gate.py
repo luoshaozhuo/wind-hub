@@ -219,7 +219,7 @@ def hardware_gate() -> bool:
 
 
 def performance_gate(args: argparse.Namespace) -> bool:
-    """执行 SampleBatch v2 批次管线性能基线（pytest 化；v1 run_benchmark 已退役）。"""
+    """执行 SampleBatch v2 批次管线性能基线（pytest 用例，非旧版 netem Benchmark）。"""
     command = _python_module(
         "pytest", "tests/src/performance", "-q", "-m", "performance and not soak"
     )
@@ -228,18 +228,18 @@ def performance_gate(args: argparse.Namespace) -> bool:
     return _run("performance", command)
 
 
-def soak_gate() -> bool:
+def soak_gate(args: argparse.Namespace) -> bool:
     """执行 v2 批次管线有界负载与资源释放可靠性测试。"""
-    return _run(
-        "soak",
-        _python_module(
-            "pytest",
-            "tests/src/reliability",
-            "-q",
-            "-m",
-            "soak and not performance",
-        ),
+    command = _python_module(
+        "pytest",
+        "tests/src/reliability",
+        "-q",
+        "-m",
+        "soak and not performance",
     )
+    if args.output:
+        command.extend(["--junitxml", args.output])
+    return _run("soak", command)
 
 
 def _frontend_fast_required(path: str) -> bool:
@@ -489,12 +489,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("hardware")
 
-    performance = subparsers.add_parser("performance")
-    performance.add_argument("--mode", choices=("quick", "full"), default="quick")
-    performance.add_argument("--duration", type=float)
-    performance.add_argument("--output")
+    performance = subparsers.add_parser(
+        "performance",
+        help="运行 tests/src/performance 下的 v2 批次管线性能基线 pytest 用例",
+    )
+    performance.add_argument(
+        "--output",
+        help=(
+            "可选：JUnit XML 测试结果文件路径（透传 pytest --junitxml），"
+            "不是性能 Markdown/JSON 报告"
+        ),
+    )
 
-    subparsers.add_parser("soak")
+    soak = subparsers.add_parser(
+        "soak",
+        help="运行 tests/src/reliability 下的有界负载与资源释放可靠性 pytest 用例",
+    )
+    soak.add_argument(
+        "--output",
+        help="可选：JUnit XML 测试结果文件路径（透传 pytest --junitxml）",
+    )
 
     return parser
 
@@ -518,7 +532,7 @@ def main() -> int:
     elif args.gate == "performance":
         passed = performance_gate(args)
     elif args.gate == "soak":
-        passed = soak_gate()
+        passed = soak_gate(args)
     else:
         raise AssertionError(f"unhandled gate: {args.gate}")
 

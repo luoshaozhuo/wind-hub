@@ -20,7 +20,7 @@
 | `src/wind_hub_server` | 进程 `wind-hub-server` | 管理 API（FastAPI）进程宿主：装配与生命周期；业务 Use Case 复用 collector，不形成第二套后端 |
 | `src/cli` | CLI `wind-hub` | 直连 Collector / Commander 的本地运维 CLI；不依赖 Server/Admin |
 | `src/wind-hub-admin` | 前端（Vue 3 + TS + Vite） | 管理界面 |
-| `scripts/` | 工具 | `dev.py`（本机环境入口）、`ci_gate.py`（质量门禁）、`ci_scope.py`（变更范围识别）、`run_benchmark.py`（压测）、`generate_rpc.py`（proto 代码生成） |
+| `scripts/` | 工具 | `dev.py`（本机环境入口）、`ci_gate.py`（质量门禁）、`ci_scope.py`（变更范围识别）、`generate_rpc.py`（proto 代码生成） |
 | `ai_shared/` | 治理 | Coding Agent 规则、Skill、Hook 与本机工具配置模板，`.claude/`、`.codex/`、`.agents/` 仅为适配层 |
 | `tests/` | 测试 | 分层测试体系，见下文「测试」 |
 
@@ -202,9 +202,9 @@ mock**。
 | contract | `tests/contract` | 模块间稳定契约（RPC / config / API schema） | `pytest tests/contract -q` |
 | integration | `tests/integration/{protocols,rpc,sinks}` | 两个以上真实组件协作（真实协议服务 / 文件 / Docker 服务） | `pytest tests/integration -q` |
 | system | `tests/system/{acquisition,command,diagnostics,reload,startup,task_control,e2e}` | 完整或接近完整系统的外部可观察行为 | `pytest tests/system -q`（或按子目录单跑） |
-| reliability | `tests/reliability/{fault_injection,recovery}` | 故障检测、重试、恢复与资源释放 | `pytest tests/reliability -q -m "not soak"` |
-| soak | `tests/reliability/soak` | 长时间稳定性（负载、资源、漂移） | 见下文「Soak」 |
-| performance | `tests/performance` | `tc netem` 压测，需 root，不进 pytest 默认收集 | 见下文「性能压测」 |
+| reliability | `tests/src/reliability` | v2 批次管线有界负载、故障检测与资源释放 | `pytest tests/src/reliability -q -m "reliability and not soak"` |
+| soak | `tests/src/reliability`（marker `soak`） | 有界负载稳定性（负载、资源、漂移）；旧 8h/24h 长稳框架已退役 | 见下文「Soak / 可靠性」 |
+| performance | `tests/src/performance` | 进程内吞吐/延迟基线 pytest 用例，无需 root/netem，默认门禁以 marker 排除 | 见下文「性能基线」 |
 | hardware | `tests/integration/protocols/ads` | 真实 TwinCAT PLC | `pytest tests/integration/protocols/ads -q -m hardware` |
 
 常用组合：
@@ -232,15 +232,17 @@ cp tests/test.env.example tests/test.env
   在本机 Docker 拉起；配置后直接使用该实例。
 - ADS（hardware）：无默认值，未配置 `WIND_HUB_TEST_ADS_*` 时全部 SKIPPED。
 
-### Soak
+### Soak / 可靠性
+
+v2 的 soak 用例是 `tests/src/reliability/` 下的有界负载与资源释放 pytest
+用例（marker：`soak`/`reliability`/`load`），不再有外部 profile 或时长环境
+变量；旧 8h/24h 长稳框架已退役。
 
 ```bash
-WIND_HUB_SOAK_PROFILE=smoke_1h      pytest -m soak tests/reliability/soak
-WIND_HUB_SOAK_PROFILE=prerelease_8h pytest -m soak tests/reliability/soak   # 预发布
-WIND_HUB_SOAK_PROFILE=rc_24h        pytest -m soak tests/reliability/soak   # 发布候选
+python3 scripts/ci_gate.py soak
+# 等价直跑：
+pytest tests/src/reliability -q -m "soak and not performance"
 ```
-
-必须显式指定 profile；报告写入 `artifacts/soak/`（运行产物，不提交仓库）。
 
 ### 前端测试
 
@@ -271,8 +273,10 @@ python3 scripts/ci_gate.py frontend-e2e
 # Release / hardware / performance / soak
 python3 scripts/ci_gate.py release --part all
 python3 scripts/ci_gate.py hardware
-python3 scripts/ci_gate.py performance --mode quick
+python3 scripts/ci_gate.py performance
 python3 scripts/ci_gate.py soak
+# performance/soak 可选 --output 输出 JUnit XML 结果文件（非 Markdown/JSON 报告）
+python3 scripts/ci_gate.py performance --output artifacts/perf-results.xml
 ```
 
 PR target 由 `scripts/ci_scope.py` 按变更路径识别；没有 target 的普通变更不
@@ -287,24 +291,24 @@ poetry run mypy src/
 poetry run lint-imports
 ```
 
-## 性能压测
+## 性能基线
 
-压测框架使用 `tc netem` 在专用网络环境注入延迟、抖动、丢包和中断，并输出
-Markdown + JSON 报告。压测需要 **root**，不进入 pytest 默认收集。
+v2 性能基线位于 `tests/src/performance/`（marker：`performance`/`load`），
+是进程内的 SampleBatch v2 编解码与批次管线吞吐 pytest 用例，实测
+p50/p95/p99 延迟与吞吐，无需 root、tc netem 或外部服务；不进入默认门禁
+选择（release/merge 门禁以 `-m "not performance"` 排除），由独立
+performance 门禁触发。
 
 ```bash
-PYTHON_BIN="$(python3 scripts/dev.py resolve python)"
+# 通过门禁执行（可选 JUnit XML 结果文件）
+python3 scripts/ci_gate.py performance --output artifacts/perf-results.xml
 
-sudo "$PYTHON_BIN" scripts/run_benchmark.py --quick --protocol modbus
-sudo "$PYTHON_BIN" scripts/run_benchmark.py
+# 等价直跑
+pytest tests/src/performance -q -m "performance and not soak"
 ```
 
-说明：
-
-- 脚本检测权限，**不会自动 sudo**；无 root 时报告并退出。
-- Sink 用 NullSink（隔离外部 IO，测采集 + Task 分发）。
-- 资源采样直读 `/proc`（psutil 非项目依赖，刻意零新增依赖）。
-- 性能报告属于运行产物，不提交仓库。
+旧版 `scripts/run_benchmark.py`（tc netem 注入、Markdown/JSON 报告）已随
+v1 线协议退役删除，不存在兼容入口。
 
 ## 安全提示
 

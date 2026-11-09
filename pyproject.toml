@@ -185,7 +185,7 @@ markers = [
     "reliability: 故障检测、重试、恢复与资源释放",
     "safety: 安全约束（非法输入拒绝、所有权、不伪造结果）",
     "soak: 长时间稳定性（负载、资源、漂移）",
-    "performance: 性能压测（需 root + tc netem；不加入默认收集，经 scripts/run_benchmark.py 触发）",
+    "performance: 进程内性能基线 pytest 用例（tests/src/performance，无需 root/netem；默认门禁以 marker 排除，经 scripts/ci_gate.py performance 独立触发）",
     # Data Generator 设计 v1_9 §13 表 13-1 专题/场景 marker
     "deterministic: 确定性（seed/顺序独立性）",
     "invalid_input: 非法输入拒绝",
