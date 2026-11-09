@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from core.application.errors import ConfigError
@@ -47,6 +48,21 @@ class SharedDomainSnapshot:
     units: UnitCatalog
     business_points: Mapping[BusinessPointId, BusinessPoint]
     revision: str
+
+    def __post_init__(self) -> None:
+        """Detach and freeze every public index of the typed snapshot."""
+        for name in (
+            "device_types",
+            "device_models",
+            "device_groups",
+            "point_tables",
+            "business_points",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                MappingProxyType(dict(getattr(self, name))),
+            )
 
 
 def _content(document: Mapping[str, Any]) -> dict[str, Any]:
