@@ -13,6 +13,7 @@ from typing import Any
 from core.application.errors import ConfigError
 
 from .document_version import read_stable_document
+from .immutable import freeze_document, plain_document
 
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -35,7 +36,7 @@ def config_hash(document: Mapping[str, Any]) -> str:
     """基于 YAML 解析后的规范化内容计算 SHA-256，独立于键顺序。"""
     try:
         canonical = json.dumps(
-            document,
+            plain_document(document),
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
@@ -95,5 +96,5 @@ class VersionedTemplateRepository:
             reference=reference,
             path=path,
             content_hash=config_hash(document),
-            document=document,
+            document=freeze_document(document),
         )
