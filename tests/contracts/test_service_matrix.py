@@ -1,4 +1,4 @@
-"""43 个 RPC 的 Service Descriptor 矩阵（设计书 9.2-9.7 逐条核对；v1_10 Gateway ClaimTargets）。"""
+"""45 个 RPC 的 Service Descriptor 矩阵（Contracts 设计 v1_16；v1_10 Gateway ClaimTargets）。"""
 
 from __future__ import annotations
 
@@ -119,9 +119,19 @@ EXPECTED: dict[ModuleType, tuple[str, str, list[tuple[str, str, str]]]] = {
                 "windhub.commander.v1.SubmitCommandResponse",
             ),
             (
+                "SubmitCommands",
+                "windhub.commander.v1.SubmitCommandsRequest",
+                "windhub.commander.v1.SubmitCommandsResponse",
+            ),
+            (
                 "GetCommandResult",
                 "windhub.commander.v1.GetCommandResultRequest",
                 "windhub.commander.v1.GetCommandResultResponse",
+            ),
+            (
+                "GetRequestResult",
+                "windhub.commander.v1.GetRequestResultRequest",
+                "windhub.commander.v1.GetRequestResultResponse",
             ),
         ],
     ),
@@ -235,9 +245,29 @@ def test_each_proto_declares_exactly_one_service_with_expected_package() -> None
         assert set(descriptor.services_by_name) == {service_name}
 
 
-def test_rpc_total_is_43() -> None:
-    assert sum(len(rpcs) for _, _, rpcs in EXPECTED.values()) == 43
-    assert len(_all_methods()) == 43
+def test_rpc_total_is_45() -> None:
+    assert sum(len(rpcs) for _, _, rpcs in EXPECTED.values()) == 45
+    assert len(_all_methods()) == 45
+
+
+def test_commander_rpc_count_is_seven() -> None:
+    _, _, rpcs = EXPECTED[commander_pb2]
+    assert len(rpcs) == 7
+
+
+def test_commander_message_and_field_counts() -> None:
+    # Contracts v1_16 §12.2：Commander 15 种消息、58 个字段，逐 Descriptor 核验。
+    messages = commander_pb2.DESCRIPTOR.message_types_by_name
+    assert len(messages) == 15
+    assert sum(len(message.fields) for message in messages.values()) == 58
+
+
+def test_commander_request_id_field_numbers_frozen() -> None:
+    # 旧五 RPC 标签不可重编号；request_id 固定为单点请求 6、响应 7。
+    request = commander_pb2.DESCRIPTOR.message_types_by_name["SubmitCommandRequest"]
+    response = commander_pb2.DESCRIPTOR.message_types_by_name["SubmitCommandResponse"]
+    assert request.fields_by_name["request_id"].number == 6
+    assert response.fields_by_name["request_id"].number == 7
 
 
 @pytest.mark.parametrize(
@@ -249,7 +279,7 @@ def test_rpc_name_io_types_and_unary(method: MethodDescriptor) -> None:
     input_name, output_name = EXPECTED_RPCS[method.full_name]
     assert method.input_type.full_name == input_name
     assert method.output_type.full_name == output_name
-    # 设计书 9.2-9.7 / v1_10：43 个接口全部为 Unary，无 streaming。
+    # Contracts v1_16：45 个接口全部为 Unary，无 streaming。
     assert method.client_streaming is False
     assert method.server_streaming is False
 
