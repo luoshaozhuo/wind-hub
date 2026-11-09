@@ -53,10 +53,11 @@ class BufferedJournal:
         self._sequence = initial_sequence
         self._pending: deque[PendingEvent] = deque()
         self._pending_counts: dict[str, int] = defaultdict(int)
-        self._evictable_requests: deque[str] = deque()
+        self._evictable_requests: deque[tuple[str, str]] = deque()
         self._cache_limit = 10_000
         self._results: dict[str, CommandResult] = {}
-        self._requests: dict[str, list[str]] = defaultdict(list)
+        self._requests: dict[tuple[str, str], list[str]] = defaultdict(list)
+        self._persisted = asyncio.Event()
         self._reserved: dict[str, int] = {}
         self._reserved_total = 0
         self._wake = asyncio.Event()
@@ -91,15 +92,15 @@ class BufferedJournal:
         specs: Sequence[CommandSpec],
         *,
         caller_id: str,
+        request_id: str,
         operator_id: str | None = None,
         trace_id: str | None = None,
     ) -> tuple[AcceptedCommand, ...]:
-        if not specs or not caller_id.strip():
-            raise ValueError("nonempty batch and caller_id required")
+        if not specs or not caller_id.strip() or not request_id.strip():
+            raise ValueError("nonempty batch, caller_id and request_id required")
         # Reserve T1, optional CONNECTING, T2 and T3 for every command.
         self._capacity(4 * len(specs))
         encoded = [json.dumps(spec.value, allow_nan=False) for spec in specs]
-        request_id = str(uuid4())
         now = utc_now()
         accepted: list[AcceptedCommand] = []
         for spec, value in zip(specs, encoded, strict=True):
@@ -112,7 +113,7 @@ class BufferedJournal:
             self._results[command.command_id] = CommandResult(
                 command, CommandState.ACCEPTED, None, None, None, None, now
             )
-            self._requests[request_id].append(command.command_id)
+            self._requests[(caller_id, request_id)].append(command.command_id)
             self._add(
                 {
                     "event_id": str(uuid4()),
@@ -202,17 +203,25 @@ class BufferedJournal:
     def get_cached(self, command_id: str) -> CommandResult | None:
         return self._results.get(command_id)
 
-    def get_request_cached(self, request_id: str) -> tuple[CommandResult, ...] | None:
-        ids = self._requests.get(request_id)
+    def get_request_cached(
+        self, request_id: str, caller_id: str
+    ) -> tuple[CommandResult, ...] | None:
+        ids = self._requests.get((caller_id, request_id))
         if ids is None or any(item not in self._results for item in ids):
             return None
         return tuple(self._results[item] for item in ids)
+
+    async def wait_persisted(self, command_ids: Sequence[str]) -> None:
+        """Wait until all accepted T1 events have committed to SQLite."""
+        while any(self._pending_counts.get(command_id, 0) for command_id in command_ids):
+            self._persisted.clear()
+            await self._persisted.wait()
 
     def snapshot(self, limit: int) -> tuple[dict[str, Any], ...]:
         return tuple(event.fields for event in list(self._pending)[:limit])
 
     def confirm(self, count: int) -> None:
-        affected: set[str] = set()
+        affected: set[tuple[str, str]] = set()
         for _ in range(count):
             command_id = str(self._pending.popleft().fields["command_id"])
             self._pending_counts[command_id] -= 1
@@ -220,18 +229,19 @@ class BufferedJournal:
                 del self._pending_counts[command_id]
                 command = self._results.get(command_id)
                 if command is not None:
-                    affected.add(command.command.request_id)
-        for request_id in affected:
-            commands = self._requests.get(request_id, [])
+                    affected.add((command.command.caller_id, command.command.request_id))
+        self._persisted.set()
+        for request_key in affected:
+            commands = self._requests.get(request_key, [])
             if commands and all(
                 command_id not in self._pending_counts
                 and self._results[command_id].state in TERMINAL_STATES
                 for command_id in commands
             ):
-                self._evictable_requests.append(request_id)
+                self._evictable_requests.append(request_key)
         while len(self._results) > self._cache_limit and self._evictable_requests:
-            request_id = self._evictable_requests.popleft()
-            for command_id in self._requests.pop(request_id, []):
+            request_key = self._evictable_requests.popleft()
+            for command_id in self._requests.pop(request_key, []):
                 self._results.pop(command_id, None)
                 self._reserved.pop(command_id, None)
 
