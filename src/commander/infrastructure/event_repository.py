@@ -427,10 +427,10 @@ class EventRepository:
 
         def purge() -> int:
             rows = self._db.execute(
-                """SELECT a.request_id
+                """SELECT a.caller_id,a.request_id
                    FROM command_events AS a
                    WHERE a.event_type='ACCEPTED'
-                   GROUP BY a.request_id
+                   GROUP BY a.caller_id,a.request_id
                    HAVING COUNT(*) = SUM(
                        CASE WHEN EXISTS (
                            SELECT 1 FROM command_events AS t
@@ -448,11 +448,11 @@ class EventRepository:
                 (cutoff, cutoff, limit),
             ).fetchall()
             deleted = 0
-            for (request_id,) in rows:
+            for caller_id, request_id in rows:
                 command_rows = self._db.execute(
                     "SELECT command_id FROM command_events "
-                    "WHERE request_id=? AND event_type='ACCEPTED'",
-                    (request_id,),
+                    "WHERE request_id=? AND caller_id=? AND event_type='ACCEPTED'",
+                    (request_id, caller_id),
                 ).fetchall()
                 for (command_id,) in command_rows:
                     self._db.execute(
