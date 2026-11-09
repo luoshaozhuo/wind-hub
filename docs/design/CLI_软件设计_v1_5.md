@@ -635,7 +635,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**设计基线**：`main@0ac0228afc202ea69f75ab1b0046c2ab24bfd369`。外部 RPC/消息以 `src/contracts/*.proto` 和《Contracts 软件设计 v0_2》为准。本次以 CLI v1_1 为编辑基线。
+**当前设计契约基线**：`main@14e3be661cfd1d30417144d3f4cfa928d313eaa5`。外部 RPC/消息以 `src/contracts/*.proto` 和《Contracts 软件设计 v1_6》为准；早期 CLI v1_1 与旧 main SHA 只作为历史修订来源，不代表当前 RPC 契约。
 
 CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务输出为发往 Service 的 gRPC 请求、发往进程管理器的操作请求以及 CLI 本地网络探测；现场操作和权威业务状态归对应 Service 所有。第 3.1 节是已确认的需求范围，第 3.2 节将其分解为可核验要求。
 
@@ -949,7 +949,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 运行监控（3） | `GetMetrics`、`GetEvents`、`GetPublishingStatus` | UR-11 |
 | 诊断（2） | 公共 `Diagnose`、专属 `InterrogateDevice` | UR-08 |
 
-Collector 读取契约统一为一次性 Unary `ReadPoints`；持续读取由 CLI 周期轮询实现。各公共 RPC 统一在Contracts v0_2 定义。
+Collector 读取契约统一为一次性 Unary `ReadPoints`；持续读取由 CLI 周期轮询实现。各公共 RPC 统一在Contracts v1_6 定义。
 
 # 4. 用例视图
 
@@ -1766,7 +1766,7 @@ flowchart LR
 
 ## 9.2 RPC 调用映射
 
-以下列出的均为最新 `main` Proto 中真实存在的 Unary RPC；具体请求/响应定义参见 Contracts v0_2。
+以下列出的均为最新 `main` Proto 中真实存在的 Unary RPC；具体请求/响应定义参见 Contracts v1_6。
 
 | 目标 Service | RPC | CLI 业务命令/用途 |
 |---|---|---|
@@ -1898,7 +1898,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `sink start/stop` | DELIVERY_ID | Sink Delivery 控制 | 修改期望状态 |
 | `sink metrics/events` | 可选筛选 | Sink 指标/事件 | 消费及交付 |
 | `gateway list/status/variables/update/start/stop/metrics` | `update`：GATEWAY_ID、变量值集合；其他同前 | Gateway `ListVariables`/`ReadVariables`/`ClaimTargets`/`UpdateVariables` 等 | CLI 支持变量发现→租约申请→批量更新→租约释放→逐项结果→读回确认；RPC 不触发现场控制；未实现验收失败 |
-| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v0_2 的专属 RPC 实现 |
+| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_6 的专属 RPC 实现 |
 | `data-generator start/stop/status` | 场景/任务标识 | StartGeneration / StopGeneration / GetGeneration | start 传 scenario_id、stop/status 传 generation_id；无故障注入命令 |
 | `diagnose collector/commander/sink/gateway/data-generator` | 目标对象及可选范围 | 对应 Service 诊断 RPC | 统一显示阶段证据 |
 | `diagnose pipeline` | DEVICE | CLI 调用 Collector + Sink | 跨服务证据汇总 |
@@ -2507,7 +2507,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | `test_containerd_real.py` | integration | reliability | real_container | 真实 containerd Daemon 及容器 |
 | `test_isulad_real.py` | integration | reliability | real_container | 真实 iSulad Daemon 及容器 |
 | `test_systemd_real.py` | integration | reliability | real_process | 真实 systemd Unit |
-| `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC（按 Contracts v0_2）、mTLS、错误映射 |
+| `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC（按 Contracts v1_6）、mTLS、错误映射 |
 
 ## 14.2 System Test：全 UC 与场景追溯矩阵
 
