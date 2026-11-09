@@ -75,8 +75,7 @@ def _reference(raw: object, context: str) -> TemplateRef:
 
 
 def _read(path: Path) -> dict[str, Any]:
-    document, _source_sha256 = read_stable_document(path)
-    return document
+    return read_stable_document(path)
 
 
 class SharedDocumentLoader:
