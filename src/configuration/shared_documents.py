@@ -74,10 +74,6 @@ def _reference(raw: object, context: str) -> TemplateRef:
     return TemplateRef("device_models", template_id, file_version)
 
 
-def _read(path: Path) -> dict[str, Any]:
-    return read_stable_document(path)
-
-
 class SharedDocumentLoader:
     """Validate shared documents without reading service configuration."""
 
@@ -108,7 +104,7 @@ class SharedDocumentLoader:
 
     def _with_shared_lock(self, read: Callable[[], SharedDocuments]) -> SharedDocuments:
         """Hold a cooperative shared lock for one complete document read."""
-        directory = self._paths.coordination_root or self._paths.templates.parent
+        directory = self._paths.coordination_root or self._paths.templates.parent.parent
         descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
         try:
             fcntl.flock(descriptor, fcntl.LOCK_SH)
@@ -126,7 +122,7 @@ class SharedDocumentLoader:
             else self._paths.instances / "devices.yaml"
         )
         site = (
-            _read(site_path) if self._paths.load_site else {"site_id": "shared", "name": "Shared"}
+            read_stable_document(site_path) if self._paths.load_site else {"site_id": "shared", "name": "Shared"}
         )
         return self._load_documents(site, devices_path)
 
@@ -137,9 +133,9 @@ class SharedDocumentLoader:
         *,
         selected_device_ids: frozenset[str] | None = None,
     ) -> SharedDocuments:
-        device_doc = _read(devices_path)
-        units = _read(self._paths.templates / "units.yaml")
-        business_points = _read(self._paths.templates / "business_points.yaml")
+        device_doc = read_stable_document(devices_path)
+        units = read_stable_document(self._paths.templates / "units.yaml")
+        business_points = read_stable_document(self._paths.templates / "business_points.yaml")
         if site:
             _keys(
                 site,
