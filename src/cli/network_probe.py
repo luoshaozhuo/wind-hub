@@ -28,10 +28,18 @@ INDUSTRIAL_PORTS = {
 async def tcp_probe(host: str, port: int, timeout: float = 1.0) -> dict[str, Any]:
     ipaddress.ip_address(host)
     result = await core_tcp_probe(host, port, timeout=timeout)
+    code = result.findings[0].code if result.findings else ""
+    state = (
+        "OPEN"
+        if result.status.value == "PASS"
+        else "TIMEOUT"
+        if code == "TCP_CONNECT_TIMEOUT"
+        else "CLOSED"
+    )
     return {
         "host": host,
         "port": port,
-        "tcp_state": "OPEN" if result.status.value == "PASS" else "CLOSED",
+        "tcp_state": state,
         "latency_ms": round(float(result.measurements.get("connect_ms", 0)), 2),
     }
 
