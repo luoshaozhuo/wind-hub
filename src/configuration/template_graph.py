@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from core.application.errors import ConfigError
@@ -29,7 +30,7 @@ class ModelTemplates:
 
 
 def _reference(raw: object, category: str) -> TemplateRef:
-    if not isinstance(raw, dict) or set(raw) != {"id", "version"}:
+    if not isinstance(raw, Mapping) or set(raw) != {"id", "version"}:
         raise ConfigError("template reference must be a mapping")
     return TemplateRef(category, raw["id"], raw["version"])
 
