@@ -37,3 +37,4 @@ class ServiceSettings:
     persistence_max_events: int = 100_000
     coordination_root: Path | None = None
     max_request_id_bytes: int = 128
+    accept_commit_timeout: float = 10.0
