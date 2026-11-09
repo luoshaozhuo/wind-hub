@@ -208,6 +208,7 @@ class CommanderService:
                 max_queued_batches_per_device=settings.max_queued_batches_per_device,
                 max_queued_batches_global=settings.max_queued_batches_global,
                 max_batch_points=settings.max_batch_points,
+                max_request_id_bytes=settings.max_request_id_bytes,
             )
             audit = AuditDelivery(
                 journal,
