@@ -35,13 +35,13 @@ def parse_unit_catalog(raw: Mapping[str, Any]) -> UnitCatalog:
     if extra:
         raise ConfigError(f"units.yaml unknown keys: {sorted(extra)}")
     raw_quantities = raw.get("quantities")
-    if not isinstance(raw_quantities, dict) or not raw_quantities:
+    if not isinstance(raw_quantities, Mapping) or not raw_quantities:
         raise ConfigError("units.yaml requires a non-empty 'quantities' mapping")
     quantities: dict[str, str] = {}
     for raw_key, item in raw_quantities.items():
         quantity_id = _id_key(raw_key, "units.yaml quantities")
         context = f"quantity '{quantity_id}'"
-        if not isinstance(item, dict):
+        if not isinstance(item, Mapping):
             raise ConfigError(f"units.yaml {context} must be a mapping")
         unknown = set(item) - _QUANTITY_FIELDS
         if unknown:
@@ -52,7 +52,7 @@ def parse_unit_catalog(raw: Mapping[str, Any]) -> UnitCatalog:
         quantities[quantity_id] = base_unit.strip()
 
     raw_units = raw.get("units")
-    if not isinstance(raw_units, dict) or not raw_units:
+    if not isinstance(raw_units, Mapping) or not raw_units:
         raise ConfigError("units.yaml requires a non-empty 'units' mapping")
     units: list[Unit] = []
     for raw_key, item in raw_units.items():
