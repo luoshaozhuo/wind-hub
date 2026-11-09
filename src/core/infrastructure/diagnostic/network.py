@@ -123,10 +123,16 @@ async def tcp_probe(host: str, port: int, *, timeout: float = 1.0) -> Diagnostic
         _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
     except (OSError, TimeoutError) as exc:
         elapsed = (time.perf_counter() - started) * 1000
+        if isinstance(exc, TimeoutError):
+            error_code = "TCP_CONNECT_TIMEOUT"
+        elif isinstance(exc, ConnectionRefusedError):
+            error_code = "TCP_CONNECT_REFUSED"
+        else:
+            error_code = "TCP_CONNECT_FAILED"
         return _result(
             f"{host}:{port}",
             DiagnosticStatus.FAIL,
-            "TCP_CONNECT_FAILED",
+            error_code,
             f"{type(exc).__name__}: {exc}",
             measurements={"connect_ms": round(elapsed, 3)},
         )
