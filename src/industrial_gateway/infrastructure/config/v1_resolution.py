@@ -67,17 +67,17 @@ def _points(server: ServerConfig, device: SharedDeviceDefinition) -> ResolvedSer
     points: dict[str, ResolvedVariable] = {}
     for table in tables:
         removed = table.document.get("remove_points", [])
-        if not isinstance(removed, list) or len(removed) != len(set(map(str, removed))):
+        if not isinstance(removed, list | tuple) or len(removed) != len(set(map(str, removed))):
             raise ConfigError(f"{table.path}: invalid remove_points")
         for point_id in removed:
             if not isinstance(point_id, str) or point_id not in points:
                 raise ConfigError(f"{table.path}: unknown inherited point {point_id!r}")
             del points[point_id]
         raw_points = table.document.get("points", {})
-        if not isinstance(raw_points, dict):
+        if not isinstance(raw_points, Mapping):
             raise ConfigError(f"{table.path}: points must be a mapping")
         for point_id, definition in raw_points.items():
-            if not isinstance(point_id, str) or not isinstance(definition, dict):
+            if not isinstance(point_id, str) or not isinstance(definition, Mapping):
                 raise ConfigError(f"{table.path}: invalid point entry")
             original = points.get(point_id)
             merged: dict[str, Any] = {}
@@ -86,7 +86,7 @@ def _points(server: ServerConfig, device: SharedDeviceDefinition) -> ResolvedSer
             merged.update(definition)
             address = merged.get("address")
             data_type = merged.get("data_type")
-            if not isinstance(address, dict) or not isinstance(data_type, str):
+            if not isinstance(address, Mapping) or not isinstance(data_type, str):
                 raise ConfigError(f"{table.path}: incomplete point '{point_id}'")
             points[point_id] = ResolvedVariable(point_id, data_type, address)
 
@@ -95,7 +95,7 @@ def _points(server: ServerConfig, device: SharedDeviceDefinition) -> ResolvedSer
     if protocol == "modbus":
         protocol_options = device.templates.protocol.document.get("protocol_options", {})
         model_options = device.templates.model.document.get("protocol_options", {})
-        if not isinstance(protocol_options, dict) or not isinstance(model_options, dict):
+        if not isinstance(protocol_options, Mapping) or not isinstance(model_options, Mapping):
             raise ConfigError(f"{server.device_id}: invalid protocol options")
         options = {
             **protocol_options,
