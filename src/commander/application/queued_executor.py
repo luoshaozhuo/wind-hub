@@ -158,18 +158,14 @@ class QueuedExecutor:
     ) -> tuple[AcceptedCommand, ...]:
         """Do not revoke an in-progress admission on gRPC cancellation."""
         operation = asyncio.create_task(
-            self._accept_persist_and_queue(
-                commands, caller_id=caller_id, request_id=request_id
-            ),
+            self._accept_persist_and_queue(commands, caller_id=caller_id, request_id=request_id),
             name="commander:request-admission",
         )
         self._admissions.add(operation)
         operation.add_done_callback(self._admission_completed)
         return await asyncio.shield(operation)
 
-    def _admission_completed(
-        self, task: asyncio.Task[tuple[AcceptedCommand, ...]]
-    ) -> None:
+    def _admission_completed(self, task: asyncio.Task[tuple[AcceptedCommand, ...]]) -> None:
         self._admissions.discard(task)
         if task.cancelled():
             return

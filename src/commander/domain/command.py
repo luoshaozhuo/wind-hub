@@ -137,9 +137,7 @@ def request_fingerprint(specs: Sequence[CommandSpec]) -> str:
             "value": item.value,
             "expected_revision": item.config_reference,
             "expires_at": (
-                item.expires_at.astimezone(UTC).isoformat()
-                if item.expires_at is not None
-                else None
+                item.expires_at.astimezone(UTC).isoformat() if item.expires_at is not None else None
             ),
         }
         for item in specs

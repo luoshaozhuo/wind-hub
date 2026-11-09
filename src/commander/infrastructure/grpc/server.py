@@ -227,11 +227,7 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
             raise ValueError("device_id, point_id, expected_revision are required")
         if not item.HasField("value"):
             raise ValueError("value is required")
-        expires = (
-            item.expires_at.ToDatetime(tzinfo=UTC)
-            if item.HasField("expires_at")
-            else None
-        )
+        expires = item.expires_at.ToDatetime(tzinfo=UTC) if item.HasField("expires_at") else None
         return CommandSpec(
             device_id=item.device_id,
             point_id=item.point_id,
@@ -285,9 +281,7 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
             admitted = await self._boundary.service.executor.accept(
                 (spec,), caller_id=caller, request_id=request.request_id
             )
-            results = await self._boundary.service.control.get_request(
-                request.request_id, caller
-            )
+            results = await self._boundary.service.control.get_request(request.request_id, caller)
             return commander_pb2.SubmitCommandResponse(
                 command_id=admitted[0].command_id,
                 accepted=True,
@@ -311,9 +305,7 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
             admitted = await self._boundary.service.executor.accept(
                 specs, caller_id=caller, request_id=request.request_id
             )
-            results = await self._boundary.service.control.get_request(
-                request.request_id, caller
-            )
+            results = await self._boundary.service.control.get_request(request.request_id, caller)
             return commander_pb2.SubmitCommandsResponse(
                 request_id=request.request_id,
                 accepted=True,
@@ -331,15 +323,12 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
         try:
             if not request.request_id.strip():
                 raise ValueError("request_id is required")
-            results = await self._boundary.service.control.get_request(
-                request.request_id, caller
-            )
+            results = await self._boundary.service.control.get_request(request.request_id, caller)
             if not results:
                 raise KeyError(request.request_id)
             children = [self._command_result(item) for item in results]
             updated = max(
-                item.updated_at or item.completed_at or item.command.received_at
-                for item in results
+                item.updated_at or item.completed_at or item.command.received_at for item in results
             )
             return commander_pb2.GetRequestResultResponse(
                 request_id=request.request_id,

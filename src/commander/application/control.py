@@ -68,9 +68,7 @@ class CommandControl:
         # any caller can schedule physical I/O.
         try:
             await asyncio.wait_for(
-                self._buffer.wait_persisted(
-                    [command.command_id for command in accepted]
-                ),
+                self._buffer.wait_persisted([command.command_id for command in accepted]),
                 timeout=self._accept_timeout,
             )
         except TimeoutError:
@@ -130,17 +128,13 @@ class CommandControl:
             return cached
         return await self._run(self._repository.get, command_id)
 
-    async def get_request(
-        self, request_id: str, caller_id: str
-    ) -> tuple[CommandResult, ...]:
+    async def get_request(self, request_id: str, caller_id: str) -> tuple[CommandResult, ...]:
         cached = self._buffer.get_request_cached(request_id, caller_id)
         if cached is not None:
             # A provisional in-memory T1 must never appear as accepted
             # before its batch is durably committed.
             await asyncio.wait_for(
-                self._buffer.wait_persisted(
-                    [item.command.command_id for item in cached]
-                ),
+                self._buffer.wait_persisted([item.command.command_id for item in cached]),
                 timeout=self._accept_timeout,
             )
             return self._buffer.get_request_cached(request_id, caller_id) or cached
