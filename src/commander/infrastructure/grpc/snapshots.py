@@ -18,6 +18,7 @@ from commander.application.config_manager import _validate_unique_connections
 from commander.application.service_lifecycle import CommanderService
 from commander.infrastructure.config_commit import commit_config_files, recover_config_commit
 from commander.infrastructure.service_settings import load_service_settings
+from configuration.immutable import plain_document
 from configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
 from configuration.shared_snapshot import build_shared_snapshot
 from contracts import common_pb2
@@ -153,13 +154,13 @@ class ConfigSnapshots:
             model = definition.templates.model.reference
             item: dict[str, object] = {
                 "model": {"id": model.template_id, "version": model.file_version},
-                "endpoint": dict(definition.endpoint),
+                "endpoint": plain_document(definition.endpoint),
                 "enabled": definition.enabled,
             }
             if definition.name is not None:
                 item["name"] = definition.name
             if definition.protocol_options:
-                item["overrides"] = {"protocol_options": dict(definition.protocol_options)}
+                item["overrides"] = {"protocol_options": plain_document(definition.protocol_options)}
             devices[device_id] = item
         files = {
             self._relative(self._service_config): self._startup_service_content,
@@ -172,10 +173,10 @@ class ConfigSnapshots:
                 sort_keys=False,
             ).encode("utf-8"),
             self._relative(settings.templates_root / "units.yaml"): yaml.safe_dump(
-                dict(documents.units), sort_keys=False
+                plain_document(documents.units), sort_keys=False
             ).encode("utf-8"),
             self._relative(settings.templates_root / "business_points.yaml"): yaml.safe_dump(
-                dict(documents.business_points), sort_keys=False
+                plain_document(documents.business_points), sort_keys=False
             ).encode("utf-8"),
         }
         for definition in documents.devices.values():
@@ -187,7 +188,7 @@ class ConfigSnapshots:
                 *templates.inherited_tables,
             ):
                 files[self._relative(template.path)] = yaml.safe_dump(
-                    dict(template.document), sort_keys=False
+                    plain_document(template.document), sort_keys=False
                 ).encode("utf-8")
         return files
 
