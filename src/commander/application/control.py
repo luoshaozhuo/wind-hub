@@ -22,7 +22,7 @@ _T = TypeVar("_T")
 
 
 class CommandControl:
-    """Record all command decisions in memory; never await SQLite on the write path."""
+    """Keep volatile command state; await durable T1 before allowing device I/O."""
 
     def __init__(
         self,
