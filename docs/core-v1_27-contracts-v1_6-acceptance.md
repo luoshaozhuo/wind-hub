@@ -195,3 +195,103 @@ ChatGPT 待修复/后续事项（均不阻塞本次裁决）：
 3. Reliable 崩溃持久化如要承诺端到端无损，须先走设计变更再实现。
 4. 多进程完整栈长稳（原 r5/soak 定位）需要新的 v2 规格测试方案，另行立项。
 5. 本机环境限制项（systemd/dbus、ADS 硬件）应在具备条件的 CI/硬件台架上补跑闭环。
+
+---
+
+## 11. 合并前测试工具整改与定向复测（2026-11-09，D-TOOL-01～04）
+
+### 11.1 Git 起始与最终 HEAD
+
+| 项 | 值 |
+| --- | --- |
+| 起始 HEAD（整改前） | `ce8b2affd4dd2e348e953aa9f2481a173c026417`（与 origin 一致，工作区干净） |
+| 工具/CI 整改提交 | `f0c6c75bda650ce442e86d3261f7df6c528a8547`（6 文件，+98/-118） |
+| 本章提交 | 即本报告章节所在提交（见 `git log` 最新 docs 提交） |
+| 分支 | `docs/foundation-core-contracts-20261108`，未 rebase / force push / PR / 合并 main |
+
+### 11.2 实际修改文件（6 个，零 `src/` 生产代码改动）
+
+1. `scripts/ci_gate.py` — performance/soak 子命令参数契约
+2. `.github/workflows/ci-performance.yml` — 整体重写为 pytest 性能基线工作流
+3. `.github/workflows/ci-qualification.yml` — 整体重写为有界可靠性工作流
+4. `README.md` — 工具表、测试分层表、Soak/质量门禁/性能基线章节
+5. `ai_shared/agent_config/skills/local-qualification/SKILL.md` — 资格门禁说明
+6. `pyproject.toml` — performance marker 描述
+
+### 11.3 D-TOOL-01 修复内容与参数契约
+
+- **删除无效选项**：`performance --mode quick|full` 与 `--duration` 在 pytest 化后不参与任何执行，已连同解析代码一并删除，未保留兼容层。argparse 对失效参数统一返回 **exit 2**（实测 `--mode`、`--duration`、未知子命令、未知选项均为 2）。
+- **`--output` 契约真实化**：两个子命令均保留 `--output`，help 明确「JUnit XML 测试结果文件路径（透传 pytest `--junitxml`），不是性能 Markdown/JSON 报告」；soak 子命令同步获得同一选项，使工作流产物有真实生产者。
+- **ci-performance.yml**：删除 root/CAP_NET_ADMIN/tc netem 前置（新基线是纯进程内 pytest，实测无 docker/nats 依赖）、`mode/duration` 输入、`perf_report_*.md/json/png` 死产物上传；改为 `performance --output artifacts/performance/perf-results-<sha>.xml`，runner 由专用 self-hosted 改为 `ubuntu-latest`，上传 JUnit XML（`if-no-files-found: error`）。
+- **ci-qualification.yml**：删除已无任何 Python 消费者的 `WIND_HUB_SOAK_PROFILE`/`WIND_HUB_SOAK_DURATION_S` 环境变量与 profile/duration 输入、`artifacts/soak/` 死路径（无生产者，原配置必然失败）、1560 分钟 24h 超时；改为 `soak --output artifacts/soak/soak-results-<sha>.xml`，超时收敛到 30 分钟。
+- 全仓调用方闭合：README、local-qualification Skill、两个 workflow 已同步；`.claude/settings.json` 仅为通配 ci_gate 权限，不涉及具体参数；无脚本再传递已删参数。
+
+### 11.4 D-TOOL-02 全仓失效引用审查结果
+
+| 审查项 | 方法 | 结果 |
+| --- | --- | --- |
+| 已删模块 import（r5/soak/perf_runner/new_collector/v1 测试等） | 全仓 grep 12 个旧符号 + 路径 | 有效代码零命中；仅历史报告 `docs/core-v1-s3-acceptance.md` 保留历史叙述（不改写历史） |
+| pytest 失效收集路径 | `pytest tests/src/performance tests/src/reliability --collect-only` | 5 tests collected，无 error |
+| CI/Actions/shell 旧路径 | 7 个 workflow 全量检查 | 两个失效 workflow 已重写，其余 5 个不引用旧入口 |
+| Makefile/文档/配置旧入口 | 全仓 grep `run_benchmark`/`WIND_HUB_SOAK`/`tests/reliability/soak` | README 4 处、Skill 1 处、pyproject 1 处已修复；残留仅为说明性「已退役」文字 |
+| ci_gate 各 Gate 可运行性 | fast/performance/soak 实跑 + 非法 target 负例 | 见 11.5，全部符合预期 |
+| Marker 与执行路径匹配 | 对照 pyproject markers 与 tests/src pytestmark | performance 用例 marker `performance,load`、reliability 用例 `reliability,soak,load`，与 gate 的 `-m` 选择器闭合 |
+| 被删公共辅助是否仍被使用 | grep tests/support 引用 | `perf_collector/perf_reporter/veth/netem/perf_servers` 仍被 tests/tooling 与 web e2e 使用，**不在删除清单且保持有效**（tooling 107 测试通过） |
+| 本地未跟踪残留 | `git ls-files tests/perf` | `tests/perf/` 仅剩未被 git 跟踪的 `__pycache__`（已删模块的本地缓存），不进仓库、不影响收集，建议人工清理 |
+
+### 11.5 D-TOOL-03 真实执行命令与结果
+
+| 命令 | 退出码 | 结果 |
+| --- | --- | --- |
+| `python3 scripts/dev.py env` | 0 | RESULT: PASS |
+| `ruff check scripts tests/src` | 0 | All checks passed!（首次 E501 1 处，折行修复后 0） |
+| `ruff format --check scripts tests/src` | 0 | 41 files already formatted |
+| `mypy src` | 0 | Success: no issues found in 329 source files |
+| `lint-imports` | 0 | Contracts: 15 kept, 0 broken |
+| `MYPYPATH=src mypy scripts/ci_gate.py` | 0 | no issues found in 1 source file |
+| `git diff --check` | 0 | 无空白错误 |
+| `ci_gate.py --help` / `performance --help` / `soak --help` | 0/0/0 | 帮助文本含真实 JUnit XML 说明 |
+| `ci_gate.py performance --mode quick` | **2** | error: unrecognized arguments |
+| `ci_gate.py performance --duration 10` | **2** | error: unrecognized arguments |
+| `ci_gate.py soak --bogus` / 未知 gate | **2/2** | argparse 拒绝 |
+| `ci_gate.py performance --output /tmp/tool-verify/perf.xml` | 0 | GATE RESULT: PASS，3 用例 |
+| `ci_gate.py soak --output /tmp/tool-verify/soak.xml` | 0 | GATE RESULT: PASS，2 用例 |
+| JUnit XML 解析（xml.etree） | 0 | perf: tests=3 failures=0 errors=0；soak: tests=2 failures=0 errors=0 |
+| `ci_gate.py fast --part backend-static` | 0 | GATE RESULT: PASS |
+| `ci_gate.py fast --part backend-tests --targets bogus` | 1 | GATE RESULT: FAIL（未知 target fail-closed） |
+| `pytest tests/tooling -q` | 0 | **107 passed** |
+| 两个 workflow YAML 解析 | 0 | yaml.safe_load OK |
+
+### 11.6 D-TOOL-04 未覆盖系统级限制复核
+
+逐条复核第 8～10 章，确认报告未把未验证能力写成 PASS：
+
+1. 真实 TwinCAT PLC/ADS 原生通知：仍为 **NOT_RUN**（第 9 节），仅 FakeAdsSession 组件层覆盖，无任何硬件 PASS 表述。
+2. 完整多进程/多目标长稳：第 6 节明确「未在多进程完整栈做持续长稳」；本章工作流改名 **Soak (bounded reliability)**，`tests/src/reliability` 的 2 个进程内有界负载测试不得等同于系统级 Soak，文档与 workflow 注释均已写明旧 8h/24h 框架退役。
+3. Reliable 崩溃恢复：第 8.2 节维持「设计已声明限制、非缺陷、不得宣称端到端无损」，本轮无新证据改变该结论。
+4. 性能基线：3 个进程内吞吐/延迟用例只建立 baseline，不虚构 SLA（第 6 节原文保留）。
+
+### 11.7 新增及修改测试数量
+
+- 本轮**未新增/修改任何 pytest 用例**（任务边界为测试工具与 CI 一致性）。
+- 现有套件复验：tests/src 全量 159 passed 维持有效；tests/tooling 107 passed；performance 3 用例、soak 2 用例经门禁实跑并产出合法 JUnit XML。
+- 未使用 skip/xfail/noqa/type-ignore，未放宽任何断言。
+
+### 11.8 未解决问题与责任归属
+
+| 问题 | 归属 | 处置 |
+| --- | --- | --- |
+| `test_rpc_boundary::test_pb2_only_in_allowed_zones` main 既有失败 | ChatGPT 单独立项 | 第 10 节已记录，与本轮无关（UNRELATED 已取证） |
+| 真实 ADS 硬件、多进程长稳、崩溃恢复 | 环境/设计边界 | 维持 NOT_RUN/已声明限制，需硬件台架或设计变更 |
+| 本地 `tests/perf/__pycache__` 未跟踪残留 | 本机环境 | 建议人工删除，不进仓库 |
+| 历史报告中的 run_benchmark 叙述 | 历史记录 | 刻意保留，不改写验收历史 |
+
+### 11.9 本轮最终裁决
+
+**PASS**。
+
+- D-TOOL-01：失效参数已删除且拒绝闭合（exit 2），`--output` 契约与 JUnit XML 实际产物一致，无兼容层、无沉默接受。
+- D-TOOL-02：全仓失效引用闭合，两个原本必然失败的 workflow 重写为可成功的真实流水线，无失效收集路径。
+- D-TOOL-03：ruff/format/mypy(329)/lint-imports(15)/tooling 107 测试/两个 gate 实跑/XML 校验全部通过，无新增 RELATED 缺陷。
+- D-TOOL-04：三项系统级未验证能力在报告中均保持 NOT_RUN/限制表述，无过度宣称。
+- 剩余事项均为已有证据支持的环境限制或历史问题，不阻塞合并前审查。
