@@ -14,6 +14,7 @@ from core.application.errors import ConfigError
 
 from .business_points import parse_business_points
 from .document_version import read_stable_document
+from .immutable import freeze_document
 from .template_graph import DeviceTemplates, resolve_device_templates
 from .units import parse_unit_catalog
 from .versioned_templates import (
@@ -42,6 +43,10 @@ class SharedDeviceDefinition:
     protocol_options: Mapping[str, Any]
     enabled: bool
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "endpoint", freeze_document(self.endpoint))
+        object.__setattr__(self, "protocol_options", freeze_document(self.protocol_options))
+
 
 @dataclass(frozen=True, slots=True)
 class SharedDocuments:
@@ -54,12 +59,9 @@ class SharedDocuments:
 
     def __post_init__(self) -> None:
         """Detach public indexes from loader-owned mutable dictionaries."""
-        for name in ("site", "devices", "units", "business_points"):
-            object.__setattr__(
-                self,
-                name,
-                MappingProxyType(dict(getattr(self, name))),
-            )
+        for name in ("site", "units", "business_points"):
+            object.__setattr__(self, name, freeze_document(getattr(self, name)))
+        object.__setattr__(self, "devices", MappingProxyType(dict(self.devices)))
 
 
 def _mapping(value: object, context: str) -> dict[str, Any]:
