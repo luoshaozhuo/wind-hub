@@ -223,7 +223,21 @@ class BufferedJournal:
             await self._persisted.wait()
 
     def snapshot(self, limit: int) -> tuple[dict[str, Any], ...]:
-        return tuple(event.fields for event in list(self._pending)[:limit])
+        """Keep every T1 item of a submitted request in one SQLite transaction."""
+        events = list(self._pending)
+        end = min(limit, len(events))
+        while 0 < end < len(events):
+            current = events[end - 1].fields
+            following = events[end].fields
+            if (
+                current.get("event_type") != "ACCEPTED"
+                or following.get("event_type") != "ACCEPTED"
+                or current.get("request_id") != following.get("request_id")
+                or current.get("caller_id") != following.get("caller_id")
+            ):
+                break
+            end += 1
+        return tuple(event.fields for event in events[:end])
 
     def confirm(self, count: int) -> None:
         affected: set[tuple[str, str]] = set()
