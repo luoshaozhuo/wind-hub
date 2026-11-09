@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_15 · 20261109</p>
+<p class="subtitle">v1_16 · 20261109</p>
 
 <style>
 body {
@@ -2636,7 +2636,7 @@ lint-imports
 
 **验收条件**：UR 覆盖率 100%、UC 覆盖率 100%、`UC-S01/S02/S03` 规定场景映射覆盖率 100%；每项技术约束有对应测试；全部必测项实际 PASS，`FAIL/SKIP/NOT_RUN` 均不计通过。验收报告记录测试函数及参数化 ID、环境、命令、状态和证据，不以测试文件存在代替执行。
 
-# 15. 设计一致性与待决事项
+# 15. 需求追溯与公共接口验收
 
 ## 15.1 需求—用例—命令—System Test 追溯
 
@@ -2656,90 +2656,16 @@ lint-imports
 | UR-10 | UC-15 | net scan/industrial/tcp；12.2 | 表 14-2 UC-15 |
 | UR-11 | UC-16 | metrics/events/publishing；9.2 | 表 14-2 UC-16 |
 
-## 15.2 Contracts / Core / CLI 一致性验收
+## 15.2 公共接口与能力验收
 
 <p class="table-caption">表 15-2 公共能力与接口一致性检查</p>
 
-| 检查项 | 通过条件 | 当前代码核查状态 |
-|---|---|---|
-| 6 份 Proto 的目标 45 个唯一 Unary RPC（已发布基线 43，新增 2 待实施） | 全部在 Contracts 中明确归属；CLI 对所需能力具有对应命令或说明不适用 | 契约清单已核对；CLI 全命令落地尚须测试 |
-| Gateway `UpdateVariables` | 请求携带有效 `lease_token`，遵守 `ClaimTargets` ACQUIRE/RENEW/RELEASE | **待整改**：main 中 `cli.plant_commands.gateway_update` 未携带令牌 |
-| 本地 TCP/ICMP/端口探测 | 复用 Core 公共探测原语，不重复实现网络 I/O | **待整改**：main 中 `cli.network_probe` 仍有独立实现 |
-| 配置比较 | 清楚区分文件树字节 Diff 与 Core 共享配置语义 Diff，不混淆状态 | 设计已区分；复用程度待编码核实 |
-| Core/Contracts 接口变更 | 全调用方、测试、配置、注释同步检查；静态检查及系统测试有真实证据 | NOT_RUN |
-
-该表为依据当前 `main` 源码的差异登记，不是完成代码改造的声明。需在开发阶段整改后按第 14 章测试矩阵执行验证。
-
-## 15.3 设计状态与同步规则
-
-第 4 章定义 16 项 UC，每项包含主流程、边界、异常/恢复三个规定场景（共 48 个场景标识）。第 14 章逐项提供测试归属和独立技术约束补充。所有 UC、接口、命令变更必须同步更新本追溯表和 System Test。命令、RPC 与 Proto 属于目标开发契约，不表示当前生产代码已实现或真实环境验收通过。
-
-**版本**：`CLI_软件设计_v1_4.md`。本次统一扩展 UR-07/UR-09 为五服务监视与控制，并依据现有 Gateway `ClaimTargets` 与 `UpdateVariables(lease_token)` 调整 CLI 租约调用，Gateway 当前有 8 个专属 RPC；不重新定义契约。此版明确 Contracts 对齐、Core 复用约束和当前生产代码差异；仅修订设计，不代表 Client 已按新要求整改或通过测试。
+| 检查项 | 通过条件 |
+|---|---|
+| 6 份 Proto 的目标 45 个唯一 Unary RPC（已发布基线 43，新增 2 待实施） | 全部在 Contracts 中明确归属；CLI 对所需能力具有对应命令或说明不适用 |
+| Gateway `UpdateVariables` | 请求携带有效 `lease_token`，遵守 `ClaimTargets` ACQUIRE/RENEW/RELEASE |
+| 本地 TCP/ICMP/端口探测 | 复用 Core 公共探测原语，不重复实现网络 I/O |
+| 配置比较 | 清楚区分文件树字节 Diff 与 Core 共享配置语义 Diff，不混淆状态 |
+| Core/Contracts 接口变更 | 全调用方、测试、配置、注释同步检查；静态检查及系统测试有真实证据 |
 
 
-
-### 14.10 v1_5 跨模块设计一致性修订（2026-11-09）
-
-以当前 main 的 Collector v1_11 §10.4 和 Contracts v1_13 正式 `ReadPoints` 契约为依据，纠正原 v1_4 将 `ReadPoints` 描述为“读取采集缓存、不主动读取 PLC”的错误口径。CLI `collector latest/watch` 调用一次性现场主动读；watch 每周期由客户端发出新的 Unary，服务端不创建周期采集 Task、也不因此额外发布 NATS。Gateway `ReadVariables` 则读取 Gateway 内部变量，两者不得混淆。v1_8 目标 45 个唯一 RPC、Sink 9+4 管理接口、Data Generator 经 Gateway `UpdateVariables` 输出及 `ClaimTargets` 租约语义均不改变。
-
-**联动测试要求：** 增加 `collector latest/watch` 实际触发现场读、每次请求最多一项在途、取消后不继续轮询、无额外 NATS 发布、Gateway `ReadVariables` 不访问实际 PLC 的 System/Integration 场景；测试应置于 `tests/src/`，且未运行前只可标为待验收。不引入 Collector 缓存读 RPC，不更改 Core 或 Contracts。
-
-
-### 14.11 v1_6 版本递增说明（2026-11-09）
-
-本版从 v1_5 延续，完成 Contracts v1_13 → v1_7 的状态说明版本跟踪；原 CLI v1_4 的 Collector `ReadPoints` 缓存读表述已在 v1_5 改为现场主动读，v1_6 仅收敛版本及跨文档引用，不增加任何业务 RPC，也不把 `ReadPoints` 改成 Streaming 或 NATS 发布。第 1～2 章保持原文。未运行代码及系统测试，状态按实际验收报告单独判断。
-
-
-### 14.12 冻结基础设计协调修订（2026-11-09）
-
-服务间业务由 RPC 访问，CLI 不自行解释共享模板语义，跨目录通用解析复用 Core，wind-hub 共享引用装配由 configuration 担当；Collector ReadPoints 主动读点、Gateway 租约写入、Sink Delivery 控制的正式语义不变。
-
-本版只修订业务设计，不修改总体架构 v1_0、Core v1_27、Contracts v1_13 的正式职责/接口，不创建新的 Proto。第 1、2 章与上一版完全相同；本章记录不替代本设计其余原始需求和场景的裁决。
-
-
-### 14.13 v1_8 Commander 异步批量接口联动（2026-11-09）
-
-与 Contracts v1_13、Commander v1_19 保持一致，补充客户端 request_id、批量提交及完整请求结果查询。Gateway 变量更新和 Commander 现场控制是不同业务，不得混用命令 ID 或 Gateway 租约；新增两个 RPC 属设计目标，未修改 Proto。第 1～2 章原样保留。
-
-
-### 14.14 最新共享契约闭包（2026-11-09）
-
-本版统一调用方基线为 Contracts v1_13、Commander v1_19；CLI 保留单点/批次提交和请求级查询职责，不在 CLI 重新实现幂等。已发布 Proto 仍处于 43 RPC 基线，45 个仅是设计目标。
-
-第 1～2 章保持原文，正文原有适用业务行为不变；本次为设计协调，不修改代码或 Proto。
-
-
-### 14.15 最终 Commander 受理契约同步（2026-11-09）
-
-本版跟踪 Commander v1_19 的持久幂等受理及 Contracts v1_13；客户端请求标识及查询职责不变。Configuration v1_2 为共享配置唯一装配设计；不修改总体架构或 Core。第 1～2 章原文保留。
-
-
-### 14.16 Configuration 规范章节修复联动（2026-11-09）
-
-Configuration 最新基线升级为 v1_1（完整原样保留固定编制规范第 1～2 章）；共享配置装配职责与业务契约不变。本次仅修正引用版本，没有新增业务要求。
-
-
-### 14.17 最终测试目录与设计验收对齐（2026-11-09）
-
-CLI 测试统一 `tests/src/cli/{unit,component,integration,system}/`；端到端验收新 Commander 两接口需覆盖响应丢失按 request_id 查询、批次逐项状态、控制权限、无重复下发；CLI 不自行做幂等状态机。
-
-每个测试按层级 Marker 归类，不运行则标 NOT_RUN；本版未修改生产代码或测试代码。第 1～2 章完全保留。
-
-
-### 14.18 终审调用方及验收契约（2026-11-09）
-
-本版以 Configuration v1_2、Contracts v1_13、Commander v1_19 为对外依赖设计基线。CLI 提供 SubmitCommand/SubmitCommands 和按 command_id/request_id 查询，提交前保存 request_id；没有扩展 Proto 的自身 RPC。CLI 测试按 tests/src/cli 四级组织。 与此前历史版本冲突时以本节最新设计基线为准；原有职责/接口语义不变。第 1～2 章原文保留。
-
-
-### 14.19 最终基线版本锁定（2026-11-09）
-
-CLI 完整消费 Commander v1_19、Contracts v1_13 的单点/批量提交与 request_id 结果查询；五服务管理入口及 Configuration v1_2 只读诊断职责不变。
-
-历史章节中的旧版本是审查形成过程记录，不覆盖此处的最终依赖版本。本版没有修改生产代码或 Proto，第 1～2 章原文不变。
-
-
-### 14.20 v1_15 规范性冻结与验收边界（2026-11-09）
-
-冻结依赖为总体架构 v1_0、Core v1_27、Configuration v1_3、Contracts v1_14、Commander v1_20。CLI 只执行正式 RPC、渲染状态与诊断，不持有 Service 状态机或幂等权威。commander write/batch 在提交前生成并保存 request_id，使用 SubmitCommand/SubmitCommands；result/request-result 分别以 command_id/request_id 查询，未知结果不重发。Collector latest/watch 调用一次性现场主动读 Unary；Gateway UpdateVariables 需先租约，不可与 Commander 控制混同。CLI config diff 只做通用只读目录比较，不能修改共享文件。测试必须覆盖 11 UR、16 UC、所有目标 RPC、鉴权/取消/超时、候选/磁盘/实际运行态显示及完整链路诊断；真实服务交互放 tests/src/cli 的 integration/system，不得用 Mock 代替。
-
-本文本只补充规范性判据；前两章原样保留，历史章节仍可追溯但不能覆盖当前冻结依赖；本次未修改代码及 Proto。

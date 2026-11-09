@@ -1,6 +1,6 @@
 <h1 class="title">Configuration 软件设计</h1>
 
-<p class="subtitle">v1_3 · 20261109 · 基础设计职责提取</p>
+<p class="subtitle">v1_4 · 20261109 · 基础设计职责提取</p>
 
 <style>
 body {
@@ -1040,17 +1040,7 @@ Configuration 不创建服务专属 Schema；但对各 Service 提供的共享�
 
 测试统一置于 `tests/src/configuration/`。按项目注册的 Marker 执行，例如 `pytest tests/src/configuration -m "unit or component"`、`pytest tests/src/configuration -m "integration or system"`；实际运行前不得标 PASS。不得通过 skip/ignore 放宽契约。Configuration 设计为目标描述，本轮未实现/修改代码、未执行测试。
 
-## 14.1 设计审查结论
-
-本设计从 Core v1_27 已明确归属于 Configuration 的共享配置语义**提取并展开**，不移走 Core 通用 YAML 读写/差异/领域基础能力，不扩展业务模块状态机。设计边界已与总体架构一致；模块内具体 API 签名须在正式编码前对照已稳定公共接口，不得重复发明新抽象。
-
-
-## 14.2 v1_1 模板正文规范恢复（2026-11-09）
-
-修正 v1_0 在复制第 1、2 章时截断第 2 章后段的错误；本版直接完整复制 Core v1_27 的两章原文，Configuration 第 3～14 章业务设计内容保持不变。所有后续修订必须继续保留第 1、2 章完整文本。
-
-
-## 14.3 v1_2 终审验收矩阵
+## 14.1 测试追溯矩阵
 
 | 需求 | UC / System 场景 | 所需证据 | 通过条件 |
 |---|---|---|---|
@@ -1063,16 +1053,11 @@ Configuration 不创建服务专属 Schema；但对各 Service 提供的共享�
 
 测试应设置实际注册的 unit/component/integration/system 与 contract/reliability/security/concurrency 等 Marker，并在 §tests/src/configuration/§ 验证跨目录路径、引用闭包、两服务共用源、并发修改、崩溃恢复和真实装配。全体 UR、UC 与上述场景均须实际覆盖；每个用例包括正常、非法输入、异常/恢复、边界和资源所有权，未运行即 NOT_RUN，不得以静态文档审阅替代。
 
-## 14.4 v1_2 设计冻结裁决
+## 14.2 数据契约及应用规则
 
-本版统一直接引用格式为“部署工作根 config_root + configs/ 开头的相对 pathname”，并明确跨服务私有配置边界与共享只读装配 API。各业务模块设计必须按这一根解析，不允许有单独的 ../services 相对路径规则；具体 Python 公共 API 只使用已有 Configuration 入口，不另引入独立配置服务。第 1～2 章原文保持不变，本文仅是设计规范，不宣称编码和验收通过。
+本节为 Configuration 最新规范性要求，不引入新 Python 类的强制实现要求；以**接口输入输出可验证**为准，同名实现可以整合。设计状态为冻结（Configuration v1_4）。
 
-
-## 14.5 v1_3 冻结数据契约及应用规则
-
-本节为 Configuration 最新规范性要求，不引入新 Python 类的强制实现要求；以**接口输入输出可验证**为准，同名实现可以整合。设计状态为冻结（Configuration v1_3）。
-
-### 14.5.1 路径、源文件与快照
+### 14.2.1 路径、源文件与快照
 
 | 逻辑类型 | 必备字段 | 约束 |
 |---|---|---|
@@ -1084,7 +1069,7 @@ Configuration 不创建服务专属 Schema；但对各 Service 提供的共享�
 
 `content_revision` 是该输入闭包的内容身份，不强行等同业务 Service 的 `stored_revision`、`active_revision` 或 Contracts `expected_revision`。Service 必须自行保存闭包与自身运行态的对应关系。Template 版本不可变约束从同一模板的正式发布开始；候选与已发布内容比较时相同模板 ID+版本但字节不同一律冲突。
 
-### 14.5.2 可验收的操作前后置条件
+### 14.2.2 可验收的操作前后置条件
 
 | 操作 | 前置条件 | 后置条件 / 失败不变量 |
 |---|---|---|
@@ -1097,7 +1082,7 @@ Configuration 不创建服务专属 Schema；但对各 Service 提供的共享�
 
 **公共文件发布的原子性边界：** `save_yaml` 的单文件 rename 不得被当作多文件事务。若公共文件跨多份且涉及引用一致性，配置写入方应使用不可变代目录 + 原子 CURRENT 指针（或等价可证明的事务方案），读者按一个已提交 manifest 获取完整闭包。Configuration 提供只读验证及候选分析能力，不启动独立写服务，也不在 Loader 中隐式修改共享文件。
 
-### 14.5.3 冻结验收门禁
+### 14.2.3 冻结验收门禁
 
 `UR-01～UR-06` 与 `UC-01～UC-05` 必须全部能由测试文件及稳定 Marker 追溯；`UC-01-S01/S02`、`UC-02-S01～S06`、`UC-03-S01～S04`、`UC-04-S01～S03`、`UC-05-S01～S04` 为最小规范化编号集合。测试放 `tests/src/configuration/`，在可模拟范围内验证路径安全和配置正确性，在多进程/真实文件系统下验证原子发布、崩溃恢复与两服务共享快照一致性；不得把模拟的原子性当成磁盘事务已证明。
 

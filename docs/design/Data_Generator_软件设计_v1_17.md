@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_16 · 20261103</p>
+<p class="subtitle">v1_17 · 20261103</p>
 
 <style>
 body {
@@ -2321,184 +2321,53 @@ pytest tests/src/data_generator/system -m 'system and reliability'
 
 上述是**目标测试组织**，执行前须完成目录与 Marker 注册，不能作为当前已通过的测试证据。System Test 要求完整覆盖第 4 章 UC 的主流程、重要边界、异常与恢复，详细场景见第 14 章。性能目标须根据机器规模、设备/点数、实际 Gateway 和历史源测量制定；不以任意预估值代替实测。
 
-# 14. 设计 GAP、System 追溯与验收结论
+# 14. System Test 追溯矩阵
 
-## 14.1 已整改的设计 GAP
+## 14.1 System Test 完整追溯矩阵
 
-<p class="table-caption">表 14-1 审查整改及差距闭合</p>
-
-| GAP | 严重性 | 原设计问题 | 本版整改位置 | 文档状态 |
-|---|---|---|---|---|
-| GAP-01 | P0 | 用例沿用风机控制，未覆盖新业务 | 第 4 章 8 个 UC（新增协议方法场景） | 设计已整改 |
-| GAP-02 | P0 | 逻辑结构绑定风场/升压站 | 第 5、7 章统一来源/模型/输出架构 | 设计已整改 |
-| GAP-03 | P0 | 缺历史重放及时间/顺序定义 | 第 5、6、10 章 | 设计已整改 |
-| GAP-04 | P0 | 静态物理模型与旧 simple 动力学混淆 | 第 7、10 章模型职责 | 设计已整改 |
-| GAP-05 | P0 | 旧 Commander 写入服务冒充本服务契约 | 第 9 章外部 Proto 唯一权威 | 设计已整改 |
-| GAP-06 | P1 | 配置缺候选/正式/生效和变更顺序 | 第 4、11 章 | 设计已整改 |
-| GAP-07 | P1 | Diagnose/Metrics 缺运行契约 | 第 4、6、12 章 | 设计已整改 |
-| GAP-08 | P0 | System 无 UC 全场景追溯 | 第 13、14 章矩阵 | 设计已整改 |
-| GAP-09 | P1 | 旧 Seahorse 命名与源码组织混乱 | 第 7、11、13 章 | 设计已整改 |
-
-“设计已整改”仅表示文档内部已经给出目标方案，不表示仓库生产代码已实现或测试通过。第 11 章 YAML 属于目标配置契约；实际 Parser 与 Proto 对齐仍需编码时验证。
-
-## 14.2 System Test 完整追溯矩阵
-
-本节以 UC 为基准、逐场景列测试映射。每个用例的主流程、关键分支、错误/边界和恢复/停止场景至少各有一项 System Test。真实依赖未执行时记录 `NOT_RUN`，不能记 `PASS`。
+本节以 UC 为基准、逐场景列测试映射。每个用例的主流程、关键分支、错误/边界和恢复/停止场景至少各有一项 System Test。执行结果应记录在独立验收报告中。
 
 <p class="table-caption">表 14-2 UR → UC → System Test 追溯矩阵</p>
 
-| UR | UC 与场景 | 技术契约 | 测试文件名／测试标识 | 层级／专题／场景 Marker | 验证内容与预期结果 | 执行环境及结果 |
+| UR | UC 与场景 | 技术契约 | 测试文件名／测试标识 | 层级／专题／场景 Marker | 验证内容与预期结果 | 执行环境 |
 |---|---|---|---|---|---|---|
-| UR-01、03 | UC-01-S01 正常随机生成  | 5、10 | `test_simulation_system.py::test_random_generation` | system/reliability/end_to_end | 独立进程持续生成并写入 Gateway | 真实 Gateway，NOT_RUN |
-| UR-01 | UC-01-S02 静态模型、边界  | 10 | `test_simulation_system.py::test_static_physics` | system/reliability/end_to_end | 公式/插值结果与读回一致 | 真实 Gateway，NOT_RUN |
-| UR-01 | UC-01-S03 坏模型/计算失败  | 6、10 | `test_simulation_system.py::test_invalid_model_and_runtime_failure` | system/reliability/fault_injection | 启动拒绝或任务失败，不发送非法点 | 独立进程，NOT_RUN |
-| UR-01 | UC-01-S03 周期超限/安全停止  | 6 | `test_simulation_system.py::test_overrun_and_stop` | system/performance/overload | 不重入；退出后无额外输出 | 独立进程，NOT_RUN |
-| UR-02、03 | UC-02-S01 正常重放/倍率  | 6、10 | `test_replay_system.py::test_replay_1x_2x_order` | system/reliability/end_to_end | 源时间与墙钟倍率、顺序正确 | 真实历史源/Gateway，NOT_RUN |
-| UR-02 | UC-02-S02 同时间戳/空范围  | 10 | `test_replay_system.py::test_equal_timestamps_and_empty_range` | system/reliability/time_order | 稳定排序，空范围不伪造数据 | 真实历史源，NOT_RUN |
-| UR-02 | UC-02-S03 中途读取失败  | 6、10 | `test_replay_system.py::test_source_failure` | system/reliability/fault_injection | 终止并保留已确认位置 | 真实历史源，NOT_RUN |
-| UR-02 | UC-02-S03 停止及重启  | 6、10 | `test_replay_system.py::test_stop_restart_boundary` | system/reliability/restart | 不声称断点恢复或 exactly-once | 真实历史源/Gateway，NOT_RUN |
-| UR-03 | UC-03-S01 Gateway 正常映射  | 9 | `test_simulation_system.py::test_gateway_feedback` | system/reliability/end_to_end | 仅合法 feedback 映射数据写入 | 真实 Gateway，NOT_RUN |
-| UR-03 | UC-03-S02 错误映射/编码  | 9 | `test_simulation_system.py::test_bad_gateway_mapping` | system/safety/invalid_data | 不向错误点写入 | 真实 Gateway，NOT_RUN |
-| UR-03 | UC-03-S03 断线/未知结果  | 6、9 | `test_lifecycle_system.py::test_gateway_timeout_unknown` | system/reliability/network_failure | 超时不谎报未送达，不盲重试 | 可注入断线的真实 Gateway，NOT_RUN |
-| UR-03 | UC-03-S03 恢复重连/背压  | 6 | `test_lifecycle_system.py::test_gateway_recovery_backpressure` | system/performance/overload | 有界积压、恢复行为明确 | 真实 Gateway，NOT_RUN |
-| UR-03 | UC-03-S01 一源多 Gateway 及一源多目标变量 | 3.4、5、9、11 | `test_simulation_system.py::test_fanout_multiple_gateways_and_variables` | system/reliability/end_to_end | 同一源点更新 A/B Gateway 及 A 内两个不同变量；展开映射中每个目标键仅出现一次，逐目标读回一致 | 真实双 Gateway，NOT_RUN |
-| UR-03 | UC-03-S02 跨实例目标冲突 | 9、11 | `test_simulation_system.py::test_conflicting_target_ownership` | system/safety/conflict | 不同活动实例争用同一 gateway_id/variable_id 时拒绝第二实例或配置应用 | 真实双实例/Gateway，NOT_RUN |
-| UR-03 | UC-03-S02 单场景重复输出目标 | 3.4、5.3、11.4 | `test_simulation_system.py::test_duplicate_target_mapping_rejected` | system/safety/conflict | 两个不同源点映射同一 `(gateway_id,variable_id)` 时 Push 拒绝，已生效配置不变 | 独立服务，NOT_RUN |
-| UR-04、03 | UC-07-S02 并发启动目标原子占用 | 5.3、6.3、9.1 | `test_grpc_system.py::test_concurrent_start_atomic_target_reservation` | system/reliability/concurrency | 同一目标并发 StartGeneration 只能有一个成功；失败者不得留下部分 Device/目标占用 | 独立服务，NOT_RUN |
-| UR-04、03 | UC-07-S03 停止时未收敛输出占用 | 5.3、6.3 | `test_grpc_system.py::test_stop_retains_target_until_io_settled` | system/safety/deadline | Stop 超时后另一 Generation 不能抢占，底层安全结束或可信隔离后方可取得目标 | 真实 Gateway 故障注入，NOT_RUN |
-| UR-03 | UC-03-S03 单 Gateway 失败隔离及部分成功 | 6、9、12 | `test_lifecycle_system.py::test_gateway_fanout_partial_failure` | system/reliability/network_failure | A 超时/拒绝不回滚 B 已确认更新；逐点与逐目标指标准确 | 真实双 Gateway+故障注入，NOT_RUN |
-| UR-03 | UC-03-S03 多目标背压独立性 | 6、9 | `test_lifecycle_system.py::test_fanout_bounded_backpressure` | system/performance/overload | 故障目标资源有界，健康目标继续输出；全局资源耗尽时暂停来源 | 真实双 Gateway，NOT_RUN |
-| UR-05 | UC-04-S01 Get/Push/Apply 正常  | 11 | `test_config_system.py::test_get_push_apply` | system/reliability/reload | Push 无生效；Apply 完整报告 | 独立服务，NOT_RUN |
-| UR-05 | UC-04-S02 版本冲突/非法候选  | 11 | `test_config_system.py::test_invalid_candidate_and_conflict` | system/reliability/conflict | 旧正式/运行配置保持有效 | 独立服务，NOT_RUN |
-| UR-05 | UC-04-S03 服务配置变更/重启  | 6、11 | `test_config_system.py::test_restart_required` | system/reliability/restart | 文件提交与热生效区分 | 独立服务，NOT_RUN |
-| UR-05 | UC-04-S03 文件应用异常  | 11 | `test_config_system.py::test_apply_failure_recovery` | system/reliability/fault_injection | 部分失败准确报告且无破坏 | 独立服务，NOT_RUN |
-| UR-06 | UC-05-S01 模拟/重放分阶段诊断  | 12 | `test_diagnose_system.py::test_simulate_replay_stages` | system/reliability/end_to_end | 逐项检查及覆盖范围真实 | 历史源/Gateway，NOT_RUN |
-| UR-06 | UC-05-S02 无目标/映射错误  | 12 | `test_diagnose_system.py::test_empty_and_bad_mapping` | system/reliability/no_targets | UNKNOWN/FAIL，不虚构 PASS | 独立服务，NOT_RUN |
-| UR-06 | UC-05-S03 端口通而业务拒绝  | 12 | `test_diagnose_system.py::test_grpc_rejection` | system/reliability/fault_injection | 精确定位业务层，而非报告通路通 | 真实 Gateway，NOT_RUN |
-| UR-06 | UC-05-S03 未授权写入/取消  | 6、12 | `test_diagnose_system.py::test_no_write_and_cancel` | system/safety/deadline | 不扰动业务源，不泄露资源 | 真实 Gateway，NOT_RUN |
-| UR-07 | UC-06-S01 正常指标与 P99  | 12 | `test_metrics_system.py::test_counters_and_latency` | system/performance/load | 计数、P99 与真实数据相符 | 独立服务/Gateway，NOT_RUN |
-| UR-07 | UC-06-S02 空窗口/采集失败  | 12 | `test_metrics_system.py::test_no_samples_stale` | system/reliability/no_samples | 显式无样本/过期，不报零 | 独立服务，NOT_RUN |
-| UR-07 | UC-06-S03 标签超限  | 12 | `test_metrics_system.py::test_series_capacity` | system/performance/overload | 有界聚合与明确降级 | 独立服务，NOT_RUN |
-| UR-07 | UC-06-S03 进程重启纪元  | 6、12 | `test_metrics_system.py::test_epoch_restart` | system/reliability/restart | 指标不跨进程拼接 | 独立服务，NOT_RUN |
-| UR-04 | UC-07-S01 15 个 Proto Server RPC 正常调用  | 9 | `test_grpc_system.py::test_contract_operations` | system/reliability/end_to_end | 外置 Proto 全方法的基本成功路径 | 独立服务，NOT_RUN |
-| UR-04 | UC-07-S02 错误与非法参数  | 9 | `test_grpc_system.py::test_contract_errors` | system/safety/invalid_input | 错误码准确，无额外副作用 | 独立服务，NOT_RUN |
-| UR-04 | UC-07-S03 超时/取消  | 6、9 | `test_grpc_system.py::test_timeout_cancel` | system/reliability/deadline | 不把取消当 I/O 结束 | 独立服务，NOT_RUN |
-| UR-04 | UC-07-S03 关闭期间请求  | 6、9 | `test_grpc_system.py::test_shutdown_inflight` | system/reliability/restart | 拒绝新请求，安全收敛已有请求 | 独立服务，NOT_RUN |
-| UR-01～07 | UC-08-S01 启动/停止/重启  | 6、8 | `test_lifecycle_system.py::test_restart` | system/reliability/restart | 环境完整校验、资源释放 | 独立服务/Gateway，NOT_RUN |
-| UR-01～07 | UC-08-S02 配置与依赖故障  | 6、11 | `test_lifecycle_system.py::test_startup_failure` | system/reliability/fault_injection | 不错误报告 READY | 独立服务，NOT_RUN |
-| UR-01～07 | UC-08-S03 崩溃/未知批次  | 6、9 | `test_lifecycle_system.py::test_crash_unknown_delivery` | system/reliability/recovery | 不隐式恢复未确认批次 | 独立服务/Gateway，NOT_RUN |
-| UR-01～07 | UC-08-S03 正常关闭未收敛 I/O  | 6 | `test_lifecycle_system.py::test_unsettled_io_shutdown` | system/safety/deadline | 不将取消视为底层完成 | 独立服务，NOT_RUN |
+| UR-01、03 | UC-01-S01 正常随机生成  | 5、10 | `test_simulation_system.py::test_random_generation` | system/reliability/end_to_end | 独立进程持续生成并写入 Gateway | 真实 Gateway |
+| UR-01 | UC-01-S02 静态模型、边界  | 10 | `test_simulation_system.py::test_static_physics` | system/reliability/end_to_end | 公式/插值结果与读回一致 | 真实 Gateway |
+| UR-01 | UC-01-S03 坏模型/计算失败  | 6、10 | `test_simulation_system.py::test_invalid_model_and_runtime_failure` | system/reliability/fault_injection | 启动拒绝或任务失败，不发送非法点 | 独立进程 |
+| UR-01 | UC-01-S03 周期超限/安全停止  | 6 | `test_simulation_system.py::test_overrun_and_stop` | system/performance/overload | 不重入；退出后无额外输出 | 独立进程 |
+| UR-02、03 | UC-02-S01 正常重放/倍率  | 6、10 | `test_replay_system.py::test_replay_1x_2x_order` | system/reliability/end_to_end | 源时间与墙钟倍率、顺序正确 | 真实历史源/Gateway |
+| UR-02 | UC-02-S02 同时间戳/空范围  | 10 | `test_replay_system.py::test_equal_timestamps_and_empty_range` | system/reliability/time_order | 稳定排序，空范围不伪造数据 | 真实历史源 |
+| UR-02 | UC-02-S03 中途读取失败  | 6、10 | `test_replay_system.py::test_source_failure` | system/reliability/fault_injection | 终止并保留已确认位置 | 真实历史源 |
+| UR-02 | UC-02-S03 停止及重启  | 6、10 | `test_replay_system.py::test_stop_restart_boundary` | system/reliability/restart | 不声称断点恢复或 exactly-once | 真实历史源/Gateway |
+| UR-03 | UC-03-S01 Gateway 正常映射  | 9 | `test_simulation_system.py::test_gateway_feedback` | system/reliability/end_to_end | 仅合法 feedback 映射数据写入 | 真实 Gateway |
+| UR-03 | UC-03-S02 错误映射/编码  | 9 | `test_simulation_system.py::test_bad_gateway_mapping` | system/safety/invalid_data | 不向错误点写入 | 真实 Gateway |
+| UR-03 | UC-03-S03 断线/未知结果  | 6、9 | `test_lifecycle_system.py::test_gateway_timeout_unknown` | system/reliability/network_failure | 超时不谎报未送达，不盲重试 | 可注入断线的真实 Gateway |
+| UR-03 | UC-03-S03 恢复重连/背压  | 6 | `test_lifecycle_system.py::test_gateway_recovery_backpressure` | system/performance/overload | 有界积压、恢复行为明确 | 真实 Gateway |
+| UR-03 | UC-03-S01 一源多 Gateway 及一源多目标变量 | 3.4、5、9、11 | `test_simulation_system.py::test_fanout_multiple_gateways_and_variables` | system/reliability/end_to_end | 同一源点更新 A/B Gateway 及 A 内两个不同变量；展开映射中每个目标键仅出现一次，逐目标读回一致 | 真实双 Gateway |
+| UR-03 | UC-03-S02 跨实例目标冲突 | 9、11 | `test_simulation_system.py::test_conflicting_target_ownership` | system/safety/conflict | 不同活动实例争用同一 gateway_id/variable_id 时拒绝第二实例或配置应用 | 真实双实例/Gateway |
+| UR-03 | UC-03-S02 单场景重复输出目标 | 3.4、5.3、11.4 | `test_simulation_system.py::test_duplicate_target_mapping_rejected` | system/safety/conflict | 两个不同源点映射同一 `(gateway_id,variable_id)` 时 Push 拒绝，已生效配置不变 | 独立服务 |
+| UR-04、03 | UC-07-S02 并发启动目标原子占用 | 5.3、6.3、9.1 | `test_grpc_system.py::test_concurrent_start_atomic_target_reservation` | system/reliability/concurrency | 同一目标并发 StartGeneration 只能有一个成功；失败者不得留下部分 Device/目标占用 | 独立服务 |
+| UR-04、03 | UC-07-S03 停止时未收敛输出占用 | 5.3、6.3 | `test_grpc_system.py::test_stop_retains_target_until_io_settled` | system/safety/deadline | Stop 超时后另一 Generation 不能抢占，底层安全结束或可信隔离后方可取得目标 | 真实 Gateway 故障注入 |
+| UR-03 | UC-03-S03 单 Gateway 失败隔离及部分成功 | 6、9、12 | `test_lifecycle_system.py::test_gateway_fanout_partial_failure` | system/reliability/network_failure | A 超时/拒绝不回滚 B 已确认更新；逐点与逐目标指标准确 | 真实双 Gateway+故障注入 |
+| UR-03 | UC-03-S03 多目标背压独立性 | 6、9 | `test_lifecycle_system.py::test_fanout_bounded_backpressure` | system/performance/overload | 故障目标资源有界，健康目标继续输出；全局资源耗尽时暂停来源 | 真实双 Gateway |
+| UR-05 | UC-04-S01 Get/Push/Apply 正常  | 11 | `test_config_system.py::test_get_push_apply` | system/reliability/reload | Push 无生效；Apply 完整报告 | 独立服务 |
+| UR-05 | UC-04-S02 版本冲突/非法候选  | 11 | `test_config_system.py::test_invalid_candidate_and_conflict` | system/reliability/conflict | 旧正式/运行配置保持有效 | 独立服务 |
+| UR-05 | UC-04-S03 服务配置变更/重启  | 6、11 | `test_config_system.py::test_restart_required` | system/reliability/restart | 文件提交与热生效区分 | 独立服务 |
+| UR-05 | UC-04-S03 文件应用异常  | 11 | `test_config_system.py::test_apply_failure_recovery` | system/reliability/fault_injection | 部分失败准确报告且无破坏 | 独立服务 |
+| UR-06 | UC-05-S01 模拟/重放分阶段诊断  | 12 | `test_diagnose_system.py::test_simulate_replay_stages` | system/reliability/end_to_end | 逐项检查及覆盖范围真实 | 历史源/Gateway |
+| UR-06 | UC-05-S02 无目标/映射错误  | 12 | `test_diagnose_system.py::test_empty_and_bad_mapping` | system/reliability/no_targets | UNKNOWN/FAIL，不虚构 PASS | 独立服务 |
+| UR-06 | UC-05-S03 端口通而业务拒绝  | 12 | `test_diagnose_system.py::test_grpc_rejection` | system/reliability/fault_injection | 精确定位业务层，而非报告通路通 | 真实 Gateway |
+| UR-06 | UC-05-S03 未授权写入/取消  | 6、12 | `test_diagnose_system.py::test_no_write_and_cancel` | system/safety/deadline | 不扰动业务源，不泄露资源 | 真实 Gateway |
+| UR-07 | UC-06-S01 正常指标与 P99  | 12 | `test_metrics_system.py::test_counters_and_latency` | system/performance/load | 计数、P99 与真实数据相符 | 独立服务/Gateway |
+| UR-07 | UC-06-S02 空窗口/采集失败  | 12 | `test_metrics_system.py::test_no_samples_stale` | system/reliability/no_samples | 显式无样本/过期，不报零 | 独立服务 |
+| UR-07 | UC-06-S03 标签超限  | 12 | `test_metrics_system.py::test_series_capacity` | system/performance/overload | 有界聚合与明确降级 | 独立服务 |
+| UR-07 | UC-06-S03 进程重启纪元  | 6、12 | `test_metrics_system.py::test_epoch_restart` | system/reliability/restart | 指标不跨进程拼接 | 独立服务 |
+| UR-04 | UC-07-S01 15 个 Proto Server RPC 正常调用  | 9 | `test_grpc_system.py::test_contract_operations` | system/reliability/end_to_end | 外置 Proto 全方法的基本成功路径 | 独立服务 |
+| UR-04 | UC-07-S02 错误与非法参数  | 9 | `test_grpc_system.py::test_contract_errors` | system/safety/invalid_input | 错误码准确，无额外副作用 | 独立服务 |
+| UR-04 | UC-07-S03 超时/取消  | 6、9 | `test_grpc_system.py::test_timeout_cancel` | system/reliability/deadline | 不把取消当 I/O 结束 | 独立服务 |
+| UR-04 | UC-07-S03 关闭期间请求  | 6、9 | `test_grpc_system.py::test_shutdown_inflight` | system/reliability/restart | 拒绝新请求，安全收敛已有请求 | 独立服务 |
+| UR-01～07 | UC-08-S01 启动/停止/重启  | 6、8 | `test_lifecycle_system.py::test_restart` | system/reliability/restart | 环境完整校验、资源释放 | 独立服务/Gateway |
+| UR-01～07 | UC-08-S02 配置与依赖故障  | 6、11 | `test_lifecycle_system.py::test_startup_failure` | system/reliability/fault_injection | 不错误报告 READY | 独立服务 |
+| UR-01～07 | UC-08-S03 崩溃/未知批次  | 6、9 | `test_lifecycle_system.py::test_crash_unknown_delivery` | system/reliability/recovery | 不隐式恢复未确认批次 | 独立服务/Gateway |
+| UR-01～07 | UC-08-S03 正常关闭未收敛 I/O  | 6 | `test_lifecycle_system.py::test_unsettled_io_shutdown` | system/safety/deadline | 不将取消视为底层完成 | 独立服务 |
 
-## 14.3 规范性检查及未执行事项
-
-**GAP-10（契约已关闭、实施待验收）：** `main@bf9dc6d2` 的 `industrial_gateway.proto` 已定义 `UpdateVariables`，目前尚未以真实 Gateway Server 和 System Test 证明端到端功能。**GAP-11（P1）：** 六个 DataGeneratorService RPC 中含 Scenario/Generation 查询与启停，原业务 UR 刻意删除其独立分类；现依据 UR-04 收敛为已配置场景的查询和运行控制，不增加场景 CRUD。**GAP-12（已关闭）：** 第 2 章要求分类需求追溯，已新增 §3.9 以 UR 派生分类要求，不另造需求。
-
-
-<p class="table-caption">表 14-3 基线核对</p>
-
-| 核对内容 | 状态与依据 |
-|---|---|
-| 第二章替换 | 来自 CLI v0_13 的第 2 章，逐字保留；见构建校验 |
-| 第一章 | Data Generator v0_9 原文保留 |
-| 原始需求 | 第 3 章 7 项 UR 保留，新增 §3.9 分类需求追溯（不扩大业务范围） |
-| 4+1 架构 | 第 4～8 章按新业务重写 |
-| 历史重放 | 第 6、10 章明确时间、顺序、停止、失效 |
-| Proto 所有权 | §9 明确最新 main 共 15 个必实现 Server RPC；Gateway 的 `UpdateVariables` 已定义；实际实现/联调尚未验证 |
-| Diagnose/Metrics | 第 12 章提供运行契约，第 14 章完整场景 |
-| System 测试 | 每个 UC 至少一项 System Test，主/异常/边界/恢复均已建立目标映射；未运行不等于通过 |
-| 代码实现 | 未在此次文档更新中修改仓库、运行测试或声称功能已实现 |
-
-**设计结论（历史基线）**：需求、场景、运行和配置的目标设计已具备模块内编码依据；已核实并落实基线 main 的 15 个 Data Generator Server RPC。Gateway 注入 Proto 已正式具备，但完整端到端实现与验收仍依赖 Gateway Server 实现及真实联调；生产代码与最终 `contracts/` Proto 的适配、真实历史 Reader 选择、配置 Schema 落地及 System Test 实测仍是**实施与验收工作**，不能作为已完成事实。
-
-## 14.4 v1_4 设计审查与编码准入判定
-
-<p class="table-caption">表 14-4 v1_4 审查闭环与编码前置条件</p>
-
-| 编号 | 核查项 | 结果 | 编码约束 |
-|---|---|---|---|
-| C-01 | 第 1、2 章格式、4+1、分类需求与追溯 | 文档内已闭合 | §3.9 分类要求必须逐项纳入测试 |
-| C-02 | UR 7 项与 UC 8 项 | 已完整映射 | UC-07 必须测试所有 15 个 RPC，不以方法存活代替业务通过 |
-| C-03 | 显式 StartGeneration 与进程 READY | 已统一 | 禁止进程启动时自动生成或重放 |
-| C-04 | Scenario/Generation ID、版本、查询、停止 | 已补齐配置与状态语义 | 运行实例绑定场景版本，更新不更改运行中引用 |
-| C-05 | 历史输入格式、排序、区间边界 | 已规范为 CSV v1 | 不暗示 TDengine/DB Reader 已实现 |
-| C-06 | 快照原始字节与敏感信息保护 | 已统一 | 不允许既脱敏又声称 SHA 与原字节相符 |
-| C-07 | Gateway 写入/注入 Proto | 契约已存在，实施待验证 | 按已冻结 `UpdateVariables` 实现 Gateway Server 并完成真实链路 System Test |
-| C-08 | 资源、超时、UNKNOWN、重启纪元 | 已定义边界 | 异步执行未安全收敛不得释放冲突资源 |
-| C-09 | 测试覆盖与执行证据 | 目标矩阵已建立，测试未执行 | `NOT_RUN` 与 `BLOCKED` 不得计为 PASS |
-
-本版本定义**可以启动 Data Generator 模块内部编码**的设计基线，但并非声明所有跨服务接口已具备，更不构成已通过正式系统验收的证明。Gateway 注入依赖关闭前，不得宣布 UR-03、UC-03 或涉及真正写入的系统场景验收完成。
-
-
-
-## 14.5 公共配置适配审查（v1_6 基线，2026-11-03）
-
-<p class="table-caption">表 14-5 最新 main 的配置适配结论</p>
-
-| 编号 | 验证对象 | 当前结论 | 编码/验收门禁 |
-|---|---|---|---|
-| CFG-01 | configuration 共享文件 | `site.yaml`、`devices.yaml`、`units.yaml`、`business_points.yaml` 由 `configuration` 的统一装配接口解析 | 真实调用共享加载器，不重复解析及发明第二套设备配置 |
-| CFG-02 | 模板文件结构 | `device_models/`、`point_tables/`、`protocols/` 为扁平 `<id>_<semver>.yaml` | 精确版本、合法 ID、模板引用和哈希均须测试 |
-| CFG-03 | 元数据版本 | Core `schema_version=1`，`file_version=MAJOR.MINOR.PATCH` | 原整数版本示例已更正；Schema 负例测试 |
-| CFG-04 | 场景对象 | Data Generator 运行专属，未由 Core 公共快照提供 | 实现独立 Scenario schema + 快照 revision 绑定 |
-| CFG-05 | 模板读写所有权 | `configuration` 共享装配按只读访问，无统一写事务的已核实证据 | 禁止 Data Generator Apply 改写跨服务公共配置 |
-| CFG-06 | Proto、System | 15 个 Server RPC 不变，Gateway Client 仍为 `UpdateVariables` | 按实际 Descriptor 和 Gateway Server 复核；UC-01～08 System 保持全覆盖 |
-| CFG-07 | 静态语义一致性 | §11 以公共点表为唯一源，Scenario 只声明模型参数和输出映射 | 验证设备/点引用、类型、单位、目标冲突及热更新 |
-
-**审查边界**：本次已核对 `main@0dfee3bb` 所示 Core 加载器、版本模板及公开配置实例；未运行仓库代码、Proto 编译和 System Test。`services/data-generator-service.yaml`、`instances/data-generator.yaml` 仍为本模块目标 Schema，非已实现事实。文档可作为编码目标，但真实配置快照事务及外部服务联调须以实测验收结果裁定。
-
-## 14.6 v1_10 跨实例仲裁与首次验收整改追溯
-
-首次集中独立验收基线 `8e1e7954`：146 passed、1 xfailed，原 xfail 为 UC-03 跨进程目标冲突。v1_10 生产整改后，原 7 项 Gateway Unary RPC 增加为 **8 项**；DataGeneratorService 6 + CommonService 9 = **15 项 Server RPC 不变**。之前的全部 RPC/系统验收结论需在重新生成 Proto 后**重新执行**，不得沿用为本轮 PASS。
-
-| 缺陷/观察 | 设计裁决 | 独立复测最低要求 |
-|---|---|---|
-| P1-1 跨实例目标冲突 | Gateway 端目标级租约+token；跨 Gateway 获得失败须回滚 | 双独立 DG 进程争用一个变量；第二个 Start 拒绝；分别测试租约过期、旧 token 写入拒绝、停止释放、竞争启动 |
-| P2-1 预检错误码 | `TARGET_VALIDATION_FAILED` | 真实 Gateway 不可写、类型错误、目录缺项及网络断线分类 |
-| P2-2 Diagnose 等待 | 可配置 `permit_wait_seconds` | 高并发排队等待、超时上限、取消释放许可 |
-| P2-3 Metrics 截断 | 截断时强制显示标记 | max_series=1、2、容量边界、空 P99 |
-| P2-4 Apply 版本 | 生效修订保持旧值、同时报告磁盘版本 | restart_required=true 的 Get DISK/RUNTIME 与响应体一致 |
-| OBS-1 断线与永久隔离 | 只允许带原 token 的受控续租探测，绝不重放 UNKNOWN | 网络在租期内恢复和超过租期后恢复；旧 token 永不复活 |
-| OBS-2 派发统计 | batches_total 为来源尝试批次，rpc_native_started 为实发次数 | 背压饱和下两种计数与真实请求数符合 |
-
-完整 System 追溯矩阵在原 §14.2 基础上扩展跨进程所有权、租约过期 fencing、Gateway 启动后旧令牌拒绝、任一 Gateway 申请失败回滚；本轮新增项执行前均视为 NOT_RUN。
-
-
-
-### 14.11 冻结基础设计协调修订（2026-11-09）
-
-共享配置归属 configuration，不修改 Core；Data Generator 的 Scenario/Generation 模型、目标输出及 Gateway 租约归属不变。
-
-本版只修订业务设计，不修改总体架构 v1_0、Core v1_27、Contracts v1_7 的正式职责/接口，不创建新的 Proto。第 1、2 章与上一版完全相同；本章记录不替代本设计其余原始需求和场景的裁决。
-
-
-### 14.12 v1_12 共享配置归属收敛（2026-11-09）
-
-依据冻结的总体架构、Core 与 Contracts，将 §11 中共享文件的解析和引用装配明确归属 `configuration`，不再由 Data Generator 直接宣称 Core 解释 wind-hub 业务配置树。原历史实现名称作为历史审查记录保留，不视为现行公共 API 设计承诺。生成器自身的 Scenario、Generation、输出映射及 Gateway 租约职责保持原样；第 1～2 章保持原文。
-
-
-### 14.13 终审共享路径统一（2026-11-09）
-
-本版统一 Configuration v1_2 的 `config_sources` 和 `config_root` 规则，直接来源不允许相对于 `configs/` 的内部短路径或 `../`；Scenario 仍由 Data Generator 校验，公共 Device/Template 由 Configuration 统一装配；启动、快照、候选和测试均以相同显式根解释。
-
-本版为设计契约修订，没有对代码、Proto 或测试结果作实施性宣称；第 1～2 章完全保留。
-
-
-### 14.14 最终测试目录与设计验收对齐（2026-11-09）
-
-统一 Data Generator 测试位置 `tests/src/data_generator/` 及 pytest 命令；配置入口改用 Configuration v1_2 的 `config_sources` 与部署根，保持 Gateway ClaimTargets/UpdateVariables 和 Generation 启停等业务约束不变。
-
-每个测试按层级 Marker 归类，不运行则标 NOT_RUN；本版未修改生产代码或测试代码。第 1～2 章完全保留。
-
-
-### 14.15 终审设计依赖与验收闭包（2026-11-09）
-
-本版最新基础依赖为总体架构 v1_0、Core v1_27、Configuration v1_2、Contracts v1_12。四项显式配置路径以部署工作根为基准；Generation 场景和 Gateway 租约使用现有正式 RPC，不得重复 Configuration 共享装配。
-
-历史版本引用用于历史审查记录，不覆盖本节最新约束。第 1～2 章逐字保持不变；本轮为设计文件修订，不宣称已执行代码与测试。
-
-
-### 14.16 v1_16 规范性冻结与验收边界（2026-11-09）
-
-冻结依赖为总体架构 v1_0、Core v1_27、Configuration v1_3、Contracts v1_14、Gateway v1_20。Data Generator 仅负责 Scenario、Generation、随机/静态/历史回放与 Gateway 变量注入；通过 ClaimTargets 获取租约后调用 UpdateVariables，不能直接发布 SampleBatch 或执行 Commander 现场控制。一份输出在同一 Generation 中仅出现一次；多 Gateway 输出允许但需分别保存结果。测试须覆盖 7 UR、8 UC、seed 可复现、静态函数定义域/单位、历史排序、单输出唯一、租约失效、批量错误、背压、启动停止、配置来源安全、真实 Gateway 协议链路。Service 只写自有配置，公共配置由 Configuration 只读装配；所有测试位于 tests/src/data_generator。
-
-本文本只补充规范性判据；前两章原样保留，历史章节仍可追溯但不能覆盖当前冻结依赖；本次未修改代码及 Proto。

@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_14 · 20261109 · main@14e3be66（现行 RPC 与 SampleBatch v2）</p>
+<p class="subtitle">v1_15 · 20261109 · main@14e3be66（现行 RPC 与 SampleBatch v2）</p>
 
 <style>
 body {
@@ -1579,47 +1579,9 @@ Contracts 是 **wire schema 和 RPC 消息**的唯一权威，不导入 Core 或
 
 Contracts 文档验收不等于真实代码测试通过。提交前执行项目规定的 Proto 编译、Ruff Lint、Ruff Format、Mypy/Pyright、import-linter 及相应 pytest；必须提供实测命令、环境、结果、覆盖范围与 `NOT_RUN` 条目，不得用忽略规则掩盖问题。System Test 使用真实 gRPC 连接及符合权限边界的服务实例，Mock 不能替代全部集成验证。
 
-# 12. 设计核查与待决项
+# 12. Commander 新接口与验收规则
 
-<p class="table-caption">表 12-1 正式版设计审查记录</p>
-
-| 审查项 | 结果 | 依据及限制 |
-|---|---|---|
-| 基线确认 | PASS（文档及源码存在性核对） | 当前 `main@14e3be66` 的六份 Proto、`sample_batch.py` 与 `scalar_codec.py` 已发布；不将原 `main@cac23d84` 时点的迁移描述用于判断当前代码状态 |
-| RPC 完整性 | PARTIAL（目标设计） | 已发布的 43 个 RPC 属历史源码基线；本版目标为 Common 9、Collector 11、Commander 7、Sink 4、Gateway 8、Data Generator 6，合计 45 个唯一 Unary；新增 Commander 2 RPC 及单点 request_id 尚未实施 |
-| 字段可读性 | PASS（文档核对） | 字段编号、类型、存在性和用途说明；未定义值域不冒充已冻结契约 |
-| 文档格式 | PASS（静态检查） | 第 1、2 章保留；表格列数与 Markdown 围栏检查；图表编号及 Mermaid 初始化配置检查 |
-| 一致性与兼容 | PARTIAL（设计审查） | Core/Contracts 代码归属和批量发布/消费已改造；`ReadPoints` 没有服务端周期参数；Sink 仍缺少逐点永久错误 DLQ 的完整闭环，可靠内存队列尚无崩溃重启持久恢复证明 |
-| 自动化编译与运行验收 | NOT_RUN | 本次仅修改设计文档，未在本次修订中运行 `protoc`、pytest、Ruff、类型检查或真实 gRPC 服务测试；现有 RPC 与新增批量线协议尚需各自验证 |
-
-## 12.1 需要由业务设计明确的语义
-
-1. 多处 `string` 状态字段的允许值、状态转换及终态，由实际业务 Service 规定；在未形成统一字典前，不能假定同名字段跨服务共用完全一致的值域。
-2. Gateway 的 `ClaimTargets` 按源注释为 Generation 颁发 fencing token。CLI 等非 Generation 客户端能否成为租约 owner，须由 Gateway 权限模型裁定；本设计不默许其直接领取租约。
-3. `page_size=0`、失效分页游标、字符串修订作用域、时间戳缺失以及可机器处理的 `error_code` 值域，须由相关服务及客户端共同确认，不在字段说明中写死未经确认的规则。
-
-以上事项不阻止以当前六份 Proto 作为已发布 RPC 基线；`SampleBatch` 与 `contracts.scalar_codec` 均已进入主干，**本轮文档修订未独立执行编译、静态检查、功能测试、系统联调及 10 Hz 性能验收；应以现有独立报告为准，不得根据本次文字更新宣称这些门禁通过**。Commander 的现有 `SubmitCommand` 仅支持逐次提交一个点；其内部 `QueuedExecutor` 可根据 Driver `WRITE_MANY` 能力对同一受理批次执行多点原生写入或逐点 `write_one()`。若要对外一次 RPC 提交多个点，须另行正式定义、生成并验收对应 Proto，不得假称已有。
-
-
-### 12.2 v1_7 现行状态校正记录（2026-11-09）
-
-- **变更性质：**仅纠正截至 `main@14e3be661cfd1d30417144d3f4cfa928d313eaa5` 的代码位置、迁移阶段、下游设计版本和历史审查描述；不改六份 Proto 的 RPC/字段/编号，不改 SampleBatch v2 序列化、身份、Subject、ACK 或业务重复契约。
-- **可直接核实：**`src/contracts/sample_batch.py` 已存在，`src/contracts/sample_message.py` 不存在，`src/contracts/scalar_codec.py` 已存在；`SampleBatch.subject()` 对 realtime/reliable 产生设备级 `wh.rt.batch`/`wh.hist.batch` Subject。
-- **历史事实仍保留：**`main@cac23d84` 对应旧审查时点；`§10.6.3` 的旧流量和默认值快照不等于当前 Service 参数实测；旧 JetStream Durable 和 backlog 的安全迁移规则仍然有效。
-- **未验证项：**本次未运行 Ruff、Mypy、import-linter、pytest、真机协议测试、JetStream 数据迁移和 10 Hz 长稳容量测试；不能因代码已入主干宣称全部通过。
-
-
-### 12.3 v1_8 设计决策历史与冻结范围（2026-11-09）
-
-用户批准在 Core v1_27、总体架构 v1_0 不变前提下增加 Commander 批量提交和请求级结果查询。本版定义新目标契约，未修改任何 Proto。RPC 目标总量 45（Common 9、Collector 11、Commander 7、Sink 4、Gateway 8、Data Generator 6）；原 43 仅指此前已发布基线。§6.5 为新字段编号和交互语义依据；须在后续实施阶段单独编译与验收。
-
-
-### 12.4 v1_9 契约设计一致性校正（2026-11-09）
-
-将全文的 RPC Descriptor、完整性验收及审查表统一为目标 45 个唯一 Unary（当前 Proto 仍为 43）；消除旧版“43 RPC 已覆盖设计全部需求”的歧义。仅增加 Commander 两个设计目标 RPC、单点 request_id 字段与 §6.5 所述消息；不变更其他模块 RPC 或 SampleBatch v2。§6.5 为新增消息和字段唯一权威，源码实施与独立验收不在本轮范围。第 1～2 章完全不变。
-
-
-## 12.5 v1_10 目标 Proto 定义与全量验收闭包
+## 12.1 Commander 目标 Proto 与验收矩阵
 
 **协议裁决：** `commander.proto` 同一 package `windhub.commander.v1` 增加 `SubmitCommands(SubmitCommandsRequest)->SubmitCommandsResponse`、`GetRequestResult(GetRequestResultRequest)->GetRequestResultResponse` 两个 Unary RPC。原五个方法及字段号不改，`SubmitCommandRequest.request_id=6`、`SubmitCommandResponse.request_id=7` 新增业务必填/回显。`CommandItem`、`SubmitCommandsRequest/Response`、`GetRequestResultRequest/Response` 共五种新增消息（§6.5 定义），并显式使用已导入的 `google.protobuf.Timestamp`、`common.ScalarValue`。原 10 种 Commander 消息 + 新增 5 种 = **15 种消息**；原 37 字段 + 单点 2 字段 + 新五种消息 19 字段 = **58 字段**。总接口目标 **45 RPC**，其中 Commander 7，其他模块专属和 Common 共 38。上述数字属于设计目标，需在真实 Descriptor 检查后裁定实现通过。
 
@@ -1639,31 +1601,15 @@ Contracts 文档验收不等于真实代码测试通过。提交前执行项目�
 
 **门禁：**六份 Proto 的 Descriptor 需达到目标 45/45，旧包名、字段号、类型不能漂移；所有新增 RPC 均有正常、拒绝、超时、权限、部分成功、UNKNOWN、跨重启与并发的可追溯场景。新增接口尚未编码时整项标 NOT_RUN，不得以旧 43/43 的静态符合性代替新版验收。测试目标目录 `tests/src/contracts/` 及业务 `tests/src/commander/`，每个场景保留源需求与 UC 编号。
 
-**设计冻结说明：**Configuration v1_2 仅负责共享配置；Commander v1_17 承担全部控制状态、幂等与审计；Core v1_27 的 WRITE_MANY 是可选物理执行优化，不能改变本契约整批准入或逐点结果。与 Collector、Sink、Gateway 和 Data Generator 的现有 RPC/消息字段无冲突。
+**职责边界：**Configuration 仅负责共享配置；Commander 负责现场控制状态、幂等与审计；Core 的 `WRITE_MANY` 不改变批次受理及逐点结果语义。
 
 
-### 12.6 v1_11 字段计数与规范表述复核（2026-11-09）
 
-新增消息确认为 5 种、19 字段：CommandItem(5)、SubmitCommandsRequest(2)、SubmitCommandsResponse(6)、GetRequestResultRequest(1)、GetRequestResultResponse(5)；加原单点请求/响应各新增 1 字段，共新增 21 字段。原 37 字段变为目标 58 字段；Commander 目标 RPC 7，项目总目标 45。更正 v1_10 表 12-2 的数量误差，字段号与消息语义不变。第 1～2 章原文保留。
+## 12.2 命令请求状态、错误与查询契约
 
+目标仍为 45 个唯一 Unary RPC，Commander 专属 7；Commander 15 种消息、58 字段。`6.5` 的字段号、值类型和排序为规范性依据，旧五 RPC 的签名/字段不可删除或重编号；单点请求新增 `request_id=6`、响应新增 `request_id=7`。新客户端在请求发出前生成并保存该 ID。
 
-### 12.7 最终接口或测试矩阵核对（2026-11-09）
-
-Contracts v1_12 的 §11 RPC 全量追溯表同步增加两项 Commander 目标 Unary 方法；验收以完整 45 方法、15 Commander 消息、58 字段为准。
-
-第 1～2 章原文保留，新增 RPC 仍为目标契约而非现行已发布 Proto。
-
-
-### 12.8 v1_13 测试路径与 Commander 接口全集统一（2026-11-09）
-
-第 11 章六份 Proto 的测试矩阵全部采用 `tests/src/<module>/{unit,component,integration,system}/` 统一布局，不保留 `tests/<module>` 旧路径；Commander 专属 7 Unary、新 RPC 两项及 15 消息/58 字段的验收目标在全部矩阵中一致。Contracts 不承担业务状态机实现。第 1～2 章原文不变，Proto 仍待编码。
-
-
-### 12.9 v1_14 新增命令接口规范性状态、错误及版本锁定
-
-**本节替代历史阶段描述中的旧 Commander 五 RPC、客户端无 request_id、目标未定义等说法。**目标仍为 45 个唯一 Unary RPC，Commander 专属 7；Commander 15 种消息、58 字段。`6.5` 的字段号、值类型和排序为规范性依据，旧五 RPC 的签名/字段不可删除或重编号；单点请求新增 `request_id=6`、响应新增 `request_id=7`。新客户端在请求发出前生成并保存该 ID。
-
-#### 12.9.1 查询状态值与精确聚合规则
+### 12.2.1 查询状态值与精确聚合规则
 
 `SubmitCommandsResponse.state` 与 `GetRequestResultResponse.state` 是请求级字符串状态，合法值固定为：
 
@@ -1679,7 +1625,7 @@ Contracts v1_12 的 §11 RPC 全量追溯表同步增加两项 Commander 目标 
 
 所有子命令尚未终结时优先返回 `EXECUTING`（若还没有任何执行则返回 `ACCEPTED`）；已经全部终结时按 `UNKNOWN` → `SUCCEEDED` → `NOT_SENT` → `FAILED` → `PARTIAL` 的确定性规则选择。特别是“成功+UNKNOWN”必须是 `UNKNOWN`，不能标记 `PARTIAL`。当没有已执行但尚未收敛的底层 I/O 时，`io_settled` 才能为 true；`UNKNOWN` 可以与 `io_settled=true` 同时出现（I/O 已安全收敛但写入结果无法确认）。若子命令处于 NOT_SENT 而无可信未发送证据，必须改用 UNKNOWN，不能通过缺少 EXECUTING 事件推断未发送。
 
-#### 12.9.2 拒绝、ID 与保留期
+### 12.2.2 拒绝、ID 与保留期
 
 - `request_id`：非空 UTF-8 标识；具体长度上限由 Commander 的请求验证配置显式给出，合法字符与字节限制在 Service 控制协议中固定，客户端本地预存，不能由 gRPC 响应承担唯一来源。
 - 幂等键为可信认证身份 + Commander 实例身份 + request_id；相同键及相同规范业务内容只返回已有受理记录，指纹冲突返回 gRPC `ALREADY_EXISTS`（或具有同等稳定业务错误编码），绝不能执行第二次写入。
@@ -1688,7 +1634,7 @@ Contracts v1_12 的 §11 RPC 全量追溯表同步增加两项 Commander 目标 
 - 结果和幂等登记保留期限由 Commander 服务配置定义并明确提供给调用方运维契约，不能随意降到低于未结束 I/O 和安全恢复窗口的值；超期清理后查询 `NOT_FOUND` 不保证先前未写入。客户端禁止用新 ID 无人工决策地自动重试未知控制。
 - `GetRequestResult` 必须验证调用方的查询权限与目标范围；请求不存在、过期或权限不足时按对应稳定 Status 返回；查询不得触发物理控制写入。
 
-#### 12.9.3 Descriptor 与验收基线
+### 12.2.3 Descriptor 与验收基线
 
 目标类型与标签完整校验包括：`SubmitCommandsRequest.commands` 为 repeated `CommandItem`；`CommandItem.value` 是有 presence 的 `common.ScalarValue`；时间为 `google.protobuf.Timestamp`；`GetRequestResultResponse.commands` 为 repeated `GetCommandResultResponse`。请求级 state 按上述固定值域校验。Descriptor 既须校验新接口 2 RPC、新消息 5 种、新字段 21 个，又须全量核对六 Proto 既有字段号不改变。
 

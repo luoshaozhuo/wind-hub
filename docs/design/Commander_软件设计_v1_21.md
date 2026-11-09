@@ -1,6 +1,6 @@
 <h1 class="title">Commander 软件设计</h1>
 
-<p class="subtitle">v1_20 · 20261103</p>
+<p class="subtitle">v1_21 · 20261103</p>
 
 <style>
 body {
@@ -1316,7 +1316,7 @@ flowchart TD
 
 ## 3.2 功能需求
 
-Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全部 9 个 RPC，以及 `src/contracts/commander.proto` 中的 `CommanderService` 全部 7 个 RPC；字段、类型和传输层语义由 Contracts 统一定义。第 9 章描述业务映射和实现要求。Contracts v1_14 目标设计已增加 SubmitCommands、GetRequestResult 与单点 request_id 字段；Validate/Reload 仍由 CommonService 快照 RPC 承担。
+Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全部 9 个 RPC，以及 `src/contracts/commander.proto` 中的 `CommanderService` 全部 7 个 RPC；字段、类型和传输层语义由 Contracts 统一定义。第 9 章描述业务映射和实现要求。Contracts v1_15 目标设计已增加 SubmitCommands、GetRequestResult 与单点 request_id 字段；Validate/Reload 仍由 CommonService 快照 RPC 承担。
 
 
 <p class="table-caption">表 3-17 功能需求</p>
@@ -1325,7 +1325,7 @@ Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全�
 |---|---|---|---|
 | FR-01 | 启动、停止与重启 | 启动时校验配置、依赖及恢复状态后才就绪；停止时拒绝新命令并处置在途操作；重启先停止再重新读取全部配置文件，不沿用旧配置快照 | UR-01、UR-02、UR-03 |
 | FR-02 | 单点控制 | 接收设备、可写点、目标值及可选时间约束；Commander 生成 command_id，返回接收或拒绝结果并调度一次写入 | UR-04 |
-| FR-03 | 批量控制（Contracts v1_14 正式设计目标） | 整批校验并原子接受，逐项分配 command_id；按照设备 FIFO 执行；具备条件时优先 write_many，不支持时按序 write_one；返回逐项状态，跨设备不承诺原子执行 | UR-05 |
+| FR-03 | 批量控制（Contracts v1_15 正式设计目标） | 整批校验并原子接受，逐项分配 command_id；按照设备 FIFO 执行；具备条件时优先 write_many，不支持时按序 write_one；返回逐项状态，跨设备不承诺原子执行 | UR-05 |
 | FR-04 | 命令结果查询 | Contracts v1_13 支持按 command_id 和 request_id 分别查询单条命令与完整请求；返回初始请求和最新状态，未留存则 NOT_FOUND；不访问现场设备 | UR-04、UR-05、UR-06、UR-13 |
 | FR-05 | 服务基本信息查询 | 返回服务标识、软件版本、启动信息及当前实际生效的依赖文件标识、schema_version 及适用的 file_version；不把未生效的磁盘文件标记为生效 | UR-07 |
 | FR-06 | 运行状态查询 | 返回进程与业务就绪、命令及执行资源、阻塞、存储容量、审计积压和故障状态；区分存活与可用 | UR-08 |
@@ -2358,7 +2358,7 @@ flowchart LR
 
 ## 9.3 服务端映射、权限与契约差异
 
-<p class="table-caption">表 9-3 Commander v1_20 对 Contracts v1_14 的设计闭包</p>
+<p class="table-caption">表 9-3 Commander v1_21 对 Contracts v1_15 的设计闭包</p>
 
 | 需求 | 目标正式接口 | 业务责任 |
 |---|---|---|
@@ -2779,48 +2779,9 @@ tests/
 本矩阵覆盖 UC-01～UC-08 及 UR-01～UR-15 的目标场景；UC-02 的批量提交和按 request_id 查询已由 Contracts v1_13 设计定义，真实 Proto 与系统接口仍须独立验收。测试实施时须将上述目标标识与真实测试函数保持同步，记录每项的环境、执行命令、结果和未验证项。
 
 
-### 14.10 冻结基础设计协调修订（2026-11-09）
-
-共享配置装配和引用闭包不归 Core；保留 Commander 自身控制状态机与审计。原 UR-05 以外部 gRPC 请求触发批量控制，与冻结 Contracts 中只有单点 SubmitCommand 的事实不一致；本版仍明确标记为接口未覆盖（设计阻断），不私造 RPC，也不声称该对外功能闭环。
-
-本版只修订业务设计，不修改总体架构 v1_0、Core v1_27、Contracts v1_13 的目标职责/接口，不创建新的 Proto。第 1、2 章与上一版完全相同；本章记录不替代本设计其余原始需求和场景的裁决。
 
 
-### 14.11 v1_12 批量提交和查询闭环修订（2026-11-09）
-
-按 Contracts v1_13 新目标接口完成 UR-04～UR-06 设计闭环：客户端 request_id、单/批提交、按 request_id 返回完整结果、持久幂等登记、Core 原生 WRITE_MANY 能力选择及 UNKNOWN 恢复约束。旧未覆盖表不再作为现行设计结论；未修改 Proto 或代码。第 1～2 章保持原文。
-
-
-### 14.12 v1_13 受理状态与验收追溯统一（2026-11-09）
-
-修正历史“先在内存受理并返回、后落盘”“request_id 由服务端生成”“批量与请求查询无接口”三类冲突。现行设计以客户端 request_id、可恢复持久受理、异步执行、GetCommandResult/GetRequestResult 及 Contracts v1_13 为准。新增接口未实现时标 NOT_RUN，而非“设计未定义”。第 1～2 章完全不变。
-
-
-### 14.13 v1_14 受理持久性全面闭环（2026-11-09）
-
-统一单点/批量控制受理的故障语义：在允许返回 accepted=true 前，必须通过异步 SQLite 事务持久登记客户端 request_id、内容指纹和全部 command_id；受理与执行/审计仍相互独立。其余执行状态/审计事件可后台有界异步持久化，但进程崩溃导致未保存的执行证据缺失时只能保守 UNKNOWN/可证明未发送，不得重新写入现场。修正第 3、4、9、10、12、13 章的旧内存先接受结论。第 1～2 章原文保留。
-
-
-### 14.14 v1_15 请求持久登记与图表最后对齐（2026-11-09）
-
-将流程图、运行任务表、SQLite Repository 责任、失败恢复和实现视图中的“内存先受理”表述与 §9.5、§10.1 的持久受理规则统一；不再把未落盘的执行事件缺失误判为物理未发送。该决定不改变 Core、Configuration 或 Contracts v1_13 的职责/接口。第 1～2 章保持原文。
-
-
-### 14.15 终审共享路径统一（2026-11-09）
-
-本版统一 Configuration v1_2 的路径源契约：所有直接 source 使用 `configs/...` 并基于部署工作根解析，不能在 Commander 另设相对于 `services/` 的 `../instances` 规则；服务端必须以校验后的根装配引用闭包，增补路径安全/旧格式拒绝和 cwd 无关的测试。
-
-本版为设计契约修订，没有对代码、Proto 或测试结果作实施性宣称；第 1～2 章完全保留。
-
-
-### 14.16 最终测试目录与设计验收对齐（2026-11-09）
-
-统一 Commander 测试位置 `tests/src/commander/`；新增的 SubmitCommands/GetRequestResult 必须覆盖整批校验拒绝、同 ID 同内容跨重启幂等、同 ID 异内容冲突、响应丢失查询、UNKNOWN 与 io_settled、原生 WRITE_MANY/逐点降级及持久受理事务失败。见第 14 章增量矩阵。
-
-每个测试按层级 Marker 归类，不运行则标 NOT_RUN；本版未修改生产代码或测试代码。第 1～2 章完全保留。
-
-
-### 14.17 Commander 新接口专项验收矩阵
+## 14.5 新接口专项验收矩阵
 
 | 需求 | System 场景 | 必须验证 |
 |---|---|---|
@@ -2833,31 +2794,19 @@ tests/
 
 测试必须在 `tests/src/commander/` 对应层级实现并关联此矩阵；还需实际 RPC 协议字段 Descriptor 与权限校验。
 
-### 14.18 终审设计依赖与验收闭包（2026-11-09）
 
-Contracts v1_13 与 Configuration v1_2 为现行公共设计基线。当前 CommandControl 逻辑必须在受理响应前持久保存客户端请求标识、请求指纹及子命令 ID；第 14 章既有及新接口专项用例联合构成全量验收依据。
+## 14.6 请求状态与执行验收矩阵
 
-历史版本引用用于历史审查记录，不覆盖本节最新约束。第 1～2 章逐字保持不变；本轮为设计文件修订，不宣称已执行代码与测试。
-
-
-### 14.19 目录树及最终契约基线收敛（2026-11-09）
-
-将测试树的物理层级明确为 `tests/src/commander/`，与文字路径和运行命令一致；以 Contracts v1_13 和 Commander v1_19 为相关设计基线（Commander 自身为 v1_19）。历史小节仅作版本形成记录，不作为当前旧接口授权。第 1～2 章原文不变。
-
-
-### 14.20 v1_20 设计冻结验收矩阵与执行状态规范
-
-**冻结依赖：**总体架构 v1_0、Core v1_27、Configuration v1_3、Contracts v1_14。`3～`13` 是规范性业务定义，本节补齐精确请求状态与执行状态的边界；旧版本记录不作为实现优先依据。
 
 | 需求与用例 | 可观察系统行为 | 必需测试证据 |
 |---|---|---|
 | UR-04 / UC-02 单点 | request_id 客户端必填、已持久受理才返回 accepted、单 command_id | SQLite COMMIT 失败时不执行/不受理；正常持久化、RPC 断联与重启后查询 |
 | UR-05 / UC-02 批量 | 整批拒绝不执行任何子项；整批受理后按索引全部 command_id | 非法项目混入、容量不足、配置版本冲突、真实 ADS WRITE_MANY / Modbus IEC104 顺序 write_one |
-| UR-06 / UC-02 请求查询 | 只读 GetRequestResult、状态使用 Contracts v1_14 `12.9 固定值域 | 未开始/执行中/全部成功/全部未发送/全失败/部分/UNKNOWN 的穷举矩阵；request_id 查询与 command_id 结果一致 |
+| UR-06 / UC-02 请求查询 | 只读 GetRequestResult、状态使用 Contracts v1_15 `12.9 固定值域 | 未开始/执行中/全部成功/全部未发送/全失败/部分/UNKNOWN 的穷举矩阵；request_id 查询与 command_id 结果一致 |
 | UR-04～06 / UC-02 幂等 | caller + Commander 实例 + request_id 为唯一键；请求指纹包含完整顺序和值 | 同键相同指纹重复提交、同键不同指纹冲突、跨重启重复、越权查询拒绝 |
 | UR-13～14 / 审计 | 持久受理身份与后续事件/审计分离；崩溃不丢已确认受理事实 | 受理后执行前断电；写入可能发生而 EXECUTING 事件未落盘，恢复 UNKNOWN、绝不自动再次写 |
-| 配置与性能 / UC-07～08 | 来源与模板由 Configuration v1_3 解释，Commander 只拥有本服务控制运行/权限与私有 Apply | config_root + configs/... 及候选隔离、持久受理的时延 P99、队列与全局并发额定负载 |
+| 配置与性能 / UC-07～08 | 来源与模板由 Configuration v1_4 解释，Commander 只拥有本服务控制运行/权限与私有 Apply | config_root + configs/... 及候选隔离、持久受理的时延 P99、队列与全局并发额定负载 |
 
-**状态约束：**请求级聚合状态和 Commander 单项控制状态不是同一个枚举。前者严格使用 Contracts v1_14 `12.9 的 `ACCEPTED/EXECUTING/SUCCEEDED/FAILED/NOT_SENT/PARTIAL/UNKNOWN`；后者仍按第 5 章单命令状态机和 `outcome/io_settled` 描述。尚有未终结子项时不得返回已终结的请求级状态。底层 I/O 安全收敛与业务结果确认是两种证据；`UNKNOWN` 可伴随 `io_settled=true`，但不能以它作为指令成功或安全重新执行的证据。
+**状态约束：**请求级聚合状态和 Commander 单项控制状态不是同一个枚举。前者严格使用 Contracts v1_15 `12.9 的 `ACCEPTED/EXECUTING/SUCCEEDED/FAILED/NOT_SENT/PARTIAL/UNKNOWN`；后者仍按第 5 章单命令状态机和 `outcome/io_settled` 描述。尚有未终结子项时不得返回已终结的请求级状态。底层 I/O 安全收敛与业务结果确认是两种证据；`UNKNOWN` 可伴随 `io_settled=true`，但不能以它作为指令成功或安全重新执行的证据。
 
 **验收可执行性：**测试文件统一 `tests/src/commander/`，遵守各层级 Marker；每项正常/异常/恢复/边界场景至少有唯一可定位的测试 ID 和明确预期。对外两个新增 RPC 在真实 Proto、生成绑定和调用方落地前标 NOT_RUN；相应 Unit/Integration/System 均不得以 Mock 替代全部真实链路。编码实现可以重构内部模块，但必须保留此处外部不变量，禁止私下引入独立的 Core 批量 Command API。

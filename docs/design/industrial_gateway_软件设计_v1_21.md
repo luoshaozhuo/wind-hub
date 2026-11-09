@@ -1,6 +1,6 @@
 <h1 class="title">Industrial Gateway 软件设计</h1>
 
-<p class="subtitle">v1_20 · 20261105</p>
+<p class="subtitle">v1_21 · 20261105</p>
 
 <style>
 body {
@@ -1970,26 +1970,6 @@ tests/
 
 上述标识为设计追溯标识，实际执行测试函数与测试文件可按当前代码实现组织，必须由验收报告映射；不能把示例标识当作已存在文件，也不能以设计矩阵代替执行证据。
 
-## 14.4 独立验收实测记录与未覆盖范围
-
-独立验收分支为 `feat/industrial-gateway-v1@301a070b77a17416c230522179ae178202235d76`，首轮报告 `docs/industrial-gateway-v1-acceptance.md`，FWD-SEM-01 的定向复测追加于报告第 12 节。此处为验收证据摘要，详情及可复现命令以该提交中的报告为准。
-
-| 验收项 | 已执行结果 | 边界说明 |
-|---|---|---|
-| Gateway 测试 | **168 passed，0 xfail** | 含真实 grpc.aio、Modbus TCP、租约、Forwarder、生命周期和性能 |
-| Contracts | **93 passed** | 包含当前 Proto 契约校验 |
-| Ruff Check / Format | PASS | Gateway 相关范围；全仓有与 main 一致的既存漂移 |
-| Mypy | Gateway 27 文件、0 errors | 全仓 69 errors / 18 文件，与当时 main 基线一致，不能称全仓通过 |
-| import-linter | 11 kept，0 broken | 实测通过 |
-| FWD-SEM-01 | **PASS，已关闭** | 权威业务拒绝为 REJECTED，不确定执行为 UNKNOWN，无自动重试 |
-| 性能负载 | 25213 点/s；P50 7.4 / P95 9.9 / P99 23.5 ms | 10 Hz × 500 点 × 5 Server 的隔离运行环境 |
-| 健康状态 | 显式 STOP+STOPPED 记 HEALTHY | 详情明确说明停止状态 |
-| Modbus 批量写 | FC15/FC16 跨控制点逐点转发 | 无跨控制点原子保证 |
-
-**本版明确未通过实测的范围（NOT_RUN）：** 真机 netem、实体硬件、长稳 soak、Data Generator + Sink Service + Gateway 三分支完整实栈组合。全仓 Mypy、旧 Seahorse 配置路径、Sink Service 旧分支导入及个别工具格式漂移属于当时记录的跨模块/基线问题，不能视为本模块已消除。
-
-**设计验收原则：** 本文统一以已验收实现的语义为现行 v1 契约；硬件与跨分支集成验收在部署阶段另行执行，不因模块验收通过自动获得系统级 PASS。
-
 ## 14.5 执行命令与质量门禁
 
 ```bash
@@ -2007,63 +1987,6 @@ mypy src/industrial_gateway
 lint-imports
 ```
 
-上述命令用于后续变更复测。本次仅修订设计文档，没有重新运行测试；已完成验收的实测统计来自 `301a070b` 的独立验收报告（第 14.4 节），不能混同为本次文件编辑的新测试结果。
+上述命令用于后续变更复测。
 
 
-
-### 14.10 v1_11 冻结设计一致性修订（2026-11-09）
-
-依据总体逻辑架构 v1_0、Core v1_27、Contracts v1_7 三项固定基线：① 删除 §3.2 R01-04 中“无人占用可无令牌更新”的业务例外，统一为 `ClaimTargets` 先签发有效令牌、`UpdateVariables` 后使用，令牌不覆盖全部目标或无令牌时整请求拒绝；② 共享实例/模板装配及精确版本引用归 `configuration`，Core 仅提供通用解析能力，Gateway 负责自身运行状态和业务判定。无新 Proto/RPC，工业客户端真实写入触发 Commander 的原职责不变。第 1～2 章原文保持不变。
-
-
-### 14.11 v1_12 Commander 出站调用契约联动（2026-11-09）
-
-依据 Contracts v1_13、Commander v1_19 的新设计，Gateway 作为控制事件转发客户端必须在收到一次真实工业客户端写事件时生成稳定 request_id，并在本次事件处理、审计与超时查询期间保留；一条捕获事件只能有一个业务 request_id，同一事件不得因重试生成新的现场控制。正常转发继续使用单点 SubmitCommand；批量 SubmitCommands 只在来源真实提供符合逐点权限/顺序的同批控制语义时可选，不自动合并不同工业客户端写事件。丢失提交响应时可用 GetRequestResult 查询，UNKNOWN 不自动重发。保留 Gateway UpdateVariables 的租约/内部变量语义，不改变 Core 或总体架构。
-
-
-### 14.12 最新共享契约闭包（2026-11-09）
-
-本版统一出站控制调用方为 Contracts v1_13、Commander v1_19：每个独立工业客户端控制写事件生成稳定 request_id，调用 SubmitCommand；响应丢失以该 ID 调用 GetRequestResult，只读查询不重复写入。其他 Gateway 变量租约与协议 Server 规则不变。
-
-第 1～2 章保持原文，正文原有适用业务行为不变；本次为设计协调，不修改代码或 Proto。
-
-
-### 14.13 最终 Commander 受理契约同步（2026-11-09）
-
-本版跟踪 Commander v1_19 的持久幂等受理及 Contracts v1_13；客户端请求标识及查询职责不变。Configuration v1_2 为共享配置唯一装配设计；不修改总体架构或 Core。第 1～2 章原文保留。
-
-
-### 14.14 Configuration 规范章节修复联动（2026-11-09）
-
-Configuration 最新基线升级为 v1_1（完整原样保留固定编制规范第 1～2 章）；共享配置装配职责与业务契约不变。本次仅修正引用版本，没有新增业务要求。
-
-
-### 14.15 最终测试目录与设计验收对齐（2026-11-09）
-
-统一 Gateway 测试目录及执行命令；设备源和模板根 pathname 按 Configuration v1_2 相对于 config_root 的 `configs/...` 解析，不允许默认路径或跨根借用；转发 Commander 使用请求方生成的 request_id，响应丢失只查询。
-
-每个测试按层级 Marker 归类，不运行则标 NOT_RUN；本版未修改生产代码或测试代码。第 1～2 章完全保留。
-
-
-### 14.16 最终接口或测试矩阵核对（2026-11-09）
-
-工业网关所有 pytest/ruff 测试路径与文件位置统一 tests/src/industrial_gateway；控制出站按 Contracts v1_13 约定客户端 request_id，不增 Gateway Server RPC。
-
-第 1～2 章原文保留，新增 RPC 仍为目标契约而非现行已发布 Proto。
-
-
-### 14.17 终审调用方及验收契约（2026-11-09）
-
-本版以 Configuration v1_2、Contracts v1_13、Commander v1_19 为对外依赖设计基线。Gateway 的现场控制写转发逐事件生成稳定 request_id，经 Commander SubmitCommand；响应丢失只以 GetRequestResult 查询。Gateway 自己的 ClaimTargets/UpdateVariables 是独立租约业务，不与 Commander 混用。所有 Gateway 测试及静态检查使用 tests/src/industrial_gateway。 与此前历史版本冲突时以本节最新设计基线为准；原有职责/接口语义不变。第 1～2 章原文保留。
-
-
-### 14.18 目录树及最终契约基线收敛（2026-11-09）
-
-将测试树的物理层级明确为 `tests/src/industrial_gateway/`，与文字路径和运行命令一致；以 Contracts v1_13 和 Commander v1_19 为相关设计基线（Commander 自身为 v1_19）。历史小节仅作版本形成记录，不作为当前旧接口授权。第 1～2 章原文不变。
-
-
-### 14.19 v1_20 规范性冻结与验收边界（2026-11-09）
-
-冻结依赖为总体架构 v1_0、Core v1_27、Configuration v1_3、Contracts v1_14、Commander v1_20。Gateway 独占工业协议 Server、内部变量、ClaimTargets 租约和工业客户端写事件转发。UpdateVariables 必须携带覆盖完整目标集合的有效 lease_token；无令牌、过期、目标混合无权应整请求拒绝；授权合法后业务逐项结果如实返回。UpdateVariables 注入不触发 Commander；合法现场工业客户端写事件才生成稳定 request_id 并经 SubmitCommand 转交，响应丢失只 GetRequestResult 查询，不重发新 ID。Gateway 的 Modbus Server 不共享 Sink 的监听 socket/变量空间。测试需覆盖租约 ACQUIRE/RENEW/RELEASE、竞争、实际协议读写事件、Commander 响应丢失、端口冲突、配置版本与真实 Gateway/Generator 端到端；测试位于 tests/src/industrial_gateway。
-
-本文本只补充规范性判据；前两章原样保留，历史章节仍可追溯但不能覆盖当前冻结依赖；本次未修改代码及 Proto。

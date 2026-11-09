@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_35 · 20261109</p>
+<p class="subtitle">v1_36 · 20261109</p>
 
 <style>
 body {
@@ -2248,7 +2248,7 @@ flowchart TB
 1. 每个并发 Delivery 的 `source.devices` 必须恰含一个有效设备 Subject Token；同一物理 Kafka 目标上的设备集合必须互斥，按不同测点拆分同一设备仍按来源重叠拒绝。空或多设备选择器不进入并发模式。
 2. 访问同一 Kafka Broker/Topic 物理目标的并发 Delivery 应引用同一 `sink_id`，由同一进程内 SinkRuntime 统一管理连接、额度和 I/O 所有权；配置校验需识别不同 Sink ID 却指向同一物理目标的绕过行为。不同容器仍按 §8.2 静态独占。
 3. 仅显式引用新版本且声明 `supports_concurrent_write=true` 的 Kafka 模板可启用；现有 `kafka_history_1.0.0.yaml` 保持 `supports_concurrent_write=false`、`max_safe_inflight=1` 不变。并发额度为模板能力上限、`runtime.max_inflight_per_sink`、`runtime.max_inflight_global` 的最小有效值；这是**Reliable 进程内**限额，不能冒称跨 Realtime 进程的全局额度。
-4. 每个设备使用符合 Contracts v1_14 Subject 规则的精确设备过滤，保持独立稳定 Durable；更换现有 Durable 过滤器必须按 §10.4 完成积压责任核对和受控迁移，不能静默覆盖、删除或自动接管旧 Consumer。
+4. 每个设备使用符合 Contracts v1_15 Subject 规则的精确设备过滤，保持独立稳定 Durable；更换现有 Durable 过滤器必须按 §10.4 完成积压责任核对和受控迁移，不能静默覆盖、删除或自动接管旧 Consumer。
 5. 共享 Kafka Producer 按设备 Key 维持逻辑顺序保护。固定哈希锁槽可作实现选择，碰撞只影响并行度；但必须验证 Kafka 分区 Key、同设备发送确认、重试及异步回调不会使后批超过前批。禁止把设备锁或 Producer 幂等性当作跨进程、跨重启 exactly-once 证明。
 6. 单 Delivery 的在途写入和 ACK 责任独立；`UNCERTAIN`、Stop、子进程崩溃、DLQ 与重新投递仍遵守 §10.3，UNKNOWN 未收敛时不得释放资源额度或启动冲突写入。
 7. `replay_max_rate_per_second` 的限额按 Delivery 单独计算；多 Delivery 汇总补发压力由共享额度与目标侧容量限制。共享 Kafka Producer 整体故障可以使所有引用者 DEGRADED，但某设备自身可隔离的失败不得停止其它设备。
@@ -2428,7 +2428,7 @@ CLI/Web UI 管理各容器独立完整快照，涉及冲突资源的跨容器静
 
 # 9. gRPC Server 实现
 
-本章以 `main@14e3be661cfd1d30417144d3f4cfa928d313eaa5` 的 `src/contracts/common.proto`、`src/contracts/sink_service.proto` 及 Contracts v1_14 为唯一权威接口定义。本模块仅实现 Server；Proto 的字段号、类型及 RPC 名称不得在本模块内重新定义。当前契约为 **公共 `CommonService` 9 个 Unary RPC + 专属 `SinkService` 4 个 Unary RPC，共 13 个**。接口清单是应实现的目标，不代表现有代码已经通过测试。
+本章以 `main@14e3be661cfd1d30417144d3f4cfa928d313eaa5` 的 `src/contracts/common.proto`、`src/contracts/sink_service.proto` 及 Contracts v1_15 为唯一权威接口定义。本模块仅实现 Server；Proto 的字段号、类型及 RPC 名称不得在本模块内重新定义。当前契约为 **公共 `CommonService` 9 个 Unary RPC + 专属 `SinkService` 4 个 Unary RPC，共 13 个**。接口清单是应实现的目标，不代表现有代码已经通过测试。
 
 ## 9.1 服务与接口总表
 
@@ -2702,7 +2702,7 @@ Broker `num_delivered` 作为实际投递次数的权威；`ack_wait_seconds` �
 
 每个设备 Delivery 维护独立 Durable 和源消息序列；`ack_sync` 仅在该源批全部目标条目已得到可信确认或已取得逐条持久 DLQ 责任转移证据后执行。一个设备的未决消息阻塞本设备下一条源消息，但不阻塞其它设备独立 Durable；不得以其它设备的 ACK 替代本设备 ACK。
 
-精确设备 Subject 按 Contracts v1_14 §10.6.2 的正式模式 `wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>` 及其 token 限制生成，并与实际 `src/contracts/sample_batch.py` 的 Subject 生成函数核对；不得依历史旧单点 Subject 拼接；NATS 过滤范围和 Delivery 来源校验需要双重一致。切换宽过滤 Durable 时先停止旧消费、确认其历史责任及在途 I/O 收敛，随后创建新的独立身份并记录边界，旧 Durable 由运维在核实积压处置后显式清理。
+精确设备 Subject 按 Contracts v1_15 §10.6.2 的正式模式 `wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>` 及其 token 限制生成，并与实际 `src/contracts/sample_batch.py` 的 Subject 生成函数核对；不得依历史旧单点 Subject 拼接；NATS 过滤范围和 Delivery 来源校验需要双重一致。切换宽过滤 Durable 时先停止旧消费、确认其历史责任及在途 I/O 收敛，随后创建新的独立身份并记录边界，旧 Durable 由运维在核实积压处置后显式清理。
 
 Kafka 同设备采用稳定分区 Key；同设备逻辑写入顺序、Broker ACK 与源消息 ACK 是不同层次。因崩溃后重投可能重复，业务重复策略必须仍显式为 `require_dedup` 或 `allow_at_least_once`。任何已确认记录的仅内存进度都不能视为持久跨重启幂等状态。
 
@@ -3081,7 +3081,7 @@ deliveries:
 ### 11.2.10 配置示例的执行边界与准入补充
 
 1. **启动与角色**：一个容器仅使用 `configs/services/sink_service.yaml`；Main 创建两个独立 asyncio 数据子进程，并通过 IPC 分发相关 Delivery 配置。`config_writer`、`process_role`、`writer_endpoint`、双 Service 文件及双外部 gRPC 端口不属于 v1_20 目标配置契约。
-2. **Source Subject**：新版源 Subject 为 `wh.rt.batch.<farm>.<collector>.<device>` / `wh.hist.batch.<farm>.<collector>.<device>`，Stream/Consumer 过滤以 Contracts v1_14 第 10.6 节为准。旧单点后缀 `point_id` 不能继续沿用。订阅尽量按本容器的已分配来源缩小，相同来源跨容器复用时仍可能重复解码，须计入容量测量。
+2. **Source Subject**：新版源 Subject 为 `wh.rt.batch.<farm>.<collector>.<device>` / `wh.hist.batch.<farm>.<collector>.<device>`，Stream/Consumer 过滤以 Contracts v1_15 第 10.6 节为准。旧单点后缀 `point_id` 不能继续沿用。订阅尽量按本容器的已分配来源缩小，相同来源跨容器复用时仍可能重复解码，须计入容量测量。
 3. **样本与批次**：当前正式线协议使用 `SampleBatch(schema_version=2)`；Poll 每周期形成一条源事件批次（容量超限可拆分）；Subscribe/Listen 按原生回调/消息集合形成源事件批次，大小和频率不保证每机每拍 100/500 点。Realtime 仍按点保留最新值、按策略形成输出批次，Reliable 按源批次整条消息维护 ACK 责任；不因批量输入取消逐测点版本、质量与可靠确认。10 Hz 对应 100 ms 输出周期，输入批次数不等于目标实际成功写批次数。
 4. **资源额度**：`max_inflight_global` 是每个数据子进程额度，跨进程共享目标的真实限速/优先级须在目标端验证。Reliable 重试不能据此抢占实时容量。
 5. **JetStream**：以真实 Broker 核查 Consumer/Stream 约束；临时错误不能因次数耗尽直接进入 DLQ；仅永久错误在 DLQ 持久确认后 ACK。
@@ -3189,7 +3189,7 @@ Main 的 gRPC 使用 mTLS 与 `query/control/config` 权限；唯一 Main 接受
 
 ### 12.1.1 三类输出的可编码映射契约
 
-下述映射以稳定的逐测点身份和目标输出能力为约束；当前 main 的正式批量输入线格式为 Contracts v1_14 的 `SampleBatch(schema_version=2)`，不能在输出 Adapter 中把源批次误解成单点消息。
+下述映射以稳定的逐测点身份和目标输出能力为约束；当前 main 的正式批量输入线格式为 Contracts v1_15 的 `SampleBatch(schema_version=2)`，不能在输出 Adapter 中把源批次误解成单点消息。
 
 1. **Redis**：业务 Key 由 `namespace:wind_farm_id:collector_id:device_id:point_id` 组成，禁止使用 `sample_id` 作为 Key 的一部分。Value 为 UTF-8 JSON 对象，固定包含 `sample_id`、`value`、`quality`、`sample_time`、`publish_time`、`collector_id`、`device_id`、`point_id`、`wind_farm_id`；时间统一为 UTC ISO 8601，数值与布尔使用原始 JSON 类型，`null` 不改写为数字零。单个 Adapter 批次的成功要求所有属于该批的 Key 更新均获得可信确认；部分成功不得宣称整批已成功，已成功测点的确认按具体操作记录。
 2. **Kafka**：输出 Topic 使用模板 `output.topic`；Message Key 使用 `wind_farm_id:collector_id:device_id` 的 UTF-8 字节；Value 按独立输出的测点条目规范 JSON 编码（含 `sample_id`、质量和原始采样时间，必要时保留源批次身份）；不得将整个 `SampleBatch` 强行当作旧单点消息或无依据假称输出格式已验收。同一设备使用稳定 Key，但不承诺跨设备、跨分区的顺序。Broker 确认数按真实 Producer 操作记录，多个上游样本合成的调度批次不假装为 Kafka 原生单条消息。
@@ -3583,231 +3583,3 @@ lint-imports
 
 上述为正式编码前必须落实的跨模块契约变更，不是已实现或已通过的测试。
 
-### 14.8.2 跨模块逻辑一致性历史审查（v1_29，2026-11-09）
-
-**现行设计审查基线：**总体逻辑架构 v1_0、Core v1_27、Contracts v1_9（经批准受控升级 Commander 接口）。仅按设计中的接口、功能语义、状态/资源归属、业务流程、配置和错误责任判断；生产代码及测试报告不作为本节判定依据。审查对象为 Commander v1_15、Collector v1_12、Industrial Gateway v1_14、Data Generator v1_12、Sink Service v1_30、CLI v1_10。三个基础设计均不修改。
-
-| 设计对照 | 唯一职责与协作边界 | 审查裁定 |
-|---|---|---|
-| Collector ↔ Sink ↔ Contracts | Collector 逐源事件形成 SampleBatch v2 并发布；Sink 独立接收、输出并持有 JetStream 目标终局 ACK | 逻辑协调；不引入单点旧协议或将 Collector PubAck 作为下游完成 |
-| Data Generator ↔ Gateway ↔ Contracts | Data Generator 申请变量租约并通过 UpdateVariables 注入 Gateway 内部存储；不直接发布 NATS，也不触发 Commander 现场控制 | 逻辑协调；不与 Sink 目标派发混同 |
-| Gateway ↔ Commander | Gateway 仅在工业客户端真实控制写入事件中转发；Commander 独立裁决现场执行及 UNKNOWN | 逻辑协调；不共享控制队列、执行者或幂等状态 |
-| Gateway ↔ Data Generator ↔ CLI | Gateway ClaimTargets 负责独占租约及令牌，UpdateVariables 必须带有效令牌且覆盖完整目标；CLI 和 Generator 均先取得授权 | 已修正 Gateway v1_11 原“无租约可无令牌更新”例外；与固定 Contracts 一致 |
-| Sink ↔ Gateway | Sink Modbus TCP Server 提供派发结果的被动寄存器镜像；Gateway 协议 Server 提供其独立变量空间及控制回调 | 允许不同业务服务分别拥有协议 Server，必须独立配置端口、数据所有权和生命周期；不共享一个监听资源 |
-| CLI ↔ Collector ↔ Contracts | CLI 用 ReadPoints 进行一次性现场主动读；watch 为受控多次 Unary 调用，不触发 NATS 发布 | CLI v1_7 与固定 Contracts 一致，不再称缓存读取 |
-| CLI ↔ Sink | CLI 只调用 CommonService 9 RPC 与 SinkService 4 RPC，不提供臆造的 Sink 值读取或 DLQ 重放 RPC | 逻辑协调；静态跨容器迁移是客户端流程而非 Sink 集群服务 |
-| 六个业务设计 ↔ Core/configuration | Core 仅拥有无业务配置原语；configuration 统一拥有 wind-hub 共享 Instance/Template 引用装配；各 Service 拥有私有配置、运行状态及生效裁决 | 已修正多份业务设计的误归属，不再将共享引用解析下沉到 Core |
-| Commander ↔ Contracts | Contracts v1_9 增加 SubmitCommands、GetRequestResult 和单点 request_id，Commander v1_15 规定幂等持久受理及异步逐点执行 | **设计闭合**；Proto 尚未实施，不能宣称软件功能已交付 |
-
-**跨模块流程：**
-
-```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
-flowchart LR
- DG["Data Generator"] -->|"ClaimTargets / UpdateVariables"| GW["Industrial Gateway"]
- GW -->|"暴露协议变量"| CLIENT["工业客户端"]
- CLIENT -->|"合法现场控制写事件"| GW
- GW -->|"提交控制"| CMD["Commander"]
- DEV["现场设备"] -->|"采集"| COL["Collector"]
- COL -->|"SampleBatch v2"| MQ[("NATS Core / JetStream")]
- MQ -->|"订阅与可靠消费"| SINK["Sink Service"]
- SINK -->|"独立 Delivery"| OUT["Redis / Kafka / Modbus 镜像"]
-```
-
-<p class="figure-caption">图 14-8 六个业务模块的唯一职责与跨模块流程</p>
-
-**不等同的两个 Modbus Server：**Gateway 暴露其拥有的变量及工业客户端控制写事件；Sink 仅展示按配置派发的最新寄存器镜像，不负责 Gateway 变量控制与 Commander 指令转发。两者不可以在设计中默认共享同一监听 socket。
-
-**设计闭包裁决：**Commander 的对外批量提交与按 request_id 查询已由 Contracts v1_9、Commander v1_15 定义；Configuration v1_1 已成为共享 Instance/Template 装配的独立设计权威。需保持 Gateway/CLI 调用方遵循客户端请求 ID；新 Commander RPC 的设计完成不等于实际 Proto 和实现通过验收。
-
-**审查裁决：**原先发现的 Gateway 无令牌例外、共享配置职责重复、Commander 批量/请求查询设计缺口均已通过版本化设计裁定。现行设计主要接口和职责已协调；对未逐场景审查的潜在冲突不作无依据的零缺陷保证。
-
-## 14.9 设计审查与未验证事项
-
-本节为设计检查结果，不是实际软件验收。**2026-11-05 复核**：GitHub `main` HEAD 为 `0ac0228afc202ea69f75ab1b0046c2ab24bfd369`，本轮开发分支 HEAD 为 `41fff0aa34a1adc4f7acb5d6e3618f54dad18b34`。`common.proto` 9 项、`sink_service.proto` 4 项 RPC 的字段/接口对照一致；三进程单 Service 及双通道批量吞吐是设计目标；现行生产代码尚未完成三进程迁移，也未实现批量传输契约，不能依据设计文档宣称实现或性能通过。
-
-- **v1_20 历史参考负载（v1_22 已调整判定）**：单容器 30 台双通道同时 10 Hz，按批量输入 600 批/s、180000 值/s，参考目标确认实时 30000 值/s + 可靠 150000 值/s、优先连续 600 s；正式批量契约仍需同步修改 `src/contracts` 与 Collector。保留单容器三进程、仅 Main gRPC、静态跨容器分配和 13 项 RPC，不引入集群协调服务。
-
-- **原 v1_14 核实基线**：当时 `main` HEAD 为 `bf9dc6d2815a62b77a5e9868b3c6e8e35b3a492c`；`common.proto` 9 RPC、`sink_service.proto` 4 RPC 与第 9 章一致；`SampleMessage` 消息字段、质量枚举及 Subject 层级经源文件复核。
-- **已整改**：UC-05 临时故障重试次数误导向 DLQ；第 10 章相对阈值分母与 R01-03 不一致；实时图中过期/不确定写入处理不完整；10 Hz 输出示例周期；不存在的 `OperationRequest.request_id`；System 测试矩阵断行及 UC-12 追溯偏差。
-- **待编码时验证**：JetStream `max_deliver=-1` 与具体 Broker 版本实际消费行为；真实 Redis/Kafka/Modbus 适配器配置加载；全文件集原子提交与跨进程隔离；mTLS 和角色权限；三个进程合载 30 台风机 × 10 Hz ×（Realtime 100 点 + Reliable 500 点）的批量负载；Mermaid/LaTeX 在最终目标渲染器下的视觉检查。未实测项目不得记 PASS。
-- **编码前须落实的部署输入**：单 Service 文件及本容器独立配置根目录、Main 唯一配置写入权；目标侧实时/补发配额；30 台 ×（Realtime 100 点、Reliable 500 点）的来源清单及所需 Modbus 地址表。这些是部署或测试输入，不能用文内少量演示实例冒充完整现场配置。
-
-
-### 14.9.1 v1_15 Core 共享配置对齐审查记录
-
-- **已核对代码（2026-11-03）**：`main` HEAD `0dfee3bbbc864eae364fb214e447dea0a447820b`；`VersionedTemplateRepository` 支持 `protocols`、`device_models`、`point_tables`、`tasks`、`deliveries`，不支持 `sinks`；前 3 类采用扁平文件名，其余支持类别采用分层文件名。`validate_document_version` 要求 `schema_version == 1` 且 `file_version` 符合 `X.Y.Z`。
-- **本版修订**：明确两份 Sink Service 配置文件、Sink 管辖范围与共享 Core 文件的只读边界；删除 Sink/Delivery 示例中的冗余 `object_version`；补充版本引用的单一权威和阶段一、二迁移矩阵。
-- **未完成的代码验证**：当前开发分支是否已实现单 Service、三进程、IPC 和配置代闭环，CLI 是否按容器调用单 Main 的快照接口，以及本地 Claude Code 的 Ruff/Mypy/Import Linter、System 验收，均不得据此设计修订宣称 PASS。
-
-### 14.9.2 v1_17 配置路径设计修订及待验证项
-
-- Service 增加 `config_sources`，实例文件路径和模板根目录由 Service 明确指定；间接引用的模板由实例 ID/版本解析，Service 不逐项列举。
-- Sink、Delivery 模板统一扁平命名 `{template_id}_{file_version}.yaml`；不再支持旧的 `templates/{family}/{id}/{version}.yaml`。
-- 启动、候选快照、原子代提交、子进程配置代同步、Delivery desired-state 更新均需按显式路径改造，不允许以默认 `instances/deliveries.yaml` 或递归扫描补救。
-- 本次为**设计修订**，不代表开发分支实现或独立测试已通过；尚待生产代码与测试矩阵同步，并由本地 Claude Code 在阶段四后独立验收。
-
-
-### 14.9.3 v1_20 单容器三进程、批量输入与静态多实例决策
-
-- **已确认目标**：一个 Sink Service 容器固定 Main、Realtime、Reliable 三个 OS 进程，各自拥有独立 asyncio 事件循环；仅 Main 对外暴露 13 RPC。两个子进程按本地 Delivery 配置创建任务，空闲时不建立无用订阅或目标连接。业务角色不与配置写入角色绑定。
-- **配置权威**：每容器仅一个 Main 和一份 `configs/services/sink_service.yaml`，Main 以原子配置代提交并通过有界 IPC 将业务配置分发给两个子进程；无需两个 Service 文件、独立配置 Writer/Reader 角色或数据进程的 gRPC 端点。
-- **多实例**：以容器为扩容单位；CLI/Web UI 负责静态分配、跨容器资源冲突检查和先停旧再启新；容器之间没有 IPC、中心协调器、选举或自动迁移。单实例无需感知多实例身份。
-- **容量与安全**：单容器三进程可利用多个 CPU 核，但容器 CPU 配额仍共享；满载 Main gRPC 不得失联。NATS 来源过滤、路由缓存工作集和足额 Publisher 均须实测。跨进程共享物理 Sink 的限额不能只使用内存 Semaphore。
-- **历史验收状态**：原架构 Gate-5 FAIL：单 Realtime 进程稳态约 23k–25k 值/s，20 Sink 全拓扑约 47.7 值/s、2.2 批/s，单 Publisher 峰值约 93k 消息/s；这些指标不是三进程改造后的预测值。新方案须采用单实例 30 台双通道批量输入参考负载开展容量标定，记录对 180000 确认值/s 参考目标的达成率、优先采用 600 秒稳定窗口，并验证控制面满载可用性。
-- **待开发与验证**：历史当时的开发分支仍是两角色双 Service 且单测点源消息的实现；该判断仅适用于当时提交，不代表当前 main 状态，完成 Ruff、Mypy、Import Linter 和真实三进程系统测试后方可声称达标。未执行项 NOT_RUN。
-
-
-> **v1_22 修订说明（2026-11-08）**：统一 §3.1、§3.2、§3.3、§6.3、§14.5～§14.8 的容量验收口径：180000 值/s 为参考负载，不是阻断门槛；保持 ACK 正确性、资源有界、真实证据及控制面可用性强制要求。第 1～2 章原文未修改。
-
-
-### 14.9.4 v1_25 设计合并说明与实施状态（2026-11-09）
-
-本版本以 GitHub `main@14e3be661cfd1d30417144d3f4cfa928d313eaa5` 的 v1_24 为正文基准，吸收附件 v1_23a 的受控 Reliable 设备级并发设计。第 1、2 章保持原文未变；原有三进程、9+4 RPC、SampleBatch v2、可靠 ACK/DLQ 及 14 UC 不变。新增 §3.3 R02-05、§6.3.3、§10.3.6、§11.2.5.1、§12.1.3、§14.5.5；同步修正少量已过时的 Contracts 版本与测试路径引用。
-
-**状态边界：** Kafka 并发模板 1.1.0、设备级任务并行与对应独立系统测试均属于待实施/待验收设计，不表示当前 main 已实现或通过。真实 Source Subject、Consumer 配置和模板能力字段必须在编码前再次与 Contracts v1_6 和当前实现核对。正文保留的其他历史验收记录均是当时事实，不自动升级为当前结论。
-
-
-### 14.9.5 v1_26 版本递增与冻结边界（2026-11-09）
-
-本版接续 v1_25 对全仓九份设计书所作的跨模块审查，并将增量审查修订显式升为 v1_26。同步跟踪 Contracts v1_7（现行源码状态说明更新）及 CLI v1_6（主动读点语义与版本校正）；正式 SampleBatch v2 和全部业务 Proto 不变。第 1～2 章原文不动，8 UR、14 UC 和 42 System 场景的编号不变。v1_25 仍是 Git 历史中的上一版本，v1_26 是本分支最新设计文件；历史章节引用旧版本仅表示当时事实，不当作当前基线。
-
-变更只涉及设计文档。设备级 Kafka 并发、Durable 迁移以及所有跨模块真实链路仍须由独立代码检查和系统验收裁定。
-
-
-### 14.9.6 冻结基础设计协调修订（2026-11-09）
-
-本版本按冻结三份基线复核，明确 configuration 统一共享配置引用装配，Sink Service 仅拥有自身 Sink/Delivery 专属配置校验和派发状态。Gateway 和 Sink 可分别管理不同工业协议 Server 实例，不得共享同一个监听资源，协议 Server 实现不视为 Core 通用 Client 功能。
-
-本版只修订业务设计，不修改总体架构 v1_0、Core v1_27、Contracts v1_7 的正式职责/接口，不创建新的 Proto。第 1、2 章与上一版完全相同；本章记录不替代本设计其余原始需求和场景的裁决。
-
-
-### 14.9.7 v1_28 设计闭包复核（2026-11-09）
-
-按三份冻结基础设计核验六份业务设计；主动审查的对象是接口、业务语义、资源归属及相互重复，而非代码与测试。§14.8.2 给出最新跨文档裁决和未闭合事项；v1_27 及更早历史审查记录不得覆盖本节新结论。本次修订只变更本设计的审查记录，不更改 Sink 内部需求编号或公开契约。第 1～2 章原文不变。
-
-
-### 14.9.8 最新共享契约闭包（2026-11-09）
-
-本轮纳入 Configuration v1_1、Contracts v1_9、Commander v1_15 的决策；Sink 本身 13 RPC、三进程、Reliable/Realtime 及设备并发契约不改变。历史版本引用作为历史记录保留；§14.8.2 是最新设计对照。
-
-第 1～2 章保持原文，正文原有适用业务行为不变；本次为设计协调，不修改代码或 Proto。
-
-
-### 14.9.9 最终 Commander 受理契约同步（2026-11-09）
-
-本版跟踪 Commander v1_15 的持久幂等受理及 Contracts v1_9；客户端请求标识及查询职责不变。Configuration v1_1 为共享配置唯一装配设计；不修改总体架构或 Core。第 1～2 章原文保留。
-
-
-### 14.9.10 Configuration 规范章节修复联动（2026-11-09）
-
-Configuration 最新基线升级为 v1_1（完整原样保留固定编制规范第 1～2 章）；共享配置装配职责与业务契约不变。本次仅修正引用版本，没有新增业务要求。
-
-
-## 14.10 全套设计终审与编码验收门禁（v1_32，2026-11-09）
-
-本节按设计内容而非源码实施状态裁定，覆盖当前 `docs/design/` 全部正式设计；旧审查章节中的 `Contracts v1_7/v1_9`、`Commander v1_11/v1_15`、`Configuration v1_1`、`Sink v1_25～v1_31` 等版本仅为历史记录。本节基线及裁决优先于过时的阶段性说明，但不改原始业务需求或绕过正式 Contracts。
-
-### 14.10.1 终审设计集合与冻结范围
-
-| 模块 | 最新设计基线 | 审查结论 | 直接编码与验收依据 |
-|---|---|---|---|
-| 总体逻辑架构 | v1_0 | 冻结且未修改 | 模块边界、静态依赖、服务协作方向 |
-| Core | v1_27 | 冻结且未修改 | 通用配置原语、工业协议 Client、横切、共享领域对象、诊断 |
-| Configuration | v1_3 | 目标设计闭包 | 显式 config_root/config_sources、精确模板版本、共享只读装配、单写入方及完整 UR/UC/测试矩阵 |
-| Contracts | v1_14 | 目标设计闭包；Proto 待实现 | 公共 9 + 专属 11/7/4/8/6 = 45 唯一 Unary，Commander 15 种消息/58 字段，SampleBatch v2 |
-| Collector | v1_17 | 目标设计闭包 | 8 UR；采样/批次发布、主动读点、跨批次身份、订阅恢复及共享文件只读边界 |
-| Commander | v1_20 | 目标设计闭包 | 15 UR；单点及批量持久受理、客户端 request_id、设备 FIFO、WRITE_MANY/顺序写、UNKNOWN、审计与恢复 |
-| Industrial Gateway | v1_20 | 目标设计闭包 | 7 UR；独立协议 Server、ClaimTargets/UpdateVariables 租约、工业客户端写转发 Commander |
-| Data Generator | v1_16 | 目标设计闭包 | 7 UR；Scenario/Generation、映射、受租约保护的 Gateway 变量注入 |
-| Sink Service | v1_35 | 目标设计闭包 | 8 UR、14 UC；Realtime/Reliable、SampleBatch v2、Kafka 设备级并发、Durable、ACK/DLQ、三进程、配置快照 |
-| CLI | v1_15 | 目标设计闭包 | 11 UR、16 UC；五服务 RPC 管理、主动读点、批量控制、request_id 结果查询、端到端诊断 |
-
-Configuration 属共享 Python 库而非独立服务；总架构和 Core 无须迁移通用 YAML、协议 Driver 或复制现有代码。Contracts v1_13 的两个新 Commander Unary 和单点 request_id 字段是**设计目标**，不是已经存在于 main 的 Proto。
-
-### 14.10.2 跨模块唯一责任与无重复门禁
-
-| 交界面 | 唯一权威 | 不得重复或偷换的业务含义 | 必需端到端验收 |
-|---|---|---|---|
-| Core / Configuration / Service | Core 负责无业务 YAML/Driver；Configuration 负责共享引用图；Service 负责私有业务及 Apply | 不在 Core 解释 wind-hub Template，不在服务建立第二个共享模板 Loader；只允许单一共享配置 Writer | 共享文件变更、引用版本冲突、两服务并发 Apply、文件与运行态独立裁决 |
-| Configuration / 全部服务 | config_root 是包含 configs/ 的部署工作根；显式 pathname 从 configs/ 起始 | 拒绝 `../`、绝对 source、隐式默认文件与双拼 configs/configs；SnapshotFile.relative_path 不是主机路径 | 六业务服务的启动、Push、Apply、路径安全和读取竞争一致性 |
-| Collector / NATS / Sink | Collector 负责源批发布；Contracts 拥有 SampleBatch v2；Sink 负责下游派发与可靠源批 ACK | Collector PubAck 不代表 Sink 目标成功，Sink 不修改采样事件、点位身份和采样周期 | 10 Hz 源批、跨通道 Subject、重复/乱序、部分目标成功、DLQ 终局、旧 Durable 处置 |
-| Data Generator / Gateway | Generator 负责数据生成与 Gateway 输出；Gateway 拥有变量/租约 | UpdateVariables 不等于 Commander 现场控制，不直接产生 SampleBatch | 目标映射唯一、多 Gateway 租约、续租/过期、逐项成功及错误 |
-| Gateway / Commander | Gateway 负责工业客户端写事件捕获/转发；Commander 独占真实现场控制裁决 | 不复制执行队列、重试状态机或 UNKNOWN 判定；不自动重发响应未知的控制 | 一事件一 request_id，超时按 GetRequestResult 查询，现场安全和重复请求拒绝 |
-| Commander / Core / Contracts | Commander 负责请求级持久受理、设备 FIFO、逐点执行与审计；Core 仅原生协议 WRITE_MANY | 原生多点批写不等于整批原子执行；accepted 不等于物理完成；command_id 不由客户端制造 | 两个新增 RPC、字段号和消息 Descriptor、SQLite 故障/跨重启、逐点 UNKNOWN/io_settled、ADS/Modbus/IEC104 能力差异 |
-| CLI / 所有服务 | CLI 只按正式 RPC 发起管理与诊断；各 Service 维护权威业务状态 | CLI 不重复服务状态机、配置 Loader 或幂等队列；ReadPoints 主动读不当缓存 | 五服务 45 个目标 RPC 的适用覆盖、权限/取消/Deadline、批次提交查询与配置快照 |
-| Sink / Gateway Modbus Server | 两个独立服务各自拥有协议 Server、值空间和监听生命周期 | 不共享端口/socket，不把 Sink 寄存器镜像当 Gateway 变量控制 | 端口冲突、注册表隔离、异常停机/恢复、写事件不误下发 |
-
-### 14.10.3 每份设计的验收完整性判据
-
-正式编码验收必须基于 **需求 UR → 功能 FR/可靠性 RR/安全 SR/性能 PR → 用例 UC → 场景 → 测试文件/Marker → 实际证据** 的可逆追溯链。原则上 UR 无用例、UC 无明确期望结果、必需场景无自动化或可复现实测方案均判该模块设计/验收不完整。不能通过删掉场景、降低断言、增加 skip/ignore 来人为使结果 PASS。
-
-- 测试统一位于 `tests/src/<module>/{unit,component,integration,system}/`；Contracts 的公共测试位于 `tests/src/contracts/`，Configuration 位于 `tests/src/configuration/`，所有 Marker 需由项目 pytest 注册。无物理环境时不能将模拟结果冒充真实工业协议/网络验收。
-- 每个模块必须对接口字段、权限、无效输入、正常受理、幂等/重复、背压/超时、断连/重启、数据持久责任及生效版本完成显式测试；新增接口的执行前置条件与终局结果分别验收。
-- 静态门禁包括 Ruff Lint、Ruff Format、项目规定的 Mypy/Pyright、import-linter 与受影响模块类型/导入检查；Proto 改变必须通过 Descriptor 全字段、编译和全部调用方集成。性能必须声明硬件、负载、量纲、统计口径和阈值，不能用微基准代替系统负载。
-- 每个验收报告需固定 commit、配置版本、运行指令、环境、预期、实测与 PASS/FAIL/NOT_RUN；测试失败由相应生产代码及配置责任方修复。不存在代码或未运行的项目不作通过判定。
-
-### 14.10.4 终审裁决
-
-**现有设计范围内可冻结：**用户明确将 Web Server/Web Admin 排除本轮，剩余现有设计文件构成本期编码与验收规范；新增目标 Proto 尚待编码与验收，不能因此否定设计冻结。
-
-
-### 14.10.5 最终基线版本锁定（2026-11-09）
-
-本版终审定稿统一版本：总体架构 v1_0、Core v1_27、Configuration v1_2、Contracts v1_13、Collector v1_16、Commander v1_19、Industrial Gateway v1_19、Data Generator v1_15、Sink Service v1_33、CLI v1_14。Web Server 和 Web Admin 未具有独立设计和端到端验收矩阵，仍是全系统设计冻结阻断项。
-
-历史章节中的旧版本是审查形成过程记录，不覆盖此处的最终依赖版本。本版没有修改生产代码或 Proto，第 1～2 章原文不变。
-
-
-## 14.11 v1_34 全套现有设计冻结裁决（2026-11-09）
-
-本轮冻结范围是当前 docs/design 的 **10 份正式设计文件**；用户明确不纳入 Web Server 和 Web Admin 的独立需求、页面、HTTP/OpenAPI 与测试。Core v1_27 和总体架构 v1_0 保持原文；此处仅冻结现有业务模块相关规范。不把“可指导编码”误写成“目标软件已通过测试”。
-
-### 14.11.1 最终冻结版本清单
-
-| 文档 | 版本 | 唯一规范责任 |
-|---|---|---|
-| 总体逻辑架构 | v1_0 | 模块及依赖方向、服务协作、资源归属 |
-| Core | v1_27 | 通用 YAML/配置操作、工业协议 Client、领域对象、横切、诊断 |
-| Configuration | v1_3 | 显式路径、模板引用、有效共享配置、只读装配、单写入方与配置身份 |
-| Contracts | v1_14 | 6 Proto、目标 45 Unary、SampleBatch v2、Commander 请求级状态与字段 |
-| Collector | v1_17 | 8 UR、8 UC；采集、通知、主动读、批次发布、配置与恢复 |
-| Commander | v1_20 | 15 UR、8 UC；持久幂等受理、单点/批量控制、设备 FIFO、结果及审计 |
-| Industrial Gateway | v1_20 | 7 UR、8 UC；协议 Server、目标租约、变量与写事件转发 |
-| Data Generator | v1_16 | 7 UR、8 UC；Scenario、Generation、数据模型、Gateway 输出 |
-| Sink Service | v1_34 | 8 UR、14 UC；双通道、派发、Kafka 并发、JetStream、ACK/DLQ、三进程 |
-| CLI | v1_15 | 11 UR、16 UC；正式 RPC、主动读、批量控制与请求结果、诊断 |
-
-**版本优先级：**本表确定文档基线；Contracts 独占对外消息/RPC 字段、Configuration 独占共享配置解释、Core 独占通用技术能力、各业务设计独占其运行时状态和私有配置。正文早期带有旧版本的历史审查表与实施进度记录，仅作版本形成史，不覆盖本表与各设计的最新规范性条款。
-
-### 14.11.2 跨模块接口与唯一责任
-
-| 责任链 | 正式输入/身份 | 不允许重复或混同 | 必须有的可复现实测 |
-|---|---|---|---|
-| Configuration → 业务服务 | 显式 config_root + configs/...，精确版本引用 | Core 不重新实现业务配置树，业务服务不各建一套共享模板仓库；公共共享文件只有单一写入方 | 路径/版本/同键冲突、并发发布、候选/正式/运行态隔离、异常恢复 |
-| Collector → NATS → Sink | SampleBatch v2，精准设备 Subject | Collector 的 NATS PubAck 不代表下游交付，Sink 不自行采样或重写源样本 | 10 Hz、序列和质量、重投、积压、ACK/DLQ、设备并发及长期稳定 |
-| Data Generator → Gateway | ClaimTargets + UpdateVariables，覆盖全部目标的有效 lease_token | 生成器不发布 Sink 消息，内部变量注入不触发 Commander 现场控制 | 多 Gateway、目标唯一、租约过期和竞争、逐点结果、背压 |
-| Gateway → Commander | 工业客户端合法写事件，客户端生成 request_id | Gateway 不拥有 Commander 幂等、执行与 UNKNOWN 状态机 | 一事件一请求、响应丢失只查询、重复与真实协议转发 |
-| Commander → Core Driver | 已受理命令、同设备 FIFO、可选 WRITE_MANY | 协议原生批写不保证整批物理原子性，accepted 不等于执行成功 | SQLite 受理 COMMIT、请求级结果、跨重启幂等、不同协议写入能力 |
-| CLI → 各服务 | 正式 RPC，授权用户，稳定请求标识 | CLI 不重复配置 Loader、执行队列或幂等数据库 | 真实 RPC、权限、取消、诊断、主动读与批量结果显示 |
-| Sink / Gateway 的 Modbus Server | 独立监听端口及数据空间 | 不共享 socket、变量权威或真实控制转发 | 端口冲突、STOP/重启、状态及读写隔离 |
-
-### 14.11.3 编码与系统验收硬门禁
-
-1. **接口。** 以 Contracts v1_14 设计为目标，六份 Proto 必须实现合计 45 个唯一 Unary RPC，Commander 7 个，含 SubmitCommands/GetRequestResult；Commander 15 种消息、58 个字段且旧 tag 不改变。SampleBatch v2 的身份、标量、时间/质量、Subject 与序列化契约须完整验证。当前 Proto 若仍为 43 个，只能记作未实施，绝不以旧静态检查视为达标。
-2. **配置。** 按 Configuration v1_3 的 6 UR、5 UC 及所有场景，检查显式 config_root、configs/... 路径、精确版本、覆盖约束、文件清单及哈希、唯一共享 Writer、多文件发布事务与独立业务 Service Apply。公共内容 Get/校验权限不能自动等同公共写入权限。
-3. **需求与场景。** Collector 8 UR/8 UC、Commander 15 UR/8 UC、Gateway 7 UR/8 UC、Data Generator 7 UR/8 UC、Sink 8 UR/14 UC、CLI 11 UR/16 UC 必须逐项追溯到正常、异常、边界、并发、恢复及性能场景。原各设计更细的 System 测试矩阵仍全部有效，不得因本总纲缩减场景。
-4. **真实链路。** 至少完成 Collector→NATS→Sink 的双通道 10 Hz 与 Kafka 设备级并发；Data Generator→Gateway 的租约写入；Gateway 工业客户端写事件→Commander 的请求幂等控制；CLI→Commander 的批量提交与断联后 request_id 查询；两服务共用 Configuration 快照及公共写入冲突。无法执行真实协议/外部服务则记 NOT_RUN，不可用 Mock 替代 System。
-5. **代码门禁。** Proto/Descriptor 编译与逐字段核对、Ruff Lint/Format、项目规定类型检查、import-linter、pytest 及实际可靠性/性能验收；测试统一 tests/src/<module> 下 unit/component/integration/system 并使用已注册 Marker。不得通过 ignore/noqa/skip 或降低断言掩盖失败。
-6. **结果可追溯。** 每条测试有 UR→UC→Scenario→测试 ID→输入/配置→预期→实际证据，报告包含 Git SHA、设计/配置版本、环境、命令、PASS/FAIL/SKIP/NOT_RUN、P0/P1 裁决。业务验收必须区分 stored_revision/active_revision、accepted/实际写入结果及 UNKNOWN/io_settled。
-
-### 14.11.4 冻结裁决与变更控制
-
-**PASS——现有设计文件范围内正式冻结，允许以本表统一指导编码并据此验收。** Web Server、Web Admin 暂不在本次设计和验收范围内；其未来加入须单独设计与验收，不改变当前冻结裁决。此裁决仅指设计规范闭合，**不表示最新 Proto、生产代码、全量测试和性能已交付或通过**。
-
-冻结后任何业务规则、接口字段、配置路径/所有权、错误语义、性能验收门槛、测试断言或模块依赖变更，必须创建该文档的新递增版本，更新所有受影响设计的版本依赖，重新完成跨模块审查。不得在同版本文件上覆盖修改；无变更文档不无故升级。
-
-
-### 14.11.5 v1_35 规范性接口引用核对（2026-11-09）
-
-第 6、9、10、11、12 章正式接口与批量 Subject 的权威引用统一为 Contracts v1_14，避免将旧 v1_6 的历史主干实施记录误当作当前目标契约。原业务 RPC（Sink 4 + Common 9）、Batch v2、Subject、Kafka 设备并发与业务验收门禁均保持原义。本版本为现有十份设计文件的最终冻结索引版本，Web 不纳入；第 1～2 章原文保持不变。

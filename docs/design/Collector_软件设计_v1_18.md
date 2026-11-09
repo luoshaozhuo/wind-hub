@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_17 · 20261108</p>
+<p class="subtitle">v1_18 · 20261108</p>
 
 <style>
 body {
@@ -3781,37 +3781,7 @@ NATS/JetStream；`ReadPoints`、`InterrogateDevice`
 Test 应对并列协议路径独立参数化；ADS/TwinCAT 缺少硬件时记 `NOT_RUN`
 并说明环境，不能将其计入通过率。真实链路的运行记录须由独立验收报告提供；本设计书只规定期望行为和通过条件。
 
-## 14.5 设计差异整改、System 追溯与验收结论
-
-### 14.5.1 设计差异整改记录
-
-```{=html}
-<p class="table-caption">
-```
-表 14-1 已处理及待外部核实事项
-```{=html}
-</p>
-```
-  ---------------------------------------------------------------------------------------------------------------------
-  编号              原设计差异                          本版处理                                   状态
-  ----------------- ----------------------------------- ------------------------------------------ --------------------
-  G-01              第 1、2 章为旧约定/文档定位         完整采用软件设计模板 v1_1 第 1、2 章       文档完成
-
-  G-02              第 3 章原为五节式                   8 项 UR                                    结构已修，内容待审
-                                                        现调整为四节式；关键约束的定量化仍需完善   
-
-  G-03              第 4 章仅 7                         8 个 UC，每项 S01/S02/S03 与业务活动图     文档完成
-                    个摘要场景，缺独立异常/边界                                                    
-
-  G-04              旧 4 Service/17 RPC、Update/Replace 已按 `common.proto` 与 `collector.proto`   已核对最新 Proto（20
-                    与新版正式契约冲突                  落地 2 Service / 20 RPC 的字段级职责映射   RPC）
-
-  G-05              旧稿缺物理部署视图                  增加节点、网络、外部依赖及故障域           文档完成
-
-  G-06              旧稿缺模块内四层测试组织和全 UC 追溯      新增第 13 章与本章 System 矩阵             文档完成，未执行
-
-  G-07              旧稿含已实现/目标混用和旧路径判断   不再把历史状态当最新仓库事实               部分需源码核实
-  ---------------------------------------------------------------------------------------------------------------------
+## 14.5 System Test 追溯与验收规则
 
 ### 14.5.2 System Test 完整追溯矩阵
 
@@ -3955,129 +3925,3 @@ UC。以下状态均为 `NOT_RUN`，不表示实现失败或通过。
 
 **本节规定设计目标和验证标准，不构成对现有实现的验收结论。** 配置文件布局、Schema 和接口须保持唯一事实源；尚不能确定的现场性能阈值应通过负载模型与实测确定。缺少真实环境的验证项标为 `NOT_RUN`。
 
-### 14.5.4 验收执行、判定与待核查事项
-
--   **覆盖判定：** UR 覆盖 100%、UC 覆盖 100%、所有 UC 规定的
-    S01/S02/S03 场景覆盖
-    100%；覆盖映射与执行通过分开计算。每项并列协议、异常与边界需独立参数化，技术契约未在
-    UC 中展开的安全、资源、P99、容量及故障注入另行补齐。
--   **执行判定：** 实际执行结果使用 PASS/FAIL/SKIP/NOT_RUN
-    并附命令、环境、版本、日志、测量值和证据；未运行或跳过不能算通过。System
-    以 UC 为主线，Unit/Component/Integration 不替代 System。
--   **仓库核查范围：** 本版设计已重新确认 GitHub `main` @
-    `0dfee3bbbc864eae364fb214e447dea0a447820b`、
-    `configs/services/collector.yaml`、`configs/instances/devices.yaml` 及
-    `src/contracts/common.proto`、`src/contracts/collector.proto`。
-    这属于设计依据核对，不代表全部 Core 配置加载代码、全部模板 Schema
-    或现场运行环境已经完成核查。实现时应以代码与实际配置校验结果闭环。
-
-**v1_8 设计审查结论：配置引用契约已更新，实施仍需整改；不代表验收通过。**
-本结论仅针对设计文档的规范性要求：UR、UC、20 个 Unary RPC、配置引用图及运行时不变量已明确；新版配置 Schema、CLI、快照仓库和测试尚待按本文实现与独立验证。
-`C-GAP-01` 是非阻断的可观测性增强建议，必须在现行 Proto 下按指标缺项规则实现。
-多文件 manifest 原子提交是**待实现的目标行为**，不得误称当前 Core 已经支持。
-协议联调、可靠性、性能与 System Test 的实际结果应由独立验收证据支持；未执行记 `NOT_RUN`，不得计入通过。
-
-
-## 14.6 全文设计审查记录（v1_8）
-
-本轮全文整改基线为 GitHub `main` @
-`0dfee3bbbc864eae364fb214e447dea0a447820b`、`src/contracts/common.proto`、`src/contracts/collector.proto`
-与当前 `configs/` 结构。
-
-```{=html}
-<p class="table-caption">
-```
-表 14-7 v1_8 设计整改闭环
-```{=html}
-</p>
-```
-  ------------------------------------------------------------------------------------------------------------------------------------------
-  编号              问题                   历史整改 / v1_8 补充                                                                       状态
-  ----------------- ---------------------- ------------------------------------------------------------------------------- -----------------
-  D01               关键约束不够定量       §3.10 固化运行超时、线程、窗口、缓存、候选容量/TTL 及验收边界                   CLOSED
-
-  D02               Metrics 语义不完整     §13.5 统一计数、窗口、单位、公式、无效条件及可复算示例                          CLOSED
-
-  D03               图形规范               按目的使用 Flowchart/Sequence/State，初始化域与图类型一致，图题独立             CLOSED
-
-  D04               ScalarValue 契约       §9 以 `common.proto` six-way oneof 为唯一线契约，`Sample.value` 保持 optional   CLOSED
-
-  D05               配置事务安全           §11.8 明确 Push 持久化、Apply、fsync、rename、取消、崩溃恢复及幂等              CLOSED
-
-  D06               RUNTIME 收敛           §11.8 区分 DISK `revision`、全局 `effective_revision` 与逐设备                  CLOSED
-                                           `effective_revision`                                                            
-
-  D07               候选持久化与 GC        §11.8 固化 8 个、16 MiB、256 文件、3600 s TTL 及引用保护                        CLOSED
-
-  D08               Diagnose               §13.5 增加证据时效、阶段错误分类、UNKNOWN/NOT_RUN 与 limitations 裁决           CLOSED
-
-  D09               生命周期与资源所有权   §6.8 + §11.8 统一 STOP/Reload/Watchdog/未收敛 I/O 规则                          CLOSED
-
-  D10               测试追溯               §14.5.2 保持 UR→UC→S01/S02/S03→System Test 全映射                               CLOSED
-
-  D11               跨章节一致性           RPC、版本、发布确认、Metrics、配置与生命周期均指定唯一规范章节                  CLOSED
-
-  D12               配置路径               §11 明确 `--config` 单入口和 Service→Instance / Service→Template 直接路径引用             DESIGN_CLOSED / IMPLEMENTATION_PENDING
-                                           仓库 `configs/` 仅作示例，不能作为运行时缺省来源   
-  ------------------------------------------------------------------------------------------------------------------------------------------
-
-### 14.6.1 正式设计审查裁定
-
-**设计裁定：PASS WITH LIMITATIONS（配置 Schema、启动入口和快照映射尚待实现与验证）。**
-
-该裁定仅表示 v1_8 的直接引用设计已被明确为目标契约，不能据此判断实现已达标；不表示当前 main 的 Collector
-实现已满足本设计，也不表示测试已经执行通过。
-
-以下项目须以实测证据判定：Core 快照事务与逐设备版本状态、ADS/TwinCAT 真实硬件链路、性能 P95/P99、CPU/RSS、三协议恢复及 NATS/JetStream 故障场景。环境不具备的项目标为 `NOT_RUN`。
-
-
-
-### 14.6.2 v1_8 配置契约变更及开发差异
-
-- **新增规范字段（直接字符串）：** `collector.yaml` 中 `config_sources.instances.site`、`config_sources.instances.devices`、`config_sources.templates.root` 三者均为必需的字符串配置，不得增加 `pathname` 包裹字段。`devices.yaml` 不定义 Template 根目录字段，仅保留型号 ID/版本的精确引用。
-- **删除启动契约：** `--instances`、`--templates` 不再作为独立必需参数；不允许从旧参数或代码常量回退取得实例和模板。
-- **保持不变：** `devices.<ID>.model.id/version` 精确引用、Template 内部版本继承、Service 变化重启生效、Push/Apply 原子快照及逐设备增量生效。
-- **实现差异：** 在开发分支 `refactor/collector-v1-stage1-restart-20261102`（检查 HEAD `f372fb2fd2697c72cd379748109d63d07d8917d0`）上，启动入口仍要求 `--instances`、`--templates`，加载器仍依赖固定逻辑文件名；当前 `main` 的 `configs/services/collector.yaml` 尚未声明三条必需路径；`configs/instances/devices.yaml` 不应新增 Template 根目录字段。必须同步整改 CLI、Service Schema、Core 配置加载、Candidate 路径映射、SnapshotFile 逻辑键、测试 Fixture 与全部调用方。
-- **验证状态：** CFG-PATH-01～08 以及既有 UC-04/UC-08 相关场景全部待独立执行；未运行记 `NOT_RUN`。
-
-
-### 14.11 冻结基础设计协调修订（2026-11-09）
-
-共享设备实例、型号、协议、点表及单位的引用图和业务语义统一由 configuration 装配，Core 只提供无业务语义的通用原语；Collector 保留采样 Task、消息发布与运行状态的所有权。
-
-本版只修订业务设计，不修改总体架构 v1_0、Core v1_27、Contracts v1_7 的正式职责/接口，不创建新的 Proto。第 1、2 章与上一版完全相同；本章记录不替代本设计其余原始需求和场景的裁决。
-
-
-### 14.12 终审共享路径统一（2026-11-09）
-
-本版按 Configuration v1_2 统一 Service 配置直接来源键 `config_sources`；Service yaml 引用统一采用 `configs/` 前缀，相对于 `config_root`（包含 configs 目录的部署工作根）解析，替换旧 `configuration.instances`/`configuration.templates` 与 `configs/` 内部相对路径设计；测试 CFG-PATH 必须覆盖新键与 root，拒绝旧键和 `../`。
-
-本版为设计契约修订，没有对代码、Proto 或测试结果作实施性宣称；第 1～2 章完全保留。
-
-
-### 14.13 最终测试目录与设计验收对齐（2026-11-09）
-
-统一全部 Collector 四级测试目录为 `tests/src/collector/{unit,component,integration,system}/`，保留 Marker 和 UC 场景追溯；配置源依据 Configuration v1_2 的部署根与 `configs/` 相对路径，不再引入另一套目录规则。
-
-每个测试按层级 Marker 归类，不运行则标 NOT_RUN；本版未修改生产代码或测试代码。第 1～2 章完全保留。
-
-
-### 14.14 v1_15 共享配置单写入方与 Collector 私有 Apply 边界（2026-11-09）
-
-依据 Configuration v1_2：Collector 的 Get 可以返回全部受管共享引用闭包及版本以供查询；Push 必须区分可写的 Collector 专属文件与公共依赖的只读校验证据，提交候选不能将公共 devices/site 或 Template 作为 Collector 私有可写物。Apply 只修改 Collector 拥有的文件，并在独立配置发布方确认新共享版本后才按安全规则加载已发布公共快照。公共实例或模板的真实变更由单一配置 Writer 处理；各业务服务独立 Apply，不宣称跨模块原子提交。旧第 11 章“完整候选/受管文件实体”均以本节的写入权限裁决为上位约束。新增 System 检查：候选夹带公共文件改写应拒绝；共享文件先由配置管理方发布后，Collector 仅重装有效差异；两个服务同时请求改写同一共享文件不得成功。
-
-第 1～2 章原文不变；本版仅为设计所有权修订。
-
-
-### 14.15 终审设计依赖与验收闭包（2026-11-09）
-
-本版最新基础依赖为总体架构 v1_0、Core v1_27、Configuration v1_2、Contracts v1_12。Collector 只写本服务私有配置，公共 Instance 与 Template 由单写入方发布。Service 的显式路径依赖及测试必须遵循配置根统一约定。
-
-历史版本引用用于历史审查记录，不覆盖本节最新约束。第 1～2 章逐字保持不变；本轮为设计文件修订，不宣称已执行代码与测试。
-
-
-### 14.16 v1_17 规范性冻结与验收边界（2026-11-09）
-
-冻结依赖为总体架构 v1_0、Core v1_27、Configuration v1_3、Contracts v1_14。Collector 独占采集任务、主动 ReadPoints、原生通知、SampleBatch v2 发布和采集运行态；NATS PubAck 不等于 Sink 目标交付确认。Get/Push 允许读取和校验完整共享依赖闭包，但 Apply 仅改写 Collector 自有 Service/私有文件，公共 devices/site/Templates 由唯一配置写入方发布。配置源仅使用 config_root + configs/...；服务配置源切换需要重启，原有任务与 I/O 必须安全收敛。验收须覆盖 8 UR、8 UC、固定周期/原生通知时序、批次 ID/质量/时间、两种 Subject、超限拆批/重复、现场主动读、部分 Apply、STOP 竞态、共享文件禁止改写、NATS 断连和重启。测试位于 tests/src/collector 四级目录，必须保留真实设备协议与 NATS 系统用例。
-
-本文本只补充规范性判据；前两章原样保留，历史章节仍可追溯但不能覆盖当前冻结依赖；本次未修改代码及 Proto。
