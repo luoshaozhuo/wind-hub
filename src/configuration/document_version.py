@@ -45,7 +45,13 @@ def read_stable_document(path: Path) -> dict[str, Any]:
         original = path.read_bytes()
         document = parse_yaml(original.decode("utf-8"))
         current = path.read_bytes()
-    except (OSError, UnicodeError) as exc:
+    except FileNotFoundError as exc:
+        raise ConfigError(f"{path}: REFERENCE_NOT_FOUND") from exc
+    except PermissionError as exc:
+        raise ConfigError(f"{path}: PERMISSION_DENIED") from exc
+    except UnicodeError as exc:
+        raise ConfigError(f"{path}: SCHEMA_ERROR invalid UTF-8") from exc
+    except OSError as exc:
         raise ConfigError(f"{path}: configuration source I/O failed") from exc
     except ConfigOperationError as exc:
         raise ConfigError(f"{path}: configuration parse failed ({exc.code.value})") from exc
