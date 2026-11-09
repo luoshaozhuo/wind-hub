@@ -282,6 +282,15 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         max_batch_points=int(
             _positive(dispatch.get("max_batch_size", 10), "max_batch_size", integer=True)
         ),
+        accept_commit_timeout=(
+            float(
+                _positive(
+                    repository.get("accept_commit_timeout_ms", 10000),
+                    "repository.accept_commit_timeout_ms",
+                )
+            )
+            / 1000
+        ),
         max_request_id_bytes=int(
             _positive(
                 dispatch.get("max_request_id_bytes", 128),
