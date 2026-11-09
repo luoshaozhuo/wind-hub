@@ -1,6 +1,6 @@
 # Commander 专属服务配置；共享依赖仅声明直接配置入口
 schema_version: 1
-file_version: 1.0.0
+file_version: 1.1.0
 
 config_sources:
   instances:
@@ -40,6 +40,7 @@ repository:
   cleanup_interval_seconds: 60
   storage_warning_ratio: 0.80
   admission_stop_ratio: 0.90
+  accept_commit_timeout_ms: 10000
   persistence_interval_ms: 50
   persistence_batch_size: 500
   persistence_max_events: 100000
