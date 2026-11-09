@@ -19,6 +19,7 @@ from commander.domain.command import (
     CommandResult,
     CommandSpec,
     CommandState,
+    request_fingerprint,
 )
 from core.application.protocol_contract import (
     ProtocolCapability,
@@ -186,9 +187,8 @@ class QueuedExecutor:
         async with self._admission_lock:
             previous = await self._control.get_request(request_id, caller_id)
             if previous:
-                if len(previous) != len(commands) or any(
-                    old.command.spec != new
-                    for old, new in zip(previous, commands, strict=True)
+                if request_fingerprint([item.command.spec for item in previous]) != (
+                    request_fingerprint(commands)
                 ):
                     raise FileExistsError("request_id already belongs to different commands")
                 return tuple(result.command for result in previous)
