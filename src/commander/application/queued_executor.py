@@ -101,12 +101,14 @@ class QueuedExecutor:
         max_queued_batches_global: int = 1000,
         idle_timeout: float = 30.0,
         max_batch_points: int = 10,
+        max_request_id_bytes: int = 128,
     ) -> None:
         if (
             global_capacity < 1
             or max_queued_batches_per_device < 1
             or max_queued_batches_global < 1
             or max_batch_points < 1
+            or max_request_id_bytes < 1
         ):
             raise ValueError("capacities must be positive")
         if min(queue_timeout, connect_timeout, write_timeout, idle_timeout) <= 0:
@@ -125,6 +127,7 @@ class QueuedExecutor:
         self._global_batch_limit = max_queued_batches_global
         self._idle_timeout = idle_timeout
         self._max_batch_points = max_batch_points
+        self._max_request_id_bytes = max_request_id_bytes
         self._idle_tasks: dict[str, asyncio.Task[None]] = {}
         self._deadline_tasks: set[asyncio.Task[None]] = set()
         self._idle_closing: set[str] = set()
@@ -182,8 +185,8 @@ class QueuedExecutor:
         request_id: str,
     ) -> tuple[AcceptedCommand, ...]:
         """Complete durable T1 and FIFO registration as one owned operation."""
-        if not request_id or not request_id.strip():
-            raise ValueError("request_id is required")
+        if not request_id.strip() or len(request_id.encode("utf-8")) > self._max_request_id_bytes:
+            raise ValueError("request_id is empty or exceeds configured byte limit")
         async with self._admission_lock:
             previous = await self._control.get_request(request_id, caller_id)
             if previous:
