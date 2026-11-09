@@ -146,9 +146,20 @@ class QueuedExecutor:
         commands: Sequence[CommandSpec],
         *,
         caller_id: str,
+        request_id: str,
     ) -> tuple[AcceptedCommand, ...]:
-        """Each submitted batch is a new request; never infer caller idempotency."""
+        """Persist one caller-scoped request before scheduling any physical I/O."""
+        if not request_id or not request_id.strip():
+            raise ValueError("request_id is required")
         async with self._admission_lock:
+            previous = await self._control.get_request(request_id, caller_id)
+            if previous:
+                if len(previous) != len(commands) or any(
+                    old.command.spec != new
+                    for old, new in zip(previous, commands, strict=True)
+                ):
+                    raise FileExistsError("request_id already belongs to different commands")
+                return tuple(result.command for result in previous)
             if self._closed or self._fatal:
                 raise RuntimeError("dispatcher unavailable")
             if not self._storage_admission_open:
@@ -178,7 +189,12 @@ class QueuedExecutor:
             # CommandControl.accept only mutates the event-loop-owned memory journal.
             # No I/O or suspension occurs between T1 and queue registration:
             # cancellation of the calling RPC must not revoke an accepted control.
-            accepted = await self._control.accept(commands, caller_id=caller_id)
+            accepted = await asyncio.wait_for(
+                self._control.accept(
+                    commands, caller_id=caller_id, request_id=request_id
+                ),
+                timeout=30.0,
+            )
             for command in accepted:
                 entry = _Entry(
                     command=command,
