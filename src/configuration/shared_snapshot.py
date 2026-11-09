@@ -132,7 +132,7 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
             raise ConfigError(f"{device_id}: unknown protocol template fields")
         protocol_defaults = protocol_document.get("protocol_options", {})
         model_options = model_data.get("protocol_options", {})
-        if not isinstance(protocol_defaults, dict) or not isinstance(model_options, dict):
+        if not isinstance(protocol_defaults, Mapping) or not isinstance(model_options, Mapping):
             raise ConfigError(f"{device_id}: invalid protocol_options mapping")
         merged_options = {**protocol_defaults, **model_options}
         effective_options = {**merged_options, **definition.protocol_options}
