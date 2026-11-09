@@ -55,10 +55,20 @@ class CommanderServiceStub:
                 request_serializer=contracts_dot_commander__pb2.SubmitCommandRequest.SerializeToString,
                 response_deserializer=contracts_dot_commander__pb2.SubmitCommandResponse.FromString,
                 _registered_method=True)
+        self.SubmitCommands = channel.unary_unary(
+                '/windhub.commander.v1.CommanderService/SubmitCommands',
+                request_serializer=contracts_dot_commander__pb2.SubmitCommandsRequest.SerializeToString,
+                response_deserializer=contracts_dot_commander__pb2.SubmitCommandsResponse.FromString,
+                _registered_method=True)
         self.GetCommandResult = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/GetCommandResult',
                 request_serializer=contracts_dot_commander__pb2.GetCommandResultRequest.SerializeToString,
                 response_deserializer=contracts_dot_commander__pb2.GetCommandResultResponse.FromString,
+                _registered_method=True)
+        self.GetRequestResult = channel.unary_unary(
+                '/windhub.commander.v1.CommanderService/GetRequestResult',
+                request_serializer=contracts_dot_commander__pb2.GetRequestResultRequest.SerializeToString,
+                response_deserializer=contracts_dot_commander__pb2.GetRequestResultResponse.FromString,
                 _registered_method=True)
 
 
@@ -89,7 +99,19 @@ class CommanderServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SubmitCommands(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetCommandResult(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetRequestResult(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -118,10 +140,20 @@ def add_CommanderServiceServicer_to_server(servicer, server):
                     request_deserializer=contracts_dot_commander__pb2.SubmitCommandRequest.FromString,
                     response_serializer=contracts_dot_commander__pb2.SubmitCommandResponse.SerializeToString,
             ),
+            'SubmitCommands': grpc.unary_unary_rpc_method_handler(
+                    servicer.SubmitCommands,
+                    request_deserializer=contracts_dot_commander__pb2.SubmitCommandsRequest.FromString,
+                    response_serializer=contracts_dot_commander__pb2.SubmitCommandsResponse.SerializeToString,
+            ),
             'GetCommandResult': grpc.unary_unary_rpc_method_handler(
                     servicer.GetCommandResult,
                     request_deserializer=contracts_dot_commander__pb2.GetCommandResultRequest.FromString,
                     response_serializer=contracts_dot_commander__pb2.GetCommandResultResponse.SerializeToString,
+            ),
+            'GetRequestResult': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetRequestResult,
+                    request_deserializer=contracts_dot_commander__pb2.GetRequestResultRequest.FromString,
+                    response_serializer=contracts_dot_commander__pb2.GetRequestResultResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -243,6 +275,33 @@ class CommanderService:
             _registered_method=True)
 
     @staticmethod
+    def SubmitCommands(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.commander.v1.CommanderService/SubmitCommands',
+            contracts_dot_commander__pb2.SubmitCommandsRequest.SerializeToString,
+            contracts_dot_commander__pb2.SubmitCommandsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def GetCommandResult(request,
             target,
             options=(),
@@ -259,6 +318,33 @@ class CommanderService:
             '/windhub.commander.v1.CommanderService/GetCommandResult',
             contracts_dot_commander__pb2.GetCommandResultRequest.SerializeToString,
             contracts_dot_commander__pb2.GetCommandResultResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetRequestResult(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.commander.v1.CommanderService/GetRequestResult',
+            contracts_dot_commander__pb2.GetRequestResultRequest.SerializeToString,
+            contracts_dot_commander__pb2.GetRequestResultResponse.FromString,
             options,
             channel_credentials,
             insecure,

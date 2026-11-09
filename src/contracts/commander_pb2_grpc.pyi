@@ -36,7 +36,9 @@ class CommanderServiceStub:
     GetDevice: _grpc.UnaryUnaryMultiCallable[_common_pb2.ObjectId, _commander_pb2.GetDeviceResponse]
     ListPoints: _grpc.UnaryUnaryMultiCallable[_commander_pb2.ListPointsRequest, _commander_pb2.ListPointsResponse]
     SubmitCommand: _grpc.UnaryUnaryMultiCallable[_commander_pb2.SubmitCommandRequest, _commander_pb2.SubmitCommandResponse]
+    SubmitCommands: _grpc.UnaryUnaryMultiCallable[_commander_pb2.SubmitCommandsRequest, _commander_pb2.SubmitCommandsResponse]
     GetCommandResult: _grpc.UnaryUnaryMultiCallable[_commander_pb2.GetCommandResultRequest, _commander_pb2.GetCommandResultResponse]
+    GetRequestResult: _grpc.UnaryUnaryMultiCallable[_commander_pb2.GetRequestResultRequest, _commander_pb2.GetRequestResultResponse]
 
 @_typing.type_check_only
 class CommanderServiceAsyncStub(CommanderServiceStub):
@@ -45,7 +47,9 @@ class CommanderServiceAsyncStub(CommanderServiceStub):
     GetDevice: _aio.UnaryUnaryMultiCallable[_common_pb2.ObjectId, _commander_pb2.GetDeviceResponse]  # type: ignore[assignment]
     ListPoints: _aio.UnaryUnaryMultiCallable[_commander_pb2.ListPointsRequest, _commander_pb2.ListPointsResponse]  # type: ignore[assignment]
     SubmitCommand: _aio.UnaryUnaryMultiCallable[_commander_pb2.SubmitCommandRequest, _commander_pb2.SubmitCommandResponse]  # type: ignore[assignment]
+    SubmitCommands: _aio.UnaryUnaryMultiCallable[_commander_pb2.SubmitCommandsRequest, _commander_pb2.SubmitCommandsResponse]  # type: ignore[assignment]
     GetCommandResult: _aio.UnaryUnaryMultiCallable[_commander_pb2.GetCommandResultRequest, _commander_pb2.GetCommandResultResponse]  # type: ignore[assignment]
+    GetRequestResult: _aio.UnaryUnaryMultiCallable[_commander_pb2.GetRequestResultRequest, _commander_pb2.GetRequestResultResponse]  # type: ignore[assignment]
 
 class CommanderServiceServicer(metaclass=_abc_1.ABCMeta):
     @_abc_1.abstractmethod
@@ -77,10 +81,24 @@ class CommanderServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_commander_pb2.SubmitCommandResponse, _abc.Awaitable[_commander_pb2.SubmitCommandResponse]]: ...
 
     @_abc_1.abstractmethod
+    def SubmitCommands(
+        self,
+        request: _commander_pb2.SubmitCommandsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_commander_pb2.SubmitCommandsResponse, _abc.Awaitable[_commander_pb2.SubmitCommandsResponse]]: ...
+
+    @_abc_1.abstractmethod
     def GetCommandResult(
         self,
         request: _commander_pb2.GetCommandResultRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_commander_pb2.GetCommandResultResponse, _abc.Awaitable[_commander_pb2.GetCommandResultResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetRequestResult(
+        self,
+        request: _commander_pb2.GetRequestResultRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_commander_pb2.GetRequestResultResponse, _abc.Awaitable[_commander_pb2.GetRequestResultResponse]]: ...
 
 def add_CommanderServiceServicer_to_server(servicer: CommanderServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...
