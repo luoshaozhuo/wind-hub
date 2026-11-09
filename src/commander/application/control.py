@@ -43,12 +43,21 @@ class CommandControl:
         commands: Sequence[CommandSpec],
         *,
         caller_id: str,
+        request_id: str,
         operator_id: str | None = None,
         trace_id: str | None = None,
     ) -> tuple[AcceptedCommand, ...]:
-        return self._buffer.accept(
-            commands, caller_id=caller_id, operator_id=operator_id, trace_id=trace_id
+        accepted = self._buffer.accept(
+            commands,
+            caller_id=caller_id,
+            request_id=request_id,
+            operator_id=operator_id,
+            trace_id=trace_id,
         )
+        # An acknowledged control must have a durable request identity before
+        # any caller can schedule physical I/O.
+        await self._buffer.wait_persisted([command.command_id for command in accepted])
+        return accepted
 
     async def connecting(self, command_id: str) -> None:
         self._buffer.transition(command_id, CommandState.CONNECTING)
@@ -90,11 +99,13 @@ class CommandControl:
             return cached
         return await self._run(self._repository.get, command_id)
 
-    async def get_request(self, request_id: str) -> tuple[CommandResult, ...]:
-        cached = self._buffer.get_request_cached(request_id)
+    async def get_request(
+        self, request_id: str, caller_id: str
+    ) -> tuple[CommandResult, ...]:
+        cached = self._buffer.get_request_cached(request_id, caller_id)
         if cached is not None:
             return cached
-        return await self._run(self._repository.get_request, request_id)
+        return await self._run(self._repository.get_request, request_id, caller_id)
 
     async def recover(self) -> tuple[str, ...]:
         return await self._run(self._repository.recover)
