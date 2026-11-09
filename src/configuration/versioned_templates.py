@@ -16,7 +16,7 @@ from .document_version import read_stable_document
 
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-_CATEGORIES = frozenset({"protocols", "device_models", "point_tables", "tasks", "deliveries"})
+_CATEGORIES = frozenset({"protocols", "device_models", "point_tables", "tasks"})
 
 
 def _identifier(value: str, *, label: str) -> str:
@@ -74,21 +74,11 @@ class VersionedTemplateRepository:
         self._root = Path(root).resolve()
 
     def path_for(self, reference: TemplateRef) -> Path:
-        # 协议、点表、设备型号与任务统一使用扁平版本文件名；deliveries
-        # 仍保留 <id>/<version>.yaml 嵌套布局。
-        if reference.category in {"protocols", "point_tables", "device_models", "tasks"}:
-            candidate = (
-                self._root
-                / reference.category
-                / f"{reference.template_id}_{reference.file_version}.yaml"
-            ).resolve()
-        else:
-            candidate = (
-                self._root
-                / reference.category
-                / reference.template_id
-                / f"{reference.file_version}.yaml"
-            ).resolve()
+        candidate = (
+            self._root
+            / reference.category
+            / f"{reference.template_id}_{reference.file_version}.yaml"
+        ).resolve()
         if not candidate.is_relative_to(self._root):
             raise ConfigError("template reference escapes configured root")
         return candidate
