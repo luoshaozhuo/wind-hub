@@ -1631,7 +1631,7 @@ Gateway Server 监听端点必须来自专属 Service 配置，公共设备 Endp
 
 # 9. 对外接口与通信契约
 
-以 `main@367481254518a2d3d79ebeeb80a41944897a7e84` 的 `src/contracts/common.proto`、`industrial_gateway.proto`、`commander.proto` 为本版本正式接口基准；本次核查时最新 `main@cc3bd4fe1c878894b9da6f10dd0dbcaf9b0f0378`，不得混同两分支契约。入站 **CommonService 9 RPC + IndustrialGatewayService 8 RPC = 17 个 Unary RPC**。
+以 `main@367481254518a2d3d79ebeeb80a41944897a7e84` 的 `src/contracts/common.proto`、`industrial_gateway.proto`、`commander.proto` 为本版本正式接口基准。入站 **CommonService 9 RPC + IndustrialGatewayService 8 RPC = 17 个 Unary RPC**。
 
 ## 9.1 CommonService 入站全集
 
@@ -1741,7 +1741,7 @@ flowchart TB
 
 <p class="figure-caption">图 11-1 Service 直接引用与公共模板间接解析</p>
 
-**实现前置：** 依据固定总体架构及 Core v1_27，wind-hub 共享实例/模板引用装配归 `configuration`，Core 仅执行调用方指定的通用 YAML/数据处理。`config_sources.instances.devices` 与 `config_sources.templates.root` 的显式来源及引用图须由配置装配边界处理；Gateway 不应扩展 Core 的业务加载接口，也不得自行建立重复的共享引用解析实现。若现有装配入口无法表达显式路径，应在 `configuration` 层解决并同步调用方，不改变 Core 公共接口；禁止 Gateway 自行绕过公共 Loader 实现第二套模板解析。`site.yaml` 未由本服务直接引用且不属于设备型号解析链时不得作为 Gateway 启动必需文件；`units.yaml`、`business_points.yaml` 等公共目录文件仅在设备/点表解析确有依赖时由公共 Loader 解析，不要求 Service 重复声明。不得把固定默认文件误认为 Service 已声明。
+**实现前置：** 依据总体架构 v1_1、Core v1_31 与 Configuration v1_13，wind-hub 共享实例/模板引用装配归 `configuration`，Core 仅执行调用方指定的通用 YAML/数据处理。`config_sources.instances.devices` 与 `config_sources.templates.root` 的显式来源及引用图须由配置装配边界处理；Gateway 不应扩展 Core 的业务加载接口，也不得自行建立重复的共享引用解析实现。若现有装配入口无法表达显式路径，应在 `configuration` 层解决并同步调用方，不改变 Core 公共接口；禁止 Gateway 自行绕过公共 Loader 实现第二套模板解析。`site.yaml` 未由本服务直接引用且不属于设备型号解析链时不得作为 Gateway 启动必需文件；`units.yaml`、`business_points.yaml` 等公共目录文件仅在设备/点表解析确有依赖时由公共 Loader 解析，不要求 Service 重复声明。不得把固定默认文件误认为 Service 已声明。
 
 加载入口为用户明确指定的 Service 文件：先读取 `config_sources` 并校验两个必填路径，再读取所声明的 Instance 文件，以 `templates.root` 为**唯一**模板解析范围，最后装配 Gateway 设备绑定。除已经由实例或模板声明的引用链外，不自动加载其他公共 Instance 文件。模板解析失败时报告精确引用（源文件、模板 ID、版本及失败原因），而不是选择目录内其他文件。
 
@@ -1888,7 +1888,7 @@ tests/
 
 当前验收代码同时含 `performance/` 专题以及少量根级历史测试；性能专题须按项目已注册的 Marker 组织，不得以目录名替代 Marker。
 
-四层功能测试的层级 Marker 必须且仅能为 `unit`、`component`、`integration`、`system` 中的一项，并与所在层级目录一致；独立 performance 专题按照项目配置标识；专题 Marker、场景 Marker 在项目 pytest 配置中注册，可叠加。下表**测试文件名仅填写文件名**，父目录由层级 Marker 确定；具体测试标识在第 14.3 节和第 14.4 节追溯。共享 Fixture 和通用测试支持代码应按项目现有约定复用，不在本模块重复建设。
+四层功能测试的层级 Marker 必须且仅能为 `unit`、`component`、`integration`、`system` 中的一项，并与所在层级目录一致；独立 performance 专题按照项目配置标识；专题 Marker、场景 Marker 在项目 pytest 配置中注册，可叠加。下表**测试文件名仅填写文件名**，父目录由层级 Marker 确定；具体测试标识在第 14.3 节和第 14.3.1 节追溯。共享 Fixture 和通用测试支持代码应按项目现有约定复用，不在本模块重复建设。
 
 <p class="table-caption">表 14-1 当前验收分支测试文件矩阵</p>
 
