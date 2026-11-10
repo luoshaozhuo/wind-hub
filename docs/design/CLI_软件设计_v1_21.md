@@ -1840,7 +1840,7 @@ CLI 以 Contracts v1_18 和六份实际 Proto 的正式 Unary RPC 为唯一外�
 
 **实时监视**：以 Collector ReadPoints、Gateway ReadVariables 和各服务状态 RPC 进行有界 Unary 周期轮询；若缺流式 RPC 不得虚构订阅。一个 endpoint 同一目标不重入、不积压；用户退出仅停止客户端任务，不能取消已被服务端确认受理的操作。缺样本、质量异常、时间过期、单项失败和网络失败分别展示，Commander ListPoints 不返回现场当前值。
 
-**异步控制**：提交前生成并妥善保存客户端 request_id。用户使用 `commander write --request-id` 重用已保存 ID 时，必须显式提供原始 `--expires-at`，避免自动产生新的截止时间导致同一 ID 请求指纹冲突；若原截止时间已过，不得创建新 ID 盲重提，优先用 `request-result` 查询。，单点与批量分别调用 SubmitCommand、SubmitCommands；提交响应仅显示受理。用 GetCommandResult 或 GetRequestResult 查询逐项状态、聚合状态与 io_settled；未知响应不得更换 request_id 自动重发。Gateway ClaimTargets/UpdateVariables 仅更新虚拟协议 Server 变量，不是现场设备命令。
+**异步控制**：提交前生成并妥善保存客户端 request_id。用户使用 `commander write --request-id` 重用已保存 ID 时，必须显式提供原始 `--expires-at` 及 `--expected-revision`，避免自动产生新的截止时间导致同一 ID 请求指纹冲突；若原截止时间已过，不得创建新 ID 盲重提，优先用 `request-result` 查询。，单点与批量分别调用 SubmitCommand、SubmitCommands；提交响应仅显示受理。用 GetCommandResult 或 GetRequestResult 查询逐项状态、聚合状态与 io_settled；未知响应不得更换 request_id 自动重发。Gateway ClaimTargets/UpdateVariables 仅更新虚拟协议 Server 变量，不是现场设备命令。
 
 Gateway CLI `update` 的租约周期 `--lease-ms` 必须在 1000～60000 ms 内，所有 `UpdateVariables` 均要先成功 `ClaimTargets` 并携带完整目标集合的 `lease_token`。无令牌请求，即使变量暂未被认领，也应被拒绝。
 
@@ -2590,7 +2590,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | UR-07、UR-11 | UC-16-S01 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s01` | `system` | `contract` | `normal` | 指标、事件及发布状态；断言五服务指标窗口、事件字段可查；发布状态单独可查 |
 | UR-07、UR-11 | UC-16-S02 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s02` | `system` | `contract` | `boundary` | 时间窗口、分页；断言窗口分页有界，空结果合法且不伪造记录 |
 | UR-07、UR-11 | UC-16-S03 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s03` | `system` | `reliability` | `failure` | 空结果、拒绝、断连；断言未授权退出2；断连退出3；局部失败可定位 |
-| UR-09 | UC-14-S03 | 9.6；10.6 | `test_commander_e2e.py` / `test_reused_request_id_requires_explicit_expiry` | `system` | `safety` | `boundary` | 带 `--request-id` 而无 `--expires-at` 时退出码 2、零 SubmitCommand RPC；有原始截止时间时同 ID 同内容不重复执行 |
+| UR-09 | UC-14-S03 | 9.6；10.6 | `test_commander_e2e.py` / `test_reused_request_id_requires_explicit_expiry` | `system` | `safety` | `boundary` | 带 `--request-id` 却未同时提供 `--expires-at` 与 `--expected-revision` 时退出码 2、零 SubmitCommand RPC；有原始截止时间时同 ID 同内容不重复执行 |
 | UR-09 | UC-10-S02 | 9.3、9.6；10.7 | `test_gateway_e2e.py` / `test_lease_ms_range_and_token` | `system` | `security` | `boundary` | 超出 1000～60000 ms 的租期 CLI 本地拒绝；有效租期先 ClaimTargets，再有令牌 UpdateVariables |
 
 ## 14.3 技术约束补充 System Test
