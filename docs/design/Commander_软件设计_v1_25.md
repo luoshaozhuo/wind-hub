@@ -1,6 +1,6 @@
 <h1 class="title">Commander 软件设计</h1>
 
-<p class="subtitle">v1_25 · 20261109</p>
+<p class="subtitle">v1_25 · 20261110</p>
 
 <style>
 body {
