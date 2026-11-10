@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_19 · 20261109</p>
+<p class="subtitle">v1_20 · 20261109</p>
 
 <style>
 body {
@@ -1824,7 +1824,7 @@ flowchart LR
 CLI 发现契约不能表达的需求时，记录差异并提交 Contracts 统一演进，不得扩展本地私有 Proto、将关键结构编码进 `message` 字符串，或使用与实际 Server 不一致的演示 RPC。Proto 变更检查全部五个 Service、CLI、Data Generator 对 Gateway 的客户端以及测试。
 
 
-## 9.5 CLI 对 Commander v1_19 / Contracts v1_18 的操作边界
+## 9.5.1 CLI 对 Commander / Contracts 的操作边界
 
 单点控制命令仍通过 `commander write` 进入正式 `SubmitCommand`；批量控制通过 `commander batch` 调用 `SubmitCommands`；`commander result` 使用 `command_id`，`commander request-result` 使用 `request_id`。批量命令文件支持 JSON 数组，或 YAML 根映射 `commands: [...]`；每项必须包含 `device_id`、`point_id`、`value`、`expected_revision`，可选 `expires_at`。CLI 将普通 JSON/YAML 标量显式转换为 `ScalarValue`，权限、设备/点有效性、全部受理与真实执行结果由 Commander 负责，不在 CLI 复制业务规则。
 
