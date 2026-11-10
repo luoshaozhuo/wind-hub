@@ -160,7 +160,9 @@ class ConfigSnapshots:
             if definition.name is not None:
                 item["name"] = definition.name
             if definition.protocol_options:
-                item["overrides"] = {"protocol_options": plain_document(definition.protocol_options)}
+                item["overrides"] = {
+                    "protocol_options": plain_document(definition.protocol_options)
+                }
             devices[device_id] = item
         files = {
             self._relative(self._service_config): self._startup_service_content,
