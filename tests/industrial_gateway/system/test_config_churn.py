@@ -22,6 +22,7 @@ from contracts import industrial_gateway_pb2 as pb
 from contracts.scalar_codec import encode_scalar
 from tests.support.gateway_v1 import (
     FEEDBACK_UINT,
+    claim_for_injection,
     start_gateway_v1,
     two_server_specs,
 )
@@ -90,11 +91,14 @@ async def test_repeated_apply_churn_preserves_sibling_and_clears_claims(
             )
         )
         assert claim.accepted
+        # gw2 全程不重建：先取得覆盖施压点的租约，整轮 hammer 复用。
+        gw2_token = await claim_for_injection(gw_stub, "gw2", [FEEDBACK_UINT])
 
         async def hammer_gw2(seq: int) -> None:
             reply = await gw_stub.UpdateVariables(
                 pb.UpdateVariablesRequest(
                     gateway_id="gw2",
+                    lease_token=gw2_token,
                     values=[
                         pb.VariableUpdate(
                             variable_id=FEEDBACK_UINT,
@@ -132,12 +136,14 @@ async def test_repeated_apply_churn_preserves_sibling_and_clears_claims(
             )
         assert exc.value.code() is grpc.StatusCode.FAILED_PRECONDITION
 
-        # gw1 最终为 START/RUNNING：无 token 写入恢复正常。
+        # gw1 最终为 START/RUNNING：旧租约已随重建清空，须重新 ACQUIRE 后才能写入。
         info = await gw_stub.GetGateway(common.ObjectId(id="gw1"))
         assert info.gateway.actual_state == "RUNNING"
+        gw1_token = await claim_for_injection(gw_stub, "gw1", [FEEDBACK_UINT], owner_id="churn-2")
         reply = await gw_stub.UpdateVariables(
             pb.UpdateVariablesRequest(
                 gateway_id="gw1",
+                lease_token=gw1_token,
                 values=[pb.VariableUpdate(variable_id=FEEDBACK_UINT, value=encode_scalar(123))],
             )
         )

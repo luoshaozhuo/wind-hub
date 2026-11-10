@@ -18,6 +18,7 @@ from contracts import industrial_gateway_pb2 as pb
 from contracts.scalar_codec import encode_scalar
 from tests.support.gateway_v1 import (
     FEEDBACK_UINT,
+    claim_for_injection,
     start_gateway_v1,
     two_server_specs,
 )
@@ -46,16 +47,20 @@ async def _wait_metrics(stub, scope: str = "") -> dict[str, common.Metric]:
 async def test_get_metrics_nine_indicators_scope_and_window_contract(harness) -> None:
     stub = harness.common_stub()
     gw_stub = harness.gateway_stub()
-    # 制造真实注入流量（含一次延迟样本）。
+    # 制造真实注入流量（含一次延迟样本），每台 Gateway 先取得正式租约。
+    token_gw1 = await claim_for_injection(gw_stub, "gw1", [FEEDBACK_UINT])
     await gw_stub.UpdateVariables(
         pb.UpdateVariablesRequest(
             gateway_id="gw1",
+            lease_token=token_gw1,
             values=[pb.VariableUpdate(variable_id=FEEDBACK_UINT, value=encode_scalar(7))],
         )
     )
+    token_gw2 = await claim_for_injection(gw_stub, "gw2", [FEEDBACK_UINT])
     await gw_stub.UpdateVariables(
         pb.UpdateVariablesRequest(
             gateway_id="gw2",
+            lease_token=token_gw2,
             values=[pb.VariableUpdate(variable_id=FEEDBACK_UINT, value=encode_scalar(8))],
         )
     )

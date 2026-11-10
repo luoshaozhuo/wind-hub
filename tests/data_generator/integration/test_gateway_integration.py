@@ -101,20 +101,21 @@ async def test_update_then_read_roundtrip(start_real_gateway) -> None:  # noqa: 
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
     channel, stub = await _stub(gateway.data_bind)
     try:
-        # v1 语义：无任何活跃租约时，无令牌写入是受支持的本地注入路径；
-        # 一旦该目标被租约占用，无令牌写入必须被 FAILED_PRECONDITION 围栏拒绝。
-        unclaimed = await stub.UpdateVariables(
-            gw.UpdateVariablesRequest(
-                gateway_id="gw-a",
-                values=[
-                    gw.VariableUpdate(
-                        variable_id="GW01.pitch_angle",
-                        value=common.ScalarValue(double_value=7.25),
-                    )
-                ],
+        # 冻结契约（设计 v1_23 R01-04）：目标无人认领不构成无令牌写入许可，
+        # 无令牌注入必须被 FAILED_PRECONDITION/LEASE_LOST 整批拒绝。
+        with pytest.raises(grpc.RpcError) as unclaimed:
+            await stub.UpdateVariables(
+                gw.UpdateVariablesRequest(
+                    gateway_id="gw-a",
+                    values=[
+                        gw.VariableUpdate(
+                            variable_id="GW01.pitch_angle",
+                            value=common.ScalarValue(double_value=7.25),
+                        )
+                    ],
+                )
             )
-        )
-        assert unclaimed.results[0].success
+        assert unclaimed.value.code() == grpc.StatusCode.FAILED_PRECONDITION
 
         claim = await _claim(stub, "gw-a", "owner-a", ["GW01.pitch_angle"])
         assert claim.accepted and claim.lease_token
@@ -176,6 +177,33 @@ async def test_update_then_read_roundtrip(start_real_gateway) -> None:  # noqa: 
                 )
             )
         assert after_release.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+    finally:
+        await channel.close()
+
+
+async def test_unclaimed_update_rejected(start_real_gateway) -> None:  # noqa: ANN001
+    """UR-03/UC-03-S02：无 lease_token 且目标空闲时，真实 Gateway 仍整批拒绝，值无变化。"""
+    gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
+    channel, stub = await _stub(gateway.data_bind)
+    try:
+        with pytest.raises(grpc.RpcError) as denied:
+            await stub.UpdateVariables(
+                gw.UpdateVariablesRequest(
+                    gateway_id="gw-a",
+                    values=[
+                        gw.VariableUpdate(
+                            variable_id="GW01.pitch_angle",
+                            value=common.ScalarValue(double_value=3.5),
+                        )
+                    ],
+                )
+            )
+        assert denied.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+        readback = await stub.ReadVariables(
+            gw.ReadVariablesRequest(gateway_id="gw-a", variable_ids=["GW01.pitch_angle"])
+        )
+        assert readback.values[0].quality == "UNKNOWN"
+        assert not readback.values[0].HasField("value")
     finally:
         await channel.close()
 
@@ -256,8 +284,20 @@ async def test_batch_shape_and_claim_size_limits(start_real_gateway) -> None:  #
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
     channel, stub = await _stub(gateway.data_bind)
     try:
-        # v1 空批是合法无操作：返回空结果集，不伪造错误。
-        empty = await stub.UpdateVariables(gw.UpdateVariablesRequest(gateway_id="gw-a", values=[]))
+        # 冻结契约：无令牌的任何 UpdateVariables（含空批）一律整批拒绝。
+        with pytest.raises(grpc.RpcError) as empty_denied:
+            await stub.UpdateVariables(gw.UpdateVariablesRequest(gateway_id="gw-a", values=[]))
+        assert empty_denied.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+        # 持有有效租约时，空批仍是合法无操作，返回空结果集且不伪造错误。
+        noop_claim = await _claim(stub, "gw-a", "owner-noop", ["GW01.pitch_angle"])
+        assert noop_claim.accepted
+        empty = await stub.UpdateVariables(
+            gw.UpdateVariablesRequest(
+                gateway_id="gw-a",
+                lease_token=noop_claim.lease_token,
+                values=[],
+            )
+        )
         assert empty.results == []
         # 租约申请的 5000 目标上限：超限整组 INVALID_CLAIM 拒绝，不产生租约。
         oversized = await _claim(

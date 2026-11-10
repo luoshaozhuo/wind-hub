@@ -94,9 +94,20 @@ async def test_injector_updates_but_cannot_read(harness) -> None:
     channel = harness.mtls_channel("gw-injector")
     try:
         stub = pb_rpc.IndustrialGatewayServiceStub(channel)
+        claim = await stub.ClaimTargets(
+            pb.ClaimTargetsRequest(
+                gateway_id="gw1",
+                owner_id="gw-injector",
+                variable_ids=[FEEDBACK_UINT],
+                action="ACQUIRE",
+                lease_ms=10000,
+            )
+        )
+        assert claim.accepted, claim.error_code
         reply = await stub.UpdateVariables(
             pb.UpdateVariablesRequest(
                 gateway_id="gw1",
+                lease_token=claim.lease_token,
                 values=[pb.VariableUpdate(variable_id=FEEDBACK_UINT, value=encode_scalar(42))],
             )
         )

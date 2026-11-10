@@ -35,6 +35,7 @@ from tests.support.gateway_v1 import (
     FEEDBACK_PAIR,
     FEEDBACK_UINT,
     POINT_TABLE,
+    claim_for_injection,
     float_words,
     start_gateway_v1,
     two_server_specs,
@@ -68,9 +69,11 @@ async def _client(harness, server_id: str) -> AsyncModbusTcpClient:
 async def _seed(harness, server_id: str, values: dict[str, object]) -> None:
     """通过真实 gRPC UpdateVariables 注入反馈值（Generator 通道）。"""
     stub = harness.gateway_stub()
+    token = await claim_for_injection(stub, server_id, list(values))
     reply = await stub.UpdateVariables(
         pb.UpdateVariablesRequest(
             gateway_id=server_id,
+            lease_token=token,
             values=[
                 pb.VariableUpdate(variable_id=name, value=encode_scalar(value))
                 for name, value in values.items()

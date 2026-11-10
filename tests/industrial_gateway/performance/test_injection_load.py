@@ -20,6 +20,7 @@ from contracts import industrial_gateway_pb2 as pb
 from contracts.scalar_codec import encode_scalar
 from tests.support.gateway_v1 import (
     ServerSpec,
+    claim_for_injection,
     reserve_port,
     start_gateway_v1,
 )
@@ -72,6 +73,13 @@ async def test_10hz_500point_batches_multi_server(tmp_path: Path) -> None:
         point_table=points,
         metrics_window_seconds=60,
     )
+    # 每台服务器先取得覆盖完整点表的真实租约，压测期复用同一 token。
+    tokens = {
+        f"gw{index:02d}": await claim_for_injection(
+            harness.gateway_stub(), f"gw{index:02d}", point_ids
+        )
+        for index in range(SERVER_COUNT)
+    }
     latencies_ms: list[float] = []
     batches = 0
     rss_start = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -99,6 +107,7 @@ async def test_10hz_500point_batches_multi_server(tmp_path: Path) -> None:
                 reply = await harness.gateway_stub().UpdateVariables(
                     pb.UpdateVariablesRequest(
                         gateway_id=server_id,
+                        lease_token=tokens[server_id],
                         values=values,
                     )
                 )

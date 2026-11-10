@@ -22,6 +22,7 @@ from tests.support.gateway_v1 import (
     FEEDBACK_FLOAT,
     POINT_TABLE,
     ServerSpec,
+    claim_for_injection,
     reserve_port,
     start_gateway_v1,
     write_config_tree,
@@ -77,9 +78,13 @@ async def test_fifty_independent_servers_in_process(tmp_path: Path) -> None:
 
         async def seed_and_read(spec: ServerSpec) -> tuple[str, float, float]:
             value = sentinels[spec.server_id]
+            token = await claim_for_injection(
+                gateway.gateway_stub(), spec.server_id, [FEEDBACK_FLOAT]
+            )
             reply = await gateway.gateway_stub().UpdateVariables(
                 pb.UpdateVariablesRequest(
                     gateway_id=spec.server_id,
+                    lease_token=token,
                     values=[
                         pb.VariableUpdate(variable_id=FEEDBACK_FLOAT, value=encode_scalar(value))
                     ],

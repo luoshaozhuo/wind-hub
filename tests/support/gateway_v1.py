@@ -25,6 +25,7 @@ from pymodbus.client import AsyncModbusTcpClient
 from contracts import commander_pb2 as cpb
 from contracts import commander_pb2_grpc as crpc
 from contracts import common_pb2 as common
+from contracts import industrial_gateway_pb2 as ipb
 from industrial_gateway.assembly import assemble_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.config.v1_resolution import load_gateway_v1
@@ -597,6 +598,28 @@ class GatewayV1Harness:
         await self.runtime.stop()
         await self.gateway_server.stop(grace=0)
         await self.commander_server.stop(grace=0)
+
+
+async def claim_for_injection(
+    stub: Any,
+    gateway_id: str,
+    variable_ids: Sequence[str],
+    *,
+    owner_id: str = "acceptance-harness",
+    lease_ms: int = 60_000,
+) -> str:
+    """通过正式 ClaimTargets RPC 获取真实租约，返回 UpdateVariables 所需 token。"""
+    reply = await stub.ClaimTargets(
+        ipb.ClaimTargetsRequest(
+            gateway_id=gateway_id,
+            owner_id=owner_id,
+            variable_ids=list(variable_ids),
+            action="ACQUIRE",
+            lease_ms=lease_ms,
+        )
+    )
+    assert reply.accepted, reply.error_code
+    return reply.lease_token
 
 
 async def start_gateway_v1(

@@ -7,7 +7,8 @@ tests/src 共用的真实 Commander 栈——真实 mTLS 通道、磁盘 SQLite�
 
 覆盖任务书 S3 语义：
 - write 在任何控制 RPC 前向 stderr 打印 request_id 回执，``--request-id``
-  原样透传，受理回执携带同一 request_id；
+  原样透传，受理回执携带同一 request_id；复用 ``--request-id`` 必须同时显式
+  提供 ``--expires-at`` 与 ``--expected-revision``，缺任一项本地拒绝（exit 2）；
 - 同 ``--request-id`` 同载荷二次写入幂等：command_id 不变，现场只写一次；
 - 空白 ``--request-id`` 本地拒绝（exit 2），零 RPC、零现场写；
 - batch 的 JSON/YAML 两种载体原子受理，同 ID 重放 command_id 序列不变；
@@ -165,6 +166,8 @@ async def test_cli_write_receipt_rpc_passthrough_and_request_result_roundtrip(
 ) -> None:
     """write：回执先于 RPC 打印，--request-id 透传，request-result 聚合回查。"""
     request_id = f"req-cli-write-{uuid4().hex}"
+    revision = await _revision(cli_stack.stack, cli_stack.pki)
+    expiry = (datetime.now(UTC) + timedelta(seconds=600)).isoformat()
     result = await cli_stack.run(
         "commander",
         "write",
@@ -174,6 +177,10 @@ async def test_cli_write_receipt_rpc_passthrough_and_request_result_roundtrip(
         "--yes",
         "--request-id",
         request_id,
+        "--expires-at",
+        expiry,
+        "--expected-revision",
+        revision,
     )
     assert result.exit_code == 0, result.stdout
     # 回执在 stderr，且必须出现在进程退出前（实现上先于任何控制 RPC 发送）。
@@ -207,6 +214,7 @@ async def test_cli_write_replayed_request_id_dedupes_with_single_field_write(
     """
     request_id = f"req-cli-replay-{uuid4().hex}"
     expiry = (datetime.now(UTC) + timedelta(seconds=600)).isoformat()
+    revision = await _revision(cli_stack.stack, cli_stack.pki)
     before = cli_stack.modbus.write_count
 
     first = await cli_stack.run(
@@ -220,6 +228,8 @@ async def test_cli_write_replayed_request_id_dedupes_with_single_field_write(
         request_id,
         "--expires-at",
         expiry,
+        "--expected-revision",
+        revision,
     )
     assert first.exit_code == 0, first.stdout
     first_command_id = first.json()["data"]["command_id"]
@@ -237,6 +247,8 @@ async def test_cli_write_replayed_request_id_dedupes_with_single_field_write(
         request_id,
         "--expires-at",
         expiry,
+        "--expected-revision",
+        revision,
     )
     assert second.exit_code == 0, second.stdout
     # 持久层幂等回执：同一 command_id，不产生第二次现场写。

@@ -28,9 +28,13 @@ async def test_claim_fences_unleased_writer_and_allows_owner() -> None:
         frozenset({"power"}),
     )
     assert owned.accepted and owned.lease_token
-    with pytest.raises(LeaseError, match="TARGET_CLAIMED"):
+    # 冻结契约：无有效租约一律 LEASE_LOST，无论目标是否被占用
+    with pytest.raises(LeaseError, match="LEASE_LOST"):
         await leases.update("gw1", store, [("power", 10.0)], "")
     assert store.read("power").value is None
+    empty = VariableLeases()
+    with pytest.raises(LeaseError, match="LEASE_LOST"):
+        await empty.update("gw2", VariableStore({"power": "float32"}), [("power", 10.0)], "")
     result = await leases.update("gw1", store, [("power", 10.0)], owned.lease_token)
     assert result[0].success
     assert store.read("power").value == 10.0
@@ -124,6 +128,26 @@ async def test_renew_release_and_old_token_fencing() -> None:
         await leases.update(
             "gw1", VariableStore({"p1": "int32"}), [("p1", 1)], acquired.lease_token
         )
+
+
+async def test_claimed_point_missing_from_store_returns_item_level_not_found() -> None:
+    """租约有效但点已从存储移除：逐项 NOT_FOUND，不放宽为整批失败。"""
+    leases = VariableLeases()
+    acquired = await leases.claim(
+        pb.ClaimTargetsRequest(
+            gateway_id="gw1",
+            owner_id="generation-1",
+            variable_ids=["p1"],
+            action="ACQUIRE",
+            lease_ms=10000,
+        ),
+        frozenset({"p1"}),
+    )
+    assert acquired.accepted
+    result = await leases.update("gw1", VariableStore({}), [("p1", 1)], acquired.lease_token)
+    assert result[0].variable_id == "p1"
+    assert not result[0].success
+    assert result[0].error_code == "NOT_FOUND"
 
 
 async def test_batch_preflight_blocks_all_values_before_mutation() -> None:

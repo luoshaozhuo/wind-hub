@@ -1,7 +1,7 @@
 """UpdateVariables / ClaimTargets 真实 grpc.aio 契约（8 RPC 中的注入面）。
 
-ClaimTargets/lease_token 为 v1_9 设计书之外的生产扩展（与 Data Generator 联调
-引入），本文件独立钉住其行为，验收报告中标记为待同步设计版本差异。
+租约机制已纳入冻结 Contracts v1_18 与 industrial_gateway 设计 v1_23：
+UpdateVariables 必须携带覆盖全部目标变量的有效 lease_token，否则整请求拒绝。
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from tests.support.gateway_v1 import (
     FEEDBACK_PAIR,
     FEEDBACK_UINT,
     POINT_TABLE,
+    claim_for_injection,
     start_gateway_v1,
     two_server_specs,
 )
@@ -42,13 +43,16 @@ async def harness(tmp_path: Path):
 
 async def test_update_per_item_results_and_readback(harness) -> None:
     stub = harness.gateway_stub()
+    # 冻结契约：先取得覆盖本批全部变量的有效租约，否则整请求被拒。
+    leased = [FEEDBACK_UINT, FEEDBACK_FLOAT, "cmd_uint2", FEEDBACK_PAIR]
+    token = await claim_for_injection(stub, "gw1", leased)
     reply = await stub.UpdateVariables(
         pb.UpdateVariablesRequest(
             gateway_id="gw1",
+            lease_token=token,
             values=[
                 _update(FEEDBACK_UINT, 4242),
                 _update(FEEDBACK_FLOAT, 8.5),
-                _update("missing_point", 1),
                 _update("cmd_uint2", 70000),  # 超 uint16
                 pb.VariableUpdate(variable_id=FEEDBACK_PAIR),  # 缺 scalar
             ],
@@ -57,10 +61,21 @@ async def test_update_per_item_results_and_readback(harness) -> None:
     assert [(r.variable_id, r.success, r.error_code) for r in reply.results] == [
         (FEEDBACK_UINT, True, ""),
         (FEEDBACK_FLOAT, True, ""),
-        ("missing_point", False, "NOT_FOUND"),
         ("cmd_uint2", False, "INVALID_VALUE"),
         (FEEDBACK_PAIR, False, "INVALID_VALUE"),
     ]
+    # 未租约目标不得混入持令牌批次：整请求 FAILED_PRECONDITION。
+    with pytest.raises(grpc.aio.AioRpcError) as exc:
+        await stub.UpdateVariables(
+            pb.UpdateVariablesRequest(
+                gateway_id="gw1",
+                lease_token=token,
+                values=[_update("missing_point", 1)],
+            )
+        )
+    assert exc.value.code() is grpc.StatusCode.FAILED_PRECONDITION
+    # 数据注入通道与控制面隔离：UpdateVariables 绝不触发 Commander 提交。
+    assert harness.commander.calls == []
     # 成功项保留，失败项未生效。
     read = await stub.ReadVariables(
         pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_UINT, FEEDBACK_FLOAT])
@@ -122,14 +137,34 @@ async def test_full_point_set_batch_succeeds(harness) -> None:
         "cmd_coil_b": True,
     }
     assert set(values) == set(POINT_TABLE)
+    token = await claim_for_injection(stub, "gw1", list(POINT_TABLE))
     reply = await stub.UpdateVariables(
         pb.UpdateVariablesRequest(
             gateway_id="gw1",
+            lease_token=token,
             values=[_update(name, value) for name, value in values.items()],
         )
     )
     failed = [r for r in reply.results if not r.success]
     assert failed == [], failed
+
+
+async def test_tokenless_update_rejected_even_when_target_unclaimed(harness) -> None:
+    """冻结契约：无 lease_token 时无论目标是否被占用，UpdateVariables 必须拒绝。"""
+    stub = harness.gateway_stub()
+    with pytest.raises(grpc.aio.AioRpcError) as exc:
+        await stub.UpdateVariables(
+            pb.UpdateVariablesRequest(
+                gateway_id="gw1",
+                values=[_update(FEEDBACK_UINT, 1)],
+            )
+        )
+    assert exc.value.code() is grpc.StatusCode.FAILED_PRECONDITION
+    assert "LEASE_LOST" in exc.value.details()
+    read = await stub.ReadVariables(
+        pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_UINT])
+    )
+    assert read.values[0].quality == "UNKNOWN"  # 被拒写入未造成任何修改
 
 
 async def test_claim_acquire_protects_targets(harness) -> None:

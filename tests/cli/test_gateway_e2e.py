@@ -109,6 +109,60 @@ def test_gateway_update_requires_confirmation(cli_env: Any) -> None:
     assert not cli_env.server.calls
 
 
+def test_lease_ms_range_and_token(cli_env: Any) -> None:
+    """--lease-ms 限定 1000..60000 ms：越界在命令边界本地拒绝，不发任何 RPC。"""
+    for bad_ms in (999, 60_001):
+        cli_env.server.calls.clear()
+        result = cli_env.subprocess_invoke(
+            "gateway",
+            "update",
+            "gw1",
+            "v1=1",
+            "--owner-id",
+            "tester",
+            "--lease-ms",
+            str(bad_ms),
+            "--yes",
+        )
+        assert result.exit_code == 2, result.stdout
+        assert not cli_env.server.calls  # 无效租约不得调用 ClaimTargets/UpdateVariables
+
+
+def test_gateway_update_accepts_lease_ms_bounds_and_passes_value(cli_env: Any) -> None:
+    """边界值 1000/60000 可受理，且 lease_ms 原样进入 ClaimTargets 请求。"""
+    server = cli_env.server
+    captured: dict[str, Any] = {}
+
+    async def on_claim(request: Any, context: Any) -> Any:
+        if request.action == "ACQUIRE":
+            captured["lease_ms"] = request.lease_ms
+            return gw_pb2.ClaimTargetsResponse(accepted=True, lease_token="lease-token-1")
+        return gw_pb2.ClaimTargetsResponse(accepted=True)
+
+    server.respond(_path(server, "ClaimTargets"), on_claim)
+    server.respond_value(
+        _path(server, "UpdateVariables"),
+        gw_pb2.UpdateVariablesResponse(
+            results=[gw_pb2.VariableUpdateResult(variable_id="v1", success=True)]
+        ),
+    )
+    for boundary_ms in (1000, 60_000):
+        captured.clear()
+        result = cli_env.subprocess_invoke(
+            "gateway",
+            "update",
+            "gw1",
+            "v1=1",
+            "--owner-id",
+            "tester",
+            "--lease-ms",
+            str(boundary_ms),
+            "--yes",
+        )
+        assert result.exit_code == 0, result.stdout
+        assert captured["lease_ms"] == boundary_ms
+
+
 def test_gateway_update_all_fail_exit_1(cli_env: Any) -> None:
     _install_lease(cli_env.server)
     cli_env.server.respond_value(
