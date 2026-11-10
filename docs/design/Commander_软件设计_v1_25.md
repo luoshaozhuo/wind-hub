@@ -1325,7 +1325,7 @@ Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全�
 |---|---|---|---|
 | FR-01 | 启动、停止与重启 | 启动时校验配置、依赖及恢复状态后才就绪；停止时拒绝新命令并处置在途操作；重启先停止再重新读取全部配置文件，不沿用旧配置快照 | UR-01、UR-02、UR-03 |
 | FR-02 | 单点控制 | 接收设备、可写点、目标值及可选时间约束；Commander 生成 command_id，返回接收或拒绝结果并调度一次写入 | UR-04 |
-| FR-03 | 批量控制（Contracts v1_18 正式设计目标） | 整批校验并原子接受，逐项分配 command_id；按照设备 FIFO 执行；具备条件时优先 write_many，不支持时按序 write_one；返回逐项状态，跨设备不承诺原子执行 | UR-05 |
+| FR-03 | 批量控制（Contracts v1_18 已冻结接口） | 整批校验并原子接受，逐项分配 command_id；按照设备 FIFO 执行；具备条件时优先 write_many，不支持时按序 write_one；返回逐项状态，跨设备不承诺原子执行 | UR-05 |
 | FR-04 | 命令结果查询 | Contracts v1_18 支持按 command_id 和 request_id 分别查询单条命令与完整请求；返回初始请求和最新状态，未留存则 NOT_FOUND；不访问现场设备 | UR-04、UR-05、UR-06、UR-13 |
 | FR-05 | 服务基本信息查询 | 返回服务标识、软件版本、启动信息及当前实际生效的依赖文件标识、schema_version 及适用的 file_version；不把未生效的磁盘文件标记为生效 | UR-07 |
 | FR-06 | 运行状态查询 | 返回进程与业务就绪、命令及执行资源、阻塞、存储容量、审计积压和故障状态；区分存活与可用 | UR-08 |
@@ -2312,7 +2312,7 @@ flowchart LR
 
 ## 9.1 接口全集与业务归属
 
-本章根据 `main@0dfee3bbbc864eae364fb214e447dea0a447820b` 的 `src/contracts/common.proto` 和 `src/contracts/commander.proto` 编制。两个文件是唯一对外契约源；Commander 负责实现 Server，不修改 Proto、不复制一套独立字段定义，也不增加兼容 RPC。
+本章以 `main@367481254518a2d3d79ebeeb80a41944897a7e84` 的 `src/contracts/common.proto` 和 `src/contracts/commander.proto` 为冻结基线编制。两个文件是唯一对外契约源；Commander 负责实现 Server，不修改 Proto、不复制一套独立字段定义，也不增加兼容 RPC。
 
 - `windhub.common.v1.CommonService`：9 个 Unary RPC，提供通用服务、配置快照、指标、事件和诊断能力。
 - `windhub.commander.v1.CommanderService`：7 个 Unary RPC（Contracts v1_18 目标），提供设备/测点查询、单点控制和结果查询。
@@ -2369,7 +2369,7 @@ flowchart LR
 | 公共配置/状态 | 9 个 CommonService RPC | 不新增 Validate/Reload RPC |
 | 审计 | Commander Outbox + GetEvents | 不把审计发布确认等同实际控制成功 |
 
-以上接口是**Contracts v1_18 设计目标**，未实施 Proto 时不能判定软件接口已发布。
+以上接口已由 Contracts v1_18 及当前 `src/contracts/commander.proto` 冻结发布。Commander 代码是否符合完整语义，应由独立系统测试逐项裁决。
 
 ### 9.3.1 传输错误、认证与测试要求
 
@@ -2775,7 +2775,7 @@ tests/
 | UR-03 | UC-07-S01 重启并重新加载配置 | §6.2、§11 | `test_lifecycle.py::test_restart_new_config` | `system`、`recovery` | 重新校验磁盘配置，不重发旧命令，真实报告生效版本 | 独立进程、真实配置与 SQLite；NOT_RUN |
 | UR-04 | UC-02-S01 单点接受/执行/查询 | §5.2～§5.4、§9.3、§10、§12 | `test_control_flow.py::test_submit_and_query` | `system`、`normal` | SQLite 持久受理后返回 request_id/command_id；单点按协议执行、可按两类 ID 查询，后续事件后台落盘后发布审计 | 真实 gRPC、PLC 协议模拟从站、SQLite、NATS；NOT_RUN |
 | UR-04 | UC-02-S02 超期、断连及未知结果 | §6.3～§6.4、§9.3、§10.4 | `test_concurrency.py::test_expiration_and_unknown` | `system`、`timeout`、`exception` | 到期前未发写入；可能发出而结果不明为 UNKNOWN；断连不撤销已接受命令 | 独立 gRPC 客户端、可注入延迟的真实协议链路；NOT_RUN |
-| UR-05 | UC-02-S03 批量原子接受及逐点结果 | §3.1、§6.3、§9.4 | `test_control_flow.py::test_batch_acceptance` | `system`、`normal`、`exception` | 应用层批量能力验证；对外批量 RPC 当前不存在，不得判定对外需求 PASS | 应用层+真实协议；RPC 契约 GAP / NOT_RUN |
+| UR-05 | UC-02-S03 批量原子接受及逐点结果 | §3.1、§6.3、§9.4 | `test_control_flow.py::test_batch_acceptance` | `system`、`normal`、`exception` | 应用层批量及对外 `SubmitCommands` RPC 均须通过真实 gRPC 和状态查询验收，不能仅凭应用层测试判定需求 PASS | 应用层+真实协议；RPC 契约 GAP / NOT_RUN |
 | UR-06 | UC-02-S04 查询/保留/不存在 | §9.3～§9.4、§10 | `test_control_flow.py::test_result_query` | `system`、`normal`、`exception` | 按 command_id 与 request_id 查询；逐项返回完整命令、状态、io_settled；过期 NOT_FOUND | 真实 gRPC、SQLite；新增契约实施前 NOT_RUN |
 | UR-07、UR-08 | UC-04-S01 查询服务信息与状态 | §9.2、§13.3 | `test_grpc_end_to_end.py::test_service_info_status` | `system`、`normal`、`exception` | 返回实际服务身份、依赖健康；不能把存活等同业务就绪 | 真实 gRPC/mTLS；NOT_RUN |
 | UR-09、UR-10 | UC-03-S01 设备、详情及点表 | §9.3、§11 | `test_query.py::test_devices_and_points` | `system`、`normal`、`exception` | 设备分页、详情与点表元数据正确；查询不连接现场；非法 ID 明确失败 | 真实 gRPC、共享配置；NOT_RUN |
