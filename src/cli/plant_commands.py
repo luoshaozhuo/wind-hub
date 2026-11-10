@@ -174,7 +174,7 @@ def gateway_update(
     gateway_id: str,
     updates: list[str] = typer.Argument(..., help="variable_id=typed_value"),
     owner_id: str = typer.Option(..., "--owner-id", help="Authorized lease owner identity."),
-    lease_ms: int = typer.Option(30000, "--lease-ms", min=1),
+    lease_ms: int = typer.Option(30000, "--lease-ms", min=1000, max=60000),
     yes: bool = typer.Option(False, "--yes"),
 ) -> None:
     """Update Gateway-owned variables under a server-authorized target lease."""
