@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_18 · 20261103</p>
+<p class="subtitle">v1_18 · 20261110</p>
 
 <style>
 body {
@@ -1893,7 +1893,7 @@ flowchart LR
 
 # 9. 接口与通信契约（`main` Proto 实核）
 
-本章 Data Generator/Common Server 契约核对基线为提交 `6d6776d33b3398d42654468301bdd4d8542f9203`；Gateway 输出接口更新基线为 `main@bf9dc6d2815a62b77a5e9868b3c6e8e35b3a492c`（2026-11-02），核对文件：`src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto`。这三份文件是 **Repo 内已经存在的 Proto**；下列接口名称、方向及字段直接依据其实际声明，不把设计预期当作已具备的接口。三个 Proto 均采用 `proto3`。
+本章 Data Generator/Common Server 契约核对基线为提交 `6d6776d33b3398d42654468301bdd4d8542f9203`；Gateway 输出接口冻结基线为 `main@367481254518a2d3d79ebeeb80a41944897a7e84`（2026-11-10），核对文件：`src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto`。这三份文件是 **Repo 内已经存在的 Proto**；下列接口名称、方向及字段直接依据其实际声明，不把设计预期当作已具备的接口。三个 Proto 均采用 `proto3`。
 
 ## 9.1 DataGeneratorService：六项必须实现的 gRPC Server RPC
 
@@ -1940,7 +1940,7 @@ flowchart LR
 
 ## 9.3 Gateway 客户端：正式 UpdateVariables 契约
 
-依据 `main@bf9dc6d2815a62b77a5e9868b3c6e8e35b3a492c` 的 `src/contracts/industrial_gateway.proto`，`IndustrialGatewayService` 包含八项 Unary RPC，新增 `ClaimTargets`，并要求 `UpdateVariables` 携带租约令牌。Data Generator 作为 Gateway 客户端，使用只读目录查询、租约管理和数据更新方法。
+依据 `main@367481254518a2d3d79ebeeb80a41944897a7e84` 的 `src/contracts/industrial_gateway.proto`，`IndustrialGatewayService` 包含八项 Unary RPC，新增 `ClaimTargets`，并要求 `UpdateVariables` 携带租约令牌。Data Generator 作为 Gateway 客户端，使用只读目录查询、租约管理和数据更新方法。
 
 <p class="table-caption">表 9-3 Gateway RPC 与 Data Generator 职责</p>
 
@@ -2060,7 +2060,7 @@ flowchart TB
 
 ## 11.1 文件目录、命名、职责与生效原则
 
-**依据**：`main@0dfee3bbbc864eae364fb214e447dea0a447820b` 的 `SharedDocumentLoader`、`VersionedTemplateRepository`、`SharedDomainSnapshot` 与 `configs/`。公共配置和 Data Generator 私有运行配置采用同一根目录，但职责分离，禁止重复定义公共设备及模板。
+**依据**：`main@367481254518a2d3d79ebeeb80a41944897a7e84` 的 `SharedDocumentLoader`、`VersionedTemplateRepository`、`SharedDomainSnapshot` 与 `configs/`。公共配置和 Data Generator 私有运行配置采用同一根目录，但职责分离，禁止重复定义公共设备及模板。
 
 ```text
 configs/
