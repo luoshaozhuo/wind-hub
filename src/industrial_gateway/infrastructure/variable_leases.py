@@ -108,15 +108,12 @@ class VariableLeases:
             requested = {variable_id for variable_id, _ in values}
             if len(requested) != len(values):
                 raise ValueError("duplicate variable_id in UpdateVariables")
-            if lease_token:
-                owned = next(
-                    (claim for claim in active if claim.token == lease_token),
-                    None,
-                )
-                if owned is None or not requested <= owned.names:
-                    raise LeaseError("LEASE_LOST")
-            elif any(requested & claim.names for claim in active):
-                raise LeaseError("TARGET_CLAIMED")
+            owned = next(
+                (claim for claim in active if claim.token == lease_token),
+                None,
+            )
+            if owned is None or not requested <= owned.names:
+                raise LeaseError("LEASE_LOST")
             results: list[UpdateResult] = []
             for variable_id, value in values:
                 if value is None:
