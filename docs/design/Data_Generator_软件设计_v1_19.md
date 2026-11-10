@@ -2359,7 +2359,6 @@ pytest tests/src/data_generator/system -m 'system and reliability'
 | UR-03 | UC-03-S02 跨实例目标冲突 | 9、11 | `test_simulation_system.py::test_conflicting_target_ownership` | system/safety/conflict | 不同活动实例争用同一 gateway_id/variable_id 时拒绝第二实例或配置应用 | 真实双实例/Gateway |
 
 | UR-03 | UC-03-S02 未取得租约直接注入 | 9.3、9.5 | `test_gateway_integration.py::test_unclaimed_update_rejected` | system/safety/conflict | 无 lease_token 即使当前目标空闲也由真实 Gateway 拒绝，值无变化 | 真实 Gateway |
-
 | UR-03 | UC-03-S02 单场景重复输出目标 | 3.4、5.3、11.4 | `test_simulation_system.py::test_duplicate_target_mapping_rejected` | system/safety/conflict | 两个不同源点映射同一 `(gateway_id,variable_id)` 时 Push 拒绝，已生效配置不变 | 独立服务 |
 | UR-04、03 | UC-07-S02 并发启动目标原子占用 | 5.3、6.3、9.1 | `test_grpc_system.py::test_concurrent_start_atomic_target_reservation` | system/reliability/concurrency | 同一目标并发 StartGeneration 只能有一个成功；失败者不得留下部分 Device/目标占用 | 独立服务 |
 | UR-04、03 | UC-07-S03 停止时未收敛输出占用 | 5.3、6.3 | `test_grpc_system.py::test_stop_retains_target_until_io_settled` | system/safety/deadline | Stop 超时后另一 Generation 不能抢占，底层安全结束或可信隔离后方可取得目标 | 真实 Gateway 故障注入 |
