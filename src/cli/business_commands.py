@@ -313,11 +313,7 @@ def commander_batch(
         if path.stat().st_size > 1024 * 1024:
             raise ValueError("batch file exceeds 1 MiB")
         source = path.read_text(encoding="utf-8")
-        raw = (
-            parse_yaml(source)
-            if path.suffix.lower() in {".yaml", ".yml"}
-            else json.loads(source)
-        )
+        raw = parse_yaml(source) if path.suffix.lower() in {".yaml", ".yml"} else json.loads(source)
         if isinstance(raw, dict):
             if set(raw) != {"commands"}:
                 raise ValueError("batch mapping must contain only commands")
