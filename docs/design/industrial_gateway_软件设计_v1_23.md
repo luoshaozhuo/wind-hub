@@ -1741,7 +1741,7 @@ flowchart TB
 
 <p class="figure-caption">图 11-1 Service 直接引用与公共模板间接解析</p>
 
-**实现前置：** 依据总体架构 v1_1、Core v1_31 与 Configuration v1_13，wind-hub 共享实例/模板引用装配归 `configuration`，Core 仅执行调用方指定的通用 YAML/数据处理。`config_sources.instances.devices` 与 `config_sources.templates.root` 的显式来源及引用图须由配置装配边界处理；Gateway 不应扩展 Core 的业务加载接口，也不得自行建立重复的共享引用解析实现。若现有装配入口无法表达显式路径，应在 `configuration` 层解决并同步调用方，不改变 Core 公共接口；禁止 Gateway 自行绕过公共 Loader 实现第二套模板解析。`site.yaml` 未由本服务直接引用且不属于设备型号解析链时不得作为 Gateway 启动必需文件；`units.yaml`、`business_points.yaml` 等公共目录文件仅在设备/点表解析确有依赖时由公共 Loader 解析，不要求 Service 重复声明。不得把固定默认文件误认为 Service 已声明。
+**实现前置：** 依据总体架构 v1_2、Core v1_31 与 Configuration v1_13，wind-hub 共享实例/模板引用装配归 `configuration`，Core 仅执行调用方指定的通用 YAML/数据处理。`config_sources.instances.devices` 与 `config_sources.templates.root` 的显式来源及引用图须由配置装配边界处理；Gateway 不应扩展 Core 的业务加载接口，也不得自行建立重复的共享引用解析实现。若现有装配入口无法表达显式路径，应在 `configuration` 层解决并同步调用方，不改变 Core 公共接口；禁止 Gateway 自行绕过公共 Loader 实现第二套模板解析。`site.yaml` 未由本服务直接引用且不属于设备型号解析链时不得作为 Gateway 启动必需文件；`units.yaml`、`business_points.yaml` 等公共目录文件仅在设备/点表解析确有依赖时由公共 Loader 解析，不要求 Service 重复声明。不得把固定默认文件误认为 Service 已声明。
 
 加载入口为用户明确指定的 Service 文件：先读取 `config_sources` 并校验两个必填路径，再读取所声明的 Instance 文件，以 `templates.root` 为**唯一**模板解析范围，最后装配 Gateway 设备绑定。除已经由实例或模板声明的引用链外，不自动加载其他公共 Instance 文件。模板解析失败时报告精确引用（源文件、模板 ID、版本及失败原因），而不是选择目录内其他文件。
 
