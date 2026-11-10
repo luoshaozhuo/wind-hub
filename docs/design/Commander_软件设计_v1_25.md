@@ -2376,7 +2376,7 @@ flowchart LR
 - 认证失败、授权不足、非法参数、目标不存在、修订冲突、容量不足、服务不可用应分别映射合适的 gRPC 状态；业务逻辑结果保留 Proto 规定的 `state/outcome/error_code`，不可将业务 UNKNOWN 误报为 gRPC 传输失败。
 - `GetServiceInfo/GetServiceStatus/GetCapabilities/GetConfigSnapshot/GetMetrics/GetEvents/Diagnose` 等通用操作适用 query 权限；`PushConfigSnapshot/ApplyConfigSnapshot` 适用 reload；`SubmitCommand` 适用 control。设备/点表查询和命令结果查询适用 query。
 - 验证两个 Service 共 16 个 RPC 全部注册、可调用；逐项覆盖空值/边界、`oneof`、`optional`、`Timestamp`、分页、候选快照冲突、mTLS、取消与 Deadline、UNKNOWN 与 `io_settled` 分离。
-- System Test 必须包含配置快照三阶段（Get/Push/Apply）、通用指标/事件/诊断以及 Commander 单点控制完整链路；对新增批量及 request_id 查询进行独立验收；正式 Proto 未实施前标 NOT_RUN。
+- System Test 必须包含配置快照三阶段（Get/Push/Apply）、通用指标/事件/诊断以及 Commander 单点控制完整链路；对新增批量及 request_id 查询进行独立验收；正式 Proto 已冻结，真实服务未执行则标 NOT_RUN。
 
 ## 9.4 接口协作时序
 
@@ -2455,7 +2455,7 @@ sequenceDiagram
 
 <p class="figure-caption">图 9-5 请求级异步提交、驱动写入与结果查询</p>
 
-## 10.0 冻结基础契约核对（规范性）
+## 9.6 冻结基础契约核对（规范性）
 
 正式线协议为 Contracts v1_18 与 `src/contracts/commander.proto`。单点 `request_id` 位于请求字段 6、响应字段 7；批量接口为 `SubmitCommands` 与 `GetRequestResult`，已冻结，不是拟议接口。Commander Server 实现 7 专属 RPC 与 9 Common RPC。
 
@@ -2775,8 +2775,8 @@ tests/
 | UR-03 | UC-07-S01 重启并重新加载配置 | §6.2、§11 | `test_lifecycle.py::test_restart_new_config` | `system`、`recovery` | 重新校验磁盘配置，不重发旧命令，真实报告生效版本 | 独立进程、真实配置与 SQLite；NOT_RUN |
 | UR-04 | UC-02-S01 单点接受/执行/查询 | §5.2～§5.4、§9.3、§10、§12 | `test_control_flow.py::test_submit_and_query` | `system`、`normal` | SQLite 持久受理后返回 request_id/command_id；单点按协议执行、可按两类 ID 查询，后续事件后台落盘后发布审计 | 真实 gRPC、PLC 协议模拟从站、SQLite、NATS；NOT_RUN |
 | UR-04 | UC-02-S02 超期、断连及未知结果 | §6.3～§6.4、§9.3、§10.4 | `test_concurrency.py::test_expiration_and_unknown` | `system`、`timeout`、`exception` | 到期前未发写入；可能发出而结果不明为 UNKNOWN；断连不撤销已接受命令 | 独立 gRPC 客户端、可注入延迟的真实协议链路；NOT_RUN |
-| UR-05 | UC-02-S03 批量原子接受及逐点结果 | §3.1、§6.3、§9.4 | `test_control_flow.py::test_batch_acceptance` | `system`、`normal`、`exception` | 应用层批量及对外 `SubmitCommands` RPC 均须通过真实 gRPC 和状态查询验收，不能仅凭应用层测试判定需求 PASS | 应用层+真实协议；RPC 契约 GAP / NOT_RUN |
-| UR-06 | UC-02-S04 查询/保留/不存在 | §9.3～§9.4、§10 | `test_control_flow.py::test_result_query` | `system`、`normal`、`exception` | 按 command_id 与 request_id 查询；逐项返回完整命令、状态、io_settled；过期 NOT_FOUND | 真实 gRPC、SQLite；新增契约实施前 NOT_RUN |
+| UR-05 | UC-02-S03 批量原子接受及逐点结果 | §3.1、§6.3、§9.4 | `test_control_flow.py::test_batch_acceptance` | `system`、`normal`、`exception` | 应用层批量及对外 `SubmitCommands` RPC 均须通过真实 gRPC 和状态查询验收，不能仅凭应用层测试判定需求 PASS | 应用层+真实协议；RPC 已冻结；真实系统验证 NOT_RUN |
+| UR-06 | UC-02-S04 查询/保留/不存在 | §9.3～§9.4、§10 | `test_control_flow.py::test_result_query` | `system`、`normal`、`exception` | 按 command_id 与 request_id 查询；逐项返回完整命令、状态、io_settled；过期 NOT_FOUND | 真实 gRPC、SQLite；真实系统验证 NOT_RUN |
 | UR-07、UR-08 | UC-04-S01 查询服务信息与状态 | §9.2、§13.3 | `test_grpc_end_to_end.py::test_service_info_status` | `system`、`normal`、`exception` | 返回实际服务身份、依赖健康；不能把存活等同业务就绪 | 真实 gRPC/mTLS；NOT_RUN |
 | UR-09、UR-10 | UC-03-S01 设备、详情及点表 | §9.3、§11 | `test_query.py::test_devices_and_points` | `system`、`normal`、`exception` | 设备分页、详情与点表元数据正确；查询不连接现场；非法 ID 明确失败 | 真实 gRPC、共享配置；NOT_RUN |
 | UR-11 | UC-05-S01 推送、校验和应用配置 | §6.4.5、§9.2、§11 | `test_grpc_end_to_end.py::test_config_snapshot_apply` | `system`、`normal`、`concurrency` | Push 校验候选；Apply 安全切换且明确 restart_required；在途 I/O 不受错误替换 | 真实 gRPC、配置目录、协议链路；NOT_RUN |
@@ -2785,7 +2785,7 @@ tests/
 | UR-13 | UC-02-S05 存储故障及容量保护 | §10.1～§10.4 | `test_capacity.py::test_persistence_and_admission` | `system`、`reliability`、`storage` | SQLite 故障时已接受控制可终结；内存队列满拒新；异常崩溃只恢复已落盘事件 | 独立进程、真实 SQLite/故障注入；NOT_RUN |
 | UR-14 | UC-02-S06 审计确认、重投与积压 | §10.2、§12 | `test_capacity.py::test_audit_retry` | `system`、`reliability`、`recovery` | 仅已落盘事件发布；PubAck 后确认；丢确认可用同一 event_id 重投 | 真实 NATS JetStream、SQLite；NOT_RUN |
 | UR-15 | UC-08-S01 崩溃恢复与控制权隔离 | §6.2、§10.4、§13.4 | `test_crash_recovery.py::test_crash_recovery` | `system`、`reliability`、`recovery` | 已落盘未终结事件保守裁决；不重发旧写入；隔离未确认不 READY | 独立进程、真实 SQLite/NATS、协议链路；NOT_RUN |
-| UR-04、UR-05、UR-08 | UC-02-S07 负载及资源边界 | §3.3、§6.3、§13.3 | `test_performance.py::test_nominal_load` | `system`、`performance`、`load` | 记录 100 设备、10 Hz、最多 10 点负载下的吞吐/P99/资源上限；批量 RPC 独立统计吞吐、受理时延和逐点执行 | 真实负载进程、SQLite/NATS；新增契约实施前 NOT_RUN |
+| UR-04、UR-05、UR-08 | UC-02-S07 负载及资源边界 | §3.3、§6.3、§13.3 | `test_performance.py::test_nominal_load` | `system`、`performance`、`load` | 记录 100 设备、10 Hz、最多 10 点负载下的吞吐/P99/资源上限；批量 RPC 独立统计吞吐、受理时延和逐点执行 | 真实负载进程、SQLite/NATS；真实性能验收未执行则标 NOT_RUN |
 | UR-07、UR-08 | UC-04-S03 指标、事件、诊断 | §9.2、§13.3 | `test_grpc_end_to_end.py::test_metrics_events_diagnose` | `system`、`normal`、`exception` | GetMetrics/GetEvents/Diagnose 完成真实调用且不触发控制写入 | 独立进程、真实 gRPC/mTLS；NOT_RUN |
 
 本矩阵覆盖 UC-01～UC-08 及 UR-01～UR-15 的目标场景；UC-02 的批量提交和按 request_id 查询已由 Contracts v1_18 设计定义，真实 Proto 与系统接口仍须独立验收。测试实施时须将上述目标标识与真实测试函数保持同步，记录每项的环境、执行命令、结果和未验证项。
