@@ -2543,55 +2543,55 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | 需求 | UC / 场景 | 技术契约 | 测试文件名 | 层级 Marker | 专题 Marker | 场景 Marker | 验证内容与预期结果 |
 |---|---|---|---|---|---|---|---|
 | UR-01 | UC-01-S01 | 9.1～9.2；10 | `test_shell_e2e.py` / `test_uc_01_s01` | `system` | `contract` | `normal` | Shell 启动与退出；断言启动返回提示符，退出不停止远端服务 |
-| UR-01 | UC-01-S02 | 9.1～9.2；10 | `test_shell_e2e.py` / `test_uc_01_s02` | `system` | `contract` | `boundary` | 参数、历史、补全和 JSON；断言非法参数退出2；帮助/补全包含配置命令，JSON可解析 |
-| UR-01 | UC-01-S03 | 9.1～9.2；10 | `test_shell_e2e.py` / `test_uc_01_s03` | `system` | `reliability` | `failure` | 远端不可达及中断；断言不可达退出3，Ctrl+C回Shell并能继续执行命令 |
+| UR-01 | UC-01-S02 | 9.1～9.2；10 | `test_shell_e2e.py` / `test_uc_01_s02` | `system` | `contract` | `exception` | 参数、历史、补全和 JSON；断言非法参数退出2；帮助/补全包含配置命令，JSON可解析 |
+| UR-01 | UC-01-S03 | 9.1～9.2；10 | `test_shell_e2e.py` / `test_uc_01_s03` | `system` | `reliability` | `exception` | 远端不可达及中断；断言不可达退出3，Ctrl+C回Shell并能继续执行命令 |
 | UR-02 | UC-02-S01 | 10.3；11.2 | `test_runtime_e2e.py` / `test_uc_02_s01` | `system` | `contract` | `normal` | 状态查询及启停重启；断言每种运行时 start→RUNNING、stop→STOPPED、restart 后 PID/状态更新 |
-| UR-02 | UC-02-S02 | 10.3；11.2 | `test_runtime_e2e.py` / `test_uc_02_s02` | `system` | `contract` | `boundary` | 重复操作、延迟就绪；断言重复启停无误杀；进程运行而 gRPC 不就绪分别显示 |
-| UR-02 | UC-02-S03 | 10.3；11.2 | `test_runtime_e2e.py` / `test_uc_02_s03` | `system` | `security` | `failure` | 权限、不可达、超时及异常退出；断言权限拒绝不改变目标状态；超时不谎报成功；异常退出可识别 |
+| UR-02 | UC-02-S02 | 10.3；11.2 | `test_runtime_e2e.py` / `test_uc_02_s02` | `system` | `contract` | `exception` | 重复操作、延迟就绪；断言重复启停无误杀；进程运行而 gRPC 不就绪分别显示 |
+| UR-02 | UC-02-S03 | 10.3；11.2 | `test_runtime_e2e.py` / `test_uc_02_s03` | `system` | `security` | `exception` | 权限、不可达、超时及异常退出；断言权限拒绝不改变目标状态；超时不谎报成功；异常退出可识别 |
 | UR-01、UR-03 | UC-03-S01 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s01` | `system` | `contract` | `normal` | 基本状态及能力；断言五个服务均返回身份/版本、健康和能力 |
-| UR-01、UR-03 | UC-03-S02 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s02` | `system` | `contract` | `boundary` | 五服务查询和 JSON；断言五服务输出结构一致；JSON含独立健康/能力字段 |
-| UR-01、UR-03 | UC-03-S03 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s03` | `system` | `reliability` | `failure` | 认证失败、不支持、依赖异常；断言mTLS拒绝退出2；UNIMPLEMENTED退出3；依赖故障不显示READY |
+| UR-01、UR-03 | UC-03-S02 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s02` | `system` | `contract` | `exception` | 五服务查询和 JSON；断言五服务输出结构一致；JSON含独立健康/能力字段 |
+| UR-01、UR-03 | UC-03-S03 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s03` | `system` | `reliability` | `exception` | 认证失败、不支持、依赖异常；断言mTLS拒绝退出2；UNIMPLEMENTED退出3；依赖故障不显示READY |
 | UR-04 | UC-04-S01 | 9.2；10 | `test_snapshot_e2e.py` / `test_uc_04_s01` | `system` | `contract` | `normal` | Get/Push/Apply 主链；断言Get文件哈希一致；Push磁盘不变；Apply后磁盘版本变化 |
-| UR-04 | UC-04-S02 | 9.2；10 | `test_snapshot_e2e.py` / `test_uc_04_s02` | `system` | `contract` | `boundary` | 冲突与候选边界；断言基线revision冲突拒绝提交；候选失效不得应用 |
-| UR-04 | UC-04-S03 | 9.2；10 | `test_snapshot_e2e.py` / `test_uc_04_s03` | `system` | `security` | `failure` | 部分生效、断连与恢复查询；断言逐对象部分失败退出4；Get运行视图可查询最后生效错误 |
+| UR-04 | UC-04-S02 | 9.2；10 | `test_snapshot_e2e.py` / `test_uc_04_s02` | `system` | `contract` | `exception` | 冲突与候选边界；断言基线revision冲突拒绝提交；候选失效不得应用 |
+| UR-04 | UC-04-S03 | 9.2；10 | `test_snapshot_e2e.py` / `test_uc_04_s03` | `system` | `security` | `exception` | 部分生效、断连与恢复查询；断言逐对象部分失败退出4；Get运行视图可查询最后生效错误 |
 | UR-05 | UC-05-S01 | 12.1 | `test_diff_e2e.py` / `test_uc_05_s01` | `system` | `contract` | `normal` | 增删改及容量统计；断言新增1删除1修改1未变2；两侧文件数均4；字节统计精确 |
-| UR-05 | UC-05-S02 | 12.1 | `test_diff_e2e.py` / `test_uc_05_s02` | `system` | `contract` | `boundary` | 文本/二进制、空目录；断言空目录为0；二进制不输出文本diff；文本差异可复现 |
-| UR-05 | UC-05-S03 | 12.1 | `test_diff_e2e.py` / `test_uc_05_s03` | `system` | `reliability` | `failure` | 并发修改、权限及敏感输出；断言并发变更不能报告完整成功；权限错误可定位；敏感内容不泄漏 |
+| UR-05 | UC-05-S02 | 12.1 | `test_diff_e2e.py` / `test_uc_05_s02` | `system` | `contract` | `exception` | 文本/二进制、空目录；断言空目录为0；二进制不输出文本diff；文本差异可复现 |
+| UR-05 | UC-05-S03 | 12.1 | `test_diff_e2e.py` / `test_uc_05_s03` | `system` | `reliability` | `exception` | 并发修改、权限及敏感输出；断言并发变更不能报告完整成功；权限错误可定位；敏感内容不泄漏 |
 | UR-06 | UC-06-S01 | 9.2；10 | `test_collector_objects_e2e.py` / `test_uc_06_s01` | `system` | `contract` | `normal` | 列表和详情；断言列表与详情的device_id/point_id对应，地址和类型正确 |
-| UR-06 | UC-06-S02 | 9.2；10 | `test_collector_objects_e2e.py` / `test_uc_06_s02` | `system` | `contract` | `boundary` | 分页、空列表；断言空列表总数0；分页不重复漏项 |
-| UR-06 | UC-06-S03 | 9.2；10 | `test_collector_objects_e2e.py` / `test_uc_06_s03` | `system` | `reliability` | `failure` | 无权限、对象消失；断言无权限退出2；对象消失NOT_FOUND且不崩溃 |
+| UR-06 | UC-06-S02 | 9.2；10 | `test_collector_objects_e2e.py` / `test_uc_06_s02` | `system` | `contract` | `exception` | 分页、空列表；断言空列表总数0；分页不重复漏项 |
+| UR-06 | UC-06-S03 | 9.2；10 | `test_collector_objects_e2e.py` / `test_uc_06_s03` | `system` | `reliability` | `exception` | 无权限、对象消失；断言无权限退出2；对象消失NOT_FOUND且不崩溃 |
 | UR-06、UR-09 | UC-07-S01 | 9.2；10 | `test_collector_task_e2e.py` / `test_uc_07_s01` | `system` | `contract` | `normal` | 启动/停止；断言start后desired_running=true；stop后false且Watchdog不重启 |
-| UR-06、UR-09 | UC-07-S02 | 9.2；10 | `test_collector_task_e2e.py` / `test_uc_07_s02` | `system` | `contract` | `boundary` | 幂等边界及状态变更；断言重复启停不产生额外任务；实际与期望分别显示 |
-| UR-06、UR-09 | UC-07-S03 | 9.2；10 | `test_collector_task_e2e.py` / `test_uc_07_s03` | `system` | `reliability` | `failure` | 版本冲突、未收敛及恢复；断言revision冲突无副作用；未收敛状态不谎报RUNNING |
+| UR-06、UR-09 | UC-07-S02 | 9.2；10 | `test_collector_task_e2e.py` / `test_uc_07_s02` | `system` | `contract` | `exception` | 幂等边界及状态变更；断言重复启停不产生额外任务；实际与期望分别显示 |
+| UR-06、UR-09 | UC-07-S03 | 9.2；10 | `test_collector_task_e2e.py` / `test_uc_07_s03` | `system` | `reliability` | `exception` | 版本冲突、未收敛及恢复；断言revision冲突无副作用；未收敛状态不谎报RUNNING |
 | UR-07 | UC-08-S01 | 9.2、12.3；10 | `test_cross_module_monitor_e2e.py` / `test_uc_08_s01` | `system` | `contract` | `normal` | 跨模块监视：Collector latest/watch、Gateway read/watch、五服务状态；验证正确 RPC、值与状态区分、watch 至少刷新两轮且无主动 PLC 读取 |
-| UR-07 | UC-08-S02 | 9.2、12.3；10 | `test_cross_module_monitor_e2e.py` / `test_uc_08_s02` | `system` | `contract` | `boundary` | 跨模块边界：Collector/Gateway 的过期、逐项缺测及慢响应；Commander/Sink/Generator 不伪造实时值，轮询不重入 |
-| UR-07 | UC-08-S03 | 9.2、12.3；10 | `test_cross_module_monitor_e2e.py` / `test_uc_08_s03` | `system` | `reliability` | `failure` | 五模块断连、接口缺失、超时和中断；断言来源明确，Ctrl+C 仅停止轮询并返回 Shell |
+| UR-07 | UC-08-S02 | 9.2、12.3；10 | `test_cross_module_monitor_e2e.py` / `test_uc_08_s02` | `system` | `contract` | `exception` | 跨模块边界：Collector/Gateway 的过期、逐项缺测及慢响应；Commander/Sink/Generator 不伪造实时值，轮询不重入 |
+| UR-07 | UC-08-S03 | 9.2、12.3；10 | `test_cross_module_monitor_e2e.py` / `test_uc_08_s03` | `system` | `reliability` | `exception` | 五模块断连、接口缺失、超时和中断；断言来源明确，Ctrl+C 仅停止轮询并返回 Shell |
 | UR-06、UR-07、UR-09 | UC-09-S01 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s01` | `system` | `contract` | `normal` | 查询和启停；断言查询Delivery配置与状态；启停只改变目标Delivery |
-| UR-06、UR-07、UR-09 | UC-09-S02 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s02` | `system` | `contract` | `boundary` | 双进程、部分故障；断言Realtime/Reliable状态互不混淆，单侧故障不假报另一侧 |
-| UR-06、UR-07、UR-09 | UC-09-S03 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s03` | `system` | `reliability` | `failure` | 版本冲突、手动停止；断言冲突不更新配置；手动停止不被自动恢复 |
+| UR-06、UR-07、UR-09 | UC-09-S02 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s02` | `system` | `contract` | `exception` | 双进程、部分故障；断言Realtime/Reliable状态互不混淆，单侧故障不假报另一侧 |
+| UR-06、UR-07、UR-09 | UC-09-S03 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s03` | `system` | `reliability` | `exception` | 版本冲突、手动停止；断言冲突不更新配置；手动停止不被自动恢复 |
 | UR-06、UR-07、UR-09 | UC-10-S01 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s01` | `system` | `contract` | `normal` | 分页获取变量→经授权的 CLI 身份执行 ClaimTargets 领取目标→持有效 lease_token 调用 UpdateVariables→释放租约→ReadVariables 读回；断言变量 ID 一致、存储值可见、无现场 PLC 读写或 Commander 下发 |
-| UR-06、UR-07、UR-09 | UC-10-S02 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s02` | `system` | `contract` | `boundary` | 租约占用冲突、重复申请/释放、租约期限边界、批量更新多个变量、工业协议写权限与 gRPC 更新权限独立；断言响应按请求顺序一一对应，读回仍含质量/时间戳，写操作不触发现场控制 |
-| UR-06、UR-07、UR-09 | UC-10-S03 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s03` | `system` | `reliability` | `failure` | 租约领取失败、令牌过期、owner 不一致、RELEASE 失败、变量不存在、重复 ID、非法类型/值、未授权、容量超限、网关未就绪、超时；断言逐变量部分成功、整体错误分离、未知写入不自动重试，读回不冒充写入确认 |
+| UR-06、UR-07、UR-09 | UC-10-S02 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s02` | `system` | `contract` | `exception` | 租约占用冲突、重复申请/释放、租约期限边界、批量更新多个变量、工业协议写权限与 gRPC 更新权限独立；断言响应按请求顺序一一对应，读回仍含质量/时间戳，写操作不触发现场控制 |
+| UR-06、UR-07、UR-09 | UC-10-S03 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s03` | `system` | `reliability` | `exception` | 租约领取失败、令牌过期、owner 不一致、RELEASE 失败、变量不存在、重复 ID、非法类型/值、未授权、容量超限、网关未就绪、超时；断言逐变量部分成功、整体错误分离、未知写入不自动重试，读回不冒充写入确认 |
 | UR-06、UR-07、UR-09 | UC-11-S01 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s01` | `system` | `contract` | `normal` | 设备场景及启停；断言场景列表含版本；启动返回generation_id；停止目标实例 |
-| UR-06、UR-07、UR-09 | UC-11-S02 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s02` | `system` | `contract` | `boundary` | 重复操作；断言重复start/stop结果明确且不影响其他generation_id |
-| UR-06、UR-07、UR-09 | UC-11-S03 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s03` | `system` | `reliability` | `failure` | 冲突、停止失败；断言配置冲突无副作用；失败保留错误与可查询状态 |
+| UR-06、UR-07、UR-09 | UC-11-S02 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s02` | `system` | `contract` | `exception` | 重复操作；断言重复start/stop结果明确且不影响其他generation_id |
+| UR-06、UR-07、UR-09 | UC-11-S03 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s03` | `system` | `reliability` | `exception` | 冲突、停止失败；断言配置冲突无副作用；失败保留错误与可查询状态 |
 | UR-08 | UC-12-S01 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s01` | `system` | `contract` | `normal` | 各服务诊断；断言五服务Diagnose返回阶段及来源证据 |
-| UR-08 | UC-12-S02 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s02` | `system` | `contract` | `boundary` | 部分证据、报告；断言缺证阶段为UNKNOWN/PARTIAL，报告保留原始状态 |
-| UR-08 | UC-12-S03 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s03` | `system` | `reliability` | `failure` | 阶段错误、权限拒绝；断言单阶段失败不伪装整体成功；权限拒绝退出2 |
+| UR-08 | UC-12-S02 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s02` | `system` | `contract` | `exception` | 部分证据、报告；断言缺证阶段为UNKNOWN/PARTIAL，报告保留原始状态 |
+| UR-08 | UC-12-S03 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s03` | `system` | `reliability` | `exception` | 阶段错误、权限拒绝；断言单阶段失败不伪装整体成功；权限拒绝退出2 |
 | UR-08 | UC-13-S01 | 9.2；10 | `test_pipeline_diagnose_e2e.py` / `test_uc_13_s01` | `system` | `contract` | `normal` | 完整可证实链路；断言Collector到Sink同一关联标识可证实后才SUCCESS |
-| UR-08 | UC-13-S02 | 9.2；10 | `test_pipeline_diagnose_e2e.py` / `test_uc_13_s02` | `system` | `contract` | `boundary` | 某阶段失败或缺证；断言缺少消息级关联证据不得SUCCESS；阶段失败可定位 |
-| UR-08 | UC-13-S03 | 9.2；10 | `test_pipeline_diagnose_e2e.py` / `test_uc_13_s03` | `system` | `reliability` | `failure` | 跨服务断连、报告输出；断言跨服务断连为UNKNOWN/PARTIAL；导出报告标识缺失阶段 |
+| UR-08 | UC-13-S02 | 9.2；10 | `test_pipeline_diagnose_e2e.py` / `test_uc_13_s02` | `system` | `contract` | `exception` | 某阶段失败或缺证；断言缺少消息级关联证据不得SUCCESS；阶段失败可定位 |
+| UR-08 | UC-13-S03 | 9.2；10 | `test_pipeline_diagnose_e2e.py` / `test_uc_13_s03` | `system` | `reliability` | `exception` | 跨服务断连、报告输出；断言跨服务断连为UNKNOWN/PARTIAL；导出报告标识缺失阶段 |
 | UR-07、UR-09 | UC-14-S01 | 9.2、9.4；10 | `test_commander_e2e.py` / `test_uc_14_s01` | `system` | `contract` | `normal` | 合法写入及结果查询；断言合法写入返回command_id且结果可按ID查询 |
-| UR-07、UR-09 | UC-14-S02 | 9.2、9.4；10 | `test_commander_e2e.py` / `test_uc_14_s02` | `system` | `contract` | `boundary` | 参数边界、终态；断言类型/范围非法拒绝；终态SUCCESS/FAILURE可区分 |
-| UR-07、UR-09 | UC-14-S03 | 9.2、9.4；10 | `test_commander_e2e.py` / `test_uc_14_s03` | `system` | `security` | `failure` | 未知受理、超时、不重试；断言受理超时无ID报告UNKNOWN，不得自动提交第二次 |
+| UR-07、UR-09 | UC-14-S02 | 9.2、9.4；10 | `test_commander_e2e.py` / `test_uc_14_s02` | `system` | `contract` | `exception` | 参数边界、终态；断言类型/范围非法拒绝；终态SUCCESS/FAILURE可区分 |
+| UR-07、UR-09 | UC-14-S03 | 9.2、9.4；10 | `test_commander_e2e.py` / `test_uc_14_s03` | `system` | `security` | `exception` | 未知受理、超时、不重试；断言受理超时无ID报告UNKNOWN，不得自动提交第二次 |
 | UR-10 | UC-15-S01 | 12.2 | `test_network_e2e.py` / `test_uc_15_s01` | `system` | `contract` | `normal` | 三命令正常操作；断言scan返回可响应IP；industrial标注端口；tcp输出OPEN/CLOSED/TIMEOUT |
-| UR-10 | UC-15-S02 | 12.2 | `test_network_e2e.py` / `test_uc_15_s02` | `system` | `contract` | `boundary` | CIDR 上限、端口范围；断言网段超过4096拒绝；端口超范围拒绝；不把NO_RESPONSE等同OFFLINE |
-| UR-10 | UC-15-S03 | 12.2 | `test_network_e2e.py` / `test_uc_15_s03` | `system` | `reliability` | `failure` | 拒绝、超时及中断；断言目标拒绝和超时分别返回；取消后子进程/Socket无遗留 |
+| UR-10 | UC-15-S02 | 12.2 | `test_network_e2e.py` / `test_uc_15_s02` | `system` | `contract` | `exception` | CIDR 上限、端口范围；断言网段超过4096拒绝；端口超范围拒绝；不把NO_RESPONSE等同OFFLINE |
+| UR-10 | UC-15-S03 | 12.2 | `test_network_e2e.py` / `test_uc_15_s03` | `system` | `reliability` | `exception` | 拒绝、超时及中断；断言目标拒绝和超时分别返回；取消后子进程/Socket无遗留 |
 | UR-07、UR-11 | UC-16-S01 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s01` | `system` | `contract` | `normal` | 指标、事件及发布状态；断言五服务指标窗口、事件字段可查；发布状态单独可查 |
-| UR-07、UR-11 | UC-16-S02 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s02` | `system` | `contract` | `boundary` | 时间窗口、分页；断言窗口分页有界，空结果合法且不伪造记录 |
-| UR-07、UR-11 | UC-16-S03 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s03` | `system` | `reliability` | `failure` | 空结果、拒绝、断连；断言未授权退出2；断连退出3；局部失败可定位 |
-| UR-09 | UC-14-S03 | 9.6；10.6 | `test_commander_e2e.py` / `test_reused_request_id_requires_explicit_expiry` | `system` | `safety` | `boundary` | 带 `--request-id` 却未同时提供 `--expires-at` 与 `--expected-revision` 时退出码 2、零 SubmitCommand RPC；有原始截止时间时同 ID 同内容不重复执行 |
-| UR-09 | UC-10-S02 | 9.3、9.6；10.7 | `test_gateway_e2e.py` / `test_lease_ms_range_and_token` | `system` | `security` | `boundary` | 超出 1000～60000 ms 的租期 CLI 本地拒绝；有效租期先 ClaimTargets，再有令牌 UpdateVariables |
+| UR-07、UR-11 | UC-16-S02 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s02` | `system` | `contract` | `exception` | 时间窗口、分页；断言窗口分页有界，空结果合法且不伪造记录 |
+| UR-07、UR-11 | UC-16-S03 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s03` | `system` | `reliability` | `exception` | 空结果、拒绝、断连；断言未授权退出2；断连退出3；局部失败可定位 |
+| UR-09 | UC-14-S03 | 9.6；10.6 | `test_commander_e2e.py` / `test_reused_request_id_requires_explicit_expiry` | `system` | `safety` | `exception` | 带 `--request-id` 却未同时提供 `--expires-at` 与 `--expected-revision` 时退出码 2、零 SubmitCommand RPC；有原始截止时间时同 ID 同内容不重复执行 |
+| UR-09 | UC-10-S02 | 9.3、9.6；10.7 | `test_gateway_e2e.py` / `test_lease_ms_range_and_token` | `system` | `security` | `exception` | 超出 1000～60000 ms 的租期 CLI 本地拒绝；有效租期先 ClaimTargets，再有令牌 UpdateVariables |
 
 ## 14.3 技术约束补充 System Test
 
