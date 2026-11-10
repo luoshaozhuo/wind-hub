@@ -55,6 +55,7 @@ class GatewayWriter:
         self._unsettled: dict[str, asyncio.Future[Any]] = {}
         self._settled_callbacks: set[str] = set()
         self._unsafe: set[str] = set()
+        self._lost_leases: set[str] = set()
         self.rpc_durations: deque[tuple[float, str, float]] = deque(maxlen=4096)
         self.last_native_results: dict[OutputTarget, DeliveryResult] = {}
         self.native_started: dict[str, int] = defaultdict(int)
@@ -192,6 +193,7 @@ class GatewayWriter:
                     raise GeneratorError(
                         f"target ownership conflict {gateway_id}: {response.error_code}"
                     )
+                self._lost_leases.discard(gateway_id)
                 self._claims[gateway_id] = (
                     owner_id,
                     response.lease_token,
@@ -241,6 +243,7 @@ class GatewayWriter:
                         timeout=self._timeout,
                     )
                     if not reply.accepted:
+                        self._lost_leases.add(gateway_id)
                         self._unsafe.add(gateway_id)
                         return
                     # Read-only lease renewal is a controlled re-probe. It
@@ -339,6 +342,10 @@ class GatewayWriter:
         entries: Sequence[tuple[OutputTarget, Scalar]],
     ) -> list[DeliveryResult]:
         async with self._locks[gateway_id]:
+            if gateway_id in self._lost_leases:
+                return [
+                    DeliveryResult(target, "FAILED", "LEASE_LOST") for target, _ in entries
+                ]
             if gateway_id in self._unsafe:
                 return [
                     DeliveryResult(target, "FAILED", "TARGET_QUARANTINED") for target, _ in entries
