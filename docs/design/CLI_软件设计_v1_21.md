@@ -1832,7 +1832,7 @@ CLI 发现契约不能表达的需求时，记录差异并提交 Contracts 统�
 
 **批量业务结果：**accepted 仅代表完整受理；CLI 不将收到 command_ids[] 当作已写入。各项 state/outcome 与 io_settled 均按 Commander 返回渲染；请求级 UNKNOWN、部分成功及部分失败需同时呈现，不自行汇总为 PASS。所有访问按正式 control/query 权限模型授权。Commander 返回 NOT_FOUND 也不能等同于“从未执行”。
 
-**契约与版本声明：**本节以已冻结 Contracts v1_18、Core v1_31、Configuration v1_13，以及 Commander v1_25、总体架构 v1_1 的本轮设计要求为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。共享配置按 Configuration v1_13 消费，不在 CLI 发明第二套配置装配机制。
+**契约与版本声明：**本节以已冻结 Contracts v1_18、Core v1_31、Configuration v1_13，以及 Commander v1_26、总体架构 v1_2 的本轮设计要求为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。共享配置按 Configuration v1_13 消费，不在 CLI 发明第二套配置装配机制。
 
 ## 9.6 冻结接口与客户端行为（规范性）
 
