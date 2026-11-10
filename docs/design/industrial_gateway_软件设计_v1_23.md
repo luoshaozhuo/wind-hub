@@ -1977,8 +1977,6 @@ tests/
 | UR-01 / UC-01-S03 | UpdateVariables 混合合法与非法条目 | `test_gateway_partial_update_results` | 逐项响应，合法项生效、非法项不修改；不回滚全部 |
 | UR-05 / UC-05-S03 | 公共 SharedDocumentLoader 固定 devices.yaml 的旧行为 | `test_gateway_loader_custom_instance_path` | Loader 能按 Service 指定 pathname 加载，不回退默认 devices.yaml |
 | UR-01 / UC-01-S03 | 多寄存器变量更新与同时读取 | `test_gateway_no_torn_variable_read` | 单变量读值无新旧寄存器撕裂；不同变量不要求原子快照 |
-
-
 | UR-01 / UC-01-S02 | 无 lease_token，且目标当前无人认领 | `test_gateway_requires_lease_for_unclaimed_target` | 按 Contracts v1_18 必须拒绝，变量及审计状态不改变；不得将“无竞争”作为绕过 ClaimTargets 的条件 |
 | UR-01 / UC-01-S02 | token 伪造、过期或未覆盖请求全部目标 | `test_gateway_requires_matching_lease_for_full_batch` | 全批拒绝，零变量改变；已合法占用的无关目标不受影响 |
 
