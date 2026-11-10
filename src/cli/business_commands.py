@@ -253,6 +253,8 @@ def commander_write(
             raise ValueError("--request-id must be nonempty")
         if request_id is not None and expires_at is None:
             raise ValueError("--expires-at is required when reusing --request-id")
+        if request_id is not None and expected_revision is None:
+            raise ValueError("--expected-revision is required when reusing --request-id")
         scalar = parse_json_scalar(value)
         deadline = expires_at or (datetime.now(UTC) + timedelta(seconds=30)).isoformat()
         parsed = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
