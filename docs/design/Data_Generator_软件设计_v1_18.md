@@ -1893,7 +1893,7 @@ flowchart LR
 
 # 9. 接口与通信契约（冻结 Proto）
 
-本章 Data Generator/Common Server 契约核对基线为提交 `6d6776d33b3398d42654468301bdd4d8542f9203`；Gateway 输出接口冻结基线为 `main@367481254518a2d3d79ebeeb80a41944897a7e84`（2026-11-10），核对文件：`src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto`。这三份文件是 **Repo 内已经存在的 Proto**；下列接口名称、方向及字段直接依据其实际声明，不把设计预期当作已具备的接口。三个 Proto 均采用 `proto3`。
+本章 Data Generator/Common Server 契约核对基线为 `main@367481254518a2d3d79ebeeb80a41944897a7e84`；Gateway 输出接口冻结基线为 `main@367481254518a2d3d79ebeeb80a41944897a7e84`（2026-11-10），核对文件：`src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto`。这三份文件是 **Repo 内已经存在的 Proto**；下列接口名称、方向及字段直接依据其实际声明，不把设计预期当作已具备的接口。三个 Proto 均采用 `proto3`。
 
 ## 9.1 DataGeneratorService：六项必须实现的 gRPC Server RPC
 
@@ -1987,7 +1987,7 @@ flowchart LR
 
 **租约与终止**：多 Gateway 租约获取按确定顺序逐个完成，只有全部成功才允许开始生成；失败释放已确认获得的令牌，未知申请结果等待其 TTL 到期而非伪造释放。StopGeneration 停止新批次，并等待在途 I/O 安全收敛后释放本实例目标；租约过期则禁止继续写入，重新获取前不得重放可能成功的批次。不存在跨 Gateway 分布式原子事务。
 
-**共享配置**：`configs/services/data-generator-service.yaml` 显式声明 instances.site/devices/scenarios 和 templates.root，前三类共享引用由 Configuration v1_13 装配，Scenario 的私有语义和候选 Apply 由本服务负责；Service 的文件提交不替代共享文件唯一写入方，也不在 Loader 内实现多文件写事务。必须区分 DISK、CANDIDATE、RUNTIME 与 source_manifest 原始字节身份，发现 SOURCE_CHANGED 需拒绝继续应用。
+**共享配置**：`configs/services/data-generator-service.yaml` 显式声明 instances.site/devices/scenarios 和 templates.root，其中 site/devices 的共享引用由 Configuration v1_13 装配，scenarios 为本服务专属 Instance，Scenario 的校验及候选 Apply 由本服务负责；Service 的文件提交不替代共享文件唯一写入方，也不在 Loader 内实现多文件写事务。必须区分 DISK、CANDIDATE、RUNTIME 与 source_manifest 原始字节身份，发现 SOURCE_CHANGED 需拒绝继续应用。
 
 **独立测试**：通过 UR→UC→ST→Marker→断言验证静态物理、随机与 CSV 回放生成、同一目标重复映射拒绝、一个来源多目标、一 Generation 多设备、租约占用/抢占/过期、部分 Gateway 失败、停止后在途 I/O 收敛、Push/Apply 和 SOURCE_CHANGED。真实 Gateway/网络缺失时标 NOT_RUN，不能以 Fake 注入测试替代实链路验收。
 
