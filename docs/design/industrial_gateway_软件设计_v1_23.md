@@ -1930,29 +1930,29 @@ tests/
 | UR | UC / 场景 | 技术契约 | 测试文件 / 测试标识 | 层级 Marker | 专题 Marker | 场景 Marker | 验证与预期结果 |
 |---|---|---|---|---|---|---|---|
 | UR-01、UR-04 | UC-01-S01 | 9.2、10.1 | `test_modbus_matrix.py / test_grpc_updates_and_claims.py` | `system` | `contract` | `normal` | 多项合法注入并经真实协议客户端读取；验证相应协议／gRPC 对外结果及副作用 |
-| UR-01、UR-04 | UC-01-S02 | 9.2、10.1 | `test_modbus_matrix.py / test_grpc_updates_and_claims.py` | `system` | `contract` | `boundary` | 空请求、重复字段整批拒绝、租约冲突、混合合法/非法项、多寄存器完整性；验证相应协议／gRPC 对外结果及副作用 |
-| UR-01、UR-04 | UC-01-S03 | 9.2、10.1 | `test_modbus_matrix.py / test_grpc_updates_and_claims.py` | `system` | `reliability` | `failure` | 非法字段、混合成功失败、Server 停止、并发更新；验证相应协议／gRPC 对外结果及副作用 |
+| UR-01、UR-04 | UC-01-S02 | 9.2、10.1 | `test_modbus_matrix.py / test_grpc_updates_and_claims.py` | `system` | `contract` | `exception` | 空请求、重复字段整批拒绝、租约冲突、混合合法/非法项、多寄存器完整性；验证相应协议／gRPC 对外结果及副作用 |
+| UR-01、UR-04 | UC-01-S03 | 9.2、10.1 | `test_modbus_matrix.py / test_grpc_updates_and_claims.py` | `system` | `reliability` | `exception` | 非法字段、混合成功失败、Server 停止、并发更新；验证相应协议／gRPC 对外结果及副作用 |
 | UR-02 | UC-02-S01 | 9.2、10.1 | `test_modbus_matrix.py / test_grpc_updates_and_claims.py` | `system` | `contract` | `normal` | 真实工业客户端建连、读取、写入并获得标准响应；验证相应协议／gRPC 对外结果及副作用 |
-| UR-02 | UC-02-S02 | 9.2、10.1 | `test_modbus_matrix.py / test_grpc_updates_and_claims.py` | `system` | `contract` | `boundary` | 不同站号、地址边界、数据类型、无映射普通写入；协议支持时的主动上送；验证相应协议／gRPC 对外结果及副作用 |
-| UR-02 | UC-02-S03 | 9.2、10.1 | `test_modbus_matrix.py / test_grpc_updates_and_claims.py` | `system` | `reliability` | `failure` | 非法功能码、客户端断连、数据失效、上送中断与恢复；验证相应协议／gRPC 对外结果及副作用 |
+| UR-02 | UC-02-S02 | 9.2、10.1 | `test_modbus_matrix.py / test_grpc_updates_and_claims.py` | `system` | `contract` | `exception` | 不同站号、地址边界、数据类型、无映射普通写入；协议支持时的主动上送；验证相应协议／gRPC 对外结果及副作用 |
+| UR-02 | UC-02-S03 | 9.2、10.1 | `test_modbus_matrix.py / test_grpc_updates_and_claims.py` | `system` | `reliability` | `exception` | 非法功能码、客户端断连、数据失效、上送中断与恢复；验证相应协议／gRPC 对外结果及副作用 |
 | UR-02、UR-03 | UC-03-S01 | 9.3、10.2 | `test_command_outcomes.py / test_modbus_matrix.py` | `system` | `safety` | `normal` | 真实客户端对映射指令写入，写入事件捕获并提交 Commander 一次；验证相应协议／gRPC 对外结果及副作用 |
-| UR-02、UR-03 | UC-03-S02 | 9.3、10.2 | `test_command_outcomes.py / test_modbus_matrix.py` | `system` | `safety` | `boundary` | 同值连续两次、无映射、FC15/FC16 跨多个控制点逐点转发（非原子）、并发及旧映射版本的在途事件；验证相应协议／gRPC 对外结果及副作用 |
-| UR-02、UR-03 | UC-03-S03 | 9.3、10.2 | `test_command_outcomes.py / test_modbus_matrix.py` | `system` | `reliability` | `failure` | 事件通道拥塞、Commander 失联/拒绝/UNKNOWN、ACK 后崩溃丢失风险；验证相应协议／gRPC 对外结果及副作用 |
+| UR-02、UR-03 | UC-03-S02 | 9.3、10.2 | `test_command_outcomes.py / test_modbus_matrix.py` | `system` | `safety` | `exception` | 同值连续两次、无映射、FC15/FC16 跨多个控制点逐点转发（非原子）、并发及旧映射版本的在途事件；验证相应协议／gRPC 对外结果及副作用 |
+| UR-02、UR-03 | UC-03-S03 | 9.3、10.2 | `test_command_outcomes.py / test_modbus_matrix.py` | `system` | `reliability` | `exception` | 事件通道拥塞、Commander 失联/拒绝/UNKNOWN、ACK 后崩溃丢失风险；验证相应协议／gRPC 对外结果及副作用 |
 | UR-04 | UC-04-S01 | 9.1、13 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `contract` | `normal` | 查询实例、Endpoint、变量列表和当前变量值；验证相应协议／gRPC 对外结果及副作用 |
-| UR-04 | UC-04-S02 | 9.1、13 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `contract` | `boundary` | 空列表、批量变量与质量/时间、未初始化值、分页；验证相应协议／gRPC 对外结果及副作用 |
-| UR-04 | UC-04-S03 | 9.1、13 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `reliability` | `failure` | 对象缺失、未就绪、访问拒绝、部分失败；验证相应协议／gRPC 对外结果及副作用 |
+| UR-04 | UC-04-S02 | 9.1、13 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `contract` | `exception` | 空列表、批量变量与质量/时间、未初始化值、分页；验证相应协议／gRPC 对外结果及副作用 |
+| UR-04 | UC-04-S03 | 9.1、13 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `reliability` | `exception` | 对象缺失、未就绪、访问拒绝、部分失败；验证相应协议／gRPC 对外结果及副作用 |
 | UR-04、UR-05 | UC-05-S01 | 11.2～11.3 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `contract` | `normal` | Get、Push、Apply 完整配置；验证运行结果；验证相应协议／gRPC 对外结果及副作用 |
-| UR-04、UR-05 | UC-05-S02 | 11.2～11.3 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `contract` | `boundary` | 自定义实例文件名、Template 根目录及间接版本引用、无请求级写回调的协议、Endpoint 变化及候选隔离；验证相应协议／gRPC 对外结果及副作用 |
-| UR-04、UR-05 | UC-05-S03 | 11.2～11.3 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `reliability` | `failure` | 缺失或错误 `config_sources` 路径、模板引用失败、不允许默认回退、磁盘故障、热更部分失败、在途事件持有旧映射快照；验证相应协议／gRPC 对外结果及副作用 |
+| UR-04、UR-05 | UC-05-S02 | 11.2～11.3 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `contract` | `exception` | 自定义实例文件名、Template 根目录及间接版本引用、无请求级写回调的协议、Endpoint 变化及候选隔离；验证相应协议／gRPC 对外结果及副作用 |
+| UR-04、UR-05 | UC-05-S03 | 11.2～11.3 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `reliability` | `exception` | 缺失或错误 `config_sources` 路径、模板引用失败、不允许默认回退、磁盘故障、热更部分失败、在途事件持有旧映射快照；验证相应协议／gRPC 对外结果及副作用 |
 | UR-04、UR-06 | UC-06-S01 | 13.1 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `safety` | `normal` | 分阶段诊断数据注入、协议服务、控制映射可达性；验证相应协议／gRPC 对外结果及副作用 |
-| UR-04、UR-06 | UC-06-S02 | 13.1 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `safety` | `boundary` | 仅部分阶段可诊断、无有效历史证据、检查范围为空；验证相应协议／gRPC 对外结果及副作用 |
-| UR-04、UR-06 | UC-06-S03 | 13.1 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `safety` | `failure` | 阶段超时、权限拒绝、Endpoint 中断、Commander 不可达；验证相应协议／gRPC 对外结果及副作用 |
+| UR-04、UR-06 | UC-06-S02 | 13.1 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `safety` | `exception` | 仅部分阶段可诊断、无有效历史证据、检查范围为空；验证相应协议／gRPC 对外结果及副作用 |
+| UR-04、UR-06 | UC-06-S03 | 13.1 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `safety` | `exception` | 阶段超时、权限拒绝、Endpoint 中断、Commander 不可达；验证相应协议／gRPC 对外结果及副作用 |
 | UR-04、UR-07 | UC-07-S01 | 13.1 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `observability` | `normal` | 查询瞬时量、累计量、窗口指标及其采样时间；验证相应协议／gRPC 对外结果及副作用 |
-| UR-04、UR-07 | UC-07-S02 | 13.1 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `observability` | `boundary` | 空统计窗口、分页/容量上限、重启导致计数重置；验证相应协议／gRPC 对外结果及副作用 |
-| UR-04、UR-07 | UC-07-S03 | 13.1 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `observability` | `failure` | 统计采集失败、窗口非法、无权限、连接断开；验证相应协议／gRPC 对外结果及副作用 |
+| UR-04、UR-07 | UC-07-S02 | 13.1 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `observability` | `exception` | 空统计窗口、分页/容量上限、重启导致计数重置；验证相应协议／gRPC 对外结果及副作用 |
+| UR-04、UR-07 | UC-07-S03 | 13.1 | `test_grpc_gateways.py / test_config_snapshots.py` | `system` | `observability` | `exception` | 统计采集失败、窗口非法、无权限、连接断开；验证相应协议／gRPC 对外结果及副作用 |
 | UR-02、UR-03、UR-05 | UC-08-S01 | 6.2、10.2、12 | `test_process_lifecycle.py / test_watchdog_recovery.py` | `system` | `contract` | `normal` | 正常启动、就绪、停止及重启；验证相应协议／gRPC 对外结果及副作用 |
-| UR-02、UR-03、UR-05 | UC-08-S02 | 6.2、10.2、12 | `test_process_lifecycle.py / test_watchdog_recovery.py` | `system` | `contract` | `boundary` | 多 Server 实例、部分 Endpoint 故障、在途事件持有旧映射；验证相应协议／gRPC 对外结果及副作用 |
-| UR-02、UR-03、UR-05 | UC-08-S03 | 6.2、10.2、12 | `test_process_lifecycle.py / test_watchdog_recovery.py` | `system` | `reliability` | `failure` | 监听失败、端口冲突、异常退出及转发丢失边界、UNKNOWN 防重发；验证相应协议／gRPC 对外结果及副作用 |
+| UR-02、UR-03、UR-05 | UC-08-S02 | 6.2、10.2、12 | `test_process_lifecycle.py / test_watchdog_recovery.py` | `system` | `contract` | `exception` | 多 Server 实例、部分 Endpoint 故障、在途事件持有旧映射；验证相应协议／gRPC 对外结果及副作用 |
+| UR-02、UR-03、UR-05 | UC-08-S03 | 6.2、10.2、12 | `test_process_lifecycle.py / test_watchdog_recovery.py` | `system` | `reliability` | `exception` | 监听失败、端口冲突、异常退出及转发丢失边界、UNKNOWN 防重发；验证相应协议／gRPC 对外结果及副作用 |
 
 执行环境需包含独立 Gateway 进程、真实 Modbus Protocol Server 与协议客户端、真实 gRPC 通信链路；Commander 对端使用隔离受控服务，不得向生产 PLC 发送测试控制。IEC104 为独立扩展，只有进入实现验收范围后才开展完整主动上送 System Test；未实施时标记 `NOT_RUN`，不得宣称已支持。所有测试结果按真实执行证据记录，不得把场景映射等同通过。
 
