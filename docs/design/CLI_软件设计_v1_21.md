@@ -2590,8 +2590,6 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | UR-07、UR-11 | UC-16-S01 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s01` | `system` | `contract` | `normal` | 指标、事件及发布状态；断言五服务指标窗口、事件字段可查；发布状态单独可查 |
 | UR-07、UR-11 | UC-16-S02 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s02` | `system` | `contract` | `boundary` | 时间窗口、分页；断言窗口分页有界，空结果合法且不伪造记录 |
 | UR-07、UR-11 | UC-16-S03 | 9.2；10 | `test_observability_e2e.py` / `test_uc_16_s03` | `system` | `reliability` | `failure` | 空结果、拒绝、断连；断言未授权退出2；断连退出3；局部失败可定位 |
-
-
 | UR-09 | UC-14-S03 | 9.6；10.6 | `test_commander_e2e.py` / `test_reused_request_id_requires_explicit_expiry` | `system` | `safety` | `boundary` | 带 `--request-id` 而无 `--expires-at` 时退出码 2、零 SubmitCommand RPC；有原始截止时间时同 ID 同内容不重复执行 |
 | UR-09 | UC-10-S02 | 9.3、9.6；10.7 | `test_gateway_e2e.py` / `test_lease_ms_range_and_token` | `system` | `security` | `boundary` | 超出 1000～60000 ms 的租期 CLI 本地拒绝；有效租期先 ClaimTargets，再有令牌 UpdateVariables |
 
