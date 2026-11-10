@@ -123,7 +123,10 @@ class Runtime:
             return
         generation = self.generations[self._active]
         if self._blocked(generation):
-            generation.actual_state = "STOPPING"
+            # A failed source remains FAILED while its Gateway ownership stays reserved.
+            generation.actual_state = (
+                "FAILED" if generation.terminal_state == "FAILED" else "STOPPING"
+            )
             if not generation.last_error:
                 generation.last_error = "UNSETTLED_GATEWAY_OUTPUT"
             return
@@ -304,7 +307,10 @@ class Runtime:
                 # The current task is not yet done while executing finally;
                 # its done-callback will make the reservation reapable later.
                 if self._blocked(generation):
-                    generation.actual_state = "STOPPING"
+                    # Keep failure visible without releasing an unsettled target claim.
+                    generation.actual_state = (
+                        "FAILED" if generation.terminal_state == "FAILED" else "STOPPING"
+                    )
                     if not generation.last_error:
                         generation.last_error = "UNSETTLED_GATEWAY_OUTPUT"
                 elif generation.desired_state == "STOPPED":
