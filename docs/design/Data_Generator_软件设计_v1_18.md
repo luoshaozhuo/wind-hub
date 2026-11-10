@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_17 · 20261103</p>
+<p class="subtitle">v1_18 · 20261103</p>
 
 <style>
 body {
@@ -1979,7 +1979,7 @@ flowchart LR
 5. 配置 `file_commit` 与 `apply_results` 分别表示正式文件提交与运行生效情况；Apply 返回成功不能隐瞒部分运行对象未生效。
 6. 本章方法清单对应 §3.5、§4.8、§5、§6、§7、§11、§12、§13、§14，任何 Proto 变更须同步重新生成 Descriptor 覆盖矩阵和 System 追溯。
 
-## 9.4 冻结基础与批量注入协作（规范性）
+## 9.5 冻结基础与批量注入协作（规范性）
 
 正式接口以 Contracts v1_18 为准：DataGeneratorService 6 个 Unary RPC 加 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`，此前以旧 main SHA 说明契约的文字只作为历史，不再具有规范性。生产生成任务先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
 
