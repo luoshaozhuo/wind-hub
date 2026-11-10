@@ -2346,18 +2346,18 @@ pytest tests/src/data_generator/system -m 'system and reliability'
 | UR-01、03 | UC-01-S01 正常随机生成  | 5、10 | `test_simulation_system.py::test_random_generation` | system/reliability/end_to_end | 独立进程持续生成并写入 Gateway | 真实 Gateway |
 | UR-01 | UC-01-S02 静态模型、边界  | 10 | `test_simulation_system.py::test_static_physics` | system/reliability/end_to_end | 公式/插值结果与读回一致 | 真实 Gateway |
 | UR-01 | UC-01-S03 坏模型/计算失败  | 6、10 | `test_simulation_system.py::test_invalid_model_and_runtime_failure` | system/reliability/fault_injection | 启动拒绝或任务失败，不发送非法点 | 独立进程 |
-| UR-01 | UC-01-S04 周期超限/安全停止  | 6 | `test_simulation_system.py::test_overrun_and_stop` | system/performance/overload | 不重入；退出后无额外输出 | 独立进程 |
+| UR-01 | UC-01-S02 周期超限/安全停止  | 6 | `test_simulation_system.py::test_overrun_and_stop` | system/performance/overload | 不重入；退出后无额外输出 | 独立进程 |
 | UR-02、03 | UC-02-S01 正常重放/倍率  | 6、10 | `test_replay_system.py::test_replay_1x_2x_order` | system/reliability/end_to_end | 源时间与墙钟倍率、顺序正确 | 真实历史源/Gateway |
 | UR-02 | UC-02-S02 同时间戳/空范围  | 10 | `test_replay_system.py::test_equal_timestamps_and_empty_range` | system/reliability/time_order | 稳定排序，空范围不伪造数据 | 真实历史源 |
 | UR-02 | UC-02-S03 中途读取失败  | 6、10 | `test_replay_system.py::test_source_failure` | system/reliability/fault_injection | 终止并保留已确认位置 | 真实历史源 |
-| UR-02 | UC-02-S04 停止及重启  | 6、10 | `test_replay_system.py::test_stop_restart_boundary` | system/reliability/restart | 不声称断点恢复或 exactly-once | 真实历史源/Gateway |
+| UR-02 | UC-02-S03 停止及重启  | 6、10 | `test_replay_system.py::test_stop_restart_boundary` | system/reliability/restart | 不声称断点恢复或 exactly-once | 真实历史源/Gateway |
 | UR-03 | UC-03-S01 Gateway 正常映射  | 9 | `test_simulation_system.py::test_gateway_feedback` | system/reliability/end_to_end | 仅合法 feedback 映射数据写入 | 真实 Gateway |
 | UR-03 | UC-03-S02 错误映射/编码  | 9 | `test_simulation_system.py::test_bad_gateway_mapping` | system/safety/invalid_data | 不向错误点写入 | 真实 Gateway |
 | UR-03 | UC-03-S03 断线/未知结果  | 6、9 | `test_lifecycle_system.py::test_gateway_timeout_unknown` | system/reliability/network_failure | 超时不谎报未送达，不盲重试 | 可注入断线的真实 Gateway |
-| UR-03 | UC-03-S04 恢复重连/背压  | 6 | `test_lifecycle_system.py::test_gateway_recovery_backpressure` | system/performance/overload | 有界积压、恢复行为明确 | 真实 Gateway |
-| UR-03 | UC-03-S05 一源多 Gateway 及一源多目标变量 | 3.4、5、9、11 | `test_simulation_system.py::test_fanout_multiple_gateways_and_variables` | system/reliability/end_to_end | 同一源点更新 A/B Gateway 及 A 内两个不同变量；展开映射中每个目标键仅出现一次，逐目标读回一致 | 真实双 Gateway |
-| UR-03 | UC-03-S06 跨实例目标冲突 | 9、11 | `test_simulation_system.py::test_conflicting_target_ownership` | system/safety/conflict | 不同活动实例争用同一 gateway_id/variable_id 时拒绝第二实例或配置应用 | 真实双实例/Gateway |
-| UR-03 | UC-03-S07 单场景重复输出目标 | 3.4、5.3、11.4 | `test_simulation_system.py::test_duplicate_target_mapping_rejected` | system/safety/conflict | 两个不同源点映射同一 `(gateway_id,variable_id)` 时 Push 拒绝，已生效配置不变 | 独立服务 |
+| UR-03 | UC-03-S03 恢复重连/背压  | 6 | `test_lifecycle_system.py::test_gateway_recovery_backpressure` | system/performance/overload | 有界积压、恢复行为明确 | 真实 Gateway |
+| UR-03 | UC-03-S01 一源多 Gateway 及一源多目标变量 | 3.4、5、9、11 | `test_simulation_system.py::test_fanout_multiple_gateways_and_variables` | system/reliability/end_to_end | 同一源点更新 A/B Gateway 及 A 内两个不同变量；展开映射中每个目标键仅出现一次，逐目标读回一致 | 真实双 Gateway |
+| UR-03 | UC-03-S02 跨实例目标冲突 | 9、11 | `test_simulation_system.py::test_conflicting_target_ownership` | system/safety/conflict | 不同活动实例争用同一 gateway_id/variable_id 时拒绝第二实例或配置应用 | 真实双实例/Gateway |
+| UR-03 | UC-03-S02 单场景重复输出目标 | 3.4、5.3、11.4 | `test_simulation_system.py::test_duplicate_target_mapping_rejected` | system/safety/conflict | 两个不同源点映射同一 `(gateway_id,variable_id)` 时 Push 拒绝，已生效配置不变 | 独立服务 |
 | UR-04、03 | UC-07-S02 并发启动目标原子占用 | 5.3、6.3、9.1 | `test_grpc_system.py::test_concurrent_start_atomic_target_reservation` | system/reliability/concurrency | 同一目标并发 StartGeneration 只能有一个成功；失败者不得留下部分 Device/目标占用 | 独立服务 |
 | UR-04、03 | UC-07-S03 停止时未收敛输出占用 | 5.3、6.3 | `test_grpc_system.py::test_stop_retains_target_until_io_settled` | system/safety/deadline | Stop 超时后另一 Generation 不能抢占，底层安全结束或可信隔离后方可取得目标 | 真实 Gateway 故障注入 |
 | UR-03 | UC-03-S03 单 Gateway 失败隔离及部分成功 | 6、9、12 | `test_lifecycle_system.py::test_gateway_fanout_partial_failure` | system/reliability/network_failure | A 超时/拒绝不回滚 B 已确认更新；逐点与逐目标指标准确 | 真实双 Gateway+故障注入 |
