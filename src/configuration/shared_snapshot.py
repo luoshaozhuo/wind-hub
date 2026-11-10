@@ -30,6 +30,7 @@ from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
 from .business_points import parse_business_points
+from .document_version import SourceIdentity
 from .shared_documents import SharedDocuments
 from .shared_point_tables import _point_tables
 from .units import parse_unit_catalog
@@ -48,6 +49,7 @@ class SharedDomainSnapshot:
     units: UnitCatalog
     business_points: Mapping[BusinessPointId, BusinessPoint]
     revision: str
+    source_manifest: tuple[SourceIdentity, ...] = ()
 
     def __post_init__(self) -> None:
         """Detach and freeze every public index of the typed snapshot."""
@@ -200,4 +202,5 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
         units=units,
         business_points=business_points,
         revision=documents.revision,
+        source_manifest=documents.source_manifest,
     )

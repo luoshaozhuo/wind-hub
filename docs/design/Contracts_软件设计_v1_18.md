@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_16 · 20261109 · main@3412c1a2（设计基线；Commander 新 RPC 独立验收）</p>
+<p class="subtitle">v1_18 · 20261110 · main@09796cd4（稳定线协议与 RPC 契约）</p>
 
 <style>
 body {
@@ -632,7 +632,7 @@ System Test 必须遵守以下规定：
 
 # 3. 范围、权威来源及接口总览
 
-本设计针对 `src/contracts/` 六份 `.proto` 文件的公开 wire 契约，不定义各服务内部业务实现，不单独部署服务进程。**当前核查基线为 GitHub `luoshaozhuo/wind-hub` 的 `main@3412c1a272871ea13388a46d21c0dc28c85567ac`；六份 Proto、`contracts.sample_batch.SampleBatch(schema_version=2)` 及 `contracts.scalar_codec` 均已在此主干存在。`main@cac23d84` 为 v1_6 编写时的历史审查基线，不再作为现行实施状态依据**；本设计是可审阅的中文说明，若出现字段偏差，必须修正文档，不得按文档另造并行 Proto。
+本设计针对 `src/contracts/` 六份 `.proto` 文件的公开 wire 契约，不定义各服务内部业务实现，不单独部署服务进程。**当前核查基线为 GitHub `luoshaozhuo/wind-hub` 的 `main@09796cd4e41cb5a7cadaa7478531ca72adc18538`；六份 Proto、`contracts.sample_batch.SampleBatch(schema_version=2)` 及 `contracts.scalar_codec` 均已在此主干存在。`main@cac23d84` 为 v1_6 编写时的历史审查基线，不再作为现行实施状态依据**；本设计是可审阅的中文说明，若出现字段偏差，必须修正文档，不得按文档另造并行 Proto。
 
 **边界声明**：Contracts 维护包名、RPC 签名、消息及字段编号、存在性和跨服务兼容约束；Collector、Commander、Sink Service、Industrial Gateway、Data Generator 各自实现 Server；CLI 以及 Data Generator 等调用方使用相应 Client。认证、业务校验、租约状态机、故障恢复及性能预算的具体规则由服务设计负责，Contracts 约束其对外表达方式。
 
@@ -1063,7 +1063,7 @@ flowchart LR
 | `GetCommandResultResponse` | `updated_at` (8) | `Timestamp` | 单值（消息字段有消息 presence） | 此命令状态/结果最近一次记录更新的时间 |
 | `GetCommandResultResponse` | `io_settled` (9) | `bool` | proto3 单值 | 底层 I/O 是否已安全收敛；不等于仅客户端已收到终态 |
 
-上一版当前 Proto 的 Commander 已发布消息为 10 种、字段 37 个；v1_11 目标新增消息及字段以 §6.5 为准，实施时必须同步更新 Descriptor 全量计数，不得将设计目标视为当前已发布 Proto。
+Commander 当前 Proto 包含 15 种消息、58 个字段，包含请求级幂等和批量提交接口；其字段与语义以 §6.5 和 §12 描述为准，并须持续对照 Descriptor、生成绑定及真实服务测试。
 
 ## 6.4 关键交互、失败及跨模块边界
 
@@ -1449,7 +1449,7 @@ Transport 层 `INVALID_ARGUMENT`、`NOT_FOUND`、`PERMISSION_DENIED`、`FAILED_P
 
 ## 10.6 NATS 双通道批量采样线协议（主干已发布，实链路验收独立裁定）
 
-本节是 Collector 与 Sink Service 之间的跨模块线协议。**当前 `main@14e3be66` 已包含 `contracts.sample_batch.SampleBatch(schema_version=2)`，旧 `src/contracts/sample_message.py` 不存在，正式契约为批量信封，不保留旧单点线协议作为兼容入口。**原 `main@cac23d84` 的 `SampleMessage(schema_version=1)` 属历史基线。已入主干不等于真实 Collector→NATS→Sink 联调、旧 Durable 迁移或持续 10 Hz 性能通过；本次修订未执行这些验收，需依据对应独立报告裁定。本协议不增加 gRPC RPC，六份 Proto 当前已发布为 43 个唯一 Unary；v1_8 新契约设计目标为 45 个。
+本节是 Collector 与 Sink Service 之间的跨模块线协议。**当前 `main@09796cd4` 包含 `contracts.sample_batch.SampleBatch(schema_version=2)`，旧 `src/contracts/sample_message.py` 不存在，正式契约为批量信封，不保留旧单点线协议作为兼容入口。**原 `main@cac23d84` 的 `SampleMessage(schema_version=1)` 属历史基线。已入主干不等于真实 Collector→NATS→Sink 联调、旧 Durable 迁移或持续 10 Hz 性能通过；本次修订未执行这些验收，需依据对应独立报告裁定。本批量采样线协议不增加 gRPC RPC；六份 Proto 当前已发布 45 个唯一 Unary，其中 Commander 7 个。
 
 ### 10.6.1 结构与身份
 
@@ -1571,7 +1571,7 @@ Contracts 是 **wire schema 和 RPC 消息**的唯一权威，不导入 Core 或
 
 ## 11.5 覆盖判定与验收证据
 
-至少分别报告：6/6 Proto 文件、45/45 目标唯一 RPC（目前已发布 43/43，新增 2 个在实施后单独验证）、消息类型与字段的 Descriptor 全量对比结果，以及各模块实际运行的集成/系统用例与未执行项。逐字段检查必须校验**消息全限定名、字段名、字段号、类型、label/presence、oneof、引用消息/枚举类型**；不得仅比较名称和数量。对于当前 `.proto` 未定义的业务状态可用值，不应通过测试强行补造不存在的 enum。
+至少分别报告：6/6 Proto 文件、45/45 目标唯一 RPC（当前已发布 45/45，变更前后持续对照）、消息类型与字段的 Descriptor 全量对比结果，以及各模块实际运行的集成/系统用例与未执行项。逐字段检查必须校验**消息全限定名、字段名、字段号、类型、label/presence、oneof、引用消息/枚举类型**；不得仅比较名称和数量。对于当前 `.proto` 未定义的业务状态可用值，不应通过测试强行补造不存在的 enum。
 
 验收报告须标识源 commit、测试代码版本、工具版本、执行命令、测试环境、PASS/FAIL/SKIP/NOT_RUN 数量和未解决问题。真实服务系统用例缺失时，Contracts 静态验证可通过，但不得宣称全部业务接口端到端验收通过。
 
@@ -1583,7 +1583,7 @@ Contracts 文档验收不等于真实代码测试通过。提交前执行项目�
 
 ## 12.1 Commander 目标 Proto 与验收矩阵
 
-**协议裁决：** `commander.proto` 同一 package `windhub.commander.v1` 增加 `SubmitCommands(SubmitCommandsRequest)->SubmitCommandsResponse`、`GetRequestResult(GetRequestResultRequest)->GetRequestResultResponse` 两个 Unary RPC。原五个方法及字段号不改，`SubmitCommandRequest.request_id=6`、`SubmitCommandResponse.request_id=7` 新增业务必填/回显。`CommandItem`、`SubmitCommandsRequest/Response`、`GetRequestResultRequest/Response` 共五种新增消息（§6.5 定义），并显式使用已导入的 `google.protobuf.Timestamp`、`common.ScalarValue`。原 10 种 Commander 消息 + 新增 5 种 = **15 种消息**；原 37 字段 + 单点 2 字段 + 新五种消息 19 字段 = **58 字段**。总接口目标 **45 RPC**，其中 Commander 7，其他模块专属和 Common 共 38。上述数字属于设计验收目标，必须同时对 `.proto`、运行时 Descriptor、gRPC Stub、Servicer 注册和类型绑定核验；只核查 `.proto` 不能判为通过。
+**协议裁决：** `commander.proto` 同一 package `windhub.commander.v1` 增加 `SubmitCommands(SubmitCommandsRequest)->SubmitCommandsResponse`、`GetRequestResult(GetRequestResultRequest)->GetRequestResultResponse` 两个 Unary RPC。原五个方法及字段号不改，`SubmitCommandRequest.request_id=6`、`SubmitCommandResponse.request_id=7` 新增业务必填/回显。`CommandItem`、`SubmitCommandsRequest/Response`、`GetRequestResultRequest/Response` 共五种新增消息（§6.5 定义），并显式使用已导入的 `google.protobuf.Timestamp`、`common.ScalarValue`。原 10 种 Commander 消息 + 新增 5 种 = **15 种消息**；原 37 字段 + 单点 2 字段 + 新五种消息 19 字段 = **58 字段**。稳定接口共 **45 RPC**，其中 Commander 7，其他模块专属和 Common 共 38。上述数量是当前发布契约，修改前后必须同时对 `.proto`、运行时 Descriptor、gRPC Stub、Servicer 注册和类型绑定核验；只核查 `.proto` 不能判为通过。
 
 **请求级结果身份：** 一次单点 SubmitCommand 与一次 SubmitCommands 都在 caller+Commander 实例作用域内以客户端提供的 request_id 标识。request_id 一旦受理并返回 accepted，就将其规范指纹、全部 command_id 与创建时状态持久存储；同 ID/同内容的重复提交不重新执行，异内容拒绝。保留期内调用方按原 ID 查询，过期只返回 NOT_FOUND，不承诺无限期永久去重；客户端不能因为 NOT_FOUND 自动创建新 ID 重发可能执行过的动作。Caller 作用域必须由认证身份得出，不接受调用方自报身份代替鉴权。
 
@@ -1599,13 +1599,15 @@ Contracts 文档验收不等于真实代码测试通过。提交前执行项目�
 | 受理事务与断联 | system/reliability | accepted 前身份及子命令 ID 已可恢复；响应丢失、崩溃后按 request_id 查询，不再次写入现场 |
 | 全调用方升级 | system/contract | Commander、Gateway、CLI、Web Server 及其他正式控制客户端都须送稳定 ID；无业务伪兼容或私有请求状态机 |
 
-**门禁：**六份 Proto 的 Descriptor 需达到目标 45/45，旧包名、字段号、类型不能漂移；所有新增 RPC 均有正常、拒绝、超时、权限、部分成功、UNKNOWN、跨重启与并发的可追溯场景。新增接口尚未编码时整项标 NOT_RUN，不得以旧 43/43 的静态符合性代替新版验收。测试目标目录 `tests/src/contracts/` 及业务 `tests/src/commander/`，每个场景保留源需求与 UC 编号。
+**门禁：**六份 Proto 的 Descriptor 需达到目标 45/45，旧包名、字段号、类型不能漂移；所有新增 RPC 均有正常、拒绝、超时、权限、部分成功、UNKNOWN、跨重启与并发的可追溯场景。上述接口已进入当前版本；新实现变更不得以 Proto 单独修改或仅静态满足 45/45 代替服务真实回归。测试目标目录 `tests/src/contracts/` 及业务 `tests/src/commander/`，每个场景保留源需求与 UC 编号。
 
 **职责边界：**Configuration 仅负责共享配置；Commander 负责现场控制状态、幂等与审计；Core 的 `WRITE_MANY` 不改变批次受理及逐点结果语义。
 
 
 
-## 12.2 命令请求状态、错误与查询契约\n\n**生成物一致性门禁：** `scripts/generate_rpc.py` 为六份 Proto 的统一生成入口，应同时产出 `*_pb2.py`、`*_pb2_grpc.py`、`*_pb2.pyi`、`*_pb2_grpc.pyi`；生成物与源 Proto 同提交，禁止手工编辑生成文件或仅提交接口源文件。新 `request_id` 业务必填并非 proto3 标量 presence，需由 Commander 的请求校验明确拒绝空串。生成后由 Commander 服务端实现新 Unary 方法，并使 CLI 及所有真实控制调用方携带预存的 ID；这些实现约束不属于 Core/configuration。\n
+## 12.2 命令请求状态、错误与查询契约
+
+**生成物一致性门禁：** `scripts/generate_rpc.py` 为六份 Proto 的统一生成入口，应同时产出 `*_pb2.py`、`*_pb2_grpc.py`、`*_pb2.pyi`、`*_pb2_grpc.pyi`；生成物与源 Proto 同提交，禁止手工编辑生成文件或仅提交接口源文件。新 `request_id` 业务必填并非 proto3 标量 presence，需由 Commander 的请求校验明确拒绝空串。生成后由 Commander 服务端实现新 Unary 方法，并使 CLI 及所有真实控制调用方携带预存的 ID；这些实现约束不属于 Core/configuration。\n
 
 目标仍为 45 个唯一 Unary RPC，Commander 专属 7；Commander 15 种消息、58 字段。`6.5` 的字段号、值类型和排序为规范性依据，旧五 RPC 的签名/字段不可删除或重编号；单点请求新增 `request_id=6`、响应新增 `request_id=7`。新客户端在请求发出前生成并保存该 ID。
 

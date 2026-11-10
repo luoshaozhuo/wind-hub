@@ -36,7 +36,12 @@ CONFIG = Path(__file__).resolve().parents[3] / "configs"
 
 def _device() -> tuple[Device, PointTable]:
     shared = SharedDocumentLoader(
-        SharedConfigPaths(CONFIG / "instances", CONFIG / "templates")
+        SharedConfigPaths(
+            CONFIG / "instances",
+            CONFIG / "templates",
+            site_file=CONFIG / "instances" / "site.yaml",
+            devices_file=CONFIG / "instances" / "devices.yaml",
+        )
     ).load()
     snapshot = build_shared_snapshot(shared)
     device = next(iter(snapshot.site.devices.values()))

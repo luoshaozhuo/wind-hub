@@ -286,3 +286,77 @@ async def test_healthy_probe_resets_consecutive_failure_evidence() -> None:
     assert endpoint.connect_count == 0
     await watchdog.check_once()
     assert endpoint.connect_count == 1
+
+
+@pytest.mark.asyncio
+async def test_st23_failed_reconnect_uses_bounded_exponential_backoff() -> None:
+    """Core v1_31 ST-23：重连失败按 2/4/8/16 × interval 有界指数退避。"""
+    endpoint = _Endpoint()
+    endpoint.healthy = False
+    endpoint.connect_error = RuntimeError("connect refused")
+    interval = 0.5
+    watchdog = _watchdog(endpoint, interval=interval)
+    loop = asyncio.get_running_loop()
+
+    await watchdog.check_once()  # 第一次失败：仅累计，不重连
+    with pytest.raises(RuntimeError):
+        await watchdog.check_once()  # 第二次失败：首次重连尝试即失败
+
+    schedule: list[tuple[int, float]] = []
+    for _expected_level in (1, 2, 3, 4, 4):
+        schedule.append((watchdog._retry_level, watchdog._next_reconnect_at - loop.time()))
+        # 白盒推进退避窗口到期，触发下一次重连尝试。
+        watchdog._next_reconnect_at = 0.0
+        with pytest.raises(RuntimeError):
+            await watchdog.check_once()
+
+    observed_levels = [level for level, _delay in schedule]
+    assert observed_levels == [1, 2, 3, 4, 4]  # 退避等级封顶在 4（16 倍）
+    for (_level, delay), multiplier in zip(schedule, (2, 4, 8, 16, 16), strict=True):
+        assert abs(delay - interval * multiplier) < 0.05
+
+
+@pytest.mark.asyncio
+async def test_st23_reconnect_skipped_inside_backoff_window() -> None:
+    """ST-23：退避窗口未到期时，即使连续失败也不得再次发起重连。"""
+    endpoint = _Endpoint()
+    endpoint.healthy = False
+    endpoint.connect_error = RuntimeError("connect refused")
+    watchdog = _watchdog(endpoint, interval=1.0)
+
+    await watchdog.check_once()
+    with pytest.raises(RuntimeError):
+        await watchdog.check_once()
+    assert endpoint.connect_count == 1
+
+    # 不退让退避窗口：后续检查直接返回不健康，重连尝试次数保持不变。
+    for _ in range(3):
+        result = await watchdog.check_once()
+        assert not result.healthy
+    assert endpoint.connect_count == 1
+
+
+@pytest.mark.asyncio
+async def test_st23_healthy_probe_clears_backoff_schedule() -> None:
+    """ST-23：任一次健康检查成功即清零失败计数与退避等级。"""
+    endpoint = _Endpoint()
+    endpoint.healthy = False
+    endpoint.connect_error = RuntimeError("connect refused")
+    watchdog = _watchdog(endpoint, interval=0.25)
+
+    await watchdog.check_once()
+    with pytest.raises(RuntimeError):
+        await watchdog.check_once()
+    assert watchdog._retry_level == 1
+    assert watchdog._next_reconnect_at > 0.0
+
+    endpoint.healthy = True
+    endpoint.connect_error = None
+    await watchdog.check_once()
+    assert watchdog._retry_level == 0
+    assert watchdog._next_reconnect_at == 0.0
+
+    # 重新进入故障态：失败计数重新从 0 计起，单次失败不触发重连。
+    endpoint.healthy = False
+    await watchdog.check_once()
+    assert endpoint.connect_count == 1

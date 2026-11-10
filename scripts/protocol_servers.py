@@ -458,7 +458,12 @@ async def run_fleet(
     snapshot = (
         build_shared_snapshot(
             SharedDocumentLoader(
-                SharedConfigPaths(instances=root / "instances", templates=root / "templates")
+                SharedConfigPaths(
+                    instances=root / "instances",
+                    templates=root / "templates",
+                    site_file=root / "instances" / "site.yaml",
+                    devices_file=root / "instances" / "devices.yaml",
+                )
             ).load()
         )
         if (root / "instances").is_dir() and (root / "templates").is_dir()
@@ -557,7 +562,12 @@ async def main(argv: Sequence[str] | None = None) -> int:
     snapshot = (
         build_shared_snapshot(
             SharedDocumentLoader(
-                SharedConfigPaths(instances=root / "instances", templates=root / "templates")
+                SharedConfigPaths(
+                    instances=root / "instances",
+                    templates=root / "templates",
+                    site_file=root / "instances" / "site.yaml",
+                    devices_file=root / "instances" / "devices.yaml",
+                )
             ).load()
         )
         if (root / "instances").is_dir() and (root / "templates").is_dir()

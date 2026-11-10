@@ -290,6 +290,8 @@ class CollectorSnapshotRepository:
             service=root / "services" / "collector.yaml",
             instances=root / "instances",
             templates=root / "templates",
+            site=root / "instances" / "site.yaml",
+            devices=root / "instances" / "devices.yaml",
         )
 
     def stage(

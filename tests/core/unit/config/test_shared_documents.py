@@ -16,13 +16,17 @@ from core.application.errors import ConfigError
 _CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 
 
-def test_shared_loader_resolves_devices_without_service_config() -> None:
-    loader = SharedDocumentLoader(
-        SharedConfigPaths(
-            instances=_CONFIGS / "instances",
-            templates=_CONFIGS / "templates",
-        )
+def _paths() -> SharedConfigPaths:
+    return SharedConfigPaths(
+        instances=_CONFIGS / "instances",
+        templates=_CONFIGS / "templates",
+        site_file=_CONFIGS / "instances" / "site.yaml",
+        devices_file=_CONFIGS / "instances" / "devices.yaml",
     )
+
+
+def test_shared_loader_resolves_devices_without_service_config() -> None:
+    loader = SharedDocumentLoader(_paths())
 
     documents = loader.load()
 
@@ -35,15 +39,40 @@ def test_shared_loader_resolves_devices_without_service_config() -> None:
     assert len(documents.revision) == 64
 
 
-def test_shared_loader_requires_instances(tmp_path: Path) -> None:
+def test_shared_loader_requires_explicit_devices_and_site_files(tmp_path: Path) -> None:
+    # S2-10：load() 不再回退隐式默认路径，缺显式 devices_file/site_file 必须拒绝。
     loader = SharedDocumentLoader(
-        SharedConfigPaths(
-            instances=tmp_path,
-            templates=_CONFIGS / "templates",
-        )
+        SharedConfigPaths(instances=tmp_path, templates=_CONFIGS / "templates")
     )
-    with pytest.raises(ConfigError, match="NOT_FOUND"):
+    with pytest.raises(ConfigError, match="devices_file must be provided explicitly"):
         loader.load()
+
+    site_only = SharedConfigPaths(
+        instances=tmp_path,
+        templates=_CONFIGS / "templates",
+        site_file=tmp_path / "site.yaml",
+    )
+    with pytest.raises(ConfigError, match="devices_file must be provided explicitly"):
+        SharedDocumentLoader(site_only).load()
+
+    with pytest.raises(ConfigError, match="site_file must be provided when load_site=True"):
+        SharedDocumentLoader(
+            SharedConfigPaths(
+                instances=tmp_path,
+                templates=_CONFIGS / "templates",
+                devices_file=tmp_path / "devices.yaml",
+            )
+        ).load()
+
+    # 显式给出但文件不存在时，仍按 REFERENCE_NOT_FOUND 分类而非静默回退。
+    missing = SharedConfigPaths(
+        instances=tmp_path,
+        templates=_CONFIGS / "templates",
+        load_site=False,
+        devices_file=tmp_path / "missing-devices.yaml",
+    )
+    with pytest.raises(ConfigError, match="REFERENCE_NOT_FOUND"):
+        SharedDocumentLoader(missing).load()
 
 
 def test_shared_loader_rejects_invalid_file_version(tmp_path: Path) -> None:
@@ -55,7 +84,12 @@ def test_shared_loader_rejects_invalid_file_version(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     loader = SharedDocumentLoader(
-        SharedConfigPaths(instances=instances, templates=_CONFIGS / "templates")
+        SharedConfigPaths(
+            instances=instances,
+            templates=_CONFIGS / "templates",
+            site_file=site,
+            devices_file=instances / "devices.yaml",
+        )
     )
     with pytest.raises(ConfigError, match="file_version"):
         loader.load()

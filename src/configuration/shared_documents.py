@@ -5,7 +5,7 @@ from __future__ import annotations
 import fcntl
 import os
 from collections.abc import Callable, Collection, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -13,9 +13,10 @@ from typing import Any
 from core.application.errors import ConfigError
 
 from .business_points import parse_business_points
-from .document_version import read_stable_document
+from .document_version import SourceIdentity, read_stable_document, verify_shared_source_closure
 from .immutable import freeze_document
 from .template_graph import DeviceTemplates, resolve_device_templates
+from .transaction import COMMIT_MARKER
 from .units import parse_unit_catalog
 from .versioned_templates import (
     TemplateRef,
@@ -56,6 +57,7 @@ class SharedDocuments:
     business_points: Mapping[str, Any]
     revision: str
     devices_file_version: str
+    source_manifest: tuple[SourceIdentity, ...] = ()
 
     def __post_init__(self) -> None:
         """Detach public indexes from loader-owned mutable dictionaries."""
@@ -116,28 +118,51 @@ class SharedDocumentLoader:
 
     def _with_shared_lock(self, read: Callable[[], SharedDocuments]) -> SharedDocuments:
         """Hold a cooperative shared lock for one complete document read."""
-        directory = self._paths.coordination_root or self._paths.templates.parent.parent
+        directory = (
+            self._paths.coordination_root
+            if self._paths.coordination_root is not None
+            else self._paths.templates.parent
+        )
         descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
         try:
             fcntl.flock(descriptor, fcntl.LOCK_SH)
-            return read()
+            if (directory / COMMIT_MARKER).exists():
+                raise ConfigError(
+                    "SOURCE_CHANGED: shared configuration commit is interrupted; "
+                    "writer recovery required before loading"
+                )
+            with verify_shared_source_closure() as identities:
+                documents = read()
+            manifest: list[SourceIdentity] = []
+            for identity in identities.values():
+                try:
+                    logical = identity.path.relative_to(directory.absolute()).as_posix()
+                except ValueError as exc:
+                    raise ConfigError(
+                        "INVALID_PATH: shared source is outside coordination root: "
+                        f"{identity.path}"
+                    ) from exc
+                manifest.append(replace(identity, logical_key=logical))
+            return replace(
+                documents,
+                source_manifest=tuple(sorted(manifest, key=lambda identity: identity.logical_key)),
+            )
         finally:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
 
     def _load_locked(self) -> SharedDocuments:
         """Load the conventional site catalog for existing site-aware consumers."""
-        site_path = self._paths.site_file or self._paths.instances / "site.yaml"
-        devices_path = (
-            self._paths.devices_file
-            if self._paths.devices_file is not None
-            else self._paths.instances / "devices.yaml"
-        )
-        site = (
-            read_stable_document(site_path)
-            if self._paths.load_site
-            else {"site_id": "shared", "name": "Shared"}
-        )
+        devices_path = self._paths.devices_file
+        if devices_path is None:
+            raise ConfigError("devices_file must be provided explicitly for load()")
+        if self._paths.load_site:
+            site_path = self._paths.site_file
+            if site_path is None:
+                raise ConfigError("site_file must be provided when load_site=True")
+            site = read_stable_document(site_path)
+        else:
+            site = {"site_id": "shared", "name": "Shared"}
         return self._load_documents(site, devices_path)
 
     def _load_documents(

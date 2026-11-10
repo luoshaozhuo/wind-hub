@@ -1,6 +1,6 @@
 <h1 class="title">Configuration 软件设计</h1>
 
-<p class="subtitle">v1_6 · 20261109 · 基础设计职责提取</p>
+<p class="subtitle">v1_13 · 20261110 · 基础设计职责提取</p>
 
 <style>
 body {
@@ -747,7 +747,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-本模块是风电软件体系的 wind-hub **共享配置语义库**，以 Python 包 `src/configuration/` 被各业务模块显式使用；不启动独立进程、gRPC Server、数据库或后台服务。总体架构 v1_0、Core v1_28、Contracts v1_16 为上位约束。Core 仅处理通用 YAML、结构差异与通用领域原语，Configuration 承担 wind-hub 的 Instance、Template、版本引用和有效配置装配，业务服务保留服务配置及运行生效判定。对外业务 RPC 由各服务根据 Contracts 实现。
+本模块是风电软件体系的 wind-hub **共享配置语义库**，以 Python 包 `src/configuration/` 被各业务模块显式使用；不启动独立进程、gRPC Server、数据库或后台服务。总体架构 v1_0、Core v1_31、Contracts v1_18 为上位约束。Core 仅处理通用 YAML、结构差异与通用领域原语，Configuration 承担 wind-hub 的 Instance、Template、版本引用和有效配置装配，业务服务保留服务配置及运行生效判定。对外业务 RPC 由各服务根据 Contracts 实现。
 
 ## 3.1 原始需求及边界
 
@@ -781,7 +781,9 @@ flowchart TD
 
 `Service` 类型、所需直接文件种类由具体宿主定义，例如 Commander 需要设备实例与模板根；Data Generator 还需场景实例；Sink Service 的 Sink/Delivery 私有配置及模板由 Sink 自己校验。Configuration 不强制全部服务使用完全相同的直接文件集。路径解析与当前进程工作目录无关；禁止 `../`、硬编码固定目录和多级配置透传。
 
-**路径 API 边界。** `SharedConfigPaths` 的现有 Python 构造参数 `instances`、`templates`、`site_file`、`devices_file`、`coordination_root` 是已经解析后的文件系统路径，并不等于 Service YAML 中的 `config_sources` 字段形状。宿主必须先按本节校验根目录与相对引用，再构造 Loader 参数；不得误把两种接口的数据结构写成可直接互换。既有 Loader 的 site-aware 与 `load_devices()` 子集加载入口，均只能加载明确指定的设备及其精确版本闭包。\n\n## 3.3 UR-02 版本化引用
+**路径 API 边界。** `SharedConfigPaths` 的现有 Python 构造参数 `instances`、`templates`、`site_file`、`devices_file`、`coordination_root` 是已经解析后的文件系统路径，并不等于 Service YAML 中的 `config_sources` 字段形状。宿主必须先按本节校验根目录与相对引用，再构造 Loader 参数；不得误把两种接口的数据结构写成可直接互换。既有 Loader 的 site-aware 与 `load_devices()` 子集加载入口，均只能加载明确指定的设备及其精确版本闭包。
+
+## 3.3 UR-02 版本化引用
 
 ### 3.3.1 触发、流程与规则
 
@@ -942,7 +944,7 @@ config_sources:
 
 # 11. 一致性与变更管理
 
-修改共享路径结构、模板版本规则、领域字段或 Configuration 公开接口时必须审查全部调用方的加载、校验、故障处理及文档。更改某 Service 的私有 Schema 不强制改变公共层。当前设计冻结总体架构 v1_0、Core v1_28、Contracts v1_16 的职责关系，不额外创设公共 RPC。
+修改共享路径结构、模板版本规则、领域字段或 Configuration 公开接口时必须审查全部调用方的加载、校验、故障处理及文档。更改某 Service 的私有 Schema 不强制改变公共层。当前设计冻结总体架构 v1_0、Core v1_31、Contracts v1_18 的职责关系，不额外创设公共 RPC。
 
 # 12. 安全、可靠性与可观测
 
@@ -976,14 +978,17 @@ Configuration 不创建服务专属 Schema；但对各 Service 提供的共享�
 
 **共享写入裁决：**公共 `instances/site.yaml`、`devices.yaml`、`templates/protocols/*`、`device_models/*`、`point_tables/*`、`units.yaml`、`business_points.yaml` 只能由明确指定的一方提交；业务服务的 `Push` 可预校验其依赖的公共内容，`Apply` 只更改自己拥有的服务与私有实例文件。共享文件发布方在同一物理配置域使用独占锁加版本 CAS；不同业务服务分别取得新共享快照并独立判断运行生效。若正式共享写入协作方缺席，必须禁止业务服务直接写公共文件，而不能假定 Configuration 库函数本身启动一个配置控制平面。
 
-## 13.2 公共 API 的输入输出和不变量\n\n现有 `SharedDocumentLoader` 返回 `SharedDocuments`，`build_shared_snapshot` 返回 `SharedDomainSnapshot`；它们的 `revision` 和 Python 字段应按已公开实现逐项核验。下文的 `source_manifest`、`source_provenance`、`content_revision` 等描述是目标**可验证语义**，不代表当前 dataclass 已包含同名成员。若将其提升为强制 Python API，必须同时升级实现、所有调用方及测试，不能仅以文档表格替代代码。\n
+## 13.2 公共 API 的输入输出和不变量
+
+`SharedDocumentLoader` 返回 `SharedDocuments`，`build_shared_snapshot` 返回 `SharedDomainSnapshot`，两者均提供 `revision` 及只读 `source_manifest: tuple[SourceIdentity, ...]`。`SourceIdentity` 提供实际读取的原始文件 SHA-256、文件版本、绝对路径及相对于配置协调根的 `logical_key`；模板依赖由 `ResolvedTemplate.reference/content_hash` 表达。逐字段的 `source_provenance` 是来源追溯目标，不是已存在的 Python 属性；除明确公布的字段外不得虚构 API。
+
 
 本节给出稳定逻辑契约，沿用既有 `SharedConfigPaths`、`SharedDocumentLoader`、`VersionedTemplateRepository`、`build_shared_snapshot`、`resolve_effective_device` 等入口；代码签名可以由现有类型适配，但不能改变此处的输入、输出、错误语义。实现不需要按下表新增同名包装层。
 
 | 入口 | 必需输入 | 成功返回 | 失败与副作用 |
 |---|---|---|---|
 | `SharedConfigPaths` | `config_root`、按服务显式提供的 Instance pathname、Template 根 | 不可变路径源集合 | 拒绝缺失、空路径、越权、相同逻辑源指向冲突物理文件；不触碰磁盘 |
-| `SharedDocumentLoader.load` | 经路径检查的 sources、可选候选文件内容映射 | `documents`、文件清单、精确引用闭包、来源证据 | 单个引用无效则不产生成功的完整快照；不得自动加载默认文件 |
+| `SharedDocumentLoader.load` | 已验证的显式 `devices_file`、可选显式 `site_file`、`templates` 根 | `documents`、文件清单、精确引用闭包、来源证据 | 单个引用无效则不产生成功的完整快照；不得自动加载默认文件 |
 | `VersionedTemplateRepository` | `templates.root`、类别、`template_id`、`file_version` | 指定版本的唯一 Template 与规范来源 | 引用不存在、版本不匹配、重复键异内容、未知类别明确拒绝；不选择最新版 |
 | `resolve_effective_device` | 已装配共享文档、明确的 `device_id` | 不可变设备/协议/点表有效配置及来源链 | 设备不存在、字段冲突、类型/地址或覆盖非法时拒绝该设备；不得静默更改原始配置 |
 | `build_shared_snapshot` | 经验证的共享文档与实例/模板闭包 | 全部有效设备的只读集合、版本/内容身份及引用边 | 任何被使用共享引用不可解时不得声称完整成功；不更新业务进程状态 |
@@ -999,7 +1004,7 @@ Configuration 不创建服务专属 Schema；但对各 Service 提供的共享�
 
 ### 13.2.2 文件身份、缓存与读取一致性
 
-一次装配的文件清单必须完整且确定性排序，以相对受管逻辑路径、文件 SHA-256、版本元数据表示，内容快照不可变。磁盘读取阶段应验证加载前后文件内容身份一致；源文件被并发修改时报告 `SOURCE_CHANGED`，拒绝将不同版本文件拼装成成功的快照。缓存键至少包含规范物理路径、实际内容哈希、源闭包身份及 Template 类别/版本；缓存必须分离 DISK、CANDIDATE 和当前宿主持有的 RUNTIME 引用。不得把候选数据错误缓存为现行生产配置。
+一次装配的源文件闭包必须具有确定性来源，以文件原始字节 SHA-256 与版本元数据校验，内容快照不可变。加载每份文件时检查读取前后原始字节一致，并在全部引用完成后对本次实际读取的每份文件再次计算 SHA-256；发现变化报告 `SOURCE_CHANGED`，拒绝将不同版本文件拼装成成功的快照。缓存键至少包含规范物理路径、实际内容哈希、源闭包身份及 Template 类别/版本；缓存必须分离 DISK、CANDIDATE 和当前宿主持有的 RUNTIME 引用。不得把候选数据错误缓存为现行生产配置。
 
 ### 13.2.3 错误与诊断字段
 
@@ -1038,7 +1043,7 @@ Configuration 不创建服务专属 Schema；但对各 Service 提供的共享�
 | `test_multiservice_config.py` | `integration`、`concurrency` | 两 Service 使用共享设备模板 | 统一有效配置、不重复解析 |
 | `test_shared_writer.py` | `system`、`reliability` | 单写入方与不同 Service 应用 | 写入不冲突，部分生效如实上报 |
 
-测试统一置于 `tests/src/configuration/`。按项目注册的 Marker 执行，例如 `pytest tests/src/configuration -m "unit or component"`、`pytest tests/src/configuration -m "integration or system"`；实际运行前不得标 PASS。不得通过 skip/ignore 放宽契约。Configuration 设计为目标描述，本轮未实现/修改代码、未执行测试。
+测试统一置于 `tests/src/configuration/`。按项目注册的 Marker 执行，例如 `pytest tests/src/configuration -m "unit or component"`、`pytest tests/src/configuration -m "integration or system"`；实际运行前不得标 PASS。不得通过 skip/ignore 放宽契约。已定义共享 YAML 的递归只读快照和显式序列化物化契约；实际门禁状态以对应 Git SHA 的独立测试结果为准，不在设计书中声明测试已通过。
 
 ## 14.1 测试追溯矩阵
 
@@ -1055,19 +1060,21 @@ Configuration 不创建服务专属 Schema；但对各 Service 提供的共享�
 
 ## 14.2 数据契约及应用规则
 
-本节为 Configuration 最新规范性要求，不引入新 Python 类的强制实现要求；以**接口输入输出可验证**为准，同名实现可以整合。设计状态为冻结目标（Configuration v1_6）。
+本节为 Configuration 最新规范性要求，不引入新 Python 类的强制实现要求；以**接口输入输出可验证**为准，同名实现可以整合。设计状态为冻结目标（Configuration v1_13）。
 
 ### 14.2.1 路径、源文件与快照
 
 | 逻辑类型 | 必备字段 | 约束 |
 |---|---|---|
 | `SharedConfigPaths`（Service 来源规范化输入） | `config_root`、`instances: mapping[str, relative_path]`、`templates_root` | 这是宿主读取 Service YAML 时的逻辑输入契约，并非当前 Python dataclass 直接构造签名；经校验转换为 Loader 接受的明确 Path。根目录是包含 `configs/` 的部署工作根，不依赖 cwd；各路径无 `..`/绝对 source，服务可有不同 Instance 键 |
-| `SourceIdentity` | `logical_key`、`canonical_path`、`sha256`、`schema_version`、`file_version` | canonical_path 限制在 config_root 下；sha256 为原始文件字节摘要；同一装配内同 key 不得对应多份内容 |
+| `SourceIdentity` | `logical_key`、`path`、`sha256`、`schema_version`、`file_version` | path 为绝对文件路径并限制在协调根下；sha256 为原始文件字节摘要；同一装配内同 key 不得对应多份内容 |
 | `TemplateIdentity` | `category`、`template_id`、`file_version`、`sha256` | 精确四元组；类别限定共享配置装配的协议、点表、设备型号等已批准类别；私有业务模板不作为公共装配义务 |
-| `SharedSnapshot` | `source_manifest[]`、`template_refs[]`、`devices_by_id`、`content_revision` | 全部只读、确定性排序或键映射；引用不存在不能返回部分“成功快照” |
+| `SharedDocuments`／`SharedDomainSnapshot` | `source_manifest`、`revision`、设备及型号／点表索引 | 全部只读、确定性排序或键映射；引用不存在不能返回部分“成功快照” |
 | `EffectiveDevice` | `device_id`、`model_ref`、`protocol_config`、`point_table`、`source_provenance` | 不能在配置装配时创建网络连接、采集任务、控制状态或协议 Server |
 
 `content_revision`（现有入口使用 `revision` 表达相关内容身份）是该输入闭包的内容身份，不强行等同业务 Service 的 `stored_revision`、`active_revision` 或 Contracts `expected_revision`。Service 必须自行保存闭包与自身运行态的对应关系。Template 版本不可变约束从同一模板的正式发布开始；候选与已发布内容比较时相同模板 ID+版本但字节不同一律冲突。
+
+**显式路径契约：** `SharedDocumentLoader.load()` 必须收到 `SharedConfigPaths.devices_file`；当 `load_site=True` 时还必须显式提供 `site_file`，不得隐式从 `instances/` 拼接 `devices.yaml` 或 `site.yaml`。按设备子集装配的 `load_devices(devices_path, selected_device_ids=...)` 以参数为显式来源。Configuration 负责冻结已验证内容并返回原始字节身份清单；候选 YAML 的构造及 Apply 仍由业务宿主负责，不在公共 Loader 中隐式写盘。
 
 ### 14.2.2 可验收的操作前后置条件
 
@@ -1080,9 +1087,16 @@ Configuration 不创建服务专属 Schema；但对各 Service 提供的共享�
 | 公共文件发布 | 单一授权配置写入方、CAS 验证通过 | 原子发布可读的完整共享文件集；失败仍指向原完整版本 |
 | 业务生效 | Service 独立获得已发布共享快照 | Service 按自身 I/O 安全规则决定热更新/重启；Configuration 不签发业务成功 |
 
-**公共文件发布的原子性边界：** `save_yaml` 的单文件 rename 不得被当作多文件事务。若公共文件跨多份且涉及引用一致性，配置写入方应使用不可变代目录 + 原子 CURRENT 指针（或等价可证明的事务方案），读者按一个已提交 manifest 获取完整闭包。Configuration 提供只读验证及候选分析能力，不启动独立写服务，也不在 Loader 中隐式修改共享文件。读取方与发布方必须锁定同一部署工作根：`configs/templates` 下的默认路径对应 `templates.parent.parent`；其他布局须显式传 `coordination_root`，并检查所有写入方。仅协作式文件锁不足以阻止未遵守协议的外部写入。
+**公共文件发布的原子性边界：** `save_yaml` 的单文件 rename 不得被当作多文件事务。若公共文件跨多份且涉及引用一致性，配置写入方应使用不可变代目录 + 原子 CURRENT 指针，或受同域排他锁保护、具持久预写回滚日志及崩溃恢复能力的等价事务方案。读者在同域共享锁下只观察完整已提交版本；发现未恢复的公共事务标记必须拒绝成功加载，并等待唯一写入方恢复后重试。Configuration 提供只读验证及候选分析能力，不启动独立写服务，也不在 Loader 中隐式修改共享文件。读取方与发布方必须锁定同一部署工作根：`configs/templates` 下的默认路径对应 `templates.parent`，即 `configs/`；其他布局须显式传 `coordination_root`，并检查所有写入方。仅协作式文件锁不足以阻止未遵守协议的外部写入。
 
-### 14.2.3 冻结验收门禁\n\n**增补验收条件：** (1) 对照已公开 Python 构造器校验 Service YAML→规范化 Path→Loader 的真实链路，禁止假定虚构字段可直接初始化；(2) 校验 `SharedDocuments` 及 `SharedDomainSnapshot` 的嵌套 `Mapping` 和对象可变性，`dataclass(frozen=True)` 本身并不能保证深不可变；(3) 校验共享读取锁与发布方锁采用同一协调根，跨多个文件写入时只读者采用同一提交代/manifest，单个 rename 和非协作的 `flock` 不构成跨文件原子性；(4) `SOURCE_CHANGED` 的证据必须真实存在，不可把相同语义哈希等同原始字节身份。此类能力未在代码与多进程测试闭环前不得判为通过。\n
+**不可变快照接口：** 完成验证的 YAML 映射递归转换为 `MappingProxyType`，列表转换为 tuple，防止引用方就地修改快照及引用模板；下游读取须采用 `Mapping`/只读序列接口，而非严格要求 `dict/list`。外部 JSON/YAML 序列化时，调用 `configuration.immutable.plain_document` 恢复普通映射及列表。冻结不改变原始 YAML 规范内容身份。
+
+**跨进程恢复规则：** 写入端（当前 Commander）及所有读取端均以物理 `configs/` 根目录加锁。写入端使用 `configuration.transaction.COMMIT_MARKER` 标志未终结事务，并以 `COMMIT_STORE` 保存持久化回滚材料；标记只允许在全部文件提交完成并持久化或回滚完成后清除。读取端检测到标记时返回 `SOURCE_CHANGED`，不得对未确认的混合版本装配快照；恢复后读取的 `revision` 应与恢复后的实际内容一致。该标记仅协调真实物理配置域，不承诺跨多个主机的分布式文件系统事务。独立测试需覆盖默认/显式锁根一致性、共享读和排他写冲突、写入中途进程 SIGKILL、重启回滚及旧版本不泄漏。
+
+### 14.2.3 冻结验收门禁
+
+**增补验收条件：** (1) 对照已公开 Python 构造器校验 Service YAML→规范化 Path→Loader 的真实链路，禁止假定虚构字段可直接初始化；(2) 校验 `SharedDocuments` 和 `ResolvedTemplate` 已经递归冻结嵌套映射及列表，`SharedDomainSnapshot` 的实体索引只读，禁止以 `dataclass(frozen=True)` 代替验证；(3) 校验共享读取锁与发布方锁采用同一协调根，跨多个文件写入时只读者采用同一提交代/manifest，单个 rename 和非协作的 `flock` 不构成跨文件原子性；(4) `SOURCE_CHANGED` 必须来自完整源文件闭包的原始字节身份复核，不可把相同语义哈希等同原始字节身份。这类能力只有经过真实多进程锁竞争、进程级崩溃恢复与原始文件内容身份测试闭环后才算通过。
+
 
 `UR-01～UR-06` 与 `UC-01～UC-05` 必须全部能由测试文件及稳定 Marker 追溯；`UC-01-S01/S02`、`UC-02-S01～S06`、`UC-03-S01～S04`、`UC-04-S01～S03`、`UC-05-S01～S04` 为最小规范化编号集合。测试放 `tests/src/configuration/`，在可模拟范围内验证路径安全和配置正确性，在多进程/真实文件系统下验证原子发布、崩溃恢复与两服务共享快照一致性；不得把模拟的原子性当成磁盘事务已证明。
 

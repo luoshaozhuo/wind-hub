@@ -1,6 +1,6 @@
 <h1 class="title">Core 软件设计</h1>
 
-<p class="subtitle">v1_29 · 20261108 · main@cac23d84（源码基线）/ docs/foundation-core-contracts-20261108（生产整改待验收）</p>
+<p class="subtitle">v1_31 · 20261110 · main@09796cd4（基础接口冻结基线）</p>
 
 <style>
 body {
@@ -747,7 +747,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-Core 是 wind-hub 的**公共基础能力库**，由其他模块在进程内调用；Core 不拥有独立业务流程，不解释业务配置字段，不决定采集、控制、派发、仿真等模块的业务规则。本章以六项原始需求规定目标契约，实施状态以 `main@cac23d84c47bb9b0e893496acebfaa07abd7d6e3` 为基准核对；**目标要求不等于已实现能力**。
+Core 是 wind-hub 的**公共基础能力库**，由其他模块在进程内调用；Core 不拥有独立业务流程，不解释业务配置字段，不决定采集、控制、派发、仿真等模块的业务规则。本章以六项原始需求规定目标契约，实施状态以 `main@09796cd4e41cb5a7cadaa7478531ca72adc18538` 为基准核对；**目标要求不等于已实现能力**。
 
 ## 3.1 原始需求索引与职责边界
 
@@ -936,7 +936,7 @@ flowchart TD
 - **可插拔：**日志、指标、追踪及请求关联机制可独立装配；缺少可选观测后端不得导致业务模块初始化失败，除非调用方明确设置强制模式。
 - **并发与保密：**关联上下文在并发请求间隔离；不记录口令、令牌或敏感配置原文，关联标识不参与鉴权。
 - **资源与性能：**后台队列和出口超时须有界；采样和导出容量由调用方配置或明确文档化；不提供未经测量的性能保证。
-- **实现状态（`main@cac23d84`）：** `src/core/infrastructure/crosscutting/` 已提供 Logging、Request-ID、gRPC 拦截器、观测装配和协议观测 Wrapper 等基础实现；但当前仓库中已有代码不等于所有业务宿主均完成接入，横切功能是否非侵入、是否适应故障及真实负载，仍须独立验收。不得以历史开发分支状态替代当前 main 的事实。
+- **实现状态（`main@09796cd4`）：** `src/core/infrastructure/crosscutting/` 已提供 Logging、Request-ID、gRPC 拦截器、观测装配和协议观测 Wrapper 等基础实现；但当前仓库中已有代码不等于所有业务宿主均完成接入，横切功能是否非侵入、是否适应故障及真实负载，仍须独立验收。不得以历史开发分支状态替代当前 main 的事实。
 
 ## 3.5 UR-04 通用基础服务能力
 
@@ -1104,13 +1104,13 @@ flowchart TD
 | 横切 CR | CR-02 | Core 不持有业务配置语义、业务状态机、调度策略及业务 KPI | UR-01～UR-06 |
 | 基础服务 BR | BR-01 | 线程池、健康检查、重连回调和资源管理通过显式 API 提供，所有权清晰 | UR-04 |
 
-**当前实现与设计目标差异（静态核查基线 `main@cac23d84`）：**
+**现行公共能力及验收边界（基线 `main@09796cd4`）：**
 
 1. Core 已在 `src/core/infrastructure/config/generic_yaml.py` 提供 `parse_yaml/read_yaml/dump_yaml/save_yaml/compare_config`，不再把这五项描述为缺失；业务配置版本、引用图、路径装配不由 Core 解释。
 2. `SharedDocumentLoader`、`build_shared_snapshot`、`resolve_effective_device`、`VersionedTemplateRepository` 实际归属独立 `src/configuration/`；各服务可依赖此共享配置层。禁止迁回 Core 或再次实现平行解析器。
 3. Core 的 `diagnostic/network.py`、`diagnostic/protocol.py` 已提供网络与协议诊断入口；真实环境的正确性、权限、超时及资源收敛仍须测试。
 4. `crosscutting/observability.py` 等已具备观测装配及请求关联基础；是否被所有宿主完整接入、Trace SDK 可用性和运行业务不受影响，均需独立验证。
-5. **开发分支现状：**原 `core.infrastructure.rpc.scalar_codec` 已迁移为 `contracts.scalar_codec`，相应生产调用方已同步修改，Core 的 `infrastructure/rpc/` 已移除；这仅表示代码改动已经提交，导入边界、静态类型和回归测试仍需实际运行验证。`main@cac23d84` 仍保留原实现，二者不能混淆。
+5. Core 不再提供 `infrastructure/rpc/` 或标量 Protobuf 编解码；`contracts.scalar_codec` 是唯一 wire 标量适配器。Core 的依赖方向须由 import-linter 与全仓调用方静态检查持续约束，不得重建旧 RPC 转发层。
 6. 工业协议的新增可调参数已经存在于当前解析器和 `configs/templates/protocols/*_1.1.0.yaml`；本版重点核查配置覆盖、运行生效、失效策略及故障语义，不重复添加既有字段。
 
 本章区分现有代码事实与目标整改；第 4～13 章给出冻结的设计方向，第 14 章为后续独立验收条件。
@@ -1472,7 +1472,7 @@ flowchart TB
 
 ## 6.1 公开数据与操作
 
-配置数据契约为 `dict[str, Any]` 且嵌套值仅允许 JSON 兼容类型；路径由调用方传入。以下五个接口**已在本次基线 `main@3412c1a2` 的 `src/core/infrastructure/config/generic_yaml.py` 实现**，本节描述其稳定公共契约，而非尚待新增接口：
+配置数据契约为 `dict[str, Any]` 且嵌套值仅允许 JSON 兼容类型；路径由调用方传入。以下五个接口**已在本次基线 `main@09796cd4` 的 `src/core/infrastructure/config/generic_yaml.py` 实现**，本节描述其稳定公共契约，而非尚待新增接口：
 
 ```python
 from pathlib import Path
@@ -2863,7 +2863,7 @@ flowchart TD
 
 ## 9.5 RPC 公共标量编解码的归属
 
-**已提交的开发分支实现：**`encode_scalar()/decode_scalar()` 位于 `src/contracts/scalar_codec.py`，原 `src/core/infrastructure/rpc/scalar_codec.py` 及旧 Core RPC 包已移除，已定位的生产调用方同步改用 Contracts。新实现拒绝非有限浮点，保留 `ScalarValue.kind` 存在性和 64 位整数范围检查；静态检查、旧测试迁移与完整代码依赖扫描尚未执行，不得以文件移动替代验收。
+`encode_scalar()/decode_scalar()` 由 `src/contracts/scalar_codec.py` 唯一提供，Core 不包含 RPC 编解码或生成绑定，旧 Core RPC 包不得重新引入。标量编码拒绝非有限浮点，必须区分 `ScalarValue.kind` 的存在性并校验 64 位整数范围。任何改动须以 Contracts 独立语义测试和调用方测试为准。
 
 Core 自身负责 Python 通用领域数值与校验，Contracts 负责将这些值编码为正式线协议。各业务模块的 `infrastructure/grpc/` 负责业务适配、鉴权与 gRPC Status；Contracts 不提供业务 Servicer。相关验证必须覆盖 `false/0/""/bytes`、未设置的 `oneof`、NaN/Infinity、符号与 64 位整数上下界，并更新全部受影响测试，不保留旧路径的转发代理。
 
@@ -3077,7 +3077,7 @@ classDiagram
 
 以下现有代码不作为目标共享领域类图的稳定组成部分：`domain/task.py` 的采集任务、`application/command.py` 的控制命令业务模型、`application/sink_contract.py` 及 `domain/sink.py` 的派发和 Sink 业务模型。跨模块引用不构成其留在 Core 的理由；这些对象的归属应按第 3 章规定分别落在业务模块或独立契约层。
 
-现有 `Device.subscribe_enabled` 和 `PointValue.task_id`、`PointValue.max_staleness_ms` 等字段带有采集或运行策略含义。**设计目标**是将业务专属策略留给调用方，不让共享对象依赖 Collector 的运行逻辑；后续接口调整需同时核对全部调用方、序列化契约与测试。此处不将未实施的字段迁移描述为已完成事实。
+当前 Core `Device` 不包含 `subscribe_enabled`，共享 Sample 值对象不包含 Collector 的 `task_id`、`max_staleness_ms` 策略字段。采集订阅、任务身份、时效策略由 Collector 或数据传输契约承担；后续修改应维持此隔离，并检查构造方及序列化映射。
 
 ## 10.6 公共类型使用与兼容性
 
@@ -3110,7 +3110,7 @@ Core 提供单层、只读、受限的可复用诊断原语，不承担 Collecto
 | 工业协议健康 | `check_protocol(driver,point_id?,timeout)`（目标接口） | 已构造 Driver，可选可读点 | 连接状态、`health()`、可选只读点结果；失败与资源关闭单独记录 |
 | 工业协议吞吐 | `benchmark_protocol(driver,point_ids,...)`（目标接口） | 1～200 个唯一点、次数和间隔 | `requests_per_s`、`points_per_s`、延迟分布及失败次数；只读、受限 |
 
-`check_protocol()` / `benchmark_protocol()` 的上述输入为**目标公共 API**。当前实现仍接受 `config` 路径和 `device_id` 并装配 Driver，不能将现状误当作目标契约；宿主应在 Core 外完成设备配置解析与 Driver 构建。协议诊断默认接收**由调用方创建、专供诊断且所有权转交给诊断器的 Driver**，诊断器负责 `connect()` 与 `close()`；生产 Driver 不得直接传入此接口，不能关闭或扰乱生产 Session。若未来需要 borrowed 模式，须另设明确的只读检查接口，不得复用会自行 `connect/close` 的诊断路径。
+`check_protocol(driver, *, point_id=None, timeout=5.0)` 与 `benchmark_protocol(driver, point_ids, *, samples=10, interval=0.2, timeout=5.0)` 为现行公共 API。宿主在 Core 外完成配置解析与 Driver 构建，并提供**专供诊断、所有权转交给诊断器的 Driver**；诊断器负责 `connect()`、只读 `health()/read_one()/read_many()` 与 `close()`。不得传入生产 Session，不允许写入、订阅、总召或私自建立控制链接；关闭失败必须显式降级结果。
 
 **诊断 API 的调用方约束。** CLI、各服务及诊断脚本均应复用 `core.infrastructure.diagnostic.network` 的 `ping_probe`、`tcp_probe` 等已公开原语；CLI 可转换输出结构、进行网段枚举和并发限额控制，但不应再维护第二套 Ping 子进程或 TCP 连接逻辑。Core 的探测结果只证明探测范围内的连通证据；超时、ICMP 禁止及 TCP 连接失败不得直接等价于设备业务不可用。此项属于既有 UR-06 的消费约束，不扩展 Core 的业务责任。
 

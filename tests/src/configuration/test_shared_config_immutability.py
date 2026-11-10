@@ -260,6 +260,7 @@ def test_real_loader_builds_immutable_documents_and_domain_snapshot() -> None:
         instances=_REPO_CONFIGS / "instances",
         templates=_REPO_CONFIGS / "templates",
         load_site=False,
+        devices_file=_REPO_CONFIGS / "instances" / "devices.yaml",
     )
     loader = SharedDocumentLoader(paths)
     documents = loader.load()

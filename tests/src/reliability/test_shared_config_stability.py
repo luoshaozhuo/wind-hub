@@ -6,7 +6,8 @@
 - read_stable_document 必须以原始字节身份识别读取期间的文件替换
   （SOURCE_CHANGED），不能把语义相近内容当作同一文件；
 - 共享读锁（LOCK_SH）与发布方排他锁（LOCK_EX）必须落在同一协调根，
-  默认 configs/templates 布局对应 templates.parent.parent。
+  默认 configs/templates 布局对应 templates.parent（即 configs/），
+  与 Commander 服务文件 parent.parent 的写入根是同一物理目录。
 """
 
 from __future__ import annotations
@@ -94,16 +95,22 @@ def test_source_changed_detects_real_concurrent_replacement(tmp_path: Path) -> N
     assert changed_events >= 1, "concurrent replacement was never observed inside a read window"
 
 
-def test_default_coordination_root_is_templates_grandparent() -> None:
+def test_default_coordination_root_matches_commander_writer_root() -> None:
+    # S2-1：生产默认协调根（shared_documents._with_shared_lock）取
+    # templates.parent；Commander 写入端取服务文件 parent.parent。
+    # 标准布局 configs/templates + configs/services/commander.yaml 下，
+    # 两者必须是同一物理目录（同一 inode）。
     paths = SharedConfigPaths(
         instances=_CONFIGS / "instances",
         templates=_CONFIGS / "templates",
     )
+    default_root = paths.templates.parent
+    writer_root = (_CONFIGS / "services" / "commander.yaml").resolve().parent.parent
 
-    # 生产默认协调根表达式（shared_documents._with_shared_lock）：
-    # configs/templates 的上两级部署工作根；其他布局须显式传 coordination_root。
-    assert paths.templates.parent.parent == _CONFIGS.parent
-    assert paths.templates.parent.parent.is_dir()
+    assert default_root == _CONFIGS
+    assert default_root == writer_root
+    assert os.stat(default_root).st_ino == os.stat(writer_root).st_ino
+    assert default_root.is_dir()
 
 
 def test_shared_lock_contends_with_exclusive_lock_on_same_root(tmp_path: Path) -> None:
@@ -114,7 +121,8 @@ def test_shared_lock_contends_with_exclusive_lock_on_same_root(tmp_path: Path) -
         instances=coordination_root / "configs" / "instances",
         templates=templates,
     )
-    expected_root = paths.templates.parent.parent
+    # 未显式传 coordination_root 时，Loader 实际加锁目录是 templates.parent。
+    expected_root = paths.templates.parent
 
     writer_fd = os.open(expected_root, os.O_RDONLY | os.O_DIRECTORY)
     reader_fd = os.open(expected_root, os.O_RDONLY | os.O_DIRECTORY)

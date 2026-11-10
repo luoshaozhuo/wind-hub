@@ -299,12 +299,20 @@ class CommanderConfigManager:
                         default=str,
                     ).encode()
                 ).hexdigest()
+            if not blocked:
+                source_manifest = candidate.source_manifest
+            elif not applied_devices:
+                source_manifest = self._documents.source_manifest
+            else:
+                source_manifest = ()
             applied = SharedDocuments(
                 site=effective_site,
                 devices=retained,
                 units=effective_units,
                 business_points=effective_business,
                 revision=applied_revision,
+                # Mixed generations do not have a single verified disk manifest.
+                source_manifest=source_manifest,
                 devices_file_version=(
                     candidate.devices_file_version
                     if not blocked

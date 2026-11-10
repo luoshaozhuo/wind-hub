@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,46 @@ def validate_document_version(
     return DocumentVersion(schema_version=schema_version, file_version=file_version)
 
 
+@dataclass(frozen=True, slots=True)
+class SourceIdentity:
+    """Auditable raw-byte identity of an actually loaded shared document."""
+
+    path: Path
+    sha256: str
+    schema_version: int
+    file_version: str
+    logical_key: str = ""
+
+
+_READ_IDENTITIES: ContextVar[dict[Path, SourceIdentity] | None] = ContextVar(
+    "shared_config_source_hashes", default=None
+)
+
+
+@contextmanager
+def verify_shared_source_closure() -> Iterator[dict[Path, SourceIdentity]]:
+    """Check raw-byte identities of every source again after full resolution.
+
+    Caller holds the cooperative shared lock. This second pass detects
+    non-cooperative multi-file replacements between individual file reads.
+    """
+    identities: dict[Path, SourceIdentity] = {}
+    token = _READ_IDENTITIES.set(identities)
+    try:
+        yield identities
+        for path, identity in identities.items():
+            try:
+                final_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError as exc:
+                raise ConfigError(f"{path}: SOURCE_CHANGED during closure verification") from exc
+            if identity.sha256 != final_hash:
+                raise ConfigError(
+                    f"{path}: SOURCE_CHANGED sha256={identity.sha256} -> {final_hash}"
+                )
+    finally:
+        _READ_IDENTITIES.reset(token)
+
+
 def read_stable_document(path: Path) -> dict[str, Any]:
     """Read one versioned document and reject changes during parsing.
 
@@ -59,5 +101,20 @@ def read_stable_document(path: Path) -> dict[str, Any]:
         before = hashlib.sha256(original).hexdigest()
         after = hashlib.sha256(current).hexdigest()
         raise ConfigError(f"{path}: SOURCE_CHANGED sha256={before} -> {after}")
-    validate_document_version(document, path)
+    version = validate_document_version(document, path)
+    identities = _READ_IDENTITIES.get()
+    if identities is not None:
+        canonical_path = path.absolute()
+        digest = hashlib.sha256(original).hexdigest()
+        prior = identities.setdefault(
+            canonical_path,
+            SourceIdentity(
+                path=canonical_path,
+                sha256=digest,
+                schema_version=version.schema_version,
+                file_version=version.file_version,
+            ),
+        )
+        if prior.sha256 != digest:
+            raise ConfigError(f"{canonical_path}: SOURCE_CHANGED sha256={prior.sha256} -> {digest}")
     return document

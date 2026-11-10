@@ -1,4 +1,4 @@
-"""45 个 RPC 的 Service Descriptor 矩阵（Contracts 设计 v1_16；v1_10 Gateway ClaimTargets）。"""
+"""45 个 RPC 的 Service Descriptor 矩阵（Contracts 设计 v1_18：45 RPC / 15 消息 / 58 字段）。"""
 
 from __future__ import annotations
 

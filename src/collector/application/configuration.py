@@ -182,6 +182,8 @@ class CollectorConfigurationManager:
                 ),
                 instances=result.paths.instances,
                 templates=result.paths.templates,
+                site=result.paths.site,
+                devices=result.paths.devices,
             )
             try:
                 self._errors = await self._runtime.converge(effective_paths, target_revision)
@@ -227,6 +229,8 @@ class CollectorConfigurationManager:
                 ),
                 instances=active_paths.instances,
                 templates=active_paths.templates,
+                site=active_paths.site,
+                devices=active_paths.devices,
             )
             target_revision = snapshot_digest(files)
             self._target_revision = target_revision

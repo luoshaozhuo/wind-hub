@@ -19,6 +19,8 @@ def test_shared_snapshot_resolves_typed_devices_and_points() -> None:
         SharedConfigPaths(
             instances=_CONFIGS / "instances",
             templates=_CONFIGS / "templates",
+            site_file=_CONFIGS / "instances" / "site.yaml",
+            devices_file=_CONFIGS / "instances" / "devices.yaml",
         )
     ).load()
 
