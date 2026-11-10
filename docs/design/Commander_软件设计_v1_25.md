@@ -2798,11 +2798,11 @@ tests/
 | 需求 | System 场景 | 必须验证 |
 |---|---|---|
 | UR-04 | UC-02-S01：单点持久受理 | accepted 前 SQLite COMMIT、客户端 request_id、服务端 command_id；数据库不可用拒绝 |
-| UR-05 | UC-02-S02：整批原子受理 | 输入混合非法整批拒绝，合法时 command_ids 与输入按序一致，不跨批次合并 |
+| UR-05 | UC-02-S03：整批原子受理 | 输入混合非法整批拒绝，合法时 command_ids 与输入按序一致，不跨批次合并 |
 | UR-05 | UC-02-S03：协议执行 | ADS 原生 WRITE_MANY/Modbus、IEC104 顺序 write_one；同设备 FIFO、跨设备受控并行 |
 | UR-06 | UC-02-S04：请求级查询 | 丢失响应后用 request_id 查全部结果，UNKNOWN 不盲目重发；授权越权拒绝 |
 | UR-04/05 | UC-02-S05：幂等与恢复 | 同 caller+ID 同指纹不新增命令，异指纹冲突；跨进程重启仍保留受理身份 |
-| UR-06/13/15 | UC-02-S06：故障恢复 | 内存结果丢失保守 UNKNOWN；受理 ID 可恢复；审计后续异步且不丢已提交受理身份 |
+| UR-06/13/15 | UC-02-S05 / UC-08-S01：故障恢复 | 内存结果丢失保守 UNKNOWN；受理 ID 可恢复；审计后续异步且不丢已提交受理身份 |
 
 测试必须在 `tests/src/commander/` 对应层级实现并关联此矩阵；还需实际 RPC 协议字段 Descriptor 与权限校验。
 
