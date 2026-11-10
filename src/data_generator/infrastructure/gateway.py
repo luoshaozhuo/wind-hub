@@ -343,9 +343,7 @@ class GatewayWriter:
     ) -> list[DeliveryResult]:
         async with self._locks[gateway_id]:
             if gateway_id in self._lost_leases:
-                return [
-                    DeliveryResult(target, "FAILED", "LEASE_LOST") for target, _ in entries
-                ]
+                return [DeliveryResult(target, "FAILED", "LEASE_LOST") for target, _ in entries]
             if gateway_id in self._unsafe:
                 return [
                     DeliveryResult(target, "FAILED", "TARGET_QUARANTINED") for target, _ in entries
