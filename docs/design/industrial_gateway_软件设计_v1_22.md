@@ -767,7 +767,7 @@ System Test 必须遵守以下规定：
 
 Gateway 管理实际工业协议 Server，保持协议库原生读写语义。上游通过 gRPC 更新数据；工业客户端命令写入事件才可能转发 Commander。Gateway 不直接控制真实 PLC，不验证实际控制效果。
 
-**契约版本边界：** 以 `feat/industrial-gateway-v1@301a070b` 的正式 Proto 为准：CommonService 9 项、IndustrialGatewayService 8 项，共 **17 个 Unary RPC**。Gateway 8 项包含 `UpdateVariables` 与 `ClaimTargets`，前者具有 `lease_token` 字段。此次修订将已验收的扩展正式纳入设计，不将其误记为 v1_9 的原始契约。
+**契约版本边界：** 以 `main@367481254518a2d3d79ebeeb80a41944897a7e84` 的冻结正式 Proto 为准：CommonService 9 项、IndustrialGatewayService 8 项，共 **17 个 Unary RPC**。Gateway 8 项包含 `UpdateVariables` 与 `ClaimTargets`，前者具有 `lease_token` 字段。此次修订将已验收的扩展正式纳入设计，不将其误记为 v1_9 的原始契约。
 
 ## 3.2 UR-01 网关数据更新
 
@@ -1631,7 +1631,7 @@ Gateway Server 监听端点必须来自专属 Service 配置，公共设备 Endp
 
 # 9. 对外接口与通信契约
 
-以已验收的 `feat/industrial-gateway-v1@301a070b77a17416c230522179ae178202235d76` 的 `src/contracts/common.proto`、`industrial_gateway.proto`、`commander.proto` 为本版本接口基准；本次核查时最新 `main@cc3bd4fe1c878894b9da6f10dd0dbcaf9b0f0378`，不得混同两分支契约。入站 **CommonService 9 RPC + IndustrialGatewayService 8 RPC = 17 个 Unary RPC**。
+以 `main@367481254518a2d3d79ebeeb80a41944897a7e84` 的 `src/contracts/common.proto`、`industrial_gateway.proto`、`commander.proto` 为本版本正式接口基准；本次核查时最新 `main@cc3bd4fe1c878894b9da6f10dd0dbcaf9b0f0378`，不得混同两分支契约。入站 **CommonService 9 RPC + IndustrialGatewayService 8 RPC = 17 个 Unary RPC**。
 
 ## 9.1 CommonService 入站全集
 
@@ -1706,7 +1706,7 @@ Gateway 管理的当前字段存储是协议适配器的统一数据来源；gRP
 
 ## 11.1 配置文件与权威边界
 
-以 `feat/industrial-gateway-v1@301a070b` 已实现的配置为本版本权威：`configs/services/industrial_gateway.yaml` 使用 `config_sources` 显式引用共享 `instances/devices.yaml` 与 `templates` 根目录，不包含旧式内嵌 `endpoints`/`point_tables`/`devices`。`services/` 为服务专属配置；`instances/` 和 `templates/` 为跨模块公共配置。
+以 `main@367481254518a2d3d79ebeeb80a41944897a7e84` 的实际 Service 配置和 Configuration v1_13 为本版本权威：`configs/services/industrial_gateway.yaml` 使用 `config_sources` 显式引用共享 `instances/devices.yaml` 与 `templates` 根目录，不包含旧式内嵌 `endpoints`/`point_tables`/`devices`。`services/` 为服务专属配置；`instances/` 和 `templates/` 为跨模块公共配置。
 
 <p class="table-caption">表 11-1 配置源、路径及权威</p>
 
