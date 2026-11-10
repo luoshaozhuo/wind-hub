@@ -1,6 +1,6 @@
 <h1 class="title">Industrial Gateway 软件设计</h1>
 
-<p class="subtitle">v1_22 · 20261105</p>
+<p class="subtitle">v1_22 · 20261110</p>
 
 <style>
 body {
