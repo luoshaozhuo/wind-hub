@@ -10,9 +10,7 @@ from typing import Any
 def freeze_document(value: Any) -> Any:
     """Detach nested YAML structures and reject subsequent modifications."""
     if isinstance(value, Mapping):
-        return MappingProxyType(
-            {key: freeze_document(item) for key, item in value.items()}
-        )
+        return MappingProxyType({key: freeze_document(item) for key, item in value.items()})
     if isinstance(value, list | tuple):
         return tuple(freeze_document(item) for item in value)
     return value
