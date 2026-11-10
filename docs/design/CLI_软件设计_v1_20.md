@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_20 · 20261109</p>
+<p class="subtitle">v1_20 · 20261110</p>
 
 <style>
 body {
@@ -635,7 +635,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**当前设计契约基线**：`main@14e3be661cfd1d30417144d3f4cfa928d313eaa5`。外部 RPC/消息以 `src/contracts/*.proto` 和《Contracts 软件设计 v1_9》为准；早期 CLI v1_1 与旧 main SHA 只作为历史修订来源，不代表当前 RPC 契约。
+**当前冻结契约基线**：`main@367481254518a2d3d79ebeeb80a41944897a7e84`。外部 RPC/消息以 `src/contracts/*.proto` 和《Contracts 软件设计 v1_18》为准；旧 main SHA 及旧版 CLI 不再作为接口依据。
 
 CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务输出为发往 Service 的 gRPC 请求、发往进程管理器的操作请求以及 CLI 本地网络探测；现场操作和权威业务状态归对应 Service 所有。第 3.1 节是已确认的需求范围，第 3.2 节将其分解为可核验要求。
 
@@ -1832,7 +1832,7 @@ CLI 发现契约不能表达的需求时，记录差异并提交 Contracts 统�
 
 **批量业务结果：**accepted 仅代表完整受理；CLI 不将收到 command_ids[] 当作已写入。各项 state/outcome 与 io_settled 均按 Commander 返回渲染；请求级 UNKNOWN、部分成功及部分失败需同时呈现，不自行汇总为 PASS。所有访问按正式 control/query 权限模型授权。Commander 返回 NOT_FOUND 也不能等同于“从未执行”。
 
-**契约与版本声明：**本节以 Contracts v1_18、Commander v1_19 的设计目标为准；相关 Proto 在编码前仍需修改并独立验证。原 `9.2` 中“最新 main 所有 RPC”的历史计数不作为新增接口已实现的证明。Core v1_29、总体架构 v1_0 均不改动；共享配置按 Configuration v1_2 消费，不在 CLI 发明第二套配置装配机制。
+**契约与版本声明：**本节以已冻结 Contracts v1_18、Core v1_31、Configuration v1_13，以及 Commander v1_25、总体架构 v1_1 的本轮设计要求为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。共享配置按 Configuration v1_2 消费，不在 CLI 发明第二套配置装配机制。
 
 ## 9.6 冻结接口与客户端行为（规范性）
 
