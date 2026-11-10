@@ -1674,7 +1674,7 @@ Gateway Server 监听端点必须来自专属 Service 配置，公共设备 Endp
 
 Commander 入站业务拒绝的 Forwarder 终态须按第 10.3 节分类：只有具有执行前拒绝证据的状态码才是 `REJECTED`；RPC 传输或执行结果不明时为 `UNKNOWN`。已验收分支 `1af46e83` 修复此缺陷，`301a070b` 独立复测关闭 FWD-SEM-01。
 
-## 10.0 冻结基础契约核对（规范性）
+## 9.5 冻结基础契约核对（规范性）
 
 以 Contracts v1_18 的 `industrial_gateway.proto` 为唯一正式线协议：8 个专属 RPC 加 9 个 Common RPC。ClaimTargets 字段为 gateway_id、owner_id、variable_ids、action、lease_token、lease_ms；UpdateVariables 字段为 gateway_id、values、lease_token，结果逐变量表示 success/error_code/message。不得自行添加质量、时间戳或批序号字段。
 
