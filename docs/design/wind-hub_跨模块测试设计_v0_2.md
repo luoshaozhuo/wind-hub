@@ -821,3 +821,281 @@ feedback:
 7. CLI 能发现和读取两个 Gateway 的每台设备数据；正式 Modbus 控制入口通过权限测试。
 8. 文件夹内部完整闭包可复制到临时目录运行；不依赖生产 `configs/` 的隐式默认路径。
 
+
+
+---
+
+# 7. Integration 分段测试
+
+## 7.1 分段与实现前置
+
+Integration 只负责**局部真实组件协作**，不使用 `end_to_end`。每段可独立启动，不要求同时运行三个 Sink 输出。
+
+<p class="table-caption">表 7-1 分段测试与回读验收</p>
+
+| 编号 | 分段 | 控制输入 | 自动验收 |
+|---|---|---|---|
+| IT-01 | Generator → Gateway 1 | 三台独立确定性测量序列 | `ReadVariables` 逐点校验值/时间戳/质量/设备身份；租约围栏 |
+| IT-02 | Gateway 1 → Collector | 3×29 点表中 19 项测量点 | Modbus FC03/04 等正式读操作及 Collector 样本值一一对应 |
+| IT-03 | Collector → NATS → Sink | 10 Hz 输入，三设备 | 批次 Schema/Subject/设备数一致，Realtime/JetStream 职责不混淆 |
+| IT-04 | Sink → Modbus Output | 连续样本 | 真 Modbus 客户端读回最新值、质量/过期行为 |
+| IT-05 | Sink → Redis | 连续样本 | 逐设备 Key/采样版本/值/TTL，旧值正确覆盖 |
+| IT-06 | Sink → Kafka | Reliable 批次 | 真 Kafka Consumer 按 Topic/Partition/Key 校验消息、序列与 ACK |
+| IT-07 | CLI → Gateway 2 | AGC/AVC/FFR 控制写 | 真 Modbus FC 写触发 Gateway 2 事件；无权限/只读拒绝 |
+| IT-08 | Gateway 2 → Commander | AGC 由 2000 改 1000 | 请求参数、命令受理及结果查询有明确证据 |
+| IT-09 | Commander → Gateway 1 | 指定 GW01 控制写 | Gateway 1 控制寄存器真实值改变，GW02/GW03 不变 |
+| IT-10 | Gateway 1 → Generator | AGC/AVC/FFR 状态变更 | 下一步读取生效、模型状态更新且不覆盖控制点 |
+| IT-11 | Modbus Sink → Gateway 2 | 真实协议最新值传播 | **仅在 T-01 解决后执行**；两个 Server 之间必须有正式客户端 |
+| IT-12 | CLI 查询与诊断 | Gateway 1、Gateway 2 分别查询 | 两实例/六个网关设备对象正确列举、读取及鉴权 |
+
+分段场景必须明确哪些测试依赖真实 NATS/Kafka/Redis，未提供依赖时为 NOT_RUN 而非 Mock PASS。IT-07 的 CLI Modbus 工业写入必须先确认现有 CLI 真实命令的参数/协议能力，如欠缺则在 CLI 设计中立项，不得借用 `gateway update` 的状态注入语义绕过控制。
+
+## 7.2 分段准入和退出
+
+- 输入数据和预期输出严格来自同一版本的场景文件、参数快照和点表；测试上下文不能暗改模型常数。
+- 每段先验证连接、授权、点表、协议编码，然后执行功能测试。
+- 必须保存 Request ID、批次 ID、设备 ID、数据点 ID、控制版本和预测值，不能用单个全局成功计数代替逐点确认。
+- 一段失败只判该段 FAIL，不能将未执行的其他段记为失败或通过。
+- 已存在的模块内部系统测试即使包含真实 Gateway，也不因命名包含 `e2e` 就迁移到完整系统 E2E。
+
+---
+
+# 8. 完整 E2E 与 CLI 全功能测试
+
+## 8.1 唯一完整系统启动 Fixture
+
+标准 `full_system` 统一启动六类业务服务、两个 Gateway 进程、三台 GW2MW、NATS/JetStream、Redis、Kafka，校验：
+
+1. 各服务成功使用测试私有配置与证书启动、通过真实健康/权限探测；
+2. Gateway 1 和 Gateway 2 的三个设备 Server 均可读，控制写权限与反向转发围栏有效；
+3. 三条 Sink Delivery 均生效且来自同一批测试输入，Modbus/Redis/Kafka 各自实测至少一条交付；
+4. Generator 三个模型实例可读取控制快照，继续生成并发送可预测测量批；
+5. CLI 可分别访问 Gateway 1 和 Gateway 2，且 Modbus 工业控制入口可完成一次实际控制写；
+6. IT-11 的 Modbus 最新值同步结构已由批准后的设计和实现提供；
+7. 测试使用唯一的环境标识隔离 Kafka Topic、Redis Key、NATS Stream、临时配置和生成证书。
+
+全部准入满足才能运行具有 `system` 与 `end_to_end` 的测试。任意 Sink 目标未运行、某一业务链路缺失或关键能力仍为待决，不允许 E2E PASS。
+
+## 8.2 全量 E2E 场景
+
+<p class="table-caption">表 8-1 E2E 用例与预期</p>
+
+| 编号 | 场景 | 核心自动断言 | 人工验证 |
+|---|---|---|---|
+| E2E-01 | 三台并网，三目标并行 | 每台相同源版本出现在 Modbus/Redis/Kafka 适当目标；数据不串台；最新值覆盖合理 | CLI 分别查两 Gateway；Redis/Kafka 查询 |
+| E2E-02 | GW01 AGC 2000→1000 | G2 控制→Commander→G1→Generator；动态功率下降；G1/G2/Redis/Modbus/Kafka 输出因果一致 | CLI 写 AGC、轮询 G1/G2 `active_power` |
+| E2E-03 | GW01 AGC 1000→2000 | 功率按可利用功率与爬坡限幅恢复，不产生异常超调 | CLI 持续监测 |
+| E2E-04 | GW02 AVC 无功指令 | Q 依一阶模型变化，P/Q 满足容量约束，其他设备独立 | CLI 读取 `reactive_power` 与电压 |
+| E2E-05 | GW03 快速调频 | FFR 使能/关闭、正负附加功率、频率死区与 AGC 优先级正确 | CLI 查频率、有功及调频指令 |
+| E2E-06 | 启停与故障复位 | 状态机正确、失效命令被拒、恢复后按模型爬坡 | CLI 状态与事件 |
+| E2E-07 | 三设备并发/隔离 | GW01 命令不修改 GW02/GW03 的控制点或响应曲线 | 多设备 CLI read + Redis |
+| E2E-08 | CLI 全命令矩阵 | 所有正式命令均有归属用例，参数/权限/结果正确 | 额外手动运行脚本 |
+| E2E-09 | 配置受控生效 | 正式 Apply/Reload 不重复占有租约、不失真当前状态 | CLI 查看配置版本 |
+| E2E-10 | 可靠重投与最新值并行 | Realtime 不阻塞 Reliable、各自确认语义正确 | Redis/Kafka 对照 |
+
+**闭环关键判断：** Modbus 写响应只是协议接受；Commander 接受只是指令受理；Gateway 1 寄存器变化是控制实际到达；Generator 模型状态变化才是虚拟设备执行；Collector/Sink 观测反馈是完整效果。四层证据必须关联。
+
+## 8.3 CLI 命令覆盖矩阵
+
+CLI 命令以当前 Typer 注册结构、`--help` 实际输出和最新 CLI 设计形成**动态完整清单**，不可在测试设计中固定假定现有代码没有新增命令。必须至少覆盖：
+
+| CLI 命令域 | 系统验收义务 | 所需变量/服务 |
+|---|---|---|
+| `gateway list/status/variables/read` | 两个 Gateway 各三个 Server，查点、读最新值 | 29 点、G1/G2 RPC |
+| `gateway update` | 对有权注入的非控制变量执行租约/UpdateVariables/Release；**不产生控制下发** | Gateway 测量点、mTLS |
+| `gateway start/stop` | 单对象启停和结果及错误 | G1/G2 生命周期 |
+| `commander` | 设备/点发现、命令提交、结果查询、幂等/UNKNOWN | 10 控制点、3 设备 |
+| `collector` | 状态、任务、测点读取/轮询、配置、指标 | 19 测量反馈点、10 Hz |
+| `sink` | Sink/Delivery/指标/事件、配置状态 | Modbus、Redis、Kafka |
+| `data-generator` | 3 设备、场景列表、启动/停止、诊断/状态 | 物理模型场景 |
+| `service` | 服务发现、健康、版本 | 六类业务服务 |
+| `config` | 本地文件比对、合法/非法配置及远程接口 | 测试 configs |
+| `net` / `proto` / `diagnose` | Modbus 连接探测、读/写测试、真实端口/协议问题诊断 | G1/G2 端口、29 点、权限 |
+
+CLI `proto` 是否具有经授权的 Modbus 写操作，必须在正式命令清单中验证。如果 CLI 缺少工业写命令，则 **T-02 待决：扩展 CLI，还是以 CLI `commander submit` 完成控制并另用受控 Modbus 客户端验证 G2 入口**。两条路径效果不同；严格要求“CLI 直接写 Gateway 2”时，需在 CLI 设计中补齐权限明确、退出码可审计的 Modbus 写能力。不得擅自把 `gateway update` 改成自动触发 Commander。
+
+## 8.4 AGC 自动验收判据
+
+具体 `GW01` 场景由环境编排器在命令前验证 `available_power≥2000 kW` 且机组正常；如不满足，应报告前置条件 FAIL（配置错误），不得仍期待稳态 1000 kW。
+
+<p class="table-caption">表 8-2 AGC 限功率操作的自动检查</p>
+
+| 检查点 | 断言 |
+|---|---|
+| A1 | G2 写入成功；生成唯一控制事件/时间戳 |
+| A2 | Commander 产生对应 `request_id/command_id` 及最终结果或 UNKNOWN 的明确状态 |
+| A3 | G1 的 GW01 `agc_power_setpoint=1000`，GW02/03 不变 |
+| A4 | Generator 读取到新版本命令，后续 step 的目标 `P_target` 变成由模型计算的值 |
+| A5 | 有功不瞬间从约 2000 跳为 1000；每 step 变化受时间常数和 500 kW/s 样例斜率约束 |
+| A6 | 稳态 `active_power` 收敛至 1000±20 kW（待审定的测试容差）；收敛上限由模型参数推导 |
+| A7 | G1→Collector→Sink→Redis/Modbus，最终最新值与模型值相符；G2 反馈值同源 |
+| A8 | Kafka 在时间窗口内包含控制前、过渡、稳态的可靠采样；如允许合批或重投，应按设计正确解析而非简单比较消息个数 |
+| A9 | 系统执行中所有关键证据带设备、点、运行 ID 与实际时刻；无跨设备污染 |
+| A10 | 恢复 2000 kW 时按可用功率和动态约束响应，其他两个设备不受扰动 |
+
+采用物理模型的数值参考实现生成逐步参考轨迹；对浮点数据采用已批准误差而不是字符串完全相等。源时间戳、接收时间戳与控制执行时间分别采集，不能把 Kafka 消息最终到达时间当作模型步进时间。
+
+---
+
+# 9. Performance 与 Reliability
+
+## 9.1 性能负载等级
+
+| 等级 | 设备×点数 | 采样 | 目标 |
+|---|---|---|---|
+| PERF-01 | 3×29 | 10 Hz | 物理模型 + 完整链路基准，三目标同时交付 |
+| PERF-02 | 3×29 | 10 Hz，增加控制频次 | 控制闭环延迟、命令与实时数据互不饿死 |
+| PERF-03 | 逐步增至 30 台 | 10 Hz | 验证 Sink 单实例容量；数据模型复用但状态独立 |
+| PERF-04 | 按模块设计的实时/可靠点数扩大 | 10 Hz | 测试批量交付、积压、CPU/RSS/P99、背压和恢复 |
+
+计量每台源点/s、NATS 出口批次/s、Modbus/Redis 最新值延迟、Kafka Reliable 确认时延、丢弃/重投/重复、CPU、RSS、FD、事件循环延迟及队列深度。Realtime 允许合法覆盖，不能按全部输入样本保存判断“丢失”；Reliable 的确认责任以真实 Broker 和目标消息为准。每个性能阶段固定运行时长、预热/测量窗口、硬件配置及负载输入，报告标注准确目标和测得值，不能将未实测的 30 台负载记为达标。
+
+## 9.2 可靠性测试矩阵
+
+<p class="table-caption">表 9-1 故障与恢复</p>
+
+| 编号 | 故障注入 | 验收责任 |
+|---|---|---|
+| REL-01 | 三台 Generator 中单台模型故障 | 故障机组状态安全，另外两台数据持续 |
+| REL-02 | Gateway 1 进程崩溃/重启 | 源租约和旧 token 围栏，Generation 不伪造成功写入 |
+| REL-03 | Gateway 2 停止/恢复 | 控制入口拒绝/UNKNOWN、Sink 最新值同步恢复，无错误重复控制 |
+| REL-04 | Collector 断线/恢复 | 数据质量/过期、恢复采样，不生成伪样本 |
+| REL-05 | NATS/JetStream 故障 | 最新值与 Reliable 责任独立；不提前 ACK |
+| REL-06 | Redis 故障 | 键/TTL 恢复，最新值追赶，不保存全部历史伪装最新值 |
+| REL-07 | Kafka 故障 | 真实 Broker 重投、DLQ、幂等/顺序、负载恢复 |
+| REL-08 | Sink Worker 崩溃 | 各 Delivery 独立重启与资源回收 |
+| REL-09 | Commander 处理超时 | UNKNOWN 不盲目重试，结果查询或人工审计有证据 |
+| REL-10 | 频繁 AGC/AVC/FFR/启停与重载 | 执行顺序、状态机、功率限幅、控制版本不混乱 |
+| REL-11 | 全系统重启 | 独立配置、证书、数据存储和租约正确恢复，无残留进程/端口 |
+| REL-12 | 资源耗尽或磁盘配额 | 有界背压、错误码、数据责任不虚假消失 |
+
+`performance` 和 `reliability` 是专题 Marker，可叠加模块、分段或完整 E2E；**只有完整 E2E 层级才同时具备 `system` 与 `end_to_end`**。长稳/硬件/netem 不能执行时应分别 NOT_RUN，不得借用短时结果推断。
+
+---
+
+# 10. 自动验收与人工验收
+
+## 10.1 自动验收执行协议
+
+```mermaid
+%%{init: {"sequence": {"useMaxWidth": true}}}%%
+sequenceDiagram
+    participant T as Test Runner
+    participant G2 as Gateway 2
+    participant C as Commander
+    participant G1 as Gateway 1
+    participant DG as Generator
+    participant V as Verifier
+    T->>T: 校验完整配置与全部健康状态
+    T->>G2: Modbus 写 GW01 AGC=1000
+    G2->>C: SubmitCommand
+    C->>G1: Modbus 写控制点
+    DG->>G1: ReadVariables(AGC)
+    G1-->>DG: 新指令值与来源状态
+    DG->>DG: 积分若干物理时间步
+    DG->>G1: UpdateVariables(测量点)
+    T->>V: 检查 G1/Collector/Sink/Redis/Kafka/G2
+    V-->>T: 逐层结果、时延、证据及裁决
+```
+
+<p class="figure-caption">图 10-1 AGC 控制闭环的自动验收时序；Gateway2 最新值同步路径在 T-01 审核后补齐</p>
+
+自动执行器须从固定场景实例参数中计算参考轨迹和稳态预期。每个测试点至少有四层判定：请求受理、业务执行、物理反馈、下游可观察结果。中间任何一个步骤失败，不能仅以最终某个 Redis 值恰好相同判断通过。
+
+## 10.2 用户人工操作
+
+自动验收运行时保留**只读观测**能力，输出一份可复制的操作手册和环境清单。用户可以：
+
+- 通过 CLI 的 `gateway list/status/variables/read` 查询两台 Gateway 和三台设备，区别控制设定与实际物理反馈；
+- 使用 CLI 的合法 Modbus 控制命令修改 Gateway 2 的 GW01 AGC 设定，确认 Gateway 1 接收并且 Generator 后续测量变化；
+- 查询 CLI 的 Commander 结果、Data Generator 状态、Collector 指标、Sink Delivery 状态；
+- 使用 Redis CLI 读取 GW01–03 最新值、版本及 TTL；使用 Kafka Console Consumer 或等效工具读取本轮唯一 Topic；
+- 在需要时直接用 Modbus Client 读 Sink Modbus Output，并对照 Gateway 2 变量。
+
+手动修改应在自动测试的独立运行实例或预留的**人工验收窗口**中进行；自动执行器在人工窗口暂停施加控制刺激，避免手工操作干扰自动参考轨迹，随后可重置模型初始状态重跑。手工执行结果必须独立记录，不作为自动 PASS 的替代证据。
+
+## 10.3 结果结构与误差
+
+- 每个测试用例记录 test ID、场景配置 SHA、完整测试环境身份、模型参数、预期、实际、时间窗口、证据路径、裁决；
+- 模型值/寄存器编码值分开保存，先按正式 scale/offset 解码再比较工程值；
+- 布尔与枚举严格相等；整数无损编码；浮点按参数化绝对误差和相对误差；
+- 延迟在统一单调计时基础上观察；多进程时间戳以同步时钟作辅助，不以跨机绝对时刻直接求高置信度亚毫秒延迟；
+- Kafka Reliable 检查已确认终态及内容，避免通过数到某个固定消息数误判；
+- 输出 `PASS`、`FAIL`、`NOT_RUN`、`DEFERRED`、`PASS WITH LIMITATIONS`，附明确原因，不把 skip 当 PASS；
+- 报告按三台机组、三 Sink 目标和控制闭环分别列出，不用平均值掩盖单台或单目标失败。
+
+---
+
+# 11. 测试代码归属、简化 Marker 与覆盖
+
+## 11.1 路径
+
+```text
+tests/
+├── contracts/ core/ configuration/ collector/ commander/
+├── industrial_gateway/ data_generator/ sink_service/ cli/
+├── web_server/ web_admin/
+├── integration/             # 分段跨业务模块
+├── e2e/                     # 完整三台风机、双链路、三 Sink
+│   ├── conftest.py
+│   ├── configs/
+│   ├── test_data.py
+│   ├── test_control.py
+│   ├── test_cli.py
+│   ├── test_recovery.py
+│   └── test_performance.py
+├── support/                 # 公共 test helper/fixture
+├── tooling/                 # 测试工具和 CI 自测
+├── fixtures/                # 静态资源/受控服务
+└── conftest.py
+```
+
+清理旧的 `tests/src/` 及混合 `tests/system/` 时，必须逐文件判断设计归属、冗余、历史兼容、Fixture 引用和 CI 路由；模块独立 `system` 应留在 `tests/<module>/system/`，不可因“有真实进程”就搬到完整 E2E。未证明过时的测试不得直接删除。
+
+## 11.2 极简 Marker
+
+测试代码中只规定**最多两个层级/专题词**：
+
+| 目录/目的 | 示例 Marker | 说明 |
+|---|---|---|
+| 模块级 Unit/Component/Contract | `unit` / `component` / `contract` | 保留现有项目注册词；无需装饰性堆叠 |
+| 分段跨模块 | `integration` | 单一层级词 |
+| 完整双链路 E2E | `system`、`end_to_end` | 两个词；运行入口统一检查完整 Fixture |
+| 专项性能或可靠性 | `performance` 或 `reliability` | 可由目录/场景元数据确定层级，不强制每函数堆叠 4–5 个词 |
+
+不新增 `e2e`、`full_stack`、`three_sinks` 等重复 Marker；`real_service`/环境依赖在 Test Fixture 元数据及环境准入中验证，不要求每个函数重复写这些 Marker。强制核对 `tests/e2e/` 全部用例都依赖 `full_system`；仅具有 `end_to_end` 但未启动全系统的测试属于标记错误。
+
+推荐运行命令（实际 CI 路由须审查后生效）：
+
+```bash
+pytest tests/integration -m integration
+pytest tests/e2e -m "system and end_to_end"
+pytest tests/e2e -m "system and end_to_end" -k performance
+pytest tests/e2e -m "system and end_to_end" -k recovery
+```
+
+## 11.3 追溯结构
+
+每个测试对应 `设计章节 / 测试需求编号 / 生产实现 / 配置路径 / pytest nodeid / 关键断言 / 自动证据 / 人工复核点 / 裁决`。所有 CLI 正式命令从实际 Typer Registry 与 `--help` 自动发现，逐条纳入覆盖表；过时/重复测试以设计一致性裁决，不能单靠 `pytest` 绿灯保留。
+
+---
+
+# 12. 需要审核的设计变更清单
+
+<p class="table-caption">表 12-1 跨模块测试设计 v0_2 待决</p>
+
+| ID | 事项 | 建议与影响 |
+|---|---|---|
+| T-01 | Sink Modbus Output 与 Gateway 2 最新数据同步 | 正式指定独立 Modbus Client 数据订阅/写入责任，避免两个 Server 直接相连；需要 Gateway 设计升级 |
+| T-02 | CLI 直接控制 Gateway 2 | 确认/补充 CLI 真 Modbus 协议写命令；不得把 `gateway update` 变成自动转发；CLI 设计升级 |
+| T-03 | Gateway 上游三态 | 新增明确 `plc/data_generator/none` 及行为约束；Gateway 设计升级 |
+| T-04 | Generator 有状态动力学及控制读取 | 增加 2 MW 风机动力学模型、配置 Schema、固定步长、模型状态与 ReadVariables 控制快照；Generator 设计升级 |
+| T-05 | 独立三机 GW2MW Modbus 点表 | 增加 29 点×3 设备、任务/协议/型号模板，保持 ADS 正式点表不变；Core/Configuration 按需审查 |
+| T-06 | 最终 Sink 目标 | 固定 Modbus 最新值、Redis 最新值、Kafka Reliable 同时存在，且实测成功 |
+| T-07 | 自动/手工验收并行 | 自动执行真实过程与断言；人工读取 CLI/Redis/Kafka，互不干扰 |
+| T-08 | Marker 简化 | 分段单 `integration`；完整 E2E 双 `system,end_to_end`；专题仅必要标签 |
+| T-09 | 基础点表单位及数据类型 | 逐项校验 `units.yaml`、`business_points.yaml` 和 Core 编解码，禁止以未确认的 ADS PLC 类型代替 Modbus 测试契约 |
+| T-10 | 物理模型参数与参考验收值 | GW2MW 2 MW 物理样例参数、\(C_p\) 经验曲面、动态状态和稳态容差需审核确认；不能用随机数替代 |
+
+**执行冻结边界：**本 v0_2 尚未批准，不能据此创建跨模块测试代码、Fixture、`tests/e2e/configs/` 文件或修改任何模块生产源码、Proto。若批准 T-01～T-05，再分别修订 Gateway、Data Generator、CLI 等模块设计并递增版本，完成必要生产功能后才准许创建 E2E 配置和代码。
+
