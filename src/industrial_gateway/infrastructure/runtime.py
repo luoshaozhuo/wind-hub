@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from contracts.common_pb2 import ApplicationResult
 from industrial_gateway.application.server_lifecycle import (
     ActualState,
     DesiredState,
@@ -40,6 +39,16 @@ from industrial_gateway.infrastructure.variable_leases import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ApplicationResult:
+    """One runtime configuration-apply outcome, independent of the gRPC wire."""
+
+    object_id: str
+    status: str
+    error_code: str = ""
+    message: str = ""
 
 
 @dataclass(frozen=True, slots=True)
