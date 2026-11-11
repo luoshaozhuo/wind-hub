@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 from time import monotonic
 from uuid import uuid4
 
-from contracts import common_pb2 as pb
 
 _COUNTERS = (
     "update_batches_total",
@@ -41,6 +40,36 @@ class Observation:
     value: float
 
 
+@dataclass(frozen=True, slots=True)
+class EventRecord:
+    event_id: str
+    severity: str
+    source: str
+    error_code: str
+    message: str
+    timestamp: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MetricRecord:
+    name: str
+    value: float
+    unit: str
+    window_ms: int
+    sampled_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsSnapshot:
+    metrics: tuple[MetricRecord, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class EventPage:
+    events: list[EventRecord]
+    next_page_token: str = ""
+
+
 class GatewayObservability:
     """Keep process-epoch counters, a sliding sample window and bounded events."""
 
@@ -50,8 +79,8 @@ class GatewayObservability:
         self.started = monotonic()
         self.counters: Counter[tuple[str, str]] = Counter()
         self.samples: deque[Observation] = deque()
-        self.events: deque[pb.Event] = deque(maxlen=4096)
-        self._snapshots: dict[str, tuple[pb.Metric, ...]] = {}
+        self.events: deque[EventRecord] = deque(maxlen=4096)
+        self._snapshots: dict[str, tuple[MetricRecord, ...]] = {}
         self._last_snapshot_at = 0.0
         self._task: asyncio.Task[None] | None = None
         self._pending: dict[str, int] = {}
@@ -84,22 +113,23 @@ class GatewayObservability:
         error_code: str = "",
     ) -> None:
         """Record bounded, process-local evidence, not durable command audit."""
-        stamp = pb.Event(
-            event_id=uuid4().hex,
-            severity=severity,
-            source=source,
-            error_code=error_code,
-            message=message,
+        self.events.append(
+            EventRecord(
+                event_id=uuid4().hex,
+                severity=severity,
+                source=source,
+                error_code=error_code,
+                message=message,
+                timestamp=datetime.now(UTC),
+            )
         )
-        stamp.timestamp.FromDatetime(datetime.now(UTC))
-        self.events.append(stamp)
 
     def _trim(self) -> None:
         boundary = monotonic() - self.window_seconds
         while self.samples and self.samples[0].moment <= boundary:
             self.samples.popleft()
 
-    def _build(self, scope: str, sampled_at: datetime) -> tuple[pb.Metric, ...]:
+    def _build(self, scope: str, sampled_at: datetime) -> tuple[MetricRecord, ...]:
         now = monotonic()
         covered = min(self.window_seconds, now - self.started)
         if covered <= 0:
@@ -131,19 +161,17 @@ class GatewayObservability:
             sum(count for gateway, count in self._pending.items() if not scope or gateway == scope)
         )
         values["metrics_covered_ms"] = covered * 1000
-        metrics: list[pb.Metric] = []
+        metrics: list[MetricRecord] = []
         for name, value in values.items():
-            metric = pb.Metric(
-                name=name,
-                value=value,
-                unit=_UNITS[name],
-                window_ms=min(
-                    self.window_seconds * 1000,
-                    int(covered * 1000),
-                ),
+            metrics.append(
+                MetricRecord(
+                    name=name,
+                    value=value,
+                    unit=_UNITS[name],
+                    window_ms=min(self.window_seconds * 1000, int(covered * 1000)),
+                    sampled_at=sampled_at,
+                )
             )
-            metric.sampled_at.FromDatetime(sampled_at)
-            metrics.append(metric)
         return tuple(metrics)
 
     async def _sample(self) -> None:
@@ -178,47 +206,47 @@ class GatewayObservability:
             and monotonic() - self._last_snapshot_at <= max(3 * self.interval_ms / 1000, 1.0)
         )
 
-    def metrics(self, scope: str, window_ms: int) -> pb.GetMetricsResponse:
+    def metrics(self, scope: str, window_ms: int) -> MetricsSnapshot:
         """Return only a completed periodic snapshot, never fabricate zero data."""
         if window_ms and window_ms != self.window_seconds * 1000:
             raise ValueError("requested window_ms differs from configured window")
         if not self.ready or scope not in self._snapshots:
-            return pb.GetMetricsResponse()
-        return pb.GetMetricsResponse(metrics=self._snapshots[scope])
+            return MetricsSnapshot()
+        return MetricsSnapshot(metrics=self._snapshots[scope])
 
-    def query_events(self, request: pb.GetEventsRequest) -> pb.GetEventsResponse:
-        """Filter and paginate process-local events by timestamp and text."""
+    def query_events(
+        self,
+        *,
+        filter_text: str = "",
+        page_size: int = 100,
+        page_token: str = "",
+        from_time: datetime | None = None,
+        to_time: datetime | None = None,
+    ) -> EventPage:
+        """Filter and paginate local event data without a wire dependency."""
         try:
-            offset = int(request.page_token) if request.page_token else 0
+            offset = int(page_token) if page_token else 0
         except ValueError as exc:
             raise ValueError("invalid page_token") from exc
         if offset < 0:
             raise ValueError("invalid page_token")
-        minimum = (
-            request.from_time.ToDatetime(tzinfo=UTC).timestamp()
-            if request.HasField("from_time")
-            else float("-inf")
-        )
-        maximum = (
-            request.to_time.ToDatetime(tzinfo=UTC).timestamp()
-            if request.HasField("to_time")
-            else float("inf")
-        )
+        minimum = from_time.timestamp() if from_time is not None else float("-inf")
+        maximum = to_time.timestamp() if to_time is not None else float("inf")
         selected = [
             item
             for item in self.events
-            if minimum <= item.timestamp.ToDatetime(tzinfo=UTC).timestamp() <= maximum
+            if minimum <= item.timestamp.timestamp() <= maximum
             and (
-                not request.filter
-                or request.filter in item.source
-                or request.filter in item.error_code
-                or request.filter in item.message
+                not filter_text
+                or filter_text in item.source
+                or filter_text in item.error_code
+                or filter_text in item.message
             )
         ]
         selected.reverse()
-        size = min(request.page_size or 100, 500)
+        size = min(page_size or 100, 500)
         end = offset + size
-        return pb.GetEventsResponse(
+        return EventPage(
             events=selected[offset:end],
             next_page_token=str(end) if end < len(selected) else "",
         )
