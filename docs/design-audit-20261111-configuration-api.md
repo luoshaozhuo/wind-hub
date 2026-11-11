@@ -23,7 +23,6 @@
 - `devices_file: Path | None = None`
 - `load_site: bool = True`
 - `coordination_root: Path | None = None`
-- `device_id: str`
 
 **判定：**其 Python dataclass 并非 Service YAML 的 `config_sources` 映射。Configuration v1_14 的“两层输入不可直接互换”规则与现有源码一致。任何文档如果直接将 `config_root` 当成上述 dataclass 构造参数，属于接口错误。
 
@@ -35,7 +34,7 @@
 | src/configuration/versioned_templates.py | TemplateRef, ResolvedTemplate, VersionedTemplateRepository | config_hash |
 | src/contracts/sample_batch.py | SampleItem, SampleBatch | validate_subject_token |
 | src/core/infrastructure/config/__init__.py | — | — |
-| src/collector/application/config_manager.py | — | — |
+| src/collector/application/config_manager.py | 未取得源码（路径不存在） | 未验证 |
 | src/commander/application/config_manager.py | ReloadReport, SettingsLoader, CommanderConfigManager | — |
 | src/industrial_gateway/infrastructure/config/v1_schema.py | StrictModel, InstanceSources, TemplateSources, ConfigSources, TlsConfig, GrpcConfig, CommandMapping, ServerConfig, ControlConfig, MetricsConfig, GatewayServiceConfig | service_path |
 | src/data_generator/infrastructure/snapshots.py | FileContent, SnapshotManager | file_sha256, recover_transaction |
