@@ -10,10 +10,6 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from contracts.common_pb2 import ApplicationResult
-from contracts.industrial_gateway_pb2 import (
-    ClaimTargetsRequest,
-    ClaimTargetsResponse,
-)
 from industrial_gateway.application.server_lifecycle import (
     ActualState,
     DesiredState,
@@ -37,7 +33,11 @@ from industrial_gateway.infrastructure.observability import GatewayObservability
 from industrial_gateway.infrastructure.protocol.modbus.v1_server import (
     DeviceModbusServer,
 )
-from industrial_gateway.infrastructure.variable_leases import VariableLeases
+from industrial_gateway.infrastructure.variable_leases import (
+    ClaimRequest,
+    ClaimResult,
+    VariableLeases,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -264,7 +264,7 @@ class GatewayRuntime:
                 raise ValueError("stale gateway revision")
             await self.stop_server(server_id)
 
-    async def claim_targets(self, request: ClaimTargetsRequest) -> ClaimTargetsResponse:
+    async def claim_targets(self, request: ClaimRequest) -> ClaimResult:
         """Serialize target leasing with Server replacement and stop/start."""
         async with self._configuration_lock:
             instance = self.instances[request.gateway_id]
