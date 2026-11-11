@@ -572,3 +572,179 @@ async def test_p1_15_forged_owner_renewal_rejected(start_real_gateway) -> None:
         assert sample.value.double_value == pytest.approx(4.25)
     finally:
         await channel.close()
+
+
+# --------------------------------------------------------------------------- #
+# R3 增补：RENEW 网络超时只隔离不定生死，权威拒绝才终局判死
+# --------------------------------------------------------------------------- #
+
+
+async def _generation_state(dg_stub, generation_id: str) -> str:  # noqa: ANN001
+    response = await dg_stub.GetGeneration(common.ObjectId(id=generation_id))
+    return response.generation.actual_state
+
+
+async def test_renew_timeout_quarantines_without_lease_loss_inference(
+    start_fault_gateway,
+    configs_root,
+    dg_subprocess,  # noqa: ANN001
+) -> None:
+    """RENEW 连续 UNAVAILABLE：仅 TARGET_QUARANTINED 隔离，Generation 保持 RUNNING，
+    不推断租约丢失、不盲重发/不重新 ACQUIRE；恢复后同一 token 续租成功并恢复写入。"""
+    behaviors: dict = {"gw-a": {}}
+    fault = await start_fault_gateway(
+        {"gw-a": [(VAR_A, "float32", True)]}, {"gw-a": behaviors["gw-a"]}
+    )
+    # timeout=1.0 => lease_ms=10000ms（下限钳位），续租周期 ≈3.33s。
+    service_path = configs_root(
+        scenarios=ship_scenarios_document(
+            {"gw-a": fault.bind},
+            interval=0.1,
+            mappings=[("gw-a", VAR_A)],
+        ),
+        output_timeout=1.0,
+    )
+    bind, _process = await dg_subprocess(service_path)
+    channel, dg_stub, common_stub = await dg_stubs(bind)
+    try:
+        started = await _start(dg_stub, common_stub)
+        assert started.accepted, started.message
+
+        async def _wait_renew(min_count: int) -> None:
+            deadline = asyncio.get_running_loop().time() + 10.0
+            while asyncio.get_running_loop().time() < deadline:
+                renews = [
+                    call for call in fault.service.claim_calls["gw-a"] if call["action"] == "RENEW"
+                ]
+                if len(renews) >= min_count:
+                    return
+                await asyncio.sleep(0.1)
+            raise AssertionError("expected RENEW never arrived")
+
+        await _wait_renew(1)
+        acquire_token = next(
+            call["response_token"]
+            for call in fault.service.claim_calls["gw-a"]
+            if call["action"] == "ACQUIRE"
+        )
+        assert acquire_token
+
+        # 注入一个续租周期以上的网络级失败。窗口必须短于服务端 TTL（10s）：
+        # 超时本身不推断租约丢失，但若拖过 TTL，服务端会权威回收，恢复探测将被
+        # 围栏拒绝——那是另一条（终局判死）语义，由下一测试覆盖。
+        behaviors["gw-a"]["claim_abort"] = {"RENEW": grpc.StatusCode.UNAVAILABLE}
+        renews_at_inject = len(
+            [c for c in fault.service.claim_calls["gw-a"] if c["action"] == "RENEW"]
+        )
+        await asyncio.sleep(4.0)  # 至少覆盖一次失败的续租尝试。
+        assert await _generation_state(dg_stub, started.generation_id) == "RUNNING"
+        renews_after_fault = len(
+            [c for c in fault.service.claim_calls["gw-a"] if c["action"] == "RENEW"]
+        )
+        # 续租线程在网络失败后仍然存活并继续探测，没有静默退出。
+        assert renews_after_fault >= renews_at_inject + 1
+        actions = [call["action"] for call in fault.service.claim_calls["gw-a"]]
+        assert actions.count("ACQUIRE") == 1  # 不重新申请
+        assert "RELEASE" not in actions  # 不伪造释放
+        # 隔离期写入在本地失败（TARGET_QUARANTINED），没有任何新原生 RPC 到达服务端。
+        frozen = len(fault.service.update_calls["gw-a"])
+        await asyncio.sleep(1.0)
+        assert len(fault.service.update_calls["gw-a"]) == frozen
+
+        # 故障清除：受控续租探测成功，同一 token 生效，写入恢复，Generation 仍 RUNNING。
+        behaviors["gw-a"].pop("claim_abort")
+        deadline = asyncio.get_running_loop().time() + 10.0
+        while asyncio.get_running_loop().time() < deadline:
+            renewed = [
+                call
+                for call in fault.service.claim_calls["gw-a"]
+                if call["action"] == "RENEW" and call.get("response_token") == acquire_token
+            ]
+            if len(renewed) >= 2:  # 故障前至少 1 次 + 恢复后至少 1 次同 token 成功
+                break
+            await asyncio.sleep(0.1)
+        else:
+            raise AssertionError("renewal never recovered with the original token")
+        resume_deadline = asyncio.get_running_loop().time() + 8.0
+        while asyncio.get_running_loop().time() < resume_deadline:
+            if len(fault.service.update_calls["gw-a"]) > frozen:
+                break
+            await asyncio.sleep(0.1)
+        else:
+            raise AssertionError("native writes did not resume after recovery")
+        assert await _generation_state(dg_stub, started.generation_id) == "RUNNING"
+
+        stopped = await dg_stub.StopGeneration(
+            dg.StopGenerationRequest(generation_id=started.generation_id, expected_revision="")
+        )
+        assert stopped.accepted, stopped.message
+    finally:
+        await channel.close()
+
+
+async def test_renew_authoritative_rejection_eventually_fails_generation(
+    start_fault_gateway,
+    configs_root,
+    dg_subprocess,  # noqa: ANN001
+) -> None:
+    """RENEW 收到权威 accepted=false/LEASE_LOST：续租线程终局判死，
+    后续交付以 LEASE_LOST 本地失败，Generation 最终 FAILED；不重新 ACQUIRE、无续租重试风暴。"""
+    behaviors: dict = {"gw-a": {}}
+    fault = await start_fault_gateway(
+        {"gw-a": [(VAR_A, "float32", True)]}, {"gw-a": behaviors["gw-a"]}
+    )
+    service_path = configs_root(
+        scenarios=ship_scenarios_document(
+            {"gw-a": fault.bind},
+            interval=0.1,
+            mappings=[("gw-a", VAR_A)],
+        ),
+        output_timeout=1.0,
+    )
+    bind, _process = await dg_subprocess(service_path)
+    channel, dg_stub, common_stub = await dg_stubs(bind)
+    try:
+        started = await _start(dg_stub, common_stub)
+        assert started.accepted, started.message
+        deadline = asyncio.get_running_loop().time() + 10.0
+        while asyncio.get_running_loop().time() < deadline:
+            if [c for c in fault.service.claim_calls["gw-a"] if c["action"] == "RENEW"]:
+                break
+            await asyncio.sleep(0.1)
+        else:
+            raise AssertionError("first RENEW never arrived")
+
+        original_token = next(
+            call["response_token"]
+            for call in fault.service.claim_calls["gw-a"]
+            if call["action"] == "ACQUIRE"
+        )
+        behaviors["gw-a"]["claim_reject"] = {"RENEW": "LEASE_LOST"}
+        fail_deadline = asyncio.get_running_loop().time() + 12.0
+        state = ""
+        while asyncio.get_running_loop().time() < fail_deadline:
+            state = await _generation_state(dg_stub, started.generation_id)
+            if state == "FAILED":
+                break
+            await asyncio.sleep(0.15)
+        assert state == "FAILED", state
+
+        # 续租线程在权威拒绝后立即退出：再等一个续租周期，RENEW 数量不得增长。
+        renews_at_failure = len(
+            [c for c in fault.service.claim_calls["gw-a"] if c["action"] == "RENEW"]
+        )
+        await asyncio.sleep(3.5)
+        assert (
+            len([c for c in fault.service.claim_calls["gw-a"] if c["action"] == "RENEW"])
+            == renews_at_failure
+        )
+        actions = [call["action"] for call in fault.service.claim_calls["gw-a"]]
+        assert actions.count("ACQUIRE") == 1  # 判死后不重新申请
+        # Generation 失败清理至多触发一次 RELEASE，且只能持原始 token，不得换发新租约。
+        releases = [
+            call for call in fault.service.claim_calls["gw-a"] if call["action"] == "RELEASE"
+        ]
+        assert len(releases) <= 1
+        assert all(call["token"] == original_token for call in releases)
+    finally:
+        await channel.close()

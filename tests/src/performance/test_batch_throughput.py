@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import statistics
 import time
 from datetime import UTC, datetime
@@ -131,6 +132,10 @@ async def test_publisher_pipeline_throughput_with_fake_transport(
         delivery="realtime",
         capacity=4096,
         max_samples_per_batch=100,
+        # 本用例验证管线排空与计数，不验证 staleness 淘汰。默认 500ms 预算在
+        # 全仓并发负载下会让排队较久的批次被生产逻辑合法判过期丢弃，形成环境
+        # 相关的假失败；放大预算使过期路径与本测量解耦，dropped==0 断言不变。
+        max_staleness_ms=30_000,
     )
     await publisher.start()
     samples = _samples(100)
@@ -138,7 +143,19 @@ async def test_publisher_pipeline_throughput_with_fake_transport(
     started = time.perf_counter()
     for i in range(batches):
         await publisher.publish(f"wtg-{i % 30:02d}", samples)
-    await publisher.stop()
+    # 确定性完成条件：先等到全部批次真正送达传输层，再 stop()。stop() 内的
+    # queue.join() 只有 2s 生产保护超时，负载竞争下直接 stop 会把未排空批次
+    # 计入 dropped，造成墙钟抖动型假失败；轮询实际送达数不改变任何生产指标。
+    try:
+        drain_deadline = asyncio.get_running_loop().time() + 10.0
+        while asyncio.get_running_loop().time() < drain_deadline:
+            if fake.calls == batches:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError(f"publisher drain stalled: {fake.calls}/{batches} delivered")
+    finally:
+        await publisher.stop()
     elapsed = time.perf_counter() - started
     assert fake.calls == batches
     assert publisher.published_samples == batches * 100

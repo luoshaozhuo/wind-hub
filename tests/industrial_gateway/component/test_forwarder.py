@@ -528,8 +528,146 @@ async def test_get_command_result_passes_through_without_resubmit(
         assert record.command_id
         calls_before = len(commander.calls)
         result = await forwarder.get_command_result(record.command_id)
-        assert result.command_id == record.command_id
+        # pb2 解耦后内部 DTO 仅透传命令状态；command_id 由入参锚定，不进入 DTO。
+        assert result.state == "UNKNOWN"
         assert len(commander.calls) == calls_before  # 查询不重新执行
     finally:
         await forwarder.stop()
+        await server.stop(grace=0)
+
+
+def _worker_for_event(forwarder: CommandForwarder, event_id: str) -> asyncio.Task[None]:
+    """按 _work 协程帧中的 event 局部变量定位持有该事件的 worker 任务。"""
+    for task in forwarder._workers:  # noqa: SLF001 - 白盒验证前驱链取消语义
+        frame = task.get_coro().cr_frame  # type: ignore[attr-defined]
+        if (
+            frame is not None
+            and frame.f_locals.get("event") is not None
+            and frame.f_locals["event"].event_id == event_id
+        ):
+            return task
+    raise AssertionError(f"no worker holds event {event_id}")
+
+
+async def test_same_target_acceptance_order_matches_capture_order(tmp_path: Path) -> None:
+    """8 worker 并发空闲：同目标 4 事件的 Commander 受理序仍严格等于捕获序。
+
+    这直接钉住前驱完成令牌机制——队列出队序（而非锁竞争/TCP 序）定义 FIFO。
+    """
+    commander = FakeCommanderService()
+    commander.set_delay("D01", "cmd_uint", 0.15)
+    forwarder, _, server = await _pair(tmp_path, inflight=8, commander=commander)
+    try:
+        for value in (10, 20, 30, 40):
+            forwarder.capture(
+                event_id=f"evt-{value}",
+                gateway_id="gw1",
+                device_id="D01",
+                point_id="cmd_uint",
+                value=value,
+                revision="rev",
+            )
+        await asyncio.gather(*(_terminal(forwarder, f"evt-{value}") for value in (10, 20, 30, 40)))
+        calls = [call for call in commander.calls if call.device_id == "D01"]
+        assert [call.value for call in calls] == [10, 20, 30, 40]
+        assert commander.max_inflight("D01", "cmd_uint") == 1
+        assert len({call.command_id for call in calls}) == 4
+        assert not forwarder._target_tails  # noqa: SLF001 - 终态后令牌必须清理干净
+    finally:
+        await forwarder.stop()
+        await server.stop(grace=0)
+
+
+async def test_successor_cancellation_shields_predecessor_and_chain_unblocks(
+    tmp_path: Path,
+) -> None:
+    """取消等待前驱的后继 worker：前驱不受影响、后继不重复提交、链路不死锁。"""
+    commander = FakeCommanderService()
+    commander.set_delay("D01", "cmd_uint", 0.4)
+    forwarder, _, server = await _pair(tmp_path, inflight=2, commander=commander)
+    try:
+        forwarder.capture(
+            event_id="evt-predecessor",
+            gateway_id="gw1",
+            device_id="D01",
+            point_id="cmd_uint",
+            value=1,
+            revision="rev",
+        )
+        forwarder.capture(
+            event_id="evt-successor",
+            gateway_id="gw1",
+            device_id="D01",
+            point_id="cmd_uint",
+            value=2,
+            revision="rev",
+        )
+        # 等两个 worker 分别出队：前驱提交在途，后继挂在 shield(predecessor) 上。
+        deadline = asyncio.get_running_loop().time() + 2.0
+        while asyncio.get_running_loop().time() < deadline:
+            if ("D01", "cmd_uint") in forwarder._target_tails and len(  # noqa: SLF001
+                commander.calls
+            ) == 1:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("successor never parked on predecessor token")
+
+        successor_worker = _worker_for_event(forwarder, "evt-successor")
+        successor_worker.cancel()
+        await asyncio.gather(successor_worker, return_exceptions=True)
+
+        successor = await _terminal(forwarder, "evt-successor")
+        assert successor.state is ForwardState.REJECTED
+        assert successor.error == "not submitted"
+        # 前驱被 shield 保护，照常 ACCEPTED。
+        predecessor = await _terminal(forwarder, "evt-predecessor")
+        assert predecessor.state is ForwardState.ACCEPTED
+
+        # 后继取消只送达一次且从未发起 SubmitCommand；同目标在途恒为 1。
+        assert len(commander.calls) == 1
+        assert commander.max_inflight("D01", "cmd_uint") == 1
+
+        # 链路必须仍然可用：新事件经同一 target key 正常受理，证明无死锁、
+        # 无残留完成令牌，且取消的后继已把尾指针交接干净。
+        forwarder.capture(
+            event_id="evt-after-cancel",
+            gateway_id="gw1",
+            device_id="D01",
+            point_id="cmd_uint",
+            value=3,
+            revision="rev",
+        )
+        after = await _terminal(forwarder, "evt-after-cancel")
+        assert after.state is ForwardState.ACCEPTED
+        assert [call.value for call in commander.calls] == [1, 3]
+        assert not forwarder._target_tails  # noqa: SLF001
+    finally:
+        await forwarder.stop()
+        await server.stop(grace=0)
+
+
+async def test_stop_clears_target_tails_and_workers(tmp_path: Path) -> None:
+    """Stop 后前驱令牌表、worker 列表与队列全部清空，无悬挂 future。"""
+    commander = FakeCommanderService()
+    commander.set_delay("D01", "cmd_uint", 0.5)
+    forwarder, _, server = await _pair(tmp_path, inflight=2, commander=commander)
+    try:
+        for index in range(3):
+            forwarder.capture(
+                event_id=f"evt-{index}",
+                gateway_id="gw1",
+                device_id="D01",
+                point_id="cmd_uint",
+                value=index,
+                revision="rev",
+            )
+        await asyncio.sleep(0.1)
+        assert forwarder._target_tails  # noqa: SLF001 - 停前确有在途链
+        await forwarder.stop()
+        assert not forwarder._target_tails  # noqa: SLF001
+        assert not forwarder._workers  # noqa: SLF001
+        assert forwarder._queue.empty()  # noqa: SLF001
+        assert forwarder.pending == 0
+    finally:
         await server.stop(grace=0)

@@ -17,8 +17,8 @@ import grpc
 from industrial_gateway.application.variable_store import Scalar
 from industrial_gateway.infrastructure.config.v1_schema import ControlConfig
 from industrial_gateway.infrastructure.grpc.commander_client import (
-    CommandQuery,
     CommanderRpcClient,
+    CommandQuery,
 )
 
 logger = logging.getLogger(__name__)

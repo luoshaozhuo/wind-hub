@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from contracts import common_pb2 as pb
 from industrial_gateway.infrastructure.observability import GatewayObservability
 
 NINE_METRICS = {
@@ -130,21 +129,19 @@ def test_events_are_bounded_filtered_and_paginated() -> None:
         obs.event("gw1", f"message-{index}", error_code=f"E{index % 3}")
     assert len(obs.events) == 4096  # 进程内有界环形，不无限增长。
 
-    reply = obs.query_events(pb.GetEventsRequest(filter="E0", page_size=10))
+    reply = obs.query_events(filter_text="E0", page_size=10)
     assert len(reply.events) == 10
     assert all("E0" in event.error_code for event in reply.events)
     assert reply.next_page_token == "10"
-    page2 = obs.query_events(
-        pb.GetEventsRequest(filter="E0", page_size=10, page_token=reply.next_page_token)
-    )
+    page2 = obs.query_events(filter_text="E0", page_size=10, page_token=reply.next_page_token)
     assert len(page2.events) == 10
     assert {event.event_id for event in reply.events}.isdisjoint(
         {event.event_id for event in page2.events}
     )
 
     with pytest.raises(ValueError):
-        obs.query_events(pb.GetEventsRequest(page_token="abc"))
+        obs.query_events(page_token="abc")
 
     now = datetime.now(UTC)
-    future = obs.query_events(pb.GetEventsRequest(from_time=now + timedelta(days=1)))
+    future = obs.query_events(from_time=now + timedelta(days=1))
     assert future.events == []

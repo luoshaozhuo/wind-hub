@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 from time import monotonic
 from uuid import uuid4
 
-
 _COUNTERS = (
     "update_batches_total",
     "updated_variables_total",

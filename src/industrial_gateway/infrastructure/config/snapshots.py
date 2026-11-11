@@ -141,9 +141,7 @@ class ConfigSnapshots:
             last_error=self.last_error,
         )
 
-    async def push(
-        self, files: list[SnapshotFile], expected_revision: str
-    ) -> PushResult:
+    async def push(self, files: list[SnapshotFile], expected_revision: str) -> PushResult:
         """Validate and stage without changing disk or running services."""
         async with self.lock:
             disk, _ = self.disk()

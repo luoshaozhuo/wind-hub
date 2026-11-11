@@ -268,12 +268,8 @@ async def assemble_collector(
     task_control = CollectorTaskControl(configuration)
     register_collector_rpc(
         server,
-        common=CollectorConfigRpc(
-            configuration, lifecycle, acquisition, telemetry, publisher
-        ),
-        collector=CollectorDeviceRpc(
-            acquisition, configuration, task_control, publisher
-        ),
+        common=CollectorConfigRpc(configuration, lifecycle, acquisition, telemetry, publisher),
+        collector=CollectorDeviceRpc(acquisition, configuration, task_control, publisher),
     )
     endpoint = f"[{grpc_host}]:{grpc_port}" if ":" in grpc_host else f"{grpc_host}:{grpc_port}"
     if tls_configured:

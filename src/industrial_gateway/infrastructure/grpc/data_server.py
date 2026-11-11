@@ -631,9 +631,7 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
                     else None
                 ),
                 to_time=(
-                    request.to_time.ToDatetime(tzinfo=UTC)
-                    if request.HasField("to_time")
-                    else None
+                    request.to_time.ToDatetime(tzinfo=UTC) if request.HasField("to_time") else None
                 ),
             )
             events: list[common.Event] = []

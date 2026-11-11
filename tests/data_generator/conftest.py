@@ -420,6 +420,12 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
             await asyncio.sleep(delay)
         if abort_status is not None:
             await context.abort(abort_status, "injected claim failure")
+        # 非 RPC 异常的权威业务拒绝（如 RENEW 返回 accepted=false/LEASE_LOST），
+        # 用于区分"网络不确定"与"服务端终局裁决"两条续租分支。
+        reject_by_action = behavior.get("claim_reject", {})
+        reject_code = reject_by_action.get(request.action)
+        if reject_code is not None:
+            return gw.ClaimTargetsResponse(accepted=False, error_code=reject_code)
         catalog_ids = {
             name for name, _dtype, writable in self._catalog.get(request.gateway_id, ()) if writable
         }

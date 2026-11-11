@@ -164,12 +164,20 @@ async def test_concurrent_same_point_writes_serialize_at_commander(harness) -> N
             client.close()
 
     await asyncio.gather(*(one(value) for value in (10, 20, 30, 40)))
-    await _records_for(harness, "D01", COMMAND_UINT)
+    records = await _records_for(harness, "D01", COMMAND_UINT)
     calls = [c for c in harness.commander.calls if c.point_id == COMMAND_UINT]
     assert len(calls) == 4
     assert harness.commander.max_inflight("D01", COMMAND_UINT) == 1
     assert len({c.command_id for c in calls}) == 4
-    assert [c.value for c in calls] == [10, 20, 30, 40]  # FIFO 顺序
+    # FIFO 锚点是 Gateway 捕获顺序（forwarder 记录插入序），不是四条 TCP 连接
+    # 的建立顺序——后者受事件循环调度影响而不确定。按 command_id 联接后，
+    # Commander 受理值序列必须与捕获值序列严格一致。
+    captured = [record for record in records if record.command_id]
+    assert len(captured) == 4  # 全部 ACCEPTED 且各有权威 command_id
+    calls_by_id = {call.command_id: call for call in calls}
+    assert {call.command_id for call in calls} == {record.command_id for record in captured}
+    accepted_values = [calls_by_id[record.command_id].value for record in captured]
+    assert accepted_values == [record.value for record in captured]  # 捕获序即受理序
 
 
 async def test_read_succeeds_while_submission_in_flight(harness) -> None:
