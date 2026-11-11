@@ -5,7 +5,7 @@
 NATS 内存替身。Docker 不可用时整个模块 skip（报告记 NOT_RUN），绝不以
 Mock 结果冒充真实链路。
 
-覆盖 Contracts v1_6 §5.3：
+覆盖 Contracts v1_20（SampleBatch v2）：
 - 一个源采集事件 = 一条独立 NATS 批次，不合并周期；
 - Realtime core-NATS 与 Reliable JetStream 通道隔离；
 - Reliable PubAck 与 Sink 交付确认分离（broker 去重 vs 下游 ACK）；
@@ -36,7 +36,6 @@ pytestmark = [
     pytest.mark.integration,
     pytest.mark.real_service,
     pytest.mark.docker,
-    pytest.mark.end_to_end,
 ]
 
 
