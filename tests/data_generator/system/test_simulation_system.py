@@ -94,7 +94,6 @@ def _scenario_path(snapshot: Any) -> str:  # noqa: ANN401
 
 
 @pytest.mark.reliability
-@pytest.mark.end_to_end
 async def test_random_generation(
     start_real_gateway,
     configs_root,
@@ -136,7 +135,6 @@ async def test_random_generation(
 
 
 @pytest.mark.reliability
-@pytest.mark.end_to_end
 async def test_static_physics(
     start_real_gateway,
     configs_root,
@@ -346,7 +344,6 @@ async def test_overrun_and_stop(
 
 
 @pytest.mark.reliability
-@pytest.mark.end_to_end
 async def test_gateway_feedback(
     start_real_gateway,
     configs_root,
@@ -412,7 +409,6 @@ async def test_bad_gateway_mapping(
 
 
 @pytest.mark.reliability
-@pytest.mark.end_to_end
 async def test_fanout_multiple_gateways_and_variables(
     start_real_gateway,
     configs_root,
