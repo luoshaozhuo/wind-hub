@@ -1393,9 +1393,9 @@ sequenceDiagram
 
 ## 9.5 Data Generator 新增变量发现与运行时更新契约
 
-本节定义 \`data_generator.proto\` 新增的 **2 个 RPC**，旧 6 个 RPC 字段编号及语义不变，服务变成 8 个业务 RPC。注意与 \`industrial_gateway.proto\` 同名方法区别：Gateway 的 \`UpdateVariables\` 接收**测量数据注入**，Generator 的 \`UpdateVariables\` 修改**物理模型合法外生输入**。两服务分别在独立 Proto package 下生成方法，不冲突。
+本节定义 `data_generator.proto` 新增的 **2 个 RPC**，旧 6 个 RPC 字段编号及语义不变，服务变成 8 个业务 RPC。注意与 `industrial_gateway.proto` 同名方法区别：Gateway 的 `UpdateVariables` 接收**测量数据注入**，Generator 的 `UpdateVariables` 修改**物理模型合法外生输入**。两服务分别在独立 Proto package 下生成方法，不冲突。
 
-\`\`\`protobuf
+```protobuf
 // 增量设计草案；正式字段编号可在 Proto 落地时审查，但不得改变语义。
 message ListVariablesRequest {
   string generation_id = 1;
@@ -1442,14 +1442,14 @@ service DataGeneratorService {
   rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
   rpc UpdateVariables(UpdateVariablesRequest) returns (UpdateVariablesResponse);
 }
-\`\`\`
+```
 
-1. \`ListVariables\` 的 \`generation_id\` 与 \`device_id\` 均必填，返回本 Generation 的有效变量。完整分页顺序固定按 \`point_id\` 升序；页面令牌绑定 Generation、设备和配置修订，修改后旧令牌拒绝而不是混合数据。每个变量从共享设备模型→点表→业务点/单位解析，\`writable\` 由 Generator 生效模型的输入绑定及 Generation 状态决定，不按 Modbus holding/input 寄存器类型机械推断。
-2. \`UpdateVariables\` 要求合法的调用者身份、活跃 Generation、设备属于场景、非空且不重复 \`point_id\` 的输入批。批内任意未知/非 INPUT/非 writable/类型不匹配/越界 → **整批拒绝**，不部分生效。数值拒绝 NaN/Inf，字符串和布尔按共享业务点类型精确校验，单位转换由调用者完成，服务只接受共享点表工程单位。
-3. 成功的 \`accepted\` 指**输入在 \`effective_step\` 对应步边界已被安装**，不代表物理状态瞬间到达设定。不能确定是否已应用时 RPC 超时/断连，重复使用相同 \`request_id\` 和相同请求摘要获得同一幂等裁决；相同 ID 不同内容返回 \`ALREADY_EXISTS\` 或显式幂等冲突，不能创建第二次应用。幂等作用域为经过认证的调用者、Generation 和 request_id，保留期限须覆盖 Gateway 队列内允许重试期。
-4. \`generation_id\` 是隔离及 fencing 标识；停止或替换 Generation 后不得将旧请求施加到新模型。多设备更新采用每设备单独原子批，不声称跨设备分布式原子性。
-5. mTLS 身份/权限建议独立定义 \`variables_read\`、\`variables_update\`；Gateway 的受控反馈身份仅能更新授权模拟设备的 INPUT，CLI 也仅能在明确授予模拟输入权限后更新；不能将这两个 RPC 当作真实 PLC 命令旁路。
-6. Gateway 通过 \`control.target.kind=data_generator\` 提交该 RPC，不修改 Commander Proto；Commander 仍负责真实设备协议控制。对 Generator 变量更新的 RPC 结果不冒充 Commander 的 \`GetCommandResult\`。
+1. `ListVariables` 的 `generation_id` 与 `device_id` 均必填，返回本 Generation 的有效变量。完整分页顺序固定按 `point_id` 升序；页面令牌绑定 Generation、设备和配置修订，修改后旧令牌拒绝而不是混合数据。每个变量从共享设备模型→点表→业务点/单位解析，`writable` 由 Generator 生效模型的输入绑定及 Generation 状态决定，不按 Modbus holding/input 寄存器类型机械推断。
+2. `UpdateVariables` 要求合法的调用者身份、活跃 Generation、设备属于场景、非空且不重复 `point_id` 的输入批。批内任意未知/非 INPUT/非 writable/类型不匹配/越界 → **整批拒绝**，不部分生效。数值拒绝 NaN/Inf，字符串和布尔按共享业务点类型精确校验，单位转换由调用者完成，服务只接受共享点表工程单位。
+3. 成功的 `accepted` 指**输入在 `effective_step` 对应步边界已被安装**，不代表物理状态瞬间到达设定。不能确定是否已应用时 RPC 超时/断连，重复使用相同 `request_id` 和相同请求摘要获得同一幂等裁决；相同 ID 不同内容返回 `ALREADY_EXISTS` 或显式幂等冲突，不能创建第二次应用。幂等作用域为经过认证的调用者、Generation 和 request_id，保留期限须覆盖 Gateway 队列内允许重试期。
+4. `generation_id` 是隔离及 fencing 标识；停止或替换 Generation 后不得将旧请求施加到新模型。多设备更新采用每设备单独原子批，不声称跨设备分布式原子性。
+5. mTLS 身份/权限建议独立定义 `variables_read`、`variables_update`；Gateway 的受控反馈身份仅能更新授权模拟设备的 INPUT，CLI 也仅能在明确授予模拟输入权限后更新；不能将这两个 RPC 当作真实 PLC 命令旁路。
+6. Gateway 通过 `control.target.kind=data_generator` 提交该 RPC，不修改 Commander Proto；Commander 仍负责真实设备协议控制。对 Generator 变量更新的 RPC 结果不冒充 Commander 的 `GetCommandResult`。
 
 **兼容性验收**：Proto descriptor 保留原 6 RPC 与消息字段编号；新消息命名不与 Gateway package 冲突；客户端代码生成一致；Gateway/CLI 新调用方、认证和配置 schema、测试均随新接口上线，不能只变设计文档而不更新调用链。
 
