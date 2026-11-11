@@ -36,7 +36,6 @@ def _stages_map(response: common.DiagnoseResponse) -> dict[str, common.Diagnosti
     return {stage.stage: stage for stage in response.stages}
 
 
-@pytest.mark.end_to_end
 async def test_simulate_replay_stages(
     start_real_gateway,
     configs_root,
