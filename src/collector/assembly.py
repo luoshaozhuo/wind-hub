@@ -14,7 +14,6 @@ from pathlib import Path
 import grpc
 import yaml
 
-from contracts import collector_pb2_grpc, common_pb2_grpc
 from core.application import ProtocolPort, ProtocolRegistry
 from core.application.settings import ADSLocalConfig
 from core.domain import Device, PointTable
@@ -37,6 +36,7 @@ from .infrastructure.config.validation import (
 )
 from .infrastructure.grpc.collector_service import CollectorDeviceRpc
 from .infrastructure.grpc.config_service import CollectorConfigRpc
+from .infrastructure.grpc.registration import register_collector_rpc
 from .infrastructure.metrics_emitter import CollectorMetricsEmitter
 from .infrastructure.publisher import CollectorPublisher
 from .infrastructure.resource_sampler import CollectorResourceSampler
@@ -266,13 +266,14 @@ async def assemble_collector(
         maximum_concurrent_rpcs=32,
     )
     task_control = CollectorTaskControl(configuration)
-    common_pb2_grpc.add_CommonServiceServicer_to_server(
-        CollectorConfigRpc(configuration, lifecycle, acquisition, telemetry, publisher),
+    register_collector_rpc(
         server,
-    )
-    collector_pb2_grpc.add_CollectorServiceServicer_to_server(
-        CollectorDeviceRpc(acquisition, configuration, task_control, publisher),
-        server,
+        common=CollectorConfigRpc(
+            configuration, lifecycle, acquisition, telemetry, publisher
+        ),
+        collector=CollectorDeviceRpc(
+            acquisition, configuration, task_control, publisher
+        ),
     )
     endpoint = f"[{grpc_host}]:{grpc_port}" if ":" in grpc_host else f"{grpc_host}:{grpc_port}"
     if tls_configured:
