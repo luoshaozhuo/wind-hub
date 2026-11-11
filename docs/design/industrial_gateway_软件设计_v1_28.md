@@ -1758,7 +1758,7 @@ flowchart TB
 
 <p class="figure-caption">图 11-1 Service 直接引用与公共模板间接解析</p>
 
-**实现前置：** 依据总体架构 v1_4、Core v1_33 与 Configuration v1_15，wind-hub 共享实例/模板引用装配归 `configuration`，Core 仅执行调用方指定的通用 YAML/数据处理。`config_sources.instances.devices` 与 `config_sources.templates.root` 的显式来源及引用图须由配置装配边界处理；Gateway 不应扩展 Core 的业务加载接口，也不得自行建立重复的共享引用解析实现。若现有装配入口无法表达显式路径，应在 `configuration` 层解决并同步调用方，不改变 Core 公共接口；禁止 Gateway 自行绕过公共 Loader 实现第二套模板解析。`site.yaml` 未由本服务直接引用且不属于设备型号解析链时不得作为 Gateway 启动必需文件；`units.yaml`、`business_points.yaml` 等公共目录文件仅在设备/点表解析确有依赖时由公共 Loader 解析，不要求 Service 重复声明。不得把固定默认文件误认为 Service 已声明。
+**实现前置：** 依据总体架构 v1_5、Core v1_33 与 Configuration v1_15，wind-hub 共享实例/模板引用装配归 `configuration`，Core 仅执行调用方指定的通用 YAML/数据处理。`config_sources.instances.devices` 与 `config_sources.templates.root` 的显式来源及引用图须由配置装配边界处理；Gateway 不应扩展 Core 的业务加载接口，也不得自行建立重复的共享引用解析实现。若现有装配入口无法表达显式路径，应在 `configuration` 层解决并同步调用方，不改变 Core 公共接口；禁止 Gateway 自行绕过公共 Loader 实现第二套模板解析。`site.yaml` 未由本服务直接引用且不属于设备型号解析链时不得作为 Gateway 启动必需文件；`units.yaml`、`business_points.yaml` 等公共目录文件仅在设备/点表解析确有依赖时由公共 Loader 解析，不要求 Service 重复声明。不得把固定默认文件误认为 Service 已声明。
 
 加载入口为用户明确指定的 Service 文件：先读取 `config_sources` 并校验两个必填路径，再读取所声明的 Instance 文件，以 `templates.root` 为**唯一**模板解析范围，最后装配 Gateway 设备绑定。除已经由实例或模板声明的引用链外，不自动加载其他公共 Instance 文件。模板解析失败时报告精确引用（源文件、模板 ID、版本及失败原因），而不是选择目录内其他文件。
 
@@ -1845,23 +1845,23 @@ metrics:
 
 ## 11.7 控制转发目标选择与配置 Schema（新增）
 
-Gateway 保持**被动接收外部数据**和工业协议 Server 的职责；无需、不得增加 \`upstream.kind\`、主动采集 PLC 或 Generator 的上游类型。外部经现有 gRPC \`ClaimTargets/UpdateVariables\` 注入测量值；这两个 RPC 不触发工业控制转发。工业 Modbus 写入则捕获控制事件，由每个 Server 的转发目标配置唯一决定出站调用。
+Gateway 保持**被动接收外部数据**和工业协议 Server 的职责；无需、不得增加 `upstream.kind`、主动采集 PLC 或 Generator 的上游类型。外部经现有 gRPC `ClaimTargets/UpdateVariables` 注入测量值；这两个 RPC 不触发工业控制转发。工业 Modbus 写入则捕获控制事件，由每个 Server 的转发目标配置唯一决定出站调用。
 
 ### 11.7.1 目标类型与权限
 
-| \`control.target.kind\` | 动作 | 请求返回 |
+| `control.target.kind` | 动作 | 请求返回 |
 |---|---|---|
-| \`commander\` | 调用 Commander \`SubmitCommand\`，沿用现有每目标 FIFO、鉴权、请求级幂等 | 接受控制调度；最终物理写入结果由 Commander 查询 |
-| \`data_generator\` | 调用 Data Generator \`UpdateVariables\`，写入运行中 Generation 的可更新模型输入 | 模型输入在指定仿真步生效；不代表机组达到目标功率 |
-| \`none\` | 不调用任何外部控制服务 | 是否允许本地协议写入由独立控制权限策略决定，不能默认为写成功 |
+| `commander` | 调用 Commander `SubmitCommand`，沿用现有每目标 FIFO、鉴权、请求级幂等 | 接受控制调度；最终物理写入结果由 Commander 查询 |
+| `data_generator` | 调用 Data Generator `UpdateVariables`，写入运行中 Generation 的可更新模型输入 | 模型输入在指定仿真步生效；不代表机组达到目标功率 |
+| `none` | 不调用任何外部控制服务 | 是否允许本地协议写入由独立控制权限策略决定，不能默认为写成功 |
 
-单个已验证 Modbus 控制写事件只能选择其中一个目标，不得同时发送 Commander 和 Data Generator。按每个 Server 配置目标（而非 Gateway 进程统一目标），以便同一进程内多设备按模型分别配置。禁止通过 \`control.target.kind=none\` 意外放行没有外部执行责任的写请求；对于不支持本地只更新控制寄存器的场景应拒绝写入。
+单个已验证 Modbus 控制写事件只能选择其中一个目标，不得同时发送 Commander 和 Data Generator。按每个 Server 配置目标（而非 Gateway 进程统一目标），以便同一进程内多设备按模型分别配置。禁止通过 `control.target.kind=none` 意外放行没有外部执行责任的写请求；对于不支持本地只更新控制寄存器的场景应拒绝写入。
 
 ### 11.7.2 目标 Schema 与完整字段解释
 
-建议将现有 \`servers[].control_enabled\`、\`servers[].command_mappings\` 和服务级 \`control.commander_endpoint\` 的含义收敛为 **每 Server 一个 \`control\` 对象**，不长期保留两套来源。与现有 \`ControlConfig\` 中的队列/并发/超时参数同步迁移；Schema 使用严格 \`extra=forbid\`，拒绝旧字段与新字段并存造成优先级不明。此为 **目标 Schema，当前 v1_schema.py 不支持**：
+建议将现有 `servers[].control_enabled`、`servers[].command_mappings` 和服务级 `control.commander_endpoint` 的含义收敛为 **每 Server 一个 `control` 对象**，不长期保留两套来源。与现有 `ControlConfig` 中的队列/并发/超时参数同步迁移；Schema 使用严格 `extra=forbid`，拒绝旧字段与新字段并存造成优先级不明。此为 **目标 Schema，当前 v1_schema.py 不支持**：
 
-\`\`\`yaml
+```yaml
 # configs/services/industrial_gateway.yaml — 升级后目标结构示例
 schema_version: 1
 file_version: "1.1.0"
@@ -1921,27 +1921,27 @@ servers:
 metrics:
   window_seconds: 60
   collect_interval_ms: 1000
-\`\`\`
+```
 
 | 字段 | 类型/缺省规则 | 约束 |
 |---|---|---|
-| \`servers[].control.enabled\` | bool，必填 | 禁用时不应配置有效转发目标 |
-| \`servers[].control.target.kind\` | enum，必填 | \`commander/data_generator/none\` |
-| \`target.endpoint\` | string，适用时必填 | \`none\` 禁止填写；符合 host:port；生产跨主机使用 mTLS |
-| \`target.tls\` | 客户端 TLS 对象 | 证书、私钥、CA 必须齐全；身份权限按目标类型隔离 |
-| \`target.request_timeout_ms\` | int，建议默认 5000 | 正数、有上限，需大于排队与模型步同步等待预算 |
-| \`target.queue_capacity\` | int，建议默认 1024 | 有界队列，溢出可观测且拒绝新提交 |
-| \`target.max_inflight\` | int，建议默认 1 | 同设备同变量不可乱序；多设备可并行 |
-| \`target.generation_binding.scenario_id\` | string，仅 Generator 必填 | 不允许把固定示例字符串当作运行时 \`generation_id\`；须动态解析当前活跃 Generation，并拒绝切换竞态 |
-| \`mappings[].variable_id\` | string，必填 | 必须存在于共享 PointTable，且为协议可写控制点 |
-| \`mappings[].target_point_id\` | string，必填 | Commander 在目标设备点表中存在；Generator 在 \`ListVariables\` 列表中为 writable INPUT |
-| \`control.target.kind=none\` | 无其他 target 字段 | 适用控制点写入应拒绝或由明示的本地 Store 策略处理 |
+| `servers[].control.enabled` | bool，必填 | 禁用时不应配置有效转发目标 |
+| `servers[].control.target.kind` | enum，必填 | `commander/data_generator/none` |
+| `target.endpoint` | string，适用时必填 | `none` 禁止填写；符合 host:port；生产跨主机使用 mTLS |
+| `target.tls` | 客户端 TLS 对象 | 证书、私钥、CA 必须齐全；身份权限按目标类型隔离 |
+| `target.request_timeout_ms` | int，建议默认 5000 | 正数、有上限，需大于排队与模型步同步等待预算 |
+| `target.queue_capacity` | int，建议默认 1024 | 有界队列，溢出可观测且拒绝新提交 |
+| `target.max_inflight` | int，建议默认 1 | 同设备同变量不可乱序；多设备可并行 |
+| `target.generation_binding.scenario_id` | string，仅 Generator 必填 | 不允许把固定示例字符串当作运行时 `generation_id`；须动态解析当前活跃 Generation，并拒绝切换竞态 |
+| `mappings[].variable_id` | string，必填 | 必须存在于共享 PointTable，且为协议可写控制点 |
+| `mappings[].target_point_id` | string，必填 | Commander 在目标设备点表中存在；Generator 在 `ListVariables` 列表中为 writable INPUT |
+| `control.target.kind=none` | 无其他 target 字段 | 适用控制点写入应拒绝或由明示的本地 Store 策略处理 |
 
-上述端口为**设计示例**，须与运行环境服务实际监听一致。配置文件头须记录所有字段释义、默认值、取值范围、权限、TLS 与错误处理；生产实现要验证同一 Server 映射的 \`variable_id\` 不重复、目标端点连通性、权限和所有权，不能随意让 Generator 处理真实厂家 PLC ID。
+上述端口为**设计示例**，须与运行环境服务实际监听一致。配置文件头须记录所有字段释义、默认值、取值范围、权限、TLS 与错误处理；生产实现要验证同一 Server 映射的 `variable_id` 不重复、目标端点连通性、权限和所有权，不能随意让 Generator 处理真实厂家 PLC ID。
 
 ### 11.7.3 控制事件时序
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
   participant Client as "工业协议 Client"
   participant Gateway as "Industrial Gateway"
@@ -1958,15 +1958,15 @@ sequenceDiagram
   else target.kind = none
     Gateway-->>Client: 本地策略决定允许或拒绝
   end
-\`\`\`
+```
 
-Modbus 协议写入确认与下游实际执行**不是同一事务**：原有 \`on_write\` 事件捕获原则保留，后续转发失败、超时或下游拒绝不能伪报为 Generator 已应用。对 Generator 目标必须提供控制事件状态、幂等 request_id、同目标 FIFO、有界等待与明确超时状态；同 ID 重试只可重复查询幂等裁决，不可引起模型二次施加。当前 Gateway 的 Commander 转发是 best-effort、无自动重试；新增 Generator 目标不能不经设计直接承诺持久化 exactly-once。如果希望跨重启可靠补发，须增加有界持久队列/事务外箱与租约失效规则，作为独立验收能力；没有实现时明确标记重启中未发送事件为 UNKNOWN。
+Modbus 协议写入确认与下游实际执行**不是同一事务**：原有 `on_write` 事件捕获原则保留，后续转发失败、超时或下游拒绝不能伪报为 Generator 已应用。对 Generator 目标必须提供控制事件状态、幂等 request_id、同目标 FIFO、有界等待与明确超时状态；同 ID 重试只可重复查询幂等裁决，不可引起模型二次施加。当前 Gateway 的 Commander 转发是 best-effort、无自动重试；新增 Generator 目标不能不经设计直接承诺持久化 exactly-once。如果希望跨重启可靠补发，须增加有界持久队列/事务外箱与租约失效规则，作为独立验收能力；没有实现时明确标记重启中未发送事件为 UNKNOWN。
 
-**Gateway 实例配置路径**：每个服务实例显式选择 \`configs/instances/devices.yaml\`（真实）或 \`configs/instances/devices_sim.yaml\`（模拟），不让冻结公共加载器合并两个文件。Gateway 对外 gRPC 和 Modbus Server 的地址仍由现有配置决定。所有配套引用（RPC client、Schema、测试、配置文件头、文档）必须同步迁移。
+**Gateway 实例配置路径**：每个服务实例显式选择 `configs/instances/devices.yaml`（真实）或 `configs/instances/devices_sim.yaml`（模拟），不让冻结公共加载器合并两个文件。Gateway 对外 gRPC 和 Modbus Server 的地址仍由现有配置决定。所有配套引用（RPC client、Schema、测试、配置文件头、文档）必须同步迁移。
 
 ### 11.7.4 System 验收
 
-验证 Commander/Generator/none 三类型正反例、同点唯一映射、同设备顺序、队列满拒绝、Generation 切换、超时/幂等、mTLS 错误、\`UpdateVariables\` 注入不触发转发、失败时控制结果不谎报成功；特别验证 Gateway1 使用 Generator 目标、Gateway2 使用 Commander 目标的整条反馈链，不形成指令回路。
+验证 Commander/Generator/none 三类型正反例、同点唯一映射、同设备顺序、队列满拒绝、Generation 切换、超时/幂等、mTLS 错误、`UpdateVariables` 注入不触发转发、失败时控制结果不谎报成功；特别验证 Gateway1 使用 Generator 目标、Gateway2 使用 Commander 目标的整条反馈链，不形成指令回路。
 
 # 12. 外部适配与集成契约
 
