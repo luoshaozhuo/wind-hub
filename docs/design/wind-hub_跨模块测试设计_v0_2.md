@@ -518,3 +518,268 @@ flowchart TB
 
 自动验收对稳态终值要求 `abs(P-1000) ≤ 20 kW` **作为提议的初始测试容差**；收敛时间上限必须由 \(\tau_P\)、斜率及采样间隔推导并写入 configs，而非任意设定 1 秒成功。全过程记录事件时间与 `command_id`/模型 step，以证明因果方向。
 
+
+
+---
+
+# 6. 完整 configs 设计（核心验收输入）
+
+## 6.1 文件层次及作用
+
+```text
+tests/e2e/configs/
+├── services/
+│   ├── data-generator-service.yaml
+│   ├── gateway1.yaml
+│   ├── gateway2.yaml
+│   ├── collector.yaml
+│   ├── commander.yaml
+│   ├── sink_service.yaml
+│   └── cli.yaml                       # 仅在现行 CLI Schema 允许时
+├── instances/
+│   ├── site.yaml
+│   ├── devices.yaml                   # GW01/GW02/GW03：GW2MW Modbus
+│   ├── data-generator.yaml            # 一场景 × 三台独立有状态风机
+│   ├── sinks.yaml                     # 3 个 Sink 实例
+│   └── deliveries.yaml                # 3 个独立 Delivery
+├── templates/
+│   ├── protocols/
+│   │   └── modbus_tcp_1.0.0.yaml
+│   ├── device_models/
+│   │   └── wtg_gw2mw_e2e_1.0.0.yaml
+│   ├── point_tables/
+│   │   └── modbus_wtg_gw2mw_e2e_1.0.0.yaml
+│   ├── tasks/
+│   │   └── gw2mw_e2e_all_1.0.0.yaml
+│   ├── sinks/
+│   │   ├── e2e_modbus_1.0.0.yaml
+│   │   ├── e2e_redis_1.0.0.yaml
+│   │   └── e2e_kafka_1.0.0.yaml
+│   ├── deliveries/
+│   │   ├── e2e_rt_modbus_1.0.0.yaml
+│   │   ├── e2e_rt_redis_1.0.0.yaml
+│   │   └── e2e_rel_kafka_1.0.0.yaml
+│   ├── business_points.yaml
+│   └── units.yaml
+├── model/
+│   ├── gw2mw_physics.yaml             # 待新增的 Generator 物理模型配置契约
+│   └── wind_profiles.yaml             # 三台机组确定性风速、频率输入
+└── security/
+    └── identities.yaml               # 仅存证书身份/路径映射，不存私钥正文
+```
+
+注意：上表是最终建议的**测试配置资产结构**，并非声称每个目录/文件均已被现行加载器接受。配置读取入口必须保持已冻结的 `config_sources` 明确路径规则；`model/` 是否作为 `data_generator.yaml` 的正式可引用子资源，必须先通过 Generator/Configuration Schema 设计审查。证书、端口、Kafka Topic、Redis Key 和 NATS Durable 在运行时拷贝到临时环境，禁止测试直接写生产 `configs/`。
+
+## 6.2 各文件的配置契约矩阵
+
+<p class="table-caption">表 6-1 各类配置文件、权威来源与校验</p>
+
+| 文件 | 权威读取方 | 必要字段及约束 | 复用/调整 |
+|---|---|---|---|
+| `site.yaml` | Configuration/Core | `schema_version`、`file_version`、`site_id`、`name` | 复用现行结构 |
+| `devices.yaml` | Collector、Gateway、Commander、Generator | 3 个设备、精确 `model.id/version`、各自 `endpoint.host/port` | 从现有 GW01–03 裁剪；模型引用改为测试 Modbus 版本 |
+| `modbus_tcp_1.0.0.yaml` | Core | `mode=tcp`、`slave_id`、`timeout`、`word_order` | 复制现有正式模板，端口不存于协议模板 |
+| `wtg_gw2mw_e2e_1.0.0.yaml` | Configuration/Core | 协议、点表、任务的版本精确引用；`device_type_id=turbine` | 参照正式 `wtg_gw2mw_1.1.0.yaml`；测试 Modbus 专用 |
+| `modbus_wtg_gw2mw_e2e_1.0.0.yaml` | Core/Collector/Gateway | 29 点 `business_point_id`、类型、地址、单位、scale/offset、point_groups | 新增精简点表，必须通过 Core 地址冲突/重叠校验 |
+| `gw2mw_e2e_all_1.0.0.yaml` | Collector/Core | 固定采样周期、点组、批量读取预算 | 精确引用现有 Task 模板结构 |
+| `data-generator.yaml` | Data Generator | scenario、source、3 devices、model、gateways、feedback_mapping | 拓展现有场景字段以承载有状态模型 |
+| `gw2mw_physics.yaml` | Data Generator | 物理参数、初始状态、限值、模型数值步长、响应模式 | **新模型 Schema，待正式设计升级** |
+| `wind_profiles.yaml` | Data Generator | 三设备时间序列、频率/电压扰动、确定性采样 | **新模型输入资源，待正式设计升级** |
+| `gateway1.yaml` | Gateway 1 | 明确 `config_sources`、3 个 Server、Modbus 端口、`control_enabled=false` | 增补 `upstream.kind=data_generator` 需 Schema 升级 |
+| `gateway2.yaml` | Gateway 2 | 3 个 Server、控制映射及 Commander Endpoint | 增补测量源同步责任需 Schema/组件评审 |
+| `collector.yaml` | Collector | 单独设备/模板路径、NATS、采样周期、每批点数/容量 | 参照当前 `configs/services/collector.yaml` |
+| `commander.yaml` | Commander | 三设备控制、证书、审计、幂等、总并发/超时 | 参照现行 `commander.yaml`；不能关闭 mTLS 绕过 |
+| `sink_service.yaml` | Sink Service | `service_id`、`wind_farm_id`、`deployment_id`、`config_root`、`config_sources.instances.sinks/deliveries`、NATS、运行额度 | 复制正式服务 Schema，替换测试独立值 |
+| `sinks.yaml` | Sink Service | Modbus/Redis/Kafka 各 1 实例及对应模板版本/连接 | 模板实例结构以 `src/sink_service/application/config.py` 为准 |
+| `deliveries.yaml` | Sink Service | 三条独立 Delivery，每条唯一 `delivery_id`、`sink_id`、`source`、模板版本 | Realtime→Modbus/Redis；Reliable→Kafka |
+| `templates/sinks/*.yaml` | Sink Service | 每种 Adapter 的 `kind`、`capabilities`、`connection`、`output` | 复制正式模板，`modbus_tcp` 只读 Server |
+| `templates/deliveries/*.yaml` | Sink Service | `delivery_mode`、`source_filter`、触发策略、输出规则 | Realtime/Reliable 必须分开 |
+| `business_points.yaml` / `units.yaml` | Configuration/Core | 正式业务点和单位词汇，精确类型与量纲 | 从现有文件做最小有效子集，不改变全局词汇语义 |
+| `identities.yaml` | 测试环境编排器 | 证书 CN、角色、访问范围、密钥文件路径 | 仅测试侧映射，不替代任何服务安全配置 |
+
+## 6.3 三台 GW2MW 设备实例：建议样例
+
+以下示例仅使用已核实的设备实例字段，型号 ID 指向拟新增测试模板：
+
+```yaml
+schema_version: 1
+file_version: "1.0.0"
+devices:
+  GW01:
+    name: "GW2MW-E2E-01"
+    enabled: true
+    model: {id: wtg_gw2mw_e2e, version: "1.0.0"}
+    endpoint: {host: 127.0.0.1, port: 15101}
+    overrides: {}
+  GW02:
+    name: "GW2MW-E2E-02"
+    enabled: true
+    model: {id: wtg_gw2mw_e2e, version: "1.0.0"}
+    endpoint: {host: 127.0.0.1, port: 15102}
+    overrides: {}
+  GW03:
+    name: "GW2MW-E2E-03"
+    enabled: true
+    model: {id: wtg_gw2mw_e2e, version: "1.0.0"}
+    endpoint: {host: 127.0.0.1, port: 15103}
+    overrides: {}
+```
+
+Gateway 1 对应服务端口建议 15101–15103；Gateway 2 对应 15201–15203；Sink Modbus Output 15301（单实例可包含 87 点）。**这些是测试示例端口，不是生产默认值**；测试运行时须检查无冲突，并将 Gateway 2 所需的设备引用和其自己监听端口正确分离。若当前 Gateway Schema 不能把设备 endpoint 和 Server listen_port 独立表达，应先在 Gateway 设计解决，不能通过修改共享设备模型绕过。
+
+## 6.4 设备模型引用：示例
+
+```yaml
+schema_version: 1
+template_id: wtg_gw2mw_e2e
+file_version: "1.0.0"
+name: GW2MW-E2E-Modbus
+device_type_id: turbine
+protocol: {id: modbus_tcp, version: "1.0.0"}
+point_table: {id: modbus_wtg_gw2mw_e2e, version: "1.0.0"}
+task: {id: gw2mw_e2e_all, version: "1.0.0"}
+```
+
+必须验证 `protocol.id` 是否与现有 `configs/templates/protocols/modbus_tcp_1.0.0.yaml` 的模板 ID 一致，以及 `protocol: modbus` 的内部判别关系。原 `wtg_gw2mw_1.1.0.yaml` 引用 ADS 1.1.0，**不得在测试中直接用 ADS 模型强行标记为 Modbus**。
+
+## 6.5 点表地址设计：逐点可验证
+
+采用每风机独立 Unit 1、相同地址布局的方案。协议地址定义与工程单位必须经 Core Codec 验证。推荐的寄存器布局原则如下：
+
+| 组 | 量 | 建议分区 | 分配 |
+|---|---|---|---|
+| 读数模拟量 | #1–#16 | Input Registers | 每点 2 个 word；按顺序从 100 起分配，地址逐点间隔 2 |
+| 运行状态 | #17–#18 | Discrete Inputs | 2 bit |
+| AGC/AVC/调频模拟控制 | #19–#22 | Holding Registers | 每点 2 word；从 200 起，连续分配 |
+| 使能/启停/复位控制 | #23–#28 | Coils | 6 bit |
+| 命令状态 | #29 | Input Registers | 1 word（int16） |
+
+此布局仅为**点表生成规则**，正式 `points` 需要对 29 个 point_id 逐一展开 `address.register_type/address/count/slave_id`、`data_type`、`business_point_id`、`unit`、`scale`、`offset`、`point_groups`。不得拿这一张表冒充可加载 YAML；自动测试必须校验 **29 点完整、地址无重叠、写权限正确、类型匹配、三设备实例共同引用合法模板**。
+
+## 6.6 Gateway 服务配置：控制与测量分区
+
+```yaml
+# 仅演示服务端当前已存在的主要字段；其余按正式 Schema 补齐
+schema_version: 1
+file_version: "1.0.0"
+config_sources:
+  instances: {devices: configs/instances/devices.yaml}
+  templates: {root: configs/templates}
+grpc:
+  listen_host: "127.0.0.1"
+  listen_port: 50171
+  max_active_rpcs: 64
+  request_max_bytes: 2097152
+  tls: {enabled: true}
+servers:
+  - server_id: gateway1-GW01
+    device_id: GW01
+    listen_host: "127.0.0.1"
+    listen_port: 15101
+    desired_state: START
+    control_enabled: false
+    command_mappings: []
+  - server_id: gateway1-GW02
+    device_id: GW02
+    listen_host: "127.0.0.1"
+    listen_port: 15102
+    desired_state: START
+    control_enabled: false
+    command_mappings: []
+  - server_id: gateway1-GW03
+    device_id: GW03
+    listen_host: "127.0.0.1"
+    listen_port: 15103
+    desired_state: START
+    control_enabled: false
+    command_mappings: []
+control:
+  commander_endpoint: "127.0.0.1:50152"
+  forward_queue_capacity: 1024
+  max_forward_inflight: 16
+  submit_deadline_ms: 5000
+metrics: {window_seconds: 60, collect_interval_ms: 1000}
+```
+
+Gateway 2 使用相同 `config_sources`，将每台 Server 的 `server_id`、`listen_port` 改为 `gateway2-GWxx`、15201–15203，`control_enabled=true`，并将 #19–#28 的可写点映射到 Commander 的正式 `device_id` / `commander_point_id`。其上游 `data_generator/none/plc` 字段不在此**现行字段示例**内，须待对应设计升级才写入正式 YAML；不能把未识别字段加进去后依赖解析器忽略它。
+
+Gateway 1 与 Gateway 2 应使用不同 gRPC 监听端口、不同 `server_id`、相同逻辑设备 ID 的显式关联。必须检查 Commander 对三个设备路由的是 Gateway 1，避免指令循环发回 Gateway 2。
+
+## 6.7 Data Generator 场景：三台有状态模型
+
+场景字段应基于现行 `configs/instances/data-generator.yaml` 的 `scenarios/source/devices/points/gateways/feedback_mapping` 结构扩展。下面仅列出**待设计的新增逻辑字段**，不得直接投喂现行 parser：
+
+```yaml
+# PROPOSED-SCHEMA: Data Generator 设计升级后才能执行
+scenario_id: gw2mw-3t-physical
+source:
+  kind: simulation
+  interval_seconds: 0.1
+  seed: 20261111
+  physical_model:
+    id: gw2mw_dynamic
+    version: "1.0.0"
+    params_ref: model/gw2mw_physics.yaml
+    exogenous_ref: model/wind_profiles.yaml
+devices:
+  - device_id: GW01
+    model_state: independent
+  - device_id: GW02
+    model_state: independent
+  - device_id: GW03
+    model_state: independent
+feedback:
+  read_from: gateway1
+  read_method: ReadVariables
+  read_before_step: true
+  command_points:
+    - agc_power_setpoint
+    - avc_voltage_setpoint
+    - avc_reactive_setpoint
+    - ffr_power_command
+    - ffr_enable
+    - agc_enable
+    - avc_enable
+    - start_command
+    - stop_command
+    - reset_fault_command
+```
+
+真实 `feedback_mapping` 要逐设备、逐输出测点映射至 Gateway 1 变量；测量点最多 19 项/设备（29 点中 #19–#28 是控制点，不属于 Generator 的 UpdateVariables 写入所有权）。不得在更新目标集中加入 Commander 控制点。新模型的控制读取必须经过授权只读 RPC 与快照一致性校验。
+
+## 6.8 Sink 三输出实例与 Delivery
+
+需要依据已实现的 `src/sink_service/application/config.py` 校验模板 `kind` 为 `modbus_tcp`、`redis`、`kafka`，并保证：
+
+| Sink | `kind` | Delivery | 模式 | 配置要点 |
+|---|---|---|---|---|
+| `modbus-latest` | `modbus_tcp` | `rt-modbus` | Realtime | 只读 TCP Server 15301、完整 3 设备测量映射、寄存器与质量区不冲突 |
+| `redis-latest` | `redis` | `rt-redis` | Realtime | 127.0.0.1:6379、独立 namespace、键名带设备 ID、测试 TTL |
+| `kafka-history` | `kafka` | `rel-kafka` | Reliable | KRaft Broker、隔离 Topic、`acks=all`、幂等 Producer、顺序/重投/去重身份 |
+
+三条 Delivery 分别引用其准确版本的 Sink 模板和 Delivery 模板；配置文件要包括 source_filter、触发、容量、超时、回退与 DLQ，不得仅列 `sink_id`。通过 Sink 正式 Config Validate / Apply 后才允许启动完整 E2E。三目标都要包含同一批测试设备的数据，且可靠交付以独立 Durable ACK 为准。
+
+**未获批准前不新增第 4 种目标或更改现行 Sink Adapter。** 只读 Modbus 与 Gateway 2 的衔接属于 Gateway2 的数据订阅/协议客户端职责待决项，不应偷偷改写 Sink Modbus 为 Modbus Client。
+
+## 6.9 其余服务与安全环境
+
+- Collector 配置必须精确指向测试 `site.yaml/devices.yaml/templates`，按 `interval_seconds=0.1` 设计 10 Hz 采集任务；检查任务配置支持该周期，保证两通道 SampleBatch 不超过各服务可接受批次容量。
+- Commander `config_sources` 指向三设备共享目录，服务端 mTLS 与调用方授权必须开启；Gateway 2、CLI 使用不同测试身份，真实认证成功后才能控制；Commander 协议点表写目标是 GW01–03 的 Gateway 1 Modbus Server。
+- NATS/JetStream 使用独立 `WH_HISTORY`、`WH_DLQ` 和测试 Subject，保留真实 PubAck、Durable、ACK 的 Broker 证据；Consumer 生命周期与测试用例绑定。
+- Redis 使用独立数据库或强制 Key namespace；Kafka 独立 Topic；数据不能混入真实业务服务。
+- 主进程运行目录应生成最终配置快照、SHA256、证书身份、网络端口和进程 PID 列表；结束仅清理有明确测试所有权的资源。
+- CLI 的 gRPC 服务端点映射和 Modbus 网络命令必须与两 Gateway、三设备对应；`gateway read` 应分别在 G1/G2 查询变量，CLI 不能把 G1/G2 状态混为同一实例。
+
+## 6.10 配置验证门禁
+
+在启动测试之前，配置检查器必须完成：
+
+1. 文件存在、JSON/YAML 类型、Schema 版本和强制字段正确，模板精确引用无悬空、无循环。
+2. 三个实例完全独立，型号全部 GW2MW E2E Modbus，点表恰为 29 点/台；合计 87 点，设备端口不冲突。
+3. 所有 Modbus FC 读/写权限、寄存器长度/字序、数据类型、单位及业务点语义均通过 Core/Configuration 校验。
+4. Gateway1 三 Server 的测量写租约归 Generator，控制 FC 写归 Commander；Gateway2 三 Server 的控制映射目标均为 GW1 对应设备。
+5. Sink 三目标/三 Delivery 全部在线、模式与通道匹配；三台数据均被覆盖。
+6. Generator 模型参数满足物理边界、输入可重放、三状态独立；初始条件的物理模型求解稳定且有界。
+7. CLI 能发现和读取两个 Gateway 的每台设备数据；正式 Modbus 控制入口通过权限测试。
+8. 文件夹内部完整闭包可复制到临时目录运行；不依赖生产 `configs/` 的隐式默认路径。
+
