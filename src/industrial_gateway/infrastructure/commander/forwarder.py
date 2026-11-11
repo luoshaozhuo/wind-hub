@@ -231,7 +231,7 @@ class CommandForwarder:
             self._target_tails[key] = completed
             try:
                 if predecessor is not None:
-                    await predecessor
+                    await asyncio.shield(predecessor)
                 await self._submit(event)
             except asyncio.CancelledError:
                 record = self._records[event.event_id]
