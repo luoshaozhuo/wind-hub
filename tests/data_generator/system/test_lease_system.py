@@ -108,7 +108,6 @@ async def _start(dg_stub, common_stub):  # noqa: ANN001, ANN202
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.end_to_end
 async def test_p1_01_simultaneous_claim_exactly_one_wins(
     start_real_gateway,
     configs_root,
@@ -145,7 +144,6 @@ async def test_p1_01_simultaneous_claim_exactly_one_wins(
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.end_to_end
 async def test_p1_03_disjoint_variables_coexist(
     start_real_gateway,
     configs_root,
@@ -196,7 +194,6 @@ async def test_p1_03_disjoint_variables_coexist(
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.end_to_end
 async def test_p1_04_group_rejected_without_partial_occupancy(
     start_real_gateway,
     configs_root,
