@@ -1322,6 +1322,8 @@ sequenceDiagram
 | `GetGeneration` | `common.ObjectId` | `GetGenerationResponse` | 查询生成任务状态 |
 | `StartGeneration` | `StartGenerationRequest` | `StartGenerationResponse` | 按场景与可选版本创建生成任务 |
 | `StopGeneration` | `StopGenerationRequest` | `StopGenerationResponse` | 按 generation_id 停止生成任务 |
+| `ListVariables` | `ListVariablesRequest` | `ListVariablesResponse` | 查询当前 Generation 设备的共享变量及模型权限 |
+| `UpdateVariables` | `UpdateVariablesRequest` | `UpdateVariablesResponse` | 按设备原子更新可写 INPUT，返回生效步号 |
 
 ## 9.3 消息与字段逐项定义
 
