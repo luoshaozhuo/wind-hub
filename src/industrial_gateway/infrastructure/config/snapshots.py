@@ -242,7 +242,16 @@ class ConfigSnapshots:
             self.candidates.clear()
             application_id = uuid4().hex
             try:
-                results, restart_required = await self.runtime.reconfigure(resolved)
+                internal_results, restart_required = await self.runtime.reconfigure(resolved)
+                results = [
+                    pb.ApplicationResult(
+                        object_id=item.object_id,
+                        status=item.status,
+                        error_code=item.error_code,
+                        message=item.message,
+                    )
+                    for item in internal_results
+                ]
                 restart_required = restart_required or any(
                     (
                         self._process_service.grpc != resolved.service.grpc,
