@@ -792,6 +792,8 @@ flowchart TD
  C --> D{"模型类别"}
  D -->|随机| E["按分布、取值约束和种子生成"]
  D -->|静态物理| F["按代数关系或曲线计算"]
+ D -->|有状态物理| F2["取输入快照，控制与状态步进"]
+ F2 --> G
  E --> G{"本周期结果完整合法?"}
  F --> G
  G -->|否| H["报告受影响实例故障，不输出不完整周期"]
@@ -809,7 +811,7 @@ flowchart TD
 
 | 主题 | 规范性规则 |
 |---|---|
-| 模型和数据范围 | 本期仅实现随机模型、静态物理函数模型；历史重放是独立来源，不属于模型类型。动态、高保真和数据驱动模型不在本期实现。 |
+| 模型和数据范围 | 实现随机、静态映射与有状态简化物理模型（风机、光伏、储能、电网、PPC）；历史重放是独立来源。高保真电磁暂态与厂家控制器模型不在范围。 |
 | 随机模型 | 对每个生成实例按场景版本及确定的随机种子初始化独立 PRNG；同一算法、种子、配置与调用次序得到相同序列。离散均匀整数、连续均匀实数及正态分布是否允许由已生效的模型类型明确选择；不得将取整或裁剪默认为所有分布共有行为。 |
 | 静态模型 | 以场景配置中的输入变量按定义的代数关系、查表或分段线性插值计算；不保存动力学状态。表格插值要求自变量严格有序，超出定义域遵从配置明确的拒绝/钳制规则，不默默外推。 |
 | 样本合法性 | 每个目标点的计算结果须按点表类型、上下界和有限数检查；NaN/Infinity、非法枚举和超界值判为生成失败，不进入输出。 |
@@ -1897,7 +1899,7 @@ flowchart LR
 
 ## 9.1 DataGeneratorService：八项 gRPC Server RPC（含新增变量发现与更新）
 
-`src/contracts/data_generator.proto` 定义包 `windhub.data_generator.v1`、服务 `DataGeneratorService`，共 **6 个 unary RPC**。Data Generator 作为 Server 实现全部六项，内部调用应用层，不另造兼容 RPC。
+`src/contracts/data_generator.proto` 定义包 `windhub.data_generator.v1`、服务 `DataGeneratorService`；现有 6 个 unary RPC 保持不变，新增 `ListVariables` 与 `UpdateVariables` 后共 **8 个 unary RPC**。Data Generator 作为 Server 实现全部八项，具体新增消息定义以 Contracts v1_21 §9.5 为准。
 
 <p class="table-caption">表 9-1 DataGeneratorService 方法与实现映射（已核实）</p>
 
@@ -1908,6 +1910,8 @@ flowchart LR
 | `ListScenarios` | `ListScenariosRequest(page_size, page_token)` | `ListScenariosResponse(scenarios[], next_page_token)` | §5.2 配置来源视图、§11.1 | UR-04、UC-07；读取已配置场景清单，不附加编辑/创建场景能力 |
 | `GetGeneration` | `common.ObjectId(id)` | `GetGenerationResponse(generation)` | §5.3、§6.2 | UR-04、UC-07；真实 generation 状态，未知 ID 不伪造 |
 | `StartGeneration` | `StartGenerationRequest(scenario_id, optional scenario_version, expected_revision)` | `StartGenerationResponse(generation_id, accepted, actual_state, error_code, message)` | §5.3、§6.2、§10.4 | UR-04、UC-07；指定已配置场景启动生成/重放，必须校验版本/互斥，接受不等于已经运行 |
+| `ListVariables` | `ListVariablesRequest(generation_id, device_id, page_size, page_token)` | `ListVariablesResponse(variables[], next_page_token)` | §10.5.9 | 模型有效点目录、类型、单位、角色与可写权限 |
+| `UpdateVariables` | `UpdateVariablesRequest(generation_id, device_id, request_id, values[])` | `UpdateVariablesResponse(accepted, effective_step, error_code, message, request_id)` | §10.5.9 | 只更新活跃 Generation 的可更新模型输入，整批原子/幂等 |
 | `StopGeneration` | `StopGenerationRequest(generation_id, expected_revision)` | `StopGenerationResponse(accepted, actual_state, error_code, message)` | §5.3、§6.2、§10.4 | UR-04、UC-07；按 ID 停止，逻辑终结与底层 I/O 收敛分别报告与处理 |
 
 **业务对象语义见 §5.3**：`Device` 是虚拟设备，不是 Gateway；包含 `device_id, protocol, endpoint, generation_id, actual_state`；其 `generation_id` 只标识当前活动实例，没有活动归属时使用空字符串，`endpoint` 为虚拟设备显示/映射属性，不等于一对多 Gateway 的唯一地址；`Scenario` 是版本化方案，包含 `scenario_id, active_version, available_versions[], device_ids[], description`；`Generation` 是绑定单个场景版本并管理多个 Device 的一次运行，包含 `generation_id, scenario_id, scenario_version, desired_state, actual_state, started_at, last_error`。其中 `scenario_version` 是可选输入，未提供时选用该场景当前 `active_version`，一旦生成开始即绑定具体版本。版本冲突不得隐式忽略 `expected_revision`。`generation_id` 由服务端产生并用于查询与停止；不引入未经 Proto 定义的暂停、Seek、循环重放控制。
@@ -2160,7 +2164,7 @@ PPC 本身是一个**共享设备实例和点表定义的模拟设备**，不承
 | 模型 | 输入点 | 输出点 | 计算、限制和反馈 |
 |---|---|---|---|
 | AGC | `agc_enable,agc_power_setpoint,active_power_feedback` | `agc_allocated_power,agc_tracking_error,unserved_power_command` | 在风光储设备可用功率、爬坡、参与权重及储能 SOC 范围内进行有界分配；不可分配量明确报告 |
-| AVC | `avc_enable,avc_voltage_setpoint,avc_reactive_setpoint,grid_voltage_feedback` | `avc_allocated_reactive_power,avc_tracking_error` | 电压/无功两模式互斥；调压通过等值下垂关系产生 Q 总目标，再受逆变器容量圆约束 |
+| AVC | `avc_enable,avc_voltage_setpoint,avc_reactive_setpoint,grid_voltage_feedback` | `avc_allocated_reactive_power,avc_reactive_error` | 电压/无功两模式互斥；调压通过等值下垂关系产生 Q 总目标，再受逆变器容量圆约束 |
 | 快速调频 | `ffr_enable,ffr_deadband,ffr_droop,grid_frequency_feedback` | `ffr_power_command,ffr_active,frequency_deviation` | 超死区按频差/下垂计算附加 P；频率恢复须按滞环和斜率平滑退出，受可用风/光能与储能边界约束 |
 | 聚合 | `plant_run_enable` | `plant_active_power,plant_reactive_power,plant_available_power` | 同步聚合各设备输出；禁止将设定值作为实际发电量上报 |
 
@@ -2510,7 +2514,7 @@ metrics:
 
 ## 11.4 场景与实例配置规范
 
-场景引用 `instances/devices.yaml` 已定义的全局 `device_id`；测点 ID 必须是对应设备型号解析后点表中的真实 ID。本例以 `main` 已有 `GW01` / `GW02` 和 `ads_wtg_gw2mw_1.0.0.yaml` 的 `a02_dm_pitchangle1` 为依据。**Gateway 变量 ID 和 endpoint 仅是目标配置示例**，需在运行前向真实 Gateway `ListVariables`/相关契约核对；不能将 Core 设备的 PLC endpoint 误当 Gateway endpoint。
+场景引用当前服务配置指定的 `instances/devices.yaml`（真实）或 `instances/devices_sim.yaml`（模拟）中已有的 `device_id`；测点 ID 必须是对应设备型号解析后点表中的真实 ID。本例以 `main` 已有 `GW01` / `GW02` 和 `ads_wtg_gw2mw_1.0.0.yaml` 的 `a02_dm_pitchangle1` 为依据。**Gateway 变量 ID 和 endpoint 仅是目标配置示例**，需在运行前向真实 Gateway `ListVariables`/相关契约核对；不能将 Core 设备的 PLC endpoint 误当 Gateway endpoint。
 
 ```yaml
 schema_version: 1
