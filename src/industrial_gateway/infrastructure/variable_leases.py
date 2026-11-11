@@ -22,6 +22,7 @@ class LeaseError(RuntimeError):
 class ClaimRequest:
     gateway_id: str
     owner_id: str
+    principal: str
     variable_ids: tuple[str, ...]
     action: str
     lease_token: str = ""
@@ -39,6 +40,7 @@ class ClaimResult:
 @dataclass(frozen=True, slots=True)
 class TargetLease:
     owner_id: str
+    principal: str
     token: str
     names: frozenset[str]
     expires_at: float
@@ -72,6 +74,7 @@ class VariableLeases:
             names = frozenset(request.variable_ids)
             if (
                 not request.owner_id.strip()
+                or not request.principal.strip()
                 or not names
                 or len(names) != len(request.variable_ids)
                 or len(names) > 5000
@@ -87,6 +90,7 @@ class VariableLeases:
                 token = secrets.token_urlsafe(32)
                 lease = TargetLease(
                     owner_id=request.owner_id,
+                    principal=request.principal,
                     token=token,
                     names=names,
                     expires_at=monotonic() + request.lease_ms / 1000,
@@ -97,7 +101,12 @@ class VariableLeases:
                 (claim for claim in claims if claim.token == request.lease_token),
                 None,
             )
-            if existing is None or existing.owner_id != request.owner_id or existing.names != names:
+            if (
+                existing is None
+                or existing.owner_id != request.owner_id
+                or existing.principal != request.principal
+                or existing.names != names
+            ):
                 return ClaimResult(accepted=False, error_code="LEASE_LOST")
             if request.action == "RELEASE":
                 claims.remove(existing)
@@ -118,6 +127,7 @@ class VariableLeases:
         store: VariableStore,
         values: list[tuple[str, Scalar | None]],
         lease_token: str,
+        principal: str,
     ) -> list[UpdateResult]:
         """Fence the complete batch before any per-item data publication."""
         async with self._lock(gateway_id):
@@ -129,7 +139,7 @@ class VariableLeases:
                 (claim for claim in active if claim.token == lease_token),
                 None,
             )
-            if owned is None or not requested <= owned.names:
+            if owned is None or owned.principal != principal or not requested <= owned.names:
                 raise LeaseError("LEASE_LOST")
             results: list[UpdateResult] = []
             for variable_id, value in values:
