@@ -13,7 +13,6 @@ from uuid import uuid4
 import yaml
 
 from configuration.versioned_templates import config_hash
-from contracts import common_pb2 as pb
 from core.application.errors import ConfigError
 from core.infrastructure.config import parse_yaml
 from industrial_gateway.infrastructure.config.v1_resolution import (
@@ -21,7 +20,7 @@ from industrial_gateway.infrastructure.config.v1_resolution import (
     load_gateway_v1,
 )
 from industrial_gateway.infrastructure.config.v1_schema import service_path
-from industrial_gateway.infrastructure.runtime import GatewayRuntime
+from industrial_gateway.infrastructure.runtime import ApplicationResult, GatewayRuntime
 
 _MAX_FILE_SIZE = 2097152
 
@@ -31,6 +30,48 @@ class Candidate:
     content: bytes
     resolved: ResolvedGateway
     base_revision: str
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotFile:
+    relative_path: str
+    content: bytes
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationIssue:
+    path: str
+    code: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotView:
+    snapshot_id: str
+    revision: str
+    files: tuple[SnapshotFile, ...]
+    application_id: str
+    apply_results: tuple[ApplicationResult, ...]
+    last_error: str
+
+
+@dataclass(frozen=True, slots=True)
+class PushResult:
+    valid: bool
+    base_revision: str
+    candidate_id: str = ""
+    validation: tuple[ValidationIssue, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ApplyResult:
+    file_commit: str
+    apply_results: tuple[ApplicationResult, ...]
+    effective_revision: str
+    restart_required: bool
+    application_id: str
 
 
 class ConfigSnapshots:
@@ -53,7 +94,7 @@ class ConfigSnapshots:
         self._process_service = runtime.config.service
         self.last_error = ""
         self.last_application = ""
-        self.last_results: list[pb.ApplicationResult] = []
+        self.last_results: list[ApplicationResult] = []
 
     def disk(self) -> tuple[ResolvedGateway, bytes]:
         content = self.path.read_bytes()
@@ -65,51 +106,51 @@ class ConfigSnapshots:
         )
         return config, content
 
-    def snapshot_file(self, content: bytes) -> pb.SnapshotFile:
-        return pb.SnapshotFile(
+    def snapshot_file(self, content: bytes) -> SnapshotFile:
+        return SnapshotFile(
             relative_path=self.relative_path,
             content=content,
             size_bytes=len(content),
             sha256=hashlib.sha256(content).hexdigest(),
         )
 
-    async def get(self, scope: int, candidate_id: str) -> pb.GetConfigSnapshotResponse:
+    async def get(self, scope: int, candidate_id: str) -> SnapshotView:
         """Return a consistent Service file for the selected scope."""
         async with self.lock:
             return self._get_locked(scope, candidate_id)
 
-    def _get_locked(self, scope: int, candidate_id: str) -> pb.GetConfigSnapshotResponse:
-        if scope in {pb.SNAPSHOT_SCOPE_UNSPECIFIED, pb.SNAPSHOT_SCOPE_DISK}:
+    def _get_locked(self, scope: int, candidate_id: str) -> SnapshotView:
+        if scope in {0, 1}:
             config, content = self.disk()
             revision = config.revision
-        elif scope == pb.SNAPSHOT_SCOPE_RUNTIME:
+        elif scope == 2:
             content = self.runtime_content
             revision = self.runtime_revision
-        elif scope == pb.SNAPSHOT_SCOPE_CANDIDATE:
+        elif scope == 3:
             candidate = self.candidates[candidate_id]
             content = candidate.content
             revision = candidate.resolved.revision
         else:
             raise ValueError("unknown snapshot scope")
-        return pb.GetConfigSnapshotResponse(
+        return SnapshotView(
             snapshot_id=candidate_id or uuid4().hex,
             revision=revision,
-            files=[self.snapshot_file(content)],
+            files=(self.snapshot_file(content),),
             application_id=self.last_application,
-            apply_results=self.last_results,
+            apply_results=tuple(self.last_results),
             last_error=self.last_error,
         )
 
     async def push(
-        self, files: list[pb.SnapshotFile], expected_revision: str
-    ) -> pb.PushConfigSnapshotResponse:
+        self, files: list[SnapshotFile], expected_revision: str
+    ) -> PushResult:
         """Validate and stage without changing disk or running services."""
         async with self.lock:
             disk, _ = self.disk()
-            issues: list[pb.ValidationIssue] = []
+            issues: list[ValidationIssue] = []
             if not expected_revision or expected_revision != disk.revision:
                 issues.append(
-                    pb.ValidationIssue(
+                    ValidationIssue(
                         path=self.relative_path,
                         code="REVISION_CONFLICT",
                         message="expected revision differs from disk",
@@ -117,15 +158,15 @@ class ConfigSnapshots:
                 )
             if len(files) != 1 or files[0].relative_path != self.relative_path:
                 issues.append(
-                    pb.ValidationIssue(
+                    ValidationIssue(
                         path=self.relative_path,
                         code="FILE_SET",
                         message="only the Gateway Service file can be replaced",
                     )
                 )
             if issues:
-                return pb.PushConfigSnapshotResponse(
-                    valid=False, base_revision=disk.revision, validation=issues
+                return PushResult(
+                    valid=False, base_revision=disk.revision, validation=tuple(issues)
                 )
             item = files[0]
             content = bytes(item.content)
@@ -135,11 +176,11 @@ class ConfigSnapshots:
                 or item.size_bytes != len(content)
                 or item.sha256 != hashlib.sha256(content).hexdigest()
             ):
-                return pb.PushConfigSnapshotResponse(
+                return PushResult(
                     valid=False,
                     base_revision=disk.revision,
                     validation=[
-                        pb.ValidationIssue(
+                        ValidationIssue(
                             path=self.relative_path,
                             code="CONTENT_INTEGRITY",
                             message="size or digest mismatch",
@@ -154,11 +195,11 @@ class ConfigSnapshots:
                     candidate_document=candidate_doc,
                 )
             except (ConfigError, ValueError, OSError) as exc:
-                return pb.PushConfigSnapshotResponse(
+                return PushResult(
                     valid=False,
                     base_revision=disk.revision,
                     validation=[
-                        pb.ValidationIssue(
+                        ValidationIssue(
                             path=self.relative_path,
                             code="INVALID_CONFIG",
                             message=str(exc),
@@ -169,7 +210,7 @@ class ConfigSnapshots:
                 self.candidates.pop(next(iter(self.candidates)))
             candidate_id = uuid4().hex
             self.candidates[candidate_id] = Candidate(content, resolved, disk.revision)
-            return pb.PushConfigSnapshotResponse(
+            return PushResult(
                 candidate_id=candidate_id,
                 valid=True,
                 base_revision=disk.revision,
@@ -221,7 +262,7 @@ class ConfigSnapshots:
         expected_revision: str,
         *,
         operator: str,
-    ) -> pb.ApplyConfigSnapshotResponse:
+    ) -> ApplyResult:
         """Commit the file and independently record per-Server apply outcomes."""
         async with self.lock:
             candidate = self.candidates[candidate_id]
@@ -242,16 +283,7 @@ class ConfigSnapshots:
             self.candidates.clear()
             application_id = uuid4().hex
             try:
-                internal_results, restart_required = await self.runtime.reconfigure(resolved)
-                results = [
-                    pb.ApplicationResult(
-                        object_id=item.object_id,
-                        status=item.status,
-                        error_code=item.error_code,
-                        message=item.message,
-                    )
-                    for item in internal_results
-                ]
+                results, restart_required = await self.runtime.reconfigure(resolved)
                 restart_required = restart_required or any(
                     (
                         self._process_service.grpc != resolved.service.grpc,
@@ -261,7 +293,7 @@ class ConfigSnapshots:
                 )
             except Exception as exc:
                 results = [
-                    pb.ApplicationResult(
+                    ApplicationResult(
                         object_id="runtime",
                         status="FAILED",
                         error_code="APPLY_FAILED",
@@ -279,7 +311,7 @@ class ConfigSnapshots:
                     self.last_error = ""
             if restart_required:
                 results.append(
-                    pb.ApplicationResult(
+                    ApplicationResult(
                         object_id="service",
                         status="RESTART_REQUIRED",
                         message="service-level parameters become effective on restart",
@@ -320,9 +352,9 @@ class ConfigSnapshots:
                     service=effective_service,
                     revision=revision,
                 )
-            return pb.ApplyConfigSnapshotResponse(
+            return ApplyResult(
                 file_commit=hashlib.sha256(self.path.read_bytes()).hexdigest(),
-                apply_results=results,
+                apply_results=tuple(results),
                 effective_revision=self.runtime_revision,
                 restart_required=restart_required,
                 application_id=application_id,
