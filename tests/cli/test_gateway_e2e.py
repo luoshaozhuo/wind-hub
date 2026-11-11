@@ -380,3 +380,36 @@ def test_gateway_start_stop_revision_prefetch_and_confirm(cli_env: Any) -> None:
     assert stopped.exit_code == 0, stopped.stdout
     stop_call = [c for c in server.calls if c.path.endswith("/StopGateway")][0]
     assert stop_call.request.expected_revision == "rv9"
+
+
+def test_gateway_update_unconfirmed_release_is_not_reported_success(cli_env: Any) -> None:
+    """R1 P1-02：更新成功但 RELEASE 未被服务端确认时，绝不报告成功释放。"""
+    server = cli_env.server
+
+    async def on_claim(request: Any, context: Any) -> Any:
+        if request.action == "ACQUIRE":
+            return gw_pb2.ClaimTargetsResponse(accepted=True, lease_token="lease-token-r")
+        if request.action == "RELEASE":
+            return gw_pb2.ClaimTargetsResponse(accepted=False, error_code="LEASE_LOST")
+        return gw_pb2.ClaimTargetsResponse(accepted=False, error_code="INVALID_CLAIM")
+
+    server.respond(_path(server, "ClaimTargets"), on_claim)
+    server.respond_value(
+        _path(server, "UpdateVariables"),
+        gw_pb2.UpdateVariablesResponse(
+            results=[gw_pb2.VariableUpdateResult(variable_id="v1", success=True)]
+        ),
+    )
+
+    result = cli_env.subprocess_invoke(
+        "gateway", "update", "gw1", "v1=1", "--owner-id", "tester", "--yes"
+    )
+    # RuntimeError（释放未确认）映射为业务失败 1，绝不是成功 0。
+    assert result.exit_code == 1, result.stdout
+    envelope = result.json()
+    assert envelope["status"] != "OK" and envelope["status"] != "SUCCESS"
+    assert "release" in envelope["message"].lower()
+    # ACQUIRE/Update/RELEASE 都真实发出，CLI 不得把未确认释放伪装成成功。
+    claim_actions = [c.request.action for c in server.calls if c.path.endswith("/ClaimTargets")]
+    assert claim_actions == ["ACQUIRE", "RELEASE"]
+    assert _update_paths(server) == [_path(server, "UpdateVariables")]
