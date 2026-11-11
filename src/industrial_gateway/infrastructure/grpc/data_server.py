@@ -538,7 +538,18 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
         if request.scope and request.scope not in self._runtime.instances:
             await context.abort(grpc.StatusCode.NOT_FOUND, "unknown metric scope")
         try:
-            return self._runtime.observability.metrics(request.scope, request.window_ms)
+            snapshot = self._runtime.observability.metrics(request.scope, request.window_ms)
+            metrics: list[common.Metric] = []
+            for item in snapshot.metrics:
+                metric = common.Metric(
+                    name=item.name,
+                    value=item.value,
+                    unit=item.unit,
+                    window_ms=item.window_ms,
+                )
+                metric.sampled_at.FromDatetime(item.sampled_at)
+                metrics.append(metric)
+            return common.GetMetricsResponse(metrics=metrics)
         except ValueError as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             raise RuntimeError("abort unexpectedly returned") from exc
@@ -550,7 +561,36 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
     ) -> common.GetEventsResponse:
         await _authorize(context, self._runtime, "read")
         try:
-            return self._runtime.observability.query_events(request)
+            page = self._runtime.observability.query_events(
+                filter_text=request.filter,
+                page_size=request.page_size,
+                page_token=request.page_token,
+                from_time=(
+                    request.from_time.ToDatetime(tzinfo=UTC)
+                    if request.HasField("from_time")
+                    else None
+                ),
+                to_time=(
+                    request.to_time.ToDatetime(tzinfo=UTC)
+                    if request.HasField("to_time")
+                    else None
+                ),
+            )
+            events: list[common.Event] = []
+            for item in page.events:
+                event = common.Event(
+                    event_id=item.event_id,
+                    severity=item.severity,
+                    source=item.source,
+                    error_code=item.error_code,
+                    message=item.message,
+                )
+                event.timestamp.FromDatetime(item.timestamp)
+                events.append(event)
+            return common.GetEventsResponse(
+                events=events,
+                next_page_token=page.next_page_token,
+            )
         except ValueError as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             raise RuntimeError("abort unexpectedly returned") from exc
