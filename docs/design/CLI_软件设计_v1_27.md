@@ -2325,14 +2325,14 @@ Message : Snapshot revision changed; fetch the current snapshot
 
 | CLI 命令（目标） | 调用 RPC | 作用与输出 |
 |---|---|---|
-| \`data-generator variables list --generation-id G --device-id D\` | \`DataGeneratorService.ListVariables\` | 列出共享 point_id、数据类型、工程单位、INPUT/STATE/OUTPUT、writable、范围、说明 |
-| \`data-generator variables update --generation-id G --device-id D --point-id P --value V --request-id R\` | \`DataGeneratorService.UpdateVariables\` | 仿真输入更新，回显 request_id、accepted、effective_step、错误 |
-| \`data-generator variables update --generation-id G --device-id D --values-file F --request-id R\` | \`UpdateVariables\` | 同一设备多个输入的一次原子批；文件中的每点仅声明 point_id/value，不覆盖类型和单位 |
-| \`gateway describe --gateway-id ID\`（或对应已有查看命令） | Gateway 状态和配置读取 | 查看当前 Server 的控制目标类型、目标端点的脱敏标识及运行状态；不暴露 TLS 私钥 |
+| `data-generator variables list --generation-id G --device-id D` | `DataGeneratorService.ListVariables` | 列出共享 point_id、数据类型、工程单位、INPUT/STATE/OUTPUT、writable、范围、说明 |
+| `data-generator variables update --generation-id G --device-id D --point-id P --value V --request-id R` | `DataGeneratorService.UpdateVariables` | 仿真输入更新，回显 request_id、accepted、effective_step、错误 |
+| `data-generator variables update --generation-id G --device-id D --values-file F --request-id R` | `UpdateVariables` | 同一设备多个输入的一次原子批；文件中的每点仅声明 point_id/value，不覆盖类型和单位 |
+| `gateway describe --gateway-id ID`（或对应已有查看命令） | Gateway 状态和配置读取 | 查看当前 Server 的控制目标类型、目标端点的脱敏标识及运行状态；不暴露 TLS 私钥 |
 
-CLI 对输入值的解析须使用 \`ListVariables\` 的正式数据类型，bool 不能与数值 0/1 无约束互换，字符串采用明确编码，浮点拒绝 NaN/Inf；单位按共享点表工程单位提交，不隐式改变物理量。修改范围由 Generator 动态 \`writable\` 给出，CLI **不维护第二份硬编码的变量白名单**。所有写操作需要独立授权身份；交互式 shell 在提交之前展示目标 Generation/设备/点 ID/数值/单位，非交互 JSON/脚本模式要求显式参数，不在后台自动重试换 request_id。超时不宣称未写入，允许用户持原 request_id 重试读取幂等裁决。
+CLI 对输入值的解析须使用 `ListVariables` 的正式数据类型，bool 不能与数值 0/1 无约束互换，字符串采用明确编码，浮点拒绝 NaN/Inf；单位按共享点表工程单位提交，不隐式改变物理量。修改范围由 Generator 动态 `writable` 给出，CLI **不维护第二份硬编码的变量白名单**。所有写操作需要独立授权身份；交互式 shell 在提交之前展示目标 Generation/设备/点 ID/数值/单位，非交互 JSON/脚本模式要求显式参数，不在后台自动重试换 request_id。超时不宣称未写入，允许用户持原 request_id 重试读取幂等裁决。
 
-\`gateway update\` 的含义仍是对 Gateway 变量 Store 的租约数据注入，不产生 Modbus on_write/Commander 控制事件；\`data-generator variables update\` 直接改合法仿真模型输入，也**不属于真实设备现场写入**；\`commander write\` 仍用于 Commander 管理的真实工业协议写入。CLI 不为此改造 Commander Proto。人工验收时若需经 Gateway2 工业协议 Server 进行 FC06/16 写入，需要**明确的工业协议 Client 功能或测试客户端**，不能把 Gateway 的 gRPC UpdateVariables 误认为 Modbus 写控制。该能力须遵守既有 CLI 网络探测和权限边界，不得隐式通过直接修改 Generator 输入代替工业全链路验收。
+`gateway update` 的含义仍是对 Gateway 变量 Store 的租约数据注入，不产生 Modbus on_write/Commander 控制事件；`data-generator variables update` 直接改合法仿真模型输入，也**不属于真实设备现场写入**；`commander write` 仍用于 Commander 管理的真实工业协议写入。CLI 不为此改造 Commander Proto。人工验收时若需经 Gateway2 工业协议 Server 进行 FC06/16 写入，需要**明确的工业协议 Client 功能或测试客户端**，不能把 Gateway 的 gRPC UpdateVariables 误认为 Modbus 写控制。该能力须遵守既有 CLI 网络探测和权限边界，不得隐式通过直接修改 Generator 输入代替工业全链路验收。
 
 ### 10.12.1 错误与验收
 
@@ -2348,7 +2348,7 @@ CLI 对输入值的解析须使用 \`ListVariables\` 的正式数据类型，boo
 
 ### 10.12.2 CLI 专属配置
 
-\`configs/services/cli.yaml\` 已有 Gateway 与 Data Generator endpoint/TLS 配置必须与实际 RPC 服务对应；新增两个命令**优先复用同一个 Data Generator 客户端连接和 mTLS 身份来源**，不增加第二套 endpoint。权限不足时拒绝更新，不自行回退到明文或不受限身份。CLI 不加载或改写 \`devices_sim.yaml\` 来推断模型权限，权限及模型变量以服务端 \`ListVariables\` 的结果为准。
+`configs/services/cli.yaml` 已有 Gateway 与 Data Generator endpoint/TLS 配置必须与实际 RPC 服务对应；新增两个命令**优先复用同一个 Data Generator 客户端连接和 mTLS 身份来源**，不增加第二套 endpoint。权限不足时拒绝更新，不自行回退到明文或不受限身份。CLI 不加载或改写 `devices_sim.yaml` 来推断模型权限，权限及模型变量以服务端 `ListVariables` 的结果为准。
 
 # 11. CLI 自身配置与运行参数
 
