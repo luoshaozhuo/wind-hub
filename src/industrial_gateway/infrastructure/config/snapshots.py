@@ -179,13 +179,13 @@ class ConfigSnapshots:
                 return PushResult(
                     valid=False,
                     base_revision=disk.revision,
-                    validation=[
+                    validation=(
                         ValidationIssue(
                             path=self.relative_path,
                             code="CONTENT_INTEGRITY",
                             message="size or digest mismatch",
-                        )
-                    ],
+                        ),
+                    ),
                 )
             try:
                 candidate_doc = parse_yaml(content.decode("utf-8"))
@@ -198,13 +198,13 @@ class ConfigSnapshots:
                 return PushResult(
                     valid=False,
                     base_revision=disk.revision,
-                    validation=[
+                    validation=(
                         ValidationIssue(
                             path=self.relative_path,
                             code="INVALID_CONFIG",
                             message=str(exc),
-                        )
-                    ],
+                        ),
+                    ),
                 )
             if len(self.candidates) >= 16:
                 self.candidates.pop(next(iter(self.candidates)))
