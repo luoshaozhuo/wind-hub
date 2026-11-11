@@ -81,3 +81,54 @@
 **裁决：FAIL（设计冻结门禁）**，因 P1-01/P1-02 已证实与当前源码行为矛盾，P1-03 需要安全策略澄清并复测。此结果不等于生产代码整体 FAIL。
 
 本分支只提交只读审查证据，未改变已冻结的 Proto、Core、Configuration、业务源码或十份设计正文；建议先裁决 P1，随后递增受影响的设计版本并清理旧版，最后运行独立集中复测。
+
+
+## 7. R1 整改执行记录（2026-11-11）
+
+**性质：**本节追加整改事实，不覆盖第 1～6 节的原始审查结论。原始 FAIL 为 R0 裁决，R1 尚待独立复测。
+
+### 7.1 生产代码（不改 Proto）
+
+- `src/industrial_gateway/infrastructure/variable_leases.py`：`ClaimRequest`、`TargetLease` 增加由服务端认证上下文确定的 `principal`，租约 ACQUIRE 必须非空；RENEW/RELEASE 需匹配原 `owner_id`、变量集合、token 和 `principal`；`update` 还校验当前 RPC 主体等于租约主体。
+- `src/industrial_gateway/infrastructure/runtime.py`：`update_variables` 接收并传递可信主体身份；不更改设备变量存储或协议 Server 控制流程。
+- `src/industrial_gateway/infrastructure/grpc/data_server.py`：`ClaimTargets` 与 `UpdateVariables` 统一通过 `_trusted_identity(context, runtime)` 将 mTLS 证书 CN 或受限开发 loopback 身份传入租约层。客户端自报 `owner_id` 只作为业务标识；同一个 token 被另一证书主体使用必须拒绝。
+- 不增加 Proto 字段、RPC；客户端 Data Generator/CLI 保持既有线协议，控制接口不引入兼容分支。
+
+### 7.2 十份文档已升版并删除对应旧版
+
+| 模块 | 新版本 |
+|---|---|
+| Contracts | v1_20 |
+| Core | v1_33 |
+| Configuration | v1_15 |
+| 总体逻辑架构 | v1_4 |
+| Collector | v1_20 |
+| Commander | v1_30 |
+| Industrial Gateway | v1_27 |
+| Data Generator | v1_23 |
+| Sink Service | v1_50 |
+| CLI | v1_26 |
+
+具体语义变更：
+
+1. Sink 与 Contracts 统一为每 Delivery 独立 JetStream Durable Consumer、独立 ACK，严禁跨 Durable 全局 ACK 的错误约束；非法消息先 DLQ 成功再 ACK，合法但当前 Delivery 无匹配可安全跳过。
+2. CLI 设计与生产参数对齐：`gateway update GATEWAY_ID ID=JSON_VALUE ... --owner-id OWNER_ID [--lease-ms N] --yes`，删除已失效的 `--values PATH` 示例，要求同一可信身份完成租约申请、更新和释放。
+3. Gateway/Data Generator 文档规定可信主体与业务 `owner_id` 分离，token 不允许跨认证主体复用。Gateway 代码边界已按此实现，真实安全回归仍待执行。
+4. Configuration 错误引用 §14.5 改为 §14.2，Collector 错误引用 §12.4 改为 §13。
+5. 其余设计同步现行基础文档版本引用。第 1、2 章正文未做规范修改，标题版本与日期更新。
+
+### 7.3 静态文档复扫
+
+- 新版 10/10；总计 **24,510 行**；所有 Markdown 围栏成对闭合。
+- 已扫描的现行版本直接引用无旧版残留；本地章节引用未发现新的悬空项。外部规范及历史叙述不是本地章节错误。
+- 六 Proto 未修改；R0 的 45 RPC、Commander 15 消息/58 字段及各字段号事实继续适用。
+
+### 7.4 待独立测试与门禁（阻断最终 PASS）
+
+1. **Gateway 安全单测/组件：**更新 `ClaimRequest` 等内部调用方测试，分别验证 A 身份获取 token 后 A 可 RENEW/RELEASE/Update；B 身份即使提交相同 `owner_id`、目标集合和 token，也不得续租、释放或更新；拒绝后原租约和变量不变；不同 Gateway、过期与并发场景无越权。
+2. **真实 gRPC mTLS：**分别配置两个证书 CN，都具有 `inject` 权限，证明 B 不能借 A 的 token；测试缺失权限得到 `PERMISSION_DENIED`，非法租约仍明确拒绝。受限 loopback 无 TLS 的权限语义需单独标注，不冒充跨主体隔离实测。
+3. **Sink 真实 JetStream：**同源批命中两个独立 Durable，A 成功/B UNKNOWN，A ACK 不影响 B 的 NAK/重投；反向组合、DLQ 持久确认失败、重启恢复也分别验收。
+4. **CLI 真实进程：**新文档命令参数、重复点拒绝、缺少 --owner-id、mTLS 授权/拒绝、Acquire→Update→Release、超时 UNKNOWN 不盲重试。
+5. **静态与构建：**实际执行 Ruff check / Ruff format --check、项目 Mypy/Pyright、import-linter、相关 pytest、Proto Descriptor/Stub 一致性及涉及调用方全文静态检索。不得使用 ignore/skip 隐藏问题。
+
+**R1 裁决：P1 设计逻辑已整改、Gateway 生产授权变更已提交；独立测试与上述静态门禁 NOT_RUN，暂为 PASS WITH LIMITATIONS（文档静态），整体验收仍 OPEN。**
