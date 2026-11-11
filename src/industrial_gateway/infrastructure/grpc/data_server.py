@@ -18,7 +18,7 @@ from contracts.scalar_codec import decode_scalar, encode_scalar
 from core.application.errors import ConfigError
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.config.v1_schema import service_path
-from industrial_gateway.infrastructure.diagnostics import GatewayDiagnostics
+from industrial_gateway.infrastructure.grpc.diagnostics import GatewayDiagnostics
 from industrial_gateway.infrastructure.runtime import GatewayInstance, GatewayRuntime
 from industrial_gateway.infrastructure.variable_leases import ClaimRequest, LeaseError
 
