@@ -315,7 +315,7 @@ flowchart LR
     SINK -->|"Realtime"| SM["Sink Modbus / 只读 Server"]
     SINK -->|"Realtime"| REDIS[("Redis 最新值")]
     SINK -->|"Reliable"| KAFKA[("Kafka 消息")]
-    SM -.->|"待批准：Modbus Client 同步"| G2
+    SM -->|"Gateway2 作为 Modbus Client 周期读取（拟新增）"| G2
     G2 -->|"控制写事件"| CMD["Commander"]
     CMD -->|"Modbus TCP 控制写"| G1
     G1 -->|"ReadVariables 读取控制状态"| DG
@@ -326,7 +326,7 @@ flowchart LR
 
 - **控制入口修正**：CLI 对 Gateway 2 的真实 Modbus TCP 控制寄存器写入才会触发 `Gateway2 → Commander → Gateway1`。现有 `cli gateway update` 调用的是 `UpdateVariables`，其正式契约为**只更新 Gateway 自有变量而不触发工业命令转发**；不得将该命令伪装成控制闭环。要覆盖 CLI 控制，必须用 CLI 的正式 `proto`/工业写入命令（需核实具体命令），或单独评审新增“经授权的控制写入”能力。
 - **Gateway 1**：控制点由 Commander 通过 Modbus 写入；测量点由 Generator 通过 gRPC 写入；`control_enabled=false` 防止控制循环反向转发；Generator 定期通过 `ReadVariables` 获取控制点并驱动下一次仿真。
-- **Gateway 2**：工业 Modbus Server，控制点使能 Commander Forwarder；测量点反映 Sink 最新值。Sink Modbus Output 同样是只读 Modbus Server，不能直接写 Gateway 2，需明确额外 Modbus Client 的实现位置、授权及原子映射。
+- **Gateway 2**：对 CLI/工业客户端作为 Modbus Server，控制点使能 Commander Forwarder；对上游 Sink Modbus Output 则作为 Modbus Client 按点表周期读取最新值。推荐设置 `upstream.kind=plc`，上游实际是模拟 PLC 接口的 Sink Modbus Server（不是实体 PLC）。测量点写入 Gateway2 Store 的能力须升级 Gateway 设计并生产实现，控制点不得被上游同步覆盖。
 - **三种 Sink**：Modbus 最新值、Redis 最新值、Kafka Reliable 消息必须同时运行。不是 TDengine。
 - **真实环境**：完整 E2E 禁止以 Mock 替代上述模块、Broker 或目标；分段 Integration 允许在场景明示的受控替身。
 
@@ -334,7 +334,7 @@ flowchart LR
 
 | `upstream.kind` | 上游定义 | 数据路径与控制写入 |
 |---|---|---|
-| `plc` | 真实 PLC 或受控工业设备 | 工业协议客户端采集真实 PLC；合法控制命令写至 PLC；Gateway 本身仍可以向外提供 Modbus Server |
+| `plc` | 真实 PLC 或暴露兼容工业协议的外部数据源（E2E 为 Sink Modbus Output） | 工业协议客户端周期采集上游只读测量寄存器，写入本地 Store；控制点依 Gateway 控制权限转发，采集不得覆盖控制点 |
 | `data_generator` | Data Generator 虚拟物理设备 | Generator gRPC 注入测量值；控制变量先落 Gateway Store，Generator 读取并作用于模型 |
 | `none` | 无现场设备上游 | 仅 Gateway 本地变量 Store 与合法外部更新；不隐式转发、模拟物理响应 |
 
@@ -876,7 +876,7 @@ Integration 只负责**局部真实组件协作**，不使用 `end_to_end`。每
 | IT-08 | Gateway 2 → Commander | AGC 由 2000 改 1000 | 请求参数、命令受理及结果查询有明确证据 |
 | IT-09 | Commander → Gateway 1 | 指定 GW01 控制写 | Gateway 1 控制寄存器真实值改变，GW02/GW03 不变 |
 | IT-10 | Gateway 1 → Generator | AGC/AVC/FFR 状态变更 | 下一步读取生效、模型状态更新且不覆盖控制点 |
-| IT-11 | Modbus Sink → Gateway 2 | 真实协议最新值传播 | **仅在 T-01 解决后执行**；两个 Server 之间必须有正式客户端 |
+| IT-11 | Modbus Sink → Gateway 2 | 真实协议最新值传播 | **仅在 Gateway2 `plc` 上游 Modbus 客户端实现后执行** |
 | IT-12 | CLI 查询与诊断 | Gateway 1、Gateway 2 分别查询 | 两实例/六个网关设备对象正确列举、读取及鉴权 |
 
 分段场景必须明确哪些测试依赖真实 NATS/Kafka/Redis，未提供依赖时为 NOT_RUN 而非 Mock PASS。IT-07 的 CLI Modbus 工业写入必须先确认现有 CLI 真实命令的参数/协议能力，如欠缺则在 CLI 设计中立项，不得借用 `gateway update` 的状态注入语义绕过控制。
@@ -1117,7 +1117,7 @@ pytest tests/e2e -m "system and end_to_end" -k recovery
 
 | ID | 事项 | 建议与影响 |
 |---|---|---|
-| T-01 | Sink Modbus Output 与 Gateway 2 最新数据同步 | 正式指定独立 Modbus Client 数据订阅/写入责任，避免两个 Server 直接相连；需要 Gateway 设计升级 |
+| T-01 | Sink Modbus Output 与 Gateway 2 最新数据同步 | Gateway2 `upstream.kind=plc` 指向 Sink Modbus Server，由 Gateway2 内部 Modbus Client 周期采集并更新只读测量点；需要 Gateway 设计升级 |
 | T-02 | CLI 直接控制 Gateway 2 | 确认/补充 CLI 真 Modbus 协议写命令；不得把 `gateway update` 变成自动转发；CLI 设计升级 |
 | T-03 | Gateway 上游三态 | 新增明确 `plc/data_generator/none` 及行为约束；Gateway 设计升级 |
 | T-04 | Generator 有状态动力学及控制读取 | 增加 2 MW 风机动力学模型、配置 Schema、固定步长、模型状态与 ReadVariables 控制快照；Generator 设计升级 |
