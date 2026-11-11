@@ -13,16 +13,12 @@ from pathlib import Path
 from time import monotonic
 
 import grpc
-from google.protobuf.timestamp_pb2 import Timestamp
 
-from contracts import commander_pb2 as pb
-from contracts import commander_pb2_grpc as rpc
-from contracts import common_pb2 as common
-from contracts.scalar_codec import encode_scalar
 from industrial_gateway.application.variable_store import Scalar
-from industrial_gateway.infrastructure.config.v1_schema import (
-    ControlConfig,
-    service_path,
+from industrial_gateway.infrastructure.config.v1_schema import ControlConfig
+from industrial_gateway.infrastructure.grpc.commander_client import (
+    CommandQuery,
+    CommanderRpcClient,
 )
 
 logger = logging.getLogger(__name__)
@@ -107,8 +103,7 @@ class CommandForwarder:
             maxsize=config.forward_queue_capacity
         )
         self._workers: list[asyncio.Task[None]] = []
-        self._channel: grpc.aio.Channel | None = None
-        self._stub: rpc.CommanderServiceAsyncStub | None = None
+        self._client = CommanderRpcClient(config, project_root)
         self._records: dict[str, ForwardRecord] = {}
         self._finished_order: deque[str] = deque()
         self._pending_by_gateway: dict[str, int] = {}
@@ -200,22 +195,7 @@ class CommandForwarder:
         if self._workers:
             raise RuntimeError("forwarder already started")
         self._closing = False
-        if self._config.tls.enabled:
-            tls = self._config.tls
-            if tls.ca_file is None or tls.cert_file is None or tls.key_file is None:
-                raise ValueError("Commander mTLS requires CA, certificate and key")
-            credentials = grpc.ssl_channel_credentials(
-                root_certificates=service_path(self._project_root, tls.ca_file).read_bytes(),
-                private_key=service_path(self._project_root, tls.key_file).read_bytes(),
-                certificate_chain=service_path(self._project_root, tls.cert_file).read_bytes(),
-            )
-            channel = grpc.aio.secure_channel(self._config.commander_endpoint, credentials)
-        else:
-            channel = grpc.aio.insecure_channel(self._config.commander_endpoint)
-        self._channel = channel
-        # mypy-protobuf 的 __new__ 重载按 aio.Channel 直接解析为 AsyncStub；
-        # 运行时只有一个 Stub 类，同步/异步通道共用。
-        self._stub = rpc.CommanderServiceStub(channel)
+        self._client.start()
         self._workers = [
             asyncio.create_task(self._work()) for _ in range(self._config.max_forward_inflight)
         ]
@@ -271,13 +251,10 @@ class CommandForwarder:
             now = monotonic()
             if cached is not None and cached[1] > now:
                 return cached[0]
-            if self._stub is None:
-                raise RuntimeError("Commander channel not started")
             remaining = (expires_at - datetime.now(UTC)).total_seconds()
             if remaining <= 0:
                 raise TimeoutError("event expired before revision lookup")
-            response = await self._stub.GetDevice(common.ObjectId(id=device_id), timeout=remaining)
-            revision = response.device.revision
+            revision = await self._client.get_revision(device_id, timeout=remaining)
             if not revision:
                 raise ValueError(f"Commander device {device_id} has no revision")
             self._revision_cache[device_id] = (
@@ -304,9 +281,6 @@ class CommandForwarder:
         if remaining <= 0:
             self._finish(original, ForwardState.REJECTED, "queue entry expired")
             return
-        if self._stub is None:
-            self._finish(original, ForwardState.REJECTED, "Commander not started")
-            return
         try:
             device_revision = await self._device_revision(event.device_id, event.expires_at)
         except asyncio.CancelledError:
@@ -323,16 +297,6 @@ class CommandForwarder:
         if remaining <= 0:
             self._finish(original, ForwardState.REJECTED, "lookup expired")
             return
-        deadline = Timestamp()
-        deadline.FromDatetime(event.expires_at)
-        command = pb.SubmitCommandRequest(
-            device_id=event.device_id,
-            point_id=event.point_id,
-            value=encode_scalar(event.value),
-            expires_at=deadline,
-            expected_revision=device_revision,
-            request_id=event.event_id,
-        )
         self._record(
             ForwardRecord(
                 event_id=event.event_id,
@@ -346,7 +310,15 @@ class CommandForwarder:
             )
         )
         try:
-            response = await self._stub.SubmitCommand(command, timeout=remaining)
+            response = await self._client.submit(
+                device_id=event.device_id,
+                point_id=event.point_id,
+                value=event.value,
+                expires_at=event.expires_at,
+                expected_revision=device_revision,
+                request_id=event.event_id,
+                timeout=remaining,
+            )
         except asyncio.CancelledError:
             self._finish(original, ForwardState.UNKNOWN, "shutdown during submission")
             raise
@@ -393,14 +365,12 @@ class CommandForwarder:
             )
         )
 
-    async def get_command_result(self, command_id: str) -> pb.GetCommandResultResponse:
+    async def get_command_result(self, command_id: str) -> CommandQuery:
         """Query authoritative Commander status without resubmitting commands."""
         if not command_id.strip():
             raise ValueError("command_id is required")
-        if self._stub is None:
-            raise RuntimeError("Commander channel not started")
-        response = await self._stub.GetCommandResult(
-            pb.GetCommandResultRequest(command_id=command_id),
+        response = await self._client.get_command_result(
+            command_id,
             timeout=self._config.submit_deadline_ms / 1000,
         )
         return response
@@ -420,7 +390,4 @@ class CommandForwarder:
                 ForwardState.REJECTED,
                 "shutdown before submission",
             )
-        if self._channel is not None:
-            await self._channel.close()
-            self._channel = None
-        self._stub = None
+        await self._client.close()
