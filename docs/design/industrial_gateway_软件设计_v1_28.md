@@ -898,8 +898,8 @@ flowchart TD
 | 触发方式（Trigger） | Message：协议 Server 收到并验证合法写入请求 |
 | 输入（Input） | 当前 Server/设备、变量、解码值、写入事件顺序、已生效控制映射 |
 | 反馈（Response） | 协议库的标准读写应答；**不代表** Commander 执行结果 |
-| 目标方（Destination） | 存在映射时为 Commander gRPC Server |
-| 业务输出（Output） | 针对每次已捕获映射写入发起一次 `SubmitCommand` 尝试，记录明确或未知结果 |
+| 目标方（Destination） | 按 `control.target.kind` 唯一选择 Commander、Data Generator 或 none |
+| 业务输出（Output） | 对 Commander 发起 `SubmitCommand`；对 Data Generator 发起 `UpdateVariables`；分别记录受理、拒绝或未知状态 |
 
 ### 3.4.2 业务流程
 
@@ -914,7 +914,7 @@ flowchart TD
  D -->|是| F["捕获独立写入事件、值和映射快照"]
  F --> G{"转发队列有容量?"}
  G -->|否| H["记录过载及可能丢失；不虚报转发成功"]
- G -->|是| I["调用 Commander SubmitCommand 一次"]
+ G -->|是| I["按目标选择 SubmitCommand 或 Generator.UpdateVariables"]
  I --> J{"获取明确受理结果?"}
  J -->|是| K["记录返回命令 ID 或拒绝"]
  J -->|否| L["记录 UNKNOWN，禁止自动重发"]
@@ -928,7 +928,7 @@ flowchart TD
 
 **R03-02 控制映射。** 仅显式启用且目标 `device_id` 与 Server 所绑定真实设备相同的字段可转发。事件在接收时固定映射目标和修订版本；热更不会把已捕获事件指向新目标。协议库负责标准 ACK，Gateway 不把 ACK 表述为控制成功。
 
-**R03-03 尽力交付。** 本版本不实现本地持久化控制事件日志、跨重启重放和恰好一次投递。Gateway 将捕获事件送入有界内存转发通道；超限或进程崩溃可能造成控制转发丢失，必须记录可观测失败（进程崩溃前尚未记录的事件无法审计）。Commander 接收后负责命令执行、持久化及审计。提交超时且无 `command_id` 视为 UNKNOWN，**不自动重试**。若要求 ACK 前可靠接收与崩溃不丢失，必须另立需求，不能声称本版本支持。
+**R03-03 尽力交付。** 本版本不实现本地持久化控制事件日志、跨重启重放和恰好一次投递。Gateway 将捕获事件送入有界内存转发通道；超限或进程崩溃可能造成控制转发丢失，必须记录可观测失败（进程崩溃前尚未记录的事件无法审计）。Commander 接收后负责命令执行、持久化及审计；Generator 目标的模型输入步进语义见 §11.7，不拥有 Commander 审计语义。提交超时且无 `command_id` 视为 UNKNOWN，**不自动重试**。若要求 ACK 前可靠接收与崩溃不丢失，必须另立需求，不能声称本版本支持。
 
 **R03-04 协议库准入。** 不能在协议处理路径区分 gRPC 注入与真实客户端写入，或仅能观察值变化而非每次写请求的库，不允许启用 Commander 控制映射。支持写事件但不支持写前拒绝的库可按尽力交付运行，必须对使用方说明可能 ACK 成功而控制未转发。
 
@@ -1666,9 +1666,9 @@ Gateway Server 监听端点必须来自专属 Service 配置，公共设备 Endp
 
 `ClaimTargetsRequest`：`gateway_id`、`owner_id`、`variable_ids[]`、`action`（`ACQUIRE`/`RENEW`/`RELEASE`）、`lease_token`、`lease_ms`。`ClaimTargetsResponse`：`accepted`、`lease_token`、`error_code`、`message`。同一 Gateway 的重叠目标租约互斥；获取全部成功或全部失败；TTL 1000～60000 ms；目标数上限 5000；重新配置及进程重启均使旧令牌失效。该租约保护只针对 Gateway 数据更新，**不是** Commander 命令幂等凭证。
 
-## 9.3 Commander 出站契约
+## 9.3 Commander / Data Generator 出站契约
 
-`CommanderService` 按 Contracts v1_20 设计共 7 项：`ListDevices`、`GetDevice`、`ListPoints` 可用于只读映射验证；`SubmitCommand` 用于一次控制提交；已获得 `command_id` 后才可用 `GetCommandResult` 查询结果。`SubmitCommandRequest` 必须携带 Gateway 转发器在每个真实工业客户端写事件发生时预先生成、绑定该事件的唯一 `request_id`，并填 `device_id`、`point_id`、`value`、`expires_at` 和 `expected_revision`；Commander 返回 `command_id`。响应丢失时 Gateway 可以用原 `request_id` 调用 `GetRequestResult` 查结果，但不得生成新 ID 自动重发，亦不得根据 NOT_FOUND 假定未执行。
+`CommanderService` 按 Contracts v1_21 设计共 7 项：`ListDevices`、`GetDevice`、`ListPoints` 可用于只读映射验证；`SubmitCommand` 用于一次控制提交；已获得 `command_id` 后才可用 `GetCommandResult` 查询结果。`SubmitCommandRequest` 必须携带 Gateway 转发器在每个真实工业客户端写事件发生时预先生成、绑定该事件的唯一 `request_id`，并填 `device_id`、`point_id`、`value`、`expires_at` 和 `expected_revision`；Commander 返回 `command_id`。响应丢失时 Gateway 可以用原 `request_id` 调用 `GetRequestResult` 查结果，但不得生成新 ID 自动重发，亦不得根据 NOT_FOUND 假定未执行。
 
 ## 9.4 错误与身份
 
@@ -1678,7 +1678,7 @@ Commander 入站业务拒绝的 Forwarder 终态须按第 10.3 节分类：只�
 
 ## 9.6 RPC 生成对象的唯一持有边界（规范性）
 
-所有 generated `*_pb2`、`*_pb2_grpc` 的运行时引用只允许出现在 `infrastructure/grpc/` 及既有 Contracts 生成目录；不得由 `assembly`、`runtime`、`config/snapshots`、`variable_leases`、`observability` 或 `commander/forwarder` 直接持有。内部边界使用不可变或受控的普通 Python 对象，gRPC adapter 对照冻结 Contracts v1_20 负责双向字段映射。
+所有 generated `*_pb2`、`*_pb2_grpc` 的运行时引用只允许出现在 `infrastructure/grpc/` 及既有 Contracts 生成目录；不得由 `assembly`、`runtime`、`config/snapshots`、`variable_leases`、`observability` 或 `commander/forwarder` 直接持有。内部边界使用不可变或受控的普通 Python 对象，gRPC adapter 对照冻结 Contracts v1_21 负责双向字段映射。
 
 - `ClaimTargets`：Gateway Runtime 使用 `ClaimRequest/ClaimResult`，Grpc Service 将其转换为冻结的 Request/Response；每个字段含义及拒绝码保持不变。
 - `UpdateVariables`：仍先在 Gateway 租约层整批验证 token，再逐变量返回结果，不绕过授权和保护。
@@ -1693,7 +1693,7 @@ Commander 入站业务拒绝的 Forwarder 终态须按第 10.3 节分类：只�
 
 Gateway 在 `capture()` 将事件放入全局有界队列后，以该队列的**实际出队顺序**为基准；多个转发 worker 必须在任何异步等待前，为 `(device_id,point_id)` 记录前驱事件。后继同目标事件仅能在前驱完成提交判定后进入 Commander 提交，不能依靠互斥锁竞争顺序冒充 FIFO。不同目标仍允许并行。事件捕获顺序不等于多个并发 TCP 客户端在测试代码中的创建顺序；验收应按捕获记录关联 event_id 和 Commander's 实际受理记录，保留同目标在途≤1、无重复提交及不同 command_id 的断言。取消等待前驱的 worker 不得取消前驱自身的完成凭证。超时、断开与 UNKNOWN 不得盲重提。\n\n## 9.5 冻结基础契约核对（规范性）
 
-以 Contracts v1_20 的 `industrial_gateway.proto` 为唯一正式线协议：8 个专属 RPC 加 9 个 Common RPC。ClaimTargets 字段为 gateway_id、owner_id、variable_ids、action、lease_token、lease_ms；UpdateVariables 字段为 gateway_id、values、lease_token，结果逐变量表示 success/error_code/message。不得自行添加质量、时间戳或批序号字段。
+以 Contracts v1_21 的 `industrial_gateway.proto` 为唯一正式线协议：8 个专属 RPC 加 9 个 Common RPC。ClaimTargets 字段为 gateway_id、owner_id、variable_ids、action、lease_token、lease_ms；UpdateVariables 字段为 gateway_id、values、lease_token，结果逐变量表示 success/error_code/message。不得自行添加质量、时间戳或批序号字段。
 
 **数据注入路径**：Data Generator 获取完整目标集合的有效租约后使用 UpdateVariables 更新 Gateway 内部变量；租约预检失败整批零修改，之后值校验允许逐点部分成功。不同 Gateway 无跨服务事务，UpdateVariables 绝不触发 Commander。
 
@@ -2120,7 +2120,7 @@ tests/
 | UR-01 / UC-01-S03 | UpdateVariables 混合合法与非法条目 | `test_gateway_partial_update_results` | 逐项响应，合法项生效、非法项不修改；不回滚全部 |
 | UR-05 / UC-05-S03 | 公共 SharedDocumentLoader 固定 devices.yaml 的旧行为 | `test_gateway_loader_custom_instance_path` | Loader 能按 Service 指定 pathname 加载，不回退默认 devices.yaml |
 | UR-01 / UC-01-S03 | 多寄存器变量更新与同时读取 | `test_gateway_no_torn_variable_read` | 单变量读值无新旧寄存器撕裂；不同变量不要求原子快照 |
-| UR-01 / UC-01-S02 | 无 lease_token，且目标当前无人认领 | `test_gateway_requires_lease_for_unclaimed_target` | 按 Contracts v1_20 必须拒绝，变量及审计状态不改变；不得将“无竞争”作为绕过 ClaimTargets 的条件 |
+| UR-01 / UC-01-S02 | 无 lease_token，且目标当前无人认领 | `test_gateway_requires_lease_for_unclaimed_target` | 按 Contracts v1_21 必须拒绝，变量及审计状态不改变；不得将“无竞争”作为绕过 ClaimTargets 的条件 |
 | UR-01 / UC-01-S02 | token 伪造、过期或未覆盖请求全部目标 | `test_gateway_requires_matching_lease_for_full_batch` | 全批拒绝，零变量改变；已合法占用的无关目标不受影响 |
 
 上述标识为设计追溯标识，实际执行测试函数与测试文件可按当前代码实现组织，必须由验收报告映射；不能把示例标识当作已存在文件，也不能以设计矩阵代替执行证据。
