@@ -113,7 +113,7 @@ class CommandForwarder:
         self._finished_order: deque[str] = deque()
         self._pending_by_gateway: dict[str, int] = {}
         self._pending_total = 0
-        self._target_locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self._target_tails: dict[tuple[str, str], asyncio.Future[None]] = {}
         self._revision_cache: dict[str, tuple[str, float]] = {}
         self._revision_locks: dict[str, asyncio.Lock] = {}
         self._closing = False
@@ -223,11 +223,16 @@ class CommandForwarder:
     async def _work(self) -> None:
         while True:
             event = await self._queue.get()
+            # Reserve each target's predecessor before any await. Queue dequeue
+            # order, rather than lock acquisition order, defines target FIFO.
             key = (event.device_id, event.point_id)
-            lock = self._target_locks.setdefault(key, asyncio.Lock())
+            predecessor = self._target_tails.get(key)
+            completed = asyncio.get_running_loop().create_future()
+            self._target_tails[key] = completed
             try:
-                async with lock:
-                    await self._submit(event)
+                if predecessor is not None:
+                    await predecessor
+                await self._submit(event)
             except asyncio.CancelledError:
                 record = self._records[event.event_id]
                 if record.state in {
@@ -248,6 +253,10 @@ class CommandForwarder:
                 )
                 self._finish(record, state, str(exc))
             finally:
+                if not completed.done():
+                    completed.set_result(None)
+                if self._target_tails.get(key) is completed:
+                    self._target_tails.pop(key, None)
                 self._queue.task_done()
 
     async def _device_revision(
