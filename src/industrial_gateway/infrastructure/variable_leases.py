@@ -7,7 +7,6 @@ import secrets
 from dataclasses import dataclass, replace
 from time import monotonic
 
-from contracts import industrial_gateway_pb2 as pb
 from industrial_gateway.application.variable_store import (
     Scalar,
     UpdateResult,
@@ -17,6 +16,24 @@ from industrial_gateway.application.variable_store import (
 
 class LeaseError(RuntimeError):
     """A target claim is absent, expired, or owned by another writer."""
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimRequest:
+    gateway_id: str
+    owner_id: str
+    variable_ids: tuple[str, ...]
+    action: str
+    lease_token: str = ""
+    lease_ms: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimResult:
+    accepted: bool
+    lease_token: str = ""
+    error_code: str = ""
+    message: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,9 +62,9 @@ class VariableLeases:
 
     async def claim(
         self,
-        request: pb.ClaimTargetsRequest,
+        request: ClaimRequest,
         available: frozenset[str],
-    ) -> pb.ClaimTargetsResponse:
+    ) -> ClaimResult:
         """ACQUIRE all-or-nothing; RENEW/RELEASE require the exact old claim."""
         gateway_id = request.gateway_id
         async with self._lock(gateway_id):
@@ -59,14 +76,14 @@ class VariableLeases:
                 or len(names) != len(request.variable_ids)
                 or len(names) > 5000
             ):
-                return pb.ClaimTargetsResponse(accepted=False, error_code="INVALID_CLAIM")
+                return ClaimResult(accepted=False, error_code="INVALID_CLAIM")
             if request.action == "ACQUIRE":
                 if not names <= available:
-                    return pb.ClaimTargetsResponse(accepted=False, error_code="INVALID_TARGET")
+                    return ClaimResult(accepted=False, error_code="INVALID_TARGET")
                 if not 1000 <= request.lease_ms <= 60000:
-                    return pb.ClaimTargetsResponse(accepted=False, error_code="INVALID_LEASE_MS")
+                    return ClaimResult(accepted=False, error_code="INVALID_LEASE_MS")
                 if any(names & claim.names for claim in claims):
-                    return pb.ClaimTargetsResponse(accepted=False, error_code="TARGET_CLAIMED")
+                    return ClaimResult(accepted=False, error_code="TARGET_CLAIMED")
                 token = secrets.token_urlsafe(32)
                 lease = TargetLease(
                     owner_id=request.owner_id,
@@ -75,25 +92,25 @@ class VariableLeases:
                     expires_at=monotonic() + request.lease_ms / 1000,
                 )
                 claims.append(lease)
-                return pb.ClaimTargetsResponse(accepted=True, lease_token=token)
+                return ClaimResult(accepted=True, lease_token=token)
             existing = next(
                 (claim for claim in claims if claim.token == request.lease_token),
                 None,
             )
             if existing is None or existing.owner_id != request.owner_id or existing.names != names:
-                return pb.ClaimTargetsResponse(accepted=False, error_code="LEASE_LOST")
+                return ClaimResult(accepted=False, error_code="LEASE_LOST")
             if request.action == "RELEASE":
                 claims.remove(existing)
-                return pb.ClaimTargetsResponse(accepted=True)
+                return ClaimResult(accepted=True)
             if request.action == "RENEW":
                 if not 1000 <= request.lease_ms <= 60000:
-                    return pb.ClaimTargetsResponse(accepted=False, error_code="INVALID_LEASE_MS")
+                    return ClaimResult(accepted=False, error_code="INVALID_LEASE_MS")
                 claims[claims.index(existing)] = replace(
                     existing,
                     expires_at=monotonic() + request.lease_ms / 1000,
                 )
-                return pb.ClaimTargetsResponse(accepted=True, lease_token=existing.token)
-            return pb.ClaimTargetsResponse(accepted=False, error_code="INVALID_ACTION")
+                return ClaimResult(accepted=True, lease_token=existing.token)
+            return ClaimResult(accepted=False, error_code="INVALID_ACTION")
 
     async def update(
         self,
