@@ -1,0 +1,25 @@
+schema_version: 1
+file_version: "1.1.0"
+template_id: "kafka_history"
+kind: kafka
+capabilities:
+  realtime: false
+  reliable: true                # 须明确下游接受至少一次或按 sample_id 去重
+  idempotent: false            # Kafka Producer 幂等不等于跨系统业务幂等
+  supports_concurrent_write: true # 不同设备可并发；同设备保持串行
+  max_safe_inflight: 4         # 同 Sink 并行上限，受 Service 配置进一步约束
+connection:
+  bootstrap_servers: ["192.168.1.20:9092"]
+  credential_ref: "kafka/history"
+output:
+  topic: "windhub.samples"
+  key_field: device_id         # 同一设备路由到固定分区
+  business_duplicate_policy: allow_at_least_once # require_dedup | allow_at_least_once；显式重复策略
+  dedup_identity_fields: [delivery_id, sample_id] # 稳定身份；下游按需去重
+  enable_idempotence: true
+  acks: all
+  write_timeout_ms: 2000
+
+# 并行模式仅用于每个 Reliable Delivery 显式配置一个 device 的情况。
+# 每 Delivery 保持 max_ack_pending=1；不同 Delivery Task 可以共用 Kafka Producer。
+# 从旧版迁移必须使用新 Delivery 身份并由运维确认旧 Durable 生命周期。

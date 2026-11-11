@@ -1,4 +1,4 @@
-"""Independent Sink Service process, without Collector imports."""
+"""Sink Service Main: one gRPC server and two separate worker processes."""
 
 from __future__ import annotations
 
@@ -7,169 +7,188 @@ import asyncio
 import contextlib
 import logging
 import signal
-from hashlib import sha256
 from pathlib import Path
-from typing import Literal
 
-from configuration.digest import config_dir_digest
-from sink_service.application.management import SinkManager
-from sink_service.application.runtime import SinkRuntime, SinkState
-from sink_service.assembly import assemble_sinks
-from sink_service.infrastructure.grpc_management import build_management_server
-from sink_service.infrastructure.intent import SinkIntentStore
+from sink_service.application.config import read_snapshot
+from sink_service.application.config_manager import ConfigManager
+from sink_service.application.observability import Observability
+from sink_service.infrastructure.config_repository import GenerationStore
+from sink_service.infrastructure.grpc_credentials import server_credentials
+from sink_service.infrastructure.grpc_server import build_grpc_server
+from sink_service.infrastructure.supervisor import WorkerSupervisor
+from sink_service.infrastructure.worker_registry import WorkerRegistryView
+from sink_service.infrastructure.writer_lease import WriterLease
 
 logger = logging.getLogger(__name__)
+SERVICE_FILE = "configs/services/sink_service.yaml"
 
 
-async def run_sink_service(
-    config_dir: Path,
-    *,
-    servers: tuple[str, ...],
-    delivery: Literal["realtime", "reliable", "both"],
-    realtime_sinks: frozenset[str] = frozenset(),
-    reliable_sinks: frozenset[str] = frozenset(),
-    wind_farm_id: str,
-    deployment_id: str,
-    shutdown_timeout: float = 30.0,
-    max_samples_per_batch: int = 500,
-    max_batch_bytes: int = 1_048_576,
-    grpc_listen: str = "127.0.0.1:50074",
-    state_dir: Path = Path("/var/tmp/wind-hub/sink-state"),
-) -> None:
-    """Start each Sink independently and shut down on a process signal."""
-    applied_digest = config_dir_digest(config_dir)
-    state_name = sha256(wind_farm_id.encode()).hexdigest()[:32]
-    store = SinkIntentStore(state_dir / state_name)
-    if delivery == "both":
-        if not realtime_sinks or not reliable_sinks:
-            raise ValueError("both mode requires explicit realtime and reliable sink lists")
-        if realtime_sinks & reliable_sinks:
-            raise ValueError("one Sink cannot consume both delivery channels")
-        sinks = {
-            **assemble_sinks(
-                config_dir,
-                servers=servers,
-                delivery="realtime",
-                wind_farm_id=wind_farm_id,
-                deployment_id=deployment_id,
-                intent_store=store,
-                max_samples_per_batch=max_samples_per_batch,
-                max_batch_bytes=max_batch_bytes,
-                sink_ids=realtime_sinks,
-            ),
-            **assemble_sinks(
-                config_dir,
-                servers=servers,
-                delivery="reliable",
-                wind_farm_id=wind_farm_id,
-                deployment_id=deployment_id,
-                intent_store=store,
-                max_samples_per_batch=max_samples_per_batch,
-                max_batch_bytes=max_batch_bytes,
-                sink_ids=reliable_sinks,
-            ),
-        }
-    else:
-        sinks = assemble_sinks(
-            config_dir,
-            servers=servers,
-            delivery=delivery,
-            wind_farm_id=wind_farm_id,
-            deployment_id=deployment_id,
-            intent_store=store,
-            max_samples_per_batch=max_samples_per_batch,
-            max_batch_bytes=max_batch_bytes,
-            sink_ids=realtime_sinks or reliable_sinks or None,
-        )
-    if applied_digest != config_dir_digest(config_dir):
-        raise RuntimeError("config changed during Sink Service assembly")
-    manager = SinkManager(
-        sinks,
-        config_digest=lambda: config_dir_digest(config_dir),
-        applied_digest=applied_digest,
-    )
-    grpc_server = build_management_server(manager, grpc_listen)
-    await grpc_server.start()
-    stopping = asyncio.Event()
+async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) -> None:
+    if service_file != SERVICE_FILE:
+        raise ValueError("canonical Service file required")
+    stop = asyncio.Event()
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
+    for signum in (signal.SIGINT, signal.SIGTERM):
         try:
-            loop.add_signal_handler(sig, stopping.set)
+            loop.add_signal_handler(signum, stop.set)
         except NotImplementedError:
-            logger.warning("Event loop does not support signal handlers")
-    for sink_id, sink in sinks.items():
-        if not store.should_start(sink_id):
-            continue
+            logger.warning("signal handlers unavailable")
+    store = GenerationStore(config_root)
+    lease = WriterLease(config_root)
+    lease.acquire()
+    supervisor = WorkerSupervisor(config_root, service_file)
+    server = None
+    background: list[asyncio.Task[None]] = []
+    try:
+        if (config_root / "CURRENT").exists():
+            snapshot = store.load(service_file)
+        else:
+            snapshot = read_snapshot(config_root, config_root / service_file)
+            store.commit(snapshot, "", old=None)
+        if Path(snapshot.service["config_root"]).resolve() != config_root.resolve():
+            raise ValueError("configured config_root differs from runtime")
+        supervisor.apply_timeout_seconds = (
+            snapshot.service["config_sync"]["apply_timeout_ms"] / 1000
+        )
+        registry = WorkerRegistryView(supervisor, snapshot)
+        manager = ConfigManager(
+            store, snapshot, writer=True, reconcile=registry.apply_configuration
+        )
+        service = snapshot.service
+        telemetry = Observability(
+            service["runtime"]["max_event_records"],
+            window_ms=service["metrics"]["metrics_window_ms"],
+        )
+        grpc_config = service["grpc"]
+        server = build_grpc_server(
+            config=manager,
+            registry=registry,
+            service_id=service["service_id"],
+            role="main",
+            credentials=server_credentials(service["security"]),
+            address=f"{grpc_config['listen_host']}:{grpc_config['listen_port']}",
+            max_active_rpcs=grpc_config["max_active_rpcs"],
+            max_request_bytes=grpc_config["max_request_bytes"],
+            callers=service["security"]["callers"],
+            observability=telemetry,
+        )
+        await server.start()
+        await supervisor.start()
+        await registry.refresh()
+        background.append(asyncio.create_task(supervisor.supervise(stop)))
+        background.append(
+            asyncio.create_task(
+                _poll_workers(
+                    registry,
+                    manager,
+                    telemetry,
+                    stop,
+                    service["metrics"]["metrics_compute_interval_ms"],
+                )
+            )
+        )
+        await stop.wait()
+    finally:
+        stop.set()
+        # Let bounded IPC requests finish; cancelling a request invalidates
+        # its reply channel and would prevent graceful worker shutdown.
+        if background:
+            await asyncio.gather(*background, return_exceptions=True)
+        if server is not None:
+            grace = service["shutdown"]["grace_seconds"] if "service" in locals() else 3
+            await server.stop(grace=grace)
         try:
-            await sink.start()
-        except Exception:
-            logger.exception("Sink %s failed to start", sink_id)
+            await supervisor.close(
+                manager.disk.revision if "manager" in locals() else "UNINITIALIZED"
+            )
+        finally:
+            lease.release()
 
-    async def restore_failed() -> None:
-        while not stopping.is_set():
-            try:
-                await asyncio.wait_for(stopping.wait(), timeout=5.0)
-                return
-            except TimeoutError:
-                pass
-            for sink_id, sink in sinks.items():
-                if not sink.desired_running:
-                    continue
-                try:
-                    if sink.state is SinkState.FAILED:
-                        await sink.start()
-                    elif sink.state is SinkState.RUNNING and not sink.nats_connected:
-                        await sink.repair_subscription()
-                except Exception:
-                    logger.exception("Sink %s recovery failed", sink_id)
 
-    supervisor = asyncio.create_task(restore_failed())
-    await stopping.wait()
-    await grpc_server.stop(grace=5.0)
-    supervisor.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await supervisor
-
-    async def close(sink_id: str, sink: SinkRuntime) -> None:
+async def _poll_workers(
+    registry: WorkerRegistryView,
+    manager: ConfigManager,
+    telemetry: Observability,
+    stop: asyncio.Event,
+    interval_ms: int,
+) -> None:
+    """Bounded periodic metrics cycle; gRPC only reads precomputed snapshots."""
+    loop = asyncio.get_running_loop()
+    period = interval_ms / 1000
+    next_tick = loop.time() + period
+    previous_health: dict[str, str] = {}
+    previous_deliveries: dict[str, tuple[str, str]] = {}
+    metrics_ready = False
+    metrics_revision = registry.snapshot.revision
+    while not stop.is_set():
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=max(0.0, next_tick - loop.time()))
+        if stop.is_set():
+            return
+        now = loop.time()
+        next_tick += max(1, int((now - next_tick) / period) + 1) * period
         try:
-            await asyncio.wait_for(sink.stop(explicit=False), timeout=shutdown_timeout)
+            await registry.refresh()
+            if metrics_revision != registry.snapshot.revision:
+                metrics_revision = registry.snapshot.revision
+                telemetry.reset_epoch()
+                metrics_ready = False
+                telemetry.event("INFO", "service", "METRICS_CONFIG_EPOCH", metrics_revision)
+            if registry.epoch_changed:
+                registry.epoch_changed = False
+                telemetry.reset_epoch()
+                telemetry.event("INFO", "service", "METRICS_EPOCH_RESET", "worker restarted")
+            if manager.runtime.revision != manager.disk.revision:
+                await manager.reconcile_committed()
+            for role, state in registry.worker_health.items():
+                if previous_health.get(role) != state:
+                    telemetry.event(
+                        "ERROR" if state != "RUNNING" else "INFO",
+                        role,
+                        "WORKER_STATE",
+                        state,
+                    )
+            previous_health = dict(registry.worker_health)
+            current_deliveries = {
+                item.delivery_id: (item.actual_state, item.last_error) for item in registry.list()
+            }
+            for identifier, delivery_state in current_deliveries.items():
+                if previous_deliveries.get(identifier) != delivery_state:
+                    telemetry.event(
+                        "ERROR" if delivery_state[0] in {"UNKNOWN", "FAILED"} else "INFO",
+                        identifier,
+                        "DELIVERY_STATE",
+                        f"{delivery_state[0]}: {delivery_state[1]}",
+                    )
+            previous_deliveries = current_deliveries
+            metrics = await registry.collect_metrics()
+            if metrics is None:
+                telemetry.mark_unavailable()
+                metrics_ready = False
+                continue
+            if not metrics_ready:
+                telemetry.reset_epoch()
+                metrics_ready = True
+            totals, deliveries, latency_bins, delivery_p99 = metrics
+            telemetry.sample(
+                totals,
+                process_latency_bins=latency_bins,
+                delivery_counters=deliveries,
+                delivery_p99=delivery_p99,
+            )
         except Exception:
-            logger.exception("Sink %s shutdown failed", sink_id)
-
-    await asyncio.gather(*(close(name, sink) for name, sink in sinks.items()))
+            logger.exception("worker metrics cycle failed")
+            telemetry.mark_unavailable()
+            metrics_ready = False
 
 
 def main() -> None:
-    """Run the Sink Service from a standalone command."""
     parser = argparse.ArgumentParser(prog="wind-hub-sink-service")
-    parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--nats", action="append", required=True)
-    parser.add_argument("--delivery", choices=("realtime", "reliable", "both"), required=True)
-    parser.add_argument("--realtime-sink", action="append", default=[])
-    parser.add_argument("--reliable-sink", action="append", default=[])
-    parser.add_argument("--wind-farm-id", required=True)
-    parser.add_argument("--deployment-id", required=True)
-    parser.add_argument("--grpc-listen", default="127.0.0.1:50074")
-    parser.add_argument("--max-samples-per-batch", type=int, default=500)
-    parser.add_argument("--max-batch-bytes", type=int, default=1_048_576)
-    parser.add_argument("--state-dir", type=Path, default=Path("/var/tmp/wind-hub/sink-state"))
+    parser.add_argument("--config-root", type=Path, required=True)
+    parser.add_argument("--service-file", default=SERVICE_FILE)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(
-        run_sink_service(
-            args.config,
-            servers=tuple(args.nats),
-            delivery=args.delivery,
-            realtime_sinks=frozenset(args.realtime_sink),
-            reliable_sinks=frozenset(args.reliable_sink),
-            wind_farm_id=args.wind_farm_id,
-            deployment_id=args.deployment_id,
-            max_samples_per_batch=args.max_samples_per_batch,
-            max_batch_bytes=args.max_batch_bytes,
-            state_dir=args.state_dir,
-            grpc_listen=args.grpc_listen,
-        )
-    )
+    asyncio.run(run_sink_service(args.config_root, args.service_file))
 
 
 if __name__ == "__main__":

@@ -75,8 +75,6 @@ c104 = "^2.2"
 
 [tool.poetry.scripts]
 wind-hub-sink-service = "sink_service.main:main"
-wind-hub-sink-diagnostic = "sink_service.diagnostic_cli:main"
-wind-hub-sink = "sink_service.management_cli:main"
 wind-hub-collector = "collector.main:main"
 wind-hub-commander = "commander.__main__:main"
 wind-hub = "cli.main:main"
@@ -114,6 +112,8 @@ extend-immutable-calls = [
 "src/commander/infrastructure/grpc/server.py" = ["N802"]
 "src/industrial_gateway/infrastructure/grpc/data_server.py" = ["N802"]
 "src/data_generator/infrastructure/server.py" = ["N802"]
+"src/sink_service/infrastructure/grpc_server.py" = ["N802"]
+"src/sink_service/infrastructure/realtime_adapters.py" = ["N802"]
 
 [tool.mypy]
 strict = true

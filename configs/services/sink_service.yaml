@@ -1,0 +1,208 @@
+# Sink Service 主服务配置：每容器一份
+#
+# 使用：按现场修改下方生效值；此处数字是示例，不是默认值。
+# 除 watchdog_interval_ms 外，各字段必填；标为“固定”的值不得修改。
+# 时间单位：ms 毫秒、s 秒；容量：byte；所有“正整数”均须 > 0。
+# Main 负责加载/验证/写入；两个 Worker 通过 IPC 接收配置。
+# Service 参数变更需重启；Sink/Delivery 实例和模板引用支持受控 Apply。
+#
+# 使用示例：为 30 台风机配置一个实例时：
+#   runtime.max_inflight_global: 128   # 每个 Worker 最多 128 个在途 I/O
+#   runtime.max_inflight_per_sink: 8   # 每个 Worker 中单 Sink 最多 8 个在途 I/O
+#   reliable.ack_wait_seconds: 30      # 消息等待 ACK 的初始时限为 30 秒
+#   reliable.retry_base_ms: 1000      # 临时失败从 1 秒退避起步
+#   reliable.retry_max_ms: 60000      # 退避等待最长 60 秒
+#   reliable.replay_max_rate_per_second: 50  # 每 Delivery 补发最多 50 批/s
+# 上述是配置写法示例，并非 30 台风机的性能保证或推荐调优值。
+#
+# 字段说明：名称 — 作用；合法取值；示例/缺省
+#
+# [身份与配置来源]
+# schema_version — 配置结构版本；固定 1。
+# file_version — 文件版本；X.Y.Z 数字字符串，如 1.0.0。
+# service_id — 当前服务实例的逻辑标识；非空字符串，如 sink-west。
+# wind_farm_id — 本实例所属风场；非空字符串，如 farm-a。
+# deployment_id — 部署实例标识；非空字符串，如 prod-a。
+# config_root — 配置文件根目录；非空路径，如 /etc/wind-hub。
+# config_sources.instances.sinks — Sink 实例文件；configs/instances/*.yaml。
+# config_sources.instances.deliveries — Delivery 实例文件；configs/instances/*.yaml；
+#   必须与 sinks 文件路径不同。
+# config_sources.templates.root — 模板根目录；configs/templates 或其子目录。
+#   路径均相对 config_root；不得包含 ../、符号链接或越界路径。
+#   模板按准确 ID/版本引用，不扫描目录或使用隐式默认来源。
+#
+# [gRPC 管理面]
+# listen_host — Main 的 gRPC 监听地址；非空字符串，如 0.0.0.0。
+# listen_port — Main 的 gRPC 监听端口；整数 1..65535，如 50061。
+# max_active_rpcs — 同时受理的 RPC 数量上限；整数 1..64，如 64。
+# max_request_bytes — 单次 RPC 请求最大字节数；整数 1..2097152，如 2097152。
+# default_deadline_ms — RPC 默认截止时间；整数 1..5000 ms，如 5000。
+#
+# [安全与调用方]
+# ca_cert — 客户端证书验证所用 CA 证书路径；非空字符串。
+# server_cert — Main gRPC 服务端证书路径；非空字符串。
+# server_key — Main gRPC 服务端私钥路径；非空字符串。
+# callers[].caller_id — 授权调用方的唯一业务标识；非空字符串，如 maintenance。
+# callers[].certificate_identity — 与客户端证书对应的调用身份；如 spiffe://wind-hub/maintenance。
+# callers[].permissions — 该调用方允许的操作类别；query（查询）、
+#   control（启停/控制）、config（配置）；按最小权限分配。
+#   证书与密钥只引用文件路径，不在 YAML 中写入密钥内容。
+#
+# [NATS / JetStream]
+# servers — NATS 连接地址列表；非空 nats:// URI 列表，如 [nats://127.0.0.1:4222]。
+# max_samples_per_batch — 接收单条 SampleBatch 的最大测点数；
+#   整数 1..10000；例 500，必须 >= Collector 同通道发布上限。
+# max_batch_bytes — 接收单条消息的完整 JSON 最大长度；
+#   整数 1..16777216 byte；例 1048576，不能超过 NATS Server max_payload。
+# realtime_subject — Realtime 源批 Subject 前缀；固定 wh.rt.batch。
+# reliable_subject — Reliable 源批 Subject 前缀；固定 wh.hist.batch。
+# reliable_stream — 历史消息所在 JetStream Stream 名称；非空，如 WH_HISTORY。
+# dead_letter_stream — 永久错误消息的 DLQ Stream 名称；非空，如 WH_DLQ。
+# dead_letter_subject — 发布死信所用 Subject；非空，如 wh.dlq。
+# history_storage — 历史 Stream 的存储类型；固定 file（磁盘）。
+# dlq_storage — DLQ Stream 的存储类型；固定 file（磁盘）。
+# history_discard — 历史 Stream 满额时拒绝新消息；固定 new。
+# dlq_discard — DLQ 满额时拒绝新消息；固定 new，不能静默覆盖旧死信。
+# dlq_max_bytes — DLQ 允许保存的最大字节数；正整数 byte，如 1073741824。
+# dlq_max_age_seconds — DLQ 消息最长保留时间；正整数 s，如 2592000。
+# connect_timeout_ms — NATS 初次连接超时；正整数 ms，如 2000。
+# max_reconnect_interval_ms — NATS 断线重连最大等待间隔；正整数 ms，如 5000。
+#   单个源批的 1024 点/1 MiB 上限由 Contracts 固定，不在此设置。
+#
+# [运行额度：对 Realtime 与 Reliable 两个 Worker 分别生效]
+# max_inflight_global — 单 Worker 中所有 Sink 合计在途 I/O 上限；
+#   正整数，如 128；不是跨进程的共享额度。
+# max_inflight_per_sink — 单 Worker 中一个 Sink 的在途 I/O 上限；
+#   整数 1..max_inflight_global，如 8。
+# max_pending_points — Realtime 最新值缓存允许的不同测点键数；
+#   正整数，如 10000；满额时拒收新键，不建立无界历史队列。
+# io_wait_timeout_ms — 目标 I/O 额度排队等待的最长时间；
+#   正整数 ms，如 3000；超时不等于底层写入已失败。
+# max_event_records — 进程内保留的事件记录数上限；整数 1..10000，如 10000。
+# watchdog_interval_ms — Main 检查子进程状态的周期；
+#   整数 500..60000 ms；唯一可省略字段，省略时默认 5000 ms。
+#
+# [Reliable 可靠交付]
+# max_deliver — JetStream 源消息允许的最大投递次数；
+#   固定 -1（不按重投次数自动停止或转入 DLQ）。
+# ack_wait_seconds — Consumer 收到消息后等待 ACK 的初始时限；
+#   正整数 s，如 30；长时间 I/O 用 InProgress 续约。
+# retry_base_ms — 临时失败重试的初始退避时长；
+#   正整数 ms，如 1000。
+# retry_max_ms — 临时失败重试退避时长的上限；
+#   整数 >= retry_base_ms，如 60000 ms。
+# max_inflight_per_delivery — 一个 Delivery 同时处理的源批上限；
+#   固定 1，避免同一设备前一批未完成时处理后一批。
+# transient_retry_policy — 对临时失败的重试策略；
+#   固定 continuous（持续退避重试，不因达到次数而直接丢弃）。
+# permanent_error_action — 对确定永久错误的处置方式；
+#   固定 dlq（先持久写入死信，收到 PubAck 后才能结清源消息责任）。
+# replay_max_inflight — 每个 Delivery 的历史补发同时在途批数；
+#   固定 1，避免补发形成无界任务队列。
+# replay_max_rate_per_second — 每个 Delivery 每秒最多启动的历史补发批数；
+#   正整数，单位批/s，如 50；不是整个实例共享 50 批/s。
+# replay_starvation_alarm_seconds — 历史补发持续得不到调度时的告警阈值；
+#   正整数 s，如 300；用于观测，不直接删除积压消息。
+# dedup_key — 可靠数据业务去重标识字段；
+#   固定 sample_id；跨重启是否真正去重仍取决于下游去重契约。
+#
+# [统计与指标]
+# metrics_compute_interval_ms — 指标汇总计算的时间间隔；
+#   整数 100..60000 ms，如 1000。
+# metrics_window_ms — 滚动指标统计窗口长度；
+#   整数 1000..3600000 ms，且 >= metrics_compute_interval_ms，如 60000。
+# supported_window_ms — 对外支持的指标窗口列表；非空，
+#   每个元素必须等于 metrics_window_ms，如 [60000]。
+# max_time_buckets — 指标窗口的时间分桶数上限；
+#   整数 1..3600，且 metrics_window_ms 必须能被该值整除，如 120。
+# overrun_policy — 指标计算超过调度周期时的处置策略；
+#   固定 skip（跳过本轮，不无限排队）。
+#
+# [配置生效与退出]
+# config_sync.apply_timeout_ms — Main 等待 Worker 配置生效响应的时限；
+#   正整数 ms，如 10000；超时不代表配置一定未执行。
+# shutdown.grace_seconds — 服务优雅关闭允许的时间；
+#   正整数 s，如 10；未结束的目标 I/O 不能被误判为已完成。
+#
+# Kafka 编码、BatchBuilder、linger_ms、max_batch_size 等在 Sink 模板配置。
+# =============================================================================
+schema_version: 1
+file_version: 1.0.0
+service_id: sink-west
+wind_farm_id: farm-a
+deployment_id: prod-a
+config_root: /etc/wind-hub
+config_sources:
+  instances:
+    sinks: configs/instances/sinks.yaml
+    deliveries: configs/instances/deliveries.yaml
+  templates:
+    root: configs/templates
+
+grpc:
+  listen_host: 0.0.0.0
+  listen_port: 50061
+  max_active_rpcs: 64
+  max_request_bytes: 2097152
+  default_deadline_ms: 5000
+
+security:
+  ca_cert: /etc/wind-hub/tls/ca.crt
+  server_cert: /etc/wind-hub/tls/sink.crt
+  server_key: /etc/wind-hub/tls/sink.key
+  callers:
+    - caller_id: maintenance
+      certificate_identity: spiffe://wind-hub/maintenance
+      permissions: [query, control, config]
+
+nats:
+  servers: [nats://127.0.0.1:4222]
+  realtime_subject: wh.rt.batch
+  reliable_subject: wh.hist.batch
+  reliable_stream: WH_HISTORY
+  max_samples_per_batch: 500
+  max_batch_bytes: 1048576
+  dead_letter_stream: WH_DLQ
+  dead_letter_subject: wh.dlq
+  history_storage: file
+  dlq_storage: file
+  history_discard: new
+  dlq_discard: new
+  dlq_max_bytes: 1073741824
+  dlq_max_age_seconds: 2592000
+  connect_timeout_ms: 2000
+  max_reconnect_interval_ms: 5000
+
+runtime:
+  max_inflight_global: 128
+  max_inflight_per_sink: 8
+  max_pending_points: 10000
+  io_wait_timeout_ms: 3000
+  max_event_records: 10000
+  watchdog_interval_ms: 5000
+
+reliable:
+  max_deliver: -1
+  ack_wait_seconds: 30
+  retry_base_ms: 1000
+  retry_max_ms: 60000
+  max_inflight_per_delivery: 1
+  transient_retry_policy: continuous
+  permanent_error_action: dlq
+  replay_max_inflight: 1
+  replay_max_rate_per_second: 50
+  replay_starvation_alarm_seconds: 300
+  dedup_key: sample_id
+
+metrics:
+  metrics_compute_interval_ms: 1000
+  metrics_window_ms: 60000
+  supported_window_ms: [60000]
+  max_time_buckets: 120
+  overrun_policy: skip
+
+config_sync:
+  apply_timeout_ms: 10000
+
+shutdown:
+  grace_seconds: 10

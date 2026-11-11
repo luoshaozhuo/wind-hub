@@ -1,0 +1,37 @@
+schema_version: 1
+file_version: "1.0.0"
+revision: "deliveries-r1"
+deliveries:
+  ems_power:
+    template_id: realtime_power
+    template_version: "1.0.0"
+    sink_id: ems_redis             # 仅一个 Sink；必须存在
+    desired_state: START          # START | STOP；人工启停修改本字段
+    source:
+      wind_farm_id: farm-a             # 必须匹配可信来源身份
+      collector_id: collector-1
+      devices: [WT001, WT002]     # 可为空表示该任务下全部设备；按校验契约
+      points: [active_power]      # 可为空表示该来源全部点
+    overrides: {}
+  power_history:
+    template_id: reliable_history
+    template_version: "1.0.0"
+    sink_id: history_kafka
+    desired_state: START
+    source:
+      wind_farm_id: farm-a
+      collector_id: collector-1
+      devices: [WT001, WT002]
+      points: [active_power]
+    overrides: {}
+  ems_modbus_view:
+    template_id: realtime_power
+    template_version: "1.0.0"
+    sink_id: modbus_view
+    desired_state: START
+    source:
+      wind_farm_id: farm-a
+      collector_id: collector-1
+      devices: [WT001, WT002]
+      points: [active_power]
+    overrides: {}
