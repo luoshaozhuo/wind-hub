@@ -287,11 +287,14 @@ class GatewayRuntime:
         server_id: str,
         values: list[tuple[str, Scalar | None]],
         lease_token: str,
+        principal: str,
     ) -> list[UpdateResult]:
         """Fence all target ownership before applying independent item updates."""
         async with self._configuration_lock:
             instance = self.instances[server_id]
-            return await self.variable_leases.update(server_id, instance.store, values, lease_token)
+            return await self.variable_leases.update(
+                server_id, instance.store, values, lease_token, principal
+            )
 
     @staticmethod
     def _unit_id(server: ResolvedServer) -> int:
