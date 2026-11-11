@@ -306,6 +306,7 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
                 ClaimRequest(
                     gateway_id=request.gateway_id,
                     owner_id=request.owner_id,
+                    principal=_trusted_identity(context, self._runtime),
                     variable_ids=tuple(request.variable_ids),
                     action=request.action,
                     lease_token=request.lease_token,
@@ -341,7 +342,10 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
         ]
         try:
             outcomes = await self._runtime.update_variables(
-                request.gateway_id, values, request.lease_token
+                request.gateway_id,
+                values,
+                request.lease_token,
+                _trusted_identity(context, self._runtime),
             )
         except LeaseError as exc:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
