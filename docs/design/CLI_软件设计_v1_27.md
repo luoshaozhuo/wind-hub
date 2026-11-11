@@ -949,7 +949,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 运行监控（3） | `GetMetrics`、`GetEvents`、`GetPublishingStatus` | UR-11 |
 | 诊断（2） | 公共 `Diagnose`、专属 `InterrogateDevice` | UR-08 |
 
-Collector 读取契约统一为一次性 Unary `ReadPoints`；持续读取由 CLI 周期轮询实现。各公共 RPC 统一在Contracts v1_20 定义。
+Collector 读取契约统一为一次性 Unary `ReadPoints`；持续读取由 CLI 周期轮询实现。各公共 RPC 统一在Contracts v1_21 定义。
 
 # 4. 用例视图
 
@@ -1766,7 +1766,7 @@ flowchart LR
 
 ## 9.2 RPC 调用映射
 
-以下列出的均为最新 `main` Proto 中真实存在的 Unary RPC；具体请求/响应定义参见 Contracts v1_20。
+以下列出的均为最新 `main` Proto 中真实存在的 Unary RPC；具体请求/响应定义参见 Contracts v1_21。
 
 | 目标 Service | RPC | CLI 业务命令/用途 |
 |---|---|---|
@@ -1832,11 +1832,11 @@ CLI 发现契约不能表达的需求时，记录差异并提交 Contracts 统�
 
 **批量业务结果：**accepted 仅代表完整受理；CLI 不将收到 command_ids[] 当作已写入。各项 state/outcome 与 io_settled 均按 Commander 返回渲染；请求级 UNKNOWN、部分成功及部分失败需同时呈现，不自行汇总为 PASS。所有访问按正式 control/query 权限模型授权。Commander 返回 NOT_FOUND 也不能等同于“从未执行”。
 
-**契约与版本声明：**本节以已冻结 Contracts v1_20、Core v1_33、Configuration v1_15，以及 Commander v1_30、总体架构 v1_4 的本轮设计要求为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。共享配置按 Configuration v1_15 消费，不在 CLI 发明第二套配置装配机制。
+**契约与版本声明：**本节以已冻结 Contracts v1_21、Core v1_33、Configuration v1_15，以及 Commander v1_30、总体架构 v1_4 的本轮设计要求为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。共享配置按 Configuration v1_15 消费，不在 CLI 发明第二套配置装配机制。
 
 ## 9.6 冻结接口与客户端行为（规范性）
 
-CLI 以 Contracts v1_20 和六份实际 Proto 的正式 Unary RPC 为唯一外部依据，不得创设流式监控或业务接口。Core v1_33 的 YAML/结构 Diff、网络与协议诊断原语优先复用；Configuration v1_15 只提供共享配置装配，不是独立 Service。CLI 负责命令输入、跨 RPC 编排、分页和结果展示；所有受理、执行、审计、权限及配置生效的权威属于业务 Service。不得直接访问 Commander 数据库、修改共享配置文件或使用 Core Driver 绕过 Commander 现场控制。
+CLI 以 Contracts v1_21 和六份实际 Proto 的正式 Unary RPC 为唯一外部依据，不得创设流式监控或业务接口。Core v1_33 的 YAML/结构 Diff、网络与协议诊断原语优先复用；Configuration v1_15 只提供共享配置装配，不是独立 Service。CLI 负责命令输入、跨 RPC 编排、分页和结果展示；所有受理、执行、审计、权限及配置生效的权威属于业务 Service。不得直接访问 Commander 数据库、修改共享配置文件或使用 Core Driver 绕过 Commander 现场控制。
 
 **实时监视**：以 Collector ReadPoints、Gateway ReadVariables 和各服务状态 RPC 进行有界 Unary 周期轮询；若缺流式 RPC 不得虚构订阅。一个 endpoint 同一目标不重入、不积压；用户退出仅停止客户端任务，不能取消已被服务端确认受理的操作。缺样本、质量异常、时间过期、单项失败和网络失败分别展示，Commander ListPoints 不返回现场当前值。
 
@@ -1923,7 +1923,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `sink start/stop` | DELIVERY_ID | Sink Delivery 控制 | 修改期望状态 |
 | `sink metrics/events` | 可选筛选 | Sink 指标/事件 | 消费及交付 |
 | `gateway list/status/variables/update/start/stop/metrics` | `update`：GATEWAY_ID、变量值集合；其他同前 | Gateway `ListVariables`/`ReadVariables`/`ClaimTargets`/`UpdateVariables` 等 | CLI 支持变量发现→租约申请→批量更新→租约释放→逐项结果→读回确认；RPC 不触发现场控制；未实现验收失败 |
-| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_20 的专属 RPC 实现 |
+| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_21 的专属 RPC 实现 |
 | `data-generator start/stop/status` | 场景/任务标识 | StartGeneration / StopGeneration / GetGeneration | start 传 scenario_id、stop/status 传 generation_id；无故障注入命令 |
 | `diagnose collector/commander/sink/gateway/data-generator` | 目标对象及可选范围 | 对应 Service 诊断 RPC | 统一显示阶段证据 |
 | `diagnose pipeline` | DEVICE | CLI 调用 Collector + Sink | 跨服务证据汇总 |
@@ -2564,7 +2564,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | `test_containerd_real.py` | integration | reliability | real_container | 真实 containerd Daemon 及容器 |
 | `test_isulad_real.py` | integration | reliability | real_container | 真实 iSulad Daemon 及容器 |
 | `test_systemd_real.py` | integration | reliability | real_process | 真实 systemd Unit |
-| `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC（按 Contracts v1_20）、mTLS、错误映射 |
+| `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC（按 Contracts v1_21）、mTLS、错误映射 |
 
 ## 14.2 System Test：全 UC 与场景追溯矩阵
 
