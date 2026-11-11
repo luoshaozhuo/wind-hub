@@ -2233,6 +2233,179 @@ devices:
 | 确定性 | 同配置版本、外部输入时序及 seed 下多次重放一致；记录时间步、误差和状态 |
 
 
+
+## 10.6 各设备完整共享点目录（目标点表逐点校验）
+
+下表是本次新增五套示例模型的**目标数据点字典**。每个数据点均须最终落在相应 `modbus_*sim*` PointTable 内，并引用已存在或同步增补的 `business_point_id` / `units.yaml` 条目；此处的工程单位是**物理单位**，不能直接认定它们是当前 `units.yaml` 已存在的单位 ID。`input` 是 Generator 可更新的模型输入，不代表 Modbus 的寄存器可写；`state/output` 禁止 Generator 更新。BOOL/ENUM 的业务点类型与 Modbus 寄存器编码必须由正式 Schema 确认。
+
+### 10.6.1 风机点目录（44 项）
+
+| point_id | 角色 | 数据类型 | 物理单位 |
+|---|---|---|---|
+| `wind_speed` | input | `float32` | m/s |
+| `air_density` | input | `float32` | kg/m³ |
+| `wind_direction` | input | `float32` | ° |
+| `effective_wind_speed` | output | `float32` | m/s |
+| `yaw_angle_setpoint` | input | `float32` | ° |
+| `yaw_angle` | state | `float32` | ° |
+| `yaw_error` | output | `float32` | ° |
+| `tip_speed_ratio` | output | `float32` | 1 |
+| `power_coefficient` | output | `float32` | 1 |
+| `pitch_angle_setpoint` | input | `float32` | ° |
+| `pitch_angle_1` | state | `float32` | ° |
+| `pitch_angle_2` | state | `float32` | ° |
+| `pitch_angle_3` | state | `float32` | ° |
+| `pitch_rate_1` | output | `float32` | °/s |
+| `pitch_rate_2` | output | `float32` | °/s |
+| `pitch_rate_3` | output | `float32` | °/s |
+| `pitch_enable` | input | `bool` | bool |
+| `rotor_speed` | state | `float32` | rad/s |
+| `generator_speed` | output | `float32` | rad/s |
+| `shaft_torque` | output | `float32` | N·m |
+| `aerodynamic_power` | output | `float32` | W |
+| `aerodynamic_torque` | output | `float32` | N·m |
+| `available_power` | output | `float32` | W |
+| `generator_torque_setpoint` | input | `float32` | N·m |
+| `generator_torque` | state | `float32` | N·m |
+| `active_power_setpoint` | input | `float32` | W |
+| `agc_power_setpoint` | input | `float32` | W |
+| `ffr_power_command` | input | `float32` | W |
+| `converter_enable` | input | `bool` | bool |
+| `active_power` | output | `float32` | W |
+| `reactive_power_setpoint` | input | `float32` | var |
+| `avc_voltage_setpoint` | input | `float32` | V |
+| `reactive_power` | output | `float32` | var |
+| `converter_current` | output | `float32` | A |
+| `converter_losses` | output | `float32` | W |
+| `power_factor` | output | `float32` | 1 |
+| `generator_temperature` | state | `float32` | °C |
+| `ambient_temperature` | input | `float32` | °C |
+| `running_status` | state | `int32` | enum |
+| `fault_status` | state | `int32` | enum |
+| `start_command` | input | `bool` | bool |
+| `stop_command` | input | `bool` | bool |
+| `reset_fault_command` | input | `bool` | bool |
+| `control_result` | output | `int32` | enum |
+
+### 10.6.2 光伏点目录（23 项）
+
+| point_id | 角色 | 数据类型 | 物理单位 |
+|---|---|---|---|
+| `irradiance` | input | `float32` | W/m² |
+| `ambient_temperature` | input | `float32` | °C |
+| `wind_speed` | input | `float32` | m/s |
+| `cell_temperature` | state | `float32` | °C |
+| `pv_available_power` | output | `float32` | W |
+| `mppt_enable` | input | `bool` | bool |
+| `mppt_state` | state | `int32` | enum |
+| `dc_voltage_setpoint` | input | `float32` | V |
+| `dc_voltage` | state | `float32` | V |
+| `dc_current` | output | `float32` | A |
+| `dc_power` | state | `float32` | W |
+| `inverter_enable` | input | `bool` | bool |
+| `active_power_setpoint` | input | `float32` | W |
+| `agc_power_setpoint` | input | `float32` | W |
+| `reactive_power_setpoint` | input | `float32` | var |
+| `active_power` | output | `float32` | W |
+| `reactive_power` | output | `float32` | var |
+| `ac_current` | output | `float32` | A |
+| `power_factor` | output | `float32` | 1 |
+| `inverter_temperature` | state | `float32` | °C |
+| `inverter_status` | state | `int32` | enum |
+| `fault_status` | state | `int32` | enum |
+| `control_result` | output | `int32` | enum |
+
+### 10.6.3 储能点目录（30 项）
+
+| point_id | 角色 | 数据类型 | 物理单位 |
+|---|---|---|---|
+| `active_power_setpoint` | input | `float32` | W |
+| `reactive_power_setpoint` | input | `float32` | var |
+| `agc_power_setpoint` | input | `float32` | W |
+| `ffr_power_command` | input | `float32` | W |
+| `charge_enable` | input | `bool` | bool |
+| `discharge_enable` | input | `bool` | bool |
+| `pcs_enable` | input | `bool` | bool |
+| `ambient_temperature` | input | `float32` | °C |
+| `cooling_enable` | input | `bool` | bool |
+| `aging_enable` | input | `bool` | bool |
+| `soc` | state | `float32` | % |
+| `soh` | state | `float32` | % |
+| `stored_energy` | state | `float32` | Wh |
+| `available_charge_power` | output | `float32` | W |
+| `available_discharge_power` | output | `float32` | W |
+| `battery_voltage` | output | `float32` | V |
+| `battery_current` | output | `float32` | A |
+| `battery_loss` | output | `float32` | W |
+| `battery_temperature` | state | `float32` | °C |
+| `active_power` | output | `float32` | W |
+| `reactive_power` | output | `float32` | var |
+| `pcs_current` | output | `float32` | A |
+| `power_factor` | output | `float32` | 1 |
+| `pcs_status` | state | `int32` | enum |
+| `bms_status` | state | `int32` | enum |
+| `fault_status` | state | `int32` | enum |
+| `start_command` | input | `bool` | bool |
+| `stop_command` | input | `bool` | bool |
+| `reset_fault_command` | input | `bool` | bool |
+| `control_result` | output | `int32` | enum |
+
+### 10.6.4 电网点目录（15 项）
+
+| point_id | 角色 | 数据类型 | 物理单位 |
+|---|---|---|---|
+| `grid_frequency_input` | input | `float32` | Hz |
+| `grid_voltage_source` | input | `float32` | V |
+| `grid_connected` | input | `bool` | bool |
+| `grid_frequency` | output | `float32` | Hz |
+| `frequency_deviation` | output | `float32` | Hz |
+| `frequency_rocof` | output | `float32` | Hz/s |
+| `grid_voltage` | output | `float32` | V |
+| `voltage_deviation` | output | `float32` | V |
+| `grid_current` | output | `float32` | A |
+| `apparent_power` | output | `float32` | VA |
+| `active_power` | output | `float32` | W |
+| `reactive_power` | output | `float32` | var |
+| `power_factor` | output | `float32` | 1 |
+| `grid_status` | state | `int32` | enum |
+| `fault_status` | state | `int32` | enum |
+
+### 10.6.5 电厂控制点目录（23 项）
+
+| point_id | 角色 | 数据类型 | 物理单位 |
+|---|---|---|---|
+| `plant_run_enable` | input | `bool` | bool |
+| `agc_enable` | input | `bool` | bool |
+| `agc_power_setpoint` | input | `float32` | W |
+| `active_power_feedback` | output | `float32` | W |
+| `agc_allocated_power` | output | `float32` | W |
+| `agc_tracking_error` | output | `float32` | W |
+| `avc_enable` | input | `bool` | bool |
+| `avc_voltage_setpoint` | input | `float32` | V |
+| `avc_reactive_setpoint` | input | `float32` | var |
+| `grid_voltage_feedback` | output | `float32` | V |
+| `avc_allocated_reactive_power` | output | `float32` | var |
+| `avc_tracking_error` | output | `float32` | var |
+| `ffr_enable` | input | `bool` | bool |
+| `ffr_deadband` | input | `float32` | Hz |
+| `ffr_droop` | input | `float32` | W/Hz |
+| `grid_frequency_feedback` | output | `float32` | Hz |
+| `ffr_power_command` | output | `float32` | W |
+| `ffr_active` | state | `bool` | bool |
+| `frequency_deviation` | output | `float32` | Hz |
+| `plant_active_power` | output | `float32` | W |
+| `plant_reactive_power` | output | `float32` | var |
+| `plant_available_power` | output | `float32` | W |
+| `unserved_power_command` | output | `float32` | W |
+
+### 10.6.6 点表地址、值域与配置生成约束
+
+1. 每个 `point_id` 必须给出 `business_point_id`、正式单位 ID、`point_groups`、`register_type`、`address`、`count`、`slave_id`、`data_type`、`scale`、`offset` 及描述，且这些信息不能在 Generator 场景重复定义。
+2. `input` 中供工业控制写入的设定量使用 holding/coils；外生环境输入（例如风速、辐照度）允许是 Modbus 只读点而经 Generator gRPC 更新；`state/output` 均为只读 measurement。每个模型 point_id 唯一，Modbus 地址按数据类型占用 1/2 个寄存器，并检测地址重叠、32 位字序与同一 slave_id 交叉分区。
+3. 所有点的数值范围依据物理模型参数定义：风速非负，SOC 在 0–100%（内部积分规范化为 0–1），额定功率与扭矩按设备能力，运行状态/故障码按离散枚举，bool 不能由浮点宽松转换。模型参数曲线与值域必须有测试。
+4. 表中同名 `point_id`（如 `active_power`）在不同型号中可以合法复用，按 `device_id + point_id` 唯一定位；复用时物理单位、业务语义和业务类型保持一致。不同叶片的桨距角允许多个 point_id 共享一个统一 `business_point_id`，不得用变量名猜测业务点映射。
+5. 真实 GW2MW ADS 点表不因新增仿真点表而改变；模拟点表作为独立版本发布，必须验证 Core/Configuration 共享加载通过后才能成为生产配置。
+
 # 11. 配置管理专题
 
 ## 11.1 文件目录、命名、职责与生效原则
