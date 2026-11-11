@@ -33,7 +33,6 @@ async def _revision(common_stub) -> str:  # noqa: ANN001
     return str(response.revision)
 
 
-@pytest.mark.end_to_end
 async def test_contract_operations(
     start_real_gateway,
     configs_root,
