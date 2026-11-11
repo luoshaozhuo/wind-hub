@@ -20,7 +20,7 @@ from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.config.v1_schema import service_path
 from industrial_gateway.infrastructure.diagnostics import GatewayDiagnostics
 from industrial_gateway.infrastructure.runtime import GatewayInstance, GatewayRuntime
-from industrial_gateway.infrastructure.variable_leases import LeaseError
+from industrial_gateway.infrastructure.variable_leases import ClaimRequest, LeaseError
 
 _PAGE_LIMIT = 500
 
@@ -302,7 +302,22 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
         await _authorize(context, self._runtime, "inject")
         await self._instance(request.gateway_id, context)
         try:
-            return await self._runtime.claim_targets(request)
+            result = await self._runtime.claim_targets(
+                ClaimRequest(
+                    gateway_id=request.gateway_id,
+                    owner_id=request.owner_id,
+                    variable_ids=tuple(request.variable_ids),
+                    action=request.action,
+                    lease_token=request.lease_token,
+                    lease_ms=request.lease_ms,
+                )
+            )
+            return pb.ClaimTargetsResponse(
+                accepted=result.accepted,
+                lease_token=result.lease_token,
+                error_code=result.error_code,
+                message=result.message,
+            )
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "Gateway no longer exists")
             raise RuntimeError("abort unexpectedly returned") from None
