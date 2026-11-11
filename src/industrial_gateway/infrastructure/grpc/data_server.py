@@ -16,7 +16,7 @@ from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as rpc
 from contracts.scalar_codec import decode_scalar, encode_scalar
 from core.application.errors import ConfigError
-from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
+from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots, SnapshotFile
 from industrial_gateway.infrastructure.config.v1_schema import service_path
 from industrial_gateway.infrastructure.grpc.diagnostics import GatewayDiagnostics
 from industrial_gateway.infrastructure.runtime import GatewayInstance, GatewayRuntime
@@ -394,7 +394,31 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
     ) -> common.GetConfigSnapshotResponse:
         await _authorize(context, self._runtime, "config_read")
         try:
-            return await self._snapshots.get(request.scope, request.candidate_id)
+            snapshot = await self._snapshots.get(request.scope, request.candidate_id)
+            return common.GetConfigSnapshotResponse(
+                snapshot_id=snapshot.snapshot_id,
+                revision=snapshot.revision,
+                files=[
+                    common.SnapshotFile(
+                        relative_path=item.relative_path,
+                        content=item.content,
+                        size_bytes=item.size_bytes,
+                        sha256=item.sha256,
+                    )
+                    for item in snapshot.files
+                ],
+                application_id=snapshot.application_id,
+                apply_results=[
+                    common.ApplicationResult(
+                        object_id=item.object_id,
+                        status=item.status,
+                        error_code=item.error_code,
+                        message=item.message,
+                    )
+                    for item in snapshot.apply_results
+                ],
+                last_error=snapshot.last_error,
+            )
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "candidate not found")
             raise RuntimeError("abort unexpectedly returned") from None
@@ -408,9 +432,30 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.PushConfigSnapshotResponse:
         await _authorize(context, self._runtime, "config_write")
-        return await self._snapshots.push(
-            list(request.files),
+        result = await self._snapshots.push(
+            [
+                SnapshotFile(
+                    relative_path=item.relative_path,
+                    content=bytes(item.content),
+                    size_bytes=item.size_bytes,
+                    sha256=item.sha256,
+                )
+                for item in request.files
+            ],
             request.expected_revision,
+        )
+        return common.PushConfigSnapshotResponse(
+            candidate_id=result.candidate_id,
+            valid=result.valid,
+            base_revision=result.base_revision,
+            validation=[
+                common.ValidationIssue(
+                    path=item.path,
+                    code=item.code,
+                    message=item.message,
+                )
+                for item in result.validation
+            ],
         )
 
     async def ApplyConfigSnapshot(
@@ -420,10 +465,25 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
     ) -> common.ApplyConfigSnapshotResponse:
         await _authorize(context, self._runtime, "config_write")
         try:
-            return await self._snapshots.apply(
+            result = await self._snapshots.apply(
                 request.candidate_id,
                 request.expected_revision,
                 operator=_trusted_identity(context, self._runtime),
+            )
+            return common.ApplyConfigSnapshotResponse(
+                file_commit=result.file_commit,
+                apply_results=[
+                    common.ApplicationResult(
+                        object_id=item.object_id,
+                        status=item.status,
+                        error_code=item.error_code,
+                        message=item.message,
+                    )
+                    for item in result.apply_results
+                ],
+                effective_revision=result.effective_revision,
+                restart_required=result.restart_required,
+                application_id=result.application_id,
             )
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "candidate not found")
