@@ -1891,7 +1891,7 @@ flowchart LR
 
 首版不直接连接任何真实 PLC。历史来源具体产品、现场集群部署、认证材料分发由部署项目确定，设计不假定某一种数据库已经存在。
 
-# 9. 接口与通信契约（冻结 Proto）
+# 9. 接口与通信契约（目标新增两个 RPC）
 
 本章 Data Generator/Common Server 契约核对基线为 `main@367481254518a2d3d79ebeeb80a41944897a7e84`；Gateway 输出接口冻结基线为 `main@367481254518a2d3d79ebeeb80a41944897a7e84`（2026-11-10），核对文件：`src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto`。这三份文件是 **Repo 内已经存在的 Proto**；下列接口名称、方向及字段直接依据其实际声明，不把设计预期当作已具备的接口。三个 Proto 均采用 `proto3`。
 
@@ -2059,23 +2059,23 @@ flowchart TB
 
 ## 10.5 有状态物理仿真：统一变量及数值框架
 
-本节定义新 \`physical\` 模型族，和现有 \`random/static/replay\` 各有独立的生成算法。所有物理模型必须是**状态随时间演化**的模型，不能用随机量冒充转速、SOC 或输出功率。物理模型面向系统级闭环测试，不宣称等同厂家控制器、并网暂态仿真或产品认证模型。配置模板声明完整模型参数、方程版本、初值、步长及合法区间；额定容量、效率、惯量、调速限值等不得作为隐含厂家默认值。
+本节定义新 `physical` 模型族，和现有 `random/static/replay` 各有独立的生成算法。所有物理模型必须是**状态随时间演化**的模型，不能用随机量冒充转速、SOC 或输出功率。物理模型面向系统级闭环测试，不宣称等同厂家控制器、并网暂态仿真或产品认证模型。配置模板声明完整模型参数、方程版本、初值、步长及合法区间；额定容量、效率、惯量、调速限值等不得作为隐含厂家默认值。
 
 ### 10.5.1 共享设备、点表与变量权限
 
-仿真设备实例位于 \`configs/instances/devices_sim.yaml\`；真实设备实例继续位于 \`configs/instances/devices.yaml\`。两者采用**相同 Schema**，每个服务实例仅在 \`config_sources.instances.devices\` 选择一个文件。未要求单进程同时合并两个文件，因此冻结的 Core/Configuration 加载器不修改；跨服务必须选择一致的设备文件。仿真型号与点表位于现有统一目录：
+仿真设备实例位于 `configs/instances/devices_sim.yaml`；真实设备实例继续位于 `configs/instances/devices.yaml`。两者采用**相同 Schema**，每个服务实例仅在 `config_sources.instances.devices` 选择一个文件。未要求单进程同时合并两个文件，因此冻结的 Core/Configuration 加载器不修改；跨服务必须选择一致的设备文件。仿真型号与点表位于现有统一目录：
 
 | 类型 | 模拟设备 ID | 型号模板 ID | 点表模板 ID |
 |---|---|---|---|
-| 风机 | \`WTG_SIM01\`～\`WTG_SIM03\` | \`wtg_sim_2mw\` | \`modbus_wtg_sim_2mw\` |
-| 光伏 | \`PV_SIM01\` | \`pv_sim\` | \`modbus_pv_sim\` |
-| 储能 | \`BESS_SIM01\` | \`bess_sim\` | \`modbus_bess_sim\` |
-| 电网 | \`GRID_SIM01\` | \`grid_sim\` | \`modbus_grid_sim\` |
-| 电厂控制 | \`PPC_SIM01\` | \`plant_controller_sim\` | \`modbus_plant_controller_sim\` |
+| 风机 | `WTG_SIM01`～`WTG_SIM03` | `wtg_sim_2mw` | `modbus_wtg_sim_2mw` |
+| 光伏 | `PV_SIM01` | `pv_sim` | `modbus_pv_sim` |
+| 储能 | `BESS_SIM01` | `bess_sim` | `modbus_bess_sim` |
+| 电网 | `GRID_SIM01` | `grid_sim` | `modbus_grid_sim` |
+| 电厂控制 | `PPC_SIM01` | `plant_controller_sim` | `modbus_plant_controller_sim` |
 
-每条业务变量以 \`device_id + point_id\` 唯一定位；\`point_id\`、\`business_point_id\`、\`data_type\`、\`unit\`、\`address\` 和寄存器类型均由设备实例引用的共享型号/点表及 business_points、units 决定，Generator 场景**不得重新定义**。点表、设备型号与实例文件须版本化；示例命名无 \`e2e\` 后缀，可直接用于常规仿真。
+每条业务变量以 `device_id + point_id` 唯一定位；`point_id`、`business_point_id`、`data_type`、`unit`、`address` 和寄存器类型均由设备实例引用的共享型号/点表及 business_points、units 决定，Generator 场景**不得重新定义**。点表、设备型号与实例文件须版本化；示例命名无 `e2e` 后缀，可直接用于常规仿真。
 
-独立于协议读写权限，Generator 提供模型变量角色：\`input\`（可由 API 更新的外生输入/指令）、\`state\`（由积分器演化）、\`output\`（由状态代数计算）、\`parameter\`（由受控配置 Apply 修改）。例如 \`wind_speed\` 是 Generator 的可更新输入，同时在 Modbus 点表中为只读测量寄存器；\`active_power\` 是模型派生输出，Generator 不允许直接修改。物理参数未必需成为公开点，只有有业务观察需求的参数才纳入共享点表。共享点表不添加 Generator 专用 \`writable\` 字段，\`ListVariables\` 根据活跃模型输入绑定动态返回该标记。模型参数与输入数据不可互换。
+独立于协议读写权限，Generator 提供模型变量角色：`input`（可由 API 更新的外生输入/指令）、`state`（由积分器演化）、`output`（由状态代数计算）、`parameter`（由受控配置 Apply 修改）。例如 `wind_speed` 是 Generator 的可更新输入，同时在 Modbus 点表中为只读测量寄存器；`active_power` 是模型派生输出，Generator 不允许直接修改。物理参数未必需成为公开点，只有有业务观察需求的参数才纳入共享点表。共享点表不添加 Generator 专用 `writable` 字段，`ListVariables` 根据活跃模型输入绑定动态返回该标记。模型参数与输入数据不可互换。
 
 ### 10.5.2 时间推进、功率符号及耦合约束
 
@@ -2089,7 +2089,7 @@ S=\sqrt{P^2+Q^2},\qquad I=\frac{S}{\sqrt{3}U_{LL}},\qquad PF=\begin{cases}P/S&S>
 
 ### 10.5.3 风机：气动、变桨、偏航、传动、发电机及变流器
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
     W["风速、密度"] --> A["气动 Cp / 转矩"]
     Y["偏航控制"] --> A
@@ -2099,45 +2099,45 @@ flowchart LR
     R --> G["发电机/变流器"]
     C["AGC/AVC/FFR"] --> G
     G --> O["P、Q、I、状态"]
-\`\`\`
+```
 
 | 子模型 | 外生输入或控制点 | 状态/输出点 | 定律与限制 |
 |---|---|---|---|
-| 风场/偏航 | \`wind_speed,air_density,wind_direction,yaw_angle_setpoint\` | \`effective_wind_speed,yaw_angle,yaw_error\` | 方向差求偏航误差，\(v_e=\max(0,v\cos\theta_y)\)，偏航角一阶滞后+最大转速、角度环绕；负风速拒绝 |
-| 气动 | \`effective_wind_speed,pitch_angle_1..3\` | \`tip_speed_ratio,power_coefficient,aerodynamic_power,aerodynamic_torque,available_power\` | \(\lambda=\omega_rR/\max(v_e,\epsilon)\)，\(P_a=\rho\pi R^2 C_p(\lambda,\bar\beta)v_e^3/2\)，\(T_a=P_a/\max(\omega_r,\epsilon_\omega)\)，\(0\le C_p\le16/27\)；低风速需停转/启动边界处理 |
-| 逐叶片变桨 | \`pitch_angle_setpoint,pitch_enable\` | \`pitch_angle_1,pitch_angle_2,pitch_angle_3,pitch_rate_1..3\` | \(\dot\beta_i=\operatorname{clip}((\beta_*-\beta_i)/\tau_\beta,-r_\beta,r_\beta)\)；单叶片独立状态、角度限位、故障安全顺桨 |
-| 传动链 | \`generator_torque_setpoint\` | \`rotor_speed,generator_speed,shaft_torque,generator_torque\` | \(J\dot\omega_r=T_a-N T_g-D\omega_r\)，\(\omega_g=N\omega_r\)（刚性传动简化）；惯量、齿比、转矩和转速上限必须配置 |
-| 发电机有功 | \`active_power_setpoint,agc_power_setpoint,ffr_power_command,converter_enable\` | \`active_power,converter_losses,converter_current\` | 电功率受 \(\eta_gT_g\omega_g\)、额定功率和限流共同约束；一阶功率环、最大爬坡；无显式动能释放则 FFR 不能超过可用机械功率 |
-| 无功/AVC | \`reactive_power_setpoint,avc_voltage_setpoint\` | \`reactive_power,power_factor\` | \(P^2+Q^2\le S_{\rm converter}^2\)，电压模式/无功模式由配置互斥选择，Q 一阶动态与限幅 |
-| 温度/保护 | \`start_command,stop_command,reset_fault_command,ambient_temperature\` | \`generator_temperature,running_status,fault_status,control_result\` | \(C_T\dot T=P_{\rm loss}-h(T-T_a)\)，切入/切出风速、超速、过温、故障锁存、复位联锁、停机功率归零 |
+| 风场/偏航 | `wind_speed,air_density,wind_direction,yaw_angle_setpoint` | `effective_wind_speed,yaw_angle,yaw_error` | 方向差求偏航误差，\(v_e=\max(0,v\cos\theta_y)\)，偏航角一阶滞后+最大转速、角度环绕；负风速拒绝 |
+| 气动 | `effective_wind_speed,pitch_angle_1..3` | `tip_speed_ratio,power_coefficient,aerodynamic_power,aerodynamic_torque,available_power` | \(\lambda=\omega_rR/\max(v_e,\epsilon)\)，\(P_a=\rho\pi R^2 C_p(\lambda,\bar\beta)v_e^3/2\)，\(T_a=P_a/\max(\omega_r,\epsilon_\omega)\)，\(0\le C_p\le16/27\)；低风速需停转/启动边界处理 |
+| 逐叶片变桨 | `pitch_angle_setpoint,pitch_enable` | `pitch_angle_1,pitch_angle_2,pitch_angle_3,pitch_rate_1..3` | \(\dot\beta_i=\operatorname{clip}((\beta_*-\beta_i)/\tau_\beta,-r_\beta,r_\beta)\)；单叶片独立状态、角度限位、故障安全顺桨 |
+| 传动链 | `generator_torque_setpoint` | `rotor_speed,generator_speed,shaft_torque,generator_torque` | \(J\dot\omega_r=T_a-N T_g-D\omega_r\)，\(\omega_g=N\omega_r\)（刚性传动简化）；惯量、齿比、转矩和转速上限必须配置 |
+| 发电机有功 | `active_power_setpoint,agc_power_setpoint,ffr_power_command,converter_enable` | `active_power,converter_losses,converter_current` | 电功率受 \(\eta_gT_g\omega_g\)、额定功率和限流共同约束；一阶功率环、最大爬坡；无显式动能释放则 FFR 不能超过可用机械功率 |
+| 无功/AVC | `reactive_power_setpoint,avc_voltage_setpoint` | `reactive_power,power_factor` | \(P^2+Q^2\le S_{\rm converter}^2\)，电压模式/无功模式由配置互斥选择，Q 一阶动态与限幅 |
+| 温度/保护 | `start_command,stop_command,reset_fault_command,ambient_temperature` | `generator_temperature,running_status,fault_status,control_result` | \(C_T\dot T=P_{\rm loss}-h(T-T_a)\)，切入/切出风速、超速、过温、故障锁存、复位联锁、停机功率归零 |
 
-\`Cp\` 必须由配置的函数系数或二维查表给出，不能私自采用固定厂家曲线。可用功率从受约束最优桨距/尖速比估计，和实际 \(P_a\) 区分；若启用转子动能超发，必须显式积算 \(E_r=J\omega_r^2/2\) 及最低转速和恢复功率。电功率变化不能违反储能/惯量变化与气动功输入的能量平衡。三叶片状态不可用单个平均角直接复制。
+`Cp` 必须由配置的函数系数或二维查表给出，不能私自采用固定厂家曲线。可用功率从受约束最优桨距/尖速比估计，和实际 \(P_a\) 区分；若启用转子动能超发，必须显式积算 \(E_r=J\omega_r^2/2\) 及最低转速和恢复功率。电功率变化不能违反储能/惯量变化与气动功输入的能量平衡。三叶片状态不可用单个平均角直接复制。
 
 **风机点族**（均需在共享点表中逐点声明业务 ID、单位、类型、地址和寄存器读写属性）：
-\`wind_speed,air_density,wind_direction,effective_wind_speed,yaw_angle_setpoint,yaw_angle,yaw_error,tip_speed_ratio,power_coefficient,pitch_angle_setpoint,pitch_angle_1,pitch_angle_2,pitch_angle_3,pitch_rate_1,pitch_rate_2,pitch_rate_3,pitch_enable,rotor_speed,generator_speed,shaft_torque,aerodynamic_power,aerodynamic_torque,available_power,generator_torque_setpoint,generator_torque,active_power_setpoint,agc_power_setpoint,ffr_power_command,converter_enable,active_power,reactive_power_setpoint,avc_voltage_setpoint,reactive_power,converter_current,converter_losses,power_factor,generator_temperature,ambient_temperature,running_status,fault_status,start_command,stop_command,reset_fault_command,control_result\`。
+`wind_speed,air_density,wind_direction,effective_wind_speed,yaw_angle_setpoint,yaw_angle,yaw_error,tip_speed_ratio,power_coefficient,pitch_angle_setpoint,pitch_angle_1,pitch_angle_2,pitch_angle_3,pitch_rate_1,pitch_rate_2,pitch_rate_3,pitch_enable,rotor_speed,generator_speed,shaft_torque,aerodynamic_power,aerodynamic_torque,available_power,generator_torque_setpoint,generator_torque,active_power_setpoint,agc_power_setpoint,ffr_power_command,converter_enable,active_power,reactive_power_setpoint,avc_voltage_setpoint,reactive_power,converter_current,converter_losses,power_factor,generator_temperature,ambient_temperature,running_status,fault_status,start_command,stop_command,reset_fault_command,control_result`。
 
 ### 10.5.4 光伏：组件、温度、MPPT 与逆变器
 
 | 子模型 | 输入点 | 状态/输出点 | 方程与约束 |
 |---|---|---|---|
-| 环境温度 | \`irradiance,ambient_temperature,wind_speed\` | \`cell_temperature\` | \(T_c=T_a+(NOCT-20)G/800\)，或配置一阶热容；\(G\ge0\)，正确转换 °C/K |
-| 最大功率 | \`irradiance,cell_temperature\` | \`pv_available_power\` | \(P_{\rm mp}=P_{\rm STC}(G/G_{\rm STC})[1+\gamma(T_c-T_{\rm STC})]\) 并夹紧非负 |
-| I-V 与 MPPT | \`mppt_enable,dc_voltage_setpoint\` | \`dc_voltage,dc_current,dc_power,mppt_state\` | 单峰简化 I-V 或 \(V_{\rm mp}\) 温度修正，\(I_{\rm dc}=P_{\rm dc}/U_{\rm dc}\)，零电压单独处理；MPPT 以时间常数滞后跟踪 |
-| DC/AC 转换 | \`inverter_enable,active_power_setpoint,agc_power_setpoint,reactive_power_setpoint\` | \`active_power,reactive_power,ac_current,power_factor,inverter_temperature,inverter_status,fault_status\` | \(P_{\rm ac}\le\eta_{\rm inv}P_{\rm dc}\)，\(P^2+Q^2\le S_{\rm inv}^2\)，爬坡、过温和电网保护 |
+| 环境温度 | `irradiance,ambient_temperature,wind_speed` | `cell_temperature` | \(T_c=T_a+(NOCT-20)G/800\)，或配置一阶热容；\(G\ge0\)，正确转换 °C/K |
+| 最大功率 | `irradiance,cell_temperature` | `pv_available_power` | \(P_{\rm mp}=P_{\rm STC}(G/G_{\rm STC})[1+\gamma(T_c-T_{\rm STC})]\) 并夹紧非负 |
+| I-V 与 MPPT | `mppt_enable,dc_voltage_setpoint` | `dc_voltage,dc_current,dc_power,mppt_state` | 单峰简化 I-V 或 \(V_{\rm mp}\) 温度修正，\(I_{\rm dc}=P_{\rm dc}/U_{\rm dc}\)，零电压单独处理；MPPT 以时间常数滞后跟踪 |
+| DC/AC 转换 | `inverter_enable,active_power_setpoint,agc_power_setpoint,reactive_power_setpoint` | `active_power,reactive_power,ac_current,power_factor,inverter_temperature,inverter_status,fault_status` | \(P_{\rm ac}\le\eta_{\rm inv}P_{\rm dc}\)，\(P^2+Q^2\le S_{\rm inv}^2\)，爬坡、过温和电网保护 |
 
-**光伏点族**：\`irradiance,ambient_temperature,wind_speed,cell_temperature,pv_available_power,mppt_enable,mppt_state,dc_voltage_setpoint,dc_voltage,dc_current,dc_power,inverter_enable,active_power_setpoint,agc_power_setpoint,reactive_power_setpoint,active_power,reactive_power,ac_current,power_factor,inverter_temperature,inverter_status,fault_status,control_result\`。模型不覆盖阴影多峰、精细半导体器件或谐波。
+**光伏点族**：`irradiance,ambient_temperature,wind_speed,cell_temperature,pv_available_power,mppt_enable,mppt_state,dc_voltage_setpoint,dc_voltage,dc_current,dc_power,inverter_enable,active_power_setpoint,agc_power_setpoint,reactive_power_setpoint,active_power,reactive_power,ac_current,power_factor,inverter_temperature,inverter_status,fault_status,control_result`。模型不覆盖阴影多峰、精细半导体器件或谐波。
 
 ### 10.5.5 储能：电池等值、SOC/SOH、热和 PCS
 
 | 子模型 | 输入点 | 状态/输出点 | 方程与约束 |
 |---|---|---|---|
-| 能量/SOC | \`active_power_setpoint,charge_enable,discharge_enable\` | \`soc,stored_energy,available_charge_power,available_discharge_power\` | 放电 \(P>0\) 时 \(\dot E=-P/\eta_d\)，充电 \(P<0\) 时 \(\dot E=-\eta_cP\)；\(SOC=E/E_{\rm usable}\)，到界必须降功率 |
-| 电池等值电路 | \`ambient_temperature\` | \`battery_voltage,battery_current,battery_loss\` | \(U_{\rm term}=U_{\rm oc}(SOC,T)-RI\)，\(P_{\rm dc}=U_{\rm term}I\)；求二次式的物理有效电流根，超电流/无实根则限幅或故障 |
-| 电池热与健康 | \`cooling_enable,aging_enable\` | \`battery_temperature,soh\` | \(C_T\dot T=I^2R-h(T-T_a)-P_{\rm cooling}\)；SOH 默认保持，启用简化老化时按累计等效循环单调下降 |
-| 双向 PCS | \`pcs_enable,reactive_power_setpoint,agc_power_setpoint,ffr_power_command\` | \`active_power,reactive_power,pcs_current,power_factor,pcs_status\` | 充放电不同效率、功率滞后和斜率，\(P^2+Q^2\le S_{\rm PCS}^2\)，受 SOC/温度/电流/端电压限制 |
-| BMS 保护 | \`start_command,stop_command,reset_fault_command\` | \`bms_status,fault_status,control_result\` | 互斥充放电使能、故障锁存、复位条件与过温/越界联锁 |
+| 能量/SOC | `active_power_setpoint,charge_enable,discharge_enable` | `soc,stored_energy,available_charge_power,available_discharge_power` | 放电 \(P>0\) 时 \(\dot E=-P/\eta_d\)，充电 \(P<0\) 时 \(\dot E=-\eta_cP\)；\(SOC=E/E_{\rm usable}\)，到界必须降功率 |
+| 电池等值电路 | `ambient_temperature` | `battery_voltage,battery_current,battery_loss` | \(U_{\rm term}=U_{\rm oc}(SOC,T)-RI\)，\(P_{\rm dc}=U_{\rm term}I\)；求二次式的物理有效电流根，超电流/无实根则限幅或故障 |
+| 电池热与健康 | `cooling_enable,aging_enable` | `battery_temperature,soh` | \(C_T\dot T=I^2R-h(T-T_a)-P_{\rm cooling}\)；SOH 默认保持，启用简化老化时按累计等效循环单调下降 |
+| 双向 PCS | `pcs_enable,reactive_power_setpoint,agc_power_setpoint,ffr_power_command` | `active_power,reactive_power,pcs_current,power_factor,pcs_status` | 充放电不同效率、功率滞后和斜率，\(P^2+Q^2\le S_{\rm PCS}^2\)，受 SOC/温度/电流/端电压限制 |
+| BMS 保护 | `start_command,stop_command,reset_fault_command` | `bms_status,fault_status,control_result` | 互斥充放电使能、故障锁存、复位条件与过温/越界联锁 |
 
-**储能点族**：\`active_power_setpoint,reactive_power_setpoint,agc_power_setpoint,ffr_power_command,charge_enable,discharge_enable,pcs_enable,ambient_temperature,cooling_enable,aging_enable,soc,soh,stored_energy,available_charge_power,available_discharge_power,battery_voltage,battery_current,battery_loss,battery_temperature,active_power,reactive_power,pcs_current,power_factor,pcs_status,bms_status,fault_status,start_command,stop_command,reset_fault_command,control_result\`。额定能量、有效容量、内阻、开路电压曲线、SOC 边界、效率和热容均必须显式配置。
+**储能点族**：`active_power_setpoint,reactive_power_setpoint,agc_power_setpoint,ffr_power_command,charge_enable,discharge_enable,pcs_enable,ambient_temperature,cooling_enable,aging_enable,soc,soh,stored_energy,available_charge_power,available_discharge_power,battery_voltage,battery_current,battery_loss,battery_temperature,active_power,reactive_power,pcs_current,power_factor,pcs_status,bms_status,fault_status,start_command,stop_command,reset_fault_command,control_result`。额定能量、有效容量、内阻、开路电压曲线、SOC 边界、效率和热容均必须显式配置。
 
 ### 10.5.6 电网：基频准稳态等值
 
@@ -2145,13 +2145,13 @@ flowchart LR
 
 | 子模型 | 输入点 | 状态/输出点 | 定律与限制 |
 |---|---|---|---|
-| 外部电网 | \`grid_frequency_input,grid_voltage_source,grid_connected\` | \`grid_frequency,frequency_deviation,grid_status\` | 外部频率模式直接采用输入；选动态频率模式时使用配置惯量/阻尼的简化摆动方程，两个频率源互斥 |
-| 网络等值 | 各设备 \`active_power,reactive_power\` | \`grid_voltage,voltage_deviation,active_power,reactive_power\` | \(P_\Sigma=\sum P_i\)，\(Q_\Sigma=\sum Q_i\)，电压用 \(R/X\) 等值小扰动近似并明确正负功率、电压基值 |
-| 电气量 | \`grid_voltage\` | \`grid_current,apparent_power,power_factor\` | \(S=\sqrt{P_\Sigma^2+Q_\Sigma^2}\)、\(I=S/(\sqrt3U_{LL})\)；无电压不除零 |
-| 频率变化率 | \`grid_frequency\` | \`frequency_rocof\` | 固定步长差分，允许配置有界一阶滤波 |
-| 保护 | \`grid_connected\` | \`grid_status,fault_status\` | 断网、过欠压、过欠频的离散状态及恢复条件 |
+| 外部电网 | `grid_frequency_input,grid_voltage_source,grid_connected` | `grid_frequency,frequency_deviation,grid_status` | 外部频率模式直接采用输入；选动态频率模式时使用配置惯量/阻尼的简化摆动方程，两个频率源互斥 |
+| 网络等值 | 各设备 `active_power,reactive_power` | `grid_voltage,voltage_deviation,active_power,reactive_power` | \(P_\Sigma=\sum P_i\)，\(Q_\Sigma=\sum Q_i\)，电压用 \(R/X\) 等值小扰动近似并明确正负功率、电压基值 |
+| 电气量 | `grid_voltage` | `grid_current,apparent_power,power_factor` | \(S=\sqrt{P_\Sigma^2+Q_\Sigma^2}\)、\(I=S/(\sqrt3U_{LL})\)；无电压不除零 |
+| 频率变化率 | `grid_frequency` | `frequency_rocof` | 固定步长差分，允许配置有界一阶滤波 |
+| 保护 | `grid_connected` | `grid_status,fault_status` | 断网、过欠压、过欠频的离散状态及恢复条件 |
 
-**电网点族**：\`grid_frequency_input,grid_voltage_source,grid_connected,grid_frequency,frequency_deviation,frequency_rocof,grid_voltage,voltage_deviation,grid_current,apparent_power,active_power,reactive_power,power_factor,grid_status,fault_status\`。禁止由同一步内的 PPC 调节电压再无界立即反馈 PPC；须采用明确一步延迟或求解收敛算法。
+**电网点族**：`grid_frequency_input,grid_voltage_source,grid_connected,grid_frequency,frequency_deviation,frequency_rocof,grid_voltage,voltage_deviation,grid_current,apparent_power,active_power,reactive_power,power_factor,grid_status,fault_status`。禁止由同一步内的 PPC 调节电压再无界立即反馈 PPC；须采用明确一步延迟或求解收敛算法。
 
 ### 10.5.7 电厂控制：AGC / AVC / FFR
 
@@ -2159,37 +2159,37 @@ PPC 本身是一个**共享设备实例和点表定义的模拟设备**，不承
 
 | 模型 | 输入点 | 输出点 | 计算、限制和反馈 |
 |---|---|---|---|
-| AGC | \`agc_enable,agc_power_setpoint,active_power_feedback\` | \`agc_allocated_power,agc_tracking_error,unserved_power_command\` | 在风光储设备可用功率、爬坡、参与权重及储能 SOC 范围内进行有界分配；不可分配量明确报告 |
-| AVC | \`avc_enable,avc_voltage_setpoint,avc_reactive_setpoint,grid_voltage_feedback\` | \`avc_allocated_reactive_power,avc_tracking_error\` | 电压/无功两模式互斥；调压通过等值下垂关系产生 Q 总目标，再受逆变器容量圆约束 |
-| 快速调频 | \`ffr_enable,ffr_deadband,ffr_droop,grid_frequency_feedback\` | \`ffr_power_command,ffr_active,frequency_deviation\` | 超死区按频差/下垂计算附加 P；频率恢复须按滞环和斜率平滑退出，受可用风/光能与储能边界约束 |
-| 聚合 | \`plant_run_enable\` | \`plant_active_power,plant_reactive_power,plant_available_power\` | 同步聚合各设备输出；禁止将设定值作为实际发电量上报 |
+| AGC | `agc_enable,agc_power_setpoint,active_power_feedback` | `agc_allocated_power,agc_tracking_error,unserved_power_command` | 在风光储设备可用功率、爬坡、参与权重及储能 SOC 范围内进行有界分配；不可分配量明确报告 |
+| AVC | `avc_enable,avc_voltage_setpoint,avc_reactive_setpoint,grid_voltage_feedback` | `avc_allocated_reactive_power,avc_tracking_error` | 电压/无功两模式互斥；调压通过等值下垂关系产生 Q 总目标，再受逆变器容量圆约束 |
+| 快速调频 | `ffr_enable,ffr_deadband,ffr_droop,grid_frequency_feedback` | `ffr_power_command,ffr_active,frequency_deviation` | 超死区按频差/下垂计算附加 P；频率恢复须按滞环和斜率平滑退出，受可用风/光能与储能边界约束 |
+| 聚合 | `plant_run_enable` | `plant_active_power,plant_reactive_power,plant_available_power` | 同步聚合各设备输出；禁止将设定值作为实际发电量上报 |
 
-功率优先级：联锁/保护 > 电池和气动资源边界 > PCS/变流器容量和电流限制 > FFR 可实现增量 > AGC 基准 > 输出爬坡。\(P_{\rm target}=\operatorname{clip}(P_{\rm AGC}+\Delta P_{\rm FFR},P_{\min},P_{\max})\)；\(P_{\min}\) 允许负值仅限支持充电的储能。每个设备只能有一个 AGC/AVC 目标权威：\`controller_mode=local|plant\`，模式切换有明确时序，禁止本地指令与 PPC 指令对同一控制点竞争写入。
+功率优先级：联锁/保护 > 电池和气动资源边界 > PCS/变流器容量和电流限制 > FFR 可实现增量 > AGC 基准 > 输出爬坡。\(P_{\rm target}=\operatorname{clip}(P_{\rm AGC}+\Delta P_{\rm FFR},P_{\min},P_{\max})\)；\(P_{\min}\) 允许负值仅限支持充电的储能。每个设备只能有一个 AGC/AVC 目标权威：`controller_mode=local|plant`，模式切换有明确时序，禁止本地指令与 PPC 指令对同一控制点竞争写入。
 
-**电厂控制点族**：\`plant_run_enable,agc_enable,agc_power_setpoint,active_power_feedback,agc_allocated_power,agc_tracking_error,avc_enable,avc_voltage_setpoint,avc_reactive_setpoint,grid_voltage_feedback,avc_allocated_reactive_power,avc_tracking_error,ffr_enable,ffr_deadband,ffr_droop,grid_frequency_feedback,ffr_power_command,ffr_active,frequency_deviation,plant_active_power,plant_reactive_power,plant_available_power,unserved_power_command\`。参与设备集合明确由 \`device_id\`、限值和参与系数配置，不凭 ID 字符串猜设备类型。
+**电厂控制点族**：`plant_run_enable,agc_enable,agc_power_setpoint,active_power_feedback,agc_allocated_power,agc_tracking_error,avc_enable,avc_voltage_setpoint,avc_reactive_setpoint,grid_voltage_feedback,avc_allocated_reactive_power,avc_tracking_error,ffr_enable,ffr_deadband,ffr_droop,grid_frequency_feedback,ffr_power_command,ffr_active,frequency_deviation,plant_active_power,plant_reactive_power,plant_available_power,unserved_power_command`。参与设备集合明确由 `device_id`、限值和参与系数配置，不凭 ID 字符串猜设备类型。
 
 ### 10.5.8 完整配置结构、检查及输入生命周期
 
 | 配置文件 | 内容与归属 |
 |---|---|
-| \`configs/instances/devices_sim.yaml\` | 模拟设备实例，字段与现有 \`devices.yaml\` 相同；每个实例唯一 ID、型号版本、Gateway Modbus 端点 |
-| \`configs/templates/device_models/*sim*.yaml\` | 每个模型绑定对应协议、任务和点表版本，不绑定活跃 Generation |
-| \`configs/templates/point_tables/modbus_*sim*.yaml\` | 本节各点族逐点声明 \`business_point_id,point_groups,address,data_type,unit,scale,offset,description\`；只读测量点 input，控制点 holding/coils；地址不重叠 |
-| \`configs/templates/business_points.yaml\`, \`units.yaml\` | 按物理量注册数据类型、单位，缺失项补充且不能与已注册同名语义冲突 |
-| \`configs/instances/data-generator.yaml\` | Scenario、设备选择、模型族/版本、初值、输入绑定、跨模型依赖、输出 Gateway 路由、种子、步长及模型参数引用 |
-| \`configs/services/data_generator.yaml\` | 服务级 RPC、TLS/授权、配置路径、模型上限、指标、后台任务、安全关闭 |
+| `configs/instances/devices_sim.yaml` | 模拟设备实例，字段与现有 `devices.yaml` 相同；每个实例唯一 ID、型号版本、Gateway Modbus 端点 |
+| `configs/templates/device_models/*sim*.yaml` | 每个模型绑定对应协议、任务和点表版本，不绑定活跃 Generation |
+| `configs/templates/point_tables/modbus_*sim*.yaml` | 本节各点族逐点声明 `business_point_id,point_groups,address,data_type,unit,scale,offset,description`；只读测量点 input，控制点 holding/coils；地址不重叠 |
+| `configs/templates/business_points.yaml`, `units.yaml` | 按物理量注册数据类型、单位，缺失项补充且不能与已注册同名语义冲突 |
+| `configs/instances/data-generator.yaml` | Scenario、设备选择、模型族/版本、初值、输入绑定、跨模型依赖、输出 Gateway 路由、种子、步长及模型参数引用 |
+| `configs/services/data_generator.yaml` | 服务级 RPC、TLS/授权、配置路径、模型上限、指标、后台任务、安全关闭 |
 
-拟新增的物理模型配置标识（**当前生产 Schema 尚不支持**）：\`source.kind=simulation\`, \`source.model_family=physical\`, \`models.<id>.kind=wtg|pv|bess|grid|ppc\`, \`models.<id>.parameters\`, \`models.<id>.initial_state\`, \`models.<id>.input_bindings\`, \`source.interval_seconds\`。配置必须通过版本化模型 Schema 校验：参数有限数、正惯量、正容量、\(0<\eta\le1\)、SOC/桨距上下界、限幅、时间常数、Cp 曲线定义、发电机额定功率和视在容量；非法配置不得启动，不能自动补数猜值。模型参数建议按业务分组：
+拟新增的物理模型配置标识（**当前生产 Schema 尚不支持**）：`source.kind=simulation`, `source.model_family=physical`, `models.<id>.kind=wtg|pv|bess|grid|ppc`, `models.<id>.parameters`, `models.<id>.initial_state`, `models.<id>.input_bindings`, `source.interval_seconds`。配置必须通过版本化模型 Schema 校验：参数有限数、正惯量、正容量、\(0<\eta\le1\)、SOC/桨距上下界、限幅、时间常数、Cp 曲线定义、发电机额定功率和视在容量；非法配置不得启动，不能自动补数猜值。模型参数建议按业务分组：
 
 | 模型 | 必填核心参数 |
 |---|---|
-| 风机 | \`rated_power_w,rated_apparent_power_va,rotor_radius_m,inertia_kg_m2,gear_ratio,damping_nm_s,Cp_curve,pitch_tau_s,pitch_rate_limit_deg_s,pitch_limits_deg,converter_efficiency,cut_in_speed_m_s,cut_out_speed_m_s\` |
-| 光伏 | \`dc_peak_power_w,ac_rated_power_w,apparent_power_va,noct_c,temperature_coefficient_per_k,mppt_tau_s,inverter_efficiency,dc_voltage_limits_v\` |
-| 储能 | \`usable_energy_wh,soc_initial,soc_min,soc_max,ocv_curve,internal_resistance_ohm,charge_efficiency,discharge_efficiency,pcs_power_limit_w,pcs_apparent_power_va,thermal_capacity_j_k\` |
-| 电网 | \`nominal_voltage_v,nominal_frequency_hz,equivalent_resistance_ohm,equivalent_reactance_ohm,frequency_mode,voltage_limits_v\` |
-| PPC | \`participating_device_ids,allocation_weights,agc_ramp_w_s,avc_mode,avc_droop_var_v,ffr_deadband_hz,ffr_droop_w_hz\` |
+| 风机 | `rated_power_w,rated_apparent_power_va,rotor_radius_m,inertia_kg_m2,gear_ratio,damping_nm_s,Cp_curve,pitch_tau_s,pitch_rate_limit_deg_s,pitch_limits_deg,converter_efficiency,cut_in_speed_m_s,cut_out_speed_m_s` |
+| 光伏 | `dc_peak_power_w,ac_rated_power_w,apparent_power_va,noct_c,temperature_coefficient_per_k,mppt_tau_s,inverter_efficiency,dc_voltage_limits_v` |
+| 储能 | `usable_energy_wh,soc_initial,soc_min,soc_max,ocv_curve,internal_resistance_ohm,charge_efficiency,discharge_efficiency,pcs_power_limit_w,pcs_apparent_power_va,thermal_capacity_j_k` |
+| 电网 | `nominal_voltage_v,nominal_frequency_hz,equivalent_resistance_ohm,equivalent_reactance_ohm,frequency_mode,voltage_limits_v` |
+| PPC | `participating_device_ids,allocation_weights,agc_ramp_w_s,avc_mode,avc_droop_var_v,ffr_deadband_hz,ffr_droop_w_hz` |
 
-\`\`\`yaml
+```yaml
 # 仅为目标设计，不能直接交给当前 Generator 解析器
 source:
   kind: simulation
@@ -2209,15 +2209,15 @@ devices:
   - device_id: GRID_SIM01
     model_ref: grid-example
     input_bindings: [grid_frequency_input, grid_voltage_source]
-\`\`\`
+```
 
-输入 \`UpdateVariables\` 被接收后只改变**模型输入快照**；下一计算步更新状态并通过现有 Gateway \`ClaimTargets/UpdateVariables\` 发布对外测量。后者是测量数据注入，不触发 Gateway 的工业控制转发。失效输入按模型定义 \`hold|fail|fallback\`；外部指令不允许直接修改 \`state/output\`；停机、换 Generation 或重启必须避免旧输入写到新状态。
+输入 `UpdateVariables` 被接收后只改变**模型输入快照**；下一计算步更新状态并通过现有 Gateway `ClaimTargets/UpdateVariables` 发布对外测量。后者是测量数据注入，不触发 Gateway 的工业控制转发。失效输入按模型定义 `hold|fail|fallback`；外部指令不允许直接修改 `state/output`；停机、换 Generation 或重启必须避免旧输入写到新状态。
 
 ### 10.5.9 Data Generator 变量发现、更新 RPC
 
-新增 \`DataGeneratorService.ListVariables\` 与 \`DataGeneratorService.UpdateVariables\`，共 8 个业务 RPC。前者以 \`generation_id + device_id\` 列出模型生效的全部变量：\`point_id,business_point_id,data_type,unit,role,writable,min,max,description,point_table_version\`。后者接收 \`generation_id,device_id,request_id,repeated(point_id,ScalarValue)\`，只允许更新当前活跃 Generation 的合法输入点。批内点 ID 不重复；**整批原子验证与提交**，无部分成功；按调用者、request_id 和请求摘要做幂等；同请求重试不得重复生效。
+新增 `DataGeneratorService.ListVariables` 与 `DataGeneratorService.UpdateVariables`，共 8 个业务 RPC。前者以 `generation_id + device_id` 列出模型生效的全部变量：`point_id,business_point_id,data_type,unit,role,writable,min,max,description,point_table_version`。后者接收 `generation_id,device_id,request_id,repeated(point_id,ScalarValue)`，只允许更新当前活跃 Generation 的合法输入点。批内点 ID 不重复；**整批原子验证与提交**，无部分成功；按调用者、request_id 和请求摘要做幂等；同请求重试不得重复生效。
 
-更新成功的同步确认定义为**指定仿真步的输入快照已安装**，响应返回 \`effective_step\`，不等待功率或转速达到控制目标。若调用超时、应用结果未知，保持 request_id 重试以查询稳定结果，不新建 request_id 强制重发；允许用同一 RPC 的幂等重试代替独立结果查询接口。Generation ID 为 fencing 边界，不能将旧 Generation 控制输入转发到新 Generation。Gateway→Generator 的工业控制转发使用此 RPC；CLI 直连 Generator 的模拟输入注入须使用独立授权，绝不能绕过 Commander 对真实 PLC 发控制命令。
+更新成功的同步确认定义为**指定仿真步的输入快照已安装**，响应返回 `effective_step`，不等待功率或转速达到控制目标。若调用超时、应用结果未知，保持 request_id 重试以查询稳定结果，不新建 request_id 强制重发；允许用同一 RPC 的幂等重试代替独立结果查询接口。Generation ID 为 fencing 边界，不能将旧 Generation 控制输入转发到新 Generation。Gateway→Generator 的工业控制转发使用此 RPC；CLI 直连 Generator 的模拟输入注入须使用独立授权，绝不能绕过 Commander 对真实 PLC 发控制命令。
 
 ### 10.5.10 各模型最小验证矩阵
 
