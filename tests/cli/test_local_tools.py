@@ -6,6 +6,7 @@ import asyncio
 import base64
 import hashlib
 import shutil
+import socket
 import subprocess
 from pathlib import Path
 
@@ -33,7 +34,15 @@ async def test_tcp_probe_open_closed_timeout() -> None:
     finally:
         server.close()
         await server.wait_closed()
-    closed = await tcp_probe("127.0.0.1", port, timeout=1)
+    # CLOSED 判定不得复用刚关闭的临时端口：WSL2/高并发环境下该端口可能
+    # 被内核复用到其他连接，探测会非确定性地得到 OPEN。改为占用一个
+    # bind 但从不 listen 的端口——端口被本测试持有、任何进程无法抢占，
+    # 回环连接必然收到 RST（ConnectionRefused → CLOSED），与环境端口
+    # 状态完全解耦。
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
+        holder.bind(("127.0.0.1", 0))
+        closed_port = holder.getsockname()[1]
+        closed = await tcp_probe("127.0.0.1", closed_port, timeout=1)
     assert closed["tcp_state"] == "CLOSED"
 
 

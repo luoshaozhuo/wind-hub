@@ -2,12 +2,15 @@
 
 containerd/iSulad 的 9 宫格验收在缺失守护进程的环境下显式 NOT_RUN（skip），
 绝不以 mock daemon 顶替；systemd 在非特权环境下只验收只读 status 与真实权限拒绝路径。
+systemd 真实路径同时要求 system D-Bus socket 与 dbus-next 绑定，任一缺失
+即显式 NOT_RUN；缺绑定本身的 fail-closed 错误分类由本文件独立验收。
 """
 
 from __future__ import annotations
 
 import os
 import shutil
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +20,11 @@ from cli.process_manager import manage
 from cli.runtime import ServiceTarget
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service]
+
+
+def _systemd_real_dbus_available() -> bool:
+    """真实 systemd 路径能力：D-Bus socket 与 dbus-next 绑定同时就位。"""
+    return Path("/run/dbus/system_bus_socket").exists() and find_spec("dbus_next") is not None
 
 
 def _target(manager: str, target_name: str) -> ServiceTarget:
@@ -36,8 +44,8 @@ def _target(manager: str, target_name: str) -> ServiceTarget:
 
 
 async def test_systemd_status_real_dbus_unit() -> None:
-    if not Path("/run/dbus/system_bus_socket").exists():
-        pytest.skip("NOT_RUN: 本机无 system D-Bus")
+    if not _systemd_real_dbus_available():
+        pytest.skip("NOT_RUN: 本机无 system D-Bus 或 dbus-next 绑定")
     result = await manage(_target("systemd", "dbus.service"), "status")
     assert result["manager"] == "systemd"
     assert result["active_state"] == "active"
@@ -45,12 +53,25 @@ async def test_systemd_status_real_dbus_unit() -> None:
 
 
 async def test_systemd_start_permission_denied_is_real_error() -> None:
-    if not Path("/run/dbus/system_bus_socket").exists():
-        pytest.skip("NOT_RUN: 本机无 system D-Bus")
+    if not _systemd_real_dbus_available():
+        pytest.skip("NOT_RUN: 本机无 system D-Bus 或 dbus-next 绑定")
     if os.geteuid() == 0:
         pytest.skip("root 环境下不会触发 Polkit 拒绝路径")
     with pytest.raises(Exception, match="[Aa]ccess denied|auth"):
         await manage(_target("systemd", "dbus.service"), "start")
+
+
+async def test_systemd_without_dbus_binding_fails_closed() -> None:
+    """dbus-next 缺失时生产侧必须显式 fail-closed（RuntimeError）。
+
+    这不是 Mock 路径：直接调用真实 manage()，验证环境能力缺失被翻译为
+    进程管理业务错误（由 CLI 入口映射 FAILURE/exit 1），不允许静默跳过或
+    落入参数错误分类。绑定已安装的环境下本用例 NOT_RUN。
+    """
+    if find_spec("dbus_next") is not None:
+        pytest.skip("NOT_RUN: dbus-next 已安装，缺绑定 fail-closed 路径不适用")
+    with pytest.raises(RuntimeError, match="dbus-next"):
+        await manage(_target("systemd", "dbus.service"), "status")
 
 
 async def test_containerd_native_grpc_or_not_run() -> None:

@@ -16,6 +16,8 @@ import pytest_asyncio
 import yaml
 
 from scripts.generate_virtual_site import generate_site
+from tests.commander.grpc_harness import build_pki
+from tests.support.commander_mtls import commander_client_env
 from tests.support.process import CollectorProcess, free_port, start_web_server
 from tests.system.test_web_protocol_fleet_e2e import (  # noqa: F401
     ProtocolFleet,
@@ -73,12 +75,18 @@ async def web_server(
     collector_port = free_port()
     commander_port = free_port()
     logs = tmp_path_factory.mktemp("web-fleet-server") / "server.log"
+    # Web Server 启动即校验 Commander mTLS 客户端三路径，缺失则 fail-closed
+    # 退出（历史上 21 个 ERROR 的根因）。签发测试 PKI 并仅通过环境变量传入
+    # 证书路径，不关闭 mTLS、不引入明文回退；本现场无真实 Commander 进程，
+    # 连接按生产逻辑在实际调用时惰性建立，读模型与 fail-closed 用例不受影响。
+    pki = build_pki(tmp_path_factory.mktemp("web-fleet-pki"))
     proc = start_web_server(
         fleet_config_dir,
         http_port=port,
         collectors=(f"collector=127.0.0.1:{collector_port}",),
         commander=f"127.0.0.1:{commander_port}",
         log_dir=logs.parent,
+        env_extra=commander_client_env(pki),
     )
     url = f"http://127.0.0.1:{port}"
     try:

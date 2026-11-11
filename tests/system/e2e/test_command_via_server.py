@@ -11,9 +11,15 @@ Commander 经真实 Modbus TCP 写入从站。
 全部断言落在系统边界：REST 响应 + **独立** Modbus 回读（从站寄存器值、
 写请求计数），不读取任何进程内部状态。
 
-错误映射契约：Commander 进程不可达时 gRPC ``UNAVAILABLE`` 经统一错误
-处理器返回 ``503 WORKER_UNAVAILABLE``；Commander 可达但命令失败
-（如未知设备）时返回 ``200`` 且 ``success=false``。
+错误映射契约（两条独立通道，均不得伪报成功）：
+
+- 命令管道的失败以 **200 + 结果信封** 返回——``success=false`` 并携带
+  三态 ``outcome``：GetDevice 等提交前失败可确证本次控制未执行，记
+  ``CONFIRMED_FAILURE``；提交后结果不确定记 ``UNKNOWN``，不得自动重发。
+  OpenAPI 对该端点只声明 200/422，统一 503 处理器适用于让 RpcError
+  直接冒泡的路由（如 tasks start），不适用于本结果信封。
+- Commander 可达但命令失败（如未知设备）同样返回 ``200`` 且
+  ``success=false``，错误文本携带 Commander 的权威拒绝细节。
 """
 
 from __future__ import annotations
@@ -22,7 +28,7 @@ import struct
 
 import pytest
 
-from tests.system.conftest import FullStack
+from tests.system.conftest import SYSTEM_TASK_ID, FullStack
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -57,6 +63,13 @@ async def _send_command(
 class TestCommandViaServer:
     async def test_write_command_reaches_device_and_readback(self, full_stack: FullStack) -> None:
         """REST 写命令必须真正改变从站寄存器，且响应携带一致回读。"""
+        # 写后即时回读经 CollectorReadRouter 定位唯一 Collector owner；
+        # placement 只在 Task 经 REST 正式 START 后才 ASSIGNED，先启动
+        # functional 配置中的真实 Task（内部对 v2 Collector 下发设备级
+        # StartTask，task_id == device_id == modbus-1）。
+        start = await full_stack.http.post(f"/api/v1/tasks/{SYSTEM_TASK_ID}/start")
+        assert start.status_code == 200, start.text
+
         result = await _send_command(full_stack, value=66.6, command_id="cmd-e2e-write-1")
 
         assert result["success"] is True, result["error"]
@@ -98,13 +111,17 @@ class TestCommandViaServer:
 
         assert result["success"] is False
         assert result["command_id"] == "cmd-e2e-ghost"
-        assert "ghost-device" in (result["error"] or "")
+        # GetDevice 权威 NOT_FOUND 发生在 Submit 之前：CONFIRMED_FAILURE
+        # 可确证未执行控制；错误文本携带 Commander 的权威拒绝细节
+        # （Commander 端固定文案 "device not found"，不含请求方设备 id）。
+        assert result["outcome"] == "confirmed_failure"
+        assert "device not found" in (result["error"] or "")
         assert full_stack.modbus.write_count == 0
 
     async def test_commander_unavailable_returns_error_envelope(
         self, full_stack: FullStack
     ) -> None:
-        """Commander 进程不可达：非 2xx 统一错误信封，绝不伪报成功。"""
+        """Commander 进程不可达：结果信封明确失败，绝不伪报成功。"""
         full_stack.modbus.reset_write_count()
         assert full_stack.commander.is_running()
         full_stack.commander.terminate()
@@ -114,8 +131,13 @@ class TestCommandViaServer:
             json={"point_id": _COMMAND_POINT, "value": 1.0, "timeout": 5.0},
         )
 
-        # 契约映射：上游 gRPC 不可用 → 503 WORKER_UNAVAILABLE 统一信封。
-        assert response.status_code == 503, response.text
+        # 命令管道契约（OpenAPI 仅声明 200/422）：GetDevice 的 UNAVAILABLE
+        # 发生在 Submit 之前，被转译为 CONFIRMED_FAILURE 结果信封而非冒泡
+        # 到统一 503 处理器——调用方拿到的仍是确定的「未执行控制」结论，
+        # 安全断言是 success 不得为 true 且从站零写入。
+        assert response.status_code == 200, response.text
         body = response.json()
-        assert body["error"]["code"] == "WORKER_UNAVAILABLE"
+        assert body["success"] is False
+        assert body["outcome"] == "confirmed_failure"
+        assert "UNAVAILABLE" in (body["error"] or "")
         assert full_stack.modbus.write_count == 0

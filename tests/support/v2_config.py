@@ -78,6 +78,7 @@ def write_v2_modbus_tree(
                 "rotor_speed": {"data_type": "float32", "unit": "none"},
                 "gen_power": {"data_type": "float32", "unit": "none"},
                 "temp_int": {"data_type": "int16", "unit": "none"},
+                "setpoint_power": {"data_type": "float32", "unit": "none"},
             },
         },
     )
@@ -110,6 +111,15 @@ def write_v2_modbus_tree(
                     "address": {"register_type": "holding", "address": 104},
                     "data_type": "int16",
                 },
+                # 控制写点：与 ModbusMockServer 预留的 holding 200/201 及
+                # functional_config 的 setpoint_power 对齐，供 REST→Server→
+                # Commander→Modbus 全链路命令验收；holding 自动派生 READ_WRITE。
+                "setpoint_power": {
+                    "business_point_id": "setpoint_power",
+                    "point_groups": ["all", "control"],
+                    "address": {"register_type": "holding", "address": 200},
+                    "data_type": "float32",
+                },
             },
         },
     )
@@ -124,7 +134,12 @@ def write_v2_modbus_tree(
             "protocol": {"id": "modbus_tcp", "version": "1.0.0"},
             "point_table": {"id": "modbus_wtg", "version": "1.0.0"},
             "task": {"id": "turbine_all", "version": "1.0.0"},
-            "protocol_options": {"slave_id": slave_id},
+            # ModbusMockServer 的寄存器布局是 big-endian float32；出厂协议
+            # 模板默认 little_endian，型号模板必须显式对齐，否则写命令按
+            # 小端编码、与从站布局及 functional_config（同栈 Web Server 侧）
+            # 的 big_endian 约定不一致。字序只允许配在型号模板（见
+            # Commander b1 有效选项契约），实例 overrides 不放该参数。
+            "protocol_options": {"slave_id": slave_id, "word_order": "big_endian"},
         },
     )
     _dump(
