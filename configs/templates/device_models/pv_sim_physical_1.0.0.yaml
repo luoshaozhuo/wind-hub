@@ -1,0 +1,28 @@
+# 独立物理仿真设备型号；参数与共享点表绑定，运行工况在 Data Generator 服务配置中定义。
+schema_version: 1
+template_id: pv_sim_physical
+file_version: 1.0.0
+name: 光伏仿真设备
+device_type_id: photovoltaic
+protocol:
+  id: modbus_tcp
+  version: 1.1.0
+point_table:
+  id: modbus_pv_sim
+  version: 1.0.0
+simulation:
+  kind: physical
+  device_kind: pv
+  parameters:
+    array_peak_power_w: 1000000.0
+    inverter_rated_power_w: 900000.0
+    inverter_rated_apparent_power_va: 1000000.0
+    stc_irradiance_w_m2: 1000.0
+    stc_cell_temperature_c: 25.0
+    noct_c: 45.0
+    power_temp_coefficient_per_k: -0.004
+    mppt_voltage_v: 850.0
+    open_circuit_voltage_v: 1100.0
+    mppt_tau_s: 5.0
+    thermal_tau_s: 90.0
+    inverter_efficiency: 0.97
