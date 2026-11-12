@@ -6,11 +6,13 @@ from typing import Any
 
 import typer
 
+from .generator_variables import variables as generator_variables
 from .service_rpc import invoke
 
 sink = typer.Typer(help="Sink delivery management.")
 gateway = typer.Typer(help="Industrial Gateway variables and runtime.")
 data_generator = typer.Typer(help="Data Generator scenarios and generations.")
+data_generator.add_typer(generator_variables, name="variables")
 
 
 def _call(

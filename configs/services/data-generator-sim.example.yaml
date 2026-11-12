@@ -30,3 +30,14 @@ metrics:
   window_seconds: 60
   retain_seconds: 3600
   max_series: 2000
+
+# 安全配置示例：证书需由部署环境提供，且对端证书 CN 与权限键严格匹配。
+# 无 security 的旧本机配置只保留原 RPC；新模型变量 RPC 一律拒绝明文访问。
+security:
+  tls:
+    cert_file: /etc/wind-hub/certs/data-generator.pem
+    key_file: /etc/wind-hub/certs/data-generator.key
+    ca_file: /etc/wind-hub/certs/ca.pem
+  permissions:
+    cli: [variables_read, variables_update]
+    gateway: [variables_read, variables_update]
