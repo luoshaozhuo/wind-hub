@@ -105,15 +105,14 @@ class Turbine:
         lam = self.omega * radius / max(wind, 0.01)
         cp = self._cp(lam, sum(self.pitch) / 3)
         pa = 0.5 * weather.air_density * math.pi * radius**2 * cp * wind**3
-        active = (
+        wind_ok = (
             number(p, "cut_in_speed_m_s") <= weather.wind_speed
             < number(p, "cut_out_speed_m_s")
-            and bool(controls.get("_grid_connected", 1))
         )
-        if not active or self.omega > rotor_max:
+        # A cut-out or overspeed trip is latched for the Generation's lifetime.
+        if weather.wind_speed >= number(p, "cut_out_speed_m_s") or self.omega > rotor_max:
             self.fault = 1
-        else:
-            self.fault = 0
+        active = wind_ok and bool(controls.get("_grid_connected", 1)) and not self.fault
         available = min(rated, pa * eta) if active and not self.fault else 0.0
         mode_value = controls.get("control_mode", 0)
         if mode_value not in (0, 1, 2):
