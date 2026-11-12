@@ -2069,7 +2069,7 @@ flowchart TB
 | 电网 | `GRID_SIM01` | `grid_sim` | `modbus_grid_sim` |
 | 电厂控制 | `PPC_SIM01` | `plant_controller_sim` | `modbus_plant_controller_sim` |
 
-**变量角色**：`input` 为模型输入（包括外部操作、气象层及内部控制指令），只有第 10.6 节明确标注“外部控制=是”的输入点允许经授权 `UpdateVariables` 修改；`parameter` 为只能通过配置 Apply 修改的模型参数；`state` 为内部连续/离散状态；`output` 为计算派生量。随机模型按逐点生成规则确定可修改对象；物理模型中 `wind_speed_mean` 是外部可控 `input`，`turbulence_intensity` 是配置 `parameter`，`wind_speed` 是 `output`。模型角色不同于 Modbus 寄存器读写属性，不允许把对外测量输出的可写性作为模型输入权限。
+**变量角色**：`input` 为模型输入（包括外部操作、气象层及内部控制指令），只有第 10.6 节明确标注“外部控制=是”的设备控制点和气象绑定输入允许经授权 `UpdateVariables` 修改；`parameter` 为只能通过配置 Apply 修改的模型参数；`state` 为内部连续/离散状态；`output` 为计算派生量。随机模型按逐点生成规则确定可修改对象；物理模型中 `wind_speed_mean` 是外部可控 `input`，`turbulence_intensity` 是配置 `parameter`，`wind_speed` 是 `output`。模型角色不同于 Modbus 寄存器读写属性，不允许把对外测量输出的可写性作为模型输入权限。
 
 ### 10.5.2 符号、单位与数值约定
 
@@ -2671,6 +2671,8 @@ FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无�
 
 ### 10.5.11 控制接口与配置的权威出处
 
+`ListVariables(generation_id,device_id)` 的变量集合是该设备的**有效模型变量目录**：包括已登记的 PointTable 控制/测量点，也包括绑定气象场景的两个独立输入。后者由模型 Schema 定义元数据，`point_table_version` 为空；`UpdateVariables` 的 `point_id` 据此解析，不强行要求气象输入存在于 Modbus PointTable。整批更新与幂等语义仍以 §9 为准。
+
 运行时变量发现、批量输入更新、幂等和权限见 §9；配置文件路径、目标 Schema 与 Push/Apply 生效见 §11；Modbus PointTable、模型参数清单及业务控制权限见 §10.6。此处不重复定义 RPC、配置字段或点位元数据。
 
 ### 10.5.12 物理模型编码不变量
@@ -2697,6 +2699,8 @@ FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无�
 
 不同设备可绑定同一气象场景；同一瞬时风速只生成一次再被绑定设备共享。只有风机 `wind_speed` 作为监测点进入风机 PointTable。外部用户可控制平均风速和风向，但不直接写入派生瞬时风速、光照和环境温度。
 
+**气象输入路由**：`wind_speed_mean`、`wind_direction` 是固定气象模型的运行时变量，不属于 Modbus PointTable，也不占寄存器地址。绑定同一 `weather_ref` 的任一设备，均可用其 `generation_id + device_id` 通过 `ListVariables` 发现这两个气象输入，并经 `UpdateVariables` 修改共享气象场景。`point_id` 在此为模型变量标识，由气象变量 Schema 给出数据类型、单位和边界；`point_table_version` 对此类非点表变量为空。一个天气场景只有一份状态，合法输入在单写者队列按接收序号和 `effective_step` 生效，对所有绑定设备产生一致影响；同批重复点拒绝，随机状态不得重新播种。不增加气象设备或额外 RPC。
+
 ### 10.6.2 可配置模型参数（不属于 Modbus PointTable）
 
 | 类别 | 配置项示例 | 简单说明 | 外部控制 | 配置参数 |
@@ -2719,7 +2723,7 @@ FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无�
 以下五张表为**新建仿真点表的目标地址规划**，不是声称仓库当前已存在这些点表。每个字段按照现有 `configs/templates/point_tables/modbus_wtg_tz2mw_1.0.0.yaml` 的正式结构落盘，采用 `points.<point_id>.{business_point_id,point_groups,address,data_type,unit,scale,offset,description}`；`address` 子字段包含 `register_type,address,count,slave_id`。
 
 - 地址为 Modbus PDU **从 0 起始的偏移**，不是带 3xxxx/4xxxx 的人工显示号；每个设备模板均从 input 和 holding 区独立编号。所有点默认 `slave_id: 1`、`scale: 1.0`、`offset: 0.0`、`point_groups: [all, measurement]`，可控点为 `[all, control]`。float32/int32 使用连续两个寄存器；uint16 使用一个寄存器。实际字节序/字序从协议模板明确配置并测试。
-- `bool` 在 Modbus 寄存器中以 `uint16` 编码 0/1，枚举以 `int16` 编码，必须声明枚举代码集合；本节点表不使用线圈地址，避免与寄存器区混淆。
+- `bool` 在 Modbus 寄存器中以 `uint16` 编码 0/1，枚举以 `int16` 编码，必须声明枚举代码集合；模型逻辑变量仍分别是 bool 和枚举类型，gRPC 必须验证对应 `ScalarValue` 类型，不宽松接受浮点伪布尔值。协议转换在 Gateway 边界执行；本节点表不使用线圈地址。
 - 为避免误用已有业务点的数据类型/单位，本组新仿真点统一要求在 `business_points.yaml` 中登记 `sim_<point_id>` 业务语义；同名点如风机/光伏 `active_power` 可以共享 `sim_active_power`，登记类型和工程单位必须与本表一致。表中已有业务点 ID 可精确复用；凡带 `sim_` 的 ID 都是**待新增登记契约**，未经登记校验通过不得启动。
 - `unit` 列使用当前 `units.yaml` 的**正式单位 ID**，不是 W/var 等显示单位；`none` 仅用于枚举和布尔编码。需要真实设备配置覆盖时不得复用本仿真模板修改现场点表。表中“配置参数”全部为**否**，因为参数已经移出 PointTable。
 - 外部可控的 holding 点仅经授权可写；物理模型内部状态和结果为 input 只读。直接写入控制应经 Data Generator 的类型/权限与有效步校验；不能绕开安全边界改状态。风机外部控制模式、功率目标、限功率目标互斥按模式生效。PPC 对设备的指令走内部绑定，不凭空写设备两个相互冲突的 holding 点。
@@ -3078,7 +3082,7 @@ scenarios:
 | 随机模型 | 每个待生成点具有合法分布、种子与边界，无隐式补零或未定义分布 | 拒绝场景 |
 | 固定物理模型 | 五种 `device_kind` 之一；参数、初始状态与气象绑定有效；不执行任意公式或脚本 | 拒绝场景 |
 | 气象 | 场景唯一、参数有效、种子确定；输出不被设备控制直接改写 | 拒绝场景 |
-| 外部控制 | 仅允许 §10.6 中“外部控制=是”的输入点；拒绝修改配置参数及状态 | 整批拒绝 |
+| 外部控制 | 仅允许 §10.6 中列明的设备控制点与气象绑定输入；拒绝修改配置参数及状态 | 整批拒绝 |
 | Gateway | 目标已存在；展开后 `(gateway_id,variable_id)` 唯一，类型兼容 | 拒绝场景/启动 |
 | 运行互斥 | 同时活动或尚未安全收敛的 Generation 不共享 Device 和目标键 | 拒绝启动 |
 | CSV 重放 | `replay` 场景按 §10.3 定义时序、字段、倍率及受控路径 | 拒绝非法源 |
