@@ -287,7 +287,8 @@ class CommonService(common_rpc.CommonServiceServicer):
     ) -> common.GetCapabilitiesResponse:
         return common.GetCapabilitiesResponse(
             rpc_names=[
-                m.name for m in dg.DESCRIPTOR.services_by_name["DataGeneratorService"].methods
+                m.name
+                for m in dg.DESCRIPTOR.services_by_name["DataGeneratorService"].methods
                 if m.name not in {"ListVariables", "UpdateVariables"}
             ]
             + [m.name for m in common.DESCRIPTOR.services_by_name["CommonService"].methods],
