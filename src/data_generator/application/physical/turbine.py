@@ -149,12 +149,29 @@ class Turbine:
         ta = pa / self.omega if self.omega > 0.01 and active else 0.0
         inertia = number(p, "rotor_inertia_kg_m2") + n**2 * number(p, "generator_inertia_kg_m2")
         damping = number(p, "shaft_damping_nm_s_rad", minimum=0)
-        self.omega = clamp(
-            self.omega + dt * (ta - n * self.torque - damping * self.omega) / inertia,
-            0, rotor_max,
-        )
-        # The actual electrical power follows the sole torque state, not a second power integrator.
+        old_omega = self.omega
+        # Enforce the electrical rating on the torque actuator, not on output watts.
+        for _ in range(6):
+            predicted = old_omega + dt * (
+                ta - n * self.torque - damping * old_omega
+            ) / inertia
+            if predicted < 0:
+                raise GeneratorError("turbine integration would reverse rotor direction")
+            if not active or eta * self.torque * n * predicted <= rated:
+                break
+            self.torque = min(self.torque, rated / (eta * n * max(predicted, 0.01)))
+        predicted = old_omega + dt * (
+            ta - n * self.torque - damping * old_omega
+        ) / inertia
+        if predicted > rotor_max:
+            raise GeneratorError("turbine overspeed protection: no braking capacity configured")
+        if predicted < 0:
+            raise GeneratorError("turbine integration would reverse rotor direction")
+        self.omega = predicted
+        # Electrical power always follows the sole executed torque and rotor speed.
         power = eta * self.torque * n * self.omega if active and not self.fault else 0.0
+        if power > rated * (1 + 1e-9):
+            raise GeneratorError("turbine torque actuator violated electrical power rating")
         self.last_power = power
         q_bound = math.sqrt(max(0, number(p, "rated_apparent_power_va")**2 - power**2))
         q_target = clamp(float(controls.get("reactive_power_setpoint", 0)), -q_bound, q_bound)

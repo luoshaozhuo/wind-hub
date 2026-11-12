@@ -51,13 +51,19 @@ class PV:
             shape = max(0, self.dc_voltage) / mp
         else:
             shape = clamp((oc - self.dc_voltage) / (oc - mp), 0, 1)
-        dc_power = available * shape
-        dc_current = dc_power / self.dc_voltage if self.dc_voltage > 0 else 0.0
+        dc_available = available * shape
         rated = number(p, "inverter_rated_power_w")
         command = clamp(float(controls.get("active_power_setpoint", rated)), 0, rated)
-        power = min(number(p, "inverter_efficiency") * dc_power, rated, command)
+        eta = number(p, "inverter_efficiency")
+        power = min(eta * dc_available, rated, command)
+        # Curtail upstream extraction; unused irradiance is not inverter heat.
+        dc_power = power / eta
+        dc_current = dc_power / self.dc_voltage if self.dc_voltage > 0 else 0.0
         qcap = math.sqrt(max(0, number(p, "inverter_rated_apparent_power_va")**2 - power**2))
-        reactive = clamp(float(controls.get("reactive_power_setpoint", 0)), -qcap, qcap)
+        reactive = (
+            clamp(float(controls.get("reactive_power_setpoint", 0)), -qcap, qcap)
+            if g > 0 else 0.0
+        )
         _, current, pf = apparent(power, reactive, voltage)
         loss = max(0, dc_power - power)
         self.inverter_temperature = response(
