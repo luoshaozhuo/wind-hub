@@ -141,14 +141,12 @@ class SnapshotManager:
     def _owned(self) -> set[str]:
         return {
             _relative(self.settings.root, self.settings.service_file),
-            _relative(self.settings.root, self.settings.scenario_file),
         }
 
     def _read_disk(self) -> tuple[FileContent, ...]:
         settings = self.settings
         paths = {
             settings.service_file,
-            settings.scenario_file,
             settings.site_file,
             settings.devices_file,
             settings.units_file,
@@ -239,8 +237,8 @@ class SnapshotManager:
                     target = _safe_target(stage, file.path)
                     _durable_write(target, file.data)
             staged = load_settings(stage / _relative(root, self.settings.service_file))
-            candidate_document = yaml.safe_load(staged.scenario_file.read_text(encoding="utf-8"))
-        old_document = yaml.safe_load(self.settings.scenario_file.read_text(encoding="utf-8"))
+            candidate_document = yaml.safe_load(staged.service_file.read_text(encoding="utf-8"))
+        old_document = yaml.safe_load(self.settings.service_file.read_text(encoding="utf-8"))
         existing = {item["scenario_id"]: item for item in old_document["scenarios"]}
         for item in candidate_document["scenarios"]:
             before = existing.get(item["scenario_id"])
@@ -296,15 +294,13 @@ class SnapshotManager:
             new_settings = load_settings(self.settings.service_file)
             if new_settings.revision != candidate[3].revision:
                 raise GeneratorError("candidate changed between validation and commit")
-            restart = (
-                proposed[_relative(root, self.settings.service_file)]
-                != original[_relative(root, self.settings.service_file)]
-            )
+            old_service = yaml.safe_load(original[_relative(root, self.settings.service_file)])
+            new_service = yaml.safe_load(proposed[_relative(root, self.settings.service_file)])
+            old_service.pop("scenarios", None)
+            new_service.pop("scenarios", None)
+            restart = old_service != new_service
             next_private = {
                 _relative(root, new_settings.service_file): new_settings.service_file.read_bytes(),
-                _relative(root, new_settings.scenario_file): (
-                    new_settings.scenario_file.read_bytes()
-                ),
             }
             next_runtime_files = (
                 self._read_disk() if not (self._restart_pending or restart) else self._runtime_files
