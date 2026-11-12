@@ -62,7 +62,7 @@ def _encode_checked(raw: str, metadata: dict[str, Any]) -> dict[str, Any]:
         field = "sint64_value" if "sint64_value" in encoded else "uint64_value"
         if field not in encoded:
             raise ValueError("integer input requires exact JSON integer")
-        value = int(encoded[field])
+        value: int | float = int(encoded[field])
         if kind.startswith("uint") and value < 0:
             raise ValueError("unsigned input cannot be negative")
     elif kind in {"float32", "float64"}:

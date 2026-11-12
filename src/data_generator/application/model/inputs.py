@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from data_generator.application.model.common import is_real_number
 from data_generator.domain.model import GeneratorError, Scalar, validate_scalar
 
 
@@ -61,7 +62,7 @@ def writable_inputs(kind: str) -> Mapping[str, InputSpec]:
 
 def validate_input(value: Scalar, spec: InputSpec) -> float | int:
     checked = validate_scalar(value, spec.data_type, spec.minimum, spec.maximum)
-    if type(checked) not in (int, float):
+    if not is_real_number(checked):
         raise GeneratorError("model input must be a numeric scalar")
     return checked
 

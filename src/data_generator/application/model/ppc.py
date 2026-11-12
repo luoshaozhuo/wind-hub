@@ -5,7 +5,12 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
-from data_generator.application.model.common import clamp, finite_outputs, number
+from data_generator.application.model.common import (
+    clamp,
+    finite_outputs,
+    is_real_number,
+    number,
+)
 from data_generator.domain.model import GeneratorError
 
 
@@ -164,7 +169,10 @@ class PPC:
 
 
 def optional_voltage_control(params: Mapping[str, object], target: float, actual: float) -> float:
-    gain = float(params.get("avc_voltage_gain_var_v", 0.0))
-    if not math.isfinite(gain) or gain < 0:
+    gain_raw = params.get("avc_voltage_gain_var_v", 0.0)
+    if not is_real_number(gain_raw) or not math.isfinite(gain_raw):
+        raise GeneratorError("invalid AVC voltage control gain")
+    gain = float(gain_raw)
+    if gain < 0:
         raise GeneratorError("invalid AVC voltage control gain")
     return gain * (target - actual)

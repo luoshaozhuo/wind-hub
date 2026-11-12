@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from typing import TypeGuard
 
 from data_generator.domain.model import GeneratorError
 
 
+def is_real_number(value: object) -> TypeGuard[int | float]:
+    """Exact int/float discriminator; bool and every non-numeric type are rejected."""
+    return type(value) in (int, float)
+
+
 def number(params: Mapping[str, object], key: str, *, minimum: float | None = None) -> float:
     value = params.get(key)
-    if type(value) not in (float, int) or not math.isfinite(float(value)):
+    if not is_real_number(value) or not math.isfinite(value):
         raise GeneratorError(f"invalid or missing physical parameter: {key}")
     result = float(value)
     if minimum is not None and result < minimum:
@@ -20,7 +26,7 @@ def number(params: Mapping[str, object], key: str, *, minimum: float | None = No
 
 def optional_number(params: Mapping[str, object], key: str, default: float) -> float:
     value = params.get(key, default)
-    if type(value) not in (float, int) or not math.isfinite(float(value)):
+    if not is_real_number(value) or not math.isfinite(value):
         raise GeneratorError(f"invalid physical parameter: {key}")
     return float(value)
 

@@ -21,6 +21,7 @@ from configuration.shared_snapshot import (
     build_shared_snapshot,
 )
 from core.domain import DeviceId
+from data_generator.application.model.common import is_real_number
 from data_generator.application.model.random import validate_rule
 from data_generator.application.models import interpolation_table, random_value
 from data_generator.domain.model import GeneratorError, OutputMapping, OutputTarget
@@ -371,11 +372,7 @@ def load_settings(service_path: Path) -> Settings:
                 raise GeneratorError("configured models require simulation source")
             devices, points, bindings = _configured_model_points(raw, shared)
             interval = source.get("interval_seconds")
-            if (
-                type(interval) not in (int, float)
-                or not math.isfinite(float(interval))
-                or float(interval) <= 0
-            ):
+            if not is_real_number(interval) or not math.isfinite(interval) or interval <= 0:
                 raise GeneratorError("simulation interval must be positive")
             if type(source.get("seed", 0)) is not int:
                 raise GeneratorError("simulation seed must be integer")

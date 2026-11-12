@@ -8,11 +8,12 @@ import random
 from collections.abc import Mapping, Sequence
 from typing import cast
 
+from data_generator.application.model.common import is_real_number
 from data_generator.domain.model import GeneratorError, Scalar, validate_scalar
 
 
 def _numeric(value: object, label: str) -> float:
-    if type(value) not in (int, float) or not math.isfinite(float(value)):
+    if not is_real_number(value) or not math.isfinite(value):
         raise GeneratorError(f"random {label} must be a finite number")
     return float(value)
 
@@ -38,7 +39,8 @@ def validate_rule(rule: Mapping[str, object], data_type: str) -> None:
     distribution = rule.get("distribution")
     is_float = data_type in {"float32", "float64"}
     is_int = data_type.startswith(("int", "uint"))
-    if type(rule.get("hold_steps", 1)) is not int or rule.get("hold_steps", 1) < 1:
+    hold_steps = rule.get("hold_steps", 1)
+    if type(hold_steps) is not int or hold_steps < 1:
         raise GeneratorError("hold_steps must be a positive integer")
     if distribution == "constant":
         validate_scalar(cast(Scalar, rule.get("value")), data_type)
@@ -56,25 +58,26 @@ def validate_rule(rule: Mapping[str, object], data_type: str) -> None:
         policy = rule.get("out_of_range", "reject_sample")
         if policy not in {"reject_sample", "resample"}:
             raise GeneratorError("normal bounds need an explicit rejection policy")
+        normal_bounds: dict[str, float] = {}
         for key in ("minimum", "maximum"):
             if key in rule:
-                _numeric(rule[key], key)
+                normal_bounds[key] = _numeric(rule[key], key)
         if (
-            "minimum" in rule
-            and "maximum" in rule
-            and (float(rule["minimum"]) > float(rule["maximum"]))
+            "minimum" in normal_bounds
+            and "maximum" in normal_bounds
+            and normal_bounds["minimum"] > normal_bounds["maximum"]
         ):
             raise GeneratorError("invalid normal bounds")
         attempts = rule.get("max_attempts")
         if policy == "resample" and (type(attempts) is not int or attempts < 1):
             raise GeneratorError("bounded normal resampling requires max_attempts")
     elif distribution == "uniform_int" and is_int:
-        low = rule.get("min", rule.get("minimum"))
-        high = rule.get("max", rule.get("maximum"))
-        if type(low) is not int or type(high) is not int or low > high:
+        int_low = rule.get("min", rule.get("minimum"))
+        int_high = rule.get("max", rule.get("maximum"))
+        if type(int_low) is not int or type(int_high) is not int or int_low > int_high:
             raise GeneratorError("random integer range must use ordered exact integers")
-        validate_scalar(low, data_type)
-        validate_scalar(high, data_type)
+        validate_scalar(int_low, data_type)
+        validate_scalar(int_high, data_type)
     elif distribution == "bernoulli" and data_type == "bool":
         probability = _numeric(rule.get("probability"), "Bernoulli probability")
         if not 0 <= probability <= 1:
@@ -99,8 +102,10 @@ def sample(
     if type(seed) is not int or step < 1:
         raise GeneratorError("invalid random seed or step")
     validate_rule(rule, data_type)
-    hold = int(rule.get("hold_steps", 1))
-    window = (step - 1) // hold
+    hold_steps = rule.get("hold_steps", 1)
+    if type(hold_steps) is not int:
+        raise GeneratorError("hold_steps must be a positive integer")
+    window = (step - 1) // hold_steps
     digest = hashlib.sha256(f"{seed}:{device_id}:{point_id}:{window}".encode()).digest()
     rng = random.Random(int.from_bytes(digest[:8], "big"))
     distribution = rule["distribution"]
@@ -108,26 +113,36 @@ def sample(
         value = rule["value"]
     elif distribution == "uniform":
         value = rng.uniform(
-            float(rule.get("min", rule.get("minimum"))),
-            float(rule.get("max", rule.get("maximum"))),
+            _numeric(rule.get("min", rule.get("minimum")), "uniform lower bound"),
+            _numeric(rule.get("max", rule.get("maximum")), "uniform upper bound"),
         )
     elif distribution == "uniform_int":
-        value = rng.randint(
-            int(rule.get("min", rule.get("minimum"))),
-            int(rule.get("max", rule.get("maximum"))),
-        )
+        int_low = rule.get("min", rule.get("minimum"))
+        int_high = rule.get("max", rule.get("maximum"))
+        if type(int_low) is not int or type(int_high) is not int:
+            raise GeneratorError("random integer range must use ordered exact integers")
+        value = rng.randint(int_low, int_high)
     elif distribution == "bernoulli":
-        value = rng.random() < float(rule["probability"])
+        value = rng.random() < _numeric(rule["probability"], "Bernoulli probability")
     elif distribution == "choice":
         options, weights = _choices(rule)
         value = rng.choices(options, weights=weights, k=1)[0]
     else:
-        minimum = float(rule.get("minimum", -math.inf))
-        maximum = float(rule.get("maximum", math.inf))
-        attempts = int(rule.get("max_attempts", 1))
+        minimum_raw = rule.get("minimum", -math.inf)
+        maximum_raw = rule.get("maximum", math.inf)
+        if not is_real_number(minimum_raw) or not is_real_number(maximum_raw):
+            raise GeneratorError("normal bounds must be numeric")
+        minimum = float(minimum_raw)
+        maximum = float(maximum_raw)
+        attempts_raw = rule.get("max_attempts", 1)
+        if type(attempts_raw) is not int:
+            raise GeneratorError("max_attempts must be an integer")
         value = 0.0
-        for _ in range(attempts):
-            value = rng.gauss(float(rule["mean"]), float(rule["std"]))
+        for _ in range(attempts_raw):
+            value = rng.gauss(
+                _numeric(rule["mean"], "normal mean"),
+                _numeric(rule["std"], "normal standard deviation"),
+            )
             if minimum <= value <= maximum:
                 break
         else:

@@ -108,14 +108,14 @@ class GatewayDiagnostics:
                 evidence.append(pb.Evidence(name="configured_mappings", value=str(mapped)))
                 evidence.append(pb.Evidence(name="forward_events_pending", value=str(pending)))
                 if mapped:
-                    failures: list[str] = []
+                    control_failures: list[str] = []
                     for gateway_id, item in targets.items():
                         control = item.config.settings.control
                         if not control.enabled:
                             continue
                         endpoint = control.target.endpoint
                         if endpoint is None:
-                            failures.append(gateway_id)
+                            control_failures.append(gateway_id)
                             continue
                         host, _, port = endpoint.rpartition(":")
                         try:
@@ -124,7 +124,7 @@ class GatewayDiagnostics:
                             writer.close()
                             await writer.wait_closed()
                         except (OSError, ValueError, TimeoutError) as exc:
-                            failures.append(gateway_id)
+                            control_failures.append(gateway_id)
                             limitations.append(f"{gateway_id} target TCP unavailable: {exc}")
                         else:
                             evidence.append(
@@ -133,10 +133,10 @@ class GatewayDiagnostics:
                                     value="true",
                                 )
                             )
-                    if failures:
+                    if control_failures:
                         status = "FAIL"
                         error_code = "CONTROL_TARGET_UNREACHABLE"
-                        message = ",".join(failures)
+                        message = ",".join(control_failures)
                     else:
                         status = "UNKNOWN"
                         limitations.append(

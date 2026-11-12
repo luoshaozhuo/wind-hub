@@ -16,6 +16,7 @@ from contracts import common_pb2_grpc as common_rpc
 from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import decode_scalar
+from core.domain import DeviceId
 from data_generator.application.model.inputs import WEATHER_INPUTS, writable_inputs
 from data_generator.application.runtime import GenerationState, Runtime
 from data_generator.domain.model import GeneratorError, Scalar
@@ -244,11 +245,11 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
             await context.abort(grpc.StatusCode.NOT_FOUND, "device not in generation")
             raise RuntimeError("gRPC abort returned")
         shared = state.bound_settings.shared
-        device = shared.site.devices[request.device_id]
+        device = shared.site.devices[DeviceId(request.device_id)]
         model = shared.device_models[device.device_model_id]
         table = shared.point_tables[model.point_table_id]
         physical = state.physical_engine
-        kind = physical.kinds.get(request.device_id) if physical else ""
+        kind = physical.kinds.get(request.device_id, "") if physical else ""
         writable = writable_inputs(kind)
         ppc_owned = (
             physical is not None and physical.controller_modes.get(request.device_id) == "ppc"

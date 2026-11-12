@@ -6,7 +6,7 @@ import math
 from collections.abc import Mapping
 
 from data_generator.application.model.bess import BESS
-from data_generator.application.model.common import as_mapping, number
+from data_generator.application.model.common import as_mapping, number, optional_number
 from data_generator.application.model.grid import Grid
 from data_generator.application.model.ppc import PPC
 from data_generator.application.model.pv import PV
@@ -34,7 +34,13 @@ class PhysicalEngine:
         self.last: dict[str, dict[str, float | int]] = {}
         self._ppc_ids: list[str] = []
         self._grid_ids: list[str] = []
-        factories = {"wtg": Turbine, "pv": PV, "bess": BESS, "grid": Grid, "ppc": PPC}
+        factories: Mapping[str, type[Turbine | PV | BESS | Grid | PPC]] = {
+            "wtg": Turbine,
+            "pv": PV,
+            "bess": BESS,
+            "grid": Grid,
+            "ppc": PPC,
+        }
         for device in sorted(scenario.devices):
             binding = scenario.bindings.get(device)
             if not isinstance(binding, Mapping):
@@ -74,12 +80,12 @@ class PhysicalEngine:
                 "active_power": 0.0,
                 "reactive_power": 0.0,
                 "rated_apparent_power": (
-                    float(params.get("rated_apparent_power_va", 0))
+                    optional_number(params, "rated_apparent_power_va", 0.0)
                     if kind == "wtg"
-                    else float(params.get("inverter_rated_apparent_power_va", 0))
+                    else optional_number(params, "inverter_rated_apparent_power_va", 0.0)
                     if kind == "pv"
                     else (
-                        float(params.get("pcs_rated_apparent_power_va", 0))
+                        optional_number(params, "pcs_rated_apparent_power_va", 0.0)
                         if params.get("reactive_support_enabled")
                         else 0.0
                     )
