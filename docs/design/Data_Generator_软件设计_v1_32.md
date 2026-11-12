@@ -1001,7 +1001,7 @@ flowchart TD
 
 | 主题 | 规范性规则 |
 |---|---|
-| 对外服务 | 实现 `DataGeneratorService` 的 `ListDevices/GetDevice/ListScenarios/GetGeneration/StartGeneration/StopGeneration` 和 `CommonService` 的 `GetServiceInfo/GetServiceStatus/GetCapabilities/GetConfigSnapshot/PushConfigSnapshot/ApplyConfigSnapshot/GetMetrics/GetEvents/Diagnose`，总计 15 个 Unary RPC。 |
+| 对外服务 | 实现 DataGeneratorService 目标八项（既有设备/场景查询、生成启停六项，加变量发现与更新两项）和 CommonService 九项，共 17 个 Unary RPC；新增两项须先更新 Contracts Proto。 |
 | 字段契约 | Proto 字段、oneof、optional、类型和返回消息以仓库 `src/contracts/` 为准，业务设计不得生成平行或不兼容的协议。 |
 | 实例控制 | StartGeneration 依据 `scenario_id` 与可选 `scenario_version` 绑定确定版本，受 `expected_revision` 冲突校验；StopGeneration 按 `generation_id` 操作；超时不等于完成停机。 |
 | 客户端边界 | Data Generator 另以 Client 身份调用 Gateway `UpdateVariables`，该 RPC 不属于 Data Generator 的 Server 接口。 |
@@ -1893,7 +1893,7 @@ flowchart LR
 
 # 9. 接口与通信契约（目标新增两个 RPC）
 
-本章 Data Generator/Common Server 契约核对基线为 `main@367481254518a2d3d79ebeeb80a41944897a7e84`；Gateway 输出接口冻结基线为 `main@367481254518a2d3d79ebeeb80a41944897a7e84`（2026-11-10），核对文件：`src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto`。这三份文件是 **Repo 内已经存在的 Proto**；下列接口名称、方向及字段直接依据其实际声明，不把设计预期当作已具备的接口。三个 Proto 均采用 `proto3`。
+本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_21 目标设计。三份 Proto 均为 `proto3`；DataGeneratorService 目前只有六项正式 RPC，新增两项属于待实施契约，不得视为已发布接口。
 
 ## 9.1 DataGeneratorService：八项 gRPC Server RPC（含新增变量发现与更新）
 
