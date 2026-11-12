@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from configuration.shared_documents import (
     SharedDocumentLoader,
     SharedDocuments,
 )
+from configuration.immutable import plain_document
 from configuration.shared_snapshot import (
     SharedDomainSnapshot,
     build_shared_snapshot,
@@ -132,19 +134,19 @@ def _configured_model_points(
             model_ref = str(declared)
         else:
             simulation = document_device.templates.model.document.get("simulation")
-            if not isinstance(simulation, dict) or simulation.get("kind") != "physical":
+            if not isinstance(simulation, Mapping) or simulation.get("kind") != "physical":
                 raise GeneratorError(f"{device_id}: simulation model missing from device template")
             expected = expected_types.get(str(simulation.get("device_kind")))
             if expected is None or str(model.device_type_id) != expected:
                 raise GeneratorError(f"{device_id}: device type and physical model disagree")
             parameters = simulation.get("parameters")
-            if not isinstance(parameters, dict) or not parameters:
+            if not isinstance(parameters, Mapping) or not parameters:
                 raise GeneratorError(f"{device_id}: physical parameters missing")
             model_ref = device_id
             definition = {
                 "kind": "physical",
                 "device_kind": simulation["device_kind"],
-                "parameters": parameters,
+                "parameters": plain_document(parameters),
                 "weather_ref": item.get("weather_ref"),
                 "controller_mode": item.get("controller_mode", "local"),
             }
