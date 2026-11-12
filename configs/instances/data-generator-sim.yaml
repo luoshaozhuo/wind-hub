@@ -38,7 +38,7 @@ scenarios:
         kind: physical
         device_kind: wtg
         weather_ref: site-a
-        controller_mode: local
+        controller_mode: ppc
         parameters:
           rated_power_w: 2000000.0
           rated_apparent_power_va: 2200000.0
@@ -74,6 +74,7 @@ scenarios:
         kind: physical
         device_kind: pv
         weather_ref: site-a
+        controller_mode: ppc
         parameters:
           array_peak_power_w: 1000000.0
           inverter_rated_power_w: 900000.0
@@ -91,6 +92,7 @@ scenarios:
         kind: physical
         device_kind: bess
         weather_ref: site-a
+        controller_mode: ppc
         parameters:
           rated_energy_wh: 1000000.0
           pcs_rated_active_power_w: 500000.0
@@ -107,7 +109,7 @@ scenarios:
           internal_resistance_ohm: 0.05
           max_battery_current_a: 800.0
           initial_battery_temperature_c: 25.0
-          control_strategy: soc_target
+          control_strategy: power_demand
           soc_control_gain_w: 500000.0
           soc_deadband: 0.005
           reactive_support_enabled: true

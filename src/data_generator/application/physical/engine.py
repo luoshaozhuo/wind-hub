@@ -83,6 +83,7 @@ class PhysicalEngine:
             }
         if len(self._grid_ids) > 1 or len(self._ppc_ids) > 1:
             raise GeneratorError("one grid equivalent and one PPC per physical scenario")
+        controlled: set[str] = set()
         for ppc_id in self._ppc_ids:
             ppc = self.models[ppc_id]
             if not isinstance(ppc, PPC) or any(
@@ -90,6 +91,17 @@ class PhysicalEngine:
                 for device_id in ppc.devices
             ):
                 raise GeneratorError("PPC participants must be physical generation or storage devices")
+            controlled.update(ppc.devices)
+        for device, mode in self.controller_modes.items():
+            if self.kinds[device] not in {"wtg", "pv", "bess"}:
+                continue
+            if (mode == "ppc") != (device in controlled):
+                raise GeneratorError("PPC device control ownership does not match participation")
+            if (
+                mode == "ppc" and self.kinds[device] == "bess"
+                and self.params[device].get("control_strategy") != "power_demand"
+            ):
+                raise GeneratorError("PPC BESS power dispatch requires power_demand strategy")
         self.last_grid: dict[str, float | int] = {
             "grid_frequency": 50.0,
             "grid_voltage": 690.0,
