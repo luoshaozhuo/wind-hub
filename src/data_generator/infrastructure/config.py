@@ -13,12 +13,12 @@ from typing import Any
 
 import yaml
 
+from configuration.immutable import plain_document
 from configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
     SharedDocuments,
 )
-from configuration.immutable import plain_document
 from configuration.shared_snapshot import (
     SharedDomainSnapshot,
     build_shared_snapshot,
