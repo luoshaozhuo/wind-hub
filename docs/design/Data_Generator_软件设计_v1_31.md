@@ -2086,6 +2086,7 @@ flowchart TB
 | 风机 | `WTG_SIM01`～`WTG_SIM03` | `wtg_sim_2mw` | `modbus_wtg_sim_2mw` |
 | 光伏 | `PV_SIM01` | `pv_sim` | `modbus_pv_sim` |
 | 储能 | `BESS_SIM01` | `bess_sim` | `modbus_bess_sim` |
+| 储能目标控制 | $SOC_*$：目标荷电状态(0～1)；$K_{\rm SOC}$：SOC 比例控制系数(W)；$P_*$：目标充放电功率(W)；$P_{\rm demand}$：外部有功需求(W)；$Q_*$：PCS 无功需求(var) |
 | 电网 | `GRID_SIM01` | `grid_sim` | `modbus_grid_sim` |
 | 电厂控制 | `PPC_SIM01` | `plant_controller_sim` | `modbus_plant_controller_sim` |
 
@@ -2487,7 +2488,7 @@ $$
 
 ### 10.5.7 储能固定物理模型
 
-**适用边界**：等效能量状态、简化 OCV—内阻直流电路、PCS 双向效率和一阶热模型。不模拟单体不一致、复杂电化学扩散和真实老化寿命预测。
+**适用边界**：等效能量状态、目标 SOC 或有功需求两种可配置模式、简化 OCV—内阻直流电路、PCS 双向效率和一阶热模型。不模拟单体不一致、复杂电化学扩散和真实老化寿命预测。
 
 ```mermaid
 flowchart LR
@@ -2547,6 +2548,34 @@ $$
 $$
 
 $P_{\rm charge,max},P_{\rm discharge,max}$ 是配置导出的当步可用功率(W)，$S_{\rm PCS}$ 是 PCS 额定视在容量(VA)。初始状态至少包含 SOC、SOH、温度、PCS/BMS 运行态；充放电互锁、故障锁存和复位由明确状态机定义，不能交给随机值生成器决定。
+
+#### 储能目标 SOC 控制与 PCS 无功能力
+
+储能运行策略在配置中选择 `power_demand`（跟踪有功需求）或 `soc_target`（跟踪目标 SOC）；这两个目标均可由外部写入，但任一时刻只有当前策略对应的设定参与功率计算。$SOC_*$ 是目标荷电状态（0～1），$K_{\rm SOC}>0$ 是 SOC 比例调节系数（W），$P_{\rm charge,max}$、$P_{\rm discharge,max}$ 分别为实际可充/放功率上限（W）：
+
+$$
+P_*=\begin{cases}
+P_{\rm demand},&\text{有功需求模式},\\
+\operatorname{clip}\!\left(K_{\rm SOC}(SOC-SOC_*),
+-P_{\rm charge,max},P_{\rm discharge,max}\right),&\text{目标 SOC 模式}.
+\end{cases}
+\tag{10-33}
+$$
+
+$P_{\rm demand}$ 是有功需求(W)。实际 $P_{\rm ac}$ 再经过 PCS 功率/电流限制、SOC 边界、爬坡和热保护，进入式 (10-17) 能量积分。外部设置目标 SOC **不修改当前 SOC**。如果实际 SOC 低于目标，指令为负（充电）；高于目标则为正（放电）。在目标附近配置 SOC 死区，避免来回切换。
+
+储能是否允许独立无功补偿由型号参数 `reactive_support_enabled` 决定；具备四象限 PCS 的设备允许 $P_{\rm ac}=0$ 而 $Q\ne0$，但始终满足：
+
+$$
+P_{\rm ac}^2+Q^2\le S_{\rm PCS}^2,\qquad
+Q=\begin{cases}
+\operatorname{clip}\left(Q_*, -\sqrt{S_{\rm PCS}^2-P_{\rm ac}^2},\sqrt{S_{\rm PCS}^2-P_{\rm ac}^2}\right),&\text{支持无功且 PCS 并网},\\
+0,&\text{不支持无功或未并网}.
+\end{cases}
+\tag{10-34}
+$$
+
+$Q_*$ 为外部无功需求(var)，$S_{\rm PCS}$ 为 PCS 额定视在容量(VA)。不得以此方程假定所有 PCS 均具备无功补偿能力；直流侧能量不足限制有功，不意味着可绕开交流侧电流和运行状态限制。测试须包含零有功无功补偿、容量圆约束、禁用无功、SOC 目标充放电方向和实际 SOC 随时间连续变化。
 
 ### 10.5.8 电网固定物理模型
 
@@ -2821,7 +2850,7 @@ points:
   active_power_setpoint:
     business_point_id: sim_active_power_setpoint
     point_groups: [all, control]
-    address: {register_type: holding, address: 2, count: 2, slave_id: 1}
+    address: {register_type: holding, address: 1, count: 2, slave_id: 1}
     data_type: float32
     unit: watt
     scale: 1.0
@@ -2838,7 +2867,7 @@ points:
     description: "实际交流有功"
 ```
 
-上述两处地址须与紧随的地址表及最终 YAML 生成结果核对，**以地址表为唯一规划权威**；不得允许示例覆盖真实地址表。
+上述地址与第 10.6.3 节风机表一致。生成正式 YAML 时仍须逐条核对表中的地址、类型及单位，**以地址表为唯一规划权威**。
 
 
 ### 10.6.3 风机 Modbus 点表（32 项）
@@ -2857,18 +2886,18 @@ points:
 | `pitch_rate_1` | 第一叶片变桨速度 | `sim_pitch_rate_1` | `float32` | `degree_per_second` | `input` | 18 / 2 | 否 | 否 |
 | `pitch_rate_2` | 第二叶片变桨速度 | `sim_pitch_rate_2` | `float32` | `degree_per_second` | `input` | 20 / 2 | 否 | 否 |
 | `pitch_rate_3` | 第三叶片变桨速度 | `sim_pitch_rate_3` | `float32` | `degree_per_second` | `input` | 22 / 2 | 否 | 否 |
-| `rotor_speed` | 叶轮角速度 | `rotor_speed` | `float32` | `radian_per_second` | `input` | 24 / 2 | 否 | 否 |
-| `generator_speed` | 发电机轴角速度 | `generator_speed` | `float32` | `radian_per_second` | `input` | 26 / 2 | 否 | 否 |
+| `sim_rotor_speed` | 叶轮角速度 | `rotor_speed` | `float32` | `radian_per_second` | `input` | 24 / 2 | 否 | 否 |
+| `sim_generator_speed` | 发电机轴角速度 | `generator_speed` | `float32` | `radian_per_second` | `input` | 26 / 2 | 否 | 否 |
 | `shaft_torque` | 传动轴等效转矩 | `sim_shaft_torque` | `float32` | `newton_meter_torque` | `input` | 28 / 2 | 否 | 否 |
 | `aerodynamic_power` | 气动机械功率 | `sim_aerodynamic_power` | `float32` | `watt` | `input` | 30 / 2 | 否 | 否 |
 | `aerodynamic_torque` | 气动机械转矩 | `sim_aerodynamic_torque` | `float32` | `newton_meter_torque` | `input` | 32 / 2 | 否 | 否 |
 | `available_power` | 工况允许的最大有功 | `sim_available_power` | `float32` | `watt` | `input` | 34 / 2 | 否 | 否 |
-| `generator_torque` | 实际电磁反转矩 | `generator_torque` | `float32` | `newton_meter_torque` | `input` | 36 / 2 | 否 | 否 |
+| `sim_generator_torque` | 实际电磁反转矩 | `generator_torque` | `float32` | `newton_meter_torque` | `input` | 36 / 2 | 否 | 否 |
 | `active_power` | 实际交流有功 | `sim_active_power` | `float32` | `watt` | `input` | 38 / 2 | 否 | 否 |
 | `reactive_power` | 实际交流无功 | `sim_reactive_power` | `float32` | `var` | `input` | 40 / 2 | 否 | 否 |
 | `converter_current` | 变流器交流电流 | `sim_converter_current` | `float32` | `ampere` | `input` | 42 / 2 | 否 | 否 |
 | `converter_losses` | 机电变换损耗 | `sim_converter_losses` | `float32` | `watt` | `input` | 44 / 2 | 否 | 否 |
-| `power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 46 / 2 | 否 | 否 |
+| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 46 / 2 | 否 | 否 |
 | `generator_temperature` | 发电机等效温度 | `generator_temperature` | `float32` | `celsius` | `input` | 48 / 2 | 否 | 否 |
 | `running_status` | 设备运行状态 | `sim_running_status` | `int32` | `none` | `input` | 50 / 2 | 否 | 否 |
 | `fault_status` | 故障状态码 | `sim_fault_status` | `int32` | `none` | `input` | 52 / 2 | 否 | 否 |
@@ -2888,11 +2917,11 @@ points:
 | `mppt_state` | MPPT跟踪状态 | `sim_mppt_state` | `int32` | `none` | `input` | 4 / 2 | 否 | 否 |
 | `dc_voltage` | 阵列实际直流电压 | `pv_dc_voltage` | `float32` | `volt` | `input` | 6 / 2 | 否 | 否 |
 | `dc_current` | 阵列实际直流电流 | `pv_dc_current` | `float32` | `ampere` | `input` | 8 / 2 | 否 | 否 |
-| `dc_power` | 阵列实际直流功率 | `pv_dc_power` | `float32` | `watt` | `input` | 10 / 2 | 否 | 否 |
+| `dc_power` | 阵列实际直流功率 | `sim_dc_power` | `float32` | `watt` | `input` | 10 / 2 | 否 | 否 |
 | `active_power` | 实际交流有功 | `sim_active_power` | `float32` | `watt` | `input` | 12 / 2 | 否 | 否 |
 | `reactive_power` | 实际交流无功 | `sim_reactive_power` | `float32` | `var` | `input` | 14 / 2 | 否 | 否 |
 | `ac_current` | 逆变器交流电流 | `sim_ac_current` | `float32` | `ampere` | `input` | 16 / 2 | 否 | 否 |
-| `power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 18 / 2 | 否 | 否 |
+| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 18 / 2 | 否 | 否 |
 | `inverter_temperature` | 逆变器等效温度 | `sim_inverter_temperature` | `float32` | `celsius` | `input` | 20 / 2 | 否 | 否 |
 | `inverter_status` | 逆变器状态 | `sim_inverter_status` | `int32` | `none` | `input` | 22 / 2 | 否 | 否 |
 | `fault_status` | 故障状态码 | `sim_fault_status` | `int32` | `none` | `input` | 24 / 2 | 否 | 否 |
@@ -2917,7 +2946,7 @@ points:
 | `active_power` | 实际交流有功 | `sim_active_power` | `float32` | `watt` | `input` | 18 / 2 | 否 | 否 |
 | `reactive_power` | 实际交流无功 | `sim_reactive_power` | `float32` | `var` | `input` | 20 / 2 | 否 | 否 |
 | `pcs_current` | PCS交流电流 | `sim_pcs_current` | `float32` | `ampere` | `input` | 22 / 2 | 否 | 否 |
-| `power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 24 / 2 | 否 | 否 |
+| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 24 / 2 | 否 | 否 |
 | `pcs_status` | PCS运行状态 | `sim_pcs_status` | `int32` | `none` | `input` | 26 / 2 | 否 | 否 |
 | `bms_status` | BMS运行状态 | `sim_bms_status` | `int32` | `none` | `input` | 28 / 2 | 否 | 否 |
 | `fault_status` | 故障状态码 | `sim_fault_status` | `int32` | `none` | `input` | 30 / 2 | 否 | 否 |
@@ -2937,10 +2966,10 @@ points:
 | `grid_voltage` | PCC线电压 | `grid_voltage` | `float32` | `volt` | `input` | 6 / 2 | 否 | 否 |
 | `voltage_deviation` | 母线电压偏差 | `sim_voltage_deviation` | `float32` | `volt` | `input` | 8 / 2 | 否 | 否 |
 | `grid_current` | PCC交流电流 | `grid_current` | `float32` | `ampere` | `input` | 10 / 2 | 否 | 否 |
-| `apparent_power` | 三相视在功率 | `apparent_power` | `float32` | `volt_ampere` | `input` | 12 / 2 | 否 | 否 |
+| `sim_apparent_power` | 三相视在功率 | `apparent_power` | `float32` | `volt_ampere` | `input` | 12 / 2 | 否 | 否 |
 | `active_power` | 实际交流有功 | `sim_active_power` | `float32` | `watt` | `input` | 14 / 2 | 否 | 否 |
 | `reactive_power` | 实际交流无功 | `sim_reactive_power` | `float32` | `var` | `input` | 16 / 2 | 否 | 否 |
-| `power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 18 / 2 | 否 | 否 |
+| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 18 / 2 | 否 | 否 |
 | `grid_status` | 电网连接状态 | `sim_grid_status` | `int32` | `none` | `input` | 20 / 2 | 否 | 否 |
 | `fault_status` | 故障状态码 | `sim_fault_status` | `int32` | `none` | `input` | 22 / 2 | 否 | 否 |
 | `grid_frequency_input` | 外生频率扰动输入 | `sim_grid_frequency_input` | `float32` | `hertz` | `holding` | 0 / 2 | 是 | 否 |
