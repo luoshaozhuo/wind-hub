@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from data_generator.application.models import generate_values
+from data_generator.application.physical.engine import PhysicalEngine
 from data_generator.application.replay import decode_value, iter_records, replay_deadline
 from data_generator.domain.model import (
     DataBatch,
@@ -39,6 +40,7 @@ class GenerationState:
     last_error: str = ""
     started_at: datetime | None = None
     terminal_state: str | None = None
+    physical_engine: PhysicalEngine | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,6 +324,15 @@ class Runtime:
         seed = int(scenario.source.get("seed", 0))
         sequence = 0
         epoch = time.monotonic()
+        has_physical = any(
+            model.get("kind") == "physical" for model in scenario.models.values()
+        )
+        physical = PhysicalEngine(scenario) if has_physical else None
+        generation.physical_engine = physical
+        random_points = {
+            key: value for key, value in scenario.points.items()
+            if isinstance(value.get("model"), dict)
+        }
         while generation.desired_state == "RUNNING":
             now = time.monotonic()
             next_step = max(
@@ -345,7 +356,15 @@ class Runtime:
             began = time.monotonic()
             lag = max(0.0, began - planned)
             try:
-                values = generate_values(seed, sequence, scenario.points)
+                if physical is None:
+                    values = generate_values(seed, sequence, scenario.points)
+                else:
+                    values = {}
+                    # Reconcile skipped fixed steps without dropping physical state evolution.
+                    for index in range(sequence - skipped, sequence + 1):
+                        values = physical.advance(interval, index)
+                    if random_points:
+                        values.update(generate_values(seed, sequence, random_points))
                 await self._emit(
                     generation,
                     sequence,
