@@ -1,6 +1,6 @@
-"""设计 §13.2 / §9：15 个 Server RPC 逐方法 Descriptor 断言。
+"""设计 §13.2 / §9：17 个 Server RPC 逐方法 Descriptor 断言。
 
-DataGeneratorService 6 + CommonService 9，全部 Unary；校验真实入参/出参
+DataGeneratorService 8 + CommonService 9，全部 Unary；校验真实入参/出参
 消息类型、optional 字段、oneof 与枚举存在性。仅 Descriptor，不调用服务。
 """
 
@@ -23,6 +23,8 @@ DG_METHODS: dict[str, tuple[Any, Any]] = {
     "GetGeneration": (common.ObjectId, dg.GetGenerationResponse),
     "StartGeneration": (dg.StartGenerationRequest, dg.StartGenerationResponse),
     "StopGeneration": (dg.StopGenerationRequest, dg.StopGenerationResponse),
+    "ListVariables": (dg.ListVariablesRequest, dg.ListVariablesResponse),
+    "UpdateVariables": (dg.UpdateVariablesRequest, dg.UpdateVariablesResponse),
 }
 COMMON_METHODS: dict[str, tuple[Any, Any]] = {
     "GetServiceInfo": (common.Empty, common.GetServiceInfoResponse),
@@ -37,15 +39,66 @@ COMMON_METHODS: dict[str, tuple[Any, Any]] = {
 }
 
 
-def test_data_generator_service_has_six_unary_methods() -> None:
+def test_data_generator_service_has_eight_unary_methods() -> None:
     service = dg.DESCRIPTOR.services_by_name["DataGeneratorService"]
     assert {method.name for method in service.methods} == set(DG_METHODS)
-    assert len(service.methods) == 6
+    assert len(service.methods) == 8
     for method in service.methods:
         request_type, response_type = DG_METHODS[method.name]
         assert not method.client_streaming and not method.server_streaming
         assert method.input_type.full_name == request_type.DESCRIPTOR.full_name
         assert method.output_type.full_name == response_type.DESCRIPTOR.full_name
+
+
+
+def test_model_variable_rpc_fields_and_optional_bounds() -> None:
+    variables = dg.ModelVariable.DESCRIPTOR.fields_by_name
+    assert {field.name: field.number for field in variables.values()} == {
+        "point_id": 1,
+        "business_point_id": 2,
+        "data_type": 3,
+        "unit": 4,
+        "role": 5,
+        "writable": 6,
+        "minimum": 7,
+        "maximum": 8,
+        "description": 9,
+        "source": 10,
+    }
+    assert variables["minimum"].has_presence
+    assert variables["maximum"].has_presence
+
+    listing = dg.ListVariablesResponse.DESCRIPTOR.fields_by_name
+    assert {field.name: field.number for field in listing.values()} == {
+        "variables": 1,
+        "next_page_token": 2,
+        "point_table_version": 3,
+        "generation_state": 4,
+    }
+
+    update_request = dg.UpdateVariablesRequest.DESCRIPTOR.fields_by_name
+    assert {field.name: field.number for field in update_request.values()} == {
+        "generation_id": 1,
+        "device_id": 2,
+        "request_id": 3,
+        "values": 4,
+    }
+    assert update_request["values"].message_type.full_name == (
+        dg.VariableUpdate.DESCRIPTOR.full_name
+    )
+    update_value = dg.VariableUpdate.DESCRIPTOR.fields_by_name
+    assert update_value["value"].message_type.full_name == (
+        common.ScalarValue.DESCRIPTOR.full_name
+    )
+
+    update_response = dg.UpdateVariablesResponse.DESCRIPTOR.fields_by_name
+    assert {field.name: field.number for field in update_response.values()} == {
+        "accepted": 1,
+        "effective_step": 2,
+        "error_code": 3,
+        "message": 4,
+        "request_id": 5,
+    }
 
 
 def test_common_service_has_nine_unary_methods() -> None:
