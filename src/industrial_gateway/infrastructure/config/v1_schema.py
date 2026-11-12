@@ -102,6 +102,91 @@ class CommandMapping(StrictModel):
         return self
 
 
+
+class TargetMapping(StrictModel):
+    variable_id: str = Field(min_length=1)
+    target_point_id: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_identifiers(self) -> TargetMapping:
+        if not self.variable_id.strip() or not self.target_point_id.strip():
+            raise ValueError("control mapping identifiers must not be blank")
+        return self
+
+
+class GenerationBinding(StrictModel):
+    scenario_id: str = Field(min_length=1)
+
+    @field_validator("scenario_id")
+    @classmethod
+    def validate_scenario(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Generator scenario binding must not be blank")
+        return value
+
+
+class ControlTarget(StrictModel):
+    kind: Literal["commander", "data_generator", "none"]
+    endpoint: str | None = None
+    tls: TlsConfig | None = None
+    request_timeout_ms: int = Field(default=5000, ge=1, le=60000)
+    queue_capacity: int = Field(default=1024, ge=1, le=65536)
+    max_inflight: int = Field(default=1, ge=1, le=256)
+    generation_binding: GenerationBinding | None = None
+
+    @model_validator(mode="after")
+    def validate_target(self) -> ControlTarget:
+        if self.kind == "none":
+            if (
+                self.endpoint is not None
+                or self.tls is not None
+                or self.generation_binding is not None
+            ):
+                raise ValueError("none control target cannot have an external endpoint")
+            return self
+        endpoint = self.endpoint
+        if not isinstance(endpoint, str) or not endpoint.strip():
+            raise ValueError("control target endpoint must be configured")
+        host, separator, port_text = endpoint.rpartition(":")
+        if (
+            not separator
+            or not host.strip()
+            or not port_text.isdecimal()
+            or not 1 <= int(port_text) <= 65535
+        ):
+            raise ValueError("control target endpoint must be host:port")
+        host = host.strip("[]")
+        if not self.tls or not self.tls.enabled:
+            if host not in {"127.0.0.1", "::1", "localhost"}:
+                raise ValueError("non-loopback control target requires mTLS")
+        if self.kind == "data_generator":
+            if self.generation_binding is None:
+                raise ValueError("Generator target requires a Scenario binding")
+            if self.tls is None or not self.tls.enabled:
+                raise ValueError("Generator model update requires mutual TLS")
+        elif self.generation_binding is not None:
+            raise ValueError("only Generator targets may bind a Scenario")
+        return self
+
+
+class ServerControl(StrictModel):
+    enabled: bool
+    target: ControlTarget
+    mappings: tuple[TargetMapping, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_control(self) -> ServerControl:
+        variables = [mapping.variable_id for mapping in self.mappings]
+        if len(variables) != len(set(variables)):
+            raise ValueError("duplicate control mapping variable_id")
+        if self.enabled:
+            if self.target.kind == "none" or not variables:
+                raise ValueError("enabled control requires a target and mappings")
+        elif self.mappings or self.target.kind != "none":
+            raise ValueError("disabled control cannot declare active mappings or target")
+        return self
+
+
 class ServerConfig(StrictModel):
     server_id: str = Field(min_length=1)
     device_id: str = Field(min_length=1)
