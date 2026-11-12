@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_3 · 20261111 · 详细初稿（待审核）</p>
+<p class="subtitle">v0_3 · 20261112 · 跨模块验收设计</p>
 
 <style>
 body {
@@ -364,7 +364,7 @@ flowchart TD
 ## 4.1 共享文件与私有配置
 
 ```text
-tests/e2e/configs/
+tests/src/e2e/configs/
 ├── services/                  # Collector、Gateway、Generator、Sink、Commander、CLI
 ├── instances/
 │   ├── site.yaml
@@ -384,7 +384,7 @@ tests/e2e/configs/
 
 测试复制或构建隔离的配置根；不得直接修改仓库 `configs/` 下用于真实设备的现行文件。服务通过 `config_sources` 显式选择所需 `instances.devices` 和 `instances.scenarios`。共享 Configurations 只解析设备型号/协议/点表；**物理额定功率、额定转速、额定风速以及 PV/BESS 额定容量和模型控制器参数全部留在 Data Generator 专属 Scenario**。既有真实型号 `wtg_gw2mw` 的 2 MW 名称仅表示真实设备型号，不约束独立仿真型号 `wtg_sim` 的额定功率。
 
-现仓库 `configs/instances/devices_sim.yaml` 和五份目标仿真 PointTable 尚未存在，必须在编码阶段按正式设计生成和验证；旧的 `configs/services/data-generator-gateway-a.example.yaml`、`data-generator-gateway-b.example.yaml` 使用过期单文件 Gateway Schema，不作为测试资产或配置模板。
+现仓库 `configs/instances/devices_sim.yaml` 和五份目标仿真 PointTable 尚未存在，必须在编码阶段按正式设计生成和验证。Gateway 测试配置必须采用当前 `config_sources` 加共享模板的正式 Schema，不得使用单文件内嵌协议点表的旧格式。
 
 ## 4.2 必需参数与数据可复现性
 
@@ -497,7 +497,7 @@ CLI 实际命令可用性以正式 Proto、CLI 代码及真实服务返回为准
 
 ## 9.1 测试文件与用例关系
 
-新增测试资产均位于 `tests/src/` 对应模块目录及 `tests/e2e/` 的跨服务目录；测试代码和 Fixture 由独立测试方负责，生产实现方不得以改测试替代修复产品缺陷。
+新增测试资产均位于 `tests/src/` 对应模块目录及 `tests/src/e2e/` 的跨服务目录；测试代码和 Fixture 由独立测试方负责，生产实现方不得以改测试替代修复产品缺陷。
 
 | 用例组 | 层级 | Marker | 前置条件 |
 |---|---|---|---|
