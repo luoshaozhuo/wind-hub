@@ -211,6 +211,22 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
                 message=str(exc),
             )
         return dg.StopGenerationResponse(accepted=True, actual_state=state.actual_state)
+    async def ListVariables(
+        self, request: dg.ListVariablesRequest, context: Any
+    ) -> dg.ListVariablesResponse:
+        await context.abort(
+            grpc.StatusCode.UNIMPLEMENTED,
+            "model variable interface not yet implemented",
+        )
+        raise RuntimeError("gRPC abort returned")
+    async def UpdateVariables(
+        self, request: dg.UpdateVariablesRequest, context: Any
+    ) -> dg.UpdateVariablesResponse:
+        await context.abort(
+            grpc.StatusCode.UNIMPLEMENTED,
+            "model variable interface not yet implemented",
+        )
+        raise RuntimeError("gRPC abort returned")
 
 
 class CommonService(common_rpc.CommonServiceServicer):
@@ -538,7 +554,7 @@ class CommonService(common_rpc.CommonServiceServicer):
 def validate_rpc_contracts() -> None:
     """Fail startup on missing public unary implementations or descriptor drift."""
     services = (
-        (dg.DESCRIPTOR.services_by_name["DataGeneratorService"], DataGeneratorService, 6),
+        (dg.DESCRIPTOR.services_by_name["DataGeneratorService"], DataGeneratorService, 8),
         (common.DESCRIPTOR.services_by_name["CommonService"], CommonService, 9),
     )
     for descriptor, implementation, expected_count in services:

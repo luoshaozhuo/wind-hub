@@ -3,6 +3,7 @@
 isort:skip_file
 """
 
+from contracts import common_pb2 as _common_pb2
 from collections import abc as _abc
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -361,3 +362,186 @@ class StopGenerationResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___StopGenerationResponse: _TypeAlias = StopGenerationResponse  # noqa: Y015
+
+@_typing.final
+class ListVariablesRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    GENERATION_ID_FIELD_NUMBER: _builtins.int
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    PAGE_SIZE_FIELD_NUMBER: _builtins.int
+    PAGE_TOKEN_FIELD_NUMBER: _builtins.int
+
+    generation_id: _builtins.str
+    device_id: _builtins.str
+    page_size: _builtins.int
+    page_token: _builtins.str
+    def __init__(
+        self,
+        *,
+        generation_id: _builtins.str = ...,
+        device_id: _builtins.str = ...,
+        page_size: _builtins.int = ...,
+        page_token: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["generation_id", b"generation_id", "device_id", b"device_id", "page_size", b"page_size", "page_token", b"page_token"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListVariablesRequest: _TypeAlias = ListVariablesRequest  # noqa: Y015
+
+@_typing.final
+class ModelVariable(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    POINT_ID_FIELD_NUMBER: _builtins.int
+    BUSINESS_POINT_ID_FIELD_NUMBER: _builtins.int
+    DATA_TYPE_FIELD_NUMBER: _builtins.int
+    UNIT_FIELD_NUMBER: _builtins.int
+    ROLE_FIELD_NUMBER: _builtins.int
+    WRITABLE_FIELD_NUMBER: _builtins.int
+    MINIMUM_FIELD_NUMBER: _builtins.int
+    MAXIMUM_FIELD_NUMBER: _builtins.int
+    DESCRIPTION_FIELD_NUMBER: _builtins.int
+    SOURCE_FIELD_NUMBER: _builtins.int
+
+    point_id: _builtins.str
+    business_point_id: _builtins.str
+    data_type: _builtins.str
+    unit: _builtins.str
+    role: _builtins.str
+    writable: _builtins.bool
+    minimum: _builtins.float
+    maximum: _builtins.float
+    description: _builtins.str
+    source: _builtins.str
+    def __init__(
+        self,
+        *,
+        point_id: _builtins.str = ...,
+        business_point_id: _builtins.str = ...,
+        data_type: _builtins.str = ...,
+        unit: _builtins.str = ...,
+        role: _builtins.str = ...,
+        writable: _builtins.bool = ...,
+        minimum: _builtins.float | None = ...,
+        maximum: _builtins.float | None = ...,
+        description: _builtins.str = ...,
+        source: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["minimum", b"minimum", "maximum", b"maximum"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["point_id", b"point_id", "business_point_id", b"business_point_id", "data_type", b"data_type", "unit", b"unit", "role", b"role", "writable", b"writable", "minimum", b"minimum", "maximum", b"maximum", "description", b"description", "source", b"source"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _builtins.str) -> _builtins.str | None: ...
+
+Global___ModelVariable: _TypeAlias = ModelVariable  # noqa: Y015
+
+@_typing.final
+class ListVariablesResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    VARIABLES_FIELD_NUMBER: _builtins.int
+    NEXT_PAGE_TOKEN_FIELD_NUMBER: _builtins.int
+    POINT_TABLE_VERSION_FIELD_NUMBER: _builtins.int
+    GENERATION_STATE_FIELD_NUMBER: _builtins.int
+
+    variables: _containers.RepeatedCompositeFieldContainer[ModelVariable]
+    next_page_token: _builtins.str
+    point_table_version: _builtins.str
+    generation_state: _builtins.str
+    def __init__(
+        self,
+        *,
+        variables: _abc.Iterable[ModelVariable] = ...,
+        next_page_token: _builtins.str = ...,
+        point_table_version: _builtins.str = ...,
+        generation_state: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["variables", b"variables", "next_page_token", b"next_page_token", "point_table_version", b"point_table_version", "generation_state", b"generation_state"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListVariablesResponse: _TypeAlias = ListVariablesResponse  # noqa: Y015
+
+@_typing.final
+class VariableUpdate(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    POINT_ID_FIELD_NUMBER: _builtins.int
+    VALUE_FIELD_NUMBER: _builtins.int
+
+    point_id: _builtins.str
+    value: _common_pb2.ScalarValue
+    def __init__(
+        self,
+        *,
+        point_id: _builtins.str = ...,
+        value: _common_pb2.ScalarValue = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["point_id", b"point_id", "value", b"value"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___VariableUpdate: _TypeAlias = VariableUpdate  # noqa: Y015
+
+@_typing.final
+class UpdateVariablesRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    GENERATION_ID_FIELD_NUMBER: _builtins.int
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+    VALUES_FIELD_NUMBER: _builtins.int
+
+    generation_id: _builtins.str
+    device_id: _builtins.str
+    request_id: _builtins.str
+    values: _containers.RepeatedCompositeFieldContainer[VariableUpdate]
+    def __init__(
+        self,
+        *,
+        generation_id: _builtins.str = ...,
+        device_id: _builtins.str = ...,
+        request_id: _builtins.str = ...,
+        values: _abc.Iterable[VariableUpdate] = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["generation_id", b"generation_id", "device_id", b"device_id", "request_id", b"request_id", "values", b"values"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___UpdateVariablesRequest: _TypeAlias = UpdateVariablesRequest  # noqa: Y015
+
+@_typing.final
+class UpdateVariablesResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    ACCEPTED_FIELD_NUMBER: _builtins.int
+    EFFECTIVE_STEP_FIELD_NUMBER: _builtins.int
+    ERROR_CODE_FIELD_NUMBER: _builtins.int
+    MESSAGE_FIELD_NUMBER: _builtins.int
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+
+    accepted: _builtins.bool
+    effective_step: _builtins.int
+    error_code: _builtins.str
+    message: _builtins.str
+    request_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        accepted: _builtins.bool = ...,
+        effective_step: _builtins.int = ...,
+        error_code: _builtins.str = ...,
+        message: _builtins.str = ...,
+        request_id: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["accepted", b"accepted", "effective_step", b"effective_step", "error_code", b"error_code", "message", b"message", "request_id", b"request_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___UpdateVariablesResponse: _TypeAlias = UpdateVariablesResponse  # noqa: Y015

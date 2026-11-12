@@ -65,6 +65,16 @@ class DataGeneratorServiceStub:
                 request_serializer=contracts_dot_data__generator__pb2.StopGenerationRequest.SerializeToString,
                 response_deserializer=contracts_dot_data__generator__pb2.StopGenerationResponse.FromString,
                 _registered_method=True)
+        self.ListVariables = channel.unary_unary(
+                '/windhub.data_generator.v1.DataGeneratorService/ListVariables',
+                request_serializer=contracts_dot_data__generator__pb2.ListVariablesRequest.SerializeToString,
+                response_deserializer=contracts_dot_data__generator__pb2.ListVariablesResponse.FromString,
+                _registered_method=True)
+        self.UpdateVariables = channel.unary_unary(
+                '/windhub.data_generator.v1.DataGeneratorService/UpdateVariables',
+                request_serializer=contracts_dot_data__generator__pb2.UpdateVariablesRequest.SerializeToString,
+                response_deserializer=contracts_dot_data__generator__pb2.UpdateVariablesResponse.FromString,
+                _registered_method=True)
 
 
 class DataGeneratorServiceServicer:
@@ -106,6 +116,16 @@ class DataGeneratorServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListVariables(self, request, context):
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateVariables(self, request, context):
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DataGeneratorServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -138,6 +158,16 @@ def add_DataGeneratorServiceServicer_to_server(servicer, server):
                     servicer.StopGeneration,
                     request_deserializer=contracts_dot_data__generator__pb2.StopGenerationRequest.FromString,
                     response_serializer=contracts_dot_data__generator__pb2.StopGenerationResponse.SerializeToString,
+            ),
+            'ListVariables': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListVariables,
+                    request_deserializer=contracts_dot_data__generator__pb2.ListVariablesRequest.FromString,
+                    response_serializer=contracts_dot_data__generator__pb2.ListVariablesResponse.SerializeToString,
+            ),
+            'UpdateVariables': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateVariables,
+                    request_deserializer=contracts_dot_data__generator__pb2.UpdateVariablesRequest.FromString,
+                    response_serializer=contracts_dot_data__generator__pb2.UpdateVariablesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -302,6 +332,60 @@ class DataGeneratorService:
             '/windhub.data_generator.v1.DataGeneratorService/StopGeneration',
             contracts_dot_data__generator__pb2.StopGenerationRequest.SerializeToString,
             contracts_dot_data__generator__pb2.StopGenerationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListVariables(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.data_generator.v1.DataGeneratorService/ListVariables',
+            contracts_dot_data__generator__pb2.ListVariablesRequest.SerializeToString,
+            contracts_dot_data__generator__pb2.ListVariablesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateVariables(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.data_generator.v1.DataGeneratorService/UpdateVariables',
+            contracts_dot_data__generator__pb2.UpdateVariablesRequest.SerializeToString,
+            contracts_dot_data__generator__pb2.UpdateVariablesResponse.FromString,
             options,
             channel_credentials,
             insecure,

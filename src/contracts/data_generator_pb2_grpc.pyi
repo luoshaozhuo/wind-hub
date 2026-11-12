@@ -39,6 +39,10 @@ class DataGeneratorServiceStub:
     StartGeneration: _grpc.UnaryUnaryMultiCallable[_data_generator_pb2.StartGenerationRequest, _data_generator_pb2.StartGenerationResponse]
     StopGeneration: _grpc.UnaryUnaryMultiCallable[_data_generator_pb2.StopGenerationRequest, _data_generator_pb2.StopGenerationResponse]
 
+    ListVariables: _grpc.UnaryUnaryMultiCallable[_data_generator_pb2.ListVariablesRequest, _data_generator_pb2.ListVariablesResponse]
+
+    UpdateVariables: _grpc.UnaryUnaryMultiCallable[_data_generator_pb2.UpdateVariablesRequest, _data_generator_pb2.UpdateVariablesResponse]
+
 @_typing.type_check_only
 class DataGeneratorServiceAsyncStub(DataGeneratorServiceStub):
     def __init__(self, channel: _aio.Channel) -> None: ...
@@ -48,6 +52,10 @@ class DataGeneratorServiceAsyncStub(DataGeneratorServiceStub):
     GetGeneration: _aio.UnaryUnaryMultiCallable[_common_pb2.ObjectId, _data_generator_pb2.GetGenerationResponse]  # type: ignore[assignment]
     StartGeneration: _aio.UnaryUnaryMultiCallable[_data_generator_pb2.StartGenerationRequest, _data_generator_pb2.StartGenerationResponse]  # type: ignore[assignment]
     StopGeneration: _aio.UnaryUnaryMultiCallable[_data_generator_pb2.StopGenerationRequest, _data_generator_pb2.StopGenerationResponse]  # type: ignore[assignment]
+
+    ListVariables: _aio.UnaryUnaryMultiCallable[_data_generator_pb2.ListVariablesRequest, _data_generator_pb2.ListVariablesResponse]  # type: ignore[assignment]
+
+    UpdateVariables: _aio.UnaryUnaryMultiCallable[_data_generator_pb2.UpdateVariablesRequest, _data_generator_pb2.UpdateVariablesResponse]  # type: ignore[assignment]
 
 class DataGeneratorServiceServicer(metaclass=_abc_1.ABCMeta):
     @_abc_1.abstractmethod
@@ -91,5 +99,19 @@ class DataGeneratorServiceServicer(metaclass=_abc_1.ABCMeta):
         request: _data_generator_pb2.StopGenerationRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_data_generator_pb2.StopGenerationResponse, _abc.Awaitable[_data_generator_pb2.StopGenerationResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ListVariables(
+        self,
+        request: _data_generator_pb2.ListVariablesRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_data_generator_pb2.ListVariablesResponse, _abc.Awaitable[_data_generator_pb2.ListVariablesResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def UpdateVariables(
+        self,
+        request: _data_generator_pb2.UpdateVariablesRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_data_generator_pb2.UpdateVariablesResponse, _abc.Awaitable[_data_generator_pb2.UpdateVariablesResponse]]: ...
 
 def add_DataGeneratorServiceServicer_to_server(servicer: DataGeneratorServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...
