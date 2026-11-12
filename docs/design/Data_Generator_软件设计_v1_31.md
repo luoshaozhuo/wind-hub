@@ -2400,7 +2400,7 @@ $$
 \omega_{r,\rm opt}=\frac{\lambda_{\rm opt}v_e}{R},\qquad
 K_{\rm opt}=\frac{\rho A R^3 C_{p,\rm opt}}{2\lambda_{\rm opt}^3},\qquad
 T_{g,\rm opt}=\frac{K_{\rm opt}\omega_r^2}{N}.
-\tag{10-30}
+\tag{10-14}
 $$
 
 在最优转速模式，转矩目标取 $T_{g,\rm opt}$ 并经转矩/额定功率上限裁剪。该平方律是最优转速的简化转矩跟踪策略；实际角速度仍严格由式 (10-11) 的机械动力学积分，**不允许将风速直接赋给转速**。恒功率模式将可用范围内的有功需求转换为发电机目标反转矩，限功率模式将额定能力和限功率设定共同作为上界：
@@ -2416,10 +2416,10 @@ P_{\rm available},&\text{最优转速模式},\\
 T_{g,*}=\operatorname{clip}\!\left(
 \frac{P_*}{\eta_g\eta_c\max(\omega_g,\varepsilon_\omega)},0,T_{g,\max}
 \right).
-\tag{10-31}
+\tag{10-15}
 $$
 
-$P_{\rm demand}$ 为外部有功需求(W)，$P_{\rm limit}$ 为外部有功限制(W)，$P_{\rm available}$ 为按本步气象、机组状态、机械与电气约束估算的可发有功上限(W)；切入/切出或保护态为零。式 (10-31) 仅用于恒功率和限功率模式的转矩目标，最优转速模式始终使用式 (10-30) 的平方律目标。三个模式最终都经式 (10-12) 更新**同一个**实际发电机转矩，再由传动链得到实际有功。恒功率是**尽力跟踪目标**，低风速或额定约束下必须如实报告未满足功率，不可凭空补足。限功率模式在风功率充裕时通过减小发电机转矩目标与增大桨距抑制超速；若仅减小电磁反转矩会使转子加速，必须配合桨距保护和转速调节。
+$P_{\rm demand}$ 为外部有功需求(W)，$P_{\rm limit}$ 为外部有功限制(W)，$P_{\rm available}$ 为按本步气象、机组状态、机械与电气约束估算的可发有功上限(W)；切入/切出或保护态为零。式 (10-15) 仅用于恒功率和限功率模式的转矩目标，最优转速模式始终使用式 (10-14) 的平方律目标。三个模式最终都经式 (10-12) 更新**同一个**实际发电机转矩，再由传动链得到实际有功。恒功率是**尽力跟踪目标**，低风速或额定约束下必须如实报告未满足功率，不可凭空补足。限功率模式在风功率充裕时通过减小发电机转矩目标与增大桨距抑制超速；若仅减小电磁反转矩会使转子加速，必须配合桨距保护和转速调节。
 
 定义配置参数 $\omega_{r,\rm rated}$（额定叶轮角速度，rad/s）、$K_\beta>0$（桨距超速比例增益，s）、$\beta_{\rm feather}$（顺桨目标，rad）和 $\omega_{r,\max}$（最大允许转速，rad/s），简化桨距控制为：
 
@@ -2427,7 +2427,7 @@ $$
 \beta_* = \operatorname{clip}\!\left(
 K_\beta\max(0,\omega_r-\omega_{r,\rm rated}),\beta_{\min},\beta_{\rm feather}
 \right),\qquad 0\le\omega_r\le\omega_{r,\max}.
-\tag{10-32}
+\tag{10-16}
 $$
 
 在低风速或未达额定转速时，桨距趋向最小捕风角；额定以上由桨距伺服按式 (10-10) 限速执行。保护态直接执行配置的安全顺桨逻辑。$\beta_*$ 是统一桨距目标，不是额外开放的外部控制点。编程顺序为：读取**同一时步**气象快照→计算气动→选模式及转矩/桨距目标→更新三桨距与电磁转矩→积分叶轮速度→计算实际有功、无功、电流、可用功率和保护；防止用未来状态形成隐式代数闭环。
@@ -2458,7 +2458,7 @@ $$
 P_{\rm mp}&=\max\left(0,P_{\rm STC}\frac{G}{G_{\rm STC}}
 [1+\gamma_T(\vartheta_c-\vartheta_{\rm STC})]\right).
 \end{aligned}
-\tag{10-14}
+\tag{10-17}
 $$
 
 采用以下**明确的近似功率—电压曲线**（不是实际短路 I–V 特性），并约束 $U_{\rm oc}>U_{\rm mp}>0$：
@@ -2473,7 +2473,7 @@ U/U_{\rm mp},&0\le U<U_{\rm mp},\\
 P_{\rm dc}&=P_{\rm mp}\phi(U_{\rm dc}),\qquad
 I_{\rm dc}=\begin{cases}P_{\rm dc}/U_{\rm dc},&U_{\rm dc}>0,\\0,&U_{\rm dc}=0.\end{cases}
 \end{aligned}
-\tag{10-15}
+\tag{10-18}
 $$
 
 MPPT 开启时目标直流电压取 $U_{\rm mp}$；关闭时取配置的 `dc_voltage_setpoint`。实际电压按式 (10-2) 以 $\tau_{\rm mppt}$ 更新。$U_{\rm mp},U_{\rm oc}$ 随气象条件的变化要么由显式参数曲线规定，要么采用声明的常值近似。
@@ -2481,7 +2481,7 @@ MPPT 开启时目标直流电压取 $U_{\rm mp}$；关闭时取配置的 `dc_vol
 $$
 0\le P_{\rm ac}\le\min(\eta_{\rm inv}P_{\rm dc},P_{\rm ac,rated},P_{\rm command}),\qquad
 |Q|\le\sqrt{\max(0,S_{\rm inv}^2-P_{\rm ac}^2)}.
-\tag{10-16}
+\tag{10-19}
 $$
 
 此处 $P_{\rm ac,rated}$ 是逆变器交流额定有功(W)，$P_{\rm command}$ 是非负有功控制上限(W)，$S_{\rm inv}$ 是额定视在容量(VA)。实际输出可以一阶响应，但每一步仍以**当步**直流可用功率限额，夜间、停机和逆变器故障必须零注入。初值至少包含组件温度、直流电压、MPPT 状态、逆变器运行状态。PV 的组件冷却风速仅来自显式气象绑定，不自动复用任意风机数据。
@@ -2512,10 +2512,10 @@ P_{\rm ac}/\eta_{\rm dis},&P_{\rm ac}\ge0,\\
 \end{cases}\\
 E_{k+1}&=E_k-\Delta t\,P_{\rm dc},\qquad E_{\min}\le E_{k+1}\le E_{\max}.
 \end{aligned}
-\tag{10-17}
+\tag{10-20}
 $$
 
-必须**先**按能量余额限缩交流侧实际功率，**再**执行式 (10-17)；不得积分后仅钳制 SOC 丢失电能。电池电路采用：
+必须**先**按能量余额限缩交流侧实际功率，**再**执行式 (10-20)；不得积分后仅钳制 SOC 丢失电能。电池电路采用：
 
 $$
 \begin{aligned}
@@ -2526,7 +2526,7 @@ P_{\rm dc}/U_{\rm oc},&R_b=0,
 \end{cases}\\
 U_b&=U_{\rm oc}-R_bI_b.
 \end{aligned}
-\tag{10-18}
+\tag{10-21}
 $$
 
 `ocv_curve` 定义 $U_{\rm oc}$ 随 SOC/温度的可插值关系，须满足 $U_{\rm oc}>0$。先检查判别式非负、$U_b>0$、$|I_b|\le I_{\max}$，不满足时缩小本步实际功率再重新求解，不能输出无效根。
@@ -2536,7 +2536,7 @@ $$
 C_b\dot\vartheta_b&=I_b^2R_b-h_b(\vartheta_b-\vartheta_a)-P_{\rm cooling},\\
 SOH_{k+1}&=\max(SOH_{\min},SOH_k-c_{\rm age}|I_b|\Delta t)\quad(\text{启用老化时}).
 \end{aligned}
-\tag{10-19}
+\tag{10-22}
 $$
 
 $SOH_{\min}$ 是配置健康状态下界；老化禁用时 SOH 保持。PCS 先施加充/放电功率、SOC、电压、电流与温度边界，再给出双向有功，最后在同一容量圆内计算无功：
@@ -2544,7 +2544,7 @@ $SOH_{\min}$ 是配置健康状态下界；老化禁用时 SOH 保持。PCS 先�
 $$
 -P_{\rm charge,max}(SOC)\le P_{\rm ac}\le P_{\rm discharge,max}(SOC),\qquad
 |Q|\le\sqrt{\max(0,S_{\rm PCS}^2-P_{\rm ac}^2)}.
-\tag{10-20}
+\tag{10-23}
 $$
 
 $P_{\rm charge,max},P_{\rm discharge,max}$ 是配置导出的当步可用功率(W)，$S_{\rm PCS}$ 是 PCS 额定视在容量(VA)。初始状态至少包含 SOC、SOH、温度、PCS/BMS 运行态；充放电互锁、故障锁存和复位由明确状态机定义，不能交给随机值生成器决定。
@@ -2559,10 +2559,10 @@ P_{\rm demand},&\text{有功需求模式},\\
 \operatorname{clip}\!\left(K_{\rm SOC}(SOC-SOC_*),
 -P_{\rm charge,max},P_{\rm discharge,max}\right),&\text{目标 SOC 模式}.
 \end{cases}
-\tag{10-33}
+\tag{10-24}
 $$
 
-$P_{\rm demand}$ 是有功需求(W)。实际 $P_{\rm ac}$ 再经过 PCS 功率/电流限制、SOC 边界、爬坡和热保护，进入式 (10-17) 能量积分。外部设置目标 SOC **不修改当前 SOC**。如果实际 SOC 低于目标，指令为负（充电）；高于目标则为正（放电）。在目标附近配置 SOC 死区，避免来回切换。
+$P_{\rm demand}$ 是有功需求(W)。实际 $P_{\rm ac}$ 再经过 PCS 功率/电流限制、SOC 边界、爬坡和热保护，进入式 (10-20) 能量积分。外部设置目标 SOC **不修改当前 SOC**。如果实际 SOC 低于目标，指令为负（充电）；高于目标则为正（放电）。在目标附近配置 SOC 死区，避免来回切换。
 
 储能是否允许独立无功补偿由型号参数 `reactive_support_enabled` 决定；具备四象限 PCS 的设备允许 $P_{\rm ac}=0$ 而 $Q\ne0$，但始终满足：
 
@@ -2572,7 +2572,7 @@ Q=\begin{cases}
 \operatorname{clip}\left(Q_*, -\sqrt{S_{\rm PCS}^2-P_{\rm ac}^2},\sqrt{S_{\rm PCS}^2-P_{\rm ac}^2}\right),&\text{支持无功且 PCS 并网},\\
 0,&\text{不支持无功或未并网}.
 \end{cases}
-\tag{10-34}
+\tag{10-25}
 $$
 
 $Q_*$ 为外部无功需求(var)，$S_{\rm PCS}$ 为 PCS 额定视在容量(VA)。不得以此方程假定所有 PCS 均具备无功补偿能力；直流侧能量不足限制有功，不意味着可绕开交流侧电流和运行状态限制。测试须包含零有功无功补偿、容量圆约束、禁用无功、SOC 目标充放电方向和实际 SOC 随时间连续变化。
@@ -2585,13 +2585,13 @@ $$
 P_\Sigma=\sum_{i=1}^{n}P_i,\qquad
 Q_\Sigma=\sum_{i=1}^{n}Q_i,\qquad
 S_\Sigma=\sqrt{P_\Sigma^2+Q_\Sigma^2}.
-\tag{10-21}
+\tag{10-26}
 $$
 
 $$
 U_{LL}\approx U_s+\frac{R_gP_\Sigma+X_gQ_\Sigma}{U_0},\qquad
 I_\Sigma=\frac{S_\Sigma}{\sqrt3\,U_{LL}}\quad(U_{LL}>0).
-\tag{10-22}
+\tag{10-27}
 $$
 
 $R_g,X_g$ 为每相等值电阻、电抗，$P_\Sigma,Q_\Sigma$ 为三相总功率；注入为正时采用上述电压方向约定。电压低于配置边界时进入脱网/保护，不套用小扰动近似。
@@ -2602,7 +2602,7 @@ $$
 f_k=f_{{\rm input},k},\qquad
 \Delta f_k=f_k-f_0,\qquad
 ROCOF_k=\frac{f_k-f_{k-1}}{\Delta t}.
-\tag{10-23}
+\tag{10-28}
 $$
 
 动态频率模式：
@@ -2610,7 +2610,7 @@ $$
 $$
 \frac{2HS_b}{f_0}\frac{\mathrm df}{\mathrm dt}
 =\Delta P-D_f(f-f_0).
-\tag{10-24}
+\tag{10-29}
 $$
 
 $S_b>0$、$H>0$、$f_0>0$；$\Delta P$ 必须由外部发电—负荷失衡明确给定，不能无条件令其等于 $P_\Sigma$。电网在设备输出确定后聚合，PPC 下一步才读取电网输出；故障或断网时不得产生非有限电流值。
@@ -2641,14 +2641,14 @@ flowchart LR
 $$
 L_i=\max(P_{i,\min},P_{i,k}-r_i\Delta t),\qquad
 H_i=\min(P_{i,\max},P_{i,k}+r_i\Delta t).
-\tag{10-25}
+\tag{10-30}
 $$
 
 $$
 P_{i,\rm AGC}=\operatorname{clip}(L_i+\alpha w_i,L_i,H_i),\qquad
 \sum_iP_{i,\rm AGC}=
 \operatorname{clip}\!\left(P_{\rm AGC,set},\sum_iL_i,\sum_iH_i\right).
-\tag{10-26}
+\tag{10-31}
 $$
 
 对于 $w_i>0$ 的参与设备，$\alpha$ 由固定设备排序和容差的单调水位求解；$w_i=0$ 不参与增量分配，需确保其基准值也明确。无可行解或设定超过总上/下界时记录 `unserved_power_command`，不得伪称已完成调度。
@@ -2660,14 +2660,14 @@ Q_{\rm req}=\begin{cases}
 Q_{\rm AVC,set},&\text{无功模式},\\
 \operatorname{clip}\!\left(K_U(U_{\rm set}-U_{LL}),Q_{\min},Q_{\max}\right),&\text{电压模式}.
 \end{cases}
-\tag{10-27}
+\tag{10-32}
 $$
 
 其中 $Q_{\min},Q_{\max}$ 为电厂可分配无功边界(var)，需从参与设备的真实可用容量聚合。设备容量限制为：
 
 $$
 |Q_i|\le\sqrt{\max(0,S_{i,\rm rated}^2-P_i^2)}.
-\tag{10-28}
+\tag{10-33}
 $$
 
 频率偏差 $\Delta f=f-f_0$，FFR 原始增量为：
@@ -2679,7 +2679,7 @@ $$
 0,&|\Delta f|\le d_f,\\
 -K_f(\Delta f+d_f),&\Delta f<-d_f.
 \end{cases}
-\tag{10-29}
+\tag{10-34}
 $$
 
 FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无上调裕量时不得凭空增加功率。AGC、AVC、FFR 的指令输出是**设定值**，电厂实际反馈必须由各设备实际执行值聚合得到。跟踪误差、未服务目标和恢复过程均应暴露为相应已登记的数据点。初始状态包括各控制模式、使能、上次分配值和反馈快照。
