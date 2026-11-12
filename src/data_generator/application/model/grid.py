@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from data_generator.application.physical.common import (
+from data_generator.application.model.common import (
     apparent,
     finite_outputs,
     number,

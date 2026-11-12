@@ -14,14 +14,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from data_generator.application.models import generate_values
-from data_generator.application.physical.engine import PhysicalEngine
-from data_generator.application.physical.inputs import (
+from data_generator.application.physical_engine import PhysicalEngine
+from data_generator.application.model.inputs import (
     WEATHER_INPUTS,
     validate_input,
     validate_weather_input,
     writable_inputs,
 )
-from data_generator.application.random_rules import generate as generate_configured_random
+from data_generator.application.model.random import generate as generate_configured_random
 from data_generator.application.replay import decode_value, iter_records, replay_deadline
 from data_generator.domain.model import (
     DataBatch,
@@ -32,7 +32,7 @@ from data_generator.domain.model import (
     Scalar,
 )
 from data_generator.domain.scenario import Scenario, Settings, resolve_history
-from data_generator.ports.output import OutputPort
+from data_generator.application.port.output import OutputPort
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
-from data_generator.application.physical.common import (
+from data_generator.application.model.common import (
     apparent,
     clamp,
     finite_outputs,
@@ -13,7 +13,7 @@ from data_generator.application.physical.common import (
     positive,
     response,
 )
-from data_generator.application.physical.weather import Weather
+from data_generator.application.model.weather import Weather
 from data_generator.domain.model import GeneratorError
 
 

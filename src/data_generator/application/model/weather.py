@@ -8,7 +8,7 @@ import random
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from data_generator.application.physical.common import (
+from data_generator.application.model.common import (
     as_mapping,
     clamp,
     number,

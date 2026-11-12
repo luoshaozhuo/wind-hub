@@ -22,7 +22,7 @@ from configuration.shared_snapshot import (
 )
 from core.domain import DeviceId
 from data_generator.application.models import interpolation_table, random_value
-from data_generator.application.random_rules import validate_rule
+from data_generator.application.model.random import validate_rule
 from data_generator.domain.model import GeneratorError, OutputMapping, OutputTarget
 from data_generator.domain.scenario import Scenario, Settings
 
@@ -436,7 +436,7 @@ def load_settings(service_path: Path) -> Settings:
         if any(
             definition.get("kind") == "physical" for definition in models.values()
         ):
-            from data_generator.application.physical.engine import PhysicalEngine
+            from data_generator.application.physical_engine import PhysicalEngine
 
             PhysicalEngine(scenarios[scenario_id])
     payload = json.dumps(

@@ -5,13 +5,13 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
-from data_generator.application.physical.bess import BESS
-from data_generator.application.physical.common import as_mapping, number
-from data_generator.application.physical.grid import Grid
-from data_generator.application.physical.ppc import PPC
-from data_generator.application.physical.pv import PV
-from data_generator.application.physical.turbine import Turbine
-from data_generator.application.physical.weather import Weather, WeatherModel
+from data_generator.application.model.bess import BESS
+from data_generator.application.model.common import as_mapping, number
+from data_generator.application.model.grid import Grid
+from data_generator.application.model.ppc import PPC
+from data_generator.application.model.pv import PV
+from data_generator.application.model.turbine import Turbine
+from data_generator.application.model.weather import Weather, WeatherModel
 from data_generator.domain.model import GeneratorError, Scalar, validate_scalar
 from data_generator.domain.scenario import Scenario
 

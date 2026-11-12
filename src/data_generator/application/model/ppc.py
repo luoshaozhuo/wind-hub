@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
-from data_generator.application.physical.common import clamp, finite_outputs, number
+from data_generator.application.model.common import clamp, finite_outputs, number
 from data_generator.domain.model import GeneratorError
 
 
