@@ -1,5 +1,21 @@
-# Industrial Gateway v1 service-only configuration.
-# All devices, protocol parameters and point tables are read from shared documents.
+# Industrial Gateway Service v1.1.0 — per-Server control routing.
+# config_sources.instances.devices: explicitly choose devices.yaml for real devices
+#   or devices_sim.yaml for simulation; never merge these inventories implicitly.
+# grpc: Gateway management listener, separate from industrial protocol Server ports.
+# servers[]: one device per protocol listener; IDs and ports must be unique.
+# servers[].control.enabled: false by default in this safe example.
+# servers[].control.target.kind: none | commander | data_generator.
+#   none has no outbound command execution; disable control and leave mappings empty.
+#   commander: specify endpoint, optional loopback plaintext TLS configuration,
+#     request_timeout_ms (1..60000), queue_capacity (1..65536), max_inflight (1..256).
+#   data_generator: requires mTLS client cert/key/CA and generation_binding.scenario_id;
+#     current running Generation is resolved dynamically, never hard-coded.
+# servers[].control.mappings: variable_id is a writable industrial protocol point;
+#   target_point_id is authorized by Commander or Generator target; IDs unique.
+#   Normal Gateway gRPC variable injection never invokes protocol-write callbacks.
+# A successful industrial protocol ACK does not mean outbound command accepted.
+# Forwarding is best-effort, bounded and non-persistent; no retry on unknown result.
+# All target credentials and trust roots must be provisioned by deployment.
 schema_version: 1
 file_version: "1.1.0"
 
