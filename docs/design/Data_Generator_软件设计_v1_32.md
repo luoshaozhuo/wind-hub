@@ -2469,7 +2469,7 @@ $$
 
 ### 10.5.7 储能固定物理模型
 
-**适用边界**：等效能量状态、目标 SOC 或有功需求两种可配置模式、简化 OCV—内阻直流电路、PCS 双向效率和一阶热模型。不模拟单体不一致、复杂电化学扩散和真实老化寿命预测。
+**适用边界**：内部化学储能、目标 SOC 或有功需求两种互斥模式、简化 OCV—内阻直流电路、PCS 双向效率和一阶热模型。不模拟单体不一致、复杂电化学扩散和真实老化寿命预测。
 
 ```mermaid
 flowchart LR
@@ -2491,12 +2491,12 @@ P_{\rm dc}&=\begin{cases}
 P_{\rm ac}/\eta_{\rm dis},&P_{\rm ac}\ge0,\\
 \eta_{\rm ch}P_{\rm ac},&P_{\rm ac}<0,
 \end{cases}\\
-E_{k+1}&=E_k-\Delta t\,P_{\rm dc},\qquad E_{\min}\le E_{k+1}\le E_{\max}.
+E_{k+1}&=E_k-\Delta t\,U_{\rm oc}I_b,\qquad E_{\min}\le E_{k+1}\le E_{\max}.
 \end{aligned}
 \tag{10-20}
 $$
 
-必须**先**按能量余额限缩交流侧实际功率，**再**执行式 (10-20)；不得积分后仅钳制 SOC 丢失电能。电池电路采用：
+$E$ 是电池内部等效化学储能，不是端口电能累计。端口功率为 $P_{\rm dc}=U_bI_b$，内部化学功率为 $U_{\rm oc}I_b=P_{\rm dc}+I_b^2R_b$；内阻热耗散必须计入化学能下降（充电时也减少净储能增加量）。$\eta_{\rm ch},\eta_{\rm dis}$ **仅代表 PCS 交流/直流变换效率**，电池内阻损耗不再重复计算为效率。必须**先**按端口、电流、化学能余额限缩实际功率，**再**积分式 (10-20)；不得事后钳制 SOC。电池电路采用：
 
 $$
 \begin{aligned}
@@ -2510,7 +2510,7 @@ U_b&=U_{\rm oc}-R_bI_b.
 \tag{10-21}
 $$
 
-`ocv_curve` 定义 $U_{\rm oc}$ 随 SOC/温度的可插值关系，须满足 $U_{\rm oc}>0$。先检查判别式非负、$U_b>0$、$|I_b|\le I_{\max}$，不满足时缩小本步实际功率再重新求解，不能输出无效根。
+`ocv_curve` 定义 $U_{\rm oc}$ 随 SOC/温度的可插值关系，须满足 $U_{\rm oc}>0$。先检查判别式非负、$U_b>0$、$|I_b|\le I_{\max}$，并验证预测能量 $E_k-\Delta t U_{\rm oc}I_b\in[E_{\min},E_{\max}]$；不满足时按固定容差缩小实际 $P_{\rm ac}$，重算端口功率、电流和 SOC 变化，直到可行或判定本步无可用功率。不得输出无效根或在积分后裁剪掩盖能量差。
 
 $$
 \begin{aligned}
@@ -2532,7 +2532,7 @@ $P_{\rm charge,max},P_{\rm discharge,max}$ 是配置导出的当步可用功率(
 
 #### 储能目标 SOC 控制与 PCS 无功能力
 
-储能运行策略在配置中选择 `power_demand`（跟踪有功需求）或 `soc_target`（跟踪目标 SOC）；这两个目标均可由外部写入，但任一时刻只有当前策略对应的设定参与功率计算。$SOC_*$ 是目标荷电状态（0～1），$K_{\rm SOC}>0$ 是 SOC 比例调节系数（W），$P_{\rm charge,max}$、$P_{\rm discharge,max}$ 分别为实际可充/放功率上限（W）：
+储能运行策略在配置中选择 `power_demand`（有功需求）或 `soc_target`（目标 SOC）；两种设定可预先写入，但**只有配置中选定的策略具有执行权**，不因写入某个点而隐式切换策略。若加入 PPC 调度，须按场景配置唯一确定本地或 PPC 的有功来源，禁止双重叠加。$SOC_*$ 是目标荷电状态（0～1），$K_{\rm SOC}>0$ 是 SOC 比例调节系数（W），$P_{\rm charge,max}$、$P_{\rm discharge,max}$ 分别为实际可充/放功率上限（W）：
 
 $$
 P_*=\begin{cases}
@@ -2543,7 +2543,7 @@ P_{\rm demand},&\text{有功需求模式},\\
 \tag{10-24}
 $$
 
-$P_{\rm demand}$ 是有功需求(W)。实际 $P_{\rm ac}$ 再经过 PCS 功率/电流限制、SOC 边界、爬坡和热保护，进入式 (10-20) 能量积分。外部设置目标 SOC **不修改当前 SOC**。如果实际 SOC 低于目标，指令为负（充电）；高于目标则为正（放电）。在目标附近配置 SOC 死区，避免来回切换。
+$P_{\rm demand}$ 是有功需求(W)。实际 $P_{\rm ac}$ 经 PCS 功率/电流、SOC 边界、爬坡及热保护约束后，进入式 (10-20) 的化学储能积分。外部设置目标 SOC **不修改当前 SOC**。如果实际 SOC 低于目标，指令为负（充电）；高于目标则为正（放电）。在目标附近配置 SOC 死区，避免来回切换。
 
 储能是否允许独立无功补偿由型号参数 `reactive_support_enabled` 决定；具备四象限 PCS 的设备允许 $P_{\rm ac}=0$ 而 $Q\ne0$，但始终满足：
 
@@ -2665,113 +2665,17 @@ $$
 
 FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无上调裕量时不得凭空增加功率。AGC、AVC、FFR 的指令输出是**设定值**，电厂实际反馈必须由各设备实际执行值聚合得到。跟踪误差、未服务目标和恢复过程均应暴露为相应已登记的数据点。初始状态包括各控制模式、使能、上次分配值和反馈快照。
 
-### 10.5.10 模型配置、初始状态与输入生命周期
+### 10.5.10 模型输入和状态生效规则
 
-本节新增结构均为**待编码的目标设计**，不得误认为当前 Data Generator 已解析该 Schema。
+每个 Generation 固定绑定已生效的场景版本、设备点表、型号参数、气象场景及初始状态。运行时只接纳 §10.6 明确为外部可控的变量；配置参数一律通过 §11 的配置流程修改，不能伪装成实时控制输入。模型输入在 `effective_step` 的边界原子安装；停止、更换或重启 Generation 时禁止旧命令写入新运行实例。随机模型不需要设备方程，物理模型只能采用已登记的五类固定简化方程。
 
-| 位置 | 内容 |
-|---|---|
-| `configs/instances/devices_sim.yaml` | 仿真设备实例；同 `devices.yaml` Schema |
-| `configs/templates/device_models/*sim*.yaml` | 仿真型号/协议/点表版本引用 |
-| `configs/templates/point_tables/modbus_*sim*.yaml` | 完整业务点、类型、地址、单位与缩放 |
-| `configs/templates/business_points.yaml`、`units.yaml` | 业务含义与单位字典 |
-| `configs/instances/data-generator.yaml` | Generation、随机规则、物理模型、气象场景、设备绑定、初值、种子与时间步 |
-| `configs/services/data_generator.yaml` | 服务接口、认证、配额、指标与安全退出 |
+### 10.5.11 控制接口与配置的权威出处
 
-#### 模型配置示例
+运行时变量发现、批量输入更新、幂等和权限见 §9；配置文件路径、目标 Schema 与 Push/Apply 生效见 §11；Modbus PointTable、模型参数清单及业务控制权限见 §10.6。此处不重复定义 RPC、配置字段或点位元数据。
 
-```yaml
-# 目标 Schema：采用两个明确互斥的模型族
-source:
-  kind: simulation
-  interval_seconds: 0.05
-models:
-  random-telemetry:
-    kind: random
-    seed: 42
-    rules_ref: models/random-telemetry.yaml
-  wtg-2mw-example:
-    kind: physical
-    device_kind: wtg
-    parameters_ref: models/wtg-2mw-example.yaml
-    weather_ref: weather-site-a
-weather:
-  weather-site-a:
-    wind:
-      wind_seed: 42
-      wind_correlation_time_s: 10.0
-      wind_speed_mean: 10.0
-      turbulence_intensity: 0.12
-    irradiance:
-      sunrise_s: 21600
-      sunset_s: 64800
-      irradiance_clear_w_m2: 1000.0
-      cloud_mode: constant
-      cloud_factor_target: 0.8
-    ambient_temperature:
-      temperature_mean_c: 20.0
-      diurnal_amplitude_k: 5.0
-      phase_rad: 0.0
-      temperature_seed: 43
-      temperature_tau_s: 1800.0
-      temperature_sigma_k: 0.5
-devices:
-  - device_id: WTG_SIM01
-    model_ref: wtg-2mw-example
-    input_bindings: [wind_speed_mean, wind_direction, active_power_setpoint]
-  - device_id: GRID_SIM01
-    model_ref: random-telemetry
-```
+### 10.5.12 物理模型编码不变量
 
-每个物理设备的参数必须提供可执行范围、初值和状态/点位映射：
-
-| 固定模型 | 必需模型参数及状态 |
-|---|---|
-| 风机 | `rotor_radius_m,cp_curve,rotor_inertia, generator_inertia,gear_ratio,damping,torque_tau,converter_efficiency,pitch_limits,pitch_rate,cut_in_speed,cut_out_speed`；初值：三桨距、偏航、转速、转矩、温度和运行态 |
-| 光伏 | `dc_peak_power,irradiance_stc,temperature_coefficient,noct,umpp,uoc,mppt_tau,inverter_efficiency`；初值：组件温度、直流电压、逆变器态 |
-| 储能 | `rated_energy,soc_limits,ocv_curve,internal_resistance,pcs_charge/discharge_efficiency,current_limits,thermal_parameters`；初值：SOC、SOH、温度及 BMS/PCS 态 |
-| 电网 | `voltage_base,source_voltage,grid_r,grid_x,frequency_mode,nominal_frequency`；初值：电压、频率/保护状态 |
-| PPC | `participating_devices,weights,agc_ramp,avc_mode,ffr_droop,ffr_deadband`；初值：控制模式、分配及反馈 |
-| 气象 | 风速相关/种子/状态、光照昼夜/遮云、气温日周期/扰动的本节各项参数 |
-
-初值和参数未给出时按 Schema 报错，不得凭空生成厂商参数；示例数值只为测试场景，不作为所有设备的出厂默认值。无效时间常数、非有限数、负惯量、无效 OCV 曲线、重叠点地址、未知数据点和输出类型不匹配均阻止启动。
-
-仅第 10.6 节列为外部可控的输入由 `UpdateVariables` 原子写入模型输入快照，在 `effective_step` 生效。角色为 `state`/`output` 的量不允许外部改写。失效输入须选择 `hold|fail|fallback` 并声明超时和恢复规则；Generation 停止、重启或切换时必须保留 fencing 边界，不接受旧 Generation 的迟到命令。输出经 Gateway `ClaimTargets/UpdateVariables` 批量注入同一时戳测量结果，不触发现场工业控制指令转发。
-
-### 10.5.11 Data Generator 变量发现及更新接口
-
-新增 `DataGeneratorService.ListVariables` 与 `DataGeneratorService.UpdateVariables`，总计 8 个业务 RPC。变量发现按 `generation_id + device_id` 返回 `point_id,business_point_id,data_type,unit,role,writable,min,max,description,point_table_version`；可写性由生效模型和输入绑定决定，而不是从寄存器属性猜测。
-
-`UpdateVariables` 接收 `generation_id,device_id,request_id,repeated(point_id,ScalarValue)`；整批验证并原子提交、禁止重复点 ID、禁止更改派生输出、记录 `effective_step`，对请求摘要与 `request_id` 提供稳定幂等语义。超时结果未知时应使用原 `request_id` 重试查询一致结果。Generator 的输入注入授权与 Commander 的真实设备控制权限隔离。
-
-### 10.5.12 编码实现顺序与验收矩阵
-
-```mermaid
-flowchart TD
-  A["解析设备实例与点表"] --> B{"选择模型族"}
-  B -->|random| C["检查每点类型与随机规则"]
-  B -->|physical| D["检查设备类别、气象绑定及固定参数"]
-  C --> E["确定性逐点采样"]
-  D --> F["气象 → 控制 → 设备 → 电网计算"]
-  E --> G["统一类型、值域、时间戳校验"]
-  F --> G
-  G --> H["同一步样本批注入 Gateway"]
-```
-
-<p class="figure-caption">图 10-8 两类模型共用输出校验与 Gateway 注入</p>
-
-| 验收对象 | 最低必须覆盖的验证 |
-|---|---|
-| 通用随机模型 | 任意设备/点表扩展无需改代码；各数据类型、分布参数和权重合法性；无规则时拒绝/省略语义；越界重采样上限；设备间 PRNG 隔离；种子复现 |
-| 气象 | 恒风及零湍流度；风速期望/标准差/相关性；平均风速和湍流度步边界更新；昼夜零辐照、午间值、遮云变化；气温日周期/噪声；场景绑定隔离 |
-| 风机 | $C_p$ 有界；气动功率/转矩、三桨距、偏航、转矩和转速能量余额；容量圆、切入/切出、停机、热保护；同一步 P 与转矩一致 |
-| 光伏 | 夜间零输出；温度和辐照变化；MPPT 响应；DC 能量、逆变器效率及视在容量边界；故障停机 |
-| 储能 | 充放电方向、SOC 边界前置限功率、电能平衡、OCV 有效根、电流上限、热/老化开关、PCS 容量圆、保护锁存 |
-| 电网 | 三相聚合与 R/X 电压符号；外生/动态频率互斥；ROCOF；断网无除零；反馈延迟 |
-| PPC | AGC 可行域和不可满足量、AVC 模式互斥和容量分配、FFR 死区/下垂、SOC/风光可用能力及爬坡约束 |
-| 共同契约 | 真实/仿真设备文件同 Schema；业务点及单位引用完整；原子更新、步号/时间戳一致、角色权限、幂等、fencing、Gateway 回写及同种子可复现 |
-
-**编码完成判据**：每个物理设备模型必须具有完整的参数 Schema、初始状态、状态更新方程、派生输出映射、异常与保护转换、单位/值域检查和对应测试。公式的数值正确性使用量纲明确的误差公差与守恒残差检验，不以“能产生数值”替代模型验收。
+物理模型须保持：同一步时间戳与确定性随机流；风机的转矩—转速—功率一致性；光伏直流/交流能量界限；储能化学能、端口功率与内阻热损耗守恒；电网三相有功/无功聚合；PPC 设定与实际反馈分离；所有设备限幅及保护前置。具体单测、系统测试和追溯以 §13～§14 为准，不在本章维护第二份测试矩阵。
 
 ## 10.6 气象、配置参数与 Modbus 点表的独立契约
 
