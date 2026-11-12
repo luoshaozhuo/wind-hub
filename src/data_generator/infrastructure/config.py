@@ -22,6 +22,7 @@ from configuration.shared_snapshot import (
 )
 from core.domain import DeviceId
 from data_generator.application.models import interpolation_table, random_value
+from data_generator.application.random_rules import validate_rule
 from data_generator.domain.model import GeneratorError, OutputMapping, OutputTarget
 from data_generator.domain.scenario import Scenario, Settings
 
@@ -139,17 +140,13 @@ def _configured_model_points(
                 if not isinstance(rules, dict) or point_id not in rules:
                     raise GeneratorError(f"{device_id}: missing random rule for {point_id}")
                 rule = rules[point_id]
-                if not isinstance(rule, dict) or rule.get("distribution") != "uniform":
+                if not isinstance(rule, dict):
                     raise GeneratorError(f"{device_id}: invalid random rule")
-                metadata["model"] = {
-                    "kind": "random",
-                    "distribution": "uniform",
-                    "minimum": rule.get("min", rule.get("minimum")),
-                    "maximum": rule.get("max", rule.get("maximum")),
-                }
-                random_value(0, device_id, point_id, 1, {
-                    **metadata["model"], "data_type": metadata["data_type"]
-                })
+                validate_rule(rule, str(metadata["data_type"]))
+                seed = definition.get("seed", 0)
+                if type(seed) is not int:
+                    raise GeneratorError("random model seed must be integer")
+                metadata["model"] = {"kind": "random", "seed": seed, **rule}
             points[key] = metadata
         devices.append(device_id)
         bindings[device_id] = dict(binding)

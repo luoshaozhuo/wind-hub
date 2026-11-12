@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 
 from data_generator.application.models import generate_values
 from data_generator.application.physical.engine import PhysicalEngine
+from data_generator.application.random_rules import generate as generate_configured_random
 from data_generator.application.replay import decode_value, iter_records, replay_deadline
 from data_generator.domain.model import (
     DataBatch,
@@ -357,14 +358,17 @@ class Runtime:
             lag = max(0.0, began - planned)
             try:
                 if physical is None:
-                    values = generate_values(seed, sequence, scenario.points)
+                    values = (
+                        generate_configured_random(sequence, random_points)
+                        if scenario.models else generate_values(seed, sequence, scenario.points)
+                    )
                 else:
                     values = {}
                     # Reconcile skipped fixed steps without dropping physical state evolution.
                     for index in range(sequence - skipped, sequence + 1):
                         values = physical.advance(interval, index)
                     if random_points:
-                        values.update(generate_values(seed, sequence, random_points))
+                        values.update(generate_configured_random(sequence, random_points))
                 await self._emit(
                     generation,
                     sequence,
