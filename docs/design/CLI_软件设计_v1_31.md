@@ -2489,6 +2489,10 @@ wind-hub config diff ./configs_A ./configs_B
 wind-hub net industrial 192.168.1.100
 ```
 
+## 11.4 Data Generator 配置来源与设备模型展示
+
+CLI 对 Data Generator 的场景查询与启动命令使用 `scenarios` 的服务级配置，设备身份与点元数据来自共享 `devices_sim.yaml` 和 Point Table。配置差异比较不得把旧的独立 Scenario 文件认定为当前服务配置，也不应要求用户在 CLI 再输入逐点 Gateway 输出映射。CLI 不修改设备型号固有物理参数；相关内容由版本化模板配置管理和受权配置写入方维护。
+
 # 12. 关键技术契约
 
 ## 12.1 本地完整配置目录 Diff
@@ -2717,9 +2721,3 @@ lint-imports
 | 本地 TCP/ICMP/端口探测 | 复用 Core 公共探测原语，不重复实现网络 I/O |
 | 配置比较 | 清楚区分文件树字节 Diff 与 Core 共享配置语义 Diff，不混淆状态 |
 | Core/Contracts 接口变更 | 全调用方、测试、配置、注释同步检查；静态检查及系统测试有真实证据 |
-
-
-
-## 11.4 Data Generator 配置来源与设备模型展示
-
-CLI 对 Data Generator 的场景查询与启动命令使用 `scenarios` 的服务级配置，设备身份与点元数据来自共享 `devices_sim.yaml` 和 Point Table。配置差异比较不得把旧的独立 Scenario 文件认定为当前服务配置，也不应要求用户在 CLI 再输入逐点 Gateway 输出映射。CLI 不修改设备型号固有物理参数；相关内容由版本化模板配置管理和受权配置写入方维护。
