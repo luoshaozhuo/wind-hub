@@ -1,0 +1,204 @@
+# 仿真 电网 Modbus TCP 共享点表；仅定义地址/编码，不存放仿真额定参数。
+# 版本化模板。新仿真设备实例单独登记，不复用真实现场点表。
+# input 只读，holding 仅为允许外部控制的模型输入；非控制内部状态不得外写。
+# 32 位值占两个连续寄存器；word_order 由协议模板 modbus_tcp 指定。
+schema_version: 1
+template_id: modbus_grid_sim
+file_version: 1.0.0
+protocol: modbus
+points:
+  grid_frequency:
+    business_point_id: grid_frequency
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 0
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: hertz
+    scale: 1.0
+    offset: 0.0
+    description: "电网频率"
+  frequency_deviation:
+    business_point_id: frequency_deviation
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 2
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: hertz
+    scale: 1.0
+    offset: 0.0
+    description: "频率偏差"
+  frequency_rocof:
+    business_point_id: frequency_rocof
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 4
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: hertz_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "频率变化率"
+  grid_voltage:
+    business_point_id: grid_voltage
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 6
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: volt
+    scale: 1.0
+    offset: 0.0
+    description: "PCC线电压"
+  voltage_deviation:
+    business_point_id: sim_voltage_deviation
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 8
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: volt
+    scale: 1.0
+    offset: 0.0
+    description: "母线电压偏差"
+  grid_current:
+    business_point_id: grid_current
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 10
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: ampere
+    scale: 1.0
+    offset: 0.0
+    description: "PCC交流电流"
+  sim_apparent_power:
+    business_point_id: apparent_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 12
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: volt_ampere
+    scale: 1.0
+    offset: 0.0
+    description: "三相视在功率"
+  active_power:
+    business_point_id: sim_active_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 14
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "实际交流有功"
+  reactive_power:
+    business_point_id: sim_reactive_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 16
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: var
+    scale: 1.0
+    offset: 0.0
+    description: "实际交流无功"
+  sim_power_factor:
+    business_point_id: power_factor
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 18
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: power_factor_one
+    scale: 1.0
+    offset: 0.0
+    description: "交流功率因数"
+  grid_status:
+    business_point_id: sim_grid_status
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 20
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "电网连接状态"
+  fault_status:
+    business_point_id: sim_fault_status
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 22
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "故障状态码"
+  grid_frequency_input:
+    business_point_id: sim_grid_frequency_input
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 0
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: hertz
+    scale: 1.0
+    offset: 0.0
+    description: "外生频率扰动输入"
+  grid_voltage_source:
+    business_point_id: sim_grid_voltage_source
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 2
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: volt
+    scale: 1.0
+    offset: 0.0
+    description: "等值电源电压设定"
+  grid_connected:
+    business_point_id: sim_grid_connected
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 4
+      count: 1
+      slave_id: 1
+    data_type: uint16
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "电网连接条件"

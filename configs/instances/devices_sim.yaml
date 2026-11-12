@@ -1,0 +1,55 @@
+# 仿真设备专用清单；和 devices.yaml 共用 Schema，不包含额定参数。
+# endpoint 是隔离的仿真工业协议服务地址，真实服务部署后按监听地址修改。
+schema_version: 1
+file_version: 1.0.0
+devices:
+  WTG_SIM01:
+    name: "风机仿真实例"
+    enabled: true
+    model:
+      id: wtg_sim
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 15021
+    overrides: {}
+  PV_SIM01:
+    name: "光伏仿真实例"
+    enabled: true
+    model:
+      id: pv_sim
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 15022
+    overrides: {}
+  BESS_SIM01:
+    name: "储能仿真实例"
+    enabled: true
+    model:
+      id: bess_sim
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 15023
+    overrides: {}
+  GRID_SIM01:
+    name: "电网仿真实例"
+    enabled: true
+    model:
+      id: grid_sim
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 15024
+    overrides: {}
+  PPC_SIM01:
+    name: "电厂控制器仿真实例"
+    enabled: true
+    model:
+      id: ppc_sim
+      version: 1.0.0
+    endpoint:
+      host: 127.0.0.1
+      port: 15025
+    overrides: {}

@@ -1,0 +1,425 @@
+# 仿真 风机 Modbus TCP 共享点表；仅定义地址/编码，不存放仿真额定参数。
+# 版本化模板。新仿真设备实例单独登记，不复用真实现场点表。
+# input 只读，holding 仅为允许外部控制的模型输入；非控制内部状态不得外写。
+# 32 位值占两个连续寄存器；word_order 由协议模板 modbus_tcp 指定。
+schema_version: 1
+template_id: modbus_wtg_sim
+file_version: 1.0.0
+protocol: modbus
+points:
+  wind_speed:
+    business_point_id: wind_speed
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 0
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "轮毂瞬时风速"
+  effective_wind_speed:
+    business_point_id: sim_effective_wind_speed
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 2
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "考虑偏航后的等效风速"
+  yaw_angle:
+    business_point_id: sim_yaw_angle
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 4
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "机舱偏航角"
+  yaw_error:
+    business_point_id: sim_yaw_error
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 6
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "偏航方向误差"
+  tip_speed_ratio:
+    business_point_id: sim_tip_speed_ratio
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 8
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: ratio_one
+    scale: 1.0
+    offset: 0.0
+    description: "叶尖速比"
+  power_coefficient:
+    business_point_id: sim_power_coefficient
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 10
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: ratio_one
+    scale: 1.0
+    offset: 0.0
+    description: "风能利用系数"
+  pitch_angle_1:
+    business_point_id: blade_1_pitch_angle
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 12
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "第一叶片实际桨距"
+  pitch_angle_2:
+    business_point_id: blade_2_pitch_angle
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 14
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "第二叶片实际桨距"
+  pitch_angle_3:
+    business_point_id: blade_3_pitch_angle
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 16
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "第三叶片实际桨距"
+  pitch_rate_1:
+    business_point_id: sim_pitch_rate_1
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 18
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "第一叶片变桨速度"
+  pitch_rate_2:
+    business_point_id: sim_pitch_rate_2
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 20
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "第二叶片变桨速度"
+  pitch_rate_3:
+    business_point_id: sim_pitch_rate_3
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 22
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "第三叶片变桨速度"
+  sim_rotor_speed:
+    business_point_id: rotor_speed
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 24
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: radian_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "叶轮角速度"
+  sim_generator_speed:
+    business_point_id: generator_speed
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 26
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: radian_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "发电机轴角速度"
+  shaft_torque:
+    business_point_id: sim_shaft_torque
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 28
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: newton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "传动轴等效转矩"
+  aerodynamic_power:
+    business_point_id: sim_aerodynamic_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 30
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "气动机械功率"
+  aerodynamic_torque:
+    business_point_id: sim_aerodynamic_torque
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 32
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: newton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "气动机械转矩"
+  available_power:
+    business_point_id: sim_available_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 34
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "工况允许的最大有功"
+  sim_generator_torque:
+    business_point_id: generator_torque
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 36
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: newton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "实际电磁反转矩"
+  active_power:
+    business_point_id: sim_active_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 38
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "实际交流有功"
+  reactive_power:
+    business_point_id: sim_reactive_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 40
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: var
+    scale: 1.0
+    offset: 0.0
+    description: "实际交流无功"
+  converter_current:
+    business_point_id: sim_converter_current
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 42
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: ampere
+    scale: 1.0
+    offset: 0.0
+    description: "变流器交流电流"
+  converter_losses:
+    business_point_id: sim_converter_losses
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 44
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "机电变换损耗"
+  sim_power_factor:
+    business_point_id: power_factor
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 46
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: power_factor_one
+    scale: 1.0
+    offset: 0.0
+    description: "交流功率因数"
+  generator_temperature:
+    business_point_id: generator_temperature
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 48
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "发电机等效温度"
+  running_status:
+    business_point_id: sim_running_status
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 50
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "设备运行状态"
+  fault_status:
+    business_point_id: sim_fault_status
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 52
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "故障状态码"
+  control_result:
+    business_point_id: sim_control_result
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 54
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "上次控制执行结果"
+  control_mode:
+    business_point_id: sim_control_mode
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 0
+      count: 1
+      slave_id: 1
+    data_type: int16
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "风机功率控制模式 0最优转速 1恒功率 2限功率"
+  active_power_setpoint:
+    business_point_id: sim_active_power_setpoint
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 1
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "外部有功需求"
+  power_limit_setpoint:
+    business_point_id: sim_power_limit_setpoint
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 3
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "外部有功上限"
+  reactive_power_setpoint:
+    business_point_id: sim_reactive_power_setpoint
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 5
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: var
+    scale: 1.0
+    offset: 0.0
+    description: "外部无功需求"

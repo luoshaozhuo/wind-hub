@@ -1,0 +1,12 @@
+# 仿真设备型号只关联共享协议/点表；额定值与物理模型参数存放于 Data Generator Scenario。
+schema_version: 1
+template_id: bess_sim
+file_version: 1.0.0
+name: 储能仿真设备
+device_type_id: energy_storage
+protocol:
+  id: modbus_tcp
+  version: 1.1.0
+point_table:
+  id: modbus_bess_sim
+  version: 1.0.0

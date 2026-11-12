@@ -1,0 +1,269 @@
+# 仿真 PPC Modbus TCP 共享点表；仅定义地址/编码，不存放仿真额定参数。
+# 版本化模板。新仿真设备实例单独登记，不复用真实现场点表。
+# input 只读，holding 仅为允许外部控制的模型输入；非控制内部状态不得外写。
+# 32 位值占两个连续寄存器；word_order 由协议模板 modbus_tcp 指定。
+schema_version: 1
+template_id: modbus_ppc_sim
+file_version: 1.0.0
+protocol: modbus
+points:
+  active_power_feedback:
+    business_point_id: sim_active_power_feedback
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 0
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "电厂有功实际反馈"
+  agc_allocated_power:
+    business_point_id: sim_agc_allocated_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 2
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "AGC已分配有功"
+  agc_tracking_error:
+    business_point_id: sim_agc_tracking_error
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 4
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "AGC跟踪误差"
+  grid_voltage_feedback:
+    business_point_id: sim_grid_voltage_feedback
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 6
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: volt
+    scale: 1.0
+    offset: 0.0
+    description: "AVC电压反馈"
+  avc_allocated_reactive_power:
+    business_point_id: sim_avc_allocated_reactive_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 8
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: var
+    scale: 1.0
+    offset: 0.0
+    description: "AVC已分配无功"
+  avc_tracking_error:
+    business_point_id: sim_avc_tracking_error
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 10
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: var
+    scale: 1.0
+    offset: 0.0
+    description: "AVC无功跟踪误差"
+  grid_frequency_feedback:
+    business_point_id: sim_grid_frequency_feedback
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 12
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: hertz
+    scale: 1.0
+    offset: 0.0
+    description: "FFR频率反馈"
+  ffr_power_command:
+    business_point_id: sim_ffr_power_command
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 14
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "FFR合成有功增量"
+  ffr_active:
+    business_point_id: sim_ffr_active
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 16
+      count: 1
+      slave_id: 1
+    data_type: uint16
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "FFR动作状态"
+  frequency_deviation:
+    business_point_id: frequency_deviation
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 17
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: hertz
+    scale: 1.0
+    offset: 0.0
+    description: "频率偏差"
+  plant_active_power:
+    business_point_id: sim_plant_active_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 19
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "电厂实际有功"
+  plant_reactive_power:
+    business_point_id: sim_plant_reactive_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 21
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: var
+    scale: 1.0
+    offset: 0.0
+    description: "电厂实际无功"
+  plant_available_power:
+    business_point_id: sim_plant_available_power
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 23
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "电厂可用有功"
+  unserved_power_command:
+    business_point_id: sim_unserved_power_command
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 25
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "不可满足有功需求"
+  agc_enable:
+    business_point_id: sim_agc_enable
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 0
+      count: 1
+      slave_id: 1
+    data_type: uint16
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "启用AGC"
+  agc_power_setpoint:
+    business_point_id: sim_agc_power_setpoint
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 1
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "电厂有功目标"
+  avc_enable:
+    business_point_id: sim_avc_enable
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 3
+      count: 1
+      slave_id: 1
+    data_type: uint16
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "启用AVC"
+  avc_voltage_setpoint:
+    business_point_id: sim_avc_voltage_setpoint
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 4
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: volt
+    scale: 1.0
+    offset: 0.0
+    description: "PCC目标电压"
+  avc_reactive_setpoint:
+    business_point_id: sim_avc_reactive_setpoint
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 6
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: var
+    scale: 1.0
+    offset: 0.0
+    description: "电厂无功目标"
+  ffr_enable:
+    business_point_id: sim_ffr_enable
+    point_groups: [all, control]
+    address:
+      register_type: holding
+      address: 8
+      count: 1
+      slave_id: 1
+    data_type: uint16
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "启用FFR"

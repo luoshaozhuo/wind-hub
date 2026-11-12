@@ -2,7 +2,7 @@
 # 传感器编号、叶片编号、相别、设备层级和时间统计窗口由 point_tables 表达。
 # 业务点不包含协议地址、设备实例编号及访问权限。
 schema_version: 1
-file_version: 1.2.0
+file_version: 1.3.0
 business_points:
   active_power:
     data_type: int32
@@ -936,3 +936,249 @@ business_points:
     data_type: int16
     unit: none
     description: "启停控制原始命令字（S16；码值、写入触发方式待核实）"
+
+  # 仅用于仿真模型输出的业务语义，物理参数不属于此目录。
+  sim_ac_current:
+    data_type: float32
+    unit: ampere
+    description: "逆变器交流电流"
+  sim_active_power:
+    data_type: float32
+    unit: watt
+    description: "实际交流有功"
+  sim_active_power_feedback:
+    data_type: float32
+    unit: watt
+    description: "电厂有功实际反馈"
+  sim_active_power_setpoint:
+    data_type: float32
+    unit: watt
+    description: "外部有功需求"
+  sim_aerodynamic_power:
+    data_type: float32
+    unit: watt
+    description: "气动机械功率"
+  sim_aerodynamic_torque:
+    data_type: float32
+    unit: newton_meter_torque
+    description: "气动机械转矩"
+  sim_agc_allocated_power:
+    data_type: float32
+    unit: watt
+    description: "AGC已分配有功"
+  sim_agc_enable:
+    data_type: uint16
+    unit: none
+    description: "启用AGC"
+  sim_agc_power_setpoint:
+    data_type: float32
+    unit: watt
+    description: "电厂有功目标"
+  sim_agc_tracking_error:
+    data_type: float32
+    unit: watt
+    description: "AGC跟踪误差"
+  sim_available_charge_power:
+    data_type: float32
+    unit: watt
+    description: "当前允许充电功率"
+  sim_available_discharge_power:
+    data_type: float32
+    unit: watt
+    description: "当前允许放电功率"
+  sim_available_power:
+    data_type: float32
+    unit: watt
+    description: "工况允许的最大有功"
+  sim_avc_allocated_reactive_power:
+    data_type: float32
+    unit: var
+    description: "AVC已分配无功"
+  sim_avc_enable:
+    data_type: uint16
+    unit: none
+    description: "启用AVC"
+  sim_avc_reactive_setpoint:
+    data_type: float32
+    unit: var
+    description: "电厂无功目标"
+  sim_avc_tracking_error:
+    data_type: float32
+    unit: var
+    description: "AVC无功跟踪误差"
+  sim_avc_voltage_setpoint:
+    data_type: float32
+    unit: volt
+    description: "PCC目标电压"
+  sim_battery_loss:
+    data_type: float32
+    unit: watt
+    description: "电池内阻损耗"
+  sim_bms_status:
+    data_type: int32
+    unit: none
+    description: "BMS运行状态"
+  sim_control_mode:
+    data_type: int16
+    unit: none
+    description: "风机功率控制模式 0最优转速 1恒功率 2限功率"
+  sim_control_result:
+    data_type: int32
+    unit: none
+    description: "上次控制执行结果"
+  sim_converter_current:
+    data_type: float32
+    unit: ampere
+    description: "变流器交流电流"
+  sim_converter_losses:
+    data_type: float32
+    unit: watt
+    description: "机电变换损耗"
+  sim_dc_power:
+    data_type: float32
+    unit: watt
+    description: "阵列实际直流功率"
+  sim_effective_wind_speed:
+    data_type: float32
+    unit: meter_per_second
+    description: "考虑偏航后的等效风速"
+  sim_fault_status:
+    data_type: int32
+    unit: none
+    description: "故障状态码"
+  sim_ffr_active:
+    data_type: uint16
+    unit: none
+    description: "FFR动作状态"
+  sim_ffr_enable:
+    data_type: uint16
+    unit: none
+    description: "启用FFR"
+  sim_ffr_power_command:
+    data_type: float32
+    unit: watt
+    description: "FFR合成有功增量"
+  sim_grid_connected:
+    data_type: uint16
+    unit: none
+    description: "电网连接条件"
+  sim_grid_frequency_feedback:
+    data_type: float32
+    unit: hertz
+    description: "FFR频率反馈"
+  sim_grid_frequency_input:
+    data_type: float32
+    unit: hertz
+    description: "外生频率扰动输入"
+  sim_grid_status:
+    data_type: int32
+    unit: none
+    description: "电网连接状态"
+  sim_grid_voltage_feedback:
+    data_type: float32
+    unit: volt
+    description: "AVC电压反馈"
+  sim_grid_voltage_source:
+    data_type: float32
+    unit: volt
+    description: "等值电源电压设定"
+  sim_inverter_status:
+    data_type: int32
+    unit: none
+    description: "逆变器状态"
+  sim_inverter_temperature:
+    data_type: float32
+    unit: celsius
+    description: "逆变器等效温度"
+  sim_mppt_state:
+    data_type: int32
+    unit: none
+    description: "MPPT跟踪状态"
+  sim_pcs_current:
+    data_type: float32
+    unit: ampere
+    description: "PCS交流电流"
+  sim_pcs_status:
+    data_type: int32
+    unit: none
+    description: "PCS运行状态"
+  sim_pitch_rate_1:
+    data_type: float32
+    unit: degree_per_second
+    description: "第一叶片变桨速度"
+  sim_pitch_rate_2:
+    data_type: float32
+    unit: degree_per_second
+    description: "第二叶片变桨速度"
+  sim_pitch_rate_3:
+    data_type: float32
+    unit: degree_per_second
+    description: "第三叶片变桨速度"
+  sim_plant_active_power:
+    data_type: float32
+    unit: watt
+    description: "电厂实际有功"
+  sim_plant_available_power:
+    data_type: float32
+    unit: watt
+    description: "电厂可用有功"
+  sim_plant_reactive_power:
+    data_type: float32
+    unit: var
+    description: "电厂实际无功"
+  sim_power_coefficient:
+    data_type: float32
+    unit: ratio_one
+    description: "风能利用系数"
+  sim_power_limit_setpoint:
+    data_type: float32
+    unit: watt
+    description: "外部有功上限"
+  sim_pv_available_power:
+    data_type: float32
+    unit: watt
+    description: "光伏当前可用功率"
+  sim_reactive_power:
+    data_type: float32
+    unit: var
+    description: "实际交流无功"
+  sim_reactive_power_setpoint:
+    data_type: float32
+    unit: var
+    description: "外部无功需求"
+  sim_running_status:
+    data_type: int32
+    unit: none
+    description: "设备运行状态"
+  sim_shaft_torque:
+    data_type: float32
+    unit: newton_meter_torque
+    description: "传动轴等效转矩"
+  sim_soc_target:
+    data_type: float32
+    unit: percent
+    description: "目标SOC 非实际SOC"
+  sim_stored_energy:
+    data_type: float32
+    unit: watt_hour
+    description: "电池当前储能"
+  sim_tip_speed_ratio:
+    data_type: float32
+    unit: ratio_one
+    description: "叶尖速比"
+  sim_unserved_power_command:
+    data_type: float32
+    unit: watt
+    description: "不可满足有功需求"
+  sim_voltage_deviation:
+    data_type: float32
+    unit: volt
+    description: "母线电压偏差"
+  sim_yaw_angle:
+    data_type: float32
+    unit: degree
+    description: "机舱偏航角"
+  sim_yaw_error:
+    data_type: float32
+    unit: degree
+    description: "偏航方向误差"
