@@ -1,0 +1,85 @@
+# Industrial Gateway simulation target, aligned with devices_sim.yaml and
+# Data Generator scenario wind-plant-physical.
+# Management gRPC listener is plaintext loopback; never expose it outside host.
+# Generator control uses separate mutually-authenticated outbound channel.
+schema_version: 1
+file_version: "1.1.0"
+config_sources:
+  instances:
+    devices: configs/instances/devices_sim.yaml
+  templates:
+    root: configs/templates
+grpc:
+  listen_host: "127.0.0.1"
+  listen_port: 50073
+  max_active_rpcs: 64
+  request_max_bytes: 2097152
+  tls:
+    enabled: false
+servers:
+  - server_id: gw-wtg-sim01
+    device_id: WTG_SIM01
+    listen_host: "127.0.0.1"
+    listen_port: 15021
+    desired_state: START
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
+  - server_id: gw-pv-sim01
+    device_id: PV_SIM01
+    listen_host: "127.0.0.1"
+    listen_port: 15022
+    desired_state: START
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
+  - server_id: gw-bess-sim01
+    device_id: BESS_SIM01
+    listen_host: "127.0.0.1"
+    listen_port: 15023
+    desired_state: START
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
+  - server_id: gw-grid-sim01
+    device_id: GRID_SIM01
+    listen_host: "127.0.0.1"
+    listen_port: 15024
+    desired_state: START
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
+  - server_id: gw-ppc-sim01
+    device_id: PPC_SIM01
+    listen_host: "127.0.0.1"
+    listen_port: 15025
+    desired_state: START
+    control:
+      enabled: true
+      target:
+        kind: data_generator
+        endpoint: "127.0.0.1:50061"
+        tls:
+          enabled: true
+          ca_file: configs/certs/ca.pem
+          cert_file: configs/certs/gateway.pem
+          key_file: configs/certs/gateway.key
+        request_timeout_ms: 2000
+        queue_capacity: 1024
+        max_inflight: 1
+        generation_binding:
+          scenario_id: wind-plant-physical
+      mappings:
+        - variable_id: agc_power_setpoint
+          target_point_id: agc_power_setpoint
+metrics:
+  window_seconds: 60
+  collect_interval_ms: 1000

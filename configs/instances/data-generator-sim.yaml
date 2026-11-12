@@ -153,21 +153,33 @@ scenarios:
         model_ref: plant
         points: [plant_active_power, plant_reactive_power]
     gateways:
-      - gateway_id: gw-sim
+      - gateway_id: gw-wtg-sim01
         endpoint: "127.0.0.1:50073"
         feedback_mapping:
-          - {device_id: WTG_SIM01, point_id: wind_speed, variable_id: WTG_SIM01.wind_speed}
-          - {device_id: WTG_SIM01, point_id: sim_rotor_speed, variable_id: WTG_SIM01.sim_rotor_speed}
-          - {device_id: WTG_SIM01, point_id: active_power, variable_id: WTG_SIM01.active_power}
-          - {device_id: WTG_SIM01, point_id: reactive_power, variable_id: WTG_SIM01.reactive_power}
-          - {device_id: PV_SIM01, point_id: active_power, variable_id: PV_SIM01.active_power}
-          - {device_id: PV_SIM01, point_id: reactive_power, variable_id: PV_SIM01.reactive_power}
-          - {device_id: PV_SIM01, point_id: dc_power, variable_id: PV_SIM01.dc_power}
-          - {device_id: BESS_SIM01, point_id: soc, variable_id: BESS_SIM01.soc}
-          - {device_id: BESS_SIM01, point_id: active_power, variable_id: BESS_SIM01.active_power}
-          - {device_id: BESS_SIM01, point_id: reactive_power, variable_id: BESS_SIM01.reactive_power}
-          - {device_id: GRID_SIM01, point_id: grid_frequency, variable_id: GRID_SIM01.grid_frequency}
-          - {device_id: GRID_SIM01, point_id: grid_voltage, variable_id: GRID_SIM01.grid_voltage}
-          - {device_id: GRID_SIM01, point_id: active_power, variable_id: GRID_SIM01.active_power}
-          - {device_id: PPC_SIM01, point_id: plant_active_power, variable_id: PPC_SIM01.plant_active_power}
-          - {device_id: PPC_SIM01, point_id: plant_reactive_power, variable_id: PPC_SIM01.plant_reactive_power}
+          - {device_id: WTG_SIM01, point_id: wind_speed, variable_id: wind_speed}
+          - {device_id: WTG_SIM01, point_id: sim_rotor_speed, variable_id: sim_rotor_speed}
+          - {device_id: WTG_SIM01, point_id: active_power, variable_id: active_power}
+          - {device_id: WTG_SIM01, point_id: reactive_power, variable_id: reactive_power}
+      - gateway_id: gw-pv-sim01
+        endpoint: "127.0.0.1:50073"
+        feedback_mapping:
+          - {device_id: PV_SIM01, point_id: active_power, variable_id: active_power}
+          - {device_id: PV_SIM01, point_id: reactive_power, variable_id: reactive_power}
+          - {device_id: PV_SIM01, point_id: dc_power, variable_id: dc_power}
+      - gateway_id: gw-bess-sim01
+        endpoint: "127.0.0.1:50073"
+        feedback_mapping:
+          - {device_id: BESS_SIM01, point_id: soc, variable_id: soc}
+          - {device_id: BESS_SIM01, point_id: active_power, variable_id: active_power}
+          - {device_id: BESS_SIM01, point_id: reactive_power, variable_id: reactive_power}
+      - gateway_id: gw-grid-sim01
+        endpoint: "127.0.0.1:50073"
+        feedback_mapping:
+          - {device_id: GRID_SIM01, point_id: grid_frequency, variable_id: grid_frequency}
+          - {device_id: GRID_SIM01, point_id: grid_voltage, variable_id: grid_voltage}
+          - {device_id: GRID_SIM01, point_id: active_power, variable_id: active_power}
+      - gateway_id: gw-ppc-sim01
+        endpoint: "127.0.0.1:50073"
+        feedback_mapping:
+          - {device_id: PPC_SIM01, point_id: plant_active_power, variable_id: plant_active_power}
+          - {device_id: PPC_SIM01, point_id: plant_reactive_power, variable_id: plant_reactive_power}
