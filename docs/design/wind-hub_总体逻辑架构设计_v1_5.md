@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_5 · 20261111 · 系统模块职责与依赖基线</p>
+<p class="subtitle">v1_5 · 20261112 · 系统模块职责与依赖基线</p>
 
 <style>
 body {
