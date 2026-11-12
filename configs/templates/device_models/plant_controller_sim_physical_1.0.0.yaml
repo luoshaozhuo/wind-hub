@@ -1,0 +1,22 @@
+# 独立物理仿真设备型号；参数与共享点表绑定，运行工况在 Data Generator 服务配置中定义。
+schema_version: 1
+template_id: plant_controller_sim_physical
+file_version: 1.0.0
+name: 电厂控制器仿真设备
+device_type_id: plant_controller
+protocol:
+  id: modbus_tcp
+  version: 1.1.0
+point_table:
+  id: modbus_plant_controller_sim
+  version: 1.0.0
+simulation:
+  kind: physical
+  device_kind: ppc
+  parameters:
+    participating_device_ids: [WTG_SIM01, PV_SIM01, BESS_SIM01]
+    allocation_weights: {WTG_SIM01: 1.0, PV_SIM01: 1.0, BESS_SIM01: 1.0}
+    agc_ramp_w_s: 50000.0
+    avc_mode: reactive_power
+    ffr_deadband_hz: 0.05
+    ffr_droop_w_hz: 300000.0
