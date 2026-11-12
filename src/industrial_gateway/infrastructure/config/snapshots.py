@@ -285,7 +285,6 @@ class ConfigSnapshots:
                 restart_required = restart_required or any(
                     (
                         self._process_service.grpc != resolved.service.grpc,
-                        self._process_service.control != resolved.service.control,
                         self._process_service.metrics != resolved.service.metrics,
                     )
                 )
@@ -341,7 +340,6 @@ class ConfigSnapshots:
                     effective_service = effective_service.model_copy(
                         update={
                             "grpc": self._process_service.grpc,
-                            "control": self._process_service.control,
                             "metrics": self._process_service.metrics,
                         }
                     )
