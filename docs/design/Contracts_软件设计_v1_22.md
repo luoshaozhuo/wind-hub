@@ -1420,7 +1420,7 @@ message ModelVariable {
 message ListVariablesResponse {
   repeated ModelVariable variables = 1;
   string next_page_token = 2;
-  string point_table_version = 3;    // 设备当前共享点表版本；非气象输入的独立版本
+  string point_table_version = 3;    // 当前设备的共享点表版本；不表示气象输入属于 PointTable
   string generation_state = 4;
 }
 message VariableUpdate {
