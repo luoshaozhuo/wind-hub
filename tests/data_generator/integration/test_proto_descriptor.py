@@ -50,7 +50,6 @@ def test_data_generator_service_has_eight_unary_methods() -> None:
         assert method.output_type.full_name == response_type.DESCRIPTOR.full_name
 
 
-
 def test_model_variable_rpc_fields_and_optional_bounds() -> None:
     variables = dg.ModelVariable.DESCRIPTOR.fields_by_name
     assert {field.name: field.number for field in variables.values()} == {
@@ -87,9 +86,7 @@ def test_model_variable_rpc_fields_and_optional_bounds() -> None:
         dg.VariableUpdate.DESCRIPTOR.full_name
     )
     update_value = dg.VariableUpdate.DESCRIPTOR.fields_by_name
-    assert update_value["value"].message_type.full_name == (
-        common.ScalarValue.DESCRIPTOR.full_name
-    )
+    assert update_value["value"].message_type.full_name == (common.ScalarValue.DESCRIPTOR.full_name)
 
     update_response = dg.UpdateVariablesResponse.DESCRIPTOR.fields_by_name
     assert {field.name: field.number for field in update_response.values()} == {
