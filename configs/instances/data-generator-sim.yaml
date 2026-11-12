@@ -139,47 +139,135 @@ scenarios:
     devices:
       - device_id: WTG_SIM01
         model_ref: turbine
-        points: [wind_speed, sim_rotor_speed, active_power, reactive_power]
+        points: [wind_speed, effective_wind_speed, yaw_angle, yaw_error, tip_speed_ratio, power_coefficient, pitch_angle_1, pitch_angle_2, pitch_angle_3, pitch_rate_1, pitch_rate_2, pitch_rate_3, sim_rotor_speed, sim_generator_speed, shaft_torque, aerodynamic_power, aerodynamic_torque, available_power, sim_generator_torque, active_power, reactive_power, converter_current, converter_losses, sim_power_factor, generator_temperature, running_status, fault_status, control_result, control_mode, active_power_setpoint, power_limit_setpoint, reactive_power_setpoint]
       - device_id: PV_SIM01
         model_ref: solar
-        points: [active_power, reactive_power, dc_power]
+        points: [cell_temperature, pv_available_power, mppt_state, dc_voltage, dc_current, dc_power, active_power, reactive_power, ac_current, sim_power_factor, inverter_temperature, inverter_status, fault_status, control_result, active_power_setpoint, reactive_power_setpoint]
       - device_id: BESS_SIM01
         model_ref: battery
-        points: [soc, active_power, reactive_power]
+        points: [soc, soh, stored_energy, available_charge_power, available_discharge_power, battery_voltage, battery_current, battery_loss, battery_temperature, active_power, reactive_power, pcs_current, sim_power_factor, pcs_status, bms_status, fault_status, control_result, soc_target, active_power_setpoint, reactive_power_setpoint]
       - device_id: GRID_SIM01
         model_ref: grid
-        points: [grid_frequency, grid_voltage, active_power]
+        points: [grid_frequency, frequency_deviation, frequency_rocof, grid_voltage, voltage_deviation, grid_current, sim_apparent_power, active_power, reactive_power, sim_power_factor, grid_status, fault_status, grid_frequency_input, grid_voltage_source, grid_connected]
       - device_id: PPC_SIM01
         model_ref: plant
-        points: [plant_active_power, plant_reactive_power]
+        points: [active_power_feedback, agc_allocated_power, agc_tracking_error, grid_voltage_feedback, avc_allocated_reactive_power, avc_tracking_error, grid_frequency_feedback, ffr_power_command, ffr_active, frequency_deviation, plant_active_power, plant_reactive_power, plant_available_power, unserved_power_command, agc_enable, agc_power_setpoint, avc_enable, avc_voltage_setpoint, avc_reactive_setpoint, ffr_enable]
     gateways:
       - gateway_id: gw-wtg-sim01
         endpoint: "127.0.0.1:50073"
         feedback_mapping:
           - {device_id: WTG_SIM01, point_id: wind_speed, variable_id: wind_speed}
+          - {device_id: WTG_SIM01, point_id: effective_wind_speed, variable_id: effective_wind_speed}
+          - {device_id: WTG_SIM01, point_id: yaw_angle, variable_id: yaw_angle}
+          - {device_id: WTG_SIM01, point_id: yaw_error, variable_id: yaw_error}
+          - {device_id: WTG_SIM01, point_id: tip_speed_ratio, variable_id: tip_speed_ratio}
+          - {device_id: WTG_SIM01, point_id: power_coefficient, variable_id: power_coefficient}
+          - {device_id: WTG_SIM01, point_id: pitch_angle_1, variable_id: pitch_angle_1}
+          - {device_id: WTG_SIM01, point_id: pitch_angle_2, variable_id: pitch_angle_2}
+          - {device_id: WTG_SIM01, point_id: pitch_angle_3, variable_id: pitch_angle_3}
+          - {device_id: WTG_SIM01, point_id: pitch_rate_1, variable_id: pitch_rate_1}
+          - {device_id: WTG_SIM01, point_id: pitch_rate_2, variable_id: pitch_rate_2}
+          - {device_id: WTG_SIM01, point_id: pitch_rate_3, variable_id: pitch_rate_3}
           - {device_id: WTG_SIM01, point_id: sim_rotor_speed, variable_id: sim_rotor_speed}
+          - {device_id: WTG_SIM01, point_id: sim_generator_speed, variable_id: sim_generator_speed}
+          - {device_id: WTG_SIM01, point_id: shaft_torque, variable_id: shaft_torque}
+          - {device_id: WTG_SIM01, point_id: aerodynamic_power, variable_id: aerodynamic_power}
+          - {device_id: WTG_SIM01, point_id: aerodynamic_torque, variable_id: aerodynamic_torque}
+          - {device_id: WTG_SIM01, point_id: available_power, variable_id: available_power}
+          - {device_id: WTG_SIM01, point_id: sim_generator_torque, variable_id: sim_generator_torque}
           - {device_id: WTG_SIM01, point_id: active_power, variable_id: active_power}
           - {device_id: WTG_SIM01, point_id: reactive_power, variable_id: reactive_power}
+          - {device_id: WTG_SIM01, point_id: converter_current, variable_id: converter_current}
+          - {device_id: WTG_SIM01, point_id: converter_losses, variable_id: converter_losses}
+          - {device_id: WTG_SIM01, point_id: sim_power_factor, variable_id: sim_power_factor}
+          - {device_id: WTG_SIM01, point_id: generator_temperature, variable_id: generator_temperature}
+          - {device_id: WTG_SIM01, point_id: running_status, variable_id: running_status}
+          - {device_id: WTG_SIM01, point_id: fault_status, variable_id: fault_status}
+          - {device_id: WTG_SIM01, point_id: control_result, variable_id: control_result}
+          - {device_id: WTG_SIM01, point_id: control_mode, variable_id: control_mode}
+          - {device_id: WTG_SIM01, point_id: active_power_setpoint, variable_id: active_power_setpoint}
+          - {device_id: WTG_SIM01, point_id: power_limit_setpoint, variable_id: power_limit_setpoint}
+          - {device_id: WTG_SIM01, point_id: reactive_power_setpoint, variable_id: reactive_power_setpoint}
       - gateway_id: gw-pv-sim01
         endpoint: "127.0.0.1:50073"
         feedback_mapping:
+          - {device_id: PV_SIM01, point_id: cell_temperature, variable_id: cell_temperature}
+          - {device_id: PV_SIM01, point_id: pv_available_power, variable_id: pv_available_power}
+          - {device_id: PV_SIM01, point_id: mppt_state, variable_id: mppt_state}
+          - {device_id: PV_SIM01, point_id: dc_voltage, variable_id: dc_voltage}
+          - {device_id: PV_SIM01, point_id: dc_current, variable_id: dc_current}
+          - {device_id: PV_SIM01, point_id: dc_power, variable_id: dc_power}
           - {device_id: PV_SIM01, point_id: active_power, variable_id: active_power}
           - {device_id: PV_SIM01, point_id: reactive_power, variable_id: reactive_power}
-          - {device_id: PV_SIM01, point_id: dc_power, variable_id: dc_power}
+          - {device_id: PV_SIM01, point_id: ac_current, variable_id: ac_current}
+          - {device_id: PV_SIM01, point_id: sim_power_factor, variable_id: sim_power_factor}
+          - {device_id: PV_SIM01, point_id: inverter_temperature, variable_id: inverter_temperature}
+          - {device_id: PV_SIM01, point_id: inverter_status, variable_id: inverter_status}
+          - {device_id: PV_SIM01, point_id: fault_status, variable_id: fault_status}
+          - {device_id: PV_SIM01, point_id: control_result, variable_id: control_result}
+          - {device_id: PV_SIM01, point_id: active_power_setpoint, variable_id: active_power_setpoint}
+          - {device_id: PV_SIM01, point_id: reactive_power_setpoint, variable_id: reactive_power_setpoint}
       - gateway_id: gw-bess-sim01
         endpoint: "127.0.0.1:50073"
         feedback_mapping:
           - {device_id: BESS_SIM01, point_id: soc, variable_id: soc}
+          - {device_id: BESS_SIM01, point_id: soh, variable_id: soh}
+          - {device_id: BESS_SIM01, point_id: stored_energy, variable_id: stored_energy}
+          - {device_id: BESS_SIM01, point_id: available_charge_power, variable_id: available_charge_power}
+          - {device_id: BESS_SIM01, point_id: available_discharge_power, variable_id: available_discharge_power}
+          - {device_id: BESS_SIM01, point_id: battery_voltage, variable_id: battery_voltage}
+          - {device_id: BESS_SIM01, point_id: battery_current, variable_id: battery_current}
+          - {device_id: BESS_SIM01, point_id: battery_loss, variable_id: battery_loss}
+          - {device_id: BESS_SIM01, point_id: battery_temperature, variable_id: battery_temperature}
           - {device_id: BESS_SIM01, point_id: active_power, variable_id: active_power}
           - {device_id: BESS_SIM01, point_id: reactive_power, variable_id: reactive_power}
+          - {device_id: BESS_SIM01, point_id: pcs_current, variable_id: pcs_current}
+          - {device_id: BESS_SIM01, point_id: sim_power_factor, variable_id: sim_power_factor}
+          - {device_id: BESS_SIM01, point_id: pcs_status, variable_id: pcs_status}
+          - {device_id: BESS_SIM01, point_id: bms_status, variable_id: bms_status}
+          - {device_id: BESS_SIM01, point_id: fault_status, variable_id: fault_status}
+          - {device_id: BESS_SIM01, point_id: control_result, variable_id: control_result}
+          - {device_id: BESS_SIM01, point_id: soc_target, variable_id: soc_target}
+          - {device_id: BESS_SIM01, point_id: active_power_setpoint, variable_id: active_power_setpoint}
+          - {device_id: BESS_SIM01, point_id: reactive_power_setpoint, variable_id: reactive_power_setpoint}
       - gateway_id: gw-grid-sim01
         endpoint: "127.0.0.1:50073"
         feedback_mapping:
           - {device_id: GRID_SIM01, point_id: grid_frequency, variable_id: grid_frequency}
+          - {device_id: GRID_SIM01, point_id: frequency_deviation, variable_id: frequency_deviation}
+          - {device_id: GRID_SIM01, point_id: frequency_rocof, variable_id: frequency_rocof}
           - {device_id: GRID_SIM01, point_id: grid_voltage, variable_id: grid_voltage}
+          - {device_id: GRID_SIM01, point_id: voltage_deviation, variable_id: voltage_deviation}
+          - {device_id: GRID_SIM01, point_id: grid_current, variable_id: grid_current}
+          - {device_id: GRID_SIM01, point_id: sim_apparent_power, variable_id: sim_apparent_power}
           - {device_id: GRID_SIM01, point_id: active_power, variable_id: active_power}
+          - {device_id: GRID_SIM01, point_id: reactive_power, variable_id: reactive_power}
+          - {device_id: GRID_SIM01, point_id: sim_power_factor, variable_id: sim_power_factor}
+          - {device_id: GRID_SIM01, point_id: grid_status, variable_id: grid_status}
+          - {device_id: GRID_SIM01, point_id: fault_status, variable_id: fault_status}
+          - {device_id: GRID_SIM01, point_id: grid_frequency_input, variable_id: grid_frequency_input}
+          - {device_id: GRID_SIM01, point_id: grid_voltage_source, variable_id: grid_voltage_source}
+          - {device_id: GRID_SIM01, point_id: grid_connected, variable_id: grid_connected}
       - gateway_id: gw-ppc-sim01
         endpoint: "127.0.0.1:50073"
         feedback_mapping:
+          - {device_id: PPC_SIM01, point_id: active_power_feedback, variable_id: active_power_feedback}
+          - {device_id: PPC_SIM01, point_id: agc_allocated_power, variable_id: agc_allocated_power}
+          - {device_id: PPC_SIM01, point_id: agc_tracking_error, variable_id: agc_tracking_error}
+          - {device_id: PPC_SIM01, point_id: grid_voltage_feedback, variable_id: grid_voltage_feedback}
+          - {device_id: PPC_SIM01, point_id: avc_allocated_reactive_power, variable_id: avc_allocated_reactive_power}
+          - {device_id: PPC_SIM01, point_id: avc_tracking_error, variable_id: avc_tracking_error}
+          - {device_id: PPC_SIM01, point_id: grid_frequency_feedback, variable_id: grid_frequency_feedback}
+          - {device_id: PPC_SIM01, point_id: ffr_power_command, variable_id: ffr_power_command}
+          - {device_id: PPC_SIM01, point_id: ffr_active, variable_id: ffr_active}
+          - {device_id: PPC_SIM01, point_id: frequency_deviation, variable_id: frequency_deviation}
           - {device_id: PPC_SIM01, point_id: plant_active_power, variable_id: plant_active_power}
           - {device_id: PPC_SIM01, point_id: plant_reactive_power, variable_id: plant_reactive_power}
+          - {device_id: PPC_SIM01, point_id: plant_available_power, variable_id: plant_available_power}
+          - {device_id: PPC_SIM01, point_id: unserved_power_command, variable_id: unserved_power_command}
+          - {device_id: PPC_SIM01, point_id: agc_enable, variable_id: agc_enable}
+          - {device_id: PPC_SIM01, point_id: agc_power_setpoint, variable_id: agc_power_setpoint}
+          - {device_id: PPC_SIM01, point_id: avc_enable, variable_id: avc_enable}
+          - {device_id: PPC_SIM01, point_id: avc_voltage_setpoint, variable_id: avc_voltage_setpoint}
+          - {device_id: PPC_SIM01, point_id: avc_reactive_setpoint, variable_id: avc_reactive_setpoint}
+          - {device_id: PPC_SIM01, point_id: ffr_enable, variable_id: ffr_enable}
