@@ -2948,7 +2948,7 @@ scenarios:
 | 测试文件名 | 层级 Marker | 专题 Marker | 场景 Marker | 测试说明 |
 |---|---|---|---|---|
 | `test_random_model.py` | unit | reliability | deterministic | UR-01：类型、边界、seed、设备顺序独立性 |
-| `test_static_model.py` | unit | safety | invalid_input | UR-01：静态函数、插值、定义域、NaN/Inf |
+| `test_physical_model.py` | unit | safety | invalid_input | UR-01：物理代数关系、插值、状态步进、定义域、NaN/Inf |
 | `test_replay_schedule.py` | unit | reliability | time_order | UR-02：稳定同时间戳排序与倍率计算 |
 | `test_batch_contract.py` | unit | reliability | invalid_data | UR-03：类型、时间、单来源冲突 |
 | `test_source_runtime.py` | component | reliability | lifecycle | UC-01/02：源停止、超期、回收 |
@@ -2997,7 +2997,7 @@ pytest tests/src/data_generator/system -m 'system and reliability'
 | UR | UC 与场景 | 技术契约 | 测试文件名／测试标识 | 层级／专题／场景 Marker | 验证内容与预期结果 | 执行环境 |
 |---|---|---|---|---|---|---|
 | UR-01、03 | UC-01-S01 正常随机生成  | 5、10 | `test_simulation_system.py::test_random_generation` | system/reliability/end_to_end | 独立进程持续生成并写入 Gateway | 真实 Gateway |
-| UR-01 | UC-01-S02 静态模型、边界  | 10 | `test_simulation_system.py::test_static_physics` | system/reliability/end_to_end | 公式/插值结果与读回一致 | 真实 Gateway |
+| UR-01 | UC-01-S02 简单物理模型、边界 | 10 | `test_simulation_system.py::test_physical_model` | system/reliability/end_to_end | 公式/插值结果与读回一致 | 真实 Gateway |
 | UR-01 | UC-01-S03 坏模型/计算失败  | 6、10 | `test_simulation_system.py::test_invalid_model_and_runtime_failure` | system/reliability/fault_injection | 启动拒绝或任务失败，不发送非法点 | 独立进程 |
 | UR-01 | UC-01-S02 周期超限/安全停止  | 6 | `test_simulation_system.py::test_overrun_and_stop` | system/performance/overload | 不重入；退出后无额外输出 | 独立进程 |
 | UR-02、03 | UC-02-S01 正常重放/倍率  | 6、10 | `test_replay_system.py::test_replay_1x_2x_order` | system/reliability/end_to_end | 源时间与墙钟倍率、顺序正确 | 真实历史源/Gateway |
