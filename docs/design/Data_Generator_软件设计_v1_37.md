@@ -2058,7 +2058,7 @@ flowchart TB
 | 状态管理 | PRNG 状态、规则配置及必要的采样状态 | 气象随机状态、设备连续状态及离散状态机 |
 | 运行时修改 | 已声明可修改的分布参数/控制规则 | 已声明的外部输入、指令；不能直接改写计算状态 |
 
-仿真设备文件为 `configs/instances/devices_sim.yaml`，真实设备为 `configs/instances/devices.yaml`，两者沿用同一 Schema，由每个服务的 `config_sources.instances.devices` 选择。设备型号、点表与业务点统一引用 `configs/templates/` 下的共享定义；**物理模型的额定值、结构参数和控制器参数归属仿真设备型号配置**，不得塞入共享设备型号或协议点表。定位键为 `device_id + point_id`；生成场景不重复声明 `business_point_id`、`data_type`、`unit`、寄存器地址及比例系数。
+仿真设备实例为 `configs/instances/devices_sim.yaml`，真实设备实例为 `configs/instances/devices.yaml`，使用相同 Schema，但两者引用不同的型号文件与 Point Table。设备型号、点表与业务点统一从 `configs/templates/` 精确版本装配；**仿真型号的额定值、结构参数和固定控制器参数只保存在该型号的 `simulation.parameters` 中**，Scenario 和协议点表均不得重复声明。业务值定位键为 `device_id + point_id`。
 
 | 模型 | 设备示例 | 型号模板 | 点表模板 |
 |---|---|---|---|
@@ -2673,7 +2673,7 @@ FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无�
 
 `ListVariables(generation_id,device_id)` 的变量集合是该设备的**有效模型变量目录**：包括已登记的 PointTable 控制/测量点，也包括绑定气象场景的两个独立输入。后者由模型 Schema 定义元数据并使用 `source=WEATHER_INPUT`；响应层的 `point_table_version` 仍表示当前设备关联的共享点表版本，不是气象输入所属版本；`UpdateVariables` 的 `point_id` 据此解析，不强行要求气象输入存在于 Modbus PointTable。整批更新与幂等语义仍以 §9 为准。
 
-运行时变量发现、批量输入更新、幂等和权限见 §9；配置文件路径、目标 Schema 与 Push/Apply 生效见 §11；Modbus PointTable、私有模型参数清单及业务控制权限见 §10.6。此处不重复定义 RPC、配置字段或点位元数据。
+运行时变量发现、批量输入更新、幂等和权限见 §9；配置文件路径、目标 Schema 与 Push/Apply 生效见 §11；Modbus PointTable、设备型号物理参数清单及业务控制权限见 §10.6。此处不重复定义 RPC、配置字段或点位元数据。
 
 ### 10.5.12 物理模型编码不变量
 
@@ -2703,7 +2703,7 @@ FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无�
 
 ### 10.6.2 设备型号物理参数（不属于共享模板或 Modbus PointTable）
 
-**配置归属**：以下物理模型参数只能在 `configs/services/data-generator-service.yaml` 的 `templates/device_models/<template_id>_<version>.yaml 的 simulation.parameters` 中声明；字段属于 **Data Generator 服务专属业务配置**，其路径由 `service.scenarios` 指定。共享 `configs/templates/device_models/` 只登记设备型号、协议模板及点表引用；共享 `point_tables/` 只登记测点地址、编码和业务语义。两者都**不保存本节的仿真额定参数**。这并不限制真实设备在其他服务下存在独立设备技术参数，但不得将其当成 Data Generator 方程配置的隐式来源。
+**配置归属**：以下固定物理参数仅声明于 `configs/templates/device_models/<template_id>_<version>.yaml` 的 `simulation.parameters`，由共享设备实例的 `model.id + model.version` 精确引用。Data Generator 的 `services/*.yaml` 场景仅选择设备、运行模型、气象工况及外部控制关系，不得重复额定参数。Point Table 只登记工业协议点位及业务语义。物理参数应由共享配置权威写入方修改并经过精确版本装配；Data Generator 私有 Push/Apply 不直接修改共享设备型号。
 
 本表中 **必填** 表示启用相应固定物理模型时必须给定有效值；**可选** 表示算法明确启用该功能时才要求配置。所有数值为可配置参数，不把示例设备的容量固定为 2 MW、1 MW 等型号。运行中不得通过 `UpdateVariables` 修改；变更必须提交新场景版本并经 Push/Apply 或重启生效。
 
