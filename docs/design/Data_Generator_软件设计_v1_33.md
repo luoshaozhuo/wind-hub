@@ -2957,7 +2957,7 @@ points:
 
 ## 11.1 文件目录、命名、职责与生效原则
 
-**依据**：`main@367481254518a2d3d79ebeeb80a41944897a7e84` 的 `SharedDocumentLoader`、`VersionedTemplateRepository`、`SharedDomainSnapshot` 与 `configs/`。公共配置和 Data Generator 私有运行配置采用同一根目录，但职责分离，禁止重复定义公共设备及模板。
+**依据**：Configuration 共享装配与 Core 基础 YAML 契约；Data Generator 专属物理参数不进入共享设备模板。公共配置和 Data Generator 私有运行配置采用同一根目录，但职责分离，禁止重复定义公共设备及模板。
 
 ```text
 configs/
@@ -2985,16 +2985,16 @@ configs/
 |---|---|---|
 | `instances/site.yaml` | 站点标识/名称 | 通过 `configuration` 共享加载/装配接口只读获取 |
 | `instances/devices.yaml` | 全局设备 ID、设备型号引用、端点、覆盖参数和启用状态 | 不在 Scenario 内重复声明设备型号、协议地址和测点元数据 |
-| `templates/device_models/` | 设备型号及协议/点表版本引用 | 精确版本解析，不回退最新版 |
+| `templates/device_models/` | 共享设备型号及协议/点表版本引用，不包含 Data Generator 的仿真额定参数 | 精确版本解析，不回退最新版 |
 | `templates/point_tables/` | 协议测点、类型、工程单位及地址 | 以实际解析后的点表校验 Scenario 引用；不复制点表内容 |
 | `templates/protocols/` | Modbus TCP、ADS、IEC104 等协议参数 | 仅复用元数据，不使 Generator 持有工业协议 Server |
 | `templates/business_points.yaml`、`units.yaml` | 业务物理量、工程单位与换算 | 通过共享快照验证标量/单位 |
-| `instances/data-generator.yaml` | 场景及版本、数据来源、随机/简单物理模型参数、CSV 重放和 Gateway 映射 | Data Generator 独立校验并拥有运行行为 |
+| `instances/data-generator.yaml` | 场景及版本、随机规则、专属物理模型参数与额定值、CSV 重放和 Gateway 映射 | Data Generator 独立校验并拥有运行行为 |
 | `services/data-generator-service.yaml` | 配置来源路径、gRPC、输出、缓冲、诊断与 Metrics 限额 | 显式声明共享/私有实例文件及模板根目录；重启生效 |
 
 **服务级路径契约**：`config_sources` 必填，且仅包含四项直接依赖：`instances.site`、`instances.devices`、`instances.scenarios`、`templates.root`。四项路径均以部署工作根 `config_root` 为基准且以 `configs/` 开头，不使用 `../`，不得使用绝对路径、路径越界或默认值回退。实例可选择不同的实际文件名。`configuration` 依据指定的 `templates.root` 装配 `units.yaml`、`business_points.yaml`，并根据设备型号模板中的 ID/版本逐级引用协议、点表和型号文件。这些间接依赖无需、也不得在 Data Generator 专属配置中重复声明。修改四项直接路径属于服务级配置变更，重启后生效。
 
-**公共版本契约**：`configuration` 的版本化共享文件契约规定 `schema_version: 1`（整数）、`file_version: MAJOR.MINOR.PATCH`（字符串）；版本化模板另需 `template_id`。设备实例的 `model: {id, version}` 必须精确引用 `device_models/<id>_<version>.yaml`。型号模板再引用 `protocols/` 与 `point_tables/`；其解析次序为实例覆盖 > 型号参数 > 协议模板默认值 > Core 默认值。`tasks/`、`deliveries/` 仍按 Core 规定的独立版本目录解析；本模块不得为这些类别生成虚构引用。
+**公共版本契约**：仿真额定参数由 Data Generator 场景中的 `models.*.parameters` 独占，不从公共设备型号自动提取。`configuration` 的版本化共享文件契约规定 `schema_version: 1`（整数）、`file_version: MAJOR.MINOR.PATCH`（字符串）；版本化模板另需 `template_id`。设备实例的 `model: {id, version}` 必须精确引用 `device_models/<id>_<version>.yaml`。型号模板再引用 `protocols/` 与 `point_tables/`；共享协议/点表属性遵循实例覆盖 > 共享型号参数 > 协议模板默认值 > Core 默认值。该覆盖规则不参与 Data Generator 专属物理模型参数解析。`tasks/`、`deliveries/` 仍按 Core 规定的独立版本目录解析；本模块不得为这些类别生成虚构引用。
 
 **共享能力边界**：`configuration` 持有共享文档装配、版本化模板引用和业务域快照的职责，统一复用 Core 的无业务 YAML/数据原语。`SharedDocumentLoader(SharedConfigPaths(...))` 和 `build_shared_snapshot()` 如作为既有实现名引用，只表示该装配层的历史实现接口，不改变固定架构中的所有权。它们**不实现 Data Generator 私有 Scenario 校验、配置快照 RPC、候选持久化或文件集事务**；这些职责保留在本模块适配层，且须复用现有 Core 通用文件/版本/安全设施，不宣称 Core 已提供完整 Get/Push/Apply 服务。
 
@@ -3058,7 +3058,7 @@ metrics:
 
 ## 11.4 场景与实例配置规范
 
-场景只能引用当前服务通过 `config_sources.instances.devices` 选择的一份设备实例文件（真实 `devices.yaml` 或仿真 `devices_sim.yaml`），二者 Schema 相同但不在本服务内自动合并。设备型号、点表、协议地址由共享快照解析，场景不得再次声明。固定物理模型应使用仿真设备实例。
+场景只能引用当前服务通过 `config_sources.instances.devices` 选择的一份设备实例文件（真实 `devices.yaml` 或仿真 `devices_sim.yaml`），二者 Schema 相同但不在本服务内自动合并。设备型号、点表、协议地址由共享快照解析，场景不得再次声明。固定物理模型应使用仿真设备实例；额定值和物理模型参数均来自绑定的 Scenario `models.*.parameters`。
 
 **目标 Scenario Schema** 如下（尚未在生产代码中实现）。一个场景的 `source.kind=simulation` 下可按设备绑定 `random` 或 `physical`；`source.kind=replay` 是独立来源，按 §10.3 定义，不再额外引入模型类别。
 
@@ -3096,7 +3096,16 @@ scenarios:
       wtg-example:
         kind: physical
         device_kind: wtg
-        parameters_ref: models/wtg-example.yaml
+        parameters:
+          rated_power_w: 2000000.0
+          rated_apparent_power_va: 2200000.0
+          rated_wind_speed_m_s: 12.0
+          rated_rotor_speed_rad_s: 1.6
+          max_rotor_speed_rad_s: 2.0
+          cut_in_speed_m_s: 3.0
+          cut_out_speed_m_s: 25.0
+          rotor_radius_m: 45.0
+          # 简化示例；其余必填项详见 §10.6.2
         weather_ref: site-a
         controller_mode: local
       generic-random:
@@ -3123,7 +3132,7 @@ scenarios:
 ```
 
 - `models` 声明唯一生成算法与参数引用；`devices` 仅绑定已有设备、模型和输出点；`weather` 是气象场景，非 Modbus PointTable；`gateways` 仅定义合法输出目的地。模型参数、种子和状态初值版本化；外部写入只涉及 §10.6 列明的简单控制量。
-- 风机 `control_mode`（最优转速/恒功率/限功率）是允许外部设定的设备业务量，`controller_mode`（本地/PPC）是模型参数，二者不得混淆。储能 `control_strategy: power_demand|soc_target` 和 `reactive_support_enabled` 是配置文件参数；外部可写目标 SOC 与有功需求，但只能由所选策略执行，不因写入某个点自动切换策略。
+- 风机 `control_mode`（最优转速/恒功率/限功率）是允许外部设定的设备业务量，`controller_mode`（本地/PPC）是模型参数，二者不得混淆。储能 `control_strategy: power_demand|soc_target` 和 `reactive_support_enabled` 是 Data Generator 专属模型参数；外部可写目标 SOC 与有功需求，但只能由所选策略执行，不因写入某个点自动切换策略。
 - `WTG_SIM01`、`GRID_SIM01`、`gw-sim` 和变量 ID 都是部署示例，只有与实际设备快照及 Gateway `ListVariables` 对齐后才允许启动。真实 PLC endpoint 不等于 Gateway endpoint。
 
 <p class="table-caption">表 11-3 场景配置与共享模板校验</p>
@@ -3132,7 +3141,7 @@ scenarios:
 |---|---|---|
 | 共享设备和点表 | 设备存在且启用；型号/点表引用精确；输出点 ID、业务语义、单位及数据类型匹配 | 拒绝场景 |
 | 随机模型 | 每个待生成点具有合法分布、种子与边界，无隐式补零或未定义分布 | 拒绝场景 |
-| 固定物理模型 | 五种 `device_kind` 之一；参数、初始状态与气象绑定有效；不执行任意公式或脚本 | 拒绝场景 |
+| 固定物理模型 | 五种 `device_kind` 之一；`models.*.parameters` 完整、额定参数合理，初始状态与气象绑定有效；不得从共享型号隐式推算额定容量 | 拒绝场景 |
 | 气象 | 场景唯一、参数有效、种子确定；输出不被设备控制直接改写 | 拒绝场景 |
 | 外部控制 | 仅允许 §10.6 中列明的设备控制点与气象绑定输入；拒绝修改配置参数及状态 | 整批拒绝 |
 | Gateway | 目标已存在；展开后 `(gateway_id,variable_id)` 唯一，类型兼容 | 拒绝场景/启动 |
