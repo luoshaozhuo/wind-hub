@@ -1845,17 +1845,17 @@ classDiagram
  class SimulationSource
  class ReplaySource
  class RandomModel
- class StaticPhysicalModel
+ class PhysicalModel
  SourcePort <|.. SimulationSource
  SourcePort <|.. ReplaySource
  SimulationSource --> GeneratorModel
  ReplaySource --> HistoryReader
  GeneratorModel <|.. RandomModel
- GeneratorModel <|.. StaticPhysicalModel
+ GeneratorModel <|.. PhysicalModel
 ```
 <p class="figure-caption">图 7-2 数据来源与模型的端口关系类图</p>
 
-生成入口为 `RandomModel` 和 `PhysicalModel`。未来的简化动力学、高保真和机器学习模型只是分类扩展方向，不能为它们先实现无真实用例的复杂运行框架。物理计算关系的具体公式/查表从已配置的受控模型类型和参数中选择，**不得以直接 `eval` 任意表达式实现**。
+生成入口为 `RandomModel` 和 `PhysicalModel`。代数计算、随机风场与必要的状态演化均在 `PhysicalModel` 的明确设备子模型内完成，不新增静态/有状态两个生成类别。物理计算关系的具体公式/查表从已配置的受控模型类型和参数中选择，**不得以直接 `eval` 任意表达式实现**。
 
 # 8. 物理视图（部署视图）
 
