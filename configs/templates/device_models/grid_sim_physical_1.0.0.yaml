@@ -1,0 +1,22 @@
+# 独立物理仿真设备型号；参数与共享点表绑定，运行工况在 Data Generator 服务配置中定义。
+schema_version: 1
+template_id: grid_sim_physical
+file_version: 1.0.0
+name: 电网仿真设备
+device_type_id: grid
+protocol:
+  id: modbus_tcp
+  version: 1.1.0
+point_table:
+  id: modbus_grid_sim
+  version: 1.0.0
+simulation:
+  kind: physical
+  device_kind: grid
+  parameters:
+    nominal_voltage_v: 690.0
+    source_voltage_v: 690.0
+    nominal_frequency_hz: 50.0
+    grid_r_ohm: 0.05
+    grid_x_ohm: 0.10
+    frequency_mode: external
