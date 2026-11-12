@@ -1,0 +1,171 @@
+# Data Generator 专属仿真场景示例；为阶段 2 的物理模型提供配置输入。
+# 额定参数仅属于本文件 scenarios.models.*.parameters，不属于设备型号或 Modbus 点表。
+# 当前生产配置解析器尚不支持此目标 Schema；在阶段 2 实现前不可作为运行基线。
+# 同一仿真设备不可同时进入多个活动 Generation。
+schema_version: 1
+file_version: "1.0.0"
+scenarios:
+  - scenario_id: wind-plant-physical
+    version: "1.0.0"
+    description: "风光储并网简单物理模型"
+    source:
+      kind: simulation
+      interval_seconds: 0.05
+    weather:
+      site-a:
+        wind:
+          wind_seed: 42
+          wind_correlation_time_s: 10.0
+          wind_speed_mean: 10.0
+          turbulence_intensity: 0.12
+          wind_direction: 0.0
+          air_density: 1.225
+        irradiance:
+          sunrise_s: 21600
+          sunset_s: 64800
+          irradiance_clear_w_m2: 1000.0
+          cloud_mode: constant
+          cloud_factor_target: 0.8
+        ambient_temperature:
+          temperature_mean_c: 20.0
+          diurnal_amplitude_k: 5.0
+          temperature_seed: 43
+          temperature_tau_s: 1800.0
+          temperature_sigma_k: 0.5
+          phase_rad: 0.0
+    models:
+      turbine:
+        kind: physical
+        device_kind: wtg
+        weather_ref: site-a
+        controller_mode: local
+        parameters:
+          rated_power_w: 2000000.0
+          rated_apparent_power_va: 2200000.0
+          rated_wind_speed_m_s: 12.0
+          rated_rotor_speed_rad_s: 1.5
+          max_rotor_speed_rad_s: 2.0
+          cut_in_speed_m_s: 3.0
+          cut_out_speed_m_s: 25.0
+          rotor_radius_m: 60.0
+          rotor_inertia_kg_m2: 4000000.0
+          generator_inertia_kg_m2: 600.0
+          gear_ratio: 100.0
+          lambda_opt: 7.5
+          cp_opt: 0.42
+          cp_curve:
+            - {lambda: 4.0, cp: 0.22}
+            - {lambda: 7.5, cp: 0.42}
+            - {lambda: 11.0, cp: 0.31}
+          generator_efficiency: 0.95
+          converter_efficiency: 0.97
+          max_generator_torque_nm: 20000.0
+          torque_tau_s: 0.5
+          pitch_min_rad: 0.0
+          pitch_feather_rad: 1.57
+          pitch_tau_s: 1.0
+          pitch_rate_rad_s: 0.12
+          pitch_speed_gain_s: 0.6
+          pitch_power_gain_rad_w: 0.0000003
+          shaft_damping_nm_s_rad: 1000.0
+          yaw_tau_s: 5.0
+          yaw_rate_rad_s: 0.03
+      solar:
+        kind: physical
+        device_kind: pv
+        weather_ref: site-a
+        parameters:
+          array_peak_power_w: 1000000.0
+          inverter_rated_power_w: 900000.0
+          inverter_rated_apparent_power_va: 1000000.0
+          stc_irradiance_w_m2: 1000.0
+          stc_cell_temperature_c: 25.0
+          noct_c: 45.0
+          power_temp_coefficient_per_k: -0.004
+          mppt_voltage_v: 850.0
+          open_circuit_voltage_v: 1100.0
+          mppt_tau_s: 5.0
+          thermal_tau_s: 90.0
+          inverter_efficiency: 0.97
+      battery:
+        kind: physical
+        device_kind: bess
+        weather_ref: site-a
+        parameters:
+          rated_energy_wh: 1000000.0
+          pcs_rated_active_power_w: 500000.0
+          pcs_rated_apparent_power_va: 550000.0
+          soc_min: 0.1
+          soc_max: 0.9
+          initial_soc: 0.5
+          charge_efficiency: 0.96
+          discharge_efficiency: 0.96
+          ocv_curve:
+            - {soc: 0.1, voltage_v: 700.0}
+            - {soc: 0.5, voltage_v: 800.0}
+            - {soc: 0.9, voltage_v: 900.0}
+          internal_resistance_ohm: 0.05
+          max_battery_current_a: 800.0
+          initial_battery_temperature_c: 25.0
+          control_strategy: soc_target
+          soc_control_gain_w: 500000.0
+          soc_deadband: 0.005
+          reactive_support_enabled: true
+          thermal_parameters:
+            thermal_capacity_j_per_k: 500000.0
+            cooling_w_per_k: 100.0
+      grid:
+        kind: physical
+        device_kind: grid
+        parameters:
+          nominal_voltage_v: 690.0
+          source_voltage_v: 690.0
+          nominal_frequency_hz: 50.0
+          grid_r_ohm: 0.05
+          grid_x_ohm: 0.10
+          frequency_mode: external
+      plant:
+        kind: physical
+        device_kind: ppc
+        parameters:
+          participating_device_ids: [WTG_SIM01, PV_SIM01, BESS_SIM01]
+          allocation_weights: {WTG_SIM01: 1.0, PV_SIM01: 1.0, BESS_SIM01: 1.0}
+          agc_ramp_w_s: 50000.0
+          avc_mode: reactive_power
+          ffr_deadband_hz: 0.05
+          ffr_droop_w_hz: 300000.0
+    devices:
+      - device_id: WTG_SIM01
+        model_ref: turbine
+        points: [wind_speed, rotor_speed, active_power, reactive_power]
+      - device_id: PV_SIM01
+        model_ref: solar
+        points: [active_power, reactive_power, dc_power]
+      - device_id: BESS_SIM01
+        model_ref: battery
+        points: [soc, active_power, reactive_power]
+      - device_id: GRID_SIM01
+        model_ref: grid
+        points: [grid_frequency, grid_voltage, active_power]
+      - device_id: PPC_SIM01
+        model_ref: plant
+        points: [plant_active_power, plant_reactive_power]
+    gateways:
+      - gateway_id: gw-sim
+        endpoint: "127.0.0.1:50073"
+        feedback_mapping:
+          - {device_id: WTG_SIM01, point_id: wind_speed, variable_id: WTG_SIM01.wind_speed}
+          - {device_id: WTG_SIM01, point_id: rotor_speed, variable_id: WTG_SIM01.rotor_speed}
+          - {device_id: WTG_SIM01, point_id: active_power, variable_id: WTG_SIM01.active_power}
+          - {device_id: WTG_SIM01, point_id: reactive_power, variable_id: WTG_SIM01.reactive_power}
+          - {device_id: PV_SIM01, point_id: active_power, variable_id: PV_SIM01.active_power}
+          - {device_id: PV_SIM01, point_id: reactive_power, variable_id: PV_SIM01.reactive_power}
+          - {device_id: PV_SIM01, point_id: dc_power, variable_id: PV_SIM01.dc_power}
+          - {device_id: BESS_SIM01, point_id: soc, variable_id: BESS_SIM01.soc}
+          - {device_id: BESS_SIM01, point_id: active_power, variable_id: BESS_SIM01.active_power}
+          - {device_id: BESS_SIM01, point_id: reactive_power, variable_id: BESS_SIM01.reactive_power}
+          - {device_id: GRID_SIM01, point_id: grid_frequency, variable_id: GRID_SIM01.grid_frequency}
+          - {device_id: GRID_SIM01, point_id: grid_voltage, variable_id: GRID_SIM01.grid_voltage}
+          - {device_id: GRID_SIM01, point_id: active_power, variable_id: GRID_SIM01.active_power}
+          - {device_id: PPC_SIM01, point_id: plant_active_power, variable_id: PPC_SIM01.plant_active_power}
+          - {device_id: PPC_SIM01, point_id: plant_reactive_power, variable_id: PPC_SIM01.plant_reactive_power}
