@@ -103,7 +103,11 @@ class Turbine:
         lam = self.omega * radius / max(wind, 0.01)
         cp = self._cp(lam, sum(self.pitch) / 3)
         pa = 0.5 * weather.air_density * math.pi * radius**2 * cp * wind**3
-        active = number(p, "cut_in_speed_m_s") <= weather.wind_speed < number(p, "cut_out_speed_m_s")
+        active = (
+            number(p, "cut_in_speed_m_s") <= weather.wind_speed
+            < number(p, "cut_out_speed_m_s")
+            and bool(controls.get("_grid_connected", 1))
+        )
         if not active or self.omega > rotor_max:
             self.fault = 1
         else:

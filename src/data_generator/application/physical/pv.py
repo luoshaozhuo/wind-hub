@@ -55,14 +55,17 @@ class PV:
         rated = number(p, "inverter_rated_power_w")
         command = clamp(float(controls.get("active_power_setpoint", rated)), 0, rated)
         eta = number(p, "inverter_efficiency")
-        power = min(eta * dc_available, rated, command)
+        power = (
+            min(eta * dc_available, rated, command)
+            if bool(controls.get("_grid_connected", 1)) else 0.0
+        )
         # Curtail upstream extraction; unused irradiance is not inverter heat.
         dc_power = power / eta
         dc_current = dc_power / self.dc_voltage if self.dc_voltage > 0 else 0.0
         qcap = math.sqrt(max(0, number(p, "inverter_rated_apparent_power_va")**2 - power**2))
         reactive = (
             clamp(float(controls.get("reactive_power_setpoint", 0)), -qcap, qcap)
-            if g > 0 else 0.0
+            if g > 0 and bool(controls.get("_grid_connected", 1)) else 0.0
         )
         _, current, pf = apparent(power, reactive, voltage)
         loss = max(0, dc_power - power)
@@ -82,7 +85,7 @@ class PV:
             "ac_current": current,
             "sim_power_factor": pf,
             "inverter_temperature": self.inverter_temperature,
-            "inverter_status": int(g > 0),
+            "inverter_status": int(g > 0 and bool(controls.get("_grid_connected", 1))),
             "fault_status": 0,
             "control_result": 0,
             "active_power_setpoint": command,

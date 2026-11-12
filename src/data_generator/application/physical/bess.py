@@ -133,6 +133,8 @@ class BESS:
             requested = demand
         power_cap = number(p, "pcs_rated_active_power_w")
         requested = clamp(requested, -power_cap, power_cap)
+        if not bool(controls.get("_grid_connected", 1)):
+            requested = 0.0
         power, next_energy, current, terminal_voltage = self._feasible(requested, dt)
         self.energy = clamp(next_energy, self.soc_low * rated, self.soc_high * rated)
         loss = current**2 * self.resistance
@@ -146,7 +148,8 @@ class BESS:
         s_cap = number(p, "pcs_rated_apparent_power_va")
         q_cap = math.sqrt(max(0, s_cap**2 - power**2))
         reactive = (clamp(float(controls.get("reactive_power_setpoint", 0)), -q_cap, q_cap)
-                    if p["reactive_support_enabled"] else 0.0)
+                    if p["reactive_support_enabled"]
+                    and bool(controls.get("_grid_connected", 1)) else 0.0)
         _, pcs_current, pf = apparent(power, reactive, voltage)
         return finite_outputs({
             "soc": 100 * self.energy / rated,
@@ -162,7 +165,7 @@ class BESS:
             "reactive_power": reactive,
             "pcs_current": pcs_current,
             "sim_power_factor": pf,
-            "pcs_status": 1,
+            "pcs_status": int(bool(controls.get("_grid_connected", 1))),
             "bms_status": 1,
             "fault_status": 0,
             "control_result": 0,

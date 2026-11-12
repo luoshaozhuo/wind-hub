@@ -137,6 +137,10 @@ class PhysicalEngine:
             dispatch, results[device] = ppc.advance(
                 dt, self.last, self.last_grid, self.inputs[device], limits
             )
+        grid_online = all(
+            int(self.inputs[device].get("grid_connected", 1)) == 1
+            for device in self._grid_ids
+        )
         voltage = float(self.last_grid.get("grid_voltage", 690.0))
         if voltage <= 0:
             voltage = 690.0
@@ -146,6 +150,7 @@ class PhysicalEngine:
                 continue
             instance = self.models[device]
             controls = dict(self.inputs[device])
+            controls["_grid_connected"] = float(grid_online)
             if self.controller_modes[device] == "ppc":
                 if device not in dispatch:
                     raise GeneratorError("PPC control configured but no assignment was delivered")
