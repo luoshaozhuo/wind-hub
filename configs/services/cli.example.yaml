@@ -37,14 +37,14 @@ services:
     systemd_scope: system
     target: wind-hub-sink-reliable.service
   gateway:
-    grpc_endpoint: "127.0.0.1:50054"
+    grpc_endpoint: "127.0.0.1:50073"
     tls_profile: local
     manager: containerd
     target: gateway
     namespace: default
     manager_socket: "/run/containerd/containerd.sock"
-  data_generator:
-    grpc_endpoint: "127.0.0.1:50055"
+  data-generator:
+    grpc_endpoint: "127.0.0.1:50061"
     tls_profile: local
     manager: systemd
     systemd_scope: system
