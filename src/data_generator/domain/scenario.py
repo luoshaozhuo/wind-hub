@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +22,9 @@ class Scenario:
     points: dict[tuple[str, str], dict[str, Any]]
     mappings: tuple[OutputMapping, ...]
     gateways: dict[str, str]
+    models: dict[str, dict[str, Any]] = field(default_factory=dict)
+    weather: dict[str, dict[str, Any]] = field(default_factory=dict)
+    bindings: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
