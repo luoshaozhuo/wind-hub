@@ -39,6 +39,48 @@ message StopGenerationResponse {
   bool accepted = 1; string actual_state = 2; string error_code = 3;
   string message = 4;
 }
+message ListVariablesRequest {
+  string generation_id = 1;
+  string device_id = 2;
+  uint32 page_size = 3;
+  string page_token = 4;
+}
+message ModelVariable {
+  string point_id = 1;
+  string business_point_id = 2;
+  string data_type = 3;
+  string unit = 4;
+  string role = 5;
+  bool writable = 6;
+  optional double minimum = 7;
+  optional double maximum = 8;
+  string description = 9;
+  string source = 10;
+}
+message ListVariablesResponse {
+  repeated windhub.data_generator.v1.ModelVariable variables = 1;
+  string next_page_token = 2;
+  string point_table_version = 3;
+  string generation_state = 4;
+}
+message VariableUpdate {
+  string point_id = 1;
+  windhub.common.v1.ScalarValue value = 2;
+}
+message UpdateVariablesRequest {
+  string generation_id = 1;
+  string device_id = 2;
+  string request_id = 3;
+  repeated windhub.data_generator.v1.VariableUpdate values = 4;
+}
+message UpdateVariablesResponse {
+  bool accepted = 1;
+  uint64 effective_step = 2;
+  string error_code = 3;
+  string message = 4;
+  string request_id = 5;
+}
+
 service DataGeneratorService {
   rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
   rpc GetDevice(windhub.common.v1.ObjectId) returns (GetDeviceResponse);
@@ -46,4 +88,6 @@ service DataGeneratorService {
   rpc GetGeneration(windhub.common.v1.ObjectId) returns (GetGenerationResponse);
   rpc StartGeneration(StartGenerationRequest) returns (StartGenerationResponse);
   rpc StopGeneration(StopGenerationRequest) returns (StopGenerationResponse);
+  rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
+  rpc UpdateVariables(UpdateVariablesRequest) returns (UpdateVariablesResponse);
 }
