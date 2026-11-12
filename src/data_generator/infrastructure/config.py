@@ -402,9 +402,14 @@ def load_settings(service_path: Path) -> Settings:
         source = raw.get("source")
         if not isinstance(source, dict):
             raise GeneratorError("invalid scenario source")
-        if "models" in raw or any(
-            isinstance(item, dict) and ("weather_ref" in item or "controller_mode" in item)
-            for item in raw.get("devices", [])
+        if source.get("kind") == "simulation" and (
+            "models" in raw
+            or any(
+                isinstance(item, dict) and (
+                    "model_ref" in item or "points" not in item
+                )
+                for item in raw.get("devices", [])
+            )
         ):
             if source.get("kind") != "simulation":
                 raise GeneratorError("configured models require simulation source")
