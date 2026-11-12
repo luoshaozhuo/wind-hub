@@ -809,9 +809,9 @@ flowchart TD
 
 | 主题 | 规范性规则 |
 |---|---|
-| 模型和数据范围 | 实现随机、静态映射与有状态简化物理模型（风机、光伏、储能、电网、PPC）；历史重放是独立来源。高保真电磁暂态与厂家控制器模型不在范围。 |
+| 模型和数据范围 | 仅有 random、physical 两类生成模型；physical 内含代数关系、查表、动态方程及状态机，涵盖风机、光伏、储能、电网和 PPC。CSV 重放为独立来源。 |
 | 随机模型 | 对每个生成实例按场景版本及确定的随机种子初始化独立 PRNG；同一算法、种子、配置与调用次序得到相同序列。离散均匀整数、连续均匀实数及正态分布是否允许由已生效的模型类型明确选择；不得将取整或裁剪默认为所有分布共有行为。 |
-| 静态模型 | 以场景配置中的输入变量按定义的代数关系、查表或分段线性插值计算；不保存动力学状态。表格插值要求自变量严格有序，超出定义域遵从配置明确的拒绝/钳制规则，不默默外推。 |
+| 简单物理模型 | 按第 10.5 节规范执行代数、查表与有需要的状态积分；变量角色、初值、输入权限、约束及失败行为均须明确。不得把计算方法另定义为模型类别。 |
 | 样本合法性 | 每个目标点的计算结果须按点表类型、上下界和有限数检查；NaN/Infinity、非法枚举和超界值判为生成失败，不进入输出。 |
 | 周期规则 | 一个生成实例在周期边界只生成一个逻辑样本批；同一周期禁止重入。错过的周期按进程视图跳期规则处理，不能同时运行重叠计算。 |
 
@@ -1215,7 +1215,7 @@ $n=0$ 时 P99 不可用，不返回数值零；超时但底层执行未结束的
 
 | 类别 | 可核验要求及依据 | 来源 |
 |---|---|---|
-| FR-01 | 随机/静态模型生成、输入依赖及错误处理；Gateway 输出 | UR-01、UR-03 |
+| FR-01 | 随机/简单物理模型生成、输入依赖及错误处理；Gateway 输出 | UR-01、UR-03 |
 | FR-02 | CSV 历史范围读取、顺序、倍率、结束及停止 | UR-02 |
 | FR-03 | 实现 6 个专属与 9 个公共 Server RPC，并报告真实状态 | UR-04 |
 | FR-04 | 快照 Get/Push/Apply、场景版本查询、生成启停 | UR-04、UR-05 |
@@ -1855,7 +1855,7 @@ classDiagram
 ```
 <p class="figure-caption">图 7-2 数据来源与模型的端口关系类图</p>
 
-初版仅实现 `RandomModel` 和 `StaticPhysicalModel`。未来的简化动力学、高保真和机器学习模型只是分类扩展方向，不能为它们先实现无真实用例的复杂运行框架。物理计算关系的具体公式/查表从已配置的受控模型类型和参数中选择，**不得以直接 `eval` 任意表达式实现**。
+生成入口为 `RandomModel` 和 `PhysicalModel`。未来的简化动力学、高保真和机器学习模型只是分类扩展方向，不能为它们先实现无真实用例的复杂运行框架。物理计算关系的具体公式/查表从已配置的受控模型类型和参数中选择，**不得以直接 `eval` 任意表达式实现**。
 
 # 8. 物理视图（部署视图）
 
@@ -2008,18 +2008,18 @@ flowchart LR
 | 可复现 | 同版本、相同配置/种子/步序得到相同样本；不同设备的添加顺序不改变其他设备随机流 |
 | 输出 | 每次生成只输出本周期定义的点；布尔输出只能为 true/false |
 
-## 10.2 简单物理模型（\`physical\`）
+## 10.2 简单物理模型（`physical`）
 
-数据生成模型只有 **\`random\` 与 \`physical\` 两类**。同一 \`physical\` 模型内允许混用代数关系、受控曲线/查表、常微分方程和离散控制状态机；这些只是计算实现手段，**不再以静态、有状态划分模型种类**。风机、光伏、储能、电网、PPC 是 \`physical\` 下的设备模型 \`kind\`，不是并列的数据源类型。
+数据生成模型只有 **`random` 与 `physical` 两类**。同一 `physical` 模型内允许混用代数关系、受控曲线/查表、常微分方程和离散控制状态机；这些只是计算实现手段，**不再以静态、有状态划分模型种类**。风机、光伏、储能、电网、PPC 是 `physical` 下的设备模型 `kind`，不是并列的数据源类型。
 
 | 项目 | 统一规则 |
 |---|---|
-| 模型入口 | \`source.kind=simulation\`；每个测点或设备绑定 \`model.kind=random/physical\`；\`physical\` 的 \`device_kind=wtg/pv/bess/grid/ppc\` |
+| 模型入口 | `source.kind=simulation`；按场景声明每种生成器使用 `model.kind=random/physical`；`physical` 的 `device_kind=wtg/pv/bess/grid/ppc` |
 | 无记忆关系 | 当步直接代入代数表达式/插值曲线，如环境辐照度到最大可用功率 |
 | 有记忆关系 | 按离散时步积分转速、桨距角、电池能量、温度、控制器动态等 |
 | 查表 | 单调有序自变量、有效域、插值/越界策略显式配置，不隐式外推 |
 | 数学一致性 | 力矩/功率、能量守恒、视在功率、状态限幅、同时间戳派生量必须自洽 |
-| 输入接口 | 仅 \`ListVariables\` 标注为可更新的模型输入可由 \`UpdateVariables\` 修改 |
+| 输入接口 | 仅 `ListVariables` 标注为可更新的模型输入可由 `UpdateVariables` 修改 |
 | 模型扩展 | 新设备以明确定义的参数和方程登记，不加载任意表达式或未经信任的 Python 代码 |
 
 详细数学模型、参数、状态、计算顺序和验收见 §10.5；各设备点名、数据类型、角色与单位见 §10.6。
@@ -2041,7 +2041,7 @@ flowchart LR
 
 ## 10.4 统一数据源与扩展
 
-\`\`\`mermaid
+```mermaid
 flowchart TB
   A["来源配置"] --> B{"来源"}
   B -->|simulation| C{"生成模型"}
@@ -2053,15 +2053,15 @@ flowchart TB
   W --> G
   F --> G
   G --> H["Gateway Writer"]
-\`\`\`
+```
 
 <p class="figure-caption">图 10-1 两类数据生成模型与独立的历史重放来源</p>
 
-\`replay\` 是历史数据**来源类型**而非第三类数据生成模型；\`simulation\` 下只有 \`random\` 与 \`physical\`。同一个物理模型允许代数计算与状态积分，不能按是否存在微分方程分流两个生产实现。
+`replay` 是历史数据**来源类型**而非第三类数据生成模型；`simulation` 下只有 `random` 与 `physical`。同一个物理模型允许代数计算与状态积分，不能按是否存在微分方程分流两个生产实现。
 
 ## 10.5 简单物理模型：数学方程与数值实现
 
-本节完整规定 \`physical\` 模型族的设备数学模型及业务约束；公式中的数值常数均为数学系数，设备参数由配置给出，不隐含真实厂家特性。允许模型仅使用代数关系，也允许含有随时步演化的状态变量；**二者不是模型类别**。目标是可重现、符合基本机械/电气/能量定律的系统级闭环仿真，不是电磁暂态或厂家控制器等效认证模型。
+本节完整规定 `physical` 模型族的设备数学模型及业务约束；公式中的数值常数均为数学系数，设备参数由配置给出，不隐含真实厂家特性。允许模型仅使用代数关系，也允许含有随时步演化的状态变量；**二者不是模型类别**。目标是可重现、符合基本机械/电气/能量定律的系统级闭环仿真，不是电磁暂态或厂家控制器等效认证模型。
 
 ### 10.5.1 共享设备、点表与变量权限
 
@@ -2207,7 +2207,7 @@ T_{g,k+1}=\operatorname{clip}\!\left(
 T_{g,*}+(T_{g,k}-T_{g,*})e^{-\Delta t/\tau_T},\,0,T_{g,\max}\right).
 \tag{10-8}
 \]
-控制模式 \`torque\` 下 \(T_{g,*}\) 取 \`generator_torque_setpoint\`；功率模式下 \(T_{g,*}=P_{e,*}/[\eta_g\max(\omega_g,\varepsilon_\omega)]\) 并受功率/转矩约束。**同一步禁止同时由两个模式独立指定转矩和电功率。**
+控制模式 `torque` 下 \(T_{g,*}\) 取 `generator_torque_setpoint`；功率模式下 \(T_{g,*}=P_{e,*}/[\eta_g\max(\omega_g,\varepsilon_\omega)]\) 并受功率/转矩约束。**同一步禁止同时由两个模式独立指定转矩和电功率。**
 
 对应转动动能和机械能量余额：
 \[
@@ -2238,13 +2238,13 @@ Q_*=\operatorname{clip}\!\left(Q_{\rm request},
 Q_{k+1}=Q_*+(Q_k-Q_*)e^{-\Delta t/\tau_Q}.
 \tag{10-11}
 \]
-\`avc_voltage_setpoint\` 须先由电压控制器转换为 \(Q_{\rm request}\)，和直接无功模式互斥。电流、PF 严格取式 (10-3)。
+`avc_voltage_setpoint` 须先由电压控制器转换为 \(Q_{\rm request}\)，和直接无功模式互斥。电流、PF 严格取式 (10-3)。
 
 \[
-C_{\rm th}\dot T_g=P_{\rm loss}-h_g(T_g-T_{\rm ambient})
+C_{\rm th}\dot\vartheta_g=P_{\rm loss}-h_g(\vartheta_g-\vartheta_a)
 \tag{10-12}
 \]
-此处温度 \(T_g\) 与发电机**电磁转矩** \(T_{\rm g,torque}\) 不得共用实际代码变量名；数学排版建议将温度记为 \(\vartheta_g\)，则热式写为 \(C_{\rm th}\dot\vartheta_g=P_{\rm loss}-h_g(\vartheta_g-\vartheta_a)\)。过速、过温、风速越界和电网掉电按配置触发故障锁存；停机使 \(P_e,Q\) 归零并执行顺桨。
+其中 \(\vartheta_g\) 为发电机温度，\(T_g\) 为电磁转矩，符号及类型严格区分。过速、过温、风速越界和电网掉电按配置触发故障锁存；停机使 \(P_e,Q\) 归零并执行顺桨。
 
 
 
@@ -2285,7 +2285,7 @@ P_{\rm dc}=P_{\rm mp}\phi(U_{\rm dc}),\quad
 I_{\rm dc}=\begin{cases}P_{\rm dc}/U_{\rm dc},&U_{\rm dc}>0,\\0,&U_{\rm dc}=0.\end{cases}
 \tag{10-15}
 \]
-该函数是仅供简单模型使用的**分段线性功率—电压近似**，不是半导体单二极管方程，且在 \(U=0\) 的 I 值按零约定不描述真实短路电流。MPPT 启用时 \(U_{\rm dc,*}=U_{\rm mp}\)；否则采用外部 \`dc_voltage_setpoint\`，并通过式 (10-2) 的 \(\tau_{\rm mppt}\) 更新实际 DC 电压。参数 \`U_mp\`、\`U_oc\` 的温度/辐照响应必须在配置中给出或明确选择常值近似。
+该函数是仅供简单模型使用的**分段线性功率—电压近似**，不是半导体单二极管方程，且在 \(U=0\) 的 I 值按零约定不描述真实短路电流。MPPT 启用时 \(U_{\rm dc,*}=U_{\rm mp}\)；否则采用外部 `dc_voltage_setpoint`，并通过式 (10-2) 的 \(\tau_{\rm mppt}\) 更新实际 DC 电压。参数 `U_mp`、`U_oc` 的温度/辐照响应必须在配置中给出或明确选择常值近似。
 
 \[
 P_{\rm ac}=\operatorname{clip}\left(
@@ -2339,7 +2339,7 @@ C_b\dot\vartheta_b=P_{\rm heat}-h_b(\vartheta_b-\vartheta_a)-P_{\rm cooling},\qq
 SOH_{k+1}=\max(SOH_{\min},SOH_k-c_{\rm age}|I_b|\Delta t).
 \tag{10-19}
 \]
-最后一项仅在 \`aging_enable\` 时生效，\(c_{\rm age}\) 必须配置并按电流/时间单位校验；禁用时 SOH 保持。电池热与端电压在同一步状态下计算，\`available_charge_power/available_discharge_power\` 从剩余能量、功率/电流/温度边界计算。
+最后一项仅在 `aging_enable` 时生效，\(c_{\rm age}\) 必须配置并按电流/时间单位校验；禁用时 SOH 保持。电池热与端电压在同一步状态下计算，`available_charge_power/available_discharge_power` 从剩余能量、功率/电流/温度边界计算。
 
 \[
 P_{*,\rm PCS}=\operatorname{clip}(P_{\rm AGC}+\Delta P_{\rm FFR},
@@ -2428,7 +2428,7 @@ P_{i,\rm AGC}=\operatorname{clip}(L_i+\alpha w_i,L_i,H_i),\qquad
 \sum_iP_{i,\rm AGC}=\operatorname{clip}\!\left(P_{\rm AGC,set},\sum_iL_i,\sum_iH_i\right).
 \tag{10-26}
 \]
-\(\alpha\) 由单调水位方程用固定排序/容差求解，\(w_i=0\) 表示不参与；若设定超出总区间，\`unserved_power_command\` 必须报告 \(P_{\rm AGC,set}-\sum_iP_{i,\rm AGC}\)，不能伪报跟踪成功。AGC 跟踪误差为 \(e_P=P_{\rm AGC,set}-P_{\Sigma,\rm actual}\)，并受死区/输出斜率限制。
+\(\alpha\) 由单调水位方程用固定排序/容差求解，\(w_i=0\) 表示不参与；若设定超出总区间，`unserved_power_command` 必须报告 \(P_{\rm AGC,set}-\sum_iP_{i,\rm AGC}\)，不能伪报跟踪成功。AGC 跟踪误差为 \(e_P=P_{\rm AGC,set}-P_{\Sigma,\rm actual}\)，并受死区/输出斜率限制。
 
 AVC 无功模式：\(Q_{\rm req}=Q_{\rm AVC,set}\)；电压模式：
 \[
@@ -2440,7 +2440,7 @@ Q_{\rm req}=\operatorname{clip}\left(K_U(U_{\rm set}-U_{LL}),Q_{\rm plant,min},Q
 |Q_i|\le\sqrt{\max(0,S_{i,\rm rated}^2-P_i^2)}
 \tag{10-28}
 \]
-由同一容量约束分配，超限记录未满足无功需求；\`avc_reactive_error\` 在无功控制模式为 \(Q_{\rm req}-Q_{\Sigma,\rm actual}\)，电压控制模式用归一化无功等效误差输出，并另外以 \`grid_voltage_feedback\` 计算电压误差，不把 V 填进 var 类型的点位。
+由同一容量约束分配，超限记录未满足无功需求；`avc_reactive_error` 在无功控制模式为 \(Q_{\rm req}-Q_{\Sigma,\rm actual}\)，电压控制模式用归一化无功等效误差输出，并另外以 `grid_voltage_feedback` 计算电压误差，不把 V 填进 var 类型的点位。
 
 频率偏差 \(\delta f=f-f_0\)、死区 \(d_f\ge0\)、下垂 \(K_f>0\)（W/Hz），FFR 原始增量：
 \[
@@ -2452,7 +2452,7 @@ Q_{\rm req}=\operatorname{clip}\left(K_U(U_{\rm set}-U_{LL}),Q_{\rm plant,min},Q
 \end{cases}}
 \tag{10-29}
 \]
-FFR 启用时按可用正/负增量与优先级分配，禁用输出零；\(P_{i,*}=\operatorname{clip}(P_{i,\rm AGC}+\Delta P_{i,\rm FFR},P_{i,\min},P_{i,\max})\)，然后执行坡率/电流/能量约束。风/光无可用增量时不能凭空增加有功；储能受 SOC 约束。FFR 响应退出和再进入可配置独立恢复时间常数，不允许不连续突变。由于电网反馈滞后一仿真步，\`agc/avc/ffr\` 计算均以已确认的 \(P_{\Sigma,k},Q_{\Sigma,k},U_{LL,k},f_k\) 为输入。
+FFR 启用时按可用正/负增量与优先级分配，禁用输出零；\(P_{i,*}=\operatorname{clip}(P_{i,\rm AGC}+\Delta P_{i,\rm FFR},P_{i,\min},P_{i,\max})\)，然后执行坡率/电流/能量约束。风/光无可用增量时不能凭空增加有功；储能受 SOC 约束。FFR 响应退出和再进入可配置独立恢复时间常数，不允许不连续突变。由于电网反馈滞后一仿真步，`agc/avc/ffr` 计算均以已确认的 \(P_{\Sigma,k},Q_{\Sigma,k},U_{LL,k},f_k\) 为输入。
 
 ### 10.5.7.2 初始条件、求解顺序及验收例
 
@@ -2464,7 +2464,7 @@ FFR 启用时按可用正/负增量与优先级分配，禁用输出零；\(P_{i
 | 电网 | \(U_{s,0},f_0\) 或动态频率初值、连接态 | 式 (10-21)～(10-24) |
 | PPC | AGC/AVC/FFR 开关、上次分配值、反馈初值 | 式 (10-25)～(10-29) |
 
-每一步按 (a) 接收并校验 \`UpdateVariables\` 输入快照、(b) 基于已确认的电网和设备反馈运行 PPC、(c) 各设备更新状态和有效 P/Q、(d) 统一计算电网 P/Q/U/I/PF、(e) 按点表输出所有变量并更新时戳。测试必须包含恒输入平衡、输入阶跃、启停/保护、限幅边界、重复运行一致性、能量余额误差；建议在每个设备测试记录 \(k,\Delta t\) 和物理残差 \(r_E\)，并按数值算法阶数与量纲确定公差，禁止所有模型共用一个任意绝对误差阈值。
+每一步按 (a) 接收并校验 `UpdateVariables` 输入快照、(b) 基于已确认的电网和设备反馈运行 PPC、(c) 各设备更新状态和有效 P/Q、(d) 统一计算电网 P/Q/U/I/PF、(e) 按点表输出所有变量并更新时戳。测试必须包含恒输入平衡、输入阶跃、启停/保护、限幅边界、重复运行一致性、能量余额误差；建议在每个设备测试记录 \(k,\Delta t\) 和物理残差 \(r_E\)，并按数值算法阶数与量纲确定公差，禁止所有模型共用一个任意绝对误差阈值。
 
 
 ### 10.5.8 完整配置结构、检查及输入生命周期
@@ -2478,7 +2478,7 @@ FFR 启用时按可用正/负增量与优先级分配，禁用输出零；\(P_{i
 | `configs/instances/data-generator.yaml` | Scenario、设备选择、模型族/版本、初值、输入绑定、跨模型依赖、输出 Gateway 路由、种子、步长及模型参数引用 |
 | `configs/services/data_generator.yaml` | 服务级 RPC、TLS/授权、配置路径、模型上限、指标、后台任务、安全关闭 |
 
-拟新增的物理模型配置标识（**当前生产 Schema 尚不支持**）：`source.kind=simulation`, `source.model_family=physical`, `models.<id>.kind=wtg|pv|bess|grid|ppc`, `models.<id>.parameters`, `models.<id>.initial_state`, `models.<id>.input_bindings`, `source.interval_seconds`。配置必须通过版本化模型 Schema 校验：参数有限数、正惯量、正容量、\(0<\eta\le1\)、SOC/桨距上下界、限幅、时间常数、Cp 曲线定义、发电机额定功率和视在容量；非法配置不得启动，不能自动补数猜值。模型参数建议按业务分组：
+拟新增的物理模型配置标识（**当前生产 Schema 尚不支持**）：`source.kind=simulation`, `model.kind=physical`, `models.<id>.kind=wtg|pv|bess|grid|ppc`, `models.<id>.parameters`, `models.<id>.initial_state`, `models.<id>.input_bindings`, `source.interval_seconds`。配置必须通过版本化模型 Schema 校验：参数有限数、正惯量、正容量、\(0<\eta\le1\)、SOC/桨距上下界、限幅、时间常数、Cp 曲线定义、发电机额定功率和视在容量；非法配置不得启动，不能自动补数猜值。模型参数建议按业务分组：
 
 | 模型 | 必填核心参数 |
 |---|---|
@@ -2492,7 +2492,8 @@ FFR 启用时按可用正/负增量与优先级分配，禁用输出零；\(P_{i
 # 仅为目标设计，不能直接交给当前 Generator 解析器
 source:
   kind: simulation
-  model_family: physical
+  model:
+    kind: physical
   interval_seconds: 0.05
 models:
   wtg-2mw-example:
@@ -2740,7 +2741,7 @@ configs/
 | `templates/point_tables/` | 协议测点、类型、工程单位及地址 | 以实际解析后的点表校验 Scenario 引用；不复制点表内容 |
 | `templates/protocols/` | Modbus TCP、ADS、IEC104 等协议参数 | 仅复用元数据，不使 Generator 持有工业协议 Server |
 | `templates/business_points.yaml`、`units.yaml` | 业务物理量、工程单位与换算 | 通过共享快照验证标量/单位 |
-| `instances/data-generator.yaml` | 场景及版本、数据来源、随机/静态参数、CSV 重放和 Gateway 映射 | Data Generator 独立校验并拥有运行行为 |
+| `instances/data-generator.yaml` | 场景及版本、数据来源、随机/简单物理模型参数、CSV 重放和 Gateway 映射 | Data Generator 独立校验并拥有运行行为 |
 | `services/data-generator-service.yaml` | 配置来源路径、gRPC、输出、缓冲、诊断与 Metrics 限额 | 显式声明共享/私有实例文件及模板根目录；重启生效 |
 
 **服务级路径契约**：`config_sources` 必填，且仅包含四项直接依赖：`instances.site`、`instances.devices`、`instances.scenarios`、`templates.root`。四项路径均以部署工作根 `config_root` 为基准且以 `configs/` 开头，不使用 `../`，不得使用绝对路径、路径越界或默认值回退。实例可选择不同的实际文件名。`configuration` 依据指定的 `templates.root` 装配 `units.yaml`、`business_points.yaml`，并根据设备型号模板中的 ID/版本逐级引用协议、点表和型号文件。这些间接依赖无需、也不得在 Data Generator 专属配置中重复声明。修改四项直接路径属于服务级配置变更，重启后生效。
@@ -2870,7 +2871,7 @@ scenarios:
 | 公共设备 | `device_id` 存在于共享快照且 `enabled=true`；其设备型号/点表/协议引用由 Core 完整解析 | 拒绝受影响场景启动或候选 |
 | 场景版本 | `scenario_id` 非空且唯一；`version` 为不可变的 `MAJOR.MINOR.PATCH` 字符串；运行引用不可静默改写 | 拒绝覆盖已发布版本 |
 | 模拟点 | `point_id` 存在于解析后的公共点表；计算输出需兼容点表类型、单位和边界 | 拒绝配置或该周期失败 |
-| 静态模型 | `input_point` 在该场景可访问，依赖 DAG 无环；允许内置代数/查表/线性插值，禁止 `eval` | 拒绝配置 |
+| 简单物理模型 | `input_point` 属于共享点表、依赖合法；代数、插值与状态积分采用受控内置计算，禁止 `eval`；物理参数、初值及保护边界有效 | 拒绝配置 |
 | 重放 CSV | UTF-8，列 `device_id,point_id,source_timestamp,value,quality,record_id`；时间 RFC3339 UTC；`record_id` 唯一；排序与区间遵从 §10.3 | 拒绝非法记录，不静默跳过 |
 | Gateway 输出 | 全量展开后 `(gateway_id,variable_id)` 在单场景版本内不重复；每个启用输出点至少一目标，目标标量类型须兼容 | 拒绝无效候选或启动 |
 | 运行互斥 | 同一 Device 不得归属两个活动 Generation；跨活动/未安全收敛 Generation 目标键不相交 | 整次 Start 拒绝，不部分预留 |
