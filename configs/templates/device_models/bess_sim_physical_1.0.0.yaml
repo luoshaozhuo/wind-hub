@@ -1,0 +1,38 @@
+# 独立物理仿真设备型号；参数与共享点表绑定，运行工况在 Data Generator 服务配置中定义。
+schema_version: 1
+template_id: bess_sim_physical
+file_version: 1.0.0
+name: 储能仿真设备
+device_type_id: energy_storage
+protocol:
+  id: modbus_tcp
+  version: 1.1.0
+point_table:
+  id: modbus_bess_sim
+  version: 1.0.0
+simulation:
+  kind: physical
+  device_kind: bess
+  parameters:
+    rated_energy_wh: 1000000.0
+    pcs_rated_active_power_w: 500000.0
+    pcs_rated_apparent_power_va: 550000.0
+    soc_min: 0.1
+    soc_max: 0.9
+    initial_soc: 0.5
+    charge_efficiency: 0.96
+    discharge_efficiency: 0.96
+    ocv_curve:
+      - {soc: 0.1, voltage_v: 700.0}
+      - {soc: 0.5, voltage_v: 800.0}
+      - {soc: 0.9, voltage_v: 900.0}
+    internal_resistance_ohm: 0.05
+    max_battery_current_a: 800.0
+    initial_battery_temperature_c: 25.0
+    control_strategy: power_demand
+    soc_control_gain_w: 500000.0
+    soc_deadband: 0.005
+    reactive_support_enabled: true
+    thermal_parameters:
+      thermal_capacity_j_per_k: 500000.0
+      cooling_w_per_k: 100.0
