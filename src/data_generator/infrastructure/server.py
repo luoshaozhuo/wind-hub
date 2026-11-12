@@ -211,6 +211,7 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
                 message=str(exc),
             )
         return dg.StopGenerationResponse(accepted=True, actual_state=state.actual_state)
+
     async def ListVariables(
         self, request: dg.ListVariablesRequest, context: Any
     ) -> dg.ListVariablesResponse:
@@ -219,6 +220,7 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
             "model variable interface not yet implemented",
         )
         raise RuntimeError("gRPC abort returned")
+
     async def UpdateVariables(
         self, request: dg.UpdateVariablesRequest, context: Any
     ) -> dg.UpdateVariablesResponse:
@@ -286,6 +288,7 @@ class CommonService(common_rpc.CommonServiceServicer):
         return common.GetCapabilitiesResponse(
             rpc_names=[
                 m.name for m in dg.DESCRIPTOR.services_by_name["DataGeneratorService"].methods
+                if m.name not in {"ListVariables", "UpdateVariables"}
             ]
             + [m.name for m in common.DESCRIPTOR.services_by_name["CommonService"].methods],
             protocols=["grpc"],
