@@ -292,6 +292,21 @@ def validate_service_limits(service: dict[str, Any]) -> None:
                 or (isinstance(lower, int) and type(value) is not int)
             ):
                 raise GeneratorError(f"invalid {section}.{key}: must be within {lower}..{upper}")
+    recording = service.get("recording", {})
+    if not isinstance(recording, dict):
+        raise GeneratorError("recording must be a mapping")
+    if type(recording.get("enabled", False)) is not bool:
+        raise GeneratorError("recording.enabled must be a boolean")
+    directory = recording.get("directory", "artifacts/data-generator")
+    if (
+        not isinstance(directory, str)
+        or not directory
+        or Path(directory).is_absolute()
+        or ".." in Path(directory).parts
+        or "\\\\" in directory
+    ):
+        raise GeneratorError("recording.directory must be project-relative")
+    recording["directory"] = directory
     metrics = service.get("metrics", {})
     if metrics.get("window_seconds", 60) < metrics.get("sample_seconds", 1.0):
         raise GeneratorError("metrics window must cover sampling interval")
