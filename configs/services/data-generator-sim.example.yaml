@@ -7,7 +7,6 @@ config_sources:
   instances:
     site: configs/instances/site.yaml
     devices: configs/instances/devices_sim.yaml
-    scenarios: configs/instances/data-generator-sim.yaml
   templates:
     root: configs/templates
 service:
@@ -41,3 +40,62 @@ security:
   permissions:
     cli: [variables_read, variables_update]
     gateway: [variables_read, variables_update]
+
+# 版本化场景归属本服务；设备固有参数从 device_models 装配。
+scenarios:
+  - scenario_id: wind-plant-physical
+    version: "1.0.0"
+    description: "风光储并网简单物理模型"
+    source:
+      kind: simulation
+      interval_seconds: 0.05
+    weather:
+      site-a:
+        wind:
+          wind_seed: 42
+          wind_correlation_time_s: 10.0
+          wind_speed_mean: 10.0
+          turbulence_intensity: 0.12
+          wind_direction: 0.0
+          air_density: 1.225
+        irradiance:
+          sunrise_s: 21600
+          sunset_s: 64800
+          irradiance_clear_w_m2: 1000.0
+          cloud_mode: constant
+          cloud_factor_target: 0.8
+        ambient_temperature:
+          temperature_mean_c: 20.0
+          diurnal_amplitude_k: 5.0
+          temperature_seed: 43
+          temperature_tau_s: 1800.0
+          temperature_sigma_k: 0.5
+          phase_rad: 0.0
+    devices:
+      - device_id: WTG_SIM01
+        weather_ref: site-a
+        controller_mode: ppc
+      - device_id: PV_SIM01
+        weather_ref: site-a
+        controller_mode: ppc
+      - device_id: BESS_SIM01
+        weather_ref: site-a
+        controller_mode: ppc
+      - device_id: GRID_SIM01
+      - device_id: PPC_SIM01
+    gateways:
+      - gateway_id: gw-wtg-sim01
+        endpoint: "127.0.0.1:50073"
+        device_id: WTG_SIM01
+      - gateway_id: gw-pv-sim01
+        endpoint: "127.0.0.1:50073"
+        device_id: PV_SIM01
+      - gateway_id: gw-bess-sim01
+        endpoint: "127.0.0.1:50073"
+        device_id: BESS_SIM01
+      - gateway_id: gw-grid-sim01
+        endpoint: "127.0.0.1:50073"
+        device_id: GRID_SIM01
+      - gateway_id: gw-ppc-sim01
+        endpoint: "127.0.0.1:50073"
+        device_id: PPC_SIM01
