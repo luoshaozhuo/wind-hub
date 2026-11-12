@@ -359,10 +359,7 @@ def config_sources(service_file: Path, service: dict[str, Any]) -> dict[str, Pat
         raise GeneratorError("instances requires site and devices paths")
     if not isinstance(templates, dict) or set(templates) != {"root"}:
         raise GeneratorError("templates requires only root")
-    resolved = {
-        key: resolve_source(service_file, instances[key])
-        for key in ("site", "devices")
-    }
+    resolved = {key: resolve_source(service_file, instances[key]) for key in ("site", "devices")}
     resolved["templates_root"] = resolve_source(
         service_file,
         templates["root"],
@@ -415,9 +412,7 @@ def load_settings(service_path: Path) -> Settings:
         if source.get("kind") == "simulation" and (
             "models" in raw
             or any(
-                isinstance(item, dict) and (
-                    "model_ref" in item or "points" not in item
-                )
+                isinstance(item, dict) and ("model_ref" in item or "points" not in item)
                 for item in raw.get("devices", [])
             )
         ):
