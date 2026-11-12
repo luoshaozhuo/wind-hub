@@ -2063,14 +2063,14 @@ flowchart TB
 
 本节是编码契约。Data Generator 只提供两类生成模型，分别解决不同问题：
 
-1. **通用随机模型（\`random\`）**：不预设风机、光伏、储能等设备的物理方程。设备实例引用统一点表；每个待生成点均由场景配置给出分布、参数、更新周期和约束，按点表类型生成任意合法数据。增加设备型号或数据点无需修改随机模型代码；随机结果不要求物理量之间相互自洽。
-2. **固定简单物理模型（\`physical\`）**：为已定义的风机、光伏、储能、电网及电厂控制器提供**固定的、有限适用范围的简化方程和状态机**。模型反映部分真实物理关系，供系统级闭环联调，但不适用所有设备结构、控制算法及运行工况；不能把未配置的厂家特性或复杂电磁暂态当作已实现能力。气象扰动可以随机，但不因此新增模型类别。
+1. **通用随机模型（`random`）**：不预设风机、光伏、储能等设备的物理方程。设备实例引用统一点表；每个待生成点均由场景配置给出分布、参数、更新周期和约束，按点表类型生成任意合法数据。增加设备型号或数据点无需修改随机模型代码；随机结果不要求物理量之间相互自洽。
+2. **固定简单物理模型（`physical`）**：为已定义的风机、光伏、储能、电网及电厂控制器提供**固定的、有限适用范围的简化方程和状态机**。模型反映部分真实物理关系，供系统级闭环联调，但不适用所有设备结构、控制算法及运行工况；不能把未配置的厂家特性或复杂电磁暂态当作已实现能力。气象扰动可以随机，但不因此新增模型类别。
 
 历史 CSV 重放属于独立数据源，不属于上述两种生成模型。随机模型的“任意”指**任意已登记的数据点及受配置约束的合法值**，不表示可以绕过数据类型、取值域或设备/点表契约。
 
 ### 10.5.1 模型边界、设备与数据契约
 
-| 维度 | \`random\` | \`physical\` |
+| 维度 | `random` | `physical` |
 |---|---|---|
 | 支持设备 | 任何合法设备实例及点表 | 本节明确规定的五类设备 |
 | 输出来源 | 各点独立的分布配置；可显式指定关联规则 | 外部气象 + 控制指令 + 固定设备方程 |
@@ -2079,21 +2079,21 @@ flowchart TB
 | 状态管理 | PRNG 状态、规则配置及必要的采样状态 | 气象随机状态、设备连续状态及离散状态机 |
 | 运行时修改 | 已声明可修改的分布参数/控制规则 | 已声明的外部输入、指令；不能直接改写计算状态 |
 
-仿真设备文件为 \`configs/instances/devices_sim.yaml\`，真实设备为 \`configs/instances/devices.yaml\`，两者沿用同一 Schema，由每个服务的 \`config_sources.instances.devices\` 选择。型号、点表与业务点统一引用 \`configs/templates/\` 下的共享定义。定位键为 \`device_id + point_id\`；生成场景不重复声明 \`business_point_id\`、\`data_type\`、\`unit\`、寄存器地址及比例系数。
+仿真设备文件为 `configs/instances/devices_sim.yaml`，真实设备为 `configs/instances/devices.yaml`，两者沿用同一 Schema，由每个服务的 `config_sources.instances.devices` 选择。型号、点表与业务点统一引用 `configs/templates/` 下的共享定义。定位键为 `device_id + point_id`；生成场景不重复声明 `business_point_id`、`data_type`、`unit`、寄存器地址及比例系数。
 
 | 模型 | 设备示例 | 型号模板 | 点表模板 |
 |---|---|---|---|
-| 风机 | \`WTG_SIM01\`～\`WTG_SIM03\` | \`wtg_sim_2mw\` | \`modbus_wtg_sim_2mw\` |
-| 光伏 | \`PV_SIM01\` | \`pv_sim\` | \`modbus_pv_sim\` |
-| 储能 | \`BESS_SIM01\` | \`bess_sim\` | \`modbus_bess_sim\` |
-| 电网 | \`GRID_SIM01\` | \`grid_sim\` | \`modbus_grid_sim\` |
-| 电厂控制 | \`PPC_SIM01\` | \`plant_controller_sim\` | \`modbus_plant_controller_sim\` |
+| 风机 | `WTG_SIM01`～`WTG_SIM03` | `wtg_sim_2mw` | `modbus_wtg_sim_2mw` |
+| 光伏 | `PV_SIM01` | `pv_sim` | `modbus_pv_sim` |
+| 储能 | `BESS_SIM01` | `bess_sim` | `modbus_bess_sim` |
+| 电网 | `GRID_SIM01` | `grid_sim` | `modbus_grid_sim` |
+| 电厂控制 | `PPC_SIM01` | `plant_controller_sim` | `modbus_plant_controller_sim` |
 
-**变量角色**：\`input\` 为可经授权 \`UpdateVariables\` 修改的模型外部输入；\`parameter\` 为受控配置参数；\`state\` 为内部连续/离散状态；\`output\` 为计算派生量。随机模型按逐点生成规则确定可修改对象；物理模型中 \`wind_speed_mean\` 是 \`input\`，\`wind_speed\` 是 \`output\`。模型角色不同于 Modbus 寄存器读写属性，不允许把对外测量输出的可写性作为模型输入权限。
+**变量角色**：`input` 为可经授权 `UpdateVariables` 修改的模型外部输入；`parameter` 为受控配置参数；`state` 为内部连续/离散状态；`output` 为计算派生量。随机模型按逐点生成规则确定可修改对象；物理模型中 `wind_speed_mean` 是 `input`，`wind_speed` 是 `output`。模型角色不同于 Modbus 寄存器读写属性，不允许把对外测量输出的可写性作为模型输入权限。
 
 ### 10.5.2 符号、单位与数值约定
 
-**先定义本节所用符号，再给出方程。**下表按物理域分组；每个模型只引用本表符号，不在公式之后追加“符号释义”。带下标 \`k\`、\`k+1\` 的量依次表示离散步初和步末；带 \`*\` 表示目标值；下标 \`0\` 表示基值或初值，具体见符号定义。标量列阵仍采用本项目统一的下划线表示法。
+**先定义本节所用符号，再给出方程。**下表按物理域分组；每个模型只引用本表符号，不在公式之后追加“符号释义”。带下标 `k`、`k+1` 的量依次表示离散步初和步末；带 `*` 表示目标值；下标 `0` 表示基值或初值，具体见符号定义。标量列阵仍采用本项目统一的下划线表示法。
 
 | 域 | 符号、含义与单位 |
 |---|---|
@@ -2109,7 +2109,7 @@ flowchart TB
 | 电网 | $n$：参与聚合设备数；$P_i,Q_i$：设备 $i$ 有功、无功；$P_\Sigma,Q_\Sigma,S_\Sigma$：三相汇总量；$U_s,U_0$：等值电源线电压、标称线电压(V)；$R_g,X_g$：每相等值阻抗实、虚部(Ω)；$f,f_0,\Delta f$：电网频率、标称频率、频差(Hz)；$ROCOF$：频率变化率(Hz/s)；$H$：等效惯量常数(s)；$S_b$：频率模型基准功率(W)；$\Delta P$：发电负荷不平衡(W)；$D_f$：频率阻尼(W/Hz) |
 | 电厂控制 | $P_{i,\min},P_{i,\max}$：设备有功可行上下界(W)；$L_i,H_i$：含爬坡限制的上下界(W)；$w_i$：非负分配权重；$\alpha$：水位求解系数(W)；$P_{\rm AGC,set},P_{i,\rm AGC}$：电厂 AGC 目标、设备分配值(W)；$Q_{\rm AVC,set},Q_{\rm req}$：AVC 目标与请求无功(var)；$U_{\rm set}$：电压目标(V)；$K_U$：电压调节增益(var/V)；$d_f$：调频死区(Hz)；$K_f$：下垂增益(W/Hz)；$\Delta P_{\rm FFR},\Delta P_{i,\rm FFR}$：电厂、设备调频增量(W) |
 
-本节中其他直接出现的配置名（如 \`rated_power_w\`、\`wind_seed\`）均是实现字段，不替代数学符号。索引 $i$ 的含义在各设备小节确定；\`rad\` 为无量纲角度单位，角速度仍用 rad/s。所有内部数值统一采用 SI 单位；数据点按点表声明的单位和比例系数转换。温度相减以 K 为单位等效于 °C 温差；功率积分中的时间单位为 s。
+本节中其他直接出现的配置名（如 `rated_power_w`、`wind_seed`）均是实现字段，不替代数学符号。索引 $i$ 的含义在各设备小节确定；`rad` 为无量纲角度单位，角速度仍用 rad/s。所有内部数值统一采用 SI 单位；数据点按点表声明的单位和比例系数转换。温度相减以 K 为单位等效于 °C 温差；功率积分中的时间单位为 s。
 
 #### 通用数值算子
 
@@ -2142,10 +2142,9 @@ $$
 
 #### 10.5.3.1 仿真时步与数据流
 
-每个 Generation 使用固定 $\Delta t$；所有控制输入在步边界原子生效，\`effective_step\` 标识首次生效步。反馈至少延迟一个仿真步，禁止在没有联合求解器的情况下构造零延迟代数环。
+每个 Generation 使用固定 $\Delta t$；所有控制输入在步边界原子生效，`effective_step` 标识首次生效步。反馈至少延迟一个仿真步，禁止在没有联合求解器的情况下构造零延迟代数环。
 
-<escape></escape>
-\`\`\`mermaid
+```mermaid
 flowchart TD
   A["加载场景、设备、点表与模型"] --> B["校验引用、初值、参数和随机规则"]
   B --> C["安装当前步输入快照"]
@@ -2157,7 +2156,7 @@ flowchart TD
   H --> I["Gateway ClaimTargets / UpdateVariables"]
   I --> J["保存状态、步号和复现信息"]
   J --> C
-\`\`\`
+```
 
 <p class="figure-caption">图 10-2 固定物理模型的确定性执行顺序</p>
 
@@ -2165,21 +2164,21 @@ flowchart TD
 
 #### 10.5.3.2 通用随机规则契约
 
-随机生成**以点表为驱动**：逐设备枚举目标点 → 读取点的数据类型、单位和范围 → 查找与该点绑定的生成规则 → 在受控 PRNG 上采样 → 验证值 → 输出。没有规则的点按配置选择 \`reject\` 或显式 \`omit\`，禁止隐式填零或猜测分布。
+随机生成**以点表为驱动**：逐设备枚举目标点 → 读取点的数据类型、单位和范围 → 查找与该点绑定的生成规则 → 在受控 PRNG 上采样 → 验证值 → 输出。没有规则的点按配置选择 `reject` 或显式 `omit`，禁止隐式填零或猜测分布。
 
 | 点表数据类型 | 允许规则及约束 |
 |---|---|
-| 浮点 | \`constant\`、\`uniform\`、\`normal\`；均匀分布上下界有序，正态标准差非负 |
-| 有符号/无符号整数 | \`constant\`、\`uniform_int\`、\`choice\`；离散端点为整数，不得先取浮点再任意取整 |
-| 布尔 | \`constant\`、\`bernoulli\`；成功概率在 [0,1] |
-| 枚举 | \`choice\`；候选值必须是点表登记的合法枚举 |
-| 字符串（点表允许时） | \`constant\`、\`choice\`；满足长度、编码和候选值约束 |
+| 浮点 | `constant`、`uniform`、`normal`；均匀分布上下界有序，正态标准差非负 |
+| 有符号/无符号整数 | `constant`、`uniform_int`、`choice`；离散端点为整数，不得先取浮点再任意取整 |
+| 布尔 | `constant`、`bernoulli`；成功概率在 [0,1] |
+| 枚举 | `choice`；候选值必须是点表登记的合法枚举 |
+| 字符串（点表允许时） | `constant`、`choice`；满足长度、编码和候选值约束 |
 
-\`normal\` 的越界行为必须明确选择 \`reject_sample\`（本步失败）或有界重采样（最大次数配置、达到上限失败）；不允许无声明直接裁剪并继续宣称数据仍服从原分布。随机值可逐步独立，也可通过显式 \`hold_steps\` 维持若干步；需要变量间相关性必须在配置中引用独立的关联规则，不能默认随机输出满足有功/电流/SOC 等物理关系。
+`normal` 的越界行为必须明确选择 `reject_sample`（本步失败）或有界重采样（最大次数配置、达到上限失败）；不允许无声明直接裁剪并继续宣称数据仍服从原分布。随机值可逐步独立，也可通过显式 `hold_steps` 维持若干步；需要变量间相关性必须在配置中引用独立的关联规则，不能默认随机输出满足有功/电流/SOC 等物理关系。
 
 **场景示例（目标结构，当前生产 Schema 尚未支持）：**
 
-\`\`\`yaml
+```yaml
 model:
   kind: random
   seed: 42
@@ -2195,15 +2194,15 @@ model:
     alarm_active:
       distribution: bernoulli
       probability: 0.02
-\`\`\`
+```
 
 以上只绑定点 ID，不要求指定风机/光伏/储能预设方程；实际规则需与对应设备点表类型匹配。种子配置和采样算法必须版本化，禁止因迭代次序不确定而破坏重放。
 
 ### 10.5.4 外部气象条件
 
-气象是物理设备的**外部输入层**，而非风机或光伏内部状态。可设置常值，也可按固定时间规律叠加可复现的随机扰动。每个气象变量在每个时步只计算一次，供所有显式绑定到同一气象场景的设备消费；不同气象场景可使用不同种子。外部 \`UpdateVariables\` 修改的是气象控制参数（平均风速、湍流度、参考辐照度、温度基值等），不直接覆盖物理输出。**不生成未绑定的数据点，也不自动把风机风速当作所有光伏设备的风速。**
+气象是物理设备的**外部输入层**，而非风机或光伏内部状态。可设置常值，也可按固定时间规律叠加可复现的随机扰动。每个气象变量在每个时步只计算一次，供所有显式绑定到同一气象场景的设备消费；不同气象场景可使用不同种子。外部 `UpdateVariables` 修改的是气象控制参数（平均风速、湍流度、参考辐照度、温度基值等），不直接覆盖物理输出。**不生成未绑定的数据点，也不自动把风机风速当作所有光伏设备的风速。**
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
   A["气象场景参数 / 运行时输入"] --> W["风速：平均值 + 相关扰动"]
   A --> G["日照：昼夜规律 + 遮云"]
@@ -2216,7 +2215,7 @@ flowchart LR
   T --> PV
   T --> B["储能热模型"]
   D --> WT
-\`\`\`
+```
 
 <p class="figure-caption">图 10-3 气象条件独立生成并按设备绑定</p>
 
@@ -2245,7 +2244,7 @@ I_v=\frac{\sigma_v}{\bar v}\quad(\bar v>0).
 \tag{10-5}
 $$
 
-约束：$\bar v\ge0$、$I_v\ge0$、$\tau_v>0$。\`wind_speed_mean\`、\`turbulence_intensity\` 是可更新输入；\`wind_speed\` 是只读派生输出。更新参数时保留 $z_k$ 并从下一指定有效步计算；$\bar v=0$ 时强制输出零。零平均风速时湍流度统计比值无定义，不进行式 (10-5) 的除法。切入/切出风速是**风机保护门限**，不得通过裁剪风速分布实现。种子、状态初始化和相关时间由场景配置，不默认为 IEC/Kaimal 谱。
+约束：$\bar v\ge0$、$I_v\ge0$、$\tau_v>0$。`wind_speed_mean`、`turbulence_intensity` 是可更新输入；`wind_speed` 是只读派生输出。更新参数时保留 $z_k$ 并从下一指定有效步计算；$\bar v=0$ 时强制输出零。零平均风速时湍流度统计比值无定义，不进行式 (10-5) 的除法。切入/切出风速是**风机保护门限**，不得通过裁剪风速分布实现。种子、状态初始化和相关时间由场景配置，不默认为 IEC/Kaimal 谱。
 
 **计算例**：配置平均风速 10 m/s、湍流度 0.20、相关时间 10 s、固定步长 0.05 s，则目标标准差为 2 m/s；改变平均风速到 12 m/s 后使用相同 $z_k$ 连续推进，而不是重新播种或跳变随机状态。
 
@@ -2263,7 +2262,7 @@ G_k=G_{\rm clear}\,h(t_k)\,c_k.
 \tag{10-6}
 $$
 
-遮云因子 $c_k$ 按模式选择：\`constant\` 使用配置常数；\`correlated\` 使用独立种子的有界相关过程。例如定义 $q_k\in[0,1]$、$\zeta_k\sim\mathcal N(0,1)$、$\tau_G>0$、$\sigma_G\ge0$、$a_G=\exp(-\Delta t/\tau_G)$：
+遮云因子 $c_k$ 按模式选择：`constant` 使用配置常数；`correlated` 使用独立种子的有界相关过程。例如定义 $q_k\in[0,1]$、$\zeta_k\sim\mathcal N(0,1)$、$\tau_G>0$、$\sigma_G\ge0$、$a_G=\exp(-\Delta t/\tau_G)$：
 
 $$
 q_{k+1}=\operatorname{clip}\left(
@@ -2274,7 +2273,7 @@ $$
 
 其中 $\bar q$ 为场景遮云因子目标(0～1)，$q_0$ 为初始遮云状态；$a_G$ 是无量纲相关系数，$\sigma_G$ 为扰动幅度。截断后的 $q_k$ **不保证**均值严格为 $\bar q$，因此 $\bar q$ 仅为未截断过程的目标位置参数，不称作经证明的稳态均值。没有纬度、日期、太阳高度角或组件倾斜角输入时，不承诺真实天文辐照，默认也不模拟云影空间传播。
 
-\`irradiance_reference\`、\`cloud_factor_target\` 可配置为受控输入；\`irradiance\` 是导出的非负辐照度。夜间 $G=0$，遮云更新不能产生夜间辐照度。若外部直接提供辐照度，应显式启用 \`irradiance_source=external\`，此时计算输出来自外部气象输入通道，与日周期模式互斥。
+`irradiance_reference`、`cloud_factor_target` 可配置为受控输入；`irradiance` 是导出的非负辐照度。夜间 $G=0$，遮云更新不能产生夜间辐照度。若外部直接提供辐照度，应显式启用 `irradiance_source=external`，此时计算输出来自外部气象输入通道，与日周期模式互斥。
 
 #### 10.5.4.3 环境气温的日变化
 
@@ -2291,26 +2290,26 @@ A_T\sin(2\pi t_{k+1}/86400+\varphi_T)+\sigma_Tz^T_{k+1}.
 \tag{10-8}
 $$
 
-这里 $z^T_k,\xi^T_k$ 为无量纲温度随机状态和独立扰动，$a_T$ 为相关系数；86400 s 是固定模型中一天的长度。$\tau_T^{\rm met}>0$、$A_T\ge0$、$\sigma_T\ge0$。同样种子与步序生成同一温度过程；$A_T=\sigma_T=0$ 时温度恒定。必要时通过场景配置声明 \`temperature_min_c\` / \`temperature_max_c\`，越界采用明确的失败/饱和语义；饱和后不再声称保持原正态统计特性。
+这里 $z^T_k,\xi^T_k$ 为无量纲温度随机状态和独立扰动，$a_T$ 为相关系数；86400 s 是固定模型中一天的长度。$\tau_T^{\rm met}>0$、$A_T\ge0$、$\sigma_T\ge0$。同样种子与步序生成同一温度过程；$A_T=\sigma_T=0$ 时温度恒定。必要时通过场景配置声明 `temperature_min_c` / `temperature_max_c`，越界采用明确的失败/饱和语义；饱和后不再声称保持原正态统计特性。
 
-空气密度 $\rho$ 可直接作为外生常值/阶跃输入，或由显式启用的大气近似计算；当前固定模型不隐含海拔、湿度或复杂天气预报。光伏、储能和风机可绑定同一 \`ambient_temperature\`，也可分别绑定不同场景，不得靠变量名称隐式跨设备关联。
+空气密度 $\rho$ 可直接作为外生常值/阶跃输入，或由显式启用的大气近似计算；当前固定模型不隐含海拔、湿度或复杂天气预报。光伏、储能和风机可绑定同一 `ambient_temperature`，也可分别绑定不同场景，不得靠变量名称隐式跨设备关联。
 
 #### 10.5.4.4 气象参数、初值与边界
 
 | 气象子模型 | 必需参数 / 初始状态 | 可修改的控制输入 | 派生输出 |
 |---|---|---|---|
-| 风 | \`wind_seed,wind_correlation_time_s,z_initial\` | \`wind_speed_mean,turbulence_intensity\` | \`wind_speed\` |
-| 日照 | \`sunrise_s,sunset_s,irradiance_clear_w_m2,cloud_mode\`；相关模式另含 \`cloud_seed,cloud_tau_s,cloud_sigma,cloud_initial\` | \`irradiance_reference,cloud_factor_target\`（具体是否启用由源模式确定） | \`irradiance\` |
-| 气温 | \`temperature_seed,temperature_tau_s,temperature_initial\`、振幅和相位 | \`ambient_temperature_mean\` 及允许更改的日变化参数 | \`ambient_temperature\` |
-| 风向/空气密度 | 初始值、合法范围、来源绑定 | \`wind_direction,air_density\` | 同名气象快照 |
+| 风 | `wind_seed,wind_correlation_time_s,z_initial` | `wind_speed_mean,turbulence_intensity` | `wind_speed` |
+| 日照 | `sunrise_s,sunset_s,irradiance_clear_w_m2,cloud_mode`；相关模式另含 `cloud_seed,cloud_tau_s,cloud_sigma,cloud_initial` | `irradiance_reference,cloud_factor_target`（具体是否启用由源模式确定） | `irradiance` |
+| 气温 | `temperature_seed,temperature_tau_s,temperature_initial`、振幅和相位 | `ambient_temperature_mean` 及允许更改的日变化参数 | `ambient_temperature` |
+| 风向/空气密度 | 初始值、合法范围、来源绑定 | `wind_direction,air_density` | 同名气象快照 |
 
 数值例：场景设日出 06:00、日落 18:00、晴空参考 1000 W/m²、遮云因子恒为 0.8，则中午输出 800 W/m²，夜间输出零。该示例是固定计算场景，非全球任意位置的太阳辐照预测。
 
 ### 10.5.5 风机固定物理模型
 
-**适用边界**：采用集总气动功率系数、刚性传动链、等效电磁反转矩与简化变流器；不模拟柔性塔架、叶片气动弹性、轴系扭振、真实厂商控制器。气象输入来自第 10.5.4 节；控制指令来自本地控制或 PPC，二者由 \`controller_mode\` 互斥选取。
+**适用边界**：采用集总气动功率系数、刚性传动链、等效电磁反转矩与简化变流器；不模拟柔性塔架、叶片气动弹性、轴系扭振、真实厂商控制器。气象输入来自第 10.5.4 节；控制指令来自本地控制或 PPC，二者由 `controller_mode` 互斥选取。
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
   W["气象风速 / 风向 / 密度"] --> A["气动 C_p 与 P_a"]
   Y["偏航 / 三叶片桨距"] --> A
@@ -2319,7 +2318,7 @@ flowchart LR
   T --> R
   R --> E["发电机 / 变流器 / 损耗"]
   E --> O["P / Q / I / 热状态 / 保护"]
-\`\`\`
+```
 
 <p class="figure-caption">图 10-4 风机能量链与唯一转矩状态</p>
 
@@ -2374,7 +2373,7 @@ P_e=\operatorname{clip}(\eta_g\eta_c T_g\omega_g,0,P_{\rm rated}).
 \tag{10-12}
 $$
 
-$T_{g,\max}$ 是配置上限(N·m)。转矩模式直接采用 \`generator_torque_setpoint\`；功率模式先将目标有功经效率和速度换算为目标转矩再执行。实际 $P_e$ 必须由**本步实际** $T_g,\omega_g$ 求出，不能另外积分一套彼此矛盾的实际功率。功率爬坡作为目标变化约束；限额必须反映到转矩目标和实际输出。若启动/保护状态不允许发电，输出置零并执行约定的制动或顺桨；不能默默截断动能余额。
+$T_{g,\max}$ 是配置上限(N·m)。转矩模式直接采用 `generator_torque_setpoint`；功率模式先将目标有功经效率和速度换算为目标转矩再执行。实际 $P_e$ 必须由**本步实际** $T_g,\omega_g$ 求出，不能另外积分一套彼此矛盾的实际功率。功率爬坡作为目标变化约束；限额必须反映到转矩目标和实际输出。若启动/保护状态不允许发电，输出置零并执行约定的制动或顺桨；不能默默截断动能余额。
 
 #### 10.5.5.3 无功、温度和保护
 
@@ -2393,7 +2392,7 @@ $$
 
 **适用边界**：组件最大可用直流功率、简化单峰 DC 功率曲线、MPPT 一阶动态及逆变器能量/容量限幅。不模拟真实单二极管曲线、局部遮挡多峰优化和电网谐波。
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
   G["辐照度 / 气温"] --> T["组件温度"]
   T --> M["阵列可用直流功率"]
@@ -2402,7 +2401,7 @@ flowchart LR
   M --> D
   D --> V["逆变器功率与容量约束"]
   V --> O["交流 P / Q / I / 运行态"]
-\`\`\`
+```
 
 <p class="figure-caption">图 10-5 光伏直流到交流能量链</p>
 
@@ -2431,7 +2430,7 @@ I_{\rm dc}=\begin{cases}P_{\rm dc}/U_{\rm dc},&U_{\rm dc}>0,\\0,&U_{\rm dc}=0.\e
 \tag{10-15}
 $$
 
-MPPT 开启时目标直流电压取 $U_{\rm mp}$；关闭时取配置的 \`dc_voltage_setpoint\`。实际电压按式 (10-2) 以 $\tau_{\rm mppt}$ 更新。$U_{\rm mp},U_{\rm oc}$ 随气象条件的变化要么由显式参数曲线规定，要么采用声明的常值近似。
+MPPT 开启时目标直流电压取 $U_{\rm mp}$；关闭时取配置的 `dc_voltage_setpoint`。实际电压按式 (10-2) 以 $\tau_{\rm mppt}$ 更新。$U_{\rm mp},U_{\rm oc}$ 随气象条件的变化要么由显式参数曲线规定，要么采用声明的常值近似。
 
 $$
 0\le P_{\rm ac}\le\min(\eta_{\rm inv}P_{\rm dc},P_{\rm ac,rated},P_{\rm command}),\qquad
@@ -2445,7 +2444,7 @@ $$
 
 **适用边界**：等效能量状态、简化 OCV—内阻直流电路、PCS 双向效率和一阶热模型。不模拟单体不一致、复杂电化学扩散和真实老化寿命预测。
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
   C["AGC / 本地功率 / FFR"] --> L["PCS、SOC 和电流可行域"]
   L --> P["实际充放电功率"]
@@ -2454,7 +2453,7 @@ flowchart LR
   V --> T["热状态与可选 SOH"]
   T -.->|"下一步保护"| L
   P --> O["交流 P / Q / I / BMS 状态"]
-\`\`\`
+```
 
 <p class="figure-caption">图 10-6 储能功率、能量和保护反馈</p>
 
@@ -2484,7 +2483,7 @@ U_b&=U_{\rm oc}-R_bI_b.
 \tag{10-18}
 $$
 
-\`ocv_curve\` 定义 $U_{\rm oc}$ 随 SOC/温度的可插值关系，须满足 $U_{\rm oc}>0$。先检查判别式非负、$U_b>0$、$|I_b|\le I_{\max}$，不满足时缩小本步实际功率再重新求解，不能输出无效根。
+`ocv_curve` 定义 $U_{\rm oc}$ 随 SOC/温度的可插值关系，须满足 $U_{\rm oc}>0$。先检查判别式非负、$U_b>0$、$|I_b|\le I_{\max}$，不满足时缩小本步实际功率再重新求解，不能输出无效根。
 
 $$
 \begin{aligned}
@@ -2546,7 +2545,7 @@ $S_b>0$、$H>0$、$f_0>0$；$\Delta P$ 必须由外部发电—负荷失衡明�
 
 **适用边界**：有限容量与爬坡率下的 AGC 有功分配、AVC 无功/电压模式、按死区和下垂的快速频率响应。不模拟完整厂商 AGC/AVC 策略和复杂调度优化。PPC 是独立模拟设备，不能替代 Commander 审计和权限控制。
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
   A["AGC 总有功设定"] --> D["有界加权分配"]
   U["AVC 电压或无功设定"] --> Q["容量约束无功分配"]
@@ -2559,7 +2558,7 @@ flowchart LR
   B -.->|"下一步反馈"| D
   B -.->|"下一步反馈"| Q
   B -.->|"下一步反馈"| R
-\`\`\`
+```
 
 <p class="figure-caption">图 10-7 PPC 分配与单步延迟反馈</p>
 
@@ -2578,7 +2577,7 @@ P_{i,\rm AGC}=\operatorname{clip}(L_i+\alpha w_i,L_i,H_i),\qquad
 \tag{10-26}
 $$
 
-对于 $w_i>0$ 的参与设备，$\alpha$ 由固定设备排序和容差的单调水位求解；$w_i=0$ 不参与增量分配，需确保其基准值也明确。无可行解或设定超过总上/下界时记录 \`unserved_power_command\`，不得伪称已完成调度。
+对于 $w_i>0$ 的参与设备，$\alpha$ 由固定设备排序和容差的单调水位求解；$w_i=0$ 不参与增量分配，需确保其基准值也明确。无可行解或设定超过总上/下界时记录 `unserved_power_command`，不得伪称已完成调度。
 
 AVC 的无功目标模式和电压模式互斥：
 
@@ -2617,16 +2616,16 @@ FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无�
 
 | 位置 | 内容 |
 |---|---|
-| \`configs/instances/devices_sim.yaml\` | 仿真设备实例；同 \`devices.yaml\` Schema |
-| \`configs/templates/device_models/*sim*.yaml\` | 仿真型号/协议/点表版本引用 |
-| \`configs/templates/point_tables/modbus_*sim*.yaml\` | 完整业务点、类型、地址、单位与缩放 |
-| \`configs/templates/business_points.yaml\`、\`units.yaml\` | 业务含义与单位字典 |
-| \`configs/instances/data-generator.yaml\` | Generation、随机规则、物理模型、气象场景、设备绑定、初值、种子与时间步 |
-| \`configs/services/data_generator.yaml\` | 服务接口、认证、配额、指标与安全退出 |
+| `configs/instances/devices_sim.yaml` | 仿真设备实例；同 `devices.yaml` Schema |
+| `configs/templates/device_models/*sim*.yaml` | 仿真型号/协议/点表版本引用 |
+| `configs/templates/point_tables/modbus_*sim*.yaml` | 完整业务点、类型、地址、单位与缩放 |
+| `configs/templates/business_points.yaml`、`units.yaml` | 业务含义与单位字典 |
+| `configs/instances/data-generator.yaml` | Generation、随机规则、物理模型、气象场景、设备绑定、初值、种子与时间步 |
+| `configs/services/data_generator.yaml` | 服务接口、认证、配额、指标与安全退出 |
 
 #### 模型配置示例
 
-\`\`\`yaml
+```yaml
 # 目标 Schema：采用两个明确互斥的模型族
 source:
   kind: simulation
@@ -2667,32 +2666,32 @@ devices:
     input_bindings: [wind_speed_mean, turbulence_intensity, pitch_angle_setpoint]
   - device_id: GRID_SIM01
     model_ref: random-telemetry
-\`\`\`
+```
 
 每个物理设备的参数必须提供可执行范围、初值和状态/点位映射：
 
 | 固定模型 | 必需模型参数及状态 |
 |---|---|
-| 风机 | \`rotor_radius_m,cp_curve,rotor_inertia, generator_inertia,gear_ratio,damping,torque_tau,converter_efficiency,pitch_limits,pitch_rate,cut_in_speed,cut_out_speed\`；初值：三桨距、偏航、转速、转矩、温度和运行态 |
-| 光伏 | \`dc_peak_power,irradiance_stc,temperature_coefficient,noct,umpp,uoc,mppt_tau,inverter_efficiency\`；初值：组件温度、直流电压、逆变器态 |
-| 储能 | \`rated_energy,soc_limits,ocv_curve,internal_resistance,pcs_charge/discharge_efficiency,current_limits,thermal_parameters\`；初值：SOC、SOH、温度及 BMS/PCS 态 |
-| 电网 | \`voltage_base,source_voltage,grid_r,grid_x,frequency_mode,nominal_frequency\`；初值：电压、频率/保护状态 |
-| PPC | \`participating_devices,weights,agc_ramp,avc_mode,ffr_droop,ffr_deadband\`；初值：控制模式、分配及反馈 |
+| 风机 | `rotor_radius_m,cp_curve,rotor_inertia, generator_inertia,gear_ratio,damping,torque_tau,converter_efficiency,pitch_limits,pitch_rate,cut_in_speed,cut_out_speed`；初值：三桨距、偏航、转速、转矩、温度和运行态 |
+| 光伏 | `dc_peak_power,irradiance_stc,temperature_coefficient,noct,umpp,uoc,mppt_tau,inverter_efficiency`；初值：组件温度、直流电压、逆变器态 |
+| 储能 | `rated_energy,soc_limits,ocv_curve,internal_resistance,pcs_charge/discharge_efficiency,current_limits,thermal_parameters`；初值：SOC、SOH、温度及 BMS/PCS 态 |
+| 电网 | `voltage_base,source_voltage,grid_r,grid_x,frequency_mode,nominal_frequency`；初值：电压、频率/保护状态 |
+| PPC | `participating_devices,weights,agc_ramp,avc_mode,ffr_droop,ffr_deadband`；初值：控制模式、分配及反馈 |
 | 气象 | 风速相关/种子/状态、光照昼夜/遮云、气温日周期/扰动的本节各项参数 |
 
 初值和参数未给出时按 Schema 报错，不得凭空生成厂商参数；示例数值只为测试场景，不作为所有设备的出厂默认值。无效时间常数、非有限数、负惯量、无效 OCV 曲线、重叠点地址、未知数据点和输出类型不匹配均阻止启动。
 
-输入由 \`UpdateVariables\` 原子写入模型输入快照，在 \`effective_step\` 生效。角色为 \`state\`/\`output\` 的量不允许外部改写。失效输入须选择 \`hold|fail|fallback\` 并声明超时和恢复规则；Generation 停止、重启或切换时必须保留 fencing 边界，不接受旧 Generation 的迟到命令。输出经 Gateway \`ClaimTargets/UpdateVariables\` 批量注入同一时戳测量结果，不触发现场工业控制指令转发。
+输入由 `UpdateVariables` 原子写入模型输入快照，在 `effective_step` 生效。角色为 `state`/`output` 的量不允许外部改写。失效输入须选择 `hold|fail|fallback` 并声明超时和恢复规则；Generation 停止、重启或切换时必须保留 fencing 边界，不接受旧 Generation 的迟到命令。输出经 Gateway `ClaimTargets/UpdateVariables` 批量注入同一时戳测量结果，不触发现场工业控制指令转发。
 
 ### 10.5.11 Data Generator 变量发现及更新接口
 
-新增 \`DataGeneratorService.ListVariables\` 与 \`DataGeneratorService.UpdateVariables\`，总计 8 个业务 RPC。变量发现按 \`generation_id + device_id\` 返回 \`point_id,business_point_id,data_type,unit,role,writable,min,max,description,point_table_version\`；可写性由生效模型和输入绑定决定，而不是从寄存器属性猜测。
+新增 `DataGeneratorService.ListVariables` 与 `DataGeneratorService.UpdateVariables`，总计 8 个业务 RPC。变量发现按 `generation_id + device_id` 返回 `point_id,business_point_id,data_type,unit,role,writable,min,max,description,point_table_version`；可写性由生效模型和输入绑定决定，而不是从寄存器属性猜测。
 
-\`UpdateVariables\` 接收 \`generation_id,device_id,request_id,repeated(point_id,ScalarValue)\`；整批验证并原子提交、禁止重复点 ID、禁止更改派生输出、记录 \`effective_step\`，对请求摘要与 \`request_id\` 提供稳定幂等语义。超时结果未知时应使用原 \`request_id\` 重试查询一致结果。Generator 的输入注入授权与 Commander 的真实设备控制权限隔离。
+`UpdateVariables` 接收 `generation_id,device_id,request_id,repeated(point_id,ScalarValue)`；整批验证并原子提交、禁止重复点 ID、禁止更改派生输出、记录 `effective_step`，对请求摘要与 `request_id` 提供稳定幂等语义。超时结果未知时应使用原 `request_id` 重试查询一致结果。Generator 的输入注入授权与 Commander 的真实设备控制权限隔离。
 
 ### 10.5.12 编码实现顺序与验收矩阵
 
-\`\`\`mermaid
+```mermaid
 flowchart TD
   A["解析设备实例与点表"] --> B{"选择模型族"}
   B -->|random| C["检查每点类型与随机规则"]
@@ -2702,7 +2701,7 @@ flowchart TD
   E --> G["统一类型、值域、时间戳校验"]
   F --> G
   G --> H["同一步样本批注入 Gateway"]
-\`\`\`
+```
 
 <p class="figure-caption">图 10-8 两类模型共用输出校验与 Gateway 注入</p>
 
