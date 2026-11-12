@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+from pathlib import Path
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,11 +15,29 @@ from contracts import common_pb2 as common
 from contracts import common_pb2_grpc as common_rpc
 from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
+from contracts.scalar_codec import decode_scalar
 from data_generator.application.runtime import GenerationState, Runtime
+from data_generator.application.physical.inputs import WEATHER_INPUTS, writable_inputs
 from data_generator.domain.model import GeneratorError
 from data_generator.infrastructure.diagnostics import Diagnostics
 from data_generator.infrastructure.metrics import snapshot as metric_snapshot
 from data_generator.infrastructure.snapshots import FileContent, SnapshotManager, file_sha256
+
+
+async def _authorize_variables(context: Any, runtime: Runtime, permission: str) -> str:
+    """Only a verified client-certificate common name can update model inputs."""
+    security = runtime.settings.service.get("security", {})
+    if not isinstance(security, dict) or not security.get("tls"):
+        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "mTLS is required")
+        raise RuntimeError("gRPC abort returned")
+    names = context.auth_context().get("x509_common_name", ())
+    principal = names[0].decode("utf-8") if names else ""
+    permissions = security.get("permissions", {})
+    allowed = permissions.get(principal, []) if isinstance(permissions, dict) else []
+    if not principal or permission not in allowed:
+        await context.abort(grpc.StatusCode.PERMISSION_DENIED, "caller lacks model permission")
+        raise RuntimeError("gRPC abort returned")
+    return principal
 
 
 def runtime_error_code(error: GeneratorError) -> str:
@@ -215,20 +235,141 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
     async def ListVariables(
         self, request: dg.ListVariablesRequest, context: Any
     ) -> dg.ListVariablesResponse:
-        await context.abort(
-            grpc.StatusCode.UNIMPLEMENTED,
-            "model variable interface not yet implemented",
+        await _authorize_variables(context, self.runtime, "variables_read")
+        state = await self.runtime.get_generation(request.generation_id)
+        if state is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "generation not found")
+            raise RuntimeError("gRPC abort returned")
+        if not request.device_id or request.device_id not in state.scenario.devices:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "device not in generation")
+            raise RuntimeError("gRPC abort returned")
+        shared = state.bound_settings.shared
+        device = shared.site.devices[request.device_id]
+        model = shared.device_models[device.device_model_id]
+        table = shared.point_tables[model.point_table_id]
+        physical = state.physical_engine
+        kind = physical.kinds.get(request.device_id) if physical else ""
+        writable = writable_inputs(kind)
+        ppc_owned = (
+            physical is not None
+            and physical.controller_modes.get(request.device_id) == "ppc"
         )
-        raise RuntimeError("gRPC abort returned")
+        entries: list[dg.ModelVariable] = []
+        for point_id, point in table.points.items():
+            business = shared.business_points[point.business_point_id]
+            spec = writable.get(point_id)
+            can_write = (
+                spec is not None and state.actual_state == "RUNNING"
+                and not (
+                    ppc_owned and point_id in {
+                        "active_power_setpoint", "reactive_power_setpoint"
+                    }
+                )
+            )
+            item = dg.ModelVariable(
+                point_id=point_id,
+                business_point_id=str(point.business_point_id),
+                data_type=business.data_type.value,
+                unit=point.source_unit.unit_id,
+                role="INPUT" if spec is not None else "OUTPUT",
+                writable=can_write,
+                description=point.description or "",
+                source="POINT_TABLE",
+            )
+            if spec is not None:
+                if spec.minimum is not None:
+                    item.minimum = spec.minimum
+                if spec.maximum is not None:
+                    item.maximum = spec.maximum
+            entries.append(item)
+        if physical and request.device_id in physical.weather_refs:
+            for name, spec in WEATHER_INPUTS.items():
+                item = dg.ModelVariable(
+                    point_id=name,
+                    data_type=spec.data_type,
+                    unit=spec.unit,
+                    role="INPUT",
+                    writable=state.actual_state == "RUNNING",
+                    source="WEATHER_INPUT",
+                    description=spec.description,
+                )
+                if spec.minimum is not None:
+                    item.minimum = spec.minimum
+                if spec.maximum is not None:
+                    item.maximum = spec.maximum
+                entries.append(item)
+        entries.sort(key=lambda item: item.point_id)
+        digest = hashlib.sha256(
+            f"{request.generation_id}:{request.device_id}:{state.bound_settings.revision}".encode()
+        ).hexdigest()[:20]
+        try:
+            if request.page_token:
+                version, offset_text = request.page_token.split(":", 1)
+                if version != digest:
+                    raise ValueError("stale page token")
+                offset = int(offset_text)
+            else:
+                offset = 0
+            if offset < 0 or offset > len(entries):
+                raise ValueError("invalid page offset")
+        except ValueError:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid page token")
+            raise RuntimeError("gRPC abort returned") from None
+        limit = min(request.page_size or 100, 500)
+        end = min(offset + limit, len(entries))
+        return dg.ListVariablesResponse(
+            variables=entries[offset:end],
+            next_page_token=f"{digest}:{end}" if end < len(entries) else "",
+            point_table_version=str(model.point_table_id).rsplit("@", 1)[-1],
+            generation_state=state.actual_state,
+        )
 
     async def UpdateVariables(
         self, request: dg.UpdateVariablesRequest, context: Any
     ) -> dg.UpdateVariablesResponse:
-        await context.abort(
-            grpc.StatusCode.UNIMPLEMENTED,
-            "model variable interface not yet implemented",
+        caller = await _authorize_variables(context, self.runtime, "variables_update")
+        if not request.generation_id or not request.device_id or not request.request_id:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "required input identity missing")
+            raise RuntimeError("gRPC abort returned")
+        if not request.values or len(request.values) > 100:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid input batch size")
+            raise RuntimeError("gRPC abort returned")
+        values: dict[str, Scalar] = {}
+        for item in request.values:
+            if not item.point_id or item.point_id in values or not item.HasField("value"):
+                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid or duplicate point ID")
+                raise RuntimeError("gRPC abort returned")
+            if item.value.WhichOneof("kind") is None:
+                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "scalar value absent")
+                raise RuntimeError("gRPC abort returned")
+            try:
+                value = decode_scalar(item.value)
+            except ValueError:
+                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid scalar value")
+                raise RuntimeError("gRPC abort returned") from None
+            if value is None:
+                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "null input not allowed")
+                raise RuntimeError("gRPC abort returned")
+            values[item.point_id] = value
+        fingerprint = hashlib.sha256(
+            request.SerializeToString(deterministic=True)
+        ).digest()
+        try:
+            step = await self.runtime.update_inputs(
+                request.generation_id, request.device_id, caller,
+                request.request_id, fingerprint, values,
+            )
+        except GeneratorError as exc:
+            if "request_id already" in str(exc):
+                await context.abort(grpc.StatusCode.ALREADY_EXISTS, str(exc))
+                raise RuntimeError("gRPC abort returned") from None
+            return dg.UpdateVariablesResponse(
+                accepted=False, error_code="INPUT_REJECTED",
+                message=str(exc), request_id=request.request_id,
+            )
+        return dg.UpdateVariablesResponse(
+            accepted=True, effective_step=step, request_id=request.request_id,
         )
-        raise RuntimeError("gRPC abort returned")
 
 
 class CommonService(common_rpc.CommonServiceServicer):
@@ -289,7 +430,8 @@ class CommonService(common_rpc.CommonServiceServicer):
             rpc_names=[
                 m.name
                 for m in dg.DESCRIPTOR.services_by_name["DataGeneratorService"].methods
-                if m.name not in {"ListVariables", "UpdateVariables"}
+                if (m.name not in {"ListVariables", "UpdateVariables"}
+                    or bool(self.runtime.settings.service.get("security", {}).get("tls")))
             ]
             + [m.name for m in common.DESCRIPTOR.services_by_name["CommonService"].methods],
             protocols=["grpc"],
