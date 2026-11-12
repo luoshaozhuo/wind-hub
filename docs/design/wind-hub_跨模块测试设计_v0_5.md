@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_4 · 20261112 · 跨模块验收设计</p>
+<p class="subtitle">v0_5 · 20261112 · 跨模块验收设计</p>
 
 <style>
 body {
@@ -308,13 +308,13 @@ $$
 
 | 范围 | 唯一设计依据 | 当前实施状态 |
 |---|---|---|
-| Data Generator 两类模型、独立气象及五类设备 | Data Generator 软件设计 v1_34 §10.5～10.6、§11 | 固定物理模型和目标点表未完成编码；不得把设计当作当前能力 |
-| Generator 变量目录与控制 RPC | Contracts v1_22 §9.5、Data Generator v1_35 §9 | 当前 Proto 只有六项；目标新增 ListVariables 和 UpdateVariables 尚待落地 |
-| CLI 变量控制 | CLI 软件设计 v1_28 §4.12、§10.12 | 设计目标；当前 CLI 代码无 variables list/update 命令 |
+| Data Generator 两类模型、独立气象及五类设备 | Data Generator 软件设计 v1_36 §10.5～10.6、§11 | 固定物理模型和目标点表未完成编码；不得把设计当作当前能力 |
+| Generator 变量目录与控制 RPC | Contracts v1_22 §9.5、Data Generator v1_36 §9 | 原六项须保留，目标新增两项需通过 Proto、生成绑定、Server 和 CLI 真实调用验收 |
+| CLI 变量控制 | CLI 软件设计当前有效版本 §4.12、§10.12 | 设计目标；当前 CLI 代码无 variables list/update 命令 |
 | Industrial Gateway 协议 Server 与命令转发 | Industrial Gateway v1_28 | 已有控制转发契约，实测能力需独立核对 |
 | 配置及模板、设备 Schema | Configuration v1_15、Core v1_33 | 现有共享 Schema 不因私有物理参数变化而修改 |
 | 采集、指令和 Sink 交付 | Collector v1_20、Commander v1_30、Sink Service v1_50 | 对现有能力做独立集成验证 |
-| 模块边界和依赖 | wind-hub 总体逻辑架构 v1_6 | 不新增独立配置进程或模型服务 |
+| 模块边界和依赖 | wind-hub 总体逻辑架构当前有效版本 | 不新增独立配置进程或模型服务 |
 
 **实施门槛**：运行真实 E2E 前必须先完成 Contracts Proto/Stub、Generator Server、CLI、五种仿真 Modbus 点表、对应业务点登记及实际测试配置。若前置能力不存在，测试裁决为 NOT_RUN / NOT_IMPLEMENTED，不允许用 mock 当作真正集成测试。
 
@@ -351,13 +351,13 @@ flowchart TD
 
 | 类别 | 测试实例示例 | 模型要求 | 数据点契约 |
 |---|---|---|---|
-| 风机 | WTG_SIM01、WTG_SIM02、WTG_SIM03 | 同一固定方程、独立动力学状态与输入；可配不同额定值 | v1_34 §10.6.3 共 32 点/型号 |
+| 风机 | WTG_SIM01、WTG_SIM02、WTG_SIM03 | 同一固定方程、独立动力学状态与输入；可配不同额定值 | v1_36 §10.6.3 共 32 点/型号 |
 | 光伏 | PV_SIM01 | 辐照、温度、MPPT、逆变器容量 | §10.6.4 共 16 点 |
 | 储能 | BESS_SIM01 | 电池能量、SOC 目标、PCS 无功开关 | §10.6.5 共 20 点 |
 | 电网 | GRID_SIM01 | 单母线电压、频率、三相功率聚合 | §10.6.6 共 15 点 |
 | PPC | PPC_SIM01 | AGC、AVC、FFR 有界分配与延时反馈 | §10.6.7 共 20 点 |
 
-上述 **103 点**是五种型号各一份 PointTable 的**目标目录总数**，不是 7 台实例合计的唯一采样点数；按设备实例展开后的输出数须按场景逐一计算。18 个设备外部可控点（五型号合计）与独立气象场景的平均风速、风向分开统计。正式点位定义及地址、单位、类型只能引用 Data Generator v1_35 §10.6，不在本测试文档复制第二套点表。
+上述 **103 点**是五种型号各一份 PointTable 的**目标目录总数**，不是 7 台实例合计的唯一采样点数；按设备实例展开后的输出数须按场景逐一计算。18 个设备外部可控点（五型号合计）与独立气象场景的平均风速、风向分开统计。正式点位定义及地址、单位、类型只能引用 Data Generator v1_36 §10.6，不在本测试文档复制第二套点表。
 
 # 4. 测试配置资产与清理边界
 
@@ -522,4 +522,4 @@ Marker 必须使用仓库 `pyproject.toml` / pytest 配置中已登记的值；�
 | FAIL | 正式契约、模型方程、权限、点表或跨模块链路存在真实阻断缺陷 |
 | NOT_RUN / NOT_IMPLEMENTED | Proto、模型、CLI、配置或实际依赖尚未落地；不得计入已通过 |
 
-冻结前检查：Data Generator v1_35、Contracts v1_22、CLI v1_28、Industrial Gateway v1_28、Configuration v1_15、Core v1_33、Sink Service v1_50 与总体架构 v1_6 之间无相互矛盾的 RPC、参数所有权、设备 Schema、点表和数据流。所有 E2E 测试必须能由真实输入、参考值和可观察输出判定成功或失败。
+冻结前检查：Data Generator v1_36、Contracts v1_22、CLI 当前有效设计、Industrial Gateway v1_28、Configuration v1_15、Core v1_33、Sink Service v1_50 与总体架构当前有效版本 之间无相互矛盾的 RPC、参数所有权、设备 Schema、点表和数据流。所有 E2E 测试必须能由真实输入、参考值和可观察输出判定成功或失败。

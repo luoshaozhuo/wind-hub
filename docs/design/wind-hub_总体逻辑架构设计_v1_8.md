@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_7 · 20261112 · 系统模块职责与依赖基线</p>
+<p class="subtitle">v1_8 · 20261112 · 系统模块职责与依赖基线</p>
 
 <style>
 body {
@@ -408,7 +408,7 @@ NATS Core 与 JetStream 逻辑上承载不同的实时/可靠传输保证，但�
 | Data Generator → Gateway `ClaimTargets/UpdateVariables` | Gateway 为目标租约、当前变量及逐项更新的权威；所有 UpdateVariables 均必须提供当前有效 lease_token | 单 Gateway 更新不等于跨 Gateway 原子提交，也不触发 Commander |
 | 客户端 → 各 Service `Get/Push/ApplyConfigSnapshot` | 目标 Service 负责专属配置、候选、文件提交和运行生效；Configuration 只提供共享源验证与快照 | DISK、CANDIDATE、RUNTIME 不得混用；单服务 Apply 不等于跨服务原子生效 |
 
-已实现的 RPC 与字段以当前 `src/contracts/*.proto` 为准；目标新增接口以 Contracts v1_22 为设计依据。Data Generator 当前 6 项专属 RPC，目标增加 `ListVariables/UpdateVariables` 两项至 8 项，须在 Proto、Server、CLI 和 Gateway 转发调用方全部实施后才视为可用；本章不另定义 RPC。Core v1_33 的 `read_one/read_many/write_one/write_many` 是客户端协议 Port，不构成 Gateway 协议 Server 的实现约束。Configuration v1_15 是库而非进程，不提供独立配置 RPC。所有 Service 必须从专属配置中的 `config_sources` 显式解析直接来源；共享 Template 已发布版本不可原位覆写。公共文件仅由唯一协调写入方按同一物理协调根提交，多文件提交需可恢复的事务机制。
+已实现的 RPC 与字段以当前 `src/contracts/*.proto` 为准；目标新增接口以 Contracts v1_22 为设计依据。Data Generator 以原 6 项为基线的专属 RPC，目标增加 `ListVariables/UpdateVariables` 两项至 8 项，须在 Proto、Server、CLI 和 Gateway 转发调用方全部实施后才视为可用；本章不另定义 RPC。Core v1_33 的 `read_one/read_many/write_one/write_many` 是客户端协议 Port，不构成 Gateway 协议 Server 的实现约束。Configuration v1_15 是库而非进程，不提供独立配置 RPC。所有 Service 必须从专属配置中的 `config_sources` 显式解析直接来源；共享 Template 已发布版本不可原位覆写。公共文件仅由唯一协调写入方按同一物理协调根提交，多文件提交需可恢复的事务机制。
 
 
 ## 4.5 仿真设备控制与测量反馈闭环
@@ -432,7 +432,7 @@ Data Generator 目标新增只读 `ListVariables` 和运行时输入更新 `Upda
 
 **共享配置**：`configs/instances/devices.yaml` 作为真实设备实例文件，设计目标中的 `configs/instances/devices_sim.yaml` 作为仿真设备实例文件，二者采用同一 Schema；当前仓库尚无 `devices_sim.yaml`，属于待编码和配置交付事项，不得当作已发布文件。服务实例按 `config_sources.instances.devices` 明确加载其中一个，现阶段不要求冻结基础模块支持两文件合并；仿真和真实模板分别版本化存放于共同的 `configs/templates/device_models/`、`point_tables/`、`business_points.yaml`、`units.yaml` 中。一个实际运行部署内 `device_id` 不得交叉冲突。Collector、Commander、Sink 和 Core 的既有协议/中间件合同保持不变；CLI 只增加仿真变量目录与更新的客户端操作，并严格区分 Gateway 数据注入和工业控制。
 
-**版本边界**：此项对应 Data Generator v1_35、Contracts v1_22、Industrial Gateway v1_28、CLI v1_28 和跨模块测试设计 v0_3 的目标契约；实际 Proto/Schema、配置、代码、调用方和测试未完成前不得视为已实现功能。跨模块测试设计只能引用本体设计，不能独立定义新的生产接口。
+**版本边界**：此项对应 Data Generator v1_36、Contracts v1_22、Industrial Gateway v1_28、CLI 当前有效设计 和跨模块测试设计当前有效版本 的目标契约；实际 Proto/Schema、配置、代码、调用方和测试未完成前不得视为已实现功能。跨模块测试设计只能引用本体设计，不能独立定义新的生产接口。
 
 # 5. 总体架构约束
 

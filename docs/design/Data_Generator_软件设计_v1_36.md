@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_35 · 20261112</p>
+<p class="subtitle">v1_36 · 20261112</p>
 
 <style>
 body {
@@ -1893,11 +1893,11 @@ flowchart LR
 
 # 9. 接口与通信契约（目标新增两个 RPC）
 
-本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_22 目标设计。三份 Proto 均为 `proto3`；DataGeneratorService 目前只有六项正式 RPC，新增两项属于待实施契约，不得视为已发布接口。
+本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_22 目标设计。三份 Proto 均为 `proto3`；DataGeneratorService 以原六项为兼容基线，目标扩展至八项；是否可调用以正式 Proto、生成绑定与 Server 实际行为为准。
 
 ## 9.1 DataGeneratorService：八项 gRPC Server RPC（含新增变量发现与更新）
 
-`src/contracts/data_generator.proto` 当前确有 **6 个** unary RPC；目标依照 Contracts v1_22 §9.5 新增 `ListVariables`、`UpdateVariables` 后为 **8 个**。必须先同步修改正式 Proto 与生成物，再实现八项 Server RPC；在契约变更完成前，新增接口只能判定 **NOT_IMPLEMENTED**，不得将设计稿等同现有 Proto。
+DataGeneratorService 的原始基线为 **6 个** Unary RPC，目标依照 Contracts v1_22 §9.5 增加 `ListVariables` 与 `UpdateVariables` 至 **8 个**。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
 
 <p class="table-caption">表 9-1 DataGeneratorService 方法与实现映射（已核实）</p>
 

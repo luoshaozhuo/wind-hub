@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_29 · 20261112</p>
+<p class="subtitle">v1_30 · 20261112</p>
 
 <style>
 body {
@@ -1765,7 +1765,7 @@ flowchart LR
 
 ## 9.2 RPC 调用映射
 
-下表区分**当前正式 Proto** 与 **目标新增 RPC**。DataGeneratorService 的两个变量接口目前尚未写入正式 Proto，只在 Contracts v1_22 中定义目标契约；CLI 实现必须等 Proto 和 Stub 更新后再接入。其余方法仍以仓库现有 Proto 为准。
+下表区分**当前正式 Proto** 与 **目标新增 RPC**。DataGeneratorService 的两个新增接口以 Contracts v1_22 为设计依据；CLI 只能在正式 Proto、Stub 与 Server 真实行为同步后接入，不能将占位 RPC 当作已实现能力。其余方法仍以仓库现有 Proto 为准。
 
 | 目标 Service | RPC | CLI 业务命令/用途 |
 |---|---|---|
@@ -1832,7 +1832,7 @@ CLI 发现契约不能表达的需求时，记录差异并提交 Contracts 统�
 
 **批量业务结果：**accepted 仅代表完整受理；CLI 不将收到 command_ids[] 当作已写入。各项 state/outcome 与 io_settled 均按 Commander 返回渲染；请求级 UNKNOWN、部分成功及部分失败需同时呈现，不自行汇总为 PASS。所有访问按正式 control/query 权限模型授权。Commander 返回 NOT_FOUND 也不能等同于“从未执行”。
 
-**契约与版本声明：**本节以已冻结 Contracts v1_22、Core v1_33、Configuration v1_15，以及 Commander v1_30、总体架构 v1_4 的本轮设计要求为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。共享配置按 Configuration v1_15 消费，不在 CLI 发明第二套配置装配机制。
+**契约与版本声明：**本节以已冻结 Contracts v1_22、Core v1_33、Configuration v1_15，以及 Commander v1_30、总体逻辑架构当前有效版本 的本轮设计要求为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。共享配置按 Configuration v1_15 消费，不在 CLI 发明第二套配置装配机制。
 
 ## 9.6 冻结接口与客户端行为（规范性）
 
@@ -2323,9 +2323,9 @@ Message : Snapshot revision changed; fetch the current snapshot
 
 ## 10.12 仿真变量目录与运行时更新命令
 
-**接口实施门槛**：当前生产 `src/contracts/data_generator.proto` 只有六项 RPC，`src/cli/plant_commands.py` 还没有 `data-generator variables` 命令。目标八项必须先经正式 Contracts Proto 和 Stub 生成，随后实现 Data Generator Server 及 CLI；本文件定义设计与未来验收，不代表现有 CLI 命令已可执行。
+**接口实施门槛**：正式 Proto 与生成绑定必须一致，Data Generator Server 和 CLI 均须实现可调用的变量发现与更新；仅声明接口或返回 `UNIMPLEMENTED` 不构成功能完成。
 
-基于 Data Generator v1_35 与 Contracts v1_22 的目标接口，本节定义 CLI 变量发现及运行时模型输入更新。**两个新增 RPC 尚未进入正式 Proto，也未在 CLI 生产代码中实现**；现有设备/场景查询、生成启停和配置操作保持不变。
+基于 Data Generator v1_36 与 Contracts v1_22，本节定义变量发现与运行时模型输入更新。完整功能必须以真实 Server/CLI 调用验收为依据；既有设备、场景及生成任务契约不变。
 
 | CLI 命令（目标） | 调用 RPC | 作用与输出 |
 |---|---|---|
