@@ -183,6 +183,9 @@ class GatewayRuntime:
                 mappings=resolved.registers,
                 store=store,
                 on_write=record_write,
+                allowed_writes=frozenset(
+                    mapping.variable_id for mapping in resolved.settings.control.mappings
+                ) if resolved.settings.control.enabled else frozenset(),
             )
         elif resolved.settings.desired_state == "START":
             raise ValueError(f"{server_id}: adapter {resolved.protocol} is not implemented")

@@ -53,6 +53,7 @@ class DeviceModbusServer:
         mappings: tuple[RegisterMapping, ...],
         store: VariableStore,
         on_write: WriteCallback | None = None,
+        allowed_writes: frozenset[str] | None = None,
     ) -> None:
         if not 1 <= unit_id <= 247:
             raise ValueError("Modbus Unit ID out of range")
@@ -60,6 +61,7 @@ class DeviceModbusServer:
         self._port = port
         self._server: GatewayTcpServer | None = None
         self._on_write = on_write
+        self._allowed_writes = allowed_writes
         self._store = store
         self._mappings = mappings
         blocks: list[list[SimData]] = [[], [], [], []]
@@ -159,6 +161,10 @@ class DeviceModbusServer:
                 decoded.append((mapping.point_id, value))
                 cursor += mapping.count
             if cursor != end:
+                return ExcCodes.ILLEGAL_ADDRESS
+            if self._allowed_writes is not None and any(
+                variable_id not in self._allowed_writes for variable_id, _ in decoded
+            ):
                 return ExcCodes.ILLEGAL_ADDRESS
             async with self._access_lock:
                 for variable_id, value in decoded:
