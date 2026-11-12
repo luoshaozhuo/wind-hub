@@ -128,6 +128,8 @@ class BESS:
     def advance(
         self, dt: float, weather: Weather, controls: Mapping[str, float], voltage: float
     ) -> dict[str, float | int]:
+        if not math.isfinite(dt) or dt <= 0.0:
+            raise GeneratorError("BESS time step must be finite and positive")
         p = self.p
         rated = number(p, "rated_energy_wh") * 3600
         soc = self.energy / rated
