@@ -1968,6 +1968,10 @@ Modbus 协议写入确认与下游实际执行**不是同一事务**：原有 `o
 
 验证 Commander/Generator/none 三类型正反例、同点唯一映射、同设备顺序、队列满拒绝、Generation 切换、超时/幂等、mTLS 错误、`UpdateVariables` 注入不触发转发、失败时控制结果不谎报成功；特别验证 Gateway1 使用 Generator 目标、Gateway2 使用 Commander 目标的整条反馈链，不形成指令回路。
 
+## 11.8 仿真设备统一模板与 Data Generator 设备级路由
+
+Industrial Gateway 和 Data Generator 共享 `configs/instances/devices_sim.yaml` 及其精确引用的独立 `*_sim_physical_1.0.0.yaml` 型号、仿真 Point Table。前者拥有工业协议 Server 的点位、地址、读写行为及控制转发映射；后者只生成 `device_id + point_id` 的原始值。Data Generator 的 Scenario 仅按设备选择 Gateway 实例，不维护逐点 `feedback_mapping`；Gateway `ListVariables` 中的变量 ID 与共享 Point Table 的点 ID 相同，`UpdateVariables` 仍须完成租约、类型及变量所有权校验。Gateway 自有的控制转发 `control.mappings` 不受此规则影响。
+
 # 12. 外部适配与集成契约
 
 ## 12.1 工业协议 Server 适配能力
@@ -2143,9 +2147,3 @@ lint-imports
 ```
 
 上述命令用于后续变更复测。
-
-
-
-## 11.8 仿真设备统一模板与 Data Generator 设备级路由
-
-Industrial Gateway 和 Data Generator 共享 `configs/instances/devices_sim.yaml` 及其精确引用的独立 `*_sim_physical_1.0.0.yaml` 型号、仿真 Point Table。前者拥有工业协议 Server 的点位、地址、读写行为及控制转发映射；后者只生成 `device_id + point_id` 的原始值。Data Generator 的 Scenario 仅按设备选择 Gateway 实例，不维护逐点 `feedback_mapping`；Gateway `ListVariables` 中的变量 ID 与共享 Point Table 的点 ID 相同，`UpdateVariables` 仍须完成租约、类型及变量所有权校验。Gateway 自有的控制转发 `control.mappings` 不受此规则影响。
