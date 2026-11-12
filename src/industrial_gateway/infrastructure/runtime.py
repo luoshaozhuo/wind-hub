@@ -80,11 +80,15 @@ class GatewayRuntime:
             window_seconds=config.service.metrics.window_seconds,
             interval_ms=config.service.metrics.collect_interval_ms,
         )
-        self.forwarder = CommandForwarder(
-            config.service.control,
-            project_root=config.project_root,
-            observer=self._record_forward,
-        )
+        self.forwarders: dict[str, CommandForwarder] = {}
+        for server_id, resolved in config.servers.items():
+            control = resolved.settings.control
+            if control.enabled:
+                self.forwarders[server_id] = CommandForwarder(
+                    control.target,
+                    project_root=config.project_root,
+                    observer=self._record_forward,
+                )
         self.write_events: deque[ProtocolWriteEvent] = deque(maxlen=1024)
         self._configuration_lock = asyncio.Lock()
         self.variable_leases = VariableLeases()
@@ -97,7 +101,8 @@ class GatewayRuntime:
         """Count each terminal forward transition and retain a bounded event."""
         self.observability.pending(
             record.gateway_id,
-            self.forwarder.pending_for(record.gateway_id),
+            self.forwarders[record.gateway_id].pending_for(record.gateway_id)
+            if record.gateway_id in self.forwarders else 0,
         )
         if record.state is ForwardState.ACCEPTED:
             self.observability.record(record.gateway_id, "forward_accepted_total")
@@ -148,15 +153,22 @@ class GatewayRuntime:
                     observed_at=datetime.now(UTC),
                 )
             )
-            if not resolved.settings.control_enabled:
+            if not resolved.settings.control.enabled:
                 return
-            for mapping in resolved.settings.command_mappings:
+            forwarder = self.forwarders.get(server_id)
+            if forwarder is None:
+                self.observability.event(
+                    server_id, "control forwarder not ready",
+                    severity="ERROR", error_code="FORWARDER_UNAVAILABLE",
+                )
+                return
+            for mapping in resolved.settings.control.mappings:
                 if mapping.variable_id == variable_id:
-                    self.forwarder.capture(
+                    forwarder.capture(
                         event_id=event_id,
                         gateway_id=server_id,
                         device_id=resolved.settings.device_id,
-                        point_id=mapping.commander_point_id,
+                        point_id=mapping.target_point_id,
                         value=value,
                         revision=revision,
                     )
@@ -189,7 +201,6 @@ class GatewayRuntime:
             restart = any(
                 (
                     self._process_service.grpc != new_config.service.grpc,
-                    self._process_service.control != new_config.service.control,
                     self._process_service.metrics != new_config.service.metrics,
                 )
             )
@@ -231,6 +242,10 @@ class GatewayRuntime:
                     )
                     continue
                 try:
+                    old_forwarder = self.forwarders.get(server_id)
+                    if old_forwarder is not None:
+                        await old_forwarder.stop()
+                        self.forwarders.pop(server_id, None)
                     if updated is None:
                         self.instances.pop(server_id, None)
                         results.append(ApplicationResult(object_id=server_id, status="REMOVED"))
@@ -242,6 +257,14 @@ class GatewayRuntime:
                         previous,
                     )
                     self.instances[server_id] = replacement
+                    if updated.settings.control.enabled:
+                        forwarder = CommandForwarder(
+                            updated.settings.control.target,
+                            project_root=new_config.project_root,
+                            observer=self._record_forward,
+                        )
+                        await forwarder.start()
+                        self.forwarders[server_id] = forwarder
                     if replacement.lifecycle.status.desired is DesiredState.START:
                         await self.start_server(server_id)
                     results.append(ApplicationResult(object_id=server_id, status="APPLIED"))
@@ -305,7 +328,8 @@ class GatewayRuntime:
     async def start(self) -> None:
         """Start configured listeners and reconcile failed START objects."""
         self._closing = False
-        await self.forwarder.start()
+        for forwarder in self.forwarders.values():
+            await forwarder.start()
         self.observability.start(lambda: tuple(self.instances))
         for server_id, instance in self.instances.items():
             if instance.lifecycle.status.desired is DesiredState.START:
@@ -431,10 +455,11 @@ class GatewayRuntime:
         except Exception as exc:
             if first_error is None:
                 first_error = exc
-        try:
-            await self.forwarder.stop()
-        except Exception as exc:
-            if first_error is None:
-                first_error = exc
+        for forwarder in self.forwarders.values():
+            try:
+                await forwarder.stop()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
         if first_error is not None:
             raise RuntimeError("one or more Gateway resources could not stop") from (first_error)
