@@ -91,18 +91,6 @@ class GrpcConfig(StrictModel):
         return self
 
 
-class CommandMapping(StrictModel):
-    variable_id: str = Field(min_length=1)
-    commander_point_id: str = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_nonblank(self) -> CommandMapping:
-        if not self.variable_id.strip() or not self.commander_point_id.strip():
-            raise ValueError("control mapping identifiers cannot be blank")
-        return self
-
-
-
 class TargetMapping(StrictModel):
     variable_id: str = Field(min_length=1)
     target_point_id: str = Field(min_length=1)
@@ -193,25 +181,13 @@ class ServerConfig(StrictModel):
     listen_host: str = Field(min_length=1)
     listen_port: int = Field(ge=1, le=65535)
     desired_state: Literal["START", "STOP"] = "STOP"
-    control_enabled: bool = False
-    command_mappings: tuple[CommandMapping, ...] = ()
+    control: ServerControl
 
     @model_validator(mode="after")
-    def validate_mapping_ids(self) -> ServerConfig:
+    def validate_server(self) -> ServerConfig:
         if any(not item.strip() for item in (self.server_id, self.device_id, self.listen_host)):
-            raise ValueError("server_id, device_id and listen_host cannot be blank")
-        ids = [entry.variable_id for entry in self.command_mappings]
-        if len(ids) != len(set(ids)):
-            raise ValueError("duplicate variable_id in command_mappings")
+            raise ValueError("Server identifiers and host must not be blank")
         return self
-
-
-class ControlConfig(StrictModel):
-    commander_endpoint: str = Field(min_length=1)
-    tls: TlsConfig = Field(default_factory=TlsConfig)
-    forward_queue_capacity: int = Field(default=1024, ge=1, le=65536)
-    max_forward_inflight: int = Field(default=16, ge=1, le=256)
-    submit_deadline_ms: int = Field(default=5000, ge=1, le=60000)
 
 
 class MetricsConfig(StrictModel):
@@ -233,7 +209,6 @@ class GatewayServiceConfig(StrictModel):
     config_sources: ConfigSources
     grpc: GrpcConfig = Field(default_factory=GrpcConfig)
     servers: tuple[ServerConfig, ...] = Field(min_length=1)
-    control: ControlConfig
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
 
     @model_validator(mode="after")
@@ -242,12 +217,6 @@ class GatewayServiceConfig(StrictModel):
             raise ValueError("invalid service file_version")
         if self.metrics.window_seconds * 1000 < self.metrics.collect_interval_ms:
             raise ValueError("metrics window must cover at least one collection interval")
-        if not self.control.commander_endpoint.strip():
-            raise ValueError("control.commander_endpoint cannot be blank")
-        endpoint = self.control.commander_endpoint
-        host = endpoint.rsplit(":", 1)[0].strip("[]")
-        if not self.control.tls.enabled and host not in {"127.0.0.1", "::1", "localhost"}:
-            raise ValueError("non-loopback Commander requires mTLS")
         identifiers: set[str] = set()
         devices: set[str] = set()
         listeners: list[tuple[str, int]] = [(self.grpc.listen_host, self.grpc.listen_port)]

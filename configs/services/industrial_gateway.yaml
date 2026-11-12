@@ -1,7 +1,7 @@
 # Industrial Gateway v1 service-only configuration.
 # All devices, protocol parameters and point tables are read from shared documents.
 schema_version: 1
-file_version: "1.0.0"
+file_version: "1.1.0"
 
 config_sources:
   instances:
@@ -23,16 +23,11 @@ servers:
     listen_host: "127.0.0.1"
     listen_port: 15020
     desired_state: START
-    control_enabled: false
-    command_mappings:
-      - variable_id: power_demand
-        commander_point_id: power_demand
-
-control:
-  commander_endpoint: "127.0.0.1:50052"
-  forward_queue_capacity: 1024
-  max_forward_inflight: 16
-  submit_deadline_ms: 5000
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
 
 metrics:
   window_seconds: 60
