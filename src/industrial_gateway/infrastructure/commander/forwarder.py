@@ -334,7 +334,9 @@ class CommandForwarder:
                     self._finish(original, ForwardState.REJECTED, str(exc))
                 else:
                     self._finish(original, ForwardState.UNKNOWN, str(exc))
-            except (OSError, RuntimeError, ValueError) as exc:
+            except (PermissionError, ValueError) as exc:
+                self._finish(original, ForwardState.REJECTED, str(exc))
+            except (OSError, RuntimeError) as exc:
                 self._finish(original, ForwardState.UNKNOWN, str(exc))
             else:
                 state = ForwardState.ACCEPTED if receipt.accepted else ForwardState.REJECTED

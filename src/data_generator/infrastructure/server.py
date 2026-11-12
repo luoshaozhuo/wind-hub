@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from pathlib import Path
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import grpc
@@ -17,7 +17,7 @@ from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import decode_scalar
 from data_generator.application.runtime import GenerationState, Runtime
-from data_generator.application.physical.inputs import WEATHER_INPUTS, writable_inputs
+from data_generator.application.model.inputs import WEATHER_INPUTS, writable_inputs
 from data_generator.domain.model import GeneratorError, Scalar
 from data_generator.infrastructure.diagnostics import Diagnostics
 from data_generator.infrastructure.metrics import snapshot as metric_snapshot
