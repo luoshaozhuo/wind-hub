@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import json
+from pathlib import Path
 import logging
 import math
 import time
@@ -526,6 +529,42 @@ class Runtime:
         if sequence == 0:
             raise GeneratorError("EMPTY_REPLAY_WINDOW: no source records in time range")
 
+    @staticmethod
+    def _append_record(path: Path, payload: dict[str, object]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n")
+
+    async def _record(self, generation: GenerationState, batch: DataBatch) -> None:
+        """Capture generated source values before delivery; never use Gateway ACK as truth."""
+        options = generation.bound_settings.service.get("recording", {})
+        if not options.get("enabled", False):
+            return
+        base = generation.bound_settings.root.parent.resolve()
+        directory = (base / options["directory"]).resolve()
+        if not directory.is_relative_to(base):
+            raise GeneratorError("recording directory escapes project root")
+        path = directory / f"{generation.generation_id}.jsonl"
+        def encode(value: Scalar) -> Scalar | dict[str, str]:
+            if isinstance(value, bytes):
+                return {"encoding": "base64", "value": base64.b64encode(value).decode("ascii")}
+            return value
+        payload: dict[str, object] = {
+            "generation_id": batch.source_id,
+            "sequence": batch.sequence,
+            "produced_at": batch.produced_at.isoformat(),
+            "points": [
+                {
+                    "device_id": point.device_id,
+                    "point_id": point.point_id,
+                    "source_time": point.source_time.isoformat(),
+                    "value": encode(point.value),
+                }
+                for point in batch.points
+            ],
+        }
+        await asyncio.to_thread(self._append_record, path, payload)
+
     async def _emit(
         self,
         generation: GenerationState,
@@ -542,6 +581,7 @@ class Runtime:
                 for (device, point), value in values.items()
             ),
         )
+        await self._record(generation, batch)
         self.counters["generated"] += len(batch.points)
         self.counters["batches"] += 1
         results = await self.writer.send(generation.scenario, batch)
