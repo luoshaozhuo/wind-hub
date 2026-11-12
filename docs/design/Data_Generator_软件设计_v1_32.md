@@ -1217,7 +1217,7 @@ $n=0$ 时 P99 不可用，不返回数值零；超时但底层执行未结束的
 |---|---|---|
 | FR-01 | 随机/简单物理模型生成、输入依赖及错误处理；Gateway 输出 | UR-01、UR-03 |
 | FR-02 | CSV 历史范围读取、顺序、倍率、结束及停止 | UR-02 |
-| FR-03 | 实现 6 个专属与 9 个公共 Server RPC，并报告真实状态 | UR-04 |
+| FR-03 | 实现目标 8 个专属与 9 个公共 Server RPC，并报告真实状态 | UR-04 |
 | FR-04 | 快照 Get/Push/Apply、场景版本查询、生成启停 | UR-04、UR-05 |
 | FR-05 | Diagnose 分阶段证据与局限、Metrics 及 Events 查询 | UR-06、UR-07 |
 | PR-01 | 生成非重入、历史倍率时序和统计偏差，§6.3 | UR-01、UR-02 |
@@ -1488,7 +1488,7 @@ E -->|不确定| H["返回未知或未完成状态"]
 | 主要异常 | 认证失败；无效参数；不支持的能力；截止时间或取消 |
 | 后置条件 | 成功返回正式响应；失败或不确定状态均可区分 |
 | 关联需求 | UR-04、UR-05、UR-06、UR-07 |
-| UC-07-S01 主流程 | `DataGeneratorService` 六项及 `CommonService` 九项 RPC 正常调用；场景/设备查询、生成启停及公共服务操作 |
+| UC-07-S01 主流程 | `DataGeneratorService` 目标八项及 `CommonService` 九项 RPC 正常调用；场景/设备查询、生成启停及公共服务操作 |
 | UC-07-S02 关键边界 | `scenario_version` 可选、`expected_revision` 冲突、ID 不存在、分页、身份权限和并发请求 |
 | UC-07-S03 异常与恢复 | 截止时间、取消、生成启停不确定结果、请求失败及服务关闭 |
 
@@ -1897,7 +1897,7 @@ flowchart LR
 
 ## 9.1 DataGeneratorService：八项 gRPC Server RPC（含新增变量发现与更新）
 
-`src/contracts/data_generator.proto` 定义包 `windhub.data_generator.v1`、服务 `DataGeneratorService`；现有 6 个 unary RPC 保持不变，新增 `ListVariables` 与 `UpdateVariables` 后共 **8 个 unary RPC**。Data Generator 作为 Server 实现全部八项，具体新增消息定义以 Contracts v1_21 §9.5 为准。
+`src/contracts/data_generator.proto` 当前确有 **6 个** unary RPC；目标依照 Contracts v1_21 §9.5 新增 `ListVariables`、`UpdateVariables` 后为 **8 个**。必须先同步修改正式 Proto 与生成物，再实现八项 Server RPC；在契约变更完成前，新增接口只能判定 **NOT_IMPLEMENTED**，不得将设计稿等同现有 Proto。
 
 <p class="table-caption">表 9-1 DataGeneratorService 方法与实现映射（已核实）</p>
 
@@ -1908,19 +1908,19 @@ flowchart LR
 | `ListScenarios` | `ListScenariosRequest(page_size, page_token)` | `ListScenariosResponse(scenarios[], next_page_token)` | §5.2 配置来源视图、§11.1 | UR-04、UC-07；读取已配置场景清单，不附加编辑/创建场景能力 |
 | `GetGeneration` | `common.ObjectId(id)` | `GetGenerationResponse(generation)` | §5.3、§6.2 | UR-04、UC-07；真实 generation 状态，未知 ID 不伪造 |
 | `StartGeneration` | `StartGenerationRequest(scenario_id, optional scenario_version, expected_revision)` | `StartGenerationResponse(generation_id, accepted, actual_state, error_code, message)` | §5.3、§6.2、§10.4 | UR-04、UC-07；指定已配置场景启动生成/重放，必须校验版本/互斥，接受不等于已经运行 |
-| `ListVariables` | `ListVariablesRequest(generation_id, device_id, page_size, page_token)` | `ListVariablesResponse(variables[], next_page_token)` | §10.5.9 | 模型有效点目录、类型、单位、角色与可写权限 |
-| `UpdateVariables` | `UpdateVariablesRequest(generation_id, device_id, request_id, values[])` | `UpdateVariablesResponse(accepted, effective_step, error_code, message, request_id)` | §10.5.9 | 只更新活跃 Generation 的可更新模型输入，整批原子/幂等 |
+| `ListVariables` | `ListVariablesRequest(generation_id, device_id, page_size, page_token)` | `ListVariablesResponse(variables[], next_page_token)` | §9.4、§10.5.11 | 模型有效点目录、类型、单位、角色与可写权限 |
+| `UpdateVariables` | `UpdateVariablesRequest(generation_id, device_id, request_id, values[])` | `UpdateVariablesResponse(accepted, effective_step, error_code, message, request_id)` | §9.4、§10.5.11 | 只更新活跃 Generation 的可更新模型输入，整批原子/幂等 |
 | `StopGeneration` | `StopGenerationRequest(generation_id, expected_revision)` | `StopGenerationResponse(accepted, actual_state, error_code, message)` | §5.3、§6.2、§10.4 | UR-04、UC-07；按 ID 停止，逻辑终结与底层 I/O 收敛分别报告与处理 |
 
 **业务对象语义见 §5.3**：`Device` 是虚拟设备，不是 Gateway；包含 `device_id, protocol, endpoint, generation_id, actual_state`；其 `generation_id` 只标识当前活动实例，没有活动归属时使用空字符串，`endpoint` 为虚拟设备显示/映射属性，不等于一对多 Gateway 的唯一地址；`Scenario` 是版本化方案，包含 `scenario_id, active_version, available_versions[], device_ids[], description`；`Generation` 是绑定单个场景版本并管理多个 Device 的一次运行，包含 `generation_id, scenario_id, scenario_version, desired_state, actual_state, started_at, last_error`。其中 `scenario_version` 是可选输入，未提供时选用该场景当前 `active_version`，一旦生成开始即绑定具体版本。版本冲突不得隐式忽略 `expected_revision`。`generation_id` 由服务端产生并用于查询与停止；不引入未经 Proto 定义的暂停、Seek、循环重放控制。
 
-**需求边界裁决**：此前从需求总表移除了“场景管理”和“任务管理”的独立 UR，但最新 Proto *已经包含* 场景只读查询与生成启停。实现这六项是 UR-04（外部接口实现）的既定范围；不因此推导新增场景 CRUD、任务编辑或复杂仿真功能。§4.8 UC-07 必须验证这些接口，而不能仅做空壳或始终返回 UNIMPLEMENTED。
+**需求边界裁决**：此前从需求总表移除了“场景管理”和“任务管理”的独立 UR，但最新 Proto *已经包含* 场景只读查询与生成启停。实现既有六项及目标新增两项是 UR-04（外部接口实现）的既定范围；不因此推导新增场景 CRUD、任务编辑或复杂仿真功能。§4.8 UC-07 必须验证这些接口，而不能仅做空壳或始终返回 UNIMPLEMENTED。
 
 配置快照 RPC 的文件集合必须遵循 §11.1 的 `services/`、`instances/`、`templates/` 分层目录及相对路径规则；对外消息字段一律使用已冻结的 `common.proto`。
 
 ## 9.2 CommonService：九项必须实现的 gRPC Server RPC
 
-`src/contracts/common.proto` 定义包 `windhub.common.v1`、服务 `CommonService`，共 **9 个 unary RPC**。本服务应实现公共接口；它们不属于 `DataGeneratorService` 的六项数量。
+`src/contracts/common.proto` 定义包 `windhub.common.v1`、服务 `CommonService`，共 **9 个 unary RPC**。本服务应实现公共接口；它们不计入 `DataGeneratorService` 目标八项数量。
 
 <p class="table-caption">表 9-2 CommonService 方法与实现映射（已核实）</p>
 
@@ -1983,7 +1983,7 @@ flowchart LR
 
 ## 9.5 冻结基础与批量注入协作（规范性）
 
-正式接口以 Contracts v1_20 为准：DataGeneratorService 6 个 Unary RPC 加 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`，此前以旧 main SHA 说明契约的文字只作为历史，不再具有规范性。生产生成任务必须先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；没有有效 token 时不允许调用 `UpdateVariables`；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
+目标接口以 Contracts v1_21 的新增设计为准：DataGeneratorService 现有 6 个、目标 8 个 Unary RPC，另有 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`，此前以旧 main SHA 说明契约的文字只作为历史，不再具有规范性。生产生成任务必须先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；没有有效 token 时不允许调用 `UpdateVariables`；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
 
 **映射与执行**：一个 Generation 可管理多个 Device，源 `(device_id,point_id)` 可映射多个输出，但一个目标不得由同一运行集合内两个来源重复占用。按 Gateway 分组为 `UpdateVariablesRequest {gateway_id,values[],lease_token}`，不得额外增加质量、时间戳、批次 ID 或请求级幂等字段。无令牌请求即使当前目标未被其他 Generation 认领，也必须被 Gateway 拒绝。一个 Gateway 的成功不构成其他 Gateway 的成功，逐项失败和响应缺失必须分别记录；UNKNOWN 不得虚报为投递成功。
 
@@ -3145,7 +3145,11 @@ scenarios:
 | `test_config_manager.py` | component | reliability | conflict | UC-04：Push/Apply、版本冲突及失败保护 |
 | `test_diagnose.py` | component | reliability | no_targets | UC-05：诊断阶段、无目标和非侵入 |
 | `test_metrics.py` | component | performance | no_samples | UC-06：窗口、P99、缺样本、标签限额 |
-| `test_proto_descriptor.py` | integration | reliability | contract | `DataGeneratorService` 六方法 + `CommonService` 九方法逐项 Descriptor、类型及存在性断言 |
+| `test_proto_descriptor.py` | integration | reliability | contract | `DataGeneratorService` 目标八方法 + `CommonService` 九方法逐项 Descriptor、类型及存在性断言 |
+| `test_model_weather.py` | unit | reliability | deterministic | 气象昼夜、相关风速、均值与湍流度的配置/运行时权限区分 |
+| `test_wind_control.py` | unit | safety | energy_balance | 最优转速、恒功率、限功率模式的转矩/桨距/功率/动能一致性与切换 |
+| `test_bess_soc_pcs.py` | unit | safety | energy_balance | 化学储能/端口/热耗散余额、SOC 目标、AC/DC 效率、零有功无功补偿 |
+| `test_sim_point_table_contract.py` | integration | reliability | contract | 五种 Modbus 点表 103 点地址无重叠、宽度、业务点/单位/枚举与控制权限一致 |
 | `test_grpc_server.py` | integration | safety | timeout | UC-07：真实 Proto RPC、错误映射和取消 |
 | `test_gateway_integration.py` | integration | reliability | network_failure | UC-03：真实 Gateway gRPC（契约已具备，真实 Gateway 实现待核验） |
 | `test_history_reader.py` | integration | reliability | invalid_records | UC-02：真实历史 Reader 和异常数据 |
@@ -3160,9 +3164,11 @@ scenarios:
 | `test_observability_system.py` | system | reliability | recovery | UC-03/06：真实 RPC 计数、UNKNOWN 隔离、不重放与安全恢复 |
 | `test_error_classification_system.py` | system | safety | invalid_data | UC-03/07：目标缺失、类型不符、只读变量、Gateway 不可达分类 |
 
+**测试前置契约**：本设计的目标 8 个 DataGeneratorService RPC 必须先与 Contracts Proto 同步，并在冻结后进行 Descriptor 核对；测试不得根据设计虚构不存在的接口。模型与点表测试数据应来自正式配置文件，独立测试方复核输出而不是复制生产算法。
+
 ## 13.2 验收执行
 
-必须新增 Descriptor 逐方法断言：DataGeneratorService 6 项、CommonService 9 项均为 Unary，检验真实返回类型、optional 字段存在性与启动后可调用性。Gateway 输出相关验收应核实实际 Gateway Server 已实现 `UpdateVariables`；未联调的场景保持 NOT_RUN。
+必须新增 Descriptor 逐方法断言：目标 DataGeneratorService 8 项、CommonService 9 项均为 Unary；前者包含新增 ListVariables/UpdateVariables，先更新 Contracts Proto 再执行集成测试，不能把现有 6 项视为 8 项已经具备。检验真实响应类型、optional 字段存在性、授权、幂等及启动后可调用性。Gateway 输出相关验收应核实实际 Gateway Server 已实现 `UpdateVariables`；未联调的场景保持 NOT_RUN。
 
 
 ```bash
@@ -3185,6 +3191,9 @@ pytest tests/src/data_generator/system -m 'system and reliability'
 
 | UR | UC 与场景 | 技术契约 | 测试文件名／测试标识 | 层级／专题／场景 Marker | 验证内容与预期结果 | 执行环境 |
 |---|---|---|---|---|---|---|
+| UR-01、03 | UC-01-S04 风机三种功率模式 | 10.5.5、10.6.3 | `test_simulation_system.py::test_wind_three_modes` | system/reliability/end_to_end | 风速阶跃驱动转速与实际有功；恒功率和限功率收敛、额定保护与转矩/动能守恒 | 真实 Gateway |
+| UR-01、03 | UC-01-S05 储能 SOC/无功 | 10.5.7、10.6.5 | `test_simulation_system.py::test_bess_soc_and_var` | system/reliability/end_to_end | 实际 SOC 连续、目标充放电、内阻热耗散、四象限 PCS 有功无功容量约束 | 真实 Gateway |
+| UR-01、03 | UC-01-S06 仿真点表与气象 | 10.5.4、10.6 | `test_simulation_system.py::test_sim_point_tables_weather` | system/reliability/end_to_end | 五类点表合法、气象独立、不接受参数及计算状态直接控制 | 真实 Gateway |
 | UR-01、03 | UC-01-S01 正常随机生成  | 5、10 | `test_simulation_system.py::test_random_generation` | system/reliability/end_to_end | 独立进程持续生成并写入 Gateway | 真实 Gateway |
 | UR-01 | UC-01-S02 简单物理模型、边界 | 10 | `test_simulation_system.py::test_physical_model` | system/reliability/end_to_end | 公式/插值结果与读回一致 | 真实 Gateway |
 | UR-01 | UC-01-S03 坏模型/计算失败  | 6、10 | `test_simulation_system.py::test_invalid_model_and_runtime_failure` | system/reliability/fault_injection | 启动拒绝或任务失败，不发送非法点 | 独立进程 |
