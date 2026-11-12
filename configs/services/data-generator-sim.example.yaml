@@ -23,6 +23,9 @@ diagnose:
   max_concurrent: 2
   timeout_seconds: 10.0
   permit_wait_seconds: 0.5
+recording:
+  enabled: false
+  directory: artifacts/data-generator
 metrics:
   enabled: true
   sample_seconds: 1.0
