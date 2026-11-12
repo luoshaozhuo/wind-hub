@@ -96,77 +96,76 @@ class GatewayDiagnostics:
                     )
             elif name == "control":
                 mapped = sum(
-                    len(item.config.settings.command_mappings)
+                    len(item.config.settings.control.mappings)
                     for item in targets.values()
-                    if item.config.settings.control_enabled
+                    if item.config.settings.control.enabled
+                )
+                pending = sum(
+                    forwarder.pending for gateway_id, forwarder
+                    in self._runtime.forwarders.items()
+                    if not target or gateway_id == target
                 )
                 evidence.append(pb.Evidence(name="configured_mappings", value=str(mapped)))
                 evidence.append(
-                    pb.Evidence(
-                        name="forward_events_pending",
-                        value=str(self._runtime.forwarder.pending),
-                    )
+                    pb.Evidence(name="forward_events_pending", value=str(pending))
                 )
                 if mapped:
-                    endpoint = self._runtime.config.service.control.commander_endpoint
-                    host, separator, port_text = endpoint.rpartition(":")
-                    if not separator:
-                        status = "UNKNOWN"
-                        limitations.append("Commander endpoint is not host:port")
-                    else:
+                    failures: list[str] = []
+                    for gateway_id, item in targets.items():
+                        control = item.config.settings.control
+                        if not control.enabled:
+                            continue
+                        endpoint = control.target.endpoint
+                        if endpoint is None:
+                            failures.append(gateway_id)
+                            continue
+                        host, _, port = endpoint.rpartition(":")
                         try:
-                            connector = asyncio.open_connection(host.strip("[]"), int(port_text))
-                            reader, writer = await asyncio.wait_for(connector, timeout=0.5)
-                            del reader
+                            connector = asyncio.open_connection(host.strip("[]"), int(port))
+                            _, writer = await asyncio.wait_for(connector, timeout=0.5)
                             writer.close()
                             await writer.wait_closed()
                         except (OSError, ValueError, TimeoutError) as exc:
-                            status = "FAIL"
-                            error_code = "COMMANDER_TCP_UNREACHABLE"
-                            message = str(exc)
-                            evidence.append(
-                                pb.Evidence(
-                                    name="commander_tcp_reachable",
-                                    value="false",
-                                )
-                            )
+                            failures.append(gateway_id)
+                            limitations.append(f"{gateway_id} target TCP unavailable: {exc}")
                         else:
                             evidence.append(
                                 pb.Evidence(
-                                    name="commander_tcp_reachable",
+                                    name=f"{gateway_id}.target_tcp_reachable",
                                     value="true",
                                 )
                             )
-                            status = "UNKNOWN"
-                            limitations.append(
-                                "TCP reachability does not prove Commander RPC health"
-                            )
+                    if failures:
+                        status = "FAIL"
+                        error_code = "CONTROL_TARGET_UNREACHABLE"
+                        message = ",".join(failures)
+                    else:
+                        status = "UNKNOWN"
+                        limitations.append(
+                            "TCP reachability does not prove authenticated target RPC health"
+                        )
                 else:
                     status = "NOT_SUPPORTED"
-                # Query one known Commander command without creating a new
-                # command or retrying a prior submission.
-                accepted = next(
-                    (
-                        record
-                        for record in reversed(self._runtime.forwarder.records)
-                        if record.state is ForwardState.ACCEPTED
-                        and record.command_id
-                        and (not target or record.gateway_id == target)
-                    ),
-                    None,
-                )
-                if accepted is not None:
+                # Never issue a new control command merely to diagnose the target.
+                for gateway_id, forwarder in self._runtime.forwarders.items():
+                    if target and gateway_id != target:
+                        continue
+                    accepted = next(
+                        (
+                            record for record in reversed(forwarder.records)
+                            if record.state is ForwardState.ACCEPTED and record.command_id
+                        ),
+                        None,
+                    )
+                    if accepted is None:
+                        continue
                     try:
                         result = await asyncio.wait_for(
-                            self._runtime.forwarder.get_command_result(accepted.command_id),
+                            forwarder.get_command_result(accepted.command_id),
                             timeout=1.0,
                         )
                     except (
-                        grpc.RpcError,
-                        OSError,
-                        RuntimeError,
-                        TimeoutError,
-                        ValueError,
+                        grpc.RpcError, OSError, RuntimeError, TimeoutError, ValueError
                     ) as exc:
                         limitations.append(f"Commander result query unavailable: {exc}")
                     else:
