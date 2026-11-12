@@ -176,10 +176,21 @@ class Turbine:
             ta - n * self.torque - damping * old_omega
         ) / inertia
         if predicted > rotor_max:
-            raise GeneratorError("turbine overspeed protection: no braking capacity configured")
+            # Protection trips the generator and applies explicit mechanical
+            # braking. Avoid clipping angular velocity without an energy sink.
+            self.fault = 1
+            self.torque = 0.0
+            brake = max(
+                0.0,
+                ta - damping * old_omega
+                - inertia * (rotor_max - old_omega) / dt,
+            )
+            predicted = old_omega + dt * (
+                ta - damping * old_omega - brake
+            ) / inertia
         if predicted < 0:
             raise GeneratorError("turbine integration would reverse rotor direction")
-        self.omega = predicted
+        self.omega = min(predicted, rotor_max)
         # Electrical power always follows the sole executed torque and rotor speed.
         power = eta * self.torque * n * self.omega if active and not self.fault else 0.0
         if power > rated * (1 + 1e-9):
