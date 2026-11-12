@@ -99,7 +99,13 @@ def _configured_model_points(
 ]:
     """Bind each virtual device to its own versioned simulation model."""
     definitions = raw.get("models", {})
-    if not isinstance(definitions, dict):
+    if not isinstance(definitions, dict) or any(
+        not isinstance(key, str)
+        or not key
+        or not isinstance(value, dict)
+        or value.get("kind") != "random"
+        for key, value in definitions.items()
+    ):
         raise GeneratorError("invalid random model declarations")
     devices: list[str] = []
     points: dict[tuple[str, str], dict[str, Any]] = {}
@@ -133,6 +139,10 @@ def _configured_model_points(
                 raise GeneratorError("random source cannot override a physical simulation model")
             model_ref = str(declared)
         else:
+            if "points" in item or "parameters" in item:
+                raise GeneratorError(
+                    f"{device_id}: physical point and model parameters belong to device template"
+                )
             simulation = document_device.templates.model.document.get("simulation")
             if not isinstance(simulation, Mapping) or simulation.get("kind") != "physical":
                 raise GeneratorError(f"{device_id}: simulation model missing from device template")
