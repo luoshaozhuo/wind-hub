@@ -401,6 +401,10 @@ tests/src/e2e/configs/
 
 禁止从文件名推断额定功率（例如 `wtg_sim_2mw`），也不将仿真参数加入共享 `device_models` 或 `point_tables`。所有业务点 ID、单位和 Modbus 地址由真实注册后的 PointTable 与 Unit/BusinessPoint 模板驱动；源到目标映射必须一对一或按显式合法规则一对多，且单个 `(gateway_id,variable_id)` 不重复占用。
 
+## 4.3 仿真配置与真值文件
+
+跨模块验证使用正式 `configs/instances/devices_sim.yaml` 与 `templates/device_models/*_sim_physical_1.0.0.yaml`，并从 `services/data-generator-sim.example.yaml` 选择运行 Scenario。不得复制第二套点表或配置逐点反馈映射。Gateway 使用相同 Point Table，变量名按 `point_id` 对齐。Data Generator `recording.enabled=true` 时输出每个 Generation 的 JSONL 原始生成批次，以相同设备 ID、点 ID、采样时间与值比对 Gateway/Collector/Sink；物理守恒仍需独立单元测试验证。此章节定义后续跨模块验收，当前分模块验收不执行跨服务链路。
+
 # 5. 分阶段集成验收
 
 ## 5.1 准入门禁
@@ -523,7 +527,3 @@ Marker 必须使用仓库 `pyproject.toml` / pytest 配置中已登记的值；�
 | NOT_RUN / NOT_IMPLEMENTED | Proto、模型、CLI、配置或实际依赖尚未落地；不得计入已通过 |
 
 冻结前检查：Data Generator v1_37、Contracts v1_22、CLI 当前有效设计、Industrial Gateway v1_28、Configuration v1_15、Core v1_33、Sink Service v1_50 与总体架构当前有效版本 之间无相互矛盾的 RPC、参数所有权、设备 Schema、点表和数据流。所有 E2E 测试必须能由真实输入、参考值和可观察输出判定成功或失败。
-
-## 4.3 仿真配置与真值文件
-
-跨模块验证使用正式 `configs/instances/devices_sim.yaml` 与 `templates/device_models/*_sim_physical_1.0.0.yaml`，并从 `services/data-generator-sim.example.yaml` 选择运行 Scenario。不得复制第二套点表或配置逐点反馈映射。Gateway 使用相同 Point Table，变量名按 `point_id` 对齐。Data Generator `recording.enabled=true` 时输出每个 Generation 的 JSONL 原始生成批次，以相同设备 ID、点 ID、采样时间与值比对 Gateway/Collector/Sink；物理守恒仍需独立单元测试验证。此章节定义后续跨模块验收，当前分模块验收不执行跨服务链路。
