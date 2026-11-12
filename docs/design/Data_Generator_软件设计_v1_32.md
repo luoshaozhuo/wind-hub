@@ -1974,7 +1974,7 @@ flowchart LR
 
 ## 9.4 方法实现、错误、并发与契约验收
 
-1. Server 实际需实现 **15 个 Unary RPC**（`DataGeneratorService` 6 + `CommonService` 9），逐方法比对编译后的 Descriptor；不能把 Gateway 6 项算作本模块 Server 方法。
+1. Server 目标需实现 **17 个 Unary RPC**（`DataGeneratorService` 8 + `CommonService` 9；目前 Proto 仍为 6 + 9，须先更新 Contracts），逐方法比对编译后的 Descriptor；不能把 Gateway 的接口算作本模块 Server 方法。
 2. 对 ID/类型/版本/分页/权限/期限错误给出与 Proto 字段兼容的反馈；不通过新增自定义 Request/Response 消息绕开公共契约。
 3. 生成启停和 Apply 属于有副作用操作：`expected_revision` 校验、状态所有权与并发冲突裁决在应用层完成；接受请求与实际启动/停止状态分开。
 4. gRPC 取消/超时不证明底层历史读取或 Gateway I/O 已结束；进程视图 §6.4 负责资源所有权与安全关闭。
@@ -2907,7 +2907,8 @@ configs/
 │   └── data-generator-service.yaml       # Data Generator 服务级，重启生效
 ├── instances/
 │   ├── site.yaml                         # Core 共享站点
-│   ├── devices.yaml                      # Core 共享设备实例
+│   ├── devices.yaml                      # 真实设备实例
+│   ├── devices_sim.yaml                  # 仿真设备实例（相同 Schema）
 │   └── data-generator.yaml               # Scenario/模型/重放/输出映射
 └── templates/
     ├── device_models/
@@ -2969,7 +2970,7 @@ file_version: "1.0.0"
 config_sources:
   instances:
     site: configs/instances/site.yaml       # 公共站点
-    devices: configs/instances/devices.yaml # 公共设备
+    devices: configs/instances/devices_sim.yaml # 本例使用仿真设备文件
     scenarios: configs/instances/data-generator.yaml # 本模块专属场景
   templates:
     root: configs/templates                # 版本化公共模板根
@@ -2999,74 +3000,86 @@ metrics:
 
 ## 11.4 场景与实例配置规范
 
-场景引用当前服务配置指定的 `instances/devices.yaml`（真实）或 `instances/devices_sim.yaml`（模拟）中已有的 `device_id`；测点 ID 必须是对应设备型号解析后点表中的真实 ID。本例以 `main` 已有 `GW01` / `GW02` 和 `ads_wtg_gw2mw_1.0.0.yaml` 的 `a02_dm_pitchangle1` 为依据。**Gateway 变量 ID 和 endpoint 仅是目标配置示例**，需在运行前向真实 Gateway `ListVariables`/相关契约核对；不能将 Core 设备的 PLC endpoint 误当 Gateway endpoint。
+场景只能引用当前服务通过 `config_sources.instances.devices` 选择的一份设备实例文件（真实 `devices.yaml` 或仿真 `devices_sim.yaml`），二者 Schema 相同但不在本服务内自动合并。设备型号、点表、协议地址由共享快照解析，场景不得再次声明。固定物理模型应使用仿真设备实例。
+
+**目标 Scenario Schema** 如下（尚未在生产代码中实现）。一个场景的 `source.kind=simulation` 下可按设备绑定 `random` 或 `physical`；`source.kind=replay` 是独立来源，按 §10.3 定义，不再额外引入模型类别。
 
 ```yaml
 schema_version: 1
 file_version: "1.0.0"
 scenarios:
-  - scenario_id: demo-random
+  - scenario_id: demo-simulation
     version: "1.0.0"
-    description: "模拟风机桨距角"
     source:
-      kind: simulation                 # simulation | replay
-      interval_seconds: 1.0           # > 0
-      seed: 42
+      kind: simulation
+      interval_seconds: 0.05
+    weather:
+      site-a:
+        wind:
+          wind_seed: 42
+          wind_correlation_time_s: 10.0
+          wind_speed_mean: 10.0
+          turbulence_intensity: 0.12
+          wind_direction: 0.0
+        irradiance:
+          sunrise_s: 21600
+          sunset_s: 64800
+          irradiance_clear_w_m2: 1000.0
+          cloud_mode: constant
+          cloud_factor_target: 0.8
+        ambient_temperature:
+          temperature_mean_c: 20.0
+          diurnal_amplitude_k: 5.0
+          temperature_seed: 43
+          temperature_tau_s: 1800.0
+          temperature_sigma_k: 0.5
+          phase_rad: 0.0
+    models:
+      wtg-example:
+        kind: physical
+        device_kind: wtg
+        parameters_ref: models/wtg-example.yaml
+        weather_ref: site-a
+        controller_mode: local
+      generic-random:
+        kind: random
+        seed: 43
+        rules:
+          active_power:
+            distribution: uniform
+            min: 100000.0
+            max: 900000.0
     devices:
-      - device_id: GW01                # 引用 instances/devices.yaml
-        points:
-          - point_id: a02_dm_pitchangle1
-            model:
-              kind: random            # random | physical
-              distribution: uniform
-              minimum: 3.0
-              maximum: 15.0
+      - device_id: WTG_SIM01
+        model_ref: wtg-example
+        points: [wind_speed, rotor_speed, generator_speed, active_power]
+      - device_id: GRID_SIM01
+        model_ref: generic-random
+        points: [active_power]
     gateways:
-      - gateway_id: gw-test
+      - gateway_id: gw-sim
         endpoint: "127.0.0.1:50051"
         feedback_mapping:
-          - {device_id: GW01, point_id: a02_dm_pitchangle1, variable_id: GW01.pitch_angle}
-          - {device_id: GW01, point_id: a02_dm_pitchangle1, variable_id: GW01.pitch_angle_copy}
-      - gateway_id: gw-test-2
-        endpoint: "127.0.0.1:50052"
-        feedback_mapping:
-          - {device_id: GW01, point_id: a02_dm_pitchangle1, variable_id: turbine.pitch}
-  - scenario_id: demo-replay
-    version: "1.0.0"
-    description: "CSV 历史重放"
-    source:
-      kind: replay
-      history_reader: csv
-      file: "history/demo.csv"
-      start_time: "2026-01-01T00:00:00Z"
-      end_time: "2026-01-01T01:00:00Z"
-      speed: 1.0
-      loop: false
-    devices:
-      - device_id: GW02
-        points:
-          - point_id: a02_dm_pitchangle1
-    gateways:
-      - gateway_id: gw-test
-        endpoint: "127.0.0.1:50051"
-        feedback_mapping:
-          - {device_id: GW02, point_id: a02_dm_pitchangle1, variable_id: GW02.pitch_angle}
+          - {device_id: WTG_SIM01, point_id: active_power, variable_id: WTG_SIM01.active_power}
+          - {device_id: GRID_SIM01, point_id: active_power, variable_id: GRID_SIM01.active_power}
 ```
 
-<p class="table-caption">表 11-3 场景配置与公共模板引用校验</p>
+- `models` 声明唯一生成算法与参数引用；`devices` 仅绑定已有设备、模型和输出点；`weather` 是气象场景，非 Modbus PointTable；`gateways` 仅定义合法输出目的地。模型参数、种子和状态初值版本化；外部写入只涉及 §10.6 列明的简单控制量。
+- 风机 `control_mode`（最优转速/恒功率/限功率）是允许外部设定的设备业务量，`controller_mode`（本地/PPC）是模型参数，二者不得混淆。储能 `control_strategy: power_demand|soc_target` 和 `reactive_support_enabled` 是配置文件参数；外部可写目标 SOC 与有功需求，但只能由所选策略执行，不因写入某个点自动切换策略。
+- `WTG_SIM01`、`GRID_SIM01`、`gw-sim` 和变量 ID 都是部署示例，只有与实际设备快照及 Gateway `ListVariables` 对齐后才允许启动。真实 PLC endpoint 不等于 Gateway endpoint。
 
-| 对象 | 强制校验 | 失败结果 |
+<p class="table-caption">表 11-3 场景配置与共享模板校验</p>
+
+| 对象 | 必要校验 | 失败结果 |
 |---|---|---|
-| 公共设备 | `device_id` 存在于共享快照且 `enabled=true`；其设备型号/点表/协议引用由 Core 完整解析 | 拒绝受影响场景启动或候选 |
-| 场景版本 | `scenario_id` 非空且唯一；`version` 为不可变的 `MAJOR.MINOR.PATCH` 字符串；运行引用不可静默改写 | 拒绝覆盖已发布版本 |
-| 模拟点 | `point_id` 存在于解析后的公共点表；计算输出需兼容点表类型、单位和边界 | 拒绝配置或该周期失败 |
-| 简单物理模型 | `input_point` 属于共享点表、依赖合法；代数、插值与状态积分采用受控内置计算，禁止 `eval`；物理参数、初值及保护边界有效 | 拒绝配置 |
-| 重放 CSV | UTF-8，列 `device_id,point_id,source_timestamp,value,quality,record_id`；时间 RFC3339 UTC；`record_id` 唯一；排序与区间遵从 §10.3 | 拒绝非法记录，不静默跳过 |
-| Gateway 输出 | 全量展开后 `(gateway_id,variable_id)` 在单场景版本内不重复；每个启用输出点至少一目标，目标标量类型须兼容 | 拒绝无效候选或启动 |
-| 运行互斥 | 同一 Device 不得归属两个活动 Generation；跨活动/未安全收敛 Generation 目标键不相交 | 整次 Start 拒绝，不部分预留 |
-| 文件路径 | 历史文件必须在已授权数据根内；拒绝绝对路径、`..`、符号链接越界 | 拒绝配置 |
-
-**适配原则**：公共 `SharedDomainSnapshot` 中设备和点表为权威元数据；场景内 `devices[].points[].model` 只声明生成方法及参数，不重复 `protocol`、`endpoint`、`data_type`、`unit` 或协议地址。`Gateway` 是另一个服务的虚拟变量目标，不能从公共 PLC 设备端点推定。若需要不属于公共设备清单的纯虚拟设备，应先明确扩展共享设备模型并修改设计，不可由解析器暗中接受第二套独立设备定义。
+| 共享设备和点表 | 设备存在且启用；型号/点表引用精确；输出点 ID、业务语义、单位及数据类型匹配 | 拒绝场景 |
+| 随机模型 | 每个待生成点具有合法分布、种子与边界，无隐式补零或未定义分布 | 拒绝场景 |
+| 固定物理模型 | 五种 `device_kind` 之一；参数、初始状态与气象绑定有效；不执行任意公式或脚本 | 拒绝场景 |
+| 气象 | 场景唯一、参数有效、种子确定；输出不被设备控制直接改写 | 拒绝场景 |
+| 外部控制 | 仅允许 §10.6 中“外部控制=是”的输入点；拒绝修改配置参数及状态 | 整批拒绝 |
+| Gateway | 目标已存在；展开后 `(gateway_id,variable_id)` 唯一，类型兼容 | 拒绝场景/启动 |
+| 运行互斥 | 同时活动或尚未安全收敛的 Generation 不共享 Device 和目标键 | 拒绝启动 |
+| CSV 重放 | `replay` 场景按 §10.3 定义时序、字段、倍率及受控路径 | 拒绝非法源 |
 
 ## 11.5 配置提交与运行实例的裁决
 
