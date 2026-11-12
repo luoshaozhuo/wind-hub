@@ -1,4 +1,4 @@
-# Data Generator service configuration; restart required after modification.
+# Data Generator 服务配置；Scenario 变更按运行互斥规则应用，服务运行参数变更需要重启。
 schema_version: 1
 file_version: "1.0.0"
 config_sources:
