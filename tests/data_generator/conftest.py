@@ -87,8 +87,13 @@ def write_service_yaml(
     diagnose_concurrent: int = 4,
     diagnose_wait: float | None = None,
     metrics_max_series: int = 2000,
+    scenarios: list[dict[str, Any]] | None = None,
+    recording: dict[str, Any] | None = None,
 ) -> Path:
-    """生成服务配置（直接路径契约：相对 configs 根，禁止绝对路径与 ..）。"""
+    """生成服务配置（直接路径契约：相对 configs 根，禁止绝对路径与 ..）。
+
+    Scenario 归属服务 YAML；instances 只允许 site/devices 业务实例文件。
+    """
     service = {
         "schema_version": 1,
         "file_version": "1.0.0",
@@ -96,7 +101,6 @@ def write_service_yaml(
             "instances": {
                 "site": "instances/site.yaml",
                 "devices": "instances/devices.yaml",
-                "scenarios": "instances/data-generator.yaml",
             },
             "templates": {"root": "templates"},
         },
@@ -116,15 +120,13 @@ def write_service_yaml(
             "max_series": metrics_max_series,
         },
     }
+    if recording is not None:
+        service["recording"] = recording
+    if scenarios is not None:
+        service["scenarios"] = scenarios
     path = root / "services" / "data-generator.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(service, sort_keys=False), encoding="utf-8")
-    return path
-
-
-def write_scenarios(root: Path, document: dict[str, Any]) -> Path:
-    path = root / "instances" / "data-generator.yaml"
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     return path
 
 
@@ -155,6 +157,7 @@ def configs_root(tmp_path: Path) -> Callable[..., Path]:
         diagnose_wait: float | None = None,
         metrics_max_series: int = 2000,
         history: dict[str, Sequence[str]] | None = None,
+        recording: dict[str, Any] | None = None,
     ) -> Path:
         root = tmp_path / f"configs-{len(created)}"
         created.append(root)
@@ -162,8 +165,7 @@ def configs_root(tmp_path: Path) -> Callable[..., Path]:
         if history:
             for name, rows in history.items():
                 write_history(root, name, rows)
-        if scenarios is not None:
-            write_scenarios(root, scenarios)
+        embedded_scenarios = None if scenarios is None else scenarios["scenarios"]
         service_path = write_service_yaml(
             root,
             bind=bind or f"127.0.0.1:{reserve_port()}",
@@ -172,6 +174,8 @@ def configs_root(tmp_path: Path) -> Callable[..., Path]:
             diagnose_concurrent=diagnose_concurrent,
             diagnose_wait=diagnose_wait,
             metrics_max_series=metrics_max_series,
+            scenarios=embedded_scenarios,
+            recording=recording,
         )
         return service_path
 
@@ -187,53 +191,68 @@ def simulation_document(
     interval: float = 1.0,
     seed: int = 42,
 ) -> dict[str, Any]:
-    """通用模拟场景构造器。
+    """通用模拟场景构造器（新归属：随机规则在 scenario models，路由按设备展开）。
 
     specs: [(device_id, point_id, model(None=random 3..15), [(gateway_id, variable_id)])]
+    variable_id 仅保留调用方语义；正式 Schema 的目标变量由 point_id 一一派生。
     """
-    devices: dict[str, list[dict[str, Any]]] = {}
-    per_gateway: dict[str, list[dict[str, str]]] = {gateway_id: [] for gateway_id in gateways}
+    point_order: dict[str, list[str]] = {}
+    rules: dict[str, dict[str, dict[str, Any]]] = {}
+    route_devices: dict[str, list[str]] = {gateway_id: [] for gateway_id in gateways}
     for device_id, point_id, model, mappings in specs:
-        devices.setdefault(device_id, []).append(
-            {
-                "point_id": point_id,
-                "model": model
-                or {
-                    "kind": "random",
-                    "distribution": "uniform",
-                    "minimum": 3.0,
-                    "maximum": 15.0,
-                },
-            }
-        )
-        for gateway_id, variable_id in mappings:
-            per_gateway[gateway_id].append(
-                {"device_id": device_id, "point_id": point_id, "variable_id": variable_id}
-            )
-    gateway_entries = [
-        {
-            "gateway_id": gateway_id,
-            "endpoint": endpoint,
-            "feedback_mapping": per_gateway[gateway_id],
+        point_order.setdefault(device_id, []).append(point_id)
+        rules.setdefault(device_id, {})[point_id] = model or {
+            "kind": "random",
+            "distribution": "uniform",
+            "minimum": 3.0,
+            "maximum": 15.0,
         }
-        for gateway_id, endpoint in sorted(gateways.items())
-    ]
+        for gateway_id, _variable_id in mappings:
+            if device_id not in route_devices[gateway_id]:
+                route_devices[gateway_id].append(device_id)
+    device_ids = sorted(point_order)
+    scenario = {
+        "scenario_id": scenario_id,
+        "version": version,
+        "description": "acceptance generated scenario",
+        "source": {"kind": "simulation", "interval_seconds": interval, "seed": seed},
+        "models": {
+            f"model-{device_id}": {
+                "kind": "random",
+                "seed": seed,
+                "rules": rules[device_id],
+            }
+            for device_id in device_ids
+        },
+        "devices": [
+            {
+                "device_id": device_id,
+                "model_ref": f"model-{device_id}",
+                "points": point_order[device_id],
+            }
+            for device_id in device_ids
+        ],
+        "gateways": [
+            entry
+            for gateway_id in sorted(route_devices)
+            for entry in (
+                {
+                    "gateway_id": (
+                        gateway_id
+                        if len(route_devices[gateway_id]) == 1
+                        else f"{gateway_id}-{device_id}"
+                    ),
+                    "endpoint": gateways[gateway_id],
+                    "device_id": device_id,
+                }
+                for device_id in route_devices[gateway_id]
+            )
+        ],
+    }
     return {
         "schema_version": 1,
         "file_version": "1.0.0",
-        "scenarios": [
-            {
-                "scenario_id": scenario_id,
-                "version": version,
-                "description": "acceptance generated scenario",
-                "source": {"kind": "simulation", "interval_seconds": interval, "seed": seed},
-                "devices": [
-                    {"device_id": device_id, "points": points}
-                    for device_id, points in sorted(devices.items())
-                ],
-                "gateways": gateway_entries,
-            }
-        ],
+        "scenarios": [scenario],
     }
 
 
@@ -308,11 +327,7 @@ def replay_document(
                     {
                         "gateway_id": gateway_id,
                         "endpoint": endpoint,
-                        "feedback_mapping": [
-                            {"device_id": device, "point_id": point, "variable_id": variable_id}
-                            for mapped_gw, variable_id in mappings
-                            if mapped_gw == gateway_id
-                        ],
+                        "device_id": device,
                     }
                     for gateway_id, endpoint in sorted(gateways.items())
                 ],

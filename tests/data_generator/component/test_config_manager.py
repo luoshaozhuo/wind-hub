@@ -97,17 +97,22 @@ def test_invalid_candidate_scenario_rejected(configs_root) -> None:  # noqa: ANN
         ),
     )
     manager, disk = _manager(service_path)
-    scenario_rel = manager.settings.scenario_file.relative_to(manager.settings.root).as_posix()
-    document = yaml.safe_load(disk[scenario_rel].data)
-    # 同一目标变量被两个源点映射：配置期必须拒绝。
-    document["scenarios"][0]["gateways"][0]["feedback_mapping"].append(
-        {"device_id": "GW01", "point_id": "a02_dm_pitchangle1", "variable_id": "GW01.pitch_angle"}
+    service_rel = manager.settings.service_file.relative_to(manager.settings.root).as_posix()
+    document = yaml.safe_load(disk[service_rel].data)
+    # 新 Schema 下网关路由按设备展开且 gateway_id 唯一：重复 ID 在配置期必须拒绝
+    # （旧 feedback_mapping 双源点映射已无表达路径，OutputTarget 唯一性由加载器兜底）。
+    document["scenarios"][0]["gateways"].append(
+        {
+            "gateway_id": document["scenarios"][0]["gateways"][0]["gateway_id"],
+            "endpoint": "127.0.0.1:59998",
+            "device_id": "GW01",
+        }
     )
     files = tuple(
-        FileContent(path, yaml.safe_dump(document).encode() if path == scenario_rel else item.data)
+        FileContent(path, yaml.safe_dump(document).encode() if path == service_rel else item.data)
         for path, item in disk.items()
     )
-    with pytest.raises(GeneratorError, match="duplicate output target"):
+    with pytest.raises(GeneratorError, match="duplicate Gateway ID"):
         manager.push(files, manager.settings.revision)
 
 
@@ -121,12 +126,12 @@ def test_apply_scenario_change_is_hot_scenario_file_unchanged_revision(configs_r
     )
     manager, disk = _manager(service_path)
     old_revision = manager.settings.revision
-    scenario_rel = manager.settings.scenario_file.relative_to(manager.settings.root).as_posix()
-    document = yaml.safe_load(disk[scenario_rel].data)
+    service_rel = manager.settings.service_file.relative_to(manager.settings.root).as_posix()
+    document = yaml.safe_load(disk[service_rel].data)
     document["scenarios"][0]["version"] = "1.0.1"
     document["scenarios"][0]["source"]["interval_seconds"] = 0.25
     files = tuple(
-        FileContent(path, yaml.safe_dump(document).encode() if path == scenario_rel else item.data)
+        FileContent(path, yaml.safe_dump(document).encode() if path == service_rel else item.data)
         for path, item in disk.items()
     )
     candidate = manager.push(files, manager.settings.revision)
@@ -166,11 +171,11 @@ def test_immutable_scenario_version_body_change_rejected(configs_root) -> None: 
         ),
     )
     manager, disk = _manager(service_path)
-    scenario_rel = manager.settings.scenario_file.relative_to(manager.settings.root).as_posix()
-    document = yaml.safe_load(disk[scenario_rel].data)
+    service_rel = manager.settings.service_file.relative_to(manager.settings.root).as_posix()
+    document = yaml.safe_load(disk[service_rel].data)
     document["scenarios"][0]["description"] = "changed without version bump"
     files = tuple(
-        FileContent(path, yaml.safe_dump(document).encode() if path == scenario_rel else item.data)
+        FileContent(path, yaml.safe_dump(document).encode() if path == service_rel else item.data)
         for path, item in disk.items()
     )
     with pytest.raises(GeneratorError, match="immutable scenario version"):
@@ -186,7 +191,7 @@ def test_recovery_rolls_back_active_transaction(configs_root) -> None:  # noqa: 
     )
     manager, disk = _manager(service_path)
     root = manager.settings.root
-    rel = manager.settings.scenario_file.relative_to(root).as_posix()
+    rel = manager.settings.service_file.relative_to(root).as_posix()
     original = disk[rel].data
     journal = root / ".dg_transaction"
     backup = journal / "backup" / rel
@@ -198,10 +203,10 @@ def test_recovery_rolls_back_active_transaction(configs_root) -> None:  # noqa: 
     (journal / "active.json").write_text(
         json.dumps({"existing": [rel], "changed": [rel]}), encoding="utf-8"
     )
-    manager.settings.scenario_file.write_bytes(b"# interrupted partial write\n")
+    manager.settings.service_file.write_bytes(b"# interrupted partial write\n")
     recover_transaction(root)
     assert not journal.exists()
-    assert manager.settings.scenario_file.read_bytes() == original
+    assert manager.settings.service_file.read_bytes() == original
 
 
 def test_committed_marker_wins_on_restart(configs_root) -> None:  # noqa: ANN001

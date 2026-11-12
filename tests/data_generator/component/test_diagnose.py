@@ -115,13 +115,7 @@ async def test_replay_source_stage_reads_real_csv_header(configs_root) -> None: 
                         {
                             "gateway_id": "gw-test",
                             "endpoint": "127.0.0.1:59999",
-                            "feedback_mapping": [
-                                {
-                                    "device_id": "GW02",
-                                    "point_id": "a02_dm_pitchangle1",
-                                    "variable_id": "GW02.pitch_angle",
-                                }
-                            ],
+                            "device_id": "GW02",
                         }
                     ],
                 }

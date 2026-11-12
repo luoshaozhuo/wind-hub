@@ -1,8 +1,10 @@
-"""S2 物理模型测试共享夹具：直接加载出厂场景 YAML 的真实参数。
+"""S2 物理模型测试共享夹具：加载权威配置树中的出厂仿真型号与服务场景。
 
-测试不经过完整 Configuration 加载链，但模型构造器拿到的 parameters / weather
-字典与 ``configs/instances/data-generator-sim.yaml`` 出厂内容逐字一致，
-PhysicalEngine 生产路径对同一字典的消费方式也完全相同。
+测试不经过完整 Configuration 加载链，但模型构造器拿到的 parameters 与
+``configs/templates/device_models/*_sim_physical_1.0.0.yaml`` 中
+``simulation.parameters`` 逐字一致——PhysicalEngine 生产路径经
+``_configured_model_points`` 消费的正是同一份模板参数；天气配置与
+``configs/services/data-generator-sim.example.yaml`` 场景内的 weather 块一致。
 """
 
 from __future__ import annotations
@@ -17,9 +19,19 @@ import yaml
 from data_generator.application.model.weather import Weather
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-SCENARIO_PATH = REPO_ROOT / "configs" / "instances" / "data-generator-sim.yaml"
+SERVICE_PATH = REPO_ROOT / "configs" / "services" / "data-generator-sim.example.yaml"
+DEVICE_MODEL_DIR = REPO_ROOT / "configs" / "templates" / "device_models"
 POINT_TABLE_DIR = REPO_ROOT / "configs" / "templates" / "point_tables"
 UNITS_PATH = REPO_ROOT / "configs" / "templates" / "units.yaml"
+
+# 测试历史引用名 → 权威物理仿真设备型号模板（固定物理参数的唯一归属）。
+PHYSICAL_MODEL_FILES = {
+    "battery": "bess_sim_physical_1.0.0.yaml",
+    "solar": "pv_sim_physical_1.0.0.yaml",
+    "turbine": "wtg_sim_physical_1.0.0.yaml",
+    "grid": "grid_sim_physical_1.0.0.yaml",
+    "plant": "plant_controller_sim_physical_1.0.0.yaml",
+}
 
 # 出厂场景五台设备 → 共享 Modbus 点表文件（ppc 点表模板名为 plant_controller）。
 DEVICE_TABLES = {
@@ -32,20 +44,24 @@ DEVICE_TABLES = {
 
 
 @pytest.fixture(scope="session")
-def scenario() -> dict[str, Any]:
-    with SCENARIO_PATH.open(encoding="utf-8") as handle:
-        document = yaml.safe_load(handle)
-    return document["scenarios"][0]
+def scenario_document() -> dict[str, Any]:
+    with SERVICE_PATH.open(encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
 
 
 @pytest.fixture(scope="session")
-def model_defs(scenario: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return scenario["models"]
+def scenario(scenario_document: dict[str, Any]) -> dict[str, Any]:
+    return scenario_document["scenarios"][0]
 
 
 @pytest.fixture(scope="session")
-def device_points(scenario: dict[str, Any]) -> dict[str, list[str]]:
-    return {entry["device_id"]: list(entry["points"]) for entry in scenario["devices"]}
+def model_defs() -> dict[str, dict[str, Any]]:
+    definitions: dict[str, dict[str, Any]] = {}
+    for ref, filename in PHYSICAL_MODEL_FILES.items():
+        with (DEVICE_MODEL_DIR / filename).open(encoding="utf-8") as handle:
+            document = yaml.safe_load(handle)
+        definitions[ref] = document["simulation"]
+    return definitions
 
 
 @pytest.fixture
@@ -84,12 +100,6 @@ def make_weather():
         )
 
     return _factory
-
-
-@pytest.fixture(scope="session")
-def scenario_document() -> dict[str, Any]:
-    with SCENARIO_PATH.open(encoding="utf-8") as handle:
-        return yaml.safe_load(handle)
 
 
 @pytest.fixture(scope="session")

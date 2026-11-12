@@ -174,8 +174,12 @@ async def measure_direct_rtt(runs: int = 2000, warmup: int = 200) -> dict[str, f
 
 def build_configs(root: Path, scenarios: dict[str, Any], **kwargs: Any) -> Path:
     cfg._real_tree(root)  # noqa: SLF001
-    cfg.write_scenarios(root, scenarios)
-    return cfg.write_service_yaml(root, bind=f"127.0.0.1:{cfg.reserve_port()}", **kwargs)
+    return cfg.write_service_yaml(
+        root,
+        bind=f"127.0.0.1:{cfg.reserve_port()}",
+        scenarios=scenarios["scenarios"],
+        **kwargs,
+    )
 
 
 async def measure_dg_pipeline(runs_seconds: float = 12.0) -> dict[str, Any]:
@@ -280,9 +284,11 @@ async def measure_index_cost() -> dict[str, Any]:
                 end="2026-01-02T00:00:00Z",
                 mappings=[("gw-a", "GW02.pitch")],
             )
-            cfg.write_scenarios(root, doc)
             service_path = cfg.write_service_yaml(
-                root, bind=f"127.0.0.1:{cfg.reserve_port()}", output_timeout=2.0
+                root,
+                bind=f"127.0.0.1:{cfg.reserve_port()}",
+                output_timeout=2.0,
+                scenarios=doc["scenarios"],
             )
             began = time.perf_counter()
             dg_bind, process = start_dg(service_path)
