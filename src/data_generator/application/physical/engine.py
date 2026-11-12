@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from data_generator.application.physical.bess import BESS
-from data_generator.application.physical.common import as_mapping, finite_outputs, number
+from data_generator.application.physical.common import as_mapping, number
 from data_generator.application.physical.grid import Grid
 from data_generator.application.physical.ppc import PPC
 from data_generator.application.physical.pv import PV
