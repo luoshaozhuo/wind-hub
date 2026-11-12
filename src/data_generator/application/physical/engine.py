@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 
 from data_generator.application.physical.bess import BESS
 from data_generator.application.physical.common import as_mapping, finite_outputs, number
@@ -82,6 +81,13 @@ class PhysicalEngine:
             }
         if len(self._grid_ids) > 1 or len(self._ppc_ids) > 1:
             raise GeneratorError("one grid equivalent and one PPC per physical scenario")
+        for ppc_id in self._ppc_ids:
+            ppc = self.models[ppc_id]
+            if not isinstance(ppc, PPC) or any(
+                self.kinds.get(device_id) not in {"wtg", "pv", "bess"}
+                for device_id in ppc.devices
+            ):
+                raise GeneratorError("PPC participants must be physical generation or storage devices")
         self.last_grid: dict[str, float | int] = {
             "grid_frequency": 50.0,
             "grid_voltage": 690.0,
@@ -158,7 +164,8 @@ class PhysicalEngine:
             self.last_grid = {
                 **results[device], "frequency_nominal": number(self.params[device], "nominal_frequency_hz")
             }
-        self.last.update(results)
+        for device, result in results.items():
+            self.last[device] = {**self.last.get(device, {}), **result}
         final: dict[tuple[str, str], Scalar] = {}
         for (device, point), metadata in self.scenario.points.items():
             if device not in self.models:

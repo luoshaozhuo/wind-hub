@@ -111,6 +111,17 @@ def _configured_model_points(
         model = shared.device_models[shared_device.device_model_id]
         table = shared.point_tables[model.point_table_id]
         kind = definition["kind"]
+        if kind == "physical":
+            expected_types = {
+                "wtg": "turbine",
+                "pv": "photovoltaic",
+                "bess": "energy_storage",
+                "grid": "grid",
+                "ppc": "plant_controller",
+            }
+            expected = expected_types.get(str(definition.get("device_kind")))
+            if expected is None or str(model.device_type_id) != expected:
+                raise GeneratorError(f"{device_id}: physical kind and shared model disagree")
         selected = binding.get("points")
         if not isinstance(selected, list) or not selected:
             raise GeneratorError(f"{device_id}: nonempty output point list required")

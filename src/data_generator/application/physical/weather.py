@@ -35,7 +35,7 @@ class WeatherModel:
         self.sun = as_mapping(config.get("irradiance"), "weather.irradiance")
         self.heat = as_mapping(config.get("ambient_temperature"), "weather.temperature")
         self.mean = number(self.wind, "wind_speed_mean", minimum=0)
-        self.direction = number(self.wind, "wind_direction")
+        self.direction = math.radians(number(self.wind, "wind_direction"))
         self.turbulence = number(self.wind, "turbulence_intensity", minimum=0)
         self.tau_wind = number(self.wind, "wind_correlation_time_s", minimum=0)
         self.density = number(self.wind, "air_density", minimum=0)
