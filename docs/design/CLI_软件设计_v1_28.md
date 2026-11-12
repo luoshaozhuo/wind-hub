@@ -950,7 +950,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 运行监控（3） | `GetMetrics`、`GetEvents`、`GetPublishingStatus` | UR-11 |
 | 诊断（2） | 公共 `Diagnose`、专属 `InterrogateDevice` | UR-08 |
 
-Collector 读取契约统一为一次性 Unary `ReadPoints`；持续读取由 CLI 周期轮询实现。各公共 RPC 统一在Contracts v1_21 定义。
+Collector 读取契约统一为一次性 Unary `ReadPoints`；持续读取由 CLI 周期轮询实现。各公共 RPC 统一在Contracts v1_22 定义。
 
 # 4. 用例视图
 
@@ -1832,11 +1832,11 @@ CLI 发现契约不能表达的需求时，记录差异并提交 Contracts 统�
 
 **批量业务结果：**accepted 仅代表完整受理；CLI 不将收到 command_ids[] 当作已写入。各项 state/outcome 与 io_settled 均按 Commander 返回渲染；请求级 UNKNOWN、部分成功及部分失败需同时呈现，不自行汇总为 PASS。所有访问按正式 control/query 权限模型授权。Commander 返回 NOT_FOUND 也不能等同于“从未执行”。
 
-**契约与版本声明：**本节以已冻结 Contracts v1_21、Core v1_33、Configuration v1_15，以及 Commander v1_30、总体架构 v1_4 的本轮设计要求为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。共享配置按 Configuration v1_15 消费，不在 CLI 发明第二套配置装配机制。
+**契约与版本声明：**本节以已冻结 Contracts v1_22、Core v1_33、Configuration v1_15，以及 Commander v1_30、总体架构 v1_4 的本轮设计要求为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。共享配置按 Configuration v1_15 消费，不在 CLI 发明第二套配置装配机制。
 
 ## 9.6 冻结接口与客户端行为（规范性）
 
-CLI 以 Contracts v1_21 和六份实际 Proto 的正式 Unary RPC 为唯一外部依据，不得创设流式监控或业务接口。Core v1_33 的 YAML/结构 Diff、网络与协议诊断原语优先复用；Configuration v1_15 只提供共享配置装配，不是独立 Service。CLI 负责命令输入、跨 RPC 编排、分页和结果展示；所有受理、执行、审计、权限及配置生效的权威属于业务 Service。不得直接访问 Commander 数据库、修改共享配置文件或使用 Core Driver 绕过 Commander 现场控制。
+CLI 以 Contracts v1_22 和六份实际 Proto 的正式 Unary RPC 为唯一外部依据，不得创设流式监控或业务接口。Core v1_33 的 YAML/结构 Diff、网络与协议诊断原语优先复用；Configuration v1_15 只提供共享配置装配，不是独立 Service。CLI 负责命令输入、跨 RPC 编排、分页和结果展示；所有受理、执行、审计、权限及配置生效的权威属于业务 Service。不得直接访问 Commander 数据库、修改共享配置文件或使用 Core Driver 绕过 Commander 现场控制。
 
 **实时监视**：以 Collector ReadPoints、Gateway ReadVariables 和各服务状态 RPC 进行有界 Unary 周期轮询；若缺流式 RPC 不得虚构订阅。一个 endpoint 同一目标不重入、不积压；用户退出仅停止客户端任务，不能取消已被服务端确认受理的操作。缺样本、质量异常、时间过期、单项失败和网络失败分别展示，Commander ListPoints 不返回现场当前值。
 
@@ -1923,7 +1923,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `sink start/stop` | DELIVERY_ID | Sink Delivery 控制 | 修改期望状态 |
 | `sink metrics/events` | 可选筛选 | Sink 指标/事件 | 消费及交付 |
 | `gateway list/status/variables/update/start/stop/metrics` | `update`：GATEWAY_ID、变量值集合；其他同前 | Gateway `ListVariables`/`ReadVariables`/`ClaimTargets`/`UpdateVariables` 等 | CLI 支持变量发现→租约申请→批量更新→租约释放→逐项结果→读回确认；RPC 不触发现场控制；未实现验收失败 |
-| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_21 的专属 RPC 实现 |
+| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_22 的专属 RPC 实现 |
 | `data-generator start/stop/status` | 场景/任务标识 | StartGeneration / StopGeneration / GetGeneration | start 传 scenario_id、stop/status 传 generation_id；无故障注入命令 |
 | `data-generator variables list` | generation_id、device_id，分页参数 | 目标 DataGeneratorService `ListVariables` | 展示 POINT_TABLE/WEATHER_INPUT 来源、类型、单位、角色和当前 writable；尚未实现不能假报支持 |
 | `data-generator variables update` | generation_id、device_id、point_id/value 或 values-file、request_id | 目标 DataGeneratorService `UpdateVariables` | 仅可控模型 INPUT；整批原子、幂等、有效步反馈，不是 Gateway 数据注入 |
@@ -2323,18 +2323,20 @@ Message : Snapshot revision changed; fetch the current snapshot
 
 ## 10.12 仿真变量目录与运行时更新命令
 
-基于 Data Generator v1_33 与 Contracts v1_22 的目标接口，本节定义 CLI 变量发现及运行时模型输入更新。**两个新增 RPC 尚未进入正式 Proto，也未在 CLI 生产代码中实现**；现有设备/场景查询、生成启停和配置操作保持不变。
+**接口实施门槛**：当前生产 `src/contracts/data_generator.proto` 只有六项 RPC，`src/cli/plant_commands.py` 还没有 `data-generator variables` 命令。目标八项必须先经正式 Contracts Proto 和 Stub 生成，随后实现 Data Generator Server 及 CLI；本文件定义设计与未来验收，不代表现有 CLI 命令已可执行。
+
+基于 Data Generator v1_34 与 Contracts v1_22 的目标接口，本节定义 CLI 变量发现及运行时模型输入更新。**两个新增 RPC 尚未进入正式 Proto，也未在 CLI 生产代码中实现**；现有设备/场景查询、生成启停和配置操作保持不变。
 
 | CLI 命令（目标） | 调用 RPC | 作用与输出 |
 |---|---|---|
 | `data-generator variables list --generation-id G --device-id D` | `DataGeneratorService.ListVariables` | 列出有效模型 point_id、来源（POINT_TABLE/WEATHER_INPUT）、数据类型、单位、INPUT/STATE/OUTPUT、writable、范围、说明及设备 PointTable 版本 |
 | `data-generator variables update --generation-id G --device-id D --point-id P --value V --request-id R` | `DataGeneratorService.UpdateVariables` | 仿真输入更新，回显 request_id、accepted、effective_step、错误 |
-| `data-generator variables update --generation-id G --device-id D --values-file F --request-id R` | `UpdateVariables` | 同一设备多个输入的一次原子批；文件中的每点仅声明 point_id/value，不覆盖类型和单位 |
+| `data-generator variables update --generation-id G --device-id D --values-file F --request-id R` | `DataGeneratorService.UpdateVariables` | 同一设备多个输入的一次原子批；文件中的每点仅声明 point_id/value，不覆盖类型和单位 |
 | `gateway describe --gateway-id ID`（或对应已有查看命令） | Gateway 状态和配置读取 | 查看当前 Server 的控制目标类型、目标端点的脱敏标识及运行状态；不暴露 TLS 私钥 |
 
 CLI 对输入值的解析须使用 `ListVariables` 的逻辑类型：bool 仅接受严格布尔，不因 Modbus 编码为 uint16 而宽松接受 0/1；字符串采用明确编码，浮点拒绝 NaN/Inf。POINT_TABLE 变量的单位按共享点表，WEATHER_INPUT 变量的单位按气象模型 Schema；CLI 不隐式转换数值量纲。修改范围由 Generator 动态 `writable` 给出，CLI **不维护第二份硬编码的变量白名单**。所有写操作需要独立授权身份；交互式 shell 在提交之前展示目标 Generation/设备/点 ID/数值/单位，非交互 JSON/脚本模式要求显式参数，不在后台自动重试换 request_id。超时不宣称未写入，允许用户持**相同请求摘要、相同 request_id** 重试以获取幂等裁决，不得自动生成新的 request_id。成功的 accepted 表示在 effective_step 受理待生效，不代表实际设备状态立即达到目标。
 
-`gateway update` 的含义仍是对 Gateway 变量 Store 的租约数据注入，不产生 Modbus on_write/Commander 控制事件；`data-generator variables update` 直接改合法仿真模型输入，也**不属于真实设备现场写入**；`commander write` 仍用于 Commander 管理的真实工业协议写入。CLI 不为此改造 Commander Proto。人工验收时若需经 Gateway2 工业协议 Server 进行 FC06/16 写入，需要**明确的工业协议 Client 功能或测试客户端**，不能把 Gateway 的 gRPC UpdateVariables 误认为 Modbus 写控制。该能力须遵守既有 CLI 网络探测和权限边界，不得隐式通过直接修改 Generator 输入代替工业全链路验收。
+`gateway update` 的含义仍是对 Gateway 变量 Store 的租约数据注入，不产生 Modbus on_write/Commander 控制事件；`data-generator variables update` 直接修改合法仿真模型输入（经 DataGeneratorService 而非 Gateway ClaimTargets），也**不属于真实设备现场写入**；`commander write` 仍用于 Commander 管理的真实工业协议写入。CLI 不为此改造 Commander Proto。人工验收时若需经 Gateway2 工业协议 Server 进行 FC06/16 写入，需要**明确的工业协议 Client 功能或测试客户端**，不能把 Gateway 的 gRPC UpdateVariables 误认为 Modbus 写控制。该能力须遵守既有 CLI 网络探测和权限边界，不得隐式通过直接修改 Generator 输入代替工业全链路验收。
 
 ### 10.12.1 错误与验收
 
@@ -2566,7 +2568,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | `test_containerd_real.py` | integration | reliability | real_container | 真实 containerd Daemon 及容器 |
 | `test_isulad_real.py` | integration | reliability | real_container | 真实 iSulad Daemon 及容器 |
 | `test_systemd_real.py` | integration | reliability | real_process | 真实 systemd Unit |
-| `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC（按 Contracts v1_21）、mTLS、错误映射 |
+| `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC（按 Contracts v1_22，DataGeneratorService 由现有六项扩展为目标八项）、mTLS、错误映射 |
 
 ## 14.2 System Test：全 UC 与场景追溯矩阵
 
@@ -2606,9 +2608,9 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | UR-06、UR-07、UR-09 | UC-10-S01 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s01` | `system` | `contract` | `normal` | 分页获取变量→经授权的 CLI 身份执行 ClaimTargets 领取目标→持有效 lease_token 调用 UpdateVariables→释放租约→ReadVariables 读回；断言变量 ID 一致、存储值可见、无现场 PLC 读写或 Commander 下发 |
 | UR-06、UR-07、UR-09 | UC-10-S02 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s02` | `system` | `contract` | `exception` | 租约占用冲突、重复申请/释放、租约期限边界、批量更新多个变量、工业协议写权限与 gRPC 更新权限独立；断言响应按请求顺序一一对应，读回仍含质量/时间戳，写操作不触发现场控制 |
 | UR-06、UR-07、UR-09 | UC-10-S03 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s03` | `system` | `reliability` | `exception` | 租约领取失败、令牌过期、owner 不一致、RELEASE 失败、变量不存在、重复 ID、非法类型/值、未授权、容量超限、网关未就绪、超时；断言逐变量部分成功、整体错误分离、未知写入不自动重试，读回不冒充写入确认 |
-| UR-06、UR-07、UR-09 | UC-11-S01 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s01` | `system` | `contract` | `normal` | 设备场景及启停；断言场景列表含版本；启动返回generation_id；停止目标实例 |
-| UR-06、UR-07、UR-09 | UC-11-S02 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s02` | `system` | `contract` | `exception` | 重复操作；断言重复start/stop结果明确且不影响其他generation_id |
-| UR-06、UR-07、UR-09 | UC-11-S03 | 9.2；10 | `test_data_generator_e2e.py` / `test_uc_11_s03` | `system` | `reliability` | `exception` | 冲突、停止失败；断言配置冲突无副作用；失败保留错误与可查询状态 |
+| UR-06、UR-07、UR-09 | UC-11-S01 | 9.2；10.12 | `test_data_generator_e2e.py` / `test_uc_11_s01` | `system` | `contract` | `normal` | 设备场景查询及启停、ListVariables 按设备发现含 POINT_TABLE/WEATHER_INPUT 的有效变量、合法批量 UpdateVariables 返回 accepted/effective_step；实际输出由 Gateway 验证 |
+| UR-06、UR-07、UR-09 | UC-11-S02 | 9.2；10.12 | `test_data_generator_e2e.py` / `test_uc_11_s02` | `system` | `contract` | `exception` | 分页稳定、气象共享场景多设备绑定、模型状态/参数不可写、非法 bool/enum 与越界、批内重复拒绝；相同 request_id 重复相同请求不二次安装，不同摘要拒绝 |
+| UR-06、UR-07、UR-09 | UC-11-S03 | 9.2；10.12 | `test_data_generator_e2e.py` / `test_uc_11_s03` | `system` | `reliability` | `exception` | Generation 停止、未授权或旧版本拒绝；超时/断连展示 UNKNOWN、不自动更换 request_id；同 ID 重试返回同一生效步，不能声称实际设备已达设定 |
 | UR-08 | UC-12-S01 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s01` | `system` | `contract` | `normal` | 各服务诊断；断言五服务Diagnose返回阶段及来源证据 |
 | UR-08 | UC-12-S02 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s02` | `system` | `contract` | `exception` | 部分证据、报告；断言缺证阶段为UNKNOWN/PARTIAL，报告保留原始状态 |
 | UR-08 | UC-12-S03 | 9.2；10 | `test_service_diagnose_e2e.py` / `test_uc_12_s03` | `system` | `reliability` | `exception` | 阶段错误、权限拒绝；断言单阶段失败不伪装整体成功；权限拒绝退出2 |
@@ -2700,7 +2702,7 @@ lint-imports
 | UR-06 | UC-06、UC-07、UC-09、UC-10、UC-11 | 五服务对象管理；9.2 | 表 14-2 对应 UC |
 | UR-07 | UC-08、UC-09、UC-10、UC-11、UC-14、UC-16 | collector latest/watch、gateway read/watch、各服务 status/watch；9.2、12.3 | 表 14-2 相应 UC 及表 14-3 多模块监视专项 |
 | UR-08 | UC-12、UC-13 | diagnose；9.2、10.8 | 表 14-2 UC-12/13 |
-| UR-09 | UC-07、UC-09、UC-10、UC-11、UC-14 | commander write/result、gateway update、各模块 start/stop；9.2～9.4 | 表 14-2 相应 UC 及表 14-3 跨模块控制专项 |
+| UR-09 | UC-07、UC-09、UC-10、UC-11、UC-14 | commander write/result、gateway update、data-generator variables update、各模块 start/stop；9.2～9.4、10.12 | 表 14-2 相应 UC 及表 14-3 跨模块控制专项 |
 | UR-10 | UC-15 | net scan/industrial/tcp；12.2 | 表 14-2 UC-15 |
 | UR-11 | UC-16 | metrics/events/publishing；9.2 | 表 14-2 UC-16 |
 
