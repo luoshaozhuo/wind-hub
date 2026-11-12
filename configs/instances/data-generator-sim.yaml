@@ -137,7 +137,7 @@ scenarios:
     devices:
       - device_id: WTG_SIM01
         model_ref: turbine
-        points: [wind_speed, rotor_speed, active_power, reactive_power]
+        points: [wind_speed, sim_rotor_speed, active_power, reactive_power]
       - device_id: PV_SIM01
         model_ref: solar
         points: [active_power, reactive_power, dc_power]
@@ -155,7 +155,7 @@ scenarios:
         endpoint: "127.0.0.1:50073"
         feedback_mapping:
           - {device_id: WTG_SIM01, point_id: wind_speed, variable_id: WTG_SIM01.wind_speed}
-          - {device_id: WTG_SIM01, point_id: rotor_speed, variable_id: WTG_SIM01.rotor_speed}
+          - {device_id: WTG_SIM01, point_id: sim_rotor_speed, variable_id: WTG_SIM01.sim_rotor_speed}
           - {device_id: WTG_SIM01, point_id: active_power, variable_id: WTG_SIM01.active_power}
           - {device_id: WTG_SIM01, point_id: reactive_power, variable_id: WTG_SIM01.reactive_power}
           - {device_id: PV_SIM01, point_id: active_power, variable_id: PV_SIM01.active_power}
