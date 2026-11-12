@@ -6,6 +6,7 @@ per-target ordering, and the immutable write-event request ID.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -97,8 +98,16 @@ class GeneratorRpcClient:
         ):
             raise ValueError("invalid Generator submission identity or deadline")
         stub = self._ready()
+        deadline = asyncio.get_running_loop().time() + timeout
+
+        def remaining() -> float:
+            left = deadline - asyncio.get_running_loop().time()
+            if left <= 0:
+                raise TimeoutError("Generator control deadline expired")
+            return left
+
         device = await stub.GetDevice(
-            common.ObjectId(id=device_id), timeout=timeout
+            common.ObjectId(id=device_id), timeout=remaining()
         )
         generation_id = device.device.generation_id
         if device.device.actual_state != "RUNNING" or not generation_id:
@@ -127,7 +136,7 @@ class GeneratorRpcClient:
                     page_size=500,
                     page_token=token,
                 ),
-                timeout=timeout,
+                timeout=remaining(),
             )
             if listing.generation_state != "RUNNING":
                 raise ValueError("Generation is no longer running")
@@ -159,7 +168,7 @@ class GeneratorRpcClient:
                     dg.VariableUpdate(point_id=point_id, value=encode_scalar(value))
                 ],
             ),
-            timeout=timeout,
+            timeout=remaining(),
         )
         return GeneratorReceipt(
             accepted=response.accepted,
