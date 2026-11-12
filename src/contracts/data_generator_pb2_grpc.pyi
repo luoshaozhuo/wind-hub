@@ -38,9 +38,7 @@ class DataGeneratorServiceStub:
     GetGeneration: _grpc.UnaryUnaryMultiCallable[_common_pb2.ObjectId, _data_generator_pb2.GetGenerationResponse]
     StartGeneration: _grpc.UnaryUnaryMultiCallable[_data_generator_pb2.StartGenerationRequest, _data_generator_pb2.StartGenerationResponse]
     StopGeneration: _grpc.UnaryUnaryMultiCallable[_data_generator_pb2.StopGenerationRequest, _data_generator_pb2.StopGenerationResponse]
-
     ListVariables: _grpc.UnaryUnaryMultiCallable[_data_generator_pb2.ListVariablesRequest, _data_generator_pb2.ListVariablesResponse]
-
     UpdateVariables: _grpc.UnaryUnaryMultiCallable[_data_generator_pb2.UpdateVariablesRequest, _data_generator_pb2.UpdateVariablesResponse]
 
 @_typing.type_check_only
@@ -52,9 +50,7 @@ class DataGeneratorServiceAsyncStub(DataGeneratorServiceStub):
     GetGeneration: _aio.UnaryUnaryMultiCallable[_common_pb2.ObjectId, _data_generator_pb2.GetGenerationResponse]  # type: ignore[assignment]
     StartGeneration: _aio.UnaryUnaryMultiCallable[_data_generator_pb2.StartGenerationRequest, _data_generator_pb2.StartGenerationResponse]  # type: ignore[assignment]
     StopGeneration: _aio.UnaryUnaryMultiCallable[_data_generator_pb2.StopGenerationRequest, _data_generator_pb2.StopGenerationResponse]  # type: ignore[assignment]
-
     ListVariables: _aio.UnaryUnaryMultiCallable[_data_generator_pb2.ListVariablesRequest, _data_generator_pb2.ListVariablesResponse]  # type: ignore[assignment]
-
     UpdateVariables: _aio.UnaryUnaryMultiCallable[_data_generator_pb2.UpdateVariablesRequest, _data_generator_pb2.UpdateVariablesResponse]  # type: ignore[assignment]
 
 class DataGeneratorServiceServicer(metaclass=_abc_1.ABCMeta):
