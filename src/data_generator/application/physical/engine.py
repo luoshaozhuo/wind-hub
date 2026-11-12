@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 
 from data_generator.application.physical.bess import BESS
@@ -125,6 +126,16 @@ class PhysicalEngine:
                 raise GeneratorError("model input must be numeric")
             candidate[key] = float(validate_scalar(float(value), "float64"))
         self.inputs[device].update(candidate)
+
+    def set_weather_inputs(self, weather_id: str, values: Mapping[str, float]) -> None:
+        """Apply a previously validated batch to one shared weather state."""
+        weather = self.weather.get(weather_id)
+        if weather is None:
+            raise GeneratorError("weather reference not found")
+        if "wind_speed_mean" in values:
+            weather.mean = values["wind_speed_mean"]
+        if "wind_direction" in values:
+            weather.direction = math.radians(values["wind_direction"])
 
     def _device_capacity(self, device: str) -> tuple[float, float]:
         p = self.params[device]
