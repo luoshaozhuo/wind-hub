@@ -18,7 +18,7 @@ from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import decode_scalar
 from data_generator.application.runtime import GenerationState, Runtime
 from data_generator.application.physical.inputs import WEATHER_INPUTS, writable_inputs
-from data_generator.domain.model import GeneratorError
+from data_generator.domain.model import GeneratorError, Scalar
 from data_generator.infrastructure.diagnostics import Diagnostics
 from data_generator.infrastructure.metrics import snapshot as metric_snapshot
 from data_generator.infrastructure.snapshots import FileContent, SnapshotManager, file_sha256
@@ -717,11 +717,50 @@ def validate_rpc_contracts() -> None:
 
 def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
     validate_rpc_contracts()
-    if not bind.startswith(("127.0.0.1:", "[::1]:")):
+    security = runtime.settings.service.get("security")
+    if security is not None and (
+        not isinstance(security, dict) or set(security) != {"tls", "permissions"}
+    ):
+        raise GeneratorError("security must declare tls and permissions")
+    tls = security.get("tls") if isinstance(security, dict) else None
+    if tls is not None and (
+        not isinstance(tls, dict)
+        or set(tls) != {"cert_file", "key_file", "ca_file"}
+    ):
+        raise GeneratorError("tls must declare cert_file, key_file and ca_file")
+    permissions = security.get("permissions") if isinstance(security, dict) else {}
+    if not isinstance(permissions, dict):
+        raise GeneratorError("security permissions must be a mapping")
+    supported = {"variables_read", "variables_update"}
+    if any(
+        not isinstance(name, str) or not name.strip()
+        or not isinstance(rights, list) or not rights
+        or any(not isinstance(right, str) or right not in supported for right in rights)
+        for name, rights in permissions.items()
+    ):
+        raise GeneratorError("invalid Data Generator caller permission")
+    if bool(tls) != bool(permissions):
+        raise GeneratorError("mTLS and explicit caller permissions are both required")
+    if not tls and not bind.startswith(("127.0.0.1:", "[::1]:")):
         raise GeneratorError("insecure gRPC listener restricted to loopback")
     server = grpc.aio.server()
     dg_rpc.add_DataGeneratorServiceServicer_to_server(DataGeneratorService(runtime), server)
     common_rpc.add_CommonServiceServicer_to_server(CommonService(runtime), server)
-    if server.add_insecure_port(bind) == 0:
+    if tls:
+        files = {}
+        for key in ("cert_file", "key_file", "ca_file"):
+            value = tls.get(key)
+            if not isinstance(value, str) or not Path(value).is_absolute():
+                raise GeneratorError(f"security.tls.{key} must be an absolute path")
+            files[key] = Path(value).read_bytes()
+        credentials = grpc.ssl_server_credentials(
+            [(files["key_file"], files["cert_file"])],
+            root_certificates=files["ca_file"],
+            require_client_auth=True,
+        )
+        bound = server.add_secure_port(bind, credentials)
+    else:
+        bound = server.add_insecure_port(bind)
+    if bound == 0:
         raise GeneratorError("unable to bind gRPC listener")
     return server
