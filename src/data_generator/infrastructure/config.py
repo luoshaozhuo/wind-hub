@@ -82,6 +82,69 @@ def _resolve_points(
     return tuple(devices), points
 
 
+
+def _configured_model_points(
+    raw: dict[str, Any], shared: SharedDomainSnapshot
+) -> tuple[tuple[str, ...], dict[tuple[str, str], dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Resolve model bindings against the authoritative shared point tables."""
+    definitions = raw.get("models")
+    if not isinstance(definitions, dict) or not definitions:
+        raise GeneratorError("scenario models must be a nonempty mapping")
+    devices: list[str] = []
+    points: dict[tuple[str, str], dict[str, Any]] = {}
+    bindings: dict[str, dict[str, Any]] = {}
+    for binding in raw.get("devices", []):
+        if not isinstance(binding, dict):
+            raise GeneratorError("invalid scenario device binding")
+        device_id = binding.get("device_id")
+        model_ref = binding.get("model_ref")
+        if not isinstance(device_id, str) or not device_id or device_id in bindings:
+            raise GeneratorError("duplicate or invalid scenario device")
+        if not isinstance(model_ref, str) or model_ref not in definitions:
+            raise GeneratorError(f"{device_id}: model reference missing")
+        definition = definitions[model_ref]
+        if not isinstance(definition, dict) or definition.get("kind") not in {"physical", "random"}:
+            raise GeneratorError("unsupported configured model kind")
+        shared_device = shared.site.devices.get(DeviceId(device_id))
+        if shared_device is None or not shared_device.enabled:
+            raise GeneratorError(f"{device_id}: unknown or disabled shared device")
+        model = shared.device_models[shared_device.device_model_id]
+        table = shared.point_tables[model.point_table_id]
+        kind = definition["kind"]
+        selected = binding.get("points")
+        if not isinstance(selected, list) or not selected:
+            raise GeneratorError(f"{device_id}: nonempty output point list required")
+        for point_id in selected:
+            if not isinstance(point_id, str) or point_id not in table.points:
+                raise GeneratorError(f"{device_id}: unknown shared point {point_id}")
+            key = (device_id, point_id)
+            if key in points:
+                raise GeneratorError(f"duplicate scenario output point: {key}")
+            point = table.points[point_id]
+            business = shared.business_points[point.business_point_id]
+            metadata: dict[str, Any] = {"data_type": business.data_type.value}
+            if kind == "random":
+                rules = definition.get("rules")
+                if not isinstance(rules, dict) or point_id not in rules:
+                    raise GeneratorError(f"{device_id}: missing random rule for {point_id}")
+                rule = rules[point_id]
+                if not isinstance(rule, dict) or rule.get("distribution") != "uniform":
+                    raise GeneratorError(f"{device_id}: invalid random rule")
+                metadata["model"] = {
+                    "kind": "random",
+                    "distribution": "uniform",
+                    "minimum": rule.get("min", rule.get("minimum")),
+                    "maximum": rule.get("max", rule.get("maximum")),
+                }
+                random_value(0, device_id, point_id, 1, {
+                    **metadata["model"], "data_type": metadata["data_type"]
+                })
+            points[key] = metadata
+        devices.append(device_id)
+        bindings[device_id] = dict(binding)
+    return tuple(devices), points, bindings
+
+
 def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[str, Any]]) -> None:
     kind = source.get("kind")
     if kind == "simulation":
@@ -291,8 +354,27 @@ def load_settings(service_path: Path) -> Settings:
         source = raw.get("source")
         if not isinstance(source, dict):
             raise GeneratorError("invalid scenario source")
-        devices, points = _resolve_points(raw, shared)
-        _validate_models(source, points)
+        if "models" in raw:
+            if source.get("kind") != "simulation":
+                raise GeneratorError("configured models require simulation source")
+            devices, points, bindings = _configured_model_points(raw, shared)
+            interval = source.get("interval_seconds")
+            if (
+                type(interval) not in (int, float)
+                or not math.isfinite(float(interval))
+                or float(interval) <= 0
+            ):
+                raise GeneratorError("simulation interval must be positive")
+            if type(source.get("seed", 0)) is not int:
+                raise GeneratorError("simulation seed must be integer")
+            models = raw["models"]
+            weather = raw.get("weather", {})
+            if not isinstance(weather, dict):
+                raise GeneratorError("invalid weather mapping")
+        else:
+            devices, points = _resolve_points(raw, shared)
+            _validate_models(source, points)
+            bindings, models, weather = {}, {}, {}
         gateways: dict[str, str] = {}
         mappings: list[OutputMapping] = []
         targets: set[OutputTarget] = set()
@@ -332,7 +414,16 @@ def load_settings(service_path: Path) -> Settings:
             points,
             tuple(mappings),
             gateways,
+            models,
+            weather,
+            bindings,
         )
+        if any(
+            definition.get("kind") == "physical" for definition in models.values()
+        ):
+            from data_generator.application.physical.engine import PhysicalEngine
+
+            PhysicalEngine(scenarios[scenario_id])
     payload = json.dumps(
         {
             "service_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
