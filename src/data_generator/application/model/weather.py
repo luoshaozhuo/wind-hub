@@ -90,17 +90,32 @@ class WeatherModel:
         if self.cloud_mode == "correlated":
             cloud_a = math.exp(-dt / self.cloud_tau)
             self.cloud_state = clamp(
-                cloud_a * self.cloud_state + (1 - cloud_a) * self.cloud
+                cloud_a * self.cloud_state
+                + (1 - cloud_a) * self.cloud
                 + self.cloud_sigma * math.sqrt(1 - cloud_a**2) * self.cloud_rng.gauss(0, 1),
-                0, 1,
+                0,
+                1,
             )
         clock = time_s % 86400
-        daily = math.sin(math.pi * (clock - self.sunrise) / (self.sunset - self.sunrise)) if self.sunrise < clock < self.sunset else 0.0
+        daily = (
+            math.sin(math.pi * (clock - self.sunrise) / (self.sunset - self.sunrise))
+            if self.sunrise < clock < self.sunset
+            else 0.0
+        )
         temp_a = math.exp(-dt / self.temperature_tau)
-        self.temperature_z = temp_a * self.temperature_z + math.sqrt(1 - temp_a**2) * self.temperature_rng.gauss(0, 1)
+        self.temperature_z = temp_a * self.temperature_z + math.sqrt(
+            1 - temp_a**2
+        ) * self.temperature_rng.gauss(0, 1)
         temperature = (
-            self.temperature_mean + self.temperature_amplitude
+            self.temperature_mean
+            + self.temperature_amplitude
             * math.sin(2 * math.pi * clock / 86400 + self.temperature_phase)
             + self.temperature_sigma * self.temperature_z
         )
-        return Weather(wind_speed, self.direction, self.density, self.clear * daily * self.cloud_state, temperature)
+        return Weather(
+            wind_speed,
+            self.direction,
+            self.density,
+            self.clear * daily * self.cloud_state,
+            temperature,
+        )

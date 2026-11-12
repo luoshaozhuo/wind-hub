@@ -161,7 +161,8 @@ def _points(server: ServerConfig, device: SharedDeviceDefinition) -> ResolvedSer
                 f"{server.device_id}: unknown control variable {command_mapping.variable_id}"
             )
         if protocol == "modbus" and command_variable.address.get("register_type") not in {
-            "holding", "coil"
+            "holding",
+            "coil",
         }:
             raise ConfigError(f"{server.device_id}: control mapping is read only")
         if (

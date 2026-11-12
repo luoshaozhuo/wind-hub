@@ -23,14 +23,36 @@ class Turbine:
 
     def __init__(self, params: Mapping[str, object]) -> None:
         self.p = params
-        positive(params, "rated_power_w", "rated_apparent_power_va", "rated_wind_speed_m_s",
-                 "rated_rotor_speed_rad_s", "max_rotor_speed_rad_s", "cut_out_speed_m_s",
-                 "rotor_radius_m", "rotor_inertia_kg_m2", "generator_inertia_kg_m2",
-                 "gear_ratio", "lambda_opt", "cp_opt", "generator_efficiency",
-                 "converter_efficiency", "max_generator_torque_nm", "torque_tau_s",
-                 "pitch_tau_s", "pitch_rate_rad_s", "pitch_speed_gain_s",
-                 "yaw_tau_s", "yaw_rate_rad_s")
-        if not (0 <= number(params, "cut_in_speed_m_s") < number(params, "rated_wind_speed_m_s") < number(params, "cut_out_speed_m_s")):
+        positive(
+            params,
+            "rated_power_w",
+            "rated_apparent_power_va",
+            "rated_wind_speed_m_s",
+            "rated_rotor_speed_rad_s",
+            "max_rotor_speed_rad_s",
+            "cut_out_speed_m_s",
+            "rotor_radius_m",
+            "rotor_inertia_kg_m2",
+            "generator_inertia_kg_m2",
+            "gear_ratio",
+            "lambda_opt",
+            "cp_opt",
+            "generator_efficiency",
+            "converter_efficiency",
+            "max_generator_torque_nm",
+            "torque_tau_s",
+            "pitch_tau_s",
+            "pitch_rate_rad_s",
+            "pitch_speed_gain_s",
+            "yaw_tau_s",
+            "yaw_rate_rad_s",
+        )
+        if not (
+            0
+            <= number(params, "cut_in_speed_m_s")
+            < number(params, "rated_wind_speed_m_s")
+            < number(params, "cut_out_speed_m_s")
+        ):
             raise GeneratorError("invalid turbine wind speed protection thresholds")
         if number(params, "rated_apparent_power_va") < number(params, "rated_power_w"):
             raise GeneratorError("turbine apparent capacity below active rating")
@@ -63,8 +85,17 @@ class Turbine:
         if rho <= 0:
             raise GeneratorError("reference air density must be positive")
         lam = rated * radius / number(params, "rated_wind_speed_m_s")
-        p_available = 0.5 * rho * math.pi * radius**2 * self._cp(lam, self.min_pitch) * number(params, "rated_wind_speed_m_s")**3
-        if p_available * number(params, "generator_efficiency") * number(params, "converter_efficiency") < 0.95 * number(params, "rated_power_w"):
+        p_available = (
+            0.5
+            * rho
+            * math.pi
+            * radius**2
+            * self._cp(lam, self.min_pitch)
+            * number(params, "rated_wind_speed_m_s") ** 3
+        )
+        if p_available * number(params, "generator_efficiency") * number(
+            params, "converter_efficiency"
+        ) < 0.95 * number(params, "rated_power_w"):
             raise GeneratorError("turbine rated reference point cannot produce rated power")
         self.omega = optional_number(params, "initial_rotor_speed_rad_s", rated)
         self.yaw = optional_number(params, "initial_yaw_rad", 0.0)
@@ -108,8 +139,7 @@ class Turbine:
         cp = self._cp(lam, sum(self.pitch) / 3)
         pa = 0.5 * weather.air_density * math.pi * radius**2 * cp * wind**3
         wind_ok = (
-            number(p, "cut_in_speed_m_s") <= weather.wind_speed
-            < number(p, "cut_out_speed_m_s")
+            number(p, "cut_in_speed_m_s") <= weather.wind_speed < number(p, "cut_out_speed_m_s")
         )
         # A cut-out or overspeed trip is latched for the Generation's lifetime.
         if weather.wind_speed >= number(p, "cut_out_speed_m_s") or self.omega > rotor_max:
@@ -124,24 +154,35 @@ class Turbine:
         limit = clamp(float(controls.get("power_limit_setpoint", rated)), 0, rated)
         requested = available if mode == 0 else min(available, demand if mode == 1 else limit)
         if mode == 0:
-            k_opt = (weather.air_density * math.pi * radius**5 * number(p, "cp_opt")
-                     / (2 * number(p, "lambda_opt")**3))
+            k_opt = (
+                weather.air_density
+                * math.pi
+                * radius**5
+                * number(p, "cp_opt")
+                / (2 * number(p, "lambda_opt") ** 3)
+            )
             torque_target = k_opt * self.omega**2 / n
         else:
             torque_target = requested / max(eta * n * self.omega, 0.01)
-        torque_cap = min(number(p, "max_generator_torque_nm"), rated / max(eta * n * self.omega, 0.01))
+        torque_cap = min(
+            number(p, "max_generator_torque_nm"), rated / max(eta * n * self.omega, 0.01)
+        )
         if not active or self.fault:
             torque_target = 0.0
         self.torque = clamp(
-            response(self.torque, clamp(torque_target, 0, torque_cap), dt, number(p, "torque_tau_s")),
-            0, torque_cap,
+            response(
+                self.torque, clamp(torque_target, 0, torque_cap), dt, number(p, "torque_tau_s")
+            ),
+            0,
+            torque_cap,
         )
         pitch_target = clamp(
-            self.min_pitch + number(p, "pitch_speed_gain_s")
+            self.min_pitch
+            + number(p, "pitch_speed_gain_s")
             * max(0, self.omega - number(p, "rated_rotor_speed_rad_s"))
-            + number(p, "pitch_power_gain_rad_w", minimum=0)
-            * max(0, eta * pa - requested),
-            self.min_pitch, self.feather,
+            + number(p, "pitch_power_gain_rad_w", minimum=0) * max(0, eta * pa - requested),
+            self.min_pitch,
+            self.feather,
         )
         if self.fault or not active:
             pitch_target = self.feather
@@ -149,7 +190,8 @@ class Turbine:
         for i, beta in enumerate(self.pitch):
             rate = clamp(
                 (pitch_target - beta) / number(p, "pitch_tau_s"),
-                -number(p, "pitch_rate_rad_s"), number(p, "pitch_rate_rad_s"),
+                -number(p, "pitch_rate_rad_s"),
+                number(p, "pitch_rate_rad_s"),
             )
             self.pitch[i] = clamp(beta + dt * rate, self.min_pitch, self.feather)
             rates.append(rate)
@@ -158,23 +200,17 @@ class Turbine:
         damping = number(p, "shaft_damping_nm_s_rad", minimum=0)
         old_omega = self.omega
         # A stopped rotor cannot be driven into negative speed by numerical torque lag.
-        max_stopping_torque = max(
-            0.0, (ta - damping * old_omega + inertia * old_omega / dt) / n
-        )
+        max_stopping_torque = max(0.0, (ta - damping * old_omega + inertia * old_omega / dt) / n)
         self.torque = min(self.torque, max_stopping_torque)
         # Enforce the electrical rating on the torque actuator, not on output watts.
         for _ in range(6):
-            predicted = old_omega + dt * (
-                ta - n * self.torque - damping * old_omega
-            ) / inertia
+            predicted = old_omega + dt * (ta - n * self.torque - damping * old_omega) / inertia
             if predicted < 0:
                 raise GeneratorError("turbine integration would reverse rotor direction")
             if not active or eta * self.torque * n * predicted <= rated:
                 break
             self.torque = min(self.torque, rated / (eta * n * max(predicted, 0.01)))
-        predicted = old_omega + dt * (
-            ta - n * self.torque - damping * old_omega
-        ) / inertia
+        predicted = old_omega + dt * (ta - n * self.torque - damping * old_omega) / inertia
         if predicted > rotor_max:
             # Protection trips the generator and applies explicit mechanical
             # braking. Avoid clipping angular velocity without an energy sink.
@@ -182,12 +218,9 @@ class Turbine:
             self.torque = 0.0
             brake = max(
                 0.0,
-                ta - damping * old_omega
-                - inertia * (rotor_max - old_omega) / dt,
+                ta - damping * old_omega - inertia * (rotor_max - old_omega) / dt,
             )
-            predicted = old_omega + dt * (
-                ta - damping * old_omega - brake
-            ) / inertia
+            predicted = old_omega + dt * (ta - damping * old_omega - brake) / inertia
         if predicted < 0:
             raise GeneratorError("turbine integration would reverse rotor direction")
         self.omega = min(predicted, rotor_max)
@@ -196,47 +229,55 @@ class Turbine:
         if power > rated * (1 + 1e-9):
             raise GeneratorError("turbine torque actuator violated electrical power rating")
         self.last_power = power
-        q_bound = math.sqrt(max(0, number(p, "rated_apparent_power_va")**2 - power**2))
+        q_bound = math.sqrt(max(0, number(p, "rated_apparent_power_va") ** 2 - power**2))
         q_target = clamp(float(controls.get("reactive_power_setpoint", 0)), -q_bound, q_bound)
-        self.reactive = clamp(response(self.reactive, q_target, dt, optional_number(p, "reactive_tau_s", 0.5)), -q_bound, q_bound)
+        self.reactive = clamp(
+            response(self.reactive, q_target, dt, optional_number(p, "reactive_tau_s", 0.5)),
+            -q_bound,
+            q_bound,
+        )
         loss = (1 - eta) * self.torque * n * self.omega
         heat_capacity = optional_number(p, "thermal_capacity_j_per_k", 1000000.0)
         cooling = optional_number(p, "cooling_w_per_k", 1000.0)
         if heat_capacity <= 0 or cooling < 0:
             raise GeneratorError("invalid turbine thermal parameters")
-        self.temperature += dt * (loss - cooling * (self.temperature - weather.ambient_temperature)) / heat_capacity
+        self.temperature += (
+            dt * (loss - cooling * (self.temperature - weather.ambient_temperature)) / heat_capacity
+        )
         _, current, pf = apparent(power, self.reactive, voltage)
-        return finite_outputs({
-            "wind_speed": weather.wind_speed,
-            "effective_wind_speed": wind,
-            "yaw_angle": math.degrees(self.yaw),
-            "yaw_error": math.degrees(yaw_err),
-            "tip_speed_ratio": lam,
-            "power_coefficient": cp,
-            "pitch_angle_1": math.degrees(self.pitch[0]),
-            "pitch_angle_2": math.degrees(self.pitch[1]),
-            "pitch_angle_3": math.degrees(self.pitch[2]),
-            "pitch_rate_1": math.degrees(rates[0]),
-            "pitch_rate_2": math.degrees(rates[1]),
-            "pitch_rate_3": math.degrees(rates[2]),
-            "sim_rotor_speed": self.omega,
-            "sim_generator_speed": n * self.omega,
-            "shaft_torque": n * self.torque,
-            "aerodynamic_power": pa,
-            "aerodynamic_torque": ta,
-            "available_power": available,
-            "sim_generator_torque": self.torque,
-            "active_power": power,
-            "reactive_power": self.reactive,
-            "converter_current": current,
-            "converter_losses": loss,
-            "sim_power_factor": pf,
-            "generator_temperature": self.temperature,
-            "running_status": int(active and not self.fault),
-            "fault_status": self.fault,
-            "control_result": 0,
-            "control_mode": mode,
-            "active_power_setpoint": demand,
-            "power_limit_setpoint": limit,
-            "reactive_power_setpoint": q_target,
-        })
+        return finite_outputs(
+            {
+                "wind_speed": weather.wind_speed,
+                "effective_wind_speed": wind,
+                "yaw_angle": math.degrees(self.yaw),
+                "yaw_error": math.degrees(yaw_err),
+                "tip_speed_ratio": lam,
+                "power_coefficient": cp,
+                "pitch_angle_1": math.degrees(self.pitch[0]),
+                "pitch_angle_2": math.degrees(self.pitch[1]),
+                "pitch_angle_3": math.degrees(self.pitch[2]),
+                "pitch_rate_1": math.degrees(rates[0]),
+                "pitch_rate_2": math.degrees(rates[1]),
+                "pitch_rate_3": math.degrees(rates[2]),
+                "sim_rotor_speed": self.omega,
+                "sim_generator_speed": n * self.omega,
+                "shaft_torque": n * self.torque,
+                "aerodynamic_power": pa,
+                "aerodynamic_torque": ta,
+                "available_power": available,
+                "sim_generator_torque": self.torque,
+                "active_power": power,
+                "reactive_power": self.reactive,
+                "converter_current": current,
+                "converter_losses": loss,
+                "sim_power_factor": pf,
+                "generator_temperature": self.temperature,
+                "running_status": int(active and not self.fault),
+                "fault_status": self.fault,
+                "control_result": 0,
+                "control_mode": mode,
+                "active_power_setpoint": demand,
+                "power_limit_setpoint": limit,
+                "reactive_power_setpoint": q_target,
+            }
+        )

@@ -28,9 +28,7 @@ class PPC:
             raise GeneratorError("PPC requires positive allocation weights")
         if params.get("avc_mode") not in {"reactive_power", "voltage"}:
             raise GeneratorError("unknown PPC AVC mode")
-        if params["avc_mode"] == "voltage" and number(
-            params, "avc_voltage_gain_var_v"
-        ) <= 0:
+        if params["avc_mode"] == "voltage" and number(params, "avc_voltage_gain_var_v") <= 0:
             raise GeneratorError("voltage AVC requires positive gain")
         number(params, "agc_ramp_w_s", minimum=0)
         number(params, "ffr_deadband_hz", minimum=0)
@@ -41,23 +39,29 @@ class PPC:
         self, total: float, lower: Mapping[str, float], upper: Mapping[str, float]
     ) -> dict[str, float]:
         minimum = sum(lower.values())
-        maximum = sum(
-            upper[key] if self.weights[key] > 0 else lower[key]
-            for key in self.devices
-        )
+        maximum = sum(upper[key] if self.weights[key] > 0 else lower[key] for key in self.devices)
         target = clamp(total, minimum, maximum)
-        lo, hi = 0.0, max((upper[key] - lower[key]) / self.weights[key]
-                          for key in self.devices if self.weights[key] > 0)
+        lo, hi = (
+            0.0,
+            max(
+                (upper[key] - lower[key]) / self.weights[key]
+                for key in self.devices
+                if self.weights[key] > 0
+            ),
+        )
         for _ in range(52):
             mid = (lo + hi) / 2
-            distributed = sum(clamp(lower[k] + mid * self.weights[k], lower[k], upper[k])
-                              for k in self.devices)
+            distributed = sum(
+                clamp(lower[k] + mid * self.weights[k], lower[k], upper[k]) for k in self.devices
+            )
             if distributed < target:
                 lo = mid
             else:
                 hi = mid
-        return {key: clamp(lower[key] + hi * self.weights[key], lower[key], upper[key])
-                for key in self.devices}
+        return {
+            key: clamp(lower[key] + hi * self.weights[key], lower[key], upper[key])
+            for key in self.devices
+        }
 
     def advance(
         self,
@@ -82,8 +86,11 @@ class PPC:
         deviation = frequency - nominal
         deadband = number(self.p, "ffr_deadband_hz")
         droop = number(self.p, "ffr_droop_w_hz")
-        ffr = (-droop * (deviation - math.copysign(deadband, deviation))
-               if ffr_on and abs(deviation) > deadband else 0.0)
+        ffr = (
+            -droop * (deviation - math.copysign(deadband, deviation))
+            if ffr_on and abs(deviation) > deadband
+            else 0.0
+        )
         command = float(controls.get("agc_power_setpoint", power)) if agc_on else power
         command += ffr
         lower = {}
@@ -101,39 +108,59 @@ class PPC:
         voltage = float(grid.get("grid_voltage", 0))
         q_req = 0.0
         if avc_on:
-            q_req = (float(controls.get("avc_reactive_setpoint", 0))
-                     if self.p["avc_mode"] == "reactive_power" else
-                     optional_voltage_control(self.p, float(controls.get("avc_voltage_setpoint", voltage)), voltage))
-        q_caps = {k: math.sqrt(max(0, float(previous[k].get("rated_apparent_power", 0))**2
-                                     - float(previous[k].get("active_power", 0))**2))
-                  for k in self.devices}
+            q_req = (
+                float(controls.get("avc_reactive_setpoint", 0))
+                if self.p["avc_mode"] == "reactive_power"
+                else optional_voltage_control(
+                    self.p, float(controls.get("avc_voltage_setpoint", voltage)), voltage
+                )
+            )
+        q_caps = {
+            k: math.sqrt(
+                max(
+                    0,
+                    float(previous[k].get("rated_apparent_power", 0)) ** 2
+                    - float(previous[k].get("active_power", 0)) ** 2,
+                )
+            )
+            for k in self.devices
+        }
         q_sum = sum(q_caps.values())
-        reactive_alloc = {k: (clamp(q_req, -q_sum, q_sum) * q_caps[k] / q_sum if q_sum else 0.0)
-                          for k in self.devices}
-        dispatch = {k: {"active_power_setpoint": allocation[k],
-                         "reactive_power_setpoint": reactive_alloc[k]} for k in self.devices}
-        return dispatch, finite_outputs({
-            "active_power_feedback": power,
-            "agc_allocated_power": sum(allocation.values()),
-            "agc_tracking_error": command - power,
-            "grid_voltage_feedback": voltage,
-            "avc_allocated_reactive_power": sum(reactive_alloc.values()),
-            "avc_tracking_error": q_req - reactive,
-            "grid_frequency_feedback": frequency,
-            "ffr_power_command": ffr,
-            "ffr_active": int(ffr != 0),
-            "frequency_deviation": deviation,
-            "plant_active_power": power,
-            "plant_reactive_power": reactive,
-            "plant_available_power": available,
-            "unserved_power_command": command - sum(allocation.values()),
-            "agc_enable": agc_on,
-            "agc_power_setpoint": float(controls.get("agc_power_setpoint", power)),
-            "avc_enable": avc_on,
-            "avc_voltage_setpoint": float(controls.get("avc_voltage_setpoint", voltage)),
-            "avc_reactive_setpoint": float(controls.get("avc_reactive_setpoint", 0)),
-            "ffr_enable": ffr_on,
-        })
+        reactive_alloc = {
+            k: (clamp(q_req, -q_sum, q_sum) * q_caps[k] / q_sum if q_sum else 0.0)
+            for k in self.devices
+        }
+        dispatch = {
+            k: {
+                "active_power_setpoint": allocation[k],
+                "reactive_power_setpoint": reactive_alloc[k],
+            }
+            for k in self.devices
+        }
+        return dispatch, finite_outputs(
+            {
+                "active_power_feedback": power,
+                "agc_allocated_power": sum(allocation.values()),
+                "agc_tracking_error": command - power,
+                "grid_voltage_feedback": voltage,
+                "avc_allocated_reactive_power": sum(reactive_alloc.values()),
+                "avc_tracking_error": q_req - reactive,
+                "grid_frequency_feedback": frequency,
+                "ffr_power_command": ffr,
+                "ffr_active": int(ffr != 0),
+                "frequency_deviation": deviation,
+                "plant_active_power": power,
+                "plant_reactive_power": reactive,
+                "plant_available_power": available,
+                "unserved_power_command": command - sum(allocation.values()),
+                "agc_enable": agc_on,
+                "agc_power_setpoint": float(controls.get("agc_power_setpoint", power)),
+                "avc_enable": avc_on,
+                "avc_voltage_setpoint": float(controls.get("avc_voltage_setpoint", voltage)),
+                "avc_reactive_setpoint": float(controls.get("avc_reactive_setpoint", 0)),
+                "ffr_enable": ffr_on,
+            }
+        )
 
 
 def optional_voltage_control(params: Mapping[str, object], target: float, actual: float) -> float:

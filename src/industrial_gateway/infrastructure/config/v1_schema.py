@@ -144,9 +144,12 @@ class ControlTarget(StrictModel):
         ):
             raise ValueError("control target endpoint must be host:port")
         host = host.strip("[]")
-        if not self.tls or not self.tls.enabled:
-            if host not in {"127.0.0.1", "::1", "localhost"}:
-                raise ValueError("non-loopback control target requires mTLS")
+        if (not self.tls or not self.tls.enabled) and host not in {
+            "127.0.0.1",
+            "::1",
+            "localhost",
+        }:
+            raise ValueError("non-loopback control target requires mTLS")
         if self.kind == "data_generator":
             if self.generation_binding is None:
                 raise ValueError("Generator target requires a Scenario binding")

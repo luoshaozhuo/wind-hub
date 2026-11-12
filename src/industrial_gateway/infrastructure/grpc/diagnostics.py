@@ -101,14 +101,12 @@ class GatewayDiagnostics:
                     if item.config.settings.control.enabled
                 )
                 pending = sum(
-                    forwarder.pending for gateway_id, forwarder
-                    in self._runtime.forwarders.items()
+                    forwarder.pending
+                    for gateway_id, forwarder in self._runtime.forwarders.items()
                     if not target or gateway_id == target
                 )
                 evidence.append(pb.Evidence(name="configured_mappings", value=str(mapped)))
-                evidence.append(
-                    pb.Evidence(name="forward_events_pending", value=str(pending))
-                )
+                evidence.append(pb.Evidence(name="forward_events_pending", value=str(pending)))
                 if mapped:
                     failures: list[str] = []
                     for gateway_id, item in targets.items():
@@ -152,7 +150,8 @@ class GatewayDiagnostics:
                         continue
                     accepted = next(
                         (
-                            record for record in reversed(forwarder.records)
+                            record
+                            for record in reversed(forwarder.records)
                             if record.state is ForwardState.ACCEPTED and record.command_id
                         ),
                         None,
@@ -164,9 +163,7 @@ class GatewayDiagnostics:
                             forwarder.get_command_result(accepted.command_id),
                             timeout=1.0,
                         )
-                    except (
-                        grpc.RpcError, OSError, RuntimeError, TimeoutError, ValueError
-                    ) as exc:
+                    except (grpc.RpcError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
                         limitations.append(f"Commander result query unavailable: {exc}")
                     else:
                         evidence.append(

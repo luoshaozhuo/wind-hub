@@ -54,22 +54,12 @@ class GeneratorRpcClient:
             raise RuntimeError("Generator client already started")
         if not self._tls.enabled:
             raise ValueError("Generator input control requires mutual TLS")
-        if (
-            self._tls.ca_file is None
-            or self._tls.cert_file is None
-            or self._tls.key_file is None
-        ):
+        if self._tls.ca_file is None or self._tls.cert_file is None or self._tls.key_file is None:
             raise ValueError("Generator control requires complete client certificates")
         credentials = grpc.ssl_channel_credentials(
-            root_certificates=service_path(
-                self._project_root, self._tls.ca_file
-            ).read_bytes(),
-            private_key=service_path(
-                self._project_root, self._tls.key_file
-            ).read_bytes(),
-            certificate_chain=service_path(
-                self._project_root, self._tls.cert_file
-            ).read_bytes(),
+            root_certificates=service_path(self._project_root, self._tls.ca_file).read_bytes(),
+            private_key=service_path(self._project_root, self._tls.key_file).read_bytes(),
+            certificate_chain=service_path(self._project_root, self._tls.cert_file).read_bytes(),
         )
         channel = grpc.aio.secure_channel(self._endpoint, credentials)
         self._channel = channel
@@ -90,12 +80,7 @@ class GeneratorRpcClient:
         timeout: float,
     ) -> GeneratorReceipt:
         """Resolve and verify the Generation before each single outbound submit."""
-        if (
-            not device_id.strip()
-            or not point_id.strip()
-            or not request_id.strip()
-            or timeout <= 0
-        ):
+        if not device_id.strip() or not point_id.strip() or not request_id.strip() or timeout <= 0:
             raise ValueError("invalid Generator submission identity or deadline")
         stub = self._ready()
         deadline = asyncio.get_running_loop().time() + timeout
@@ -106,15 +91,11 @@ class GeneratorRpcClient:
                 raise TimeoutError("Generator control deadline expired")
             return left
 
-        device = await stub.GetDevice(
-            common.ObjectId(id=device_id), timeout=remaining()
-        )
+        device = await stub.GetDevice(common.ObjectId(id=device_id), timeout=remaining())
         generation_id = device.device.generation_id
         if device.device.actual_state != "RUNNING" or not generation_id:
             raise ValueError("target device has no running Generation")
-        generation = await stub.GetGeneration(
-            common.ObjectId(id=generation_id), timeout=timeout
-        )
+        generation = await stub.GetGeneration(common.ObjectId(id=generation_id), timeout=timeout)
         bound = generation.generation
         if (
             bound.generation_id != generation_id
@@ -164,9 +145,7 @@ class GeneratorRpcClient:
                 generation_id=generation_id,
                 device_id=device_id,
                 request_id=request_id,
-                values=[
-                    dg.VariableUpdate(point_id=point_id, value=encode_scalar(value))
-                ],
+                values=[dg.VariableUpdate(point_id=point_id, value=encode_scalar(value))],
             ),
             timeout=remaining(),
         )

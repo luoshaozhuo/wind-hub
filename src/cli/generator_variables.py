@@ -23,7 +23,9 @@ async def _catalog(generation_id: str, device_id: str) -> dict[str, dict[str, An
     visited: set[str] = set()
     for _ in range(100):
         page = await invoke(
-            runtime(), "data-generator", "ListVariables",
+            runtime(),
+            "data-generator",
+            "ListVariables",
             {
                 "generation_id": generation_id,
                 "device_id": device_id,
@@ -100,12 +102,17 @@ def list_variables(
 
     _run(
         "data-generator variables list",
-        invoke(runtime(), "data-generator", "ListVariables", {
-            "generation_id": generation_id,
-            "device_id": device_id,
-            "page_size": page_size,
-            "page_token": page_token,
-        }),
+        invoke(
+            runtime(),
+            "data-generator",
+            "ListVariables",
+            {
+                "generation_id": generation_id,
+                "device_id": device_id,
+                "page_size": page_size,
+                "page_token": page_token,
+            },
+        ),
     )
 
 
@@ -143,9 +150,7 @@ def update_variables(
             for item in source:
                 if not isinstance(item, dict) or set(item) != {"point_id", "value"}:
                     raise ValueError("each model input must contain only point_id and value")
-                batch.append(
-                    (str(item["point_id"]), json.dumps(item["value"], allow_nan=False))
-                )
+                batch.append((str(item["point_id"]), json.dumps(item["value"], allow_nan=False)))
         elif point_id is not None and value is not None:
             batch.append((point_id, value))
         else:
@@ -162,12 +167,16 @@ def update_variables(
             metadata = catalog.get(identifier)
             if metadata is None or metadata.get("writable") is not True:
                 raise PermissionError(f"model input not writable: {identifier}")
-            updates.append({
-                "point_id": identifier,
-                "value": _encode_checked(raw, metadata),
-            })
+            updates.append(
+                {
+                    "point_id": identifier,
+                    "value": _encode_checked(raw, metadata),
+                }
+            )
         return await invoke(
-            runtime(), "data-generator", "UpdateVariables",
+            runtime(),
+            "data-generator",
+            "UpdateVariables",
             {
                 "generation_id": generation_id,
                 "device_id": device_id,

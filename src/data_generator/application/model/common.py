@@ -45,7 +45,9 @@ def apparent(p: float, q: float, voltage: float) -> tuple[float, float, float]:
 
 
 def finite_outputs(output: Mapping[str, float | int]) -> dict[str, float | int]:
-    if any(type(value) not in (int, float) or not math.isfinite(value) for value in output.values()):
+    if any(
+        type(value) not in (int, float) or not math.isfinite(value) for value in output.values()
+    ):
         raise GeneratorError("physical model produced non-finite or nonnumeric output")
     return dict(output)
 

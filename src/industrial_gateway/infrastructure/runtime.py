@@ -102,7 +102,8 @@ class GatewayRuntime:
         self.observability.pending(
             record.gateway_id,
             self.forwarders[record.gateway_id].pending_for(record.gateway_id)
-            if record.gateway_id in self.forwarders else 0,
+            if record.gateway_id in self.forwarders
+            else 0,
         )
         if record.state is ForwardState.ACCEPTED:
             self.observability.record(record.gateway_id, "forward_accepted_total")
@@ -118,10 +119,7 @@ class GatewayRuntime:
                 record.gateway_id,
                 (
                     f"forward {record.state.value}: {record.event_id}"
-                    + (
-                        f" effective_step={record.effective_step}"
-                        if record.effective_step else ""
-                    )
+                    + (f" effective_step={record.effective_step}" if record.effective_step else "")
                 ),
                 severity=(
                     "WARNING"
@@ -164,8 +162,10 @@ class GatewayRuntime:
             forwarder = self.forwarders.get(server_id)
             if forwarder is None:
                 self.observability.event(
-                    server_id, "control forwarder not ready",
-                    severity="ERROR", error_code="FORWARDER_UNAVAILABLE",
+                    server_id,
+                    "control forwarder not ready",
+                    severity="ERROR",
+                    error_code="FORWARDER_UNAVAILABLE",
                 )
                 return
             for mapping in resolved.settings.control.mappings:
@@ -191,7 +191,9 @@ class GatewayRuntime:
                 on_write=record_write,
                 allowed_writes=frozenset(
                     mapping.variable_id for mapping in resolved.settings.control.mappings
-                ) if resolved.settings.control.enabled else frozenset(),
+                )
+                if resolved.settings.control.enabled
+                else frozenset(),
             )
         elif resolved.settings.desired_state == "START":
             raise ValueError(f"{server_id}: adapter {resolved.protocol} is not implemented")

@@ -22,15 +22,24 @@ class BESS:
 
     def __init__(self, params: Mapping[str, object]) -> None:
         self.p = params
-        positive(params, "rated_energy_wh", "pcs_rated_active_power_w",
-                 "pcs_rated_apparent_power_va", "charge_efficiency",
-                 "discharge_efficiency", "max_battery_current_a", "soc_control_gain_w")
+        positive(
+            params,
+            "rated_energy_wh",
+            "pcs_rated_active_power_w",
+            "pcs_rated_apparent_power_va",
+            "charge_efficiency",
+            "discharge_efficiency",
+            "max_battery_current_a",
+            "soc_control_gain_w",
+        )
         self.soc_low = number(params, "soc_min", minimum=0)
         self.soc_high = number(params, "soc_max")
         initial = number(params, "initial_soc")
         if not 0 <= self.soc_low < initial < self.soc_high <= 1:
             raise GeneratorError("invalid BESS SOC interval")
-        if number(params, "pcs_rated_apparent_power_va") < number(params, "pcs_rated_active_power_w"):
+        if number(params, "pcs_rated_apparent_power_va") < number(
+            params, "pcs_rated_active_power_w"
+        ):
             raise GeneratorError("BESS PCS apparent rating too small")
         for name in ("charge_efficiency", "discharge_efficiency"):
             if number(params, name) > 1:
@@ -91,10 +100,12 @@ class BESS:
         current = 2 * dc_power / denom
         terminal_voltage = ocv - self.resistance * current
         next_energy = self.energy - dt * ocv * current
-        if (terminal_voltage <= 0
-                or abs(current) > number(p, "max_battery_current_a")
-                or next_energy < self.soc_low * rated - 1e-7
-                or next_energy > self.soc_high * rated + 1e-7):
+        if (
+            terminal_voltage <= 0
+            or abs(current) > number(p, "max_battery_current_a")
+            or next_energy < self.soc_low * rated - 1e-7
+            or next_energy > self.soc_high * rated + 1e-7
+        ):
             return None
         return next_energy, current, terminal_voltage
 
@@ -138,38 +149,44 @@ class BESS:
         power, next_energy, current, terminal_voltage = self._feasible(requested, dt)
         self.energy = clamp(next_energy, self.soc_low * rated, self.soc_high * rated)
         loss = current**2 * self.resistance
-        self.temperature += dt * (
-            loss - self.cooling * (self.temperature - weather.ambient_temperature)
-        ) / self.heat_capacity
+        self.temperature += (
+            dt
+            * (loss - self.cooling * (self.temperature - weather.ambient_temperature))
+            / self.heat_capacity
+        )
         aging = optional_number(p, "aging_coefficient_per_ampere_second", 0.0)
         if aging < 0:
             raise GeneratorError("invalid aging coefficient")
         self.soh = clamp(self.soh - aging * abs(current) * dt, 0, 1)
         s_cap = number(p, "pcs_rated_apparent_power_va")
         q_cap = math.sqrt(max(0, s_cap**2 - power**2))
-        reactive = (clamp(float(controls.get("reactive_power_setpoint", 0)), -q_cap, q_cap)
-                    if p["reactive_support_enabled"]
-                    and bool(controls.get("_grid_connected", 1)) else 0.0)
+        reactive = (
+            clamp(float(controls.get("reactive_power_setpoint", 0)), -q_cap, q_cap)
+            if p["reactive_support_enabled"] and bool(controls.get("_grid_connected", 1))
+            else 0.0
+        )
         _, pcs_current, pf = apparent(power, reactive, voltage)
-        return finite_outputs({
-            "soc": 100 * self.energy / rated,
-            "soh": 100 * self.soh,
-            "stored_energy": self.energy / 3600,
-            "available_charge_power": -self._feasible(-power_cap, dt)[0],
-            "available_discharge_power": self._feasible(power_cap, dt)[0],
-            "battery_voltage": terminal_voltage,
-            "battery_current": current,
-            "battery_loss": loss,
-            "battery_temperature": self.temperature,
-            "active_power": power,
-            "reactive_power": reactive,
-            "pcs_current": pcs_current,
-            "sim_power_factor": pf,
-            "pcs_status": int(bool(controls.get("_grid_connected", 1))),
-            "bms_status": 1,
-            "fault_status": 0,
-            "control_result": 0,
-            "soc_target": 100 * target_soc,
-            "active_power_setpoint": demand,
-            "reactive_power_setpoint": reactive,
-        })
+        return finite_outputs(
+            {
+                "soc": 100 * self.energy / rated,
+                "soh": 100 * self.soh,
+                "stored_energy": self.energy / 3600,
+                "available_charge_power": -self._feasible(-power_cap, dt)[0],
+                "available_discharge_power": self._feasible(power_cap, dt)[0],
+                "battery_voltage": terminal_voltage,
+                "battery_current": current,
+                "battery_loss": loss,
+                "battery_temperature": self.temperature,
+                "active_power": power,
+                "reactive_power": reactive,
+                "pcs_current": pcs_current,
+                "sim_power_factor": pf,
+                "pcs_status": int(bool(controls.get("_grid_connected", 1))),
+                "bms_status": 1,
+                "fault_status": 0,
+                "control_result": 0,
+                "soc_target": 100 * target_soc,
+                "active_power_setpoint": demand,
+                "reactive_power_setpoint": reactive,
+            }
+        )

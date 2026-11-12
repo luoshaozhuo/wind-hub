@@ -13,8 +13,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from data_generator.application.models import generate_values
-from data_generator.application.physical_engine import PhysicalEngine
 from data_generator.application.model.inputs import (
     WEATHER_INPUTS,
     validate_input,
@@ -22,6 +20,9 @@ from data_generator.application.model.inputs import (
     writable_inputs,
 )
 from data_generator.application.model.random import generate as generate_configured_random
+from data_generator.application.models import generate_values
+from data_generator.application.physical_engine import PhysicalEngine
+from data_generator.application.port.output import OutputPort
 from data_generator.application.replay import decode_value, iter_records, replay_deadline
 from data_generator.domain.model import (
     DataBatch,
@@ -32,7 +33,6 @@ from data_generator.domain.model import (
     Scalar,
 )
 from data_generator.domain.scenario import Scenario, Settings, resolve_history
-from data_generator.application.port.output import OutputPort
 
 logger = logging.getLogger(__name__)
 
@@ -180,8 +180,10 @@ class Runtime:
         async with self._lock:
             state = self.generations.get(generation_id)
             if (
-                state is None or self._active != generation_id
-                or state.desired_state != "RUNNING" or state.actual_state != "RUNNING"
+                state is None
+                or self._active != generation_id
+                or state.desired_state != "RUNNING"
+                or state.actual_state != "RUNNING"
                 or state.physical_engine is None
             ):
                 raise GeneratorError("generation is not active for physical input control")
@@ -203,14 +205,13 @@ class Runtime:
             for point_id, value in values.items():
                 if point_id in specs:
                     if engine.controller_modes[device_id] == "ppc" and point_id in {
-                        "active_power_setpoint", "reactive_power_setpoint",
+                        "active_power_setpoint",
+                        "reactive_power_setpoint",
                     }:
                         raise GeneratorError("PPC owns this device setpoint")
                     verified[point_id] = validate_input(value, specs[point_id])
                 elif point_id in WEATHER_INPUTS and weather_id is not None:
-                    verified[point_id] = validate_weather_input(
-                        value, WEATHER_INPUTS[point_id]
-                    )
+                    verified[point_id] = validate_weather_input(value, WEATHER_INPUTS[point_id])
                 else:
                     raise GeneratorError(f"unknown or non-writable model input: {point_id}")
             if not verified:
@@ -220,28 +221,18 @@ class Runtime:
             state.request_history[history_key] = (fingerprint, effective_step)
             return effective_step
 
-    def _install_inputs(
-        self, generation: GenerationState, step: int
-    ) -> None:
+    def _install_inputs(self, generation: GenerationState, step: int) -> None:
         """Called on the event loop before advancing each discrete physical step."""
         engine = generation.physical_engine
         if engine is None:
             return
-        due = [
-            item for item in generation.pending_inputs if item[0] <= step
-        ]
-        generation.pending_inputs = [
-            item for item in generation.pending_inputs if item[0] > step
-        ]
+        due = [item for item in generation.pending_inputs if item[0] <= step]
+        generation.pending_inputs = [item for item in generation.pending_inputs if item[0] > step]
         for _, device, values in due:
             weather_id = engine.weather_refs.get(device)
-            external = {
-                key: float(value) for key, value in values.items()
-                if key in WEATHER_INPUTS
-            }
+            external = {key: float(value) for key, value in values.items() if key in WEATHER_INPUTS}
             model = {
-                key: float(value) for key, value in values.items()
-                if key not in WEATHER_INPUTS
+                key: float(value) for key, value in values.items() if key not in WEATHER_INPUTS
             }
             if external:
                 if weather_id is None:
@@ -418,13 +409,12 @@ class Runtime:
         seed = int(scenario.source.get("seed", 0))
         sequence = 0
         epoch = time.monotonic()
-        has_physical = any(
-            model.get("kind") == "physical" for model in scenario.models.values()
-        )
+        has_physical = any(model.get("kind") == "physical" for model in scenario.models.values())
         physical = PhysicalEngine(scenario) if has_physical else None
         generation.physical_engine = physical
         random_points = {
-            key: value for key, value in scenario.points.items()
+            key: value
+            for key, value in scenario.points.items()
             if isinstance(value.get("model"), dict)
         }
         while generation.desired_state == "RUNNING":
@@ -453,7 +443,8 @@ class Runtime:
                 if physical is None:
                     values = (
                         generate_configured_random(sequence, random_points)
-                        if scenario.models else generate_values(seed, sequence, scenario.points)
+                        if scenario.models
+                        else generate_values(seed, sequence, scenario.points)
                     )
                 else:
                     values = {}

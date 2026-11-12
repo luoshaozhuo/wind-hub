@@ -21,8 +21,8 @@ from configuration.shared_snapshot import (
     build_shared_snapshot,
 )
 from core.domain import DeviceId
-from data_generator.application.models import interpolation_table, random_value
 from data_generator.application.model.random import validate_rule
+from data_generator.application.models import interpolation_table, random_value
 from data_generator.domain.model import GeneratorError, OutputMapping, OutputTarget
 from data_generator.domain.scenario import Scenario, Settings
 
@@ -83,7 +83,6 @@ def _resolve_points(
     return tuple(devices), points
 
 
-
 def _configured_model_points(
     raw: dict[str, Any], shared: SharedDomainSnapshot
 ) -> tuple[tuple[str, ...], dict[tuple[str, str], dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -94,9 +93,7 @@ def _configured_model_points(
     for name, definition in definitions.items():
         if not isinstance(name, str) or not name:
             raise GeneratorError("model ID must be a nonempty string")
-        if not isinstance(definition, dict) or definition.get("kind") not in {
-            "physical", "random"
-        }:
+        if not isinstance(definition, dict) or definition.get("kind") not in {"physical", "random"}:
             raise GeneratorError(f"invalid configured model: {name}")
     devices: list[str] = []
     points: dict[tuple[str, str], dict[str, Any]] = {}
@@ -433,9 +430,7 @@ def load_settings(service_path: Path) -> Settings:
             weather,
             bindings,
         )
-        if any(
-            definition.get("kind") == "physical" for definition in models.values()
-        ):
+        if any(definition.get("kind") == "physical" for definition in models.values()):
             from data_generator.application.physical_engine import PhysicalEngine
 
             PhysicalEngine(scenarios[scenario_id])

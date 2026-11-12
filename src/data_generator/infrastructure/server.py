@@ -16,8 +16,8 @@ from contracts import common_pb2_grpc as common_rpc
 from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import decode_scalar
-from data_generator.application.runtime import GenerationState, Runtime
 from data_generator.application.model.inputs import WEATHER_INPUTS, writable_inputs
+from data_generator.application.runtime import GenerationState, Runtime
 from data_generator.domain.model import GeneratorError, Scalar
 from data_generator.infrastructure.diagnostics import Diagnostics
 from data_generator.infrastructure.metrics import snapshot as metric_snapshot
@@ -251,19 +251,17 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
         kind = physical.kinds.get(request.device_id) if physical else ""
         writable = writable_inputs(kind)
         ppc_owned = (
-            physical is not None
-            and physical.controller_modes.get(request.device_id) == "ppc"
+            physical is not None and physical.controller_modes.get(request.device_id) == "ppc"
         )
         entries: list[dg.ModelVariable] = []
         for point_id, point in table.points.items():
             business = shared.business_points[point.business_point_id]
             spec = writable.get(point_id)
             can_write = (
-                spec is not None and state.actual_state == "RUNNING"
+                spec is not None
+                and state.actual_state == "RUNNING"
                 and not (
-                    ppc_owned and point_id in {
-                        "active_power_setpoint", "reactive_power_setpoint"
-                    }
+                    ppc_owned and point_id in {"active_power_setpoint", "reactive_power_setpoint"}
                 )
             )
             item = dg.ModelVariable(
@@ -337,7 +335,9 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
         values: dict[str, Scalar] = {}
         for item in request.values:
             if not item.point_id or item.point_id in values or not item.HasField("value"):
-                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid or duplicate point ID")
+                await context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT, "invalid or duplicate point ID"
+                )
                 raise RuntimeError("gRPC abort returned")
             if item.value.WhichOneof("kind") is None:
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "scalar value absent")
@@ -351,24 +351,30 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "null input not allowed")
                 raise RuntimeError("gRPC abort returned")
             values[item.point_id] = value
-        fingerprint = hashlib.sha256(
-            request.SerializeToString(deterministic=True)
-        ).digest()
+        fingerprint = hashlib.sha256(request.SerializeToString(deterministic=True)).digest()
         try:
             step = await self.runtime.update_inputs(
-                request.generation_id, request.device_id, caller,
-                request.request_id, fingerprint, values,
+                request.generation_id,
+                request.device_id,
+                caller,
+                request.request_id,
+                fingerprint,
+                values,
             )
         except GeneratorError as exc:
             if "request_id already" in str(exc):
                 await context.abort(grpc.StatusCode.ALREADY_EXISTS, str(exc))
                 raise RuntimeError("gRPC abort returned") from None
             return dg.UpdateVariablesResponse(
-                accepted=False, error_code="INPUT_REJECTED",
-                message=str(exc), request_id=request.request_id,
+                accepted=False,
+                error_code="INPUT_REJECTED",
+                message=str(exc),
+                request_id=request.request_id,
             )
         return dg.UpdateVariablesResponse(
-            accepted=True, effective_step=step, request_id=request.request_id,
+            accepted=True,
+            effective_step=step,
+            request_id=request.request_id,
         )
 
 
@@ -430,8 +436,10 @@ class CommonService(common_rpc.CommonServiceServicer):
             rpc_names=[
                 m.name
                 for m in dg.DESCRIPTOR.services_by_name["DataGeneratorService"].methods
-                if (m.name not in {"ListVariables", "UpdateVariables"}
-                    or bool(self.runtime.settings.service.get("security", {}).get("tls")))
+                if (
+                    m.name not in {"ListVariables", "UpdateVariables"}
+                    or bool(self.runtime.settings.service.get("security", {}).get("tls"))
+                )
             ]
             + [m.name for m in common.DESCRIPTOR.services_by_name["CommonService"].methods],
             protocols=["grpc"],
@@ -724,8 +732,7 @@ def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
         raise GeneratorError("security must declare tls and permissions")
     tls = security.get("tls") if isinstance(security, dict) else None
     if tls is not None and (
-        not isinstance(tls, dict)
-        or set(tls) != {"cert_file", "key_file", "ca_file"}
+        not isinstance(tls, dict) or set(tls) != {"cert_file", "key_file", "ca_file"}
     ):
         raise GeneratorError("tls must declare cert_file, key_file and ca_file")
     permissions = security.get("permissions") if isinstance(security, dict) else {}
@@ -733,8 +740,10 @@ def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
         raise GeneratorError("security permissions must be a mapping")
     supported = {"variables_read", "variables_update"}
     if any(
-        not isinstance(name, str) or not name.strip()
-        or not isinstance(rights, list) or not rights
+        not isinstance(name, str)
+        or not name.strip()
+        or not isinstance(rights, list)
+        or not rights
         or any(not isinstance(right, str) or right not in supported for right in rights)
         for name, rights in permissions.items()
     ):

@@ -101,20 +101,14 @@ class CommandForwarder:
         self._config = config
         self._project_root = project_root
         self._observer = observer
-        self._queue: asyncio.Queue[ForwardCommand] = asyncio.Queue(
-            maxsize=config.queue_capacity
-        )
+        self._queue: asyncio.Queue[ForwardCommand] = asyncio.Queue(maxsize=config.queue_capacity)
         self._workers: list[asyncio.Task[None]] = []
         if config.kind == "commander":
             self._client: CommanderRpcClient | GeneratorRpcClient = CommanderRpcClient(
                 config, project_root
             )
         elif config.kind == "data_generator":
-            if (
-                config.generation_binding is None
-                or config.endpoint is None
-                or config.tls is None
-            ):
+            if config.generation_binding is None or config.endpoint is None or config.tls is None:
                 raise ValueError("Generator target requires endpoint, binding, and mTLS")
             self._client = GeneratorRpcClient(
                 endpoint=config.endpoint,
@@ -345,7 +339,9 @@ class CommandForwarder:
                     self._finish(original, ForwardState.UNKNOWN, "accepted with no effective step")
                 else:
                     self._finish(
-                        original, state, receipt.message or receipt.error_code,
+                        original,
+                        state,
+                        receipt.message or receipt.error_code,
                         effective_step=receipt.effective_step if receipt.accepted else 0,
                     )
             return

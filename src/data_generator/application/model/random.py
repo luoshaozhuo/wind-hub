@@ -59,13 +59,14 @@ def validate_rule(rule: Mapping[str, object], data_type: str) -> None:
         for key in ("minimum", "maximum"):
             if key in rule:
                 _numeric(rule[key], key)
-        if "minimum" in rule and "maximum" in rule:
-            if float(rule["minimum"]) > float(rule["maximum"]):
-                raise GeneratorError("invalid normal bounds")
-        attempts = rule.get("max_attempts")
-        if policy == "resample" and (
-            type(attempts) is not int or attempts < 1
+        if (
+            "minimum" in rule
+            and "maximum" in rule
+            and (float(rule["minimum"]) > float(rule["maximum"]))
         ):
+            raise GeneratorError("invalid normal bounds")
+        attempts = rule.get("max_attempts")
+        if policy == "resample" and (type(attempts) is not int or attempts < 1):
             raise GeneratorError("bounded normal resampling requires max_attempts")
     elif distribution == "uniform_int" and is_int:
         low = rule.get("min", rule.get("minimum"))

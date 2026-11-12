@@ -74,12 +74,17 @@ class PhysicalEngine:
                 "active_power": 0.0,
                 "reactive_power": 0.0,
                 "rated_apparent_power": (
-                    float(params.get("rated_apparent_power_va", 0)) if kind == "wtg"
-                    else float(params.get("inverter_rated_apparent_power_va", 0)) if kind == "pv"
+                    float(params.get("rated_apparent_power_va", 0))
+                    if kind == "wtg"
+                    else float(params.get("inverter_rated_apparent_power_va", 0))
+                    if kind == "pv"
                     else (
                         float(params.get("pcs_rated_apparent_power_va", 0))
-                        if params.get("reactive_support_enabled") else 0.0
-                    ) if kind == "bess" else 0.0
+                        if params.get("reactive_support_enabled")
+                        else 0.0
+                    )
+                    if kind == "bess"
+                    else 0.0
                 ),
             }
         if len(self._grid_ids) > 1 or len(self._ppc_ids) > 1:
@@ -88,10 +93,11 @@ class PhysicalEngine:
         for ppc_id in self._ppc_ids:
             ppc = self.models[ppc_id]
             if not isinstance(ppc, PPC) or any(
-                self.kinds.get(device_id) not in {"wtg", "pv", "bess"}
-                for device_id in ppc.devices
+                self.kinds.get(device_id) not in {"wtg", "pv", "bess"} for device_id in ppc.devices
             ):
-                raise GeneratorError("PPC participants must be physical generation or storage devices")
+                raise GeneratorError(
+                    "PPC participants must be physical generation or storage devices"
+                )
             controlled.update(ppc.devices)
         for device, mode in self.controller_modes.items():
             if self.kinds[device] not in {"wtg", "pv", "bess"}:
@@ -99,7 +105,8 @@ class PhysicalEngine:
             if (mode == "ppc") != (device in controlled):
                 raise GeneratorError("PPC device control ownership does not match participation")
             if (
-                mode == "ppc" and self.kinds[device] == "bess"
+                mode == "ppc"
+                and self.kinds[device] == "bess"
                 and self.params[device].get("control_strategy") != "power_demand"
             ):
                 raise GeneratorError("PPC BESS power dispatch requires power_demand strategy")
@@ -166,8 +173,7 @@ class PhysicalEngine:
                 dt, self.last, self.last_grid, self.inputs[device], limits
             )
         grid_online = all(
-            int(self.inputs[device].get("grid_connected", 1)) == 1
-            for device in self._grid_ids
+            int(self.inputs[device].get("grid_connected", 1)) == 1 for device in self._grid_ids
         )
         voltage = float(self.last_grid.get("grid_voltage", 690.0))
         if voltage <= 0:
@@ -186,16 +192,19 @@ class PhysicalEngine:
                 if kind == "wtg":
                     controls["control_mode"] = 1.0
             climate = climates[self.weather_refs[device]]
-            if isinstance(instance, (Turbine, PV, BESS)):
+            if isinstance(instance, Turbine | PV | BESS):
                 results[device] = instance.advance(dt, climate, controls, voltage)
-        participants = [results[d] for d in sorted(results) if self.kinds[d] in {"wtg", "pv", "bess"}]
+        participants = [
+            results[d] for d in sorted(results) if self.kinds[d] in {"wtg", "pv", "bess"}
+        ]
         for device in self._grid_ids:
             grid = self.models[device]
             if not isinstance(grid, Grid):
                 raise GeneratorError("invalid grid model instance")
             results[device] = grid.advance(dt, participants, self.inputs[device])
             self.last_grid = {
-                **results[device], "frequency_nominal": number(self.params[device], "nominal_frequency_hz")
+                **results[device],
+                "frequency_nominal": number(self.params[device], "nominal_frequency_hz"),
             }
         for device, result in results.items():
             self.last[device] = {**self.last.get(device, {}), **result}
