@@ -107,11 +107,12 @@ class PhysicalEngine:
         """Stage-3 RPC may call this only after authorization and atomic validation."""
         if device not in self.models:
             raise GeneratorError("unknown physical device")
+        candidate: dict[str, float] = {}
         for key, value in values.items():
             if type(value) not in (int, float):
                 raise GeneratorError("model input must be numeric")
-            validate_scalar(float(value), "float64")
-            self.inputs[device][key] = float(value)
+            candidate[key] = float(validate_scalar(float(value), "float64"))
+        self.inputs[device].update(candidate)
 
     def _device_capacity(self, device: str) -> tuple[float, float]:
         p = self.params[device]

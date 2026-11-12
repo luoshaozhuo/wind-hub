@@ -91,6 +91,13 @@ def _configured_model_points(
     definitions = raw.get("models")
     if not isinstance(definitions, dict) or not definitions:
         raise GeneratorError("scenario models must be a nonempty mapping")
+    for name, definition in definitions.items():
+        if not isinstance(name, str) or not name:
+            raise GeneratorError("model ID must be a nonempty string")
+        if not isinstance(definition, dict) or definition.get("kind") not in {
+            "physical", "random"
+        }:
+            raise GeneratorError(f"invalid configured model: {name}")
     devices: list[str] = []
     points: dict[tuple[str, str], dict[str, Any]] = {}
     bindings: dict[str, dict[str, Any]] = {}
