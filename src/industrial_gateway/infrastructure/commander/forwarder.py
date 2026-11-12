@@ -15,11 +15,12 @@ from time import monotonic
 import grpc
 
 from industrial_gateway.application.variable_store import Scalar
-from industrial_gateway.infrastructure.config.v1_schema import ControlConfig
+from industrial_gateway.infrastructure.config.v1_schema import ControlTarget
 from industrial_gateway.infrastructure.grpc.commander_client import (
     CommanderRpcClient,
     CommandQuery,
 )
+from industrial_gateway.infrastructure.grpc.generator_client import GeneratorRpcClient
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ class CommandForwarder:
 
     def __init__(
         self,
-        config: ControlConfig,
+        config: ControlTarget,
         *,
         observer: RecordObserver | None = None,
         project_root: Path,
@@ -100,10 +101,24 @@ class CommandForwarder:
         self._project_root = project_root
         self._observer = observer
         self._queue: asyncio.Queue[ForwardCommand] = asyncio.Queue(
-            maxsize=config.forward_queue_capacity
+            maxsize=config.queue_capacity
         )
         self._workers: list[asyncio.Task[None]] = []
-        self._client = CommanderRpcClient(config, project_root)
+        if config.kind == "commander":
+            self._client: CommanderRpcClient | GeneratorRpcClient = CommanderRpcClient(
+                config, project_root
+            )
+        elif config.kind == "data_generator":
+            if config.generation_binding is None or config.endpoint is None:
+                raise ValueError("Generator target binding and endpoint required")
+            self._client = GeneratorRpcClient(
+                endpoint=config.endpoint,
+                tls=config.tls,
+                project_root=project_root,
+                scenario_id=config.generation_binding.scenario_id,
+            )
+        else:
+            raise ValueError("none is not a forwarding target")
         self._records: dict[str, ForwardRecord] = {}
         self._finished_order: deque[str] = deque()
         self._pending_by_gateway: dict[str, int] = {}
@@ -168,7 +183,7 @@ class CommandForwarder:
             value=value,
             revision=revision,
             captured_at=datetime.now(UTC),
-            expires_at=datetime.now(UTC) + timedelta(milliseconds=self._config.submit_deadline_ms),
+            expires_at=datetime.now(UTC) + timedelta(milliseconds=self._config.request_timeout_ms),
         )
         state = ForwardState.QUEUED
         if self._closing or self._queue.full():
@@ -197,7 +212,7 @@ class CommandForwarder:
         self._closing = False
         self._client.start()
         self._workers = [
-            asyncio.create_task(self._work()) for _ in range(self._config.max_forward_inflight)
+            asyncio.create_task(self._work()) for _ in range(self._config.max_inflight)
         ]
 
     async def _work(self) -> None:
@@ -245,6 +260,8 @@ class CommandForwarder:
         expires_at: datetime,
     ) -> str:
         """Resolve Commander-owned revision with short-lived, serialized caching."""
+        if not isinstance(self._client, CommanderRpcClient):
+            raise RuntimeError("revision lookup only supported by Commander")
         lock = self._revision_locks.setdefault(device_id, asyncio.Lock())
         async with lock:
             cached = self._revision_cache.get(device_id)
@@ -281,6 +298,47 @@ class CommandForwarder:
         if remaining <= 0:
             self._finish(original, ForwardState.REJECTED, "queue entry expired")
             return
+        if self._config.kind == "data_generator":
+            client = self._client
+            if not isinstance(client, GeneratorRpcClient):
+                raise RuntimeError("Generator transport not configured")
+            self._record(
+                ForwardRecord(
+                    event_id=event.event_id,
+                    gateway_id=event.gateway_id,
+                    device_id=event.device_id,
+                    point_id=event.point_id,
+                    value=event.value,
+                    revision=event.revision,
+                    captured_at=event.captured_at,
+                    state=ForwardState.SUBMITTING,
+                )
+            )
+            try:
+                receipt = await client.submit(
+                    device_id=event.device_id,
+                    point_id=event.point_id,
+                    value=event.value,
+                    request_id=event.event_id,
+                    timeout=remaining,
+                )
+            except asyncio.CancelledError:
+                self._finish(original, ForwardState.UNKNOWN, "shutdown during submission")
+                raise
+            except grpc.RpcError as exc:
+                if _definitive_rpc_rejection(exc):
+                    self._finish(original, ForwardState.REJECTED, str(exc))
+                else:
+                    self._finish(original, ForwardState.UNKNOWN, str(exc))
+            except (OSError, RuntimeError, ValueError) as exc:
+                self._finish(original, ForwardState.UNKNOWN, str(exc))
+            else:
+                state = ForwardState.ACCEPTED if receipt.accepted else ForwardState.REJECTED
+                if receipt.accepted and receipt.effective_step <= 0:
+                    self._finish(original, ForwardState.UNKNOWN, "accepted with no effective step")
+                else:
+                    self._finish(original, state, receipt.message or receipt.error_code)
+            return
         try:
             device_revision = await self._device_revision(event.device_id, event.expires_at)
         except asyncio.CancelledError:
@@ -309,6 +367,8 @@ class CommandForwarder:
                 state=ForwardState.SUBMITTING,
             )
         )
+        if not isinstance(self._client, CommanderRpcClient):
+            raise RuntimeError("Commander client unavailable")
         try:
             response = await self._client.submit(
                 device_id=event.device_id,
@@ -369,9 +429,11 @@ class CommandForwarder:
         """Query authoritative Commander status without resubmitting commands."""
         if not command_id.strip():
             raise ValueError("command_id is required")
+        if not isinstance(self._client, CommanderRpcClient):
+            raise RuntimeError("only Commander commands have command result queries")
         response = await self._client.get_command_result(
             command_id,
-            timeout=self._config.submit_deadline_ms / 1000,
+            timeout=self._config.request_timeout_ms / 1000,
         )
         return response
 

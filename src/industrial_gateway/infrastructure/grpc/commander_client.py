@@ -14,7 +14,7 @@ from contracts import commander_pb2_grpc as rpc
 from contracts import common_pb2 as common
 from contracts.scalar_codec import encode_scalar
 from industrial_gateway.application.variable_store import Scalar
-from industrial_gateway.infrastructure.config.v1_schema import ControlConfig, service_path
+from industrial_gateway.infrastructure.config.v1_schema import ControlTarget, service_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,8 +32,11 @@ class CommandQuery:
 class CommanderRpcClient:
     """Hold Commander channel and translate protobufs into primitive results."""
 
-    def __init__(self, config: ControlConfig, project_root: Path) -> None:
+    def __init__(self, config: ControlTarget, project_root: Path) -> None:
         self._config = config
+        if config.endpoint is None:
+            raise ValueError("Commander endpoint required")
+        self._endpoint = config.endpoint
         self._project_root = project_root
         self._channel: grpc.aio.Channel | None = None
         self._stub: rpc.CommanderServiceAsyncStub | None = None
@@ -42,6 +45,8 @@ class CommanderRpcClient:
         if self._stub is not None:
             raise RuntimeError("Commander channel already started")
         tls = self._config.tls
+        if tls is None:
+            raise ValueError("Commander TLS setting required")
         if tls.enabled:
             if tls.ca_file is None or tls.cert_file is None or tls.key_file is None:
                 raise ValueError("Commander mTLS requires CA, certificate and key")
@@ -50,7 +55,7 @@ class CommanderRpcClient:
                 private_key=service_path(self._project_root, tls.key_file).read_bytes(),
                 certificate_chain=service_path(self._project_root, tls.cert_file).read_bytes(),
             )
-            channel = grpc.aio.secure_channel(self._config.commander_endpoint, credentials)
+            channel = grpc.aio.secure_channel(self._endpoint, credentials)
         else:
             channel = grpc.aio.insecure_channel(self._config.commander_endpoint)
         self._channel = channel
