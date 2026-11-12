@@ -1,0 +1,46 @@
+# 独立物理仿真设备型号；参数与共享点表绑定，运行工况在 Data Generator 服务配置中定义。
+schema_version: 1
+template_id: wtg_sim_physical
+file_version: 1.0.0
+name: 风机仿真设备
+device_type_id: turbine
+protocol:
+  id: modbus_tcp
+  version: 1.1.0
+point_table:
+  id: modbus_wtg_sim
+  version: 1.0.0
+simulation:
+  kind: physical
+  device_kind: wtg
+  parameters:
+    rated_power_w: 2000000.0
+    rated_apparent_power_va: 2200000.0
+    rated_wind_speed_m_s: 12.0
+    rated_rotor_speed_rad_s: 1.5
+    max_rotor_speed_rad_s: 2.0
+    cut_in_speed_m_s: 3.0
+    cut_out_speed_m_s: 25.0
+    rotor_radius_m: 60.0
+    rotor_inertia_kg_m2: 4000000.0
+    generator_inertia_kg_m2: 600.0
+    gear_ratio: 100.0
+    lambda_opt: 7.5
+    cp_opt: 0.42
+    cp_curve:
+      - {lambda: 4.0, cp: 0.22}
+      - {lambda: 7.5, cp: 0.42}
+      - {lambda: 11.0, cp: 0.31}
+    generator_efficiency: 0.95
+    converter_efficiency: 0.97
+    max_generator_torque_nm: 20000.0
+    torque_tau_s: 0.5
+    pitch_min_rad: 0.0
+    pitch_feather_rad: 1.57
+    pitch_tau_s: 1.0
+    pitch_rate_rad_s: 0.12
+    pitch_speed_gain_s: 0.6
+    pitch_power_gain_rad_w: 0.0000003
+    shaft_damping_nm_s_rad: 1000.0
+    yaw_tau_s: 5.0
+    yaw_rate_rad_s: 0.03
