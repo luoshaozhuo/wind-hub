@@ -47,7 +47,7 @@ devices:
     name: "电厂控制器仿真实例"
     enabled: true
     model:
-      id: ppc_sim
+      id: plant_controller_sim
       version: 1.0.0
     endpoint:
       host: 127.0.0.1

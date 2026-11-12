@@ -3,7 +3,7 @@
 # input 只读，holding 仅为允许外部控制的模型输入；非控制内部状态不得外写。
 # 32 位值占两个连续寄存器；word_order 由协议模板 modbus_tcp 指定。
 schema_version: 1
-template_id: modbus_ppc_sim
+template_id: modbus_plant_controller_sim
 file_version: 1.0.0
 protocol: modbus
 points:
