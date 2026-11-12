@@ -1820,7 +1820,7 @@ flowchart TB
 | `src/data_generator/main.py` | 进程入口及装配，无业务算法 |
 | `src/contracts/` 或仓库统一 `contracts/` | 由外部维护的 Proto；**不是本模块所有物** |
 
-具体文件与私有类方法允许依据实现清晰度调整，禁止引入复制 Commander/Collector 的旧代码层或无用兼容模块。原 `src/seahorse` 只有作为迁移来源的历史价值，目标模块代码不再以风机控制为核心结构。仅将稳定通用功能移动到 `core`，避免为了几个简单函数扩大公共依赖。
+具体文件与私有类方法依照实现清晰度调整，不复制 Commander/Collector 的业务层或引入兼容性模块；仅复用 Core 已有通用能力，模型仍归 Data Generator。
 
 ## 7.2 可插拔来源与模型
 
@@ -1914,7 +1914,7 @@ flowchart LR
 
 **业务对象语义见 §5.3**：`Device` 是虚拟设备，不是 Gateway；包含 `device_id, protocol, endpoint, generation_id, actual_state`；其 `generation_id` 只标识当前活动实例，没有活动归属时使用空字符串，`endpoint` 为虚拟设备显示/映射属性，不等于一对多 Gateway 的唯一地址；`Scenario` 是版本化方案，包含 `scenario_id, active_version, available_versions[], device_ids[], description`；`Generation` 是绑定单个场景版本并管理多个 Device 的一次运行，包含 `generation_id, scenario_id, scenario_version, desired_state, actual_state, started_at, last_error`。其中 `scenario_version` 是可选输入，未提供时选用该场景当前 `active_version`，一旦生成开始即绑定具体版本。版本冲突不得隐式忽略 `expected_revision`。`generation_id` 由服务端产生并用于查询与停止；不引入未经 Proto 定义的暂停、Seek、循环重放控制。
 
-**需求边界裁决**：此前从需求总表移除了“场景管理”和“任务管理”的独立 UR，但最新 Proto *已经包含* 场景只读查询与生成启停。实现既有六项及目标新增两项是 UR-04（外部接口实现）的既定范围；不因此推导新增场景 CRUD、任务编辑或复杂仿真功能。§4.8 UC-07 必须验证这些接口，而不能仅做空壳或始终返回 UNIMPLEMENTED。
+**需求边界**：DataGeneratorService 目标八项 RPC（含场景只读查询、生成启停、变量发现与更新）均归 UR-04；不提供场景 CRUD、任务编辑或复杂仿真控制。§4.8 UC-07 必须核验有效调用、权限和失败路径。
 
 配置快照 RPC 的文件集合必须遵循 §11.1 的 `services/`、`instances/`、`templates/` 分层目录及相对路径规则；对外消息字段一律使用已冻结的 `common.proto`。
 
@@ -1983,7 +1983,7 @@ flowchart LR
 
 ## 9.5 冻结基础与批量注入协作（规范性）
 
-目标接口以 Contracts v1_21 的新增设计为准：DataGeneratorService 现有 6 个、目标 8 个 Unary RPC，另有 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`，此前以旧 main SHA 说明契约的文字只作为历史，不再具有规范性。生产生成任务必须先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；没有有效 token 时不允许调用 `UpdateVariables`；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
+目标接口以 Contracts v1_21 的新增设计为准：DataGeneratorService 从既有 6 个扩展为目标 8 个 Unary RPC，另有 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`。生产生成任务必须先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；没有有效 token 时不允许调用 `UpdateVariables`；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
 
 **映射与执行**：一个 Generation 可管理多个 Device，源 `(device_id,point_id)` 可映射多个输出，但一个目标不得由同一运行集合内两个来源重复占用。按 Gateway 分组为 `UpdateVariablesRequest {gateway_id,values[],lease_token}`，不得额外增加质量、时间戳、批次 ID 或请求级幂等字段。无令牌请求即使当前目标未被其他 Generation 认领，也必须被 Gateway 拒绝。一个 Gateway 的成功不构成其他 Gateway 的成功，逐项失败和响应缺失必须分别记录；UNKNOWN 不得虚报为投递成功。
 
@@ -2714,7 +2714,7 @@ FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无�
 
 配置参数经配置文件的 Push/Apply 或重启流程生效，禁止通过实时 `UpdateVariables` 修改。目标 SOC、功率需求和功率上限是**运行时设定**，不是配置参数；实际 SOC、转速、无功等均由方程更新。
 
-### 10.6.3～10.6.7 Modbus PointTable 通用地址与编码规则
+#### Modbus PointTable 通用地址与编码规则
 
 以下五张表为**新建仿真点表的目标地址规划**，不是声称仓库当前已存在这些点表。每个字段按照现有 `configs/templates/point_tables/modbus_wtg_tz2mw_1.0.0.yaml` 的正式结构落盘，采用 `points.<point_id>.{business_point_id,point_groups,address,data_type,unit,scale,offset,description}`；`address` 子字段包含 `register_type,address,count,slave_id`。
 
@@ -2886,6 +2886,8 @@ points:
 | `avc_voltage_setpoint` | PCC目标电压 | `sim_avc_voltage_setpoint` | `float32` | `volt` | `holding` | 4 / 2 | 是 | 否 |
 | `avc_reactive_setpoint` | 电厂无功目标 | `sim_avc_reactive_setpoint` | `float32` | `var` | `holding` | 6 / 2 | 是 | 否 |
 | `ffr_enable` | 启用FFR | `sim_ffr_enable` | `uint16` | `none` | `holding` | 8 / 1 | 是 | 否 |
+
+**业务点登记契约**：现有共享 `business_points.yaml` 中可以精确匹配的业务点予以复用；对于未登记或数据类型/单位不一致的 `sim_<point_id>`，按本节表中的 `business_point_id`、`data_type`、`unit`、变量说明进行新增业务点登记，不修改已有 ID 的语义。共享 `units.yaml` 所需单位 ID 必须存在且量纲一致。同名的 `sim_` 业务点可被多个设备复用，但类型/单位必须完全一致。若点表实际未落盘或业务点未登记，编码验收必须判为 **NOT_IMPLEMENTED**，不可把规划中的表格当作已生效配置。
 
 ### 10.6.8 点表落盘与输入边界验收
 
@@ -3131,7 +3133,7 @@ scenarios:
 
 指标只存储进程内有界窗口；服务重启后通过 `GetServiceInfo.started_at` 判定新运行纪元，禁止跨纪元拼接累计指标。P99 只在有可用样本时返回，窗口空不返回虚构的分位数样本。任务、设备等高基数标签须限制并设置淘汰/拒绝策略。不可用指标不产生伪造数值；通过事件、诊断及缺席指标表达不可用或过期，不能以 0 代替。
 
-### 12.2.1 运行观测补充（v1_10）
+### 12.2.1 运行观测补充
 
 `data_generator.batches_total` 计数的是来源产生并尝试派发的批次，**不是**原生网络实际发送数；`gateway.<id>.rpc_native_started_total` 才表示真正启动的 Gateway UpdateVariables 调用数量。指标 `max_series` 达限时必须保留 `data_generator.metrics_truncated=1` 作为明确降级标记，不可静默截断；空窗口 P99 仍不返回。来源预检目标变量不匹配的拒绝码为 `TARGET_VALIDATION_FAILED`，断线/服务不可用为 `GATEWAY_UNAVAILABLE`。Diagnose 的 permit 等待从服务配置 `diagnose.permit_wait_seconds`（0.01～10 秒，默认 0.5 秒）读取。Apply 的 `effective_revision` 永远指**当前生效运行版本**；当 `restart_required=true`，在 `apply_results.message` 显式带 `disk_revision=...; effective_revision=...`，也允许客户端通过 DISK 快照获取正式版本。
 
@@ -3240,7 +3242,7 @@ pytest tests/src/data_generator/system -m 'system and reliability'
 | UR-07 | UC-06-S02 空窗口/采集失败  | 12 | `test_metrics_system.py::test_no_samples_stale` | system/reliability/no_samples | 显式无样本/过期，不报零 | 独立服务 |
 | UR-07 | UC-06-S03 标签超限  | 12 | `test_metrics_system.py::test_series_capacity` | system/performance/overload | 有界聚合与明确降级 | 独立服务 |
 | UR-07 | UC-06-S03 进程重启纪元  | 6、12 | `test_metrics_system.py::test_epoch_restart` | system/reliability/restart | 指标不跨进程拼接 | 独立服务 |
-| UR-04 | UC-07-S01 15 个 Proto Server RPC 正常调用  | 9 | `test_grpc_system.py::test_contract_operations` | system/reliability/end_to_end | 外置 Proto 全方法的基本成功路径 | 独立服务 |
+| UR-04 | UC-07-S01 目标 17 个 Proto Server RPC 正常调用  | 9 | `test_grpc_system.py::test_contract_operations` | system/reliability/end_to_end | 外置 Proto 全方法的基本成功路径 | 独立服务 |
 | UR-04 | UC-07-S02 错误与非法参数  | 9 | `test_grpc_system.py::test_contract_errors` | system/safety/invalid_input | 错误码准确，无额外副作用 | 独立服务 |
 | UR-04 | UC-07-S03 超时/取消  | 6、9 | `test_grpc_system.py::test_timeout_cancel` | system/reliability/deadline | 不把取消当 I/O 结束 | 独立服务 |
 | UR-04 | UC-07-S03 关闭期间请求  | 6、9 | `test_grpc_system.py::test_shutdown_inflight` | system/reliability/restart | 拒绝新请求，安全收敛已有请求 | 独立服务 |
