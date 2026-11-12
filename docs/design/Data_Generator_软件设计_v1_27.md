@@ -2077,7 +2077,7 @@ flowchart TB
 
 每条业务变量以 `device_id + point_id` 唯一定位；`point_id`、`business_point_id`、`data_type`、`unit`、`address` 和寄存器类型均由设备实例引用的共享型号/点表及 business_points、units 决定，Generator 场景**不得重新定义**。点表、设备型号与实例文件须版本化；示例命名无 `e2e` 后缀，可直接用于常规仿真。
 
-独立于协议读写权限，Generator 提供模型变量角色：`input`（可由 API 更新的外生输入/指令）、`state`（由积分器演化）、`output`（由状态代数计算）、`parameter`（由受控配置 Apply 修改）。例如 `wind_speed` 是 Generator 的可更新输入，同时在 Modbus 点表中为只读测量寄存器；`active_power` 是模型派生输出，Generator 不允许直接修改。物理参数未必需成为公开点，只有有业务观察需求的参数才纳入共享点表。共享点表不添加 Generator 专用 `writable` 字段，`ListVariables` 根据活跃模型输入绑定动态返回该标记。模型参数与输入数据不可互换。
+独立于协议读写权限，Generator 提供模型变量角色：`input`（可由 API 更新的外生输入/指令）、`state`（由积分器演化）、`output`（由状态代数计算）、`parameter`（由受控配置 Apply 修改）。例如 `wind_speed_mean` 与 `turbulence_intensity` 是 Generator 的可更新输入，`wind_speed` 是计算输出且在 Modbus 点表中为只读测量寄存器；`active_power` 是模型派生输出，Generator 不允许直接修改。物理参数未必需成为公开点，只有有业务观察需求的参数才纳入共享点表。共享点表不添加 Generator 专用 `writable` 字段，`ListVariables` 根据活跃模型输入绑定动态返回该标记。模型参数与输入数据不可互换。
 
 ### 10.5.2 时间推进、功率符号及耦合约束
 
@@ -2599,13 +2599,30 @@ models:
 devices:
   - device_id: WTG_SIM01
     model_ref: wtg-2mw-example
-    input_bindings: [wind_speed, agc_power_setpoint, pitch_angle_setpoint]
+    input_bindings: [wind_speed_mean, turbulence_intensity, agc_power_setpoint, pitch_angle_setpoint]
   - device_id: GRID_SIM01
     model_ref: grid-example
     input_bindings: [grid_frequency_input, grid_voltage_source]
 ```
 
 输入 `UpdateVariables` 被接收后只改变**模型输入快照**；下一计算步更新状态并通过现有 Gateway `ClaimTargets/UpdateVariables` 发布对外测量。后者是测量数据注入，不触发 Gateway 的工业控制转发。失效输入按模型定义 `hold|fail|fallback`；外部指令不允许直接修改 `state/output`；停机、换 Generation 或重启必须避免旧输入写到新状态。
+
+#### 风速输入参数示例
+
+```yaml
+# 物理模型场景的输入初值和随机风速参数；正式 Schema 待编码阶段落实
+model:
+  kind: physical
+  device_kind: wtg
+  parameters:
+    wind_correlation_time_s: 10.0  # 正数，风速时间相关尺度
+    wind_seed: 42                 # 固定整数种子
+  initial_inputs:
+    wind_speed_mean: 10.0         # m/s，可经 UpdateVariables 修改
+    turbulence_intensity: 0.12   # 无量纲，12%，可经 UpdateVariables 修改
+```
+
+`wind_speed` 是生成输出，不出现在可更新输入列表中；`ListVariables` 必须返回上述两个 INPUT 的数据类型与可更新性。随机过程值在同一设备和相同步序内只能计算一次，并用于本步气动、输出点和保护判断，不得为每个消费方重新抽样。
 
 ### 10.5.9 Data Generator 变量发现、更新 RPC
 
@@ -2617,7 +2634,7 @@ devices:
 
 | 模型 | 计算及控制正确性 |
 |---|---|
-| 风机 | 固定风速平衡、风速阶跃、三叶片变桨、发电机电磁转矩改变转速、有功/无功容量圆、切入/切出/过速、气动/动能/电功率守恒 |
+| 风机 | 恒平均风速/零湍流度平衡、湍流度和平均风速更新、随机风速统计与相关性、风速阶跃、三叶片变桨、发电机电磁转矩改变转速、有功/无功容量圆、切入/切出/过速、气动/动能/电功率守恒 |
 | 光伏 | 零辐照零输出、辐照度和温度变化、MPPT 延迟、DC/AC 效率与限流、过温/停机 |
 | 储能 | SOC 充放电方向、能量积分和损耗、OCV/内阻有效根、热动态、SOC 上下边界、PCS P/Q 限幅和故障锁存 |
 | 电网 | 设备 P/Q 聚合、U/I/PF 自洽、频率阶跃及 ROCOF、R/X 电压扰动、断网无除零 |
@@ -2632,11 +2649,13 @@ devices:
 
 下表是本次新增五套示例模型的**目标数据点字典**。每个数据点均须最终落在相应 `modbus_*sim*` PointTable 内，并引用已存在或同步增补的 `business_point_id` / `units.yaml` 条目；此处的工程单位是**物理单位**，不能直接认定它们是当前 `units.yaml` 已存在的单位 ID。`input` 是 Generator 可更新的模型输入，不代表 Modbus 的寄存器可写；`state/output` 禁止 Generator 更新。BOOL/ENUM 的业务点类型与 Modbus 寄存器编码必须由正式 Schema 确认。
 
-### 10.6.1 风机点目录（44 项）
+### 10.6.1 风机点目录（46 项）
 
 | point_id | 角色 | 数据类型 | 物理单位 |
 |---|---|---|---|
-| `wind_speed` | input | `float32` | m/s |
+| `wind_speed_mean` | input | `float32` | m/s |
+| `turbulence_intensity` | input | `float32` | 1 |
+| `wind_speed` | output | `float32` | m/s |
 | `air_density` | input | `float32` | kg/m³ |
 | `wind_direction` | input | `float32` | ° |
 | `effective_wind_speed` | output | `float32` | m/s |
@@ -2796,7 +2815,7 @@ devices:
 
 1. 每个 `point_id` 必须给出 `business_point_id`、正式单位 ID、`point_groups`、`register_type`、`address`、`count`、`slave_id`、`data_type`、`scale`、`offset` 及描述，且这些信息不能在 Generator 场景重复定义。
 2. `input` 中供工业控制写入的设定量使用 holding/coils；外生环境输入（例如风速、辐照度）允许是 Modbus 只读点而经 Generator gRPC 更新；`state/output` 均为只读 measurement。每个模型 point_id 唯一，Modbus 地址按数据类型占用 1/2 个寄存器，并检测地址重叠、32 位字序与同一 slave_id 交叉分区。
-3. 所有点的数值范围依据物理模型参数定义：风速非负，SOC 在 0–100%（内部积分规范化为 0–1），额定功率与扭矩按设备能力，运行状态/故障码按离散枚举，bool 不能由浮点宽松转换。模型参数曲线与值域必须有测试。
+3. 所有点的数值范围依据物理模型参数定义：风速非负；湍流度非负、平均风速非负且随机过程参数有效；SOC 在 0–100%（内部积分规范化为 0–1），额定功率与扭矩按设备能力，运行状态/故障码按离散枚举，bool 不能由浮点宽松转换。模型参数曲线与值域必须有测试。
 4. 表中同名 `point_id`（如 `active_power`）在不同型号中可以合法复用，按 `device_id + point_id` 唯一定位；复用时物理单位、业务语义和业务类型保持一致。不同叶片的桨距角允许多个 point_id 共享一个统一 `business_point_id`，不得用变量名猜测业务点映射。
 5. 真实 GW2MW ADS 点表不因新增仿真点表而改变；模拟点表作为独立版本发布，必须验证 Core/Configuration 共享加载通过后才能成为生产配置。
 
