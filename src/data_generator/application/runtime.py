@@ -6,7 +6,6 @@ import asyncio
 import base64
 import contextlib
 import json
-from pathlib import Path
 import logging
 import math
 import time
@@ -15,6 +14,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 from data_generator.application.model.inputs import (
     WEATHER_INPUTS,
