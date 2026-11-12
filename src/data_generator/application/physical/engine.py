@@ -75,8 +75,10 @@ class PhysicalEngine:
                 "rated_apparent_power": (
                     float(params.get("rated_apparent_power_va", 0)) if kind == "wtg"
                     else float(params.get("inverter_rated_apparent_power_va", 0)) if kind == "pv"
-                    else float(params.get("pcs_rated_apparent_power_va", 0)) if kind == "bess"
-                    else 0.0
+                    else (
+                        float(params.get("pcs_rated_apparent_power_va", 0))
+                        if params.get("reactive_support_enabled") else 0.0
+                    ) if kind == "bess" else 0.0
                 ),
             }
         if len(self._grid_ids) > 1 or len(self._ppc_ids) > 1:

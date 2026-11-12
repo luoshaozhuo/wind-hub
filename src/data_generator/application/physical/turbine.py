@@ -94,11 +94,13 @@ class Turbine:
         eta = number(p, "generator_efficiency") * number(p, "converter_efficiency")
         rated = number(p, "rated_power_w")
         rotor_max = number(p, "max_rotor_speed_rad_s")
-        self.yaw += clamp(
-            (weather.wind_direction - self.yaw + math.pi) % (2 * math.pi) - math.pi,
-            -number(p, "yaw_rate_rad_s") * dt,
-            number(p, "yaw_rate_rad_s") * dt,
+        yaw_delta = (weather.wind_direction - self.yaw + math.pi) % (2 * math.pi) - math.pi
+        yaw_rate = clamp(
+            yaw_delta / number(p, "yaw_tau_s"),
+            -number(p, "yaw_rate_rad_s"),
+            number(p, "yaw_rate_rad_s"),
         )
+        self.yaw = (self.yaw + dt * yaw_rate + math.pi) % (2 * math.pi) - math.pi
         yaw_err = (weather.wind_direction - self.yaw + math.pi) % (2 * math.pi) - math.pi
         wind = weather.wind_speed * max(0, math.cos(yaw_err))
         radius = number(p, "rotor_radius_m")

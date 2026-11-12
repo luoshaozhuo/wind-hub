@@ -28,6 +28,10 @@ class PPC:
             raise GeneratorError("PPC requires positive allocation weights")
         if params.get("avc_mode") not in {"reactive_power", "voltage"}:
             raise GeneratorError("unknown PPC AVC mode")
+        if params["avc_mode"] == "voltage" and number(
+            params, "avc_voltage_gain_var_v"
+        ) <= 0:
+            raise GeneratorError("voltage AVC requires positive gain")
         number(params, "agc_ramp_w_s", minimum=0)
         number(params, "ffr_deadband_hz", minimum=0)
         number(params, "ffr_droop_w_hz", minimum=0)
