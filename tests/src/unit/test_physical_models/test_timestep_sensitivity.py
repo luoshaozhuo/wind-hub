@@ -98,14 +98,19 @@ def test_turbine_and_pv_reject_nonpositive_timestep(make_params, make_weather) -
             PV(make_params("solar")).advance(bad_dt, weather, {}, 690.0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT S2-DT-1（待 ChatGPT 修复生产代码）：BESS.advance 对 dt<=0 无校验，"
-        "负步长会静默反向积分能量账本；Turbine/PV 经 common.response 守卫已拒绝。"
-    ),
+@pytest.mark.parametrize(
+    "bad_dt",
+    [0.0, -0.05, math.nan, math.inf, -math.inf],
+    ids=["zero", "negative", "nan", "positive_infinity", "negative_infinity"],
 )
-def test_bess_rejects_nonpositive_timestep(make_params, make_weather) -> None:
+def test_bess_rejects_nonpositive_timestep(make_params, make_weather, bad_dt) -> None:
     bess = BESS(make_params("battery"))
+    state_before = (bess.energy, bess.soh, bess.temperature)
     with pytest.raises(GeneratorError):
-        bess.advance(0.0, make_weather(), {"active_power_setpoint": 100_000.0}, 690.0)
+        bess.advance(bad_dt, make_weather(), {"active_power_setpoint": 100_000.0}, 690.0)
+    # 非法步长必须在任何状态变更前被拒绝，内部能量/SOH/温度账本逐字不变。
+    assert (bess.energy, bess.soh, bess.temperature) == state_before
+    # 拒绝发生后，合法正步长的物理行为不受影响。
+    output = bess.advance(0.05, make_weather(), {"active_power_setpoint": 100_000.0}, 690.0)
+    assert "active_power" in output
+    assert bess.energy != state_before[0]
