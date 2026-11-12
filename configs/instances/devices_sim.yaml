@@ -7,7 +7,7 @@ devices:
     name: "风机仿真实例"
     enabled: true
     model:
-      id: wtg_sim
+      id: wtg_sim_physical
       version: 1.0.0
     endpoint:
       host: 127.0.0.1
@@ -17,7 +17,7 @@ devices:
     name: "光伏仿真实例"
     enabled: true
     model:
-      id: pv_sim
+      id: pv_sim_physical
       version: 1.0.0
     endpoint:
       host: 127.0.0.1
@@ -27,7 +27,7 @@ devices:
     name: "储能仿真实例"
     enabled: true
     model:
-      id: bess_sim
+      id: bess_sim_physical
       version: 1.0.0
     endpoint:
       host: 127.0.0.1
@@ -37,7 +37,7 @@ devices:
     name: "电网仿真实例"
     enabled: true
     model:
-      id: grid_sim
+      id: grid_sim_physical
       version: 1.0.0
     endpoint:
       host: 127.0.0.1
@@ -47,7 +47,7 @@ devices:
     name: "电厂控制器仿真实例"
     enabled: true
     model:
-      id: plant_controller_sim
+      id: plant_controller_sim_physical
       version: 1.0.0
     endpoint:
       host: 127.0.0.1
