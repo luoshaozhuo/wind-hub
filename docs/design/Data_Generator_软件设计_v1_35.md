@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_34 · 20261112</p>
+<p class="subtitle">v1_35 · 20261112</p>
 
 <style>
 body {
@@ -2838,7 +2838,7 @@ points:
 | `reactive_power` | 实际交流无功 | `sim_reactive_power` | `float32` | `var` | `input` | 40 / 2 | 否 | 否 |
 | `converter_current` | 变流器交流电流 | `sim_converter_current` | `float32` | `ampere` | `input` | 42 / 2 | 否 | 否 |
 | `converter_losses` | 机电变换损耗 | `sim_converter_losses` | `float32` | `watt` | `input` | 44 / 2 | 否 | 否 |
-| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 46 / 2 | 否 | 否 |
+| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `power_factor_one` | `input` | 46 / 2 | 否 | 否 |
 | `generator_temperature` | 发电机等效温度 | `generator_temperature` | `float32` | `celsius` | `input` | 48 / 2 | 否 | 否 |
 | `running_status` | 设备运行状态 | `sim_running_status` | `int32` | `none` | `input` | 50 / 2 | 否 | 否 |
 | `fault_status` | 故障状态码 | `sim_fault_status` | `int32` | `none` | `input` | 52 / 2 | 否 | 否 |
@@ -2862,7 +2862,7 @@ points:
 | `active_power` | 实际交流有功 | `sim_active_power` | `float32` | `watt` | `input` | 12 / 2 | 否 | 否 |
 | `reactive_power` | 实际交流无功 | `sim_reactive_power` | `float32` | `var` | `input` | 14 / 2 | 否 | 否 |
 | `ac_current` | 逆变器交流电流 | `sim_ac_current` | `float32` | `ampere` | `input` | 16 / 2 | 否 | 否 |
-| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 18 / 2 | 否 | 否 |
+| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `power_factor_one` | `input` | 18 / 2 | 否 | 否 |
 | `inverter_temperature` | 逆变器等效温度 | `sim_inverter_temperature` | `float32` | `celsius` | `input` | 20 / 2 | 否 | 否 |
 | `inverter_status` | 逆变器状态 | `sim_inverter_status` | `int32` | `none` | `input` | 22 / 2 | 否 | 否 |
 | `fault_status` | 故障状态码 | `sim_fault_status` | `int32` | `none` | `input` | 24 / 2 | 否 | 否 |
@@ -2887,7 +2887,7 @@ points:
 | `active_power` | 实际交流有功 | `sim_active_power` | `float32` | `watt` | `input` | 18 / 2 | 否 | 否 |
 | `reactive_power` | 实际交流无功 | `sim_reactive_power` | `float32` | `var` | `input` | 20 / 2 | 否 | 否 |
 | `pcs_current` | PCS交流电流 | `sim_pcs_current` | `float32` | `ampere` | `input` | 22 / 2 | 否 | 否 |
-| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 24 / 2 | 否 | 否 |
+| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `power_factor_one` | `input` | 24 / 2 | 否 | 否 |
 | `pcs_status` | PCS运行状态 | `sim_pcs_status` | `int32` | `none` | `input` | 26 / 2 | 否 | 否 |
 | `bms_status` | BMS运行状态 | `sim_bms_status` | `int32` | `none` | `input` | 28 / 2 | 否 | 否 |
 | `fault_status` | 故障状态码 | `sim_fault_status` | `int32` | `none` | `input` | 30 / 2 | 否 | 否 |
@@ -2910,7 +2910,7 @@ points:
 | `sim_apparent_power` | 三相视在功率 | `apparent_power` | `float32` | `volt_ampere` | `input` | 12 / 2 | 否 | 否 |
 | `active_power` | 实际交流有功 | `sim_active_power` | `float32` | `watt` | `input` | 14 / 2 | 否 | 否 |
 | `reactive_power` | 实际交流无功 | `sim_reactive_power` | `float32` | `var` | `input` | 16 / 2 | 否 | 否 |
-| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `ratio_one` | `input` | 18 / 2 | 否 | 否 |
+| `sim_power_factor` | 交流功率因数 | `power_factor` | `float32` | `power_factor_one` | `input` | 18 / 2 | 否 | 否 |
 | `grid_status` | 电网连接状态 | `sim_grid_status` | `int32` | `none` | `input` | 20 / 2 | 否 | 否 |
 | `fault_status` | 故障状态码 | `sim_fault_status` | `int32` | `none` | `input` | 22 / 2 | 否 | 否 |
 | `grid_frequency_input` | 外生频率扰动输入 | `sim_grid_frequency_input` | `float32` | `hertz` | `holding` | 0 / 2 | 是 | 否 |

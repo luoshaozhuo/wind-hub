@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_6 · 20261112 · 系统模块职责与依赖基线</p>
+<p class="subtitle">v1_7 · 20261112 · 系统模块职责与依赖基线</p>
 
 <style>
 body {
@@ -432,7 +432,7 @@ Data Generator 目标新增只读 `ListVariables` 和运行时输入更新 `Upda
 
 **共享配置**：`configs/instances/devices.yaml` 作为真实设备实例文件，设计目标中的 `configs/instances/devices_sim.yaml` 作为仿真设备实例文件，二者采用同一 Schema；当前仓库尚无 `devices_sim.yaml`，属于待编码和配置交付事项，不得当作已发布文件。服务实例按 `config_sources.instances.devices` 明确加载其中一个，现阶段不要求冻结基础模块支持两文件合并；仿真和真实模板分别版本化存放于共同的 `configs/templates/device_models/`、`point_tables/`、`business_points.yaml`、`units.yaml` 中。一个实际运行部署内 `device_id` 不得交叉冲突。Collector、Commander、Sink 和 Core 的既有协议/中间件合同保持不变；CLI 只增加仿真变量目录与更新的客户端操作，并严格区分 Gateway 数据注入和工业控制。
 
-**版本边界**：此项对应 Data Generator v1_34、Contracts v1_22、Industrial Gateway v1_28、CLI v1_28 和跨模块测试设计 v0_3 的目标契约；实际 Proto/Schema、配置、代码、调用方和测试未完成前不得视为已实现功能。跨模块测试设计只能引用本体设计，不能独立定义新的生产接口。
+**版本边界**：此项对应 Data Generator v1_35、Contracts v1_22、Industrial Gateway v1_28、CLI v1_28 和跨模块测试设计 v0_3 的目标契约；实际 Proto/Schema、配置、代码、调用方和测试未完成前不得视为已实现功能。跨模块测试设计只能引用本体设计，不能独立定义新的生产接口。
 
 # 5. 总体架构约束
 

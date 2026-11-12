@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_28 · 20261112</p>
+<p class="subtitle">v1_29 · 20261112</p>
 
 <style>
 body {
@@ -2325,7 +2325,7 @@ Message : Snapshot revision changed; fetch the current snapshot
 
 **接口实施门槛**：当前生产 `src/contracts/data_generator.proto` 只有六项 RPC，`src/cli/plant_commands.py` 还没有 `data-generator variables` 命令。目标八项必须先经正式 Contracts Proto 和 Stub 生成，随后实现 Data Generator Server 及 CLI；本文件定义设计与未来验收，不代表现有 CLI 命令已可执行。
 
-基于 Data Generator v1_34 与 Contracts v1_22 的目标接口，本节定义 CLI 变量发现及运行时模型输入更新。**两个新增 RPC 尚未进入正式 Proto，也未在 CLI 生产代码中实现**；现有设备/场景查询、生成启停和配置操作保持不变。
+基于 Data Generator v1_35 与 Contracts v1_22 的目标接口，本节定义 CLI 变量发现及运行时模型输入更新。**两个新增 RPC 尚未进入正式 Proto，也未在 CLI 生产代码中实现**；现有设备/场景查询、生成启停和配置操作保持不变。
 
 | CLI 命令（目标） | 调用 RPC | 作用与输出 |
 |---|---|---|
