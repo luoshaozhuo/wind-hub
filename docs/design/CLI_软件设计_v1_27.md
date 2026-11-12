@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_27 · 20261111</p>
+<p class="subtitle">v1_27 · 20261112</p>
 
 <style>
 body {
