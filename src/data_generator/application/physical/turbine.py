@@ -155,6 +155,11 @@ class Turbine:
         inertia = number(p, "rotor_inertia_kg_m2") + n**2 * number(p, "generator_inertia_kg_m2")
         damping = number(p, "shaft_damping_nm_s_rad", minimum=0)
         old_omega = self.omega
+        # A stopped rotor cannot be driven into negative speed by numerical torque lag.
+        max_stopping_torque = max(
+            0.0, (ta - damping * old_omega + inertia * old_omega / dt) / n
+        )
+        self.torque = min(self.torque, max_stopping_torque)
         # Enforce the electrical rating on the torque actuator, not on output watts.
         for _ in range(6):
             predicted = old_omega + dt * (
