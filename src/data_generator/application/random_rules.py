@@ -6,6 +6,7 @@ import hashlib
 import math
 import random
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from data_generator.domain.model import GeneratorError, Scalar, validate_scalar
 
@@ -20,7 +21,7 @@ def _choices(rule: Mapping[str, object]) -> tuple[list[Scalar], list[float] | No
     values = rule.get("values")
     if not isinstance(values, Sequence) or isinstance(values, str | bytes) or not values:
         raise GeneratorError("random choice requires candidates")
-    options: list[Scalar] = list(values)
+    options: list[Scalar] = [cast(Scalar, item) for item in values]
     weights = rule.get("weights")
     if weights is None:
         return options, None
@@ -40,7 +41,7 @@ def validate_rule(rule: Mapping[str, object], data_type: str) -> None:
     if type(rule.get("hold_steps", 1)) is not int or rule.get("hold_steps", 1) < 1:
         raise GeneratorError("hold_steps must be a positive integer")
     if distribution == "constant":
-        validate_scalar(rule.get("value"), data_type)
+        validate_scalar(cast(Scalar, rule.get("value")), data_type)
     elif distribution == "uniform" and is_float:
         low = _numeric(rule.get("min", rule.get("minimum")), "uniform lower bound")
         high = _numeric(rule.get("max", rule.get("maximum")), "uniform upper bound")
@@ -58,10 +59,12 @@ def validate_rule(rule: Mapping[str, object], data_type: str) -> None:
         for key in ("minimum", "maximum"):
             if key in rule:
                 _numeric(rule[key], key)
-        if "minimum" in rule and "maximum" in rule and rule["minimum"] > rule["maximum"]:
-            raise GeneratorError("invalid normal bounds")
+        if "minimum" in rule and "maximum" in rule:
+            if float(rule["minimum"]) > float(rule["maximum"]):
+                raise GeneratorError("invalid normal bounds")
+        attempts = rule.get("max_attempts")
         if policy == "resample" and (
-            type(rule.get("max_attempts")) is not int or rule["max_attempts"] < 1
+            type(attempts) is not int or attempts < 1
         ):
             raise GeneratorError("bounded normal resampling requires max_attempts")
     elif distribution == "uniform_int" and is_int:
@@ -128,7 +131,7 @@ def sample(
                 break
         else:
             raise GeneratorError("normal sample outside declared bounds")
-    return validate_scalar(value, data_type)
+    return validate_scalar(cast(Scalar, value), data_type)
 
 
 def generate(
@@ -139,8 +142,10 @@ def generate(
         rule = metadata.get("model")
         if not isinstance(rule, Mapping):
             raise GeneratorError("random point missing model rule")
+        seed = rule.get("seed", 0)
+        if type(seed) is not int:
+            raise GeneratorError("random seed must be an integer")
         result[(device, point)] = sample(
-            int(rule.get("seed", 0)), device, point, step, rule,
-            str(metadata["data_type"]),
+            seed, device, point, step, rule, str(metadata["data_type"])
         )
     return result
