@@ -44,8 +44,10 @@ class PhysicalEngine:
             if raw is None:
                 raise GeneratorError(f"physical model reference missing: {model_ref}")
             definition = as_mapping(raw, f"models.{model_ref}")
+            if definition.get("kind") == "random":
+                continue
             if definition.get("kind") != "physical":
-                raise GeneratorError("mixed physical and random models require separate bindings")
+                raise GeneratorError("unsupported configured model kind")
             kind = str(definition.get("device_kind"))
             factory = factories.get(kind)
             if factory is None:
@@ -123,7 +125,8 @@ class PhysicalEngine:
         results: dict[str, dict[str, float | int]] = {}
         for device in self._ppc_ids:
             ppc = self.models[device]
-            assert isinstance(ppc, PPC)
+            if not isinstance(ppc, PPC):
+                raise GeneratorError("invalid PPC model instance")
             limits = {name: self._device_capacity(name) for name in ppc.devices}
             dispatch, results[device] = ppc.advance(
                 dt, self.last, self.last_grid, self.inputs[device], limits
@@ -149,17 +152,17 @@ class PhysicalEngine:
         participants = [results[d] for d in sorted(results) if self.kinds[d] in {"wtg", "pv", "bess"}]
         for device in self._grid_ids:
             grid = self.models[device]
-            assert isinstance(grid, Grid)
+            if not isinstance(grid, Grid):
+                raise GeneratorError("invalid grid model instance")
             results[device] = grid.advance(dt, participants, self.inputs[device])
             self.last_grid = {
                 **results[device], "frequency_nominal": number(self.params[device], "nominal_frequency_hz")
             }
-        if self._ppc_ids:
-            self.last = {**self.last, **results}
-        else:
-            self.last.update(results)
+        self.last.update(results)
         final: dict[tuple[str, str], Scalar] = {}
         for (device, point), metadata in self.scenario.points.items():
+            if device not in self.models:
+                continue
             output = results.get(device, {})
             if point not in output:
                 raise GeneratorError(f"physical model does not provide output: {device}.{point}")
