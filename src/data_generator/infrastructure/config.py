@@ -303,7 +303,7 @@ def validate_service_limits(service: dict[str, Any]) -> None:
         or not directory
         or Path(directory).is_absolute()
         or ".." in Path(directory).parts
-        or "\\\\" in directory
+        or chr(92) in directory
     ):
         raise GeneratorError("recording.directory must be project-relative")
     recording["directory"] = directory
