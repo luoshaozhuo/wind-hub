@@ -259,15 +259,21 @@ class GatewayRuntime:
                         new_config.revision,
                         previous,
                     )
-                    self.instances[server_id] = replacement
                     if updated.settings.control.enabled:
                         forwarder = CommandForwarder(
                             updated.settings.control.target,
                             project_root=new_config.project_root,
                             observer=self._record_forward,
                         )
-                        await forwarder.start()
+                        try:
+                            await forwarder.start()
+                        except BaseException:
+                            await forwarder.stop()
+                            raise
                         self.forwarders[server_id] = forwarder
+                    # Never expose an enabled control listener before its
+                    # authenticated outbound forwarder is ready.
+                    self.instances[server_id] = replacement
                     if replacement.lifecycle.status.desired is DesiredState.START:
                         await self.start_server(server_id)
                     results.append(ApplicationResult(object_id=server_id, status="APPLIED"))
@@ -331,8 +337,15 @@ class GatewayRuntime:
     async def start(self) -> None:
         """Start configured listeners and reconcile failed START objects."""
         self._closing = False
-        for forwarder in self.forwarders.values():
-            await forwarder.start()
+        started: list[CommandForwarder] = []
+        try:
+            for forwarder in self.forwarders.values():
+                await forwarder.start()
+                started.append(forwarder)
+        except BaseException:
+            for forwarder in reversed(started):
+                await forwarder.stop()
+            raise
         self.observability.start(lambda: tuple(self.instances))
         for server_id, instance in self.instances.items():
             if instance.lifecycle.status.desired is DesiredState.START:
