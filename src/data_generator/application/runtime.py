@@ -10,11 +10,17 @@ import time
 import uuid
 from collections import defaultdict, deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from data_generator.application.models import generate_values
 from data_generator.application.physical.engine import PhysicalEngine
+from data_generator.application.physical.inputs import (
+    WEATHER_INPUTS,
+    validate_input,
+    validate_weather_input,
+    writable_inputs,
+)
 from data_generator.application.random_rules import generate as generate_configured_random
 from data_generator.application.replay import decode_value, iter_records, replay_deadline
 from data_generator.domain.model import (
@@ -42,6 +48,9 @@ class GenerationState:
     started_at: datetime | None = None
     terminal_state: str | None = None
     physical_engine: PhysicalEngine | None = None
+    current_step: int = 0
+    pending_inputs: list[tuple[int, str, dict[str, float | int]]] = field(default_factory=list)
+    request_history: dict[tuple[str, str], tuple[bytes, int]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +166,90 @@ class Runtime:
         async with self._lock:
             self._reconcile_locked()
             return self.generations.get(generation_id)
+
+    async def update_inputs(
+        self,
+        generation_id: str,
+        device_id: str,
+        caller: str,
+        request_id: str,
+        fingerprint: bytes,
+        values: dict[str, Scalar],
+    ) -> int:
+        """Validate the entire batch and reserve exactly one future step."""
+        async with self._lock:
+            state = self.generations.get(generation_id)
+            if (
+                state is None or self._active != generation_id
+                or state.desired_state != "RUNNING" or state.actual_state != "RUNNING"
+                or state.physical_engine is None
+            ):
+                raise GeneratorError("generation is not active for physical input control")
+            engine = state.physical_engine
+            if device_id not in state.scenario.devices or device_id not in engine.models:
+                raise GeneratorError("physical device not found in Generation")
+            history_key = (caller, request_id)
+            if history_key in state.request_history:
+                previous, step = state.request_history[history_key]
+                if previous != fingerprint:
+                    raise GeneratorError("request_id already used with different input")
+                return step
+            if len(state.request_history) >= 10000:
+                raise GeneratorError("generation request-id capacity exceeded")
+            kind = engine.kinds[device_id]
+            specs = writable_inputs(kind)
+            weather_id = engine.weather_refs.get(device_id)
+            verified: dict[str, float | int] = {}
+            for point_id, value in values.items():
+                if point_id in specs:
+                    if engine.controller_modes[device_id] == "ppc" and point_id in {
+                        "active_power_setpoint", "reactive_power_setpoint",
+                    }:
+                        raise GeneratorError("PPC owns this device setpoint")
+                    verified[point_id] = validate_input(value, specs[point_id])
+                elif point_id in WEATHER_INPUTS and weather_id is not None:
+                    verified[point_id] = validate_weather_input(
+                        value, WEATHER_INPUTS[point_id]
+                    )
+                else:
+                    raise GeneratorError(f"unknown or non-writable model input: {point_id}")
+            if not verified:
+                raise GeneratorError("input batch must not be empty")
+            effective_step = state.current_step + 1
+            state.pending_inputs.append((effective_step, device_id, verified))
+            state.request_history[history_key] = (fingerprint, effective_step)
+            return effective_step
+
+    def _install_inputs(
+        self, generation: GenerationState, step: int
+    ) -> None:
+        """Called on the event loop before advancing each discrete physical step."""
+        engine = generation.physical_engine
+        if engine is None:
+            return
+        due = [
+            item for item in generation.pending_inputs if item[0] <= step
+        ]
+        generation.pending_inputs = [
+            item for item in generation.pending_inputs if item[0] > step
+        ]
+        for _, device, values in due:
+            weather_id = engine.weather_refs.get(device)
+            external = {
+                key: float(value) for key, value in values.items()
+                if key in WEATHER_INPUTS
+            }
+            model = {
+                key: float(value) for key, value in values.items()
+                if key not in WEATHER_INPUTS
+            }
+            if external:
+                if weather_id is None:
+                    raise GeneratorError("weather input has no bound weather reference")
+                engine.set_weather_inputs(weather_id, external)
+            if model:
+                engine.set_inputs(device, model)
+        generation.current_step = step
 
     async def start(
         self,
@@ -366,6 +459,7 @@ class Runtime:
                     values = {}
                     # Reconcile skipped fixed steps without dropping physical state evolution.
                     for index in range(sequence - skipped, sequence + 1):
+                        self._install_inputs(generation, index)
                         values = physical.advance(interval, index)
                     if random_points:
                         values.update(generate_configured_random(sequence, random_points))
