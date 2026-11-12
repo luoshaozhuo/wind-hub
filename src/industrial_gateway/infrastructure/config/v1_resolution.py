@@ -154,25 +154,30 @@ def _points(server: ServerConfig, device: SharedDeviceDefinition) -> ResolvedSer
         except ValueError as exc:
             raise ConfigError(f"{server.device_id}: {exc}") from exc
 
-    for command_mapping in server.command_mappings:
+    for command_mapping in server.control.mappings:
         command_variable = points.get(command_mapping.variable_id)
         if command_variable is None:
             raise ConfigError(
                 f"{server.device_id}: unknown command variable " f"{command_mapping.variable_id}"
             )
-        if command_mapping.commander_point_id not in points:
+        if command_mapping.target_point_id not in points:
             raise ConfigError(
-                f"{server.device_id}: commander point "
-                f"{command_mapping.commander_point_id} is not in the bound device"
+                f"{server.device_id}: target point "
+                f"{command_mapping.target_point_id} is not in the bound device"
             )
         if protocol == "modbus" and command_variable.address.get("register_type") not in {
             "holding",
             "coil",
         }:
             raise ConfigError(f"{server.device_id}: control mapping is read only")
+        if server.control.target.kind == "data_generator":
+            # Target writability is verified again via ListVariables at submit time.
+            # The binding must refer to a point in this Server's shared table.
+            if command_mapping.target_point_id not in points:
+                raise ConfigError("Generator control target must belong to bound device")
     # Modbus on_access captures protocol request writes independently of gRPC.
     # Other adapters must prove the same capability before enabling control.
-    if server.control_enabled and protocol != "modbus":
+    if server.control.enabled and protocol != "modbus":
         raise ConfigError(f"{server.server_id}: request-level control unavailable for {protocol}")
     return ResolvedServer(server, protocol, points, tuple(registers), unit_id)
 
