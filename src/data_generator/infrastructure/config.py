@@ -15,6 +15,7 @@ import yaml
 from configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
+    SharedDocuments,
 )
 from configuration.shared_snapshot import (
     SharedDomainSnapshot,
@@ -85,52 +86,72 @@ def _resolve_points(
 
 
 def _configured_model_points(
-    raw: dict[str, Any], shared: SharedDomainSnapshot
-) -> tuple[tuple[str, ...], dict[tuple[str, str], dict[str, Any]], dict[str, dict[str, Any]]]:
-    """Resolve model bindings against the authoritative shared point tables."""
-    definitions = raw.get("models")
-    if not isinstance(definitions, dict) or not definitions:
-        raise GeneratorError("scenario models must be a nonempty mapping")
-    for name, definition in definitions.items():
-        if not isinstance(name, str) or not name:
-            raise GeneratorError("model ID must be a nonempty string")
-        if not isinstance(definition, dict) or definition.get("kind") not in {"physical", "random"}:
-            raise GeneratorError(f"invalid configured model: {name}")
+    raw: dict[str, Any],
+    shared: SharedDomainSnapshot,
+    documents: SharedDocuments,
+) -> tuple[
+    tuple[str, ...],
+    dict[tuple[str, str], dict[str, Any]],
+    dict[str, dict[str, Any]],
+    dict[str, dict[str, Any]],
+]:
+    """Bind each virtual device to its own versioned simulation model."""
+    definitions = raw.get("models", {})
+    if not isinstance(definitions, dict):
+        raise GeneratorError("invalid random model declarations")
     devices: list[str] = []
     points: dict[tuple[str, str], dict[str, Any]] = {}
     bindings: dict[str, dict[str, Any]] = {}
-    for binding in raw.get("devices", []):
-        if not isinstance(binding, dict):
+    models: dict[str, dict[str, Any]] = {}
+    expected_types = {
+        "wtg": "turbine",
+        "pv": "photovoltaic",
+        "bess": "energy_storage",
+        "grid": "grid",
+        "ppc": "plant_controller",
+    }
+    for item in raw.get("devices", []):
+        if not isinstance(item, dict):
             raise GeneratorError("invalid scenario device binding")
-        device_id = binding.get("device_id")
-        model_ref = binding.get("model_ref")
+        device_id = item.get("device_id")
         if not isinstance(device_id, str) or not device_id or device_id in bindings:
             raise GeneratorError("duplicate or invalid scenario device")
-        if not isinstance(model_ref, str) or model_ref not in definitions:
-            raise GeneratorError(f"{device_id}: model reference missing")
-        definition = definitions[model_ref]
-        if not isinstance(definition, dict) or definition.get("kind") not in {"physical", "random"}:
-            raise GeneratorError("unsupported configured model kind")
         shared_device = shared.site.devices.get(DeviceId(device_id))
-        if shared_device is None or not shared_device.enabled:
+        document_device = documents.devices.get(device_id)
+        if shared_device is None or not shared_device.enabled or document_device is None:
             raise GeneratorError(f"{device_id}: unknown or disabled shared device")
         model = shared.device_models[shared_device.device_model_id]
         table = shared.point_tables[model.point_table_id]
-        kind = definition["kind"]
-        if kind == "physical":
-            expected_types = {
-                "wtg": "turbine",
-                "pv": "photovoltaic",
-                "bess": "energy_storage",
-                "grid": "grid",
-                "ppc": "plant_controller",
-            }
-            expected = expected_types.get(str(definition.get("device_kind")))
+        declared = item.get("model_ref")
+        if declared is not None:
+            definition = definitions.get(declared)
+            if not isinstance(definition, dict) or definition.get("kind") != "random":
+                raise GeneratorError(f"{device_id}: invalid random model reference")
+            if "simulation" in document_device.templates.model.document:
+                raise GeneratorError("random source cannot override a physical simulation model")
+            model_ref = str(declared)
+        else:
+            simulation = document_device.templates.model.document.get("simulation")
+            if not isinstance(simulation, dict) or simulation.get("kind") != "physical":
+                raise GeneratorError(f"{device_id}: simulation model missing from device template")
+            expected = expected_types.get(str(simulation.get("device_kind")))
             if expected is None or str(model.device_type_id) != expected:
-                raise GeneratorError(f"{device_id}: physical kind and shared model disagree")
-        selected = binding.get("points")
+                raise GeneratorError(f"{device_id}: device type and physical model disagree")
+            parameters = simulation.get("parameters")
+            if not isinstance(parameters, dict) or not parameters:
+                raise GeneratorError(f"{device_id}: physical parameters missing")
+            model_ref = device_id
+            definition = {
+                "kind": "physical",
+                "device_kind": simulation["device_kind"],
+                "parameters": parameters,
+                "weather_ref": item.get("weather_ref"),
+                "controller_mode": item.get("controller_mode", "local"),
+            }
+        models[model_ref] = definition
+        selected = item.get("points", list(table.points))
         if not isinstance(selected, list) or not selected:
-            raise GeneratorError(f"{device_id}: nonempty output point list required")
+            raise GeneratorError(f"{device_id}: empty selected point set")
         for point_id in selected:
             if not isinstance(point_id, str) or point_id not in table.points:
                 raise GeneratorError(f"{device_id}: unknown shared point {point_id}")
@@ -140,7 +161,7 @@ def _configured_model_points(
             point = table.points[point_id]
             business = shared.business_points[point.business_point_id]
             metadata: dict[str, Any] = {"data_type": business.data_type.value}
-            if kind == "random":
+            if definition["kind"] == "random":
                 rules = definition.get("rules")
                 if not isinstance(rules, dict) or point_id not in rules:
                     raise GeneratorError(f"{device_id}: missing random rule for {point_id}")
@@ -154,8 +175,10 @@ def _configured_model_points(
                 metadata["model"] = {"kind": "random", "seed": seed, **rule}
             points[key] = metadata
         devices.append(device_id)
-        bindings[device_id] = dict(binding)
-    return tuple(devices), points, bindings
+        bindings[device_id] = {"device_id": device_id, "model_ref": model_ref}
+    if not points:
+        raise GeneratorError("scenario has no points")
+    return tuple(devices), points, bindings, models
 
 
 def _validate_models(source: dict[str, Any], points: dict[tuple[str, str], dict[str, Any]]) -> None:
@@ -305,17 +328,13 @@ def config_sources(service_file: Path, service: dict[str, Any]) -> dict[str, Pat
         raise GeneratorError("service.config_sources requires instances and templates")
     instances = configuration["instances"]
     templates = configuration["templates"]
-    if not isinstance(instances, dict) or set(instances) != {
-        "site",
-        "devices",
-        "scenarios",
-    }:
-        raise GeneratorError("instances requires site, devices and scenarios paths")
+    if not isinstance(instances, dict) or set(instances) != {"site", "devices"}:
+        raise GeneratorError("instances requires site and devices paths")
     if not isinstance(templates, dict) or set(templates) != {"root"}:
         raise GeneratorError("templates requires only root")
     resolved = {
         key: resolve_source(service_file, instances[key])
-        for key in ("site", "devices", "scenarios")
+        for key in ("site", "devices")
     }
     resolved["templates_root"] = resolve_source(
         service_file,
@@ -339,7 +358,6 @@ def load_settings(service_path: Path) -> Settings:
     service = load_yaml(path)
     validate_service_limits(service)
     paths = config_sources(path, service)
-    instance = load_yaml(paths["scenarios"])
     try:
         documents = SharedDocumentLoader(
             SharedConfigPaths(
@@ -352,7 +370,7 @@ def load_settings(service_path: Path) -> Settings:
         shared = build_shared_snapshot(documents)
     except (OSError, KeyError, TypeError, ValueError) as exc:
         raise GeneratorError(f"invalid shared configuration: {exc}") from exc
-    raw_scenarios = instance.get("scenarios")
+    raw_scenarios = service.get("scenarios")
     if not isinstance(raw_scenarios, list) or not raw_scenarios:
         raise GeneratorError("at least one scenario required")
     scenarios: dict[str, Scenario] = {}
@@ -367,16 +385,18 @@ def load_settings(service_path: Path) -> Settings:
         source = raw.get("source")
         if not isinstance(source, dict):
             raise GeneratorError("invalid scenario source")
-        if "models" in raw:
+        if "models" in raw or any(
+            isinstance(item, dict) and ("weather_ref" in item or "controller_mode" in item)
+            for item in raw.get("devices", [])
+        ):
             if source.get("kind") != "simulation":
                 raise GeneratorError("configured models require simulation source")
-            devices, points, bindings = _configured_model_points(raw, shared)
+            devices, points, bindings, models = _configured_model_points(raw, shared, documents)
             interval = source.get("interval_seconds")
             if not is_real_number(interval) or not math.isfinite(interval) or interval <= 0:
                 raise GeneratorError("simulation interval must be positive")
             if type(source.get("seed", 0)) is not int:
                 raise GeneratorError("simulation seed must be integer")
-            models = raw["models"]
             weather = raw.get("weather", {})
             if not isinstance(weather, dict):
                 raise GeneratorError("invalid weather mapping")
@@ -389,31 +409,31 @@ def load_settings(service_path: Path) -> Settings:
         targets: set[OutputTarget] = set()
         for gateway in raw.get("gateways", []):
             if not isinstance(gateway, dict):
-                raise GeneratorError("invalid Gateway")
-            gateway_id, endpoint = gateway.get("gateway_id"), gateway.get("endpoint")
+                raise GeneratorError("invalid Gateway route")
+            gateway_id = gateway.get("gateway_id")
+            endpoint = gateway.get("endpoint")
+            device_id = gateway.get("device_id")
             if not isinstance(gateway_id, str) or not gateway_id or gateway_id in gateways:
                 raise GeneratorError("duplicate Gateway ID")
             if not isinstance(endpoint, str) or not endpoint:
                 raise GeneratorError("invalid Gateway endpoint")
+            if device_id not in devices:
+                raise GeneratorError("Gateway route references unknown scenario device")
+            if "feedback_mapping" in gateway:
+                raise GeneratorError("Gateway point mapping belongs to Gateway configuration")
             gateways[gateway_id] = endpoint
-            for mapping in gateway.get("feedback_mapping", []):
-                if not isinstance(mapping, dict):
-                    raise GeneratorError("invalid feedback mapping")
-                key = (mapping.get("device_id"), mapping.get("point_id"))
-                if key not in points:
-                    raise GeneratorError("output mapping references unknown source point")
-                variable_id = mapping.get("variable_id")
-                if not isinstance(variable_id, str) or not variable_id.strip():
-                    raise GeneratorError("invalid output variable ID")
-                target = OutputTarget(gateway_id, variable_id)
+            for source_device, point_id in points:
+                if source_device != device_id:
+                    continue
+                target = OutputTarget(gateway_id, point_id)
                 if target in targets:
                     raise GeneratorError(f"duplicate output target: {target}")
                 targets.add(target)
-                mappings.append(OutputMapping(key[0], key[1], target))
+                mappings.append(OutputMapping(source_device, point_id, target))
         if not mappings:
-            raise GeneratorError("scenario requires output mappings")
+            raise GeneratorError("scenario requires Gateway device routes")
         if set(points) - {(item.device_id, item.point_id) for item in mappings}:
-            raise GeneratorError("enabled source point lacks output mapping")
+            raise GeneratorError("enabled source point lacks Gateway device route")
         scenarios[scenario_id] = Scenario(
             scenario_id,
             version,
@@ -434,7 +454,6 @@ def load_settings(service_path: Path) -> Settings:
     payload = json.dumps(
         {
             "service_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "scenario_sha256": hashlib.sha256(paths["scenarios"].read_bytes()).hexdigest(),
             "shared_revision": shared.revision,
         },
         sort_keys=True,
@@ -447,7 +466,6 @@ def load_settings(service_path: Path) -> Settings:
         hashlib.sha256(payload).hexdigest(),
         shared,
         path,
-        paths["scenarios"],
         paths["site"],
         paths["devices"],
         paths["units"],
