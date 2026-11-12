@@ -36,6 +36,8 @@ class Turbine:
             raise GeneratorError("turbine apparent capacity below active rating")
         if number(params, "rated_rotor_speed_rad_s") >= number(params, "max_rotor_speed_rad_s"):
             raise GeneratorError("turbine rated rotor speed must be less than maximum")
+        number(params, "pitch_power_gain_rad_w", minimum=0)
+        number(params, "shaft_damping_nm_s_rad", minimum=0)
         self.min_pitch = number(params, "pitch_min_rad", minimum=0)
         self.feather = number(params, "pitch_feather_rad")
         if self.feather <= self.min_pitch:

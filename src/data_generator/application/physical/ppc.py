@@ -13,10 +13,12 @@ class PPC:
     def __init__(self, params: Mapping[str, object]) -> None:
         self.p = params
         ids = params.get("participating_device_ids")
-        if not isinstance(ids, list) or not ids or len(ids) != len(set(ids)):
+        if not isinstance(ids, list) or not ids:
             raise GeneratorError("invalid PPC participating devices")
         if not all(isinstance(item, str) and item for item in ids):
             raise GeneratorError("invalid PPC device ID")
+        if len(ids) != len(set(ids)):
+            raise GeneratorError("duplicate PPC participating device")
         weights = params.get("allocation_weights")
         if not isinstance(weights, dict) or set(weights) != set(ids):
             raise GeneratorError("invalid PPC allocation weights")
@@ -35,7 +37,10 @@ class PPC:
         self, total: float, lower: Mapping[str, float], upper: Mapping[str, float]
     ) -> dict[str, float]:
         minimum = sum(lower.values())
-        maximum = sum(upper.values())
+        maximum = sum(
+            upper[key] if self.weights[key] > 0 else lower[key]
+            for key in self.devices
+        )
         target = clamp(total, minimum, maximum)
         lo, hi = 0.0, max((upper[key] - lower[key]) / self.weights[key]
                           for key in self.devices if self.weights[key] > 0)

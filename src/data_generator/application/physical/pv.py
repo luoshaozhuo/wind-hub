@@ -31,7 +31,17 @@ class PV:
         self.cell_temperature = number(params, "stc_cell_temperature_c")
         self.dc_voltage = number(params, "mppt_voltage_v")
         self.inverter_temperature = self.cell_temperature
-        self.mppt_enabled = True
+        enabled = params.get("mppt_enabled", True)
+        if type(enabled) is not bool:
+            raise GeneratorError("PV MPPT enable must be Boolean")
+        self.mppt_enabled = enabled
+        self.dc_target = (
+            number(params, "mppt_voltage_v") if enabled
+            else number(params, "dc_voltage_setpoint", minimum=0)
+        )
+        if not 0 < self.dc_target < number(params, "open_circuit_voltage_v"):
+            raise GeneratorError("PV target DC voltage must be within open-circuit voltage")
+        number(params, "power_temp_coefficient_per_k")
 
     def advance(
         self, dt: float, weather: Weather, controls: Mapping[str, float], voltage: float
@@ -46,7 +56,9 @@ class PV:
                            * (self.cell_temperature - number(p, "stc_cell_temperature_c"))))
         mp = number(p, "mppt_voltage_v")
         oc = number(p, "open_circuit_voltage_v")
-        self.dc_voltage = response(self.dc_voltage, mp, dt, number(p, "mppt_tau_s"))
+        self.dc_voltage = response(
+            self.dc_voltage, self.dc_target, dt, number(p, "mppt_tau_s")
+        )
         if self.dc_voltage < mp:
             shape = max(0, self.dc_voltage) / mp
         else:
@@ -76,7 +88,7 @@ class PV:
         return finite_outputs({
             "cell_temperature": self.cell_temperature,
             "pv_available_power": available,
-            "mppt_state": 1,
+            "mppt_state": int(self.mppt_enabled),
             "dc_voltage": self.dc_voltage,
             "dc_current": dc_current,
             "dc_power": dc_power,
