@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import statistics
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -432,6 +434,37 @@ async def test_two_writes_arrive_fifo_with_duplicate_request_ids(linked_harness)
     assert len(set(servicer.request_order)) == 2
     assert servicer.update_log[0]["values"] == [(COMMAND_FLOAT, 21.0)]
     assert servicer.update_log[1]["values"] == [(COMMAND_UINT, 777)]
+
+
+async def test_modbus_to_generator_update_latency_distribution(linked_harness) -> None:
+    """S4 真实链路延迟基线：50 次顺序 Modbus 写 → mTLS DG 终态 RTT 分位数。"""
+    runtime, servicer, client, _grpc = linked_harness
+    samples = 50
+    latencies_ms: list[float] = []
+    for index in range(samples):
+        value = 100.0 + index * 0.25  # 全部 float32 可精确表示，便于逐值匹配记录
+        began = time.perf_counter()
+        result = await client.write_registers(ADDR[COMMAND_FLOAT], float_words(value), device_id=1)
+        assert not result.isError()
+        record = await _wait_terminal(runtime, COMMAND_FLOAT, value)
+        latencies_ms.append((time.perf_counter() - began) * 1e3)
+        assert record.state is ForwardState.ACCEPTED
+    ordered = sorted(latencies_ms)
+    p99 = ordered[round(0.99 * (samples - 1))]
+    print(
+        "\n[S4 link latency ms]",
+        {
+            "samples": samples,
+            "p50": round(statistics.median(ordered), 3),
+            "p95": round(ordered[round(0.95 * (samples - 1))], 3),
+            "p99": round(p99, 3),
+            "max": round(ordered[-1], 3),
+            "failures": 0,
+        },
+    )
+    assert len(servicer.update_log) == samples
+    # 配置契约 request_timeout_ms=5000：p99 必须留有充足裕度，不虚构更严 SLA。
+    assert p99 < 5000.0
 
 
 async def test_grpc_measurement_injection_never_reaches_generator(linked_harness) -> None:
