@@ -2124,9 +2124,9 @@ $U_{LL}\le0$ 时进入无电网状态，不计算带除零的电流。视在功�
 
 ### 10.5.3 风机：风场、气动、变桨、偏航、传动与变流器
 
-风机模型由随机风场、气动、偏航、三叶片变桨、转矩、变流器和保护共同组成。**随机风速只是 \`physical\` 的内部风场算法，不是第三种生成模型。** 用户通过 \`UpdateVariables\` 修改 \`wind_speed_mean\`（平均风速）及 \`turbulence_intensity\`（湍流度），\`wind_speed\` 由模型生成，不允许直接改写。
+风机模型由随机风场、气动、偏航、三叶片变桨、转矩、变流器和保护共同组成。**随机风速只是 `physical` 的内部风场算法，不是第三种生成模型。** 用户通过 `UpdateVariables` 修改 `wind_speed_mean`（平均风速）及 `turbulence_intensity`（湍流度），`wind_speed` 由模型生成，不允许直接改写。
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
   C["平均风速 / 湍流度"] --> W["相关随机风速"]
   W --> A["气动功率与转矩"]
@@ -2136,13 +2136,13 @@ flowchart LR
   R --> E["发电机 / 变流器"]
   G["AGC / AVC / FFR"] --> E
   E --> O["P / Q / I / 运行状态"]
-\`\`\`
+```
 
 <p class="figure-caption">图 10-2 风场、机电系统与控制关系</p>
 
-**输入：** \`wind_speed_mean\`、\`turbulence_intensity\`、\`air_density\`、\`wind_direction\`、\`ambient_temperature\`；以及偏航、变桨、转矩、AGC、AVC、FFR、启停和复位指令。**状态：** 风速随机过程、偏航角、三支叶片角、叶轮速度、电磁转矩、温度与运行状态。**输出：** \`wind_speed\`、气动功率/转矩、可用功率、发电机转速、电功率、无功、电流、故障和控制反馈。
+**输入：** `wind_speed_mean`、`turbulence_intensity`、`air_density`、`wind_direction`、`ambient_temperature`；以及偏航、变桨、转矩、AGC、AVC、FFR、启停和复位指令。**状态：** 风速随机过程、偏航角、三支叶片角、叶轮速度、电磁转矩、温度与运行状态。**输出：** `wind_speed`、气动功率/转矩、可用功率、发电机转速、电功率、无功、电流、故障和控制反馈。
 
-#### 10.5.3.0 风速随机过程
+#### 风速随机过程
 
 采用具有时间相关性的对数正态过程。设平均风速 \(\bar v\ge0\)（m/s）、湍流度 \(I_v\ge0\)（无量纲，20% 应作为 0.20）、相关时间常数 \(\tau_v>0\)（s，模型配置）、固定计算步长 \(\Delta t\)（s），\(z_k\) 为无量纲标准随机状态，\(\xi_k\) 为逐步独立标准正态扰动：
 
@@ -2170,7 +2170,7 @@ $$
 
 式中 \(v\) 为瞬时风速（m/s），\(\sigma_v\) 为风速标准差（m/s），\(s_v\) 为无量纲对数正态形状参数，\(a_v\) 为一计算步随机状态相关系数。随机状态 \(z_0\) 必须按场景种子确定性初始化；同样的种子、步数、输入更新时序和设备 ID 必须生成相同风序列。该模型可用于一般闭环测试，但不等同 IEC/Kaimal 湍流谱。
 
-**更新语义：** \`wind_speed_mean\` 与 \`turbulence_intensity\` 为 Generator 可写 INPUT；\`wind_speed\` 是只读 OUTPUT。更改平均值或湍流度时保留随机状态 \(z_k\)，新参数在 \`effective_step\` 生效。平均风速为零时输出零；切出风速由风机保护判定，不能裁剪随机样本后宣称仍满足给定湍流度。模型参数 \`wind_correlation_time_s\`、\`wind_seed\` 和初始随机状态由场景配置确定，不作为运行时控制点。
+**更新语义：** `wind_speed_mean` 与 `turbulence_intensity` 为 Generator 可写 INPUT；`wind_speed` 是只读 OUTPUT。更改平均值或湍流度时保留随机状态 \(z_k\)，新参数在 `effective_step` 生效。平均风速为零时输出零；切出风速由风机保护判定，不能裁剪随机样本后宣称仍满足给定湍流度。模型参数 `wind_correlation_time_s`、`wind_seed` 和初始随机状态由场景配置确定，不作为运行时控制点。
 
 
 
@@ -2285,7 +2285,7 @@ $$
 
 ### 10.5.4 光伏：组件、MPPT 与逆变器
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
   A["辐照度 / 环境温度"] --> T["组件温度"]
   T --> P["最大可用直流功率"]
@@ -2294,11 +2294,11 @@ flowchart LR
   D --> I["逆变器限幅和效率"]
   C["AGC / 无功设定"] --> I
   I --> O["交流 P / Q / I / 状态"]
-\`\`\`
+```
 
-**外生输入：** \`irradiance\`、\`ambient_temperature\`、\`wind_speed\`（组件环境风速）、\`mppt_enable\`、\`dc_voltage_setpoint\`、\`inverter_enable\`、有功与无功设定。**状态：** 组件温度、直流电压、MPPT 状态、逆变器温度/状态。**输出：** 可用功率、DC P/U/I、交流 P/Q/I、功率因数和保护结果。
+**外生输入：** `irradiance`、`ambient_temperature`、`wind_speed`（组件环境风速）、`mppt_enable`、`dc_voltage_setpoint`、`inverter_enable`、有功与无功设定。**状态：** 组件温度、直流电压、MPPT 状态、逆变器温度/状态。**输出：** 可用功率、DC P/U/I、交流 P/Q/I、功率因数和保护结果。
 
-计算关系见式 (10-13)～(10-16)。光伏 \`wind_speed\` 可由外部单独输入，也可按场景显式绑定其他风场，不能默认为风机随机风速。零辐照、无效电压及逆变器停机状态必须输出符合能源约束的结果。
+计算关系见式 (10-13)～(10-16)。光伏 `wind_speed` 可由外部单独输入，也可按场景显式绑定其他风场，不能默认为风机随机风速。零辐照、无效电压及逆变器停机状态必须输出符合能源约束的结果。
 
 
 ### 10.5.4.1 光伏阵列可用功率、直流电流及 MPPT
@@ -2348,7 +2348,7 @@ $$
 
 ### 10.5.5 储能：电池、SOC/SOH、热模型与 PCS
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
   C["充放电设定 / AGC / FFR"] --> P["PCS 功率限幅"]
   Q["无功设定"] --> P
@@ -2358,7 +2358,7 @@ flowchart LR
   H --> B["BMS 保护"]
   B --> P
   P --> O["交流 P / Q / I、状态"]
-\`\`\`
+```
 
 **输入：** 有功/无功设定、AGC/FFR、充放电使能、环境温度、冷却与老化使能、启停和故障复位。**状态：** 电池能量、SOC、SOH、电池温度及 BMS/PCS 状态。**输出：** 电池端电压、电流和损耗，可充/放电功率、PCS P/Q/I、功率因数及故障结果。
 
@@ -2417,7 +2417,7 @@ PCS 的实际功率须经过一阶/斜率限制和本步 SOC/端电压校验。�
 
 ### 10.5.6 电网：基频准稳态等值
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
   P["风光储实际 P / Q"] --> S["三相功率聚合"]
   U["外部电压源、R / X"] --> V["母线电压等值"]
@@ -2426,9 +2426,9 @@ flowchart LR
   S --> O["电流 / 功率因数"]
   V --> O
   R --> O
-\`\`\`
+```
 
-**输入：** \`grid_voltage_source\`、\`grid_frequency_input\`、\`grid_connected\`、各设备同一时刻的实际 P/Q。**状态：** 并网状态、保护状态（动态频率模式额外包括频率）。**输出：** 电厂 P/Q、母线电压、频率、偏差、ROCOF、线电流、视在功率、功率因数。
+**输入：** `grid_voltage_source`、`grid_frequency_input`、`grid_connected`、各设备同一时刻的实际 P/Q。**状态：** 并网状态、保护状态（动态频率模式额外包括频率）。**输出：** 电厂 P/Q、母线电压、频率、偏差、ROCOF、线电流、视在功率、功率因数。
 
 式 (10-21)～(10-24) 描述三相聚合、R/X 电压近似和两种互斥的频率模式。不模拟多母线潮流、电磁暂态或谐波；电网输出在当前步结算后，下一步才反馈 PPC。
 
@@ -2478,7 +2478,7 @@ $$
 
 PPC 是具有独立共享设备实例和点表的模拟设备，不替代 Commander 的调度审计与 Gateway 的协议适配。
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
   A["AGC 有功目标"] --> D["有功有界分配"]
   V["AVC 电压 / 无功目标"] --> Q["无功分配"]
@@ -2491,15 +2491,15 @@ flowchart LR
   B -.->|"下一步反馈"| D
   B -.->|"下一步反馈"| Q
   B -.->|"下一步反馈"| R
-\`\`\`
+```
 
-**AGC：** \`agc_enable\`、\`agc_power_setpoint\` 和 \`active_power_feedback\`；输出 \`agc_allocated_power\`、\`agc_tracking_error\`、\`unserved_power_command\`。按式 (10-25)～(10-26) 分配，不能分配的目标必须如实输出。
+**AGC：** `agc_enable`、`agc_power_setpoint` 和 `active_power_feedback`；输出 `agc_allocated_power`、`agc_tracking_error`、`unserved_power_command`。按式 (10-25)～(10-26) 分配，不能分配的目标必须如实输出。
 
-**AVC：** \`avc_enable\`、\`avc_voltage_setpoint\`、\`avc_reactive_setpoint\` 与 \`grid_voltage_feedback\`；输出 \`avc_allocated_reactive_power\`、\`avc_reactive_error\`。按式 (10-27)～(10-28) 计算，电压/无功模式互斥。
+**AVC：** `avc_enable`、`avc_voltage_setpoint`、`avc_reactive_setpoint` 与 `grid_voltage_feedback`；输出 `avc_allocated_reactive_power`、`avc_reactive_error`。按式 (10-27)～(10-28) 计算，电压/无功模式互斥。
 
-**快速调频：** \`ffr_enable\`、\`ffr_deadband\`、\`ffr_droop\`、\`grid_frequency_feedback\`；输出 \`ffr_power_command\`、\`ffr_active\`、\`frequency_deviation\`。按式 (10-29) 计算，受各设备实际可用功率、SOC 和爬坡约束。
+**快速调频：** `ffr_enable`、`ffr_deadband`、`ffr_droop`、`grid_frequency_feedback`；输出 `ffr_power_command`、`ffr_active`、`frequency_deviation`。按式 (10-29) 计算，受各设备实际可用功率、SOC 和爬坡约束。
 
-电厂总量 \`plant_active_power\`、\`plant_reactive_power\`、\`plant_available_power\` 由各设备实际结果聚合。局部控制与 PPC 控制通过 \`controller_mode=local|plant\` 互斥，不同时写同一设定量。
+电厂总量 `plant_active_power`、`plant_reactive_power`、`plant_available_power` 由各设备实际结果聚合。局部控制与 PPC 控制通过 `controller_mode=local|plant` 互斥，不同时写同一设定量。
 
 
 ### 10.5.7.1 电厂 AGC / AVC / 快速调频控制方程
