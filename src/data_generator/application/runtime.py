@@ -545,10 +545,15 @@ class Runtime:
         if not directory.is_relative_to(base):
             raise GeneratorError("recording directory escapes project root")
         path = directory / f"{generation.generation_id}.jsonl"
+
         def encode(value: Scalar) -> Scalar | dict[str, str]:
             if isinstance(value, bytes):
-                return {"encoding": "base64", "value": base64.b64encode(value).decode("ascii")}
+                return {
+                    "encoding": "base64",
+                    "value": base64.b64encode(value).decode("ascii"),
+                }
             return value
+
         payload: dict[str, object] = {
             "generation_id": batch.source_id,
             "sequence": batch.sequence,
