@@ -14,7 +14,11 @@ from contracts import commander_pb2_grpc as rpc
 from contracts import common_pb2 as common
 from contracts.scalar_codec import encode_scalar
 from industrial_gateway.application.variable_store import Scalar
-from industrial_gateway.infrastructure.config.v1_schema import ControlTarget, service_path
+from industrial_gateway.infrastructure.config.v1_schema import (
+    ControlTarget,
+    TlsConfig,
+    service_path,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,9 +48,7 @@ class CommanderRpcClient:
     def start(self) -> None:
         if self._stub is not None:
             raise RuntimeError("Commander channel already started")
-        tls = self._config.tls
-        if tls is None:
-            raise ValueError("Commander TLS setting required")
+        tls = self._config.tls or TlsConfig()
         if tls.enabled:
             if tls.ca_file is None or tls.cert_file is None or tls.key_file is None:
                 raise ValueError("Commander mTLS requires CA, certificate and key")
@@ -57,7 +59,7 @@ class CommanderRpcClient:
             )
             channel = grpc.aio.secure_channel(self._endpoint, credentials)
         else:
-            channel = grpc.aio.insecure_channel(self._config.commander_endpoint)
+            channel = grpc.aio.insecure_channel(self._endpoint)
         self._channel = channel
         self._stub = rpc.CommanderServiceStub(channel)
 
