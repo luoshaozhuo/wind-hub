@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_21 · 20261111 · main@3251e622（稳定线协议与 RPC 契约）</p>
+<p class="subtitle">v1_21 · 20261112 · RPC 契约设计</p>
 
 <style>
 body {
