@@ -158,23 +158,22 @@ def _points(server: ServerConfig, device: SharedDeviceDefinition) -> ResolvedSer
         command_variable = points.get(command_mapping.variable_id)
         if command_variable is None:
             raise ConfigError(
-                f"{server.device_id}: unknown command variable " f"{command_mapping.variable_id}"
-            )
-        if command_mapping.target_point_id not in points:
-            raise ConfigError(
-                f"{server.device_id}: target point "
-                f"{command_mapping.target_point_id} is not in the bound device"
+                f"{server.device_id}: unknown control variable {command_mapping.variable_id}"
             )
         if protocol == "modbus" and command_variable.address.get("register_type") not in {
-            "holding",
-            "coil",
+            "holding", "coil"
         }:
             raise ConfigError(f"{server.device_id}: control mapping is read only")
-        if server.control.target.kind == "data_generator":
-            # Target writability is verified again via ListVariables at submit time.
-            # The binding must refer to a point in this Server's shared table.
-            if command_mapping.target_point_id not in points:
-                raise ConfigError("Generator control target must belong to bound device")
+        if (
+            server.control.target.kind == "commander"
+            and command_mapping.target_point_id not in points
+        ):
+            raise ConfigError(
+                f"{server.device_id}: Commander target point "
+                f"{command_mapping.target_point_id} is not in the bound device"
+            )
+        # Generator target may be POINT_TABLE or WEATHER_INPUT.
+        # Validate its authority via ListVariables before forwarding the event.
     # Modbus on_access captures protocol request writes independently of gRPC.
     # Other adapters must prove the same capability before enabling control.
     if server.control.enabled and protocol != "modbus":
