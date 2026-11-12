@@ -1,6 +1,5 @@
-# Stage-2 isolated physical simulation service config.
-# Requires a deployed Gateway at the scenario's endpoint and configured simulation devices.
-# Data Generator service configuration; restart required after modification.
+# Data Generator 物理仿真服务配置；运行方案在 scenarios 中声明。
+# 设备型号参数来自 templates/device_models，管理端点属于各 Gateway 路由。
 schema_version: 1
 file_version: "1.0.0"
 config_sources:
@@ -34,7 +33,7 @@ metrics:
   max_series: 2000
 
 # 安全配置示例：证书需由部署环境提供，且对端证书 CN 与权限键严格匹配。
-# 无 security 的旧本机配置只保留原 RPC；新模型变量 RPC 一律拒绝明文访问。
+# 模型变量写入 RPC 必须通过身份和权限验证，不允许明文访问。
 security:
   tls:
     cert_file: /etc/wind-hub/certs/data-generator.pem
