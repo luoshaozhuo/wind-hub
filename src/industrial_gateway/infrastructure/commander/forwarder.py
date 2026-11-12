@@ -69,6 +69,7 @@ class ForwardRecord:
     captured_at: datetime
     state: ForwardState
     command_id: str = ""
+    effective_step: int = 0
     error: str = ""
 
 
@@ -343,7 +344,10 @@ class CommandForwarder:
                 if receipt.accepted and receipt.effective_step <= 0:
                     self._finish(original, ForwardState.UNKNOWN, "accepted with no effective step")
                 else:
-                    self._finish(original, state, receipt.message or receipt.error_code)
+                    self._finish(
+                        original, state, receipt.message or receipt.error_code,
+                        effective_step=receipt.effective_step if receipt.accepted else 0,
+                    )
             return
         try:
             device_revision = await self._device_revision(event.device_id, event.expires_at)
@@ -415,6 +419,7 @@ class CommandForwarder:
         state: ForwardState,
         error: str = "",
         command_id: str = "",
+        effective_step: int = 0,
     ) -> None:
         self._record(
             ForwardRecord(
@@ -427,6 +432,7 @@ class CommandForwarder:
                 captured_at=record.captured_at,
                 state=state,
                 command_id=command_id,
+                effective_step=effective_step,
                 error=error,
             )
         )

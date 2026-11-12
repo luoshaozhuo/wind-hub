@@ -116,7 +116,13 @@ class GatewayRuntime:
         }:
             self.observability.event(
                 record.gateway_id,
-                f"forward {record.state.value}: {record.event_id}",
+                (
+                    f"forward {record.state.value}: {record.event_id}"
+                    + (
+                        f" effective_step={record.effective_step}"
+                        if record.effective_step else ""
+                    )
+                ),
                 severity=(
                     "WARNING"
                     if record.state in {ForwardState.UNKNOWN, ForwardState.OVERLOADED}
