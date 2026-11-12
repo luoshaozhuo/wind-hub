@@ -109,8 +109,12 @@ class CommandForwarder:
                 config, project_root
             )
         elif config.kind == "data_generator":
-            if config.generation_binding is None or config.endpoint is None:
-                raise ValueError("Generator target binding and endpoint required")
+            if (
+                config.generation_binding is None
+                or config.endpoint is None
+                or config.tls is None
+            ):
+                raise ValueError("Generator target requires endpoint, binding, and mTLS")
             self._client = GeneratorRpcClient(
                 endpoint=config.endpoint,
                 tls=config.tls,
@@ -239,7 +243,7 @@ class CommandForwarder:
                     self._finish(record, ForwardState.UNKNOWN, "submission cancelled")
                 raise
             except Exception as exc:
-                logger.exception("Commander forwarding worker failed")
+                logger.exception("Gateway control forwarding worker failed")
                 record = self._records[event.event_id]
                 state = (
                     ForwardState.UNKNOWN
