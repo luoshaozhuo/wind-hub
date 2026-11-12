@@ -50,6 +50,7 @@ _INPUTS: dict[str, dict[str, InputSpec]] = {
 
 WEATHER_INPUTS: dict[str, InputSpec] = {
     "wind_speed_mean": InputSpec("float32", "meter_per_second", 0),
+    "turbulence_intensity": InputSpec("float32", "ratio_one", 0, 2),
     "wind_direction": InputSpec("float32", "degree", 0, 360),
 }
 

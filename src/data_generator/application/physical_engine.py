@@ -134,6 +134,8 @@ class PhysicalEngine:
             raise GeneratorError("weather reference not found")
         if "wind_speed_mean" in values:
             weather.mean = values["wind_speed_mean"]
+        if "turbulence_intensity" in values:
+            weather.turbulence = values["turbulence_intensity"]
         if "wind_direction" in values:
             weather.direction = math.radians(values["wind_direction"])
 
