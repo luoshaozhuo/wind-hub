@@ -104,8 +104,11 @@ async def test_get_events_reflects_lifecycle_and_filters(harness) -> None:
 
 async def test_diagnose_stages_uncertainty_and_no_side_effects(harness) -> None:
     stub = harness.common_stub()
-    forwarder = harness.runtime.forwarder
-    records_before = len(forwarder.records)
+    # 每台 Server 独立转发器；本夹具 control_enabled=False（kind=none），
+    # 转发器集合为空，记录数恒为 0，诊断无副作用断言保持不变。
+    records_before = sum(
+        len(forwarder.records) for forwarder in harness.runtime.forwarders.values()
+    )
     read_before = await harness.gateway_stub().ReadVariables(
         pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_UINT])
     )
@@ -124,7 +127,8 @@ async def test_diagnose_stages_uncertainty_and_no_side_effects(harness) -> None:
     assert reply.limitations  # 不确定性边界必须显式声明。
 
     # 无副作用：不新增转发事件、不改变变量。
-    assert len(forwarder.records) == records_before
+    records_after = sum(len(forwarder.records) for forwarder in harness.runtime.forwarders.values())
+    assert records_after == records_before
     read_after = await harness.gateway_stub().ReadVariables(
         pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_UINT])
     )

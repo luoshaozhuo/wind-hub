@@ -17,6 +17,8 @@ from pathlib import Path
 import pytest
 
 from tests.support.gateway_v1 import (
+    COMMAND_UINT,
+    COMMAND_UINT2,
     FEEDBACK_PAIR,
     FEEDBACK_UINT,
     POINT_TABLE,
@@ -80,8 +82,10 @@ async def test_two_complete_requests_in_one_segment(harness) -> None:
     port = harness.modbus_port("gw1")
     reader, writer = await _connect(port)
     try:
-        blob = mbap(10, 1, fc16(ADDR[FEEDBACK_PAIR], [1]))
-        blob += mbap(20, 1, fc16(ADDR[FEEDBACK_UINT], [2]))
+        # c387e0b81 后仅受控（command_mappings 所有）点接受 Modbus 写，
+        # 分帧测试改用受控保持寄存器，成功响应仍应为 FC16（0x10）而非异常帧。
+        blob = mbap(10, 1, fc16(ADDR[COMMAND_UINT2], [1]))
+        blob += mbap(20, 1, fc16(ADDR[COMMAND_UINT], [2]))
         writer.write(blob)
         r1 = await _read_response(reader)
         r2 = await _read_response(reader)

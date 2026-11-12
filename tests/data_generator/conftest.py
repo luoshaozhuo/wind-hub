@@ -553,7 +553,6 @@ def _v1_gateway_tree(
     endpoint_id: str,
     devices: dict[str, Sequence[tuple[str, str, str]]],
     data_bind: str,
-    commander_endpoint: str,
     permissions: dict[str, Sequence[str]] | None = None,
     mtls_enabled: bool = False,
 ) -> Path:
@@ -614,8 +613,11 @@ def _v1_gateway_tree(
                 "listen_host": "127.0.0.1",
                 "listen_port": modbus_port,
                 "desired_state": "START",
-                "control_enabled": False,
-                "command_mappings": [],
+                "control": {
+                    "enabled": False,
+                    "target": {"kind": "none"},
+                    "mappings": [],
+                },
             }
         )
 
@@ -690,12 +692,6 @@ def _v1_gateway_tree(
             ),
         },
         "servers": servers,
-        "control": {
-            "commander_endpoint": commander_endpoint,
-            "forward_queue_capacity": 1024,
-            "max_forward_inflight": 16,
-            "submit_deadline_ms": 5000,
-        },
         "metrics": {"window_seconds": 60, "collect_interval_ms": 1000},
     }
     service_path = root / "service.yaml"
@@ -777,7 +773,6 @@ async def start_real_gateway(
             endpoint_id=endpoint_id,
             devices=devices,
             data_bind=bind,
-            commander_endpoint=f"127.0.0.1:{commander_port}",
             permissions=permissions,
             mtls_enabled=mtls_enabled,
         )

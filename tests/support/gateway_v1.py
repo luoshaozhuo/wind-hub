@@ -414,17 +414,34 @@ def write_config_tree(
             "endpoint": {"host": "127.0.0.1", "port": spec.modbus_port},
             "overrides": {"protocol_options": {"slave_id": spec.slave_id}},
         }
+        if spec.control_enabled:
+            control: dict[str, Any] = {
+                "enabled": True,
+                "target": {
+                    "kind": "commander",
+                    "endpoint": commander_endpoint,
+                    "queue_capacity": forward_queue_capacity,
+                    "max_inflight": max_forward_inflight,
+                    "request_timeout_ms": submit_deadline_ms,
+                },
+                "mappings": [
+                    {"variable_id": variable_id, "target_point_id": target_point_id}
+                    for variable_id, target_point_id in spec.command_mappings
+                ],
+            }
+        else:
+            control = {
+                "enabled": False,
+                "target": {"kind": "none"},
+                "mappings": [],
+            }
         server: dict[str, Any] = {
             "server_id": spec.server_id,
             "device_id": spec.device_id,
             "listen_host": "127.0.0.1",
             "listen_port": spec.modbus_port,
             "desired_state": spec.desired_state,
-            "control_enabled": spec.control_enabled,
-            "command_mappings": [
-                {"variable_id": variable_id, "commander_point_id": commander_point_id}
-                for variable_id, commander_point_id in spec.command_mappings
-            ],
+            "control": control,
         }
         servers.append(server)
 
@@ -525,12 +542,6 @@ def write_config_tree(
             ),
         },
         "servers": servers,
-        "control": {
-            "commander_endpoint": commander_endpoint,
-            "forward_queue_capacity": forward_queue_capacity,
-            "max_forward_inflight": max_forward_inflight,
-            "submit_deadline_ms": submit_deadline_ms,
-        },
         "metrics": {
             "window_seconds": metrics_window_seconds,
             "collect_interval_ms": 1000,

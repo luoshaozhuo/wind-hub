@@ -273,14 +273,19 @@ def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path
                     "listen_host": "127.0.0.1",
                     "listen_port": 1503,
                     "desired_state": "START",
-                    "control_enabled": True,
-                    "command_mappings": [
-                        {"variable_id": "p1", "commander_point_id": "p1"},
-                        {"variable_id": "p2", "commander_point_id": "p2"},
-                    ],
+                    "control": {
+                        "enabled": True,
+                        "target": {
+                            "kind": "commander",
+                            "endpoint": "127.0.0.1:1505",
+                        },
+                        "mappings": [
+                            {"variable_id": "p1", "target_point_id": "p1"},
+                            {"variable_id": "p2", "target_point_id": "p2"},
+                        ],
+                    },
                 }
             ],
-            "control": {"commander_endpoint": "127.0.0.1:1505"},
             "metrics": {"window_seconds": 60, "collect_interval_ms": 1000},
         },
     )

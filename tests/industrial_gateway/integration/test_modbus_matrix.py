@@ -35,8 +35,10 @@ from tests.support.gateway_v1 import (
     FEEDBACK_PAIR,
     FEEDBACK_UINT,
     POINT_TABLE,
+    ServerSpec,
     claim_for_injection,
     float_words,
+    reserve_port,
     start_gateway_v1,
     two_server_specs,
 )
@@ -169,74 +171,115 @@ async def test_fc01_coils_and_fc02_discrete_reads(harness) -> None:
 # ---------- FC05/06/15/16 写 ----------
 
 
-async def test_fc05_single_coil_write_updates_store_and_reads_back(harness) -> None:
-    client = await _client(harness, "gw1")
+async def test_fc05_single_coil_write_updates_store_and_reads_back(
+    tmp_path: Path,
+) -> None:
+    # c387e0b81 后仅受控点接受 Modbus 写：FC05 写机制改用受控线圈 COMMAND_COIL。
+    gateway = await start_gateway_v1(tmp_path / "root", two_server_specs())
     try:
-        result = await client.write_coil(ADDR[FEEDBACK_COIL_0], True, device_id=1)
-        assert _exc(result) is None, result
-        again = await client.write_coil(ADDR[FEEDBACK_COIL_0], False, device_id=1)
-        assert _exc(again) is None
-        read = await client.read_coils(ADDR[FEEDBACK_COIL_0], count=1, device_id=1)
-        assert read.bits[0] is False
+        client = await _client(gateway, "gw1")
+        try:
+            result = await client.write_coil(ADDR[COMMAND_COIL], True, device_id=1)
+            assert _exc(result) is None, result
+            again = await client.write_coil(ADDR[COMMAND_COIL], False, device_id=1)
+            assert _exc(again) is None
+            read = await client.read_coils(ADDR[COMMAND_COIL], count=1, device_id=1)
+            assert read.bits[0] is False
+        finally:
+            client.close()
+        read = await gateway.gateway_stub().ReadVariables(
+            pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[COMMAND_COIL])
+        )
+        assert read.values[0].value.bool_value is False
     finally:
-        client.close()
-    read = await harness.gateway_stub().ReadVariables(
-        pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_COIL_0])
+        await gateway.stop()
+
+
+async def test_fc15_multiple_coils_crosses_word_boundary(tmp_path: Path) -> None:
+    # 15/16/17 跨字边界；c387e0b81 后需显式控制映射取得写所有权。
+    owned = (
+        (FEEDBACK_COIL_15, FEEDBACK_COIL_15),
+        (FEEDBACK_COIL_16, FEEDBACK_COIL_16),
+        (FEEDBACK_COIL_17, FEEDBACK_COIL_17),
     )
-    assert read.values[0].value.bool_value is False
-
-
-async def test_fc15_multiple_coils_crosses_word_boundary(harness) -> None:
-    client = await _client(harness, "gw1")
+    specs = [
+        ServerSpec(
+            server_id="gw1",
+            device_id="D01",
+            modbus_port=reserve_port(),
+            command_mappings=owned,
+        ),
+        ServerSpec(
+            server_id="gw2",
+            device_id="D02",
+            modbus_port=reserve_port(),
+            slave_id=2,
+            command_mappings=owned,
+        ),
+    ]
+    gateway = await start_gateway_v1(tmp_path / "root", specs)
     try:
-        result = await client.write_coils(ADDR[FEEDBACK_COIL_15], [True, False, True], device_id=1)
-        assert _exc(result) is None, result
-        read = await client.read_coils(ADDR[FEEDBACK_COIL_15], count=3, device_id=1)
-        assert read.bits[:3] == [True, False, True]
+        client = await _client(gateway, "gw1")
+        try:
+            result = await client.write_coils(
+                ADDR[FEEDBACK_COIL_15], [True, False, True], device_id=1
+            )
+            assert _exc(result) is None, result
+            read = await client.read_coils(ADDR[FEEDBACK_COIL_15], count=3, device_id=1)
+            assert read.bits[:3] == [True, False, True]
+        finally:
+            client.close()
     finally:
-        client.close()
+        await gateway.stop()
 
 
 async def test_fc06_single_holding_register_write(harness) -> None:
+    # c387e0b81：FC06 写路径以受控保持寄存器 COMMAND_UINT 验证。
     client = await _client(harness, "gw1")
     try:
-        result = await client.write_register(ADDR[FEEDBACK_UINT], 4242, device_id=1)
+        result = await client.write_register(ADDR[COMMAND_UINT], 4242, device_id=1)
         assert _exc(result) is None, result
-        read = await client.read_holding_registers(ADDR[FEEDBACK_UINT], count=1, device_id=1)
+        read = await client.read_holding_registers(ADDR[COMMAND_UINT], count=1, device_id=1)
         assert read.registers == [4242]
     finally:
         client.close()
 
 
 async def test_fc16_float32_write_big_endian(harness) -> None:
+    # c387e0b81：FC16 浮点写路径以受控 float32 点 COMMAND_FLOAT 验证。
     client = await _client(harness, "gw1")
     try:
-        result = await client.write_registers(
-            ADDR[FEEDBACK_FLOAT], float_words(-40.25), device_id=1
-        )
+        result = await client.write_registers(ADDR[COMMAND_FLOAT], float_words(-40.25), device_id=1)
         assert _exc(result) is None, result
-        read = await client.read_holding_registers(ADDR[FEEDBACK_FLOAT], count=2, device_id=1)
+        read = await client.read_holding_registers(ADDR[COMMAND_FLOAT], count=2, device_id=1)
         assert read.registers == float_words(-40.25)
     finally:
         client.close()
     read = await harness.gateway_stub().ReadVariables(
-        pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_FLOAT])
+        pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[COMMAND_FLOAT])
     )
     assert abs(read.values[0].value.double_value - (-40.25)) < 1e-6
 
 
-async def test_fc16_spans_adjacent_feedback_points(harness) -> None:
-    """FC16 一次覆盖相邻 float32(100-101)+uint16(102) 两个反馈点。"""
+async def test_fc16_unowned_feedback_span_rejected_without_partial_write(harness) -> None:
+    """c387e0b81：跨反馈点（无控制所有权）的 FC16 在协议 ACK 前整体拒绝。
+
+    拒绝后无部分存储改写，也不产生任何 Commander 转发。
+    """
     client = await _client(harness, "gw1")
     try:
         result = await client.write_registers(
             ADDR[FEEDBACK_FLOAT], float_words(8.0) + [77], device_id=1
         )
-        assert _exc(result) is None, result
-        read = await client.read_holding_registers(ADDR[FEEDBACK_PAIR], count=1, device_id=1)
-        assert read.registers == [77]
+        assert _exc(result) == 0x02
+        read = await client.read_holding_registers(ADDR[FEEDBACK_FLOAT], count=2, device_id=1)
+        assert read.registers == [0, 0]
+        pair = await client.read_holding_registers(ADDR[FEEDBACK_PAIR], count=1, device_id=1)
+        assert pair.registers == [0]
     finally:
         client.close()
+    await asyncio.sleep(0.3)
+    assert harness.commander.calls == []
 
 
 # ---------- 非法地址与非法值 ----------
@@ -270,14 +313,12 @@ async def test_unmapped_coil_write_and_partial_span_rejected(harness) -> None:
     try:
         hole = await client.write_coil(5, True, device_id=1)
         assert _exc(hole) == 0x02
-        # 0/1 映射、2 空洞：跨出映射的批量写整体拒绝。
-        seeded = await client.write_coils(ADDR[FEEDBACK_COIL_0], [True, True], device_id=1)
+        # 受控线圈 32/33 映射、34 空洞：跨出映射的批量写整体拒绝。
+        seeded = await client.write_coils(ADDR[COMMAND_COIL], [True, True], device_id=1)
         assert _exc(seeded) is None
-        rejected = await client.write_coils(
-            ADDR[FEEDBACK_COIL_0], [False, False, False], device_id=1
-        )
+        rejected = await client.write_coils(ADDR[COMMAND_COIL], [False, False, False], device_id=1)
         assert _exc(rejected) == 0x02
-        read = await client.read_coils(ADDR[FEEDBACK_COIL_0], count=2, device_id=1)
+        read = await client.read_coils(ADDR[COMMAND_COIL], count=2, device_id=1)
         assert read.bits[:2] == [True, True]  # 拒绝后无部分改写
     finally:
         client.close()
@@ -298,16 +339,16 @@ async def test_unknown_unit_id_rejected_without_bleed(harness) -> None:
     """未配置 Unit 必须拒绝（pymodbus NoSuchId → 0x0B 路径），且不得落到 unit 1。"""
     client = await _client(harness, "gw1")
     try:
-        good = await client.write_registers(ADDR[FEEDBACK_FLOAT], float_words(3.0), device_id=1)
+        good = await client.write_registers(ADDR[COMMAND_FLOAT], float_words(3.0), device_id=1)
         assert _exc(good) is None
         failures = []
         for unit in (2, 13, 100, 247):
             result = await client.write_registers(
-                ADDR[FEEDBACK_FLOAT], float_words(99.0), device_id=unit
+                ADDR[COMMAND_FLOAT], float_words(99.0), device_id=unit
             )
             failures.append(_exc(result))
         assert all(code is not None for code in failures), failures
-        read = await client.read_holding_registers(ADDR[FEEDBACK_FLOAT], count=2, device_id=1)
+        read = await client.read_holding_registers(ADDR[COMMAND_FLOAT], count=2, device_id=1)
         assert read.registers == float_words(3.0)
     finally:
         client.close()
@@ -416,9 +457,11 @@ async def test_fc16_span_two_command_register_points_forwards_each(harness) -> N
     assert calls[COMMAND_FLOAT] == pytest.approx(1.0)
 
 
-async def test_control_disabled_command_write_stores_but_never_forwards(
+async def test_control_disabled_rejects_every_write_and_never_forwards(
     tmp_path: Path,
 ) -> None:
+    # c387e0b81：control 禁用（target kind=none）时 allowed_writes 为空集，
+    # 任何 Modbus 写都在协议 ACK 前拒绝，存储无副作用且零转发。
     specs = two_server_specs(control_enabled=False)
     gateway = await start_gateway_v1(tmp_path / "root", specs)
     try:
@@ -426,9 +469,18 @@ async def test_control_disabled_command_write_stores_but_never_forwards(
         await client.connect()
         try:
             result = await client.write_register(ADDR[COMMAND_UINT], 9, device_id=1)
-            assert _exc(result) is None
+            assert _exc(result) == 0x02
         finally:
             client.close()
+        read_client = gateway.modbus_client("gw1")
+        await read_client.connect()
+        try:
+            read = await read_client.read_holding_registers(
+                ADDR[COMMAND_UINT], count=1, device_id=1
+            )
+            assert read.registers == [0]  # 拒绝后存储保持初值
+        finally:
+            read_client.close()
         await asyncio.sleep(0.3)  # 若有错误转发会在此窗口内落账
         assert gateway.commander.calls == []
     finally:
@@ -438,14 +490,18 @@ async def test_control_disabled_command_write_stores_but_never_forwards(
 # ---------- 反馈点不转发、连接与多服务器隔离 ----------
 
 
-async def test_feedback_write_does_not_forward(harness) -> None:
-    """反馈点（无 command_mappings）写只更新存储，不产生 Commander 提交。"""
+async def test_feedback_write_rejected_before_ack_and_does_not_forward(harness) -> None:
+    """c387e0b81：反馈点无控制所有权，Modbus 写在 ACK 前拒绝，存储不变且零转发。"""
     client = await _client(harness, "gw1")
     try:
         result = await client.write_register(ADDR[FEEDBACK_UINT], 5, device_id=1)
-        assert _exc(result) is None
+        assert _exc(result) == 0x02
         result = await client.write_registers(ADDR[FEEDBACK_FLOAT], float_words(6.0), device_id=1)
-        assert _exc(result) is None
+        assert _exc(result) == 0x02
+        read = await client.read_holding_registers(ADDR[FEEDBACK_FLOAT], count=2, device_id=1)
+        assert read.registers == [0, 0]
+        uint_read = await client.read_holding_registers(ADDR[FEEDBACK_UINT], count=1, device_id=1)
+        assert uint_read.registers == [0]
     finally:
         client.close()
     await asyncio.sleep(0.3)
@@ -466,14 +522,15 @@ async def test_disconnect_and_reconnect_keeps_store(harness) -> None:
 
 
 async def test_two_servers_are_independent_listeners(harness) -> None:
+    # c387e0b81：跨服务器隔离用受控点 COMMAND_FLOAT 验证写路径与独立存储。
     c1 = await _client(harness, "gw1")
     c2 = await _client(harness, "gw2")
     try:
-        r1 = await c1.write_registers(ADDR[FEEDBACK_FLOAT], float_words(1.5), device_id=1)
-        r2 = await c2.write_registers(ADDR[FEEDBACK_FLOAT], float_words(2.5), device_id=2)
+        r1 = await c1.write_registers(ADDR[COMMAND_FLOAT], float_words(1.5), device_id=1)
+        r2 = await c2.write_registers(ADDR[COMMAND_FLOAT], float_words(2.5), device_id=2)
         assert _exc(r1) is None and _exc(r2) is None
-        read1 = await c1.read_holding_registers(ADDR[FEEDBACK_FLOAT], count=2, device_id=1)
-        read2 = await c2.read_holding_registers(ADDR[FEEDBACK_FLOAT], count=2, device_id=2)
+        read1 = await c1.read_holding_registers(ADDR[COMMAND_FLOAT], count=2, device_id=1)
+        read2 = await c2.read_holding_registers(ADDR[COMMAND_FLOAT], count=2, device_id=2)
         assert read1.registers == float_words(1.5)
         assert read2.registers == float_words(2.5)
     finally:

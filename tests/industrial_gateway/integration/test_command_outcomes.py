@@ -45,12 +45,19 @@ def _exc(response: object) -> int | None:
     return int(code.value) if hasattr(code, "value") else int(code)
 
 
+def _all_records(harness) -> list:
+    # 每台 Server 独立持有一个转发器（forwarders 按 gateway_id 键控）。
+    return [
+        record for forwarder in harness.runtime.forwarders.values() for record in forwarder.records
+    ]
+
+
 async def _records_for(harness, device: str, point: str, *, timeout: float = 3.0) -> list:
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
         matched = [
             record
-            for record in harness.runtime.forwarder.records
+            for record in _all_records(harness)
             if record.device_id == device and record.point_id == point
         ]
         if matched and all(
@@ -201,9 +208,7 @@ async def test_read_succeeds_while_submission_in_flight(harness) -> None:
         assert elapsed < 0.5
     finally:
         writer.close()
-    pending = [
-        record for record in harness.runtime.forwarder.records if record.point_id == COMMAND_UINT
-    ]
+    pending = [record for record in _all_records(harness) if record.point_id == COMMAND_UINT]
     assert pending and pending[-1].state in {
         ForwardState.SUBMITTING,
         ForwardState.ACCEPTED,
