@@ -1,7 +1,7 @@
 """S2 物理模型测试共享夹具：加载权威配置树中的出厂仿真型号与服务场景。
 
 测试不经过完整 Configuration 加载链，但模型构造器拿到的 parameters 与
-``configs/templates/device_models/*_sim_physical_v1.0.0.yaml`` 中
+``configs/templates/device_models/device_model_*_sim_physical_v1.0.0.yaml`` 中
 ``simulation.parameters`` 逐字一致——PhysicalEngine 生产路径经
 ``_configured_model_points`` 消费的正是同一份模板参数；天气配置与
 ``configs/services/data-generator-sim.example.yaml`` 场景内的 weather 块一致。
@@ -22,24 +22,24 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 SERVICE_PATH = REPO_ROOT / "configs" / "services" / "data-generator-sim.example.yaml"
 DEVICE_MODEL_DIR = REPO_ROOT / "configs" / "templates" / "device_models"
 POINT_TABLE_DIR = REPO_ROOT / "configs" / "templates" / "point_tables"
-UNITS_PATH = REPO_ROOT / "configs" / "templates" / "units.yaml"
+UNITS_PATH = REPO_ROOT / "configs" / "templates" / "units_standard.yaml"
 
 # 测试历史引用名 → 权威物理仿真设备型号模板（固定物理参数的唯一归属）。
 PHYSICAL_MODEL_FILES = {
-    "battery": "bess_sim_physical_v1.0.0.yaml",
-    "solar": "pv_sim_physical_v1.0.0.yaml",
-    "turbine": "wtg_sim_physical_v1.0.0.yaml",
-    "grid": "grid_sim_physical_v1.0.0.yaml",
-    "plant": "plant_controller_sim_physical_v1.0.0.yaml",
+    "battery": "device_model_bess_sim_physical_v1.0.0.yaml",
+    "solar": "device_model_pv_sim_physical_v1.0.0.yaml",
+    "turbine": "device_model_wtg_sim_physical_v1.0.0.yaml",
+    "grid": "device_model_grid_sim_physical_v1.0.0.yaml",
+    "plant": "device_model_plant_controller_sim_physical_v1.0.0.yaml",
 }
 
 # 出厂场景五台设备 → 共享 Modbus 点表文件（ppc 点表模板名为 plant_controller）。
 DEVICE_TABLES = {
-    "WTG_SIM01": "modbus_wtg_sim_v1.0.0.yaml",
-    "PV_SIM01": "modbus_pv_sim_v1.0.0.yaml",
-    "BESS_SIM01": "modbus_bess_sim_v1.0.0.yaml",
-    "GRID_SIM01": "modbus_grid_sim_v1.0.0.yaml",
-    "PPC_SIM01": "modbus_plant_controller_sim_v1.0.0.yaml",
+    "WTG_SIM01": "point_table_modbus_wtg_sim_v1.0.0.yaml",
+    "PV_SIM01": "point_table_modbus_pv_sim_v1.0.0.yaml",
+    "BESS_SIM01": "point_table_modbus_bess_sim_v1.0.0.yaml",
+    "GRID_SIM01": "point_table_modbus_grid_sim_v1.0.0.yaml",
+    "PPC_SIM01": "point_table_modbus_plant_controller_sim_v1.0.0.yaml",
 }
 
 

@@ -26,8 +26,8 @@ def _files() -> dict[str, bytes]:
         "services/collector.yaml": b"schema_version: 1\n",
         "instances/site.yaml": b"schema_version: 1\n",
         "instances/devices.yaml": b"schema_version: 1\n",
-        "templates/units.yaml": b"schema_version: 1\n",
-        "templates/business_points.yaml": b"schema_version: 1\n",
+        "templates/units_standard.yaml": b"schema_version: 1\n",
+        "templates/business_points_standard.yaml": b"schema_version: 1\n",
     }
 
 

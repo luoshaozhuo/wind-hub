@@ -23,15 +23,15 @@ def _files() -> dict[str, bytes]:
         "services/collector.yaml": b"schema_version: 1\n",
         "instances/site.yaml": b"schema_version: 1\n",
         "instances/devices.yaml": b"schema_version: 1\n",
-        "templates/units.yaml": b"schema_version: 1\n",
-        "templates/business_points.yaml": b"schema_version: 1\n",
+        "templates/units_standard.yaml": b"schema_version: 1\n",
+        "templates/business_points_standard.yaml": b"schema_version: 1\n",
     }
 
 
 def _validate(paths: SnapshotPaths) -> None:
     assert paths.service.is_file()
     assert (paths.instances / "devices.yaml").is_file()
-    assert (paths.templates / "units.yaml").is_file()
+    assert (paths.templates / "units_standard.yaml").is_file()
 
 
 @pytest.mark.asyncio
@@ -82,7 +82,7 @@ async def test_stale_candidate_does_not_overwrite_active(tmp_path: Path) -> None
         "services/commander.yaml",
         "instances/deliveries.yaml",
         "templates/deliveries/a/1.0.0.yaml",
-        "templates/point_tables/../tasks/1.0.0.yaml",
+        "templates/point_tables/point_table_../tasks/1.0.0.yaml",
         "instances\\devices.yaml",
     ],
 )

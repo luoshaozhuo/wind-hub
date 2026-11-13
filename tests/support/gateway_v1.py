@@ -480,7 +480,7 @@ def write_config_tree(
         },
     )
     _dump(
-        root / "templates" / "protocols" / "gw_modbus_v1.0.0.yaml",
+        root / "templates" / "protocols" / "protocol_gw_modbus_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "gw_modbus",
@@ -496,7 +496,7 @@ def write_config_tree(
         },
     )
     _dump(
-        root / "templates" / "device_models" / "gw_turbine_v1.0.0.yaml",
+        root / "templates" / "device_models" / "device_model_gw_turbine_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "gw_turbine",
@@ -508,7 +508,7 @@ def write_config_tree(
         },
     )
     _dump(
-        root / "templates" / "point_tables" / "gw_points_v1.0.0.yaml",
+        root / "templates" / "point_tables" / "point_table_gw_points_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "gw_points",
