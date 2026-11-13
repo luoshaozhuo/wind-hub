@@ -555,3 +555,50 @@ class UpdateVariablesResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___UpdateVariablesResponse: _TypeAlias = UpdateVariablesResponse  # noqa: Y015
+
+@_typing.final
+class GetInputExecutionRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    GENERATION_ID_FIELD_NUMBER: _builtins.int
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+    generation_id: _builtins.str
+    request_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        generation_id: _builtins.str = ...,
+        request_id: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["generation_id", b"generation_id", "request_id", b"request_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetInputExecutionRequest: _TypeAlias = GetInputExecutionRequest  # noqa: Y015
+
+@_typing.final
+class GetInputExecutionResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+    STATE_FIELD_NUMBER: _builtins.int
+    EFFECTIVE_STEP_FIELD_NUMBER: _builtins.int
+    request_id: _builtins.str
+    state: _builtins.str
+    effective_step: _builtins.int
+    def __init__(
+        self,
+        *,
+        request_id: _builtins.str = ...,
+        state: _builtins.str = ...,
+        effective_step: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["request_id", b"request_id", "state", b"state", "effective_step", b"effective_step"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetInputExecutionResponse: _TypeAlias = GetInputExecutionResponse  # noqa: Y015
