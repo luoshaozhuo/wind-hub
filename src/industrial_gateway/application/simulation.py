@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from industrial_gateway.application.ports.simulation import SimulationInputPort
 from industrial_gateway.application.variable_store import Scalar
@@ -175,4 +178,7 @@ class SimulationController:
                 )
             finally:
                 if client is not None:
-                    await client.close()
+                    try:
+                        await client.close()
+                    except Exception:
+                        logger.exception("simulation input channel could not close")
