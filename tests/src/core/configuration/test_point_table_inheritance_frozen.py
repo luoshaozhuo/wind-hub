@@ -227,7 +227,7 @@ def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path
     """Gateway 在冻结模板上执行合并：继承保留、remove_points 生效、子表覆盖优先。"""
     _inheritance_tree(tmp_path)
     _dump(
-        tmp_path / "templates" / "units.yaml",
+        tmp_path / "templates" / "units_standard.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -236,7 +236,7 @@ def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path
         },
     )
     _dump(
-        tmp_path / "templates" / "business_points.yaml",
+        tmp_path / "templates" / "business_points_standard.yaml",
         {"schema_version": 1, "file_version": "1.0.0", "business_points": {}},
     )
     _dump(

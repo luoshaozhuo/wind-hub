@@ -47,7 +47,7 @@ async def test_cfg_path_01_custom_source_paths(
     files = await snapshot_files(client)
     assert "instances/site.yaml" in files
     assert "instances/devices.yaml" in files
-    assert "templates/units.yaml" in files
+    assert "templates/units_standard.yaml" in files
 
 
 @pytest.mark.parametrize(
@@ -142,7 +142,7 @@ async def test_cfg_path_06_restart_uses_committed_generation(
     assert await disk_revision(second_client) == first_revision
     files = await snapshot_files(second_client)
     assert "instances/site.yaml" in files
-    assert "templates/units.yaml" in files
+    assert "templates/units_standard.yaml" in files
 
 
 async def test_cfg_path_04_push_apply_custom_named_source_snapshot(
