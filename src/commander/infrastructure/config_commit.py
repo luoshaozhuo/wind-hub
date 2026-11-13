@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
-from configuration.transaction import COMMIT_MARKER, COMMIT_STORE
+from core.configuration.transaction import COMMIT_MARKER, COMMIT_STORE
 
 _MARKER = COMMIT_MARKER
 _STORE = COMMIT_STORE

@@ -10,14 +10,14 @@ from pathlib import Path
 from collector.application.acquisition import AcquisitionPlan, DevicePlan
 from collector.application.config_models import SnapshotPaths
 from collector.application.lifecycle import ConfiguredRuntime
-from configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
-from configuration.document_version import validate_document_version
-from configuration.effective import resolve_effective_device
-from configuration.template_graph import (
+from core.configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
+from core.configuration.document_version import validate_document_version
+from core.configuration.effective import resolve_effective_device
+from core.configuration.template_graph import (
     resolve_model_templates,
     validate_point_table_chain,
 )
-from configuration.versioned_templates import (
+from core.configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )

@@ -12,14 +12,14 @@ from typing import Any, Protocol
 
 from commander.application.settings import ServiceSettings
 from commander.domain.command import CommandSpec
-from configuration.effective import resolve_effective_device
-from configuration.immutable import plain_document
-from configuration.shared_documents import (
+from core.configuration.effective import resolve_effective_device
+from core.configuration.immutable import plain_document
+from core.configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
     SharedDocuments,
 )
-from configuration.shared_snapshot import (
+from core.configuration.shared_snapshot import (
     SharedDomainSnapshot,
     build_shared_snapshot,
 )
