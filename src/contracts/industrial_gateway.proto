@@ -1,6 +1,7 @@
 syntax = "proto3";
 package windhub.gateway.v1;
 import "contracts/common.proto";
+import "google/protobuf/timestamp.proto";
 message ListGatewaysRequest {
   string filter = 1; uint32 page_size = 2; string page_token = 3;
 }
@@ -72,6 +73,32 @@ message UpdateVariablesResponse {
   repeated VariableUpdateResult results = 1;
 }
 
+
+// Commander-only execution path for simulation control.
+// It never replaces Gateway UpdateVariables, which only updates Gateway-owned values.
+message SimulationCommandRequest {
+  string gateway_id = 1;
+  string device_id = 2;
+  string point_id = 3;
+  windhub.common.v1.ScalarValue value = 4;
+  string request_id = 5;
+  string expected_revision = 6;
+  google.protobuf.Timestamp expires_at = 7;
+}
+message SimulationCommandResponse {
+  string request_id = 1;
+  bool accepted = 2;
+  string execution_id = 3;
+  string state = 4;
+  string error_code = 5;
+  string message = 6;
+  uint64 effective_step = 7;
+}
+message SimulationExecutionQuery {
+  string gateway_id = 1;
+  string request_id = 2;
+}
+
 service IndustrialGatewayService {
   rpc ListGateways(ListGatewaysRequest) returns (ListGatewaysResponse);
   rpc GetGateway(windhub.common.v1.ObjectId) returns (GetGatewayResponse);
@@ -81,4 +108,6 @@ service IndustrialGatewayService {
   rpc ReadVariables(ReadVariablesRequest) returns (ReadVariablesResponse);
   rpc UpdateVariables(UpdateVariablesRequest) returns (UpdateVariablesResponse);
   rpc ClaimTargets(ClaimTargetsRequest) returns (ClaimTargetsResponse);
+  rpc ExecuteSimulationCommand(SimulationCommandRequest) returns (SimulationCommandResponse);
+  rpc GetSimulationExecutionResult(SimulationExecutionQuery) returns (SimulationCommandResponse);
 }
