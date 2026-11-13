@@ -1001,6 +1001,14 @@ class QueuedExecutor:
         for entry in tuple(self._entries.values()):
             if entry.deadline_handle is not None:
                 entry.deadline_handle.cancel()
+        # A hung FIFO head must never strand later accepted commands. Finalize
+        # entries that have not acquired the I/O gate before waiting on workers;
+        # the active native operation retains its original ownership.
+        for entry in tuple(self._entries.values()):
+            if not entry.gate_acquired and not entry.finished.done():
+                await self._terminate_queued(
+                    entry, CommandState.INTERRUPTED, "SERVICE_STOPPING"
+                )
         if self._deadline_tasks:
             _, pending_deadlines = await asyncio.wait(
                 tuple(self._deadline_tasks), timeout=grace_seconds
