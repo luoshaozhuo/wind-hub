@@ -76,6 +76,11 @@ class DataGeneratorServiceStub:
                 response_deserializer=contracts_dot_data__generator__pb2.UpdateVariablesResponse.FromString,
                 _registered_method=True)
 
+        self.GetInputExecution = channel.unary_unary(
+                '/windhub.data_generator.v1.DataGeneratorService/GetInputExecution',
+                request_serializer=contracts_dot_data__generator__pb2.GetInputExecutionRequest.SerializeToString,
+                response_deserializer=contracts_dot_data__generator__pb2.GetInputExecutionResponse.FromString,
+                _registered_method=True)
 
 class DataGeneratorServiceServicer:
     """Missing associated documentation comment in .proto file."""
@@ -128,6 +133,13 @@ class DataGeneratorServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetInputExecution(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
 
 def add_DataGeneratorServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -170,6 +182,11 @@ def add_DataGeneratorServiceServicer_to_server(servicer, server):
                     servicer.UpdateVariables,
                     request_deserializer=contracts_dot_data__generator__pb2.UpdateVariablesRequest.FromString,
                     response_serializer=contracts_dot_data__generator__pb2.UpdateVariablesResponse.SerializeToString,
+            ),
+            'GetInputExecution': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetInputExecution,
+                    request_deserializer=contracts_dot_data__generator__pb2.GetInputExecutionRequest.FromString,
+                    response_serializer=contracts_dot_data__generator__pb2.GetInputExecutionResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -397,3 +414,31 @@ class DataGeneratorService:
             timeout,
             metadata,
             _registered_method=True)
+
+    @staticmethod
+    def GetInputExecution(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.data_generator.v1.DataGeneratorService/GetInputExecution',
+            contracts_dot_data__generator__pb2.GetInputExecutionRequest.SerializeToString,
+            contracts_dot_data__generator__pb2.GetInputExecutionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
