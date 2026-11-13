@@ -115,10 +115,10 @@ def _build_tree(tmp_root: Path, port_a: int, port_b: int) -> tuple[Path, Path]:
     (root / "instances" / "devices.yaml").write_text(
         _devices_document(port_a, port_b), encoding="utf-8"
     )
-    (root / "templates/device_models/modbus_wtg_1.0.0.yaml").write_text(
+    (root / "templates/device_models/modbus_wtg_v1.0.0.yaml").write_text(
         _MODEL_TEMPLATE, encoding="utf-8"
     )
-    (root / "templates/point_tables/modbus_wtg_1.0.0.yaml").write_text(
+    (root / "templates/point_tables/modbus_wtg_v1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
     (root / "templates/business_points.yaml").write_text(_BUSINESS_POINTS, encoding="utf-8")
