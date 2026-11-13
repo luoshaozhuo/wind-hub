@@ -19,7 +19,7 @@ from commander.infrastructure.service_settings import load_service_settings
 
 pytestmark = [pytest.mark.component, pytest.mark.reload]
 
-_REPO_CONFIGS = Path(__file__).resolve().parents[3] / "configs"
+_REPO_CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 
 _SETPOINT_TABLE = """\
 schema_version: 1

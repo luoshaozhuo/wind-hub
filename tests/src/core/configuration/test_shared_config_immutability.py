@@ -38,7 +38,7 @@ from core.configuration.versioned_templates import (
 
 pytestmark = [pytest.mark.component, pytest.mark.contract]
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 _REPO_CONFIGS = _REPO_ROOT / "configs"
 
 

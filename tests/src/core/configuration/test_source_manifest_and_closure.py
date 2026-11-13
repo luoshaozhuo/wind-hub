@@ -25,7 +25,7 @@ from core.configuration.shared_documents import (
 
 pytestmark = [pytest.mark.component, pytest.mark.contract]
 
-_REPO_CONFIGS = Path(__file__).resolve().parents[3] / "configs"
+_REPO_CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 
 
 def _repo_paths(*, load_site: bool = True) -> SharedConfigPaths:
