@@ -17,7 +17,7 @@ from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import encode_scalar
 from industrial_gateway.application.variable_store import Scalar
-from industrial_gateway.infrastructure.config.v1_schema import TlsConfig, service_path
+from industrial_gateway.infrastructure.config.schema import TlsConfig, service_path
 
 
 @dataclass(frozen=True, slots=True)
