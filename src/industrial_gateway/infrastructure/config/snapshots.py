@@ -15,11 +15,11 @@ import yaml
 from configuration.versioned_templates import config_hash
 from core.application.errors import ConfigError
 from core.infrastructure.config import parse_yaml
-from industrial_gateway.infrastructure.config.v1_resolution import (
+from industrial_gateway.infrastructure.config.resolution import (
     ResolvedGateway,
-    load_gateway_v1,
+    load_gateway,
 )
-from industrial_gateway.infrastructure.config.v1_schema import service_path
+from industrial_gateway.infrastructure.config.schema import service_path
 from industrial_gateway.infrastructure.runtime import ApplicationResult, GatewayRuntime
 
 _MAX_FILE_SIZE = 2097152
@@ -99,7 +99,7 @@ class ConfigSnapshots:
     def disk(self) -> tuple[ResolvedGateway, bytes]:
         content = self.path.read_bytes()
         document = parse_yaml(content.decode("utf-8"))
-        config = load_gateway_v1(
+        config = load_gateway(
             self.path,
             project_root=self.root,
             candidate_document=document,
@@ -187,7 +187,7 @@ class ConfigSnapshots:
                 )
             try:
                 candidate_doc = parse_yaml(content.decode("utf-8"))
-                resolved = load_gateway_v1(
+                resolved = load_gateway(
                     self.path,
                     project_root=self.root,
                     candidate_document=candidate_doc,
@@ -272,7 +272,7 @@ class ConfigSnapshots:
             ):
                 raise ValueError("stale candidate revision")
             document = parse_yaml(candidate.content.decode("utf-8"))
-            resolved = load_gateway_v1(
+            resolved = load_gateway(
                 self.path,
                 project_root=self.root,
                 candidate_document=document,
