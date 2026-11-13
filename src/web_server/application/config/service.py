@@ -9,10 +9,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from configuration.diff import ConfigSnapshotDiff, diff_config_snapshots
+from web_server.application.config.diff import ConfigSnapshotDiff, diff_config_snapshots
 from core.configuration.digest import config_dir_digest
-from configuration.site_loader import load_domain
-from configuration.snapshot import ConfigSnapshot
+from web_server.application.config.site_loader import load_domain
+from web_server.application.config.snapshot import ConfigSnapshot
 from web_server.application.port.collector_directory import CollectorDirectory
 from web_server.application.port.worker import CommanderPort
 from web_server.application.worker.model import COMMANDER_WORKER_ID

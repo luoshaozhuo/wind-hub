@@ -38,8 +38,8 @@ from pymodbus.server import ModbusTcpServer
 
 from core.configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
 from core.configuration.shared_snapshot import SharedDomainSnapshot
-from configuration.site_loader import load_domain
-from configuration.snapshot import ConfigSnapshot
+from web_server.application.config.site_loader import load_domain
+from web_server.application.config.snapshot import ConfigSnapshot
 from core.domain import DataType, Point
 
 LOG = logging.getLogger("protocol-servers")

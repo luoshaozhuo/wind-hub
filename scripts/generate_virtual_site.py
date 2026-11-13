@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from configuration.site_loader import load_domain
+from web_server.application.config.site_loader import load_domain
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 #: 完整三协议风场以测试夹具中的 Modbus 示例站点为种子（configs/ 下的
