@@ -75,12 +75,12 @@ class DataGeneratorServiceStub:
                 request_serializer=contracts_dot_data__generator__pb2.UpdateVariablesRequest.SerializeToString,
                 response_deserializer=contracts_dot_data__generator__pb2.UpdateVariablesResponse.FromString,
                 _registered_method=True)
-
         self.GetInputExecution = channel.unary_unary(
                 '/windhub.data_generator.v1.DataGeneratorService/GetInputExecution',
                 request_serializer=contracts_dot_data__generator__pb2.GetInputExecutionRequest.SerializeToString,
                 response_deserializer=contracts_dot_data__generator__pb2.GetInputExecutionResponse.FromString,
                 _registered_method=True)
+
 
 class DataGeneratorServiceServicer:
     """Missing associated documentation comment in .proto file."""
@@ -138,7 +138,6 @@ class DataGeneratorServiceServicer:
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
-
 
 
 def add_DataGeneratorServiceServicer_to_server(servicer, server):
@@ -441,4 +440,3 @@ class DataGeneratorService:
             timeout,
             metadata,
             _registered_method=True)
-

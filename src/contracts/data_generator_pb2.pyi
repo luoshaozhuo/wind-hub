@@ -558,6 +558,8 @@ Global___UpdateVariablesResponse: _TypeAlias = UpdateVariablesResponse  # noqa: 
 
 @_typing.final
 class GetInputExecutionRequest(_message.Message):
+    """Read-only request-scoped physical-step completion evidence."""
+
     DESCRIPTOR: _descriptor.Descriptor
 
     GENERATION_ID_FIELD_NUMBER: _builtins.int
@@ -587,6 +589,7 @@ class GetInputExecutionResponse(_message.Message):
     EFFECTIVE_STEP_FIELD_NUMBER: _builtins.int
     request_id: _builtins.str
     state: _builtins.str
+    """PENDING, APPLIED or UNKNOWN."""
     effective_step: _builtins.int
     def __init__(
         self,
@@ -597,7 +600,7 @@ class GetInputExecutionResponse(_message.Message):
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["request_id", b"request_id", "state", b"state", "effective_step", b"effective_step"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["effective_step", b"effective_step", "request_id", b"request_id", "state", b"state"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
