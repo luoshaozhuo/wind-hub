@@ -94,6 +94,33 @@ class GatewaySimulationSession:
             ),
             timeout=max(0.001, (expiry - datetime.now(UTC)).total_seconds()),
         )
+        if not response.accepted and response.state == "REJECTED":
+            return ProtocolWriteResult(
+                spec.point_id, WriteOutcome.CONFIRMED_FAILURE, response.error_code
+            )
+        if not response.accepted or response.state == "UNKNOWN":
+            return ProtocolWriteResult(
+                spec.point_id, WriteOutcome.UNKNOWN, response.error_code or response.state
+            )
+        # Acceptance reserves a future model step; poll only for execution proof.
+        # Query failure is ambiguous. Never resubmit with a new request identity.
+        while response.state in {"ACCEPTED", "PENDING"}:
+            remaining = (expiry - datetime.now(UTC)).total_seconds()
+            if remaining <= 0:
+                return ProtocolWriteResult(
+                    spec.point_id, WriteOutcome.UNKNOWN, "EXECUTION_CONFIRMATION_TIMEOUT"
+                )
+            await asyncio.sleep(min(0.05, remaining))
+            remaining = (expiry - datetime.now(UTC)).total_seconds()
+            if remaining <= 0:
+                break
+            response = await client.GetSimulationExecutionResult(
+                gateway.SimulationExecutionQuery(
+                    gateway_id=self._target.gateway_id,
+                    request_id=command.command_id,
+                ),
+                timeout=remaining,
+            )
         if response.accepted and response.state == "APPLIED":
             return ProtocolWriteResult(spec.point_id, WriteOutcome.CONFIRMED_SUCCESS)
         if not response.accepted and response.state == "REJECTED":
