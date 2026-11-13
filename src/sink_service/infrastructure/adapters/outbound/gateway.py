@@ -144,7 +144,7 @@ class GatewayOutput:
         if token:
             try:
                 await self._claim("RELEASE", token, 0)
-            except grpc.RpcError:
+            except Exception:
                 logger.warning("Gateway lease release uncertain; target TTL will expire")
         channel, self._channel = self._channel, None
         self._client = None
@@ -176,6 +176,8 @@ class GatewayOutput:
                     )
                 )
                 expected[variable_id] = index
+        if len(updates) > self._max_batch:
+            return BatchOutcome(delivered=(), settled=(), error="GATEWAY_BATCH_LIMIT")
         if not updates:
             return BatchOutcome(
                 delivered=(),
@@ -199,7 +201,6 @@ class GatewayOutput:
                 delivered=(),
                 settled=tuple(sorted(excluded)),
                 error="GATEWAY_UPDATE_UNKNOWN",
-                failed_attempts=1,
             )
         succeeded: set[str] = set()
         failed: set[str] = set()
@@ -210,7 +211,6 @@ class GatewayOutput:
                     delivered=(),
                     settled=tuple(sorted(excluded)),
                     error="GATEWAY_RESULT_MISMATCH",
-                    failed_attempts=1,
                 )
             (succeeded if result.success else failed).add(result.variable_id)
         delivered: list[int] = []
