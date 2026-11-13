@@ -1,6 +1,6 @@
 <h1 class="title">Commander 软件设计</h1>
 
-<p class="subtitle">v1_36 · 20261113</p>
+<p class="subtitle">v1_37 · 20261113</p>
 
 <style>
 body {
@@ -2269,7 +2269,7 @@ flowchart TB
 
 **请求身份**：Commander `SubmitCommands.request_id` 是批次事务身份，子命令 `command_id` 是单项不可重用的执行身份。Gateway 的 `SimulationCommandRequest.request_id` 与 Generator 的 `UpdateVariables.request_id` 使用同一个子命令 `command_id`，使批量请求中的多个点互不发生幂等键冲突；不能仅传递同一个批次 ID。
 
-**结果裁决**：Gateway 返回 `ACCEPTED` 及非零 `effective_step` 并非输入已在模型步实际生效，更非物理功率到位。因此 Commander 的执行 Port 仅在具备 `APPLIED` 正式证据时返回 `CONFIRMED_SUCCESS`；明确 `REJECTED` 才可判 `CONFIRMED_FAILURE`，其余（包括 ACCEPTED、UNKNOWN 和传输歧义）按 UNKNOWN 处理并保留安全隔离。当前 Generator Proto 尚无步实际生效的查询证据，仿真最终成功结论不得提前宣传为已实现；编码和测试须单独评估后续证据能力，不建立假状态或兼容捷径。
+**结果裁决**：Gateway 返回 `ACCEPTED` 及非零 `effective_step` 并非输入已在模型步实际生效，更非物理功率到位。因此 Commander 的执行 Port 仅在具备 `APPLIED` 正式证据时返回 `CONFIRMED_SUCCESS`；明确 `REJECTED` 才可判 `CONFIRMED_FAILURE`，其余（包括 ACCEPTED、UNKNOWN 和传输歧义）按 UNKNOWN 处理并保留安全隔离。Generator 正式 `GetInputExecution` 返回请求级 PENDING/APPLIED/UNKNOWN 证据，Gateway `GetSimulationExecutionResult` 调用该查询；Commander 在命令有效期限内查询 `PENDING` 直到 `APPLIED` 或超时，结果不明确则 UNKNOWN。
 
 
 
@@ -2280,7 +2280,7 @@ Commander 是真实与仿真控制的唯一权威入口。协议 Client 的写�
 | 真实工业设备 | Core ProtocolPort 驱动装配 | 经既有 ADS/Modbus/IEC104 Client 写入现场 |
 | 仿真设备 | GatewaySimulationExecutionAdapter | 经 Gateway 专用仿真执行 RPC 更新 Data Generator 可写模型输入 |
 
-Gateway 仿真执行 RPC 按 Contracts v1_26 §3.3 冻结（当前尚未写入正式 Proto）；先完成 Proto、生成绑定、鉴权、幂等、UNKNOWN 和结果查询并使所有调用方同步，不能以 Gateway `UpdateVariables` 数据注入接口或直接 Generator Client 代替。未实现前仿真控制标识 NOT_IMPLEMENTED。Adapter 实现留在 Infrastructure，由 Bootstrap 注入；Application 不导入具体 Adapter。
+Gateway 两个仿真执行 RPC 已写入正式 Proto，Commander 通过受认证的 Adapter 提交并查询结果；`APPLIED` 必须源于 Generator 同一请求的实际物理计算步完成证据，`ACCEPTED` 不构成成功。不得以 Gateway 测量注入 `UpdateVariables` 或 Commander→Generator 直连替代。该链路需要真实三进程验收。Adapter 实现留在 Infrastructure，由 Bootstrap 注入；Application 不导入具体 Adapter。
 
 **控制执行 Port 契约**：Application 通过 `ControlExecutionPort` 提交真实/仿真目标的设备、测点、Scalar 值、原 request_id、期望修订与截止时间，接收明确拒绝、已受理、已生效证据或 UNKNOWN；不允许把协议/gRPC 发送成功当作执行完成。真实目标 Adapter 复用 Core `ProtocolPort`，仿真目标 Adapter 调用 Gateway 正式 `ExecuteSimulationCommand/GetSimulationExecutionResult`。Adapter 在 Infrastructure；Commander 保留统一持久请求幂等、结果查询及审计；任何结果状态提升都必须有下游真实证据，不保留旧目标直连逻辑。
 

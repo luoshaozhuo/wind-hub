@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_26 · 20261113 · RPC 契约设计</p>
+<p class="subtitle">v1_27 · 20261113 · RPC 契约设计</p>
 
 <style>
 body {
@@ -647,7 +647,7 @@ System Test 必须遵守以下规定：
 | `industrial_gateway.proto` | `windhub.gateway.v1` | `IndustrialGatewayService` | 8 | Gateway 内存变量读写与租约 |
 | `data_generator.proto` | `windhub.data_generator.v1` | `DataGeneratorService` | 8 | 生成任务查询启停及目标变量发现、模型输入更新 |
 
-**当前已发布 49 个唯一 Unary RPC**，即公共 9 + 专属 11+7+4+10+8；以六份正式 Proto 及生成 Descriptor 为线协议权威。Gateway 的两个仿真执行 RPC 已完成 Proto 与四类 Python 绑定生成，业务 Server 和跨模块链路仍须独立验证。公共 9 项由各业务服务分别注册，因此这是“唯一接口定义数”，不是所有服务实例注册方法的总和。六份 Proto 当前均以 `proto3` 定义，业务 Proto 通过 `import "contracts/common.proto"` 复用公共消息。
+**当前已发布 50 个唯一 Unary RPC**，即公共 9 + 专属 11+7+4+10+9；以六份正式 Proto 及生成 Descriptor 为线协议权威。Gateway 的两个仿真执行 RPC 已完成 Proto 与四类 Python 绑定生成，业务 Server 和跨模块链路仍须独立验证。公共 9 项由各业务服务分别注册，因此这是“唯一接口定义数”，不是所有服务实例注册方法的总和。六份 Proto 当前均以 `proto3` 定义，业务 Proto 通过 `import "contracts/common.proto"` 复用公共消息。
 
 ## 3.1 模块间的调用关系
 
@@ -687,7 +687,7 @@ flowchart LR
 
 ## 3.3 仿真控制的唯一跨模块契约（编码基准）
 
-现行正式契约共 **49 个唯一 Unary RPC**：Common 9、Collector 11、Commander 7、Sink 4、Industrial Gateway 10、Data Generator 8。Gateway 两个仿真执行 RPC 已追加到正式 Proto 并生成绑定；Server 侧功能能否执行必须按真实调用验证，生成成功不等于业务验收通过。
+现行正式契约共 **50 个唯一 Unary RPC**：Common 9、Collector 11、Commander 7、Sink 4、Industrial Gateway 10、Data Generator 9。Gateway 两个仿真执行 RPC 已追加到正式 Proto 并生成绑定；Server 侧功能能否执行必须按真实调用验证，生成成功不等于业务验收通过。
 
 **唯一控制流**：工业 Client → Gateway（捕获写请求）→ Commander `SubmitCommand` → Gateway `ExecuteSimulationCommand` → Data Generator `UpdateVariables`。反向 Gateway 查询不触发新的指令。Data Generator → Gateway `ClaimTargets/UpdateVariables` 只用于测量数据注入，不能用于控制。Commander 是请求受理、持久幂等及最终命令状态的唯一权威；Gateway 是工业协议 Server 与仿真执行转换的拥有者；Data Generator 是模型输入及生效步的权威。
 
@@ -1143,7 +1143,7 @@ Commander 当前 Proto 包含 15 种消息、58 个字段，包含请求级幂�
 
 ## 6.5 批量提交、请求级查询及幂等契约
 
-本节为**Commander 批量与幂等的规范性目标契约**，覆盖 §6.2～6.4 中涉及旧单点限制的历史表述；其余已发布字段不变。所有接口保持 Unary。对应 Commander 由原 5 个 RPC 增为 7 个 RPC；该历史增量已落地；现行实际总数为 47，Gateway 目标扩展后为 49。
+本节为**Commander 批量与幂等的规范性目标契约**，覆盖 §6.2～6.4 中涉及旧单点限制的历史表述；其余已发布字段不变。所有接口保持 Unary。对应 Commander 由原 5 个 RPC 增为 7 个 RPC；该历史增量已落地；现行实际唯一 RPC 总数为 50。
 
 <p class="table-caption">表 6-3 Commander 新增消息与字段</p>
 
@@ -1391,7 +1391,8 @@ sequenceDiagram
 | `StartGeneration` | `StartGenerationRequest` | `StartGenerationResponse` | 按场景与可选版本创建生成任务 |
 | `StopGeneration` | `StopGenerationRequest` | `StopGenerationResponse` | 按 generation_id 停止生成任务 |
 | `ListVariables` | `ListVariablesRequest` | `ListVariablesResponse` | **目标新增**：查询有效模型变量目录（共享点表点及独立气象输入）与写权限 |
-| `UpdateVariables` | `UpdateVariablesRequest` | `UpdateVariablesResponse` | **目标新增**：原子更新可控模型 INPUT，返回生效步号；不改物理配置参数 |
+| `UpdateVariables` | `UpdateVariablesRequest` | `UpdateVariablesResponse` | 原子更新可控模型 INPUT，返回预定生效步号；不改物理配置参数 |
+| `GetInputExecution` | `GetInputExecutionRequest` | `GetInputExecutionResponse` | 按证书主体、Generation 和 request_id 查询计算步是否实际完成 |
 
 ## 9.3 消息与字段逐项定义
 
@@ -1463,7 +1464,7 @@ sequenceDiagram
 
 ## 9.5 Data Generator 新增变量发现与运行时更新契约
 
-当前 `data_generator.proto` **已经正式包含 8 个 Unary RPC**，其中 `ListVariables`、`UpdateVariables` 均已发布；本节仅规定现行字段语义，不是拟新增 RPC。注意与 `industrial_gateway.proto` 同名方法区别：Gateway 的 `UpdateVariables` 接收**测量数据注入**，Generator 的 `UpdateVariables` 修改**物理模型合法外生输入**。两服务分别在独立 Proto package 下生成方法，不冲突。
+当前 `data_generator.proto` **已经正式包含 9 个 Unary RPC**，其中 `ListVariables`、`UpdateVariables` 均已发布；本节仅规定现行字段语义，不是拟新增 RPC。注意与 `industrial_gateway.proto` 同名方法区别：Gateway 的 `UpdateVariables` 接收**测量数据注入**，Generator 的 `UpdateVariables` 修改**物理模型合法外生输入**。两服务分别在独立 Proto package 下生成方法，不冲突。
 
 ```protobuf
 // 当前已发布接口的字段说明，正式权威仍为 src/contracts/data_generator.proto。
@@ -1508,10 +1509,20 @@ message UpdateVariablesResponse {
   string message = 4;
   string request_id = 5;
 }
+message GetInputExecutionRequest {
+  string generation_id = 1;
+  string request_id = 2;
+}
+message GetInputExecutionResponse {
+  string request_id = 1;
+  string state = 2;                 // PENDING / APPLIED / UNKNOWN
+  uint64 effective_step = 3;
+}
 service DataGeneratorService {
   // 现行其余六项 RPC 保持不变
   rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
   rpc UpdateVariables(UpdateVariablesRequest) returns (UpdateVariablesResponse);
+  rpc GetInputExecution(GetInputExecutionRequest) returns (GetInputExecutionResponse);
 }
 ```
 
@@ -1522,7 +1533,7 @@ service DataGeneratorService {
 5. mTLS 身份/权限建议独立定义 `variables_read`、`variables_update`；Gateway 的受控反馈身份仅能更新授权模拟设备的 INPUT，CLI 也仅能在明确授予模拟输入权限后更新；不能将这两个 RPC 当作真实 PLC 命令旁路。
 6. Gateway 仅接收经过 Commander 授权并通过 `ExecuteSimulationCommand` 提交的控制请求，再以原 request_id 调用该 RPC；禁止工业协议写事件直接路由 Generator。独立的被授权 CLI 模型输入操作不属于 Gateway 工业控制转发。
 
-**设计验收与编码边界**：Data Generator 当前八方法必须按现行 Proto 与生成 Stub 验证，实际执行与幂等语义仍须独立测试。待新增的是 Gateway 的两个仿真执行 RPC，而非 Generator 的变量 RPC；修改前不得宣称整条仿真控制链路已实施。
+**执行证据契约**：`GetInputExecution` 只读查询使用与 `UpdateVariables` 相同的 mTLS 主体权限，按 `(generation_id, 证书主体, request_id)` 隔离。`PENDING` 表示已受理但对应步尚未完成；仅在物理模型 `advance` 成功完成该请求预定步之后返回 `APPLIED`；身份未知、Generation 证据遗失或停止且未完成时返回 `UNKNOWN`。`effective_step` 不等于已执行证明；Gateway 不得仅依靠时间、采样输出或当前状态推断执行成功。调用方断连不重复提交新 ID。九项 RPC 均须通过 Descriptor、类型检查及真实服务调用验收。
 
 # 10. 跨 Proto 一致性与兼容演进
 
@@ -1665,7 +1676,7 @@ Contracts 是 **wire schema 和 RPC 消息**的唯一权威，不导入 Core 或
 | 验证对象 | 层级 | 主要判据 |
 |---|---|---|
 | 六份 Proto 编译、导入与生成 | unit | 实际 `protoc`/构建命令成功，生成结果可导入 |
-| 49 个现行 RPC Descriptor（Gateway 已增 2） | unit | 方法名、package、请求/响应类型、Unary 签名与第 3～9 章一致 |
+| 50 个现行 RPC Descriptor（Gateway 已增 2） | unit | 方法名、package、请求/响应类型、Unary 签名与第 3～9 章一致 |
 | 每个消息与字段 | unit | 本设计列举的消息/字段号/类型/repeated/optional/oneof 与 Descriptor 全量对应；新增遗漏时报错 |
 | CommonService 五服务注册 | integration | 五种服务真实启动后可发现并调用公共 9 个接口；UNIMPLEMENTED 有明确结果 |
 | 五种专属 Service | integration | 现行 11/7/4/10/8；Gateway 业务实现仍须逐项验证 |
@@ -1684,7 +1695,7 @@ Contracts 是 **wire schema 和 RPC 消息**的唯一权威，不导入 Core 或
 | `commander.proto` | `ListDevices`、`GetDevice`、`ListPoints`、`SubmitCommand`、`SubmitCommands`、`GetCommandResult`、`GetRequestResult` | 点表可写元数据；`ScalarValue` 取值；受理与结果区分；`command_id`、`io_settled`、超时 UNKNOWN | `tests/src/contracts/unit/`；`tests/src/commander/integration/`；`tests/src/commander/system/` |
 | `sink_service.proto` | `ListDeliveries`、`GetDelivery`、`StartDelivery`、`StopDelivery` | Delivery 配置及 Realtime/Reliable 角色；修订冲突；期望/实际状态 | `tests/src/contracts/unit/`；`tests/src/sink_service/integration/`；`tests/src/sink_service/system/` |
 | `industrial_gateway.proto` | `ListGateways`、`GetGateway`、`StartGateway`、`StopGateway`、`ListVariables`、`ReadVariables`、`UpdateVariables`、`ClaimTargets` | 变量读/写权限分离；`ACQUIRE/RENEW/RELEASE`；旧令牌拒绝、逐项成功及跨客户端隔离 | `tests/src/contracts/unit/`；`tests/src/industrial_gateway/integration/`；`tests/src/industrial_gateway/system/` |
-| `data_generator.proto` | `ListDevices`、`GetDevice`、`ListScenarios`、`GetGeneration`、`StartGeneration`、`StopGeneration`、`ListVariables`、`UpdateVariables` | 场景版本 optional；任务 ID 与设备 ID 区分；生成任务启停；通过 Gateway 而非本服务的变量更新 | `tests/src/contracts/unit/`；`tests/src/data_generator/integration/`；`tests/src/data_generator/system/` |
+| `data_generator.proto` | `ListDevices`、`GetDevice`、`ListScenarios`、`GetGeneration`、`StartGeneration`、`StopGeneration`、`ListVariables`、`UpdateVariables`、`GetInputExecution` | 场景版本 optional；任务 ID 与设备 ID 区分；生成任务启停；通过 Gateway 而非本服务的变量更新 | `tests/src/contracts/unit/`；`tests/src/data_generator/integration/`；`tests/src/data_generator/system/` |
 
 上表路径为**设计建议的测试归属**，不是声称仓库中已经存在这些文件。实施时以仓库真实目录规范确定落地路径，不为目录迁移引入重复测试。六份 Proto 的所有 RPC 均必须形成可定位的测试函数或参数化测试 ID。状态机、现场 I/O、租约等业务行为由对应模块的系统测试承担，Contracts 的 Descriptor 测试不能代替。
 
@@ -1707,7 +1718,7 @@ Contracts 是 **wire schema 和 RPC 消息**的唯一权威，不导入 Core 或
 
 ## 11.5 覆盖判定与验收证据
 
-至少分别报告：6/6 Proto 文件、49/49 当前唯一 RPC（含 Gateway 2 个新方法）、消息类型与字段的 Descriptor 全量对比结果，以及各模块实际运行的集成/系统用例与未执行项。逐字段检查必须校验**消息全限定名、字段名、字段号、类型、label/presence、oneof、引用消息/枚举类型**；不得仅比较名称和数量。对于当前 `.proto` 未定义的业务状态可用值，不应通过测试强行补造不存在的 enum。
+至少分别报告：6/6 Proto 文件、50/50 当前唯一 RPC（含 Gateway 2 个新方法）、消息类型与字段的 Descriptor 全量对比结果，以及各模块实际运行的集成/系统用例与未执行项。逐字段检查必须校验**消息全限定名、字段名、字段号、类型、label/presence、oneof、引用消息/枚举类型**；不得仅比较名称和数量。对于当前 `.proto` 未定义的业务状态可用值，不应通过测试强行补造不存在的 enum。
 
 验收报告须标识源 commit、测试代码版本、工具版本、执行命令、测试环境、PASS/FAIL/SKIP/NOT_RUN 数量和未解决问题。真实服务系统用例缺失时，Contracts 静态验证可通过，但不得宣称全部业务接口端到端验收通过。
 
@@ -1727,7 +1738,7 @@ Contracts 文档验收不等于真实代码测试通过。提交前执行项目�
 
 | 目标 | 层级/Marker | 精确判定 |
 |---|---|---|
-| 47 现行 / 49 目标 RPC Descriptor | unit/contract | 六 Proto 的 service、method、input/output type、Unary 逐项对照；Commander 7 RPC 已发布；新增的是 Gateway 2 RPC，其他现行方法不变化 |
+| 50 个现行 RPC Descriptor | unit/contract | 六 Proto 的 service、method、input/output type、Unary 逐项对照；Commander 7 RPC 已发布；新增的是 Gateway 2 RPC，其他现行方法不变化 |
 | 15 Commander 消息、58 字段 | unit/contract | 逐字段核验 tag/type/label/presence，旧 tag 不重分配，新 request_id=6/7 |
 | 客户端 request_id | integration/security | 空 ID 拒绝、调用身份绑定、授权隔离、同 ID 不同内容冲突；单点和批次同命名空间 |
 | 批次整体验证 | component/contract | 非空有界、逐项合法性、顺序一致；一个非法全部拒绝无可执行命令 |
@@ -1735,7 +1746,7 @@ Contracts 文档验收不等于真实代码测试通过。提交前执行项目�
 | 受理事务与断联 | system/reliability | accepted 前身份及子命令 ID 已可恢复；响应丢失、崩溃后按 request_id 查询，不再次写入现场 |
 | 全调用方升级 | system/contract | Commander、Gateway、CLI、Web Server 及其他正式控制客户端都须送稳定 ID；无业务伪兼容或私有请求状态机 |
 
-**门禁：**六份 Proto 的 Descriptor 须核对现行 49/49，旧包名、字段号、类型不能漂移；所有新增 RPC 均有正常、拒绝、超时、权限、部分成功、UNKNOWN、跨重启与并发的可追溯场景。上述接口已进入当前版本；新实现变更不得以 Proto 单独修改或仅静态满足 Descriptor 代替服务真实回归。测试目标目录 `tests/src/contracts/` 及业务 `tests/src/commander/`，每个场景保留源需求与 UC 编号。
+**门禁：**六份 Proto 的 Descriptor 须核对现行 50/50，旧包名、字段号、类型不能漂移；所有新增 RPC 均有正常、拒绝、超时、权限、部分成功、UNKNOWN、跨重启与并发的可追溯场景。上述接口已进入当前版本；新实现变更不得以 Proto 单独修改或仅静态满足 Descriptor 代替服务真实回归。测试目标目录 `tests/src/contracts/` 及业务 `tests/src/commander/`，每个场景保留源需求与 UC 编号。
 
 **职责边界：**Configuration 仅负责共享配置；Commander 负责现场控制状态、幂等与审计；Core 的 `WRITE_MANY` 不改变批次受理及逐点结果语义。
 
@@ -1747,7 +1758,7 @@ Contracts 文档验收不等于真实代码测试通过。提交前执行项目�
 
 **生成物一致性门禁：** `scripts/generate_rpc.py` 为六份 Proto 的统一生成入口，应同时产出 `*_pb2.py`、`*_pb2_grpc.py`、`*_pb2.pyi`、`*_pb2_grpc.pyi`；生成物与源 Proto 同提交，禁止手工编辑生成文件或仅提交接口源文件。新 `request_id` 业务必填并非 proto3 标量 presence，需由 Commander 的请求校验明确拒绝空串。生成后由 Commander 服务端实现新 Unary 方法，并使 CLI 及所有真实控制调用方携带预存的 ID；这些实现约束不属于 Core/configuration。\n
 
-当前为 47 个唯一 Unary RPC；Gateway 新增 2 RPC 后目标为 49，Commander 专属仍为 7；Commander 15 种消息、58 字段。`6.5` 的字段号、值类型和排序为规范性依据，旧五 RPC 的签名/字段不可删除或重编号；单点请求新增 `request_id=6`、响应新增 `request_id=7`。新客户端在请求发出前生成并保存该 ID。
+当前为 50 个唯一 Unary RPC；Gateway 专属 10、Generator 专属 9，Commander 专属仍为 7；Commander 15 种消息、58 字段。`6.5` 的字段号、值类型和排序为规范性依据，旧五 RPC 的签名/字段不可删除或重编号；单点请求新增 `request_id=6`、响应新增 `request_id=7`。新客户端在请求发出前生成并保存该 ID。
 
 ### 12.2.1 查询状态值与精确聚合规则
 

@@ -1,6 +1,6 @@
 <h1 class="title">Industrial Gateway 软件设计</h1>
 
-<p class="subtitle">v1_37 · 20261113</p>
+<p class="subtitle">v1_38 · 20261113</p>
 
 <style>
 body {
@@ -767,7 +767,7 @@ System Test 必须遵守以下规定：
 
 Gateway 管理实际工业协议 Server，保持协议库原生读写语义。上游通过 gRPC 更新数据；工业客户端命令写入事件才可能转发 Commander。Gateway 不直接控制真实 PLC，不验证实际控制效果。
 
-**契约版本边界：** 以当前正式 Proto 为现行已实现契约依据：CommonService 9 项、IndustrialGatewayService 8 项，共 **17 个 Unary RPC**。Gateway 8 项包含 `UpdateVariables` 与 `ClaimTargets`，前者具有 `lease_token` 字段。此次修订将已验收的扩展正式纳入设计，不将其误记为 v1_9 的原始契约。
+**契约版本边界：** 以当前正式 Proto 为现行契约依据：CommonService 9 项、IndustrialGatewayService 10 项，共 **19 个 Unary RPC**。Gateway 8 项包含 `UpdateVariables` 与 `ClaimTargets`，前者具有 `lease_token` 字段。此次修订将已验收的扩展正式纳入设计，不将其误记为 v1_9 的原始契约。
 
 ## 3.2 UR-01 网关数据更新
 
@@ -995,7 +995,7 @@ I --> J
 
 | 约束类别 | 可验证要求 |
 |---|---|
-| 接口 | 现行入站 17 个 Unary RPC 必须全部注册，其中包括 `UpdateVariables` 与 `ClaimTargets`；每次副作用操作均受认证/授权/版本检查。 |
+| 接口 | 现行入站 19 个 Unary RPC 必须全部注册，其中包括 `UpdateVariables` 与 `ClaimTargets`；每次副作用操作均受认证/授权/版本检查。 |
 | 容量与错误 | 请求体最大值建议 2 MiB，单服务活跃 RPC 建议默认 64，默认期限 5000 ms；超限明确拒绝，不以截断数据伪报成功。 |
 | 资源安全 | 客户端断连不能回滚已持久化事实；停止 RPC 不等于未完成 I/O 安全结束。 |
 
@@ -1644,7 +1644,7 @@ Gateway Server 监听端点必须来自专属 Service 配置，公共设备 Endp
 
 # 9. 对外接口与通信契约
 
-以当前 `src/contracts/common.proto`、`industrial_gateway.proto`、`commander.proto` 为现行接口基准。入站 **CommonService 9 RPC + IndustrialGatewayService 8 RPC = 17 个现行 Unary RPC**；按 Contracts v1_26 §3.3 增加两个仿真执行 RPC 后目标为 19 个，落地前不得声明已实现。
+以当前 `src/contracts/common.proto`、`industrial_gateway.proto`、`commander.proto` 为现行接口基准。入站 **CommonService 9 RPC + IndustrialGatewayService 10 RPC = 19 个现行 Unary RPC**；两个仿真执行 RPC 已写入正式契约，实际功能仍须真实服务联调确认。
 
 ## 9.1 CommonService 入站全集
 
@@ -1847,7 +1847,7 @@ metrics:
 
 已验收的 Gateway v1 采用 `SharedDocumentLoader` 显式传入 Instance pathname 和 Template 根目录，解析公共设备、型号、协议及点表引用；Service 快照不私自修改共享配置。Modbus TCP 请求级写回调、完整变量读写、同值重复写、数据注入与工业控制分离、端口交换、配置热更及三态快照均有独立测试证据。
 
-当前基线已实现 Modbus TCP Server、Gateway 17 个入站 RPC 及既有 Commander 转发；新增 Commander→Gateway→Data Generator 仿真执行接口仍未实现，须单独验收。IEC 104 与 ADS Server 仍属后续适配，未通过真实协议能力验证前不得宣称已支持。Data Generator、Sink Service 的跨分支完整整栈尚未完成，此范围独立列入集成验收，不改变本模块已验收结果。
+当前正式接口含 Gateway 19 个入站 RPC（含 CommonService）；Commander→Gateway→Data Generator 仿真链必须以请求级计算步完成证据完成独立验收。IEC 104 与 ADS Server 仍属后续适配，未通过真实协议能力验证前不得宣称已支持。Data Generator、Sink Service 的跨分支完整整栈尚未完成，此范围独立列入集成验收，不改变本模块已验收结果。
 
 ## 11.6 迁移与兼容边界
 
@@ -1875,10 +1875,10 @@ Gateway 的控制事件出口仅为 Commander，禁止按 `control.target.kind=d
 
 Gateway 对工业写事件只出站调用 Commander `SubmitCommand`。来自 Commander 的 `ExecuteSimulationCommand` 属于**独立入站控制执行 Adapter**，并与对 Generator 的 `UpdateVariables` 出站 Client 分离。禁止用 Gateway 的数据注入 `UpdateVariables` 代替执行接口。
 
-- Proto 请求与响应字段号、状态、查询接口严格按 Contracts v1_26 §3.3，不在 Gateway 重复定义同名线契约。
+- Proto 请求与响应字段号、状态、查询接口严格按 Contracts v1_27 §3.3，不在 Gateway 重复定义同名线契约。
 - Gateway 实例的 Service 配置声明每台仿真设备的 Scenario 绑定、目标变量映射和允许的模型输入；不得将运行态 `generation_id` 写死在静态配置。活动 Generation 必须通过 Generator 正式 RPC 解析且版本一致。
 - 接受执行 RPC 前验证 Commander 认证主体、request_id、expires_at、revision、目标属性及唯一 Generation。拒绝失败不改变变量或模型；同 request_id 同内容保持同一结果，不创建二次执行。
-- Generator `UpdateVariables` 的 `accepted/effective_step` 仅作为有效步准入证据；未观测已生效步不得返回 APPLIED。取消或断连后归 UNKNOWN，不能盲重试新 ID；Commander 对外提供最终查询。
+- Generator `UpdateVariables` 的 `accepted/effective_step` 仅作为有效步准入证据；Gateway 通过 `GetInputExecution` 查询同一 Generation、证书主体与 request_id 的实际计算步完成结果，只有 `APPLIED` 才可返回 Commander 成功。取消或断连后归 UNKNOWN，不能盲重试新 ID；Commander 对外提供最终查询。
 - Gateway 的控制转发任务与仿真执行用例属于 Application，通信 Client、Server、TLS 和模型输入 RPC 属于 Infrastructure，依赖装配统一在 Bootstrap。
 
 ### 11.7.2 唯一控制链路

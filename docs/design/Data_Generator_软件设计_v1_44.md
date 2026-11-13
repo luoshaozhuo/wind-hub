@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_43 · 20261113</p>
+<p class="subtitle">v1_44 · 20261113</p>
 
 <style>
 body {
@@ -1899,13 +1899,13 @@ flowchart LR
 
 首版不直接连接任何真实 PLC。历史来源具体产品、现场集群部署、认证材料分发由部署项目确定，设计不假定某一种数据库已经存在。
 
-# 9. 接口与通信契约（现行八项业务 RPC）
+# 9. 接口与通信契约（现行九项业务 RPC）
 
-本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_25 设计。三份 Proto 均为 `proto3`；DataGeneratorService 已发布八项正式 RPC，无待新增的 Generator RPC；是否可调用以正式 Proto、生成绑定与 Server 实际行为为准。
+本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_27 设计。三份 Proto 均为 `proto3`；DataGeneratorService 定义九项正式 RPC，包含只读请求级生效证据查询；是否可调用以正式 Proto、生成绑定与 Server 实际行为为准。
 
 ## 9.1 DataGeneratorService：八项现行 gRPC Server RPC
 
-现行 `data_generator.proto` 已提供 **8 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_25 §9.5。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
+现行 `data_generator.proto` 已提供 **9 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_27 §9.5。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
 
 <p class="table-caption">表 9-1 DataGeneratorService 方法与实现映射（已核实）</p>
 
@@ -1918,11 +1918,12 @@ flowchart LR
 | `StartGeneration` | `StartGenerationRequest(scenario_id, optional scenario_version, expected_revision)` | `StartGenerationResponse(generation_id, accepted, actual_state, error_code, message)` | §5.3、§6.2、§10.4 | UR-04、UC-07；指定已配置场景启动生成/重放，必须校验版本/互斥，接受不等于已经运行 |
 | `ListVariables` | `ListVariablesRequest(generation_id, device_id, page_size, page_token)` | `ListVariablesResponse(variables[], next_page_token)` | §9.4、§10.5.11 | 模型有效点目录、类型、单位、角色与可写权限 |
 | `UpdateVariables` | `UpdateVariablesRequest(generation_id, device_id, request_id, values[])` | `UpdateVariablesResponse(accepted, effective_step, error_code, message, request_id)` | §9.4、§10.5.11 | 只更新活跃 Generation 的可更新模型输入，整批原子/幂等 |
+| `GetInputExecution` | `GetInputExecutionRequest(generation_id, request_id)` | `GetInputExecutionResponse(request_id, state, effective_step)` | §9.4 | mTLS 请求主体隔离的只读步完成证据，返回 PENDING/APPLIED/UNKNOWN |
 | `StopGeneration` | `StopGenerationRequest(generation_id, expected_revision)` | `StopGenerationResponse(accepted, actual_state, error_code, message)` | §5.3、§6.2、§10.4 | UR-04、UC-07；按 ID 停止，逻辑终结与底层 I/O 收敛分别报告与处理 |
 
 **业务对象语义见 §5.3**：`Device` 是虚拟设备，不是 Gateway；包含 `device_id, protocol, endpoint, generation_id, actual_state`；其 `generation_id` 只标识当前活动实例，没有活动归属时使用空字符串，`endpoint` 为虚拟设备显示/映射属性，不等于一对多 Gateway 的唯一地址；`Scenario` 是版本化方案，包含 `scenario_id, active_version, available_versions[], device_ids[], description`；`Generation` 是绑定单个场景版本并管理多个 Device 的一次运行，包含 `generation_id, scenario_id, scenario_version, desired_state, actual_state, started_at, last_error`。其中 `scenario_version` 是可选输入，未提供时选用该场景当前 `active_version`，一旦生成开始即绑定具体版本。版本冲突不得隐式忽略 `expected_revision`。`generation_id` 由服务端产生并用于查询与停止；不引入未经 Proto 定义的暂停、Seek、循环重放控制。
 
-**需求边界**：DataGeneratorService 现行八项 RPC（含场景只读查询、生成启停、变量发现与更新）均归 UR-04；不提供场景 CRUD、任务编辑或复杂仿真控制。§4.8 UC-07 必须核验有效调用、权限和失败路径。
+**需求边界**：DataGeneratorService 现行九项 RPC（含场景只读查询、生成启停、变量发现与更新）均归 UR-04；不提供场景 CRUD、任务编辑或复杂仿真控制。§4.8 UC-07 必须核验有效调用、权限和失败路径。
 
 配置快照 RPC 的文件集合必须遵循 §11.1 的 `services/`、`instances/`、`templates/` 分层目录及相对路径规则；对外消息字段一律使用已冻结的 `common.proto`。
 
@@ -1947,6 +1948,8 @@ flowchart LR
 公共消息适配必须遵守 Proto 的字段与存在性语义：`ScalarValue` 为 bool/sint64/uint64/double/string/bytes 的 `oneof kind`；`Sample.value` 是 `optional ScalarValue`；`PointMetadata.minimum/maximum` 是 `optional double`。不能以数值零替代字段未设置；时间戳使用 `google.protobuf.Timestamp`。`SnapshotScope` 只有 `UNSPECIFIED/DISK/RUNTIME/CANDIDATE` 四个枚举。`GetMetricsResponse.Metric` 的标准字段只有 `name,value,unit,window_ms,sampled_at`，因此无样本/不可用状态需通过缺席指标与服务事件/诊断报告表达，**不得虚构 `status` 字段或把缺样本编码为零值**。
 
 `GetEvents` 是实际存在的强制接口，必须有可查询的运行事件及时间、过滤和分页语义；不能用日志文本代替 Proto `Event`。公共接口在服务启动后必须支持真实 gRPC 调用；接口不可用不得虚报到 `GetCapabilities`。
+
+**执行确认**：`UpdateVariables.accepted/effective_step` 只确定未来步准入；Generator 记录请求级 `effective_step` 和成功完成的物理计算步。经 `GetInputExecution(generation_id,request_id)` 查询，只有相同认证主体的请求已越过其真实完成步才返回 `APPLIED`；未完成返回 `PENDING`，缺少证据或任务终止则为 `UNKNOWN`。不提供物理输出到达设定值的承诺；接口必须使用 mTLS，且拒绝跨主体查询。
 
 ## 9.3 Gateway 客户端：正式 UpdateVariables 契约
 
@@ -1991,7 +1994,7 @@ flowchart LR
 
 ## 9.5 冻结基础与批量注入协作（规范性）
 
-现行接口以 Contracts v1_25 为准：DataGeneratorService 8 个 Unary RPC，另有 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`。生产生成任务必须先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；没有有效 token 时不允许调用 `UpdateVariables`；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
+现行接口以 Contracts v1_27 为准：DataGeneratorService 9 个 Unary RPC，另有 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`。生产生成任务必须先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；没有有效 token 时不允许调用 `UpdateVariables`；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
 
 **映射与执行**：一个 Generation 可管理多个 Device，源 `(device_id,point_id)` 可映射多个输出，但一个目标不得由同一运行集合内两个来源重复占用。按 Gateway 分组为 `UpdateVariablesRequest {gateway_id,values[],lease_token}`，不得额外增加质量、时间戳、批次 ID 或请求级幂等字段。无令牌请求即使当前目标未被其他 Generation 认领，也必须被 Gateway 拒绝。一个 Gateway 的成功不构成其他 Gateway 的成功，逐项失败和响应缺失必须分别记录；UNKNOWN 不得虚报为投递成功。
 
@@ -3163,11 +3166,11 @@ scenarios:
 | `test_observability_system.py` | system | reliability | recovery | UC-03/06：真实 RPC 计数、UNKNOWN 隔离、不重放与安全恢复 |
 | `test_error_classification_system.py` | system | safety | invalid_data | UC-03/07：目标缺失、类型不符、只读变量、Gateway 不可达分类 |
 
-**测试前置契约**：现行 8 个 DataGeneratorService RPC 已存在，直接按正式 Proto 与生成物执行 Descriptor 核对；测试不得根据设计虚构不存在的接口。模型与点表测试数据应来自正式配置文件，独立测试方复核输出而不是复制生产算法。
+**测试前置契约**：现行 9 个 DataGeneratorService RPC 已存在，直接按正式 Proto 与生成物执行 Descriptor 核对；测试不得根据设计虚构不存在的接口。模型与点表测试数据应来自正式配置文件，独立测试方复核输出而不是复制生产算法。
 
 ## 13.2 验收执行
 
-必须新增 Descriptor 逐方法断言：目标 DataGeneratorService 8 项、CommonService 9 项均为 Unary；前者包含已发布的 ListVariables/UpdateVariables，须核查真实 Servicer、生成 Stub 及结果；不得把已声明的 RPC 直接当作真实 E2E 已通过。检验真实响应类型、optional 字段存在性、授权、幂等及启动后可调用性。Gateway 输出相关验收应核实实际 Gateway Server 已实现 `UpdateVariables`；未联调的场景保持 NOT_RUN。
+必须新增 Descriptor 逐方法断言：目标 DataGeneratorService 9 项、CommonService 9 项均为 Unary；前者包含已发布的 ListVariables/UpdateVariables，须核查真实 Servicer、生成 Stub 及结果；不得把已声明的 RPC 直接当作真实 E2E 已通过。检验真实响应类型、optional 字段存在性、授权、幂等及启动后可调用性。Gateway 输出相关验收应核实实际 Gateway Server 已实现 `UpdateVariables`；未联调的场景保持 NOT_RUN。
 
 
 ```bash
