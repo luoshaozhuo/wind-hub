@@ -2220,9 +2220,8 @@ src/
 │   │   ├── config.py              # 配置校验协调及热重载
 │   │   ├── session.py             # 设备会话、资源所有权
 │   │   ├── audit.py               # 审计事件发布调度
-│   │   └── ports/                 # 控制执行、审计和持久化抽象接口
 │   │   ├── runtime.py             # 服务生命周期监督
-│   │   └── ports/                 # I/O 及持久化依赖接口
+│   │   └── ports/                 # 控制执行、审计和持久化依赖接口
 │   └── infrastructure/
 │       ├── grpc_server.py         # 契约确认后实现；本阶段不编码
 │       ├── event_repository.py    # SQLite command_events 存取
