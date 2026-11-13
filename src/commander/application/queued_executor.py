@@ -109,6 +109,7 @@ class QueuedExecutor:
         idle_timeout: float = 30.0,
         max_batch_points: int = 10,
         max_request_id_bytes: int = 128,
+        initially_blocked: frozenset[str] = frozenset(),
     ) -> None:
         if (
             global_capacity < 1
@@ -142,7 +143,7 @@ class QueuedExecutor:
         self._workers: dict[str, asyncio.Task[None]] = {}
         self._entries: dict[str, _Entry] = {}
         self._sessions: dict[str, WriteSession] = {}
-        self._blocked: set[str] = set()
+        self._blocked: set[str] = set(initially_blocked)
         self._reloading: set[str] = set()
         self._native: set[asyncio.Task[Any]] = set()
         self._native_by_device: dict[str, set[asyncio.Task[Any]]] = defaultdict(set)
