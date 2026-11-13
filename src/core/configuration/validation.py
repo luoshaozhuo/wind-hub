@@ -186,5 +186,3 @@ def _validate_catalog_unit(unit: Unit, catalog: UnitCatalog, *, context: str) ->
     configured = catalog.units.get(unit.unit_id)
     if configured is None or unit != configured:
         raise ValueError(f"{context} must reference unit '{unit.unit_id}' from the unit catalog")
-
-
