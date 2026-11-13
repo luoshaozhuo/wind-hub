@@ -32,8 +32,8 @@ from tests.sink_service._stage1_fixtures import (
 
 pytestmark = [pytest.mark.component, pytest.mark.reliability]
 
-KAFKA_110 = f"{TEMPLATE_ROOT}/sinks/kafka_history_1.1.0.yaml"
-KAFKA_100 = f"{TEMPLATE_ROOT}/sinks/kafka_history_1.0.0.yaml"
+KAFKA_110 = f"{TEMPLATE_ROOT}/sinks/kafka_history_v1.1.0.yaml"
+KAFKA_100 = f"{TEMPLATE_ROOT}/sinks/kafka_history_v1.0.0.yaml"
 
 
 def _kafka_template(*, version: str, concurrent: bool, inflight: int) -> dict[str, Any]:

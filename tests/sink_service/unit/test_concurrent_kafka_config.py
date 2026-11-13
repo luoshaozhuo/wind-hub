@@ -35,10 +35,10 @@ from tests.sink_service._stage1_fixtures import (
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SHIPPED_110 = REPO_ROOT / "configs/templates/sinks/kafka_history_1.1.0.yaml"
+SHIPPED_110 = REPO_ROOT / "configs/templates/sinks/kafka_history_v1.1.0.yaml"
 
-KAFKA_PATH_110 = f"{TEMPLATE_ROOT}/sinks/kafka_history_1.1.0.yaml"
-KAFKA_PATH_100 = f"{TEMPLATE_ROOT}/sinks/kafka_history_1.0.0.yaml"
+KAFKA_PATH_110 = f"{TEMPLATE_ROOT}/sinks/kafka_history_v1.1.0.yaml"
+KAFKA_PATH_100 = f"{TEMPLATE_ROOT}/sinks/kafka_history_v1.0.0.yaml"
 DELIVERY_TEMPLATE_PATH = template_path("reliable_history")
 
 
@@ -173,7 +173,7 @@ def test_shipped_kafka_110_template_declares_device_concurrency() -> None:
 
 def test_legacy_100_template_remains_serial_capability() -> None:
     document = yaml.safe_load(
-        (REPO_ROOT / "configs/templates/sinks/kafka_history_1.0.0.yaml").read_bytes()
+        (REPO_ROOT / "configs/templates/sinks/kafka_history_v1.0.0.yaml").read_bytes()
     )
     assert document["capabilities"]["supports_concurrent_write"] is False
     assert document["capabilities"]["max_safe_inflight"] == 1

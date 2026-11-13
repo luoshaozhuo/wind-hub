@@ -37,7 +37,7 @@ def test_released_protocol_defaults_are_understood_and_applied(
     parse: Callable[..., Any],
 ) -> None:
     """模板参数不能被静默忽略，解析器默认值与发布模板一致。"""
-    path = _PROTOCOLS / f"{template_id}_1.1.0.yaml"
+    path = _PROTOCOLS / f"{template_id}_v1.1.0.yaml"
     document = read_yaml(path)
     assert document["schema_version"] == 1
     assert document["file_version"] == "1.1.0"
@@ -62,7 +62,7 @@ def test_released_protocol_rejects_unknown_parameter(template_id: str) -> None:
         "modbus_tcp": parse_modbus_config,
         "iec104": parse_iec104_config,
     }
-    document = read_yaml(_PROTOCOLS / f"{template_id}_1.1.0.yaml")
+    document = read_yaml(_PROTOCOLS / f"{template_id}_v1.1.0.yaml")
     options = {**document["protocol_options"], "unexpected_option": 1}
     with pytest.raises(ConfigError, match="unknown"):
         parsers[template_id](ConnectionEndpoint("127.0.0.1"), options)

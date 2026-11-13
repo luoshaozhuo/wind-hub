@@ -81,7 +81,7 @@ def _selector_path(selector: common_pb.SnapshotFile | Any) -> str:
         # （units/business_points）→ templates/<name>.yaml。
         version = getattr(selector, "version", "")
         if version:
-            return f"templates/{name}_{version}.yaml"
+            return f"templates/{name}_v{version}.yaml"
         return f"templates/{name}.yaml"
     raise ValueError(f"unsupported selector: {selector}")
 
