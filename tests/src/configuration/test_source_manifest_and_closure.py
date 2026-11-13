@@ -13,11 +13,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from configuration.document_version import (
+from core.configuration.document_version import (
     read_stable_document,
     verify_shared_source_closure,
 )
-from configuration.shared_documents import (
+from core.configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
 )

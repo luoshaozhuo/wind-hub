@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from configuration.document_version import validate_document_version
+from core.configuration.document_version import validate_document_version
 from core.application.errors import ConfigError
 
 

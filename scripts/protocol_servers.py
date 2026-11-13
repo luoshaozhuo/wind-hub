@@ -36,8 +36,8 @@ from pymodbus.constants import ExcCodes
 from pymodbus.datastore import ModbusServerContext
 from pymodbus.server import ModbusTcpServer
 
-from configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
-from configuration.shared_snapshot import SharedDomainSnapshot
+from core.configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
+from core.configuration.shared_snapshot import SharedDomainSnapshot
 from configuration.site_loader import load_domain
 from configuration.snapshot import ConfigSnapshot
 from core.domain import DataType, Point

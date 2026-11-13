@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from configuration.effective import resolve_effective_device
+from core.configuration.effective import resolve_effective_device
 from core.domain import (
     ConnectionEndpoint,
     Device,

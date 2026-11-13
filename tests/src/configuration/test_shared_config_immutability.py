@@ -21,16 +21,16 @@ from typing import Any
 import pytest
 import yaml
 
-from configuration.immutable import freeze_document, plain_document
-from configuration.shared_documents import (
+from core.configuration.immutable import freeze_document, plain_document
+from core.configuration.shared_documents import (
     SharedConfigPaths,
     SharedDeviceDefinition,
     SharedDocumentLoader,
     SharedDocuments,
 )
-from configuration.shared_snapshot import SharedDomainSnapshot, build_shared_snapshot
-from configuration.template_graph import DeviceTemplates
-from configuration.versioned_templates import (
+from core.configuration.shared_snapshot import SharedDomainSnapshot, build_shared_snapshot
+from core.configuration.template_graph import DeviceTemplates
+from core.configuration.versioned_templates import (
     ResolvedTemplate,
     TemplateRef,
     config_hash,

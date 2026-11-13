@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from configuration.document_version import validate_document_version
-from configuration.versioned_templates import (
+from core.configuration.document_version import validate_document_version
+from core.configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )
