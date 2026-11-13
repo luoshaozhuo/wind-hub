@@ -10,7 +10,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from commander.application.control import CommandControl
 from commander.domain.command import (
@@ -45,6 +45,13 @@ class WriteSession(Protocol):
     ) -> tuple[ProtocolWriteResult, ...]: ...
 
     async def close(self) -> None: ...
+
+
+@runtime_checkable
+class AuthorizedWriteSession(Protocol):
+    """Optional command-aware Port preserving the durable per-command identity."""
+
+    async def write_authorized(self, command: AcceptedCommand) -> ProtocolWriteResult: ...
 
 
 SessionFactory = Callable[[str], WriteSession]
@@ -600,7 +607,9 @@ class QueuedExecutor:
                     batch_completed = True
                     return
                 progress: list[ProtocolWriteResult] = []
-                native = asyncio.create_task(self._write_group(session, writes, progress))
+                native = asyncio.create_task(self._write_group(
+                        session, writes, progress, tuple(member.command for member in group)
+                    ))
                 try:
                     result = await asyncio.wait_for(
                         asyncio.shield(native), timeout=self._write_timeout
@@ -767,13 +776,19 @@ class QueuedExecutor:
         session: WriteSession,
         writes: tuple[ProtocolWrite, ...],
         progress: list[ProtocolWriteResult],
+        commands: tuple[AcceptedCommand, ...],
     ) -> tuple[ProtocolWriteResult, ...]:
-        """One logical batch: native batch when supported, else serial writes."""
-        if len(writes) > 1 and ProtocolCapability.WRITE_MANY in session.capabilities():
+        """Native batch for real devices; command-aware calls retain idempotent identity."""
+        authorized = isinstance(session, AuthorizedWriteSession)
+        if not authorized and len(writes) > 1 and ProtocolCapability.WRITE_MANY in session.capabilities():
             return await session.write_many(writes)
-        for write in writes:
+        for write, command in zip(writes, commands, strict=True):
             try:
-                result = await session.write_one(write)
+                result = (
+                    await session.write_authorized(command)
+                    if authorized
+                    else await session.write_one(write)
+                )
             except Exception as exc:
                 raise _SerialWriteError(tuple(progress), exc, current_unconfirmed=True) from exc
             progress.append(result)
