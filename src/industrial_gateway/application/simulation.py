@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -36,6 +36,7 @@ class SimulationOutcome:
     error_code: str = ""
     message: str = ""
     effective_step: int = 0
+    generation_id: str = ""
 
 
 class SimulationController:
@@ -112,9 +113,34 @@ class SimulationController:
         if task.cancelled():
             return SimulationOutcome(request_id, True, "", "UNKNOWN", "EXECUTION_CANCELLED")
         try:
-            return task.result()
+            outcome = task.result()
         except Exception as exc:
-            return SimulationOutcome(request_id, True, "", "UNKNOWN", type(exc).__name__)
+            return SimulationOutcome(request_id, True, execution_id, "UNKNOWN", type(exc).__name__)
+        if outcome.state != "ACCEPTED" or not outcome.generation_id:
+            return outcome
+        client: SimulationInputPort | None = None
+        try:
+            client = self._input_factory(gateway_id)
+            client.start()
+            state = await client.get_execution(
+                generation_id=outcome.generation_id,
+                request_id=request_id,
+                timeout=2.0,
+            )
+            return replace(
+                outcome,
+                state=state,
+                error_code="EXECUTION_NOT_CONFIRMED" if state == "UNKNOWN" else "",
+            )
+        except Exception as exc:
+            logger.warning("simulation execution query failed: %s", type(exc).__name__)
+            return replace(outcome, state="UNKNOWN", error_code="EXECUTION_QUERY_FAILED")
+        finally:
+            if client is not None:
+                try:
+                    await client.close()
+                except Exception:
+                    logger.exception("simulation query channel could not close")
 
     def _prune_expired(self) -> None:
         """Retire only expired settled identities after the bounded replay window."""
@@ -170,6 +196,7 @@ class SimulationController:
                     execution_id,
                     "ACCEPTED",
                     effective_step=receipt.effective_step,
+                    generation_id=receipt.generation_id,
                 )
             except (ValueError, PermissionError) as exc:
                 return SimulationOutcome(
