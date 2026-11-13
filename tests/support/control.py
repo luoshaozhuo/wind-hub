@@ -435,7 +435,7 @@ async def replace_catalog(
     token: str | None = None,
     timeout: float = 20.0,
 ) -> ConfigMutationResult:
-    """替换无版本目录模板（``templates/units.yaml`` / ``business_points.yaml``）。"""
+    """替换无版本目录模板（``templates/units_standard.yaml`` / ``business_points_standard.yaml``）。"""
     del request_id, timeout
     selector = _CatalogSelector(name)
     return await replace_config(
