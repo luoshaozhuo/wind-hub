@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from data_generator.domain.model import GeneratorError, OutputMapping
 
 if TYPE_CHECKING:
-    from configuration.shared_snapshot import SharedDomainSnapshot
+    from core.configuration.shared_snapshot import SharedDomainSnapshot
 
 
 @dataclass(frozen=True, slots=True)

@@ -69,8 +69,12 @@ def parse_unit_catalog(raw: Mapping[str, Any]) -> UnitCatalog:
         quantity_ref = item.get("quantity")
         if not isinstance(quantity_ref, str) or not quantity_ref.strip():
             raise ConfigError(f"units_standard.yaml {context}.quantity must be a non-empty string")
-        scale = _number(item.get("scale_to_base", 1.0), f"units_standard.yaml {context}.scale_to_base")
-        offset = _number(item.get("offset_to_base", 0.0), f"units_standard.yaml {context}.offset_to_base")
+        scale = _number(
+            item.get("scale_to_base", 1.0), f"units_standard.yaml {context}.scale_to_base"
+        )
+        offset = _number(
+            item.get("offset_to_base", 0.0), f"units_standard.yaml {context}.offset_to_base"
+        )
         try:
             units.append(
                 Unit(

@@ -88,9 +88,7 @@ class SimulationController:
         # Transport cancellation cannot cancel a possibly submitted Generator input.
         return await asyncio.shield(task)
 
-    async def result(
-        self, *, caller: str, gateway_id: str, request_id: str
-    ) -> SimulationOutcome:
+    async def result(self, *, caller: str, gateway_id: str, request_id: str) -> SimulationOutcome:
         key = (caller, gateway_id, request_id)
         async with self._mutex:
             existing = self._requests.get(key)

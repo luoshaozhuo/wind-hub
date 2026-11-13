@@ -174,7 +174,9 @@ class SharedDocumentLoader:
     ) -> SharedDocuments:
         device_doc = read_stable_document(devices_path)
         units = read_stable_document(self._paths.templates / "units_standard.yaml")
-        business_points = read_stable_document(self._paths.templates / "business_points_standard.yaml")
+        business_points = read_stable_document(
+            self._paths.templates / "business_points_standard.yaml"
+        )
         if site:
             _keys(
                 site,

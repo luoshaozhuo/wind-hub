@@ -378,7 +378,6 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
             request_id=request.request_id,
         )
 
-
     async def GetInputExecution(
         self, request: dg.GetInputExecutionRequest, context: Any
     ) -> dg.GetInputExecutionResponse:

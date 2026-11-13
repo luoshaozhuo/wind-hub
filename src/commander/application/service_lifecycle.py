@@ -199,6 +199,7 @@ class CommanderService:
             control = CommandControl(
                 journal, writer, buffer, accept_timeout=settings.accept_commit_timeout
             )
+
             def create_session(device_id: str) -> WriteSession:
                 target = settings.simulation_targets.get(device_id)
                 if target is None:

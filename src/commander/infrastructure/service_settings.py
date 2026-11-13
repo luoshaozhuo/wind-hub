@@ -166,8 +166,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         )
         fields = ("gateway_id", "endpoint", "ca_cert", "client_cert", "client_key")
         if any(
-            not isinstance(target.get(field), str) or not target[field].strip()
-            for field in fields
+            not isinstance(target.get(field), str) or not target[field].strip() for field in fields
         ):
             raise ValueError(f"simulation_targets.{device_id}: required field missing")
         endpoint = target["endpoint"]

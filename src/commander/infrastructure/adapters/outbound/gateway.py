@@ -58,9 +58,7 @@ class GatewaySimulationSession:
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
         raise RuntimeError("simulation writes require a durable command identity")
 
-    async def write_many(
-        self, writes: Sequence[ProtocolWrite]
-    ) -> tuple[ProtocolWriteResult, ...]:
+    async def write_many(self, writes: Sequence[ProtocolWrite]) -> tuple[ProtocolWriteResult, ...]:
         raise RuntimeError("simulation writes require per-command identities")
 
     async def write_authorized(self, command: AcceptedCommand) -> ProtocolWriteResult:

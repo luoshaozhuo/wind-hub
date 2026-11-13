@@ -64,10 +64,7 @@ class GatewayOutput:
             if not isinstance(document, dict):
                 raise ValueError("not a mapping")
             keys = ("ca_pem", "client_cert_pem", "client_key_pem")
-            if any(
-                not isinstance(document.get(key), str) or not document[key]
-                for key in keys
-            ):
+            if any(not isinstance(document.get(key), str) or not document[key] for key in keys):
                 raise ValueError("missing certificate material")
             return grpc.ssl_channel_credentials(
                 root_certificates=document["ca_pem"].encode("utf-8"),
@@ -98,9 +95,7 @@ class GatewayOutput:
             self._client = None
             raise
 
-    async def _claim(
-        self, action: str, token: str, lease_ms: int
-    ) -> gateway.ClaimTargetsResponse:
+    async def _claim(self, action: str, token: str, lease_ms: int) -> gateway.ClaimTargetsResponse:
         client = self._client
         if client is None:
             raise RuntimeError("Gateway client is not connected")

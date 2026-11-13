@@ -607,9 +607,11 @@ class QueuedExecutor:
                     batch_completed = True
                     return
                 progress: list[ProtocolWriteResult] = []
-                native = asyncio.create_task(self._write_group(
+                native = asyncio.create_task(
+                    self._write_group(
                         session, writes, progress, tuple(member.command for member in group)
-                    ))
+                    )
+                )
                 try:
                     result = await asyncio.wait_for(
                         asyncio.shield(native), timeout=self._write_timeout

@@ -177,9 +177,11 @@ class ConfigSnapshots:
             self._relative(settings.templates_root / "units_standard.yaml"): yaml.safe_dump(
                 plain_document(documents.units), sort_keys=False
             ).encode("utf-8"),
-            self._relative(settings.templates_root / "business_points_standard.yaml"): yaml.safe_dump(
-                plain_document(documents.business_points), sort_keys=False
-            ).encode("utf-8"),
+            self._relative(
+                settings.templates_root / "business_points_standard.yaml"
+            ): yaml.safe_dump(plain_document(documents.business_points), sort_keys=False).encode(
+                "utf-8"
+            ),
         }
         for definition in documents.devices.values():
             templates = definition.templates

@@ -100,7 +100,10 @@ class CollectorSnapshotRepository:
             return relative_path
         if parts in {("instances", "site.yaml"), ("instances", "devices.yaml")}:
             return relative_path
-        if parts in {("templates", "units_standard.yaml"), ("templates", "business_points_standard.yaml")}:
+        if parts in {
+            ("templates", "units_standard.yaml"),
+            ("templates", "business_points_standard.yaml"),
+        }:
             return relative_path
         # Template files live in a fixed category directory. Both the flat
         # shared-config layout (templates/<category>/<name>.yaml) and the
@@ -141,7 +144,10 @@ class CollectorSnapshotRepository:
         }
         if not required_instances.issubset(files):
             raise SnapshotError("snapshot missing required configuration files")
-        if not {"templates/units_standard.yaml", "templates/business_points_standard.yaml"}.issubset(files):
+        if not {
+            "templates/units_standard.yaml",
+            "templates/business_points_standard.yaml",
+        }.issubset(files):
             raise SnapshotError("snapshot missing shared catalogs")
         return tuple(result), snapshot_digest(dict(result))
 
@@ -560,7 +566,8 @@ class CollectorSnapshotRepository:
             "instances/site.yaml": paths.site,
             "instances/devices.yaml": paths.devices,
             "templates/units_standard.yaml": paths.templates / "units_standard.yaml",
-            "templates/business_points_standard.yaml": paths.templates / "business_points_standard.yaml",
+            "templates/business_points_standard.yaml": paths.templates
+            / "business_points_standard.yaml",
         }
         for category in ("protocols", "device_models", "point_tables", "tasks"):
             directory = paths.templates / category

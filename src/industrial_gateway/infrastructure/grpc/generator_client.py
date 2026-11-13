@@ -151,9 +151,7 @@ class GeneratorRpcClient:
             error_code=response.error_code,
         )
 
-    async def get_execution(
-        self, *, generation_id: str, request_id: str, timeout: float
-    ) -> str:
+    async def get_execution(self, *, generation_id: str, request_id: str, timeout: float) -> str:
         """Return only Generator-signed per-request completion evidence."""
         response = await self._ready().GetInputExecution(
             dg.GetInputExecutionRequest(

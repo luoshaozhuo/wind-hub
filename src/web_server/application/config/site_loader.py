@@ -58,6 +58,7 @@ from core.infrastructure.config import ConfigOperationError, read_yaml
 from core.infrastructure.protocol.ads.config import is_valid_ams_net_id, parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
+
 from .sink import Sink, SinkOutput
 from .sink_schema import parse_sink_definitions, validate_task_sink_points
 from .snapshot import ConfigSnapshot

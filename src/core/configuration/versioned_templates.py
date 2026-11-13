@@ -88,11 +88,9 @@ class VersionedTemplateRepository:
         self._root = Path(root).resolve()
 
     def path_for(self, reference: TemplateRef) -> Path:
-        candidate = (
-            self._root
-            / reference.category
-            / f"{TEMPLATE_FILE_PREFIXES[reference.category]}{reference.template_id}_v{reference.file_version}.yaml"
-        ).resolve()
+        prefix = TEMPLATE_FILE_PREFIXES[reference.category]
+        filename = f"{prefix}{reference.template_id}_v{reference.file_version}.yaml"
+        candidate = (self._root / reference.category / filename).resolve()
         if not candidate.is_relative_to(self._root):
             raise ConfigError("template reference escapes configured root")
         return candidate
