@@ -170,7 +170,8 @@ async def test_service_info_capabilities_and_status(harness) -> None:
     info = await common_stub.GetServiceInfo(common.Empty())
     assert info.service_id == "industrial_gateway"
     caps = await common_stub.GetCapabilities(common.Empty())
-    assert len(caps.rpc_names) == 17
+    # Common 9 个 RPC + IndustrialGateway 10 个 RPC（含两个仿真执行 RPC）。
+    assert len(caps.rpc_names) == 19
     assert "CommonService.Diagnose" in caps.rpc_names
     assert "IndustrialGatewayService.ClaimTargets" in caps.rpc_names
     assert "modbus_tcp" in caps.protocols

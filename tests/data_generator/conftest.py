@@ -38,8 +38,8 @@ from data_generator.infrastructure.server import make_server
 from data_generator.infrastructure.snapshots import file_sha256, recover_transaction
 from industrial_gateway.application.target_leases import TargetLeaseRegistry
 from industrial_gateway.assembly import assemble_gateway
-from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.config.resolution import load_gateway
+from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.grpc.data_server import create_gateway_grpc_server
 from tests.support.gateway_v1 import FakeCommanderService, write_mtls_pki
 

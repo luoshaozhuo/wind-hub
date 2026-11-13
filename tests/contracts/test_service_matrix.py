@@ -1,11 +1,11 @@
-"""49 个 RPC 的 Service Descriptor 矩阵：6 个 Service 各含 9/11/7/4/10/8 个 Unary。"""
+"""50 个 RPC 的 Service Descriptor 矩阵：6 个 Service 各含 9/11/7/4/10/9 个 Unary。"""
 
 from __future__ import annotations
 
 from types import ModuleType
 
 import pytest
-from google.protobuf.descriptor import MethodDescriptor
+from google.protobuf.descriptor import FieldDescriptor, MethodDescriptor
 
 from contracts import (
     collector_pb2,
@@ -237,6 +237,11 @@ EXPECTED: dict[ModuleType, tuple[str, str, list[tuple[str, str, str]]]] = {
                 "windhub.data_generator.v1.UpdateVariablesRequest",
                 "windhub.data_generator.v1.UpdateVariablesResponse",
             ),
+            (
+                "GetInputExecution",
+                "windhub.data_generator.v1.GetInputExecutionRequest",
+                "windhub.data_generator.v1.GetInputExecutionResponse",
+            ),
         ],
     ),
 }
@@ -265,9 +270,30 @@ def test_each_proto_declares_exactly_one_service_with_expected_package() -> None
         assert set(descriptor.services_by_name) == {service_name}
 
 
-def test_rpc_total_is_49() -> None:
-    assert sum(len(rpcs) for _, _, rpcs in EXPECTED.values()) == 49
-    assert len(_all_methods()) == 49
+def test_rpc_total_is_50() -> None:
+    assert sum(len(rpcs) for _, _, rpcs in EXPECTED.values()) == 50
+    assert len(_all_methods()) == 50
+
+
+def test_data_generator_rpc_count_is_nine() -> None:
+    _, _, rpcs = EXPECTED[data_generator_pb2]
+    assert len(rpcs) == 9
+
+
+def test_input_execution_message_field_numbers_frozen() -> None:
+    # Contracts v1_27：请求级执行证据消息字段编号不可重排。
+    messages = data_generator_pb2.DESCRIPTOR.message_types_by_name
+    request = messages["GetInputExecutionRequest"]
+    response = messages["GetInputExecutionResponse"]
+    assert [field.number for field in request.fields] == [1, 2]
+    assert [field.name for field in request.fields] == ["generation_id", "request_id"]
+    assert [field.number for field in response.fields] == [1, 2, 3]
+    assert [field.name for field in response.fields] == [
+        "request_id",
+        "state",
+        "effective_step",
+    ]
+    assert response.fields_by_name["effective_step"].type == FieldDescriptor.TYPE_UINT64
 
 
 def test_commander_rpc_count_is_seven() -> None:
@@ -299,7 +325,7 @@ def test_rpc_name_io_types_and_unary(method: MethodDescriptor) -> None:
     input_name, output_name = EXPECTED_RPCS[method.full_name]
     assert method.input_type.full_name == input_name
     assert method.output_type.full_name == output_name
-    # 49 个接口全部为 Unary，无 streaming。
+    # 50 个接口全部为 Unary，无 streaming。
     assert method.client_streaming is False
     assert method.server_streaming is False
 

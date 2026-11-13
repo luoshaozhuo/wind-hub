@@ -28,8 +28,8 @@ from contracts import commander_pb2_grpc as crpc
 from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as ipb
 from industrial_gateway.assembly import assemble_gateway
-from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.config.resolution import load_gateway
+from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.grpc.data_server import (
     create_gateway_grpc_server,
 )
@@ -403,6 +403,7 @@ def write_config_tree(
     permissions: dict[str, Sequence[str]] | None = None,
     mtls_enabled: bool = False,
     point_table: dict[str, dict[str, Any]] | None = None,
+    simulation: dict[str, Any] | None = None,
 ) -> Path:
     """写出一份完整、自洽的 v1 配置树，返回 Service 文件路径。"""
     devices: dict[str, dict[str, Any]] = {}
@@ -429,6 +430,8 @@ def write_config_tree(
                     {"variable_id": variable_id, "target_point_id": target_point_id}
                     for variable_id, target_point_id in spec.command_mappings
                 ],
+                # Commander 授权后的专用 Generator 仿真绑定（直连 data_generator 已删除）。
+                **({"simulation": simulation} if simulation is not None else {}),
             }
         else:
             control = {
@@ -647,6 +650,7 @@ async def start_gateway_v1(
     bootstrap_cn: str | None = None,
     extra_clients: Sequence[str] = (),
     point_table: dict[str, dict[str, Any]] | None = None,
+    simulation: dict[str, Any] | None = None,
 ) -> GatewayV1Harness:
     """启动真实 Commander 对端 + 真实 Gateway runtime/gRPC，不替换任何生产对象。
 
@@ -680,6 +684,7 @@ async def start_gateway_v1(
         permissions=mtls,
         mtls_enabled=mtls is not None,
         point_table=point_table,
+        simulation=simulation,
     )
     config = load_gateway(service_path, project_root=root)
     runtime = assemble_gateway(config)
