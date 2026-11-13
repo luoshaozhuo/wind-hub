@@ -23,11 +23,8 @@ from sink_service.application.delivery_point import DeliveryPoint
 from sink_service.application.latency_window import HistogramSnapshot, LatencyWindow
 from sink_service.application.realtime import BatchOutcome, RealtimeEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
-from sink_service.infrastructure.realtime_adapters import (
-    KafkaOutput,
-    ModbusOutput,
-    RedisOutput,
-)
+from sink_service.infrastructure.adapters.outbound.gateway import GatewayOutput
+from sink_service.infrastructure.realtime_adapters import ModbusOutput, RedisOutput
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +294,7 @@ class SinkOutputPool:
             "sink": sink,
             "template": template,
         }
-        adapter: RedisOutput | KafkaOutput | ModbusOutput
+        adapter: RedisOutput | ModbusOutput | GatewayOutput
         if kind == "redis":
             adapter = RedisOutput(
                 host=connection["host"],
@@ -306,14 +303,34 @@ class SinkOutputPool:
                 timeout_ms=int(output["write_timeout_ms"]),
                 credential_ref=connection.get("credential_ref", ""),
             )
-        elif kind == "kafka":
-            adapter = KafkaOutput(
-                servers=list(connection["bootstrap_servers"]),
-                topic=output["topic"],
+        elif kind == "gateway":
+            mapping: dict[tuple[str, str], list[str]] = {}
+            seen_targets: set[str] = set()
+            for delivery in snapshot.deliveries.values():
+                if delivery["sink_id"] != sink_id:
+                    continue
+                for item in delivery["target_mappings"]:
+                    variable_id = item["variable_id"]
+                    if variable_id in seen_targets:
+                        raise ConfigurationError(f"duplicate Gateway variable: {variable_id}")
+                    seen_targets.add(variable_id)
+                    key = (item["source_device_id"], item["source_point_id"])
+                    mapping.setdefault(key, []).append(variable_id)
+            fixed_mapping = {
+                key: tuple(values) for key, values in mapping.items()
+            }
+            config_signature["gateway_mappings"] = [
+                (key, values) for key, values in sorted(fixed_mapping.items())
+            ]
+            adapter = GatewayOutput(
+                endpoint=connection["endpoint"],
+                credential_ref=connection["credential_ref"],
+                gateway_id=connection["gateway_id"],
+                owner_id=f"{snapshot.service['deployment_id']}:{sink_id}",
+                mappings=fixed_mapping,
                 timeout_ms=int(output["write_timeout_ms"]),
-                credential_ref=connection.get("credential_ref", ""),
-                linger_ms=output.get("linger_ms", 0),
-                max_batch_size=output.get("max_batch_size", 131072),
+                lease_ms=int(output["lease_ms"]),
+                max_batch_size=int(output["max_batch_size"]),
             )
         elif kind == "modbus_tcp":
             points: set[tuple[str, str, str, str]] = set()
