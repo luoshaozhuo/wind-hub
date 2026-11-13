@@ -7,7 +7,6 @@ readme = "README.md"
 license = "MIT"
 packages = [
     { include = "core", from = "src" },
-    { include = "configuration", from = "src" },
     { include = "contracts", from = "src" },
     { include = "collector", from = "src" },
     { include = "sink_service", from = "src" },
@@ -234,7 +233,6 @@ markers = [
 include_external_packages = true
 root_packages = [
     "core",
-    "configuration",
     "collector",
     "commander",
     "cli",
@@ -257,6 +255,8 @@ forbidden_modules = [
     "cli",
     "web_server",
     "data_generator",
+    "industrial_gateway",
+    "sink_service",
 ]
 
 [[tool.importlinter.contracts]]
@@ -387,9 +387,9 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "configuration 只依赖公共基础库，不依赖进程包"
+name = "core.configuration 只依赖公共基础库，不依赖业务进程包"
 type = "forbidden"
-source_modules = ["configuration"]
+source_modules = ["core.configuration"]
 forbidden_modules = [
     "collector",
     "commander",
