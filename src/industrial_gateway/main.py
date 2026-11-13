@@ -10,7 +10,7 @@ from pathlib import Path
 
 from industrial_gateway.assembly import assemble_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
-from industrial_gateway.infrastructure.config.v1_resolution import load_gateway_v1
+from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.grpc.data_server import (
     create_gateway_grpc_server,
 )
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 async def run(config_path: Path, *, project_root: Path) -> None:
     """Run v1 listeners and gRPC service until a supported termination signal."""
-    config = load_gateway_v1(config_path, project_root=project_root)
+    config = load_gateway(config_path, project_root=project_root)
     runtime = assemble_gateway(config)
     snapshots = ConfigSnapshots(runtime, config_path, project_root)
     server = create_gateway_grpc_server(runtime, snapshots)
@@ -52,7 +52,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    config = load_gateway_v1(args.config, project_root=args.project_root)
+    config = load_gateway(args.config, project_root=args.project_root)
     if args.check:
         # Runtime construction validates adapter capabilities without binding.
         assemble_gateway(config)
