@@ -54,9 +54,7 @@ def _validate_sinks(sinks: Mapping[str, Sink]) -> None:
     """Validate configuration identity independently of acquisition Tasks."""
     for key, sink in sinks.items():
         if key != sink.sink_id:
-            raise ValueError(
-                f"sinks key '{key}' does not match sink_id '{sink.sink_id}'"
-            )
+            raise ValueError(f"sinks key '{key}' does not match sink_id '{sink.sink_id}'")
 
 
 def _validate_task_point_groups(
