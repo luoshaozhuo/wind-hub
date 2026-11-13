@@ -71,12 +71,14 @@ def _build_tree(
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
     (root / "instances" / "devices.yaml").write_text(devices_yaml, encoding="utf-8")
-    model_file = root / "templates/device_models/modbus_wtg_v1.0.0.yaml"
+    model_file = root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml"
     model_file.write_text(model_yaml, encoding="utf-8")
-    (root / "templates/point_tables/modbus_wtg_v1.0.0.yaml").write_text(
+    (root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
-    (root / "templates/business_points.yaml").write_text(_BUSINESS_POINTS, encoding="utf-8")
+    (root / "templates/business_points_standard.yaml").write_text(
+        _BUSINESS_POINTS, encoding="utf-8"
+    )
     db_path = tmp_root / "state" / "commander.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     service_yaml = tmp_root / "commander.yaml"
@@ -97,7 +99,7 @@ def _model_yaml(*, port: int | None, word_order: str = "big_endian") -> str:
         "file_version: 1.0.0\n"
         "name: B1 turbine\n"
         "device_type_id: turbine\n"
-        "protocol:\n  id: modbus_tcp\n  version: 1.0.0\n"
+        "protocol:\n  id: modbus_tcp\n  version: 1.1.0\n"
         "point_table:\n  id: modbus_wtg\n  version: 1.0.0\n"
         "task:\n  id: turbine_all\n  version: 1.0.0\n"
         "protocol_options:\n"
@@ -306,7 +308,7 @@ async def test_model_option_change_rotates_fingerprint_and_reload_routes_new_ses
             assert first is not None and first.state.value == "SUCCEEDED"
 
             # 修改型号模板：默认端口 A → B。
-            model_file = config_root / "templates/device_models/modbus_wtg_v1.0.0.yaml"
+            model_file = config_root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml"
             model_file.write_text(
                 _model_yaml(port=port_b, word_order="big_endian"),
                 encoding="utf-8",

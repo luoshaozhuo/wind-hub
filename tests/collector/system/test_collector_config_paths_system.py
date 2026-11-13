@@ -186,10 +186,10 @@ async def test_cfg_path_07_two_template_roots_never_fall_back(
     handle = await collector(templates_ref="releases/approved")
     root = handle.process.config_root
     alternate = root / "releases" / "approved"
-    assert (alternate / "units.yaml").is_file()
+    assert (alternate / "units_standard.yaml").is_file()
     default = root / "templates"
     default.mkdir()
     # A broken default repository must not affect the explicitly selected one.
-    (default / "units.yaml").write_bytes(b"invalid: [\n")
+    (default / "units_standard.yaml").write_bytes(b"invalid: [\n")
     result = _check(handle.services / "collector.yaml")
     assert result.returncode == 0, result.stdout + result.stderr

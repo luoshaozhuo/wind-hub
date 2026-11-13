@@ -68,9 +68,9 @@ def write_v2_modbus_tree(
     root = _empty_tree(base)
     # 出厂 business_points 目录不含 gen_power/temp_int，且 rotor_speed 绑定
     # revolution_per_minute；harness 点表使用 dimensionless（none）单位，
-    # 这里随树下发与点表严格一致的目录（units.yaml 的 none 由出厂树提供）。
+    # 这里随树下发与点表严格一致的目录（units_standard.yaml 的 none 由出厂树提供）。
     _dump(
-        root / "templates" / "business_points.yaml",
+        root / "templates" / "business_points_standard.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -327,12 +327,12 @@ def emit_v2_tree_from_flat_site(
     # schema_version 头（旧 Core 适配器不要它），复制时补齐 v2 必需的头。
     units_doc = _load(flat_site / "units.yaml")
     _dump(
-        root / "templates" / "units.yaml",
+        root / "templates" / "units_standard.yaml",
         {"schema_version": 1, "file_version": "1.0.0", **units_doc},
     )
     business_doc = _load(flat_site / "business_points.yaml")
     _dump(
-        root / "templates" / "business_points.yaml",
+        root / "templates" / "business_points_standard.yaml",
         {"schema_version": 1, "file_version": "1.0.0", **business_doc},
     )
 

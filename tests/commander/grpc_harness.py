@@ -139,7 +139,7 @@ name: Commander acceptance Modbus turbine
 device_type_id: turbine
 protocol:
   id: modbus_tcp
-  version: 1.0.0
+  version: 1.1.0
 point_table:
   id: modbus_wtg
   version: 1.0.0

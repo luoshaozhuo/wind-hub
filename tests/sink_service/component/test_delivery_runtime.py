@@ -143,7 +143,9 @@ async def test_changed_binding_closes_old_port_before_replacement_runs() -> None
     await registry.apply_configuration(first, factory)
     old_port = created["ems_power"]
 
-    docs[f"{TEMPLATE_ROOT}/deliveries/delivery_realtime_power_v1.0.0.yaml"]["output"]["period_ms"] = 200
+    docs[f"{TEMPLATE_ROOT}/deliveries/delivery_realtime_power_v1.0.0.yaml"]["output"][
+        "period_ms"
+    ] = 200
     changed = validate_snapshot(snapshot_files(docs))
     await registry.apply_configuration(changed, factory)
     assert old_port.stopped == 1

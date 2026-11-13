@@ -76,7 +76,7 @@ name: identity turbine
 device_type_id: turbine
 protocol:
   id: modbus_tcp
-  version: 1.0.0
+  version: 1.1.0
 point_table:
   id: modbus_wtg
   version: 1.0.0
@@ -121,7 +121,9 @@ def _build_tree(tmp_root: Path, port_a: int, port_b: int) -> tuple[Path, Path]:
     (root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
-    (root / "templates/business_points_standard.yaml").write_text(_BUSINESS_POINTS, encoding="utf-8")
+    (root / "templates/business_points_standard.yaml").write_text(
+        _BUSINESS_POINTS, encoding="utf-8"
+    )
     service_yaml = tmp_root / "commander.yaml"
     service_yaml.write_text(
         _SERVICE_YAML.format(sqlite_path=str(tmp_root / "state" / "cmd.db")),

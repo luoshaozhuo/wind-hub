@@ -11,8 +11,8 @@ from types import SimpleNamespace
 from typing import cast
 
 from commander.application.config_manager import CommanderConfigManager
-from configuration import SharedDomainSnapshot
 from core.application.protocol_registry import ProtocolRegistry
+from core.configuration import SharedDomainSnapshot
 from core.domain import (
     ConnectionEndpoint,
     Device,

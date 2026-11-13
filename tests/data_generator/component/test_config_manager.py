@@ -77,7 +77,9 @@ def test_core_shared_files_are_read_only(configs_root) -> None:  # noqa: ANN001
         ),
     )
     manager, disk = _manager(service_path)
-    core_path = next(path for path in disk if path.startswith("templates/business_points_standard.yaml"))
+    core_path = next(
+        path for path in disk if path.startswith("templates/business_points_standard.yaml")
+    )
     tampered = tuple(
         FileContent(
             path,

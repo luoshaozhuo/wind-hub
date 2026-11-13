@@ -156,7 +156,9 @@ def test_template_units_yaml_is_complete_catalog() -> None:
     # units 目录现位于 templates/ 并带文件版本头，解析前剥离版本元数据。
     document = {
         key: value
-        for key, value in read_yaml_mapping(TEMPLATE_DIR / "templates" / "units.yaml").items()
+        for key, value in read_yaml_mapping(
+            TEMPLATE_DIR / "templates" / "units_standard.yaml"
+        ).items()
         if key not in {"schema_version", "file_version"}
     }
     catalog = parse_unit_catalog(document)
@@ -167,7 +169,7 @@ def test_template_units_yaml_is_complete_catalog() -> None:
     assert convert_value(1.0, catalog.unit("kilowatt"), catalog.unit("watt")) == 1000.0
 
     # shipped 业务点引用的每个单位都必须能在目录中解析。
-    business = read_yaml_mapping(TEMPLATE_DIR / "templates" / "business_points.yaml")
+    business = read_yaml_mapping(TEMPLATE_DIR / "templates" / "business_points_standard.yaml")
     for point in business.get("business_points", {}).values():
         assert point["unit"] in catalog.units, point["unit"]
 

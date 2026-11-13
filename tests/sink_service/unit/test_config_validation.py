@@ -69,7 +69,9 @@ def test_empty_and_oversized_snapshots_rejected() -> None:
     with pytest.raises(ConfigurationError):
         validate_snapshot(())
     files = list(_valid_files())
-    big = SnapshotFile(f"{TEMPLATE_ROOT}/sinks/sink_big_v1.0.0.yaml", b"x: " + b"a" * (2 * 1024 * 1024))
+    big = SnapshotFile(
+        f"{TEMPLATE_ROOT}/sinks/sink_big_v1.0.0.yaml", b"x: " + b"a" * (2 * 1024 * 1024)
+    )
     with pytest.raises(ConfigurationError):
         validate_snapshot(tuple(files + [big]))
 

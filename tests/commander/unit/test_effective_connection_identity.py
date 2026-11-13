@@ -71,7 +71,7 @@ name: identity turbine
 device_type_id: turbine
 protocol:
   id: modbus_tcp
-  version: 1.0.0
+  version: 1.1.0
 point_table:
   id: modbus_wtg
   version: 1.0.0
@@ -90,14 +90,16 @@ def _build_tree(tmp_root: Path, devices_yaml: str, *, model_port: int, slave_id:
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
     (root / "instances" / "devices.yaml").write_text(devices_yaml, encoding="utf-8")
-    (root / "templates/device_models/modbus_wtg_v1.0.0.yaml").write_text(
+    (root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml").write_text(
         _MODEL_TEMPLATE.format(model_port=model_port, slave_id=slave_id),
         encoding="utf-8",
     )
-    (root / "templates/point_tables/modbus_wtg_v1.0.0.yaml").write_text(
+    (root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
-    (root / "templates/business_points_standard.yaml").write_text(_BUSINESS_POINTS, encoding="utf-8")
+    (root / "templates/business_points_standard.yaml").write_text(
+        _BUSINESS_POINTS, encoding="utf-8"
+    )
     service_yaml = tmp_root / "commander.yaml"
     service_yaml.write_text(
         _SERVICE_YAML.format(sqlite_path=str(tmp_root / "state" / "cmd.db")),

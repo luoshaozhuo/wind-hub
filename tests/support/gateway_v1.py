@@ -463,7 +463,7 @@ def write_config_tree(
         },
     )
     _dump(
-        root / "templates" / "units.yaml",
+        root / "templates" / "units_standard.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -472,7 +472,7 @@ def write_config_tree(
         },
     )
     _dump(
-        root / "templates" / "business_points.yaml",
+        root / "templates" / "business_points_standard.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",

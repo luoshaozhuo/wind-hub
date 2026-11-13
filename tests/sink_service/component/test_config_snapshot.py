@@ -236,7 +236,9 @@ async def test_apply_with_failed_convergence_keeps_old_runtime(tmp_path: Path) -
     docs = snapshot_docs(config_root=str(tmp_path))
     import copy
 
-    new_template = copy.deepcopy(docs[f"{TEMPLATE_ROOT}/deliveries/delivery_realtime_power_v1.0.0.yaml"])
+    new_template = copy.deepcopy(
+        docs[f"{TEMPLATE_ROOT}/deliveries/delivery_realtime_power_v1.0.0.yaml"]
+    )
     new_template["file_version"] = "1.1.0"
     new_template["output"]["period_ms"] = 200
     # Exact-closure rule: the repointed 1.0.0 template becomes unreferenced
