@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -45,12 +45,12 @@ class SimulationController:
         self,
         input_factory: Callable[[str], SimulationInputPort],
         *,
-        capacity: int = 4096,
+        capacity: int = 16384,
     ) -> None:
         self._input_factory = input_factory
         self._capacity = capacity
         self._requests: dict[
-            tuple[str, str, str], tuple[SimulationCommand, asyncio.Task[SimulationOutcome]]
+            tuple[str, str, str], tuple[SimulationCommand, str, asyncio.Task[SimulationOutcome]]
         ] = {}
         self._mutex = asyncio.Lock()
         self._target_locks: dict[tuple[str, str], asyncio.Lock] = {}
@@ -58,9 +58,10 @@ class SimulationController:
     async def execute(self, command: SimulationCommand) -> SimulationOutcome:
         key = (command.caller, command.gateway_id, command.request_id)
         async with self._mutex:
+            self._prune_expired()
             previous = self._requests.get(key)
             if previous is not None:
-                original, task = previous
+                original, execution_id, task = previous
                 if original != command:
                     return SimulationOutcome(
                         request_id=command.request_id,
@@ -82,7 +83,7 @@ class SimulationController:
                 lock = self._target_locks.setdefault(target, asyncio.Lock())
                 execution_id = uuid4().hex
                 task = asyncio.create_task(self._apply(command, execution_id, lock))
-                self._requests[key] = (command, task)
+                self._requests[key] = (command, execution_id, task)
         # Transport cancellation cannot cancel a possibly submitted Generator input.
         return await asyncio.shield(task)
 
@@ -100,12 +101,12 @@ class SimulationController:
                 state="UNKNOWN",
                 error_code="EXECUTION_NOT_OBSERVED",
             )
-        task = existing[1]
+        execution_id, task = existing[1], existing[2]
         if not task.done():
             return SimulationOutcome(
                 request_id=request_id,
                 accepted=True,
-                execution_id="",
+                execution_id=execution_id,
                 state="PENDING",
             )
         if task.cancelled():
@@ -114,6 +115,17 @@ class SimulationController:
             return task.result()
         except Exception as exc:
             return SimulationOutcome(request_id, True, "", "UNKNOWN", type(exc).__name__)
+
+    def _prune_expired(self) -> None:
+        """Retire only expired settled identities after the bounded replay window."""
+        threshold = datetime.now(UTC) - timedelta(minutes=10)
+        expired = [
+            key
+            for key, (command, _execution_id, task) in self._requests.items()
+            if task.done() and command.expires_at < threshold
+        ]
+        for key in expired:
+            del self._requests[key]
 
     async def _apply(
         self, command: SimulationCommand, execution_id: str, lock: asyncio.Lock
