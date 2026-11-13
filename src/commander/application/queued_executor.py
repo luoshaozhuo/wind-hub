@@ -232,6 +232,21 @@ class QueuedExecutor:
             accepted = await self._control.accept(
                 commands, caller_id=caller_id, request_id=request_id
             )
+            if self._closed:
+                # Shutdown may start while durable T1 admission is pending.
+                # Never enqueue fresh commands after the dispatcher closes.
+                await self._control.complete_many(
+                    tuple(
+                        (
+                            command.command_id,
+                            CommandState.INTERRUPTED,
+                            CommandOutcome.NOT_SENT,
+                            "SERVICE_STOPPING",
+                        )
+                        for command in accepted
+                    )
+                )
+                return accepted
             for command in accepted:
                 entry = _Entry(
                     command=command,
@@ -1005,10 +1020,13 @@ class QueuedExecutor:
         if grace_seconds <= 0:
             raise ValueError("grace_seconds must be positive")
         self._closed = True
+        admission_pending = False
         try:
             await asyncio.wait_for(self._admission_lock.acquire(), timeout=grace_seconds)
         except TimeoutError:
-            return frozenset({"__admission__"})
+            # Preserve the failure signal, but still terminate all already
+            # queued commands before returning from shutdown.
+            admission_pending = True
         else:
             self._admission_lock.release()
         for entry in tuple(self._entries.values()):
@@ -1062,4 +1080,5 @@ class QueuedExecutor:
             else:
                 self._isolation_tasks.pop(device_id, None)
                 self._sessions.pop(device_id, None)
-        return self.blocked_devices()
+        blocked = self.blocked_devices()
+        return blocked | frozenset({"__admission__"}) if admission_pending else blocked
