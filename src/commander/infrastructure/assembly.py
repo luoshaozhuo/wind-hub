@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from commander.application.service_lifecycle import CommanderService
+from commander.infrastructure.adapters.outbound.gateway import GatewaySimulationSession
 from commander.infrastructure.config_commit import recover_config_commit
 from commander.infrastructure.event_repository import EventRepository
 from commander.infrastructure.nats_audit import NatsAuditTransport
@@ -28,6 +29,7 @@ def build_commander(
     )
     return CommanderService(
         protocol_registry=protocol_registry,
+        simulation_factory=GatewaySimulationSession,
         audit_transport=audit_transport,
         settings_loader=lambda: load_service_settings(config_path),
         journal_factory=lambda current: EventRepository(
