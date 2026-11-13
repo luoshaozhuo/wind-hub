@@ -236,13 +236,13 @@ async def test_apply_with_failed_convergence_keeps_old_runtime(tmp_path: Path) -
     docs = snapshot_docs(config_root=str(tmp_path))
     import copy
 
-    new_template = copy.deepcopy(docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_1.0.0.yaml"])
+    new_template = copy.deepcopy(docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_v1.0.0.yaml"])
     new_template["file_version"] = "1.1.0"
     new_template["output"]["period_ms"] = 200
     # Exact-closure rule: the repointed 1.0.0 template becomes unreferenced
     # and must leave the snapshot together with the instance repoint.
-    docs.pop(f"{TEMPLATE_ROOT}/deliveries/realtime_power_1.0.0.yaml")
-    docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_1.1.0.yaml"] = new_template
+    docs.pop(f"{TEMPLATE_ROOT}/deliveries/realtime_power_v1.0.0.yaml")
+    docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_v1.1.0.yaml"] = new_template
     docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]["template_version"] = "1.1.0"
     candidate_id, committed = await manager.push(wire_files(snapshot_files(docs)), initial.revision)
     application = await manager.apply(candidate_id, initial.revision)

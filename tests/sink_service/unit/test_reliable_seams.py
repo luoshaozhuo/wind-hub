@@ -24,7 +24,7 @@ from tests.sink_service._stage1_fixtures import (
 
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
 
-KAFKA_TEMPLATE = "configs/templates/sinks/kafka_history_1.0.0.yaml"
+KAFKA_TEMPLATE = "configs/templates/sinks/kafka_history_v1.0.0.yaml"
 _DEFINITION = DeliveryDefinition("power_history", "history_kafka", "reliable", "START")
 
 

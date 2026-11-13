@@ -81,7 +81,7 @@ async def test_uc04_s02_stale_revision_and_published_template_immutability(
     # schema-legal option (slave_id, 0..255) so the content digest changes
     # without tripping the unknown-field rejection first; the immutable
     # published-version check must then refuse the snapshot.
-    template_path = "templates/protocols/modbus_tcp_1.0.0.yaml"
+    template_path = "templates/protocols/modbus_tcp_v1.0.0.yaml"
     mutated = yaml.safe_load(files[template_path])
     options = dict(mutated.get("protocol_options", {}))
     options["slave_id"] = 247

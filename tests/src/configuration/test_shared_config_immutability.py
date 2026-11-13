@@ -46,7 +46,7 @@ def _templates(document: dict[str, Any]) -> DeviceTemplates:
     ref = TemplateRef("device_models", "model-under-test", "1.0.0")
     template = ResolvedTemplate(
         reference=ref,
-        path=Path("/templates/device_models/model-under-test_1.0.0.yaml"),
+        path=Path("/templates/device_models/model-under-test_v1.0.0.yaml"),
         content_hash="hash-1",
         document=document,
     )
@@ -203,7 +203,7 @@ def test_resolved_template_freezes_document_on_direct_construction() -> None:
     }
     template = ResolvedTemplate(
         reference=TemplateRef("point_tables", "pt-1", "1.0.0"),
-        path=Path("/templates/point_tables/pt-1_1.0.0.yaml"),
+        path=Path("/templates/point_tables/pt-1_v1.0.0.yaml"),
         content_hash=config_hash(raw_document),
         document=raw_document,
     )
@@ -222,7 +222,7 @@ def test_shared_template_consumers_cannot_affect_each_other() -> None:
     """S2-9：多设备共用同一模板，任一方拿到的 plain 副本互不影响且源不可变。"""
     template = ResolvedTemplate(
         reference=TemplateRef("device_models", "shared-model", "1.0.0"),
-        path=Path("/templates/device_models/shared-model_1.0.0.yaml"),
+        path=Path("/templates/device_models/shared-model_v1.0.0.yaml"),
         content_hash="hash-shared",
         document={"protocol_options": {"timeout_ms": 500}, "tags": ["a"]},
     )
