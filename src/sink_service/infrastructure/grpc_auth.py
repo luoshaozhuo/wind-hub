@@ -64,6 +64,7 @@ class PeerAuthorization(grpc.aio.ServerInterceptor):
         permission = _PERMISSIONS.get(name)
         if permission is None:
             return handler
+        behavior: Callable[..., Any] = handler.unary_unary
 
         async def authorized(request: Any, context: grpc.aio.ServicerContext[Any, Any]) -> Any:
             peer = context.auth_context() or {}
@@ -75,7 +76,7 @@ class PeerAuthorization(grpc.aio.ServerInterceptor):
             )
             if not allowed:
                 await context.abort(grpc.StatusCode.PERMISSION_DENIED, "not authorized")
-            return await handler.unary_unary(request, context)
+            return await behavior(request, context)
 
         return grpc.unary_unary_rpc_method_handler(
             authorized,

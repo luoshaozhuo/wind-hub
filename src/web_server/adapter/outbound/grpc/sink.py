@@ -24,7 +24,7 @@ class SinkGrpcClient:
         if name is not None:
             payload["name"] = name
         async with grpc.aio.insecure_channel(self._endpoint) as channel:
-            rpc = channel.unary_unary(
+            rpc: grpc.aio.UnaryUnaryMultiCallable[Any, Any] = channel.unary_unary(
                 f"/windhub.sink.v1.SinkService/{method}",
                 request_serializer=lambda value: value.SerializeToString(),
                 response_deserializer=wrappers_pb2.BytesValue.FromString,

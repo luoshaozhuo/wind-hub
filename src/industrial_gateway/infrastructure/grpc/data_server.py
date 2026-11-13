@@ -44,7 +44,7 @@ async def _authorize(
             return
         await context.abort(grpc.StatusCode.PERMISSION_DENIED, "loopback-only deployment")
         return
-    common_names = context.auth_context().get("x509_common_name", ())
+    common_names = tuple(context.auth_context().get("x509_common_name", ()))
     identity = common_names[0].decode("utf-8") if common_names else ""
     rights = policy.permissions.get(identity, ())
     if permission not in rights:
@@ -61,7 +61,7 @@ def _trusted_identity(
     """Use authenticated client certificate CN, never client-supplied metadata."""
     if not runtime.config.service.grpc.tls.enabled:
         return "local-loopback"
-    identities = context.auth_context().get("x509_common_name", ())
+    identities = tuple(context.auth_context().get("x509_common_name", ()))
     return identities[0].decode("utf-8") if identities else "unidentified"
 
 
@@ -413,7 +413,6 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
         observations.latency(request.gateway_id, (perf_counter() - start) * 1000)
         return pb.UpdateVariablesResponse(results=results)
 
-
     async def ExecuteSimulationCommand(
         self,
         request: pb.SimulationCommandRequest,
@@ -446,9 +445,7 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
         if instance.lifecycle.status.actual.value != "RUNNING":
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "Gateway not running")
             raise RuntimeError("abort unexpectedly returned") from None
-        if request.point_id not in {
-            mapping.target_point_id for mapping in control.mappings
-        }:
+        if request.point_id not in {mapping.target_point_id for mapping in control.mappings}:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "control point not mapped")
             raise RuntimeError("abort unexpectedly returned") from None
         expires_at = request.expires_at.ToDatetime(tzinfo=UTC)

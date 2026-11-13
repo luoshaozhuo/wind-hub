@@ -181,7 +181,7 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         expected = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
         if not expected:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "configuration access disabled")
-        supplied = dict(context.invocation_metadata()).get("x-windhub-admin-token", "")
+        supplied = dict(context.invocation_metadata() or ()).get("x-windhub-admin-token", "")
         # metadata 值类型为 str | bytes；二进制令牌不可能匹配 str 配置，
         # 显式归入拒绝路径，保证 compare_digest 两侧恒为 str（恒定时间比较）。
         if not isinstance(supplied, str) or not hmac.compare_digest(expected or "", supplied):

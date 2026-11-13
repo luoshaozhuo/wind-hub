@@ -277,7 +277,7 @@ async def assemble_collector(
         assert key_path is not None
         assert ca_path is not None
         credentials = grpc.ssl_server_credentials(
-            ((Path(key_path).read_bytes(), Path(certificate_path).read_bytes()),),
+            [(Path(key_path).read_bytes(), Path(certificate_path).read_bytes())],
             root_certificates=Path(ca_path).read_bytes(),
             require_client_auth=True,
         )

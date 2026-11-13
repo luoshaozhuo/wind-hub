@@ -191,7 +191,7 @@ async def restart_task(
     mounts = call("snapshots", "Mounts", "MountsResponse")
     delete = call("tasks", "Delete", "DeleteResponse")
     create = call("tasks", "Create", "CreateTaskResponse")
-    start = channel.unary_unary(
+    start: grpc.aio.UnaryUnaryMultiCallable[Any, Any] = channel.unary_unary(
         "/containerd.services.tasks.v1.Tasks/Start",
         request_serializer=lambda request: request.SerializeToString(),
         response_deserializer=lambda value: value,

@@ -316,9 +316,7 @@ class SinkOutputPool:
                     seen_targets.add(variable_id)
                     key = (item["source_device_id"], item["source_point_id"])
                     mapping.setdefault(key, []).append(variable_id)
-            fixed_mapping = {
-                key: tuple(values) for key, values in mapping.items()
-            }
+            fixed_mapping = {key: tuple(values) for key, values in mapping.items()}
             config_signature["gateway_mappings"] = [
                 (key, values) for key, values in sorted(fixed_mapping.items())
             ]
@@ -343,15 +341,15 @@ class SinkOutputPool:
                     raise ConfigurationError("Modbus requires explicit finite point mapping")
                 for device_id in devices:
                     for point_id in names:
-                        key = (
+                        point_key = (
                             source["wind_farm_id"],
                             source["collector_id"],
                             device_id,
                             point_id,
                         )
-                        if key in points:
-                            raise ConfigurationError(f"duplicate Modbus point {key}")
-                        points.add(key)
+                        if point_key in points:
+                            raise ConfigurationError(f"duplicate Modbus point {point_key}")
+                        points.add(point_key)
             sorted_points = tuple(sorted(points))
             config_signature["points"] = sorted_points
             adapter = ModbusOutput(
