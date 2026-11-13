@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_16 · 20261113 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_17 · 20261113 · 统一配置、CLI 进程管理与完整链路验收设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -251,14 +251,16 @@ Sink 的 Gateway 出站 Adapter **已实现**于 `src/sink_service/infrastructur
 
 # 5. 共享配置、运行环境与进程启动
 
-## 5.1 当前 `configs/` 资产
+## 5.1 配置结构、版本号与 E2E 文件命名
+
+当前真实配置资产如下。目录内容以当前分支 Git HEAD 为准，文件名中的 `_v1.0.0` 是**本次按总体设计修复后的实际版本后缀**，不是仅供参考的目标名称。
 
 ~~~text
 configs/
 ├── instances/
 │   ├── site.yaml
-│   ├── devices.yaml                 # 真实设备：不得修改
-│   ├── devices_sim.yaml             # WTG/PV/BESS/GRID/PPC_SIM01
+│   ├── devices.yaml
+│   ├── devices_sim.yaml
 │   ├── sinks.yaml
 │   └── deliveries.yaml
 ├── services/
@@ -271,20 +273,25 @@ configs/
 │   ├── industrial_gateway-sim.example.yaml
 │   └── sink_service.yaml
 ├── templates/
-│   ├── device_models/              # 五种 *_sim_physical_1.0.0.yaml
-│   ├── point_tables/               # 仿真及真实点表
-│   ├── protocols/
-│   ├── sinks/                      # gateway_realtime、modbus、redis、kafka
-│   ├── deliveries/                 # realtime_power、reliable_history
-│   ├── tasks/
+│   ├── device_models/              # wtg_sim_physical_v1.0.0.yaml 等
+│   ├── point_tables/               # modbus_wtg_sim_v1.0.0.yaml 等
+│   ├── protocols/                  # modbus_tcp_v1.0.0.yaml 等
+│   ├── sinks/                      # gateway_realtime_v1.0.0.yaml 等
+│   ├── deliveries/                 # realtime_power_v1.0.0.yaml 等
+│   ├── tasks/                      # turbine_all_v1.0.0.yaml
+│   ├── observability_v1.0.0.yaml
 │   ├── business_points.yaml
 │   └── units.yaml
 └── history/demo.csv
 ~~~
 
-<p class="figure-caption">图 5-1 正式配置资产与测试引用边界</p>
+<p class="figure-caption">图 5-1 正式配置资产、版本化模板及 E2E 引用边界</p>
 
-**不得沿用附件旧路径**：当前没有 `configs/instances/data-generator.yaml` 或 `data-generator-sim.yaml`；Scenario 定义在 Generator **Service YAML** 的 `scenarios` 中，不能为符合旧测试方案重新引入不合理的实例文件。业务型号使用 `*_sim_physical_1.0.0.yaml`，精确引用版本。Integration 与 E2E 共享上述正式资产。
+**命名约束**：依据总体设计 v1_15 第 5.4 节，带版本文件统一采用 `<前缀><名称>[_vMAJOR.MINOR.PATCH].yaml`；版本号前必须有字母 `v`，YAML 正文 `file_version` 的值仍为不带 `v` 的语义版本字符串。版本后缀是可选的，不能认为 `site.yaml`、`devices.yaml` 等无版本后缀文件违反该规则。路径变更必须同步精确模板解析器、全部 Service 引用和测试 Fixture。
+
+**E2E 命名示例**：若现有点表不满足测试要求，需要新增专用 Modbus 物理仿真点表，可在 `configs/templates/point_tables/` 下采用 `modbus_e2e_physical_v1.0.0.yaml`；此为测试信息名示例，不要求为了新名字复制现有等价点表。现行总体设计还要求类型前缀，须先修订总体设计才能正式采用该简化文件名；未修订前以总体设计的完整前缀规则为准。
+
+**配置仍需适配的部分**：当前 `services/`、`instances/` 等部分文件名称、文件头注释和业务归属尚未全面符合总体设计；本次模板版本后缀整改不代表全部 Service/Instance 命名和 Schema 验收完成。特别是 Data Generator Scenario 应归 Service，不能重新引入 `instances/data-generator*`；真实设备配置不得为 E2E 覆盖。
 
 ## 5.2 角色、配置与前置差异
 
@@ -295,7 +302,7 @@ configs/
 | Gateway 源 | `services/industrial_gateway-sim.example.yaml` | gRPC 50073，五 Server；仅 PPC 配置工业控制映射；验证 TLS、路由、证书授权 |
 | Collector | `services/collector.yaml`、`templates/tasks/` | 当前仍引用真实 `devices.yaml`；必须建立隔离模拟 Service 和合法采样任务 |
 | Sink | `services/sink_service.yaml`、`instances/sinks.yaml`、`instances/deliveries.yaml` | 现有过滤为 WT001/WT002，地址属示例；测试使用隔离实例与四种目标，不能误写真实目标 |
-| Sink→Gateway | `templates/sinks/gateway_realtime_1.0.0.yaml` | 正式 GatewayOutput、target_mappings、mTLS 凭据、独立变量与租约 |
+| Sink→Gateway | `templates/sinks/gateway_realtime_v1.0.0.yaml` | 正式 GatewayOutput、target_mappings、mTLS 凭据、独立变量与租约 |
 | Commander | `services/commander.yaml` | 模拟控制设备、Gateway 授权与请求身份一致 |
 | CLI | `services/cli.example.yaml` | 示例混用 containerd/iSulad/systemd；测试须准备所有业务服务由同一可用 Linux 原生管理器接管的有效配置 |
 | 外部 | NATS/JetStream、Redis、Kafka | 独立测试命名空间及清理所有权 |
@@ -399,7 +406,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 
 六份正式 Proto 当前有 **50 个唯一 Unary RPC**：Common 9、Collector 11、Commander 7、Sink 4、Gateway 10、Generator 9。Common 在多个服务实例中分别注册，唯一方法总数与逐服务注册总数不能混用。Gateway 的 `ExecuteSimulationCommand/GetSimulationExecutionResult`、Generator 的 `GetInputExecution` 必须进入 RPC 覆盖清单。除真实调用外还要验证 Descriptor 请求/响应、字段号、标量 oneof、认证与拒绝语义。
 
-CLI 先读取当前 `wind-hub --help` 与全部子级帮助，枚举**所有叶子命令**；每项至少一项合法或规范拒绝场景。所有未执行 RPC/CLI 均保留在分母。无法由 CLI 覆盖但正式公开的 RPC 可用真实认证客户端调用，注明原因。
+CLI 先读取当前 `wind-hub --help` 与全部子级帮助，枚举**所有叶子命令**并逐条真实执行，所有业务操作必须通过 CLI；每项至少一项合法或规范拒绝场景。所有未执行 RPC/CLI 均保留在分母。无法由 CLI 覆盖但正式公开的 RPC 可用真实认证客户端调用，注明原因。
 
 ~~~text
 cli_command_id,syntax,service,rpc_methods,case_id,config,expected_exit,observed_exit,status
@@ -497,7 +504,7 @@ branch: design/architecture-dfd-alignment-20261113
 commit: "<verified_head>"
 config_files:
   - configs/instances/devices_sim.yaml
-  - configs/templates/deliveries/reliable_history_1.0.0.yaml
+  - configs/templates/deliveries/reliable_history_v1.0.0.yaml
 config_hashes: "<actual_hashes>"
 processes_started_by_cli: [gateway, data-generator, collector, sink]
 infrastructure: [nats, jetstream, kafka]
