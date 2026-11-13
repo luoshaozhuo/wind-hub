@@ -24,7 +24,7 @@ from sink_service.application.latency_window import HistogramSnapshot, LatencyWi
 from sink_service.application.realtime import BatchOutcome, RealtimeEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 from sink_service.infrastructure.adapters.outbound.gateway import GatewayOutput
-from sink_service.infrastructure.realtime_adapters import ModbusOutput, RedisOutput
+from sink_service.infrastructure.realtime_adapters import KafkaOutput, ModbusOutput, RedisOutput
 
 logger = logging.getLogger(__name__)
 
@@ -294,7 +294,7 @@ class SinkOutputPool:
             "sink": sink,
             "template": template,
         }
-        adapter: RedisOutput | ModbusOutput | GatewayOutput
+        adapter: RedisOutput | KafkaOutput | ModbusOutput | GatewayOutput
         if kind == "redis":
             adapter = RedisOutput(
                 host=connection["host"],
@@ -302,6 +302,15 @@ class SinkOutputPool:
                 namespace=output["namespace"],
                 timeout_ms=int(output["write_timeout_ms"]),
                 credential_ref=connection.get("credential_ref", ""),
+            )
+        elif kind == "kafka":
+            adapter = KafkaOutput(
+                servers=list(connection["bootstrap_servers"]),
+                topic=output["topic"],
+                timeout_ms=int(output["write_timeout_ms"]),
+                credential_ref=connection.get("credential_ref", ""),
+                linger_ms=output.get("linger_ms", 0),
+                max_batch_size=output.get("max_batch_size", 131072),
             )
         elif kind == "gateway":
             mapping: dict[tuple[str, str], list[str]] = {}
@@ -361,7 +370,7 @@ class SinkOutputPool:
                 quality_start=int(output["quality_register_start"]),
             )
         else:
-            raise ConfigurationError(f"unsupported realtime Sink type: {kind}")
+            raise ConfigurationError(f"unsupported Sink type: {kind}")
         signature = hashlib.sha256(
             json.dumps(config_signature, sort_keys=True).encode("utf-8")
         ).hexdigest()
