@@ -217,26 +217,21 @@ def validate_service_settings(document: Mapping[str, object]) -> None:
 
 
 _FLAT_TEMPLATE_NAME = re.compile(
-    r"^(?P<template_id>.+)_(?P<file_version>[0-9]+\.[0-9]+\.[0-9]+)\.yaml$"
+    r"^(?P<template_id>.+)_v(?P<file_version>[0-9]+\.[0-9]+\.[0-9]+)\.yaml$"
 )
 
 
 def _template_references(category: str, folder: Path) -> Iterator[tuple[Path, TemplateRef]]:
     """Yield every versioned template under a category.
 
-    The shared layout is flat (``<id>_<version>.yaml``) for all four
-    Collector categories including tasks; a nested ``<id>/<version>.yaml``
-    form is accepted only for older committed generations. A flat file that
-    does not parse as a versioned name is rejected rather than skipped, so a
-    structural drift can never silently disable template validation.
+    Only the flat ``<id>_vMAJOR.MINOR.PATCH.yaml`` layout is supported.
+    Unexpected names are rejected rather than silently skipped.
     """
     for path in sorted(folder.glob("*.yaml")):
         match = _FLAT_TEMPLATE_NAME.match(path.name)
         if match is None:
-            raise ConfigError(f"{path}: template file must be named <id>_<version>.yaml")
+            raise ConfigError(f"{path}: template file must be named <id>_vMAJOR.MINOR.PATCH.yaml")
         yield path, TemplateRef(category, match["template_id"], match["file_version"])
-    for path in sorted(folder.glob("*/*.yaml")):
-        yield path, TemplateRef(category, path.parent.name, path.stem)
 
 
 def _validate_all_templates(root: Path) -> None:
