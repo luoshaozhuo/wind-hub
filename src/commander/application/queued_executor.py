@@ -780,7 +780,11 @@ class QueuedExecutor:
     ) -> tuple[ProtocolWriteResult, ...]:
         """Native batch for real devices; command-aware calls retain idempotent identity."""
         authorized = isinstance(session, AuthorizedWriteSession)
-        if not authorized and len(writes) > 1 and ProtocolCapability.WRITE_MANY in session.capabilities():
+        if (
+            not authorized
+            and len(writes) > 1
+            and ProtocolCapability.WRITE_MANY in session.capabilities()
+        ):
             return await session.write_many(writes)
         for write, command in zip(writes, commands, strict=True):
             try:
