@@ -12,6 +12,7 @@ from industrial_gateway.application.variable_store import Scalar
 class SimulationInputReceipt:
     accepted: bool
     effective_step: int
+    generation_id: str
     message: str
     error_code: str
 
@@ -28,5 +29,9 @@ class SimulationInputPort(Protocol):
         request_id: str,
         timeout: float,
     ) -> SimulationInputReceipt: ...
+
+    async def get_execution(
+        self, *, generation_id: str, request_id: str, timeout: float
+    ) -> str: ...
 
     async def close(self) -> None: ...
