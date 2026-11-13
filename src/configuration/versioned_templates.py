@@ -82,7 +82,7 @@ class VersionedTemplateRepository:
         candidate = (
             self._root
             / reference.category
-            / f"{reference.template_id}_{reference.file_version}.yaml"
+            / f"{reference.template_id}_v{reference.file_version}.yaml"
         ).resolve()
         if not candidate.is_relative_to(self._root):
             raise ConfigError("template reference escapes configured root")

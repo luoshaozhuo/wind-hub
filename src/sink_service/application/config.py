@@ -73,7 +73,7 @@ def template_path(template_root: str, family: str, name: str, version: str) -> s
         raise ConfigurationError(f"invalid template_id: {name!r}")
     if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
         raise ConfigurationError(f"invalid template_version: {version!r}")
-    return f"{template_root}/{family}/{name}_{version}.yaml"
+    return f"{template_root}/{family}/{name}_v{version}.yaml"
 
 
 def template_document(
