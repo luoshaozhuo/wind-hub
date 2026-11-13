@@ -52,6 +52,7 @@ class GenerationState:
     terminal_state: str | None = None
     physical_engine: PhysicalEngine | None = None
     current_step: int = 0
+    completed_step: int = 0
     pending_inputs: list[tuple[int, str, dict[str, float | int]]] = field(default_factory=list)
     request_history: dict[tuple[str, str], tuple[bytes, int]] = field(default_factory=dict)
 
@@ -169,6 +170,24 @@ class Runtime:
         async with self._lock:
             self._reconcile_locked()
             return self.generations.get(generation_id)
+
+    async def get_input_execution(
+        self, generation_id: str, caller: str, request_id: str
+    ) -> tuple[str, int]:
+        """Report only request-specific evidence after a physical step completed."""
+        async with self._lock:
+            generation = self.generations.get(generation_id)
+            if generation is None:
+                return "UNKNOWN", 0
+            history = generation.request_history.get((caller, request_id))
+            if history is None:
+                return "UNKNOWN", 0
+            effective_step = history[1]
+            if generation.completed_step >= effective_step:
+                return "APPLIED", effective_step
+            if generation.actual_state == "RUNNING" and generation.desired_state == "RUNNING":
+                return "PENDING", effective_step
+            return "UNKNOWN", effective_step
 
     async def update_inputs(
         self,
@@ -455,6 +474,7 @@ class Runtime:
                     for index in range(sequence - skipped, sequence + 1):
                         self._install_inputs(generation, index)
                         values = physical.advance(interval, index)
+                        generation.completed_step = index
                     if random_points:
                         values.update(generate_configured_random(sequence, random_points))
                 await self._emit(
