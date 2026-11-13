@@ -365,8 +365,8 @@ def config_sources(service_file: Path, service: dict[str, Any]) -> dict[str, Pat
         templates["root"],
         directory=True,
     )
-    resolved["units"] = resolved["templates_root"] / "units.yaml"
-    resolved["business_points"] = resolved["templates_root"] / "business_points.yaml"
+    resolved["units"] = resolved["templates_root"] / "units_standard.yaml"
+    resolved["business_points"] = resolved["templates_root"] / "business_points_standard.yaml"
     # Catalog files are Core's indirect dependencies, not service declarations.
     for name in ("units", "business_points"):
         if not resolved[name].is_file():

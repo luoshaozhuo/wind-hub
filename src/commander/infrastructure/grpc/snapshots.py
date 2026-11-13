@@ -102,8 +102,8 @@ class ConfigSnapshots:
         paths = (
             self._service_config,
             settings.devices_path,
-            settings.templates_root / "units.yaml",
-            settings.templates_root / "business_points.yaml",
+            settings.templates_root / "units_standard.yaml",
+            settings.templates_root / "business_points_standard.yaml",
         )
         files = {self._relative(path): path.read_bytes() for path in paths}
         documents = SharedDocumentLoader(
@@ -174,10 +174,10 @@ class ConfigSnapshots:
                 },
                 sort_keys=False,
             ).encode("utf-8"),
-            self._relative(settings.templates_root / "units.yaml"): yaml.safe_dump(
+            self._relative(settings.templates_root / "units_standard.yaml"): yaml.safe_dump(
                 plain_document(documents.units), sort_keys=False
             ).encode("utf-8"),
-            self._relative(settings.templates_root / "business_points.yaml"): yaml.safe_dump(
+            self._relative(settings.templates_root / "business_points_standard.yaml"): yaml.safe_dump(
                 plain_document(documents.business_points), sort_keys=False
             ).encode("utf-8"),
         }
@@ -406,7 +406,7 @@ class ConfigSnapshots:
                 is_versioned_template = (
                     target.is_relative_to(settings.templates_root)
                     or any(target.is_relative_to(root) for root in additional_template_roots)
-                ) and target.name not in {"units.yaml", "business_points.yaml"}
+                ) and target.name not in {"units_standard.yaml", "business_points_standard.yaml"}
                 if is_versioned_template and target.is_file() and target.read_bytes() != content:
                     raise ValueError(f"versioned template is immutable: {name}")
                 candidate[name] = content

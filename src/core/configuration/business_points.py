@@ -16,7 +16,7 @@ def parse_business_points(
 ) -> dict[BusinessPointId, BusinessPoint]:
     """按 ID 建立全场共享的业务点目录；工程单位由单位目录解析。"""
     if set(raw) != {"business_points"}:
-        raise ConfigError("business_points.yaml requires only 'business_points' root")
+        raise ConfigError("business_points_standard.yaml requires only 'business_points' root")
     entries = raw["business_points"]
     if not isinstance(entries, Mapping):
         raise ConfigError("business_points must be a mapping keyed by business point ID")
