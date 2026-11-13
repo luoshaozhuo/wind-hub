@@ -2805,6 +2805,18 @@ files = [
 ]
 
 [[package]]
+name = "types-grpcio"
+version = "1.84.0.20261021"
+description = "Typing stubs for grpcio"
+optional = false
+python-versions = ">=3.10"
+groups = ["dev"]
+files = [
+    {file = "types_grpcio-1.84.0.20261021-py3-none-any.whl", hash = "sha256:0cd5f897d7485c448c4819597cb05fd17afac4620c0feaee6f7c5d0ee96a60f1"},
+    {file = "types_grpcio-1.84.0.20261021.tar.gz", hash = "sha256:d06d24b31843adaf34656654a7536bd70b40425880bb6162219eb5b1a86220ae"},
+]
+
+[[package]]
 name = "types-protobuf"
 version = "7.35.1.20260906"
 description = "Typing stubs for protobuf"
@@ -3444,4 +3456,4 @@ tracing = ["opentelemetry-api", "opentelemetry-exporter-otlp-proto-grpc", "opent
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "3478125727e6786310c207b2d5f40c4be5fe78544c367b56d065db42d32d3f29"
+content-hash = "f3aeccb8c0b5f6c087c94f6b0b22092eac7719258aa03a74e2722993ac6d2e65"

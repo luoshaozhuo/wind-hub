@@ -62,8 +62,8 @@ httpx = "^0.28"
 pytest = "^8.0"
 pytest-asyncio = "^0.24"
 mypy = "^1.0"
-# mypy strict 所需的第三方类型 stub（grpcio 无可用 stub 包，由 pyproject
-# overrides 显式按动态类型处理）。
+# mypy strict 使用正式发行的 grpcio 类型声明，不再使用仓库自带 typings。
+types-grpcio = "1.84.0.20261021"
 types-protobuf = "^7.0"
 types-PyYAML = "^6.0"
 ruff = "^0.8"
@@ -117,7 +117,6 @@ extend-immutable-calls = [
 [tool.mypy]
 strict = true
 python_version = "3.11"
-mypy_path = "typings/grpc-stubs"
 
 # protobuf 生成的 *_pb2*.py 不是手写源码；类型信息由配套的
 # .pyi stub（mypy-protobuf 生成）提供，生成文件本身不做严格检查。
