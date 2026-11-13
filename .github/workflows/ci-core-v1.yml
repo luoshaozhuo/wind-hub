@@ -30,6 +30,8 @@ jobs:
         run: |
           poetry check --lock
           python scripts/generate_rpc.py --check
+      - name: Python syntax compilation
+        run: python -m compileall -q src tests scripts
       - name: Ruff lint
         run: python -m ruff check src tests scripts
       - name: Ruff format
