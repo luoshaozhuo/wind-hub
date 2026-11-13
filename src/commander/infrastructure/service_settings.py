@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from commander.application.settings import ServiceSettings
+from commander.application.settings import ServiceSettings, SimulationGatewayTarget
 from core.infrastructure.config import read_yaml
 
 
@@ -106,6 +106,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
             "audit",
             "timeouts",
             "shutdown",
+            "simulation_targets",
         },
         "commander service",
     )
@@ -152,6 +153,38 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
     templates_root = source_path(
         templates.get("root"), "config_sources.templates.root", directory=True
     )
+    simulation = _mapping(raw.get("simulation_targets", {}), "simulation_targets")
+    simulation_targets: dict[str, SimulationGatewayTarget] = {}
+    for device_id, raw_target in simulation.items():
+        if not device_id.strip():
+            raise ValueError("simulation device_id cannot be blank")
+        target = _mapping(raw_target, f"simulation_targets.{device_id}")
+        _keys(
+            target,
+            {"gateway_id", "endpoint", "ca_cert", "client_cert", "client_key"},
+            f"simulation_targets.{device_id}",
+        )
+        fields = ("gateway_id", "endpoint", "ca_cert", "client_cert", "client_key")
+        if any(
+            not isinstance(target.get(field), str) or not target[field].strip()
+            for field in fields
+        ):
+            raise ValueError(f"simulation_targets.{device_id}: required field missing")
+        endpoint = target["endpoint"]
+        host, separator, port = endpoint.rpartition(":")
+        if not separator or not host.strip() or not port.isdecimal() or not 1 <= int(port) <= 65535:
+            raise ValueError(f"simulation_targets.{device_id}: invalid endpoint")
+        paths = (Path(target[field]) for field in ("ca_cert", "client_cert", "client_key"))
+        ca_cert, client_cert, client_key = (
+            p if p.is_absolute() else Path(path).resolve().parent / p for p in paths
+        )
+        simulation_targets[device_id] = SimulationGatewayTarget(
+            gateway_id=target["gateway_id"],
+            endpoint=endpoint,
+            ca_cert=ca_cert,
+            client_cert=client_cert,
+            client_key=client_key,
+        )
     dispatch = _mapping(raw.get("dispatcher", {}), "dispatcher")
     timeouts = _mapping(raw.get("timeouts", {}), "timeouts")
     repository = _mapping(raw.get("repository"), "repository")
@@ -250,6 +283,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
     validate_transport_settings(raw)
     return ServiceSettings(
         file_version=file_version,
+        simulation_targets=simulation_targets,
         devices_path=devices_path,
         coordination_root=Path(path).resolve().parent.parent,
         templates_root=templates_root,
