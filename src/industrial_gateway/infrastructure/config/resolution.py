@@ -173,8 +173,6 @@ def _points(server: ServerConfig, device: SharedDeviceDefinition) -> ResolvedSer
                 f"{server.device_id}: Commander target point "
                 f"{command_mapping.target_point_id} is not in the bound device"
             )
-        # Generator target may be POINT_TABLE or WEATHER_INPUT.
-        # Validate its authority via ListVariables before forwarding the event.
     # Modbus on_access captures protocol request writes independently of gRPC.
     # Other adapters must prove the same capability before enabling control.
     if server.control.enabled and protocol != "modbus":
