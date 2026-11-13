@@ -56,8 +56,8 @@ def test_source_manifest_is_complete_sorted_and_byte_accurate() -> None:
     expected_sources = (
         "instances/site.yaml",
         "instances/devices.yaml",
-        "templates/units.yaml",
-        "templates/business_points.yaml",
+        "templates/units_standard.yaml",
+        "templates/business_points_standard.yaml",
     )
     for relative in expected_sources:
         assert relative in logical_keys, relative

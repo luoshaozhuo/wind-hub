@@ -34,7 +34,7 @@ def _dump(path: Path, document: dict[str, Any]) -> None:
 
 def _protocol(root: Path) -> None:
     _dump(
-        root / "templates" / "protocols" / "modbus_v1.0.0.yaml",
+        root / "templates" / "protocols" / "protocol_modbus_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "modbus",
@@ -52,7 +52,7 @@ def _protocol(root: Path) -> None:
 
 def _model(root: Path, *, table: str = "child", table_version: str = "1.0.0") -> None:
     _dump(
-        root / "templates" / "device_models" / "turbine_v1.0.0.yaml",
+        root / "templates" / "device_models" / "device_model_turbine_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "turbine",
@@ -67,7 +67,7 @@ def _inheritance_tree(root: Path) -> None:
     """base 定义 p1/p2/p3；child 继承 base，覆盖 p2、新增 p4、移除 p3。"""
     _protocol(root)
     _dump(
-        root / "templates" / "point_tables" / "base_v1.0.0.yaml",
+        root / "templates" / "point_tables" / "point_table_base_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "base",
@@ -91,7 +91,7 @@ def _inheritance_tree(root: Path) -> None:
         },
     )
     _dump(
-        root / "templates" / "point_tables" / "child_v1.0.0.yaml",
+        root / "templates" / "point_tables" / "point_table_child_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "child",
@@ -132,7 +132,7 @@ def test_point_table_chain_resolves_parent_and_freezes_documents(tmp_path: Path)
         child.document["points"]["p2"] = {}  # type: ignore[index]
 
     # 脱离磁盘：覆写 YAML 后已解析模板保持旧内容，重新解析才看到新内容。
-    child_path = tmp_path / "templates" / "point_tables" / "child_v1.0.0.yaml"
+    child_path = tmp_path / "templates" / "point_tables" / "point_table_child_v1.0.0.yaml"
     rewritten = yaml.safe_load(child_path.read_text(encoding="utf-8"))
     rewritten["points"]["p2"]["address"]["address"] = 999
     _dump(child_path, rewritten)
@@ -148,7 +148,7 @@ def test_chain_rejects_inheritance_cycle(tmp_path: Path) -> None:
     """继承环是显式错误路径，不得死循环。"""
     _protocol(root=tmp_path)
     _dump(
-        tmp_path / "templates" / "point_tables" / "loop_a_v1.0.0.yaml",
+        tmp_path / "templates" / "point_tables" / "point_table_loop_a_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "loop_a",
@@ -159,7 +159,7 @@ def test_chain_rejects_inheritance_cycle(tmp_path: Path) -> None:
         },
     )
     _dump(
-        tmp_path / "templates" / "point_tables" / "loop_b_v1.0.0.yaml",
+        tmp_path / "templates" / "point_tables" / "point_table_loop_b_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "loop_b",
@@ -181,7 +181,7 @@ def test_chain_rejects_parent_protocol_mismatch(tmp_path: Path) -> None:
     """父表协议与根表不一致走 ConfigError，防止跨协议继承。"""
     _protocol(tmp_path)
     _dump(
-        tmp_path / "templates" / "point_tables" / "ads_base_v1.0.0.yaml",
+        tmp_path / "templates" / "point_tables" / "point_table_ads_base_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "ads_base",
@@ -191,7 +191,7 @@ def test_chain_rejects_parent_protocol_mismatch(tmp_path: Path) -> None:
         },
     )
     _dump(
-        tmp_path / "templates" / "point_tables" / "modbus_child_v1.0.0.yaml",
+        tmp_path / "templates" / "point_tables" / "point_table_modbus_child_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "modbus_child",
@@ -212,7 +212,7 @@ def test_chain_rejects_parent_protocol_mismatch(tmp_path: Path) -> None:
 def test_chain_requires_exact_parent_version(tmp_path: Path) -> None:
     """父引用必须精确命中已发布版本，缺失版本按错误路径拒绝而非静默回退。"""
     _inheritance_tree(tmp_path)
-    child_path = tmp_path / "templates" / "point_tables" / "child_v1.0.0.yaml"
+    child_path = tmp_path / "templates" / "point_tables" / "point_table_child_v1.0.0.yaml"
     document = yaml.safe_load(child_path.read_text(encoding="utf-8"))
     document["parent"] = {"id": "base", "version": "9.9.9"}
     _dump(child_path, document)

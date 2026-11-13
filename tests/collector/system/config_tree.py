@@ -103,7 +103,7 @@ def write_config_tree(
     devices_path.parent.mkdir(parents=True, exist_ok=True)
     devices_path.write_bytes(_dump(device_doc))
 
-    (templates / "units.yaml").write_bytes(
+    (templates / "units_standard.yaml").write_bytes(
         _dump(
             {
                 **_HEADER,
@@ -129,7 +129,7 @@ def write_config_tree(
             }
         )
     )
-    (templates / "business_points.yaml").write_bytes(
+    (templates / "business_points_standard.yaml).write_bytes(
         _dump(
             {
                 **_HEADER,
@@ -148,7 +148,7 @@ def write_config_tree(
         folder = templates / category
         folder.mkdir(parents=True, exist_ok=True)
         payload = {"template_id": template_id, **document}
-        (folder / f"{template_id}_v1.0.0.yaml").write_bytes(_dump(payload))
+        (folder / f"{category[:-1]}_{template_id}_v1.0.0.yaml").write_bytes(_dump(payload))
 
     template("protocols", "modbus_tcp", {**_HEADER, "protocol": "modbus"})
     template("protocols", "iec104_tcp", {**_HEADER, "protocol": "iec104"})
