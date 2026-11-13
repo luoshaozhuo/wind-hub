@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from configuration.site_loader import load_domain
+from web_server.application.config.site_loader import load_domain
 from core.application import ProtocolRegistry, Quality
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.modbus import ModbusDriver

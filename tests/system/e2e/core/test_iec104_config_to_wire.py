@@ -17,7 +17,7 @@ import asyncio
 import c104
 import pytest
 
-from configuration.site_loader import load_domain
+from web_server.application.config.site_loader import load_domain
 from core.application import ProtocolRegistry, ProtocolSample, ProtocolWrite, Quality
 from core.application.protocol_contract import InterrogationRequest, WriteOutcome
 from core.domain import ConnectionEndpoint
