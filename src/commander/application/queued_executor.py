@@ -608,6 +608,10 @@ class QueuedExecutor:
                     batch_completed = True
                     return
                 progress: list[ProtocolWriteResult] = []
+                # Enforce the deadline inside serial execution as well: a fast
+                # adapter may return after the deadline before the waiter's
+                # timeout callback gets scheduled on the event loop.
+                write_deadline = time.monotonic() + self._write_timeout
                 stop_unstarted = asyncio.Event()
                 started_count = [0]
                 native = asyncio.create_task(
@@ -618,6 +622,7 @@ class QueuedExecutor:
                         tuple(member.command for member in group),
                         stop_unstarted,
                         started_count,
+                        write_deadline,
                     )
                 )
                 try:
@@ -804,6 +809,7 @@ class QueuedExecutor:
         commands: tuple[AcceptedCommand, ...],
         stop_unstarted: asyncio.Event,
         started_count: list[int],
+        write_deadline: float,
     ) -> tuple[ProtocolWriteResult, ...]:
         """Native batch for real devices; command-aware calls retain idempotent identity."""
         authorized = isinstance(session, AuthorizedWriteSession)
@@ -815,8 +821,14 @@ class QueuedExecutor:
             started_count[0] = len(writes)
             return await session.write_many(writes)
         for write, command in zip(writes, commands, strict=True):
-            if stop_unstarted.is_set():
-                break
+            if stop_unstarted.is_set() or time.monotonic() >= write_deadline:
+                # Only completed writes can be confirmed. Unstarted suffix
+                # must not be sent even if asyncio.wait_for has not resumed.
+                raise _SerialWriteError(
+                    tuple(progress),
+                    TimeoutError("serial write deadline exceeded"),
+                    current_unconfirmed=False,
+                )
             started_count[0] += 1
             try:
                 if isinstance(session, AuthorizedWriteSession):
