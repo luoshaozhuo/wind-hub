@@ -18,7 +18,7 @@ from industrial_gateway.infrastructure.commander.forwarder import (
     CommandForwarder,
     ForwardState,
 )
-from industrial_gateway.infrastructure.config.v1_schema import ControlTarget
+from industrial_gateway.infrastructure.config.schema import ControlTarget
 from tests.support.gateway_v1 import FakeCommanderService
 
 pytestmark = [pytest.mark.component, pytest.mark.real_service]
