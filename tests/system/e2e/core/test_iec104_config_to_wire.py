@@ -17,13 +17,13 @@ import asyncio
 import c104
 import pytest
 
-from web_server.application.config.site_loader import load_domain
 from core.application import ProtocolRegistry, ProtocolSample, ProtocolWrite, Quality
 from core.application.protocol_contract import InterrogationRequest, WriteOutcome
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.iec104 import IEC104Driver
 from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
 from tests.support.wait import wait_until
+from web_server.application.config.site_loader import load_domain
 
 pytestmark = pytest.mark.real_service
 

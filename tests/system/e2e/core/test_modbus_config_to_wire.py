@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from web_server.application.config.site_loader import load_domain
 from core.application import ProtocolRegistry, Quality
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.modbus import ModbusDriver
 from tests.support.process import free_port
+from web_server.application.config.site_loader import load_domain
 
 pytestmark = pytest.mark.real_service
 

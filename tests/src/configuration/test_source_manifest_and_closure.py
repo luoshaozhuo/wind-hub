@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from core.application.errors import ConfigError
 from core.configuration.document_version import (
     read_stable_document,
     verify_shared_source_closure,
@@ -21,7 +22,6 @@ from core.configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
 )
-from core.application.errors import ConfigError
 
 pytestmark = [pytest.mark.component, pytest.mark.contract]
 
