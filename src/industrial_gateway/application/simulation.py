@@ -79,7 +79,7 @@ class SimulationController:
                         state="REJECTED",
                         error_code="EXECUTION_CAPACITY_EXCEEDED",
                     )
-                target = (command.gateway_id, command.point_id)
+                target = (command.gateway_id, command.device_id)
                 lock = self._target_locks.setdefault(target, asyncio.Lock())
                 execution_id = uuid4().hex
                 task = asyncio.create_task(self._apply(command, execution_id, lock))
