@@ -17,7 +17,7 @@ from contracts import industrial_gateway_pb2_grpc as rpc
 from contracts.scalar_codec import decode_scalar, encode_scalar
 from core.application.errors import ConfigError
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots, SnapshotFile
-from industrial_gateway.infrastructure.config.v1_schema import service_path
+from industrial_gateway.infrastructure.config.schema import service_path
 from industrial_gateway.infrastructure.grpc.diagnostics import GatewayDiagnostics
 from industrial_gateway.infrastructure.runtime import GatewayInstance, GatewayRuntime
 from industrial_gateway.infrastructure.variable_leases import ClaimRequest, LeaseError
