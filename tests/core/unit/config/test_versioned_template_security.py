@@ -19,7 +19,7 @@ _CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 def _write_flat(root: Path, category: str, name: str, body: str = "") -> Path:
     directory = root / category
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}_1.0.0.yaml"
+    path = directory / f"{name}_v1.0.0.yaml"
     path.write_text(
         f"schema_version: 1\ntemplate_id: {name}\nfile_version: 1.0.0\n{body}",
         encoding="utf-8",
@@ -74,8 +74,8 @@ def test_flat_categories_use_flat_versioned_filenames() -> None:
         base = templates / category
         assert base.is_dir()
         assert not any(path.is_dir() for path in base.iterdir()), f"{category} 仍含嵌套目录"
-        assert list(base.glob("*_1.0.0.yaml")), f"{category} 缺少扁平版本文件"
-    assert (templates / "tasks" / "turbine_all_1.0.0.yaml").is_file()
+        assert list(base.glob("*_v1.0.0.yaml")), f"{category} 缺少扁平版本文件"
+    assert (templates / "tasks" / "turbine_all_v1.0.0.yaml").is_file()
 
 
 def test_point_table_inheritance_cycle_rejected(tmp_path: Path) -> None:

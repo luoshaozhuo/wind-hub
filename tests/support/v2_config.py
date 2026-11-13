@@ -86,7 +86,7 @@ def write_v2_modbus_tree(
     # 型号，这里按 ModbusMockServer 的保持寄存器布局（100/102/104）生成
     # 自包含点表与型号，协议模板与 turbine_all 任务复用出厂文件。
     _dump(
-        root / "templates" / "point_tables" / "modbus_wtg_1.0.0.yaml",
+        root / "templates" / "point_tables" / "modbus_wtg_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -124,7 +124,7 @@ def write_v2_modbus_tree(
         },
     )
     _dump(
-        root / "templates" / "device_models" / "modbus_wtg_1.0.0.yaml",
+        root / "templates" / "device_models" / "modbus_wtg_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -208,7 +208,7 @@ def emit_v2_tree_from_flat_site(
     protocols = {model["protocol"] for model in device_models.values()}
     for protocol in sorted(protocols):
         _dump(
-            root / "templates" / "protocols" / f"{protocol}_default_1.0.0.yaml",
+            root / "templates" / "protocols" / f"{protocol}_default_v1.0.0.yaml",
             {
                 # 协议模板经 shared_snapshot._content 只放行 protocol/
                 # protocol_options，且仅剥离 schema_version/file_version/
@@ -233,7 +233,7 @@ def emit_v2_tree_from_flat_site(
                 point = {**point, "point_groups": [*groups, "all"]}
             derived_points[point_id] = point
         _dump(
-            root / "templates" / "point_tables" / f"{table_id}_1.0.0.yaml",
+            root / "templates" / "point_tables" / f"{table_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "file_version": "1.0.0",
@@ -288,7 +288,7 @@ def emit_v2_tree_from_flat_site(
         if model.get("protocol_options"):
             document["protocol_options"] = model["protocol_options"]
         _dump(
-            root / "templates" / "device_models" / f"{model_id}_1.0.0.yaml",
+            root / "templates" / "device_models" / f"{model_id}_v1.0.0.yaml",
             document,
         )
 
@@ -298,7 +298,7 @@ def emit_v2_tree_from_flat_site(
         # 节拍/期望态仍由 spec 保留），只是不再下发 v1 已废除的具名组任务。
         _point_group, interval, desired_state = spec
         _dump(
-            root / "templates" / "tasks" / f"{task_id}_1.0.0.yaml",
+            root / "templates" / "tasks" / f"{task_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "file_version": "1.0.0",
@@ -311,7 +311,7 @@ def emit_v2_tree_from_flat_site(
         )
     if not combo_ids:
         _dump(
-            root / "templates" / "tasks" / "device_all_1.0.0.yaml",
+            root / "templates" / "tasks" / "device_all_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "file_version": "1.0.0",
@@ -510,7 +510,7 @@ def write_v2_component_tree(
     templates = root / "templates"
     for protocol in protocols:
         _dump(
-            templates / "protocols" / f"{protocol}_default_1.0.0.yaml",
+            templates / "protocols" / f"{protocol}_default_v1.0.0.yaml",
             {
                 # 同上：协议模板 strict 键集不含 template_version。
                 "schema_version": 1,
@@ -521,7 +521,7 @@ def write_v2_component_tree(
         )
     for table_id, table in tables.items():
         _dump(
-            templates / "point_tables" / f"{table_id}_1.0.0.yaml",
+            templates / "point_tables" / f"{table_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "file_version": "1.0.0",
@@ -545,7 +545,7 @@ def write_v2_component_tree(
         }
         if spec.get("protocol_options"):
             document["protocol_options"] = spec["protocol_options"]
-        _dump(templates / "device_models" / f"{model_id}_1.0.0.yaml", document)
+        _dump(templates / "device_models" / f"{model_id}_v1.0.0.yaml", document)
 
     if task_point_group is None:
         groups = {
@@ -556,7 +556,7 @@ def write_v2_component_tree(
         }
         task_point_group = sorted(groups)[0] if groups else "all"
     _dump(
-        templates / "tasks" / "device_all_1.0.0.yaml",
+        templates / "tasks" / "device_all_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",

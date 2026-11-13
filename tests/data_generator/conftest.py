@@ -595,7 +595,7 @@ def _v1_gateway_tree(
                 holding_cursor += 2 if data_type == "float32" else 1
             point_table[variable_id] = {"data_type": data_type, "address": address}
         _dump(
-            root / "templates" / "point_tables" / f"{table_id}_1.0.0.yaml",
+            root / "templates" / "point_tables" / f"{table_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "template_id": table_id,
@@ -605,7 +605,7 @@ def _v1_gateway_tree(
             },
         )
         _dump(
-            root / "templates" / "device_models" / f"{model_id}_1.0.0.yaml",
+            root / "templates" / "device_models" / f"{model_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "template_id": model_id,
@@ -665,7 +665,7 @@ def _v1_gateway_tree(
         {"schema_version": 1, "file_version": "1.0.0", "business_points": {}},
     )
     _dump(
-        root / "templates" / "protocols" / "dg_modbus_1.0.0.yaml",
+        root / "templates" / "protocols" / "dg_modbus_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "dg_modbus",

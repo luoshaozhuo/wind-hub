@@ -61,7 +61,7 @@ async def _publish_raw_power_table(proc: CollectorProcess, v2_tree: Path) -> Non
     devices_doc = _load(v2_tree / "instances" / "devices.yaml")
     model_id = devices_doc["devices"][DEVICE_ID]["model"]["id"]
 
-    table_doc = _load(v2_tree / "templates" / "point_tables" / "modbus_1.0.0.yaml")
+    table_doc = _load(v2_tree / "templates" / "point_tables" / "modbus_v1.0.0.yaml")
     new_table = copy.deepcopy(table_doc)
     new_table["template_version"] = "1.0.1"
     new_table["file_version"] = "1.0.1"
@@ -73,7 +73,7 @@ async def _publish_raw_power_table(proc: CollectorProcess, v2_tree: Path) -> Non
     )
     assert table_result.success, list(table_result.errors)
 
-    model_doc = _load(v2_tree / "templates" / "device_models" / f"{model_id}_1.0.0.yaml")
+    model_doc = _load(v2_tree / "templates" / "device_models" / f"{model_id}_v1.0.0.yaml")
     new_model = copy.deepcopy(model_doc)
     new_model["template_version"] = "1.0.1"
     new_model["file_version"] = "1.0.1"
