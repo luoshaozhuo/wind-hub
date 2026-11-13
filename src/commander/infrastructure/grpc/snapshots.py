@@ -18,11 +18,11 @@ from commander.application.config_manager import _validate_unique_connections
 from commander.application.service_lifecycle import CommanderService
 from commander.infrastructure.config_commit import commit_config_files, recover_config_commit
 from commander.infrastructure.service_settings import load_service_settings
+from contracts import common_pb2
+from core.application.errors import ConfigError
 from core.configuration.immutable import plain_document
 from core.configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
 from core.configuration.shared_snapshot import build_shared_snapshot
-from contracts import common_pb2
-from core.application.errors import ConfigError
 
 
 @dataclass(frozen=True, slots=True)

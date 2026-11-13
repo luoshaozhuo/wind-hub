@@ -19,9 +19,9 @@ from commander.domain.command import (
     CommandSpec,
     CommandState,
 )
-from core.configuration.effective import resolve_effective_device
 from contracts import commander_pb2, commander_pb2_grpc, common_pb2, common_pb2_grpc
 from core.application.errors import ConfigError
+from core.configuration.effective import resolve_effective_device
 from core.domain import DeviceId, PointAccess
 
 

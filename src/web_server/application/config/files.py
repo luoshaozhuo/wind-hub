@@ -18,8 +18,8 @@ import yaml
 from pydantic import BaseModel, Field
 
 from web_server.application.config.diff import ConfigSnapshotDiff, diff_config_snapshots
-from web_server.application.config.snapshot import ConfigSnapshot
 from web_server.application.config.service import ConfigService
+from web_server.application.config.snapshot import ConfigSnapshot
 
 CONFIG_FILES = (
     "system.yaml",
