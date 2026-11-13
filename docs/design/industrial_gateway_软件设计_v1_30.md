@@ -1583,6 +1583,8 @@ src/
 └── core/                   # 仅稳定通用能力
 ```
 
+**Ports & Adapters 代码整改**：`application/` 负责 Gateway 实例生命周期、变量更新和控制事件转发用例；`application/ports/` 声明协议 Server、Commander Client、仿真执行与存储的业务依赖契约；`infrastructure/adapters/inbound/` 实现 gRPC 与 Modbus TCP Server 等协议入口，`infrastructure/adapters/outbound/` 实现 Commander Client、Data Generator 模型输入 Client，`infrastructure/config/` 仅负责 Schema 解析。现有 `infrastructure/runtime.py` 的应用级协调须按职责迁出，装配入口只负责注入。应先依据 DFD 和正式 RPC 契约重构，不制造第二份变量状态或重复业务流程。
+
 目录结构仅规定第一层归属，不预先规定实现文件名。Gateway 可以引用成熟 Modbus/IEC 104 Server 库，不复制或重写协议栈。新增对现有 `PointStore`/`WriteService` 的保留须证明其与真实 Server 字段权威不冲突；如果仅属旧的平行镜像，应移除而非建立双重权威状态。
 
 ## 7.2 静态依赖
@@ -1836,7 +1838,7 @@ metrics:
 
 已验收的 Gateway v1 采用 `SharedDocumentLoader` 显式传入 Instance pathname 和 Template 根目录，解析公共设备、型号、协议及点表引用；Service 快照不私自修改共享配置。Modbus TCP 请求级写回调、完整变量读写、同值重复写、数据注入与工业控制分离、端口交换、配置热更及三态快照均有独立测试证据。
 
-本版本**已实现并验证** Modbus TCP Server、Gateway 17 个入站 RPC 及第 10 章规定的 Commander 转发语义。IEC 104 与 ADS Server 仍属后续适配，未通过真实协议能力验证前不得宣称已支持。Data Generator、Sink Service 的跨分支完整整栈尚未完成，此范围独立列入集成验收，不改变本模块已验收结果。
+当前基线已实现 Modbus TCP Server、Gateway 17 个入站 RPC 及既有 Commander 转发；新增 Commander→Gateway→Data Generator 仿真执行接口仍未实现，须单独验收。IEC 104 与 ADS Server 仍属后续适配，未通过真实协议能力验证前不得宣称已支持。Data Generator、Sink Service 的跨分支完整整栈尚未完成，此范围独立列入集成验收，不改变本模块已验收结果。
 
 ## 11.6 迁移与兼容边界
 
