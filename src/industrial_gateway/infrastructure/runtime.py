@@ -24,12 +24,12 @@ from industrial_gateway.infrastructure.commander.forwarder import (
     ForwardRecord,
     ForwardState,
 )
-from industrial_gateway.infrastructure.config.v1_resolution import (
+from industrial_gateway.infrastructure.config.resolution import (
     ResolvedGateway,
     ResolvedServer,
 )
 from industrial_gateway.infrastructure.observability import GatewayObservability
-from industrial_gateway.infrastructure.protocol.modbus.v1_server import (
+from industrial_gateway.infrastructure.protocol.modbus.server import (
     DeviceModbusServer,
 )
 from industrial_gateway.infrastructure.variable_leases import (
