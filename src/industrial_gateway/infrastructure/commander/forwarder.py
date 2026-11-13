@@ -20,7 +20,6 @@ from industrial_gateway.infrastructure.grpc.commander_client import (
     CommanderRpcClient,
     CommandQuery,
 )
-from industrial_gateway.infrastructure.grpc.generator_client import GeneratorRpcClient
 
 logger = logging.getLogger(__name__)
 
@@ -103,21 +102,9 @@ class CommandForwarder:
         self._observer = observer
         self._queue: asyncio.Queue[ForwardCommand] = asyncio.Queue(maxsize=config.queue_capacity)
         self._workers: list[asyncio.Task[None]] = []
-        if config.kind == "commander":
-            self._client: CommanderRpcClient | GeneratorRpcClient = CommanderRpcClient(
-                config, project_root
-            )
-        elif config.kind == "data_generator":
-            if config.generation_binding is None or config.endpoint is None or config.tls is None:
-                raise ValueError("Generator target requires endpoint, binding, and mTLS")
-            self._client = GeneratorRpcClient(
-                endpoint=config.endpoint,
-                tls=config.tls,
-                project_root=project_root,
-                scenario_id=config.generation_binding.scenario_id,
-            )
-        else:
-            raise ValueError("none is not a forwarding target")
+        if config.kind != "commander":
+            raise ValueError("control forwarding requires Commander")
+        self._client = CommanderRpcClient(config, project_root)
         self._records: dict[str, ForwardRecord] = {}
         self._finished_order: deque[str] = deque()
         self._pending_by_gateway: dict[str, int] = {}
@@ -297,54 +284,6 @@ class CommandForwarder:
         if remaining <= 0:
             self._finish(original, ForwardState.REJECTED, "queue entry expired")
             return
-        if self._config.kind == "data_generator":
-            client = self._client
-            if not isinstance(client, GeneratorRpcClient):
-                raise RuntimeError("Generator transport not configured")
-            self._record(
-                ForwardRecord(
-                    event_id=event.event_id,
-                    gateway_id=event.gateway_id,
-                    device_id=event.device_id,
-                    point_id=event.point_id,
-                    value=event.value,
-                    revision=event.revision,
-                    captured_at=event.captured_at,
-                    state=ForwardState.SUBMITTING,
-                )
-            )
-            try:
-                receipt = await client.submit(
-                    device_id=event.device_id,
-                    point_id=event.point_id,
-                    value=event.value,
-                    request_id=event.event_id,
-                    timeout=remaining,
-                )
-            except asyncio.CancelledError:
-                self._finish(original, ForwardState.UNKNOWN, "shutdown during submission")
-                raise
-            except grpc.RpcError as exc:
-                if _definitive_rpc_rejection(exc):
-                    self._finish(original, ForwardState.REJECTED, str(exc))
-                else:
-                    self._finish(original, ForwardState.UNKNOWN, str(exc))
-            except (PermissionError, ValueError) as exc:
-                self._finish(original, ForwardState.REJECTED, str(exc))
-            except (OSError, RuntimeError) as exc:
-                self._finish(original, ForwardState.UNKNOWN, str(exc))
-            else:
-                state = ForwardState.ACCEPTED if receipt.accepted else ForwardState.REJECTED
-                if receipt.accepted and receipt.effective_step <= 0:
-                    self._finish(original, ForwardState.UNKNOWN, "accepted with no effective step")
-                else:
-                    self._finish(
-                        original,
-                        state,
-                        receipt.message or receipt.error_code,
-                        effective_step=receipt.effective_step if receipt.accepted else 0,
-                    )
-            return
         try:
             device_revision = await self._device_revision(event.device_id, event.expires_at)
         except asyncio.CancelledError:
@@ -373,8 +312,6 @@ class CommandForwarder:
                 state=ForwardState.SUBMITTING,
             )
         )
-        if not isinstance(self._client, CommanderRpcClient):
-            raise RuntimeError("Commander client unavailable")
         try:
             response = await self._client.submit(
                 device_id=event.device_id,
