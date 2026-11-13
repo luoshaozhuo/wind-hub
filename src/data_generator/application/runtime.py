@@ -25,7 +25,7 @@ from data_generator.application.model.inputs import (
 from data_generator.application.model.random import generate as generate_configured_random
 from data_generator.application.models import generate_values
 from data_generator.application.physical_engine import PhysicalEngine
-from data_generator.application.port.output import OutputPort
+from data_generator.application.ports.output import OutputPort
 from data_generator.application.replay import decode_value, iter_records, replay_deadline
 from data_generator.domain.model import (
     DataBatch,
