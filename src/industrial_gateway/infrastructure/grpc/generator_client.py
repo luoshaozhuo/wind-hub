@@ -146,9 +146,25 @@ class GeneratorRpcClient:
         return SimulationInputReceipt(
             accepted=response.accepted,
             effective_step=response.effective_step,
+            generation_id=generation_id,
             message=response.message,
             error_code=response.error_code,
         )
+
+    async def get_execution(
+        self, *, generation_id: str, request_id: str, timeout: float
+    ) -> str:
+        """Return only Generator-signed per-request completion evidence."""
+        response = await self._ready().GetInputExecution(
+            dg.GetInputExecutionRequest(
+                generation_id=generation_id,
+                request_id=request_id,
+            ),
+            timeout=timeout,
+        )
+        if response.request_id != request_id:
+            return "UNKNOWN"
+        return response.state if response.state in {"PENDING", "APPLIED"} else "UNKNOWN"
 
     async def close(self) -> None:
         if self._channel is not None:
