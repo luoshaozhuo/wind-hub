@@ -39,7 +39,7 @@ from data_generator.infrastructure.snapshots import file_sha256, recover_transac
 from industrial_gateway.application.target_leases import TargetLeaseRegistry
 from industrial_gateway.assembly import assemble_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
-from industrial_gateway.infrastructure.config.v1_resolution import load_gateway_v1
+from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.grpc.data_server import create_gateway_grpc_server
 from tests.support.gateway_v1 import FakeCommanderService, write_mtls_pki
 
@@ -793,7 +793,7 @@ async def start_real_gateway(
             permissions=permissions,
             mtls_enabled=mtls_enabled,
         )
-        config = load_gateway_v1(service_path, project_root=root)
+        config = load_gateway(service_path, project_root=root)
         runtime = assemble_gateway(config)
         snapshots = ConfigSnapshots(runtime, service_path, root)
         gateway_server = create_gateway_grpc_server(runtime, snapshots)
