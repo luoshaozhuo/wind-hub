@@ -1,7 +1,7 @@
 """Industrial Gateway v1 真实链路测试支撑（无测试期垫片）。
 
 - 在临时部署根内写出完整 v1 配置树（Service + devices 实例 + 版本化模板），
-  所有解析走生产 ``load_gateway_v1`` 路径；
+  所有解析走生产 ``load_gateway`` 路径；
 - 真实 ``GatewayRuntime`` + 真实 gRPC aio 服务端（Gateway 10 RPC + CommonService；
   其中两个仿真执行 RPC 业务未实现，由生成 Servicer 基类返回 UNIMPLEMENTED）；
 - 真实 gRPC aio Commander 对端（GetDevice/SubmitCommand/GetCommandResult），
@@ -29,7 +29,7 @@ from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as ipb
 from industrial_gateway.assembly import assemble_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
-from industrial_gateway.infrastructure.config.v1_resolution import load_gateway_v1
+from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.grpc.data_server import (
     create_gateway_grpc_server,
 )
@@ -681,7 +681,7 @@ async def start_gateway_v1(
         mtls_enabled=mtls is not None,
         point_table=point_table,
     )
-    config = load_gateway_v1(service_path, project_root=root)
+    config = load_gateway(service_path, project_root=root)
     runtime = assemble_gateway(config)
     snapshots = ConfigSnapshots(runtime, service_path, root)
     gateway_server = create_gateway_grpc_server(runtime, snapshots)
