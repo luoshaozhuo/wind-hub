@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from configuration.template_graph import validate_point_table_chain
-from configuration.versioned_templates import (
+from core.configuration.template_graph import validate_point_table_chain
+from core.configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )

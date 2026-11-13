@@ -19,8 +19,8 @@ from typing import Any
 import pytest
 import yaml
 
-from configuration.template_graph import resolve_device_templates
-from configuration.versioned_templates import TemplateRef, VersionedTemplateRepository
+from core.configuration.template_graph import resolve_device_templates
+from core.configuration.versioned_templates import TemplateRef, VersionedTemplateRepository
 from core.application.errors import ConfigError
 from industrial_gateway.infrastructure.config.resolution import load_gateway
 

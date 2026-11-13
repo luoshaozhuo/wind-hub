@@ -7,7 +7,7 @@ from shutil import copytree
 
 import pytest
 
-from configuration.shared_documents import (
+from core.configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
 )

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from configuration.template_graph import resolve_device_templates
-from configuration.versioned_templates import (
+from core.configuration.template_graph import resolve_device_templates
+from core.configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )

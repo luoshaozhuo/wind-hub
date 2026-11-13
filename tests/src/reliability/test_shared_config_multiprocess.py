@@ -31,7 +31,7 @@ from commander.infrastructure.config_commit import (
     commit_config_files,
     recover_config_commit,
 )
-from configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
+from core.configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
 from core.application.errors import ConfigError
 
 pytestmark = [
