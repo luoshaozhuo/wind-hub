@@ -140,7 +140,7 @@ def _write_concurrent_root(
         deliveries = {delivery_ids[0]: _delivery(delivery_ids[0], devices)}
     docs = {
         SERVICE_FILE: service,
-        f"{TEMPLATE_ROOT}/sinks/kafka_history_{version}.yaml": kafka_template,
+        f"{TEMPLATE_ROOT}/sinks/kafka_history_v{version}.yaml": kafka_template,
         template_path("reliable_history"): reliable_template,
         SINKS_INSTANCE: {
             "schema_version": 1,

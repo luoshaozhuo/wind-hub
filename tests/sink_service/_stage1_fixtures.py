@@ -220,7 +220,7 @@ def template_path(name: str, version: str = "1.0.0") -> str:
         "realtime_power": "deliveries",
         "reliable_history": "deliveries",
     }[name]
-    return f"{TEMPLATE_ROOT}/{family}/{name}_{version}.yaml"
+    return f"{TEMPLATE_ROOT}/{family}/{name}_v{version}.yaml"
 
 
 def _delivery_instance(
