@@ -25,6 +25,19 @@ security:
       certificate_identity: "spiffe://wind-hub/maintenance"
       permissions: [query, reload]
 
+
+# Optional per-device simulation execution route. A simulated device must exist
+# in config_sources.instances.devices. The Commander still owns request-id
+# persistence, FIFO, authorization, result queries and audit.
+# Gateway receives one stable command_id as its request_id per command item.
+# simulation_targets:
+#   WTG_SIM01:
+#     gateway_id: gw-wtg-sim01
+#     endpoint: "127.0.0.1:50073"
+#     ca_cert: "/etc/wind-hub/certs/ca.pem"
+#     client_cert: "/etc/wind-hub/certs/commander.pem"
+#     client_key: "/etc/wind-hub/certs/commander.key"
+
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
