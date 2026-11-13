@@ -42,6 +42,7 @@ def validate_core_config(
     _validate_device_models(device_models, device_types, point_tables)
     _validate_devices(devices, device_models, device_groups)
 
+
 def _validate_identity(
     values: Mapping[Any, Any],
     index_name: str,
