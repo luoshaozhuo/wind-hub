@@ -183,6 +183,17 @@ class CommanderService:
             settings: ServiceSettings = manager.start()
             journal = await loop.run_in_executor(writer, partial(self._journal_factory, settings))
             recovered = await loop.run_in_executor(writer, journal.recover)
+
+            def recovered_device_ids() -> frozenset[str]:
+                devices: set[str] = set()
+                for command_id in recovered:
+                    result = journal.get(command_id)
+                    if result is None:
+                        raise RuntimeError("recovered command is missing from durable journal")
+                    devices.add(result.command.spec.device_id)
+                return frozenset(devices)
+
+            recovered_devices = await loop.run_in_executor(writer, recovered_device_ids)
             initial_sequence = await loop.run_in_executor(writer, journal.latest_receive_seq)
             buffer = BufferedJournal(
                 initial_sequence=initial_sequence,
@@ -222,6 +233,7 @@ class CommanderService:
                 max_queued_batches_global=settings.max_queued_batches_global,
                 max_batch_points=settings.max_batch_points,
                 max_request_id_bytes=settings.max_request_id_bytes,
+                initially_blocked=recovered_devices,
             )
             audit = AuditDelivery(
                 journal,
@@ -250,9 +262,14 @@ class CommanderService:
             )
             self._cleanup_interval = settings.cleanup_interval_seconds
             self._shutdown_grace = settings.shutdown_grace_seconds
-            self._state = ServiceState.READY
+            # Recovered UNKNOWN commands may have reached the field. Refuse
+            # fresh writes to those devices until isolation is explicitly resolved.
+            self._state = ServiceState.DEGRADED if recovered_devices else ServiceState.READY
             self._started_at = datetime.now(UTC)
-            self._event("INFO", "Commander ready")
+            if recovered_devices:
+                self._event("WARNING", "Commander recovered uncertain devices", "RECOVERY_BLOCKED")
+            else:
+                self._event("INFO", "Commander ready")
             self._watchdog = asyncio.create_task(
                 self._run_watchdog(settings.watchdog_interval),
                 name="commander:watchdog",
