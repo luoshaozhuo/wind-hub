@@ -105,7 +105,12 @@ class SimulationController:
                 execution_id="",
                 state="PENDING",
             )
-        return task.result()
+        if task.cancelled():
+            return SimulationOutcome(request_id, True, "", "UNKNOWN", "EXECUTION_CANCELLED")
+        try:
+            return task.result()
+        except Exception as exc:
+            return SimulationOutcome(request_id, True, "", "UNKNOWN", type(exc).__name__)
 
     async def _apply(
         self, command: SimulationCommand, execution_id: str, lock: asyncio.Lock
@@ -116,8 +121,9 @@ class SimulationController:
                 return SimulationOutcome(
                     command.request_id, False, execution_id, "REJECTED", "EXPIRED"
                 )
-            client = self._input_factory(command.gateway_id)
+            client: SimulationInputPort | None = None
             try:
+                client = self._input_factory(command.gateway_id)
                 client.start()
                 receipt = await client.submit(
                     device_id=command.device_id,
@@ -168,4 +174,5 @@ class SimulationController:
                     type(exc).__name__,
                 )
             finally:
-                await client.close()
+                if client is not None:
+                    await client.close()
