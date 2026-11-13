@@ -217,7 +217,7 @@ class TestPointTablePublishedWhileDisconnected:
         assert catalog_result.success, list(catalog_result.errors)
 
         old_table = yaml.safe_load(
-            (v2_tree / "templates" / "point_tables" / "iec104_1.0.0.yaml").read_text()
+            (v2_tree / "templates" / "point_tables" / "iec104_v1.0.0.yaml").read_text()
         )
         new_table = copy.deepcopy(old_table)
         new_table["template_version"] = "1.0.1"
@@ -238,7 +238,7 @@ class TestPointTablePublishedWhileDisconnected:
         )
         model_id = devices_doc["devices"][IEC104_DEVICE_ID]["model"]["id"]
         old_model = yaml.safe_load(
-            (v2_tree / "templates" / "device_models" / f"{model_id}_1.0.0.yaml").read_text()
+            (v2_tree / "templates" / "device_models" / f"{model_id}_v1.0.0.yaml").read_text()
         )
         new_model = copy.deepcopy(old_model)
         new_model["template_version"] = "1.0.1"

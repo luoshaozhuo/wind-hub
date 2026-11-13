@@ -193,9 +193,9 @@ def write_service_config(
         word_order: big_endian
 """
     devices.write_text(devices_text, encoding="utf-8")
-    table = root / "templates" / "point_tables" / "modbus_wtg_1.0.0.yaml"
+    table = root / "templates" / "point_tables" / "modbus_wtg_v1.0.0.yaml"
     table.write_text(_SETPOINT_TABLE, encoding="utf-8")
-    model = root / "templates" / "device_models" / "modbus_wtg_1.0.0.yaml"
+    model = root / "templates" / "device_models" / "modbus_wtg_v1.0.0.yaml"
     model.write_text(_MODELS_TABLE, encoding="utf-8")
     # 保留真实业务点目录（其余 GW/TZ 设备的有效配置解析依赖它），
     # 仅补入验收点表引用的 setpoint_power。

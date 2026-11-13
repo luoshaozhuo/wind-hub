@@ -148,7 +148,7 @@ def write_config_tree(
         folder = templates / category
         folder.mkdir(parents=True, exist_ok=True)
         payload = {"template_id": template_id, **document}
-        (folder / f"{template_id}_1.0.0.yaml").write_bytes(_dump(payload))
+        (folder / f"{template_id}_v1.0.0.yaml").write_bytes(_dump(payload))
 
     template("protocols", "modbus_tcp", {**_HEADER, "protocol": "modbus"})
     template("protocols", "iec104_tcp", {**_HEADER, "protocol": "iec104"})
