@@ -2,7 +2,8 @@
 
 - 在临时部署根内写出完整 v1 配置树（Service + devices 实例 + 版本化模板），
   所有解析走生产 ``load_gateway_v1`` 路径；
-- 真实 ``GatewayRuntime`` + 真实 gRPC aio 服务端（Gateway 8 RPC + CommonService）；
+- 真实 ``GatewayRuntime`` + 真实 gRPC aio 服务端（Gateway 10 RPC + CommonService；
+  其中两个仿真执行 RPC 业务未实现，由生成 Servicer 基类返回 UNIMPLEMENTED）；
 - 真实 gRPC aio Commander 对端（GetDevice/SubmitCommand/GetCommandResult），
   逐 (device, point) 配置 accepted/rejected、延迟与在途并发观测；
 - 真实 pymodbus 3.15 ``AsyncModbusTcpClient`` 访问每设备独立 Modbus Server。

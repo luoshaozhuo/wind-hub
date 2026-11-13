@@ -1,4 +1,4 @@
-"""UpdateVariables / ClaimTargets 真实 grpc.aio 契约（8 RPC 中的注入面）。
+"""UpdateVariables / ClaimTargets 真实 grpc.aio 契约（Gateway RPC 契约中的注入面）。
 
 租约机制已纳入冻结 Contracts v1_18 与 industrial_gateway 设计 v1_23：
 UpdateVariables 必须携带覆盖全部目标变量的有效 lease_token，否则整请求拒绝。

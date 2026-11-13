@@ -1,8 +1,9 @@
 """Data Generator 验收测试共享 fixture。
 
 铁律：成功路径一律走真实组件——真实 Core configs 树（site/devices/模板）、
-真实 ``assemble_gateway`` 协议栈与正式 ``IndustrialGatewayService``（8 个 RPC，
-含 ``UpdateVariables`` 与 ``ClaimTargets`` 租约围栏）、真实 gRPC Server/Client、
+真实 ``assemble_gateway`` 协议栈与正式 ``IndustrialGatewayService``（10 个 RPC，
+含 ``UpdateVariables`` 与 ``ClaimTargets`` 租约围栏；2 个仿真执行 RPC 业务未实现，
+由生成 Servicer 基类返回 UNIMPLEMENTED）、真实 gRPC Server/Client、
 真实 CSV+SQLite。
 故障注入仅用于无法用真实环境稳定构造的超时/挂起，且实现冻结的正式 Proto，
 不得替代正式接口。
@@ -337,7 +338,8 @@ def replay_document(
 
 
 # --------------------------------------------------------------------------- #
-# 正式 Proto 故障注入网关（实现冻结的 IndustrialGatewayService 八 RPC 契约；
+# 正式 Proto 故障注入网关（实现 IndustrialGatewayService 既有八 RPC 契约，
+# 新增两个仿真执行 RPC 不在此替身实现、沿用生成基类 UNIMPLEMENTED；
 # 仅用于超时/挂起/拒绝等真实 Gateway 无法稳定构造的故障，成功路径禁止使用）
 # --------------------------------------------------------------------------- #
 

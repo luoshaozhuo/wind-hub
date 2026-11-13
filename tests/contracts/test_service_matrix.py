@@ -1,4 +1,4 @@
-"""47 个 RPC 的 Service Descriptor 矩阵：6 个 Service 各含 9/11/7/4/8/8 个 Unary。"""
+"""49 个 RPC 的 Service Descriptor 矩阵：6 个 Service 各含 9/11/7/4/10/8 个 Unary。"""
 
 from __future__ import annotations
 
@@ -181,6 +181,16 @@ EXPECTED: dict[ModuleType, tuple[str, str, list[tuple[str, str, str]]]] = {
                 "windhub.gateway.v1.ClaimTargetsRequest",
                 "windhub.gateway.v1.ClaimTargetsResponse",
             ),
+            (
+                "ExecuteSimulationCommand",
+                "windhub.gateway.v1.SimulationCommandRequest",
+                "windhub.gateway.v1.SimulationCommandResponse",
+            ),
+            (
+                "GetSimulationExecutionResult",
+                "windhub.gateway.v1.SimulationExecutionQuery",
+                "windhub.gateway.v1.SimulationCommandResponse",
+            ),
         ],
     ),
     data_generator_pb2: (
@@ -255,9 +265,9 @@ def test_each_proto_declares_exactly_one_service_with_expected_package() -> None
         assert set(descriptor.services_by_name) == {service_name}
 
 
-def test_rpc_total_is_47() -> None:
-    assert sum(len(rpcs) for _, _, rpcs in EXPECTED.values()) == 47
-    assert len(_all_methods()) == 47
+def test_rpc_total_is_49() -> None:
+    assert sum(len(rpcs) for _, _, rpcs in EXPECTED.values()) == 49
+    assert len(_all_methods()) == 49
 
 
 def test_commander_rpc_count_is_seven() -> None:
@@ -289,7 +299,7 @@ def test_rpc_name_io_types_and_unary(method: MethodDescriptor) -> None:
     input_name, output_name = EXPECTED_RPCS[method.full_name]
     assert method.input_type.full_name == input_name
     assert method.output_type.full_name == output_name
-    # 47 个接口全部为 Unary，无 streaming。
+    # 49 个接口全部为 Unary，无 streaming。
     assert method.client_streaming is False
     assert method.server_streaming is False
 
