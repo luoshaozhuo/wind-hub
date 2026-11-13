@@ -6,7 +6,7 @@
 1. configuration 层：``validate_point_table_chain`` / ``resolve_device_templates``
    解析出的父链顺序正确，且父/子模板文档全部经深层冻结并脱离磁盘文件；
    继承环、协议不一致、父版本精确引用失败走 ConfigError 错误路径。
-2. Industrial Gateway 层：``load_gateway_v1`` 在冻结文档上完成
+2. Industrial Gateway 层：``load_gateway`` 在冻结文档上完成
    “继承 → remove_points → 子表覆盖”合并，覆盖优先级与移除语义不回归。
 """
 
@@ -22,7 +22,7 @@ import yaml
 from configuration.template_graph import resolve_device_templates
 from configuration.versioned_templates import TemplateRef, VersionedTemplateRepository
 from core.application.errors import ConfigError
-from industrial_gateway.infrastructure.config.v1_resolution import load_gateway_v1
+from industrial_gateway.infrastructure.config.resolution import load_gateway
 
 pytestmark = [pytest.mark.component, pytest.mark.contract]
 
@@ -290,7 +290,7 @@ def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path
         },
     )
 
-    gateway = load_gateway_v1(service_path, project_root=tmp_path)
+    gateway = load_gateway(service_path, project_root=tmp_path)
     server = gateway.servers["gw1"]
 
     # p3 被 remove_points 移除；p1 继承自父表；p4 为子表新增。
