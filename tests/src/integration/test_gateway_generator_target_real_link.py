@@ -35,7 +35,7 @@ from contracts.scalar_codec import decode_scalar, encode_scalar
 from industrial_gateway.assembly import assemble_gateway
 from industrial_gateway.infrastructure.commander.forwarder import ForwardState
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
-from industrial_gateway.infrastructure.config.v1_resolution import load_gateway_v1
+from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.grpc.data_server import create_gateway_grpc_server
 from tests.support.gateway_v1 import (
     COMMAND_FLOAT,
@@ -324,7 +324,7 @@ async def _wait_terminal(runtime, point_id: str, value: float) -> Any:
 
 
 async def _start_runtime(root: Path, service_path: Path):
-    config = load_gateway_v1(service_path, project_root=root)
+    config = load_gateway(service_path, project_root=root)
     runtime = assemble_gateway(config)
     await runtime.start()
     return runtime
