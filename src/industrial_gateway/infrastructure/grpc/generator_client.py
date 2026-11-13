@@ -1,13 +1,12 @@
-"""Verified Data Generator outbound control transport for Gateway protocol-write events.
+"""Authenticated Data Generator input adapter for Commander-authorized simulation.
 
-The adapter does not retry ambiguous submissions. A caller owns queue bounds,
-per-target ordering, and the immutable write-event request ID.
+The adapter does not retry ambiguous submissions. The application layer owns
+request identity, ordering, and transport uncertainty.
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from pathlib import Path
 
 import grpc
@@ -16,16 +15,9 @@ from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import encode_scalar
+from industrial_gateway.application.ports.simulation import SimulationInputReceipt
 from industrial_gateway.application.variable_store import Scalar
 from industrial_gateway.infrastructure.config.schema import TlsConfig, service_path
-
-
-@dataclass(frozen=True, slots=True)
-class GeneratorReceipt:
-    accepted: bool
-    effective_step: int
-    message: str
-    error_code: str
 
 
 class GeneratorRpcClient:
@@ -78,7 +70,7 @@ class GeneratorRpcClient:
         value: Scalar,
         request_id: str,
         timeout: float,
-    ) -> GeneratorReceipt:
+    ) -> SimulationInputReceipt:
         """Resolve and verify the Generation before each single outbound submit."""
         if not device_id.strip() or not point_id.strip() or not request_id.strip() or timeout <= 0:
             raise ValueError("invalid Generator submission identity or deadline")
@@ -149,7 +141,7 @@ class GeneratorRpcClient:
             ),
             timeout=remaining(),
         )
-        return GeneratorReceipt(
+        return SimulationInputReceipt(
             accepted=response.accepted,
             effective_step=response.effective_step,
             message=response.message,
