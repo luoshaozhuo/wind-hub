@@ -137,7 +137,7 @@ def _validate_sink(
         frozenset({"template_id", "template_version", "connection", "overrides"}),
     )
     kind = template.get("kind")
-    if kind not in ("redis", "kafka", "modbus_tcp"):
+    if kind not in ("redis", "kafka", "modbus_tcp", "gateway"):
         raise ConfigurationError(f"sinks.{sink_id}: unsupported Adapter {kind!r}")
     caps = expect_mapping(template.get("capabilities"), f"sinks.{sink_id}.capabilities")
     require_keys(
@@ -163,8 +163,11 @@ def _validate_sink(
     )
     if not caps["supports_concurrent_write"] and maximum != 1:
         raise ConfigurationError(f"sinks.{sink_id}: unsafe parallel write declaration")
-    if kind == "modbus_tcp" and caps["reliable"]:
-        raise ConfigurationError(f"sinks.{sink_id}: Modbus Server cannot be reliable")
+    if kind == "kafka":
+        if caps["realtime"] or not caps["reliable"]:
+            raise ConfigurationError(f"sinks.{sink_id}: Kafka must be Reliable-only")
+    elif not caps["realtime"] or caps["reliable"]:
+        raise ConfigurationError(f"sinks.{sink_id}: {kind} must be Realtime-only")
     if kind == "kafka" and caps["reliable"]:
         output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
         policy = output.get("business_duplicate_policy")
@@ -187,6 +190,7 @@ def _validate_sink(
         "redis": {"host", "port"},
         "kafka": {"bootstrap_servers"},
         "modbus_tcp": {"listen_host", "port"},
+        "gateway": {"endpoint", "gateway_id", "credential_ref"},
     }
     require_keys(
         connection,
@@ -206,6 +210,7 @@ def _validate_sink(
             "acks",
             "write_timeout_ms",
         },
+        "gateway": {"write_timeout_ms", "lease_ms", "max_batch_size"},
         "modbus_tcp": {
             "unit_id",
             "register_start",
@@ -249,6 +254,18 @@ def _validate_sink(
         if type(linger_ms) is not int or linger_ms != 0:
             raise ConfigurationError(f"sinks.{sink_id}: Kafka linger_ms must be 0")
         expect_positive_int(output.get("max_batch_size", 131072), f"sinks.{sink_id}.max_batch_size")
+    elif kind == "gateway":
+        endpoint = expect_nonempty_str(connection.get("endpoint"), f"sinks.{sink_id}.endpoint")
+        host, delimiter, port = endpoint.rpartition(":")
+        if not delimiter or not host.strip() or not port.isdecimal() or not 1 <= int(port) <= 65535:
+            raise ConfigurationError(f"sinks.{sink_id}: Gateway endpoint must be host:port")
+        expect_nonempty_str(connection.get("gateway_id"), f"sinks.{sink_id}.gateway_id")
+        if not reference:
+            raise ConfigurationError(f"sinks.{sink_id}: Gateway requires mTLS credential_ref")
+        expect_positive_int(output.get("lease_ms"), f"sinks.{sink_id}.lease_ms", 60000)
+        if output["lease_ms"] < 1000:
+            raise ConfigurationError(f"sinks.{sink_id}: lease_ms below 1000")
+        expect_positive_int(output.get("max_batch_size"), f"sinks.{sink_id}.max_batch_size", 500)
     elif kind == "modbus_tcp":
         expect_nonempty_str(connection.get("listen_host"), f"sinks.{sink_id}.listen_host")
         expect_positive_int(connection.get("port"), f"sinks.{sink_id}.port", 65535)
@@ -284,6 +301,7 @@ def _validate_delivery(
                 "overrides",
             }
         ),
+        frozenset({"target_mappings"}),
     )
     source_filter = expect_mapping(
         template.get("source_filter"), f"deliveries.{delivery_id}.source_filter"
@@ -320,6 +338,35 @@ def _validate_delivery(
             or len(values) != len(set(values))
         ):
             raise ConfigurationError(f"deliveries.{delivery_id}: invalid {field}")
+    if kind == "gateway":
+        if mode != "realtime":
+            raise ConfigurationError(f"deliveries.{delivery_id}: Gateway requires Realtime")
+        if not source["devices"] or not source["points"]:
+            raise ConfigurationError(f"deliveries.{delivery_id}: Gateway needs bounded sources")
+        mappings = delivery.get("target_mappings")
+        if not isinstance(mappings, list) or not mappings:
+            raise ConfigurationError(f"deliveries.{delivery_id}: missing Gateway mappings")
+        target_ids: set[str] = set()
+        for index, raw_mapping in enumerate(mappings):
+            mapping = expect_mapping(raw_mapping, f"deliveries.{delivery_id}.mapping[{index}]")
+            require_keys(
+                mapping,
+                f"deliveries.{delivery_id}.mapping[{index}]",
+                frozenset({"source_device_id", "source_point_id", "variable_id"}),
+            )
+            for field in ("source_device_id", "source_point_id", "variable_id"):
+                expect_nonempty_str(mapping.get(field), f"deliveries.{delivery_id}.{field}")
+            if (
+                mapping["source_device_id"] not in source["devices"]
+                or mapping["source_point_id"] not in source["points"]
+            ):
+                raise ConfigurationError(f"deliveries.{delivery_id}: mapping outside source")
+            variable_id = mapping["variable_id"]
+            if variable_id in target_ids:
+                raise ConfigurationError(f"deliveries.{delivery_id}: duplicate Gateway variable")
+            target_ids.add(variable_id)
+    elif "target_mappings" in delivery:
+        raise ConfigurationError(f"deliveries.{delivery_id}: unexpected target_mappings")
     for device in source["devices"]:
         try:
             validate_subject_token(device)
@@ -491,6 +538,8 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         output = template["output"]
         if kind == "redis":
             address: tuple[object, ...] = (kind, conn["host"], conn["port"], output["namespace"])
+        elif kind == "gateway":
+            address = (kind, conn["endpoint"], conn["gateway_id"])
         else:
             address = (kind, tuple(sorted(conn["bootstrap_servers"])), output["topic"])
         existing = outputs.setdefault(address, [])
