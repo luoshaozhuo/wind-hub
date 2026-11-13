@@ -856,7 +856,7 @@ $$
 
 两个条件中任意一个已启用且满足即判定变化。基准为零时不计算相对变化；首次无基准直接判定变化；非数值按值不等判定；质量标志改变必定视为变化。保底周期自最近一次**成功确认**起算；禁用的阈值不得以零阈值参与判断。
 
-**R01-04 输出契约。** 质量 `good/bad/uncertain` 原样保留，质量不参与过期过滤；Redis/Kafka 输出包含测点身份、时间、值、质量、`sample_id`；Modbus Server 必须定义明确的质量关联寄存器或映射，否则相关 Delivery 配置校验失败。
+**R01-04 输出契约。** 质量 `good/bad/uncertain` 原样保留，质量不参与过期过滤；Redis/Kafka 输出包含测点身份、时间、值、质量、`sample_id`；Gateway 仅按正式 RPC 支持的变量 ID 和 ScalarValue 更新，不声称保存时间、质量或 sample_id；Modbus Server 必须定义明确的质量关联寄存器或映射，否则相关 Delivery 配置校验失败。
 
 
 ### 3.2.4 关键约束
@@ -3374,7 +3374,7 @@ Main 对外 gRPC 使用 mTLS 与 `query/control/config` 权限；密钥只引用
 
 **输出批次契约**：上游 NATS 使用批量 `SampleBatch`；Sink 按 Delivery 独立维护点映射、最新值和输出策略，采集触发不等于目标输出触发。10 Hz 周期调度时从有效最新值缓存提取本周期待输出点，按稳定 `(device_id, point_id)` 排序打包，**一次批次最多 500 个值**；更多测点须依固定顺序切分为多个批次并分别计入交付负载。每个值与原始 `quality`、`sample_time`、`sample_id` 对应；Modbus 映射为寄存器镜像的原子更新，Redis/Kafka 按第 12.1.1 节的固定编码/序列化定义确认；Gateway 按逐变量 RPC 结果确认。若目标不具备实际批写能力，其写入时延与 I/O 次数须按单点或分块操作真实计量，不得用调用 1 次的抽象层统计掩盖多个网络请求。
 
-**重复策略**：Kafka Reliable 按 `output.business_duplicate_policy` 验证；`require_dedup` 必须提供可核验的去重方，`allow_at_least_once` 明确不承诺去重。Redis 首版模板 `reliable: false`，不得仅因理论上可使用原子脚本就将该实例当作支持 Reliable。Modbus TCP Server `reliable: false`，业务成功边界只到内存镜像。
+**重复策略**：Kafka Reliable 按 `output.business_duplicate_policy` 验证；`require_dedup` 必须提供可核验的去重方，`allow_at_least_once` 明确不承诺去重。Redis、Modbus TCP Server 与 Gateway 首版模板均须 `reliable: false`，Kafka 首版模板须 `realtime: false`；违反通道矩阵的候选配置直接拒绝。Modbus 业务成功边界只到内存镜像。
 
 ### 12.1.1 四类输出的可编码映射契约
 
