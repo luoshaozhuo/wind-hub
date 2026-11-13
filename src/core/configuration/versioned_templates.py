@@ -8,6 +8,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from core.application.errors import ConfigError
@@ -17,7 +18,15 @@ from .immutable import freeze_document, plain_document
 
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-_CATEGORIES = frozenset({"protocols", "device_models", "point_tables", "tasks"})
+TEMPLATE_FILE_PREFIXES: Mapping[str, str] = MappingProxyType(
+    {
+        "protocols": "protocol_",
+        "device_models": "device_model_",
+        "point_tables": "point_table_",
+        "tasks": "task_",
+    }
+)
+_CATEGORIES = frozenset(TEMPLATE_FILE_PREFIXES)
 
 
 def _identifier(value: str, *, label: str) -> str:
@@ -82,7 +91,7 @@ class VersionedTemplateRepository:
         candidate = (
             self._root
             / reference.category
-            / f"{reference.template_id}_v{reference.file_version}.yaml"
+            / f"{TEMPLATE_FILE_PREFIXES[reference.category]}{reference.template_id}_v{reference.file_version}.yaml"
         ).resolve()
         if not candidate.is_relative_to(self._root):
             raise ConfigError("template reference escapes configured root")

@@ -20,6 +20,7 @@ from core.configuration.template_graph import (
     validate_point_table_chain,
 )
 from core.configuration.versioned_templates import (
+    TEMPLATE_FILE_PREFIXES,
     TemplateRef,
     VersionedTemplateRepository,
 )
@@ -224,14 +225,16 @@ _FLAT_TEMPLATE_NAME = re.compile(
 def _template_references(category: str, folder: Path) -> Iterator[tuple[Path, TemplateRef]]:
     """Yield every versioned template under a category.
 
-    Only the flat ``<id>_vMAJOR.MINOR.PATCH.yaml`` layout is supported.
+    Only the flat ``<category-prefix><id>_vMAJOR.MINOR.PATCH.yaml`` layout is supported.
     Unexpected names are rejected rather than silently skipped.
     """
     for path in sorted(folder.glob("*.yaml")):
         match = _FLAT_TEMPLATE_NAME.match(path.name)
-        if match is None:
-            raise ConfigError(f"{path}: template file must be named <id>_vMAJOR.MINOR.PATCH.yaml")
-        yield path, TemplateRef(category, match["template_id"], match["file_version"])
+        prefix = TEMPLATE_FILE_PREFIXES[category]
+        if match is None or not match["template_id"].startswith(prefix):
+            raise ConfigError(f"{path}: invalid {category} filename or version")
+        template_id = match["template_id"][len(prefix) :]
+        yield path, TemplateRef(category, template_id, match["file_version"])
 
 
 def _validate_all_templates(root: Path) -> None:
