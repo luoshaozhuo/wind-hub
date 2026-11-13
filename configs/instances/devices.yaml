@@ -22,14 +22,14 @@
 # 本地模拟设备只有在相应服务及路由确实存在时才可连接。
 # =============================================================================
 schema_version: 1
-file_version: 1.1.0
+file_version: 1.2.0
 devices:
   GW01:
     name: "GW2MW 风机 01"
     enabled: true
     model:
       id: wtg_gw2mw
-      version: 1.1.0
+      version: 1.2.0
     endpoint:
       host: 127.0.0.1
       port: 801
@@ -41,7 +41,7 @@ devices:
     enabled: true
     model:
       id: wtg_gw2mw
-      version: 1.1.0
+      version: 1.2.0
     endpoint:
       host: 127.0.0.1
       port: 801
@@ -53,7 +53,7 @@ devices:
     enabled: true
     model:
       id: wtg_gw2mw
-      version: 1.1.0
+      version: 1.2.0
     endpoint:
       host: 127.0.0.1
       port: 801
@@ -65,7 +65,7 @@ devices:
     enabled: true
     model:
       id: wtg_gw2mw
-      version: 1.1.0
+      version: 1.2.0
     endpoint:
       host: 127.0.0.1
       port: 801
@@ -77,7 +77,7 @@ devices:
     enabled: true
     model:
       id: wtg_gw2mw
-      version: 1.1.0
+      version: 1.2.0
     endpoint:
       host: 127.0.0.1
       port: 801
